@@ -19,6 +19,7 @@ Chaque couche a son document :
 - **Journal de décisions de design** → [`DECISIONS.md`](./DECISIONS.md)
 - **Évaluations de compatibilité** → [`EVALUATIONS.md`](./EVALUATIONS.md)
 - **Proposition runtime minimale** → [`RUNTIME_PROPOSAL.md`](./RUNTIME_PROPOSAL.md)
+- **Plan de pilotage projet** → [`PLAN.md`](./PLAN.md)
 
 ## Convention
 
