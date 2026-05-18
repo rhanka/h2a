@@ -1,13 +1,16 @@
 {
   "name": "@sentropic/h2a-cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Unified CLI surface for h2a hosts and MCP-oriented coordination flows.",
   "license": "UNLICENSED",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "scripts": {
+    "prepack": "chmod +x dist/bin.js"
+  },
   "bin": {
-    "h2a": "./dist/bin.js"
+    "h2a": "dist/bin.js"
   },
   "keywords": [
     "h2a",
