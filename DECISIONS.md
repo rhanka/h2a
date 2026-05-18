@@ -276,3 +276,17 @@ Packages complémentaires envisagés :
 **Pourquoi** : le projet ne traite pas seulement l'échange agent-to-agent. Il couvre aussi la coordination multi-humain, l'organisation, l'autorité, les mandats, les escalades et le human-in-the-loop. `a2a` est donc trop étroit pour le nom parapluie ; il reste pertinent comme sous-surface ou sous-package spécialisé.
 
 **Conséquence** : les noms runtime, packages, chemins locaux et identifiants de protocole proposés doivent désormais se caler sur `h2a`. L'ancien candidat `a2a-accord` reste dans l'historique de DEC-020 mais n'est plus le nom recommandé.
+
+## DEC-026 — Réduire le bootstrap à 2 packages : `h2a` + `h2a-cli`
+**Date** : 2026-05-18. **Réfère** : REQ-017, REQ-018, REQ-056, REQ-057, REQ-058, REQ-059.
+
+**Décision** : À ce stade, le bootstrap runtime est réduit à **deux packages** :
+
+- `@sentropic/h2a` — core runtime et contrats partagés.
+- `@sentropic/h2a-cli` — surface d'intégration unique pour `mcp`, `codex`, `claude` et `gemini`.
+
+Le package `@sentropic/h2a-cli` reste **modularisé en interne** pour préserver l'orthogonalité des développements et la clarté des contrats, sans multiplier les packages publiés trop tôt.
+
+**Pourquoi** : quatre packages publiés pour un bootstrap créent plus de friction de release et de versioning que de valeur. Le besoin immédiat est la clarté des frontières, pas la fragmentation du registre npm.
+
+**Conséquence** : les anciens candidats `@sentropic/h2a-mcp`, `@sentropic/h2a-codex` et `@sentropic/h2a-claude` sortent de la cible V1. Ils pourront réapparaître plus tard seulement si une divergence de dépendances, de cadence ou de contrat le justifie.

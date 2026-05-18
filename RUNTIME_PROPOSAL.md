@@ -19,17 +19,12 @@ Architecture recommandée :
    - Signatures, amendements, journal append-only.
    - Store local abstrait.
 
-2. **MCP server** — `@sentropic/h2a-mcp`
-   - Broker minimal pour discovery, inbox/outbox, negotiation et journal.
-   - Aucun pouvoir de décision par défaut.
-   - Peut être remplacé par le mode local-files.
+2. **CLI runtime** — `@sentropic/h2a-cli`
+   - Regroupe la surface MCP et les adapters hôtes.
+   - Modules internes séparés pour `mcp`, `codex`, `claude`, `gemini`.
+   - Ne contient pas la sémantique contractuelle ; dépend du core.
 
-3. **Adapters CLI** — `@sentropic/h2a-codex` et `@sentropic/h2a-claude`
-   - Couche mince qui expose les mêmes opérations dans chaque environnement.
-   - Ne contient pas la sémantique contractuelle.
-   - Traduit les contraintes de chaque CLI vers les primitives core.
-
-4. **Mode local-files bilatéral**
+3. **Mode local-files bilatéral**
    - Dossier conventionnel `src/{project}/a2a/...`.
    - Fonctionne offline et sans serveur MCP.
    - Un agent lit son inbox, écrit ses propositions et signe les artefacts locaux.
@@ -216,12 +211,11 @@ Règles :
 
 Objectif V1 : adapters minces.
 
-- **Codex** : exposer les opérations H2A comme commandes/outils locaux appelant `@sentropic/h2a` ou le MCP server.
-- **Claude** : exposer les mêmes opérations via plugin/commandes/MCP selon le support disponible.
-- **Point commun** : les deux adapters doivent lire/écrire les mêmes artefacts et accepter le même registry.
-- **Interdit V1** : mettre la logique de négociation dans l'adapter d'un CLI. Sinon Codex et Claude divergeront.
+- **Codex / Claude / Gemini** : exposer les opérations H2A via des modules internes de `@sentropic/h2a-cli`.
+- **Point commun** : tous les hosts lisent/écrivent les mêmes artefacts et acceptent le même registry.
+- **Interdit V1** : mettre la logique de négociation dans un host spécifique. Sinon les intégrations divergent.
 
-Risque principal : les surfaces plugin de Codex et Claude peuvent évoluer. Le protocole doit donc considérer MCP et local-files comme les deux contrats de compatibilité stables ; les adapters CLI restent jetables.
+Risque principal : les surfaces plugin de Codex, Claude et Gemini peuvent évoluer. Le protocole doit donc considérer MCP et local-files comme les deux contrats de compatibilité stables ; les adapters hôtes restent remplaçables à l'intérieur de `h2a-cli`.
 
 ## Commandes CLI probables
 

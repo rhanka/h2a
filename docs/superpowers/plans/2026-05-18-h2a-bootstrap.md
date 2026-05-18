@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bootstrap the `h2a` repository as a working npm/TypeScript workspace with a tested core package and thin MCP/Codex/Claude wrappers.
+**Goal:** Bootstrap the `h2a` repository as a working npm/TypeScript workspace with a tested core package and a thin unified CLI package.
 
-**Architecture:** Use a root npm workspace with four packages under `packages/`. Keep the core package dependency-light and implement runtime guards/types for the first envelope and negotiation primitives. Keep the integration packages intentionally thin so the repo can evolve without locking in unstable external APIs.
+**Architecture:** Use a root npm workspace with two packages under `packages/`. Keep the core package dependency-light and implement runtime guards/types for the first envelope and negotiation primitives. Keep the CLI package intentionally thin, with internal modules for `mcp`, `codex`, `claude`, and `gemini`, so the repo can evolve without locking in unstable external APIs.
 
 **Tech Stack:** npm workspaces, TypeScript, Node built-in test runner, assert
 
@@ -18,17 +18,13 @@
 - Create: `tsconfig.json`
 - Create: `packages/h2a/package.json`
 - Create: `packages/h2a/tsconfig.json`
-- Create: `packages/h2a-mcp/package.json`
-- Create: `packages/h2a-mcp/tsconfig.json`
-- Create: `packages/h2a-codex/package.json`
-- Create: `packages/h2a-codex/tsconfig.json`
-- Create: `packages/h2a-claude/package.json`
-- Create: `packages/h2a-claude/tsconfig.json`
+- Create: `packages/h2a-cli/package.json`
+- Create: `packages/h2a-cli/tsconfig.json`
 
 - [ ] Add a root workspace `package.json` with `workspaces`, `build`, `test`, `clean`, and `typecheck` scripts.
 - [ ] Add shared TypeScript config in `tsconfig.base.json` targeting modern Node ESM output under `dist/`.
 - [ ] Add a root references `tsconfig.json` pointing to all four packages.
-- [ ] Add package manifests and per-package `tsconfig.json` files for `h2a`, `h2a-mcp`, `h2a-codex`, and `h2a-claude`.
+- [ ] Add package manifests and per-package `tsconfig.json` files for `h2a` and `h2a-cli`.
 - [ ] Install root dev dependencies needed for compilation only.
 
 ### Task 2: Red Tests For Core Envelope Surface
@@ -55,16 +51,18 @@
 - [ ] Export the core API from `packages/h2a/src/index.ts`.
 - [ ] Re-run the tests until the core package is green.
 
-### Task 4: Thin Integration Packages
+### Task 4: Thin Unified CLI Package
 
 **Files:**
-- Create: `packages/h2a-mcp/src/index.ts`
-- Create: `packages/h2a-codex/src/index.ts`
-- Create: `packages/h2a-claude/src/index.ts`
+- Create: `packages/h2a-cli/src/index.ts`
+- Create: `packages/h2a-cli/src/mcp.ts`
+- Create: `packages/h2a-cli/src/hosts/codex.ts`
+- Create: `packages/h2a-cli/src/hosts/claude.ts`
+- Create: `packages/h2a-cli/src/hosts/gemini.ts`
 
-- [ ] Export canonical tool names and adapter metadata from `h2a-mcp`.
-- [ ] Export `h2a-codex` metadata referencing the shared core package.
-- [ ] Export `h2a-claude` metadata referencing the shared core package.
+- [ ] Export canonical MCP tool names from `h2a-cli`.
+- [ ] Export host metadata for `codex`, `claude`, and `gemini` from `h2a-cli`.
+- [ ] Aggregate these modules behind a single `@sentropic/h2a-cli` contract.
 - [ ] Ensure all packages compile in one workspace build.
 
 ### Task 5: Verification And Publish Prep

@@ -10,7 +10,7 @@
     "build": "tsc -b",
     "clean": "tsc -b --clean",
     "typecheck": "tsc -b --pretty false",
-    "test": "npm run build && node --test packages/h2a/test/*.test.js"
+    "test": "npm run build && node --test packages/h2a/test/*.test.js packages/h2a-cli/test/*.test.js"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

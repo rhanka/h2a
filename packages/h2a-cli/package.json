@@ -1,5 +1,5 @@
 {
-  "name": "@sentropic/h2a-mcp",
+  "name": "@sentropic/h2a-cli",
   "version": "0.1.0",
   "type": "module",
   "main": "./dist/index.js",

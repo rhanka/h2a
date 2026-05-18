@@ -5,13 +5,7 @@
       "path": "./packages/h2a"
     },
     {
-      "path": "./packages/h2a-mcp"
-    },
-    {
-      "path": "./packages/h2a-codex"
-    },
-    {
-      "path": "./packages/h2a-claude"
+      "path": "./packages/h2a-cli"
     }
   ]
 }
