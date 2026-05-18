@@ -2,6 +2,7 @@
 .codex/
 .superpowers/
 .git.empty-broken/
+.playwright-mcp/
 node_modules/
 packages/*/dist/
 packages/*/*.tsbuildinfo

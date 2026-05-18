@@ -1,9 +1,27 @@
 {
   "name": "@sentropic/h2a",
   "version": "0.1.0",
+  "description": "Core contracts and runtime primitives for human-to-agent coordination.",
+  "license": "UNLICENSED",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "keywords": [
+    "h2a",
+    "human-in-the-loop",
+    "multi-agent",
+    "coordination",
+    "negotiation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rhanka/h2a.git",
+    "directory": "packages/h2a"
+  },
+  "homepage": "https://github.com/rhanka/h2a#readme",
+  "bugs": {
+    "url": "https://github.com/rhanka/h2a/issues"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -12,5 +30,8 @@
   },
   "files": [
     "dist"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

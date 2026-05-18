@@ -1,4 +1,5 @@
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
+import { renderCliHelp, runCli } from "./cli.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
 import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
@@ -7,7 +8,9 @@ export {
   H2A_CLAUDE_HOST,
   H2A_CODEX_HOST,
   H2A_GEMINI_HOST,
-  H2A_CLI_MCP_TOOL_NAMES
+  H2A_CLI_MCP_TOOL_NAMES,
+  renderCliHelp,
+  runCli
 };
 
 export const H2A_CLI_HOSTS = [

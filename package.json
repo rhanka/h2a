@@ -9,6 +9,10 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "tsc -b --clean",
+    "pack:h2a": "npm pack --dry-run --workspace @sentropic/h2a",
+    "pack:h2a-cli": "npm pack --dry-run --workspace @sentropic/h2a-cli",
+    "publish:h2a": "npm publish --workspace @sentropic/h2a",
+    "publish:h2a-cli": "npm publish --workspace @sentropic/h2a-cli",
     "typecheck": "tsc -b --pretty false",
     "test": "npm run build && node --test packages/h2a/test/*.test.js packages/h2a-cli/test/*.test.js"
   },

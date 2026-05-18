@@ -1,9 +1,31 @@
 {
   "name": "@sentropic/h2a-cli",
   "version": "0.1.0",
+  "description": "Unified CLI surface for h2a hosts and MCP-oriented coordination flows.",
+  "license": "UNLICENSED",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "h2a": "./dist/bin.js"
+  },
+  "keywords": [
+    "h2a",
+    "cli",
+    "mcp",
+    "codex",
+    "claude",
+    "gemini"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rhanka/h2a.git",
+    "directory": "packages/h2a-cli"
+  },
+  "homepage": "https://github.com/rhanka/h2a#readme",
+  "bugs": {
+    "url": "https://github.com/rhanka/h2a/issues"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -14,6 +36,9 @@
     "dist"
   ],
   "dependencies": {
-    "@sentropic/h2a": "file:../h2a"
+    "@sentropic/h2a": "^0.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

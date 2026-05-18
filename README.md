@@ -1,7 +1,7 @@
 # Projet — Index
 
 > **Nom de travail recommandé** : `h2a` (DEC-025, validé utilisateur le 2026-05-18).
-> **Package cible recommandé** : `@sentropic/h2a`, npm, TypeScript.
+> **Packages cibles recommandés** : `@sentropic/h2a` et `@sentropic/h2a-cli`, npm, TypeScript.
 > **Date d'amorce** : 2026-05-16.
 
 ## Pile contractuelle (DEC-010)
