@@ -2,3 +2,6 @@
 .codex/
 .superpowers/
 .git.empty-broken/
+node_modules/
+packages/*/dist/
+packages/*/*.tsbuildinfo
