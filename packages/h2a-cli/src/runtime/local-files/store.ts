@@ -14,12 +14,14 @@ import {
   assertValidNegotiationState,
   createJournalEntry,
   isH2AEnvelope,
+  verifyCanonical,
   verifyJournalChain,
   type H2AActorRegistration,
   type H2AEnvelope,
   type H2AJournalEntry,
   type H2AJournalPayload,
-  type H2ANegotiationRecord
+  type H2ANegotiationRecord,
+  type H2ASignature
 } from "@sentropic/h2a";
 
 import {
@@ -51,6 +53,15 @@ export interface LocalStore {
     payload: H2AJournalPayload<TBody>
   ): H2AJournalEntry<TBody>;
   readNegotiationJournal(negotiationId: string): H2AJournalEntry<unknown>[];
+  stabilizeNegotiation(
+    negotiationId: string,
+    options?: { eventId?: string }
+  ): {
+    record: H2ANegotiationRecord;
+    artifactHash: string;
+    signers: string[];
+    finalEvent: H2AJournalEntry<unknown>;
+  };
   putInboxMessage(actor: string, envelope: H2AEnvelope): void;
   readInbox(actor: string): H2AEnvelope[];
   popInboxMessage(actor: string, envelopeId: string): H2AEnvelope | undefined;
@@ -182,6 +193,108 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     return entry;
   }
 
+  function stabilizeNegotiation(
+    negotiationId: string,
+    options: { eventId?: string } = {}
+  ) {
+    const record = readNegotiation(negotiationId);
+    if (!record) {
+      throw new Error(`Negotiation not found: ${negotiationId}`);
+    }
+    if (record.status === "stabilized") {
+      throw new Error(`Negotiation already stabilized: ${negotiationId}`);
+    }
+    if (!Array.isArray(record.requiredSigners) || record.requiredSigners.length === 0) {
+      throw new Error(`Negotiation ${negotiationId} has no requiredSigners`);
+    }
+
+    const entries = readNegotiationJournal(negotiationId);
+
+    const byHash = new Map<string, Map<string, H2ASignature>>();
+    for (const entry of entries) {
+      const body = (entry as { body?: { kind?: string; artifactHash?: string; signature?: H2ASignature } }).body;
+      if (!body || body.kind !== "signature") continue;
+      if (typeof body.artifactHash !== "string" || !body.signature) continue;
+
+      const signer = entry.actor.instance;
+      const sig = body.signature;
+      if (sig.by !== signer) {
+        throw new Error(
+          `Negotiation ${negotiationId}: signature by ${sig.by} does not match actor.instance ${signer}`
+        );
+      }
+
+      const registration = findInstance(signer);
+      if (!registration) {
+        throw new Error(`Negotiation ${negotiationId}: signer ${signer} is not registered`);
+      }
+      const keys = registration.publicKeys ?? [];
+      if (keys.length === 0) {
+        throw new Error(
+          `Negotiation ${negotiationId}: signer ${signer} has no publicKeys in the registry`
+        );
+      }
+
+      const verified = keys.some((pem) =>
+        verifyCanonical({ artifactHash: body.artifactHash }, sig, pem)
+      );
+      if (!verified) {
+        throw new Error(
+          `Negotiation ${negotiationId}: signature by ${signer} fails verification against registered keys`
+        );
+      }
+
+      const bucket = byHash.get(body.artifactHash) ?? new Map<string, H2ASignature>();
+      bucket.set(signer, sig);
+      byHash.set(body.artifactHash, bucket);
+    }
+
+    const required = new Set(record.requiredSigners);
+    let winningHash: string | undefined;
+    for (const [hash, bucket] of byHash) {
+      const have = new Set(bucket.keys());
+      const allPresent = [...required].every((id) => have.has(id));
+      if (allPresent) {
+        winningHash = hash;
+        break;
+      }
+    }
+
+    if (!winningHash) {
+      const summary = [...byHash].map(
+        ([hash, bucket]) => `${hash} signed by ${[...bucket.keys()].join(",")}`
+      );
+      throw new Error(
+        `Negotiation ${negotiationId}: no artifactHash has the full quorum (${record.requiredSigners.join(",")}). Collected: ${summary.join(" | ")}`
+      );
+    }
+
+    const finalEvent = appendNegotiationEvent(negotiationId, {
+      id: options.eventId ?? `evt-stabilize-${Date.now().toString(36)}`,
+      type: "event",
+      actor: { instance: "h2a-cli", role: "MANDATAIRE", scope: record.scope },
+      body: { kind: "stabilized", artifactHash: winningHash, signers: record.requiredSigners },
+      createdAt: new Date().toISOString()
+    });
+
+    const updated = updateNegotiationStatus(negotiationId, "stabilized");
+    if (winningHash) {
+      updated.currentArtifactHash = winningHash;
+      writeFileSync(
+        negotiationStateFile(negotiationId),
+        `${JSON.stringify(updated, null, 2)}\n`,
+        "utf8"
+      );
+    }
+
+    return {
+      record: updated,
+      artifactHash: winningHash,
+      signers: record.requiredSigners,
+      finalEvent
+    };
+  }
+
   function envelopeFile(dir: string, envelopeId: string): string {
     return join(dir, `${envelopeId}.json`);
   }
@@ -243,6 +356,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     updateNegotiationStatus,
     appendNegotiationEvent,
     readNegotiationJournal,
+    stabilizeNegotiation,
     putInboxMessage,
     readInbox,
     popInboxMessage,

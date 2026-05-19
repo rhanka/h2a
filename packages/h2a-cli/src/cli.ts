@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+import { computeHash, signCanonical } from "@sentropic/h2a";
 
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
@@ -36,6 +39,8 @@ export function renderCliHelp(): string {
     "  h2a negotiate event --id <id> --json <payload-json> [--root <path>]",
     "  h2a negotiate offer --id <id> --instance <id> --artifact <json> [--event-id <id>] [--root <path>]",
     "  h2a negotiate counter --id <id> --instance <id> --artifact <json> [--event-id <id>] [--root <path>]",
+    "  h2a negotiate sign --id <id> --instance <id> --artifact <json> --private-key <pem-path> [--event-id <id>] [--root <path>]",
+    "  h2a negotiate stabilize --id <id> [--event-id <id>] [--root <path>]",
     "  h2a negotiate journal --id <id> [--root <path>]",
     "  h2a inbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a inbox read --instance <id> [--root <path>]",
@@ -275,6 +280,82 @@ function cmdNegotiate(
     }
   }
 
+  if (sub === "sign") {
+    if (!flags.id || !flags.instance || !flags.artifact || !flags["private-key"]) {
+      streams.stderr.write(
+        "h2a negotiate sign: --id <id> --instance <id> --artifact <json> --private-key <pem-path> required\n"
+      );
+      return 1;
+    }
+    const record = store.readNegotiation(flags.id);
+    if (!record) {
+      streams.stderr.write(`h2a negotiate sign: negotiation ${flags.id} not found\n`);
+      return 1;
+    }
+    let artifact;
+    try {
+      artifact = JSON.parse(flags.artifact);
+    } catch (error) {
+      streams.stderr.write(
+        `h2a negotiate sign: invalid --artifact JSON (${(error as Error).message})\n`
+      );
+      return 1;
+    }
+    let privateKeyPem;
+    try {
+      privateKeyPem = readFileSync(flags["private-key"], "utf8");
+    } catch (error) {
+      streams.stderr.write(
+        `h2a negotiate sign: cannot read private key at ${flags["private-key"]} (${(error as Error).message})\n`
+      );
+      return 1;
+    }
+    const artifactHash = computeHash(artifact);
+    const signature = signCanonical({ artifactHash }, { by: flags.instance, privateKeyPem });
+    const payload = {
+      id: flags["event-id"] ?? `evt-sign-${Date.now().toString(36)}`,
+      type: "event" as const,
+      actor: { instance: flags.instance, role: "CONDUCTOR" as const, scope: record.scope },
+      body: { kind: "signature", artifactHash, signature },
+      createdAt: new Date().toISOString()
+    };
+    try {
+      const entry = store.appendNegotiationEvent(flags.id, payload);
+      streams.stdout.write(`${JSON.stringify(entry, null, 2)}\n`);
+      return 0;
+    } catch (error) {
+      streams.stderr.write(`h2a negotiate sign: ${(error as Error).message}\n`);
+      return 1;
+    }
+  }
+
+  if (sub === "stabilize") {
+    if (!flags.id) {
+      streams.stderr.write("h2a negotiate stabilize: --id <id> required\n");
+      return 1;
+    }
+    try {
+      const result = store.stabilizeNegotiation(flags.id, { eventId: flags["event-id"] });
+      streams.stdout.write(
+        `${JSON.stringify(
+          {
+            ok: true,
+            record: result.record,
+            artifactHash: result.artifactHash,
+            signers: result.signers,
+            finalEvent: { id: result.finalEvent.id, sequence: result.finalEvent.sequence }
+          },
+          null,
+          2
+        )}\n`
+      );
+      return 0;
+    } catch (error) {
+      streams.stderr.write(`h2a negotiate stabilize: ${(error as Error).message}\n`);
+      return 1;
+    }
+  }
+
   if (sub === "event") {
     if (!flags.id || !flags.json) {
       streams.stderr.write("h2a negotiate event: --id <id> and --json <payload-json> required\n");
@@ -313,7 +394,7 @@ function cmdNegotiate(
   }
 
   streams.stderr.write(`Unknown negotiate subcommand: ${sub ?? "<none>"}\n`);
-  streams.stderr.write("Use one of: open, status, event, offer, counter, journal\n");
+  streams.stderr.write("Use one of: open, status, event, offer, counter, sign, stabilize, journal\n");
   return 1;
 }
 

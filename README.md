@@ -22,6 +22,8 @@ h2a negotiate status --id <id> --status <status> [--root <path>]
 h2a negotiate event --id <id> --json <payload-json> [--root <path>]
 h2a negotiate offer --id <id> --instance <id> --artifact <json> [--event-id <id>] [--root <path>]
 h2a negotiate counter --id <id> --instance <id> --artifact <json> [--event-id <id>] [--root <path>]
+h2a negotiate sign --id <id> --instance <id> --artifact <json> --private-key <pem-path> [--event-id <id>] [--root <path>]
+h2a negotiate stabilize --id <id> [--event-id <id>] [--root <path>]
 h2a negotiate journal --id <id> [--root <path>]
 
 # mailboxes
