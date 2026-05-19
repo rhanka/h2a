@@ -3,24 +3,31 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
+  unlinkSync,
   writeFileSync
 } from "node:fs";
+import { join } from "node:path";
 
 import {
   appendJournalEntry,
   assertValidNegotiationState,
   createJournalEntry,
+  isH2AEnvelope,
   verifyJournalChain,
   type H2AActorRegistration,
+  type H2AEnvelope,
   type H2AJournalEntry,
   type H2AJournalPayload,
   type H2ANegotiationRecord
 } from "@sentropic/h2a";
 
 import {
+  inboxDir,
   localStorePaths,
   negotiationDir,
   negotiationJournalFile,
+  outboxDir,
   type LocalStorePaths
 } from "./paths.js";
 
@@ -44,6 +51,11 @@ export interface LocalStore {
     payload: H2AJournalPayload<TBody>
   ): H2AJournalEntry<TBody>;
   readNegotiationJournal(negotiationId: string): H2AJournalEntry<unknown>[];
+  putInboxMessage(actor: string, envelope: H2AEnvelope): void;
+  readInbox(actor: string): H2AEnvelope[];
+  popInboxMessage(actor: string, envelopeId: string): H2AEnvelope | undefined;
+  putOutboxMessage(actor: string, envelope: H2AEnvelope): void;
+  readOutbox(actor: string): H2AEnvelope[];
 }
 
 function ensureDir(path: string): void {
@@ -170,6 +182,57 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     return entry;
   }
 
+  function envelopeFile(dir: string, envelopeId: string): string {
+    return join(dir, `${envelopeId}.json`);
+  }
+
+  function readEnvelopesFrom(dir: string): H2AEnvelope[] {
+    if (!existsSync(dir)) return [];
+    const files = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
+    const out: H2AEnvelope[] = [];
+    for (const file of files) {
+      const parsed = JSON.parse(readFileSync(join(dir, file), "utf8"));
+      if (isH2AEnvelope(parsed)) {
+        out.push(parsed as H2AEnvelope);
+      }
+    }
+    return out;
+  }
+
+  function putInboxMessage(actor: string, envelope: H2AEnvelope): void {
+    if (!isH2AEnvelope(envelope)) {
+      throw new Error("putInboxMessage: payload is not a valid H2A envelope");
+    }
+    const dir = inboxDir(paths, actor);
+    ensureDir(dir);
+    writeFileSync(envelopeFile(dir, envelope.id), JSON.stringify(envelope, null, 2), "utf8");
+  }
+
+  function readInbox(actor: string): H2AEnvelope[] {
+    return readEnvelopesFrom(inboxDir(paths, actor));
+  }
+
+  function popInboxMessage(actor: string, envelopeId: string): H2AEnvelope | undefined {
+    const file = envelopeFile(inboxDir(paths, actor), envelopeId);
+    if (!existsSync(file)) return undefined;
+    const envelope = JSON.parse(readFileSync(file, "utf8")) as H2AEnvelope;
+    unlinkSync(file);
+    return envelope;
+  }
+
+  function putOutboxMessage(actor: string, envelope: H2AEnvelope): void {
+    if (!isH2AEnvelope(envelope)) {
+      throw new Error("putOutboxMessage: payload is not a valid H2A envelope");
+    }
+    const dir = outboxDir(paths, actor);
+    ensureDir(dir);
+    writeFileSync(envelopeFile(dir, envelope.id), JSON.stringify(envelope, null, 2), "utf8");
+  }
+
+  function readOutbox(actor: string): H2AEnvelope[] {
+    return readEnvelopesFrom(outboxDir(paths, actor));
+  }
+
   return {
     paths,
     registerInstance,
@@ -179,6 +242,11 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     readNegotiation,
     updateNegotiationStatus,
     appendNegotiationEvent,
-    readNegotiationJournal
+    readNegotiationJournal,
+    putInboxMessage,
+    readInbox,
+    popInboxMessage,
+    putOutboxMessage,
+    readOutbox
   };
 }

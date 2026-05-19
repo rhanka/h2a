@@ -36,3 +36,11 @@ export function negotiationJournalFile(
 ): string {
   return join(negotiationDir(paths, negotiationId), "journal.jsonl");
 }
+
+export function inboxDir(paths: LocalStorePaths, actor: string): string {
+  return join(paths.inbox, actor);
+}
+
+export function outboxDir(paths: LocalStorePaths, actor: string): string {
+  return join(paths.outbox, actor);
+}

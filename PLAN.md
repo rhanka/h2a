@@ -6,7 +6,7 @@
 
 ## Snapshot
 
-- Overall estimated progress: ~55%
+- Overall estimated progress: ~60%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
@@ -53,20 +53,20 @@
 - [ ] Encode role/authority constraints for `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`, `MANDATAIRE`
 - [ ] Add compatibility tests on canonical artifacts (cross-language fixtures)
 
-## Workpackage 20 - Local Runtime And Store (~30%)
+## Workpackage 20 - Local Runtime And Store (~50%)
 
 - [x] Document the target local-files mode
 - [x] Freeze the path convention `<root>/.h2a/...` (DEC-031, with `src/{project}/h2a/...` as named-workspace variant)
 - [x] Implement registry storage layout (`registry/instances.jsonl`, append-only, dup-guarded)
 - [x] Implement negotiation storage layout (`negotiations/<id>/journal.jsonl`, hash-chained)
 - [x] Implement journal chaining with `prevHash` (core primitive in WP-10; tampered chain detected on read)
+- [x] Implement inbox/outbox local transport (`putInboxMessage` / `readInbox` / `popInboxMessage`)
 - [ ] Wire `causationId` / `correlationId` semantics into negotiation flow
-- [ ] Implement inbox/outbox local transport
 - [ ] Enforce immutable stabilized artifacts (contracts/policies/engagements)
 - [ ] Define concurrency / file locking behavior (currently relies on PIPE_BUF atomic appends)
 - [ ] Define migration/versioning strategy for local state
 
-## Workpackage 30 - `h2a-cli` Surface (~75%)
+## Workpackage 30 - `h2a-cli` Surface (~85%)
 
 - [x] Create unified `@sentropic/h2a-cli` package
 - [x] Keep internal modules for `mcp`, `codex`, `claude`, `gemini`
@@ -81,8 +81,8 @@
 - [x] Implement `h2a negotiate status --id --status` (transitions state)
 - [x] Implement `h2a negotiate event` (append-only journal entry)
 - [x] Implement `h2a negotiate journal` (verified read)
+- [x] Implement `h2a inbox put/read/pop` and `h2a outbox put/read` (file-backed mailboxes)
 - [ ] Implement `h2a negotiate offer` / `counter` / `sign` / `stabilize` (typed wrappers over `event`)
-- [ ] Implement `h2a inbox read` / write
 - [ ] Stabilize JSON output contracts and exit codes
 
 ## Workpackage 40 - Host And Protocol Integrations (~10%)

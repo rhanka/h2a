@@ -35,6 +35,11 @@ export function renderCliHelp(): string {
     "  h2a negotiate status --id <id> --status <status> [--root <path>]",
     "  h2a negotiate event --id <id> --json <payload-json> [--root <path>]",
     "  h2a negotiate journal --id <id> [--root <path>]",
+    "  h2a inbox put --instance <id> --json <envelope> [--root <path>]",
+    "  h2a inbox read --instance <id> [--root <path>]",
+    "  h2a inbox pop --instance <id> --envelope <id> [--root <path>]",
+    "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
+    "  h2a outbox read --instance <id> [--root <path>]",
     "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
     `MCP tools: ${H2A_CLI_MCP_TOOL_NAMES.join(", ")}`
@@ -108,6 +113,77 @@ function cmdRegister(
     `${JSON.stringify({ ok: true, id: registration.id, root: store.paths.root }, null, 2)}\n`
   );
   return 0;
+}
+
+function cmdMailbox(
+  argv: readonly string[],
+  mailbox: "inbox" | "outbox",
+  streams: H2ACliStreams
+): number {
+  const { command: sub, flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const store = createLocalStore({ root });
+
+  if (!flags.instance) {
+    streams.stderr.write(`h2a ${mailbox} ${sub ?? ""}: --instance <id> required\n`);
+    return 1;
+  }
+
+  if (sub === "put") {
+    if (!flags.json) {
+      streams.stderr.write(`h2a ${mailbox} put: --json <envelope-json> required\n`);
+      return 1;
+    }
+    let envelope;
+    try {
+      envelope = JSON.parse(flags.json);
+    } catch (error) {
+      streams.stderr.write(`h2a ${mailbox} put: invalid JSON (${(error as Error).message})\n`);
+      return 1;
+    }
+    try {
+      if (mailbox === "inbox") {
+        store.putInboxMessage(flags.instance, envelope);
+      } else {
+        store.putOutboxMessage(flags.instance, envelope);
+      }
+      streams.stdout.write(
+        `${JSON.stringify({ ok: true, id: envelope.id, mailbox, instance: flags.instance }, null, 2)}\n`
+      );
+      return 0;
+    } catch (error) {
+      streams.stderr.write(`h2a ${mailbox} put: ${(error as Error).message}\n`);
+      return 1;
+    }
+  }
+
+  if (sub === "read") {
+    const messages =
+      mailbox === "inbox" ? store.readInbox(flags.instance) : store.readOutbox(flags.instance);
+    streams.stdout.write(`${JSON.stringify(messages, null, 2)}\n`);
+    return 0;
+  }
+
+  if (sub === "pop" && mailbox === "inbox") {
+    if (!flags.envelope) {
+      streams.stderr.write("h2a inbox pop: --envelope <id> required\n");
+      return 1;
+    }
+    const popped = store.popInboxMessage(flags.instance, flags.envelope);
+    if (!popped) {
+      streams.stderr.write(`h2a inbox pop: no such envelope ${flags.envelope}\n`);
+      return 1;
+    }
+    streams.stdout.write(`${JSON.stringify(popped, null, 2)}\n`);
+    return 0;
+  }
+
+  streams.stderr.write(`Unknown ${mailbox} subcommand: ${sub ?? "<none>"}\n`);
+  streams.stderr.write(
+    mailbox === "inbox" ? "Use one of: put, read, pop\n" : "Use one of: put, read\n"
+  );
+  return 1;
 }
 
 function cmdNegotiate(
@@ -249,6 +325,8 @@ export function runCli(
   if (command === "register") return cmdRegister(flags, streams);
   if (command === "discover") return cmdDiscover(flags, streams);
   if (command === "negotiate") return cmdNegotiate(argv.slice(1), streams);
+  if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
+  if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);
 
   streams.stderr.write(`Unknown command: ${command}\n`);
   streams.stderr.write("Run `h2a --help`.\n");

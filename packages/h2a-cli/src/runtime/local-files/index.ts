@@ -1,7 +1,9 @@
 export {
+  inboxDir,
   localStorePaths,
   negotiationDir,
   negotiationJournalFile,
+  outboxDir,
   type LocalStorePaths
 } from "./paths.js";
 

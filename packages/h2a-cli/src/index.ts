@@ -15,9 +15,11 @@ export {
 
 export {
   createLocalStore,
+  inboxDir,
   localStorePaths,
   negotiationDir,
   negotiationJournalFile,
+  outboxDir,
   type CreateLocalStoreOptions,
   type LocalStore,
   type LocalStorePaths
