@@ -8,11 +8,13 @@ import {
 
 import {
   appendJournalEntry,
+  assertValidNegotiationState,
   createJournalEntry,
   verifyJournalChain,
   type H2AActorRegistration,
   type H2AJournalEntry,
-  type H2AJournalPayload
+  type H2AJournalPayload,
+  type H2ANegotiationRecord
 } from "@sentropic/h2a";
 
 import {
@@ -31,6 +33,12 @@ export interface LocalStore {
   registerInstance(reg: H2AActorRegistration): void;
   listInstances(): H2AActorRegistration[];
   findInstance(id: string): H2AActorRegistration | undefined;
+  openNegotiation(record: H2ANegotiationRecord): H2ANegotiationRecord;
+  readNegotiation(id: string): H2ANegotiationRecord | undefined;
+  updateNegotiationStatus(
+    id: string,
+    status: H2ANegotiationRecord["status"]
+  ): H2ANegotiationRecord;
   appendNegotiationEvent<TBody = unknown>(
     negotiationId: string,
     payload: H2AJournalPayload<TBody>
@@ -93,6 +101,45 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     appendJsonl(paths.instances, reg);
   }
 
+  function negotiationStateFile(id: string): string {
+    return `${negotiationDir(paths, id)}/state.json`;
+  }
+
+  function openNegotiation(record: H2ANegotiationRecord): H2ANegotiationRecord {
+    assertValidNegotiationState(record.status);
+    ensureDir(negotiationDir(paths, record.id));
+    const file = negotiationStateFile(record.id);
+    if (existsSync(file)) {
+      throw new Error(`Negotiation already open: ${record.id}`);
+    }
+    writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    return record;
+  }
+
+  function readNegotiation(id: string): H2ANegotiationRecord | undefined {
+    const file = negotiationStateFile(id);
+    if (!existsSync(file)) return undefined;
+    return JSON.parse(readFileSync(file, "utf8")) as H2ANegotiationRecord;
+  }
+
+  function updateNegotiationStatus(
+    id: string,
+    status: H2ANegotiationRecord["status"]
+  ): H2ANegotiationRecord {
+    const current = readNegotiation(id);
+    if (!current) {
+      throw new Error(`Negotiation not found: ${id}`);
+    }
+    assertValidNegotiationState(status);
+    const updated: H2ANegotiationRecord = { ...current, status };
+    writeFileSync(
+      negotiationStateFile(id),
+      `${JSON.stringify(updated, null, 2)}\n`,
+      "utf8"
+    );
+    return updated;
+  }
+
   function readNegotiationJournal(
     negotiationId: string
   ): H2AJournalEntry<unknown>[] {
@@ -128,6 +175,9 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     registerInstance,
     listInstances,
     findInstance,
+    openNegotiation,
+    readNegotiation,
+    updateNegotiationStatus,
     appendNegotiationEvent,
     readNegotiationJournal
   };

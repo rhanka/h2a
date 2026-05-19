@@ -31,6 +31,10 @@ export function renderCliHelp(): string {
     "  h2a init [--root <path>]",
     "  h2a register --json <json> [--root <path>]",
     "  h2a discover [--role <role>] [--scope <scope>] [--root <path>]",
+    "  h2a negotiate open --json <record-json> [--root <path>]",
+    "  h2a negotiate status --id <id> --status <status> [--root <path>]",
+    "  h2a negotiate event --id <id> --json <payload-json> [--root <path>]",
+    "  h2a negotiate journal --id <id> [--root <path>]",
     "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
     `MCP tools: ${H2A_CLI_MCP_TOOL_NAMES.join(", ")}`
@@ -106,6 +110,97 @@ function cmdRegister(
   return 0;
 }
 
+function cmdNegotiate(
+  argv: readonly string[],
+  streams: H2ACliStreams
+): number {
+  const { command: sub, flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const store = createLocalStore({ root });
+
+  if (sub === "open") {
+    if (!flags.json) {
+      streams.stderr.write("h2a negotiate open: --json <record-json> required\n");
+      return 1;
+    }
+    let record;
+    try {
+      record = JSON.parse(flags.json);
+    } catch (error) {
+      streams.stderr.write(`h2a negotiate open: invalid JSON (${(error as Error).message})\n`);
+      return 1;
+    }
+    try {
+      const opened = store.openNegotiation(record);
+      streams.stdout.write(`${JSON.stringify(opened, null, 2)}\n`);
+      return 0;
+    } catch (error) {
+      streams.stderr.write(`h2a negotiate open: ${(error as Error).message}\n`);
+      return 1;
+    }
+  }
+
+  if (sub === "status") {
+    if (!flags.id || !flags.status) {
+      streams.stderr.write("h2a negotiate status: --id <id> and --status <status> required\n");
+      return 1;
+    }
+    try {
+      const updated = store.updateNegotiationStatus(
+        flags.id,
+        flags.status as Parameters<typeof store.updateNegotiationStatus>[1]
+      );
+      streams.stdout.write(`${JSON.stringify(updated, null, 2)}\n`);
+      return 0;
+    } catch (error) {
+      streams.stderr.write(`h2a negotiate status: ${(error as Error).message}\n`);
+      return 1;
+    }
+  }
+
+  if (sub === "event") {
+    if (!flags.id || !flags.json) {
+      streams.stderr.write("h2a negotiate event: --id <id> and --json <payload-json> required\n");
+      return 1;
+    }
+    let payload;
+    try {
+      payload = JSON.parse(flags.json);
+    } catch (error) {
+      streams.stderr.write(`h2a negotiate event: invalid JSON (${(error as Error).message})\n`);
+      return 1;
+    }
+    try {
+      const entry = store.appendNegotiationEvent(flags.id, payload);
+      streams.stdout.write(`${JSON.stringify(entry, null, 2)}\n`);
+      return 0;
+    } catch (error) {
+      streams.stderr.write(`h2a negotiate event: ${(error as Error).message}\n`);
+      return 1;
+    }
+  }
+
+  if (sub === "journal") {
+    if (!flags.id) {
+      streams.stderr.write("h2a negotiate journal: --id <id> required\n");
+      return 1;
+    }
+    try {
+      const entries = store.readNegotiationJournal(flags.id);
+      streams.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
+      return 0;
+    } catch (error) {
+      streams.stderr.write(`h2a negotiate journal: ${(error as Error).message}\n`);
+      return 1;
+    }
+  }
+
+  streams.stderr.write(`Unknown negotiate subcommand: ${sub ?? "<none>"}\n`);
+  streams.stderr.write("Use one of: open, status, event, journal\n");
+  return 1;
+}
+
 function cmdDiscover(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -153,6 +248,7 @@ export function runCli(
   if (command === "init") return cmdInit(flags, streams);
   if (command === "register") return cmdRegister(flags, streams);
   if (command === "discover") return cmdDiscover(flags, streams);
+  if (command === "negotiate") return cmdNegotiate(argv.slice(1), streams);
 
   streams.stderr.write(`Unknown command: ${command}\n`);
   streams.stderr.write("Run `h2a --help`.\n");

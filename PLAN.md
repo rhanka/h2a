@@ -6,7 +6,7 @@
 
 ## Snapshot
 
-- Overall estimated progress: ~50%
+- Overall estimated progress: ~55%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
@@ -66,7 +66,7 @@
 - [ ] Define concurrency / file locking behavior (currently relies on PIPE_BUF atomic appends)
 - [ ] Define migration/versioning strategy for local state
 
-## Workpackage 30 - `h2a-cli` Surface (~65%)
+## Workpackage 30 - `h2a-cli` Surface (~75%)
 
 - [x] Create unified `@sentropic/h2a-cli` package
 - [x] Keep internal modules for `mcp`, `codex`, `claude`, `gemini`
@@ -77,12 +77,12 @@
 - [x] Implement `h2a init` (creates `<root>/.h2a/` layout)
 - [x] Implement `h2a register --json <json>` (writes to `registry/instances.jsonl`)
 - [x] Implement `h2a discover [--role] [--scope]` (reads `registry/instances.jsonl`)
-- [ ] Implement `h2a negotiate open`
-- [ ] Implement `h2a negotiate offer`
-- [ ] Implement `h2a negotiate counter`
-- [ ] Implement `h2a negotiate sign`
-- [ ] Implement `h2a negotiate stabilize`
-- [ ] Implement `h2a inbox read`
+- [x] Implement `h2a negotiate open` (persists `state.json`, validates status)
+- [x] Implement `h2a negotiate status --id --status` (transitions state)
+- [x] Implement `h2a negotiate event` (append-only journal entry)
+- [x] Implement `h2a negotiate journal` (verified read)
+- [ ] Implement `h2a negotiate offer` / `counter` / `sign` / `stabilize` (typed wrappers over `event`)
+- [ ] Implement `h2a inbox read` / write
 - [ ] Stabilize JSON output contracts and exit codes
 
 ## Workpackage 40 - Host And Protocol Integrations (~10%)
@@ -126,11 +126,11 @@
 - [ ] Frame multi-human modes beyond pairwise dialogue
 - [ ] Decide what becomes protocol, what stays policy, what stays implementation
 
-## Workpackage 60 - Quality, Examples, And Ops (~20%)
+## Workpackage 60 - Quality, Examples, And Ops (~30%)
 
 - [x] Add baseline automated tests
 - [x] Keep `npm test` green after publication fixes
-- [ ] Add CI workflow for build + tests
+- [x] Add CI workflow for build + tests (`.github/workflows/ci.yml`, Node 20/22 matrix)
 - [ ] Add npm install smoke test for published packages
 - [ ] Add an example project for `1 PRINCIPAL / 15 CONDUCTORS`
 - [ ] Add release notes / publish procedure doc
