@@ -335,3 +335,32 @@ Implémentation guidée par tests (TDD) ; pas de runtime local-files ni MCP avan
 **Pourquoi** : tout le reste (registry, négociation, inbox, MCP, plugins) dépend d'artefacts dont l'identité, la canonicalisation et le hash sont stables. Les figer en premier réduit la dette de migration.
 
 **Conséquence** : WP-20 (local-files), WP-30 (CLI surface au-delà de `hosts`/`mcp-tools`) et WP-40 (intégrations) attendent l'atterrissage de WP-10.
+
+## DEC-031 — Layout du store local-files figé
+**Date** : 2026-05-18. **Réfère** : RUNTIME_PROPOSAL.md, WP-20.
+
+**Décision** : Le store local-files de la V1 utilise la racine **`<root>/.h2a/`** (configurable, par défaut `<cwd>/.h2a` dans l'usage CLI ; explicite `src/{project}/h2a/` quand intégré à un workspace nommé). À l'intérieur :
+
+```
+<root>/.h2a/
+  registry/instances.jsonl     # append-only des H2AActorRegistration
+  contracts/<id>/contract.json # CONTRACT stabilisé immutable
+  policies/<id>.json           # POLICY stabilisée immutable
+  engagements/<id>/
+    charter.json
+    events.jsonl               # journal d'engagement
+    inbox/<instance>/
+    outbox/<instance>/
+    evidence/
+  negotiations/<id>/
+    state.json                 # H2ANegotiationRecord courant (mutable)
+    offers/                    # proposals/counteroffers (append-only)
+    signatures/                # signatures collectées (append-only)
+    journal.jsonl              # H2AJournalEntry chain
+  inbox/<actor>/               # boîtes globales (hors engagement)
+  outbox/<actor>/
+```
+
+**Pourquoi** : reprend la proposition de `RUNTIME_PROPOSAL.md` ; sépare clairement (a) registre runtime mutable append-only, (b) artefacts stabilisés immutables, (c) sessions de négociation mutables jusqu'à stabilisation. Le format `.jsonl` est portable, grep-friendly, et trivialement append-only.
+
+**Conséquence** : la première implémentation cible **registre + journal de négociation** ; engagements et artefacts stabilisés viennent ensuite. Le module `runtime/local-files` vit dans `@sentropic/h2a-cli` (cible 2-package, DEC-026).

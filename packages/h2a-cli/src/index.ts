@@ -13,6 +13,16 @@ export {
   runCli
 };
 
+export {
+  createLocalStore,
+  localStorePaths,
+  negotiationDir,
+  negotiationJournalFile,
+  type CreateLocalStoreOptions,
+  type LocalStore,
+  type LocalStorePaths
+} from "./runtime/local-files/index.js";
+
 export const H2A_CLI_HOSTS = [
   H2A_CODEX_HOST,
   H2A_CLAUDE_HOST,
