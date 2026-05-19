@@ -6,7 +6,7 @@
 
 ## Snapshot
 
-- Overall estimated progress: ~45%
+- Overall estimated progress: ~50%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
@@ -66,7 +66,7 @@
 - [ ] Define concurrency / file locking behavior (currently relies on PIPE_BUF atomic appends)
 - [ ] Define migration/versioning strategy for local state
 
-## Workpackage 30 - `h2a-cli` Surface (~40%)
+## Workpackage 30 - `h2a-cli` Surface (~65%)
 
 - [x] Create unified `@sentropic/h2a-cli` package
 - [x] Keep internal modules for `mcp`, `codex`, `claude`, `gemini`
@@ -74,9 +74,9 @@
 - [x] Implement `h2a hosts`
 - [x] Implement `h2a mcp-tools`
 - [x] Publish a working npm CLI package
-- [ ] Implement `h2a init`
-- [ ] Implement `h2a register`
-- [ ] Implement `h2a discover`
+- [x] Implement `h2a init` (creates `<root>/.h2a/` layout)
+- [x] Implement `h2a register --json <json>` (writes to `registry/instances.jsonl`)
+- [x] Implement `h2a discover [--role] [--scope]` (reads `registry/instances.jsonl`)
 - [ ] Implement `h2a negotiate open`
 - [ ] Implement `h2a negotiate offer`
 - [ ] Implement `h2a negotiate counter`

@@ -23,7 +23,7 @@ test("h2a-cli exposes the canonical MCP tool names", () => {
 });
 
 test("h2a-cli renders help and command output", () => {
-  assert.match(renderCliHelp(), /Human-to-agent coordination CLI bootstrap/);
+  assert.match(renderCliHelp(), /Human-to-agent coordination CLI/);
   assert.match(renderCliHelp(), /codex, claude, gemini/);
 
   let stdout = "";
