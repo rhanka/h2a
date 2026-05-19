@@ -4,6 +4,19 @@ export {
 } from "./envelope.js";
 export { assertValidNegotiationState } from "./negotiation.js";
 export { canonicalize, computeHash } from "./canonical.js";
+export { signCanonical, verifyCanonical } from "./signature.js";
+export type { SignOptions } from "./signature.js";
+export {
+  appendJournalEntry,
+  createJournalEntry,
+  journalEntryAsCanonicalString,
+  verifyJournalChain
+} from "./journal.js";
+export type {
+  H2AJournalEntry,
+  H2AJournalPayload,
+  H2AJournalVerification
+} from "./journal.js";
 export {
   isAmendment,
   isAuthority,

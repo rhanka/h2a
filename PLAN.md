@@ -6,7 +6,7 @@
 
 ## Snapshot
 
-- Overall estimated progress: ~35%
+- Overall estimated progress: ~40%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
@@ -38,7 +38,7 @@
 - [ ] Deprecate `@sentropic/h2a-cli@0.1.0` with a clear message
 - [ ] Automate release/publish flow
 
-## Workpackage 10 - `h2a` Core Contracts (~55%)
+## Workpackage 10 - `h2a` Core Contracts (~80%)
 
 - [x] Define protocol id `sentropic.h2a`
 - [x] Implement envelope creation
@@ -48,9 +48,9 @@
 - [x] Implement schemas for `CONTRACT`, `POLICY`, `ENGAGEMENT`, `AMENDMENT` (type guards)
 - [x] Implement `MANDATE`, `AUTHORITY`, `SIGNATURE`, `ENFORCEMENT_PLAN` (type guards)
 - [x] Add canonicalization and hash computation (sorted-key JSON + SHA-256)
+- [x] Add append-only journal structures (`H2AJournalEntry` + `verifyJournalChain`)
+- [x] Add signature verification (ed25519 sign/verify on canonical payload)
 - [ ] Encode role/authority constraints for `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`, `MANDATAIRE`
-- [ ] Add signature verification (cryptographic check, not just shape)
-- [ ] Add append-only journal structures
 - [ ] Add compatibility tests on canonical artifacts (cross-language fixtures)
 
 ## Workpackage 20 - Local Runtime And Store (~5%)
