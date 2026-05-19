@@ -2,7 +2,7 @@
   "name": "@sentropic/h2a-cli",
   "version": "0.1.1",
   "description": "Unified CLI surface for h2a hosts and MCP-oriented coordination flows.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

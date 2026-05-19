@@ -1,12 +1,12 @@
 # H2A Project Plan
 
-> Last update: 2026-05-18
+> Last update: 2026-05-18 (DEC license MIT, Gemini → wave 2, schemas first)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
 ## Snapshot
 
-- Overall estimated progress: ~30%
+- Overall estimated progress: ~35%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
@@ -34,24 +34,24 @@
 - [x] Publish `@sentropic/h2a@0.1.0`
 - [x] Publish `@sentropic/h2a-cli@0.1.1`
 - [x] Fix CLI package publication so the `h2a` bin is preserved
-- [ ] Choose the project license
+- [x] Choose the project license (MIT — DEC-027)
 - [ ] Deprecate `@sentropic/h2a-cli@0.1.0` with a clear message
 - [ ] Automate release/publish flow
 
-## Workpackage 10 - `h2a` Core Contracts (~30%)
+## Workpackage 10 - `h2a` Core Contracts (~55%)
 
 - [x] Define protocol id `sentropic.h2a`
 - [x] Implement envelope creation
 - [x] Implement envelope validation guard
 - [x] Implement negotiation state guard
 - [x] Publish first core package bootstrap
-- [ ] Implement schemas for `CONTRACT`, `POLICY`, `ENGAGEMENT`, `AMENDMENT`
-- [ ] Implement `MANDATE`, `AUTHORITY`, `SIGNATURE`, `ENFORCEMENT_PLAN`
+- [x] Implement schemas for `CONTRACT`, `POLICY`, `ENGAGEMENT`, `AMENDMENT` (type guards)
+- [x] Implement `MANDATE`, `AUTHORITY`, `SIGNATURE`, `ENFORCEMENT_PLAN` (type guards)
+- [x] Add canonicalization and hash computation (sorted-key JSON + SHA-256)
 - [ ] Encode role/authority constraints for `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`, `MANDATAIRE`
-- [ ] Add canonicalization and hash computation
-- [ ] Add signature verification
+- [ ] Add signature verification (cryptographic check, not just shape)
 - [ ] Add append-only journal structures
-- [ ] Add compatibility tests on canonical artifacts
+- [ ] Add compatibility tests on canonical artifacts (cross-language fixtures)
 
 ## Workpackage 20 - Local Runtime And Store (~5%)
 
@@ -105,10 +105,10 @@
 - [ ] Implement registration flow
 - [ ] Implement inbox / negotiation operations
 
-### Gemini track
+### Gemini track (wave 2 — DEC-028)
 
-- [ ] Decide whether Gemini stays first-wave or second-wave
-- [ ] If first-wave, add the same minimal surface as Codex/Claude
+- [x] Decide whether Gemini stays first-wave or second-wave → **deferred to wave 2**
+- [ ] In wave 2, add the same minimal surface as Codex/Claude (host descriptor stays in `h2a hosts` meanwhile)
 
 ## Workpackage 50 - Governance, Vocabulary, And Model Semantics (~45%)
 
@@ -138,13 +138,10 @@
 
 ## Open Decisions / User Inputs
 
-- [ ] Choose the project license
-- [ ] Confirm whether to deprecate `@sentropic/h2a-cli@0.1.0`
-- [ ] Choose the next main delivery after planning:
-  - local-files runtime first
-  - MCP server first
-  - Codex/Claude integration first
-- [ ] Decide whether `gemini` stays in wave 1
+- [x] Choose the project license → MIT (DEC-027)
+- [x] Confirm whether to deprecate `@sentropic/h2a-cli@0.1.0` → yes, with redirect message (DEC-029); awaiting npm auth
+- [x] Choose the next main delivery → core schemas first (DEC-030)
+- [x] Decide whether `gemini` stays in wave 1 → deferred to wave 2 (DEC-028)
 
 ## Next Recommended Slice
 

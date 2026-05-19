@@ -290,3 +290,48 @@ Le package `@sentropic/h2a-cli` reste **modularisé en interne** pour préserver
 **Pourquoi** : quatre packages publiés pour un bootstrap créent plus de friction de release et de versioning que de valeur. Le besoin immédiat est la clarté des frontières, pas la fragmentation du registre npm.
 
 **Conséquence** : les anciens candidats `@sentropic/h2a-mcp`, `@sentropic/h2a-codex` et `@sentropic/h2a-claude` sortent de la cible V1. Ils pourront réapparaître plus tard seulement si une divergence de dépendances, de cadence ou de contrat le justifie.
+
+## DEC-027 — Licence du projet = MIT
+**Date** : 2026-05-18. **Réfère** : REQ-016.
+
+**Décision** : Le projet `h2a` adopte la licence **MIT** (`SPDX: MIT`). Les deux packages publiés (`@sentropic/h2a`, `@sentropic/h2a-cli`) passent leur champ `license` de `UNLICENSED` à `MIT`. Un fichier `LICENSE` racine porte le texte canonique avec copyright `2026 Fabien Antoine (rhanka)`.
+
+**Pourquoi** : licence permissive standard pour la couche protocole/CLI, compatible commercial et publication npm. Lève l'ambiguïté `UNLICENSED` qui bloquait la consommation aval.
+
+**Conséquence** : prochains `npm publish` héritent automatiquement de `MIT`. Si un sous-package futur nécessite une licence différente (ex. AGPL pour un serveur), il faudra le justifier explicitement.
+
+## DEC-028 — Gemini reporté en wave 2
+**Date** : 2026-05-18. **Réfère** : DEC-026, REQ-057, REQ-058.
+
+**Décision** : L'intégration Gemini est **reportée en wave 2**. Wave 1 cible Codex + Claude pour l'effort plugin/registration/inbox. Le host descriptor `gemini` reste exposé via `h2a hosts` et la liste `H2A_CLI_HOSTS` pour la cohérence du surface CLI.
+
+**Pourquoi** : tripler l'effort plugin en wave 1 ralentit la convergence du protocole core ; mieux vaut figer le pattern sur deux hôtes (Codex/Claude) avant d'en porter un troisième.
+
+**Conséquence** : la track `Gemini` du workpackage 40 reste vide en wave 1 ; aucun engagement de support négociation/inbox Gemini avant wave 2.
+
+## DEC-029 — Dépréciation de `@sentropic/h2a-cli@0.1.0`
+**Date** : 2026-05-18. **Réfère** : DEC-026.
+
+**Décision** : Marquer `@sentropic/h2a-cli@0.1.0` comme déprécié sur npm avec le message :
+> `Use 0.1.1; 0.1.0 was published without the CLI bin entry.`
+
+La version `0.1.1` reste la version de référence. La dépréciation est non-destructive (pas d'`unpublish`) pour préserver la traçabilité du registre.
+
+**Pourquoi** : `0.1.0` ne fournit pas le bin `h2a` exécutable suite à une autocorrection npm lors de la première publication. Sa coexistence sans avertissement risque d'aiguiller les installs neufs vers une version cassée.
+
+**Conséquence** : commande à exécuter en interactif côté utilisateur authentifié npm — `npm deprecate "@sentropic/h2a-cli@0.1.0" "Use 0.1.1; 0.1.0 was published without the CLI bin entry."`.
+
+## DEC-030 — Prochaine livraison = schémas core d'abord
+**Date** : 2026-05-18. **Réfère** : WP-10.
+
+**Décision** : Le prochain track de livraison est l'**implémentation des schémas core** dans `@sentropic/h2a` :
+- `CONTRACT`, `POLICY`, `ENGAGEMENT`, `AMENDMENT`,
+- `MANDATE`, `AUTHORITY`, `SIGNATURE`, `ENFORCEMENT_PLAN`,
+- canonicalisation déterministe (sort de clés, JSON stable),
+- hachage SHA-256 sur la forme canonique.
+
+Implémentation guidée par tests (TDD) ; pas de runtime local-files ni MCP avant que les schémas soient minimalement stables.
+
+**Pourquoi** : tout le reste (registry, négociation, inbox, MCP, plugins) dépend d'artefacts dont l'identité, la canonicalisation et le hash sont stables. Les figer en premier réduit la dette de migration.
+
+**Conséquence** : WP-20 (local-files), WP-30 (CLI surface au-delà de `hosts`/`mcp-tools`) et WP-40 (intégrations) attendent l'atterrissage de WP-10.
