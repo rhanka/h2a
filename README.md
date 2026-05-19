@@ -1,8 +1,36 @@
 # Projet — Index
 
-> **Nom de travail recommandé** : `h2a` (DEC-025, validé utilisateur le 2026-05-18).
-> **Packages cibles recommandés** : `@sentropic/h2a` et `@sentropic/h2a-cli`, npm, TypeScript.
+> **Nom parapluie** : `h2a` (DEC-025).
+> **Packages publiés** : `@sentropic/h2a` et `@sentropic/h2a-cli` (npm, TypeScript, MIT — DEC-027).
 > **Date d'amorce** : 2026-05-16.
+
+## CLI surface (V1)
+
+```
+h2a --help
+h2a hosts
+h2a mcp-tools
+
+# runtime local-files (store sous <root>/.h2a, DEC-031)
+h2a init [--root <path>]
+h2a register --json <registration-json> [--root <path>]
+h2a discover [--role <role>] [--scope <scope>] [--root <path>]
+
+# négociation
+h2a negotiate open --json <record-json> [--root <path>]
+h2a negotiate status --id <id> --status <status> [--root <path>]
+h2a negotiate event --id <id> --json <payload-json> [--root <path>]
+h2a negotiate offer --id <id> --instance <id> --artifact <json> [--event-id <id>] [--root <path>]
+h2a negotiate counter --id <id> --instance <id> --artifact <json> [--event-id <id>] [--root <path>]
+h2a negotiate journal --id <id> [--root <path>]
+
+# mailboxes
+h2a inbox put --instance <id> --json <envelope> [--root <path>]
+h2a inbox read --instance <id> [--root <path>]
+h2a inbox pop --instance <id> --envelope <id> [--root <path>]
+h2a outbox put --instance <id> --json <envelope> [--root <path>]
+h2a outbox read --instance <id> [--root <path>]
+```
 
 ## Pile contractuelle (DEC-010)
 

@@ -66,7 +66,7 @@
 - [ ] Define concurrency / file locking behavior (currently relies on PIPE_BUF atomic appends)
 - [ ] Define migration/versioning strategy for local state
 
-## Workpackage 30 - `h2a-cli` Surface (~85%)
+## Workpackage 30 - `h2a-cli` Surface (~90%)
 
 - [x] Create unified `@sentropic/h2a-cli` package
 - [x] Keep internal modules for `mcp`, `codex`, `claude`, `gemini`
@@ -82,7 +82,8 @@
 - [x] Implement `h2a negotiate event` (append-only journal entry)
 - [x] Implement `h2a negotiate journal` (verified read)
 - [x] Implement `h2a inbox put/read/pop` and `h2a outbox put/read` (file-backed mailboxes)
-- [ ] Implement `h2a negotiate offer` / `counter` / `sign` / `stabilize` (typed wrappers over `event`)
+- [x] Implement `h2a negotiate offer` / `counter` (typed wrappers stamp actor + type + artifact)
+- [ ] Implement `h2a negotiate sign` / `stabilize` (need signature collection + quorum check)
 - [ ] Stabilize JSON output contracts and exit codes
 
 ## Workpackage 40 - Host And Protocol Integrations (~10%)

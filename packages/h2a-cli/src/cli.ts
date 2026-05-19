@@ -34,6 +34,8 @@ export function renderCliHelp(): string {
     "  h2a negotiate open --json <record-json> [--root <path>]",
     "  h2a negotiate status --id <id> --status <status> [--root <path>]",
     "  h2a negotiate event --id <id> --json <payload-json> [--root <path>]",
+    "  h2a negotiate offer --id <id> --instance <id> --artifact <json> [--event-id <id>] [--root <path>]",
+    "  h2a negotiate counter --id <id> --instance <id> --artifact <json> [--event-id <id>] [--root <path>]",
     "  h2a negotiate journal --id <id> [--root <path>]",
     "  h2a inbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a inbox read --instance <id> [--root <path>]",
@@ -235,6 +237,44 @@ function cmdNegotiate(
     }
   }
 
+  if (sub === "offer" || sub === "counter") {
+    if (!flags.id || !flags.instance || !flags.artifact) {
+      streams.stderr.write(
+        `h2a negotiate ${sub}: --id <id> --instance <id> --artifact <json> required\n`
+      );
+      return 1;
+    }
+    const record = store.readNegotiation(flags.id);
+    if (!record) {
+      streams.stderr.write(`h2a negotiate ${sub}: negotiation ${flags.id} not found\n`);
+      return 1;
+    }
+    let artifact;
+    try {
+      artifact = JSON.parse(flags.artifact);
+    } catch (error) {
+      streams.stderr.write(
+        `h2a negotiate ${sub}: invalid --artifact JSON (${(error as Error).message})\n`
+      );
+      return 1;
+    }
+    const payload = {
+      id: flags["event-id"] ?? `evt-${Date.now().toString(36)}`,
+      type: sub === "offer" ? "propose" : "counter",
+      actor: { instance: flags.instance, role: "CONDUCTOR", scope: record.scope },
+      body: { artifact },
+      createdAt: new Date().toISOString()
+    } as const;
+    try {
+      const entry = store.appendNegotiationEvent(flags.id, payload);
+      streams.stdout.write(`${JSON.stringify(entry, null, 2)}\n`);
+      return 0;
+    } catch (error) {
+      streams.stderr.write(`h2a negotiate ${sub}: ${(error as Error).message}\n`);
+      return 1;
+    }
+  }
+
   if (sub === "event") {
     if (!flags.id || !flags.json) {
       streams.stderr.write("h2a negotiate event: --id <id> and --json <payload-json> required\n");
@@ -273,7 +313,7 @@ function cmdNegotiate(
   }
 
   streams.stderr.write(`Unknown negotiate subcommand: ${sub ?? "<none>"}\n`);
-  streams.stderr.write("Use one of: open, status, event, journal\n");
+  streams.stderr.write("Use one of: open, status, event, offer, counter, journal\n");
   return 1;
 }
 
