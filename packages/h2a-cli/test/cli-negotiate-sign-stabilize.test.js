@@ -87,6 +87,26 @@ test("h2a negotiate sign + stabilize: full quorum stabilizes the negotiation", (
 
     const artifact = { kind: "ENGAGEMENT", id: "engagement:001", goal: "ship-v1" };
 
+    // Stabilize now requires the winning artifact body to be present in the
+    // journal (DEC-033). Conductor:1 issues the offer before everyone signs.
+    run(
+      [
+        "negotiate",
+        "offer",
+        "--root",
+        root,
+        "--id",
+        "nego-sign",
+        "--instance",
+        signers[0].id,
+        "--artifact",
+        JSON.stringify(artifact),
+        "--event-id",
+        "evt-offer-001"
+      ],
+      dir
+    );
+
     for (const signer of signers) {
       const result = run(
         [
@@ -246,6 +266,23 @@ test("h2a negotiate stabilize is idempotently refused once stabilized", () => {
   try {
     const signers = setupWithSigners(dir, root, 2);
     const artifact = { goal: "z" };
+    // Need a journal entry carrying the artifact body so stabilize can write
+    // the fallback `artifacts/<hash>.json` file (DEC-033).
+    run(
+      [
+        "negotiate",
+        "offer",
+        "--root",
+        root,
+        "--id",
+        "nego-sign",
+        "--instance",
+        signers[0].id,
+        "--artifact",
+        JSON.stringify(artifact)
+      ],
+      dir
+    );
     for (const s of signers) {
       run(
         [

@@ -7,11 +7,12 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   appendJournalEntry,
   assertValidNegotiationState,
+  computeHash,
   createJournalEntry,
   isH2AEnvelope,
   verifyCanonical,
@@ -61,6 +62,7 @@ export interface LocalStore {
     artifactHash: string;
     signers: string[];
     finalEvent: H2AJournalEntry<unknown>;
+    artifactPath: string;
   };
   putInboxMessage(actor: string, envelope: H2AEnvelope): void;
   readInbox(actor: string): H2AEnvelope[];
@@ -73,12 +75,46 @@ function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
 }
 
+/**
+ * Compute the immutable on-disk target for a stabilized artifact (DEC-031, DEC-033).
+ * `CONTRACT`/`POLICY`/`ENGAGEMENT` get their own subtree keyed by `artifact.id`;
+ * anything else (AMENDMENT/MANDATE/AUTHORITY/ENFORCEMENT_PLAN/unknown) falls
+ * back to `<root>/artifacts/<artifactHash>.json` so write-once semantics still
+ * apply (DEC-033).
+ */
+function resolveStabilizedArtifactPath(
+  paths: LocalStorePaths,
+  artifact: unknown,
+  artifactHash: string
+): string {
+  const a = (typeof artifact === "object" && artifact !== null
+    ? (artifact as { kind?: unknown; id?: unknown })
+    : {});
+  const kind = typeof a.kind === "string" ? a.kind : undefined;
+  const id = typeof a.id === "string" ? a.id : undefined;
+
+  if (kind === "CONTRACT" && id) {
+    return join(paths.contracts, id, "contract.json");
+  }
+  if (kind === "POLICY" && id) {
+    return join(paths.policies, `${id}.json`);
+  }
+  if (kind === "ENGAGEMENT" && id) {
+    return join(paths.engagements, id, "charter.json");
+  }
+  // Fallback: hash-addressed under <root>/artifacts/. We replace ":" so the
+  // canonical "sha256:<hex>" prefix maps to a portable filename.
+  const safeHash = artifactHash.replace(/:/g, "_");
+  return join(paths.artifacts, `${safeHash}.json`);
+}
+
 function ensureLayout(paths: LocalStorePaths): void {
   ensureDir(paths.root);
   ensureDir(paths.registry);
   ensureDir(paths.contracts);
   ensureDir(paths.policies);
   ensureDir(paths.engagements);
+  ensureDir(paths.artifacts);
   ensureDir(paths.negotiations);
   ensureDir(paths.inbox);
   ensureDir(paths.outbox);
@@ -269,11 +305,52 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       );
     }
 
+    // Walk back through the journal to find the offer/counter event whose body.artifact
+    // hashes to the winning artifactHash. We then persist that artifact JSON to its
+    // immutable target file (DEC-031 + DEC-033).
+    let winningArtifact: unknown | undefined;
+    for (const entry of entries) {
+      const body = (entry as { body?: { artifact?: unknown } }).body;
+      if (!body || body.artifact === undefined) continue;
+      if (computeHash(body.artifact) === winningHash) {
+        winningArtifact = body.artifact;
+        break;
+      }
+    }
+    if (winningArtifact === undefined) {
+      throw new Error(
+        `stabilizeNegotiation: no offer/counter event matches the winning artifactHash ${winningHash}`
+      );
+    }
+
+    const artifactPath = resolveStabilizedArtifactPath(paths, winningArtifact, winningHash);
+    ensureDir(dirname(artifactPath));
+    try {
+      writeFileSync(
+        artifactPath,
+        `${JSON.stringify(winningArtifact, null, 2)}\n`,
+        { encoding: "utf8", flag: "wx" }
+      );
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException;
+      if (e.code === "EEXIST") {
+        throw new Error(
+          `stabilizeNegotiation: stabilized artifact already on disk at ${artifactPath}`
+        );
+      }
+      throw err;
+    }
+
     const finalEvent = appendNegotiationEvent(negotiationId, {
       id: options.eventId ?? `evt-stabilize-${Date.now().toString(36)}`,
       type: "event",
       actor: { instance: "h2a-cli", role: "MANDATAIRE", scope: record.scope },
-      body: { kind: "stabilized", artifactHash: winningHash, signers: record.requiredSigners },
+      body: {
+        kind: "stabilized",
+        artifactHash: winningHash,
+        signers: record.requiredSigners,
+        artifactPath
+      },
       createdAt: new Date().toISOString()
     });
 
@@ -291,7 +368,8 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       record: updated,
       artifactHash: winningHash,
       signers: record.requiredSigners,
-      finalEvent
+      finalEvent,
+      artifactPath
     };
   }
 

@@ -142,6 +142,16 @@ test("h2a_sign + h2a_stabilize: full quorum stabilizes the negotiation end-to-en
 
     const artifact = { kind: "ENGAGEMENT", id: "eng-1", goal: "ship" };
 
+    // Stabilize now requires the winning artifact to be present in the journal
+    // body (DEC-033 — immutable on-disk persistence). Add the offer event first.
+    const offer = server.callTool("h2a_offer", {
+      negotiationId: record.id,
+      instance: "conductor:01",
+      artifact,
+      eventId: "evt-offer-01"
+    });
+    assert.equal(offer.error, undefined);
+
     const sign1 = server.callTool("h2a_sign", {
       negotiationId: record.id,
       instance: "conductor:01",

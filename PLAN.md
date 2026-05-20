@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-20 (host setup adapter for Codex and Claude — `h2a host setup` verb emits/merges the MCP config snippet)
+> Last update: 2026-05-20 (stabilization now persists artifacts immutably + propagates causationId/correlationId by default — DEC-033)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -53,7 +53,7 @@
 - [ ] Encode role/authority constraints for `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`, `MANDATAIRE`
 - [ ] Add compatibility tests on canonical artifacts (cross-language fixtures)
 
-## Workpackage 20 - Local Runtime And Store (~50%)
+## Workpackage 20 - Local Runtime And Store (~70%)
 
 - [x] Document the target local-files mode
 - [x] Freeze the path convention `<root>/.h2a/...` (DEC-031, with `src/{project}/h2a/...` as named-workspace variant)
@@ -61,8 +61,8 @@
 - [x] Implement negotiation storage layout (`negotiations/<id>/journal.jsonl`, hash-chained)
 - [x] Implement journal chaining with `prevHash` (core primitive in WP-10; tampered chain detected on read)
 - [x] Implement inbox/outbox local transport (`putInboxMessage` / `readInbox` / `popInboxMessage`)
-- [ ] Wire `causationId` / `correlationId` semantics into negotiation flow
-- [ ] Enforce immutable stabilized artifacts (contracts/policies/engagements)
+- [x] Wire `causationId` / `correlationId` semantics into negotiation flow (CLI + MCP propagation: explicit flags win, otherwise inherit `causationId = previous.id` and `correlationId = previous.correlationId` — DEC-033)
+- [x] Enforce immutable stabilized artifacts (contracts/policies/engagements) (write-once `wx` flag; fallback `artifacts/<hash>.json` for AMENDMENT/MANDATE/AUTHORITY/ENFORCEMENT_PLAN — DEC-033)
 - [ ] Define concurrency / file locking behavior (currently relies on PIPE_BUF atomic appends)
 - [ ] Define migration/versioning strategy for local state
 

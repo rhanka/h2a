@@ -7,6 +7,7 @@ export interface LocalStorePaths {
   contracts: string;
   policies: string;
   engagements: string;
+  artifacts: string;
   negotiations: string;
   inbox: string;
   outbox: string;
@@ -20,6 +21,7 @@ export function localStorePaths(root: string): LocalStorePaths {
     contracts: join(root, "contracts"),
     policies: join(root, "policies"),
     engagements: join(root, "engagements"),
+    artifacts: join(root, "artifacts"),
     negotiations: join(root, "negotiations"),
     inbox: join(root, "inbox"),
     outbox: join(root, "outbox")

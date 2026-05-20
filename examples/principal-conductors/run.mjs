@@ -26,7 +26,7 @@
 
 import { generateKeyPairSync } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -235,12 +235,13 @@ async function main() {
       info(`sign ${signer}`, `seq=${signEntry.sequence} alg=${signature.alg}`);
     }
 
-    step("7. Stabilize the negotiation (quorum check + ed25519 verify)");
+    step("7. Stabilize the negotiation (quorum check + ed25519 verify + persist artifact)");
     const stab = store.stabilizeNegotiation(NEGOTIATION_ID);
     info("status", stab.record.status);
     info("winning artifactHash", stab.artifactHash);
     info("signers", stab.signers.join(", "));
     info("final event id", stab.finalEvent.id);
+    info("artifactPath", stab.artifactPath);
     info("journal length", store.readNegotiationJournal(NEGOTIATION_ID).length);
 
     if (stab.record.status !== "stabilized") {
@@ -249,6 +250,16 @@ async function main() {
     if (stab.artifactHash !== artifactHash) {
       throw new Error("winning artifactHash does not match the signed artifact");
     }
+    if (!existsSync(stab.artifactPath)) {
+      throw new Error(`stabilized artifact missing on disk at ${stab.artifactPath}`);
+    }
+    const persistedArtifact = JSON.parse(readFileSync(stab.artifactPath, "utf8"));
+    if (persistedArtifact.kind !== "ENGAGEMENT") {
+      throw new Error(
+        `expected persisted artifact kind 'ENGAGEMENT', got '${persistedArtifact.kind}'`
+      );
+    }
+    info("persisted kind", persistedArtifact.kind);
 
     step("8. Probe the MCP server (JSON-RPC 2.0 over stdio)");
     mcpChild = spawn("node", [CLI_BIN, "mcp-serve", "--root", root], {

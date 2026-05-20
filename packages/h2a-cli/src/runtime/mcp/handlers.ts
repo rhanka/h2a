@@ -145,6 +145,37 @@ interface OfferLikeArgs {
   instance?: string;
   artifact?: unknown;
   eventId?: string;
+  causationId?: string;
+  correlationId?: string;
+}
+
+/**
+ * Resolve causation/correlation for an MCP-driven journal append, mirroring
+ * the CLI semantics (DEC-033): explicit args always win, otherwise inherit
+ * from the previous journal entry — `causationId` defaults to the previous
+ * entry's `id`, `correlationId` is propagated as-is.
+ */
+function resolveChain(
+  store: LocalStore,
+  negotiationId: string,
+  explicit: { causationId?: string; correlationId?: string }
+): { causationId?: string; correlationId?: string } {
+  const entries = store.readNegotiationJournal(negotiationId);
+  const previous = entries[entries.length - 1] as
+    | { id: string; correlationId?: string }
+    | undefined;
+  const out: { causationId?: string; correlationId?: string } = {};
+  if (explicit.causationId) {
+    out.causationId = explicit.causationId;
+  } else if (previous) {
+    out.causationId = previous.id;
+  }
+  if (explicit.correlationId) {
+    out.correlationId = explicit.correlationId;
+  } else if (previous && previous.correlationId !== undefined) {
+    out.correlationId = previous.correlationId;
+  }
+  return out;
 }
 
 function handleOfferLike(
@@ -166,12 +197,17 @@ function handleOfferLike(
     return { error: `${toolName}: negotiation ${args.negotiationId} not found` };
   }
   const type = toolName === "h2a_offer" ? "propose" : "counter";
+  const chain = resolveChain(store, args.negotiationId, {
+    causationId: args.causationId,
+    correlationId: args.correlationId
+  });
   const payload: H2AJournalPayload<{ artifact: unknown }> = {
     id: args.eventId ?? `evt-${type}-${Date.now().toString(36)}`,
     type,
     actor: { instance: args.instance, role: "CONDUCTOR", scope: record.scope },
     body: { artifact: args.artifact },
-    createdAt: nowIso()
+    createdAt: nowIso(),
+    ...chain
   };
   try {
     const entry = store.appendNegotiationEvent(args.negotiationId, payload);
@@ -204,6 +240,8 @@ export function handleSign(
         artifact?: unknown;
         privateKeyPem?: string;
         eventId?: string;
+        causationId?: string;
+        correlationId?: string;
       }
     | undefined
 ): McpToolResult | McpErrorResult {
@@ -229,6 +267,10 @@ export function handleSign(
       { artifactHash },
       { by: args.instance, privateKeyPem: args.privateKeyPem }
     );
+    const chain = resolveChain(store, args.negotiationId, {
+      causationId: args.causationId,
+      correlationId: args.correlationId
+    });
     const payload: H2AJournalPayload<{
       kind: "signature";
       artifactHash: string;
@@ -238,7 +280,8 @@ export function handleSign(
       type: "event",
       actor: { instance: args.instance, role: "CONDUCTOR", scope: record.scope },
       body: { kind: "signature", artifactHash, signature },
-      createdAt: nowIso()
+      createdAt: nowIso(),
+      ...chain
     };
     const entry = store.appendNegotiationEvent(args.negotiationId, payload);
     return { entry };
@@ -260,6 +303,7 @@ export function handleStabilize(
       record: result.record,
       artifactHash: result.artifactHash,
       signers: result.signers,
+      artifactPath: result.artifactPath,
       finalEvent: { id: result.finalEvent.id, sequence: result.finalEvent.sequence }
     };
   } catch (err) {
@@ -275,6 +319,8 @@ export function handleEscalate(
         instance?: string;
         channel?: string;
         payload?: unknown;
+        causationId?: string;
+        correlationId?: string;
       }
     | undefined
 ): McpToolResult | McpErrorResult {
@@ -292,6 +338,10 @@ export function handleEscalate(
     return { error: `h2a_escalate: negotiation ${args.negotiationId} not found` };
   }
   const channel = args.channel as "advise" | "decide" | "alert";
+  const chain = resolveChain(store, args.negotiationId, {
+    causationId: args.causationId,
+    correlationId: args.correlationId
+  });
   const payload: H2AJournalPayload<{
     kind: "escalation";
     channel: "advise" | "decide" | "alert";
@@ -301,7 +351,8 @@ export function handleEscalate(
     type: "escalate",
     actor: { instance: args.instance, role: "MANDATAIRE", scope: record.scope },
     body: { kind: "escalation", channel, payload: args.payload ?? null },
-    createdAt: nowIso()
+    createdAt: nowIso(),
+    ...chain
   };
   try {
     const entry = store.appendNegotiationEvent(args.negotiationId, payload);

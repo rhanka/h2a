@@ -373,3 +373,30 @@ Implémentation guidée par tests (TDD) ; pas de runtime local-files ni MCP avan
 **Pourquoi** : V1 cible un seul utilisateur sur sa machine (DEC-026, RUNTIME_PROPOSAL). Empiler de l'auth transport sur un store local-files single-user serait du gold-plating. La sécurité opérationnelle repose sur (a) les permissions filesystem, (b) la signature ed25519 des artefacts dans le journal, (c) la détection d'incohérence à la stabilization.
 
 **Conséquence** : tout déploiement multi-utilisateur ou réseau exigera **DEC-V2** définissant un transport sécurisé (mTLS, bearer signé, etc.). Pas de chemin de mise à niveau caché dans le code V1.
+
+## DEC-033 — Persistance immutable des artefacts stabilisés + propagation causationId/correlationId par défaut
+**Date** : 2026-05-20. **Réfère** : DEC-031, WP-20.
+
+**Décision** : à la stabilization d'une négociation, le runtime local-files :
+
+1. **Retrouve l'artefact gagnant** en parcourant le journal pour trouver l'événement `offer`/`counter` dont `computeHash(body.artifact)` est égal au `winningHash` (le hash signé par le quorum). Si aucun événement ne correspond, la stabilization échoue (`stabilizeNegotiation: no offer/counter event matches the winning artifactHash <hash>`).
+2. **Écrit l'artefact en write-once** dans l'arborescence immutable de DEC-031 selon `artifact.kind` :
+   - `CONTRACT` → `<root>/contracts/<artifact.id>/contract.json`
+   - `POLICY` → `<root>/policies/<artifact.id>.json`
+   - `ENGAGEMENT` → `<root>/engagements/<artifact.id>/charter.json`
+   - **Fallback** (toute autre `kind` ou `kind` manquante : `AMENDMENT`, `MANDATE`, `AUTHORITY`, `ENFORCEMENT_PLAN`, etc.) → `<root>/artifacts/<sha256_…>.json`, addressé par son hash canonique (les `:` du `sha256:` sont remplacés par `_` pour produire un nom de fichier portable).
+3. Refuse l'écriture si le fichier cible existe déjà (`writeFileSync(..., { flag: "wx" })`) : la stabilization rapporte `stabilizeNegotiation: stabilized artifact already on disk at <path>`. L'identifiant d'un artefact (`<kind>:<id>`) est donc unique à l'échelle du store ; deux négociations ne peuvent pas matérialiser le même `id` sans collision détectée.
+4. Renvoie le chemin d'écriture dans `artifactPath` (exposé via `LocalStore.stabilizeNegotiation`, `h2a negotiate stabilize` et `h2a_stabilize` MCP), et l'inscrit dans l'événement `stabilized` du journal.
+
+**Pourquoi (write-once)** : (a) preuve d'audit minimale — un artefact stabilisé ne change plus jamais sur disque, ce qui rend `cat <root>/contracts/<id>/contract.json` une source de vérité reproductible ; (b) défense en profondeur contre les bugs/race conditions qui réécriraient l'artefact à un hash divergent du contenu déjà stocké ; (c) le détail de l'erreur expose immédiatement la collision plutôt que de l'enfouir.
+
+**Pourquoi (fallback `artifacts/`)** : DEC-031 a figé les sous-arborescences pour `CONTRACT` / `POLICY` / `ENGAGEMENT`, mais le vocabulaire (DEC-018, DEC-019) déclare aussi `AMENDMENT`, `MANDATE`, `AUTHORITY`, `ENFORCEMENT_PLAN`. Plutôt que d'attendre qu'on leur invente un sous-arbre dédié, le fallback hash-adressé garantit que tout artefact signé+stabilisé reçoit dès aujourd'hui un emplacement immutable et grep-friendly.
+
+**Décision (causation/correlation)** : les flags CLI `--causation-id` / `--correlation-id` sont acceptés par `h2a negotiate offer / counter / sign / event`, mirorrés dans les tools MCP `h2a_offer / h2a_counteroffer / h2a_sign / h2a_escalate`. **Par défaut**, sans flag explicite, chaque nouvel événement journal hérite :
+
+- `causationId ← previous.id` — chaque événement est causé par celui qui le précède dans le journal, formant une chaîne de causalité parallèle à `prevHash`.
+- `correlationId ← previous.correlationId` — la négociation est, par convention, **un seul thread de corrélation** ; la valeur n'est jamais inventée, elle est seulement propagée si elle a été posée explicitement à un événement précédent.
+
+**Pourquoi (thread = négociation)** : on évite à V1 de réinventer un identifiant de conversation orthogonal à `negotiationId`. Quand un appelant veut explicitement coudre plusieurs négociations dans le même thread (ex. orchestration multi-engagement par un PRINCIPAL), il passe `--correlation-id <thread>` à la première `offer` et tous les événements suivants l'héritent automatiquement. À l'inverse, un événement explicite (`--causation-id manual`) peut casser la chaîne — utile pour signaler une bifurcation côté audit.
+
+**Conséquence** : aucun changement de schéma pour V1 — `H2AJournalPayload` déclarait déjà ces deux champs (DEC-031 a fixé le layout, pas la sémantique de propagation). Cette DEC fige la sémantique d'inhéritance ; tout code consommateur peut désormais s'appuyer sur le fait que la `causationId` est non-vide pour tout événement autre que le premier d'une négociation.

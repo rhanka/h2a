@@ -37,12 +37,18 @@ export function renderCliHelp(): string {
     "  h2a discover [--role <role>] [--scope <scope>] [--root <path>]",
     "  h2a negotiate open --json <record-json> [--root <path>]",
     "  h2a negotiate status --id <id> --status <status> [--root <path>]",
-    "  h2a negotiate event --id <id> --json <payload-json> [--root <path>]",
-    "  h2a negotiate offer --id <id> --instance <id> --artifact <json> [--event-id <id>] [--root <path>]",
-    "  h2a negotiate counter --id <id> --instance <id> --artifact <json> [--event-id <id>] [--root <path>]",
-    "  h2a negotiate sign --id <id> --instance <id> --artifact <json> --private-key <pem-path> [--event-id <id>] [--root <path>]",
+    "  h2a negotiate event --id <id> --json <payload-json> [--causation-id <id>] [--correlation-id <id>] [--root <path>]",
+    "  h2a negotiate offer --id <id> --instance <id> --artifact <json> [--event-id <id>] [--causation-id <id>] [--correlation-id <id>] [--root <path>]",
+    "  h2a negotiate counter --id <id> --instance <id> --artifact <json> [--event-id <id>] [--causation-id <id>] [--correlation-id <id>] [--root <path>]",
+    "  h2a negotiate sign --id <id> --instance <id> --artifact <json> --private-key <pem-path> [--event-id <id>] [--causation-id <id>] [--correlation-id <id>] [--root <path>]",
     "  h2a negotiate stabilize --id <id> [--event-id <id>] [--root <path>]",
     "  h2a negotiate journal --id <id> [--root <path>]",
+    "",
+    "Auto-propagation (DEC-033):",
+    "  offer/counter/sign/event inherit causationId from the previous journal",
+    "  entry's id, and correlationId from the previous entry's correlationId.",
+    "  Explicit --causation-id / --correlation-id flags always override the",
+    "  inherited default; pass them on the first offer to start a fresh thread.",
     "  h2a inbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a inbox read --instance <id> [--root <path>]",
     "  h2a inbox pop --instance <id> --envelope <id> [--root <path>]",
@@ -83,6 +89,35 @@ function parseFlags(argv: readonly string[]): ParsedFlags {
 function resolveRoot(flags: Record<string, string>, cwd: () => string): string {
   if (flags.root) return flags.root;
   return join(cwd(), ".h2a");
+}
+
+/**
+ * Resolve `causationId` / `correlationId` for a new negotiation event.
+ *
+ * - Explicit `--causation-id` / `--correlation-id` flags always win.
+ * - Otherwise, the values are inherited from the **previous journal entry**
+ *   on the same negotiation (DEC-033): `causationId` defaults to the previous
+ *   entry's `id`, `correlationId` is propagated as-is so the whole negotiation
+ *   acts as a single correlation thread by default.
+ */
+function resolveCausationCorrelation(
+  flags: Record<string, string>,
+  previous: { id: string; correlationId?: string } | undefined
+): { causationId?: string; correlationId?: string } {
+  const explicitCausation = flags["causation-id"];
+  const explicitCorrelation = flags["correlation-id"];
+  const out: { causationId?: string; correlationId?: string } = {};
+  if (explicitCausation) {
+    out.causationId = explicitCausation;
+  } else if (previous) {
+    out.causationId = previous.id;
+  }
+  if (explicitCorrelation) {
+    out.correlationId = explicitCorrelation;
+  } else if (previous && previous.correlationId !== undefined) {
+    out.correlationId = previous.correlationId;
+  }
+  return out;
 }
 
 function cmdInit(flags: Record<string, string>, streams: H2ACliStreams): number {
@@ -266,12 +301,18 @@ function cmdNegotiate(
       );
       return 1;
     }
+    const existing = store.readNegotiationJournal(flags.id);
+    const previous = existing[existing.length - 1] as
+      | { id: string; correlationId?: string }
+      | undefined;
+    const chain = resolveCausationCorrelation(flags, previous);
     const payload = {
       id: flags["event-id"] ?? `evt-${Date.now().toString(36)}`,
       type: sub === "offer" ? "propose" : "counter",
       actor: { instance: flags.instance, role: "CONDUCTOR", scope: record.scope },
       body: { artifact },
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      ...chain
     } as const;
     try {
       const entry = store.appendNegotiationEvent(flags.id, payload);
@@ -315,12 +356,18 @@ function cmdNegotiate(
     }
     const artifactHash = computeHash(artifact);
     const signature = signCanonical({ artifactHash }, { by: flags.instance, privateKeyPem });
+    const existingForSign = store.readNegotiationJournal(flags.id);
+    const previousForSign = existingForSign[existingForSign.length - 1] as
+      | { id: string; correlationId?: string }
+      | undefined;
+    const signChain = resolveCausationCorrelation(flags, previousForSign);
     const payload = {
       id: flags["event-id"] ?? `evt-sign-${Date.now().toString(36)}`,
       type: "event" as const,
       actor: { instance: flags.instance, role: "CONDUCTOR" as const, scope: record.scope },
       body: { kind: "signature", artifactHash, signature },
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      ...signChain
     };
     try {
       const entry = store.appendNegotiationEvent(flags.id, payload);
@@ -346,6 +393,7 @@ function cmdNegotiate(
             record: result.record,
             artifactHash: result.artifactHash,
             signers: result.signers,
+            artifactPath: result.artifactPath,
             finalEvent: { id: result.finalEvent.id, sequence: result.finalEvent.sequence }
           },
           null,
@@ -371,6 +419,16 @@ function cmdNegotiate(
       streams.stderr.write(`h2a negotiate event: invalid JSON (${(error as Error).message})\n`);
       return 1;
     }
+    const existingForEvent = store.readNegotiationJournal(flags.id);
+    const previousForEvent = existingForEvent[existingForEvent.length - 1] as
+      | { id: string; correlationId?: string }
+      | undefined;
+    const eventChain = resolveCausationCorrelation(flags, previousForEvent);
+    // Explicit fields inside the user-supplied payload always take precedence
+    // over the CLI-resolved defaults: this preserves the existing "just append
+    // whatever JSON I gave you" contract while still adding the chain when the
+    // user did not opt in.
+    payload = { ...eventChain, ...payload };
     try {
       const entry = store.appendNegotiationEvent(flags.id, payload);
       streams.stdout.write(`${JSON.stringify(entry, null, 2)}\n`);

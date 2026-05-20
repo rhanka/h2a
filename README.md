@@ -16,14 +16,16 @@ h2a init [--root <path>]
 h2a register --json <registration-json> [--root <path>]
 h2a discover [--role <role>] [--scope <scope>] [--root <path>]
 
-# négociation
+# négociation (offer/counter/sign/event acceptent aussi --causation-id / --correlation-id ;
+# par défaut, chaque événement hérite causationId = id de l'événement précédent
+# et correlationId = correlationId précédent — DEC-033)
 h2a negotiate open --json <record-json> [--root <path>]
 h2a negotiate status --id <id> --status <status> [--root <path>]
-h2a negotiate event --id <id> --json <payload-json> [--root <path>]
-h2a negotiate offer --id <id> --instance <id> --artifact <json> [--event-id <id>] [--root <path>]
-h2a negotiate counter --id <id> --instance <id> --artifact <json> [--event-id <id>] [--root <path>]
-h2a negotiate sign --id <id> --instance <id> --artifact <json> --private-key <pem-path> [--event-id <id>] [--root <path>]
-h2a negotiate stabilize --id <id> [--event-id <id>] [--root <path>]
+h2a negotiate event --id <id> --json <payload-json> [--causation-id <id>] [--correlation-id <id>] [--root <path>]
+h2a negotiate offer --id <id> --instance <id> --artifact <json> [--event-id <id>] [--causation-id <id>] [--correlation-id <id>] [--root <path>]
+h2a negotiate counter --id <id> --instance <id> --artifact <json> [--event-id <id>] [--causation-id <id>] [--correlation-id <id>] [--root <path>]
+h2a negotiate sign --id <id> --instance <id> --artifact <json> --private-key <pem-path> [--event-id <id>] [--causation-id <id>] [--correlation-id <id>] [--root <path>]
+h2a negotiate stabilize --id <id> [--event-id <id>] [--root <path>]   # persiste l'artefact gagnant en write-once sous contracts/, policies/, engagements/ ou artifacts/<hash>.json (DEC-033), retourne `artifactPath`
 h2a negotiate journal --id <id> [--root <path>]
 
 # mailboxes
@@ -45,7 +47,9 @@ h2a host setup --host <codex|claude> [--root <path>] [--print | --write <file>] 
 - **`examples/principal-conductors/`** — démo runnable de bout en bout du
   cas `1 PRINCIPAL / 15 CONDUCTORS` : génère 16 paires `ed25519`, enregistre
   les 16 instances, ouvre une négociation avec quorum 3 sur 15, signe et
-  stabilise, puis interroge le serveur MCP en JSON-RPC sur stdio.
+  stabilise (affiche le `artifactPath` immutable et relit le fichier sur
+  disque pour confirmer `kind = ENGAGEMENT`, DEC-033), puis interroge le
+  serveur MCP en JSON-RPC sur stdio.
   Lancer via `./examples/principal-conductors/run.sh` (build + run) ou
   directement `node examples/principal-conductors/run.mjs` une fois le
   workspace buildé. Voir [`examples/principal-conductors/README.md`](./examples/principal-conductors/README.md).
