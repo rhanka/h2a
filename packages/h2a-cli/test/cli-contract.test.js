@@ -381,6 +381,8 @@ function buildHappyArgv(verb, ctx) {
       return null;
     case "host setup":
       return ["host", "setup", "--host", "codex", "--print"];
+    case "store migrate":
+      return ["store", "migrate", "--root", root];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -410,7 +412,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "outbox put",
     "outbox read",
     "mcp-serve",
-    "host setup"
+    "host setup",
+    "store migrate"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {

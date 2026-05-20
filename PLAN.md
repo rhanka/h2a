@@ -1,12 +1,12 @@
 # H2A Project Plan
 
-> Last update: 2026-05-20 (Matrice d'autorité de signature exécutable + fixtures canoniques cross-langage — DEC-035 ; WP-10 100%)
+> Last update: 2026-05-20 (Verrous fichier advisory + version de schéma store local-files — DEC-036 ; WP-20 100%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
 ## Snapshot
 
-- Overall estimated progress: ~70%
+- Overall estimated progress: ~73%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
@@ -53,7 +53,7 @@
 - [x] Encode role/authority constraints for `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`, `MANDATAIRE` (DEC-035 : `H2A_AUTHORITY_MATRIX` + `canSignArtifactKind` ; appliquée par `stabilizeNegotiation`)
 - [x] Add compatibility tests on canonical artifacts (cross-language fixtures) (DEC-035 : `packages/h2a/fixtures/` + `manifest.json` + `H2A_CANONICAL_FIXTURES`)
 
-## Workpackage 20 - Local Runtime And Store (~70%)
+## Workpackage 20 - Local Runtime And Store (~100%)
 
 - [x] Document the target local-files mode
 - [x] Freeze the path convention `<root>/.h2a/...` (DEC-031, with `src/{project}/h2a/...` as named-workspace variant)
@@ -63,8 +63,8 @@
 - [x] Implement inbox/outbox local transport (`putInboxMessage` / `readInbox` / `popInboxMessage`)
 - [x] Wire `causationId` / `correlationId` semantics into negotiation flow (CLI + MCP propagation: explicit flags win, otherwise inherit `causationId = previous.id` and `correlationId = previous.correlationId` — DEC-033)
 - [x] Enforce immutable stabilized artifacts (contracts/policies/engagements) (write-once `wx` flag; fallback `artifacts/<hash>.json` for AMENDMENT/MANDATE/AUTHORITY/ENFORCEMENT_PLAN — DEC-033)
-- [ ] Define concurrency / file locking behavior (currently relies on PIPE_BUF atomic appends)
-- [ ] Define migration/versioning strategy for local state
+- [x] Define concurrency / file locking behavior (advisory `.lock` files par section critique, recovery PID-staleness, `LockTimeoutError`, knob `createLocalStore({lockTimeoutMs})` — DEC-036)
+- [x] Define migration/versioning strategy for local state (`<root>/.h2a-schema.json` v1 + `H2A_STORE_SCHEMA_VERSION`, `StoreSchemaMismatchError`, verbe `h2a store migrate` — DEC-036)
 
 ## Workpackage 30 - `h2a-cli` Surface (~100%)
 

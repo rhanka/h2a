@@ -46,7 +46,10 @@ import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
 import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
-import { createLocalStore } from "./runtime/local-files/index.js";
+import {
+  H2A_STORE_SCHEMA_VERSION,
+  createLocalStore
+} from "./runtime/local-files/index.js";
 import { runMcpStdio } from "./runtime/mcp/index.js";
 
 /**
@@ -120,6 +123,7 @@ export function renderCliHelp(): string {
     "  h2a outbox read --instance <id> [--root <path>]",
     "  h2a mcp-serve [--root <path>]",
     "  h2a host setup --host <codex|claude> [--root <path>] [--print | --write <file>] [--force]",
+    "  h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]",
     "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
     `MCP tools: ${H2A_CLI_MCP_TOOL_NAMES.join(", ")}`
@@ -731,6 +735,64 @@ function cmdHost(argv: readonly string[], streams: H2ACliStreams): number {
   return 1;
 }
 
+function cmdStoreMigrate(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const from = flags.from ?? H2A_STORE_SCHEMA_VERSION;
+  const to = flags.to ?? H2A_STORE_SCHEMA_VERSION;
+  const dryRun = flags["dry-run"] === "true";
+
+  const KNOWN_VERSIONS: readonly string[] = [H2A_STORE_SCHEMA_VERSION];
+  if (!KNOWN_VERSIONS.includes(from)) {
+    streams.stderr.write(
+      `h2a store migrate: unknown --from version "${from}". Known versions: ${KNOWN_VERSIONS.join(",")}\n`
+    );
+    return 1;
+  }
+  if (!KNOWN_VERSIONS.includes(to)) {
+    streams.stderr.write(
+      `h2a store migrate: unknown --to version "${to}". Known versions: ${KNOWN_VERSIONS.join(",")}\n`
+    );
+    return 1;
+  }
+
+  // V1 → V1: no-op. Future bumps will branch here.
+  if (from === H2A_STORE_SCHEMA_VERSION && to === H2A_STORE_SCHEMA_VERSION) {
+    streams.stdout.write(
+      `${JSON.stringify(
+        {
+          ok: true,
+          fromVersion: from,
+          toVersion: to,
+          changed: false,
+          dryRun,
+          root
+        },
+        null,
+        2
+      )}\n`
+    );
+    return 0;
+  }
+
+  // Unreachable today (only one known version) — kept for future ramps.
+  streams.stderr.write(
+    `h2a store migrate: no migration registered for ${from} → ${to}\n`
+  );
+  return 1;
+}
+
+function cmdStore(argv: readonly string[], streams: H2ACliStreams): number {
+  const { command: sub, flags } = parseFlags(argv);
+  if (sub === "migrate") return cmdStoreMigrate(flags, streams);
+  streams.stderr.write(`Unknown store subcommand: ${sub ?? "<none>"}\n`);
+  streams.stderr.write("Use: h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]\n");
+  return 1;
+}
+
 function cmdDiscover(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -782,6 +844,7 @@ export function runCli(
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);
   if (command === "host") return cmdHost(argv.slice(1), streams);
+  if (command === "store") return cmdStore(argv.slice(1), streams);
 
   streams.stderr.write(`Unknown command: ${command}\n`);
   streams.stderr.write("Run `h2a --help`.\n");

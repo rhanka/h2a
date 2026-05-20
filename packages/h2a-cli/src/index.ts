@@ -28,15 +28,24 @@ export {
 } from "./cli-contract.js";
 
 export {
+  H2A_STORE_SCHEMA_FILE,
+  H2A_STORE_SCHEMA_VERSION,
+  LockTimeoutError,
+  StoreSchemaMismatchError,
   createLocalStore,
   inboxDir,
   localStorePaths,
   negotiationDir,
   negotiationJournalFile,
   outboxDir,
+  withLock,
+  withLockSync,
   type CreateLocalStoreOptions,
+  type H2AStoreSchemaSentinel,
   type LocalStore,
-  type LocalStorePaths
+  type LocalStorePaths,
+  type LockOwner,
+  type WithLockOptions
 } from "./runtime/local-files/index.js";
 
 export {

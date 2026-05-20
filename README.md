@@ -56,6 +56,30 @@ programmatique stable du CLI :
 Toute évolution rétro-incompatible exige une nouvelle DEC + un bump majeur de
 `@sentropic/h2a-cli`.
 
+### Concurrence et migration (DEC-036)
+
+- **Verrouillage advisory** : chaque section critique read-then-write du
+  store (`registerInstance`, `appendNegotiationEvent`, `openNegotiation`,
+  `updateNegotiationStatus`, `stabilizeNegotiation`, `put*` / `pop*`
+  inbox/outbox) acquiert un fichier sentinelle `.lock` créé en mode
+  `O_CREAT|O_EXCL`. Un verrou orphelin référant un PID mort sur la même
+  machine est détecté et récupéré automatiquement ; sinon le store
+  attend jusqu'à `lockTimeoutMs` (défaut 5000 ms) puis lève
+  `LockTimeoutError`. Le knob est exposé via
+  `createLocalStore({ root, lockTimeoutMs })`. **Périmètre** :
+  coordination *same-machine* uniquement ; le partage cross-host d'un
+  même `<root>` reste hors V1.
+- **Version de schéma** : tout store nouvellement créé écrit
+  `<root>/.h2a-schema.json` avec `version="1"` + `createdAt` + `createdBy`.
+  Ouvrir un store dont la version est inconnue lève
+  `StoreSchemaMismatchError`. L'option de secours
+  `createLocalStore({ root, allowVersionMismatch: true })` permet une
+  inspection read-only en émettant un *warning* stderr et sans
+  réécriture de la sentinelle. Le verbe `h2a store migrate
+  [--from <v>] [--to <v>] [--dry-run] [--root <path>]` couvre la
+  rampe ; V1→V1 est un no-op (`changed:false`), toute version inconnue
+  retourne 1 avec un message clair.
+
 ### Compatibilité cross-langage (DEC-035)
 
 - **Matrice d'autorité** : `H2A_AUTHORITY_MATRIX` (re-exporté par

@@ -30,6 +30,7 @@ import {
   type H2ASignature
 } from "@sentropic/h2a";
 
+import { withLockSync } from "./locks.js";
 import {
   inboxDir,
   localStorePaths,
@@ -38,9 +39,28 @@ import {
   outboxDir,
   type LocalStorePaths
 } from "./paths.js";
+import {
+  H2A_STORE_SCHEMA_FILE,
+  H2A_STORE_SCHEMA_VERSION,
+  StoreSchemaMismatchError,
+  readCliPackageVersion,
+  type H2AStoreSchemaSentinel
+} from "./schema.js";
 
 export interface CreateLocalStoreOptions {
   root: string;
+  /**
+   * Timeout (ms) for acquiring any per-store advisory file lock. Defaults to
+   * 5000. Tests use a much smaller value to exercise the timeout path
+   * without slowing the suite. DEC-036.
+   */
+  lockTimeoutMs?: number;
+  /**
+   * Read-only escape hatch: if the on-disk `.h2a-schema.json` declares a
+   * version we don't recognize, proceed anyway with a stderr warning. Never
+   * rewrites the sentinel. Intended for inspection tooling. DEC-036.
+   */
+  allowVersionMismatch?: boolean;
 }
 
 export interface LocalStore {
@@ -142,13 +162,66 @@ function appendJsonl(file: string, value: unknown): void {
   appendFileSync(file, `${JSON.stringify(value)}\n`, { encoding: "utf8" });
 }
 
+/**
+ * Initialize or validate the schema sentinel for a store root (DEC-036).
+ * Returns silently on success; throws `StoreSchemaMismatchError` if the
+ * on-disk version is unknown and `allowVersionMismatch` is false.
+ */
+function ensureSchemaSentinel(
+  root: string,
+  options: { allowVersionMismatch: boolean }
+): void {
+  const sentinelPath = join(root, H2A_STORE_SCHEMA_FILE);
+  if (!existsSync(sentinelPath)) {
+    const payload: H2AStoreSchemaSentinel = {
+      version: H2A_STORE_SCHEMA_VERSION,
+      createdAt: new Date().toISOString(),
+      createdBy: readCliPackageVersion()
+    };
+    writeFileSync(sentinelPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    return;
+  }
+
+  let parsed: Partial<H2AStoreSchemaSentinel>;
+  try {
+    parsed = JSON.parse(readFileSync(sentinelPath, "utf8")) as Partial<H2AStoreSchemaSentinel>;
+  } catch (err) {
+    throw new StoreSchemaMismatchError(
+      "<unparseable>",
+      H2A_STORE_SCHEMA_VERSION,
+      root
+    );
+  }
+  const found = typeof parsed.version === "string" ? parsed.version : "<missing>";
+  if (found === H2A_STORE_SCHEMA_VERSION) return;
+
+  if (options.allowVersionMismatch) {
+    process.stderr.write(
+      `h2a store: schema version mismatch at ${root} (found "${found}", expected "${H2A_STORE_SCHEMA_VERSION}"); proceeding read-only because allowVersionMismatch=true (DEC-036)\n`
+    );
+    return;
+  }
+  throw new StoreSchemaMismatchError(found, H2A_STORE_SCHEMA_VERSION, root);
+}
+
 export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   const paths = localStorePaths(options.root);
   ensureLayout(paths);
+  ensureSchemaSentinel(paths.root, {
+    allowVersionMismatch: options.allowVersionMismatch === true
+  });
 
   if (!existsSync(paths.instances)) {
     writeFileSync(paths.instances, "", { encoding: "utf8" });
   }
+
+  const lockTimeoutMs = options.lockTimeoutMs ?? 5000;
+  const lockOpts = { timeoutMs: lockTimeoutMs };
+
+  const registryLock = join(paths.registry, ".lock");
+  const negotiationLock = (id: string): string => join(negotiationDir(paths, id), ".lock");
+  const inboxLock = (actor: string): string => join(inboxDir(paths, actor), ".lock");
+  const outboxLock = (actor: string): string => join(outboxDir(paths, actor), ".lock");
 
   function listInstances(): H2AActorRegistration[] {
     return readJsonl<H2AActorRegistration>(paths.instances);
@@ -159,10 +232,16 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function registerInstance(reg: H2AActorRegistration): void {
-    if (findInstance(reg.id)) {
-      throw new Error(`Instance already registered: ${reg.id}`);
-    }
-    appendJsonl(paths.instances, reg);
+    withLockSync(
+      registryLock,
+      () => {
+        if (findInstance(reg.id)) {
+          throw new Error(`Instance already registered: ${reg.id}`);
+        }
+        appendJsonl(paths.instances, reg);
+      },
+      lockOpts
+    );
   }
 
   function negotiationStateFile(id: string): string {
@@ -172,12 +251,18 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   function openNegotiation(record: H2ANegotiationRecord): H2ANegotiationRecord {
     assertValidNegotiationState(record.status);
     ensureDir(negotiationDir(paths, record.id));
-    const file = negotiationStateFile(record.id);
-    if (existsSync(file)) {
-      throw new Error(`Negotiation already open: ${record.id}`);
-    }
-    writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`, "utf8");
-    return record;
+    return withLockSync(
+      negotiationLock(record.id),
+      () => {
+        const file = negotiationStateFile(record.id);
+        if (existsSync(file)) {
+          throw new Error(`Negotiation already open: ${record.id}`);
+        }
+        writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+        return record;
+      },
+      lockOpts
+    );
   }
 
   function readNegotiation(id: string): H2ANegotiationRecord | undefined {
@@ -190,21 +275,28 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     id: string,
     status: H2ANegotiationRecord["status"]
   ): H2ANegotiationRecord {
-    const current = readNegotiation(id);
-    if (!current) {
-      throw new Error(`Negotiation not found: ${id}`);
-    }
     assertValidNegotiationState(status);
-    const updated: H2ANegotiationRecord = { ...current, status };
-    writeFileSync(
-      negotiationStateFile(id),
-      `${JSON.stringify(updated, null, 2)}\n`,
-      "utf8"
+    ensureDir(negotiationDir(paths, id));
+    return withLockSync(
+      negotiationLock(id),
+      () => {
+        const current = readNegotiation(id);
+        if (!current) {
+          throw new Error(`Negotiation not found: ${id}`);
+        }
+        const updated: H2ANegotiationRecord = { ...current, status };
+        writeFileSync(
+          negotiationStateFile(id),
+          `${JSON.stringify(updated, null, 2)}\n`,
+          "utf8"
+        );
+        return updated;
+      },
+      lockOpts
     );
-    return updated;
   }
 
-  function readNegotiationJournal(
+  function readNegotiationJournalUnlocked(
     negotiationId: string
   ): H2AJournalEntry<unknown>[] {
     const file = negotiationJournalFile(paths, negotiationId);
@@ -219,196 +311,225 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     return entries;
   }
 
+  function readNegotiationJournal(
+    negotiationId: string
+  ): H2AJournalEntry<unknown>[] {
+    return readNegotiationJournalUnlocked(negotiationId);
+  }
+
   function appendNegotiationEvent<TBody>(
     negotiationId: string,
     payload: H2AJournalPayload<TBody>
   ): H2AJournalEntry<TBody> {
     ensureDir(negotiationDir(paths, negotiationId));
-    const file = negotiationJournalFile(paths, negotiationId);
-    const existing = readNegotiationJournal(negotiationId);
-    const previous = existing[existing.length - 1];
-    const entry = previous
-      ? appendJournalEntry(previous, payload)
-      : createJournalEntry(payload);
-    appendJsonl(file, entry);
-    return entry;
+    return withLockSync(
+      negotiationLock(negotiationId),
+      () => {
+        const file = negotiationJournalFile(paths, negotiationId);
+        const existing = readNegotiationJournalUnlocked(negotiationId);
+        const previous = existing[existing.length - 1];
+        const entry = previous
+          ? appendJournalEntry(previous, payload)
+          : createJournalEntry(payload);
+        appendJsonl(file, entry);
+        return entry;
+      },
+      lockOpts
+    );
   }
 
   function stabilizeNegotiation(
     negotiationId: string,
     options: { eventId?: string } = {}
   ) {
-    const record = readNegotiation(negotiationId);
-    if (!record) {
-      throw new Error(`Negotiation not found: ${negotiationId}`);
-    }
-    if (record.status === "stabilized") {
-      throw new Error(`Negotiation already stabilized: ${negotiationId}`);
-    }
-    if (!Array.isArray(record.requiredSigners) || record.requiredSigners.length === 0) {
-      throw new Error(`Negotiation ${negotiationId} has no requiredSigners`);
-    }
+    ensureDir(negotiationDir(paths, negotiationId));
+    return withLockSync(
+      negotiationLock(negotiationId),
+      () => {
+        const record = readNegotiation(negotiationId);
+        if (!record) {
+          throw new Error(`Negotiation not found: ${negotiationId}`);
+        }
+        if (record.status === "stabilized") {
+          throw new Error(`Negotiation already stabilized: ${negotiationId}`);
+        }
+        if (!Array.isArray(record.requiredSigners) || record.requiredSigners.length === 0) {
+          throw new Error(`Negotiation ${negotiationId} has no requiredSigners`);
+        }
 
-    const entries = readNegotiationJournal(negotiationId);
+        const entries = readNegotiationJournalUnlocked(negotiationId);
 
-    const byHash = new Map<string, Map<string, H2ASignature>>();
-    for (const entry of entries) {
-      const body = (entry as { body?: { kind?: string; artifactHash?: string; signature?: H2ASignature } }).body;
-      if (!body || body.kind !== "signature") continue;
-      if (typeof body.artifactHash !== "string" || !body.signature) continue;
+        const byHash = new Map<string, Map<string, H2ASignature>>();
+        for (const entry of entries) {
+          const body = (entry as { body?: { kind?: string; artifactHash?: string; signature?: H2ASignature } }).body;
+          if (!body || body.kind !== "signature") continue;
+          if (typeof body.artifactHash !== "string" || !body.signature) continue;
 
-      const signer = entry.actor.instance;
-      const sig = body.signature;
-      if (sig.by !== signer) {
-        throw new Error(
-          `Negotiation ${negotiationId}: signature by ${sig.by} does not match actor.instance ${signer}`
-        );
-      }
-
-      const registration = findInstance(signer);
-      if (!registration) {
-        throw new Error(`Negotiation ${negotiationId}: signer ${signer} is not registered`);
-      }
-      const keys = registration.publicKeys ?? [];
-      if (keys.length === 0) {
-        throw new Error(
-          `Negotiation ${negotiationId}: signer ${signer} has no publicKeys in the registry`
-        );
-      }
-
-      const verified = keys.some((pem) =>
-        verifyCanonical({ artifactHash: body.artifactHash }, sig, pem)
-      );
-      if (!verified) {
-        throw new Error(
-          `Negotiation ${negotiationId}: signature by ${signer} fails verification against registered keys`
-        );
-      }
-
-      const bucket = byHash.get(body.artifactHash) ?? new Map<string, H2ASignature>();
-      bucket.set(signer, sig);
-      byHash.set(body.artifactHash, bucket);
-    }
-
-    const required = new Set(record.requiredSigners);
-    let winningHash: string | undefined;
-    for (const [hash, bucket] of byHash) {
-      const have = new Set(bucket.keys());
-      const allPresent = [...required].every((id) => have.has(id));
-      if (allPresent) {
-        winningHash = hash;
-        break;
-      }
-    }
-
-    if (!winningHash) {
-      const summary = [...byHash].map(
-        ([hash, bucket]) => `${hash} signed by ${[...bucket.keys()].join(",")}`
-      );
-      throw new Error(
-        `Negotiation ${negotiationId}: no artifactHash has the full quorum (${record.requiredSigners.join(",")}). Collected: ${summary.join(" | ")}`
-      );
-    }
-
-    // Walk back through the journal to find the offer/counter event whose body.artifact
-    // hashes to the winning artifactHash. We then persist that artifact JSON to its
-    // immutable target file (DEC-031 + DEC-033).
-    let winningArtifact: unknown | undefined;
-    for (const entry of entries) {
-      const body = (entry as { body?: { artifact?: unknown } }).body;
-      if (!body || body.artifact === undefined) continue;
-      if (computeHash(body.artifact) === winningHash) {
-        winningArtifact = body.artifact;
-        break;
-      }
-    }
-    if (winningArtifact === undefined) {
-      throw new Error(
-        `stabilizeNegotiation: no offer/counter event matches the winning artifactHash ${winningHash}`
-      );
-    }
-
-    // Authority check (DEC-035): every signer of the winning artifactHash
-    // must hold at least one role allowed by H2A_AUTHORITY_MATRIX for the
-    // artifact's declared kind. Unknown/missing kinds emit a stderr warning
-    // and skip the check (V1 permissive on extension).
-    const winningKind = (typeof winningArtifact === "object" && winningArtifact !== null
-      ? ((winningArtifact as { kind?: unknown }).kind as unknown)
-      : undefined);
-    const knownKind =
-      typeof winningKind === "string" &&
-      (H2A_ARTIFACT_KINDS as readonly string[]).includes(winningKind)
-        ? (winningKind as H2AArtifactKind)
-        : undefined;
-
-    if (knownKind) {
-      const signersBucket = byHash.get(winningHash);
-      if (signersBucket) {
-        for (const signer of signersBucket.keys()) {
-          const reg = findInstance(signer);
-          const roles: H2ARole[] = (reg?.roles ?? []) as H2ARole[];
-          const allowed = roles.some((role) => canSignArtifactKind(role, knownKind));
-          if (!allowed) {
+          const signer = entry.actor.instance;
+          const sig = body.signature;
+          if (sig.by !== signer) {
             throw new Error(
-              `Negotiation ${negotiationId}: signer ${signer} is not authorized to sign artifact kind ${knownKind} (roles: [${roles.join(",")}]); allowed roles: [${H2A_AUTHORITY_MATRIX[knownKind].roles.join(",")}]`
+              `Negotiation ${negotiationId}: signature by ${sig.by} does not match actor.instance ${signer}`
             );
           }
+
+          const registration = findInstance(signer);
+          if (!registration) {
+            throw new Error(`Negotiation ${negotiationId}: signer ${signer} is not registered`);
+          }
+          const keys = registration.publicKeys ?? [];
+          if (keys.length === 0) {
+            throw new Error(
+              `Negotiation ${negotiationId}: signer ${signer} has no publicKeys in the registry`
+            );
+          }
+
+          const verified = keys.some((pem) =>
+            verifyCanonical({ artifactHash: body.artifactHash }, sig, pem)
+          );
+          if (!verified) {
+            throw new Error(
+              `Negotiation ${negotiationId}: signature by ${signer} fails verification against registered keys`
+            );
+          }
+
+          const bucket = byHash.get(body.artifactHash) ?? new Map<string, H2ASignature>();
+          bucket.set(signer, sig);
+          byHash.set(body.artifactHash, bucket);
         }
-      }
-    } else {
-      process.stderr.write(
-        `h2a stabilize: negotiation ${negotiationId} artifact ${winningHash} has no recognizable kind; skipping authority check (DEC-035)\n`
-      );
-    }
 
-    const artifactPath = resolveStabilizedArtifactPath(paths, winningArtifact, winningHash);
-    ensureDir(dirname(artifactPath));
-    try {
-      writeFileSync(
-        artifactPath,
-        `${JSON.stringify(winningArtifact, null, 2)}\n`,
-        { encoding: "utf8", flag: "wx" }
-      );
-    } catch (err) {
-      const e = err as NodeJS.ErrnoException;
-      if (e.code === "EEXIST") {
-        throw new Error(
-          `stabilizeNegotiation: stabilized artifact already on disk at ${artifactPath}`
+        const required = new Set(record.requiredSigners);
+        let winningHash: string | undefined;
+        for (const [hash, bucket] of byHash) {
+          const have = new Set(bucket.keys());
+          const allPresent = [...required].every((id) => have.has(id));
+          if (allPresent) {
+            winningHash = hash;
+            break;
+          }
+        }
+
+        if (!winningHash) {
+          const summary = [...byHash].map(
+            ([hash, bucket]) => `${hash} signed by ${[...bucket.keys()].join(",")}`
+          );
+          throw new Error(
+            `Negotiation ${negotiationId}: no artifactHash has the full quorum (${record.requiredSigners.join(",")}). Collected: ${summary.join(" | ")}`
+          );
+        }
+
+        // Walk back through the journal to find the offer/counter event whose body.artifact
+        // hashes to the winning artifactHash. We then persist that artifact JSON to its
+        // immutable target file (DEC-031 + DEC-033).
+        let winningArtifact: unknown | undefined;
+        for (const entry of entries) {
+          const body = (entry as { body?: { artifact?: unknown } }).body;
+          if (!body || body.artifact === undefined) continue;
+          if (computeHash(body.artifact) === winningHash) {
+            winningArtifact = body.artifact;
+            break;
+          }
+        }
+        if (winningArtifact === undefined) {
+          throw new Error(
+            `stabilizeNegotiation: no offer/counter event matches the winning artifactHash ${winningHash}`
+          );
+        }
+
+        // Authority check (DEC-035): every signer of the winning artifactHash
+        // must hold at least one role allowed by H2A_AUTHORITY_MATRIX for the
+        // artifact's declared kind. Unknown/missing kinds emit a stderr warning
+        // and skip the check (V1 permissive on extension).
+        const winningKind = (typeof winningArtifact === "object" && winningArtifact !== null
+          ? ((winningArtifact as { kind?: unknown }).kind as unknown)
+          : undefined);
+        const knownKind =
+          typeof winningKind === "string" &&
+          (H2A_ARTIFACT_KINDS as readonly string[]).includes(winningKind)
+            ? (winningKind as H2AArtifactKind)
+            : undefined;
+
+        if (knownKind) {
+          const signersBucket = byHash.get(winningHash);
+          if (signersBucket) {
+            for (const signer of signersBucket.keys()) {
+              const reg = findInstance(signer);
+              const roles: H2ARole[] = (reg?.roles ?? []) as H2ARole[];
+              const allowed = roles.some((role) => canSignArtifactKind(role, knownKind));
+              if (!allowed) {
+                throw new Error(
+                  `Negotiation ${negotiationId}: signer ${signer} is not authorized to sign artifact kind ${knownKind} (roles: [${roles.join(",")}]); allowed roles: [${H2A_AUTHORITY_MATRIX[knownKind].roles.join(",")}]`
+                );
+              }
+            }
+          }
+        } else {
+          process.stderr.write(
+            `h2a stabilize: negotiation ${negotiationId} artifact ${winningHash} has no recognizable kind; skipping authority check (DEC-035)\n`
+          );
+        }
+
+        const artifactPath = resolveStabilizedArtifactPath(paths, winningArtifact, winningHash);
+        ensureDir(dirname(artifactPath));
+        try {
+          writeFileSync(
+            artifactPath,
+            `${JSON.stringify(winningArtifact, null, 2)}\n`,
+            { encoding: "utf8", flag: "wx" }
+          );
+        } catch (err) {
+          const e = err as NodeJS.ErrnoException;
+          if (e.code === "EEXIST") {
+            throw new Error(
+              `stabilizeNegotiation: stabilized artifact already on disk at ${artifactPath}`
+            );
+          }
+          throw err;
+        }
+
+        // Inline append + status update (we already hold the per-negotiation
+        // lock, so we cannot recurse into the wrapped helpers).
+        const journalFile = negotiationJournalFile(paths, negotiationId);
+        const entriesForAppend = readNegotiationJournalUnlocked(negotiationId);
+        const previous = entriesForAppend[entriesForAppend.length - 1];
+        const finalPayload: H2AJournalPayload<unknown> = {
+          id: options.eventId ?? `evt-stabilize-${Date.now().toString(36)}`,
+          type: "event",
+          actor: { instance: "h2a-cli", role: "MANDATAIRE", scope: record.scope },
+          body: {
+            kind: "stabilized",
+            artifactHash: winningHash,
+            signers: record.requiredSigners,
+            artifactPath
+          },
+          createdAt: new Date().toISOString()
+        };
+        const finalEvent = previous
+          ? appendJournalEntry(previous, finalPayload)
+          : createJournalEntry(finalPayload);
+        appendJsonl(journalFile, finalEvent);
+
+        const updated: H2ANegotiationRecord = {
+          ...record,
+          status: "stabilized",
+          currentArtifactHash: winningHash
+        };
+        writeFileSync(
+          negotiationStateFile(negotiationId),
+          `${JSON.stringify(updated, null, 2)}\n`,
+          "utf8"
         );
-      }
-      throw err;
-    }
 
-    const finalEvent = appendNegotiationEvent(negotiationId, {
-      id: options.eventId ?? `evt-stabilize-${Date.now().toString(36)}`,
-      type: "event",
-      actor: { instance: "h2a-cli", role: "MANDATAIRE", scope: record.scope },
-      body: {
-        kind: "stabilized",
-        artifactHash: winningHash,
-        signers: record.requiredSigners,
-        artifactPath
+        return {
+          record: updated,
+          artifactHash: winningHash,
+          signers: record.requiredSigners,
+          finalEvent,
+          artifactPath
+        };
       },
-      createdAt: new Date().toISOString()
-    });
-
-    const updated = updateNegotiationStatus(negotiationId, "stabilized");
-    if (winningHash) {
-      updated.currentArtifactHash = winningHash;
-      writeFileSync(
-        negotiationStateFile(negotiationId),
-        `${JSON.stringify(updated, null, 2)}\n`,
-        "utf8"
-      );
-    }
-
-    return {
-      record: updated,
-      artifactHash: winningHash,
-      signers: record.requiredSigners,
-      finalEvent,
-      artifactPath
-    };
+      lockOpts
+    );
   }
 
   function envelopeFile(dir: string, envelopeId: string): string {
@@ -434,7 +555,13 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     }
     const dir = inboxDir(paths, actor);
     ensureDir(dir);
-    writeFileSync(envelopeFile(dir, envelope.id), JSON.stringify(envelope, null, 2), "utf8");
+    withLockSync(
+      inboxLock(actor),
+      () => {
+        writeFileSync(envelopeFile(dir, envelope.id), JSON.stringify(envelope, null, 2), "utf8");
+      },
+      lockOpts
+    );
   }
 
   function readInbox(actor: string): H2AEnvelope[] {
@@ -442,11 +569,19 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function popInboxMessage(actor: string, envelopeId: string): H2AEnvelope | undefined {
-    const file = envelopeFile(inboxDir(paths, actor), envelopeId);
-    if (!existsSync(file)) return undefined;
-    const envelope = JSON.parse(readFileSync(file, "utf8")) as H2AEnvelope;
-    unlinkSync(file);
-    return envelope;
+    const dir = inboxDir(paths, actor);
+    ensureDir(dir);
+    return withLockSync(
+      inboxLock(actor),
+      () => {
+        const file = envelopeFile(dir, envelopeId);
+        if (!existsSync(file)) return undefined;
+        const envelope = JSON.parse(readFileSync(file, "utf8")) as H2AEnvelope;
+        unlinkSync(file);
+        return envelope;
+      },
+      lockOpts
+    );
   }
 
   function putOutboxMessage(actor: string, envelope: H2AEnvelope): void {
@@ -455,7 +590,13 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     }
     const dir = outboxDir(paths, actor);
     ensureDir(dir);
-    writeFileSync(envelopeFile(dir, envelope.id), JSON.stringify(envelope, null, 2), "utf8");
+    withLockSync(
+      outboxLock(actor),
+      () => {
+        writeFileSync(envelopeFile(dir, envelope.id), JSON.stringify(envelope, null, 2), "utf8");
+      },
+      lockOpts
+    );
   }
 
   function readOutbox(actor: string): H2AEnvelope[] {

@@ -193,6 +193,27 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 - **Exit codes**: `0`, `1`, `2`, `3`.
 - **Description**: Render or merge the `mcpServers.h2a` snippet for a host. Divergent pre-existing entry refused without `--force` → exit `2`. Filesystem read/write failure → exit `3`.
 
+### Store maintenance
+
+#### `h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]`
+
+- **Required**: none.
+- **Optional**: `--from`, `--to`, `--dry-run`, `--root`.
+- **Envelope**: `action`.
+- **Stdout shape**:
+  ```json
+  {
+    "ok": true,
+    "fromVersion": "<v>",
+    "toVersion": "<v>",
+    "changed": false,
+    "dryRun": false,
+    "root": "<absolute-path>"
+  }
+  ```
+- **Exit codes**: `0`, `1`.
+- **Description**: Migrate the local-files store schema between known versions (DEC-036). V1→V1 is a no-op (`changed:false`). Unknown `--from` or `--to` → exit `1`. Future schema bumps will register transformations here.
+
 ### MCP transport
 
 #### `h2a mcp-serve [--root <path>]`

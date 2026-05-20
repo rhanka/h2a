@@ -223,6 +223,17 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     description: "List the outbox envelopes of an instance (oldest first)."
   },
 
+  // --- store maintenance (DEC-036) ---
+  {
+    verb: "store migrate",
+    outputShape: "action",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["root", "from", "to", "dry-run"],
+    description:
+      "Migrate the local-files store schema between known versions (DEC-036). V1→V1 is a no-op (`changed:false`). Unknown --from or --to → exit 1."
+  },
+
   // --- MCP transport ---
   {
     verb: "mcp-serve",
