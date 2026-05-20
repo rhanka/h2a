@@ -1,0 +1,1 @@
+{"clauses":[{"id":"c1","text":"deliver v1 by 2026-06-30"}],"engagements":["engagement:ship-v1"],"id":"contract:canonical-001","kind":"CONTRACT","parties":["human:antoine","conductor:01"],"policies":["policy:no-secrets-in-logs"],"scope":"scope:engagement/ship-v1","signatures":[]}

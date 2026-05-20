@@ -1,12 +1,12 @@
 # H2A Project Plan
 
-> Last update: 2026-05-20 (CLI JSON output contract + exit-code table figés — DEC-034 ; WP-30 100%)
+> Last update: 2026-05-20 (Matrice d'autorité de signature exécutable + fixtures canoniques cross-langage — DEC-035 ; WP-10 100%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
 ## Snapshot
 
-- Overall estimated progress: ~68%
+- Overall estimated progress: ~70%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
@@ -38,7 +38,7 @@
 - [ ] Deprecate `@sentropic/h2a-cli@0.1.0` with a clear message
 - [ ] Automate release/publish flow
 
-## Workpackage 10 - `h2a` Core Contracts (~80%)
+## Workpackage 10 - `h2a` Core Contracts (~100%)
 
 - [x] Define protocol id `sentropic.h2a`
 - [x] Implement envelope creation
@@ -50,8 +50,8 @@
 - [x] Add canonicalization and hash computation (sorted-key JSON + SHA-256)
 - [x] Add append-only journal structures (`H2AJournalEntry` + `verifyJournalChain`)
 - [x] Add signature verification (ed25519 sign/verify on canonical payload)
-- [ ] Encode role/authority constraints for `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`, `MANDATAIRE`
-- [ ] Add compatibility tests on canonical artifacts (cross-language fixtures)
+- [x] Encode role/authority constraints for `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`, `MANDATAIRE` (DEC-035 : `H2A_AUTHORITY_MATRIX` + `canSignArtifactKind` ; appliquée par `stabilizeNegotiation`)
+- [x] Add compatibility tests on canonical artifacts (cross-language fixtures) (DEC-035 : `packages/h2a/fixtures/` + `manifest.json` + `H2A_CANONICAL_FIXTURES`)
 
 ## Workpackage 20 - Local Runtime And Store (~70%)
 

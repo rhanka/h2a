@@ -56,6 +56,20 @@ programmatique stable du CLI :
 Toute évolution rétro-incompatible exige une nouvelle DEC + un bump majeur de
 `@sentropic/h2a-cli`.
 
+### Compatibilité cross-langage (DEC-035)
+
+- **Matrice d'autorité** : `H2A_AUTHORITY_MATRIX` (re-exporté par
+  `@sentropic/h2a`, source `packages/h2a/src/authority.ts`) déclare quels
+  rôles peuvent signer chaque `H2AArtifactKind`. Appliquée par
+  `stabilizeNegotiation` après la vérification ed25519 (DEC-032).
+- **Fixtures canoniques** : `packages/h2a/fixtures/` contient un artefact
+  byte-canonique par kind liant (`CONTRACT`, `POLICY`, `ENGAGEMENT`,
+  `MANDATE`, `AUTHORITY`, `ENFORCEMENT_PLAN`) ; `manifest.json` indexe
+  `{path, kind, id, sha256}` pour qu'une implémentation non-TS (Python,
+  Go, Rust...) puisse rejouer la canonicalisation JSON sorted-key et
+  confirmer le SHA-256 bit-pour-bit. `H2A_CANONICAL_FIXTURES` ré-expose
+  ce manifeste depuis `@sentropic/h2a`.
+
 ## Exemples
 
 - **`examples/principal-conductors/`** — démo runnable de bout en bout du

@@ -1,0 +1,1 @@
+{"controls":[{"domain":"cyber","instance":"control:cyber","rights":["audit"]}],"escalations":[{"channel":"alert","target":"human:antoine","trigger":"breach"}],"id":"enforce:canonical-001","kind":"ENFORCEMENT_PLAN","scope":"scope:org/antoine","triggers":[{"condition":"secrets-in-logs > 0","name":"breach"}]}

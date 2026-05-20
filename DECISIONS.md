@@ -428,3 +428,30 @@ Stderr suit toujours `h2a <verb> [sub]: <message>` pour grep déterministe.
 **Pourquoi `negotiate stabilize` reste `action` malgré l'entité disponible** : la stabilization retourne *plusieurs* artefacts d'un coup (`record`, `artifactHash`, `signers`, `artifactPath`, `finalEvent`) — il n'y a pas une entité unique mais un résultat composite, et le flag `ok` est sémantiquement informatif (le caller peut tester `parsed.ok` sans connaître la structure interne). Bare-unwrap dégraderait la lisibilité programmatique.
 
 **Conséquence** : (a) le manifeste `H2A_CLI_VERB_CONTRACTS` (`packages/h2a-cli/src/cli-contract.ts`) est ré-exporté publiquement et fait foi ; (b) `docs/cli-contract.md` est la référence humaine ; (c) toute modification rétro-incompatible exige une **nouvelle DEC** + un bump majeur de `@sentropic/h2a-cli` ; (d) les ajouts purement additifs (nouveau verbe, nouveau champ optionnel dans une enveloppe `action`/`resource`) restent compatibles mineur.
+
+
+## DEC-035 — Matrice d'autorité de signature + fixtures canoniques cross-language
+**Date** : 2026-05-20. **Réfère** : DEC-004, DEC-018, DEC-021, DEC-023, DEC-032, DEC-033.
+
+**Décision (matrice d'autorité)** : `@sentropic/h2a` expose **`H2A_AUTHORITY_MATRIX`**, table déclarative mappant chaque `H2AArtifactKind` à la liste des rôles autorisés à produire une signature *liante* sur cet artefact. Baseline V1 :
+
+- `CONTRACT` → `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`
+- `POLICY` → `PRINCIPAL`, `EXECUTIF`, `CONTROL`
+- `ENGAGEMENT` → `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`
+- `AMENDMENT` → `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`
+- `MANDATE` → `PRINCIPAL`, `EXECUTIF`
+- `AUTHORITY` → `PRINCIPAL`, `EXECUTIF`
+- `SIGNATURE` → tous les 6 rôles (trace d'un acte de signature)
+- `ENFORCEMENT_PLAN` → `PRINCIPAL`, `EXECUTIF`, `CONTROL`
+
+`MANDATAIRE` n'apparaît jamais pour un artefact *liant* — DEC-005 / DEC-024 le maintiennent comme *présentateur*. `canSignArtifactKind(role, kind)` retourne un booléen ; `assertCanSignArtifactKind(role, kind)` jette avec un message nommant rôle + kind + roster autorisé.
+
+**Décision (exécution)** : `stabilizeNegotiation` (`@sentropic/h2a-cli/runtime/local-files/store.ts`) applique cette matrice après la vérification ed25519 (DEC-032) et avant la persistance write-once (DEC-033). Pour chaque signataire du `winningHash`, au moins un de ses `roles` registré doit appartenir au roster de la matrice pour le `kind` de l'artefact gagnant ; sinon `Negotiation <id>: signer <instance> is not authorized to sign artifact kind <KIND> (roles: [...])`. Si le kind est absent ou non canonique, un *warning* est émis sur `stderr` et la vérification d'autorité est *skipped* (V1 permissive sur l'extension).
+
+**Décision (fixtures cross-langage)** : `packages/h2a/fixtures/` contient 6 artefacts canoniques (un par kind liant : `CONTRACT`, `POLICY`, `ENGAGEMENT`, `MANDATE`, `AUTHORITY`, `ENFORCEMENT_PLAN`). Chaque fichier contient *exactement* `canonicalize(value)` en bytes (pas de pretty-print, pas de trailing newline) ; `fixtures/manifest.json` liste `{path, kind, id, sha256}` où `sha256` est le hex SHA-256 des bytes (sans préfixe). `H2A_CANONICAL_FIXTURES` est ré-exporté par `@sentropic/h2a`.
+
+**Pourquoi (matrice)** : (a) DEC-004 a déjà tranché que les amendements sensibles passent par quorum ; il manquait la table déclarative *qui peut signer quoi* en V1, sans laquelle un AGENTS pouvait techniquement signer un CONTRACT ; (b) le runtime applique la même matrice que celle exposée dans la bibliothèque — pas de divergence possible entre vérif client et vérif store ; (c) une implémentation cross-langage peut consommer la matrice directement (table simple, pas de DSL).
+
+**Pourquoi (fixtures byte-canoniques)** : (a) la canonicalisation JSON sorted-key (DEC-031, `canonical.ts`) est trivialement portable mais doit être *testée* contre une référence ; (b) un binding non-TS (Python, Go, Rust) peut maintenant rejouer `manifest.json` et confirmer bit-pour-bit qu'il calcule la même `sha256` que la référence TS ; (c) les guards `is<Kind>` sont aussi validés contre les fixtures, donc une nouvelle implémentation des guards est testable contre la même batterie.
+
+**Conséquence** : (a) toute extension future de `H2A_ARTIFACT_KINDS` doit étendre `H2A_AUTHORITY_MATRIX` (une garde *au moment du chargement* refuse un kind sans entrée) ; (b) toute modification des fixtures recalcule la `sha256` du manifeste (le test `fixtures.test.js` casserait sinon) ; (c) la matrice est volontairement *permissive sur kind inconnu* en V1 pour ne pas casser les extensions privées : la durcir (refus par défaut + opt-in) demandera une nouvelle DEC.

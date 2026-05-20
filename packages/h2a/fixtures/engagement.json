@@ -1,0 +1,1 @@
+{"charter":{"goal":"ship v1"},"controls":[],"id":"engagement:canonical-001","kind":"ENGAGEMENT","policies":[],"roleBindings":[{"instance":"human:antoine","role":"PRINCIPAL"},{"binding":"lead","instance":"conductor:01","role":"CONDUCTOR"}],"scope":"scope:engagement/ship-v1","successCriteria":["green ci","principal sign-off"]}

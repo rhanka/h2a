@@ -1,0 +1,38 @@
+[
+  {
+    "path": "fixtures/contract.json",
+    "kind": "CONTRACT",
+    "id": "contract:canonical-001",
+    "sha256": "d33707bee89eb7a9b146a37c3846d78ed2b795dd375422fb6172c5aee54d1a7b"
+  },
+  {
+    "path": "fixtures/policy.json",
+    "kind": "POLICY",
+    "id": "policy:canonical-001",
+    "sha256": "0f72f1d871f1908588ab458cf43a1cd52e45757a7a686673b284de4593ca6b20"
+  },
+  {
+    "path": "fixtures/engagement.json",
+    "kind": "ENGAGEMENT",
+    "id": "engagement:canonical-001",
+    "sha256": "345447100be5c1c058f898cb12d73795fd31c6cafba33c749c7870b416bd3523"
+  },
+  {
+    "path": "fixtures/mandate.json",
+    "kind": "MANDATE",
+    "id": "mandate:canonical-001",
+    "sha256": "52b5ed8c11996ab311d0eebe2a0889cc08efd20aef09079695d68857e29c2c75"
+  },
+  {
+    "path": "fixtures/authority.json",
+    "kind": "AUTHORITY",
+    "id": "authority:canonical-001",
+    "sha256": "f689cc0d93f6b021894949f7d809cc2c566ac6c5f159f62ea16a914b831ec748"
+  },
+  {
+    "path": "fixtures/enforcement-plan.json",
+    "kind": "ENFORCEMENT_PLAN",
+    "id": "enforce:canonical-001",
+    "sha256": "3e21c43e851c569afc4f2b0d5458c317dddd5ba184f430702ceb60b143108e23"
+  }
+]

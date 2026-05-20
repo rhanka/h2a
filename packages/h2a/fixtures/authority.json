@@ -1,0 +1,1 @@
+{"authorityKind":"quorum","id":"authority:canonical-001","kind":"AUTHORITY","members":["conductor:01","conductor:02","conductor:03"],"scope":"scope:engagement/ship-v1","threshold":2}

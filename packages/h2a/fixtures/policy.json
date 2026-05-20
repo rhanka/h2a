@@ -1,0 +1,1 @@
+{"adoptionMode":"ratified","id":"policy:canonical-001","kind":"POLICY","rule":"no-secrets-in-logs","scope":"scope:org/antoine","sourceAuthority":"authority:cyber"}

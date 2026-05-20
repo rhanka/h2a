@@ -10,18 +10,23 @@ import {
 import { dirname, join } from "node:path";
 
 import {
+  H2A_ARTIFACT_KINDS,
+  H2A_AUTHORITY_MATRIX,
   appendJournalEntry,
   assertValidNegotiationState,
+  canSignArtifactKind,
   computeHash,
   createJournalEntry,
   isH2AEnvelope,
   verifyCanonical,
   verifyJournalChain,
   type H2AActorRegistration,
+  type H2AArtifactKind,
   type H2AEnvelope,
   type H2AJournalEntry,
   type H2AJournalPayload,
   type H2ANegotiationRecord,
+  type H2ARole,
   type H2ASignature
 } from "@sentropic/h2a";
 
@@ -320,6 +325,39 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     if (winningArtifact === undefined) {
       throw new Error(
         `stabilizeNegotiation: no offer/counter event matches the winning artifactHash ${winningHash}`
+      );
+    }
+
+    // Authority check (DEC-035): every signer of the winning artifactHash
+    // must hold at least one role allowed by H2A_AUTHORITY_MATRIX for the
+    // artifact's declared kind. Unknown/missing kinds emit a stderr warning
+    // and skip the check (V1 permissive on extension).
+    const winningKind = (typeof winningArtifact === "object" && winningArtifact !== null
+      ? ((winningArtifact as { kind?: unknown }).kind as unknown)
+      : undefined);
+    const knownKind =
+      typeof winningKind === "string" &&
+      (H2A_ARTIFACT_KINDS as readonly string[]).includes(winningKind)
+        ? (winningKind as H2AArtifactKind)
+        : undefined;
+
+    if (knownKind) {
+      const signersBucket = byHash.get(winningHash);
+      if (signersBucket) {
+        for (const signer of signersBucket.keys()) {
+          const reg = findInstance(signer);
+          const roles: H2ARole[] = (reg?.roles ?? []) as H2ARole[];
+          const allowed = roles.some((role) => canSignArtifactKind(role, knownKind));
+          if (!allowed) {
+            throw new Error(
+              `Negotiation ${negotiationId}: signer ${signer} is not authorized to sign artifact kind ${knownKind} (roles: [${roles.join(",")}]); allowed roles: [${H2A_AUTHORITY_MATRIX[knownKind].roles.join(",")}]`
+            );
+          }
+        }
+      }
+    } else {
+      process.stderr.write(
+        `h2a stabilize: negotiation ${negotiationId} artifact ${winningHash} has no recognizable kind; skipping authority check (DEC-035)\n`
       );
     }
 

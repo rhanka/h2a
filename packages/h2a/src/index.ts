@@ -28,6 +28,13 @@ export {
   isSignature
 } from "./artifacts.js";
 export {
+  H2A_AUTHORITY_MATRIX,
+  assertCanSignArtifactKind,
+  canSignArtifactKind
+} from "./authority.js";
+export { H2A_CANONICAL_FIXTURES } from "./fixtures-index.js";
+export type { H2ACanonicalFixtureManifestEntry } from "./fixtures-index.js";
+export {
   H2A_ARTIFACT_KINDS,
   H2A_AUTHORITY_KINDS,
   H2A_ENVELOPE_TYPES,
