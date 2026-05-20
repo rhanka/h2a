@@ -32,6 +32,9 @@ h2a inbox read --instance <id> [--root <path>]
 h2a inbox pop --instance <id> --envelope <id> [--root <path>]
 h2a outbox put --instance <id> --json <envelope> [--root <path>]
 h2a outbox read --instance <id> [--root <path>]
+
+# MCP server (JSON-RPC 2.0 over stdio, DEC-026)
+h2a mcp-serve [--root <path>]
 ```
 
 ## Pile contractuelle (DEC-010)

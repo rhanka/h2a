@@ -87,13 +87,14 @@
 - [x] Implement `h2a negotiate stabilize` (verify signatures against registry publicKeys, quorum check, status→stabilized)
 - [ ] Stabilize JSON output contracts and exit codes
 
-## Workpackage 40 - Host And Protocol Integrations (~10%)
+## Workpackage 40 - Host And Protocol Integrations (~15%)
 
 ### MCP track
 
 - [x] Freeze the canonical MCP tool names
 - [x] Implement a minimal MCP server inside `@sentropic/h2a-cli` (in-process `createMcpServer({ root })`, 4 wired tools: register / discover / inbox / append_journal; JSON-RPC + stdio transport deferred to a later slice)
 - [x] Back the MCP server with the same local-files runtime
+- [x] Expose the in-process MCP server over JSON-RPC 2.0 / stdio (`runMcpStdio`) and add the `h2a mcp-serve [--root <path>]` CLI verb
 - [ ] Define actor identity/auth strategy for MCP calls
 
 ### Codex track

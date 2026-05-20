@@ -14,3 +14,5 @@ export {
   type McpErrorResult,
   type McpToolResult
 } from "./handlers.js";
+
+export { runMcpStdio, type RunMcpStdioOptions } from "./stdio.js";

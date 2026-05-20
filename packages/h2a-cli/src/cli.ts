@@ -8,6 +8,7 @@ import { H2A_CODEX_HOST } from "./hosts/codex.js";
 import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 import { createLocalStore } from "./runtime/local-files/index.js";
+import { runMcpStdio } from "./runtime/mcp/index.js";
 
 export interface H2ACliStreams {
   stderr: Pick<typeof process.stderr, "write">;
@@ -47,6 +48,7 @@ export function renderCliHelp(): string {
     "  h2a inbox pop --instance <id> --envelope <id> [--root <path>]",
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
+    "  h2a mcp-serve [--root <path>]",
     "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
     `MCP tools: ${H2A_CLI_MCP_TOOL_NAMES.join(", ")}`
@@ -396,6 +398,41 @@ function cmdNegotiate(
   streams.stderr.write(`Unknown negotiate subcommand: ${sub ?? "<none>"}\n`);
   streams.stderr.write("Use one of: open, status, event, offer, counter, sign, stabilize, journal\n");
   return 1;
+}
+
+/**
+ * `h2a mcp-serve` binds directly to the real process std streams because it
+ * is a long-running JSON-RPC loop. The test-friendly `streams` interface
+ * (write-only) cannot express a readable stdin; tests cover `runMcpStdio`
+ * with `PassThrough` streams instead of going through this verb.
+ */
+export async function runMcpServe(
+  flags: Record<string, string>,
+  io: {
+    stdin: NodeJS.ReadableStream;
+    stdout: NodeJS.WritableStream;
+    stderr: NodeJS.WritableStream;
+    cwd?: () => string;
+  } = {
+    stdin: process.stdin,
+    stdout: process.stdout,
+    stderr: process.stderr
+  }
+): Promise<number> {
+  const cwd = io.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  try {
+    await runMcpStdio({
+      root,
+      stdin: io.stdin as never,
+      stdout: io.stdout as never,
+      stderr: io.stderr as never
+    });
+    return 0;
+  } catch (err) {
+    io.stderr.write(`h2a mcp-serve: ${(err as Error).message}\n`);
+    return 1;
+  }
 }
 
 function cmdDiscover(

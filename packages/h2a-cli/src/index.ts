@@ -1,5 +1,5 @@
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
-import { renderCliHelp, runCli } from "./cli.js";
+import { renderCliHelp, runCli, runMcpServe } from "./cli.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
 import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
@@ -10,7 +10,8 @@ export {
   H2A_GEMINI_HOST,
   H2A_CLI_MCP_TOOL_NAMES,
   renderCliHelp,
-  runCli
+  runCli,
+  runMcpServe
 };
 
 export {
@@ -28,12 +29,14 @@ export {
 export {
   H2A_CLI_MCP_TOOL_DESCRIPTORS,
   createMcpServer,
+  runMcpStdio,
   type CreateMcpServerOptions,
   type McpErrorResult,
   type McpServer,
   type McpToolDescriptor,
   type McpToolName,
-  type McpToolResult
+  type McpToolResult,
+  type RunMcpStdioOptions
 } from "./runtime/mcp/index.js";
 
 export const H2A_CLI_HOSTS = [
