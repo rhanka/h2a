@@ -31,6 +31,19 @@ export type {
   H2AMultiHumanModeSelectionResult
 } from "./multi-human.js";
 export {
+  H2A_GOVERNANCE_BOUNDARY_ITEMS,
+  H2A_GOVERNANCE_BOUNDARY_LAYERS,
+  H2A_GOVERNANCE_BOUNDARY_STATUSES,
+  classifyGovernanceBoundary,
+  listGovernanceBoundaryItems
+} from "./governance-boundary.js";
+export type {
+  H2AGovernanceBoundaryItemDescriptor,
+  H2AGovernanceBoundaryItemId,
+  H2AGovernanceBoundaryLayer,
+  H2AGovernanceBoundaryStatus
+} from "./governance-boundary.js";
+export {
   createEnvelope,
   isH2AEnvelope
 } from "./envelope.js";

@@ -11,6 +11,7 @@ Current bootstrap surface:
 - escalation target resolution against ENFORCEMENT_PLAN routes
 - ABC model compatibility profiles + audit helper for enterprise / ecosystem / government-citizen mappings
 - multi-human mode taxonomy + selector for peer, delegated, shared-engagement, federated, consortium, and public-authority flows
+- governance boundary classification for protocol / policy / implementation items
 - canonical JSON + SHA-256 hashing
 - ed25519 canonical signing and verification
 - append-only journal entries and chain verification

@@ -174,6 +174,19 @@ cérémonie multi-humain :
 ordre : autorité externe, scope EXECUTIF, quorum, engagements partagés,
 coordination opérationnelle répétée, puis dialogue PRINCIPAL ↔ PRINCIPAL.
 
+### Frontière gouvernance (DEC-043)
+
+`H2A_GOVERNANCE_BOUNDARY_ITEMS` classe les décisions V1 entre :
+
+- `PROTOCOL` : ce qui doit être commun à toutes les implémentations H2A.
+- `POLICY` : ce qui reste gouverné par des règles de domaine ou de scope.
+- `IMPLEMENTATION` : ce qui appartient au runtime/CLI/adapters de référence.
+
+`classifyGovernanceBoundary(itemId)` et `listGovernanceBoundaryItems(layer?)`
+permettent de vérifier qu'un sujet comme `policy-precedence`,
+`local-files-store` ou `canonical-artifacts` n'est pas rangé au mauvais
+niveau.
+
 ## Exemples
 
 - **`examples/principal-conductors/`** — démo runnable de bout en bout du

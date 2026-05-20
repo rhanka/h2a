@@ -625,3 +625,27 @@ Le sélecteur refuse `principalCount < 2`. Pour les cas multi-humains, il appliq
 **Pourquoi** : (a) DEC-015 avait bien distingué les trois canaux pair-à-pair, mais pas les modes structurés au-delà ; (b) DEC-016/017 introduisent EXECUTIF, mais sans règle simple pour savoir quand passer d'un dialogue à une fédération ; (c) les modèles ABC montrent aussi des consortiums/quorums et des autorités publiques qui ne doivent pas être forcés dans "EXECUTIF" ; (d) le protocole a besoin d'un choix déterministe de mode pour éviter qu'une coordination avec obligations, risques ou autorité externe reste traitée comme une simple discussion.
 
 **Conséquence** : (a) WP-50 coche le cadrage multi-humain au-delà du pair-à-pair ; (b) `selectMultiHumanMode` ne crée pas encore d'artefact, il guide le choix entre conversation, coordination déléguée, ENGAGEMENT, scope fédéré, quorum ou autorité externe ; (c) une future slice peut utiliser ce mode pour générer des templates de `CONTRACT`, `ENGAGEMENT`, `ENFORCEMENT_PLAN` ou `MANDATE` ; (d) il reste à décider ce qui devient protocole obligatoire, policy recommandée ou comportement d'implémentation.
+
+
+## DEC-043 — Frontière protocole / policy / implémentation
+**Date** : 2026-05-20. **Réfère** : REQ-001, REQ-006, REQ-010, REQ-024, REQ-041, REQ-054, REQ-070, DEC-031, DEC-032, DEC-034, DEC-035, DEC-039, DEC-040, DEC-041, DEC-042, WP-50.
+
+**Décision** : la frontière entre protocole obligatoire, policy de gouvernance et implémentation de référence devient une table publique de `@sentropic/h2a`.
+
+Exports ajoutés :
+
+- `H2A_GOVERNANCE_BOUNDARY_LAYERS = ["PROTOCOL", "POLICY", "IMPLEMENTATION"]` ;
+- `H2A_GOVERNANCE_BOUNDARY_STATUSES = ["v1-shipped", "v1-open", "v2-deferred"]` ;
+- `H2A_GOVERNANCE_BOUNDARY_ITEMS` ;
+- `classifyGovernanceBoundary(itemId)` ;
+- `listGovernanceBoundaryItems(layer?)`.
+
+**Protocole V1** : identité/version/enveloppe, vocabulaire public, artefacts canoniques, signatures mandatées, négociation + ledger, escalade par autorité de scope, profils ABC et taxonomie multi-humaine.
+
+**Policy V1 ouverte** : précédence inter-policy, niveaux de disclosure/evidence package, cadence des obligations récurrentes, assignation concrète du MANDATAIRE, seuils de blocage vs escalade des conflits.
+
+**Implémentation V1** : store local-files, serveur MCP stdio, snippets host setup, contrat JSON/exit-code du CLI. L'authentification de transport multi-utilisateur reste `v2-deferred`.
+
+**Pourquoi** : (a) plusieurs décisions précédentes disent "hors V1", "policy", ou "implémentation" localement, mais aucune table ne les rendait inspectables ; (b) sans frontière explicite, une implémentation pourrait durcir une policy locale en règle de protocole cachée ; (c) inversement, un client pourrait traiter le layout local-files ou les snippets Codex/Claude comme des obligations du protocole ; (d) cette table donne un point d'extension pour promouvoir plus tard une policy ouverte vers le protocole via nouvelle DEC.
+
+**Conséquence** : (a) WP-50 atteint 100% sur le cadrage gouvernance/modèle ; (b) les gaps de DEC-041 restent visibles comme `POLICY/v1-open`, pas comme oublis ; (c) les futures specs détaillées peuvent référencer `H2A_GOVERNANCE_BOUNDARY_ITEMS` pour éviter de mélanger contrat protocolaire et choix du CLI de référence ; (d) toute promotion d'un item policy ou implementation vers protocol exigera nouvelle DEC + tests.

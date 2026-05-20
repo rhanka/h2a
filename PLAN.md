@@ -1,12 +1,12 @@
 # H2A Project Plan
 
-> Last update: 2026-05-20 (Taxonomie exécutable des modes multi-humains — DEC-042 ; WP-50 90%)
+> Last update: 2026-05-20 (Frontière protocole / policy / implémentation — DEC-043 ; WP-50 100%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
 ## Snapshot
 
-- Overall estimated progress: ~80%
+- Overall estimated progress: ~85%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
@@ -118,7 +118,7 @@
 - [x] Decide whether Gemini stays first-wave or second-wave → **deferred to wave 2**
 - [ ] In wave 2, add the same minimal surface as Codex/Claude (host descriptor stays in `h2a hosts` meanwhile)
 
-## Workpackage 50 - Governance, Vocabulary, And Model Semantics (~90%)
+## Workpackage 50 - Governance, Vocabulary, And Model Semantics (~100%)
 
 - [x] Stabilize umbrella naming around `h2a`
 - [x] Capture vocabulary v1.7
@@ -131,7 +131,7 @@
 - [x] Define escalation targets per scope in executable terms (DEC-040 : `resolveEscalationTarget` sur `ENFORCEMENT_PLAN.escalations[]`, fallback PRINCIPAL explicite)
 - [x] Define the `1 PRINCIPAL / 15 CONDUCTORS` use case end-to-end (definition is executable in `examples/principal-conductors/`)
 - [x] Frame multi-human modes beyond pairwise dialogue (DEC-042 : `H2A_MULTI_HUMAN_MODES` + `selectMultiHumanMode`, pair/delegated/shared/federated/quorum/public-authority)
-- [ ] Decide what becomes protocol, what stays policy, what stays implementation
+- [x] Decide what becomes protocol, what stays policy, what stays implementation (DEC-043 : `H2A_GOVERNANCE_BOUNDARY_ITEMS` + `classifyGovernanceBoundary`)
 
 ## Workpackage 60 - Quality, Examples, And Ops (~70%)
 
@@ -155,6 +155,6 @@
 
 Recommended next implementation slice:
 
-1. Decide what becomes protocol, what stays policy, what stays implementation (WP-50).
-2. Add end-to-end host scenario tests for Codex and Claude Code over the shipped MCP setup surface (WP-40).
-3. Run the external npm deprecation for `@sentropic/h2a-cli@0.1.0` once maintainer auth is available (WP-00).
+1. Add end-to-end host scenario tests for Codex and Claude Code over the shipped MCP setup surface (WP-40).
+2. Run the external npm deprecation for `@sentropic/h2a-cli@0.1.0` once maintainer auth is available (WP-00).
+3. Pick the next V1 policy gap to promote or leave explicit (policy precedence, disclosure profiles, recurring obligations, recourse/adjudication).
