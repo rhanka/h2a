@@ -37,6 +37,16 @@ h2a outbox read --instance <id> [--root <path>]
 h2a mcp-serve [--root <path>]
 ```
 
+## Exemples
+
+- **`examples/principal-conductors/`** — démo runnable de bout en bout du
+  cas `1 PRINCIPAL / 15 CONDUCTORS` : génère 16 paires `ed25519`, enregistre
+  les 16 instances, ouvre une négociation avec quorum 3 sur 15, signe et
+  stabilise, puis interroge le serveur MCP en JSON-RPC sur stdio.
+  Lancer via `./examples/principal-conductors/run.sh` (build + run) ou
+  directement `node examples/principal-conductors/run.mjs` une fois le
+  workspace buildé. Voir [`examples/principal-conductors/README.md`](./examples/principal-conductors/README.md).
+
 ## Pile contractuelle (DEC-010)
 
 Chaque couche a son document :

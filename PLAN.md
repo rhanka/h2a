@@ -1,12 +1,12 @@
 # H2A Project Plan
 
-> Last update: 2026-05-18 (DEC license MIT, Gemini → wave 2, schemas first)
+> Last update: 2026-05-20 (runnable 1-PRINCIPAL / 15-CONDUCTORS demo lands WP-50 and WP-60 items)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
 ## Snapshot
 
-- Overall estimated progress: ~60%
+- Overall estimated progress: ~63%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
@@ -114,7 +114,7 @@
 - [x] Decide whether Gemini stays first-wave or second-wave → **deferred to wave 2**
 - [ ] In wave 2, add the same minimal surface as Codex/Claude (host descriptor stays in `h2a hosts` meanwhile)
 
-## Workpackage 50 - Governance, Vocabulary, And Model Semantics (~45%)
+## Workpackage 50 - Governance, Vocabulary, And Model Semantics (~50%)
 
 - [x] Stabilize umbrella naming around `h2a`
 - [x] Capture vocabulary v1.7
@@ -125,17 +125,17 @@
 - [ ] Stabilize the mapping to the three ABC models
 - [ ] Counter-audit `CONTRACT` vs `POLICY` vs `ENGAGEMENT`
 - [ ] Define escalation targets per scope in executable terms
-- [ ] Define the `1 PRINCIPAL / 15 CONDUCTORS` use case end-to-end
+- [x] Define the `1 PRINCIPAL / 15 CONDUCTORS` use case end-to-end (definition is executable in `examples/principal-conductors/`)
 - [ ] Frame multi-human modes beyond pairwise dialogue
 - [ ] Decide what becomes protocol, what stays policy, what stays implementation
 
-## Workpackage 60 - Quality, Examples, And Ops (~30%)
+## Workpackage 60 - Quality, Examples, And Ops (~40%)
 
 - [x] Add baseline automated tests
 - [x] Keep `npm test` green after publication fixes
 - [x] Add CI workflow for build + tests (`.github/workflows/ci.yml`, Node 20/22 matrix)
 - [ ] Add npm install smoke test for published packages
-- [ ] Add an example project for `1 PRINCIPAL / 15 CONDUCTORS`
+- [x] Add an example project for `1 PRINCIPAL / 15 CONDUCTORS` (`examples/principal-conductors/run.mjs`, gated integration test `H2A_RUN_EXAMPLE=1`)
 - [ ] Add release notes / publish procedure doc
 - [ ] Add security/key management notes
 - [ ] Add compatibility matrix documentation for Codex / Claude / Gemini / MCP
