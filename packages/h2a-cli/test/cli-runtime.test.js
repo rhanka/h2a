@@ -171,7 +171,8 @@ test("h2a register fails clearly on duplicate id", () => {
     runCli(["register", "--root", root, "--json", reg], captureStreams(dir));
     const dup = captureStreams(dir);
     const rc = runCli(["register", "--root", root, "--json", reg], dup);
-    assert.equal(rc, 1);
+    // DEC-034: duplicate instance is a store-state conflict → exit 2.
+    assert.equal(rc, 2);
     assert.match(dup.stderrText, /already registered/);
   } finally {
     rmSync(dir, { recursive: true, force: true });

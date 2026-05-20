@@ -1,12 +1,12 @@
 # H2A Project Plan
 
-> Last update: 2026-05-20 (stabilization now persists artifacts immutably + propagates causationId/correlationId by default — DEC-033)
+> Last update: 2026-05-20 (CLI JSON output contract + exit-code table figés — DEC-034 ; WP-30 100%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
 ## Snapshot
 
-- Overall estimated progress: ~66%
+- Overall estimated progress: ~68%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
@@ -66,7 +66,7 @@
 - [ ] Define concurrency / file locking behavior (currently relies on PIPE_BUF atomic appends)
 - [ ] Define migration/versioning strategy for local state
 
-## Workpackage 30 - `h2a-cli` Surface (~95%)
+## Workpackage 30 - `h2a-cli` Surface (~100%)
 
 - [x] Create unified `@sentropic/h2a-cli` package
 - [x] Keep internal modules for `mcp`, `codex`, `claude`, `gemini`
@@ -85,7 +85,7 @@
 - [x] Implement `h2a negotiate offer` / `counter` (typed wrappers stamp actor + type + artifact)
 - [x] Implement `h2a negotiate sign` (ed25519 sign of canonical `{artifactHash}`, journal append)
 - [x] Implement `h2a negotiate stabilize` (verify signatures against registry publicKeys, quorum check, status→stabilized)
-- [ ] Stabilize JSON output contracts and exit codes
+- [x] Stabilize JSON output contracts and exit codes (DEC-034 : 3 enveloppes `resource`/`list`/`action` + codes 0/1/2/3 ; manifeste `H2A_CLI_VERB_CONTRACTS` + `docs/cli-contract.md`)
 
 ## Workpackage 40 - Host And Protocol Integrations (~55%)
 

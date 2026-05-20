@@ -400,3 +400,31 @@ Implémentation guidée par tests (TDD) ; pas de runtime local-files ni MCP avan
 **Pourquoi (thread = négociation)** : on évite à V1 de réinventer un identifiant de conversation orthogonal à `negotiationId`. Quand un appelant veut explicitement coudre plusieurs négociations dans le même thread (ex. orchestration multi-engagement par un PRINCIPAL), il passe `--correlation-id <thread>` à la première `offer` et tous les événements suivants l'héritent automatiquement. À l'inverse, un événement explicite (`--causation-id manual`) peut casser la chaîne — utile pour signaler une bifurcation côté audit.
 
 **Conséquence** : aucun changement de schéma pour V1 — `H2AJournalPayload` déclarait déjà ces deux champs (DEC-031 a fixé le layout, pas la sémantique de propagation). Cette DEC fige la sémantique d'inhéritance ; tout code consommateur peut désormais s'appuyer sur le fait que la `causationId` est non-vide pour tout événement autre que le premier d'une négociation.
+
+## DEC-034 — Contrat JSON output stable + table des codes de sortie
+**Date** : 2026-05-20. **Réfère** : DEC-026, DEC-031, DEC-033, WP-30.
+
+**Décision** : la surface `@sentropic/h2a-cli` figée par cette DEC est **l'API publique des clients programmatiques** du CLI `h2a`. Tout verbe émettant du JSON sur `stdout` respecte **exactement une** des trois enveloppes canoniques suivantes :
+
+- **`resource`** — JSON brut de l'entité persistée/lue (record de négociation, entrée de journal, enveloppe, snippet de configuration hôte). Utilisé par `negotiate open / status / event / offer / counter / sign`, `inbox pop`, `host setup --print`.
+- **`list`** — tableau JSON brut. Utilisé par `hosts`, `mcp-tools`, `discover`, `inbox read`, `outbox read`, `negotiate journal`.
+- **`action`** — `{ "ok": true, ...details }` pour les verbes à effet de bord sans entité naturelle à retourner. Utilisé par `init`, `register`, `inbox put`, `outbox put`, `negotiate stabilize`, `host setup --write`.
+
+Deux cas hors enveloppe : `--help` émet du texte humain (`text`), `mcp-serve` parle JSON-RPC 2.0 framé sur stdio (`stream`).
+
+Stderr suit toujours `h2a <verb> [sub]: <message>` pour grep déterministe.
+
+**Décision (codes de sortie)** : tous les verbes utilisent **uniquement** l'alphabet suivant :
+
+- `0` — succès.
+- `1` — erreur utilisateur : flag manquant/incorrect, JSON invalide, validation de payload caller-supplied, verbe/subverbe/hôte inconnu.
+- `2` — erreur runtime/état contre le store local : négociation introuvable, déjà ouverte, déjà stabilisée, signature non vérifiée, quorum incomplet, journal cassé, entrée de configuration pré-existante divergente refusée sans `--force`.
+- `3` — erreur I/O / OS : fichier illisible, permission refusée, écriture refusée par le système de fichiers.
+
+**Pourquoi** : (a) un client MCP, un script shell ou un test d'intégration doivent pouvoir parser le `stdout` JSON sans deviner la forme (objet, tableau, ou enveloppe `ok`) verbe par verbe ; (b) la séparation 1/2/3 distingue clairement les erreurs « ton input est mauvais » (le caller doit corriger sa requête), « ton état stocké refuse cette action » (le caller doit consulter le store), et « ton environnement OS bloque » (le caller doit corriger ses permissions/fichiers) — ce qui permet des branches de retry/abort différenciées en automation.
+
+**Pourquoi (`action` plutôt que bare-entity pour les writes)** : un verbe qui écrit mais n'a pas d'entité naturelle à retourner (`init` ne retourne pas un objet « root », `register` ne retourne pas le registre entier, `inbox put` ne retourne pas l'enveloppe stockée mais sa coordonnée) émet une confirmation explicite `{ok:true, …}`. Réinjecter l'entité d'entrée serait du bruit ; ne rien émettre serait perdre la traçabilité de l'écriture. La forme `action` rend l'opération auditable d'un seul `tee` shell.
+
+**Pourquoi `negotiate stabilize` reste `action` malgré l'entité disponible** : la stabilization retourne *plusieurs* artefacts d'un coup (`record`, `artifactHash`, `signers`, `artifactPath`, `finalEvent`) — il n'y a pas une entité unique mais un résultat composite, et le flag `ok` est sémantiquement informatif (le caller peut tester `parsed.ok` sans connaître la structure interne). Bare-unwrap dégraderait la lisibilité programmatique.
+
+**Conséquence** : (a) le manifeste `H2A_CLI_VERB_CONTRACTS` (`packages/h2a-cli/src/cli-contract.ts`) est ré-exporté publiquement et fait foi ; (b) `docs/cli-contract.md` est la référence humaine ; (c) toute modification rétro-incompatible exige une **nouvelle DEC** + un bump majeur de `@sentropic/h2a-cli` ; (d) les ajouts purement additifs (nouveau verbe, nouveau champ optionnel dans une enveloppe `action`/`resource`) restent compatibles mineur.

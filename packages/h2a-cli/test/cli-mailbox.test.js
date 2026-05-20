@@ -110,7 +110,8 @@ test("h2a inbox pop on a missing envelope reports an error", () => {
       ["inbox", "pop", "--root", root, "--instance", "alpha", "--envelope", "missing"],
       streams
     );
-    assert.equal(rc, 1);
+    // DEC-034: missing envelope on the local store is a state error → exit 2.
+    assert.equal(rc, 2);
     assert.match(streams.stderrText, /no such envelope/);
   } finally {
     rmSync(dir, { recursive: true, force: true });

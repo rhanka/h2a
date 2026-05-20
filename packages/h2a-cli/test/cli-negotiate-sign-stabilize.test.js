@@ -171,7 +171,8 @@ test("h2a negotiate stabilize fails when quorum incomplete", () => {
     );
 
     const stab = run(["negotiate", "stabilize", "--root", root, "--id", "nego-sign"], dir);
-    assert.equal(stab.rc, 1);
+    // DEC-034: quorum incomplete is a store-state error → exit 2.
+    assert.equal(stab.rc, 2);
     assert.match(stab.stderr, /no artifactHash has the full quorum/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -220,7 +221,8 @@ test("h2a negotiate stabilize fails when signers signed different artifacts", ()
     );
 
     const stab = run(["negotiate", "stabilize", "--root", root, "--id", "nego-sign"], dir);
-    assert.equal(stab.rc, 1);
+    // DEC-034: quorum incomplete is a store-state error → exit 2.
+    assert.equal(stab.rc, 2);
     assert.match(stab.stderr, /no artifactHash has the full quorum/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -253,7 +255,8 @@ test("h2a negotiate stabilize fails when a signature does not verify against the
       dir
     );
     const stab = run(["negotiate", "stabilize", "--root", root, "--id", "nego-sign"], dir);
-    assert.equal(stab.rc, 1);
+    // DEC-034: signature verification failure is a store-state error → exit 2.
+    assert.equal(stab.rc, 2);
     assert.match(stab.stderr, /fails verification/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -305,7 +308,8 @@ test("h2a negotiate stabilize is idempotently refused once stabilized", () => {
     const first = run(["negotiate", "stabilize", "--root", root, "--id", "nego-sign"], dir);
     assert.equal(first.rc, 0);
     const second = run(["negotiate", "stabilize", "--root", root, "--id", "nego-sign"], dir);
-    assert.equal(second.rc, 1);
+    // DEC-034: already-stabilized is a store-state conflict → exit 2.
+    assert.equal(second.rc, 2);
     assert.match(second.stderr, /already stabilized/);
   } finally {
     rmSync(dir, { recursive: true, force: true });

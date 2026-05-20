@@ -42,6 +42,20 @@ h2a mcp-serve [--root <path>]
 h2a host setup --host <codex|claude> [--root <path>] [--print | --write <file>] [--force]
 ```
 
+### Contrat CLI (DEC-034)
+
+Tout verbe émettant du JSON utilise **exactement une** des trois enveloppes
+canoniques (`resource` / `list` / `action`), et **tous** les verbes partagent
+la même table des codes de sortie `0 / 1 / 2 / 3`. C'est le contrat
+programmatique stable du CLI :
+
+- Référence humaine détaillée verbe par verbe → [`docs/cli-contract.md`](./docs/cli-contract.md).
+- Manifeste machine ré-exporté par `@sentropic/h2a-cli` :
+  `H2A_CLI_VERB_CONTRACTS` (`packages/h2a-cli/src/cli-contract.ts`).
+
+Toute évolution rétro-incompatible exige une nouvelle DEC + un bump majeur de
+`@sentropic/h2a-cli`.
+
 ## Exemples
 
 - **`examples/principal-conductors/`** — démo runnable de bout en bout du

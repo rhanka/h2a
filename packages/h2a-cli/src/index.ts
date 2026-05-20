@@ -20,6 +20,14 @@ export {
 };
 
 export {
+  H2A_CLI_VERB_CONTRACTS,
+  H2A_CLI_VERB_CONTRACT_BY_VERB,
+  type H2ACliExitCode,
+  type H2ACliOutputShape,
+  type H2ACliVerbContract
+} from "./cli-contract.js";
+
+export {
   createLocalStore,
   inboxDir,
   localStorePaths,

@@ -153,7 +153,8 @@ test("h2a negotiate offer rejects unknown negotiation id", () => {
       ],
       out
     );
-    assert.equal(rc, 1);
+    // DEC-034: missing negotiation is a store-state conflict → exit 2.
+    assert.equal(rc, 2);
     assert.match(out.stderrText, /not found/);
   } finally {
     rmSync(dir, { recursive: true, force: true });

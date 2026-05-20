@@ -154,7 +154,8 @@ test("h2a host setup --write refuses to overwrite a divergent mcpServers.h2a", (
       ["host", "setup", "--host", "codex", "--write", target],
       streams
     );
-    assert.equal(rc, 1);
+    // DEC-034: divergent pre-existing mcpServers.h2a entry is a state conflict → exit 2.
+    assert.equal(rc, 2);
     assert.match(streams.stderrText, /--force/);
     // The pre-existing entry must remain untouched.
     const after = JSON.parse(readFileSync(target, "utf8"));

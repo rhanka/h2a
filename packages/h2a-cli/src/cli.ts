@@ -1,3 +1,42 @@
+/**
+ * `h2a` CLI dispatcher — stable JSON output contract + exit-code table (DEC-034).
+ *
+ * Output shapes
+ * -------------
+ * Every JSON-emitting verb writes ONE of three canonical envelopes on stdout:
+ *
+ * - **resource** — bare JSON of a single entity. Used by verbs that return the
+ *   persisted/loaded record itself (`negotiate open`, `negotiate status`,
+ *   `negotiate event`, `negotiate offer`, `negotiate counter`, `negotiate sign`,
+ *   `inbox pop`, `host setup --print`).
+ * - **list** — bare JSON array. Used by `hosts`, `mcp-tools`, `discover`,
+ *   `inbox read`, `outbox read`, `negotiate journal`.
+ * - **action** — `{ ok: true, ...details }` confirmation envelope. Used by
+ *   verbs that perform side effects without a natural entity to return
+ *   (`init`, `register`, `inbox put`, `outbox put`, `negotiate stabilize`,
+ *   `host setup --write`).
+ *
+ * Stderr lines always follow `h2a <verb> [sub]: <message>` so callers can
+ * grep them deterministically. The `mcp-serve` verb is a long-running
+ * JSON-RPC 2.0 stdio transport and does not fit the envelope contract.
+ *
+ * Exit codes
+ * ----------
+ *
+ * - `0` — success.
+ * - `1` — user error: missing/bad flag, invalid JSON, validation failure on
+ *   caller-supplied data, unknown verb/subverb/host.
+ * - `2` — runtime/state error: store conflict or business-rule violation
+ *   (negotiation not found, already open, already stabilized, signature
+ *   fails verification, quorum incomplete, broken journal, divergent
+ *   pre-existing config file refusing merge without `--force`).
+ * - `3` — I/O / OS error: file unreadable, permission denied, write
+ *   refused by the filesystem.
+ *
+ * The full machine-readable manifest lives in `./cli-contract.ts`
+ * (`H2A_CLI_VERB_CONTRACTS`). Human-readable reference: `docs/cli-contract.md`.
+ */
+
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -9,6 +48,31 @@ import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 import { createLocalStore } from "./runtime/local-files/index.js";
 import { runMcpStdio } from "./runtime/mcp/index.js";
+
+/**
+ * Pattern matchers used to map known store-level error messages to exit code
+ * 2 (state/runtime conflict) instead of the default 1 (user error). Anything
+ * not matched here keeps the conservative 1 — DEC-034 explicitly opts for
+ * "don't over-promote".
+ */
+const STORE_STATE_ERROR_PATTERNS: readonly RegExp[] = [
+  /already registered/i,
+  /already open/i,
+  /already stabilized/i,
+  /not found/i,
+  /no such envelope/i,
+  /fails verification/i,
+  /no artifactHash has the full quorum/i,
+  /no offer\/counter event matches/i,
+  /stabilized artifact already on disk/i
+];
+
+function classifyStoreError(message: string): 1 | 2 {
+  for (const pattern of STORE_STATE_ERROR_PATTERNS) {
+    if (pattern.test(message)) return 2;
+  }
+  return 1;
+}
 
 export interface H2ACliStreams {
   stderr: Pick<typeof process.stderr, "write">;
@@ -123,11 +187,19 @@ function resolveCausationCorrelation(
 function cmdInit(flags: Record<string, string>, streams: H2ACliStreams): number {
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
-  const store = createLocalStore({ root });
-  streams.stdout.write(
-    `${JSON.stringify({ ok: true, root: store.paths.root }, null, 2)}\n`
-  );
-  return 0;
+  try {
+    const store = createLocalStore({ root });
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, root: store.paths.root }, null, 2)}\n`
+    );
+    return 0;
+  } catch (error) {
+    // `createLocalStore` is the one place this verb can fail, and the only
+    // failure mode in practice is filesystem-level (cannot mkdir under root,
+    // permission denied, …). Surface those as exit code 3.
+    streams.stderr.write(`h2a init: ${(error as Error).message}\n`);
+    return 3;
+  }
 }
 
 function cmdRegister(
@@ -151,8 +223,9 @@ function cmdRegister(
   try {
     store.registerInstance(registration);
   } catch (error) {
-    streams.stderr.write(`h2a register: ${(error as Error).message}\n`);
-    return 1;
+    const message = (error as Error).message;
+    streams.stderr.write(`h2a register: ${message}\n`);
+    return classifyStoreError(message);
   }
   streams.stdout.write(
     `${JSON.stringify({ ok: true, id: registration.id, root: store.paths.root }, null, 2)}\n`
@@ -198,8 +271,12 @@ function cmdMailbox(
       );
       return 0;
     } catch (error) {
-      streams.stderr.write(`h2a ${mailbox} put: ${(error as Error).message}\n`);
-      return 1;
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a ${mailbox} put: ${message}\n`);
+      // Envelope-shape failures are user/validation errors (exit 1); only
+      // state-level conflicts escalate to exit 2 (none currently emitted here,
+      // but the classifier keeps the door open).
+      return classifyStoreError(message);
     }
   }
 
@@ -218,7 +295,9 @@ function cmdMailbox(
     const popped = store.popInboxMessage(flags.instance, flags.envelope);
     if (!popped) {
       streams.stderr.write(`h2a inbox pop: no such envelope ${flags.envelope}\n`);
-      return 1;
+      // State conflict against the local store (the envelope is not where the
+      // caller expected it). Exit code 2 per DEC-034.
+      return 2;
     }
     streams.stdout.write(`${JSON.stringify(popped, null, 2)}\n`);
     return 0;
@@ -257,8 +336,9 @@ function cmdNegotiate(
       streams.stdout.write(`${JSON.stringify(opened, null, 2)}\n`);
       return 0;
     } catch (error) {
-      streams.stderr.write(`h2a negotiate open: ${(error as Error).message}\n`);
-      return 1;
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a negotiate open: ${message}\n`);
+      return classifyStoreError(message);
     }
   }
 
@@ -275,8 +355,9 @@ function cmdNegotiate(
       streams.stdout.write(`${JSON.stringify(updated, null, 2)}\n`);
       return 0;
     } catch (error) {
-      streams.stderr.write(`h2a negotiate status: ${(error as Error).message}\n`);
-      return 1;
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a negotiate status: ${message}\n`);
+      return classifyStoreError(message);
     }
   }
 
@@ -290,7 +371,7 @@ function cmdNegotiate(
     const record = store.readNegotiation(flags.id);
     if (!record) {
       streams.stderr.write(`h2a negotiate ${sub}: negotiation ${flags.id} not found\n`);
-      return 1;
+      return 2;
     }
     let artifact;
     try {
@@ -319,8 +400,9 @@ function cmdNegotiate(
       streams.stdout.write(`${JSON.stringify(entry, null, 2)}\n`);
       return 0;
     } catch (error) {
-      streams.stderr.write(`h2a negotiate ${sub}: ${(error as Error).message}\n`);
-      return 1;
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a negotiate ${sub}: ${message}\n`);
+      return classifyStoreError(message);
     }
   }
 
@@ -334,7 +416,7 @@ function cmdNegotiate(
     const record = store.readNegotiation(flags.id);
     if (!record) {
       streams.stderr.write(`h2a negotiate sign: negotiation ${flags.id} not found\n`);
-      return 1;
+      return 2;
     }
     let artifact;
     try {
@@ -352,7 +434,8 @@ function cmdNegotiate(
       streams.stderr.write(
         `h2a negotiate sign: cannot read private key at ${flags["private-key"]} (${(error as Error).message})\n`
       );
-      return 1;
+      // File/OS error — exit code 3 per DEC-034.
+      return 3;
     }
     const artifactHash = computeHash(artifact);
     const signature = signCanonical({ artifactHash }, { by: flags.instance, privateKeyPem });
@@ -374,8 +457,9 @@ function cmdNegotiate(
       streams.stdout.write(`${JSON.stringify(entry, null, 2)}\n`);
       return 0;
     } catch (error) {
-      streams.stderr.write(`h2a negotiate sign: ${(error as Error).message}\n`);
-      return 1;
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a negotiate sign: ${message}\n`);
+      return classifyStoreError(message);
     }
   }
 
@@ -402,8 +486,9 @@ function cmdNegotiate(
       );
       return 0;
     } catch (error) {
-      streams.stderr.write(`h2a negotiate stabilize: ${(error as Error).message}\n`);
-      return 1;
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a negotiate stabilize: ${message}\n`);
+      return classifyStoreError(message);
     }
   }
 
@@ -434,8 +519,9 @@ function cmdNegotiate(
       streams.stdout.write(`${JSON.stringify(entry, null, 2)}\n`);
       return 0;
     } catch (error) {
-      streams.stderr.write(`h2a negotiate event: ${(error as Error).message}\n`);
-      return 1;
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a negotiate event: ${message}\n`);
+      return classifyStoreError(message);
     }
   }
 
@@ -449,8 +535,9 @@ function cmdNegotiate(
       streams.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
       return 0;
     } catch (error) {
-      streams.stderr.write(`h2a negotiate journal: ${(error as Error).message}\n`);
-      return 1;
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a negotiate journal: ${message}\n`);
+      return classifyStoreError(message);
     }
   }
 
@@ -556,7 +643,8 @@ function cmdHostSetup(
       streams.stderr.write(
         `h2a host setup: cannot read ${targetPath} (${(error as Error).message})\n`
       );
-      return 1;
+      // File/OS error — exit code 3 per DEC-034.
+      return 3;
     }
     if (raw.trim().length > 0) {
       try {
@@ -565,7 +653,8 @@ function cmdHostSetup(
           streams.stderr.write(
             `h2a host setup: ${targetPath} is valid JSON but not a JSON object; refusing to merge.\n`
           );
-          return 1;
+          // Pre-existing on-disk state we refuse to overwrite — state conflict.
+          return 2;
         }
         existing = parsed;
       } catch (error) {
@@ -573,7 +662,8 @@ function cmdHostSetup(
           `h2a host setup: ${targetPath} is not valid JSON (${(error as Error).message}). Use --force to overwrite intentionally.\n`
         );
         if (flags.force !== "true") {
-          return 1;
+          // Pre-existing malformed file refused without --force — state conflict.
+          return 2;
         }
         existing = {};
       }
@@ -594,7 +684,8 @@ function cmdHostSetup(
     streams.stderr.write(
       `h2a host setup: ${targetPath} already has a different mcpServers.h2a entry. Re-run with --force to overwrite.\n`
     );
-    return 1;
+    // Divergent pre-existing entry — state conflict (exit 2).
+    return 2;
   }
 
   const merged: Record<string, unknown> = {
@@ -615,7 +706,8 @@ function cmdHostSetup(
     streams.stderr.write(
       `h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`
     );
-    return 1;
+    // File/OS error — exit code 3 per DEC-034.
+    return 3;
   }
 
   streams.stdout.write(

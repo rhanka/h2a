@@ -50,7 +50,8 @@ test("h2a negotiate open writes state.json and rejects re-open", () => {
       ["negotiate", "open", "--root", root, "--json", JSON.stringify(record)],
       dup
     );
-    assert.equal(rc2, 1);
+    // DEC-034: pre-existing negotiation is a store-state conflict → exit 2.
+    assert.equal(rc2, 2);
     assert.match(dup.stderrText, /already open/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
