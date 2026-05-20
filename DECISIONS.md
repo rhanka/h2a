@@ -573,3 +573,29 @@ Le résolveur lit `ENFORCEMENT_PLAN.escalations[]`. Chaque route peut déclarer 
 **Pourquoi** : (a) les modèles multi-humain/fédération/gouvernement exigent EXECUTIF, CONTROL, autorité externe, recours ou quorum selon le scope ; (b) une règle cachée "tout remonte au PRINCIPAL" recrée le goulot d'étranglement identifié dans EVALUATIONS.md ; (c) `ENFORCEMENT_PLAN` était déjà le bon artefact pour l'application, mais ses routes n'étaient pas exploitables par code ; (d) garder le fallback explicite préserve le cas mono-humain sans affaiblir les scénarios fédérés.
 
 **Conséquence** : (a) `H2AEnforcementPlan.escalations[]` gagne des champs optionnels `scope`, `authorityKind`, `domain` ; (b) les clients peuvent résoudre une cible d'escalade avant d'écrire un événement `escalate` ; (c) le handler MCP existant reste compatible mais ne consomme pas encore ce résolveur — une future slice pourra ajouter `target`/`authorityKind` au payload d'escalade ; (d) DEC-040 ne résout pas la précédence entre policies : elle route seulement le besoin d'arbitrage vers l'autorité déclarée.
+
+
+## DEC-041 — Profils exécutables de compatibilité ABC
+**Date** : 2026-05-20. **Réfère** : REQ-042, REQ-043, REQ-044, REQ-071, DEC-018, DEC-021, DEC-024, DEC-039, DEC-040, WP-50.
+
+**Décision** : le mapping vers les trois modèles ABC de `EVALUATIONS.md` devient une primitive publique de `@sentropic/h2a`, pas seulement une prose d'audit.
+
+Exports ajoutés :
+
+- `H2A_ABC_MODEL_IDS = ["A_ENTERPRISE", "B_ECOSYSTEM", "C_GOVERNMENT_CITIZEN"]` ;
+- `H2A_ABC_MODEL_PROFILES` : profils stables par modèle, avec `track`, `label`, `topology`, rôles requis, artefacts requis, modes d'adoption de policy, autorités d'escalade et capacités ;
+- `H2A_ABC_MODEL_CAPABILITIES` : vocabulaire des capacités transverses (scope first-class, policy first-class, separation contract/engagement, signature mandatée, négociation déterministe, escalade par autorité de scope, autorité externe, disclosure contrôlée, précédence policy, obligations récurrentes, recours, juridiction) ;
+- `getAbcModelProfile(modelId)` ;
+- `auditAbcModelCompatibility(modelId)`.
+
+`auditAbcModelCompatibility` vérifie que chaque profil intégré ne référence que le vocabulaire public V1 (`H2A_ROLES`, `H2A_ARTIFACT_KINDS`, `H2A_POLICY_ADOPTION_MODES`, `H2A_ESCALATION_AUTHORITY_KINDS`, `H2A_ABC_MODEL_CAPABILITIES`). Il retourne `{ok, ready, issues, gaps, shipped, partial, deferred}`. `ok` signifie que le mapping est cohérent avec le vocabulaire public ; `ready` signifie qu'aucune capacité du modèle n'est encore partielle ou différée.
+
+**Statut V1** : les trois modèles sont `ok:true` mais `ready:false`. Cela fige le mapping sans prétendre que tous les gaps de protocole sont résolus :
+
+- A / entreprise traditionnelle : obligations récurrentes, disclosure contrôlée, recours et précédence inter-policy restent incomplets ;
+- B / écosystème multi-organisation : disclosure cross-organisation, deadlock/recours et précédence inter-policy restent incomplets ;
+- C / gouvernement/citoyen : juridiction structurée, recours/adjudication, disclosure publique et précédence loi/contrat/policy locale restent incomplets.
+
+**Pourquoi** : (a) les modèles ABC servent de garde-fous contre les régressions sémantiques ; (b) les décisions DEC-039/040 ont déjà rendu exécutables deux morceaux de ce mapping, mais aucune table publique ne disait encore ce que chaque modèle exige ; (c) séparer `ok` de `ready` évite de sur-vendre la V1 : les capacités livrées et les gaps ouverts deviennent inspectables par code ; (d) tout futur moteur de précédence, disclosure ou recours pourra fermer un gap précis sans réinterpréter toute l'évaluation.
+
+**Conséquence** : (a) WP-50 coche le mapping ABC ; (b) `EVALUATIONS.md` reste la source narrative, mais `H2A_ABC_MODEL_PROFILES` devient la source machine-readable ; (c) toute évolution des tracks ABC devra mettre à jour DEC-041 ou une DEC suivante et les tests `packages/h2a/test/abc.test.js` ; (d) les items restants de WP-50 portent désormais sur les modes multi-humains au-delà du pair-à-pair et sur la frontière protocole / policy / implémentation.

@@ -1,4 +1,21 @@
 export {
+  H2A_ABC_MODEL_CAPABILITIES,
+  H2A_ABC_MODEL_IDS,
+  H2A_ABC_MODEL_PROFILES,
+  auditAbcModelCompatibility,
+  getAbcModelProfile
+} from "./abc.js";
+export type {
+  H2AAbcModelCapability,
+  H2AAbcModelCapabilityDescriptor,
+  H2AAbcModelCapabilityStatus,
+  H2AAbcModelCompatibilityResult,
+  H2AAbcModelId,
+  H2AAbcModelProfileDescriptor,
+  H2AAbcTopology,
+  H2AAbcTrack
+} from "./abc.js";
+export {
   createEnvelope,
   isH2AEnvelope
 } from "./envelope.js";

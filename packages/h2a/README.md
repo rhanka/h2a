@@ -9,6 +9,7 @@ Current bootstrap surface:
 - artifact type guards for CONTRACT, POLICY, ENGAGEMENT, AMENDMENT, MANDATE, AUTHORITY, SIGNATURE, ENFORCEMENT_PLAN
 - contractual artifact profiles + strict audit helpers for CONTRACT / POLICY / ENGAGEMENT
 - escalation target resolution against ENFORCEMENT_PLAN routes
+- ABC model compatibility profiles + audit helper for enterprise / ecosystem / government-citizen mappings
 - canonical JSON + SHA-256 hashing
 - ed25519 canonical signing and verification
 - append-only journal entries and chain verification

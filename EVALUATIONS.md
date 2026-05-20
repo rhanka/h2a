@@ -236,6 +236,13 @@ Un humain est PRINCIPAL de 15 CONDUCTORS. Chaque conductor peut négocier avec l
 - **B écosystème** : correspond à 15 organisations ou partenaires. Besoin principal : disclosure contrôlée, antitrust/confidentialité, registry non autoritaire, deadlock explicite.
 - **C gouvernement/citoyen** : correspond à 15 services/guichets/agents sous obligations publiques. Besoin principal : policies imposées, juridiction, recours, preuves minimisées.
 
+Depuis DEC-041, ce mapping est aussi exposé en machine-readable par
+`H2A_ABC_MODEL_PROFILES` et vérifié par
+`auditAbcModelCompatibility(modelId)`. Les profils intégrés sont stables
+contre le vocabulaire V1 (`ok:true`) mais conservent des gaps explicites
+(`ready:false`) pour ne pas confondre compatibilité de mapping et moteur
+complet de précédence/disclosure/recours.
+
 ### Gaps restants
 
 - Priorité entre policies en cas de conflit bloquant.

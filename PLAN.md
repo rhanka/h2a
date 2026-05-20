@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-20 (Résolution cibles d'escalade par scope — DEC-040 ; WP-50 70%)
+> Last update: 2026-05-20 (Profils exécutables de compatibilité ABC — DEC-041 ; WP-50 80%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -118,7 +118,7 @@
 - [x] Decide whether Gemini stays first-wave or second-wave → **deferred to wave 2**
 - [ ] In wave 2, add the same minimal surface as Codex/Claude (host descriptor stays in `h2a hosts` meanwhile)
 
-## Workpackage 50 - Governance, Vocabulary, And Model Semantics (~70%)
+## Workpackage 50 - Governance, Vocabulary, And Model Semantics (~80%)
 
 - [x] Stabilize umbrella naming around `h2a`
 - [x] Capture vocabulary v1.7
@@ -126,7 +126,7 @@
 - [x] Capture the 2-package topology decision
 - [x] Produce compatibility evaluation notes
 - [x] Produce the initial runtime proposal
-- [ ] Stabilize the mapping to the three ABC models
+- [x] Stabilize the mapping to the three ABC models (DEC-041 : `H2A_ABC_MODEL_PROFILES` + `auditAbcModelCompatibility`, profils `ok:true` / `ready:false` avec gaps explicites)
 - [x] Counter-audit `CONTRACT` vs `POLICY` vs `ENGAGEMENT` (DEC-039 : profils `normative-container` / `durable-rule` / `operational-executable` + `auditContractualArtifact`)
 - [x] Define escalation targets per scope in executable terms (DEC-040 : `resolveEscalationTarget` sur `ENFORCEMENT_PLAN.escalations[]`, fallback PRINCIPAL explicite)
 - [x] Define the `1 PRINCIPAL / 15 CONDUCTORS` use case end-to-end (definition is executable in `examples/principal-conductors/`)
@@ -155,6 +155,6 @@
 
 Recommended next implementation slice:
 
-1. Stabilize the mapping to the three ABC models (WP-50).
+1. Frame multi-human modes beyond pairwise dialogue (WP-50).
 2. Add end-to-end host scenario tests for Codex and Claude Code over the shipped MCP setup surface (WP-40).
 3. Run the external npm deprecation for `@sentropic/h2a-cli@0.1.0` once maintainer auth is available (WP-00).

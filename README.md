@@ -142,6 +142,21 @@ plus spécifique pour `{scope, channel, trigger?, domain?}`. Le fallback
 mono-humain vers PRINCIPAL n'est utilisé que si le caller fournit
 explicitement `fallbackPrincipal`.
 
+### Compatibilité ABC (DEC-041)
+
+Le mapping vers les trois modèles d'évaluation ABC est exposé par
+`@sentropic/h2a` :
+
+- `H2A_ABC_MODEL_PROFILES` pour les profils `A_ENTERPRISE`,
+  `B_ECOSYSTEM`, `C_GOVERNMENT_CITIZEN`.
+- `auditAbcModelCompatibility(modelId)` pour distinguer les capacités
+  livrées (`shipped`) des gaps encore partiels ou différés.
+
+Les trois profils sont cohérents avec le vocabulaire V1 (`ok:true`), mais
+pas encore complets (`ready:false`) tant que la précédence inter-policy,
+la disclosure standardisée, les obligations récurrentes, la juridiction
+structurée ou le recours/adjudication restent ouverts selon le modèle.
+
 ## Exemples
 
 - **`examples/principal-conductors/`** — démo runnable de bout en bout du
