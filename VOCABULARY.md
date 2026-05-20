@@ -158,6 +158,15 @@ Trois flux "normaux" :
 3. **Latéral** : AGENT ↔ AGENT (collab) ; CONTROL ↔ tout acteur (observation + contrainte).
 4. **Fédéré** : EXECUTIF ↔ PRINCIPAUX/CONDUCTORS/CONTROL quand un scope d'ensemble existe.
 
+Modes multi-humains structurés (DEC-042) :
+
+1. **PEER_DIALOGUE** : PRINCIPAL ↔ PRINCIPAL, discussion informelle entre mini-organisations.
+2. **DELEGATED_COORDINATION** : CONDUCTOR ↔ CONDUCTOR, coordination répétée sous mandats locaux.
+3. **SHARED_ENGAGEMENT** : charter partagé avec roles, controls, policies, success criteria et journal.
+4. **FEDERATED_EXECUTIF** : scope d'ensemble porté par EXECUTIF, sans effacer les PRINCIPAUX locaux.
+5. **CONSORTIUM_QUORUM** : scope partagé gouverné par quorum/comité plutôt que par EXECUTIF unique.
+6. **PUBLIC_AUTHORITY** : policy, preuve ou recours impliquant une autorité externe/publique.
+
 **Aucune "consultation à l'humain" n'existe dans le flux par défaut** : si un agent a besoin d'une décision, il la demande à son conductor, qui décide ou escalade.
 
 ---
@@ -205,7 +214,7 @@ Le PRINCIPAL substitue son INSTANCE à un binding existant.
 4. **Mandataire** : par engagement ou de service ? Si built-in, comment garantir/vérifier sa neutralité ?
 5. **AGENT ↔ AGENT en collab** : la collaboration latérale est-elle libre ou doit-elle être déclarée au conductor (a posteriori ? a priori ?) ?
 6. **SUBAGENTS V2** : critère/déclencheur du passage SUBAGENTS internes → first-class ? (Différée, V1 reste avec subagents internes.)
-7. **Multi-humain pair-à-pair** : règles exactes de passage de PRINCIPAL ↔ PRINCIPAL vers CONDUCTOR ↔ CONDUCTOR puis ENGAGEMENT partagé.
+7. **Multi-humain pair-à-pair** : résolu par DEC-042 (`selectMultiHumanMode`), de PRINCIPAL ↔ PRINCIPAL vers CONDUCTOR ↔ CONDUCTOR, ENGAGEMENT partagé, EXECUTIF, quorum ou autorité externe.
 8. **Humain multi-rôle** : comment représenter un même humain tenant simultanément PRINCIPAL local, rôle opérationnel, CONTROL ou EXECUTIF ?
 9. **CONTRACT** : schema minimal, signatures, parties, droits, obligations, policies, engagements dérivés.
 10. **POLICY** : cycle de vie, signature, héritage, précédence et résolution de conflit entre scopes.

@@ -599,3 +599,29 @@ Exports ajoutés :
 **Pourquoi** : (a) les modèles ABC servent de garde-fous contre les régressions sémantiques ; (b) les décisions DEC-039/040 ont déjà rendu exécutables deux morceaux de ce mapping, mais aucune table publique ne disait encore ce que chaque modèle exige ; (c) séparer `ok` de `ready` évite de sur-vendre la V1 : les capacités livrées et les gaps ouverts deviennent inspectables par code ; (d) tout futur moteur de précédence, disclosure ou recours pourra fermer un gap précis sans réinterpréter toute l'évaluation.
 
 **Conséquence** : (a) WP-50 coche le mapping ABC ; (b) `EVALUATIONS.md` reste la source narrative, mais `H2A_ABC_MODEL_PROFILES` devient la source machine-readable ; (c) toute évolution des tracks ABC devra mettre à jour DEC-041 ou une DEC suivante et les tests `packages/h2a/test/abc.test.js` ; (d) les items restants de WP-50 portent désormais sur les modes multi-humains au-delà du pair-à-pair et sur la frontière protocole / policy / implémentation.
+
+
+## DEC-042 — Taxonomie exécutable des modes multi-humains
+**Date** : 2026-05-20. **Réfère** : REQ-029, REQ-030, REQ-031, REQ-032, REQ-033, REQ-034, REQ-035, REQ-036, DEC-015, DEC-016, DEC-017, DEC-024, WP-50.
+
+**Décision** : le cadrage multi-humain ne se limite plus au mode pair-à-pair. `@sentropic/h2a` expose une taxonomie V1 de modes multi-humains, avec un sélecteur déterministe pour choisir le niveau de cérémonie minimal :
+
+- `PEER_DIALOGUE` : dialogue informel PRINCIPAL ↔ PRINCIPAL entre mini-organisations, sans charter opérationnel partagé ;
+- `DELEGATED_COORDINATION` : coordination opérationnelle répétée déléguée CONDUCTOR ↔ CONDUCTOR, chaque PRINCIPAL gardant son autorité locale ;
+- `SHARED_ENGAGEMENT` : engagement partagé avec charter, role bindings, controls, policies, success criteria et journal propre ;
+- `FEDERATED_EXECUTIF` : scope d'ensemble porté par un EXECUTIF, sans effacer les PRINCIPAUX locaux ;
+- `CONSORTIUM_QUORUM` : gouvernance de scope partagé par quorum/comité plutôt que par EXECUTIF unique ;
+- `PUBLIC_AUTHORITY` : mode où une autorité publique/réglementaire/externe impose policy, reçoit preuve ou route recours.
+
+Exports ajoutés :
+
+- `H2A_MULTI_HUMAN_MODE_IDS` ;
+- `H2A_MULTI_HUMAN_MODES` ;
+- `getMultiHumanMode(modeId)` ;
+- `selectMultiHumanMode(request)`.
+
+Le sélecteur refuse `principalCount < 2`. Pour les cas multi-humains, il applique la précédence suivante, du plus contraignant au plus léger : `externalAuthority` → `executiveScope` → `quorumGovernance` → `sharedCommitments` → `repeatedOperationalCoordination` → `PEER_DIALOGUE`.
+
+**Pourquoi** : (a) DEC-015 avait bien distingué les trois canaux pair-à-pair, mais pas les modes structurés au-delà ; (b) DEC-016/017 introduisent EXECUTIF, mais sans règle simple pour savoir quand passer d'un dialogue à une fédération ; (c) les modèles ABC montrent aussi des consortiums/quorums et des autorités publiques qui ne doivent pas être forcés dans "EXECUTIF" ; (d) le protocole a besoin d'un choix déterministe de mode pour éviter qu'une coordination avec obligations, risques ou autorité externe reste traitée comme une simple discussion.
+
+**Conséquence** : (a) WP-50 coche le cadrage multi-humain au-delà du pair-à-pair ; (b) `selectMultiHumanMode` ne crée pas encore d'artefact, il guide le choix entre conversation, coordination déléguée, ENGAGEMENT, scope fédéré, quorum ou autorité externe ; (c) une future slice peut utiliser ce mode pour générer des templates de `CONTRACT`, `ENGAGEMENT`, `ENFORCEMENT_PLAN` ou `MANDATE` ; (d) il reste à décider ce qui devient protocole obligatoire, policy recommandée ou comportement d'implémentation.

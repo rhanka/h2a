@@ -16,6 +16,21 @@ export type {
   H2AAbcTrack
 } from "./abc.js";
 export {
+  H2A_MULTI_HUMAN_MODE_IDS,
+  H2A_MULTI_HUMAN_MODES,
+  getMultiHumanMode,
+  selectMultiHumanMode
+} from "./multi-human.js";
+export type {
+  H2AMultiHumanChannel,
+  H2AMultiHumanModeDescriptor,
+  H2AMultiHumanModeId,
+  H2AMultiHumanModeRequest,
+  H2AMultiHumanModeSelection,
+  H2AMultiHumanModeSelectionFailure,
+  H2AMultiHumanModeSelectionResult
+} from "./multi-human.js";
+export {
   createEnvelope,
   isH2AEnvelope
 } from "./envelope.js";

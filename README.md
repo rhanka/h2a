@@ -157,6 +157,23 @@ pas encore complets (`ready:false`) tant que la précédence inter-policy,
 la disclosure standardisée, les obligations récurrentes, la juridiction
 structurée ou le recours/adjudication restent ouverts selon le modèle.
 
+### Modes multi-humains (DEC-042)
+
+`@sentropic/h2a` expose aussi une taxonomie pour choisir le niveau de
+cérémonie multi-humain :
+
+- `PEER_DIALOGUE`
+- `DELEGATED_COORDINATION`
+- `SHARED_ENGAGEMENT`
+- `FEDERATED_EXECUTIF`
+- `CONSORTIUM_QUORUM`
+- `PUBLIC_AUTHORITY`
+
+`selectMultiHumanMode(request)` refuse les cas non multi-humains
+(`principalCount < 2`) et choisit le mode le plus contraignant dans cet
+ordre : autorité externe, scope EXECUTIF, quorum, engagements partagés,
+coordination opérationnelle répétée, puis dialogue PRINCIPAL ↔ PRINCIPAL.
+
 ## Exemples
 
 - **`examples/principal-conductors/`** — démo runnable de bout en bout du
