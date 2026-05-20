@@ -35,6 +35,9 @@ h2a outbox read --instance <id> [--root <path>]
 
 # MCP server (JSON-RPC 2.0 over stdio, DEC-026)
 h2a mcp-serve [--root <path>]
+
+# Branchement hôte (Codex / Claude Code) — émet/merge le snippet `mcpServers.h2a`
+h2a host setup --host <codex|claude> [--root <path>] [--print | --write <file>] [--force]
 ```
 
 ## Exemples

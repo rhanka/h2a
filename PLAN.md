@@ -1,12 +1,12 @@
 # H2A Project Plan
 
-> Last update: 2026-05-20 (all 10 MCP tools wired to the local-files runtime, full lifecycle over JSON-RPC)
+> Last update: 2026-05-20 (host setup adapter for Codex and Claude — `h2a host setup` verb emits/merges the MCP config snippet)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
 ## Snapshot
 
-- Overall estimated progress: ~63%
+- Overall estimated progress: ~66%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
@@ -87,7 +87,7 @@
 - [x] Implement `h2a negotiate stabilize` (verify signatures against registry publicKeys, quorum check, status→stabilized)
 - [ ] Stabilize JSON output contracts and exit codes
 
-## Workpackage 40 - Host And Protocol Integrations (~30%)
+## Workpackage 40 - Host And Protocol Integrations (~50%)
 
 ### MCP track
 
@@ -100,15 +100,15 @@
 
 ### Codex track
 
-- [ ] Scaffold the Codex-side plugin surface
-- [ ] Implement registration flow
-- [ ] Implement inbox / negotiation operations
+- [x] Scaffold the Codex-side plugin surface (host descriptor + `renderMcpConfig` snippet, exposed as `h2a host setup --host codex`)
+- [x] Implement registration flow (MCP-level: `h2a host setup --host codex [--write <file>]` merges `mcpServers.h2a` into the Codex CLI config; pre-existing `mcpServers.h2a` divergence requires `--force`; other entries are preserved)
+- [ ] Implement inbox / negotiation operations (end-to-end Codex run still TODO; the snippet exposes the full 10-tool MCP surface but no Codex-driven scenario test yet)
 
 ### Claude track
 
-- [ ] Scaffold the Claude-side plugin surface
-- [ ] Implement registration flow
-- [ ] Implement inbox / negotiation operations
+- [x] Scaffold the Claude-side plugin surface (host descriptor + `renderMcpConfig` snippet, exposed as `h2a host setup --host claude`)
+- [x] Implement registration flow (MCP-level: `h2a host setup --host claude [--write <file>]` covers both `~/.config/claude/mcp.json` and project-local `.mcp.json`)
+- [ ] Implement inbox / negotiation operations (end-to-end Claude Code run still TODO; mirrors the Codex gap)
 
 ### Gemini track (wave 2 — DEC-028)
 

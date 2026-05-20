@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 import { computeHash, signCanonical } from "@sentropic/h2a";
 
@@ -49,6 +49,7 @@ export function renderCliHelp(): string {
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
     "  h2a mcp-serve [--root <path>]",
+    "  h2a host setup --host <codex|claude> [--root <path>] [--print | --write <file>] [--force]",
     "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
     `MCP tools: ${H2A_CLI_MCP_TOOL_NAMES.join(", ")}`
@@ -435,6 +436,151 @@ export async function runMcpServe(
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
+}
+
+function configsEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function cmdHostSetup(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  const host = flags.host;
+  if (!host) {
+    streams.stderr.write(
+      "h2a host setup: --host <codex|claude> is required\n"
+    );
+    return 1;
+  }
+  if (host === "gemini") {
+    streams.stderr.write(
+      "h2a host setup: Gemini is deferred to wave 2 (DEC-028). Use --host codex or claude.\n"
+    );
+    return 1;
+  }
+  let snippet;
+  if (host === "codex") {
+    snippet = H2A_CODEX_HOST.renderMcpConfig({ root: flags.root });
+  } else if (host === "claude") {
+    snippet = H2A_CLAUDE_HOST.renderMcpConfig({ root: flags.root });
+  } else {
+    streams.stderr.write(
+      `h2a host setup: unknown --host "${host}". Supported: codex, claude.\n`
+    );
+    return 1;
+  }
+
+  const targetPath = flags.write;
+  const printMode = flags.print === "true" || !targetPath;
+
+  if (printMode && !targetPath) {
+    streams.stdout.write(`${JSON.stringify(snippet.config, null, 2)}\n`);
+    streams.stderr.write(
+      `# ${host} — paste this snippet under \`mcpServers\` in:\n# ${snippet.path.hint}\n# example path: ${snippet.path.example}\n`
+    );
+    return 0;
+  }
+
+  // --write path: merge into the target file.
+  let existing: Record<string, unknown> = {};
+  if (existsSync(targetPath)) {
+    let raw;
+    try {
+      raw = readFileSync(targetPath, "utf8");
+    } catch (error) {
+      streams.stderr.write(
+        `h2a host setup: cannot read ${targetPath} (${(error as Error).message})\n`
+      );
+      return 1;
+    }
+    if (raw.trim().length > 0) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (!isPlainObject(parsed)) {
+          streams.stderr.write(
+            `h2a host setup: ${targetPath} is valid JSON but not a JSON object; refusing to merge.\n`
+          );
+          return 1;
+        }
+        existing = parsed;
+      } catch (error) {
+        streams.stderr.write(
+          `h2a host setup: ${targetPath} is not valid JSON (${(error as Error).message}). Use --force to overwrite intentionally.\n`
+        );
+        if (flags.force !== "true") {
+          return 1;
+        }
+        existing = {};
+      }
+    }
+  }
+
+  const existingMcpServers = isPlainObject(existing.mcpServers)
+    ? existing.mcpServers
+    : {};
+  const previous = existingMcpServers.h2a;
+  const incoming = snippet.config.mcpServers.h2a;
+
+  if (
+    previous !== undefined &&
+    !configsEqual(previous, incoming) &&
+    flags.force !== "true"
+  ) {
+    streams.stderr.write(
+      `h2a host setup: ${targetPath} already has a different mcpServers.h2a entry. Re-run with --force to overwrite.\n`
+    );
+    return 1;
+  }
+
+  const merged: Record<string, unknown> = {
+    ...existing,
+    mcpServers: {
+      ...existingMcpServers,
+      h2a: incoming
+    }
+  };
+
+  try {
+    const dir = dirname(targetPath);
+    if (dir && !existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(targetPath, `${JSON.stringify(merged, null, 2)}\n`);
+  } catch (error) {
+    streams.stderr.write(
+      `h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`
+    );
+    return 1;
+  }
+
+  streams.stdout.write(
+    `${JSON.stringify(
+      { ok: true, host, path: targetPath, merged: true },
+      null,
+      2
+    )}\n`
+  );
+  streams.stderr.write(
+    `# wrote mcpServers.h2a for host=${host} to ${targetPath}\n# ${snippet.path.hint}\n`
+  );
+  return 0;
+}
+
+function cmdHost(argv: readonly string[], streams: H2ACliStreams): number {
+  const { command: sub, flags } = parseFlags(argv);
+  if (sub === "setup") return cmdHostSetup(flags, streams);
+  streams.stderr.write(`Unknown host subcommand: ${sub ?? "<none>"}\n`);
+  streams.stderr.write("Use: h2a host setup --host <codex|claude> ...\n");
+  return 1;
+}
+
 function cmdDiscover(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -485,6 +631,7 @@ export function runCli(
   if (command === "negotiate") return cmdNegotiate(argv.slice(1), streams);
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);
+  if (command === "host") return cmdHost(argv.slice(1), streams);
 
   streams.stderr.write(`Unknown command: ${command}\n`);
   streams.stderr.write("Run `h2a --help`.\n");

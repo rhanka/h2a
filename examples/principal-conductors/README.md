@@ -84,6 +84,72 @@ node examples/principal-conductors/run.mjs
 [OK] stabilized engagement:ship-v1 / quorum 3 of 15 conductors / 15 conductors discovered via MCP
 ```
 
+## Brancher sur Codex / Claude Code
+
+Une fois `@sentropic/h2a-cli` installé (le binaire `h2a` doit être résolvable
+via `PATH`), un seul commande émet le snippet MCP à coller dans la config de
+l'hôte. Le verbe `host setup` n'écrit jamais ailleurs que la cible passée
+explicitement à `--write` ; sans `--write` il se contente d'imprimer le JSON
+sur `stdout` et le hint de chemin sur `stderr`.
+
+### Codex CLI
+
+```bash
+h2a host setup --host codex --print
+# {
+#   "mcpServers": {
+#     "h2a": {
+#       "command": "h2a",
+#       "args": ["mcp-serve"]
+#     }
+#   }
+# }
+# # codex — paste this snippet under `mcpServers` in:
+# # Codex CLI reads its MCP config from either ~/.codex/config.json (legacy)
+# # or ~/.config/codex/mcp.json (XDG). Merge the snippet under the top-level
+# # `mcpServers` key in whichever file your Codex CLI uses.
+# # example path: ~/.config/codex/mcp.json
+```
+
+Pour appliquer directement (avec merge non destructif des autres serveurs MCP
+déjà présents) :
+
+```bash
+h2a host setup --host codex --write ~/.config/codex/mcp.json
+# ajouter --root /chemin/projet/.h2a pour épingler le store local du serveur,
+# --force pour écraser un mcpServers.h2a divergent déjà présent.
+```
+
+### Claude Code
+
+```bash
+h2a host setup --host claude --print
+# {
+#   "mcpServers": {
+#     "h2a": {
+#       "command": "h2a",
+#       "args": ["mcp-serve"]
+#     }
+#   }
+# }
+# # claude — paste this snippet under `mcpServers` in:
+# # Claude Code reads its MCP config from either ~/.config/claude/mcp.json
+# # (user-global) ou un .mcp.json local au workspace racine.
+```
+
+Variantes équivalentes :
+
+```bash
+# Config user-global
+h2a host setup --host claude --write ~/.config/claude/mcp.json
+
+# Config projet, épinglée sur un store .h2a local
+h2a host setup --host claude --root "$PWD/.h2a" --write "$PWD/.mcp.json"
+```
+
+> Gemini est volontairement refusé (`DEC-028` — wave 2). Le descripteur reste
+> visible via `h2a hosts`.
+
 ## Pourquoi cet exemple ?
 
 Il joue le rôle de **documentation vivante** et de **smoke test** pour les
