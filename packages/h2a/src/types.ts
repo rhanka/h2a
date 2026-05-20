@@ -219,6 +219,15 @@ export interface H2AEnforcementPlan {
     trigger: string;
     target: string;
     channel?: "advise" | "decide" | "alert";
+    scope?: string;
+    authorityKind?:
+      | "PRINCIPAL"
+      | "EXECUTIF"
+      | "QUORUM"
+      | "CONTROL"
+      | "EXTERNAL_AUTHORITY"
+      | "RECOURSE";
+    domain?: string;
   }>;
   triggers: Array<{
     name: string;

@@ -126,6 +126,22 @@ Les exports `H2A_CONTRACTUAL_ARTIFACT_PROFILES`,
 refuser un artefact ambigu sans rendre les type guards de base
 rétro-incompatibles.
 
+### Escalade par autorité de scope (DEC-040)
+
+Les escalades V1 utilisent les canaux `advise`, `decide`, `alert`, mais la
+cible n'est pas automatiquement le PRINCIPAL local. `@sentropic/h2a`
+exporte :
+
+- `H2A_ESCALATION_CHANNELS`
+- `H2A_ESCALATION_AUTHORITY_KINDS`
+- `resolveEscalationTarget(enforcementPlan, request, { fallbackPrincipal })`
+- `assertEscalationTargetResolved(resolution)`
+
+Le résolveur lit `ENFORCEMENT_PLAN.escalations[]` et choisit la route la
+plus spécifique pour `{scope, channel, trigger?, domain?}`. Le fallback
+mono-humain vers PRINCIPAL n'est utilisé que si le caller fournit
+explicitement `fallbackPrincipal`.
+
 ## Exemples
 
 - **`examples/principal-conductors/`** — démo runnable de bout en bout du

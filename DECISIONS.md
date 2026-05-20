@@ -554,3 +554,22 @@ La table `H2A_CONTRACTUAL_ARTIFACT_PROFILES` est ré-exportée publiquement. `au
 **Pourquoi** : les guards `isContract` / `isPolicy` / `isEngagement` restent volontairement permissifs sur les champs additionnels pour compatibilité et extensibilité. Il fallait donc une primitive séparée qui encode la frontière sémantique sans casser les payloads existants. Cette séparation rend REQ-037/038/046/047/048/050 vérifiables par code : une policy ne devient pas une mission, un engagement ne devient pas une loi/règle autonome, et un contract-cadre ne devient pas le journal opérationnel.
 
 **Conséquence** : (a) les clients peuvent appeler l'audit strict avant négociation/stabilisation lorsqu'ils veulent refuser un artefact ambigu ; (b) le runtime local reste compatible avec les artefacts existants, car l'audit strict n'est pas encore imposé automatiquement dans `stabilizeNegotiation` ; (c) une future DEC pourra décider où rendre cet audit bloquant (CLI, MCP, store ou seulement tooling) ; (d) la précédence inter-policy et les règles d'exception restent ouvertes — DEC-039 fixe la distinction de catégorie, pas encore le moteur de résolution de conflits.
+
+
+## DEC-040 — Résolution exécutable des cibles d'escalade par scope
+**Date** : 2026-05-20. **Réfère** : DEC-012, DEC-014, DEC-021, DEC-023, DEC-024, REQ-068, WP-50.
+
+**Décision** : `@sentropic/h2a` expose le vocabulaire et le résolveur V1 des cibles d'escalade :
+
+- canaux : `H2A_ESCALATION_CHANNELS = ["advise", "decide", "alert"]` ;
+- autorités cibles : `H2A_ESCALATION_AUTHORITY_KINDS = ["PRINCIPAL", "EXECUTIF", "QUORUM", "CONTROL", "EXTERNAL_AUTHORITY", "RECOURSE"]` ;
+- helper `resolveEscalationTarget(enforcementPlan, request, {fallbackPrincipal?})` ;
+- helper `assertEscalationTargetResolved(resolution)`.
+
+Le résolveur lit `ENFORCEMENT_PLAN.escalations[]`. Chaque route peut déclarer `{trigger, target, channel, scope, authorityKind, domain}`. La sélection est déterministe : filtre par channel/scope/trigger/domain compatibles, préfère les routes les plus spécifiques (domain > trigger > scope > channel), puis conserve l'ordre du plan en cas d'égalité. Les anciennes routes qui n'indiquent pas `authorityKind` sont interprétées comme `PRINCIPAL` pour compatibilité.
+
+**Décision (fallback)** : le PRINCIPAL n'est plus inventé implicitement. Le fallback mono-humain existe seulement si l'appelant fournit explicitement `fallbackPrincipal`. Sans route de plan et sans fallback, le résultat est `{ok:false, issues:[...]}`. C'est l'encodage exécutable de DEC-024 : l'escalade cible l'autorité compétente du scope, pas automatiquement le PRINCIPAL local.
+
+**Pourquoi** : (a) les modèles multi-humain/fédération/gouvernement exigent EXECUTIF, CONTROL, autorité externe, recours ou quorum selon le scope ; (b) une règle cachée "tout remonte au PRINCIPAL" recrée le goulot d'étranglement identifié dans EVALUATIONS.md ; (c) `ENFORCEMENT_PLAN` était déjà le bon artefact pour l'application, mais ses routes n'étaient pas exploitables par code ; (d) garder le fallback explicite préserve le cas mono-humain sans affaiblir les scénarios fédérés.
+
+**Conséquence** : (a) `H2AEnforcementPlan.escalations[]` gagne des champs optionnels `scope`, `authorityKind`, `domain` ; (b) les clients peuvent résoudre une cible d'escalade avant d'écrire un événement `escalate` ; (c) le handler MCP existant reste compatible mais ne consomme pas encore ce résolveur — une future slice pourra ajouter `target`/`authorityKind` au payload d'escalade ; (d) DEC-040 ne résout pas la précédence entre policies : elle route seulement le besoin d'arbitrage vers l'autorité déclarée.

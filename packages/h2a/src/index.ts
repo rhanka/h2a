@@ -45,6 +45,21 @@ export type {
   H2AContractualArtifactProfile,
   H2AContractualArtifactProfileDescriptor
 } from "./contractual.js";
+export {
+  H2A_ESCALATION_AUTHORITY_KINDS,
+  H2A_ESCALATION_CHANNELS,
+  assertEscalationTargetResolved,
+  resolveEscalationTarget
+} from "./escalation.js";
+export type {
+  H2AEscalationAuthorityKind,
+  H2AEscalationChannel,
+  H2AEscalationResolution,
+  H2AEscalationResolveOptions,
+  H2AEscalationResolvedTarget,
+  H2AEscalationTargetRequest,
+  H2AEscalationUnresolvedTarget
+} from "./escalation.js";
 export { H2A_CANONICAL_FIXTURES } from "./fixtures-index.js";
 export type { H2ACanonicalFixtureManifestEntry } from "./fixtures-index.js";
 export {
