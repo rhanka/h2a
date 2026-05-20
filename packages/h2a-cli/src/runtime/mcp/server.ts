@@ -2,10 +2,15 @@ import { createLocalStore, type LocalStore } from "../local-files/store.js";
 
 import {
   handleAppendJournal,
+  handleCounteroffer,
   handleDiscoverInstances,
+  handleEscalate,
   handleInbox,
+  handleOffer,
+  handleOpenNegotiation,
   handleRegisterInstance,
-  notImplemented,
+  handleSign,
+  handleStabilize,
   type McpErrorResult,
   type McpToolResult
 } from "./handlers.js";
@@ -56,12 +61,17 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       case "h2a_append_journal":
         return handleAppendJournal(store, args as never);
       case "h2a_open_negotiation":
+        return handleOpenNegotiation(store, args as never);
       case "h2a_offer":
+        return handleOffer(store, args as never);
       case "h2a_counteroffer":
+        return handleCounteroffer(store, args as never);
       case "h2a_sign":
+        return handleSign(store, args as never);
       case "h2a_stabilize":
+        return handleStabilize(store, args as never);
       case "h2a_escalate":
-        return notImplemented(toolName);
+        return handleEscalate(store, args as never);
       default:
         return { error: `unknown tool: ${name}` };
     }

@@ -296,6 +296,99 @@ async function main() {
       );
     }
 
+    step("9. Full negotiation lifecycle over MCP JSON-RPC (open / offer / sign / stabilize)");
+    // Open a *second* negotiation and drive its entire lifecycle through the
+    // MCP server, never touching the in-process LocalStore. The store is
+    // backed by the same root, so we reuse the conductors registered in
+    // step 3 (their public keys are already on file).
+    const MCP_NEGO_ID = "nego-mcp-lifecycle";
+    const MCP_REQUIRED = ["conductor:04", "conductor:05"];
+
+    async function callTool(name, args, id) {
+      const resp = await sendJsonRpc(mcpChild, {
+        jsonrpc: "2.0",
+        id,
+        method: "tools/call",
+        params: { name, arguments: args }
+      });
+      if (resp.result.isError) {
+        throw new Error(
+          `${name} returned isError: ${resp.result.content[0].text}`
+        );
+      }
+      return JSON.parse(resp.result.content[0].text);
+    }
+
+    const openResult = await callTool(
+      "h2a_open_negotiation",
+      {
+        record: {
+          id: MCP_NEGO_ID,
+          scope: SCOPE,
+          parties: MCP_REQUIRED,
+          subject: "engagement",
+          status: "draft",
+          requiredSigners: MCP_REQUIRED
+        }
+      },
+      10
+    );
+    info("mcp open status", openResult.record.status);
+
+    const mcpArtifact = {
+      kind: "ENGAGEMENT",
+      id: "engagement:mcp-lifecycle",
+      scope: SCOPE,
+      goal: "demonstrate MCP-driven negotiation"
+    };
+
+    const offerResult = await callTool(
+      "h2a_offer",
+      {
+        negotiationId: MCP_NEGO_ID,
+        instance: MCP_REQUIRED[0],
+        artifact: mcpArtifact,
+        eventId: "evt-mcp-offer"
+      },
+      11
+    );
+    info("mcp offer sequence", offerResult.entry.sequence);
+
+    for (let i = 0; i < MCP_REQUIRED.length; i++) {
+      const signer = MCP_REQUIRED[i];
+      const signResult = await callTool(
+        "h2a_sign",
+        {
+          negotiationId: MCP_NEGO_ID,
+          instance: signer,
+          artifact: mcpArtifact,
+          privateKeyPem: keys.get(signer).privatePem,
+          eventId: `evt-mcp-sign-${signer.replace(":", "-")}`
+        },
+        12 + i
+      );
+      info(`mcp sign ${signer}`, `seq=${signResult.entry.sequence}`);
+    }
+
+    const stabResult = await callTool(
+      "h2a_stabilize",
+      { negotiationId: MCP_NEGO_ID, eventId: "evt-mcp-stabilize" },
+      20
+    );
+    info("mcp stabilize status", stabResult.record.status);
+    info("mcp winning hash", stabResult.artifactHash);
+
+    if (stabResult.record.status !== "stabilized") {
+      throw new Error(
+        `MCP lifecycle: expected stabilized, got ${stabResult.record.status}`
+      );
+    }
+    if (stabResult.artifactHash !== computeHash(mcpArtifact)) {
+      throw new Error("MCP lifecycle: winning artifactHash does not match expected hash");
+    }
+
+    process.stdout.write(`\n${GREEN("✅ Full MCP lifecycle: stabilized via JSON-RPC")}\n`);
+
     process.stdout.write(
       `\n${GREEN(
         `[OK] stabilized engagement:ship-v1 / quorum ${REQUIRED_SIGNERS.length} of ${CONDUCTOR_COUNT} conductors / 15 conductors discovered via MCP`

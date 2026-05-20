@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-20 (runnable 1-PRINCIPAL / 15-CONDUCTORS demo lands WP-50 and WP-60 items)
+> Last update: 2026-05-20 (all 10 MCP tools wired to the local-files runtime, full lifecycle over JSON-RPC)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -87,7 +87,7 @@
 - [x] Implement `h2a negotiate stabilize` (verify signatures against registry publicKeys, quorum check, status→stabilized)
 - [ ] Stabilize JSON output contracts and exit codes
 
-## Workpackage 40 - Host And Protocol Integrations (~15%)
+## Workpackage 40 - Host And Protocol Integrations (~30%)
 
 ### MCP track
 
@@ -95,6 +95,7 @@
 - [x] Implement a minimal MCP server inside `@sentropic/h2a-cli` (in-process `createMcpServer({ root })`, 4 wired tools: register / discover / inbox / append_journal; JSON-RPC + stdio transport deferred to a later slice)
 - [x] Back the MCP server with the same local-files runtime
 - [x] Expose the in-process MCP server over JSON-RPC 2.0 / stdio (`runMcpStdio`) and add the `h2a mcp-serve [--root <path>]` CLI verb
+- [x] Wire **all 10 MCP tools** (added `h2a_open_negotiation`, `h2a_offer`, `h2a_counteroffer`, `h2a_sign`, `h2a_stabilize`, `h2a_escalate`); full negotiation lifecycle driveable end-to-end over JSON-RPC (`examples/principal-conductors/run.mjs` exercises this as step 9)
 - [ ] Define actor identity/auth strategy for MCP calls
 
 ### Codex track

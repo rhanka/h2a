@@ -193,11 +193,11 @@ test("callTool returns an error for an unknown tool name", () => {
   }
 });
 
-test("callTool returns 'not implemented' for the unwired tools", () => {
+test("callTool returns descriptive arg errors (not 'not implemented') for the negotiation tools when called with empty args", () => {
   const root = freshRoot();
   try {
     const server = createMcpServer({ root });
-    const unwired = [
+    const wired = [
       "h2a_open_negotiation",
       "h2a_offer",
       "h2a_counteroffer",
@@ -205,9 +205,14 @@ test("callTool returns 'not implemented' for the unwired tools", () => {
       "h2a_stabilize",
       "h2a_escalate"
     ];
-    for (const name of unwired) {
+    for (const name of wired) {
       const result = server.callTool(name, {});
-      assert.match(result.error ?? "", /not implemented/i, `${name} should be not implemented`);
+      assert.ok(result.error, `${name} should return a structured error on empty args`);
+      assert.doesNotMatch(
+        result.error,
+        /not implemented/i,
+        `${name} should now be wired (not return 'not implemented')`
+      );
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
