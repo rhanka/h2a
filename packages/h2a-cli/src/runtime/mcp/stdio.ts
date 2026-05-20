@@ -118,6 +118,8 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   const server = createMcpServer({ root });
 
   const rl = createInterface({ input: stdin, crlfDelay: Infinity });
+  (stdin as Readable & { ref?: () => void }).ref?.();
+  stdin.resume();
 
   return new Promise<void>((resolve, reject) => {
     rl.on("line", (line) => {

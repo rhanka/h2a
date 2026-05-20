@@ -261,7 +261,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: [],
     optionalFlags: ["host"],
     description:
-      "Report each host's wave + adapter-shipped flags (DEC-037). Output is `{ ok: true, hosts: [{host, wave, mcpAdapterShipped, hostSetupShipped, summary}] }`. Filter to a single host with `--host <name>`; unknown host → exit 1."
+      "Report each host's wave + adapter/setup/scenario-shipped flags (DEC-037/044). Output is `{ ok: true, hosts: [{host, wave, mcpAdapterShipped, hostSetupShipped, hostScenarioShipped, summary}] }`. Filter to a single host with `--host <name>`; unknown host → exit 1."
   }
 ] as const;
 

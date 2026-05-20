@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-20 (Frontière protocole / policy / implémentation — DEC-043 ; WP-50 100%)
+> Last update: 2026-05-20 (Scénarios hôtes Codex / Claude via snippets MCP — DEC-044 ; WP-40 85%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -13,7 +13,7 @@
 - Current repo state:
   - bootstrap repo, npm workspace, tests, and first npm publication are done
   - core contractual model, local runtime, CLI surface, and MCP server are implemented for the V1 local-files slice
-  - host setup is shipped for Codex and Claude Code; Gemini remains wave 2
+  - host setup and MCP host scenarios are shipped for Codex and Claude Code; Gemini remains wave 2
   - release preparation is automated locally and publishing is tag-driven in GitHub Actions
 
 ## Priority Order
@@ -88,7 +88,7 @@
 - [x] Implement `h2a negotiate stabilize` (verify signatures against registry publicKeys, quorum check, status→stabilized)
 - [x] Stabilize JSON output contracts and exit codes (DEC-034 : 3 enveloppes `resource`/`list`/`action` + codes 0/1/2/3 ; manifeste `H2A_CLI_VERB_CONTRACTS` + `docs/cli-contract.md`)
 
-## Workpackage 40 - Host And Protocol Integrations (~60%)
+## Workpackage 40 - Host And Protocol Integrations (~85%)
 
 ### MCP track
 
@@ -98,20 +98,20 @@
 - [x] Expose the in-process MCP server over JSON-RPC 2.0 / stdio (`runMcpStdio`) and add the `h2a mcp-serve [--root <path>]` CLI verb
 - [x] Wire **all 10 MCP tools** (added `h2a_open_negotiation`, `h2a_offer`, `h2a_counteroffer`, `h2a_sign`, `h2a_stabilize`, `h2a_escalate`); full negotiation lifecycle driveable end-to-end over JSON-RPC (`examples/principal-conductors/run.mjs` exercises this as step 9)
 - [x] Define actor identity/auth strategy for MCP calls (V1: no transport auth, caller-declared identity + ed25519 artifact signatures — DEC-032)
-- [x] Expose machine-readable host compatibility status (`h2a host status`, wave + adapter/setup flags — DEC-037)
+- [x] Expose machine-readable host compatibility status (`h2a host status`, wave + adapter/setup/scenario flags — DEC-037/044)
 - [ ] V2: transport auth (mTLS / signed bearer)
 
 ### Codex track
 
 - [x] Scaffold the Codex-side plugin surface (host descriptor + `renderMcpConfig` snippet, exposed as `h2a host setup --host codex`)
 - [x] Implement registration flow (MCP-level: `h2a host setup --host codex [--write <file>]` merges `mcpServers.h2a` into the Codex CLI config; pre-existing `mcpServers.h2a` divergence requires `--force`; other entries are preserved)
-- [ ] Implement inbox / negotiation operations (end-to-end Codex run still TODO; the snippet exposes the full 10-tool MCP surface but no Codex-driven scenario test yet)
+- [x] Implement inbox / negotiation operations (DEC-044 : host-specific MCP scenario launches `mcp-serve` from the Codex snippet and drives register/open/offer/inbox over JSON-RPC)
 
 ### Claude track
 
 - [x] Scaffold the Claude-side plugin surface (host descriptor + `renderMcpConfig` snippet, exposed as `h2a host setup --host claude`)
 - [x] Implement registration flow (MCP-level: `h2a host setup --host claude [--write <file>]` covers both `~/.config/claude/mcp.json` and project-local `.mcp.json`)
-- [ ] Implement inbox / negotiation operations (end-to-end Claude Code run still TODO; mirrors the Codex gap)
+- [x] Implement inbox / negotiation operations (DEC-044 : host-specific MCP scenario launches `mcp-serve` from the Claude snippet and drives register/open/offer/inbox over JSON-RPC)
 
 ### Gemini track (wave 2 — DEC-028)
 

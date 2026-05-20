@@ -649,3 +649,22 @@ Exports ajoutés :
 **Pourquoi** : (a) plusieurs décisions précédentes disent "hors V1", "policy", ou "implémentation" localement, mais aucune table ne les rendait inspectables ; (b) sans frontière explicite, une implémentation pourrait durcir une policy locale en règle de protocole cachée ; (c) inversement, un client pourrait traiter le layout local-files ou les snippets Codex/Claude comme des obligations du protocole ; (d) cette table donne un point d'extension pour promouvoir plus tard une policy ouverte vers le protocole via nouvelle DEC.
 
 **Conséquence** : (a) WP-50 atteint 100% sur le cadrage gouvernance/modèle ; (b) les gaps de DEC-041 restent visibles comme `POLICY/v1-open`, pas comme oublis ; (c) les futures specs détaillées peuvent référencer `H2A_GOVERNANCE_BOUNDARY_ITEMS` pour éviter de mélanger contrat protocolaire et choix du CLI de référence ; (d) toute promotion d'un item policy ou implementation vers protocol exigera nouvelle DEC + tests.
+
+
+## DEC-044 — Scénarios hôtes Codex / Claude via snippets MCP
+**Date** : 2026-05-20. **Réfère** : DEC-026, DEC-028, DEC-034, DEC-037, WP-40, WP-60.
+
+**Décision** : Codex et Claude Code passent de "setup snippet livré" à "scénario hôte livré" pour la V1. Le test `packages/h2a-cli/test/host-mcp-scenario.test.js` rend le snippet `mcpServers.h2a` propre à chaque host avec `command = process.execPath`, `args = [dist/bin.js, "mcp-serve"]`, lance réellement le process MCP stdio depuis ce snippet, puis conduit en JSON-RPC :
+
+- `initialize` ;
+- `tools/list` ;
+- `h2a_register_instance` ;
+- `h2a_open_negotiation` ;
+- `h2a_offer` ;
+- `h2a_inbox put/read`.
+
+**Décision (statut machine)** : `h2a host status` ajoute `hostScenarioShipped`. Codex et Claude retournent `true`; Gemini reste `false` tant qu'une DEC wave 2 ne le promeut pas.
+
+**Pourquoi** : (a) DEC-037 distinguait explicitement setup snippet et scénario end-to-end, et Codex/Claude restaient TODO ; (b) lancer le process à partir du snippet couvre le chemin réel qu'un host MCP utilise, sans dépendre de l'UI ou d'un binaire propriétaire ; (c) le scénario couvre à la fois discovery/registration, négociation et inbox, soit les opérations manquantes dans WP-40 ; (d) exposer `hostScenarioShipped` évite aux clients de déduire cette maturité depuis la doc Markdown.
+
+**Conséquence** : (a) les items Codex/Claude "inbox / negotiation operations" de WP-40 sont cochés ; (b) `docs/compatibility-matrix.md` marque les scénarios Codex/Claude comme shipped ; (c) `docs/cli-contract.md` et `H2A_CLI_VERB_CONTRACTS` incluent le nouveau champ ; (d) Gemini reste descriptor + MCP adapter seulement, avec setup et scénario différés.

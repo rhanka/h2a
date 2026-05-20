@@ -11,5 +11,6 @@ export const H2A_GEMINI_HOST: H2AHostDescriptor = {
   corePackageName: "@sentropic/h2a",
   host: "gemini",
   protocol: "sentropic.h2a",
-  wave: 2
+  wave: 2,
+  hostScenarioShipped: false
 } as const;

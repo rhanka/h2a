@@ -63,11 +63,13 @@ Toute évolution rétro-incompatible exige une nouvelle DEC + un bump majeur de
 ### Compatibilité hôtes (DEC-037)
 
 - `h2a host status [--host <name>]` expose l'état machine-readable de chaque
-  host : wave, MCP adapter livré, snippet `host setup` livré, résumé humain.
+  host : wave, MCP adapter livré, snippet `host setup` livré, scénario hôte
+  livré, résumé humain.
 - La matrice humaine Codex / Claude Code / Gemini / MCP vit dans
   [`docs/compatibility-matrix.md`](./docs/compatibility-matrix.md).
-- En V1, Codex et Claude Code sont wave 1 pour le descriptor + setup MCP ;
-  Gemini reste wave 2 (descriptor visible, setup différé).
+- En V1, Codex et Claude Code sont wave 1 pour le descriptor + setup MCP +
+  scénario MCP host-driven ; Gemini reste wave 2 (descriptor visible, setup
+  différé).
 
 ### Concurrence et migration (DEC-036)
 

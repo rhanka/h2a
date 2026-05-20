@@ -51,6 +51,9 @@ test("h2a host status (no filter) lists every known host with wave info", () => 
   assert.equal(byHost.codex.hostSetupShipped, true);
   assert.equal(byHost.claude.hostSetupShipped, true);
   assert.equal(byHost.gemini.hostSetupShipped, false);
+  assert.equal(byHost.codex.hostScenarioShipped, true);
+  assert.equal(byHost.claude.hostScenarioShipped, true);
+  assert.equal(byHost.gemini.hostScenarioShipped, false);
 
   for (const host of parsed.hosts) {
     assert.ok(typeof host.summary === "string" && host.summary.length > 0);

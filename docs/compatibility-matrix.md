@@ -6,8 +6,8 @@ This matrix tracks what is shipped for each host adapter in V1. It is intentiona
 
 | Host | Wave | Descriptor in `h2a hosts` | MCP adapter (`mcp-serve` + in-process) | `h2a host setup` snippet | End-to-end host scenario | Notes |
 | --- | ---: | --- | --- | --- | --- | --- |
-| Codex | 1 | Shipped | Shipped | Shipped | TODO | `host setup --host codex` merges `mcpServers.h2a` into Codex config; Codex-driven inbox/negotiation scenario still pending. |
-| Claude Code | 1 | Shipped | Shipped | Shipped | TODO | `host setup --host claude` covers global and project-local MCP config paths; Claude-driven inbox/negotiation scenario still pending. |
+| Codex | 1 | Shipped | Shipped | Shipped | Shipped | `host setup --host codex` merges `mcpServers.h2a` into Codex config; host scenario launches `mcp-serve` from the rendered snippet and drives register/open/offer/inbox over JSON-RPC (DEC-044). |
+| Claude Code | 1 | Shipped | Shipped | Shipped | Shipped | `host setup --host claude` covers global and project-local MCP config paths; host scenario launches `mcp-serve` from the rendered snippet and drives register/open/offer/inbox over JSON-RPC (DEC-044). |
 | Gemini | 2 | Shipped | Shipped | Deferred | Deferred | Descriptor is visible for planning, but Gemini setup and end-to-end enablement stay wave 2 (DEC-028). |
 
 ## Machine-Readable Status
@@ -30,7 +30,8 @@ The stdout envelope is:
       "wave": 1,
       "mcpAdapterShipped": true,
       "hostSetupShipped": true,
-      "summary": "wave 1 — host setup snippet shipped; MCP adapter (stdio + local) wired"
+      "hostScenarioShipped": true,
+      "summary": "wave 1 — host setup + MCP scenario shipped; MCP adapter (stdio + local) wired"
     }
   ]
 }
@@ -43,4 +44,4 @@ Unknown hosts return exit code `1` with a stderr message listing supported names
 - **Descriptor in `h2a hosts`** means `@sentropic/h2a-cli` exports a host descriptor and the CLI lists it.
 - **MCP adapter** means the host can point at the same shipped local MCP server surface: JSON-RPC 2.0 over stdio and in-process handlers backed by the local-files runtime.
 - **`host setup` snippet** means the CLI can render or merge a ready `mcpServers.h2a` config entry for that host.
-- **End-to-end host scenario** means a host-specific automation test has driven inbox / negotiation / MCP operations through that host. This is still pending for Codex and Claude despite the setup snippets being shipped.
+- **End-to-end host scenario** means a host-specific automation test has driven inbox / negotiation / MCP operations through that host. For Codex and Claude Code this is covered by `packages/h2a-cli/test/host-mcp-scenario.test.js`; Gemini remains deferred.

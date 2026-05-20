@@ -208,13 +208,14 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
         "wave": 1,
         "mcpAdapterShipped": true,
         "hostSetupShipped": true,
-        "summary": "wave 1 — host setup snippet shipped; MCP adapter (stdio + local) wired"
+        "hostScenarioShipped": true,
+        "summary": "wave 1 — host setup + MCP scenario shipped; MCP adapter (stdio + local) wired"
       }
     ]
   }
   ```
 - **Exit codes**: `0`, `1`.
-- **Description**: Report each host descriptor's wave + adapter-shipped flags (DEC-037). Default lists every host known to `H2A_CLI_HOSTS`; `--host <name>` filters to a single host (unknown name → exit `1`). Source of truth for the human-readable matrix at [`docs/compatibility-matrix.md`](./compatibility-matrix.md).
+- **Description**: Report each host descriptor's wave + adapter/setup/scenario-shipped flags (DEC-037/044). Default lists every host known to `H2A_CLI_HOSTS`; `--host <name>` filters to a single host (unknown name → exit `1`). Source of truth for the human-readable matrix at [`docs/compatibility-matrix.md`](./compatibility-matrix.md).
 
 ### Store maintenance
 

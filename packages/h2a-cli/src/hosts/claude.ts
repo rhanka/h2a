@@ -54,5 +54,6 @@ export const H2A_CLAUDE_HOST: H2AConfigurableHostDescriptor = {
   host: "claude",
   protocol: "sentropic.h2a",
   wave: 1,
+  hostScenarioShipped: true,
   renderMcpConfig
 } as const;

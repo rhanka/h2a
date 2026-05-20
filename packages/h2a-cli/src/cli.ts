@@ -751,9 +751,12 @@ function cmdHostStatus(
     const mcpAdapterShipped = true; // both stdio + in-process MCP back every host
     const hostSetupShipped =
       typeof descriptor.renderMcpConfig === "function";
+    const hostScenarioShipped = descriptor.hostScenarioShipped === true;
     const summary =
-      descriptor.wave === 1 && hostSetupShipped
-        ? `wave 1 — host setup snippet shipped; MCP adapter (stdio + local) wired`
+      descriptor.wave === 1 && hostSetupShipped && hostScenarioShipped
+        ? `wave 1 — host setup + MCP scenario shipped; MCP adapter (stdio + local) wired`
+        : descriptor.wave === 1 && hostSetupShipped
+          ? `wave 1 — host setup snippet shipped; MCP adapter (stdio + local) wired`
         : descriptor.wave === 2
           ? `wave 2 — descriptor only (DEC-028 defers full enablement)`
           : `wave 1 — MCP adapter wired but no setup snippet`;
@@ -762,6 +765,7 @@ function cmdHostStatus(
       wave: descriptor.wave,
       mcpAdapterShipped,
       hostSetupShipped,
+      hostScenarioShipped,
       summary
     };
   });

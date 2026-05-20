@@ -92,6 +92,7 @@ export interface H2AHostDescriptor {
   readonly host: string;
   readonly protocol: string;
   readonly wave: H2AHostWave;
+  readonly hostScenarioShipped?: boolean;
   readonly renderMcpConfig?: (
     options?: RenderMcpConfigOptions
   ) => McpHostConfigSnippet;
@@ -109,5 +110,6 @@ export const H2A_CODEX_HOST: H2AConfigurableHostDescriptor = {
   host: "codex",
   protocol: "sentropic.h2a",
   wave: 1,
+  hostScenarioShipped: true,
   renderMcpConfig
 } as const;
