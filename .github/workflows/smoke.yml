@@ -1,0 +1,60 @@
+name: smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install published @sentropic/h2a-cli@0.1.1 globally
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm i -g @sentropic/h2a-cli@0.1.1
+          which h2a
+          h2a --help
+
+      - name: Trivial CLI verbs exit 0
+        shell: bash
+        run: |
+          set -euo pipefail
+          h2a --help
+          h2a hosts
+          h2a mcp-tools
+          h2a init --root "$RUNNER_TEMP/.h2a"
+
+      - name: Register a smoke principal and discover it
+        shell: bash
+        run: |
+          set -euo pipefail
+          h2a register --root "$RUNNER_TEMP/.h2a" --json '{"id":"human:smoke","instance":"human:smoke","roles":["PRINCIPAL"],"scopes":["scope:smoke"],"capabilities":[],"endpoints":[],"publicKeys":[],"acceptedPolicies":[],"createdAt":"2026-05-20T00:00:00.000Z"}'
+          out="$(h2a discover --root "$RUNNER_TEMP/.h2a")"
+          echo "$out"
+          echo "$out" | grep -q 'human:smoke'
+
+      - name: host setup --print emits an h2a MCP command
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$(h2a host setup --host codex --print)"
+          echo "$out"
+          echo "$out" | grep -q '"command": "h2a"'
+
+      - name: Clean up smoke root
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/.h2a"

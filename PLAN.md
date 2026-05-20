@@ -87,7 +87,7 @@
 - [x] Implement `h2a negotiate stabilize` (verify signatures against registry publicKeys, quorum check, status→stabilized)
 - [ ] Stabilize JSON output contracts and exit codes
 
-## Workpackage 40 - Host And Protocol Integrations (~50%)
+## Workpackage 40 - Host And Protocol Integrations (~55%)
 
 ### MCP track
 
@@ -96,7 +96,8 @@
 - [x] Back the MCP server with the same local-files runtime
 - [x] Expose the in-process MCP server over JSON-RPC 2.0 / stdio (`runMcpStdio`) and add the `h2a mcp-serve [--root <path>]` CLI verb
 - [x] Wire **all 10 MCP tools** (added `h2a_open_negotiation`, `h2a_offer`, `h2a_counteroffer`, `h2a_sign`, `h2a_stabilize`, `h2a_escalate`); full negotiation lifecycle driveable end-to-end over JSON-RPC (`examples/principal-conductors/run.mjs` exercises this as step 9)
-- [ ] Define actor identity/auth strategy for MCP calls
+- [x] Define actor identity/auth strategy for MCP calls (V1: no transport auth, caller-declared identity + ed25519 artifact signatures — DEC-032)
+- [ ] V2: transport auth (mTLS / signed bearer)
 
 ### Codex track
 
@@ -130,15 +131,15 @@
 - [ ] Frame multi-human modes beyond pairwise dialogue
 - [ ] Decide what becomes protocol, what stays policy, what stays implementation
 
-## Workpackage 60 - Quality, Examples, And Ops (~40%)
+## Workpackage 60 - Quality, Examples, And Ops (~60%)
 
 - [x] Add baseline automated tests
 - [x] Keep `npm test` green after publication fixes
 - [x] Add CI workflow for build + tests (`.github/workflows/ci.yml`, Node 20/22 matrix)
-- [ ] Add npm install smoke test for published packages
+- [x] Add npm install smoke test for published packages (`.github/workflows/smoke.yml`, installs `@sentropic/h2a-cli@0.1.1` globally and exercises the CLI surface)
 - [x] Add an example project for `1 PRINCIPAL / 15 CONDUCTORS` (`examples/principal-conductors/run.mjs`, gated integration test `H2A_RUN_EXAMPLE=1`)
-- [ ] Add release notes / publish procedure doc
-- [ ] Add security/key management notes
+- [x] Add release notes / publish procedure doc (`docs/release.md`)
+- [x] Add security/key management notes (`docs/release.md` § Key management)
 - [ ] Add compatibility matrix documentation for Codex / Claude / Gemini / MCP
 
 ## Open Decisions / User Inputs

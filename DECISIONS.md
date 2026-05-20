@@ -364,3 +364,12 @@ Implémentation guidée par tests (TDD) ; pas de runtime local-files ni MCP avan
 **Pourquoi** : reprend la proposition de `RUNTIME_PROPOSAL.md` ; sépare clairement (a) registre runtime mutable append-only, (b) artefacts stabilisés immutables, (c) sessions de négociation mutables jusqu'à stabilisation. Le format `.jsonl` est portable, grep-friendly, et trivialement append-only.
 
 **Conséquence** : la première implémentation cible **registre + journal de négociation** ; engagements et artefacts stabilisés viennent ensuite. Le module `runtime/local-files` vit dans `@sentropic/h2a-cli` (cible 2-package, DEC-026).
+
+## DEC-032 — V1 sans authentification de transport ; identité déclarée par l'appelant
+**Date** : 2026-05-20. **Réfère** : DEC-026, RUNTIME_PROPOSAL.md, WP-40.
+
+**Décision** : pour V1, le runtime local-files et le serveur MCP en stdio ne posent **aucune authentification de transport**. L'appelant déclare son `instance` dans les arguments (CLI flags ou MCP `tools/call` args). Le runtime fait confiance à cette déclaration ; il vérifie en revanche que **les signatures cryptographiques sur les artefacts** se valident contre les `publicKeys` enregistrées dans le registry. Trust-on-first-use sur l'enregistrement : la première `registerInstance` fixe la `publicKeys` ; les appels suivants utilisant le même `id` mais une clé différente seront détectés à la stabilization via échec de `verifyCanonical`.
+
+**Pourquoi** : V1 cible un seul utilisateur sur sa machine (DEC-026, RUNTIME_PROPOSAL). Empiler de l'auth transport sur un store local-files single-user serait du gold-plating. La sécurité opérationnelle repose sur (a) les permissions filesystem, (b) la signature ed25519 des artefacts dans le journal, (c) la détection d'incohérence à la stabilization.
+
+**Conséquence** : tout déploiement multi-utilisateur ou réseau exigera **DEC-V2** définissant un transport sécurisé (mTLS, bearer signé, etc.). Pas de chemin de mise à niveau caché dans le code V1.

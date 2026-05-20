@@ -66,6 +66,7 @@ Chaque couche a son document :
 - **Évaluations de compatibilité** → [`EVALUATIONS.md`](./EVALUATIONS.md)
 - **Proposition runtime minimale** → [`RUNTIME_PROPOSAL.md`](./RUNTIME_PROPOSAL.md)
 - **Plan de pilotage projet** → [`PLAN.md`](./PLAN.md)
+- **Procédure de release et notes de sécurité** → [`docs/release.md`](./docs/release.md)
 - **Prompt de handover Claude** → [`handover.md`](./handover.md)
 
 ## Convention
