@@ -1,12 +1,12 @@
 # H2A Project Plan
 
-> Last update: 2026-05-20 (Compatibilité hôtes + release automation — DEC-037/038 ; WP-00 90%, WP-60 70%)
+> Last update: 2026-05-20 (Invariants CONTRACT/POLICY/ENGAGEMENT — DEC-039 ; WP-50 60%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
 ## Snapshot
 
-- Overall estimated progress: ~76%
+- Overall estimated progress: ~78%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
@@ -118,7 +118,7 @@
 - [x] Decide whether Gemini stays first-wave or second-wave → **deferred to wave 2**
 - [ ] In wave 2, add the same minimal surface as Codex/Claude (host descriptor stays in `h2a hosts` meanwhile)
 
-## Workpackage 50 - Governance, Vocabulary, And Model Semantics (~50%)
+## Workpackage 50 - Governance, Vocabulary, And Model Semantics (~60%)
 
 - [x] Stabilize umbrella naming around `h2a`
 - [x] Capture vocabulary v1.7
@@ -127,7 +127,7 @@
 - [x] Produce compatibility evaluation notes
 - [x] Produce the initial runtime proposal
 - [ ] Stabilize the mapping to the three ABC models
-- [ ] Counter-audit `CONTRACT` vs `POLICY` vs `ENGAGEMENT`
+- [x] Counter-audit `CONTRACT` vs `POLICY` vs `ENGAGEMENT` (DEC-039 : profils `normative-container` / `durable-rule` / `operational-executable` + `auditContractualArtifact`)
 - [ ] Define escalation targets per scope in executable terms
 - [x] Define the `1 PRINCIPAL / 15 CONDUCTORS` use case end-to-end (definition is executable in `examples/principal-conductors/`)
 - [ ] Frame multi-human modes beyond pairwise dialogue
@@ -155,6 +155,6 @@
 
 Recommended next implementation slice:
 
-1. Counter-audit `CONTRACT` vs `POLICY` vs `ENGAGEMENT` and turn the distinction into executable invariants (WP-50).
+1. Define escalation targets per scope in executable terms (WP-50).
 2. Add end-to-end host scenario tests for Codex and Claude Code over the shipped MCP setup surface (WP-40).
 3. Run the external npm deprecation for `@sentropic/h2a-cli@0.1.0` once maintainer auth is available (WP-00).

@@ -532,3 +532,25 @@ La version acceptée est strictement `X.Y.Z` sans préfixe `v`, sans pré-releas
 **Pourquoi** : (a) la première publication a déjà produit un `0.1.0` CLI cassé (DEC-029), donc le bump manuel + publish local n'est pas assez reproductible ; (b) le lockfile est suivi et consommé par `npm ci`, donc il doit être bumpé dans le commit de release ; (c) tester un worktree sale puis ne committer que les versions taguerait potentiellement un état différent de l'état validé ; (d) npm provenance exige un publish depuis CI avec OIDC, pas depuis un shell local.
 
 **Conséquence** : (a) la racine reste `private` et ne publie jamais ; (b) les releases V1 sont lockstep entre les deux packages publics ; (c) `@sentropic/h2a-cli@0.1.0` reste à déprécier manuellement par un maintainer authentifié npm, car la dépréciation rétroactive n'est pas le rôle du workflow de publication ; (d) une future release partielle non-lockstep demanderait une nouvelle DEC ou une extension explicite du script.
+
+
+## DEC-039 — Invariants exécutables CONTRACT / POLICY / ENGAGEMENT
+**Date** : 2026-05-20. **Réfère** : DEC-016, DEC-018, DEC-021, DEC-035, WP-50.
+
+**Décision** : `@sentropic/h2a` expose une couche d'audit stricte pour empêcher le collapse entre les trois artefacts contractuels de DEC-018 :
+
+- `CONTRACT` → profil `normative-container` : durable, non exécutable, peut contenir/référencer des policies et instancier des engagements.
+- `POLICY` → profil `durable-rule` : durable, non exécutable, n'instancie pas d'engagement et ne porte pas de charter opérationnel.
+- `ENGAGEMENT` → profil `operational-executable` : exécutable, non durable par nature, référence les policies applicables mais ne les contient pas comme règles autonomes.
+
+La table `H2A_CONTRACTUAL_ARTIFACT_PROFILES` est ré-exportée publiquement. `auditContractualArtifact(value)` retourne `{ok, kind, profile, issues}` ; `assertContractualArtifactInvariants(value)` lève si un artefact porte des champs qui appartiennent à une autre catégorie.
+
+**Invariants V1** :
+
+- Un `CONTRACT` ne doit pas porter les champs de règle durable d'une `POLICY` (`rule`, `sourceAuthority`, `adoptionMode`, `parameters`) ni les champs exécutables d'un `ENGAGEMENT` (`charter`, `roleBindings`, `controls`, `successCriteria`, etc.).
+- Une `POLICY` ne doit pas porter les champs de conteneur normatif d'un `CONTRACT` (`parties`, `clauses`, `engagements`, `signatures`, etc.) ni les champs exécutables d'un `ENGAGEMENT`.
+- Un `ENGAGEMENT` ne doit pas porter les champs de règle durable d'une `POLICY` ni les champs de conteneur normatif d'un `CONTRACT`. Il peut seulement référencer des policies applicables via `policies[]` et référencer un contrat amont via `contractId`.
+
+**Pourquoi** : les guards `isContract` / `isPolicy` / `isEngagement` restent volontairement permissifs sur les champs additionnels pour compatibilité et extensibilité. Il fallait donc une primitive séparée qui encode la frontière sémantique sans casser les payloads existants. Cette séparation rend REQ-037/038/046/047/048/050 vérifiables par code : une policy ne devient pas une mission, un engagement ne devient pas une loi/règle autonome, et un contract-cadre ne devient pas le journal opérationnel.
+
+**Conséquence** : (a) les clients peuvent appeler l'audit strict avant négociation/stabilisation lorsqu'ils veulent refuser un artefact ambigu ; (b) le runtime local reste compatible avec les artefacts existants, car l'audit strict n'est pas encore imposé automatiquement dans `stabilizeNegotiation` ; (c) une future DEC pourra décider où rendre cet audit bloquant (CLI, MCP, store ou seulement tooling) ; (d) la précédence inter-policy et les règles d'exception restent ouvertes — DEC-039 fixe la distinction de catégorie, pas encore le moteur de résolution de conflits.

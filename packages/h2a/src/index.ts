@@ -32,6 +32,19 @@ export {
   assertCanSignArtifactKind,
   canSignArtifactKind
 } from "./authority.js";
+export {
+  H2A_CONTRACTUAL_ARTIFACT_PROFILES,
+  assertContractualArtifactInvariants,
+  auditContractualArtifact,
+  getContractualArtifactProfile
+} from "./contractual.js";
+export type {
+  H2AContractualArtifact,
+  H2AContractualArtifactAuditResult,
+  H2AContractualArtifactKind,
+  H2AContractualArtifactProfile,
+  H2AContractualArtifactProfileDescriptor
+} from "./contractual.js";
 export { H2A_CANONICAL_FIXTURES } from "./fixtures-index.js";
 export type { H2ACanonicalFixtureManifestEntry } from "./fixtures-index.js";
 export {

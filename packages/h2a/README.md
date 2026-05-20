@@ -6,6 +6,12 @@ Current bootstrap surface:
 
 - envelope creation and validation
 - negotiation state guards
+- artifact type guards for CONTRACT, POLICY, ENGAGEMENT, AMENDMENT, MANDATE, AUTHORITY, SIGNATURE, ENFORCEMENT_PLAN
+- contractual artifact profiles + strict audit helpers for CONTRACT / POLICY / ENGAGEMENT
+- canonical JSON + SHA-256 hashing
+- ed25519 canonical signing and verification
+- append-only journal entries and chain verification
+- authority matrix for role/artifact signing rights
 - canonical protocol constants
 
 Repository: <https://github.com/rhanka/h2a>

@@ -107,6 +107,25 @@ Toute évolution rétro-incompatible exige une nouvelle DEC + un bump majeur de
   confirmer le SHA-256 bit-pour-bit. `H2A_CANONICAL_FIXTURES` ré-expose
   ce manifeste depuis `@sentropic/h2a`.
 
+### Invariants contractuels (DEC-039)
+
+`@sentropic/h2a` expose aussi une couche d'audit stricte pour éviter de
+confondre les trois artefacts de DEC-018 :
+
+- `CONTRACT` → `normative-container` : conteneur normatif durable, non
+  exécutable, pouvant contenir/référencer policies et instancier des
+  engagements.
+- `POLICY` → `durable-rule` : règle durable de scope, non exécutable.
+- `ENGAGEMENT` → `operational-executable` : mission/service/action
+  exécutable, avec charter, role bindings, controls, policies applicables
+  et success criteria.
+
+Les exports `H2A_CONTRACTUAL_ARTIFACT_PROFILES`,
+`auditContractualArtifact(value)` et
+`assertContractualArtifactInvariants(value)` permettent aux clients de
+refuser un artefact ambigu sans rendre les type guards de base
+rétro-incompatibles.
+
 ## Exemples
 
 - **`examples/principal-conductors/`** — démo runnable de bout en bout du
