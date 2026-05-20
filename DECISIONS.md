@@ -479,3 +479,56 @@ L'option `createLocalStore({ root, allowVersionMismatch: true })` est une trappe
 **Pourquoi (version de schéma)** : (a) le layout de DEC-031 finira par évoluer (V2 : changement de format JSONL, partition par scope, ajout d'index secondaires) ; sans sentinelle, un CLI futur ouvre un store ancien et le corrompt silencieusement ; (b) la sentinelle versus un champ enfoui dans un fichier existant a deux avantages — elle est triviale à lire avant tout chargement, et son absence signale un store *pré-versioning* (auto-migré en V1 à la prochaine ouverture, sans interruption) ; (c) l'option `allowVersionMismatch` garde la voie ouverte pour un outillage de debug d'une version future depuis un CLI installé ; (d) le verbe `store migrate` matérialise la rampe — chaque future DEC qui bump la version doit l'étendre avec une transformation testable.
 
 **Conséquence** : (a) tout `h2a` ou `h2a mcp-serve` concurrent sur le **même `<root>`** sérialise désormais les sections critiques ; un test de timeout (`local-store-locking.test.js`) garantit que la limite par défaut reste raisonnable ; (b) les options ajoutées sont strictement additives — `createLocalStore({ root })` continue de fonctionner sans modification ; (c) la sortie de `h2a store migrate` suit l'enveloppe `action` figée par DEC-034 (`{ok:true, fromVersion, toVersion, changed, dryRun, root}`) ; (d) une release **majeure** future de `@sentropic/h2a-cli` portant une bump du schéma devra livrer simultanément la migration dans `cmdStoreMigrate`. Le V2 cross-host (lockd réseau, mTLS, store partagé) restera explicitement *out of scope* tant qu'une DEC dédiée ne l'aura pas justifié.
+
+
+## DEC-037 — Statut de compatibilité hôtes + matrice Codex / Claude / Gemini / MCP
+**Date** : 2026-05-20. **Réfère** : DEC-028, DEC-032, DEC-034, WP-40, WP-60.
+
+**Décision** : chaque descriptor hôte exposé par `@sentropic/h2a-cli` déclare désormais une `wave` (`1 | 2`). Codex et Claude Code sont **wave 1** : descriptor public, `h2a host setup --host <codex|claude>` livré, et MCP local (`mcp-serve` stdio + serveur in-process) disponible. Gemini reste **wave 2** : descriptor visible dans `h2a hosts`, mais pas de snippet `host setup` ni scénario end-to-end livré.
+
+Le CLI ajoute `h2a host status [--host <name>]`, enveloppe `action` DEC-034 :
+
+```json
+{
+  "ok": true,
+  "hosts": [
+    {
+      "host": "codex",
+      "wave": 1,
+      "mcpAdapterShipped": true,
+      "hostSetupShipped": true,
+      "summary": "wave 1 — host setup snippet shipped; MCP adapter (stdio + local) wired"
+    }
+  ]
+}
+```
+
+`--host` filtre sur un host unique ; un nom inconnu sort en `1` avec la liste des hosts supportés.
+
+**Décision (documentation)** : `docs/compatibility-matrix.md` est la matrice humaine Codex / Claude Code / Gemini / MCP. Elle est dérivée de la même source de vérité que `h2a host status` et distingue explicitement quatre niveaux : descriptor, MCP adapter, setup snippet, scénario end-to-end hôte. Les scénarios end-to-end Codex et Claude restent TODO malgré les snippets setup livrés.
+
+**Pourquoi** : (a) DEC-028 a repoussé Gemini en wave 2 mais le statut n'était pas interrogeable par automation ; (b) les snippets Codex/Claude exposent déjà les 10 outils MCP, mais cela ne doit pas être confondu avec un scénario host-driven complet ; (c) les clients programmatiques ont besoin d'une réponse stable plutôt que de parser `h2a hosts` ou une doc Markdown ; (d) la matrice humaine évite de sur-vendre Gemini ou les tests end-to-end hôtes.
+
+**Conséquence** : (a) `H2A_CLI_VERB_CONTRACTS` ajoute le verbe `host status` ; (b) tout nouveau host doit déclarer sa wave ; (c) promouvoir Gemini en wave 1 demandera une DEC ou une mise à jour explicite de DEC-028/037 et devra fournir au minimum `renderMcpConfig`, tests `host setup`, et une ligne de matrice mise à jour ; (d) la completion de WP-40 reste bloquée par les scénarios réels Codex/Claude, pas par la simple présence du setup MCP.
+
+
+## DEC-038 — Release prep local + publication tag-driven via GitHub Actions
+**Date** : 2026-05-20. **Réfère** : DEC-026, DEC-027, DEC-029, DEC-034, DEC-036, WP-00.
+
+**Décision** : le flux V1 de release devient **tag-driven**. La commande locale `npm run release -- --version X.Y.Z` prépare la release sans toucher au réseau :
+
+1. refuse un worktree sale avant vérification ;
+2. exécute `npm run typecheck` puis `npm test` ;
+3. refuse de continuer si la vérification a sali le worktree ;
+4. bump `package.json`, `package-lock.json`, `packages/h2a/package.json`, `packages/h2a-cli/package.json` ;
+5. aligne la dépendance `@sentropic/h2a-cli -> @sentropic/h2a` en `^X.Y.Z` ;
+6. commit `release: vX.Y.Z` ;
+7. crée un tag annoté `vX.Y.Z` (signé si `git config commit.gpgsign=true`).
+
+La version acceptée est strictement `X.Y.Z` sans préfixe `v`, sans pré-release/build metadata, et sans zéros initiaux.
+
+**Décision (CI publish)** : `.github/workflows/release.yml` se déclenche sur `v*.*.*`, réinstalle via `npm ci`, relance typecheck/tests, vérifie que le tag `vX.Y.Z` correspond aux deux package manifests, puis publie `@sentropic/h2a` et `@sentropic/h2a-cli` avec `npm publish --provenance --access public` lorsque `secrets.NPM_TOKEN` est présent. Le workflow crée ensuite une GitHub Release idempotente via `gh release create --generate-notes`. Si `NPM_TOKEN` est absent, le workflow avertit et saute publication + release GitHub.
+
+**Pourquoi** : (a) la première publication a déjà produit un `0.1.0` CLI cassé (DEC-029), donc le bump manuel + publish local n'est pas assez reproductible ; (b) le lockfile est suivi et consommé par `npm ci`, donc il doit être bumpé dans le commit de release ; (c) tester un worktree sale puis ne committer que les versions taguerait potentiellement un état différent de l'état validé ; (d) npm provenance exige un publish depuis CI avec OIDC, pas depuis un shell local.
+
+**Conséquence** : (a) la racine reste `private` et ne publie jamais ; (b) les releases V1 sont lockstep entre les deux packages publics ; (c) `@sentropic/h2a-cli@0.1.0` reste à déprécier manuellement par un maintainer authentifié npm, car la dépréciation rétroactive n'est pas le rôle du workflow de publication ; (d) une future release partielle non-lockstep demanderait une nouvelle DEC ou une extension explicite du script.

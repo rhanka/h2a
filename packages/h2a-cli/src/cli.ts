@@ -123,6 +123,7 @@ export function renderCliHelp(): string {
     "  h2a outbox read --instance <id> [--root <path>]",
     "  h2a mcp-serve [--root <path>]",
     "  h2a host setup --host <codex|claude> [--root <path>] [--print | --write <file>] [--force]",
+    "  h2a host status [--host <name>]",
     "  h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]",
     "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
@@ -727,11 +728,59 @@ function cmdHostSetup(
   return 0;
 }
 
+function cmdHostStatus(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  const filter = flags.host;
+  let selection: readonly (typeof CLI_HOSTS)[number][] = CLI_HOSTS;
+  if (filter) {
+    const match = CLI_HOSTS.find((h) => h.host === filter);
+    if (!match) {
+      streams.stderr.write(
+        `h2a host status: unknown --host "${filter}". Supported: ${CLI_HOSTS.map(
+          (h) => h.host
+        ).join(", ")}.\n`
+      );
+      return 1;
+    }
+    selection = [match];
+  }
+
+  const hosts = selection.map((descriptor) => {
+    const mcpAdapterShipped = true; // both stdio + in-process MCP back every host
+    const hostSetupShipped =
+      typeof descriptor.renderMcpConfig === "function";
+    const summary =
+      descriptor.wave === 1 && hostSetupShipped
+        ? `wave 1 — host setup snippet shipped; MCP adapter (stdio + local) wired`
+        : descriptor.wave === 2
+          ? `wave 2 — descriptor only (DEC-028 defers full enablement)`
+          : `wave 1 — MCP adapter wired but no setup snippet`;
+    return {
+      host: descriptor.host,
+      wave: descriptor.wave,
+      mcpAdapterShipped,
+      hostSetupShipped,
+      summary
+    };
+  });
+
+  streams.stdout.write(
+    `${JSON.stringify({ ok: true, hosts }, null, 2)}\n`
+  );
+  return 0;
+}
+
 function cmdHost(argv: readonly string[], streams: H2ACliStreams): number {
   const { command: sub, flags } = parseFlags(argv);
   if (sub === "setup") return cmdHostSetup(flags, streams);
+  if (sub === "status") return cmdHostStatus(flags, streams);
   streams.stderr.write(`Unknown host subcommand: ${sub ?? "<none>"}\n`);
-  streams.stderr.write("Use: h2a host setup --host <codex|claude> ...\n");
+  streams.stderr.write(
+    "Use: h2a host setup --host <codex|claude> ...\n" +
+      "     h2a host status [--host <name>]\n"
+  );
   return 1;
 }
 

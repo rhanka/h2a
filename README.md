@@ -35,11 +35,15 @@ h2a inbox pop --instance <id> --envelope <id> [--root <path>]
 h2a outbox put --instance <id> --json <envelope> [--root <path>]
 h2a outbox read --instance <id> [--root <path>]
 
+# maintenance store
+h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]
+
 # MCP server (JSON-RPC 2.0 over stdio, DEC-026)
 h2a mcp-serve [--root <path>]
 
 # Branchement hôte (Codex / Claude Code) — émet/merge le snippet `mcpServers.h2a`
 h2a host setup --host <codex|claude> [--root <path>] [--print | --write <file>] [--force]
+h2a host status [--host <codex|claude|gemini>]
 ```
 
 ### Contrat CLI (DEC-034)
@@ -55,6 +59,15 @@ programmatique stable du CLI :
 
 Toute évolution rétro-incompatible exige une nouvelle DEC + un bump majeur de
 `@sentropic/h2a-cli`.
+
+### Compatibilité hôtes (DEC-037)
+
+- `h2a host status [--host <name>]` expose l'état machine-readable de chaque
+  host : wave, MCP adapter livré, snippet `host setup` livré, résumé humain.
+- La matrice humaine Codex / Claude Code / Gemini / MCP vit dans
+  [`docs/compatibility-matrix.md`](./docs/compatibility-matrix.md).
+- En V1, Codex et Claude Code sont wave 1 pour le descriptor + setup MCP ;
+  Gemini reste wave 2 (descriptor visible, setup différé).
 
 ### Concurrence et migration (DEC-036)
 
@@ -122,6 +135,7 @@ Chaque couche a son document :
 - **Évaluations de compatibilité** → [`EVALUATIONS.md`](./EVALUATIONS.md)
 - **Proposition runtime minimale** → [`RUNTIME_PROPOSAL.md`](./RUNTIME_PROPOSAL.md)
 - **Plan de pilotage projet** → [`PLAN.md`](./PLAN.md)
+- **Matrice de compatibilité hôtes** → [`docs/compatibility-matrix.md`](./docs/compatibility-matrix.md)
 - **Procédure de release et notes de sécurité** → [`docs/release.md`](./docs/release.md)
 - **Prompt de handover Claude** → [`handover.md`](./handover.md)
 

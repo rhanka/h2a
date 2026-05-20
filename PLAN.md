@@ -1,19 +1,20 @@
 # H2A Project Plan
 
-> Last update: 2026-05-20 (Verrous fichier advisory + version de schéma store local-files — DEC-036 ; WP-20 100%)
+> Last update: 2026-05-20 (Compatibilité hôtes + release automation — DEC-037/038 ; WP-00 90%, WP-60 70%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
 ## Snapshot
 
-- Overall estimated progress: ~73%
+- Overall estimated progress: ~76%
 - Published packages:
   - `@sentropic/h2a@0.1.0`
   - `@sentropic/h2a-cli@0.1.1`
 - Current repo state:
   - bootstrap repo, npm workspace, tests, and first npm publication are done
-  - core contractual model is still only partially implemented
-  - CLI/package structure is in place, but real negotiation/runtime flows are still to build
+  - core contractual model, local runtime, CLI surface, and MCP server are implemented for the V1 local-files slice
+  - host setup is shipped for Codex and Claude Code; Gemini remains wave 2
+  - release preparation is automated locally and publishing is tag-driven in GitHub Actions
 
 ## Priority Order
 
@@ -24,7 +25,7 @@
 5. Add real host-side integrations for Codex and Claude.
 6. Add CI, examples, and release hygiene.
 
-## Workpackage 00 - Foundation And Release (~75%)
+## Workpackage 00 - Foundation And Release (~90%)
 
 - [x] Fix project umbrella name to `h2a`
 - [x] Reduce runtime bootstrap to `@sentropic/h2a` + `@sentropic/h2a-cli`
@@ -36,7 +37,7 @@
 - [x] Fix CLI package publication so the `h2a` bin is preserved
 - [x] Choose the project license (MIT — DEC-027)
 - [ ] Deprecate `@sentropic/h2a-cli@0.1.0` with a clear message
-- [ ] Automate release/publish flow
+- [x] Automate release/publish flow (`npm run release -- --version X.Y.Z` + `vX.Y.Z` tag workflow publishing both packages with npm provenance — DEC-038)
 
 ## Workpackage 10 - `h2a` Core Contracts (~100%)
 
@@ -87,7 +88,7 @@
 - [x] Implement `h2a negotiate stabilize` (verify signatures against registry publicKeys, quorum check, status→stabilized)
 - [x] Stabilize JSON output contracts and exit codes (DEC-034 : 3 enveloppes `resource`/`list`/`action` + codes 0/1/2/3 ; manifeste `H2A_CLI_VERB_CONTRACTS` + `docs/cli-contract.md`)
 
-## Workpackage 40 - Host And Protocol Integrations (~55%)
+## Workpackage 40 - Host And Protocol Integrations (~60%)
 
 ### MCP track
 
@@ -97,6 +98,7 @@
 - [x] Expose the in-process MCP server over JSON-RPC 2.0 / stdio (`runMcpStdio`) and add the `h2a mcp-serve [--root <path>]` CLI verb
 - [x] Wire **all 10 MCP tools** (added `h2a_open_negotiation`, `h2a_offer`, `h2a_counteroffer`, `h2a_sign`, `h2a_stabilize`, `h2a_escalate`); full negotiation lifecycle driveable end-to-end over JSON-RPC (`examples/principal-conductors/run.mjs` exercises this as step 9)
 - [x] Define actor identity/auth strategy for MCP calls (V1: no transport auth, caller-declared identity + ed25519 artifact signatures — DEC-032)
+- [x] Expose machine-readable host compatibility status (`h2a host status`, wave + adapter/setup flags — DEC-037)
 - [ ] V2: transport auth (mTLS / signed bearer)
 
 ### Codex track
@@ -131,7 +133,7 @@
 - [ ] Frame multi-human modes beyond pairwise dialogue
 - [ ] Decide what becomes protocol, what stays policy, what stays implementation
 
-## Workpackage 60 - Quality, Examples, And Ops (~60%)
+## Workpackage 60 - Quality, Examples, And Ops (~70%)
 
 - [x] Add baseline automated tests
 - [x] Keep `npm test` green after publication fixes
@@ -140,7 +142,7 @@
 - [x] Add an example project for `1 PRINCIPAL / 15 CONDUCTORS` (`examples/principal-conductors/run.mjs`, gated integration test `H2A_RUN_EXAMPLE=1`)
 - [x] Add release notes / publish procedure doc (`docs/release.md`)
 - [x] Add security/key management notes (`docs/release.md` § Key management)
-- [ ] Add compatibility matrix documentation for Codex / Claude / Gemini / MCP
+- [x] Add compatibility matrix documentation for Codex / Claude / Gemini / MCP (`docs/compatibility-matrix.md`, backed by `h2a host status` — DEC-037)
 
 ## Open Decisions / User Inputs
 
@@ -153,7 +155,6 @@
 
 Recommended next implementation slice:
 
-1. Add the missing core artifact schemas in `@sentropic/h2a`
-2. Implement the local-files store on top of those schemas
-3. Wire `h2a-cli register`, `discover`, and `inbox read` to that local runtime
-4. Only then expose the same flow through MCP
+1. Counter-audit `CONTRACT` vs `POLICY` vs `ENGAGEMENT` and turn the distinction into executable invariants (WP-50).
+2. Add end-to-end host scenario tests for Codex and Claude Code over the shipped MCP setup surface (WP-40).
+3. Run the external npm deprecation for `@sentropic/h2a-cli@0.1.0` once maintainer auth is available (WP-00).

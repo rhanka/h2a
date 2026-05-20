@@ -1,37 +1,50 @@
 # Release procedure (V1)
 
-> Status: V1 manual release. The publish step is gated by a green CI (`.github/workflows/ci.yml`) and a green smoke install (`.github/workflows/smoke.yml`). No release automation yet.
+> Status: tag-driven release automation is available (DEC-038). Local prep is done by `npm run release`; npm publication happens in GitHub Actions when the `vX.Y.Z` tag is pushed.
 
-## Current release approach
+## Release Flow
 
-V1 releases are produced by hand from a clean `main` checkout by a maintainer authenticated against npm under the `@sentropic` scope. The two packages are published independently from the workspace root:
+V1 releases are lockstep across the two public packages:
+
+- `@sentropic/h2a`
+- `@sentropic/h2a-cli`
+
+From a clean `main` checkout aligned with `origin/main`:
 
 ```sh
-# 1. Tree must be clean and aligned with origin/main
-git status
 git pull --ff-only origin main
-
-# 2. Bump versions inside each package's package.json (manual)
-#    - packages/h2a/package.json
-#    - packages/h2a-cli/package.json
-#    Keep both versions in sync only when both packages actually changed; otherwise
-#    bump only the package whose contents shifted.
-
-# 3. Build + test
-npm ci
-npm run typecheck
-npm test
-
-# 4. Publish (public access, scoped package)
-npm publish --workspace @sentropic/h2a       --access public
-npm publish --workspace @sentropic/h2a-cli   --access public
-
-# 5. Tag and push
-git tag h2a-vX.Y.Z h2a-cli-vA.B.C
-git push origin main --tags
+npm run release -- --version 0.2.0
+git push origin HEAD
+git push origin v0.2.0
 ```
 
-The `--workspace` flag is mandatory: the repository root is private and never publishes. The CLI bin entry (`bin: { h2a: "./dist/cli.js" }`) is the failure mode that produced the broken `0.1.0` — see below.
+`npm run release -- --version X.Y.Z` performs only local preparation:
+
+1. Refuses to start unless `git status --porcelain` is clean.
+2. Runs `npm run typecheck` and `npm test`.
+3. Verifies those commands did not dirty the worktree.
+4. Bumps `package.json`, `package-lock.json`, `packages/h2a/package.json`, and `packages/h2a-cli/package.json`.
+5. Aligns `@sentropic/h2a-cli`'s dependency on `@sentropic/h2a` to `^X.Y.Z`.
+6. Commits the version bump as `release: vX.Y.Z`.
+7. Creates an annotated tag `vX.Y.Z` (signed when `git config commit.gpgsign` is `true`).
+
+The script deliberately does **not** publish to npm and does **not** push to GitHub. `--dry-run` prints the planned commands and file bumps without writing files or running git/npm commands.
+
+The version must be a strict `X.Y.Z` SemVer triple with no leading `v`, no pre-release/build metadata, and no leading zeros.
+
+## Publish Workflow
+
+`.github/workflows/release.yml` runs on tags matching `v*.*.*` and then:
+
+1. Installs with `npm ci`.
+2. Runs `npm run typecheck` and `npm test`.
+3. Verifies the tag version matches both workspace package versions.
+4. Publishes both packages with `npm publish --provenance --access public` when `secrets.NPM_TOKEN` is present.
+5. Creates a GitHub Release with generated notes.
+
+If `NPM_TOKEN` is absent, the workflow emits a warning and skips npm publish + release creation. This keeps the workflow previewable without exposing publish credentials.
+
+The repository root is private and never publishes. The `--workspace` flag remains mandatory for package publication. The CLI bin entry (`bin: { h2a: "dist/bin.js" }`) is the failure mode that produced the broken `0.1.0` — see below.
 
 ## Release gate: `smoke.yml`
 
@@ -80,5 +93,7 @@ V2 will likely move the private key out of plain disk PEMs (OS keyring / signing
 - DEC-029 — Dépréciation de `@sentropic/h2a-cli@0.1.0`.
 - DEC-031 — Layout `<root>/.h2a/` du store local-files.
 - DEC-032 — V1 sans authentification de transport ; identité déclarée par l'appelant.
+- DEC-038 — Release prep local + publication tag-driven via GitHub Actions.
 - `.github/workflows/ci.yml` — build + tests gate.
 - `.github/workflows/smoke.yml` — published-package smoke gate.
+- `.github/workflows/release.yml` — tag-driven publish workflow.

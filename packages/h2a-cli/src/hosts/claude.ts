@@ -1,4 +1,5 @@
 import type {
+  H2AConfigurableHostDescriptor,
   McpHostConfigSnippet,
   RenderMcpConfigOptions
 } from "./codex.js";
@@ -47,10 +48,11 @@ export function renderMcpConfig(
   };
 }
 
-export const H2A_CLAUDE_HOST = {
+export const H2A_CLAUDE_HOST: H2AConfigurableHostDescriptor = {
   packageName: "@sentropic/h2a-cli",
   corePackageName: "@sentropic/h2a",
   host: "claude",
   protocol: "sentropic.h2a",
+  wave: 1,
   renderMcpConfig
 } as const;

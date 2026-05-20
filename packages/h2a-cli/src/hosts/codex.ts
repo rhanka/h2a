@@ -68,10 +68,46 @@ export function renderMcpConfig(
   };
 }
 
-export const H2A_CODEX_HOST = {
+/**
+ * Wave of host enablement (DEC-028 / DEC-037).
+ *
+ * - `1` — first-class host in V1: descriptor + `host setup --print|--write`
+ *   snippet shipped; `mcp/stdio` + `mcp/local-in-process` both wired.
+ * - `2` — descriptor-only host, deferred to a later wave (no setup snippet,
+ *   no end-to-end flow yet).
+ */
+export type H2AHostWave = 1 | 2;
+
+/**
+ * Common shape declared by every host descriptor. Used by
+ * `H2A_CLI_HOSTS` consumers and by the `h2a host status` verb (DEC-037).
+ *
+ * `renderMcpConfig` is optional because wave-2 hosts (e.g. Gemini) ship
+ * the descriptor only; once they reach wave 1 they must declare a
+ * snippet renderer.
+ */
+export interface H2AHostDescriptor {
+  readonly packageName: string;
+  readonly corePackageName: string;
+  readonly host: string;
+  readonly protocol: string;
+  readonly wave: H2AHostWave;
+  readonly renderMcpConfig?: (
+    options?: RenderMcpConfigOptions
+  ) => McpHostConfigSnippet;
+}
+
+export interface H2AConfigurableHostDescriptor extends H2AHostDescriptor {
+  readonly renderMcpConfig: (
+    options?: RenderMcpConfigOptions
+  ) => McpHostConfigSnippet;
+}
+
+export const H2A_CODEX_HOST: H2AConfigurableHostDescriptor = {
   packageName: "@sentropic/h2a-cli",
   corePackageName: "@sentropic/h2a",
   host: "codex",
   protocol: "sentropic.h2a",
+  wave: 1,
   renderMcpConfig
 } as const;

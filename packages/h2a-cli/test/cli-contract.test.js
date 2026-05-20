@@ -381,6 +381,8 @@ function buildHappyArgv(verb, ctx) {
       return null;
     case "host setup":
       return ["host", "setup", "--host", "codex", "--print"];
+    case "host status":
+      return ["host", "status"];
     case "store migrate":
       return ["store", "migrate", "--root", root];
     default:
@@ -413,6 +415,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "outbox read",
     "mcp-serve",
     "host setup",
+    "host status",
     "store migrate"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());

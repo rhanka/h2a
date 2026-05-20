@@ -1,0 +1,135 @@
+// Unit tests for the pure helpers exported by `scripts/release.mjs`.
+//
+// The CLI portion of the script (spawning npm + git) is deliberately not
+// integration-tested here: spinning up a throw-away git repo with a working
+// `npm test` inside CI is too brittle for marginal value. The two helpers
+// (`parseVersion`, `bumpPackageJsonContent`) carry all the
+// release-correctness logic that is not just a thin wrapper on top of `git`
+// / `npm` invocations, so unit-testing them directly is what matters.
+
+import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
+import test from "node:test";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const RELEASE_SCRIPT = resolve(HERE, "..", "..", "..", "scripts", "release.mjs");
+
+const {
+  bumpPackageJsonContent,
+  bumpPackageLockContent,
+  gitStatusIsClean,
+  parseVersion
+} = await import(RELEASE_SCRIPT);
+
+test("parseVersion accepts strict X.Y.Z and returns numeric components", () => {
+  assert.deepEqual(parseVersion("0.0.0"), { major: 0, minor: 0, patch: 0 });
+  assert.deepEqual(parseVersion("0.99.99"), { major: 0, minor: 99, patch: 99 });
+  assert.deepEqual(parseVersion("12.34.56"), { major: 12, minor: 34, patch: 56 });
+});
+
+test("parseVersion rejects bad inputs", () => {
+  assert.throws(() => parseVersion("v0.2.0"));        // no leading 'v'
+  assert.throws(() => parseVersion("0.2"));           // missing patch
+  assert.throws(() => parseVersion("0.2.0-rc.1"));    // pre-release
+  assert.throws(() => parseVersion("0.2.0+build"));   // build metadata
+  assert.throws(() => parseVersion("01.2.3"));         // leading zero
+  assert.throws(() => parseVersion("1.02.3"));         // leading zero
+  assert.throws(() => parseVersion("1.2.03"));         // leading zero
+  assert.throws(() => parseVersion(""));              // empty
+  assert.throws(() => parseVersion(undefined));       // wrong type
+  assert.throws(() => parseVersion(0.2));             // wrong type
+});
+
+test("bumpPackageJsonContent updates the version field", () => {
+  const input = JSON.stringify({ name: "@sentropic/h2a", version: "0.1.0" }, null, 2);
+  const out = bumpPackageJsonContent(input, "0.2.0");
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.version, "0.2.0");
+  assert.equal(parsed.name, "@sentropic/h2a");
+});
+
+test("bumpPackageJsonContent rewrites the @sentropic/h2a dep to ^X.Y.Z", () => {
+  const input = JSON.stringify(
+    {
+      name: "@sentropic/h2a-cli",
+      version: "0.1.1",
+      dependencies: { "@sentropic/h2a": "^0.1.0" }
+    },
+    null,
+    2
+  );
+  const out = bumpPackageJsonContent(input, "0.2.0");
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.version, "0.2.0");
+  assert.equal(parsed.dependencies["@sentropic/h2a"], "^0.2.0");
+});
+
+test("bumpPackageJsonContent leaves the @sentropic/h2a dep alone when absent", () => {
+  const input = JSON.stringify(
+    { name: "@sentropic/h2a", version: "0.1.0", dependencies: { typescript: "^5" } },
+    null,
+    2
+  );
+  const out = bumpPackageJsonContent(input, "0.2.0");
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.dependencies.typescript, "^5");
+  assert.equal(parsed.dependencies["@sentropic/h2a"], undefined);
+});
+
+test("bumpPackageJsonContent preserves trailing newline state", () => {
+  const withNl = JSON.stringify({ name: "x", version: "0.0.1" }, null, 2) + "\n";
+  const withoutNl = JSON.stringify({ name: "x", version: "0.0.1" }, null, 2);
+  assert.ok(bumpPackageJsonContent(withNl, "0.0.2").endsWith("\n"));
+  assert.ok(!bumpPackageJsonContent(withoutNl, "0.0.2").endsWith("\n"));
+});
+
+test("bumpPackageJsonContent validates the new version through parseVersion", () => {
+  const input = JSON.stringify({ name: "x", version: "0.0.1" }, null, 2);
+  assert.throws(() => bumpPackageJsonContent(input, "v0.2.0"));
+  assert.throws(() => bumpPackageJsonContent(input, "0.2"));
+});
+
+test("bumpPackageLockContent updates root and workspace package versions", () => {
+  const input = `${JSON.stringify(
+    {
+      name: "h2a",
+      version: "0.1.0",
+      lockfileVersion: 3,
+      packages: {
+        "": { name: "h2a", version: "0.1.0" },
+        "packages/h2a": { name: "@sentropic/h2a", version: "0.1.0" },
+        "packages/h2a-cli": {
+          name: "@sentropic/h2a-cli",
+          version: "0.1.1",
+          dependencies: { "@sentropic/h2a": "^0.1.0" }
+        }
+      }
+    },
+    null,
+    2
+  )}\n`;
+  const out = bumpPackageLockContent(input, "0.2.0");
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.version, "0.2.0");
+  assert.equal(parsed.packages[""].version, "0.2.0");
+  assert.equal(parsed.packages["packages/h2a"].version, "0.2.0");
+  assert.equal(parsed.packages["packages/h2a-cli"].version, "0.2.0");
+  assert.equal(
+    parsed.packages["packages/h2a-cli"].dependencies["@sentropic/h2a"],
+    "^0.2.0"
+  );
+  assert.ok(out.endsWith("\n"));
+});
+
+test("bumpPackageLockContent validates the new version through parseVersion", () => {
+  const input = JSON.stringify({ name: "h2a", version: "0.1.0", packages: {} });
+  assert.throws(() => bumpPackageLockContent(input, "01.2.3"));
+});
+
+test("gitStatusIsClean accepts empty porcelain output only", () => {
+  assert.equal(gitStatusIsClean(""), true);
+  assert.equal(gitStatusIsClean("\n"), true);
+  assert.equal(gitStatusIsClean(" M package.json\n"), false);
+  assert.equal(gitStatusIsClean("?? scripts/release.mjs\n"), false);
+});

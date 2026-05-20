@@ -253,6 +253,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     optionalFlags: ["root", "print", "write", "force"],
     description:
       "Render or merge the `mcpServers.h2a` snippet for a host (codex|claude). `--print` (default) emits the snippet as a resource on stdout; `--write <file>` switches the verb to an action envelope and merges/creates the target config file."
+  },
+  {
+    verb: "host status",
+    outputShape: "action",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["host"],
+    description:
+      "Report each host's wave + adapter-shipped flags (DEC-037). Output is `{ ok: true, hosts: [{host, wave, mcpAdapterShipped, hostSetupShipped, summary}] }`. Filter to a single host with `--host <name>`; unknown host → exit 1."
   }
 ] as const;
 

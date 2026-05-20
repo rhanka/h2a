@@ -5,6 +5,9 @@ import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 
 export type {
+  H2AConfigurableHostDescriptor,
+  H2AHostDescriptor,
+  H2AHostWave,
   McpHostConfigSnippet,
   RenderMcpConfigOptions
 } from "./hosts/codex.js";
