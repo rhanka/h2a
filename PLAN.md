@@ -92,8 +92,8 @@
 ### MCP track
 
 - [x] Freeze the canonical MCP tool names
-- [ ] Implement a minimal MCP server inside `@sentropic/h2a-cli`
-- [ ] Back the MCP server with the same local-files runtime
+- [x] Implement a minimal MCP server inside `@sentropic/h2a-cli` (in-process `createMcpServer({ root })`, 4 wired tools: register / discover / inbox / append_journal; JSON-RPC + stdio transport deferred to a later slice)
+- [x] Back the MCP server with the same local-files runtime
 - [ ] Define actor identity/auth strategy for MCP calls
 
 ### Codex track

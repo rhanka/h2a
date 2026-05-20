@@ -25,6 +25,17 @@ export {
   type LocalStorePaths
 } from "./runtime/local-files/index.js";
 
+export {
+  H2A_CLI_MCP_TOOL_DESCRIPTORS,
+  createMcpServer,
+  type CreateMcpServerOptions,
+  type McpErrorResult,
+  type McpServer,
+  type McpToolDescriptor,
+  type McpToolName,
+  type McpToolResult
+} from "./runtime/mcp/index.js";
+
 export const H2A_CLI_HOSTS = [
   H2A_CODEX_HOST,
   H2A_CLAUDE_HOST,
