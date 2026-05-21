@@ -1,6 +1,6 @@
 {
   "name": "@sentropic/h2a-cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Unified CLI surface for h2a hosts and MCP-oriented coordination flows.",
   "license": "MIT",
   "type": "module",
@@ -39,7 +39,7 @@
     "dist"
   ],
   "dependencies": {
-    "@sentropic/h2a": "^0.1.0"
+    "@sentropic/h2a": "^0.1.2"
   },
   "publishConfig": {
     "access": "public"
