@@ -36,11 +36,14 @@ The version must be a strict `X.Y.Z` SemVer triple with no leading `v`, no pre-r
 
 `.github/workflows/release.yml` runs on tags matching `v*.*.*` and then:
 
-1. Installs with `npm ci`.
-2. Runs `npm run typecheck` and `npm test`.
-3. Verifies the tag version matches both workspace package versions.
-4. Publishes both packages with npm Trusted Publishing (`npm publish --access public`).
-5. Creates a GitHub Release with generated notes.
+1. Bootstraps Node 20 and upgrades npm to `^11.15.0` for Trusted Publishing.
+2. Installs with `npm ci`.
+3. Runs `npm run typecheck` and `npm test`.
+4. Verifies the tag version matches both workspace package versions.
+5. Publishes both packages with npm Trusted Publishing (`npm publish --access public`).
+6. Creates a GitHub Release with generated notes.
+
+The release job intentionally uses Node 20 for the publish bootstrap. The Node 22.22.2 hosted-toolcache npm has been observed failing during `npm install -g npm@^11.15.0` with a missing `promise-retry` module, while the separate CI matrix still verifies Node 20 and 22 compatibility.
 
 Trusted Publishing must be configured on npm for both packages before a tag publish can succeed:
 

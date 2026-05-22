@@ -22,7 +22,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          # Node 22.22.2 hosted-toolcache npm is currently missing a transitive
+          # npm install dependency; use Node 20 only for the publish bootstrap.
+          node-version: "20"
 
       - name: Use npm with trusted publishing support
         run: npm install -g npm@^11.15.0
