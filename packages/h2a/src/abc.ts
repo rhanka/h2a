@@ -12,6 +12,7 @@ import {
 } from "./escalation.js";
 import { H2A_POLICY_PRECEDENCE_PROFILES } from "./policy-precedence.js";
 import { H2A_DISCLOSURE_PROFILES } from "./disclosure.js";
+import { H2A_RECOURSE_PROFILES } from "./recourse.js";
 
 export const H2A_ABC_MODEL_IDS = [
   "A_ENTERPRISE",
@@ -186,6 +187,17 @@ function controlledDisclosureCapability(
   };
 }
 
+function recourseCapability(
+  modelId: H2AAbcModelId
+): H2AAbcModelCapabilityDescriptor {
+  const profile = H2A_RECOURSE_PROFILES[modelId];
+  return {
+    capability: "recourse",
+    status: "shipped",
+    evidence: `DEC-046 declarative recourse profile (default decider ${profile.defaultDeciderKind}, ${profile.allowedDeciderKinds.length} allowed deciders, appealable=${profile.appealable})`
+  };
+}
+
 export const H2A_ABC_MODEL_PROFILES = Object.freeze({
   A_ENTERPRISE: Object.freeze({
     id: "A_ENTERPRISE",
@@ -205,12 +217,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
         evidence: "CONTRACT can carry obligations and ENGAGEMENT can execute work",
         gap: "recurring obligations are identified but not yet a first-class schedule/schema"
       },
-      {
-        capability: "recourse",
-        status: "partial",
-        evidence: "RECOURSE is an escalation authority kind",
-        gap: "recourse has routing vocabulary but no adjudication lifecycle"
-      },
+      recourseCapability("A_ENTERPRISE"),
       policyPrecedenceCapability("A_ENTERPRISE")
     ] as const
   }),
@@ -226,12 +233,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
     capabilities: [
       ...BASE_SHIPPED_CAPABILITIES,
       controlledDisclosureCapability("B_ECOSYSTEM"),
-      {
-        capability: "recourse",
-        status: "partial",
-        evidence: "RECOURSE and QUORUM targets can be declared in ENFORCEMENT_PLAN",
-        gap: "recourse/deadlock handling is routable but not procedurally specified"
-      },
+      recourseCapability("B_ECOSYSTEM"),
       policyPrecedenceCapability("B_ECOSYSTEM")
     ] as const
   }),
@@ -247,12 +249,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
     capabilities: [
       ...BASE_SHIPPED_CAPABILITIES,
       controlledDisclosureCapability("C_GOVERNMENT_CITIZEN"),
-      {
-        capability: "recourse",
-        status: "partial",
-        evidence: "RECOURSE is a first-class escalation authority kind",
-        gap: "recourse routing exists but appeal/adjudication lifecycle remains open"
-      },
+      recourseCapability("C_GOVERNMENT_CITIZEN"),
       {
         capability: "jurisdiction",
         status: "partial",

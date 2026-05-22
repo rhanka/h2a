@@ -688,3 +688,25 @@ Exports ajoutés :
 **Pourquoi** : (a) REQ-070 et REQ-071 nomment la minimisation de disclosure (vues redigées, evidence packages, hashes, attestations) mais aucune surface exécutable ne la déclarait ; (b) DEC-043 classe `controlled-disclosure-profiles` comme couche POLICY ouverte, restant à fermer en V1 ; (c) DEC-041 marquait la capability `partial` sur les trois ABC sans levier de promotion ; (d) suivre la même forme que `policy-precedence` (DEC associé à DEC-041) donne une API exécutable et auditable sans introduire de moteur de redaction caché — la projection effective reste explicitement hors-protocole.
 
 **Conséquence** : (a) la couche POLICY a maintenant un module exécutable pour la disclosure ; (b) `auditAbcModelCompatibility` ne signale plus `controlled-disclosure` comme gap partiel ; (c) le helper de projection (rédacteur de champs, builder d'evidence-package) reste un travail policy/implémentation, documenté comme tel dans `unresolved` ; (d) un patch release `0.1.8` peut suivre quand build + tests sont verts.
+
+## DEC-046 — Profils exécutables de recours / adjudication
+**Date** : 2026-05-22. **Réfère** : REQ-068, REQ-069, REQ-071, DEC-040, DEC-041, DEC-043, WP-50.
+
+**Décision** : la procédure de recours/adjudication V1 est livrée comme module déclaratif `packages/h2a/src/recourse.ts`, miroir structurel de `policy-precedence.ts` et `disclosure.ts`. Exports publics :
+
+- `H2A_RECOURSE_STATES` : `requested`, `accepted`, `dismissed`, `adjudicating`, `decided`, `appealed`, `closed`.
+- `H2A_RECOURSE_CONFLICT_DISPOSITIONS = ["escalate-not-resolve"]`.
+- `H2A_RECOURSE_PROFILES` indexés par `H2AAbcModelId`. Chaque profil porte `modelId`, `label`, `allowedStates`, `allowedDeciderKinds` (sous-ensemble de `H2A_ESCALATION_AUTHORITY_KINDS`), `defaultDeciderKind`, `appealable`, `conflictDisposition`, `rationale`, `references`.
+- Profils retenus :
+  - `A_ENTERPRISE` — `allowedDeciderKinds = [PRINCIPAL, CONTROL, EXTERNAL_AUTHORITY]`, default `PRINCIPAL`, `appealable: true` (CONTROL pour domaines spécialisés, EXTERNAL_AUTHORITY pour l'appel hors organisation).
+  - `B_ECOSYSTEM` — `allowedDeciderKinds = [QUORUM, EXTERNAL_AUTHORITY, RECOURSE]`, default `QUORUM`, `appealable: true` (QUORUM inter-parties par défaut, RECOURSE pour organes dédiés).
+  - `C_GOVERNMENT_CITIZEN` — `allowedDeciderKinds = [EXTERNAL_AUTHORITY, RECOURSE, PRINCIPAL]`, default `EXTERNAL_AUTHORITY`, `appealable: true` (tribunal/régulateur d'abord, RECOURSE pour recours administratif, PRINCIPAL pour étapes internes).
+- `getRecourseProfile(modelId)` et `auditRecourseProfile(modelId)` : audit valide que `requested` est présent, qu'au moins un état terminal (`decided` ou `dismissed`) est présent, que `defaultDeciderKind ∈ allowedDeciderKinds`, que les deciders sont des `H2AEscalationAuthorityKind` connus, sans duplication. Si `appealable = true`, l'état `appealed` est requis. `unresolved` rappelle explicitement que V1 **n'adjuge pas** — la décision est produite hors-protocole par l'autorité déclarée.
+
+**Décision (statut machine)** :
+- `abc.ts` : la capability `recourse` passe de `partial` à `shipped` sur les trois profils, evidence = "DEC-046 declarative recourse profile (default decider X, N allowed deciders, appealable=true)".
+- `governance-boundary.ts` : nouvel item POLICY `recourse-adjudication-profiles` (`v1-shipped`), references = `["REQ-068", "REQ-069", "REQ-071", "DEC-040", "DEC-041", "DEC-046"]`.
+
+**Pourquoi** : (a) REQ-068 nomme le recours comme cible d'escalade légitime mais DEC-040 ne couvrait que le routage, pas la procédure ; (b) DEC-041 marquait `recourse` `partial` sur les **trois** profils ABC, ce qui en faisait la capability `partial` à plus fort fan-out ; (c) REQ-069 exige que le MANDATAIRE ne tienne pas le rôle d'arbitre — la décision doit être attribuée à une autorité déclarée, donc on déclare la taxonomie ; (d) calquer la forme `policy-precedence` / `disclosure` (déclaratif + `escalate-not-resolve`) évite d'introduire un moteur d'adjudication caché que V1 ne sait pas exécuter.
+
+**Conséquence** : (a) la couche POLICY ferme `recourse-adjudication-profiles` ; (b) `auditAbcModelCompatibility` ne signale plus `recourse` comme gap partiel ; (c) le déroulé effectif d'un recours (notification, dossier, délibération, signature, publication) reste un travail policy/implémentation explicitement documenté dans `unresolved` ; (d) un patch release `0.1.9` peut suivre quand build + tests sont verts.

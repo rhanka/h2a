@@ -70,6 +70,19 @@ export type {
   H2ADisclosureProfileDescriptor
 } from "./disclosure.js";
 export {
+  H2A_RECOURSE_CONFLICT_DISPOSITIONS,
+  H2A_RECOURSE_PROFILES,
+  H2A_RECOURSE_STATES,
+  auditRecourseProfile,
+  getRecourseProfile
+} from "./recourse.js";
+export type {
+  H2ARecourseAuditResult,
+  H2ARecourseConflictDisposition,
+  H2ARecourseProfileDescriptor,
+  H2ARecourseState
+} from "./recourse.js";
+export {
   createEnvelope,
   isH2AEnvelope
 } from "./envelope.js";

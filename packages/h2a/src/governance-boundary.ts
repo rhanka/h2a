@@ -88,6 +88,13 @@ export const H2A_GOVERNANCE_BOUNDARY_ITEMS = Object.freeze([
     references: ["REQ-070", "REQ-071", "DEC-041", "DEC-045"]
   },
   {
+    id: "recourse-adjudication-profiles",
+    layer: "POLICY",
+    status: "v1-shipped",
+    summary: "DEC-046 declares recourse lifecycle states, allowed deciders, and appealability per ABC profile; adjudication itself stays with the declared authority.",
+    references: ["REQ-068", "REQ-069", "REQ-071", "DEC-040", "DEC-041", "DEC-046"]
+  },
+  {
     id: "recurring-obligation-cadence",
     layer: "POLICY",
     status: "v1-open",

@@ -59,7 +59,7 @@ test("enterprise mapping keeps EXECUTIF, external authority, and recurring-oblig
   assert.match(result.gaps.join("\n"), /policy precedence/);
 });
 
-test("ecosystem mapping preserves peer federation and deadlock gaps", () => {
+test("ecosystem mapping preserves peer federation with disclosure and recourse shipped", () => {
   const profile = getAbcModelProfile("B_ECOSYSTEM");
   assert.equal(profile.topology, "peer-federation");
   assert.equal(profile.requiredRoles.includes("MANDATAIRE"), true);
@@ -69,11 +69,11 @@ test("ecosystem mapping preserves peer federation and deadlock gaps", () => {
   const result = auditAbcModelCompatibility("B_ECOSYSTEM");
   assert.equal(result.ready, false);
   assert.equal(result.shipped.includes("controlled-disclosure"), true);
-  assert.match(result.gaps.join("\n"), /recourse/);
+  assert.equal(result.shipped.includes("recourse"), true);
   assert.match(result.gaps.join("\n"), /policy precedence/);
 });
 
-test("government mapping preserves imposed public policy and recourse routing", () => {
+test("government mapping preserves imposed public policy with recourse shipped", () => {
   const profile = getAbcModelProfile("C_GOVERNMENT_CITIZEN");
   assert.equal(profile.requiredPolicyAdoptionModes.includes("imposed"), true);
   assert.equal(profile.escalationAuthorityKinds.includes("EXTERNAL_AUTHORITY"), true);
@@ -81,8 +81,8 @@ test("government mapping preserves imposed public policy and recourse routing", 
 
   const result = auditAbcModelCompatibility("C_GOVERNMENT_CITIZEN");
   assert.equal(result.ready, false);
+  assert.equal(result.shipped.includes("recourse"), true);
   assert.match(result.gaps.join("\n"), /jurisdiction/);
-  assert.match(result.gaps.join("\n"), /recourse/);
 });
 
 test("auditAbcModelCompatibility reports unknown ABC models without throwing", () => {
