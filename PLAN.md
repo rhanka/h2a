@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-20 (Scénarios hôtes Codex / Claude via snippets MCP — DEC-044 ; WP-40 85%)
+> Last update: 2026-05-21 (Release v0.1.4 tag préparé ; Trusted Publishing npm encore à configurer avec allow-publish ; WP-00 92%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -15,6 +15,7 @@
   - core contractual model, local runtime, CLI surface, and MCP server are implemented for the V1 local-files slice
   - host setup and MCP host scenarios are shipped for Codex and Claude Code; Gemini remains wave 2
   - release preparation is automated locally and publishing is tag-driven in GitHub Actions
+  - `v0.1.4` is tagged on GitHub; npm publish is blocked until npm Trusted Publishing is configured for both packages with `allow publish`
 
 ## Priority Order
 
@@ -37,7 +38,8 @@
 - [x] Fix CLI package publication so the `h2a` bin is preserved
 - [x] Choose the project license (MIT — DEC-027)
 - [ ] Deprecate `@sentropic/h2a-cli@0.1.0` with a clear message
-- [x] Automate release/publish flow (`npm run release -- --version X.Y.Z` + `vX.Y.Z` tag workflow publishing both packages with npm provenance — DEC-038)
+- [x] Automate release/publish flow (`npm run release -- --version X.Y.Z` + `vX.Y.Z` tag workflow publishing both packages through npm Trusted Publishing — DEC-038)
+- [ ] Configure npm Trusted Publishing for `@sentropic/h2a` and `@sentropic/h2a-cli` (`rhanka/h2a`, `release.yml`, allowed action `npm publish`; requires `npm@11.15.0+` or npmjs.com UI)
 
 ## Workpackage 10 - `h2a` Core Contracts (~100%)
 
@@ -148,6 +150,7 @@
 
 - [x] Choose the project license → MIT (DEC-027)
 - [x] Confirm whether to deprecate `@sentropic/h2a-cli@0.1.0` → yes, with redirect message (DEC-029); awaiting npm auth
+- [x] Switch release target from `NPM_TOKEN` to npm Trusted Publishing → yes; awaiting npm trusted-publisher config with allowed action `npm publish`
 - [x] Choose the next main delivery → core schemas first (DEC-030)
 - [x] Decide whether `gemini` stays in wave 1 → deferred to wave 2 (DEC-028)
 
@@ -155,6 +158,6 @@
 
 Recommended next implementation slice:
 
-1. Add end-to-end host scenario tests for Codex and Claude Code over the shipped MCP setup surface (WP-40).
+1. Create npm Trusted Publishing configs for both packages with allowed action `npm publish`, then rerun the tag release from a fresh patch version (WP-00).
 2. Run the external npm deprecation for `@sentropic/h2a-cli@0.1.0` once maintainer auth is available (WP-00).
 3. Pick the next V1 policy gap to promote or leave explicit (policy precedence, disclosure profiles, recurring obligations, recourse/adjudication).

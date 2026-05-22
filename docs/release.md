@@ -39,10 +39,17 @@ The version must be a strict `X.Y.Z` SemVer triple with no leading `v`, no pre-r
 1. Installs with `npm ci`.
 2. Runs `npm run typecheck` and `npm test`.
 3. Verifies the tag version matches both workspace package versions.
-4. Publishes both packages with `npm publish --provenance --access public` when `secrets.NPM_TOKEN` is present.
+4. Publishes both packages with npm Trusted Publishing (`npm publish --access public`).
 5. Creates a GitHub Release with generated notes.
 
-If `NPM_TOKEN` is absent, the workflow emits a warning and skips npm publish + release creation. This keeps the workflow previewable without exposing publish credentials.
+Trusted Publishing must be configured on npm for both packages before a tag publish can succeed:
+
+```sh
+npm exec --package npm@^11.15.0 -- npm trust github @sentropic/h2a --repo rhanka/h2a --file release.yml --allow-publish --yes
+npm exec --package npm@^11.15.0 -- npm trust github @sentropic/h2a-cli --repo rhanka/h2a --file release.yml --allow-publish --yes
+```
+
+`npm@11.15.0` or newer is required because npm configurations created after 2026-05-20 must explicitly allow at least one action (`npm publish` here). Older `npm trust github` clients omit that permission and the registry rejects the request.
 
 The repository root is private and never publishes. The `--workspace` flag remains mandatory for package publication. The CLI bin entry (`bin: { h2a: "dist/bin.js" }`) is the failure mode that produced the broken `0.1.0` — see below.
 

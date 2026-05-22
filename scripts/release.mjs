@@ -332,7 +332,7 @@ async function main(argv) {
       "On tag push, .github/workflows/release.yml runs:",
       "  - typecheck + tests",
       "  - version sanity gate (tag vs package.json)",
-      "  - npm publish --provenance --access public (h2a + h2a-cli)",
+      "  - npm publish --access public via npm Trusted Publishing (h2a + h2a-cli)",
       "  - gh release create --generate-notes",
       ""
     ].join("\n")
