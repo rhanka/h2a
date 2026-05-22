@@ -1,21 +1,21 @@
 # H2A Project Plan
 
-> Last update: 2026-05-21 (Release v0.1.4 tag préparé ; Trusted Publishing npm encore à configurer avec allow-publish ; WP-00 92%)
+> Last update: 2026-05-21 (Release v0.1.6 published ; Trusted Publishing npm configured ; broken CLI 0.1.0 deprecated ; WP-00 100%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
 ## Snapshot
 
-- Overall estimated progress: ~85%
+- Overall estimated progress: ~90%
 - Published packages:
-  - `@sentropic/h2a@0.1.0`
-  - `@sentropic/h2a-cli@0.1.1`
+  - `@sentropic/h2a@0.1.6`
+  - `@sentropic/h2a-cli@0.1.6`
 - Current repo state:
   - bootstrap repo, npm workspace, tests, and first npm publication are done
   - core contractual model, local runtime, CLI surface, and MCP server are implemented for the V1 local-files slice
   - host setup and MCP host scenarios are shipped for Codex and Claude Code; Gemini remains wave 2
   - release preparation is automated locally and publishing is tag-driven in GitHub Actions
-  - `v0.1.4` is tagged on GitHub; npm publish is blocked until npm Trusted Publishing is configured for both packages with `allow publish`
+  - `v0.1.6` is tagged on GitHub and published to npm through Trusted Publishing
 
 ## Priority Order
 
@@ -26,20 +26,20 @@
 5. Add real host-side integrations for Codex and Claude.
 6. Add CI, examples, and release hygiene.
 
-## Workpackage 00 - Foundation And Release (~90%)
+## Workpackage 00 - Foundation And Release (~100%)
 
 - [x] Fix project umbrella name to `h2a`
 - [x] Reduce runtime bootstrap to `@sentropic/h2a` + `@sentropic/h2a-cli`
 - [x] Initialize local Git repository
 - [x] Create and push GitHub repository `rhanka/h2a`
 - [x] Bootstrap npm workspace and TypeScript build
-- [x] Publish `@sentropic/h2a@0.1.0`
-- [x] Publish `@sentropic/h2a-cli@0.1.1`
+- [x] Publish `@sentropic/h2a@0.1.6`
+- [x] Publish `@sentropic/h2a-cli@0.1.6`
 - [x] Fix CLI package publication so the `h2a` bin is preserved
 - [x] Choose the project license (MIT — DEC-027)
-- [ ] Deprecate `@sentropic/h2a-cli@0.1.0` with a clear message
+- [x] Deprecate `@sentropic/h2a-cli@0.1.0` with a clear message
 - [x] Automate release/publish flow (`npm run release -- --version X.Y.Z` + `vX.Y.Z` tag workflow publishing both packages through npm Trusted Publishing — DEC-038)
-- [ ] Configure npm Trusted Publishing for `@sentropic/h2a` and `@sentropic/h2a-cli` (`rhanka/h2a`, `release.yml`, allowed action `npm publish`; requires `npm@11.15.0+` or npmjs.com UI)
+- [x] Configure npm Trusted Publishing for `@sentropic/h2a` and `@sentropic/h2a-cli` (`rhanka/h2a`, `release.yml`, allowed action `npm publish`; requires `npm@11.15.0+` or npmjs.com UI)
 
 ## Workpackage 10 - `h2a` Core Contracts (~100%)
 
@@ -140,7 +140,7 @@
 - [x] Add baseline automated tests
 - [x] Keep `npm test` green after publication fixes
 - [x] Add CI workflow for build + tests (`.github/workflows/ci.yml`, Node 20/22 matrix)
-- [x] Add npm install smoke test for published packages (`.github/workflows/smoke.yml`, installs `@sentropic/h2a-cli@0.1.1` globally and exercises the published baseline commands)
+- [x] Add npm install smoke test for published packages (`.github/workflows/smoke.yml`, installs `@sentropic/h2a-cli@0.1.6` globally and exercises help/hosts/MCP tools/init/register/discover/host setup)
 - [x] Add an example project for `1 PRINCIPAL / 15 CONDUCTORS` (`examples/principal-conductors/run.mjs`, gated integration test `H2A_RUN_EXAMPLE=1`)
 - [x] Add release notes / publish procedure doc (`docs/release.md`)
 - [x] Add security/key management notes (`docs/release.md` § Key management)
@@ -149,8 +149,8 @@
 ## Open Decisions / User Inputs
 
 - [x] Choose the project license → MIT (DEC-027)
-- [x] Confirm whether to deprecate `@sentropic/h2a-cli@0.1.0` → yes, with redirect message (DEC-029); awaiting npm auth
-- [x] Switch release target from `NPM_TOKEN` to npm Trusted Publishing → yes; awaiting npm trusted-publisher config with allowed action `npm publish`
+- [x] Confirm whether to deprecate `@sentropic/h2a-cli@0.1.0` → yes, done with redirect message (DEC-029)
+- [x] Switch release target from `NPM_TOKEN` to npm Trusted Publishing → yes; npm trusted-publisher configs created with allowed action `npm publish`
 - [x] Choose the next main delivery → core schemas first (DEC-030)
 - [x] Decide whether `gemini` stays in wave 1 → deferred to wave 2 (DEC-028)
 
@@ -158,6 +158,5 @@
 
 Recommended next implementation slice:
 
-1. Create npm Trusted Publishing configs for both packages with allowed action `npm publish`, then rerun the tag release from a fresh patch version (WP-00).
-2. Run the external npm deprecation for `@sentropic/h2a-cli@0.1.0` once maintainer auth is available (WP-00).
-3. Pick the next V1 policy gap to promote or leave explicit (policy precedence, disclosure profiles, recurring obligations, recourse/adjudication).
+1. Watch the post-publication smoke workflow after the `smoke.yml` version bump lands.
+2. Pick the next V1 policy gap to promote or leave explicit (policy precedence, disclosure profiles, recurring obligations, recourse/adjudication).

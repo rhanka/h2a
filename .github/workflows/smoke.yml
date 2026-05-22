@@ -18,18 +18,25 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install published @sentropic/h2a-cli@0.1.1 globally
+      - name: Install published @sentropic/h2a-cli@0.1.6 globally
         shell: bash
         run: |
           set -euo pipefail
-          npm i -g @sentropic/h2a-cli@0.1.1
+          npm i -g @sentropic/h2a-cli@0.1.6
           which h2a
           h2a --help
 
-      - name: Published baseline CLI verbs exit 0
+      - name: Published CLI verbs exit 0
         shell: bash
         run: |
           set -euo pipefail
+          root="$(mktemp -d)/.h2a"
+          registration='{"id":"conductor:smoke","instance":"conductor:smoke","roles":["CONDUCTOR"],"scopes":["scope:smoke"],"capabilities":["negotiate"],"endpoints":[],"publicKeys":[],"acceptedPolicies":[],"createdAt":"2026-05-18T00:00:00.000Z"}'
           h2a --help
           h2a hosts
           h2a mcp-tools
+          h2a init --root "$root"
+          h2a register --root "$root" --json "$registration"
+          h2a discover --root "$root" --role CONDUCTOR --scope scope:smoke
+          h2a host setup --host codex --root "$root" --print
+          h2a host setup --host claude --root "$root" --print

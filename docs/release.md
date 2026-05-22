@@ -58,27 +58,29 @@ The repository root is private and never publishes. The `--workspace` flag remai
 
 ## Release gate: `smoke.yml`
 
-`.github/workflows/smoke.yml` runs on `workflow_dispatch` and on every push to `main`. It installs the currently published `@sentropic/h2a-cli@0.1.1` globally on a fresh Node 22 runner and exercises the published baseline:
+`.github/workflows/smoke.yml` runs on `workflow_dispatch` and on every push to `main`. It installs the currently published `@sentropic/h2a-cli@0.1.6` globally on a fresh Node 22 runner and exercises the published CLI surface:
 
 - `h2a --help`, `h2a hosts`, `h2a mcp-tools`
+- local store bootstrap: `h2a init`, `h2a register`, `h2a discover`
+- host setup snippets: `h2a host setup --host codex --print`, `h2a host setup --host claude --print`
 
 If smoke fails after a new publish, the publish is considered broken and must be deprecated (see DEC-029 for the existing precedent).
 
-> Pin the version inside `smoke.yml` to the latest published `@sentropic/h2a-cli` after every publish, then expand the exercised commands to match that published surface. The richer `init` / `register` / `host setup` smoke belongs back here once a version containing those verbs is published.
+> Pin the version inside `smoke.yml` to the latest published `@sentropic/h2a-cli` after every publish, then expand the exercised commands to match that published surface.
 
-## Known broken `0.1.0` and standing deprecation request
+## Known broken `0.1.0` and deprecation status
 
 `@sentropic/h2a-cli@0.1.0` was published without the `bin` entry due to an autocorrection during the very first publication. DEC-029 records the decision to **deprecate** rather than `unpublish`, with the message:
 
-> `Use 0.1.1; 0.1.0 was published without the CLI bin entry.`
+> `Use 0.1.6; 0.1.0 was published without the CLI bin entry.`
 
-The actual `npm deprecate` call still needs to be run interactively by a maintainer authenticated against `@sentropic` (see WP-00 in `PLAN.md`):
+The `npm deprecate` call was run interactively by a maintainer authenticated against `@sentropic`:
 
 ```sh
-npm deprecate "@sentropic/h2a-cli@0.1.0" "Use 0.1.1; 0.1.0 was published without the CLI bin entry."
+npm deprecate "@sentropic/h2a-cli@0.1.0" "Use 0.1.6; 0.1.0 was published without the CLI bin entry."
 ```
 
-`0.1.1` remains the supported baseline for all installs.
+`0.1.6` is the supported baseline for all installs.
 
 ## Key management
 
