@@ -57,6 +57,19 @@ export type {
   H2APolicyPrecedenceTier
 } from "./policy-precedence.js";
 export {
+  H2A_DISCLOSURE_CONFLICT_DISPOSITIONS,
+  H2A_DISCLOSURE_MODES,
+  H2A_DISCLOSURE_PROFILES,
+  auditDisclosureProfile,
+  getDisclosureProfile
+} from "./disclosure.js";
+export type {
+  H2ADisclosureAuditResult,
+  H2ADisclosureConflictDisposition,
+  H2ADisclosureMode,
+  H2ADisclosureProfileDescriptor
+} from "./disclosure.js";
+export {
   createEnvelope,
   isH2AEnvelope
 } from "./envelope.js";

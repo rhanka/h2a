@@ -668,3 +668,23 @@ Exports ajoutés :
 **Pourquoi** : (a) DEC-037 distinguait explicitement setup snippet et scénario end-to-end, et Codex/Claude restaient TODO ; (b) lancer le process à partir du snippet couvre le chemin réel qu'un host MCP utilise, sans dépendre de l'UI ou d'un binaire propriétaire ; (c) le scénario couvre à la fois discovery/registration, négociation et inbox, soit les opérations manquantes dans WP-40 ; (d) exposer `hostScenarioShipped` évite aux clients de déduire cette maturité depuis la doc Markdown.
 
 **Conséquence** : (a) les items Codex/Claude "inbox / negotiation operations" de WP-40 sont cochés ; (b) `docs/compatibility-matrix.md` marque les scénarios Codex/Claude comme shipped ; (c) `docs/cli-contract.md` et `H2A_CLI_VERB_CONTRACTS` incluent le nouveau champ ; (d) Gemini reste descriptor + MCP adapter seulement, avec setup et scénario différés.
+
+## DEC-045 — Profils exécutables de disclosure contrôlée
+**Date** : 2026-05-22. **Réfère** : REQ-070, REQ-071, DEC-039, DEC-041, DEC-043, WP-50, WP-60.
+
+**Décision** : la disclosure contrôlée V1 est livrée comme module déclaratif `packages/h2a/src/disclosure.ts`, miroir structurel de `policy-precedence.ts`. Exports publics :
+
+- `H2A_DISCLOSURE_MODES`, ordre du plus restrictif au plus permissif : `denied`, `hash-only`, `attestation`, `evidence-package`, `redacted-view`, `full-view`.
+- `H2A_DISCLOSURE_CONFLICT_DISPOSITIONS = ["escalate-not-resolve"]`.
+- `H2A_DISCLOSURE_PROFILES` indexés par `H2AAbcModelId`, chaque profil portant `modelId`, `label`, `allowedModes`, `defaultMode`, `conflictDisposition`, `rationale`, `references`.
+- Profils retenus :
+  - `A_ENTERPRISE` — `allowedModes = [full-view, redacted-view, evidence-package, attestation, hash-only]`, default `redacted-view` (full-view dans le scope, redacted-view comme défaut cross-domain CONTROL, attestation/hash-only pour les tiers).
+  - `B_ECOSYSTEM` — `allowedModes = [redacted-view, evidence-package, attestation, hash-only]`, default `evidence-package` (full-view non exposé hors organisation).
+  - `C_GOVERNMENT_CITIZEN` — `allowedModes = [full-view, redacted-view, evidence-package, attestation, hash-only]`, default `evidence-package` (full-view réservé à l'autorité publique mandatée).
+- `getDisclosureProfile(modelId)` et `auditDisclosureProfile(modelId)` : audit valide que `defaultMode ∈ allowedModes`, que les modes sont connus et sans doublons, que la disposition est supportée. `unresolved` rappelle explicitement que V1 ne **produit pas** la projection — les helpers de redaction/packaging restent à charge du consommateur.
+
+**Décision (statut machine)** : `H2A_ABC_MODEL_PROFILES` flippe la capability `controlled-disclosure` de `partial` à `shipped` sur les trois profils (evidence = "DEC-045 declarative disclosure profile"). `H2A_GOVERNANCE_BOUNDARY_ITEMS` flippe `controlled-disclosure-profiles` de `v1-open` à `v1-shipped` ; les références incluent `DEC-045`.
+
+**Pourquoi** : (a) REQ-070 et REQ-071 nomment la minimisation de disclosure (vues redigées, evidence packages, hashes, attestations) mais aucune surface exécutable ne la déclarait ; (b) DEC-043 classe `controlled-disclosure-profiles` comme couche POLICY ouverte, restant à fermer en V1 ; (c) DEC-041 marquait la capability `partial` sur les trois ABC sans levier de promotion ; (d) suivre la même forme que `policy-precedence` (DEC associé à DEC-041) donne une API exécutable et auditable sans introduire de moteur de redaction caché — la projection effective reste explicitement hors-protocole.
+
+**Conséquence** : (a) la couche POLICY a maintenant un module exécutable pour la disclosure ; (b) `auditAbcModelCompatibility` ne signale plus `controlled-disclosure` comme gap partiel ; (c) le helper de projection (rédacteur de champs, builder d'evidence-package) reste un travail policy/implémentation, documenté comme tel dans `unresolved` ; (d) un patch release `0.1.8` peut suivre quand build + tests sont verts.

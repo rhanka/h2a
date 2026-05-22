@@ -59,7 +59,7 @@ test("enterprise mapping keeps EXECUTIF, external authority, and recurring-oblig
   assert.match(result.gaps.join("\n"), /policy precedence/);
 });
 
-test("ecosystem mapping preserves peer federation and disclosure/deadlock gaps", () => {
+test("ecosystem mapping preserves peer federation and deadlock gaps", () => {
   const profile = getAbcModelProfile("B_ECOSYSTEM");
   assert.equal(profile.topology, "peer-federation");
   assert.equal(profile.requiredRoles.includes("MANDATAIRE"), true);
@@ -68,7 +68,8 @@ test("ecosystem mapping preserves peer federation and disclosure/deadlock gaps",
 
   const result = auditAbcModelCompatibility("B_ECOSYSTEM");
   assert.equal(result.ready, false);
-  assert.match(result.gaps.join("\n"), /controlled disclosure/);
+  assert.equal(result.shipped.includes("controlled-disclosure"), true);
+  assert.match(result.gaps.join("\n"), /recourse/);
   assert.match(result.gaps.join("\n"), /policy precedence/);
 });
 

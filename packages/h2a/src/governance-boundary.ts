@@ -83,9 +83,9 @@ export const H2A_GOVERNANCE_BOUNDARY_ITEMS = Object.freeze([
   {
     id: "controlled-disclosure-profiles",
     layer: "POLICY",
-    status: "v1-open",
-    summary: "Redaction levels, evidence packages, and CONTROL disclosure limits remain policy profiles.",
-    references: ["REQ-070", "DEC-041"]
+    status: "v1-shipped",
+    summary: "DEC-045 declares allowed disclosure modes per ABC profile; projection helpers remain policy/implementation work.",
+    references: ["REQ-070", "REQ-071", "DEC-041", "DEC-045"]
   },
   {
     id: "recurring-obligation-cadence",

@@ -11,6 +11,7 @@ import {
   type H2AEscalationAuthorityKind
 } from "./escalation.js";
 import { H2A_POLICY_PRECEDENCE_PROFILES } from "./policy-precedence.js";
+import { H2A_DISCLOSURE_PROFILES } from "./disclosure.js";
 
 export const H2A_ABC_MODEL_IDS = [
   "A_ENTERPRISE",
@@ -174,6 +175,17 @@ function policyPrecedenceCapability(
   };
 }
 
+function controlledDisclosureCapability(
+  modelId: H2AAbcModelId
+): H2AAbcModelCapabilityDescriptor {
+  const profile = H2A_DISCLOSURE_PROFILES[modelId];
+  return {
+    capability: "controlled-disclosure",
+    status: "shipped",
+    evidence: `DEC-045 declarative disclosure profile (default ${profile.defaultMode}, ${profile.allowedModes.length} allowed modes)`
+  };
+}
+
 export const H2A_ABC_MODEL_PROFILES = Object.freeze({
   A_ENTERPRISE: Object.freeze({
     id: "A_ENTERPRISE",
@@ -186,12 +198,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
     escalationAuthorityKinds: ALL_SCOPE_AUTHORITIES,
     capabilities: [
       ...BASE_SHIPPED_CAPABILITIES,
-      {
-        capability: "controlled-disclosure",
-        status: "partial",
-        evidence: "CONTROL roles and evidence hashes exist",
-        gap: "controlled disclosure still lacks standard redaction/evidence-package limits"
-      },
+      controlledDisclosureCapability("A_ENTERPRISE"),
       {
         capability: "recurring-obligations",
         status: "partial",
@@ -218,12 +225,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
     escalationAuthorityKinds: ALL_SCOPE_AUTHORITIES,
     capabilities: [
       ...BASE_SHIPPED_CAPABILITIES,
-      {
-        capability: "controlled-disclosure",
-        status: "partial",
-        evidence: "hashes and references can support evidence packages",
-        gap: "controlled disclosure across partners lacks a standard evidence-package profile"
-      },
+      controlledDisclosureCapability("B_ECOSYSTEM"),
       {
         capability: "recourse",
         status: "partial",
@@ -244,6 +246,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
     escalationAuthorityKinds: ALL_SCOPE_AUTHORITIES,
     capabilities: [
       ...BASE_SHIPPED_CAPABILITIES,
+      controlledDisclosureCapability("C_GOVERNMENT_CITIZEN"),
       {
         capability: "recourse",
         status: "partial",
@@ -255,12 +258,6 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
         status: "partial",
         evidence: "scope can encode territorial or sectoral boundaries",
         gap: "jurisdiction is represented by scope strings, not yet by a structured schema"
-      },
-      {
-        capability: "controlled-disclosure",
-        status: "partial",
-        evidence: "hashes and references can support minimized proofs",
-        gap: "controlled disclosure for public authority evidence is not yet standardized"
       },
       policyPrecedenceCapability("C_GOVERNMENT_CITIZEN")
     ] as const

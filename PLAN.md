@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-21 (Release v0.1.7 published ; policy precedence profiles declared for ABC contexts ; no V1 resolver ; WP-50 100%)
+> Last update: 2026-05-22 (Controlled disclosure profiles declared per ABC context — DEC-045 ; no V1 projection helper ; WP-50 100%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -17,6 +17,7 @@
   - release preparation is automated locally and publishing is tag-driven in GitHub Actions
   - `v0.1.7` is tagged on GitHub and published to npm through Trusted Publishing
   - policy precedence is now explicit per ABC context (`H2A_POLICY_PRECEDENCE_PROFILES`) while conflict resolution remains escalated, not automatic
+  - controlled disclosure is now explicit per ABC context (`H2A_DISCLOSURE_PROFILES`) ; projection helpers remain policy/implementation work (DEC-045)
 
 ## Priority Order
 
@@ -136,6 +137,7 @@
 - [x] Frame multi-human modes beyond pairwise dialogue (DEC-042 : `H2A_MULTI_HUMAN_MODES` + `selectMultiHumanMode`, pair/delegated/shared/federated/quorum/public-authority)
 - [x] Decide what becomes protocol, what stays policy, what stays implementation (DEC-043 : `H2A_GOVERNANCE_BOUNDARY_ITEMS` + `classifyGovernanceBoundary`)
 - [x] Declare policy precedence profiles for ABC contexts without introducing a hidden V1 resolver (`H2A_POLICY_PRECEDENCE_PROFILES` + `auditPolicyPrecedenceProfile`; conflicts escalate rather than selecting a winning policy)
+- [x] Declare controlled disclosure profiles per ABC context (`H2A_DISCLOSURE_PROFILES` + `auditDisclosureProfile` ; 6 modes from `denied` to `full-view` ; V1 ships no projection helper — DEC-045)
 
 ## Workpackage 60 - Quality, Examples, And Ops (~70%)
 
@@ -160,5 +162,5 @@
 
 Recommended next implementation slice:
 
-1. Pick the next V1 policy gap to promote or leave explicit (controlled disclosure profiles, recurring obligations, recourse/adjudication).
+1. Pick the next V1 policy gap to promote or leave explicit (recurring obligations, recourse/adjudication, jurisdiction schema).
 2. Prepare a patch release when the next SDK-visible slice is ready.
