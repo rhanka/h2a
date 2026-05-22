@@ -58,7 +58,7 @@ The repository root is private and never publishes. The `--workspace` flag remai
 
 ## Release gate: `smoke.yml`
 
-`.github/workflows/smoke.yml` runs on `workflow_dispatch` and on every push to `main`. It installs the currently published `@sentropic/h2a-cli@0.1.7` globally on a fresh Node 22 runner and exercises the published CLI surface:
+`.github/workflows/smoke.yml` runs on `workflow_dispatch` and on every push to `main`. It installs the currently published `@sentropic/h2a-cli@0.1.8` globally on a fresh Node 22 runner and exercises the published CLI surface:
 
 - `h2a --help`, `h2a hosts`, `h2a mcp-tools`
 - local store bootstrap: `h2a init`, `h2a register`, `h2a discover`
@@ -80,7 +80,7 @@ The `npm deprecate` call was run interactively by a maintainer authenticated aga
 npm deprecate "@sentropic/h2a-cli@0.1.0" "Use 0.1.6; 0.1.0 was published without the CLI bin entry."
 ```
 
-`0.1.7` is the supported baseline for all installs.
+`0.1.8` is the supported baseline for all installs.
 
 ## Key management
 
