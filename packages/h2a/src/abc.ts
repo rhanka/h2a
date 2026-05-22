@@ -10,6 +10,7 @@ import {
   H2A_ESCALATION_AUTHORITY_KINDS,
   type H2AEscalationAuthorityKind
 } from "./escalation.js";
+import { H2A_POLICY_PRECEDENCE_PROFILES } from "./policy-precedence.js";
 
 export const H2A_ABC_MODEL_IDS = [
   "A_ENTERPRISE",
@@ -161,6 +162,18 @@ const BASE_SHIPPED_CAPABILITIES = [
   }
 ] as const satisfies readonly H2AAbcModelCapabilityDescriptor[];
 
+function policyPrecedenceCapability(
+  modelId: H2AAbcModelId
+): H2AAbcModelCapabilityDescriptor {
+  const profile = H2A_POLICY_PRECEDENCE_PROFILES[modelId];
+  return {
+    capability: "policy-precedence",
+    status: "partial",
+    evidence: `policy precedence profiles are declared (${profile.orderedTiers.join(" > ")})`,
+    gap: "policy precedence profiles are declared, but there is no V1 resolver; conflicts escalate instead of selecting a hidden winner"
+  };
+}
+
 export const H2A_ABC_MODEL_PROFILES = Object.freeze({
   A_ENTERPRISE: Object.freeze({
     id: "A_ENTERPRISE",
@@ -191,12 +204,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
         evidence: "RECOURSE is an escalation authority kind",
         gap: "recourse has routing vocabulary but no adjudication lifecycle"
       },
-      {
-        capability: "policy-precedence",
-        status: "deferred",
-        evidence: "policy conflicts can be escalated",
-        gap: "policy precedence is not yet resolved by a V1 engine"
-      }
+      policyPrecedenceCapability("A_ENTERPRISE")
     ] as const
   }),
   B_ECOSYSTEM: Object.freeze({
@@ -222,12 +230,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
         evidence: "RECOURSE and QUORUM targets can be declared in ENFORCEMENT_PLAN",
         gap: "recourse/deadlock handling is routable but not procedurally specified"
       },
-      {
-        capability: "policy-precedence",
-        status: "deferred",
-        evidence: "conflicts can block signatures or escalate",
-        gap: "policy precedence across peer organizations is not yet resolved by a V1 engine"
-      }
+      policyPrecedenceCapability("B_ECOSYSTEM")
     ] as const
   }),
   C_GOVERNMENT_CITIZEN: Object.freeze({
@@ -259,12 +262,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
         evidence: "hashes and references can support minimized proofs",
         gap: "controlled disclosure for public authority evidence is not yet standardized"
       },
-      {
-        capability: "policy-precedence",
-        status: "deferred",
-        evidence: "imposed policies and external authorities are representable",
-        gap: "policy precedence between public law, contracts, and local policies is unresolved"
-      }
+      policyPrecedenceCapability("C_GOVERNMENT_CITIZEN")
     ] as const
   })
 } as const satisfies Record<H2AAbcModelId, H2AAbcModelProfileDescriptor>);

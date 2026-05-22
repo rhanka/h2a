@@ -1,12 +1,12 @@
 # H2A Project Plan
 
-> Last update: 2026-05-21 (Release v0.1.6 published ; Trusted Publishing npm configured ; broken CLI 0.1.0 deprecated ; WP-00 100%)
+> Last update: 2026-05-21 (Policy precedence profiles declared for ABC contexts ; no V1 resolver ; WP-50 100%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
 ## Snapshot
 
-- Overall estimated progress: ~90%
+- Overall estimated progress: ~91%
 - Published packages:
   - `@sentropic/h2a@0.1.6`
   - `@sentropic/h2a-cli@0.1.6`
@@ -16,6 +16,7 @@
   - host setup and MCP host scenarios are shipped for Codex and Claude Code; Gemini remains wave 2
   - release preparation is automated locally and publishing is tag-driven in GitHub Actions
   - `v0.1.6` is tagged on GitHub and published to npm through Trusted Publishing
+  - policy precedence is now explicit per ABC context (`H2A_POLICY_PRECEDENCE_PROFILES`) while conflict resolution remains escalated, not automatic
 
 ## Priority Order
 
@@ -134,6 +135,7 @@
 - [x] Define the `1 PRINCIPAL / 15 CONDUCTORS` use case end-to-end (definition is executable in `examples/principal-conductors/`)
 - [x] Frame multi-human modes beyond pairwise dialogue (DEC-042 : `H2A_MULTI_HUMAN_MODES` + `selectMultiHumanMode`, pair/delegated/shared/federated/quorum/public-authority)
 - [x] Decide what becomes protocol, what stays policy, what stays implementation (DEC-043 : `H2A_GOVERNANCE_BOUNDARY_ITEMS` + `classifyGovernanceBoundary`)
+- [x] Declare policy precedence profiles for ABC contexts without introducing a hidden V1 resolver (`H2A_POLICY_PRECEDENCE_PROFILES` + `auditPolicyPrecedenceProfile`; conflicts escalate rather than selecting a winning policy)
 
 ## Workpackage 60 - Quality, Examples, And Ops (~70%)
 
@@ -158,5 +160,5 @@
 
 Recommended next implementation slice:
 
-1. Watch the post-publication smoke workflow after the `smoke.yml` version bump lands.
-2. Pick the next V1 policy gap to promote or leave explicit (policy precedence, disclosure profiles, recurring obligations, recourse/adjudication).
+1. Pick the next V1 policy gap to promote or leave explicit (controlled disclosure profiles, recurring obligations, recourse/adjudication).
+2. Prepare a patch release when the next SDK-visible slice is ready.

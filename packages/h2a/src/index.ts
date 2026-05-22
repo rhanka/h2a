@@ -44,6 +44,19 @@ export type {
   H2AGovernanceBoundaryStatus
 } from "./governance-boundary.js";
 export {
+  H2A_POLICY_PRECEDENCE_CONFLICT_DISPOSITIONS,
+  H2A_POLICY_PRECEDENCE_PROFILES,
+  H2A_POLICY_PRECEDENCE_TIERS,
+  auditPolicyPrecedenceProfile,
+  getPolicyPrecedenceProfile
+} from "./policy-precedence.js";
+export type {
+  H2APolicyPrecedenceAuditResult,
+  H2APolicyPrecedenceConflictDisposition,
+  H2APolicyPrecedenceProfileDescriptor,
+  H2APolicyPrecedenceTier
+} from "./policy-precedence.js";
+export {
   createEnvelope,
   isH2AEnvelope
 } from "./envelope.js";

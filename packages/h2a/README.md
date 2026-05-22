@@ -10,6 +10,7 @@ Current bootstrap surface:
 - contractual artifact profiles + strict audit helpers for CONTRACT / POLICY / ENGAGEMENT
 - escalation target resolution against ENFORCEMENT_PLAN routes
 - ABC model compatibility profiles + audit helper for enterprise / ecosystem / government-citizen mappings
+- policy precedence profiles for ABC contexts, with explicit escalation rather than a hidden V1 resolver
 - multi-human mode taxonomy + selector for peer, delegated, shared-engagement, federated, consortium, and public-authority flows
 - governance boundary classification for protocol / policy / implementation items
 - canonical JSON + SHA-256 hashing

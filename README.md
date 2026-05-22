@@ -155,9 +155,12 @@ Le mapping vers les trois modèles d'évaluation ABC est exposé par
   livrées (`shipped`) des gaps encore partiels ou différés.
 
 Les trois profils sont cohérents avec le vocabulaire V1 (`ok:true`), mais
-pas encore complets (`ready:false`) tant que la précédence inter-policy,
-la disclosure standardisée, les obligations récurrentes, la juridiction
-structurée ou le recours/adjudication restent ouverts selon le modèle.
+pas encore complets (`ready:false`) tant que la disclosure standardisée,
+les obligations récurrentes, la juridiction structurée ou le
+recours/adjudication restent ouverts selon le modèle. La précédence
+inter-policy est maintenant déclarée par profil ABC (`H2A_POLICY_PRECEDENCE_PROFILES`),
+mais V1 ne choisit pas automatiquement un gagnant : les conflits sont
+explicitement escaladés.
 
 ### Modes multi-humains (DEC-042)
 
