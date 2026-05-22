@@ -140,7 +140,7 @@
 - [x] Add baseline automated tests
 - [x] Keep `npm test` green after publication fixes
 - [x] Add CI workflow for build + tests (`.github/workflows/ci.yml`, Node 20/22 matrix)
-- [x] Add npm install smoke test for published packages (`.github/workflows/smoke.yml`, installs `@sentropic/h2a-cli@0.1.1` globally and exercises the CLI surface)
+- [x] Add npm install smoke test for published packages (`.github/workflows/smoke.yml`, installs `@sentropic/h2a-cli@0.1.1` globally and exercises the published baseline commands)
 - [x] Add an example project for `1 PRINCIPAL / 15 CONDUCTORS` (`examples/principal-conductors/run.mjs`, gated integration test `H2A_RUN_EXAMPLE=1`)
 - [x] Add release notes / publish procedure doc (`docs/release.md`)
 - [x] Add security/key management notes (`docs/release.md` § Key management)

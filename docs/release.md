@@ -55,16 +55,13 @@ The repository root is private and never publishes. The `--workspace` flag remai
 
 ## Release gate: `smoke.yml`
 
-`.github/workflows/smoke.yml` runs on `workflow_dispatch` and on every push to `main`. It installs the currently published `@sentropic/h2a-cli@0.1.1` globally on a fresh Node 22 runner and exercises:
+`.github/workflows/smoke.yml` runs on `workflow_dispatch` and on every push to `main`. It installs the currently published `@sentropic/h2a-cli@0.1.1` globally on a fresh Node 22 runner and exercises the published baseline:
 
 - `h2a --help`, `h2a hosts`, `h2a mcp-tools`
-- `h2a init --root "$RUNNER_TEMP/.h2a"`
-- `h2a register --json '...'` followed by `h2a discover` (output must contain the registered principal)
-- `h2a host setup --host codex --print` (output must contain `"command": "h2a"`)
 
 If smoke fails after a new publish, the publish is considered broken and must be deprecated (see DEC-029 for the existing precedent).
 
-> Pin the version inside `smoke.yml` to the latest published `@sentropic/h2a-cli` after every publish, so the workflow guards what users actually `npm i -g`.
+> Pin the version inside `smoke.yml` to the latest published `@sentropic/h2a-cli` after every publish, then expand the exercised commands to match that published surface. The richer `init` / `register` / `host setup` smoke belongs back here once a version containing those verbs is published.
 
 ## Known broken `0.1.0` and standing deprecation request
 
