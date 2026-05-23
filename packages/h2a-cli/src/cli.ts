@@ -1097,12 +1097,144 @@ function cmdConnect(
   const followUp = [
     `Merge the snippet above under \`mcpServers\` in ${snippet.path.example}`,
     `then run: h2a keys generate --instance ${instance} --root ${root}`,
-    `and: h2a install-skills --host ${flags.host}  (Claude only for now)`
+    `and: h2a install-skills --host ${flags.host}`
   ];
   summary.followUp = followUp;
 
   streams.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   return 0;
+}
+
+interface ParsedSkill {
+  readonly name: string;
+  readonly description: string;
+  readonly body: string;
+}
+
+/**
+ * Parse a SKILL.md file into its YAML-frontmatter `name`/`description` and
+ * the body markdown that follows. The parser is intentionally minimal: it
+ * accepts the canonical `---\nname: ...\ndescription: ...\n---\n<body>` shape
+ * that every shipped h2a skill uses. Multi-line description values are
+ * supported via simple line-continuation indent.
+ */
+function parseSkill(raw: string): ParsedSkill {
+  const match =
+    /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/m.exec(raw);
+  if (!match) {
+    throw new Error(
+      "skill file missing YAML frontmatter (expected `---` delimiters)"
+    );
+  }
+  const [, fmRaw, body] = match;
+  const frontmatter: Record<string, string> = {};
+  let currentKey: string | undefined;
+  for (const line of fmRaw.split(/\r?\n/)) {
+    const kv = /^([a-zA-Z][\w-]*)\s*:\s*(.*)$/.exec(line);
+    if (kv) {
+      currentKey = kv[1];
+      frontmatter[currentKey] = kv[2].trim().replace(/^["']|["']$/g, "");
+    } else if (currentKey && /^\s+/.test(line)) {
+      frontmatter[currentKey] = `${frontmatter[currentKey]} ${line.trim()}`;
+    }
+  }
+  if (!frontmatter.name || !frontmatter.description) {
+    throw new Error(
+      "skill frontmatter must declare both `name` and `description`"
+    );
+  }
+  return {
+    name: frontmatter.name,
+    description: frontmatter.description,
+    body: body.trimStart()
+  };
+}
+
+/**
+ * Render a parsed skill as a Gemini CLI custom-command TOML file
+ * (`~/.gemini/commands/<name>.toml`). Gemini consumes a top-level
+ * `description` plus a `prompt` (multiline triple-quoted) which is what the
+ * agent receives when the user types `/<name>`. We include the original
+ * frontmatter so the prompt itself remains self-describing.
+ */
+function renderSkillAsGeminiToml(skill: ParsedSkill): string {
+  const escapedDescription = skill.description.replace(/"/g, '\\"');
+  const promptHeader = `You are the ${skill.name} custom command for Gemini CLI.\n\n`;
+  const promptBody = `${promptHeader}${skill.body}`;
+  // TOML multiline literal: '''...''' is verbatim, no escaping needed beyond
+  // disallowing the closing triple-quote in content. The bundled skills do
+  // not contain '''.
+  return [
+    `description = "${escapedDescription}"`,
+    `prompt = '''`,
+    promptBody,
+    `'''`,
+    ""
+  ].join("\n");
+}
+
+interface HostSkillTargetSpec {
+  readonly host: string;
+  readonly userBase: string;
+  readonly projectBase: string;
+  readonly write: (
+    base: string,
+    skillName: string,
+    parsed: ParsedSkill,
+    rawSource: string
+  ) => string;
+  readonly extension: string;
+}
+
+function targetSpecFor(
+  host: string,
+  cwd: string
+): HostSkillTargetSpec | undefined {
+  if (host === "claude") {
+    return {
+      host: "claude",
+      userBase: join(homedir(), ".claude", "skills"),
+      projectBase: join(cwd, ".claude", "skills"),
+      extension: "SKILL.md",
+      write: (base, skillName, _parsed, raw) => {
+        const dir = join(base, skillName);
+        mkdirSync(dir, { recursive: true });
+        const target = join(dir, "SKILL.md");
+        writeFileSync(target, raw, "utf8");
+        return target;
+      }
+    };
+  }
+  if (host === "codex") {
+    return {
+      host: "codex",
+      userBase: join(homedir(), ".codex", "skills"),
+      projectBase: join(cwd, ".codex", "skills"),
+      extension: "SKILL.md",
+      write: (base, skillName, _parsed, raw) => {
+        const dir = join(base, skillName);
+        mkdirSync(dir, { recursive: true });
+        const target = join(dir, "SKILL.md");
+        writeFileSync(target, raw, "utf8");
+        return target;
+      }
+    };
+  }
+  if (host === "gemini") {
+    return {
+      host: "gemini",
+      userBase: join(homedir(), ".gemini", "commands"),
+      projectBase: join(cwd, ".gemini", "commands"),
+      extension: ".toml",
+      write: (base, skillName, parsed) => {
+        mkdirSync(base, { recursive: true });
+        const target = join(base, `${skillName}.toml`);
+        writeFileSync(target, renderSkillAsGeminiToml(parsed), "utf8");
+        return target;
+      }
+    };
+  }
+  return undefined;
 }
 
 function cmdInstallSkills(
@@ -1112,13 +1244,15 @@ function cmdInstallSkills(
   const host = flags.host;
   if (!host) {
     streams.stderr.write(
-      "h2a install-skills: --host <claude> is required (only claude is supported in 0.1.17)\n"
+      "h2a install-skills: --host <claude|codex|gemini> is required\n"
     );
     return 1;
   }
-  if (host !== "claude") {
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const spec = targetSpecFor(host, cwd());
+  if (!spec) {
     streams.stderr.write(
-      `h2a install-skills: only --host claude is supported in this release; Codex/Gemini skill conventions to be added.\n`
+      `h2a install-skills: unknown --host "${host}". Supported: claude, codex, gemini.\n`
     );
     return 1;
   }
@@ -1138,11 +1272,7 @@ function cmdInstallSkills(
     return 1;
   }
 
-  const cwd = streams.cwd ?? (() => process.cwd());
-  const targetBase =
-    scope === "user"
-      ? join(homedir(), ".claude", "skills")
-      : join(cwd(), ".claude", "skills");
+  const targetBase = scope === "user" ? spec.userBase : spec.projectBase;
 
   const entries = readdirSync(SKILLS_DIR, { withFileTypes: true });
   const installed: string[] = [];
@@ -1153,29 +1283,46 @@ function cmdInstallSkills(
     const skillName = entry.name;
     const src = join(SKILLS_DIR, skillName, "SKILL.md");
     if (!existsSync(src)) continue;
-    const targetDir = join(targetBase, skillName);
-    const targetFile = join(targetDir, "SKILL.md");
-    if (existsSync(targetFile) && flags.force !== "true") {
+    let raw: string;
+    try {
+      raw = readFileSync(src, "utf8");
+    } catch (error) {
+      streams.stderr.write(
+        `h2a install-skills: cannot read ${src} (${(error as Error).message})\n`
+      );
+      return 3;
+    }
+    let parsed: ParsedSkill;
+    try {
+      parsed = parseSkill(raw);
+    } catch (error) {
+      streams.stderr.write(
+        `h2a install-skills: ${skillName}: ${(error as Error).message}\n`
+      );
+      return 2;
+    }
+    // Probe the would-be target file before writing so existing files are
+    // surfaced as skipped (mirrors the previous Claude-only behavior).
+    const probeTarget =
+      spec.host === "gemini"
+        ? join(targetBase, `${skillName}.toml`)
+        : join(targetBase, skillName, "SKILL.md");
+    if (existsSync(probeTarget) && flags.force !== "true") {
       skipped.push({
         name: skillName,
-        reason: `${targetFile} already exists (use --force to overwrite)`
+        reason: `${probeTarget} already exists (use --force to overwrite)`
       });
       continue;
     }
     try {
-      mkdirSync(targetDir, { recursive: true });
-      copyFileSync(src, targetFile);
-      installed.push(targetFile);
+      const targetPath = spec.write(targetBase, skillName, parsed, raw);
+      installed.push(targetPath);
     } catch (error) {
       streams.stderr.write(
-        `h2a install-skills: failed to write ${targetFile} (${(error as Error).message})\n`
+        `h2a install-skills: failed to write ${probeTarget} (${(error as Error).message})\n`
       );
       return 3;
     }
-  }
-
-  if (flags.print === "true") {
-    // Dry-run — just enumerate what would be installed
   }
 
   streams.stdout.write(

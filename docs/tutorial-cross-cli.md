@@ -58,19 +58,29 @@ h2a keys generate --instance codex:demo  --root ~/h2a-workspace/.h2a
 
 These PEMs land under `<root>/keys/` with mode `0600` on the private side. You'll need the path when signing artefacts later (`h2a negotiate sign --private-key <path>`).
 
-## 3. Install the Claude skills
+## 3. Install the skills on each host
 
 ```bash
 h2a install-skills --host claude --scope user
+h2a install-skills --host codex  --scope user
+h2a install-skills --host gemini --scope user
 ```
 
-This drops the h2a skill markdown bundle into `~/.claude/skills/`. From now on, Claude Code knows three slash commands:
+Each host gets the same three skills under its native convention (DEC-055):
 
-- `/h2a-connect`  — bootstrap a live session in the current Claude conversation
+| Host | Target | Format |
+|---|---|---|
+| Claude | `~/.claude/skills/h2a-*/SKILL.md` | Markdown + YAML frontmatter |
+| Codex | `~/.codex/skills/h2a-*/SKILL.md` | Markdown + YAML frontmatter (same as Claude) |
+| Gemini | `~/.gemini/commands/h2a-*.toml` | TOML `description` + multiline `prompt` |
+
+From now on, all three CLIs respond to the same three slash commands:
+
+- `/h2a-connect`  — bootstrap a live session in the current conversation
 - `/h2a-discover` — list the peers currently online
 - `/h2a-send`     — compose and route an envelope to a named peer
 
-(Codex and Gemini skill conventions are different and not yet packaged — see Compatibility section below.)
+Use `--scope project` instead of `--scope user` to install under `<cwd>/.<host>/` if you want repo-local skills (e.g. for a team workspace versioned in git).
 
 ## 4. Open the actual conversation
 
@@ -125,7 +135,7 @@ Just exit Claude and Codex. The graceful shutdown hook deletes the presence file
 | MCP stdio per-host adapter | shipped (Codex / Claude / Gemini) | — |
 | Session + presence + push notifications | shipped (DEC-050..053) | — |
 | Skill bundle for Claude | shipped (DEC-054) | — |
-| Skill bundle for Codex / Gemini | not yet — different conventions | DEC-055 candidate |
+| Skill bundle for Codex / Gemini | shipped (DEC-055) | — |
 | Cross-machine sync (`@sentropic/remote`) | not started | wave 2 |
 | Transport auth (mTLS / bearer) | deferred (DEC-032) | V2 |
 | Key management UX (rotation, keyring) | not shipped — manual PEMs | V2 candidate |

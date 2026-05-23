@@ -308,7 +308,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: ["host"],
     optionalFlags: ["scope", "force"],
     description:
-      "Copy the h2a skill markdown bundle to the host's skill directory (Claude only in 0.1.17). `--scope user` (default) targets `~/.claude/skills/`; `--scope project` targets `<cwd>/.claude/skills/`. Pre-existing skill files are skipped unless `--force` is set. DEC-054."
+      "Install the h2a skill bundle into the host's skill directory. Claude/Codex receive SKILL.md files under `~/.<host>/skills/<name>/`; Gemini receives TOML custom commands under `~/.gemini/commands/<name>.toml` (DEC-055). `--scope user` (default) targets the home directory; `--scope project` targets `<cwd>/.<host>/`. Pre-existing files are skipped unless `--force` is set. DEC-054/055."
   }
 ] as const;
 

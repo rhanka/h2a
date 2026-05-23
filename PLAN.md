@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-23 (Release v0.1.17 published ; DEC-054 — high-level CLI verbs + Claude skills + cross-CLI tutorial)
+> Last update: 2026-05-23 (DEC-055 — install-skills extended to Codex+Gemini ; DEC-056 instruction note on K8s deployment + remote-controle interop)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -97,6 +97,7 @@
 - [x] Implement `h2a negotiate stabilize` (verify signatures against registry publicKeys, quorum check, status→stabilized)
 - [x] Stabilize JSON output contracts and exit codes (DEC-034 : 3 enveloppes `resource`/`list`/`action` + codes 0/1/2/3 ; manifeste `H2A_CLI_VERB_CONTRACTS` + `docs/cli-contract.md`)
 - [x] High-level coordination verbs (`h2a connect`, `h2a doctor`, `h2a sessions`, `h2a keys generate`, `h2a install-skills`) + 3 Claude skills + tutorial — DEC-054
+- [x] `install-skills` extended to Codex (`~/.codex/skills/`) and Gemini (`~/.gemini/commands/` TOML) — DEC-055
 
 ## Workpackage 40 - Host And Protocol Integrations (~95%)
 
@@ -161,6 +162,15 @@
 - [x] Add release notes / publish procedure doc (`docs/release.md`)
 - [x] Add security/key management notes (`docs/release.md` § Key management)
 - [x] Add compatibility matrix documentation for Codex / Claude / Gemini / MCP (`docs/compatibility-matrix.md`, backed by `h2a host status` — DEC-037)
+
+## Open Decisions for K8s + remote-controle interop (DEC-056)
+
+See `docs/instruction-k8s-and-remote-controle-interop.md` for context. Four user inputs needed before any implementation slice:
+
+- [ ] Tenant model: new `tenants/h2a/` in `poc-k8s` or sidecar of `sentropic-remote`?
+- [ ] RWX storage acceptance on Scaleway (NFS-Pod vs per-workspace partitioning)?
+- [ ] Interop contract with `remote-controle`: one-way (h2a documents) or two-way (both repos commit)?
+- [ ] `@sentropic/h2a-remote` as a real package, or fold into `h2a-cli`?
 
 ## Open Decisions / User Inputs
 

@@ -916,3 +916,57 @@ Le champ `files` de `package.json` inclut désormais `"skills"` pour que `npm pu
 **Pourquoi** : (a) la promesse "agent CLI coopère avec un autre agent CLI" ne peut pas se vérifier sans une couche d'ergonomie au-dessus des primitives MCP — DEC-050..053 ont mis les primitives, DEC-054 met l'orchestration ; (b) le modèle skill graphify est déjà familier aux utilisateurs Claude Code et bien intégré à l'UI ; (c) générer les clés est un point de friction réel — `keys generate` clos ce gap sans introduire de keyring ; (d) `doctor` rend l'état système diagnostiquable sans devoir inspecter le filesystem ; (e) le scope `--scope project` pour `install-skills` permet un usage repo-local sans toucher `~/.claude` (utile aux projets qui veulent versionner leurs skills).
 
 **Conséquence** : (a) un nouvel utilisateur passe de "install + 13 outils à composer" à "5 commandes lisibles" pour bootstrapper ; (b) le test `cli-contract.test.js` couvre les 28 verbes ; (c) Codex et Gemini restent sans skills dans 0.1.17 — un DEC-055 ou similaire couvrira leurs conventions de skill quand elles seront mieux comprises ; (d) le tutoriel rend visible le delta V1/V2 sans flou ; (e) un patch release `0.1.17` peut suivre.
+
+## DEC-055 — `install-skills` étendu à Codex et Gemini
+**Date** : 2026-05-23. **Réfère** : DEC-049, DEC-054, INTENTION (Claude+Codex+Gemini).
+
+**Contexte** : DEC-054 livre les skills uniquement pour Claude par prudence. Inspection des conventions installées sur la machine de référence (Claude Code, Codex CLI, Gemini CLI) montre que les deux autres hôtes ont des chemins canoniques exploitables. La fermeture du périmètre Claude-only est levée.
+
+**Décision** : `h2a install-skills --host <h>` accepte désormais les trois hôtes `claude`, `codex`, `gemini`. Le bundle source unique (`packages/h2a-cli/skills/h2a-*/SKILL.md`) est rendu vers la convention de chaque hôte :
+
+| Host | Path utilisateur | Path project | Format |
+|---|---|---|---|
+| `claude` | `~/.claude/skills/<name>/SKILL.md` | `<cwd>/.claude/skills/<name>/SKILL.md` | Markdown + YAML frontmatter (verbatim) |
+| `codex` | `~/.codex/skills/<name>/SKILL.md` | `<cwd>/.codex/skills/<name>/SKILL.md` | Markdown + YAML frontmatter (verbatim, même format que Claude) |
+| `gemini` | `~/.gemini/commands/<name>.toml` | `<cwd>/.gemini/commands/<name>.toml` | TOML `description` + `prompt = '''...'''` |
+
+Deux helpers internes ajoutés à `packages/h2a-cli/src/cli.ts` :
+
+- `parseSkill(raw)` — extrait `{ name, description, body }` du YAML frontmatter minimal des SKILL.md. Tolère les valeurs multilignes par indentation simple. Refuse une frontmatter sans `name` ou `description`.
+- `renderSkillAsGeminiToml(skill)` — produit un fichier TOML avec `description = "..."` et `prompt = '''<header>\n<body>'''`. L'en-tête `You are the <name> custom command for Gemini CLI.` est aligné sur la convention observée (cf. graphify.toml).
+
+Le dispatcher `targetSpecFor(host, cwd)` encapsule par hôte le path utilisateur/projet, l'extension du fichier cible, et la fonction d'écriture.
+
+**Décision (statut machine)** : `H2A_CLI_VERB_CONTRACTS["install-skills"].description` mentionne désormais explicitement le mapping Codex (SKILL.md) et Gemini (TOML). `cli-contract.test.js` happy-path reste sur Claude `--scope project`. Une nouvelle suite `install-skills-hosts.test.js` couvre les trois hôtes (install OK, refus d'overwrite sans `--force`, accept avec, contenu TOML attendu, rejet d'un host inconnu).
+
+**Pourquoi** : (a) la prudence Claude-only de DEC-054 n'était plus justifiée une fois les conventions Codex/Gemini vérifiées sur la machine de référence ; (b) Codex utilise littéralement le même format que Claude (`<host-dir>/skills/<name>/SKILL.md`) — pas de divergence à gérer ; (c) Gemini diffère par le format (TOML) mais le contenu sémantique est identique — une conversion mécanique suffit, sans dupliquer les bundles à la source ; (d) garder un seul bundle source (`packages/h2a-cli/skills/`) évite la dérive entre les trois hôtes ; (e) la conversion TOML est suffisamment simple (1 fonction) pour rester en-ligne dans `cli.ts` sans nouveau module.
+
+**Conséquence** : (a) "Claude + Codex + Gemini coopèrent" est un parcours utilisateur de **trois** `h2a install-skills`, pas un parcours partiel ; (b) le tutoriel cross-CLI documente les trois hôtes sans deferred ; (c) le bundle SKILL.md reste l'unique source — toute future skill h2a est automatiquement disponible sur les trois hôtes ; (d) un patch release `0.1.18` peut suivre.
+
+## DEC-056 — Note d'instruction : déploiement K8s + interop `remote-controle`
+**Date** : 2026-05-23. **Réfère** : INTENTION (remote transport), DEC-032, DEC-050..053, contexte `../poc-k8s`, contexte `../remote` (`@sentropic/remote-controle`).
+
+**Statut** : **note d'instruction** (research/design), pas une décision d'implémentation. Document détaillé : `docs/instruction-k8s-and-remote-controle-interop.md`.
+
+**Contexte** : la demande utilisateur de 2026-05-23 nomme trois besoins distincts :
+1. Déployer `h2a mcp-serve` sur le cluster `../poc-k8s`.
+2. Harmoniser le verbe d'install / config avec `../remote` (`@sentropic/remote-controle`).
+3. Installer h2a dans le contexte d'une session `remote-controle` (probablement un contrat formel entre les deux projets).
+
+**Décision (instructive, pas exécutoire)** : la note documentée distingue trois scénarios de déploiement :
+- **Scénario A — sidecar dans une session `remote-controle`** : `h2a mcp-serve` comme conteneur additionnel dans le Pod de session, partage `emptyDir` avec le runtime CLI. Le plus petit pas, le plus livrable. Recommandé comme prochaine slice si nous décidons d'implémenter.
+- **Scénario B — tenant `h2a` cluster-wide sur `poc-k8s`** : namespace dédié + PVC RWX partagé. Plus large mais contraint par l'absence de RWX natif sur Scaleway (NFS-Pod ou équivalent requis).
+- **Scénario C — transport réseau (`@sentropic/h2a-remote`)** : le 3e transport originel de l'INTENTION, jamais implémenté. Demande DEC-032 V2 (auth transport).
+
+**Décision (contrat envisagé)** : un contrat d'interop avec `remote-controle` est nommé en cinq clauses (identité, lifecycle, resource limits, disclosure, frontière d'auth). Sa formalisation est différée à une DEC ultérieure (DEC-057 ou sibling) qui livrerait soit le schéma TypeScript dans `@sentropic/h2a`, soit un PR vers `../remote/packages/protocol`.
+
+**Décision (périmètre, important)** : DEC-056 ne touche **aucun** code ni manifeste. Le seul artefact produit est `docs/instruction-k8s-and-remote-controle-interop.md` qui :
+- recense ce qui existe dans `../poc-k8s` (tenants, contrat de quota) et `../remote` (control plane, k8s-orchestrator, session-agent, packages/protocol),
+- établit le diff conceptuel `H2ASession` vs `SessionDescriptor` (complémentaires, pas redondants),
+- propose trois scénarios de déploiement et recommande A,
+- ébauche les verbes CLI futurs (`h2a deploy --target k8s-sidecar`, `h2a remote connect`),
+- liste quatre questions ouvertes pour l'utilisateur.
+
+**Pourquoi** : (a) le sujet est suffisamment vaste (multi-repo + multi-cluster + auth différée) pour mériter une note de cadrage avant un commit code ; (b) la sortie est lisible par un mainteneur de `../remote` qui n'a pas lu DEC-050..055 ; (c) la recommandation **Scénario A** est dérivable du contrat de quotas existant de `sentropic-remote` (rentre dans la classe `400m/768Mi`) sans renégocier de tenant ; (d) la frontière "h2a n'est pas redondant avec remote-controle" doit être posée explicitement pour éviter une fusion prématurée.
+
+**Conséquence** : (a) aucune slice implémentation ne suit DEC-056 directement — l'utilisateur tranche d'abord les 4 questions ouvertes ; (b) une DEC-057+ pourra livrer le scénario retenu (probablement A) avec sidecar manifest + contrat d'identité ; (c) le tutoriel cross-CLI mentionne désormais ce document comme référence pour le contexte k8s.
