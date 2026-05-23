@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-23 (DEC-050..053 shipped ; session protocol + presence + push notifications + real cross-CLI integration test ; "Claude and Codex cooperate" is now verifiable, not aspirational)
+> Last update: 2026-05-23 (Release v0.1.16 published ; DEC-050..053 shipped ; session protocol + presence + push notifications + real cross-CLI integration test ; "Claude and Codex cooperate" is now verifiable, not aspirational)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -8,14 +8,14 @@
 
 - Overall estimated progress: ~91%
 - Published packages:
-  - `@sentropic/h2a@0.1.12`
-  - `@sentropic/h2a-cli@0.1.12`
+  - `@sentropic/h2a@0.1.16`
+  - `@sentropic/h2a-cli@0.1.16`
 - Current repo state:
   - bootstrap repo, npm workspace, tests, and first npm publication are done
   - core contractual model, local runtime, CLI surface, and MCP server are implemented for the V1 local-files slice
   - host setup and MCP host scenarios are shipped for Codex, Claude Code, and Gemini (DEC-049)
   - release preparation is automated locally and publishing is tag-driven in GitHub Actions
-  - `v0.1.12` is tagged on GitHub and published to npm through Trusted Publishing
+  - `v0.1.16` is tagged on GitHub and published to npm through Trusted Publishing
   - policy precedence is now explicit per ABC context (`H2A_POLICY_PRECEDENCE_PROFILES`) while conflict resolution remains escalated, not automatic
   - controlled disclosure is now explicit per ABC context (`H2A_DISCLOSURE_PROFILES`) ; projection helpers remain policy/implementation work (DEC-045)
   - recourse / adjudication is now explicit per ABC context (`H2A_RECOURSE_PROFILES`) ; the decision itself stays with the declared authority (DEC-046)
@@ -38,8 +38,8 @@
 - [x] Initialize local Git repository
 - [x] Create and push GitHub repository `rhanka/h2a`
 - [x] Bootstrap npm workspace and TypeScript build
-- [x] Publish `@sentropic/h2a@0.1.12`
-- [x] Publish `@sentropic/h2a-cli@0.1.12`
+- [x] Publish `@sentropic/h2a@0.1.16`
+- [x] Publish `@sentropic/h2a-cli@0.1.16`
 - [x] Fix CLI package publication so the `h2a` bin is preserved
 - [x] Choose the project license (MIT — DEC-027)
 - [x] Deprecate `@sentropic/h2a-cli@0.1.0` with a clear message
@@ -155,7 +155,7 @@
 - [x] Add baseline automated tests
 - [x] Keep `npm test` green after publication fixes
 - [x] Add CI workflow for build + tests (`.github/workflows/ci.yml`, Node 20/22 matrix)
-- [x] Add npm install smoke test for published packages (`.github/workflows/smoke.yml`, installs `@sentropic/h2a-cli@0.1.12` globally and exercises help/hosts/MCP tools/init/register/discover/host setup)
+- [x] Add npm install smoke test for published packages (`.github/workflows/smoke.yml`, installs `@sentropic/h2a-cli@0.1.16` globally and exercises help/hosts/MCP tools/init/register/discover/host setup)
 - [x] Add an example project for `1 PRINCIPAL / 15 CONDUCTORS` (`examples/principal-conductors/run.mjs`, gated integration test `H2A_RUN_EXAMPLE=1`)
 - [x] Add release notes / publish procedure doc (`docs/release.md`)
 - [x] Add security/key management notes (`docs/release.md` § Key management)
