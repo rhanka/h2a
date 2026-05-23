@@ -102,6 +102,13 @@ export const H2A_GOVERNANCE_BOUNDARY_ITEMS = Object.freeze([
     references: ["REQ-063", "REQ-071", "DEC-041", "DEC-047"]
   },
   {
+    id: "jurisdiction-profiles",
+    layer: "POLICY",
+    status: "v1-shipped",
+    summary: "DEC-048 declares the allowed jurisdiction kinds (territorial, sectoral, functional, personal, temporal, delegated, private-contract) and a default per ABC profile; matching a scope/actor to a jurisdiction stays in policy.",
+    references: ["REQ-044", "REQ-071", "DEC-041", "DEC-048"]
+  },
+  {
     id: "mandataire-assignment",
     layer: "POLICY",
     status: "v1-open",

@@ -732,3 +732,25 @@ Exports ajoutés :
 **Pourquoi** : (a) REQ-063 nomme OBLIGATION comme composant des artefacts contractuels et REQ-071 exige l'audit des obligations récurrentes par ABC, mais la cadence restait du domaine opaque ; (b) DEC-041 marquait `recurring-obligations` `partial` sur A_ENTERPRISE uniquement, sans entrée pour B/C alors que les écosystèmes et l'administration ont des obligations cycliques dominantes ; (c) calquer la forme `policy-precedence` / `disclosure` / `recourse` (déclaratif + `escalate-not-resolve`) évite d'introduire un scheduler caché que V1 ne sait pas exécuter ; (d) la contrainte `reportingThreshold ≤ grace` encode dans l'audit la règle implicite "l'alerte précède le breach" sans imposer de timer concret.
 
 **Conséquence** : (a) la couche POLICY ferme `recurring-obligation-cadence` ; (b) `auditAbcModelCompatibility` ne signale plus `recurring-obligations` comme gap partiel sur A et l'expose comme `shipped` sur B/C aussi ; (c) la mécanique exécutoire (planificateur, journal de tick, calcul du breach, génération d'alerte) reste explicitement hors-protocole, documentée dans `unresolved` ; (d) un patch release `0.1.10` peut suivre quand build + tests sont verts.
+
+## DEC-048 — Profils exécutables de juridiction
+**Date** : 2026-05-22. **Réfère** : REQ-042, REQ-043, REQ-044, REQ-071, DEC-041, DEC-043, WP-50.
+
+**Décision** : la structuration des juridictions V1 est livrée comme module déclaratif `packages/h2a/src/jurisdiction.ts`, miroir structurel des autres modules POLICY. Exports publics :
+
+- `H2A_JURISDICTION_KINDS` : `territorial`, `sectoral`, `functional`, `personal`, `temporal`, `delegated`, `private-contract`.
+- `H2A_JURISDICTION_CONFLICT_DISPOSITIONS = ["escalate-not-resolve"]`.
+- `H2A_JURISDICTION_PROFILES` indexés par `H2AAbcModelId` portant `modelId`, `label`, `allowedKinds`, `defaultKind`, `conflictDisposition`, `rationale`, `references`.
+- Profils retenus :
+  - `A_ENTERPRISE` — `allowedKinds = [private-contract, sectoral, functional, territorial]`, default `private-contract`. Pas de juridiction personnelle ou temporelle dans V1 enterprise.
+  - `B_ECOSYSTEM` — `allowedKinds = [delegated, private-contract, sectoral, functional, territorial]`, default `delegated`. Les contrats inter-organisations délèguent typiquement la juridiction.
+  - `C_GOVERNMENT_CITIZEN` — `allowedKinds = [territorial, sectoral, functional, personal, temporal, delegated]`, default `territorial`. Pas de `private-contract` : l'autorité publique ne s'auto-octroie pas par contrat privé.
+- `getJurisdictionProfile(modelId)` et `auditJurisdictionProfile(modelId)` : audit valide que `defaultKind ∈ allowedKinds`, que les kinds sont connus et sans doublons, que la disposition est supportée. `unresolved` rappelle explicitement que V1 **ne vérifie pas l'appartenance** d'un scope/acteur à une juridiction — le matching reste dans la couche policy.
+
+**Décision (statut machine)** :
+- `abc.ts` : la capability `jurisdiction` est désormais déclarée `shipped` sur les **trois** profils ABC (avant DEC-048 elle n'était présente que sur C en `partial`). Evidence = "DEC-048 declarative jurisdiction profile (default X, N allowed kinds)".
+- `governance-boundary.ts` : nouvel item POLICY `jurisdiction-profiles` (`v1-shipped`), references = `["REQ-044", "REQ-071", "DEC-041", "DEC-048"]`.
+
+**Pourquoi** : (a) REQ-044 mentionne explicitement les écosystèmes gouvernementaux/citoyens, où la juridiction est first-class, mais V1 ne représentait jusqu'ici la juridiction que par des `scope` strings opaques ; (b) DEC-041 marquait `jurisdiction` `partial` sur C uniquement, sans entrée pour A/B alors que la frontière territorial/sectoriel/contractuel est constitutive aussi en entreprise et écosystème ; (c) calquer la forme `policy-precedence` / `disclosure` / `recourse` / `recurring-obligations` (déclaratif + `escalate-not-resolve`) évite d'introduire un moteur de matching de juridiction caché ; (d) refuser `private-contract` au profil C encode la règle que l'autorité publique ne se constitue pas par contrat privé.
+
+**Conséquence** : (a) la couche POLICY clôt `jurisdiction-profiles` ; (b) `auditAbcModelCompatibility` ne signale plus `jurisdiction` comme gap partiel sur C et l'expose comme `shipped` sur A/B aussi ; (c) avec cette slice les quatre capabilities `partial` historiques (`controlled-disclosure`, `recourse`, `recurring-obligations`, `jurisdiction`) sont désormais toutes `shipped` — seul `policy-precedence` reste `partial` par choix explicite (pas de résolveur V1) ; (d) un patch release `0.1.11` peut suivre quand build + tests sont verts.

@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-22 (Release v0.1.10 published ; recurring obligation cadence profiles declared per ABC context — DEC-047 ; no V1 scheduler ; WP-50 100%)
+> Last update: 2026-05-22 (Jurisdiction profiles declared per ABC context — DEC-048 ; all V1 ABC capabilities now shipped except `policy-precedence` by design ; WP-50 100%)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -20,6 +20,7 @@
   - controlled disclosure is now explicit per ABC context (`H2A_DISCLOSURE_PROFILES`) ; projection helpers remain policy/implementation work (DEC-045)
   - recourse / adjudication is now explicit per ABC context (`H2A_RECOURSE_PROFILES`) ; the decision itself stays with the declared authority (DEC-046)
   - recurring obligation cadence is now explicit per ABC context (`H2A_RECURRING_OBLIGATION_PROFILES`) ; scheduling and breach evaluation remain policy/implementation work (DEC-047)
+  - jurisdiction is now explicit per ABC context (`H2A_JURISDICTION_PROFILES`) ; matching a scope/actor to a jurisdiction remains policy/implementation work (DEC-048)
 
 ## Priority Order
 
@@ -142,6 +143,7 @@
 - [x] Declare controlled disclosure profiles per ABC context (`H2A_DISCLOSURE_PROFILES` + `auditDisclosureProfile` ; 6 modes from `denied` to `full-view` ; V1 ships no projection helper — DEC-045)
 - [x] Declare recourse / adjudication profiles per ABC context (`H2A_RECOURSE_PROFILES` + `auditRecourseProfile` ; 7 lifecycle states from `requested` to `closed` ; V1 ships no adjudicator — DEC-046)
 - [x] Declare recurring obligation cadence profiles per ABC context (`H2A_RECURRING_OBLIGATION_PROFILES` + `auditRecurringObligationProfile` ; 7 cadences with grace + reporting thresholds ; V1 ships no scheduler — DEC-047)
+- [x] Declare jurisdiction profiles per ABC context (`H2A_JURISDICTION_PROFILES` + `auditJurisdictionProfile` ; 7 jurisdiction kinds ; V1 does not check membership — DEC-048)
 
 ## Workpackage 60 - Quality, Examples, And Ops (~70%)
 
@@ -166,5 +168,5 @@
 
 Recommended next implementation slice:
 
-1. Pick the next V1 policy gap to promote or leave explicit (jurisdiction schema for C profile).
+1. All V1 policy gaps (`controlled-disclosure`, `recourse`, `recurring-obligations`, `jurisdiction`) are now shipped as declarative profiles. Only `policy-precedence` stays `partial` by design (no V1 resolver, conflicts escalate). The next slice is no longer ABC-policy work; consider WP-40 wave 2 (Gemini host scenario) or WP-60 implementation depth (cross-OS smoke matrix, audit/log hardening).
 2. Prepare a patch release when the next SDK-visible slice is ready.

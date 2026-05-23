@@ -73,7 +73,7 @@ test("ecosystem mapping preserves peer federation with disclosure and recourse s
   assert.match(result.gaps.join("\n"), /policy precedence/);
 });
 
-test("government mapping preserves imposed public policy with recourse shipped", () => {
+test("government mapping preserves imposed public policy with recourse and jurisdiction shipped", () => {
   const profile = getAbcModelProfile("C_GOVERNMENT_CITIZEN");
   assert.equal(profile.requiredPolicyAdoptionModes.includes("imposed"), true);
   assert.equal(profile.escalationAuthorityKinds.includes("EXTERNAL_AUTHORITY"), true);
@@ -82,7 +82,8 @@ test("government mapping preserves imposed public policy with recourse shipped",
   const result = auditAbcModelCompatibility("C_GOVERNMENT_CITIZEN");
   assert.equal(result.ready, false);
   assert.equal(result.shipped.includes("recourse"), true);
-  assert.match(result.gaps.join("\n"), /jurisdiction/);
+  assert.equal(result.shipped.includes("jurisdiction"), true);
+  assert.match(result.gaps.join("\n"), /policy precedence/);
 });
 
 test("auditAbcModelCompatibility reports unknown ABC models without throwing", () => {

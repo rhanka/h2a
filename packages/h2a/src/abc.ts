@@ -14,6 +14,7 @@ import { H2A_POLICY_PRECEDENCE_PROFILES } from "./policy-precedence.js";
 import { H2A_DISCLOSURE_PROFILES } from "./disclosure.js";
 import { H2A_RECOURSE_PROFILES } from "./recourse.js";
 import { H2A_RECURRING_OBLIGATION_PROFILES } from "./recurring-obligations.js";
+import { H2A_JURISDICTION_PROFILES } from "./jurisdiction.js";
 
 export const H2A_ABC_MODEL_IDS = [
   "A_ENTERPRISE",
@@ -210,6 +211,17 @@ function recurringObligationsCapability(
   };
 }
 
+function jurisdictionCapability(
+  modelId: H2AAbcModelId
+): H2AAbcModelCapabilityDescriptor {
+  const profile = H2A_JURISDICTION_PROFILES[modelId];
+  return {
+    capability: "jurisdiction",
+    status: "shipped",
+    evidence: `DEC-048 declarative jurisdiction profile (default ${profile.defaultKind}, ${profile.allowedKinds.length} allowed kinds)`
+  };
+}
+
 export const H2A_ABC_MODEL_PROFILES = Object.freeze({
   A_ENTERPRISE: Object.freeze({
     id: "A_ENTERPRISE",
@@ -225,6 +237,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
       controlledDisclosureCapability("A_ENTERPRISE"),
       recurringObligationsCapability("A_ENTERPRISE"),
       recourseCapability("A_ENTERPRISE"),
+      jurisdictionCapability("A_ENTERPRISE"),
       policyPrecedenceCapability("A_ENTERPRISE")
     ] as const
   }),
@@ -242,6 +255,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
       controlledDisclosureCapability("B_ECOSYSTEM"),
       recurringObligationsCapability("B_ECOSYSTEM"),
       recourseCapability("B_ECOSYSTEM"),
+      jurisdictionCapability("B_ECOSYSTEM"),
       policyPrecedenceCapability("B_ECOSYSTEM")
     ] as const
   }),
@@ -259,12 +273,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
       controlledDisclosureCapability("C_GOVERNMENT_CITIZEN"),
       recurringObligationsCapability("C_GOVERNMENT_CITIZEN"),
       recourseCapability("C_GOVERNMENT_CITIZEN"),
-      {
-        capability: "jurisdiction",
-        status: "partial",
-        evidence: "scope can encode territorial or sectoral boundaries",
-        gap: "jurisdiction is represented by scope strings, not yet by a structured schema"
-      },
+      jurisdictionCapability("C_GOVERNMENT_CITIZEN"),
       policyPrecedenceCapability("C_GOVERNMENT_CITIZEN")
     ] as const
   })

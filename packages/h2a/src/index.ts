@@ -96,6 +96,19 @@ export type {
   H2ARecurringObligationProfileDescriptor
 } from "./recurring-obligations.js";
 export {
+  H2A_JURISDICTION_CONFLICT_DISPOSITIONS,
+  H2A_JURISDICTION_KINDS,
+  H2A_JURISDICTION_PROFILES,
+  auditJurisdictionProfile,
+  getJurisdictionProfile
+} from "./jurisdiction.js";
+export type {
+  H2AJurisdictionAuditResult,
+  H2AJurisdictionConflictDisposition,
+  H2AJurisdictionKind,
+  H2AJurisdictionProfileDescriptor
+} from "./jurisdiction.js";
+export {
   createEnvelope,
   isH2AEnvelope
 } from "./envelope.js";
