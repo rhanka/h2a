@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-23 (DEC-050..052 shipped ; session vocabulary in core, presence files + heartbeat + push notifications in h2a-cli ; cross-CLI integration test in DEC-053)
+> Last update: 2026-05-23 (DEC-050..053 shipped ; session protocol + presence + push notifications + real cross-CLI integration test ; "Claude and Codex cooperate" is now verifiable, not aspirational)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -110,6 +110,7 @@
 - [x] Expose machine-readable host compatibility status (`h2a host status`, wave + adapter/setup/scenario flags — DEC-037/044)
 - [x] Session lifecycle MCP tools (`h2a_session_open`, `h2a_session_close`, `h2a_discover_sessions`) wired to the SessionRegistry — DEC-051
 - [x] MCP push notifications (`notifications/h2a`) on presence join/leave + inbox arrival + negotiation event ; tick-based scanner, configurable interval, sink wired by runMcpStdio — DEC-052
+- [x] Real cross-CLI integration test (two `mcp-serve` subprocesses sharing a root, inbox push + graceful close + SIGKILL TTL expiry) — DEC-053
 - [ ] V2: transport auth (mTLS / signed bearer)
 
 ### Codex track

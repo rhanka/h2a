@@ -4,7 +4,6 @@ import {
   type H2ASessionNotificationTopic
 } from "@sentropic/h2a";
 
-import { listPresence } from "../local-files/presence.js";
 import type { LocalStore } from "../local-files/store.js";
 import type { SessionRegistry } from "./sessions.js";
 
@@ -113,8 +112,10 @@ export class NotificationDispatcher {
     const ownSessions = this.registry.list();
     if (ownSessions.length === 0) return;
 
-    // Peer set: everyone in presence files, fresh, regardless of process.
-    const freshPeers = listPresence(this.root, {});
+    // Peer set: everyone in presence files, fresh according to the
+    // registry's TTL (so test configurations with short expiry behave
+    // correctly), regardless of which process wrote the file.
+    const freshPeers = this.registry.scanFresh();
     const peerIds = new Set(freshPeers.map((s) => s.sessionId));
 
     for (const session of ownSessions) {

@@ -38,6 +38,30 @@ export interface RunMcpStdioOptions {
   stdout: Writable;
   /** Writable stream for diagnostics (never used for protocol traffic). */
   stderr: Writable;
+  /**
+   * Optional override for the SessionRegistry heartbeat interval in ms.
+   * Defaults to H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS or, if set, the
+   * H2A_HEARTBEAT_INTERVAL_MS environment variable.
+   */
+  heartbeatIntervalMs?: number;
+  /**
+   * Optional override for the NotificationDispatcher poll interval in ms.
+   * Defaults to the heartbeat interval or, if set, the
+   * H2A_NOTIFY_INTERVAL_MS environment variable.
+   */
+  notifyIntervalMs?: number;
+  /**
+   * Optional override for session expiry in ms. Defaults to
+   * H2A_SESSION_DEFAULT_EXPIRY_MS or, if set, H2A_SESSION_EXPIRY_MS.
+   */
+  expiryMs?: number;
+}
+
+function envInt(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 const PROTOCOL_VERSION = "2025-06-18";
@@ -115,12 +139,24 @@ class MethodNotFoundError extends Error {
  */
 export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   const { root, stdin, stdout, stderr } = options;
+  const heartbeatIntervalMs =
+    options.heartbeatIntervalMs ?? envInt("H2A_HEARTBEAT_INTERVAL_MS");
+  const notifyIntervalMs =
+    options.notifyIntervalMs ??
+    envInt("H2A_NOTIFY_INTERVAL_MS") ??
+    heartbeatIntervalMs;
+  const expiryMs = options.expiryMs ?? envInt("H2A_SESSION_EXPIRY_MS");
   // The stdio transport carries live agent sessions; enable autoHeartbeat so
   // the presence file stays fresh while this mcp-serve process is alive.
   const server = createMcpServer({
     root,
-    sessions: { autoHeartbeat: true },
+    sessions: {
+      autoHeartbeat: true,
+      ...(heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs } : {}),
+      ...(expiryMs !== undefined ? { expiryMs } : {})
+    },
     notifications: {
+      ...(notifyIntervalMs !== undefined ? { intervalMs: notifyIntervalMs } : {}),
       sink: (notification) => {
         stdout.write(`${JSON.stringify(notification)}\n`);
       }

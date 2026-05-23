@@ -854,3 +854,26 @@ Le vocabulaire core (`@sentropic/h2a`, `packages/h2a/src/session.ts`) expose :
 **Pourquoi** : (a) sans push, l'agent doit poller, ce qui rend l'expérience d'un CLI hôte inutilisable pour un cas "Codex envoie un message à Claude" — l'utilisateur attend des secondes pour que Claude vienne lire ; (b) JSON-RPC notifications est déjà supporté par le protocole MCP — pas besoin de canal séparé ; (c) la convention `notifications/h2a` évite la collision avec les notifications MCP standard (`notifications/message`, etc.) ; (d) un scan poll-based plutôt que des hooks in-process garantit que les notifications captent aussi les changements faits par d'**autres** `mcp-serve` (cross-CLI, le cas qui motivait DEC-050) ; (e) le filtrage par `subscribedTopics` rend le canal contrôlable côté client — une session peut être bavarde (tous topics) ou silencieuse (aucun).
 
 **Conséquence** : (a) un agent peut désormais réagir à un événement sans poller, dans la limite du tick interval (5s par défaut) ; (b) DEC-053 fournira le test cross-CLI réel qui démontre que deux `mcp-serve` séparés se notifient mutuellement ; (c) la latence de notification reste bornée par `intervalMs` — un raffinement V2 pourrait ajouter des hooks in-process pour le push immédiat sur les actions locales ; (d) un patch release `0.1.15` peut suivre.
+
+## DEC-053 — Test d'intégration cross-CLI réel
+**Date** : 2026-05-23. **Réfère** : DEC-050, DEC-051, DEC-052, INTENTION (cas Claude+Codex+Gemini), WP-40, WP-60.
+
+**Décision** : `packages/h2a-cli/test/cross-cli-cooperation.test.js` vérifie de bout en bout que deux processus `h2a mcp-serve` distincts, pointant sur le même `<root>`, coopèrent réellement via le protocole de session et les notifications. Le test :
+
+1. Spawn deux subprocess `node dist/bin.js mcp-serve --root <root>` (un "Claude", un "Codex") via `child_process.spawn`. Les variables d'environnement `H2A_HEARTBEAT_INTERVAL_MS=100`, `H2A_NOTIFY_INTERVAL_MS=100`, `H2A_SESSION_EXPIRY_MS=500` accélèrent les ticks pour rester en sous-seconde de wall time sans affecter le code de production.
+2. `initialize` puis `h2a_session_open` côté chaque process — chaque side obtient son `session` + sa liste de peers initiale.
+3. Le tick suivant (~100ms) déclenche `presence.peer_joined` dans chaque process sur la session de l'autre.
+4. Codex appelle `h2a_inbox put` sur l'instance de Claude.
+5. Claude reçoit un push `inbox.envelope_arrived` avec le bon `envelopeId` et la bonne `instance`.
+6. Codex ferme proprement (`child.stdin.end()`) ; le shutdown hook de `runMcpStdio` (DEC-051) appelle `closeAll("closed")` et la présence est supprimée.
+7. Claude reçoit `presence.peer_left` pour la session Codex.
+
+Un second test démontre la robustesse en cas d'arrêt **ungraceful** : Codex est tué par `SIGKILL`, son shutdown hook ne s'exécute pas, sa présence reste sur disque. Après l'expiry (500ms) + un tick de notifications (~100ms), Claude reçoit quand même `presence.peer_left` parce que `NotificationDispatcher.tick()` utilise désormais `SessionRegistry.scanFresh()` (qui applique l'expiry du registry) plutôt que la valeur par défaut globale.
+
+**Décision (correction)** : `NotificationDispatcher.tick()` délègue désormais le calcul des peers frais à `SessionRegistry.scanFresh()`. La version initiale de DEC-052 utilisait `listPresence(root, {})` avec l'expiry par défaut (15s) — bug détecté par le test de SIGKILL, corrigé dans la même slice.
+
+**Décision (overrides env)** : `RunMcpStdioOptions` expose maintenant trois overrides optionnels (`heartbeatIntervalMs`, `notifyIntervalMs`, `expiryMs`). Les mêmes valeurs peuvent être passées via `H2A_HEARTBEAT_INTERVAL_MS`, `H2A_NOTIFY_INTERVAL_MS`, `H2A_SESSION_EXPIRY_MS`. Réservé aux tests et tuning ops ; pas de nouveau flag CLI — DEC-034 (contrat CLI stable) n'est pas modifié.
+
+**Pourquoi** : (a) sans test cross-process, on avait juste un argument théorique que "deux mcp-serve cooperate" — DEC-053 le démontre concrètement ; (b) la régression sur le SIGKILL aurait été indétectable in-process, et c'est exactement le mode d'échec qu'on veut couvrir pour des sessions agent CLI vivantes ; (c) les overrides via env vars gardent la surface CLI publique stable tout en permettant aux tests d'éviter d'attendre les 5+15s par défaut.
+
+**Conséquence** : (a) la promesse "Claude et Codex coopèrent" est désormais une réalité vérifiable, pas une affirmation ; (b) cette suite forme le squelette pour un test cross-CLI plus poussé (négociation complète, signatures, stabilisation) qui pourrait être ajouté plus tard sans changer l'infra ; (c) la suite des slices DEC-050..053 ferme le trou produit identifié à v0.1.12 ; (d) un patch release `0.1.16` peut suivre.
