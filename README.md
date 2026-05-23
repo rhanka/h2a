@@ -1,235 +1,255 @@
-# Projet — Index
+# h2a — Humans-to-Agents Coordination Protocol
 
-> **Nom parapluie** : `h2a` (DEC-025).
-> **Packages publiés** : `@sentropic/h2a` et `@sentropic/h2a-cli` (npm, TypeScript, MIT — DEC-027).
-> **Date d'amorce** : 2026-05-16.
+> **Pitch en une phrase** : un protocole et un binaire CLI pour faire **coopérer plusieurs CLI agentiques** (Claude Code, Codex, Gemini, autres) entre eux et avec des humains, à travers un système de **rôles, signatures, négociation et notifications** inspiré du fonctionnement d'une organisation réelle.
 
-## CLI surface (V1)
+| | |
+|---|---|
+| **Packages publiés** | `@sentropic/h2a@0.1.19` (core), `@sentropic/h2a-cli@0.1.19` (binaire + serveur MCP + skills) |
+| **Licence** | MIT (DEC-027) |
+| **Statut** | V1 utilisable bout-en-bout : protocole + runtime local + 3 hôtes (Claude / Codex / Gemini) + skills. V2 (remote, auth transport, k8s) en cadrage. |
+| **Quickstart** | `npm i -g @sentropic/h2a-cli` puis voir [§Démarrage en 5 minutes](#démarrage-en-5-minutes). |
+
+---
+
+## Pourquoi h2a existe
+
+Quand plusieurs CLI agentiques (Claude Code, Codex, Gemini…) sont utilisés ensemble pour faire avancer un même projet, **aucun d'eux ne sait que les autres existent**. Chacun parle à son humain ; aucune mémoire partagée ; aucune négociation entre agents ; aucune trace contractuelle de ce qui a été décidé.
+
+h2a comble ce trou. Trois besoins, traités comme un seul protocole :
+
+1. **Multi-agents** — Claude et Codex doivent pouvoir se découvrir, s'envoyer des messages, négocier un livrable signé, sans dépendre d'un service central.
+2. **Multi-humains** — un développeur est le PRINCIPAL de sa propre mini-organisation, et peut aussi participer à une organisation plus large (équipe, fédération, recours public). h2a modélise les deux.
+3. **Human-in-the-loop** — un humain peut reprendre la main sur un AGENT ou un CONDUCTOR à tout moment ; l'escalade vers une autorité de scope (PRINCIPAL, CONTROL, autorité externe, recours) est une primitive du protocole.
+
+Le tout sans inventer une couche de gouvernance cachée : V1 **déclare** les profils (disclosure, recours, juridiction, obligations récurrentes, précédence de policy) et **escalade** les conflits — sans résolveur automatique. Voir [INTENTION.md](./INTENTION.md) pour la formulation originale.
+
+---
+
+## Modèle mental en deux schémas
+
+### 1. Comment les CLI coopèrent
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                       Machine du développeur                     │
+│                                                                  │
+│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
+│   │ Claude Code  │    │  Codex CLI   │    │  Gemini CLI  │       │
+│   └──────┬───────┘    └──────┬───────┘    └──────┬───────┘       │
+│          │ MCP stdio          │ MCP stdio          │ MCP stdio   │
+│          ▼                    ▼                    ▼             │
+│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
+│   │ h2a mcp-serve│    │ h2a mcp-serve│    │ h2a mcp-serve│       │
+│   │  (subprocess │    │  (subprocess │    │  (subprocess │       │
+│   │   du CLI)    │    │   du CLI)    │    │   du CLI)    │       │
+│   └──────┬───────┘    └──────┬───────┘    └──────┬───────┘       │
+│          │                    │                    │             │
+│          └────────────────────┴────────────────────┘             │
+│                               │                                  │
+│                               ▼                                  │
+│              ┌────────────────────────────────┐                  │
+│              │     <root>/.h2a/  (le bus)     │                  │
+│              │                                │                  │
+│              │  registry/instances.jsonl     │                  │
+│              │  presence/<sid>.json          │                  │
+│              │  negotiations/<id>/journal..  │                  │
+│              │  inbox/<instance>/*.json      │                  │
+│              │  contracts/ engagements/ ...  │                  │
+│              └────────────────────────────────┘                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Les trois CLI ne se parlent jamais directement. Ils écrivent et lisent dans un dossier `.h2a/` partagé, via leur propre instance du serveur MCP `h2a mcp-serve` (un subprocess spawné par chaque CLI hôte). Le **format des fichiers EST le protocole** — chaque ligne d'un journal est une entrée signée chaînée, chaque enveloppe d'inbox est un message routé, chaque fichier de présence est un battement de cœur.
+
+### 2. La pile contractuelle (DEC-010)
+
+```
+INTENTION    le pourquoi             → INTENTION.md (verbatim utilisateur)
+   │
+   ▼
+SPÉCIFICATION  exigences mesurables  → SPEC.md (REQ-NNN)
+   │
+   ▼
+ARTEFACTS    ce qui lie              → CONTRACT, POLICY, ENGAGEMENT,
+   │         (signés ed25519,          MANDATE, AUTHORITY, SIGNATURE,
+   │          canonical JSON hash)     AMENDMENT, ENFORCEMENT_PLAN
+   ▼
+ENFORCEMENT  l'application           → ENFORCEMENT_PLAN, escalations,
+             (qui décide quoi          recourse, controlled disclosure
+              dans quel scope)
+```
+
+Les rôles cardinaux : **PRINCIPAL** (l'humain ultime), **EXECUTIF** (responsabilité d'ensemble), **CONDUCTOR** (pilote un cheptel d'agents), **AGENTS** (les CLI), **CONTROL** (fonctions transverses : cyber, finance, éthique, legal, qualité), **MANDATAIRE** (présentateur neutre, jamais arbitre). Voir [VOCABULARY.md](./VOCABULARY.md).
+
+---
+
+## Démarrage en 5 minutes
+
+```bash
+# 1. Installer
+npm i -g @sentropic/h2a-cli@latest
+
+# 2. Bootstrap pour chaque CLI hôte (à faire une seule fois par machine)
+h2a connect --host claude --root ~/h2a-workspace/.h2a --instance claude:demo
+h2a connect --host codex  --root ~/h2a-workspace/.h2a --instance codex:demo
+h2a connect --host gemini --root ~/h2a-workspace/.h2a --instance gemini:demo
+# … puis fusionner les snippets MCP imprimés dans la config de chaque CLI
+
+# 3. Générer une clé de signature par instance
+h2a keys generate --instance claude:demo --root ~/h2a-workspace/.h2a
+h2a keys generate --instance codex:demo  --root ~/h2a-workspace/.h2a
+
+# 4. Installer la skill `/h2a` dans chaque CLI hôte
+h2a install-skills --host claude --scope user
+h2a install-skills --host codex  --scope user
+h2a install-skills --host gemini --scope user
+```
+
+Ensuite, dans chaque CLI :
+
+```
+/h2a                          ← raccourci pour /h2a status
+/h2a connect                  ← ouvre une session live dans la conversation
+/h2a discover                 ← liste les peers en ligne
+/h2a send codex:demo "hi"     ← envoie un message
+/h2a receive                  ← lit l'inbox + réagit aux notifications push
+/h2a negotiate open ...       ← démarre une négociation signée
+/h2a help                     ← carte des commandes
+```
+
+**Guide complet pas-à-pas** : [`docs/tutorial-cross-cli.md`](./docs/tutorial-cross-cli.md). Il couvre la mise en place, les modes d'échec courants, et le mapping V1/V2.
+
+---
+
+## Ce qui est livré (V1) vs ce qui ne l'est pas
+
+| Capacité | V1 (état actuel) | V2 / différé |
+|---|---|---|
+| Transport local-files (`<root>/.h2a/`) | ✅ shipped | — |
+| Serveur MCP stdio (13 outils JSON-RPC 2.0) | ✅ shipped | — |
+| Adapter Codex / Claude Code / Gemini | ✅ shipped (DEC-049) | — |
+| Skill `/h2a` consolidée pour les 3 hôtes | ✅ shipped (DEC-057) | — |
+| Session protocol : présence + heartbeat + push notifications | ✅ shipped (DEC-050..053) | — |
+| Signatures ed25519 + canonical JSON + journal chaîné | ✅ shipped (DEC-035) | — |
+| Profils ABC déclaratifs : disclosure, recours, obligations récurrentes, juridiction, précédence | ✅ shipped (DEC-045..048) | résolveurs automatiques (V2) |
+| Cross-machine (`@sentropic/remote`) | ❌ pas commencé | V2 (`@sentropic/h2a-remote` candidat) |
+| Auth de transport (mTLS / bearer signé) | ❌ V1 sans (DEC-032) | V2 |
+| SUBAGENTS first-class (adressables individuellement) | ❌ V1 consolidés dans l'AGENT | V2 (DEC-008) |
+| Key management UX (rotation, keyring) | ❌ PEM manuel via `h2a keys generate` | V2 candidat |
+| Déploiement Kubernetes (sidecar / tenant / broker) | 🟡 instruit dans [docs/instruction-k8s-and-remote-controle-interop.md](./docs/instruction-k8s-and-remote-controle-interop.md) (DEC-056) | DEC-057+ |
+
+V1 dit ce qu'on a le droit d'utiliser et trace tout. V1 n'arbitre **jamais** un conflit à la place d'une autorité humaine — c'est volontaire (REQ-054).
+
+---
+
+## Surface CLI (référence)
 
 ```
 h2a --help
 h2a hosts
 h2a mcp-tools
 
-# runtime local-files (store sous <root>/.h2a, DEC-031)
+# Setup haut niveau (DEC-054)
+h2a connect --host <codex|claude|gemini> [--root <path>] [--instance <id>]
+h2a doctor [--root <path>]
+h2a sessions [--root <path>] [--scope <s>] [--instance <i>]
+h2a keys generate --instance <id> [--out <dir>] [--root <path>]
+h2a install-skills --host <claude|codex|gemini> [--scope user|project] [--force]
+
+# Runtime local-files (store sous <root>/.h2a, DEC-031)
 h2a init [--root <path>]
 h2a register --json <registration-json> [--root <path>]
 h2a discover [--role <role>] [--scope <scope>] [--root <path>]
 
-# négociation (offer/counter/sign/event acceptent aussi --causation-id / --correlation-id ;
-# par défaut, chaque événement hérite causationId = id de l'événement précédent
-# et correlationId = correlationId précédent — DEC-033)
+# Négociation (offer/counter/sign/event acceptent --causation-id / --correlation-id ;
+# par défaut, chaque événement hérite de l'événement précédent — DEC-033)
 h2a negotiate open --json <record-json> [--root <path>]
 h2a negotiate status --id <id> --status <status> [--root <path>]
-h2a negotiate event --id <id> --json <payload-json> [--causation-id <id>] [--correlation-id <id>] [--root <path>]
-h2a negotiate offer --id <id> --instance <id> --artifact <json> [--event-id <id>] [--causation-id <id>] [--correlation-id <id>] [--root <path>]
-h2a negotiate counter --id <id> --instance <id> --artifact <json> [--event-id <id>] [--causation-id <id>] [--correlation-id <id>] [--root <path>]
-h2a negotiate sign --id <id> --instance <id> --artifact <json> --private-key <pem-path> [--event-id <id>] [--causation-id <id>] [--correlation-id <id>] [--root <path>]
-h2a negotiate stabilize --id <id> [--event-id <id>] [--root <path>]   # persiste l'artefact gagnant en write-once sous contracts/, policies/, engagements/ ou artifacts/<hash>.json (DEC-033), retourne `artifactPath`
+h2a negotiate event --id <id> --json <payload-json> [...] [--root <path>]
+h2a negotiate offer --id <id> --instance <id> --artifact <json> [...] [--root <path>]
+h2a negotiate counter --id <id> --instance <id> --artifact <json> [...] [--root <path>]
+h2a negotiate sign --id <id> --instance <id> --artifact <json> --private-key <pem-path> [...] [--root <path>]
+h2a negotiate stabilize --id <id> [--event-id <id>] [--root <path>]
 h2a negotiate journal --id <id> [--root <path>]
 
-# mailboxes
+# Mailboxes
 h2a inbox put --instance <id> --json <envelope> [--root <path>]
 h2a inbox read --instance <id> [--root <path>]
 h2a inbox pop --instance <id> --envelope <id> [--root <path>]
 h2a outbox put --instance <id> --json <envelope> [--root <path>]
 h2a outbox read --instance <id> [--root <path>]
 
-# maintenance store
+# Maintenance du store
 h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]
 
-# MCP server (JSON-RPC 2.0 over stdio, DEC-026)
+# MCP server (JSON-RPC 2.0 sur stdio, DEC-026 + DEC-051/052)
 h2a mcp-serve [--root <path>]
 
-# Branchement hôte (Codex / Claude Code) — émet/merge le snippet `mcpServers.h2a`
-h2a host setup --host <codex|claude> [--root <path>] [--print | --write <file>] [--force]
-h2a host status [--host <codex|claude|gemini>]
+# Host wiring (snippets MCP pour chaque hôte)
+h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]
+h2a host status [--host <name>]
 ```
 
-### Contrat CLI (DEC-034)
+Tout verbe JSON suit une des trois enveloppes canoniques (`resource` / `list` / `action`) avec table de codes de sortie `0 / 1 / 2 / 3`. Contrat machine-readable : `H2A_CLI_VERB_CONTRACTS` (`packages/h2a-cli/src/cli-contract.ts`). Référence humaine : [`docs/cli-contract.md`](./docs/cli-contract.md).
 
-Tout verbe émettant du JSON utilise **exactement une** des trois enveloppes
-canoniques (`resource` / `list` / `action`), et **tous** les verbes partagent
-la même table des codes de sortie `0 / 1 / 2 / 3`. C'est le contrat
-programmatique stable du CLI :
+---
 
-- Référence humaine détaillée verbe par verbe → [`docs/cli-contract.md`](./docs/cli-contract.md).
-- Manifeste machine ré-exporté par `@sentropic/h2a-cli` :
-  `H2A_CLI_VERB_CONTRACTS` (`packages/h2a-cli/src/cli-contract.ts`).
+## Outils MCP exposés par `mcp-serve`
 
-Toute évolution rétro-incompatible exige une nouvelle DEC + un bump majeur de
-`@sentropic/h2a-cli`.
+13 outils JSON-RPC 2.0 stdio, consommés par les CLI hôtes via leur config `mcpServers.h2a` :
 
-### Compatibilité hôtes (DEC-037)
+| Famille | Outils |
+|---|---|
+| Registry | `h2a_register_instance`, `h2a_discover_instances` |
+| Session (DEC-051) | `h2a_session_open`, `h2a_session_close`, `h2a_discover_sessions` |
+| Négociation | `h2a_open_negotiation`, `h2a_offer`, `h2a_counteroffer`, `h2a_sign`, `h2a_stabilize`, `h2a_append_journal`, `h2a_escalate` |
+| Mailbox | `h2a_inbox` (`read` / `put` / `pop`) |
 
-- `h2a host status [--host <name>]` expose l'état machine-readable de chaque
-  host : wave, MCP adapter livré, snippet `host setup` livré, scénario hôte
-  livré, résumé humain.
-- La matrice humaine Codex / Claude Code / Gemini / MCP vit dans
-  [`docs/compatibility-matrix.md`](./docs/compatibility-matrix.md).
-- En V1, Codex et Claude Code sont wave 1 pour le descriptor + setup MCP +
-  scénario MCP host-driven ; Gemini reste wave 2 (descriptor visible, setup
-  différé).
+Plus un canal de **notifications push** (`notifications/h2a`) sur 4 topics (DEC-052) : `presence.peer_joined`, `presence.peer_left`, `inbox.envelope_arrived`, `negotiation.event_appended`. Les sessions s'abonnent à un sous-ensemble via `h2a_session_open`.
 
-### Concurrence et migration (DEC-036)
+---
 
-- **Verrouillage advisory** : chaque section critique read-then-write du
-  store (`registerInstance`, `appendNegotiationEvent`, `openNegotiation`,
-  `updateNegotiationStatus`, `stabilizeNegotiation`, `put*` / `pop*`
-  inbox/outbox) acquiert un fichier sentinelle `.lock` créé en mode
-  `O_CREAT|O_EXCL`. Un verrou orphelin référant un PID mort sur la même
-  machine est détecté et récupéré automatiquement ; sinon le store
-  attend jusqu'à `lockTimeoutMs` (défaut 5000 ms) puis lève
-  `LockTimeoutError`. Le knob est exposé via
-  `createLocalStore({ root, lockTimeoutMs })`. **Périmètre** :
-  coordination *same-machine* uniquement ; le partage cross-host d'un
-  même `<root>` reste hors V1.
-- **Version de schéma** : tout store nouvellement créé écrit
-  `<root>/.h2a-schema.json` avec `version="1"` + `createdAt` + `createdBy`.
-  Ouvrir un store dont la version est inconnue lève
-  `StoreSchemaMismatchError`. L'option de secours
-  `createLocalStore({ root, allowVersionMismatch: true })` permet une
-  inspection read-only en émettant un *warning* stderr et sans
-  réécriture de la sentinelle. Le verbe `h2a store migrate
-  [--from <v>] [--to <v>] [--dry-run] [--root <path>]` couvre la
-  rampe ; V1→V1 est un no-op (`changed:false`), toute version inconnue
-  retourne 1 avec un message clair.
+## Exemple runnable
 
-### Compatibilité cross-langage (DEC-035)
+[`examples/principal-conductors/`](./examples/principal-conductors/) — démo de bout en bout du cas **1 PRINCIPAL / 15 CONDUCTORS** : génère 16 paires ed25519, enregistre les 16 instances, ouvre une négociation avec quorum 3 sur 15, signe et stabilise, et finit en interrogeant le serveur MCP en JSON-RPC sur stdio.
 
-- **Matrice d'autorité** : `H2A_AUTHORITY_MATRIX` (re-exporté par
-  `@sentropic/h2a`, source `packages/h2a/src/authority.ts`) déclare quels
-  rôles peuvent signer chaque `H2AArtifactKind`. Appliquée par
-  `stabilizeNegotiation` après la vérification ed25519 (DEC-032).
-- **Fixtures canoniques** : `packages/h2a/fixtures/` contient un artefact
-  byte-canonique par kind liant (`CONTRACT`, `POLICY`, `ENGAGEMENT`,
-  `MANDATE`, `AUTHORITY`, `ENFORCEMENT_PLAN`) ; `manifest.json` indexe
-  `{path, kind, id, sha256}` pour qu'une implémentation non-TS (Python,
-  Go, Rust...) puisse rejouer la canonicalisation JSON sorted-key et
-  confirmer le SHA-256 bit-pour-bit. `H2A_CANONICAL_FIXTURES` ré-expose
-  ce manifeste depuis `@sentropic/h2a`.
+```bash
+./examples/principal-conductors/run.sh   # build + run
+```
 
-### Invariants contractuels (DEC-039)
+---
 
-`@sentropic/h2a` expose aussi une couche d'audit stricte pour éviter de
-confondre les trois artefacts de DEC-018 :
+## Documents de référence
 
-- `CONTRACT` → `normative-container` : conteneur normatif durable, non
-  exécutable, pouvant contenir/référencer policies et instancier des
-  engagements.
-- `POLICY` → `durable-rule` : règle durable de scope, non exécutable.
-- `ENGAGEMENT` → `operational-executable` : mission/service/action
-  exécutable, avec charter, role bindings, controls, policies applicables
-  et success criteria.
+| Document | Rôle |
+|---|---|
+| [INTENTION.md](./INTENTION.md) | Verbatim utilisateur initial + reformulation narrative |
+| [SPEC.md](./SPEC.md) | Exigences mesurables `REQ-NNN` |
+| [VOCABULARY.md](./VOCABULARY.md) | Vocabulaire canonique (figé V1.x) |
+| [DECISIONS.md](./DECISIONS.md) | Journal append-only des `DEC-NNN` (modèle, runtime, host, governance) |
+| [PLAN.md](./PLAN.md) | Plan de pilotage projet, workpackages, état |
+| [EVALUATIONS.md](./EVALUATIONS.md) | Évaluations de compatibilité avec ABC (entreprise / écosystème / public) |
+| [RUNTIME_PROPOSAL.md](./RUNTIME_PROPOSAL.md) | Proposition runtime minimale d'origine |
+| [docs/cli-contract.md](./docs/cli-contract.md) | Contrat CLI verbe-par-verbe (DEC-034) |
+| [docs/compatibility-matrix.md](./docs/compatibility-matrix.md) | Matrice de compatibilité hôtes (DEC-037) |
+| [docs/release.md](./docs/release.md) | Procédure de release + notes de sécurité |
+| [docs/tutorial-cross-cli.md](./docs/tutorial-cross-cli.md) | **Tutoriel Claude + Codex + Gemini en 5 min** |
+| [docs/instruction-k8s-and-remote-controle-interop.md](./docs/instruction-k8s-and-remote-controle-interop.md) | Note d'instruction K8s + interop `@sentropic/remote-controle` (DEC-056) |
+| [handover.md](./handover.md) | Prompt de handover pour une session Claude |
 
-Les exports `H2A_CONTRACTUAL_ARTIFACT_PROFILES`,
-`auditContractualArtifact(value)` et
-`assertContractualArtifactInvariants(value)` permettent aux clients de
-refuser un artefact ambigu sans rendre les type guards de base
-rétro-incompatibles.
+---
 
-### Escalade par autorité de scope (DEC-040)
-
-Les escalades V1 utilisent les canaux `advise`, `decide`, `alert`, mais la
-cible n'est pas automatiquement le PRINCIPAL local. `@sentropic/h2a`
-exporte :
-
-- `H2A_ESCALATION_CHANNELS`
-- `H2A_ESCALATION_AUTHORITY_KINDS`
-- `resolveEscalationTarget(enforcementPlan, request, { fallbackPrincipal })`
-- `assertEscalationTargetResolved(resolution)`
-
-Le résolveur lit `ENFORCEMENT_PLAN.escalations[]` et choisit la route la
-plus spécifique pour `{scope, channel, trigger?, domain?}`. Le fallback
-mono-humain vers PRINCIPAL n'est utilisé que si le caller fournit
-explicitement `fallbackPrincipal`.
-
-### Compatibilité ABC (DEC-041)
-
-Le mapping vers les trois modèles d'évaluation ABC est exposé par
-`@sentropic/h2a` :
-
-- `H2A_ABC_MODEL_PROFILES` pour les profils `A_ENTERPRISE`,
-  `B_ECOSYSTEM`, `C_GOVERNMENT_CITIZEN`.
-- `auditAbcModelCompatibility(modelId)` pour distinguer les capacités
-  livrées (`shipped`) des gaps encore partiels ou différés.
-
-Les trois profils sont cohérents avec le vocabulaire V1 (`ok:true`), mais
-pas encore complets (`ready:false`) tant que la disclosure standardisée,
-les obligations récurrentes, la juridiction structurée ou le
-recours/adjudication restent ouverts selon le modèle. La précédence
-inter-policy est maintenant déclarée par profil ABC (`H2A_POLICY_PRECEDENCE_PROFILES`),
-mais V1 ne choisit pas automatiquement un gagnant : les conflits sont
-explicitement escaladés.
-
-### Modes multi-humains (DEC-042)
-
-`@sentropic/h2a` expose aussi une taxonomie pour choisir le niveau de
-cérémonie multi-humain :
-
-- `PEER_DIALOGUE`
-- `DELEGATED_COORDINATION`
-- `SHARED_ENGAGEMENT`
-- `FEDERATED_EXECUTIF`
-- `CONSORTIUM_QUORUM`
-- `PUBLIC_AUTHORITY`
-
-`selectMultiHumanMode(request)` refuse les cas non multi-humains
-(`principalCount < 2`) et choisit le mode le plus contraignant dans cet
-ordre : autorité externe, scope EXECUTIF, quorum, engagements partagés,
-coordination opérationnelle répétée, puis dialogue PRINCIPAL ↔ PRINCIPAL.
-
-### Frontière gouvernance (DEC-043)
-
-`H2A_GOVERNANCE_BOUNDARY_ITEMS` classe les décisions V1 entre :
-
-- `PROTOCOL` : ce qui doit être commun à toutes les implémentations H2A.
-- `POLICY` : ce qui reste gouverné par des règles de domaine ou de scope.
-- `IMPLEMENTATION` : ce qui appartient au runtime/CLI/adapters de référence.
-
-`classifyGovernanceBoundary(itemId)` et `listGovernanceBoundaryItems(layer?)`
-permettent de vérifier qu'un sujet comme `policy-precedence`,
-`local-files-store` ou `canonical-artifacts` n'est pas rangé au mauvais
-niveau.
-
-## Exemples
-
-- **`examples/principal-conductors/`** — démo runnable de bout en bout du
-  cas `1 PRINCIPAL / 15 CONDUCTORS` : génère 16 paires `ed25519`, enregistre
-  les 16 instances, ouvre une négociation avec quorum 3 sur 15, signe et
-  stabilise (affiche le `artifactPath` immutable et relit le fichier sur
-  disque pour confirmer `kind = ENGAGEMENT`, DEC-033), puis interroge le
-  serveur MCP en JSON-RPC sur stdio.
-  Lancer via `./examples/principal-conductors/run.sh` (build + run) ou
-  directement `node examples/principal-conductors/run.mjs` une fois le
-  workspace buildé. Voir [`examples/principal-conductors/README.md`](./examples/principal-conductors/README.md).
-
-## Pile contractuelle (DEC-010)
-
-Chaque couche a son document :
-
-- **INTENTION** (pourquoi) → [`INTENTION.md`](./INTENTION.md) — verbatim utilisateur, reformulation narrative, périmètre projet.
-- **SPÉCIFICATION** (quoi mesurable) → [`SPEC.md`](./SPEC.md) — exigences `REQ-NNN`.
-- **ARTEFACTS CONTRACTUELS** (ce qui lie) — `CONTRACT`, `POLICY`, `ENGAGEMENT` (DEC-018).
-- **ENFORCEMENT / ESCALADE** (application) — audits, vetos, alertes, escalades, preuves.
-
-## Documents transverses
-
-- **Vocabulaire canonique** (figé V1.7) → [`VOCABULARY.md`](./VOCABULARY.md)
-- **Journal de décisions de design** → [`DECISIONS.md`](./DECISIONS.md)
-- **Évaluations de compatibilité** → [`EVALUATIONS.md`](./EVALUATIONS.md)
-- **Proposition runtime minimale** → [`RUNTIME_PROPOSAL.md`](./RUNTIME_PROPOSAL.md)
-- **Plan de pilotage projet** → [`PLAN.md`](./PLAN.md)
-- **Matrice de compatibilité hôtes** → [`docs/compatibility-matrix.md`](./docs/compatibility-matrix.md)
-- **Procédure de release et notes de sécurité** → [`docs/release.md`](./docs/release.md)
-- **Prompt de handover Claude** → [`handover.md`](./handover.md)
-
-## Convention
+## Conventions de contribution
 
 - Toute nouvelle exigence → ajouter dans `SPEC.md` (numérotation continue `REQ-NNN`).
 - Toute nouvelle décision → ajouter dans `DECISIONS.md` (numérotation continue `DEC-NNN`, append-only).
 - Tout renommage de concept → nouvelle DEC + bump version de `VOCABULARY.md`.
+- Release : voir [`docs/release.md`](./docs/release.md).
 
-## Historique
+---
 
-Ce fichier a été refactoré le 2026-05-16 (DEC-011) à partir d'un `INTENT.md` initial qui mélangeait les trois couches. Le contenu original est intégralement préservé dans les 3 fichiers ci-dessus.
+## Origine du projet
+
+h2a est issu d'un brief utilisateur du 16 mai 2026 ([INTENTION.md](./INTENTION.md), verbatim préservé). Nom de travail initial : `a2a-cli` (le repo et le dossier portent toujours ce nom). Nom parapluie figé à `h2a` par DEC-025 le 17 mai 2026, parce que le périmètre dépasse l'agent-to-agent pur — il couvre la coordination multi-humain, le human-in-the-loop, la gouvernance et les contrats.
+
+`@sentropic/h2a-cli@0.1.0` a été publié avec un `bin` cassé par autocorrection npm ; il est déprécié (DEC-029). `0.1.6` puis `0.1.19` sont les baselines successives.
