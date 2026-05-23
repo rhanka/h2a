@@ -112,6 +112,22 @@ export {
   createEnvelope,
   isH2AEnvelope
 } from "./envelope.js";
+export {
+  H2A_SESSION_DEFAULT_EXPIRY_MS,
+  H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS,
+  H2A_SESSION_NOTIFICATION_TOPICS,
+  H2A_SESSION_STATES,
+  isH2ASession,
+  isSessionExpired,
+  pickFreshSessions
+} from "./session.js";
+export type {
+  H2ASession,
+  H2ASessionExpiryOptions,
+  H2ASessionInterests,
+  H2ASessionNotificationTopic,
+  H2ASessionState
+} from "./session.js";
 export { assertValidNegotiationState } from "./negotiation.js";
 export { canonicalize, computeHash } from "./canonical.js";
 export { signCanonical, verifyCanonical } from "./signature.js";

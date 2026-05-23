@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-22 (Release v0.1.12 published ; Gemini promoted to wave 1 with host setup + MCP scenario — DEC-049 ; only V2 transport auth remains in WP-40)
+> Last update: 2026-05-23 (DEC-050 session protocol vocabulary shipped ; lifecycle/heartbeat/notifications implementation in DEC-051..053)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -46,7 +46,7 @@
 - [x] Automate release/publish flow (`npm run release -- --version X.Y.Z` + `vX.Y.Z` tag workflow publishing both packages through npm Trusted Publishing — DEC-038)
 - [x] Configure npm Trusted Publishing for `@sentropic/h2a` and `@sentropic/h2a-cli` (`rhanka/h2a`, `release.yml`, allowed action `npm publish`; requires `npm@11.15.0+` or npmjs.com UI)
 
-## Workpackage 10 - `h2a` Core Contracts (~100%)
+## Workpackage 10 - `h2a` Core Contracts (~100% + DEC-050 session vocabulary)
 
 - [x] Define protocol id `sentropic.h2a`
 - [x] Implement envelope creation
@@ -60,6 +60,7 @@
 - [x] Add signature verification (ed25519 sign/verify on canonical payload)
 - [x] Encode role/authority constraints for `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`, `MANDATAIRE` (DEC-035 : `H2A_AUTHORITY_MATRIX` + `canSignArtifactKind` ; appliquée par `stabilizeNegotiation`)
 - [x] Add compatibility tests on canonical artifacts (cross-language fixtures) (DEC-035 : `packages/h2a/fixtures/` + `manifest.json` + `H2A_CANONICAL_FIXTURES`)
+- [x] Declare h2a session protocol vocabulary (`H2A_SESSION_STATES` / `H2A_SESSION_NOTIFICATION_TOPICS` / `H2ASession` / `isSessionExpired` / `pickFreshSessions` — DEC-050)
 
 ## Workpackage 20 - Local Runtime And Store (~100%)
 

@@ -74,6 +74,13 @@ export const H2A_GOVERNANCE_BOUNDARY_ITEMS = Object.freeze([
     references: ["DEC-042"]
   },
   {
+    id: "session-protocol",
+    layer: "PROTOCOL",
+    status: "v1-shipped",
+    summary: "Session lifecycle, heartbeat-based presence, expiry semantics, and notification topics; transport-specific producers (presence files, MCP push) are implementation.",
+    references: ["DEC-050"]
+  },
+  {
     id: "policy-precedence",
     layer: "POLICY",
     status: "v1-open",

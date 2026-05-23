@@ -771,3 +771,29 @@ Exports ajoutés :
 **Pourquoi** : (a) DEC-028 différait Gemini par prudence, mais la surface MCP/JSON-RPC est strictement la même que Codex/Claude — il n'y a plus de risque host-spécifique non couvert ; (b) DEC-044 a montré que le scénario hôte est dérivable directement du snippet `renderMcpConfig`, donc l'ajout est purement déclaratif côté Gemini ; (c) WP-40 ne peut pas être considéré clos tant qu'un host first-class référencé dans la doc reste en deferred ; (d) le path hint `~/.gemini/settings.json` reflète la configuration documentée du CLI officiel Gemini ; l'utilisateur peut adapter via les drapeaux `--command`/`--args` si son binaire diffère.
 
 **Conséquence** : (a) WP-40 wave 1 est clos pour les trois hôtes V1 ; (b) le test `h2a host setup --host gemini --print rejects with DEC-028 message` devient obsolète et est remplacé par un test snippet positif ; (c) `cli-host-status.test.js` ne distingue plus Gemini des autres ; (d) la seule pièce restante de WP-40 est l'auth de transport V2 (mTLS / bearer signé), explicitement deferred ; (e) un patch release `0.1.12` peut suivre quand build + tests sont verts.
+
+## DEC-050 — Protocole de session h2a (vocabulaire core)
+**Date** : 2026-05-23. **Réfère** : INTENTION (multi-humain), REQ-001, REQ-014, REQ-015, DEC-019, DEC-026, DEC-032, DEC-043, WP-30, WP-40.
+
+**Contexte** : la V1 jusqu'à v0.1.12 livrait `h2a_register_instance` comme une simple écriture append-only dans `registry/instances.jsonl`. Aucune notion de **session vivante** : un agent dont le process est mort reste "présent" indéfiniment, aucun autre agent n'est notifié, l'inbox doit être polled. Cet écart entre "API CRUD sur des fichiers" et "protocole de coopération entre agents CLI" était bloquant pour le cas d'usage premier de l'INTENTION (Claude, Codex, Gemini qui coopèrent).
+
+**Décision** : introduire un **protocole de session** comme couche PROTOCOL distincte de la couche INSTANCE :
+
+- une **INSTANCE** (`claude:proj-1`) est identité durable, déjà couverte par DEC-019 ;
+- une **SESSION** est l'**attachement live** d'une instance au protocole sur un transport donné ; elle existe le temps qu'un process porte cette identité.
+
+Le vocabulaire core (`@sentropic/h2a`, `packages/h2a/src/session.ts`) expose :
+
+- `H2A_SESSION_STATES = ["opening", "live", "draining", "closed", "expired"]` — cycle de vie.
+- `H2A_SESSION_NOTIFICATION_TOPICS = ["presence.peer_joined", "presence.peer_left", "inbox.envelope_arrived", "negotiation.event_appended"]` — topics auxquels une session peut s'abonner pour recevoir du **push** plutôt que de poller.
+- `H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS = 5000` et `H2A_SESSION_DEFAULT_EXPIRY_MS = 15000` — un seul battement raté reste sous l'expiry ; trois battements ratés expirent la session.
+- `H2ASession` interface : `{ sessionId, instance, host?, pid?, startedAt, heartbeatAt, state, interests: { scopes, negotiations }, subscribedTopics }`.
+- `isH2ASession(value)` type guard.
+- `isSessionExpired(session, { now?, expiryMs? })` : V/F sur l'état + fraîcheur heartbeat.
+- `pickFreshSessions(sessions, options)` : filtre déterministe.
+
+**Décision (statut machine)** : `governance-boundary` ajoute `session-protocol` (`v1-shipped`, layer `PROTOCOL`).
+
+**Pourquoi** : (a) sans **séparation INSTANCE / SESSION**, on confondait identité durable et présence transitoire — un crash de process figeait le registry ; (b) sans **heartbeat**, aucun moyen de détecter qu'un peer est mort sans daemon central, ce qui aurait cassé la promesse "pas de service central" (cohérente avec DEC-032) ; (c) figer les **topics de notification** dans la couche PROTOCOL permet aux implémentations alternatives (autre transport, autre langage) de respecter la même surface ; (d) garder le vocabulaire dans `@sentropic/h2a` (pur, sans I/O) découple la spec du runtime — c'est ce que fait déjà DEC-040 / DEC-041 pour escalade / ABC.
+
+**Conséquence** : (a) DEC-051 implémentera le **producteur de présence file-based** + verbe MCP `h2a_session_open` / `h2a_session_close` ; (b) DEC-052 implémentera la **dispatch de notifications JSON-RPC push** côté `mcp-serve` ; (c) DEC-053 ajoutera un **test cross-process réel** avec deux `mcp-serve` qui se découvrent et s'envoient des notifications ; (d) `h2a_register_instance` reste valide comme primitive bas niveau pour les usages CLI non interactifs (scripts batch, init).
