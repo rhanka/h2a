@@ -710,3 +710,25 @@ Exports ajoutés :
 **Pourquoi** : (a) REQ-068 nomme le recours comme cible d'escalade légitime mais DEC-040 ne couvrait que le routage, pas la procédure ; (b) DEC-041 marquait `recourse` `partial` sur les **trois** profils ABC, ce qui en faisait la capability `partial` à plus fort fan-out ; (c) REQ-069 exige que le MANDATAIRE ne tienne pas le rôle d'arbitre — la décision doit être attribuée à une autorité déclarée, donc on déclare la taxonomie ; (d) calquer la forme `policy-precedence` / `disclosure` (déclaratif + `escalate-not-resolve`) évite d'introduire un moteur d'adjudication caché que V1 ne sait pas exécuter.
 
 **Conséquence** : (a) la couche POLICY ferme `recourse-adjudication-profiles` ; (b) `auditAbcModelCompatibility` ne signale plus `recourse` comme gap partiel ; (c) le déroulé effectif d'un recours (notification, dossier, délibération, signature, publication) reste un travail policy/implémentation explicitement documenté dans `unresolved` ; (d) un patch release `0.1.9` peut suivre quand build + tests sont verts.
+
+## DEC-047 — Profils exécutables de cadence des obligations récurrentes
+**Date** : 2026-05-22. **Réfère** : REQ-063, REQ-071, DEC-041, DEC-043, WP-50.
+
+**Décision** : la cadence des obligations récurrentes V1 est livrée comme module déclaratif `packages/h2a/src/recurring-obligations.ts`, miroir structurel de `policy-precedence.ts`, `disclosure.ts` et `recourse.ts`. Exports publics :
+
+- `H2A_OBLIGATION_CADENCES` : `daily`, `weekly`, `monthly`, `quarterly`, `yearly`, `on-event`, `ad-hoc`.
+- `H2A_RECURRING_OBLIGATION_CONFLICT_DISPOSITIONS = ["escalate-not-resolve"]`.
+- `H2A_RECURRING_OBLIGATION_PROFILES` indexés par `H2AAbcModelId` portant `modelId`, `label`, `allowedCadences`, `defaultCadence`, `defaultGraceDays`, `defaultReportingThresholdDays`, `conflictDisposition`, `rationale`, `references`.
+- Profils retenus :
+  - `A_ENTERPRISE` — `allowedCadences = [daily, weekly, monthly, quarterly, yearly, on-event]`, default `monthly`, grace `7j`, alerte `3j` avant breach. Cadence opérationnelle dense.
+  - `B_ECOSYSTEM` — `allowedCadences = [monthly, quarterly, yearly, on-event, ad-hoc]`, default `quarterly`, grace `14j`, alerte `7j`. Pas de sub-month en cross-organisation V1.
+  - `C_GOVERNMENT_CITIZEN` — `allowedCadences = [monthly, quarterly, yearly, on-event]`, default `yearly`, grace `30j`, alerte `15j`. Aligné sur les obligations légales/fiscales typiques.
+- `getRecurringObligationProfile(modelId)` et `auditRecurringObligationProfile(modelId)` : audit valide que `defaultCadence ∈ allowedCadences`, que `defaultGraceDays` et `defaultReportingThresholdDays` sont des entiers positifs, que `defaultReportingThresholdDays ≤ defaultGraceDays` (l'alerte précède le breach), que la disposition est supportée. `unresolved` rappelle explicitement que V1 **ne planifie pas, ne déclenche pas, n'évalue pas** les obligations — le runtime de suivi reste dans la couche policy.
+
+**Décision (statut machine)** :
+- `abc.ts` : la capability `recurring-obligations` est désormais déclarée `shipped` sur les **trois** profils ABC (avant DEC-047 elle n'était présente que sur A en `partial`). Evidence = "DEC-047 declarative cadence profile (default X, grace Yd, alert Zd)".
+- `governance-boundary.ts` : l'item POLICY `recurring-obligation-cadence` passe de `v1-open` à `v1-shipped`, references = `["REQ-063", "REQ-071", "DEC-041", "DEC-047"]`.
+
+**Pourquoi** : (a) REQ-063 nomme OBLIGATION comme composant des artefacts contractuels et REQ-071 exige l'audit des obligations récurrentes par ABC, mais la cadence restait du domaine opaque ; (b) DEC-041 marquait `recurring-obligations` `partial` sur A_ENTERPRISE uniquement, sans entrée pour B/C alors que les écosystèmes et l'administration ont des obligations cycliques dominantes ; (c) calquer la forme `policy-precedence` / `disclosure` / `recourse` (déclaratif + `escalate-not-resolve`) évite d'introduire un scheduler caché que V1 ne sait pas exécuter ; (d) la contrainte `reportingThreshold ≤ grace` encode dans l'audit la règle implicite "l'alerte précède le breach" sans imposer de timer concret.
+
+**Conséquence** : (a) la couche POLICY ferme `recurring-obligation-cadence` ; (b) `auditAbcModelCompatibility` ne signale plus `recurring-obligations` comme gap partiel sur A et l'expose comme `shipped` sur B/C aussi ; (c) la mécanique exécutoire (planificateur, journal de tick, calcul du breach, génération d'alerte) reste explicitement hors-protocole, documentée dans `unresolved` ; (d) un patch release `0.1.10` peut suivre quand build + tests sont verts.

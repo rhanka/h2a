@@ -83,6 +83,19 @@ export type {
   H2ARecourseState
 } from "./recourse.js";
 export {
+  H2A_OBLIGATION_CADENCES,
+  H2A_RECURRING_OBLIGATION_CONFLICT_DISPOSITIONS,
+  H2A_RECURRING_OBLIGATION_PROFILES,
+  auditRecurringObligationProfile,
+  getRecurringObligationProfile
+} from "./recurring-obligations.js";
+export type {
+  H2AObligationCadence,
+  H2ARecurringObligationAuditResult,
+  H2ARecurringObligationConflictDisposition,
+  H2ARecurringObligationProfileDescriptor
+} from "./recurring-obligations.js";
+export {
   createEnvelope,
   isH2AEnvelope
 } from "./envelope.js";

@@ -13,6 +13,7 @@ import {
 import { H2A_POLICY_PRECEDENCE_PROFILES } from "./policy-precedence.js";
 import { H2A_DISCLOSURE_PROFILES } from "./disclosure.js";
 import { H2A_RECOURSE_PROFILES } from "./recourse.js";
+import { H2A_RECURRING_OBLIGATION_PROFILES } from "./recurring-obligations.js";
 
 export const H2A_ABC_MODEL_IDS = [
   "A_ENTERPRISE",
@@ -198,6 +199,17 @@ function recourseCapability(
   };
 }
 
+function recurringObligationsCapability(
+  modelId: H2AAbcModelId
+): H2AAbcModelCapabilityDescriptor {
+  const profile = H2A_RECURRING_OBLIGATION_PROFILES[modelId];
+  return {
+    capability: "recurring-obligations",
+    status: "shipped",
+    evidence: `DEC-047 declarative cadence profile (default ${profile.defaultCadence}, grace ${profile.defaultGraceDays}d, alert ${profile.defaultReportingThresholdDays}d)`
+  };
+}
+
 export const H2A_ABC_MODEL_PROFILES = Object.freeze({
   A_ENTERPRISE: Object.freeze({
     id: "A_ENTERPRISE",
@@ -211,12 +223,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
     capabilities: [
       ...BASE_SHIPPED_CAPABILITIES,
       controlledDisclosureCapability("A_ENTERPRISE"),
-      {
-        capability: "recurring-obligations",
-        status: "partial",
-        evidence: "CONTRACT can carry obligations and ENGAGEMENT can execute work",
-        gap: "recurring obligations are identified but not yet a first-class schedule/schema"
-      },
+      recurringObligationsCapability("A_ENTERPRISE"),
       recourseCapability("A_ENTERPRISE"),
       policyPrecedenceCapability("A_ENTERPRISE")
     ] as const
@@ -233,6 +240,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
     capabilities: [
       ...BASE_SHIPPED_CAPABILITIES,
       controlledDisclosureCapability("B_ECOSYSTEM"),
+      recurringObligationsCapability("B_ECOSYSTEM"),
       recourseCapability("B_ECOSYSTEM"),
       policyPrecedenceCapability("B_ECOSYSTEM")
     ] as const
@@ -249,6 +257,7 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
     capabilities: [
       ...BASE_SHIPPED_CAPABILITIES,
       controlledDisclosureCapability("C_GOVERNMENT_CITIZEN"),
+      recurringObligationsCapability("C_GOVERNMENT_CITIZEN"),
       recourseCapability("C_GOVERNMENT_CITIZEN"),
       {
         capability: "jurisdiction",

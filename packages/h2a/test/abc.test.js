@@ -46,7 +46,7 @@ test("auditAbcModelCompatibility validates built-in profiles against public V1 v
   }
 });
 
-test("enterprise mapping keeps EXECUTIF, external authority, and recurring-obligation gaps explicit", () => {
+test("enterprise mapping keeps EXECUTIF and external authority with recurring obligations shipped", () => {
   const profile = getAbcModelProfile("A_ENTERPRISE");
   assert.equal(profile.requiredRoles.includes("EXECUTIF"), true);
   assert.equal(profile.requiredRoles.includes("CONTROL"), true);
@@ -55,7 +55,7 @@ test("enterprise mapping keeps EXECUTIF, external authority, and recurring-oblig
 
   const result = auditAbcModelCompatibility("A_ENTERPRISE");
   assert.equal(result.ready, false);
-  assert.match(result.gaps.join("\n"), /recurring obligations/);
+  assert.equal(result.shipped.includes("recurring-obligations"), true);
   assert.match(result.gaps.join("\n"), /policy precedence/);
 });
 

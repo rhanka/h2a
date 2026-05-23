@@ -97,9 +97,9 @@ export const H2A_GOVERNANCE_BOUNDARY_ITEMS = Object.freeze([
   {
     id: "recurring-obligation-cadence",
     layer: "POLICY",
-    status: "v1-open",
-    summary: "Cadence, grace periods, and reporting thresholds for recurring obligations are domain policy.",
-    references: ["REQ-063", "DEC-041"]
+    status: "v1-shipped",
+    summary: "DEC-047 declares allowed cadences, default grace, and reporting thresholds per ABC profile; scheduling and evaluation remain policy/implementation work.",
+    references: ["REQ-063", "REQ-071", "DEC-041", "DEC-047"]
   },
   {
     id: "mandataire-assignment",
