@@ -38,22 +38,17 @@ test("h2a host status (no filter) lists every known host with wave info", () => 
   assert.ok(byHost.claude, "claude entry must be present");
   assert.ok(byHost.gemini, "gemini entry must be present");
 
-  // Wave assignments per DEC-037.
+  // Wave assignments per DEC-037 / DEC-049 (Gemini promoted to wave 1).
   assert.equal(byHost.codex.wave, 1);
   assert.equal(byHost.claude.wave, 1);
-  assert.equal(byHost.gemini.wave, 2);
+  assert.equal(byHost.gemini.wave, 1);
 
-  // MCP adapter is wired in-process + stdio for all three hosts; only the
-  // host-setup snippet is host-specific (wave 1 ships it, wave 2 does not).
+  // MCP adapter is wired in-process + stdio for all three hosts.
   for (const host of ["codex", "claude", "gemini"]) {
     assert.equal(byHost[host].mcpAdapterShipped, true);
+    assert.equal(byHost[host].hostSetupShipped, true);
+    assert.equal(byHost[host].hostScenarioShipped, true);
   }
-  assert.equal(byHost.codex.hostSetupShipped, true);
-  assert.equal(byHost.claude.hostSetupShipped, true);
-  assert.equal(byHost.gemini.hostSetupShipped, false);
-  assert.equal(byHost.codex.hostScenarioShipped, true);
-  assert.equal(byHost.claude.hostScenarioShipped, true);
-  assert.equal(byHost.gemini.hostScenarioShipped, false);
 
   for (const host of parsed.hosts) {
     assert.ok(typeof host.summary === "string" && host.summary.length > 0);
@@ -71,17 +66,18 @@ test("h2a host status --host codex returns a single-entry list", () => {
   assert.equal(parsed.hosts[0].wave, 1);
 });
 
-test("h2a host status --host gemini reflects wave 2 + no setup snippet", () => {
+test("h2a host status --host gemini reflects wave 1 with setup + scenario shipped (DEC-049)", () => {
   const streams = captureStreams();
   const rc = runCli(["host", "status", "--host", "gemini"], streams);
   assert.equal(rc, 0);
   const parsed = JSON.parse(streams.stdoutText);
   assert.equal(parsed.hosts.length, 1);
   assert.equal(parsed.hosts[0].host, "gemini");
-  assert.equal(parsed.hosts[0].wave, 2);
-  assert.equal(parsed.hosts[0].hostSetupShipped, false);
+  assert.equal(parsed.hosts[0].wave, 1);
+  assert.equal(parsed.hosts[0].hostSetupShipped, true);
+  assert.equal(parsed.hosts[0].hostScenarioShipped, true);
   assert.equal(parsed.hosts[0].mcpAdapterShipped, true);
-  assert.match(parsed.hosts[0].summary, /wave 2/);
+  assert.match(parsed.hosts[0].summary, /wave 1/);
 });
 
 test("h2a host status --host unknown exits 1 with a helpful stderr message", () => {

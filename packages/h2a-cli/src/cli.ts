@@ -605,13 +605,7 @@ function cmdHostSetup(
   const host = flags.host;
   if (!host) {
     streams.stderr.write(
-      "h2a host setup: --host <codex|claude> is required\n"
-    );
-    return 1;
-  }
-  if (host === "gemini") {
-    streams.stderr.write(
-      "h2a host setup: Gemini is deferred to wave 2 (DEC-028). Use --host codex or claude.\n"
+      "h2a host setup: --host <codex|claude|gemini> is required\n"
     );
     return 1;
   }
@@ -620,9 +614,11 @@ function cmdHostSetup(
     snippet = H2A_CODEX_HOST.renderMcpConfig({ root: flags.root });
   } else if (host === "claude") {
     snippet = H2A_CLAUDE_HOST.renderMcpConfig({ root: flags.root });
+  } else if (host === "gemini") {
+    snippet = H2A_GEMINI_HOST.renderMcpConfig({ root: flags.root });
   } else {
     streams.stderr.write(
-      `h2a host setup: unknown --host "${host}". Supported: codex, claude.\n`
+      `h2a host setup: unknown --host "${host}". Supported: codex, claude, gemini.\n`
     );
     return 1;
   }

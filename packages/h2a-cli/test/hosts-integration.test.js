@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { H2A_CLAUDE_HOST, H2A_CODEX_HOST, runCli } from "../dist/index.js";
+import {
+  H2A_CLAUDE_HOST,
+  H2A_CODEX_HOST,
+  H2A_GEMINI_HOST,
+  runCli
+} from "../dist/index.js";
 
 function captureStreams(cwd) {
   let stdout = "";
@@ -75,11 +80,24 @@ test("h2a host setup --host claude --print emits a claude-shaped snippet", () =>
   assert.deepEqual(parsed.mcpServers.h2a.args, ["mcp-serve"]);
 });
 
-test("h2a host setup --host gemini --print rejects with DEC-028 message", () => {
+test("H2A_GEMINI_HOST.renderMcpConfig includes --root when provided (DEC-049)", () => {
+  const { config, path } = H2A_GEMINI_HOST.renderMcpConfig({ root: "/foo/.h2a" });
+  assert.equal(config.mcpServers.h2a.command, "h2a");
+  assert.deepEqual(config.mcpServers.h2a.args, ["mcp-serve", "--root", "/foo/.h2a"]);
+  assert.ok(
+    /~\/\.gemini\//.test(path.hint) || /\.gemini\/settings/.test(path.hint),
+    `expected gemini path hint to mention ~/.gemini/ or .gemini/settings, got ${path.hint}`
+  );
+});
+
+test("h2a host setup --host gemini --print emits a gemini-shaped snippet (DEC-049)", () => {
   const streams = captureStreams("/tmp");
   const rc = runCli(["host", "setup", "--host", "gemini", "--print"], streams);
-  assert.equal(rc, 1);
-  assert.match(streams.stderrText, /DEC-028/);
+  assert.equal(rc, 0);
+  const parsed = JSON.parse(streams.stdoutText);
+  assert.equal(parsed.mcpServers.h2a.command, "h2a");
+  assert.deepEqual(parsed.mcpServers.h2a.args, ["mcp-serve"]);
+  assert.match(streams.stderrText, /gemini/);
 });
 
 test("h2a host setup requires --host", () => {

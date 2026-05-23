@@ -754,3 +754,20 @@ Exports ajoutés :
 **Pourquoi** : (a) REQ-044 mentionne explicitement les écosystèmes gouvernementaux/citoyens, où la juridiction est first-class, mais V1 ne représentait jusqu'ici la juridiction que par des `scope` strings opaques ; (b) DEC-041 marquait `jurisdiction` `partial` sur C uniquement, sans entrée pour A/B alors que la frontière territorial/sectoriel/contractuel est constitutive aussi en entreprise et écosystème ; (c) calquer la forme `policy-precedence` / `disclosure` / `recourse` / `recurring-obligations` (déclaratif + `escalate-not-resolve`) évite d'introduire un moteur de matching de juridiction caché ; (d) refuser `private-contract` au profil C encode la règle que l'autorité publique ne se constitue pas par contrat privé.
 
 **Conséquence** : (a) la couche POLICY clôt `jurisdiction-profiles` ; (b) `auditAbcModelCompatibility` ne signale plus `jurisdiction` comme gap partiel sur C et l'expose comme `shipped` sur A/B aussi ; (c) avec cette slice les quatre capabilities `partial` historiques (`controlled-disclosure`, `recourse`, `recurring-obligations`, `jurisdiction`) sont désormais toutes `shipped` — seul `policy-precedence` reste `partial` par choix explicite (pas de résolveur V1) ; (d) un patch release `0.1.11` peut suivre quand build + tests sont verts.
+
+## DEC-049 — Gemini promu wave 1 (host setup + scénario MCP)
+**Date** : 2026-05-22. **Réfère** : DEC-026, DEC-028, DEC-037, DEC-044, WP-40, WP-60.
+
+**Décision** : Gemini est promu de wave 2 à wave 1. `H2A_GEMINI_HOST` cesse d'être un descriptor-seul et devient un `H2AConfigurableHostDescriptor` complet :
+
+- `packages/h2a-cli/src/hosts/gemini.ts` exporte `renderMcpConfig({ command?, args?, root? })` qui produit `mcpServers.h2a = { command, args }` (identique à Codex/Claude) ;
+- `path.hint` cible `~/.gemini/settings.json` (user-global) et `.gemini/settings.json` (project-local) ; `path.example = "~/.gemini/settings.json"` ;
+- `wave = 1`, `hostScenarioShipped = true`.
+
+`h2a host setup --host gemini [--write <file>] [--print]` est désormais accepté (la garde DEC-028 a été retirée). Les comportements `--print` / `--write` / `--force` sont identiques à Codex/Claude. Le scénario `packages/h2a-cli/test/host-mcp-scenario.test.js` boucle maintenant sur `[H2A_CODEX_HOST, H2A_CLAUDE_HOST, H2A_GEMINI_HOST]` et lance réellement `mcp-serve` depuis le snippet Gemini puis conduit en JSON-RPC `initialize` / `tools/list` / `h2a_register_instance` / `h2a_open_negotiation` / `h2a_offer` / `h2a_inbox put|read`.
+
+**Décision (statut machine)** : `h2a host status` retourne `wave: 1`, `hostSetupShipped: true`, `hostScenarioShipped: true` pour Gemini. `docs/compatibility-matrix.md` met les trois lignes Codex / Claude Code / Gemini à `Shipped` partout.
+
+**Pourquoi** : (a) DEC-028 différait Gemini par prudence, mais la surface MCP/JSON-RPC est strictement la même que Codex/Claude — il n'y a plus de risque host-spécifique non couvert ; (b) DEC-044 a montré que le scénario hôte est dérivable directement du snippet `renderMcpConfig`, donc l'ajout est purement déclaratif côté Gemini ; (c) WP-40 ne peut pas être considéré clos tant qu'un host first-class référencé dans la doc reste en deferred ; (d) le path hint `~/.gemini/settings.json` reflète la configuration documentée du CLI officiel Gemini ; l'utilisateur peut adapter via les drapeaux `--command`/`--args` si son binaire diffère.
+
+**Conséquence** : (a) WP-40 wave 1 est clos pour les trois hôtes V1 ; (b) le test `h2a host setup --host gemini --print rejects with DEC-028 message` devient obsolète et est remplacé par un test snippet positif ; (c) `cli-host-status.test.js` ne distingue plus Gemini des autres ; (d) la seule pièce restante de WP-40 est l'auth de transport V2 (mTLS / bearer signé), explicitement deferred ; (e) un patch release `0.1.12` peut suivre quand build + tests sont verts.

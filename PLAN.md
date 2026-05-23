@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-22 (Release v0.1.11 published ; jurisdiction profiles declared per ABC context — DEC-048 ; all V1 ABC capabilities now shipped except `policy-precedence` by design ; WP-50 100%)
+> Last update: 2026-05-22 (Gemini promoted to wave 1 with host setup + MCP scenario — DEC-049 ; only V2 transport auth remains in WP-40)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -13,7 +13,7 @@
 - Current repo state:
   - bootstrap repo, npm workspace, tests, and first npm publication are done
   - core contractual model, local runtime, CLI surface, and MCP server are implemented for the V1 local-files slice
-  - host setup and MCP host scenarios are shipped for Codex and Claude Code; Gemini remains wave 2
+  - host setup and MCP host scenarios are shipped for Codex, Claude Code, and Gemini (DEC-049)
   - release preparation is automated locally and publishing is tag-driven in GitHub Actions
   - `v0.1.11` is tagged on GitHub and published to npm through Trusted Publishing
   - policy precedence is now explicit per ABC context (`H2A_POLICY_PRECEDENCE_PROFILES`) while conflict resolution remains escalated, not automatic
@@ -95,7 +95,7 @@
 - [x] Implement `h2a negotiate stabilize` (verify signatures against registry publicKeys, quorum check, status→stabilized)
 - [x] Stabilize JSON output contracts and exit codes (DEC-034 : 3 enveloppes `resource`/`list`/`action` + codes 0/1/2/3 ; manifeste `H2A_CLI_VERB_CONTRACTS` + `docs/cli-contract.md`)
 
-## Workpackage 40 - Host And Protocol Integrations (~85%)
+## Workpackage 40 - Host And Protocol Integrations (~95%)
 
 ### MCP track
 
@@ -120,10 +120,10 @@
 - [x] Implement registration flow (MCP-level: `h2a host setup --host claude [--write <file>]` covers both `~/.config/claude/mcp.json` and project-local `.mcp.json`)
 - [x] Implement inbox / negotiation operations (DEC-044 : host-specific MCP scenario launches `mcp-serve` from the Claude snippet and drives register/open/offer/inbox over JSON-RPC)
 
-### Gemini track (wave 2 — DEC-028)
+### Gemini track (promoted to wave 1 — DEC-049)
 
-- [x] Decide whether Gemini stays first-wave or second-wave → **deferred to wave 2**
-- [ ] In wave 2, add the same minimal surface as Codex/Claude (host descriptor stays in `h2a hosts` meanwhile)
+- [x] Decide whether Gemini stays first-wave or second-wave → initially deferred (DEC-028), promoted to wave 1 by DEC-049
+- [x] Add the same minimal surface as Codex/Claude: descriptor + `renderMcpConfig` (`~/.gemini/settings.json` + project-local `.gemini/settings.json`), `h2a host setup --host gemini`, host-specific MCP scenario test (DEC-049)
 
 ## Workpackage 50 - Governance, Vocabulary, And Model Semantics (~100%)
 
@@ -168,5 +168,5 @@
 
 Recommended next implementation slice:
 
-1. All V1 policy gaps (`controlled-disclosure`, `recourse`, `recurring-obligations`, `jurisdiction`) are now shipped as declarative profiles. Only `policy-precedence` stays `partial` by design (no V1 resolver, conflicts escalate). The next slice is no longer ABC-policy work; consider WP-40 wave 2 (Gemini host scenario) or WP-60 implementation depth (cross-OS smoke matrix, audit/log hardening).
+1. The remaining V1-open work is WP-40 V2 transport auth (mTLS / signed bearer — deferred) and WP-60 ops hardening (cross-OS smoke matrix, audit/log durcissement). Both are no longer pure ABC-policy slices. WP-50 is 100% (only `policy-precedence` stays `partial` by design).
 2. Prepare a patch release when the next SDK-visible slice is ready.
