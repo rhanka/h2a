@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-23 (Release v0.1.18 published ; DEC-055 — install-skills 3 hosts ; DEC-056 K8s/remote-controle interop instruction note)
+> Last update: 2026-05-23 (DEC-057 — skill h2a unique avec sous-commandes graphify-style + receive/negotiate ; legacy pruning auto)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -98,6 +98,7 @@
 - [x] Stabilize JSON output contracts and exit codes (DEC-034 : 3 enveloppes `resource`/`list`/`action` + codes 0/1/2/3 ; manifeste `H2A_CLI_VERB_CONTRACTS` + `docs/cli-contract.md`)
 - [x] High-level coordination verbs (`h2a connect`, `h2a doctor`, `h2a sessions`, `h2a keys generate`, `h2a install-skills`) + 3 Claude skills + tutorial — DEC-054
 - [x] `install-skills` extended to Codex (`~/.codex/skills/`) and Gemini (`~/.gemini/commands/` TOML) — DEC-055
+- [x] Single `/h2a` skill with subcommand routing (connect/status/discover/send/receive/negotiate/disconnect/help) + legacy pruning — DEC-057
 
 ## Workpackage 40 - Host And Protocol Integrations (~95%)
 

@@ -44,6 +44,8 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
+  unlinkSync,
   writeFileSync
 } from "node:fs";
 import { homedir } from "node:os";
@@ -1237,6 +1239,44 @@ function targetSpecFor(
   return undefined;
 }
 
+/**
+ * Skill names shipped before DEC-057 that consolidated into a single `h2a`
+ * skill. The installer removes them on a fresh install so users do not end up
+ * with both the legacy three-skill bundle and the unified one.
+ */
+const LEGACY_SKILL_NAMES = ["h2a-connect", "h2a-discover", "h2a-send"];
+
+function pruneLegacy(
+  spec: HostSkillTargetSpec,
+  base: string
+): Array<{ name: string; path: string }> {
+  const pruned: Array<{ name: string; path: string }> = [];
+  for (const legacyName of LEGACY_SKILL_NAMES) {
+    if (spec.host === "gemini") {
+      const file = join(base, `${legacyName}.toml`);
+      if (existsSync(file)) {
+        try {
+          unlinkSync(file);
+          pruned.push({ name: legacyName, path: file });
+        } catch {
+          // best-effort
+        }
+      }
+    } else {
+      const dir = join(base, legacyName);
+      if (existsSync(dir)) {
+        try {
+          rmSync(dir, { recursive: true, force: true });
+          pruned.push({ name: legacyName, path: dir });
+        } catch {
+          // best-effort
+        }
+      }
+    }
+  }
+  return pruned;
+}
+
 function cmdInstallSkills(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -1273,6 +1313,8 @@ function cmdInstallSkills(
   }
 
   const targetBase = scope === "user" ? spec.userBase : spec.projectBase;
+  // DEC-057: prune the pre-consolidation skill names if they linger on disk.
+  const prunedLegacy = pruneLegacy(spec, targetBase);
 
   const entries = readdirSync(SKILLS_DIR, { withFileTypes: true });
   const installed: string[] = [];
@@ -1333,7 +1375,8 @@ function cmdInstallSkills(
         scope,
         targetBase,
         installed,
-        skipped
+        skipped,
+        prunedLegacy
       },
       null,
       2

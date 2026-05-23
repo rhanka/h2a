@@ -70,24 +70,33 @@ Each host gets the same three skills under its native convention (DEC-055):
 
 | Host | Target | Format |
 |---|---|---|
-| Claude | `~/.claude/skills/h2a-*/SKILL.md` | Markdown + YAML frontmatter |
-| Codex | `~/.codex/skills/h2a-*/SKILL.md` | Markdown + YAML frontmatter (same as Claude) |
-| Gemini | `~/.gemini/commands/h2a-*.toml` | TOML `description` + multiline `prompt` |
+| Claude | `~/.claude/skills/h2a/SKILL.md` | Markdown + YAML frontmatter |
+| Codex | `~/.codex/skills/h2a/SKILL.md` | Markdown + YAML frontmatter (same as Claude) |
+| Gemini | `~/.gemini/commands/h2a.toml` | TOML `description` + multiline `prompt` |
 
-From now on, all three CLIs respond to the same three slash commands:
+From now on, all three CLIs respond to a single `/h2a` slash command that routes its arguments to subcommands (DEC-057, modelled on graphify):
 
-- `/h2a-connect`  — bootstrap a live session in the current conversation
-- `/h2a-discover` — list the peers currently online
-- `/h2a-send`     — compose and route an envelope to a named peer
+- `/h2a connect [root]`                — bootstrap a live session in the current conversation
+- `/h2a status`                        — current session + health summary
+- `/h2a discover [scope]`              — list the peers currently online
+- `/h2a send <peer> "<text>"`          — compose and route an envelope to a named peer
+- `/h2a receive`                       — read this agent's inbox and react to new envelopes
+- `/h2a negotiate <verb> ...`          — drive a negotiation lifecycle (open/offer/sign/stabilize)
+- `/h2a disconnect`                    — cleanly close the current session
+- `/h2a help`                          — print this command map
 
 Use `--scope project` instead of `--scope user` to install under `<cwd>/.<host>/` if you want repo-local skills (e.g. for a team workspace versioned in git).
+
+> Upgrading from 0.1.17/0.1.18? The installer prunes the pre-consolidation
+> `h2a-connect`, `h2a-discover`, `h2a-send` entries automatically on the next
+> `h2a install-skills` run.
 
 ## 4. Open the actual conversation
 
 In Claude Code:
 
 ```
-/h2a-connect
+/h2a connect
 ```
 
 Claude reads the skill, runs through the sanity check, confirms or asks for the shared root, opens a session with `h2a_session_open`, and prints a summary like:
@@ -96,12 +105,12 @@ Claude reads the skill, runs through the sanity check, confirms or asks for the 
 Connected. Instance: claude:demo. Session: sess:ab12cd34. Peers currently live: 0.
 ```
 
-Then start Codex (or whichever other CLI session you've set up). It should ideally also have an equivalent way to call `h2a_session_open` — for now, in Codex you can ask directly: *"Call the h2a_session_open tool with instance=codex:demo, host=codex, interests={scopes:['scope:demo'], negotiations:[]}"*. Codex's MCP UI will let you run it.
+Then start Codex (or Gemini). The `/h2a connect` slash command works the same on all three hosts.
 
 Within a few seconds, Claude will receive a `presence.peer_joined` push notification on the JSON-RPC stream. The agent in Claude Code can react to it (the skill says it should), or you can just check with:
 
 ```
-/h2a-discover
+/h2a discover
 ```
 
 …and you'll see the Codex session listed.
@@ -111,10 +120,10 @@ Within a few seconds, Claude will receive a `presence.peer_joined` push notifica
 In Claude:
 
 ```
-/h2a-send to codex:demo "ping from Claude"
+/h2a send codex:demo "ping from Claude"
 ```
 
-Claude composes an `H2AEnvelope`, calls `h2a_inbox put`. Codex's `mcp-serve` scans the inbox on the next tick (~5s by default) and pushes a `notifications/h2a` with topic `inbox.envelope_arrived`. The Codex agent reads it and can answer.
+Claude composes an `H2AEnvelope`, calls `h2a_inbox put`. Codex's `mcp-serve` scans the inbox on the next tick (~5s by default) and pushes a `notifications/h2a` with topic `inbox.envelope_arrived`. Codex's `/h2a receive` (or its automatic reaction on the push) reads it and lets the agent reply.
 
 To watch the round-trip from the CLI directly (debugging):
 
@@ -145,7 +154,8 @@ Just exit Claude and Codex. The graceful shutdown hook deletes the presence file
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `h2a-cli: command not found` | npm global bin not on PATH | `export PATH="$(npm prefix -g)/bin:$PATH"` |
-| `h2a discover` returns empty | each agent points at a different `--root` | confirm both `h2a connect` calls used the same path |
+| `/h2a discover` returns empty | each agent points at a different `--root` | confirm both `/h2a connect` calls used the same path |
 | Push notifications never arrive | host MCP config not merged or stale | re-run `h2a host setup --host <h> --print` and verify |
 | `h2a doctor` returns `ok:false` with missing sentinel | `h2a init` was not run | `h2a init --root <shared>` |
-| Slash commands missing in Claude | skills not installed | `h2a install-skills --host claude --scope user` |
+| `/h2a` slash command missing in Claude/Codex | skills not installed | `h2a install-skills --host <name> --scope user` |
+| Still seeing old `/h2a-connect`, `/h2a-send` commands | pre-DEC-057 skills lingering | run `h2a install-skills` again — it now prunes the legacy entries automatically |

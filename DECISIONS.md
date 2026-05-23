@@ -970,3 +970,38 @@ Le dispatcher `targetSpecFor(host, cwd)` encapsule par hôte le path utilisateur
 **Pourquoi** : (a) le sujet est suffisamment vaste (multi-repo + multi-cluster + auth différée) pour mériter une note de cadrage avant un commit code ; (b) la sortie est lisible par un mainteneur de `../remote` qui n'a pas lu DEC-050..055 ; (c) la recommandation **Scénario A** est dérivable du contrat de quotas existant de `sentropic-remote` (rentre dans la classe `400m/768Mi`) sans renégocier de tenant ; (d) la frontière "h2a n'est pas redondant avec remote-controle" doit être posée explicitement pour éviter une fusion prématurée.
 
 **Conséquence** : (a) aucune slice implémentation ne suit DEC-056 directement — l'utilisateur tranche d'abord les 4 questions ouvertes ; (b) une DEC-057+ pourra livrer le scénario retenu (probablement A) avec sidecar manifest + contrat d'identité ; (c) le tutoriel cross-CLI mentionne désormais ce document comme référence pour le contexte k8s.
+
+## DEC-057 — Skill h2a unique avec sous-commandes (alignement graphify complet)
+**Date** : 2026-05-23. **Réfère** : DEC-054, DEC-055, INTENTION (Claude+Codex+Gemini), pattern de référence `~/.claude/skills/graphify/SKILL.md`.
+
+**Contexte** : DEC-054 et DEC-055 livraient trois skills distincts `h2a-connect`, `h2a-discover`, `h2a-send` avec trois slash commands à tirets. Inspection du fichier de référence `~/.gemini/commands/graphify.toml` (cité par l'utilisateur dès DEC-054) montre que graphify expose **un seul** slash command `/graphify` et route les sous-commandes (`/graphify summary`, `/graphify query "..."`, `/graphify path "A" "B"`, …) **à l'intérieur** du skill. Le pattern h2a était donc à moitié appliqué. Correction demandée par l'utilisateur le 23 mai 2026.
+
+**Décision** : consolider les trois fichiers `h2a-connect/SKILL.md`, `h2a-discover/SKILL.md`, `h2a-send/SKILL.md` en un seul `packages/h2a-cli/skills/h2a/SKILL.md`. Le nouveau skill embarque un routeur de sous-commandes (graphify-style) couvrant :
+
+```
+/h2a                         → status (alias)
+/h2a connect [root]          → bootstrap session
+/h2a status                  → résumé santé session
+/h2a discover [scope]        → liste des peers vivants
+/h2a send <peer> "<text>"    → envoyer un envelope
+/h2a receive                 → lire l'inbox et réagir aux pushes
+/h2a negotiate <verb> ...    → open / offer / counter / sign / stabilize / journal
+/h2a disconnect              → fermer proprement la session
+/h2a help                    → carte des commandes
+```
+
+Le mapping reste 1 fichier source → 1 skill par hôte :
+
+- Claude : `~/.claude/skills/h2a/SKILL.md`
+- Codex : `~/.codex/skills/h2a/SKILL.md`
+- Gemini : `~/.gemini/commands/h2a.toml`
+
+Le skill consolidé ajoute deux sous-commandes que la version précédente n'exposait pas : `receive` (réaction au push `inbox.envelope_arrived`) et `negotiate` (lifecycle complet sur les 6 sous-verbes du protocole). Ces deux pans étaient logiquement nommés dans DEC-054 comme "skills futurs" — DEC-057 les promeut dans le skill consolidé.
+
+**Décision (migration)** : `h2a install-skills` détecte et **supprime** les entrées legacy (`h2a-connect`, `h2a-discover`, `h2a-send`) sur le filesystem cible avant l'installation du skill consolidé. Le rapport JSON sortie ajoute un champ `prunedLegacy: [{name, path}]`. Aucune confirmation interactive requise — l'opération est idempotente et toujours sûre.
+
+**Décision (statut machine)** : aucune modification du contrat CLI ni du nombre d'outils MCP. La description de `H2A_CLI_VERB_CONTRACTS["install-skills"]` reste valide. Les 6 tests pré-existants des hôtes (claude/codex/gemini × install/skip/force) sont mis à jour pour vérifier l'unique fichier produit ; trois nouveaux tests vérifient le prune des legacy entries sur les trois hôtes.
+
+**Pourquoi** : (a) suivre la convention de référence (`graphify`) **complètement** plutôt qu'à moitié — l'utilisateur a explicitement nommé l'écart ("ça peut pas être /h2a connect /h2a négocier plutôt que des trucs avec des tirets ?") ; (b) un namespace unique facilite la découverte (tab-complétion `/h2a `, `/h2a help`) ; (c) un seul fichier source = pas de dérive entre les sous-commandes (versions, frontmatter, etc.) ; (d) le prune migration évite que les utilisateurs de 0.1.17/0.1.18 finissent avec un mélange legacy+consolidé qui les confondrait.
+
+**Conséquence** : (a) la surface skill se réduit (1 entrée par hôte au lieu de 3) ; (b) deux capacités majeures (`receive`, `negotiate`) sont désormais accessibles via slash command ; (c) les utilisateurs des 2 dernières versions doivent juste re-lancer `h2a install-skills --host <h>` ; (d) un patch release `0.1.19` peut suivre.
