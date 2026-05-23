@@ -16,3 +16,9 @@ export {
 } from "./handlers.js";
 
 export { runMcpStdio, type RunMcpStdioOptions } from "./stdio.js";
+
+export {
+  SessionRegistry,
+  type OpenSessionRequest,
+  type SessionRegistryOptions
+} from "./sessions.js";

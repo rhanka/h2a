@@ -11,6 +11,7 @@ export interface LocalStorePaths {
   negotiations: string;
   inbox: string;
   outbox: string;
+  presence: string;
 }
 
 export function localStorePaths(root: string): LocalStorePaths {
@@ -24,8 +25,13 @@ export function localStorePaths(root: string): LocalStorePaths {
     artifacts: join(root, "artifacts"),
     negotiations: join(root, "negotiations"),
     inbox: join(root, "inbox"),
-    outbox: join(root, "outbox")
+    outbox: join(root, "outbox"),
+    presence: join(root, "presence")
   };
+}
+
+export function presenceFile(paths: LocalStorePaths, sessionId: string): string {
+  return join(paths.presence, `${sessionId}.json`);
 }
 
 export function negotiationDir(paths: LocalStorePaths, negotiationId: string): string {

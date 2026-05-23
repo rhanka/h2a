@@ -37,7 +37,7 @@ function envelope(id, instance = "conductor:01") {
   };
 }
 
-test("createMcpServer.listTools returns the 10 canonical tools with schemas", () => {
+test("createMcpServer.listTools returns all canonical tools with schemas (DEC-051 added 3)", () => {
   const root = freshRoot();
   try {
     const server = createMcpServer({ root });

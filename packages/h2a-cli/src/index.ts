@@ -36,23 +36,32 @@ export {
   LockTimeoutError,
   StoreSchemaMismatchError,
   createLocalStore,
+  deletePresence,
   inboxDir,
+  listPresence,
   localStorePaths,
   negotiationDir,
   negotiationJournalFile,
   outboxDir,
+  presenceFile,
+  readPresence,
+  updatePresence,
   withLock,
   withLockSync,
+  writePresence,
   type CreateLocalStoreOptions,
   type H2AStoreSchemaSentinel,
+  type ListPresenceOptions,
   type LocalStore,
   type LocalStorePaths,
   type LockOwner,
+  type PresenceWriteResult,
   type WithLockOptions
 } from "./runtime/local-files/index.js";
 
 export {
   H2A_CLI_MCP_TOOL_DESCRIPTORS,
+  SessionRegistry,
   createMcpServer,
   runMcpStdio,
   type CreateMcpServerOptions,
@@ -61,7 +70,9 @@ export {
   type McpToolDescriptor,
   type McpToolName,
   type McpToolResult,
-  type RunMcpStdioOptions
+  type OpenSessionRequest,
+  type RunMcpStdioOptions,
+  type SessionRegistryOptions
 } from "./runtime/mcp/index.js";
 
 export const H2A_CLI_HOSTS = [

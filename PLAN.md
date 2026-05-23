@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-23 (DEC-050 session protocol vocabulary shipped ; lifecycle/heartbeat/notifications implementation in DEC-051..053)
+> Last update: 2026-05-23 (DEC-050 + DEC-051 shipped ; session protocol vocabulary in core, presence files + heartbeat + h2a_session_open/close/discover in h2a-cli ; notifications + cross-CLI test in DEC-052/053)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -74,6 +74,7 @@
 - [x] Enforce immutable stabilized artifacts (contracts/policies/engagements) (write-once `wx` flag; fallback `artifacts/<hash>.json` for AMENDMENT/MANDATE/AUTHORITY/ENFORCEMENT_PLAN — DEC-033)
 - [x] Define concurrency / file locking behavior (advisory `.lock` files par section critique, recovery PID-staleness, `LockTimeoutError`, knob `createLocalStore({lockTimeoutMs})` — DEC-036)
 - [x] Define migration/versioning strategy for local state (`<root>/.h2a-schema.json` v1 + `H2A_STORE_SCHEMA_VERSION`, `StoreSchemaMismatchError`, verbe `h2a store migrate` — DEC-036)
+- [x] File-based presence producer (`<root>/.h2a/presence/<sid>.json`) + `SessionRegistry` (heartbeat, scanFresh with TTL sweep, closeAll on stdio shutdown) — DEC-051
 
 ## Workpackage 30 - `h2a-cli` Surface (~100%)
 
@@ -107,6 +108,7 @@
 - [x] Wire **all 10 MCP tools** (added `h2a_open_negotiation`, `h2a_offer`, `h2a_counteroffer`, `h2a_sign`, `h2a_stabilize`, `h2a_escalate`); full negotiation lifecycle driveable end-to-end over JSON-RPC (`examples/principal-conductors/run.mjs` exercises this as step 9)
 - [x] Define actor identity/auth strategy for MCP calls (V1: no transport auth, caller-declared identity + ed25519 artifact signatures — DEC-032)
 - [x] Expose machine-readable host compatibility status (`h2a host status`, wave + adapter/setup/scenario flags — DEC-037/044)
+- [x] Session lifecycle MCP tools (`h2a_session_open`, `h2a_session_close`, `h2a_discover_sessions`) wired to the SessionRegistry — DEC-051
 - [ ] V2: transport auth (mTLS / signed bearer)
 
 ### Codex track

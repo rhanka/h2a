@@ -4,8 +4,19 @@ export {
   negotiationDir,
   negotiationJournalFile,
   outboxDir,
+  presenceFile,
   type LocalStorePaths
 } from "./paths.js";
+
+export {
+  deletePresence,
+  listPresence,
+  readPresence,
+  updatePresence,
+  writePresence,
+  type ListPresenceOptions,
+  type PresenceWriteResult
+} from "./presence.js";
 
 export {
   createLocalStore,

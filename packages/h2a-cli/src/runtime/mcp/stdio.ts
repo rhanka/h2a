@@ -115,11 +115,25 @@ class MethodNotFoundError extends Error {
  */
 export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   const { root, stdin, stdout, stderr } = options;
-  const server = createMcpServer({ root });
+  // The stdio transport carries live agent sessions; enable autoHeartbeat so
+  // the presence file stays fresh while this mcp-serve process is alive.
+  const server = createMcpServer({
+    root,
+    sessions: { autoHeartbeat: true }
+  });
 
   const rl = createInterface({ input: stdin, crlfDelay: Infinity });
   (stdin as Readable & { ref?: () => void }).ref?.();
   stdin.resume();
+
+  function shutdown(): void {
+    try {
+      server.sessions.closeAll("closed");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      stderr.write(`h2a mcp-serve: shutdown error: ${message}\n`);
+    }
+  }
 
   return new Promise<void>((resolve, reject) => {
     rl.on("line", (line) => {
@@ -167,7 +181,13 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       }
     });
 
-    rl.on("close", () => resolve());
-    rl.on("error", (err) => reject(err));
+    rl.on("close", () => {
+      shutdown();
+      resolve();
+    });
+    rl.on("error", (err) => {
+      shutdown();
+      reject(err);
+    });
   });
 }

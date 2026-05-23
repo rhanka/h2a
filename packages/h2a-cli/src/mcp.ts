@@ -8,5 +8,8 @@ export const H2A_CLI_MCP_TOOL_NAMES = [
   "h2a_stabilize",
   "h2a_inbox",
   "h2a_append_journal",
-  "h2a_escalate"
+  "h2a_escalate",
+  "h2a_session_open",
+  "h2a_session_close",
+  "h2a_discover_sessions"
 ] as const;

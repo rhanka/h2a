@@ -74,7 +74,7 @@ test("runMcpStdio: initialize returns the expected serverInfo", async () => {
   }
 });
 
-test("runMcpStdio: tools/list returns the 10 canonical tool names", async () => {
+test("runMcpStdio: tools/list returns all canonical tool names (DEC-051 added 3)", async () => {
   const root = freshRoot();
   try {
     const responses = await runScenario(root, [

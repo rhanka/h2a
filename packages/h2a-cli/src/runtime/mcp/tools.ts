@@ -196,5 +196,75 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
       },
       required: ["negotiationId", "instance", "channel"]
     }
+  },
+  {
+    name: "h2a_session_open",
+    description:
+      "Open a live session for an instance (DEC-050/051). Writes a presence file under <root>/.h2a/presence/<sessionId>.json and returns the session plus the currently-fresh peers. The session subscribes by default to all canonical notification topics.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        instance: {
+          type: "string",
+          description: "Identity of the live attachment (e.g. 'claude:proj-1')."
+        },
+        host: {
+          type: "string",
+          description: "Optional host CLI hint ('claude', 'codex', 'gemini', ...)."
+        },
+        pid: {
+          type: "number",
+          description: "Optional PID of the holding process; defaults to the mcp-serve PID."
+        },
+        interests: {
+          type: "object",
+          description: "Scopes / negotiations the session wants to observe.",
+          properties: {
+            scopes: { type: "array", items: { type: "string" } },
+            negotiations: { type: "array", items: { type: "string" } }
+          }
+        },
+        subscribedTopics: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Subset of canonical notification topics to subscribe to. Defaults to all four."
+        },
+        sessionId: {
+          type: "string",
+          description: "Optional explicit session id (UUID-like). Generated if absent."
+        }
+      },
+      required: ["instance"]
+    }
+  },
+  {
+    name: "h2a_session_close",
+    description:
+      "Close a previously-opened session (DEC-051). Stops the heartbeat, marks the final state, and deletes the presence file for the 'closed'/'expired' terminal states.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string" },
+        state: {
+          type: "string",
+          enum: ["closed", "draining", "expired"],
+          description: "Final state to record. Defaults to 'closed'."
+        }
+      },
+      required: ["sessionId"]
+    }
+  },
+  {
+    name: "h2a_discover_sessions",
+    description:
+      "List currently-live peer sessions (DEC-051). Reads presence files under <root>/.h2a/presence/ and filters by freshness (default expiry 15s). Optional scope/instance filters.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        scope: { type: "string" },
+        instance: { type: "string" }
+      }
+    }
   }
 ];

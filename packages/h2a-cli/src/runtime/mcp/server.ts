@@ -4,16 +4,23 @@ import {
   handleAppendJournal,
   handleCounteroffer,
   handleDiscoverInstances,
+  handleDiscoverSessions,
   handleEscalate,
   handleInbox,
   handleOffer,
   handleOpenNegotiation,
   handleRegisterInstance,
+  handleSessionClose,
+  handleSessionOpen,
   handleSign,
   handleStabilize,
   type McpErrorResult,
   type McpToolResult
 } from "./handlers.js";
+import {
+  SessionRegistry,
+  type SessionRegistryOptions
+} from "./sessions.js";
 import {
   H2A_CLI_MCP_TOOL_DESCRIPTORS,
   type McpToolDescriptor,
@@ -29,11 +36,18 @@ export interface CreateMcpServerOptions {
    * with the CLI.
    */
   store?: LocalStore;
+  /**
+   * Optional SessionRegistry overrides. Disabled `autoHeartbeat` is the
+   * sane default for in-process tests; the stdio transport enables it.
+   */
+  sessions?: SessionRegistryOptions;
 }
 
 export interface McpServer {
   listTools(): McpToolDescriptor[];
   callTool(name: string, args: Record<string, unknown> | undefined): McpToolResult | McpErrorResult;
+  /** Per-server SessionRegistry, exposed for transport-layer shutdown hooks. */
+  readonly sessions: SessionRegistry;
 }
 
 /**
@@ -45,6 +59,10 @@ export interface McpServer {
  */
 export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   const store = options.store ?? createLocalStore({ root: options.root });
+  const sessions = new SessionRegistry(options.root, {
+    autoHeartbeat: false,
+    ...(options.sessions ?? {})
+  });
 
   function callTool(
     name: string,
@@ -72,6 +90,12 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleStabilize(store, args as never);
       case "h2a_escalate":
         return handleEscalate(store, args as never);
+      case "h2a_session_open":
+        return handleSessionOpen(sessions, args as never);
+      case "h2a_session_close":
+        return handleSessionClose(sessions, args as never);
+      case "h2a_discover_sessions":
+        return handleDiscoverSessions(sessions, args as never);
       default:
         return { error: `unknown tool: ${name}` };
     }
@@ -79,6 +103,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
 
   return {
     listTools: () => H2A_CLI_MCP_TOOL_DESCRIPTORS.slice(),
-    callTool
+    callTool,
+    sessions
   };
 }

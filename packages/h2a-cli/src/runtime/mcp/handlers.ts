@@ -1,14 +1,20 @@
 import {
+  H2A_SESSION_NOTIFICATION_TOPICS,
+  H2A_SESSION_STATES,
   computeHash,
   signCanonical,
   type H2AActorRegistration,
   type H2AEnvelope,
   type H2AJournalPayload,
   type H2ANegotiationRecord,
-  type H2ARole
+  type H2ARole,
+  type H2ASessionInterests,
+  type H2ASessionNotificationTopic,
+  type H2ASessionState
 } from "@sentropic/h2a";
 
 import type { LocalStore } from "../local-files/store.js";
+import type { SessionRegistry } from "./sessions.js";
 
 export interface McpToolResult {
   [key: string]: unknown;
@@ -357,6 +363,103 @@ export function handleEscalate(
   try {
     const entry = store.appendNegotiationEvent(args.negotiationId, payload);
     return { entry };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+export function handleSessionOpen(
+  sessions: SessionRegistry,
+  args:
+    | {
+        instance?: string;
+        host?: string;
+        pid?: number;
+        interests?: Partial<H2ASessionInterests>;
+        subscribedTopics?: readonly string[];
+        sessionId?: string;
+      }
+    | undefined
+): McpToolResult | McpErrorResult {
+  if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_session_open: missing 'instance'" };
+  }
+  if (
+    args.subscribedTopics !== undefined &&
+    (!Array.isArray(args.subscribedTopics) ||
+      args.subscribedTopics.some(
+        (topic) =>
+          typeof topic !== "string" ||
+          !(H2A_SESSION_NOTIFICATION_TOPICS as readonly string[]).includes(topic)
+      ))
+  ) {
+    return {
+      error:
+        "h2a_session_open: 'subscribedTopics' must be a subset of the canonical topic list"
+    };
+  }
+  try {
+    const session = sessions.open({
+      instance: args.instance,
+      ...(args.host !== undefined ? { host: args.host } : {}),
+      ...(args.pid !== undefined ? { pid: args.pid } : {}),
+      ...(args.interests !== undefined ? { interests: args.interests } : {}),
+      ...(args.subscribedTopics !== undefined
+        ? {
+            subscribedTopics: args.subscribedTopics as readonly H2ASessionNotificationTopic[]
+          }
+        : {}),
+      ...(args.sessionId !== undefined ? { sessionId: args.sessionId } : {})
+    });
+    const peers = sessions
+      .scanFresh()
+      .filter((peer) => peer.sessionId !== session.sessionId);
+    return { session, peers };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+export function handleSessionClose(
+  sessions: SessionRegistry,
+  args: { sessionId?: string; state?: H2ASessionState } | undefined
+): McpToolResult | McpErrorResult {
+  if (!args || typeof args.sessionId !== "string" || args.sessionId.length === 0) {
+    return { error: "h2a_session_close: missing 'sessionId'" };
+  }
+  if (
+    args.state !== undefined &&
+    !H2A_SESSION_STATES.includes(args.state)
+  ) {
+    return {
+      error: `h2a_session_close: unknown state '${String(args.state)}'`
+    };
+  }
+  try {
+    const closed = sessions.close(args.sessionId, args.state ?? "closed");
+    return { ok: true, sessionId: args.sessionId, session: closed };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+export function handleDiscoverSessions(
+  sessions: SessionRegistry,
+  args: { scope?: string; instance?: string } | undefined
+): McpToolResult | McpErrorResult {
+  try {
+    let fresh = sessions.scanFresh();
+    if (args?.scope) {
+      const wanted = args.scope;
+      fresh = fresh.filter((session) =>
+        session.interests.scopes.includes(wanted)
+      );
+    }
+    if (args?.instance) {
+      const wanted = args.instance;
+      fresh = fresh.filter((session) => session.instance === wanted);
+    }
+    return { sessions: fresh };
   } catch (err) {
     return safeError(err);
   }

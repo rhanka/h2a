@@ -797,3 +797,34 @@ Le vocabulaire core (`@sentropic/h2a`, `packages/h2a/src/session.ts`) expose :
 **Pourquoi** : (a) sans **séparation INSTANCE / SESSION**, on confondait identité durable et présence transitoire — un crash de process figeait le registry ; (b) sans **heartbeat**, aucun moyen de détecter qu'un peer est mort sans daemon central, ce qui aurait cassé la promesse "pas de service central" (cohérente avec DEC-032) ; (c) figer les **topics de notification** dans la couche PROTOCOL permet aux implémentations alternatives (autre transport, autre langage) de respecter la même surface ; (d) garder le vocabulaire dans `@sentropic/h2a` (pur, sans I/O) découple la spec du runtime — c'est ce que fait déjà DEC-040 / DEC-041 pour escalade / ABC.
 
 **Conséquence** : (a) DEC-051 implémentera le **producteur de présence file-based** + verbe MCP `h2a_session_open` / `h2a_session_close` ; (b) DEC-052 implémentera la **dispatch de notifications JSON-RPC push** côté `mcp-serve` ; (c) DEC-053 ajoutera un **test cross-process réel** avec deux `mcp-serve` qui se découvrent et s'envoient des notifications ; (d) `h2a_register_instance` reste valide comme primitive bas niveau pour les usages CLI non interactifs (scripts batch, init).
+
+## DEC-051 — Producteur de présence + outils MCP de session
+**Date** : 2026-05-23. **Réfère** : DEC-031, DEC-032, DEC-036, DEC-050, WP-20, WP-40.
+
+**Décision** : implémenter le producteur de présence file-based défini par DEC-050, exposé comme trois nouveaux outils MCP dans `@sentropic/h2a-cli`. Surface livrée :
+
+- **Stockage** : nouveau répertoire `<root>/.h2a/presence/<sessionId>.json` (un fichier par session). Chaque fichier porte un `H2ASession` sérialisé. L'écriture passe par un fichier temporaire puis `rename` pour rester atomique vis-à-vis des lecteurs concurrents. Path helper public `presenceFile(paths, sid)`.
+- **Module `runtime/local-files/presence.ts`** :
+  - `writePresence(root, session)` — validation `isH2ASession` + écriture atomique.
+  - `readPresence(root, sid)` — undefined si absent ou malformé.
+  - `updatePresence(root, sid, { heartbeatAt?, state? })` — read+merge+write.
+  - `deletePresence(root, sid)` — idempotent (ENOENT toléré).
+  - `listPresence(root, { now?, expiryMs?, includeExpired? })` — lit tout le répertoire, filtre par fraîcheur, et **balaye les fichiers expirés** comme effet de bord (les fichiers stale disparaissent au prochain scan).
+- **Module `runtime/mcp/sessions.ts` — `SessionRegistry`** :
+  - en mémoire, scope process. Une instance par `createMcpServer` (le stdio transport active `autoHeartbeat: true` ; les tests in-process gardent `autoHeartbeat: false`).
+  - `open(request)` génère un `sessionId` UUID-like (`sess:<hex>`), écrit la présence à `state: "live"`, démarre un `setInterval(touch, heartbeatIntervalMs)` unref'é.
+  - `close(sid, finalState = "closed")` arrête le timer, écrit l'état final, puis supprime le fichier si terminal.
+  - `touch(sid)` met à jour `heartbeatAt` à `now`.
+  - `scanFresh(now)` délègue à `listPresence` avec l'expiry du registry.
+  - `closeAll()` ferme proprement toutes les sessions au shutdown.
+- **Trois nouveaux outils MCP** (port `H2A_CLI_MCP_TOOL_NAMES` passe de 10 à 13) :
+  - `h2a_session_open({ instance, host?, pid?, interests?, subscribedTopics?, sessionId? })` → `{ session, peers }`. Les `subscribedTopics` non canoniques sont refusés. Les peers retournés sont la liste fraîche au moment de l'ouverture (utile pour bootstrap).
+  - `h2a_session_close({ sessionId, state? })` → `{ ok, sessionId, session }`. États finaux acceptés : `closed`, `draining`, `expired`.
+  - `h2a_discover_sessions({ scope?, instance? })` → `{ sessions }` — liste des peers actuellement frais, filtrée.
+- **Shutdown hook stdio** : `runMcpStdio` appelle `server.sessions.closeAll("closed")` quand stdin atteint EOF ou en cas d'erreur, donc une session se ferme proprement à la fermeture du CLI hôte (Claude/Codex/Gemini qui termine).
+
+**Décision (statut machine)** : `H2A_CLI_MCP_TOOL_NAMES` ajoute 3 entrées (ordering stable, append-only). `H2A_CLI_MCP_TOOL_DESCRIPTORS` les expose avec JSON schema permissif. Aucun changement breaking sur les 10 outils existants.
+
+**Pourquoi** : (a) garder le format de fichier dérivable du vocabulaire core (DEC-050) plutôt qu'un schéma ad-hoc côté CLI ; (b) un fichier par session évite toute contention d'écriture (le propriétaire est unique), donc pas besoin de lock pour ce point précis — l'invariant DEC-036 reste pertinent ailleurs ; (c) le sweep automatique dans `listPresence` évite l'accumulation indéfinie de fichiers morts sans daemon central ; (d) l'unref du timer évite que le heartbeat ne maintienne le process Node en vie après la fermeture de stdin.
+
+**Conséquence** : (a) un agent peut maintenant savoir qui est *live*, pas juste qui a un jour appelé `register` ; (b) DEC-052 peut s'appuyer sur cette infrastructure pour pousser des notifications quand quelque chose change ; (c) le shutdown hook stdio garantit qu'une fermeture propre du CLI hôte n'orphelinise pas la présence ; (d) un crash ungraceful laisse la présence sur disque, mais le scan TTL la balaye au prochain `scanFresh` d'un autre peer ; (e) un patch release `0.1.14` peut suivre.
