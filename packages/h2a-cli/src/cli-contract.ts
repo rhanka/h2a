@@ -262,6 +262,53 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     optionalFlags: ["host"],
     description:
       "Report each host's wave + adapter/setup/scenario-shipped flags (DEC-037/044). Output is `{ ok: true, hosts: [{host, wave, mcpAdapterShipped, hostSetupShipped, hostScenarioShipped, summary}] }`. Filter to a single host with `--host <name>`; unknown host → exit 1."
+  },
+
+  // --- high-level coordination (DEC-054) ---
+  {
+    verb: "connect",
+    outputShape: "action",
+    exitCodes: [0, 1, 3],
+    requiredFlags: ["host"],
+    optionalFlags: ["root", "instance"],
+    description:
+      "Bootstrap a coordinated session: ensures the local store under --root, picks an instance id, renders the host MCP snippet, and prints follow-up steps (key generation + skill install). DEC-054."
+  },
+  {
+    verb: "doctor",
+    outputShape: "action",
+    exitCodes: [0, 2, 3],
+    requiredFlags: [],
+    optionalFlags: ["root"],
+    description:
+      "Run a health check on the shared root: existence, schema sentinel version, live presence count. Returns `ok:false` (exit 2) if any check fails. DEC-054."
+  },
+  {
+    verb: "sessions",
+    outputShape: "list",
+    exitCodes: [0, 3],
+    requiredFlags: [],
+    optionalFlags: ["root", "scope", "instance"],
+    description:
+      "List currently-live h2a sessions (CLI mirror of the MCP h2a_discover_sessions tool). Reads presence files, filters by freshness. DEC-054."
+  },
+  {
+    verb: "keys generate",
+    outputShape: "action",
+    exitCodes: [0, 1, 3],
+    requiredFlags: ["instance"],
+    optionalFlags: ["root", "out"],
+    description:
+      "Generate an ed25519 PEM keypair for an instance (PKCS#8 private, SPKI public). Default output directory is <root>/keys/. Returns the on-disk paths and the public PEM. DEC-054."
+  },
+  {
+    verb: "install-skills",
+    outputShape: "action",
+    exitCodes: [0, 1, 2, 3],
+    requiredFlags: ["host"],
+    optionalFlags: ["scope", "force"],
+    description:
+      "Copy the h2a skill markdown bundle to the host's skill directory (Claude only in 0.1.17). `--scope user` (default) targets `~/.claude/skills/`; `--scope project` targets `<cwd>/.claude/skills/`. Pre-existing skill files are skipped unless `--force` is set. DEC-054."
   }
 ] as const;
 

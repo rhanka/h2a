@@ -385,6 +385,34 @@ function buildHappyArgv(verb, ctx) {
       return ["host", "status"];
     case "store migrate":
       return ["store", "migrate", "--root", root];
+    case "connect":
+      return ["connect", "--host", "claude", "--root", root, "--instance", "claude:contract"];
+    case "doctor":
+      return ["doctor", "--root", root];
+    case "sessions":
+      return ["sessions", "--root", root];
+    case "keys generate":
+      return [
+        "keys",
+        "generate",
+        "--instance",
+        "req-001",
+        "--root",
+        root,
+        "--out",
+        join(root, "..", "contract-keys")
+      ];
+    case "install-skills":
+      // Use project scope into a temp subdir so the test stays hermetic and
+      // never writes under ~/.claude.
+      return [
+        "install-skills",
+        "--host",
+        "claude",
+        "--scope",
+        "project",
+        "--force"
+      ];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -416,7 +444,12 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "mcp-serve",
     "host setup",
     "host status",
-    "store migrate"
+    "store migrate",
+    "connect",
+    "doctor",
+    "sessions",
+    "keys generate",
+    "install-skills"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {

@@ -877,3 +877,42 @@ Un second test démontre la robustesse en cas d'arrêt **ungraceful** : Codex es
 **Pourquoi** : (a) sans test cross-process, on avait juste un argument théorique que "deux mcp-serve cooperate" — DEC-053 le démontre concrètement ; (b) la régression sur le SIGKILL aurait été indétectable in-process, et c'est exactement le mode d'échec qu'on veut couvrir pour des sessions agent CLI vivantes ; (c) les overrides via env vars gardent la surface CLI publique stable tout en permettant aux tests d'éviter d'attendre les 5+15s par défaut.
 
 **Conséquence** : (a) la promesse "Claude et Codex coopèrent" est désormais une réalité vérifiable, pas une affirmation ; (b) cette suite forme le squelette pour un test cross-CLI plus poussé (négociation complète, signatures, stabilisation) qui pourrait être ajouté plus tard sans changer l'infra ; (c) la suite des slices DEC-050..053 ferme le trou produit identifié à v0.1.12 ; (d) un patch release `0.1.16` peut suivre.
+
+## DEC-054 — Verbes haut niveau + skills Claude + tutoriel cross-CLI
+**Date** : 2026-05-23. **Réfère** : INTENTION (cas multi-CLI), DEC-034, DEC-037, DEC-049..053, WP-30, WP-40, WP-60.
+
+**Contexte** : à v0.1.16 le protocole et le runtime sont là, mais un utilisateur final qui installe `@sentropic/h2a-cli` doit lui-même composer 13 outils MCP pour démarrer une coopération. Le verbe `h2a host setup` connecte le binaire à l'hôte mais ne crée pas de session ni de clés ; et les agents (Claude, Codex, Gemini) n'ont aucune connaissance native de **quand** appeler les outils. C'est le trou UX que ferme cette slice.
+
+**Décision** : ajouter une couche d'ergonomie complète, en deux briques.
+
+### Brique 1 — Cinq verbes CLI haut niveau (orchestration)
+
+`H2A_CLI_VERB_CONTRACTS` passe de 23 à 28 entrées. Tous respectent DEC-034 (3 enveloppes JSON canoniques + codes de sortie 0/1/2/3).
+
+| Verbe | Shape | Exit codes | Rôle |
+|---|---|---|---|
+| `connect --host <h> [--root] [--instance]` | `action` | `0,1,3` | Bootstrap one-shot : `init` du store, génération d'un instance id par défaut (`<host>:<workspace>`), rendu du snippet MCP, plus les follow-up steps imprimés (génération de clé, install des skills). |
+| `doctor [--root]` | `action` | `0,2,3` | Health check : root accessible, schema sentinel v1, comptage des sessions live. `ok:false` (exit 2) si une check échoue. |
+| `sessions [--root] [--scope] [--instance]` | `list` | `0,3` | Lecture du dossier de présence (mirroir CLI de `h2a_discover_sessions`). |
+| `keys generate --instance <id> [--out] [--root]` | `action` | `0,1,3` | Génère une paire ed25519 (PKCS#8 PEM privée mode `0600`, SPKI PEM publique), nomme les fichiers depuis l'instance id avec `:` et `/` remplacés. |
+| `install-skills --host claude [--scope] [--force]` | `action` | `0,1,2,3` | Copie le bundle `packages/h2a-cli/skills/` vers `~/.claude/skills/` (`--scope user`, défaut) ou `<cwd>/.claude/skills/` (`--scope project`). Idempotent : les fichiers existants sont skippés sauf si `--force`. Périmètre V1 : Claude uniquement (Codex/Gemini ont d'autres conventions, voir gap ci-dessous). |
+
+### Brique 2 — Skills Claude (modèle graphify)
+
+Trois fichiers SKILL.md livrés dans la distribution du package :
+
+- `packages/h2a-cli/skills/h2a-connect/SKILL.md` : bootstrap pas-à-pas (vérif binaire → choix root → genkey → `h2a_session_open` → résumé).
+- `packages/h2a-cli/skills/h2a-discover/SKILL.md` : appelle `h2a_discover_sessions`, formate, filtre `self`.
+- `packages/h2a-cli/skills/h2a-send/SKILL.md` : compose un envelope, route via `h2a_inbox put`, modes de défaillance documentés.
+
+Le champ `files` de `package.json` inclut désormais `"skills"` pour que `npm publish` les emporte. `cli.ts` résout `SKILLS_DIR` via `import.meta.url` (relativement à `dist/cli.js`) pour rester portable quand le package est installé globalement.
+
+### Brique 3 — Tutoriel utilisateur
+
+`docs/tutorial-cross-cli.md` documente le parcours "Claude + Codex coopèrent en 5 min" de bout en bout, avec un schéma ASCII, les commandes exactes à taper, le mapping V1 vs V2 et une section troubleshooting.
+
+**Décision (statut machine)** : `H2A_CLI_VERB_CONTRACTS` étendu de 5 entrées (append-only). `cli-contract.test.js` est mis à jour avec les nouveaux verbes ; le test happy-path utilise `--scope project` sur `install-skills` pour rester hermétique. La matrice de compatibilité hôtes mentionne explicitement que le skill bundle est shipped pour Claude, deferred pour Codex/Gemini.
+
+**Pourquoi** : (a) la promesse "agent CLI coopère avec un autre agent CLI" ne peut pas se vérifier sans une couche d'ergonomie au-dessus des primitives MCP — DEC-050..053 ont mis les primitives, DEC-054 met l'orchestration ; (b) le modèle skill graphify est déjà familier aux utilisateurs Claude Code et bien intégré à l'UI ; (c) générer les clés est un point de friction réel — `keys generate` clos ce gap sans introduire de keyring ; (d) `doctor` rend l'état système diagnostiquable sans devoir inspecter le filesystem ; (e) le scope `--scope project` pour `install-skills` permet un usage repo-local sans toucher `~/.claude` (utile aux projets qui veulent versionner leurs skills).
+
+**Conséquence** : (a) un nouvel utilisateur passe de "install + 13 outils à composer" à "5 commandes lisibles" pour bootstrapper ; (b) le test `cli-contract.test.js` couvre les 28 verbes ; (c) Codex et Gemini restent sans skills dans 0.1.17 — un DEC-055 ou similaire couvrira leurs conventions de skill quand elles seront mieux comprises ; (d) le tutoriel rend visible le delta V1/V2 sans flou ; (e) un patch release `0.1.17` peut suivre.

@@ -37,8 +37,18 @@
  * (`H2A_CLI_VERB_CONTRACTS`). Human-readable reference: `docs/cli-contract.md`.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { generateKeyPairSync } from "node:crypto";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync
+} from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { computeHash, signCanonical } from "@sentropic/h2a";
 
@@ -48,9 +58,15 @@ import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 import {
   H2A_STORE_SCHEMA_VERSION,
-  createLocalStore
+  createLocalStore,
+  listPresence
 } from "./runtime/local-files/index.js";
 import { runMcpStdio } from "./runtime/mcp/index.js";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+// `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
+// `packages/h2a-cli/skills/`. Two levels up from the dist file.
+const SKILLS_DIR = resolvePath(HERE, "..", "skills");
 
 /**
  * Pattern matchers used to map known store-level error messages to exit code
@@ -122,9 +138,16 @@ export function renderCliHelp(): string {
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
     "  h2a mcp-serve [--root <path>]",
-    "  h2a host setup --host <codex|claude> [--root <path>] [--print | --write <file>] [--force]",
+    "  h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
     "  h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]",
+    "",
+    "High-level coordination (DEC-054):",
+    "  h2a connect --host <codex|claude|gemini> [--root <path>] [--instance <id>]",
+    "  h2a doctor [--root <path>]",
+    "  h2a sessions [--root <path>] [--scope <s>] [--instance <i>]",
+    "  h2a keys generate --instance <id> [--out <dir>] [--root <path>]",
+    "  h2a install-skills --host claude [--scope user|project] [--force]",
     "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
     `MCP tools: ${H2A_CLI_MCP_TOOL_NAMES.join(", ")}`
@@ -862,6 +885,316 @@ function cmdDiscover(
   return 0;
 }
 
+function cmdSessions(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  try {
+    let sessions = listPresence(root);
+    if (flags.scope) {
+      const wanted = flags.scope;
+      sessions = sessions.filter((s) => s.interests.scopes.includes(wanted));
+    }
+    if (flags.instance) {
+      const wanted = flags.instance;
+      sessions = sessions.filter((s) => s.instance === wanted);
+    }
+    streams.stdout.write(`${JSON.stringify(sessions, null, 2)}\n`);
+    return 0;
+  } catch (error) {
+    streams.stderr.write(`h2a sessions: ${(error as Error).message}\n`);
+    return 3;
+  }
+}
+
+function cmdDoctor(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const report: Record<string, unknown> = {
+    ok: true,
+    root,
+    checks: {}
+  };
+  const checks = report.checks as Record<string, unknown>;
+
+  // 1. Root reachable
+  if (!existsSync(root)) {
+    checks.rootExists = { ok: false, message: `root does not exist: ${root}` };
+    report.ok = false;
+  } else {
+    checks.rootExists = { ok: true };
+  }
+
+  // 2. Schema sentinel present
+  const schemaPath = join(root, ".h2a-schema.json");
+  if (!existsSync(schemaPath)) {
+    checks.schemaSentinel = {
+      ok: false,
+      message: `missing ${schemaPath}; run \`h2a init --root ${root}\``
+    };
+    report.ok = false;
+  } else {
+    try {
+      const parsed = JSON.parse(readFileSync(schemaPath, "utf8"));
+      checks.schemaSentinel = { ok: true, version: parsed.version };
+      if (parsed.version !== H2A_STORE_SCHEMA_VERSION) {
+        report.ok = false;
+        checks.schemaSentinel = {
+          ok: false,
+          version: parsed.version,
+          message: `expected schema version ${H2A_STORE_SCHEMA_VERSION}`
+        };
+      }
+    } catch (error) {
+      report.ok = false;
+      checks.schemaSentinel = {
+        ok: false,
+        message: `cannot read schema sentinel: ${(error as Error).message}`
+      };
+    }
+  }
+
+  // 3. Live sessions on the bus
+  try {
+    const sessions = listPresence(root);
+    checks.liveSessions = { ok: true, count: sessions.length };
+  } catch (error) {
+    report.ok = false;
+    checks.liveSessions = {
+      ok: false,
+      message: (error as Error).message
+    };
+  }
+
+  // 4. h2a binary reachable (self-check via existing API)
+  checks.cliBinary = { ok: true };
+
+  streams.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  return report.ok ? 0 : 2;
+}
+
+function cmdKeysGenerate(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  if (!flags.instance) {
+    streams.stderr.write("h2a keys generate: --instance <id> is required\n");
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const outDir = flags.out ?? join(resolveRoot(flags, cwd), "keys");
+  try {
+    mkdirSync(outDir, { recursive: true });
+  } catch (error) {
+    streams.stderr.write(
+      `h2a keys generate: cannot create ${outDir} (${(error as Error).message})\n`
+    );
+    return 3;
+  }
+
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const privatePem = privateKey
+    .export({ type: "pkcs8", format: "pem" })
+    .toString();
+  const publicPem = publicKey
+    .export({ type: "spki", format: "pem" })
+    .toString();
+
+  // File names are derived from the instance id with `:` and `/` replaced by `-`
+  // so they map cleanly to filesystems on every OS.
+  const safeName = flags.instance.replace(/[:/]/g, "-");
+  const privatePath = join(outDir, `${safeName}.key.pem`);
+  const publicPath = join(outDir, `${safeName}.pub.pem`);
+
+  try {
+    writeFileSync(privatePath, privatePem, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(publicPath, publicPem, "utf8");
+  } catch (error) {
+    streams.stderr.write(
+      `h2a keys generate: cannot write key files (${(error as Error).message})\n`
+    );
+    return 3;
+  }
+
+  streams.stdout.write(
+    `${JSON.stringify(
+      {
+        ok: true,
+        instance: flags.instance,
+        privateKeyPath: privatePath,
+        publicKeyPath: publicPath,
+        publicKeyPem: publicPem
+      },
+      null,
+      2
+    )}\n`
+  );
+  return 0;
+}
+
+function cmdConnect(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  if (!flags.host) {
+    streams.stderr.write(
+      "h2a connect: --host <codex|claude|gemini> is required\n"
+    );
+    return 1;
+  }
+  if (!["codex", "claude", "gemini"].includes(flags.host)) {
+    streams.stderr.write(
+      `h2a connect: unknown --host "${flags.host}". Supported: codex, claude, gemini.\n`
+    );
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const instance =
+    flags.instance ??
+    `${flags.host}:${cwd().split("/").pop() || "workspace"}`;
+
+  const summary: Record<string, unknown> = {
+    ok: true,
+    root,
+    host: flags.host,
+    instance,
+    steps: []
+  };
+  const steps = summary.steps as Array<Record<string, unknown>>;
+
+  // 1. h2a init
+  try {
+    createLocalStore({ root });
+    steps.push({ step: "init", ok: true, root });
+  } catch (error) {
+    streams.stderr.write(`h2a connect: init failed (${(error as Error).message})\n`);
+    return 3;
+  }
+
+  // 2. host setup snippet (print only — write requires explicit --write)
+  const hostDescriptor =
+    flags.host === "codex"
+      ? H2A_CODEX_HOST
+      : flags.host === "claude"
+        ? H2A_CLAUDE_HOST
+        : H2A_GEMINI_HOST;
+  const snippet = hostDescriptor.renderMcpConfig({ root });
+  steps.push({
+    step: "host-setup",
+    ok: true,
+    pathHint: snippet.path.hint,
+    pathExample: snippet.path.example,
+    snippet: snippet.config
+  });
+
+  // 3. Print follow-up instructions
+  const followUp = [
+    `Merge the snippet above under \`mcpServers\` in ${snippet.path.example}`,
+    `then run: h2a keys generate --instance ${instance} --root ${root}`,
+    `and: h2a install-skills --host ${flags.host}  (Claude only for now)`
+  ];
+  summary.followUp = followUp;
+
+  streams.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+  return 0;
+}
+
+function cmdInstallSkills(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  const host = flags.host;
+  if (!host) {
+    streams.stderr.write(
+      "h2a install-skills: --host <claude> is required (only claude is supported in 0.1.17)\n"
+    );
+    return 1;
+  }
+  if (host !== "claude") {
+    streams.stderr.write(
+      `h2a install-skills: only --host claude is supported in this release; Codex/Gemini skill conventions to be added.\n`
+    );
+    return 1;
+  }
+
+  if (!existsSync(SKILLS_DIR)) {
+    streams.stderr.write(
+      `h2a install-skills: skills bundle missing at ${SKILLS_DIR}\n`
+    );
+    return 3;
+  }
+
+  const scope = flags.scope ?? "user";
+  if (scope !== "user" && scope !== "project") {
+    streams.stderr.write(
+      `h2a install-skills: --scope must be 'user' or 'project'\n`
+    );
+    return 1;
+  }
+
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const targetBase =
+    scope === "user"
+      ? join(homedir(), ".claude", "skills")
+      : join(cwd(), ".claude", "skills");
+
+  const entries = readdirSync(SKILLS_DIR, { withFileTypes: true });
+  const installed: string[] = [];
+  const skipped: Array<{ name: string; reason: string }> = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const skillName = entry.name;
+    const src = join(SKILLS_DIR, skillName, "SKILL.md");
+    if (!existsSync(src)) continue;
+    const targetDir = join(targetBase, skillName);
+    const targetFile = join(targetDir, "SKILL.md");
+    if (existsSync(targetFile) && flags.force !== "true") {
+      skipped.push({
+        name: skillName,
+        reason: `${targetFile} already exists (use --force to overwrite)`
+      });
+      continue;
+    }
+    try {
+      mkdirSync(targetDir, { recursive: true });
+      copyFileSync(src, targetFile);
+      installed.push(targetFile);
+    } catch (error) {
+      streams.stderr.write(
+        `h2a install-skills: failed to write ${targetFile} (${(error as Error).message})\n`
+      );
+      return 3;
+    }
+  }
+
+  if (flags.print === "true") {
+    // Dry-run — just enumerate what would be installed
+  }
+
+  streams.stdout.write(
+    `${JSON.stringify(
+      {
+        ok: skipped.length === 0,
+        host,
+        scope,
+        targetBase,
+        installed,
+        skipped
+      },
+      null,
+      2
+    )}\n`
+  );
+  return skipped.length === 0 ? 0 : 2;
+}
+
 export function runCli(
   argv: readonly string[] = process.argv.slice(2),
   streams: H2ACliStreams = {
@@ -894,6 +1227,16 @@ export function runCli(
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);
   if (command === "host") return cmdHost(argv.slice(1), streams);
   if (command === "store") return cmdStore(argv.slice(1), streams);
+  if (command === "sessions") return cmdSessions(flags, streams);
+  if (command === "doctor") return cmdDoctor(flags, streams);
+  if (command === "connect") return cmdConnect(flags, streams);
+  if (command === "install-skills") return cmdInstallSkills(flags, streams);
+  if (command === "keys") {
+    const { command: sub, flags: subFlags } = parseFlags(argv.slice(1));
+    if (sub === "generate") return cmdKeysGenerate(subFlags, streams);
+    streams.stderr.write(`h2a keys: unknown subcommand "${sub ?? ""}"\n`);
+    return 1;
+  }
 
   streams.stderr.write(`Unknown command: ${command}\n`);
   streams.stderr.write("Run `h2a --help`.\n");

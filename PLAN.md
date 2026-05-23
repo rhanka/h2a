@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-23 (Release v0.1.16 published ; DEC-050..053 shipped ; session protocol + presence + push notifications + real cross-CLI integration test ; "Claude and Codex cooperate" is now verifiable, not aspirational)
+> Last update: 2026-05-23 (DEC-054 shipped ; high-level CLI verbs `connect`/`doctor`/`sessions`/`keys generate`/`install-skills` + 3 Claude skills + cross-CLI tutorial)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -96,6 +96,7 @@
 - [x] Implement `h2a negotiate sign` (ed25519 sign of canonical `{artifactHash}`, journal append)
 - [x] Implement `h2a negotiate stabilize` (verify signatures against registry publicKeys, quorum check, status→stabilized)
 - [x] Stabilize JSON output contracts and exit codes (DEC-034 : 3 enveloppes `resource`/`list`/`action` + codes 0/1/2/3 ; manifeste `H2A_CLI_VERB_CONTRACTS` + `docs/cli-contract.md`)
+- [x] High-level coordination verbs (`h2a connect`, `h2a doctor`, `h2a sessions`, `h2a keys generate`, `h2a install-skills`) + 3 Claude skills + tutorial — DEC-054
 
 ## Workpackage 40 - Host And Protocol Integrations (~95%)
 
