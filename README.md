@@ -1,37 +1,37 @@
 # h2a — Humans-to-Agents Coordination Protocol
 
-> **Pitch en une phrase** : un protocole et un binaire CLI pour faire **coopérer plusieurs CLI agentiques** (Claude Code, Codex, Gemini, autres) entre eux et avec des humains, à travers un système de **rôles, signatures, négociation et notifications** inspiré du fonctionnement d'une organisation réelle.
+> **One-line pitch**: a protocol and CLI binary that lets multiple agentic CLIs (Claude Code, Codex, Gemini, others) **cooperate** with each other and with humans, through a system of **roles, signatures, negotiation and notifications** inspired by how a real organization works.
 
 | | |
 |---|---|
-| **Packages publiés** | `@sentropic/h2a@0.1.19` (core), `@sentropic/h2a-cli@0.1.19` (binaire + serveur MCP + skills) |
-| **Licence** | MIT (DEC-027) |
-| **Statut** | V1 utilisable bout-en-bout : protocole + runtime local + 3 hôtes (Claude / Codex / Gemini) + skills. V2 (remote, auth transport, k8s) en cadrage. |
-| **Quickstart** | `npm i -g @sentropic/h2a-cli` puis voir [§Démarrage en 5 minutes](#démarrage-en-5-minutes). |
+| **Published packages** | `@sentropic/h2a@0.1.19` (core), `@sentropic/h2a-cli@0.1.19` (CLI binary + MCP server + skills) |
+| **License** | MIT (DEC-027) |
+| **Status** | V1 end-to-end usable: protocol + local runtime + 3 hosts (Claude / Codex / Gemini) + skills. V2 (remote transport, transport auth, k8s) under design. |
+| **Quickstart** | `npm i -g @sentropic/h2a-cli`, then see [§5-minute getting started](#5-minute-getting-started). |
 
 ---
 
-## Pourquoi h2a existe
+## Why h2a exists
 
-Quand plusieurs CLI agentiques (Claude Code, Codex, Gemini…) sont utilisés ensemble pour faire avancer un même projet, **aucun d'eux ne sait que les autres existent**. Chacun parle à son humain ; aucune mémoire partagée ; aucune négociation entre agents ; aucune trace contractuelle de ce qui a été décidé.
+When several agentic CLIs (Claude Code, Codex, Gemini, …) are used together to push the same project forward, **none of them knows the others exist**. Each talks to its own human; no shared memory; no negotiation between agents; no contractual trace of what was agreed.
 
-h2a comble ce trou. Trois besoins, traités comme un seul protocole :
+h2a fills that gap. Three needs, treated as a single protocol:
 
-1. **Multi-agents** — Claude et Codex doivent pouvoir se découvrir, s'envoyer des messages, négocier un livrable signé, sans dépendre d'un service central.
-2. **Multi-humains** — un développeur est le PRINCIPAL de sa propre mini-organisation, et peut aussi participer à une organisation plus large (équipe, fédération, recours public). h2a modélise les deux.
-3. **Human-in-the-loop** — un humain peut reprendre la main sur un AGENT ou un CONDUCTOR à tout moment ; l'escalade vers une autorité de scope (PRINCIPAL, CONTROL, autorité externe, recours) est une primitive du protocole.
+1. **Multi-agent** — Claude and Codex must be able to discover each other, exchange messages, negotiate a signed deliverable, without depending on any central service.
+2. **Multi-human** — a developer is the PRINCIPAL of their own mini-organization, and can also participate in a larger organization (team, federation, public-authority recourse). h2a models both.
+3. **Human-in-the-loop** — a human can take over an AGENT or a CONDUCTOR at any moment; escalation toward a scope authority (PRINCIPAL, CONTROL, external authority, recourse) is a first-class protocol primitive.
 
-Le tout sans inventer une couche de gouvernance cachée : V1 **déclare** les profils (disclosure, recours, juridiction, obligations récurrentes, précédence de policy) et **escalade** les conflits — sans résolveur automatique. Voir [INTENTION.md](./INTENTION.md) pour la formulation originale.
+All of this without inventing a hidden governance engine: V1 **declares** the profiles (disclosure, recourse, jurisdiction, recurring obligations, policy precedence) and **escalates** conflicts — there is no automatic resolver. See [INTENTION.md](./INTENTION.md) for the original brief.
 
 ---
 
-## Modèle mental en deux schémas
+## Mental model in two diagrams
 
-### 1. Comment les CLI coopèrent
+### 1. How the CLIs cooperate
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│                       Machine du développeur                     │
+│                       Developer's machine                        │
 │                                                                  │
 │   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
 │   │ Claude Code  │    │  Codex CLI   │    │  Gemini CLI  │       │
@@ -41,14 +41,14 @@ Le tout sans inventer une couche de gouvernance cachée : V1 **déclare** les pr
 │   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐       │
 │   │ h2a mcp-serve│    │ h2a mcp-serve│    │ h2a mcp-serve│       │
 │   │  (subprocess │    │  (subprocess │    │  (subprocess │       │
-│   │   du CLI)    │    │   du CLI)    │    │   du CLI)    │       │
+│   │   of the CLI)│    │   of the CLI)│    │   of the CLI)│       │
 │   └──────┬───────┘    └──────┬───────┘    └──────┬───────┘       │
 │          │                    │                    │             │
 │          └────────────────────┴────────────────────┘             │
 │                               │                                  │
 │                               ▼                                  │
 │              ┌────────────────────────────────┐                  │
-│              │     <root>/.h2a/  (le bus)     │                  │
+│              │     <root>/.h2a/  (the bus)    │                  │
 │              │                                │                  │
 │              │  registry/instances.jsonl     │                  │
 │              │  presence/<sid>.json          │                  │
@@ -59,110 +59,110 @@ Le tout sans inventer une couche de gouvernance cachée : V1 **déclare** les pr
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Les trois CLI ne se parlent jamais directement. Ils écrivent et lisent dans un dossier `.h2a/` partagé, via leur propre instance du serveur MCP `h2a mcp-serve` (un subprocess spawné par chaque CLI hôte). Le **format des fichiers EST le protocole** — chaque ligne d'un journal est une entrée signée chaînée, chaque enveloppe d'inbox est un message routé, chaque fichier de présence est un battement de cœur.
+The three CLIs never talk to each other directly. They read and write a shared `.h2a/` directory, each through its own instance of the `h2a mcp-serve` MCP server (a subprocess spawned by every host CLI). The **file layout IS the protocol** — every journal line is a signed chained entry, every inbox envelope is a routed message, every presence file is a heartbeat.
 
-### 2. La pile contractuelle (DEC-010)
+### 2. The contractual stack (DEC-010)
 
 ```
-INTENTION    le pourquoi             → INTENTION.md (verbatim utilisateur)
+INTENTION    the why                  → INTENTION.md (user verbatim)
    │
    ▼
-SPÉCIFICATION  exigences mesurables  → SPEC.md (REQ-NNN)
+SPECIFICATION  measurable requirements → SPEC.md (REQ-NNN)
    │
    ▼
-ARTEFACTS    ce qui lie              → CONTRACT, POLICY, ENGAGEMENT,
-   │         (signés ed25519,          MANDATE, AUTHORITY, SIGNATURE,
-   │          canonical JSON hash)     AMENDMENT, ENFORCEMENT_PLAN
+ARTIFACTS    what binds                → CONTRACT, POLICY, ENGAGEMENT,
+   │         (ed25519-signed,            MANDATE, AUTHORITY, SIGNATURE,
+   │          canonical JSON + hash)     AMENDMENT, ENFORCEMENT_PLAN
    ▼
-ENFORCEMENT  l'application           → ENFORCEMENT_PLAN, escalations,
-             (qui décide quoi          recourse, controlled disclosure
-              dans quel scope)
+ENFORCEMENT  the application           → ENFORCEMENT_PLAN, escalations,
+             (who decides what in        recourse, controlled disclosure
+              which scope)
 ```
 
-Les rôles cardinaux : **PRINCIPAL** (l'humain ultime), **EXECUTIF** (responsabilité d'ensemble), **CONDUCTOR** (pilote un cheptel d'agents), **AGENTS** (les CLI), **CONTROL** (fonctions transverses : cyber, finance, éthique, legal, qualité), **MANDATAIRE** (présentateur neutre, jamais arbitre). Voir [VOCABULARY.md](./VOCABULARY.md).
+The cardinal roles: **PRINCIPAL** (the ultimate human), **EXECUTIF** (overall responsibility), **CONDUCTOR** (drives a herd of agents), **AGENTS** (the CLIs), **CONTROL** (cross-cutting functions: cyber, finance, ethics, legal, quality), **MANDATAIRE** (neutral presenter, never arbitrator). See [VOCABULARY.md](./VOCABULARY.md).
 
 ---
 
-## Démarrage en 5 minutes
+## 5-minute getting started
 
 ```bash
-# 1. Installer
+# 1. Install
 npm i -g @sentropic/h2a-cli@latest
 
-# 2. Bootstrap pour chaque CLI hôte (à faire une seule fois par machine)
+# 2. Bootstrap each host CLI (do this once per machine)
 h2a connect --host claude --root ~/h2a-workspace/.h2a --instance claude:demo
 h2a connect --host codex  --root ~/h2a-workspace/.h2a --instance codex:demo
 h2a connect --host gemini --root ~/h2a-workspace/.h2a --instance gemini:demo
-# … puis fusionner les snippets MCP imprimés dans la config de chaque CLI
+# … then merge the printed MCP snippets into each CLI's config
 
-# 3. Générer une clé de signature par instance
+# 3. Generate a signing key per instance
 h2a keys generate --instance claude:demo --root ~/h2a-workspace/.h2a
 h2a keys generate --instance codex:demo  --root ~/h2a-workspace/.h2a
 
-# 4. Installer la skill `/h2a` dans chaque CLI hôte
+# 4. Install the `/h2a` skill into each host CLI
 h2a install-skills --host claude --scope user
 h2a install-skills --host codex  --scope user
 h2a install-skills --host gemini --scope user
 ```
 
-Ensuite, dans chaque CLI :
+Then, inside each CLI:
 
 ```
-/h2a                          ← raccourci pour /h2a status
-/h2a connect                  ← ouvre une session live dans la conversation
-/h2a discover                 ← liste les peers en ligne
-/h2a send codex:demo "hi"     ← envoie un message
-/h2a receive                  ← lit l'inbox + réagit aux notifications push
-/h2a negotiate open ...       ← démarre une négociation signée
-/h2a help                     ← carte des commandes
+/h2a                          ← shortcut for /h2a status
+/h2a connect                  ← opens a live session in this conversation
+/h2a discover                 ← lists peers currently online
+/h2a send codex:demo "hi"     ← sends a message
+/h2a receive                  ← reads inbox + reacts to push notifications
+/h2a negotiate open ...       ← starts a signed negotiation
+/h2a help                     ← command map
 ```
 
-**Guide complet pas-à-pas** : [`docs/tutorial-cross-cli.md`](./docs/tutorial-cross-cli.md). Il couvre la mise en place, les modes d'échec courants, et le mapping V1/V2.
+**Full step-by-step guide**: [`docs/tutorial-cross-cli.md`](./docs/tutorial-cross-cli.md). It covers setup, common failure modes, and the V1/V2 mapping.
 
 ---
 
-## Ce qui est livré (V1) vs ce qui ne l'est pas
+## What is shipped (V1) vs what is not
 
-| Capacité | V1 (état actuel) | V2 / différé |
+| Capability | V1 (current state) | V2 / deferred |
 |---|---|---|
-| Transport local-files (`<root>/.h2a/`) | ✅ shipped | — |
-| Serveur MCP stdio (13 outils JSON-RPC 2.0) | ✅ shipped | — |
-| Adapter Codex / Claude Code / Gemini | ✅ shipped (DEC-049) | — |
-| Skill `/h2a` consolidée pour les 3 hôtes | ✅ shipped (DEC-057) | — |
-| Session protocol : présence + heartbeat + push notifications | ✅ shipped (DEC-050..053) | — |
-| Signatures ed25519 + canonical JSON + journal chaîné | ✅ shipped (DEC-035) | — |
-| Profils ABC déclaratifs : disclosure, recours, obligations récurrentes, juridiction, précédence | ✅ shipped (DEC-045..048) | résolveurs automatiques (V2) |
-| Cross-machine (`@sentropic/remote`) | ❌ pas commencé | V2 (`@sentropic/h2a-remote` candidat) |
-| Auth de transport (mTLS / bearer signé) | ❌ V1 sans (DEC-032) | V2 |
-| SUBAGENTS first-class (adressables individuellement) | ❌ V1 consolidés dans l'AGENT | V2 (DEC-008) |
-| Key management UX (rotation, keyring) | ❌ PEM manuel via `h2a keys generate` | V2 candidat |
-| Déploiement Kubernetes (sidecar / tenant / broker) | 🟡 instruit dans [docs/instruction-k8s-and-remote-controle-interop.md](./docs/instruction-k8s-and-remote-controle-interop.md) (DEC-056) | DEC-057+ |
+| Local-files transport (`<root>/.h2a/`) | ✅ shipped | — |
+| MCP stdio server (13 JSON-RPC 2.0 tools) | ✅ shipped | — |
+| Codex / Claude Code / Gemini adapters | ✅ shipped (DEC-049) | — |
+| Consolidated `/h2a` skill for the 3 hosts | ✅ shipped (DEC-057) | — |
+| Session protocol: presence + heartbeat + push notifications | ✅ shipped (DEC-050..053) | — |
+| ed25519 signatures + canonical JSON + chained journal | ✅ shipped (DEC-035) | — |
+| Declarative ABC profiles: disclosure, recourse, recurring obligations, jurisdiction, precedence | ✅ shipped (DEC-045..048) | automatic resolvers (V2) |
+| Cross-machine (`@sentropic/remote`) | ❌ not started | V2 (`@sentropic/h2a-remote` candidate) |
+| Transport auth (mTLS / signed bearer) | ❌ V1 has none (DEC-032) | V2 |
+| First-class SUBAGENTS (individually addressable) | ❌ V1 consolidates them into AGENT | V2 (DEC-008) |
+| Key management UX (rotation, keyring) | ❌ manual PEM via `h2a keys generate` | V2 candidate |
+| Kubernetes deployment (sidecar / tenant / broker) | 🟡 sketched in [docs/instruction-k8s-and-remote-controle-interop.md](./docs/instruction-k8s-and-remote-controle-interop.md) (DEC-056) | DEC-057+ |
 
-V1 dit ce qu'on a le droit d'utiliser et trace tout. V1 n'arbitre **jamais** un conflit à la place d'une autorité humaine — c'est volontaire (REQ-054).
+V1 declares what is permitted and traces everything. V1 **never** arbitrates a conflict in place of a human authority — that is by design (REQ-054).
 
 ---
 
-## Surface CLI (référence)
+## CLI surface (reference)
 
 ```
 h2a --help
 h2a hosts
 h2a mcp-tools
 
-# Setup haut niveau (DEC-054)
+# High-level coordination (DEC-054)
 h2a connect --host <codex|claude|gemini> [--root <path>] [--instance <id>]
 h2a doctor [--root <path>]
 h2a sessions [--root <path>] [--scope <s>] [--instance <i>]
 h2a keys generate --instance <id> [--out <dir>] [--root <path>]
 h2a install-skills --host <claude|codex|gemini> [--scope user|project] [--force]
 
-# Runtime local-files (store sous <root>/.h2a, DEC-031)
+# Local-files runtime (store under <root>/.h2a, DEC-031)
 h2a init [--root <path>]
 h2a register --json <registration-json> [--root <path>]
 h2a discover [--role <role>] [--scope <scope>] [--root <path>]
 
-# Négociation (offer/counter/sign/event acceptent --causation-id / --correlation-id ;
-# par défaut, chaque événement hérite de l'événement précédent — DEC-033)
+# Negotiation (offer/counter/sign/event accept --causation-id / --correlation-id;
+# by default, each event inherits from the previous one — DEC-033)
 h2a negotiate open --json <record-json> [--root <path>]
 h2a negotiate status --id <id> --status <status> [--root <path>]
 h2a negotiate event --id <id> --json <payload-json> [...] [--root <path>]
@@ -179,39 +179,39 @@ h2a inbox pop --instance <id> --envelope <id> [--root <path>]
 h2a outbox put --instance <id> --json <envelope> [--root <path>]
 h2a outbox read --instance <id> [--root <path>]
 
-# Maintenance du store
+# Store maintenance
 h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]
 
-# MCP server (JSON-RPC 2.0 sur stdio, DEC-026 + DEC-051/052)
+# MCP server (JSON-RPC 2.0 over stdio, DEC-026 + DEC-051/052)
 h2a mcp-serve [--root <path>]
 
-# Host wiring (snippets MCP pour chaque hôte)
+# Host wiring (MCP snippets for each host)
 h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]
 h2a host status [--host <name>]
 ```
 
-Tout verbe JSON suit une des trois enveloppes canoniques (`resource` / `list` / `action`) avec table de codes de sortie `0 / 1 / 2 / 3`. Contrat machine-readable : `H2A_CLI_VERB_CONTRACTS` (`packages/h2a-cli/src/cli-contract.ts`). Référence humaine : [`docs/cli-contract.md`](./docs/cli-contract.md).
+Every JSON-emitting verb follows one of three canonical envelopes (`resource` / `list` / `action`) with an exit-code table `0 / 1 / 2 / 3`. Machine-readable contract: `H2A_CLI_VERB_CONTRACTS` (`packages/h2a-cli/src/cli-contract.ts`). Human-readable reference: [`docs/cli-contract.md`](./docs/cli-contract.md).
 
 ---
 
-## Outils MCP exposés par `mcp-serve`
+## MCP tools exposed by `mcp-serve`
 
-13 outils JSON-RPC 2.0 stdio, consommés par les CLI hôtes via leur config `mcpServers.h2a` :
+13 JSON-RPC 2.0 stdio tools, consumed by host CLIs via their `mcpServers.h2a` config:
 
-| Famille | Outils |
+| Family | Tools |
 |---|---|
 | Registry | `h2a_register_instance`, `h2a_discover_instances` |
 | Session (DEC-051) | `h2a_session_open`, `h2a_session_close`, `h2a_discover_sessions` |
-| Négociation | `h2a_open_negotiation`, `h2a_offer`, `h2a_counteroffer`, `h2a_sign`, `h2a_stabilize`, `h2a_append_journal`, `h2a_escalate` |
+| Negotiation | `h2a_open_negotiation`, `h2a_offer`, `h2a_counteroffer`, `h2a_sign`, `h2a_stabilize`, `h2a_append_journal`, `h2a_escalate` |
 | Mailbox | `h2a_inbox` (`read` / `put` / `pop`) |
 
-Plus un canal de **notifications push** (`notifications/h2a`) sur 4 topics (DEC-052) : `presence.peer_joined`, `presence.peer_left`, `inbox.envelope_arrived`, `negotiation.event_appended`. Les sessions s'abonnent à un sous-ensemble via `h2a_session_open`.
+Plus a **push notification channel** (`notifications/h2a`) on 4 topics (DEC-052): `presence.peer_joined`, `presence.peer_left`, `inbox.envelope_arrived`, `negotiation.event_appended`. Sessions subscribe to a subset via `h2a_session_open`.
 
 ---
 
-## Exemple runnable
+## Runnable example
 
-[`examples/principal-conductors/`](./examples/principal-conductors/) — démo de bout en bout du cas **1 PRINCIPAL / 15 CONDUCTORS** : génère 16 paires ed25519, enregistre les 16 instances, ouvre une négociation avec quorum 3 sur 15, signe et stabilise, et finit en interrogeant le serveur MCP en JSON-RPC sur stdio.
+[`examples/principal-conductors/`](./examples/principal-conductors/) — end-to-end demo of the **1 PRINCIPAL / 15 CONDUCTORS** case: generates 16 ed25519 keypairs, registers the 16 instances, opens a negotiation with a 3-of-15 quorum, signs and stabilizes, and finishes by querying the MCP server in JSON-RPC over stdio.
 
 ```bash
 ./examples/principal-conductors/run.sh   # build + run
@@ -219,37 +219,39 @@ Plus un canal de **notifications push** (`notifications/h2a`) sur 4 topics (DEC-
 
 ---
 
-## Documents de référence
+## Reference documents
 
-| Document | Rôle |
+| Document | Role |
 |---|---|
-| [INTENTION.md](./INTENTION.md) | Verbatim utilisateur initial + reformulation narrative |
-| [SPEC.md](./SPEC.md) | Exigences mesurables `REQ-NNN` |
-| [VOCABULARY.md](./VOCABULARY.md) | Vocabulaire canonique (figé V1.x) |
-| [DECISIONS.md](./DECISIONS.md) | Journal append-only des `DEC-NNN` (modèle, runtime, host, governance) |
-| [PLAN.md](./PLAN.md) | Plan de pilotage projet, workpackages, état |
-| [EVALUATIONS.md](./EVALUATIONS.md) | Évaluations de compatibilité avec ABC (entreprise / écosystème / public) |
-| [RUNTIME_PROPOSAL.md](./RUNTIME_PROPOSAL.md) | Proposition runtime minimale d'origine |
-| [docs/cli-contract.md](./docs/cli-contract.md) | Contrat CLI verbe-par-verbe (DEC-034) |
-| [docs/compatibility-matrix.md](./docs/compatibility-matrix.md) | Matrice de compatibilité hôtes (DEC-037) |
-| [docs/release.md](./docs/release.md) | Procédure de release + notes de sécurité |
-| [docs/tutorial-cross-cli.md](./docs/tutorial-cross-cli.md) | **Tutoriel Claude + Codex + Gemini en 5 min** |
-| [docs/instruction-k8s-and-remote-controle-interop.md](./docs/instruction-k8s-and-remote-controle-interop.md) | Note d'instruction K8s + interop `@sentropic/remote-controle` (DEC-056) |
-| [handover.md](./handover.md) | Prompt de handover pour une session Claude |
+| [INTENTION.md](./INTENTION.md) | Initial user verbatim + narrative rewrite |
+| [SPEC.md](./SPEC.md) | Measurable requirements `REQ-NNN` |
+| [VOCABULARY.md](./VOCABULARY.md) | Canonical vocabulary (frozen V1.x) |
+| [DECISIONS.md](./DECISIONS.md) | Append-only journal of `DEC-NNN` (model, runtime, host, governance) |
+| [PLAN.md](./PLAN.md) | Project plan, workpackages, status |
+| [EVALUATIONS.md](./EVALUATIONS.md) | ABC compatibility evaluations (enterprise / ecosystem / public-authority) |
+| [RUNTIME_PROPOSAL.md](./RUNTIME_PROPOSAL.md) | Original minimal-runtime proposal |
+| [docs/cli-contract.md](./docs/cli-contract.md) | CLI contract, verb by verb (DEC-034) |
+| [docs/compatibility-matrix.md](./docs/compatibility-matrix.md) | Host compatibility matrix (DEC-037) |
+| [docs/release.md](./docs/release.md) | Release procedure + security notes |
+| [docs/tutorial-cross-cli.md](./docs/tutorial-cross-cli.md) | **Claude + Codex + Gemini in 5 minutes** |
+| [docs/instruction-k8s-and-remote-controle-interop.md](./docs/instruction-k8s-and-remote-controle-interop.md) | K8s deployment + `@sentropic/remote-controle` interop note (DEC-056) |
+| [handover.md](./handover.md) | Handover prompt for a Claude session |
+
+> Some reference documents (`INTENTION.md`, `SPEC.md`, `VOCABULARY.md`, `DECISIONS.md`) remain in French because they capture the original user verbatim and the append-only DEC log. New content in this repository targets English by default; existing French content is preserved as-is and not retroactively translated.
 
 ---
 
-## Conventions de contribution
+## Contribution conventions
 
-- Toute nouvelle exigence → ajouter dans `SPEC.md` (numérotation continue `REQ-NNN`).
-- Toute nouvelle décision → ajouter dans `DECISIONS.md` (numérotation continue `DEC-NNN`, append-only).
-- Tout renommage de concept → nouvelle DEC + bump version de `VOCABULARY.md`.
-- Release : voir [`docs/release.md`](./docs/release.md).
+- Any new requirement → add to `SPEC.md` (continuous `REQ-NNN` numbering).
+- Any new decision → add to `DECISIONS.md` (continuous `DEC-NNN`, append-only).
+- Any concept rename → new DEC + version bump of `VOCABULARY.md`.
+- Release: see [`docs/release.md`](./docs/release.md).
 
 ---
 
-## Origine du projet
+## Project origin
 
-h2a est issu d'un brief utilisateur du 16 mai 2026 ([INTENTION.md](./INTENTION.md), verbatim préservé). Nom de travail initial : `a2a-cli` (le repo et le dossier portent toujours ce nom). Nom parapluie figé à `h2a` par DEC-025 le 17 mai 2026, parce que le périmètre dépasse l'agent-to-agent pur — il couvre la coordination multi-humain, le human-in-the-loop, la gouvernance et les contrats.
+h2a originates from a user brief on 16 May 2026 ([INTENTION.md](./INTENTION.md), verbatim preserved). Initial working name: `a2a-cli` (the repo and folder still carry that name). The umbrella name was frozen to `h2a` by DEC-025 on 17 May 2026, because the scope goes beyond pure agent-to-agent — it covers multi-human coordination, human-in-the-loop, governance and contracts.
 
-`@sentropic/h2a-cli@0.1.0` a été publié avec un `bin` cassé par autocorrection npm ; il est déprécié (DEC-029). `0.1.6` puis `0.1.19` sont les baselines successives.
+`@sentropic/h2a-cli@0.1.0` was published with a `bin` entry broken by npm autocorrection and is deprecated (DEC-029). `0.1.6` and then `0.1.19` are the successive supported baselines.
