@@ -18,6 +18,10 @@ import {
   type McpToolResult
 } from "./handlers.js";
 import {
+  NotificationDispatcher,
+  type NotificationSink
+} from "./notifications.js";
+import {
   SessionRegistry,
   type SessionRegistryOptions
 } from "./sessions.js";
@@ -26,6 +30,8 @@ import {
   type McpToolDescriptor,
   type McpToolName
 } from "./tools.js";
+
+import { H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS } from "@sentropic/h2a";
 
 export interface CreateMcpServerOptions {
   /** Filesystem root for the backing local-files store. */
@@ -41,6 +47,14 @@ export interface CreateMcpServerOptions {
    * sane default for in-process tests; the stdio transport enables it.
    */
   sessions?: SessionRegistryOptions;
+  /**
+   * Optional NotificationDispatcher overrides. The stdio transport installs
+   * the sink; tests can drive `dispatcher.tick()` manually.
+   */
+  notifications?: {
+    intervalMs?: number;
+    sink?: NotificationSink;
+  };
 }
 
 export interface McpServer {
@@ -48,6 +62,8 @@ export interface McpServer {
   callTool(name: string, args: Record<string, unknown> | undefined): McpToolResult | McpErrorResult;
   /** Per-server SessionRegistry, exposed for transport-layer shutdown hooks. */
   readonly sessions: SessionRegistry;
+  /** Per-server NotificationDispatcher (DEC-052). */
+  readonly notifications: NotificationDispatcher;
 }
 
 /**
@@ -63,6 +79,14 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     autoHeartbeat: false,
     ...(options.sessions ?? {})
   });
+  const notifications = new NotificationDispatcher(
+    sessions,
+    store,
+    options.root,
+    options.notifications?.sink,
+    options.notifications?.intervalMs ??
+      H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS
+  );
 
   function callTool(
     name: string,
@@ -104,6 +128,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   return {
     listTools: () => H2A_CLI_MCP_TOOL_DESCRIPTORS.slice(),
     callTool,
-    sessions
+    sessions,
+    notifications
   };
 }

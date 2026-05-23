@@ -61,15 +61,18 @@ export {
 
 export {
   H2A_CLI_MCP_TOOL_DESCRIPTORS,
+  NotificationDispatcher,
   SessionRegistry,
   createMcpServer,
   runMcpStdio,
   type CreateMcpServerOptions,
   type McpErrorResult,
+  type McpPushNotification,
   type McpServer,
   type McpToolDescriptor,
   type McpToolName,
   type McpToolResult,
+  type NotificationSink,
   type OpenSessionRequest,
   type RunMcpStdioOptions,
   type SessionRegistryOptions

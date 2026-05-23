@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-23 (DEC-050 + DEC-051 shipped ; session protocol vocabulary in core, presence files + heartbeat + h2a_session_open/close/discover in h2a-cli ; notifications + cross-CLI test in DEC-052/053)
+> Last update: 2026-05-23 (DEC-050..052 shipped ; session vocabulary in core, presence files + heartbeat + push notifications in h2a-cli ; cross-CLI integration test in DEC-053)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -109,6 +109,7 @@
 - [x] Define actor identity/auth strategy for MCP calls (V1: no transport auth, caller-declared identity + ed25519 artifact signatures — DEC-032)
 - [x] Expose machine-readable host compatibility status (`h2a host status`, wave + adapter/setup/scenario flags — DEC-037/044)
 - [x] Session lifecycle MCP tools (`h2a_session_open`, `h2a_session_close`, `h2a_discover_sessions`) wired to the SessionRegistry — DEC-051
+- [x] MCP push notifications (`notifications/h2a`) on presence join/leave + inbox arrival + negotiation event ; tick-based scanner, configurable interval, sink wired by runMcpStdio — DEC-052
 - [ ] V2: transport auth (mTLS / signed bearer)
 
 ### Codex track

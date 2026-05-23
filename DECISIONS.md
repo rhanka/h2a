@@ -828,3 +828,29 @@ Le vocabulaire core (`@sentropic/h2a`, `packages/h2a/src/session.ts`) expose :
 **Pourquoi** : (a) garder le format de fichier dérivable du vocabulaire core (DEC-050) plutôt qu'un schéma ad-hoc côté CLI ; (b) un fichier par session évite toute contention d'écriture (le propriétaire est unique), donc pas besoin de lock pour ce point précis — l'invariant DEC-036 reste pertinent ailleurs ; (c) le sweep automatique dans `listPresence` évite l'accumulation indéfinie de fichiers morts sans daemon central ; (d) l'unref du timer évite que le heartbeat ne maintienne le process Node en vie après la fermeture de stdin.
 
 **Conséquence** : (a) un agent peut maintenant savoir qui est *live*, pas juste qui a un jour appelé `register` ; (b) DEC-052 peut s'appuyer sur cette infrastructure pour pousser des notifications quand quelque chose change ; (c) le shutdown hook stdio garantit qu'une fermeture propre du CLI hôte n'orphelinise pas la présence ; (d) un crash ungraceful laisse la présence sur disque, mais le scan TTL la balaye au prochain `scanFresh` d'un autre peer ; (e) un patch release `0.1.14` peut suivre.
+
+## DEC-052 — Notifications MCP push (JSON-RPC notifications/h2a)
+**Date** : 2026-05-23. **Réfère** : DEC-050, DEC-051, WP-40.
+
+**Décision** : convertir h2a d'une API CRUD pollée à un protocole où les sessions reçoivent des **notifications push** quand l'état partagé change. Surface livrée :
+
+- **Format de notification** : message JSON-RPC 2.0 sans `id` (notification au sens JSON-RPC), méthode `"notifications/h2a"`, params `{ topic: H2ASessionNotificationTopic, sessionId: string, data: object }`. Aligne sur la convention MCP (les notifications standard sont `notifications/message`, `notifications/progress` — h2a réserve son propre sous-espace `notifications/h2a`).
+- **Module `runtime/mcp/notifications.ts` — `NotificationDispatcher`** :
+  - une instance par `createMcpServer` ;
+  - maintient un snapshot par session (peers vus, ids d'enveloppes inbox, longueur des journaux des négociations suivies) ;
+  - `start()` planifie un `setInterval(tick, intervalMs)` unref'é (par défaut = heartbeat interval = 5000 ms) ;
+  - `tick()` est public pour permettre aux tests de conduire la diffusion sans timer ;
+  - chaque tick : pour chaque session locale, calcule les diffs et pousse une notification par changement détecté sur un topic auquel la session est abonnée ;
+  - les sessions filtrent par `subscribedTopics` (DEC-050) — pas d'événement, pas de push.
+- **Quatre topics canoniques** déjà définis par DEC-050 (`H2A_SESSION_NOTIFICATION_TOPICS`) :
+  - `presence.peer_joined` — apparition d'un peer dans `<root>/.h2a/presence/` ;
+  - `presence.peer_left` — peer absent du scan suivant (équivalent expiré ou fermé) ;
+  - `inbox.envelope_arrived` — nouvelle enveloppe dans `inbox/<instance>/` ;
+  - `negotiation.event_appended` — nouvelle entrée de journal sur une négociation que la session a déclarée dans `interests.negotiations`.
+- **Stdio sink** : `runMcpStdio` installe un sink qui écrit `${JSON.stringify(notification)}\n` sur stdout (le même flux que les réponses JSON-RPC) ; le client MCP de l'hôte les démultiplexe naturellement (les notifications n'ont pas d'`id`). Le dispatcher est démarré dans `runMcpStdio` et arrêté dans le shutdown hook avant `closeAll` sur les sessions.
+
+**Décision (statut machine)** : aucune extension de `H2A_CLI_MCP_TOOL_NAMES` (les notifications sont un canal séparé des outils). `McpServer` expose désormais `.notifications: NotificationDispatcher` et `.sessions: SessionRegistry`. Exports publics au top-level de `@sentropic/h2a-cli` : `NotificationDispatcher`, `McpPushNotification`, `NotificationSink`.
+
+**Pourquoi** : (a) sans push, l'agent doit poller, ce qui rend l'expérience d'un CLI hôte inutilisable pour un cas "Codex envoie un message à Claude" — l'utilisateur attend des secondes pour que Claude vienne lire ; (b) JSON-RPC notifications est déjà supporté par le protocole MCP — pas besoin de canal séparé ; (c) la convention `notifications/h2a` évite la collision avec les notifications MCP standard (`notifications/message`, etc.) ; (d) un scan poll-based plutôt que des hooks in-process garantit que les notifications captent aussi les changements faits par d'**autres** `mcp-serve` (cross-CLI, le cas qui motivait DEC-050) ; (e) le filtrage par `subscribedTopics` rend le canal contrôlable côté client — une session peut être bavarde (tous topics) ou silencieuse (aucun).
+
+**Conséquence** : (a) un agent peut désormais réagir à un événement sans poller, dans la limite du tick interval (5s par défaut) ; (b) DEC-053 fournira le test cross-CLI réel qui démontre que deux `mcp-serve` séparés se notifient mutuellement ; (c) la latence de notification reste bornée par `intervalMs` — un raffinement V2 pourrait ajouter des hooks in-process pour le push immédiat sur les actions locales ; (d) un patch release `0.1.15` peut suivre.

@@ -22,3 +22,9 @@ export {
   type OpenSessionRequest,
   type SessionRegistryOptions
 } from "./sessions.js";
+
+export {
+  NotificationDispatcher,
+  type McpPushNotification,
+  type NotificationSink
+} from "./notifications.js";

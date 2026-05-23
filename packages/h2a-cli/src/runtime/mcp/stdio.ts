@@ -119,8 +119,16 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // the presence file stays fresh while this mcp-serve process is alive.
   const server = createMcpServer({
     root,
-    sessions: { autoHeartbeat: true }
+    sessions: { autoHeartbeat: true },
+    notifications: {
+      sink: (notification) => {
+        stdout.write(`${JSON.stringify(notification)}\n`);
+      }
+    }
   });
+  // DEC-052: start the periodic diff scan so subscribed sessions receive
+  // pushed presence/inbox/negotiation notifications.
+  server.notifications.start();
 
   const rl = createInterface({ input: stdin, crlfDelay: Infinity });
   (stdin as Readable & { ref?: () => void }).ref?.();
@@ -128,6 +136,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
 
   function shutdown(): void {
     try {
+      server.notifications.stop();
       server.sessions.closeAll("closed");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
