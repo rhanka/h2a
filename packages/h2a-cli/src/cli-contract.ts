@@ -319,7 +319,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: [],
     optionalFlags: ["instance", "host", "root", "image", "cli-version", "write"],
     description:
-      "Render a Kubernetes sidecar fragment suitable for merging into a `remote-controle` session Pod (Scenario A of DEC-056). Default `image` strategy is `npm-runtime` (uses `node:22-alpine` + `npm i -g @sentropic/h2a-cli` at Pod start). Pass an OCI reference to opt out of the runtime install. `--write <file>` switches to an `action` envelope and writes the fragment to disk; otherwise the YAML fragment is printed on stdout. DEC-058."
+      "Render a Kubernetes sidecar fragment suitable for merging into a `remote` session Pod (Scenario A of DEC-056). Default `image` strategy is `npm-runtime` (uses `node:22-alpine` + `npm i -g @sentropic/h2a-cli` at Pod start). Pass an OCI reference to opt out of the runtime install. `--write <file>` switches to an `action` envelope and writes the fragment to disk; otherwise the YAML fragment is printed on stdout. DEC-058."
   }
 ] as const;
 

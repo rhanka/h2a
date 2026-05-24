@@ -2,7 +2,7 @@
  * Kubernetes sidecar manifest renderer (DEC-058 / Scenario A of DEC-056).
  *
  * Produces a `containers` + `volumes` fragment that can be merged into an
- * existing Pod spec (typically a `remote-controle` session Pod) so the
+ * existing Pod spec (typically a `remote` session Pod) so the
  * runtime CLI container and an `h2a mcp-serve` sidecar share the same
  * `<root>/.h2a/` directory through an `emptyDir`.
  *
@@ -24,18 +24,18 @@
 export interface K8sSidecarOptions {
   /**
    * Instance id to declare to h2a at session open. Defaults to a placeholder
-   * of `remote-controle:${SESSION_ID}` if running inside the
-   * `@sentropic/remote-controle` context — that env var is expected to be
+   * of `remote:${SESSION_ID}` if running inside the
+   * `@sentropic/remote` context — that env var is expected to be
    * injected by the parent control plane.
    */
   readonly instance?: string;
   /**
-   * Host hint passed to `h2a_session_open`. Defaults to "remote-controle".
+   * Host hint passed to `h2a_session_open`. Defaults to "remote".
    */
   readonly host?: string;
   /**
    * Filesystem path where `<root>/.h2a/` lives inside the session Pod.
-   * Default `/workspace/.h2a`, matching `remote-controle`'s PVC mount.
+   * Default `/workspace/.h2a`, matching `remote`'s PVC mount.
    */
   readonly root?: string;
   /**
@@ -188,7 +188,7 @@ function renderYamlFragment(
 }
 
 /**
- * Render a sidecar fragment suitable for merging into a `remote-controle`
+ * Render a sidecar fragment suitable for merging into a `remote`
  * session Pod (or any host Pod that runs an interactive CLI and wants to
  * coordinate via h2a). Returns both the structured pieces (for programmatic
  * merging) and a YAML rendering (for `--print` style CLI use).
@@ -205,9 +205,9 @@ export function renderK8sSidecar(
       : "node:22-alpine";
   const imageStrategy = options.image ?? "npm-runtime";
   const cliVersion = options.cliVersion ?? "latest";
-  const host = options.host ?? "remote-controle";
+  const host = options.host ?? "remote";
   const instance =
-    options.instance ?? "remote-controle:${SESSION_ID:-unknown}";
+    options.instance ?? "remote:${SESSION_ID:-unknown}";
   const resources = options.resources ?? defaultResources();
 
   const { command, args } = buildCommand(imageStrategy, cliVersion, root);

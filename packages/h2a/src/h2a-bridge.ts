@@ -2,7 +2,7 @@
  * Host bridge profile vocabulary (DEC-059).
  *
  * Formalizes the interop contract between `@sentropic/h2a` and external host
- * runtimes that embed `h2a mcp-serve` (e.g. `@sentropic/remote-controle`).
+ * runtimes that embed `h2a mcp-serve` (e.g. `@sentropic/remote`).
  * The contract has five clauses from DEC-056:
  *
  *   1. identity        — how the host names h2a INSTANCE and where it surfaces it.
@@ -12,7 +12,7 @@
  *   4. disclosure      — what disclosure boundary the host workspace draws.
  *   5. auth-boundary   — which trust boundary covers the shared `<root>/.h2a/`.
  *
- * V1 ships one canonical profile (`remote-controle`) and the audit primitive.
+ * V1 ships one canonical profile (`remote`) and the audit primitive.
  * Adding a new host means adding a profile + extending the audit fixtures —
  * no host-side runtime logic in `@sentropic/h2a` itself.
  */
@@ -104,17 +104,17 @@ export interface H2AHostBridgeAuditResult {
 }
 
 export const H2A_HOST_BRIDGE_PROFILES = Object.freeze({
-  "remote-controle": Object.freeze({
-    hostId: "remote-controle",
-    label: "@sentropic/remote-controle session sidecar",
+  "remote": Object.freeze({
+    hostId: "remote",
+    label: "@sentropic/remote session sidecar",
     identity: Object.freeze({
-      instanceTemplate: "remote-controle:${SESSION_ID}",
+      instanceTemplate: "remote:${SESSION_ID}",
       envVarMap: Object.freeze({
         instance: "H2A_INSTANCE",
         host: "H2A_HOST",
         root: "H2A_ROOT"
       }),
-      hostHint: "remote-controle"
+      hostHint: "remote"
     }),
     lifecycle: Object.freeze({
       stateMap: Object.freeze({
@@ -124,17 +124,17 @@ export const H2A_HOST_BRIDGE_PROFILES = Object.freeze({
         ended: "closed"
       }),
       description:
-        "remote-controle session-agent emits lifecycle events at Pod scheduling, container Ready, container Terminating and Pod Completed; each maps onto the matching H2ASessionState."
+        "remote session-agent emits lifecycle events at Pod scheduling, container Ready, container Terminating and Pod Completed; each maps onto the matching H2ASessionState."
     }),
     resourceLimits: Object.freeze({
       reflected: true,
       enforced: false,
       reflectedAs:
-        "informational labels on the h2a presence file; h2a never enforces remote-controle CPU/RAM limits."
+        "informational labels on the h2a presence file; h2a never enforces remote CPU/RAM limits."
     }),
     disclosure: Object.freeze({
       workspaceBoundary:
-        "one h2a coordination scope per remote-controle session Pod; the emptyDir is the trust boundary.",
+        "one h2a coordination scope per remote session Pod; the emptyDir is the trust boundary.",
       crossWorkspace: "deferred",
       crossWorkspaceReference: "DEC-056 Scenarios B/C"
     }),
@@ -260,7 +260,7 @@ export function auditHostBridge(hostId: string): H2AHostBridgeAuditResult {
 /**
  * List the registered host bridge profile ids. Useful for tooling that wants
  * to display the supported bridges (e.g. `h2a host status` extension, or the
- * @sentropic/remote-controle protocol schema generator).
+ * @sentropic/remote protocol schema generator).
  */
 export function listHostBridgeProfiles(): readonly string[] {
   return Object.keys(H2A_HOST_BRIDGE_PROFILES);

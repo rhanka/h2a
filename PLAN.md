@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-24 (DEC-062 — safePathSegment fixes Windows ENOENT on `:` in ids ; Windows back in full-test CI matrix ; repo made public)
+> Last update: 2026-05-24 (DEC-063 — host bridge + all references renamed `remote-controle` → `remote` ; upstream PR rhanka/remote#2 opened ; bumps to 0.1.25)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -100,10 +100,11 @@
 - [x] `install-skills` extended to Codex (`~/.codex/skills/`) and Gemini (`~/.gemini/commands/` TOML) — DEC-055
 - [x] Single `/h2a` skill with subcommand routing (connect/status/discover/send/receive/negotiate/disconnect/help) + legacy pruning — DEC-057
 - [x] Kubernetes sidecar renderer + `h2a deploy k8s-sidecar` verb (Scenario A of DEC-056) — DEC-058
-- [x] Host bridge contract formalized (`H2A_HOST_BRIDGE_PROFILES` + `auditHostBridge` + remote-controle profile + PR draft) — DEC-059
+- [x] Host bridge contract formalized (`H2A_HOST_BRIDGE_PROFILES` + `auditHostBridge` + remote profile + PR draft) — DEC-059
 - [x] OCI image build + GHCR publish workflow (`ghcr.io/rhanka/h2a-cli:<version>`, multi-arch, non-root, SBOM) — DEC-060
 - [x] Cross-OS CI matrix ubuntu/macOS × node 20/22 + cross-platform test runner ; Windows smoke covered, Windows full-test deferred (`:`-in-paths refactor) — DEC-061
 - [x] `safePathSegment` for Windows-compatible local-files layout (`:` → `__` in negotiation/instance/session ids and artefact paths) ; Windows back in full-test CI matrix — DEC-062
+- [x] Rename host bridge identity + all repo references `remote-controle` → `remote` (matches `@sentropic/remote`, upstream PR `rhanka/remote#2`) — DEC-063
 
 ## Workpackage 40 - Host And Protocol Integrations (~95%)
 
@@ -169,13 +170,13 @@
 - [x] Add security/key management notes (`docs/release.md` § Key management)
 - [x] Add compatibility matrix documentation for Codex / Claude / Gemini / MCP (`docs/compatibility-matrix.md`, backed by `h2a host status` — DEC-037)
 
-## Open Decisions for K8s + remote-controle interop (DEC-056)
+## Open Decisions for K8s + remote interop (DEC-056)
 
 All four resolved on 2026-05-23:
 
 - [x] Tenant model → **stay on Scenario A (sidecar per session)**, no dedicated `tenants/h2a/`. Re-open when cross-session coordination demand emerges.
 - [x] RWX storage → **n/a** (only mattered if a dedicated tenant was chosen).
-- [x] Interop contract with `remote-controle` → **two-way formalized** (DEC-059 + PR draft at `docs/pr-drafts/remote-controle-h2a-bridge.md`).
+- [x] Interop contract with `remote` → **two-way formalized** (DEC-059 + PR draft at `docs/pr-drafts/remote-h2a-bridge.md`).
 - [x] `@sentropic/h2a-remote` → **deferred V2** (depends on DEC-032 V2 auth, no design now).
 
 ## Open Decisions / User Inputs

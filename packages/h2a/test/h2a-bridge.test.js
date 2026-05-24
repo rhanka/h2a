@@ -20,15 +20,15 @@ test("H2A_HOST_BRIDGE_CLAUSES lists the 5 canonical clauses from DEC-056", () =>
   ]);
 });
 
-test("H2A_HOST_BRIDGE_PROFILES ships the remote-controle bridge by default", () => {
-  const profile = getHostBridgeProfile("remote-controle");
+test("H2A_HOST_BRIDGE_PROFILES ships the remote bridge by default", () => {
+  const profile = getHostBridgeProfile("remote");
   assert.ok(profile);
-  assert.equal(profile.hostId, "remote-controle");
-  assert.equal(profile.identity.hostHint, "remote-controle");
+  assert.equal(profile.hostId, "remote");
+  assert.equal(profile.identity.hostHint, "remote");
   assert.equal(profile.identity.envVarMap.instance, "H2A_INSTANCE");
   assert.equal(profile.identity.envVarMap.host, "H2A_HOST");
   assert.equal(profile.identity.envVarMap.root, "H2A_ROOT");
-  // Lifecycle map covers the 4 remote-controle states; every target is in
+  // Lifecycle map covers the 4 remote states; every target is in
   // H2A_SESSION_STATES.
   for (const target of Object.values(profile.lifecycle.stateMap)) {
     assert.ok(H2A_SESSION_STATES.includes(target));
@@ -42,9 +42,9 @@ test("H2A_HOST_BRIDGE_PROFILES ships the remote-controle bridge by default", () 
 });
 
 test("auditHostBridge accepts a well-formed shipped profile and lists the 5 clauses", () => {
-  const result = auditHostBridge("remote-controle");
+  const result = auditHostBridge("remote");
   assert.equal(result.ok, true);
-  assert.equal(result.hostId, "remote-controle");
+  assert.equal(result.hostId, "remote");
   assert.equal(result.enforces, false);
   assert.deepEqual([...result.clauses].sort(), [
     "auth-boundary",
@@ -67,11 +67,11 @@ test("auditHostBridge rejects unknown host ids", () => {
 test("listHostBridgeProfiles enumerates the registered bridges", () => {
   const ids = listHostBridgeProfiles();
   assert.ok(Array.isArray(ids));
-  assert.ok(ids.includes("remote-controle"));
+  assert.ok(ids.includes("remote"));
 });
 
-test("H2A_HOST_BRIDGE_PROFILES.remote-controle lifecycle stateMap maps to known H2ASessionState values", () => {
-  const map = H2A_HOST_BRIDGE_PROFILES["remote-controle"].lifecycle.stateMap;
+test("H2A_HOST_BRIDGE_PROFILES.remote lifecycle stateMap maps to known H2ASessionState values", () => {
+  const map = H2A_HOST_BRIDGE_PROFILES["remote"].lifecycle.stateMap;
   // Spot-check a couple of well-known transitions.
   assert.equal(map.provisioning, "opening");
   assert.equal(map.running, "live");
@@ -90,8 +90,8 @@ test("auditHostBridge rejects a profile whose lifecycle targets are unknown stat
 
 test("H2A_HOST_BRIDGE_CLAUSES match the 5 fields validated by auditHostBridge", () => {
   // The audit returns one clause per validated field; for the shipped
-  // remote-controle profile, all 5 must be present.
-  const result = auditHostBridge("remote-controle");
+  // remote profile, all 5 must be present.
+  const result = auditHostBridge("remote");
   assert.equal(result.clauses.length, H2A_HOST_BRIDGE_CLAUSES.length);
   for (const c of H2A_HOST_BRIDGE_CLAUSES) {
     assert.ok(result.clauses.includes(c), `audit must list clause ${c}`);

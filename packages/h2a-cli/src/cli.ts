@@ -1405,7 +1405,7 @@ function cmdDeploy(
     return 1;
   }
   // DEC-058: render the Kubernetes sidecar fragment for Scenario A
-  // of DEC-056 (remote-controle session sidecar).
+  // of DEC-056 (remote session sidecar).
   const fragment = renderK8sSidecar({
     instance: flags.instance,
     host: flags.host,

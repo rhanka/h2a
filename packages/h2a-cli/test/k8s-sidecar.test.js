@@ -62,8 +62,8 @@ test("renderK8sSidecar honors explicit image + cli-version + custom paths", () =
   const fragment = renderK8sSidecar({
     image: "ghcr.io/rhanka/h2a-cli:0.1.20",
     cliVersion: "0.1.20",
-    instance: "remote-controle:abc-123",
-    host: "remote-controle",
+    instance: "remote:abc-123",
+    host: "remote",
     root: "/data/.h2a",
     containerName: "h2a",
     volumeName: "shared"
@@ -78,21 +78,21 @@ test("renderK8sSidecar honors explicit image + cli-version + custom paths", () =
   const env = Object.fromEntries(
     fragment.container.env.map((e) => [e.name, e.value])
   );
-  assert.equal(env.H2A_INSTANCE, "remote-controle:abc-123");
-  assert.equal(env.H2A_HOST, "remote-controle");
+  assert.equal(env.H2A_INSTANCE, "remote:abc-123");
+  assert.equal(env.H2A_HOST, "remote");
   assert.equal(env.H2A_ROOT, "/data/.h2a");
   assert.equal(fragment.volume.name, "shared");
 });
 
-test("renderK8sSidecar embeds the SESSION_ID placeholder by default for remote-controle", () => {
+test("renderK8sSidecar embeds the SESSION_ID placeholder by default for remote", () => {
   const fragment = renderK8sSidecar();
   const env = Object.fromEntries(
     fragment.container.env.map((e) => [e.name, e.value])
   );
-  // The placeholder is a shell-style default that remote-controle's pod
+  // The placeholder is a shell-style default that remote's pod
   // template engine can resolve to the actual session id.
-  assert.equal(env.H2A_INSTANCE, "remote-controle:${SESSION_ID:-unknown}");
-  assert.equal(env.H2A_HOST, "remote-controle");
+  assert.equal(env.H2A_INSTANCE, "remote:${SESSION_ID:-unknown}");
+  assert.equal(env.H2A_HOST, "remote");
 });
 
 test("h2a deploy k8s-sidecar emits a JSON resource envelope", () => {
@@ -102,7 +102,7 @@ test("h2a deploy k8s-sidecar emits a JSON resource envelope", () => {
       "deploy",
       "k8s-sidecar",
       "--instance",
-      "remote-controle:test",
+      "remote:test",
       "--cli-version",
       "0.1.20"
     ],
@@ -127,7 +127,7 @@ test("h2a deploy k8s-sidecar --write emits an action envelope and writes the YAM
         "deploy",
         "k8s-sidecar",
         "--instance",
-        "remote-controle:test",
+        "remote:test",
         "--write",
         target
       ],

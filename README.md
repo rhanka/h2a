@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| **Published packages** | `@sentropic/h2a@0.1.19` (core), `@sentropic/h2a-cli@0.1.19` (CLI binary + MCP server + skills) |
+| **Published packages** | `@sentropic/h2a@0.1.24` (core), `@sentropic/h2a-cli@0.1.24` (CLI binary + MCP server + skills) ; OCI image `ghcr.io/rhanka/h2a-cli:latest` |
 | **License** | MIT (DEC-027) |
 | **Status** | V1 end-to-end usable: protocol + local runtime + 3 hosts (Claude / Codex / Gemini) + skills. V2 (remote transport, transport auth, k8s) under design. |
 | **Quickstart** | `npm i -g @sentropic/h2a-cli`, then see [§5-minute getting started](#5-minute-getting-started). |
@@ -136,7 +136,7 @@ Then, inside each CLI:
 | Transport auth (mTLS / signed bearer) | ❌ V1 has none (DEC-032) | V2 |
 | First-class SUBAGENTS (individually addressable) | ❌ V1 consolidates them into AGENT | V2 (DEC-008) |
 | Key management UX (rotation, keyring) | ❌ manual PEM via `h2a keys generate` | V2 candidate |
-| Kubernetes deployment (sidecar / tenant / broker) | 🟡 sketched in [docs/instruction-k8s-and-remote-controle-interop.md](./docs/instruction-k8s-and-remote-controle-interop.md) (DEC-056) | DEC-057+ |
+| Kubernetes deployment (sidecar / tenant / broker) | 🟡 sketched in [docs/instruction-k8s-and-remote-interop.md](./docs/instruction-k8s-and-remote-interop.md) (DEC-056) | DEC-057+ |
 
 V1 declares what is permitted and traces everything. V1 **never** arbitrates a conflict in place of a human authority — that is by design (REQ-054).
 
@@ -234,7 +234,7 @@ Plus a **push notification channel** (`notifications/h2a`) on 4 topics (DEC-052)
 | [docs/compatibility-matrix.md](./docs/compatibility-matrix.md) | Host compatibility matrix (DEC-037) |
 | [docs/release.md](./docs/release.md) | Release procedure + security notes |
 | [docs/tutorial-cross-cli.md](./docs/tutorial-cross-cli.md) | **Claude + Codex + Gemini in 5 minutes** |
-| [docs/instruction-k8s-and-remote-controle-interop.md](./docs/instruction-k8s-and-remote-controle-interop.md) | K8s deployment + `@sentropic/remote-controle` interop note (DEC-056) |
+| [docs/instruction-k8s-and-remote-interop.md](./docs/instruction-k8s-and-remote-interop.md) | K8s deployment + `@sentropic/remote` interop note (DEC-056) |
 | [handover.md](./handover.md) | Handover prompt for a Claude session |
 
 > Project policy: all docs and code in this repository are in English. `INTENTION.md` contains an English translation of the original French user verbatim; the French source remains recoverable from git history at commit `195d1c2~1`.
@@ -254,4 +254,4 @@ Plus a **push notification channel** (`notifications/h2a`) on 4 topics (DEC-052)
 
 h2a originates from a user brief on 16 May 2026 ([INTENTION.md](./INTENTION.md), verbatim preserved). Initial working name: `a2a-cli` (the repo and folder still carry that name). The umbrella name was frozen to `h2a` by DEC-025 on 17 May 2026, because the scope goes beyond pure agent-to-agent — it covers multi-human coordination, human-in-the-loop, governance and contracts.
 
-`@sentropic/h2a-cli@0.1.0` was published with a `bin` entry broken by npm autocorrection and is deprecated (DEC-029). `0.1.6` and then `0.1.19` are the successive supported baselines.
+`@sentropic/h2a-cli@0.1.0` was published with a `bin` entry broken by npm autocorrection and is deprecated (DEC-029). `0.1.6` and then `0.1.24` are the successive supported baselines.

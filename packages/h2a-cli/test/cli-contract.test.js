@@ -418,7 +418,7 @@ function buildHappyArgv(verb, ctx) {
         "deploy",
         "k8s-sidecar",
         "--instance",
-        "remote-controle:test",
+        "remote:test",
         "--cli-version",
         "0.1.20"
       ];

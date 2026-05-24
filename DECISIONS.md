@@ -943,31 +943,31 @@ The dispatcher `targetSpecFor(host, cwd)` encapsulates per-host the user/project
 
 **Consequence**: (a) "Claude + Codex + Gemini cooperate" is a user journey of **three** `h2a install-skills`, not a partial journey; (b) the cross-CLI tutorial documents the three hosts with no deferred; (c) the SKILL.md bundle stays the single source — any future h2a skill is automatically available on the three hosts; (d) a patch release `0.1.18` can follow.
 
-## DEC-056 — Instruction note: K8s deployment + `remote-controle` interop
-**Date**: 2026-05-23. **Refers**: INTENTION (remote transport), DEC-032, DEC-050..053, context `../poc-k8s`, context `../remote` (`@sentropic/remote-controle`).
+## DEC-056 — Instruction note: K8s deployment + `remote` interop
+**Date**: 2026-05-23. **Refers**: INTENTION (remote transport), DEC-032, DEC-050..053, context `../poc-k8s`, context `../remote` (`@sentropic/remote`).
 
-**Status**: **instruction note** (research/design), not an implementation decision. Detailed document: `docs/instruction-k8s-and-remote-controle-interop.md`.
+**Status**: **instruction note** (research/design), not an implementation decision. Detailed document: `docs/instruction-k8s-and-remote-interop.md`.
 
 **Context**: the 2026-05-23 user request names three distinct needs:
 1. Deploy `h2a mcp-serve` on the cluster `../poc-k8s`.
-2. Harmonize the install/config verb with `../remote` (`@sentropic/remote-controle`).
-3. Install h2a inside the context of a `remote-controle` session (likely a formal contract between the two projects).
+2. Harmonize the install/config verb with `../remote` (`@sentropic/remote`).
+3. Install h2a inside the context of a `remote` session (likely a formal contract between the two projects).
 
 **Decision (instructive, not executable)**: the documented note distinguishes three deployment scenarios:
-- **Scenario A — sidecar inside a `remote-controle` session**: `h2a mcp-serve` as an additional container in the session Pod, shares `emptyDir` with the CLI runtime. Smallest step, most deliverable. Recommended as the next slice if we decide to implement.
+- **Scenario A — sidecar inside a `remote` session**: `h2a mcp-serve` as an additional container in the session Pod, shares `emptyDir` with the CLI runtime. Smallest step, most deliverable. Recommended as the next slice if we decide to implement.
 - **Scenario B — cluster-wide `h2a` tenant on `poc-k8s`**: dedicated namespace + shared RWX PVC. Broader but constrained by Scaleway's lack of native RWX (NFS-Pod or equivalent required).
 - **Scenario C — network transport (`@sentropic/h2a-remote`)**: the original third transport from INTENTION, never implemented. Requires DEC-032 V2 (transport auth).
 
-**Decision (envisaged contract)**: an interop contract with `remote-controle` is named in five clauses (identity, lifecycle, resource limits, disclosure, auth boundary). Its formalization is deferred to a later DEC (DEC-057 or sibling) that would deliver either the TypeScript schema in `@sentropic/h2a`, or a PR to `../remote/packages/protocol`.
+**Decision (envisaged contract)**: an interop contract with `remote` is named in five clauses (identity, lifecycle, resource limits, disclosure, auth boundary). Its formalization is deferred to a later DEC (DEC-057 or sibling) that would deliver either the TypeScript schema in `@sentropic/h2a`, or a PR to `../remote/packages/protocol`.
 
-**Decision (perimeter, important)**: DEC-056 touches **no** code or manifest. The only produced artefact is `docs/instruction-k8s-and-remote-controle-interop.md` which:
+**Decision (perimeter, important)**: DEC-056 touches **no** code or manifest. The only produced artefact is `docs/instruction-k8s-and-remote-interop.md` which:
 - inventories what exists in `../poc-k8s` (tenants, quota contract) and `../remote` (control plane, k8s-orchestrator, session-agent, packages/protocol),
 - establishes the conceptual diff `H2ASession` vs `SessionDescriptor` (complementary, not redundant),
 - proposes three deployment scenarios and recommends A,
 - sketches future CLI verbs (`h2a deploy --target k8s-sidecar`, `h2a remote connect`),
 - lists four open questions for the user.
 
-**Why**: (a) the topic is broad enough (multi-repo + multi-cluster + deferred auth) to deserve a framing note before any code commit; (b) the output is readable by a `../remote` maintainer who has not read DEC-050..055; (c) the **Scenario A** recommendation is derivable from the existing `sentropic-remote` quota contract (fits the `400m/768Mi` class) without renegotiating a tenant; (d) the "h2a is not redundant with remote-controle" boundary must be drawn explicitly to avoid premature merge.
+**Why**: (a) the topic is broad enough (multi-repo + multi-cluster + deferred auth) to deserve a framing note before any code commit; (b) the output is readable by a `../remote` maintainer who has not read DEC-050..055; (c) the **Scenario A** recommendation is derivable from the existing `sentropic-remote` quota contract (fits the `400m/768Mi` class) without renegotiating a tenant; (d) the "h2a is not redundant with remote" boundary must be drawn explicitly to avoid premature merge.
 
 **Consequence**: (a) no implementation slice follows DEC-056 directly — the user first picks the 4 open questions; (b) a DEC-057+ may deliver the chosen scenario (likely A) with sidecar manifest + identity contract; (c) the cross-CLI tutorial now mentions this document as the reference for the k8s context.
 
@@ -1009,7 +1009,7 @@ The consolidated skill adds two subcommands the previous version did not expose:
 ## DEC-058 — Kubernetes sidecar manifest renderer (Scenario A of DEC-056)
 **Date**: 2026-05-23. **Refers**: DEC-026, DEC-034, DEC-056, INTENTION (remote transport).
 
-**Context**: DEC-056 surveyed three deployment scenarios and recommended **Scenario A** (h2a as a sidecar inside a `remote-controle` session Pod) as the smallest deliverable unit. The 4 open questions of DEC-056 only block Scenarios B (cluster-wide tenant) and C (network broker); Scenario A can ship independently because it does not change shared infrastructure — it produces a per-session sidecar fragment the caller merges into their own Pod spec.
+**Context**: DEC-056 surveyed three deployment scenarios and recommended **Scenario A** (h2a as a sidecar inside a `remote` session Pod) as the smallest deliverable unit. The 4 open questions of DEC-056 only block Scenarios B (cluster-wide tenant) and C (network broker); Scenario A can ship independently because it does not change shared infrastructure — it produces a per-session sidecar fragment the caller merges into their own Pod spec.
 
 **Decision**: ship a pure renderer + a new CLI verb to produce the Kubernetes sidecar fragment.
 
@@ -1017,11 +1017,11 @@ The consolidated skill adds two subcommands the previous version did not expose:
 
 - Public function `renderK8sSidecar(options) → { container, volume, mainContainerVolumeMount, yaml }`.
 - Pure: no I/O, no filesystem access; the caller decides what to do with the output.
-- Default container name `h2a-mcp`, default volume `h2a-workspace`, default mount `/workspace/.h2a` (aligned with `remote-controle`'s PVC mount).
+- Default container name `h2a-mcp`, default volume `h2a-workspace`, default mount `/workspace/.h2a` (aligned with `remote`'s PVC mount).
 - Two image strategies controlled by the `image` option:
   - `npm-runtime` (default, or any value that is `undefined` / `"npm-runtime"`) — base image `node:22-alpine`, runs `npm i -g @sentropic/h2a-cli@<cliVersion>` at Pod start before `h2a init` and `h2a mcp-serve`. `cliVersion` defaults to `latest`.
   - Any other string — treated as an OCI reference (e.g. `ghcr.io/rhanka/h2a-cli:0.1.20`); the renderer skips the npm install line and assumes `h2a` is on `PATH`.
-- Three identity env vars exported by the container: `H2A_INSTANCE` (default `remote-controle:${SESSION_ID:-unknown}`), `H2A_HOST` (default `remote-controle`), `H2A_ROOT` (default `/workspace/.h2a`). The `${SESSION_ID:-unknown}` placeholder is resolved by `remote-controle`'s Pod template engine at Pod creation.
+- Three identity env vars exported by the container: `H2A_INSTANCE` (default `remote:${SESSION_ID:-unknown}`), `H2A_HOST` (default `remote`), `H2A_ROOT` (default `/workspace/.h2a`). The `${SESSION_ID:-unknown}` placeholder is resolved by `remote`'s Pod template engine at Pod creation.
 - Default resources align with the `sentropic-remote` tenant contract (DEC-056): `50m/64Mi requests`, `200m/256Mi limits`.
 
 ### CLI verb `h2a deploy k8s-sidecar`
@@ -1032,15 +1032,15 @@ The consolidated skill adds two subcommands the previous version did not expose:
 
 ### Documentation
 
-- `docs/k8s-sidecar.md` explains the merge points (`spec.containers[]`, `spec.volumes[]`, plus the mount the caller must also add to the main runtime container), the two image strategies, the identity bridge with `remote-controle`, and the explicit limits (single-Pod only — Scenarios B/C remain deferred).
+- `docs/k8s-sidecar.md` explains the merge points (`spec.containers[]`, `spec.volumes[]`, plus the mount the caller must also add to the main runtime container), the two image strategies, the identity bridge with `remote`, and the explicit limits (single-Pod only — Scenarios B/C remain deferred).
 
 **Decision (CLI contract)**: `H2A_CLI_VERB_CONTRACTS` grows from 28 to 29 entries with `deploy k8s-sidecar`. The `cli-contract.test.js` happy-path covers the JSON resource envelope. A dedicated `k8s-sidecar.test.js` covers the renderer (defaults, custom image, env propagation, SESSION_ID placeholder), the verb (JSON + `--write`) and refusal modes (unknown subverb, missing subverb).
 
 **Why**: (a) DEC-056 explicitly recommended starting with Scenario A; sitting on the instruction note longer than necessary was misaligned with the "advance with a single preco" feedback; (b) the renderer is pure → testable without a real cluster, which matters because the test suite must stay hermetic; (c) the default `npm-runtime` strategy makes the manifest immediately runnable without first publishing an image — this lowers the activation cost of the sidecar to "merge YAML + run kubectl apply"; (d) exposing both a JSON envelope (DEC-034) and a `yaml` string in the same response keeps both audiences served — automation pipelines and `kubectl apply -f -` users; (e) the four DEC-056 questions stay open and explicitly do not block this slice (they govern Scenarios B/C only).
 
-**Consequence**: (a) `h2a deploy k8s-sidecar` is the first real deployment verb of the CLI; (b) `remote-controle` maintainers can adopt h2a inside a session Pod by appending the rendered fragment to their existing manifest; (c) the identity bridge env vars (`H2A_INSTANCE`, `H2A_HOST`, `H2A_ROOT`) become the V1 contract surface between h2a and `remote-controle`; later DEC may promote that to a formal TypeScript schema in `@sentropic/h2a`; (d) no `@sentropic/h2a-remote` is created — Scenario C still belongs to V2; (e) a patch release `0.1.21` can follow.
+**Consequence**: (a) `h2a deploy k8s-sidecar` is the first real deployment verb of the CLI; (b) `remote` maintainers can adopt h2a inside a session Pod by appending the rendered fragment to their existing manifest; (c) the identity bridge env vars (`H2A_INSTANCE`, `H2A_HOST`, `H2A_ROOT`) become the V1 contract surface between h2a and `remote`; later DEC may promote that to a formal TypeScript schema in `@sentropic/h2a`; (d) no `@sentropic/h2a-remote` is created — Scenario C still belongs to V2; (e) a patch release `0.1.21` can follow.
 
-## DEC-059 — Host bridge contract for `@sentropic/remote-controle`
+## DEC-059 — Host bridge contract for `@sentropic/remote`
 **Date**: 2026-05-23. **Refers**: DEC-050, DEC-056, DEC-058, INTENTION (multi-host coordination).
 
 **Context**: DEC-058 shipped the sidecar manifest with three identity env vars (`H2A_INSTANCE`, `H2A_HOST`, `H2A_ROOT`) acting as a *de facto* contract between h2a and the host runtime. DEC-056 left a formalization question open (Q3): one-way (h2a documents only) or two-way (both repos commit to the same schema). The 2026-05-23 user response chose **two-way**. This DEC delivers the h2a side.
@@ -1048,31 +1048,31 @@ The consolidated skill adds two subcommands the previous version did not expose:
 **Decision**: introduce a public, audited `host-bridge` profile in `@sentropic/h2a`. New module `packages/h2a/src/h2a-bridge.ts`. Exports:
 
 - `H2A_HOST_BRIDGE_CLAUSES = ["identity", "lifecycle", "resource-limits", "disclosure", "auth-boundary"]` — the five canonical clauses, aligned with DEC-056.
-- `H2A_HOST_BRIDGE_PROFILES` — indexed by host id. V1 ships one profile: `remote-controle`.
+- `H2A_HOST_BRIDGE_PROFILES` — indexed by host id. V1 ships one profile: `remote`.
 - `getHostBridgeProfile(hostId)` — lookup.
 - `auditHostBridge(hostId)` — validates the profile shape, including the V1 invariant `resourceLimits.enforced === false` (h2a NEVER enforces host resource limits) and the constraint that every value in `lifecycle.stateMap` is a known `H2ASessionState`.
 - `listHostBridgeProfiles()` — enumerates registered host ids.
 
-The shipped `remote-controle` profile encodes:
+The shipped `remote` profile encodes:
 
-- **identity** : `instanceTemplate = "remote-controle:${SESSION_ID}"`, env var map `{instance: H2A_INSTANCE, host: H2A_HOST, root: H2A_ROOT}`, `hostHint = "remote-controle"`. Reflects the contract DEC-058 already implemented in the sidecar fragment.
-- **lifecycle** : `{provisioning → opening, running → live, terminating → draining, ended → closed}`. Maps remote-controle's `session-agent` lifecycle to canonical `H2ASessionState` (DEC-050).
+- **identity** : `instanceTemplate = "remote:${SESSION_ID}"`, env var map `{instance: H2A_INSTANCE, host: H2A_HOST, root: H2A_ROOT}`, `hostHint = "remote"`. Reflects the contract DEC-058 already implemented in the sidecar fragment.
+- **lifecycle** : `{provisioning → opening, running → live, terminating → draining, ended → closed}`. Maps remote's `session-agent` lifecycle to canonical `H2ASessionState` (DEC-050).
 - **resource-limits** : `reflected: true`, `enforced: false`, `reflectedAs` = informational labels on the h2a presence file. V1 invariant: h2a never enforces host CPU/RAM limits.
-- **disclosure** : `workspaceBoundary` = "one h2a coordination scope per remote-controle session Pod; the emptyDir is the trust boundary"; `crossWorkspace = "deferred"` with reference to DEC-056 Scenarios B/C.
+- **disclosure** : `workspaceBoundary` = "one h2a coordination scope per remote session Pod; the emptyDir is the trust boundary"; `crossWorkspace = "deferred"` with reference to DEC-056 Scenarios B/C.
 - **auth-boundary** : `transport` = "filesystem (emptyDir shared between the runtime container and the h2a-mcp sidecar)", `enforcement = "Pod-level"`.
 
 `H2A_GOVERNANCE_BOUNDARY_ITEMS` adds `host-bridge-contract` (`PROTOCOL`, `v1-shipped`) so the boundary table reflects that the bridge is part of the protocol layer (not just an implementation detail).
 
-**Decision (PR draft to `../remote/`)**: `docs/pr-drafts/remote-controle-h2a-bridge.md` carries a complete PR text + a JSON Schema mirror of the TS profile (`packages/protocol/src/schemas/h2a-bridge.ts`). The PR is **not opened automatically** — it lives in this repo for the `remote-controle` maintainer to review and adapt before submitting upstream. Once merged on their side, the two projects will keep the bridge in lockstep through paired DECs.
+**Decision (PR draft to `../remote/`)**: `docs/pr-drafts/remote-h2a-bridge.md` carries a complete PR text + a JSON Schema mirror of the TS profile (`packages/protocol/src/schemas/h2a-bridge.ts`). The PR is **not opened automatically** — it lives in this repo for the `remote` maintainer to review and adapt before submitting upstream. Once merged on their side, the two projects will keep the bridge in lockstep through paired DECs.
 
 **Decision (V1 invariants formalized)**:
 1. `resourceLimits.enforced === false` — h2a only observes/reflects host limits, never enforces them.
 2. Every `lifecycle.stateMap` value is in `H2A_SESSION_STATES`.
 3. Adding a new host bridge requires adding the profile + a test exercising `auditHostBridge`. No host-side runtime logic in `@sentropic/h2a` itself.
 
-**Why**: (a) the user explicitly chose two-way formalization in Q3 of DEC-056 — staying informal would have re-created the "hidden API" risk; (b) formalizing now (one consumer) is cheaper than later (multiple consumers); (c) keeping the schema in `@sentropic/h2a` (pure, no I/O) lets cross-language implementations replay it bit-for-bit, same as fixtures DEC-035; (d) deferring the actual PR opening (just shipping the draft) keeps repo boundaries clean — `remote-controle` is governed by its own DECs and its maintainer needs to approve before any code lands there.
+**Why**: (a) the user explicitly chose two-way formalization in Q3 of DEC-056 — staying informal would have re-created the "hidden API" risk; (b) formalizing now (one consumer) is cheaper than later (multiple consumers); (c) keeping the schema in `@sentropic/h2a` (pure, no I/O) lets cross-language implementations replay it bit-for-bit, same as fixtures DEC-035; (d) deferring the actual PR opening (just shipping the draft) keeps repo boundaries clean — `remote` is governed by its own DECs and its maintainer needs to approve before any code lands there.
 
-**Consequence**: (a) the bridge contract is now machine-verifiable from the h2a side (`auditHostBridge("remote-controle")` returns `ok: true` with 5 clauses); (b) `governance-boundary` `host-bridge-contract` is `v1-shipped`; (c) `H2A_HOST_BRIDGE_PROFILES` is the registry for future host bridges (e.g. a hypothetical `vscode-devcontainer` profile); (d) the PR draft is committed to `docs/pr-drafts/` so the next time someone works on `../remote/`, the work is queued; (e) DEC-056 Q3 is resolved; Q1 (sidecar), Q2 (n/a), Q4 (V2 deferred) accepted per user 2026-05-23; (f) a patch release `0.1.22` can follow.
+**Consequence**: (a) the bridge contract is now machine-verifiable from the h2a side (`auditHostBridge("remote")` returns `ok: true` with 5 clauses); (b) `governance-boundary` `host-bridge-contract` is `v1-shipped`; (c) `H2A_HOST_BRIDGE_PROFILES` is the registry for future host bridges (e.g. a hypothetical `vscode-devcontainer` profile); (d) the PR draft is committed to `docs/pr-drafts/` so the next time someone works on `../remote/`, the work is queued; (e) DEC-056 Q3 is resolved; Q1 (sidecar), Q2 (n/a), Q4 (V2 deferred) accepted per user 2026-05-23; (f) a patch release `0.1.22` can follow.
 
 ## DEC-060 — OCI image build + GHCR publish workflow
 **Date**: 2026-05-23. **Refers**: DEC-038 (tag-driven release), DEC-058 (K8s sidecar), WP-60.
@@ -1193,6 +1193,28 @@ DEC-061 had deferred Windows; DEC-062 unblocks it. `ci.yml` returns to `os: [ubu
 
 Two pre-existing assertions in `local-store-stabilize-persist.test.js` that hardcoded `contracts/contract:alpha/contract.json` and `engagements/engagement:ship-v1/charter.json` were updated to the `__`-form. No other test required adjustment — they all go through the helpers.
 
-**Why**: (a) Windows users today get ENOENT on the first `h2a negotiate open` — that's a real bug, not just a CI gap; (b) the fix is surgical (one helper, applied in 5 call sites) and reversible (1-line change to the regex if we ever pick a different mapping); (c) keeping `safePathSegment` in `paths.ts` next to `localStorePaths` keeps the layout policy in one module; (d) exposing the helper publicly lets third-party tooling (a future explorer UI, the remote-controle k8s-orchestrator) compute the same path without re-implementing the rule; (e) the lossy mapping is acceptable because round-tripping path → id is never required by V1's read paths.
+**Why**: (a) Windows users today get ENOENT on the first `h2a negotiate open` — that's a real bug, not just a CI gap; (b) the fix is surgical (one helper, applied in 5 call sites) and reversible (1-line change to the regex if we ever pick a different mapping); (c) keeping `safePathSegment` in `paths.ts` next to `localStorePaths` keeps the layout policy in one module; (d) exposing the helper publicly lets third-party tooling (a future explorer UI, the remote k8s-orchestrator) compute the same path without re-implementing the rule; (e) the lossy mapping is acceptable because round-tripping path → id is never required by V1's read paths.
 
 **Consequence**: (a) Windows joins the full-test CI matrix again (DEC-061's deferral is closed); (b) WP-20 (~100%) and WP-60 (~95%) both improve — Windows users get a working runtime; (c) `safePathSegment` is the V1.x rule going forward and any future id format must keep producing valid path segments after the mapping; (d) a patch release `0.1.24` is justified — this is a real runtime fix that ships in `@sentropic/h2a-cli`.
+
+## DEC-063 — Host bridge identity renamed `remote-controle` → `remote`
+**Date**: 2026-05-24. **Refers**: DEC-059, DEC-058, DEC-056. **Supersedes the naming in**: DEC-059.
+
+**Context**: DEC-059 shipped the host bridge profile keyed `remote-controle`, matching the GitHub repo codename at the time. On 2026-05-24 the host project settled on `remote` tout court (repo `rhanka/remote`, package scope `@sentropic/remote-*`), which also matches the `@sentropic/remote` name in the original INTENTION. The host-side schema PR (now `rhanka/remote#2`) was authored with `hostId = "remote"`. A bilateral contract cannot diverge: h2a v0.1.24 still hard-coded `remote-controle` (profile key, `instanceTemplate`, `hostHint`, sidecar renderer defaults, tests), so the two sides no longer matched.
+
+**Decision**: migrate the h2a side to `remote`, in lockstep with the host PR. Every `remote-controle` occurrence across the repo becomes `remote`:
+
+- `packages/h2a/src/h2a-bridge.ts` — profile key `remote-controle` → `remote`; `hostId`, `label` (`@sentropic/remote session sidecar`), `instanceTemplate = "remote:${SESSION_ID}"`, `hostHint = "remote"`, and the clause prose.
+- `packages/h2a-cli/src/runtime/deploy/k8s-sidecar.ts` — renderer defaults `host = "remote"`, `instance = "remote:${SESSION_ID:-unknown}"`.
+- `packages/h2a/src/governance-boundary.ts` + `cli-contract.ts` + `cli.ts` — prose references.
+- Tests + `docs/k8s-sidecar.md` updated.
+- Doc files renamed: `docs/instruction-k8s-and-remote-controle-interop.md` → `docs/instruction-k8s-and-remote-interop.md`, `docs/pr-drafts/remote-controle-h2a-bridge.md` → `docs/pr-drafts/remote-h2a-bridge.md`.
+- Narrative references in `README.md`, `PLAN.md`, and prior DEC bodies (056/059/062) were smoothed to `remote`; this DEC-063 is the canonical record that the name was previously `remote-controle`.
+
+The chosen resolution (over "freeze `remote-controle` as a repo-independent contract identity" or "accept both via an enum alias") is the clean migration: we are pre-interop (no h2a sidecar runs against a live `remote` session yet), so the migration cost is minimal now and rising later.
+
+**Decision (versioning)**: npm `@sentropic/h2a@0.1.24` shipped the bridge profile keyed `remote-controle`. Because `H2A_HOST_BRIDGE_PROFILES` is a public export, changing the key is a surface change and ships in `0.1.25`.
+
+**Why**: (a) the host maintainer (same owner) chose migration over freezing; (b) a single canonical identity is the whole point of the two-way contract from DEC-059 — an enum alias would re-weaken it; (c) doing it before any real interop traffic means zero data/registry migration; (d) keeps the bridge identity aligned with the product/repo/package name, avoiding a permanent legacy codename.
+
+**Consequence**: (a) `auditHostBridge("remote")` returns `ok: true`; `getHostBridgeProfile("remote-controle")` now returns `undefined` (intentional — no alias); (b) host PR `rhanka/remote#2` and this change are a matched pair; (c) a patch release `0.1.25` carries the rename to npm; (d) any future bridge contract change continues to require paired PRs in both repos.
