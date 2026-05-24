@@ -1157,3 +1157,42 @@ This is honest scope. CLI agents that consume h2a today (Claude Code, Codex, Gem
 **Why**: (a) shipping a CLI consumed cross-OS without ever testing cross-OS was a real silent risk — DEC-036's PID-staleness in particular was the kind of code that *should* differ on Windows even if it happens not to; (b) the matrix is cheap on GitHub-hosted runners (Windows + macOS cost slightly more credit-wise than Ubuntu, but for a project at this volume it's still inside the free tier); (c) `scripts/run-tests.mjs` is a single 35-line file that prevents future test scripts from regressing on the glob issue; (d) `fail-fast: false` is the right default for a matrix designed to *find* OS-specific bugs.
 
 **Consequence**: (a) every future PR is verified on three OSes × two Node versions, plus the smoke install on three OSes; (b) no published-package version bump is required (the change is build-tooling only); (c) the test runner script becomes the canonical entry point for `npm test`; future test directories can be added in two lines of `scripts/run-tests.mjs`; (d) WP-60 is effectively closed for V1.
+
+## DEC-062 — `safePathSegment` for Windows-compatible local-files layout
+**Date**: 2026-05-24. **Refers**: DEC-031, DEC-051, DEC-058, DEC-061, WP-20, WP-60.
+
+**Context**: DEC-061 had to drop Windows from the full-test CI matrix because the V1 canonical layout (DEC-031) uses ids like `nego:codex`, `claude:proj-1`, `engagement:ship-v1`, `sess:<hex>` directly as filesystem path segments — and `:` is the Windows drive-letter separator. Any `mkdir <root>/negotiations/nego:codex/` ENOENTs on Windows. This was also a real product bug for Windows users running `h2a-cli` outside CI.
+
+**Decision**: introduce a pure helper `safePathSegment(id) → string` that maps every Windows-forbidden character (`[:\\/<>"|?*]`, all collapsed to a single run) to `__`. Empty input maps to `_`. Apply it consistently in every place an id becomes a path segment:
+
+- `runtime/local-files/paths.ts` : `negotiationDir`, `inboxDir`, `outboxDir`, `presenceFile` all pipe their id through `safePathSegment`.
+- `runtime/local-files/store.ts` : the artefact path builder for `CONTRACT` / `POLICY` / `ENGAGEMENT` (under `contracts/<safe(id)>/contract.json`, `policies/<safe(id)>.json`, `engagements/<safe(id)>/charter.json`) and the inbox/outbox `envelopeFile(dir, envelopeId)`.
+
+The helper is exposed in the public surface: `safePathSegment` is re-exported from `@sentropic/h2a-cli` so callers building paths programmatically can use the same rule.
+
+The mapping is **lossy** — there is no reverse function. The on-disk artefacts always carry the original id inside their JSON body, and lookups go id → path, never path → id. Two ids that differ only by forbidden characters (e.g. `a:b` and `a/b`) would collide, but no V1 id format produces that situation.
+
+### Backward compatibility
+
+Existing stores created before this change carry directories like `negotiations/nego:codex/`. After the change, `h2a` will look for `negotiations/nego__codex/` and not find them. This is acceptable for V1.x because DEC-036 already mandates single-machine same-store ownership and `h2a store migrate` is the documented migration path — a future minor of `cmdStoreMigrate` can add a rename pass if needed.
+
+### CI matrix
+
+DEC-061 had deferred Windows; DEC-062 unblocks it. `ci.yml` returns to `os: [ubuntu-latest, macos-latest, windows-latest]`. The cross-CLI subprocess test (DEC-053) keeps its `SKIP_ON_WINDOWS` flag wired but **turned off** by default — the path fix should resolve both prior symptoms (ENOENT + leaked subprocess on failure). One-line revert if a Windows-only stdio framing issue resurfaces.
+
+### Tests
+
+`packages/h2a-cli/test/safe-path-segment.test.js` covers:
+
+- `:` → `__` (the primary case).
+- Every Windows-forbidden char individually.
+- Run collapsing (`a:::b` → `a__b`).
+- Empty input → `_` and all-forbidden input → `__`.
+- Safe ids pass through unchanged.
+- Integration through `negotiationDir` / `inboxDir` / `outboxDir` / `presenceFile`.
+
+Two pre-existing assertions in `local-store-stabilize-persist.test.js` that hardcoded `contracts/contract:alpha/contract.json` and `engagements/engagement:ship-v1/charter.json` were updated to the `__`-form. No other test required adjustment — they all go through the helpers.
+
+**Why**: (a) Windows users today get ENOENT on the first `h2a negotiate open` — that's a real bug, not just a CI gap; (b) the fix is surgical (one helper, applied in 5 call sites) and reversible (1-line change to the regex if we ever pick a different mapping); (c) keeping `safePathSegment` in `paths.ts` next to `localStorePaths` keeps the layout policy in one module; (d) exposing the helper publicly lets third-party tooling (a future explorer UI, the remote-controle k8s-orchestrator) compute the same path without re-implementing the rule; (e) the lossy mapping is acceptable because round-tripping path → id is never required by V1's read paths.
+
+**Consequence**: (a) Windows joins the full-test CI matrix again (DEC-061's deferral is closed); (b) WP-20 (~100%) and WP-60 (~95%) both improve — Windows users get a working runtime; (c) `safePathSegment` is the V1.x rule going forward and any future id format must keep producing valid path segments after the mapping; (d) a patch release `0.1.24` is justified — this is a real runtime fix that ships in `@sentropic/h2a-cli`.

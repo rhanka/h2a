@@ -16,15 +16,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # DEC-061: ubuntu + macOS only. Windows is deferred — the V1
-        # local-files store uses `:` inside negotiation/instance ids
-        # which become directory names (`negotiations/nego:codex/...`),
-        # and `:` is the drive-letter separator on Windows so any mkdir
-        # of such a directory ENOENTs. Fixing it requires a sanitization
-        # pass across the runtime + canonical layout decision; tracked
-        # for a later DEC. The smoke workflow still runs on Windows
-        # because the verbs it exercises do not create those dirs.
-        os: [ubuntu-latest, macos-latest]
+        # DEC-061 + DEC-062: full cross-OS coverage. The `:`-in-paths
+        # blocker that kept Windows out of the matrix initially was
+        # fixed by safePathSegment() (DEC-062). The cross-CLI subprocess
+        # tests of DEC-053 may still need a Windows-specific harness;
+        # see cross-cli-cooperation.test.js for that skip decision.
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node: ["20", "22"]
     steps:
       - uses: actions/checkout@v4

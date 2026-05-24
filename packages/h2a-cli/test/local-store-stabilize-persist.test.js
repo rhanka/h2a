@@ -90,7 +90,8 @@ test("stabilizeNegotiation persists a CONTRACT to contracts/<id>/contract.json",
     }
 
     const result = store.stabilizeNegotiation(negotiationId);
-    assert.equal(result.artifactPath, join(root, "contracts", "contract:alpha", "contract.json"));
+    // DEC-062: `:` in the id maps to `__` in the path segment.
+    assert.equal(result.artifactPath, join(root, "contracts", "contract__alpha", "contract.json"));
     assert.ok(existsSync(result.artifactPath), "contract.json should exist on disk");
     const onDisk = JSON.parse(readFileSync(result.artifactPath, "utf8"));
     assert.deepEqual(onDisk, artifact);
@@ -124,9 +125,10 @@ test("stabilizeNegotiation persists an ENGAGEMENT to engagements/<id>/charter.js
     }
 
     const result = store.stabilizeNegotiation(negotiationId);
+    // DEC-062: `:` in the id maps to `__` in the path segment.
     assert.equal(
       result.artifactPath,
-      join(root, "engagements", "engagement:ship-v1", "charter.json")
+      join(root, "engagements", "engagement__ship-v1", "charter.json")
     );
     assert.ok(existsSync(result.artifactPath));
     const onDisk = JSON.parse(readFileSync(result.artifactPath, "utf8"));

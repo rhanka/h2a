@@ -45,6 +45,7 @@ export {
   outboxDir,
   presenceFile,
   readPresence,
+  safePathSegment,
   updatePresence,
   withLock,
   withLockSync,

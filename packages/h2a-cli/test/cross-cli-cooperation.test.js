@@ -8,15 +8,14 @@ import test from "node:test";
 
 const BIN_PATH = join(process.cwd(), "packages/h2a-cli/dist/bin.js");
 
-// DEC-061: the cross-process MCP scenarios assume POSIX semantics
-// (stdin EOF triggering child exit, SIGKILL terminating without close-event
-// handshake quirks). On Windows runners the child cleanup is racy and the
-// test runner ends up holding leaked subprocesses, hanging the whole CI
-// matrix. We skip on Windows for now and track this as a known limitation
-// in DEC-061.
-const SKIP_ON_WINDOWS = platform === "win32";
-const skipOpts = SKIP_ON_WINDOWS
-  ? { skip: "Windows: cross-process MCP scenarios deferred (DEC-061)" }
+// DEC-061/062: the first time we tried this matrix on Windows the cross-CLI
+// tests both ENOENT'd (path `:`-segments, fixed by DEC-062's safePathSegment)
+// and leaked subprocesses on the resulting failure path. The path fix
+// should unblock both tests; we keep the skip flag wired so it's a 1-line
+// change if a Windows-only stdio framing issue resurfaces later.
+const SKIP_ON_WINDOWS = false;
+const skipOpts = SKIP_ON_WINDOWS && platform === "win32"
+  ? { skip: "Windows: cross-process MCP scenarios deferred" }
   : {};
 
 /**

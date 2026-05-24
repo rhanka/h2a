@@ -37,6 +37,7 @@ import {
   negotiationDir,
   negotiationJournalFile,
   outboxDir,
+  safePathSegment,
   type LocalStorePaths
 } from "./paths.js";
 import {
@@ -118,14 +119,16 @@ function resolveStabilizedArtifactPath(
   const kind = typeof a.kind === "string" ? a.kind : undefined;
   const id = typeof a.id === "string" ? a.id : undefined;
 
+  // DEC-062: sanitize ids through safePathSegment so Windows mkdir
+  // accepts them (`nego:codex` would otherwise be a forbidden path).
   if (kind === "CONTRACT" && id) {
-    return join(paths.contracts, id, "contract.json");
+    return join(paths.contracts, safePathSegment(id), "contract.json");
   }
   if (kind === "POLICY" && id) {
-    return join(paths.policies, `${id}.json`);
+    return join(paths.policies, `${safePathSegment(id)}.json`);
   }
   if (kind === "ENGAGEMENT" && id) {
-    return join(paths.engagements, id, "charter.json");
+    return join(paths.engagements, safePathSegment(id), "charter.json");
   }
   // Fallback: hash-addressed under <root>/artifacts/. We replace ":" so the
   // canonical "sha256:<hex>" prefix maps to a portable filename.
@@ -533,7 +536,8 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function envelopeFile(dir: string, envelopeId: string): string {
-    return join(dir, `${envelopeId}.json`);
+    // DEC-062: envelope ids can contain `:` (e.g. `env:hello`), sanitize.
+    return join(dir, `${safePathSegment(envelopeId)}.json`);
   }
 
   function readEnvelopesFrom(dir: string): H2AEnvelope[] {

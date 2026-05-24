@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-24 (DEC-061 — cross-OS CI matrix ubuntu/macos/windows × node 20/22 ; cross-platform test runner ; WP-60 effectively closed)
+> Last update: 2026-05-24 (DEC-062 — safePathSegment fixes Windows ENOENT on `:` in ids ; Windows back in full-test CI matrix ; repo made public)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -103,6 +103,7 @@
 - [x] Host bridge contract formalized (`H2A_HOST_BRIDGE_PROFILES` + `auditHostBridge` + remote-controle profile + PR draft) — DEC-059
 - [x] OCI image build + GHCR publish workflow (`ghcr.io/rhanka/h2a-cli:<version>`, multi-arch, non-root, SBOM) — DEC-060
 - [x] Cross-OS CI matrix ubuntu/macOS × node 20/22 + cross-platform test runner ; Windows smoke covered, Windows full-test deferred (`:`-in-paths refactor) — DEC-061
+- [x] `safePathSegment` for Windows-compatible local-files layout (`:` → `__` in negotiation/instance/session ids and artefact paths) ; Windows back in full-test CI matrix — DEC-062
 
 ## Workpackage 40 - Host And Protocol Integrations (~95%)
 

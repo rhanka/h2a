@@ -5,6 +5,7 @@ export {
   negotiationJournalFile,
   outboxDir,
   presenceFile,
+  safePathSegment,
   type LocalStorePaths
 } from "./paths.js";
 
