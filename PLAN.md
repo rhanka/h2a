@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-23 (Release v0.1.21 published ; DEC-058 — K8s sidecar manifest renderer + `h2a deploy k8s-sidecar` verb ; Scenario A of DEC-056 shipped)
+> Last update: 2026-05-23 (DEC-059 — host bridge contract formalized for remote-controle ; DEC-056 Q3 resolved ; remote-controle PR drafted but not opened)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -100,6 +100,7 @@
 - [x] `install-skills` extended to Codex (`~/.codex/skills/`) and Gemini (`~/.gemini/commands/` TOML) — DEC-055
 - [x] Single `/h2a` skill with subcommand routing (connect/status/discover/send/receive/negotiate/disconnect/help) + legacy pruning — DEC-057
 - [x] Kubernetes sidecar renderer + `h2a deploy k8s-sidecar` verb (Scenario A of DEC-056) — DEC-058
+- [x] Host bridge contract formalized (`H2A_HOST_BRIDGE_PROFILES` + `auditHostBridge` + remote-controle profile + PR draft) — DEC-059
 
 ## Workpackage 40 - Host And Protocol Integrations (~95%)
 
@@ -167,12 +168,12 @@
 
 ## Open Decisions for K8s + remote-controle interop (DEC-056)
 
-See `docs/instruction-k8s-and-remote-controle-interop.md` for context. Four user inputs needed before any implementation slice:
+All four resolved on 2026-05-23:
 
-- [ ] Tenant model: new `tenants/h2a/` in `poc-k8s` or sidecar of `sentropic-remote`?
-- [ ] RWX storage acceptance on Scaleway (NFS-Pod vs per-workspace partitioning)?
-- [ ] Interop contract with `remote-controle`: one-way (h2a documents) or two-way (both repos commit)?
-- [ ] `@sentropic/h2a-remote` as a real package, or fold into `h2a-cli`?
+- [x] Tenant model → **stay on Scenario A (sidecar per session)**, no dedicated `tenants/h2a/`. Re-open when cross-session coordination demand emerges.
+- [x] RWX storage → **n/a** (only mattered if a dedicated tenant was chosen).
+- [x] Interop contract with `remote-controle` → **two-way formalized** (DEC-059 + PR draft at `docs/pr-drafts/remote-controle-h2a-bridge.md`).
+- [x] `@sentropic/h2a-remote` → **deferred V2** (depends on DEC-032 V2 auth, no design now).
 
 ## Open Decisions / User Inputs
 

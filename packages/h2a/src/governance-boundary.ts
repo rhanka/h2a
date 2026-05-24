@@ -81,6 +81,13 @@ export const H2A_GOVERNANCE_BOUNDARY_ITEMS = Object.freeze([
     references: ["DEC-050"]
   },
   {
+    id: "host-bridge-contract",
+    layer: "PROTOCOL",
+    status: "v1-shipped",
+    summary: "Formal interop contract between h2a and external host runtimes (e.g. @sentropic/remote-controle), with five canonical clauses (identity, lifecycle, resource-limits, disclosure, auth-boundary). V1 ships the remote-controle profile.",
+    references: ["DEC-056", "DEC-058", "DEC-059"]
+  },
+  {
     id: "policy-precedence",
     layer: "POLICY",
     status: "v1-open",

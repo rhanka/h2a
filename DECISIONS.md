@@ -1039,3 +1039,37 @@ The consolidated skill adds two subcommands the previous version did not expose:
 **Why**: (a) DEC-056 explicitly recommended starting with Scenario A; sitting on the instruction note longer than necessary was misaligned with the "advance with a single preco" feedback; (b) the renderer is pure → testable without a real cluster, which matters because the test suite must stay hermetic; (c) the default `npm-runtime` strategy makes the manifest immediately runnable without first publishing an image — this lowers the activation cost of the sidecar to "merge YAML + run kubectl apply"; (d) exposing both a JSON envelope (DEC-034) and a `yaml` string in the same response keeps both audiences served — automation pipelines and `kubectl apply -f -` users; (e) the four DEC-056 questions stay open and explicitly do not block this slice (they govern Scenarios B/C only).
 
 **Consequence**: (a) `h2a deploy k8s-sidecar` is the first real deployment verb of the CLI; (b) `remote-controle` maintainers can adopt h2a inside a session Pod by appending the rendered fragment to their existing manifest; (c) the identity bridge env vars (`H2A_INSTANCE`, `H2A_HOST`, `H2A_ROOT`) become the V1 contract surface between h2a and `remote-controle`; later DEC may promote that to a formal TypeScript schema in `@sentropic/h2a`; (d) no `@sentropic/h2a-remote` is created — Scenario C still belongs to V2; (e) a patch release `0.1.21` can follow.
+
+## DEC-059 — Host bridge contract for `@sentropic/remote-controle`
+**Date**: 2026-05-23. **Refers**: DEC-050, DEC-056, DEC-058, INTENTION (multi-host coordination).
+
+**Context**: DEC-058 shipped the sidecar manifest with three identity env vars (`H2A_INSTANCE`, `H2A_HOST`, `H2A_ROOT`) acting as a *de facto* contract between h2a and the host runtime. DEC-056 left a formalization question open (Q3): one-way (h2a documents only) or two-way (both repos commit to the same schema). The 2026-05-23 user response chose **two-way**. This DEC delivers the h2a side.
+
+**Decision**: introduce a public, audited `host-bridge` profile in `@sentropic/h2a`. New module `packages/h2a/src/h2a-bridge.ts`. Exports:
+
+- `H2A_HOST_BRIDGE_CLAUSES = ["identity", "lifecycle", "resource-limits", "disclosure", "auth-boundary"]` — the five canonical clauses, aligned with DEC-056.
+- `H2A_HOST_BRIDGE_PROFILES` — indexed by host id. V1 ships one profile: `remote-controle`.
+- `getHostBridgeProfile(hostId)` — lookup.
+- `auditHostBridge(hostId)` — validates the profile shape, including the V1 invariant `resourceLimits.enforced === false` (h2a NEVER enforces host resource limits) and the constraint that every value in `lifecycle.stateMap` is a known `H2ASessionState`.
+- `listHostBridgeProfiles()` — enumerates registered host ids.
+
+The shipped `remote-controle` profile encodes:
+
+- **identity** : `instanceTemplate = "remote-controle:${SESSION_ID}"`, env var map `{instance: H2A_INSTANCE, host: H2A_HOST, root: H2A_ROOT}`, `hostHint = "remote-controle"`. Reflects the contract DEC-058 already implemented in the sidecar fragment.
+- **lifecycle** : `{provisioning → opening, running → live, terminating → draining, ended → closed}`. Maps remote-controle's `session-agent` lifecycle to canonical `H2ASessionState` (DEC-050).
+- **resource-limits** : `reflected: true`, `enforced: false`, `reflectedAs` = informational labels on the h2a presence file. V1 invariant: h2a never enforces host CPU/RAM limits.
+- **disclosure** : `workspaceBoundary` = "one h2a coordination scope per remote-controle session Pod; the emptyDir is the trust boundary"; `crossWorkspace = "deferred"` with reference to DEC-056 Scenarios B/C.
+- **auth-boundary** : `transport` = "filesystem (emptyDir shared between the runtime container and the h2a-mcp sidecar)", `enforcement = "Pod-level"`.
+
+`H2A_GOVERNANCE_BOUNDARY_ITEMS` adds `host-bridge-contract` (`PROTOCOL`, `v1-shipped`) so the boundary table reflects that the bridge is part of the protocol layer (not just an implementation detail).
+
+**Decision (PR draft to `../remote/`)**: `docs/pr-drafts/remote-controle-h2a-bridge.md` carries a complete PR text + a JSON Schema mirror of the TS profile (`packages/protocol/src/schemas/h2a-bridge.ts`). The PR is **not opened automatically** — it lives in this repo for the `remote-controle` maintainer to review and adapt before submitting upstream. Once merged on their side, the two projects will keep the bridge in lockstep through paired DECs.
+
+**Decision (V1 invariants formalized)**:
+1. `resourceLimits.enforced === false` — h2a only observes/reflects host limits, never enforces them.
+2. Every `lifecycle.stateMap` value is in `H2A_SESSION_STATES`.
+3. Adding a new host bridge requires adding the profile + a test exercising `auditHostBridge`. No host-side runtime logic in `@sentropic/h2a` itself.
+
+**Why**: (a) the user explicitly chose two-way formalization in Q3 of DEC-056 — staying informal would have re-created the "hidden API" risk; (b) formalizing now (one consumer) is cheaper than later (multiple consumers); (c) keeping the schema in `@sentropic/h2a` (pure, no I/O) lets cross-language implementations replay it bit-for-bit, same as fixtures DEC-035; (d) deferring the actual PR opening (just shipping the draft) keeps repo boundaries clean — `remote-controle` is governed by its own DECs and its maintainer needs to approve before any code lands there.
+
+**Consequence**: (a) the bridge contract is now machine-verifiable from the h2a side (`auditHostBridge("remote-controle")` returns `ok: true` with 5 clauses); (b) `governance-boundary` `host-bridge-contract` is `v1-shipped`; (c) `H2A_HOST_BRIDGE_PROFILES` is the registry for future host bridges (e.g. a hypothetical `vscode-devcontainer` profile); (d) the PR draft is committed to `docs/pr-drafts/` so the next time someone works on `../remote/`, the work is queued; (e) DEC-056 Q3 is resolved; Q1 (sidecar), Q2 (n/a), Q4 (V2 deferred) accepted per user 2026-05-23; (f) a patch release `0.1.22` can follow.

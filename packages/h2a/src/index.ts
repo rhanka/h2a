@@ -128,6 +128,24 @@ export type {
   H2ASessionNotificationTopic,
   H2ASessionState
 } from "./session.js";
+export {
+  H2A_HOST_BRIDGE_CLAUSES,
+  H2A_HOST_BRIDGE_PROFILES,
+  auditHostBridge,
+  getHostBridgeProfile,
+  listHostBridgeProfiles
+} from "./h2a-bridge.js";
+export type {
+  H2AHostBridgeAuditResult,
+  H2AHostBridgeAuthBoundaryClause,
+  H2AHostBridgeClause,
+  H2AHostBridgeDisclosureClause,
+  H2AHostBridgeIdentityClause,
+  H2AHostBridgeLifecycleClause,
+  H2AHostBridgeProfileDescriptor,
+  H2AHostBridgeProfileId,
+  H2AHostBridgeResourceLimitsClause
+} from "./h2a-bridge.js";
 export { assertValidNegotiationState } from "./negotiation.js";
 export { canonicalize, computeHash } from "./canonical.js";
 export { signCanonical, verifyCanonical } from "./signature.js";
