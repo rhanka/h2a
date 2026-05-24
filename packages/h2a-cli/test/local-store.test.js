@@ -11,16 +11,19 @@ function freshRoot() {
 }
 
 test("localStorePaths derives the canonical layout from a root", () => {
-  const paths = localStorePaths("/srv/.h2a");
-  assert.equal(paths.root, "/srv/.h2a");
-  assert.equal(paths.registry, "/srv/.h2a/registry");
-  assert.equal(paths.instances, "/srv/.h2a/registry/instances.jsonl");
-  assert.equal(paths.contracts, "/srv/.h2a/contracts");
-  assert.equal(paths.policies, "/srv/.h2a/policies");
-  assert.equal(paths.engagements, "/srv/.h2a/engagements");
-  assert.equal(paths.negotiations, "/srv/.h2a/negotiations");
-  assert.equal(paths.inbox, "/srv/.h2a/inbox");
-  assert.equal(paths.outbox, "/srv/.h2a/outbox");
+  // DEC-062: use join() rather than literal slashes so the assertion works on
+  // both POSIX (`/`) and Windows (`\\`) separators.
+  const root = join("srv", ".h2a");
+  const paths = localStorePaths(root);
+  assert.equal(paths.root, root);
+  assert.equal(paths.registry, join(root, "registry"));
+  assert.equal(paths.instances, join(root, "registry", "instances.jsonl"));
+  assert.equal(paths.contracts, join(root, "contracts"));
+  assert.equal(paths.policies, join(root, "policies"));
+  assert.equal(paths.engagements, join(root, "engagements"));
+  assert.equal(paths.negotiations, join(root, "negotiations"));
+  assert.equal(paths.inbox, join(root, "inbox"));
+  assert.equal(paths.outbox, join(root, "outbox"));
 });
 
 test("createLocalStore initializes the directory layout idempotently", () => {

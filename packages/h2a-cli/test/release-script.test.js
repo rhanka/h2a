@@ -8,19 +8,22 @@
 // / `npm` invocations, so unit-testing them directly is what matters.
 
 import assert from "node:assert/strict";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RELEASE_SCRIPT = resolve(HERE, "..", "..", "..", "scripts", "release.mjs");
 
+// DEC-062: on Windows the absolute path starts with `D:\` and Node's ESM
+// loader rejects it as an unsupported protocol; the import must be a
+// file:// URL.
 const {
   bumpPackageJsonContent,
   bumpPackageLockContent,
   gitStatusIsClean,
   parseVersion
-} = await import(RELEASE_SCRIPT);
+} = await import(pathToFileURL(RELEASE_SCRIPT).href);
 
 test("parseVersion accepts strict X.Y.Z and returns numeric components", () => {
   assert.deepEqual(parseVersion("0.0.0"), { major: 0, minor: 0, patch: 0 });

@@ -8,7 +8,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import test from "node:test";
 
 import { runCli } from "../dist/index.js";
@@ -48,7 +48,7 @@ test("install-skills --host claude --scope project writes the unified h2a SKILL.
     assert.equal(parsed.targetBase, join(cwd, ".claude", "skills"));
     assert.equal(parsed.installed.length, 1, "DEC-057 consolidates to a single h2a skill");
     const file = parsed.installed[0];
-    assert.ok(file.endsWith("/h2a/SKILL.md"), `expected h2a/SKILL.md, got ${file}`);
+    assert.ok(file.endsWith(`${sep}h2a${sep}SKILL.md`), `expected h2a/SKILL.md, got ${file}`);
     assert.ok(existsSync(file));
     const body = readFileSync(file, "utf8");
     assert.match(body, /^---/, "must preserve YAML frontmatter");
@@ -77,7 +77,7 @@ test("install-skills --host codex --scope project writes the unified h2a SKILL.m
     assert.equal(parsed.targetBase, join(cwd, ".codex", "skills"));
     assert.equal(parsed.installed.length, 1);
     const file = parsed.installed[0];
-    assert.ok(file.endsWith("/h2a/SKILL.md"));
+    assert.ok(file.endsWith(`${sep}h2a${sep}SKILL.md`));
     assert.ok(file.includes(".codex/skills/"));
   } finally {
     rmSync(cwd, { recursive: true, force: true });
@@ -99,7 +99,7 @@ test("install-skills --host gemini --scope project writes a single h2a.toml cust
     assert.equal(parsed.targetBase, join(cwd, ".gemini", "commands"));
     assert.equal(parsed.installed.length, 1);
     const file = parsed.installed[0];
-    assert.ok(file.endsWith("/h2a.toml"), `expected h2a.toml, got ${file}`);
+    assert.ok(file.endsWith(`${sep}h2a.toml`), `expected h2a.toml, got ${file}`);
     const body = readFileSync(file, "utf8");
     assert.match(body, /^description = "/);
     assert.match(body, /^prompt = '''$/m);
