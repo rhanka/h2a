@@ -9,6 +9,10 @@ on:
 jobs:
   build-and-test:
     runs-on: ${{ matrix.os }}
+    # DEC-061: a leaked subprocess (e.g. an mcp-serve sidecar in a
+    # cross-process test) once held the Windows runner open for 47 min.
+    # 15 min is well above any honest test duration on any OS.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:

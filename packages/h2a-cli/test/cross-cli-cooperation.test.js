@@ -3,9 +3,21 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { platform } from "node:process";
 import test from "node:test";
 
 const BIN_PATH = join(process.cwd(), "packages/h2a-cli/dist/bin.js");
+
+// DEC-061: the cross-process MCP scenarios assume POSIX semantics
+// (stdin EOF triggering child exit, SIGKILL terminating without close-event
+// handshake quirks). On Windows runners the child cleanup is racy and the
+// test runner ends up holding leaked subprocesses, hanging the whole CI
+// matrix. We skip on Windows for now and track this as a known limitation
+// in DEC-061.
+const SKIP_ON_WINDOWS = platform === "win32";
+const skipOpts = SKIP_ON_WINDOWS
+  ? { skip: "Windows: cross-process MCP scenarios deferred (DEC-061)" }
+  : {};
 
 /**
  * Spawn one `h2a mcp-serve` subprocess against a given root with a fast
@@ -124,6 +136,7 @@ function envelope(id, from, to) {
 
 test(
   "two mcp-serve subprocesses cooperate: discovery + inbox push + presence leave (DEC-053)",
+  skipOpts,
   async () => {
     const root = mkdtempSync(join(tmpdir(), "h2a-xcli-"));
     const claude = spawnMcpServe(root, "claude");
@@ -208,6 +221,7 @@ test(
 
 test(
   "ungraceful close (SIGKILL) leaves a stale presence file that expires via TTL (DEC-053)",
+  skipOpts,
   async () => {
     const root = mkdtempSync(join(tmpdir(), "h2a-xcli-kill-"));
     const claude = spawnMcpServe(root, "claude");
