@@ -1116,7 +1116,12 @@ The repo owner is lowercased before being injected into the image ref (GHCR reje
 
 **Context**: until this slice the test suite (`npm test`) ran on `ubuntu-latest` only. WP-60 explicitly listed "cross-OS smoke matrix" as ops-hardening debt: the project ships a CLI binary consumed by Mac developers using Claude Code and by Windows developers using any host CLI, but nothing in CI ever verified that the runtime / lock / spawn semantics held outside Linux.
 
-**Decision**: extend `ci.yml` and `smoke.yml` to a `{os: [ubuntu-latest, macos-latest, windows-latest]}` matrix. `ci.yml` keeps the `node: ["20", "22"]` dimension, producing 6 parallel runs per push. `smoke.yml` stays Node 22-only (the published-CLI smoke does not need to fan out across Node versions). `fail-fast: false` so a Windows-only failure does not mask a macOS-only failure.
+**Decision**: extend the CI matrix beyond Ubuntu. After investigation, the final shape is:
+
+- **`ci.yml` (full test suite)** : `os: [ubuntu-latest, macos-latest]` × `node: ["20", "22"]` = 4 parallel runs per push. Windows is **deferred** — the root cause is structural, not transient (see below).
+- **`smoke.yml` (published CLI smoke)** : `os: [ubuntu-latest, macos-latest, windows-latest]` × Node 22. Windows passes here because the smoked verbs (`--help`, `hosts`, `mcp-tools`, `init`, `register`, `discover`, `host setup --print`) do not create directories from `:`-bearing ids — only the negotiation/inbox layouts exercised by the full test suite do.
+
+`fail-fast: false` so an OS-only failure does not mask another.
 
 ### First-pass discoveries
 
@@ -1124,7 +1129,9 @@ The first matrix run surfaced two Windows-specific issues:
 
 1. **`npm test` script** relied on shell glob expansion (`packages/h2a/test/*.test.js`), which works on bash (Linux, macOS, Git Bash) but is forwarded literally to node under PowerShell, producing `Could not find 'D:\a\h2a\h2a\packages\h2a\test\*.test.js'`. **Fix**: cross-platform runner `scripts/run-tests.mjs` (see below).
 
-2. **`cross-cli-cooperation.test.js` (DEC-053)** fails on Windows. The first test errors with `Cannot read properties of undefined (reading 'state')` — the JSON parse of `h2a_session_open` response returns something without a `session` field on Windows. Likely root cause: the newline-delimited JSON-RPC chunks emitted by `mcp-serve` over stdio do not arrive frame-aligned on the Windows runners. Compounded by a second issue: when the test fails mid-way, the spawned `mcp-serve` subprocesses are not cleaned up; the node test runner then waits for them and the entire Windows job hangs (~47 min in the first attempt). **Fix**: skip both DEC-053 cross-process tests on Windows via `test(name, {skip}, fn)`, with a `t.skip` reason citing DEC-061. Also: hard 15-min `timeout-minutes` on the CI job so any future hang fails fast.
+2. **`cross-cli-cooperation.test.js` (DEC-053)** fails on Windows with `Cannot read properties of undefined (reading 'state')` then leaks subprocesses that hang the runner. **Fix**: skip both DEC-053 cross-process tests on Windows via `test(name, {skip}, fn)`. The skip stays in even though Windows is no longer in the CI matrix — it remains useful for developers running the test suite on a Windows workstation. Also: hard 15-min `timeout-minutes` on every CI job so any future hang fails fast.
+
+3. **`:` in path segments breaks Windows mkdir.** This was the dealbreaker that pushed Windows out of the full-test matrix. V1's canonical layout (DEC-031) uses ids like `nego:codex` and `claude:proj-1` directly as directory names under `negotiations/`, `inbox/<instance>/`, `outbox/<instance>/`, `engagements/<id>/`, `contracts/<id>/`. On Windows `:` is the drive-letter separator and any such `mkdir` ENOENTs immediately. The fix is structural: introduce a `safePathSegment(id)` helper that replaces `:` with a Windows-safe sequence (and consistently apply it everywhere an id becomes a path component), plus update every path comparison in tests to go through `node:path.join` rather than literal `/` strings. That refactor is **deferred** to a later DEC — fixing it inside DEC-061 would have ballooned this slice. Tracked in PLAN.md.
 
 ### Cross-platform test runner
 
@@ -1132,11 +1139,12 @@ The first matrix run surfaced two Windows-specific issues:
 
 The runner is intentionally simple — no glob package, no directory-discovery flag that varies between Node versions — so its behavior is identical on every Node 20+ install regardless of OS.
 
-### Windows skip — what we lose, what we keep
+### Windows V1.x status — what's actually covered
 
-The two DEC-053 tests are the **only** ones skipped on Windows. They specifically exercise two `h2a mcp-serve` subprocesses sharing a `<root>` and notifying each other via the JSON-RPC stdio stream. Everything else — the in-process `createMcpServer` MCP test (DEC-052), the local-files store with advisory locks (DEC-036), the schema migration (DEC-036), the K8s renderer (DEC-058), the host-bridge audit (DEC-059), all 60+ CLI verb tests — runs and passes on Windows.
+- **Smoke (`smoke.yml`)** : ubuntu / macOS / Windows. Verifies that an `npm i -g @sentropic/h2a-cli@<version>` works on each OS and that the basic verbs (`--help`, `hosts`, `mcp-tools`, `init`, `register`, `discover`, `host setup --print`) exit 0. This is the published-CLI contract; Windows users at least know the install works and the help renders.
+- **Full test suite (`ci.yml`)** : ubuntu / macOS only. The `:`-in-paths blocker (issue 3 above) plus the cross-process subprocess test issue (issue 2) keep Windows out for now. Whenever someone wants to use h2a on Windows seriously, the follow-up DEC will add `safePathSegment` + node:path-aware assertions, and Windows can re-enter the CI matrix.
 
-This means Windows coverage on V1 is comprehensive for everything that ships in the npm package or the OCI image. The cross-process notification path is only exercised on Linux and macOS; the cross-CLI flow on a real Windows machine remains untested. That gap is tracked here and may be addressed by either (a) fixing the stdio framing assumption in `mcp-serve` or (b) a Windows-specific transport probe.
+This is honest scope. CLI agents that consume h2a today (Claude Code, Codex, Gemini) are primary-target Linux/macOS; Windows is a "should also work" rather than a launch requirement.
 
 ### What this slice does NOT touch
 
