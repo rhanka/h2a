@@ -78,7 +78,7 @@ test("install-skills --host codex --scope project writes the unified h2a SKILL.m
     assert.equal(parsed.installed.length, 1);
     const file = parsed.installed[0];
     assert.ok(file.endsWith(`${sep}h2a${sep}SKILL.md`));
-    assert.ok(file.includes(".codex/skills/"));
+    assert.ok(file.includes(`${sep}.codex${sep}skills${sep}`));
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
