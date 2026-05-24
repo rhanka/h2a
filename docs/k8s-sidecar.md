@@ -31,9 +31,28 @@ h2a deploy k8s-sidecar --write ./deploy/h2a-sidecar.yaml
 | Strategy | Trigger | What runs | When to use |
 |---|---|---|---|
 | `npm-runtime` (default) | omit `--image` | `node:22-alpine` + `npm i -g @sentropic/h2a-cli@<cliVersion>` at Pod start | PoC, demos, dev clusters. Trade-off: ~10s install latency. |
-| Explicit image | `--image ghcr.io/rhanka/h2a-cli:0.1.20` | The given OCI image (must provide `h2a` on PATH) | Production. Requires you to build/publish the image. |
+| Pre-built OCI image | `--image ghcr.io/rhanka/h2a-cli:<version>` | The published image (DEC-060), `h2a` already on PATH | Production. No install latency, deterministic image. |
 
 `--cli-version` only applies to `npm-runtime` and defaults to `latest`. Pin it for reproducible Pods.
+
+### Published OCI image (DEC-060)
+
+From v0.1.23 onward, every released tag is also built and pushed to GitHub Container Registry by `.github/workflows/docker.yml`:
+
+- `ghcr.io/rhanka/h2a-cli:<version>` — pinned to a specific release, e.g. `ghcr.io/rhanka/h2a-cli:0.1.23`.
+- `ghcr.io/rhanka/h2a-cli:latest` — tracks the most recent published release.
+
+The image is multi-arch (`linux/amd64`, `linux/arm64`), runs as a non-root `h2a` user (UID 1001), and carries the built dist/ of both `@sentropic/h2a` and `@sentropic/h2a-cli` plus their production dependency closure — about 150 MB total.
+
+Switching the sidecar to the pre-built image:
+
+```bash
+h2a deploy k8s-sidecar --image ghcr.io/rhanka/h2a-cli:latest
+# or for a pinned, reproducible deploy:
+h2a deploy k8s-sidecar --image ghcr.io/rhanka/h2a-cli:0.1.23
+```
+
+The renderer keeps `npm-runtime` as the default because the image only exists from v0.1.23+; downgrading a Pod to an older release should not silently change image strategy. Explicit opt-in.
 
 ## Resource defaults
 

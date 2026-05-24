@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-23 (Release v0.1.22 published ; DEC-059 — host bridge contract formalized for remote-controle ; DEC-056 fully resolved)
+> Last update: 2026-05-23 (DEC-060 — OCI image build + GHCR publish workflow ; first image produced by v0.1.23)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -101,6 +101,7 @@
 - [x] Single `/h2a` skill with subcommand routing (connect/status/discover/send/receive/negotiate/disconnect/help) + legacy pruning — DEC-057
 - [x] Kubernetes sidecar renderer + `h2a deploy k8s-sidecar` verb (Scenario A of DEC-056) — DEC-058
 - [x] Host bridge contract formalized (`H2A_HOST_BRIDGE_PROFILES` + `auditHostBridge` + remote-controle profile + PR draft) — DEC-059
+- [x] OCI image build + GHCR publish workflow (`ghcr.io/rhanka/h2a-cli:<version>`, multi-arch, non-root, SBOM) — DEC-060
 
 ## Workpackage 40 - Host And Protocol Integrations (~95%)
 

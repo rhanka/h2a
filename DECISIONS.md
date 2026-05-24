@@ -1073,3 +1073,40 @@ The shipped `remote-controle` profile encodes:
 **Why**: (a) the user explicitly chose two-way formalization in Q3 of DEC-056 — staying informal would have re-created the "hidden API" risk; (b) formalizing now (one consumer) is cheaper than later (multiple consumers); (c) keeping the schema in `@sentropic/h2a` (pure, no I/O) lets cross-language implementations replay it bit-for-bit, same as fixtures DEC-035; (d) deferring the actual PR opening (just shipping the draft) keeps repo boundaries clean — `remote-controle` is governed by its own DECs and its maintainer needs to approve before any code lands there.
 
 **Consequence**: (a) the bridge contract is now machine-verifiable from the h2a side (`auditHostBridge("remote-controle")` returns `ok: true` with 5 clauses); (b) `governance-boundary` `host-bridge-contract` is `v1-shipped`; (c) `H2A_HOST_BRIDGE_PROFILES` is the registry for future host bridges (e.g. a hypothetical `vscode-devcontainer` profile); (d) the PR draft is committed to `docs/pr-drafts/` so the next time someone works on `../remote/`, the work is queued; (e) DEC-056 Q3 is resolved; Q1 (sidecar), Q2 (n/a), Q4 (V2 deferred) accepted per user 2026-05-23; (f) a patch release `0.1.22` can follow.
+
+## DEC-060 — OCI image build + GHCR publish workflow
+**Date**: 2026-05-23. **Refers**: DEC-038 (tag-driven release), DEC-058 (K8s sidecar), WP-60.
+
+**Context**: DEC-058 ships the K8s sidecar with `image: "npm-runtime"` as the default — it bootstraps by running `npm i -g @sentropic/h2a-cli@<version>` inside a `node:22-alpine` container at Pod start. This works without prerequisites but pays a ~10 s install latency on every Pod creation. The alternative was already documented (pass an explicit OCI image reference), but no image was ever published. WP-60 left this as ops-hardening debt.
+
+**Decision**: ship a Dockerfile + a dedicated CI workflow that builds and pushes `ghcr.io/rhanka/h2a-cli:<version>` (and `:latest`) on every `v*.*.*` tag, in parallel with the existing `release.yml` npm publish.
+
+### Dockerfile
+
+Repository-root `Dockerfile` uses a two-stage `node:22-alpine` build:
+
+1. **`builder`** copies the workspace, runs `npm ci` then `npm run build`. Produces `dist/` for both `@sentropic/h2a` and `@sentropic/h2a-cli`.
+2. **`runtime`** copies only `node_modules/` + `packages/` from the builder, symlinks `/opt/h2a/packages/h2a-cli/dist/bin.js` to `/usr/local/bin/h2a`, switches to a non-root `h2a:h2a` user (UID 1001), and sets `ENTRYPOINT ["h2a"]`. `WORKDIR /workspace` matches the documented sidecar mount point. `CMD ["--help"]` keeps the image directly runnable for a sanity check.
+
+The image is built for both `linux/amd64` and `linux/arm64` so it runs on Apple Silicon dev clusters and on Scaleway DEV1-M without a translation layer. SBOM + provenance attestations are emitted by `docker/build-push-action@v6`.
+
+A `.dockerignore` keeps the build context tight: only `package*.json`, `tsconfig*.json` and the two workspace packages enter; node_modules, docs, examples, scripts and the various host-specific dotfolders are excluded.
+
+### `.github/workflows/docker.yml`
+
+Triggered on the same `v*.*.*` tag push as `release.yml`. Permissions: `contents: read`, `packages: write` — the built-in `GITHUB_TOKEN` is sufficient to push to GHCR, no extra secret required. Concurrency group `docker-${{ github.ref }}` cancels in-progress builds on superseded tags. The workflow also accepts `workflow_dispatch` for manual re-runs.
+
+Each tag push produces two tags on the image:
+
+- `ghcr.io/rhanka/h2a-cli:<version>` (e.g. `:0.1.23`)
+- `ghcr.io/rhanka/h2a-cli:latest`
+
+The repo owner is lowercased before being injected into the image ref (GHCR rejects mixed case).
+
+### Renderer default unchanged
+
+`renderK8sSidecar` keeps `image: "npm-runtime"` as the default. Reason: the OCI image only starts existing from v0.1.23+, so silently switching the default would make any sidecar fragment rendered against the new CLI fail when applied alongside an older release tagged before the image existed. The user must opt in explicitly via `--image ghcr.io/rhanka/h2a-cli:<version>` or `:latest`. The documentation in `docs/k8s-sidecar.md` is updated to describe both strategies and to call out the multi-arch, non-root, SBOM-attested build.
+
+**Why**: (a) the ~10 s npm install at Pod start is acceptable for PoC but blocks any pretense of production-grade K8s use; (b) publishing the image is a one-shot infrastructure decision — keeping it out forever would have meant carrying the npm-runtime tradeoff indefinitely; (c) the workflow runs **in parallel** with `release.yml`, not coupled to it, so a docker build failure does not block npm publish and vice-versa; (d) GHCR + GITHUB_TOKEN avoids introducing a new credential surface (no Docker Hub PAT, no Scaleway CR account); (e) multi-arch matters because Apple Silicon devs are common consumers and Scaleway DEV1-M is amd64 — a single tag works in both; (f) running as non-root inside the image keeps the sidecar compatible with restrictive Pod Security Standards namespaces, which is the V1 reality of `poc-k8s` per DEC-056.
+
+**Consequence**: (a) v0.1.23 is the first release that produces an OCI image; releases before that stay on `npm-runtime`; (b) users opt into the OCI image by passing `--image ghcr.io/rhanka/h2a-cli:latest` (or pinned version) to `h2a deploy k8s-sidecar`; (c) a future DEC may promote the OCI image to the default once it has been the default policy for a few releases without incident; (d) DEC-038's release flow is unchanged — `release.yml` still publishes npm, the new `docker.yml` is additive; (e) WP-60 ops-hardening percentage moves from ~70% to ~80% with this slice; (f) a patch release `0.1.23` can follow.
