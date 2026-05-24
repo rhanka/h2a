@@ -237,7 +237,7 @@ Plus a **push notification channel** (`notifications/h2a`) on 4 topics (DEC-052)
 | [docs/instruction-k8s-and-remote-controle-interop.md](./docs/instruction-k8s-and-remote-controle-interop.md) | K8s deployment + `@sentropic/remote-controle` interop note (DEC-056) |
 | [handover.md](./handover.md) | Handover prompt for a Claude session |
 
-> Some reference documents (`INTENTION.md`, `SPEC.md`, `VOCABULARY.md`, `DECISIONS.md`) remain in French because they capture the original user verbatim and the append-only DEC log. New content in this repository targets English by default; existing French content is preserved as-is and not retroactively translated.
+> Project policy: all docs and code in this repository are in English. The only intentional exception is `INTENTION.md`, which preserves the original user verbatim and is kept as-is in its source language.
 
 ---
 

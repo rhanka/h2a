@@ -1,317 +1,319 @@
-# Vocabulaire — V1.9 (RÉVISÉ 2026-05-20)
+# Vocabulary — V1.9 (REVISED 2026-05-20)
 
-> **Statut** : §1-5 (Acteurs, substrat, flux par défaut, flux exceptionnels, non-acteurs) **FIGÉS V1.7** suite à validation utilisateur (DEC-007 à DEC-009), précision MANDATAIRE (DEC-013), routing `alert` (DEC-014), cadrage multi-humain/EXECUTIF/POLICY (DEC-015/016), EXECUTIF rôle séparé (DEC-017), CONTRACT/POLICY/ENGAGEMENT (DEC-018), REGISTRY/NEGOTIATION (DEC-019), signature par autorité mandatée (DEC-021), stabilisation sans médiateur (DEC-022), distinction CONTROL/ENFORCEMENT_PLAN (DEC-023), et escalade vers autorité de scope (DEC-024). §3 ajoute la taxonomie multi-humaine de DEC-042. §7 (Pile contractuelle) **RÉVISÉ V1.2** (DEC-018/023). §6 reste ouvert par construction ; la frontière protocole / policy / implémentation est désormais tracée par DEC-043.
+> **Status**: §1-5 (Actors, substrate, default flows, exceptional flows, non-actors) **FROZEN V1.7** after user validation (DEC-007 to DEC-009), MANDATAIRE clarification (DEC-013), `alert` routing (DEC-014), multi-human/EXECUTIF/POLICY framing (DEC-015/016), EXECUTIF as a separate role (DEC-017), CONTRACT/POLICY/ENGAGEMENT (DEC-018), REGISTRY/NEGOTIATION (DEC-019), signing by mandated authority (DEC-021), stabilization without mediator (DEC-022), CONTROL/ENFORCEMENT_PLAN distinction (DEC-023), and escalation to scope authority (DEC-024). §3 adds the multi-human taxonomy from DEC-042. §7 (Contractual stack) **REVISED V1.2** (DEC-018/023). §6 stays open by design; the protocol / policy / implementation boundary is now drawn by DEC-043.
 >
-> **Pourquoi ce document existe** : pendant le brainstorming, j'avais conflé plusieurs concepts (notamment "consultation" entre agents, agent→conductor, agent→humain). Cette page repart de `INTENTION.md` pour poser un glossaire propre, support de toutes les specs aval.
+> **Why this document exists**: during brainstorming, several concepts had been conflated (notably "consultation" between agents, agent→conductor, agent→human). This page restarts from `INTENTION.md` to lay down a clean glossary that supports every downstream spec.
 >
-> **Convention pour la suite** : toute spec produite doit référencer les acteurs/concepts par leur nom canonique défini ici. Toute proposition de renommage ou modification sémantique = nouvelle DEC dans `DECISIONS.md` + bump V1.x.
+> **Convention going forward**: every spec must reference actors/concepts by the canonical name defined here. Any proposed rename or semantic change = a new DEC in `DECISIONS.md` + V1.x bump.
+
+> **Note on canonical names**: the role names PRINCIPAL, EXECUTIF, CONDUCTOR, AGENTS, CONTROL, MANDATAIRE were chosen at project inception in French and frozen as proper nouns by DEC-007..009. They remain as-is across all languages.
 
 ---
 
-## 0. Re-fondations issues de l'intention initiale
+## 0. Re-foundations from the initial intention
 
-Trois phrases du verbatim utilisateur dictent toute la suite :
+Three sentences from the user verbatim drive everything else:
 
-1. *« Le rôle conductor est essentiel : il permettra à **l'humain de piloter** un cheptel d'agents sous supervision / responsabilité d'un conductor. »*
-   → **L'humain est le pilote**. Le conductor est l'**instrument** par lequel il pilote.
-   → Le conductor **supervise** le cheptel et en **porte la responsabilité** (face à l'humain).
+1. *"The conductor role is essential: it lets **the human pilot** a herd of agents under a conductor's supervision/responsibility."*
+   → **The human is the pilot**. The conductor is the **instrument** through which they pilot.
+   → The conductor **supervises** the herd and **carries responsibility** (toward the human).
 
-2. *« Une collab entre CLI de façon flexible. »*
-   → Les agents collaborent **entre pairs** — pas tout n'a vocation à remonter au conductor.
+2. *"A flexible collab between CLIs."*
+   → Agents collaborate **peer-to-peer** — not everything has to bubble up to the conductor.
 
-3. *« Un humain peut prendre le contrôle d'un agent, ou d'un des conductors. »*
-   → Le **takeover** est explicitement nommé comme un cas distinct du fonctionnement normal.
+3. *"A human can take control of an agent, or of one of the conductors."*
+   → **Takeover** is explicitly named as a case distinct from normal operation.
 
-**Conclusion** : l'humain n'est pas un "expert externe qu'on consulte". Il est résident dans la boucle **au-dessus du conductor par défaut** ; il descend dans la boucle (takeover) ou répond à des **escalades** quand le conductor ne peut/veut pas trancher.
-
----
-
-## 1. Acteurs primaires
-
-Six types d'acteurs. Chacun a une **présence par défaut** (où il vit dans la boucle) et un **mode d'activation** (quand il intervient).
-
-### 1.1 PRINCIPAL — l'humain en fonction exécutive (DEC-009)
-
-- **Qui** : l'humain (ou les humains) qui exerce la **fonction exécutive** sur l'engagement : possède l'objectif, autorise, ratifie, accepte. Pas un consultant externe — un décideur ultime.
-- **Présence par défaut** : **au-dessus** du conductor, **hors** de la boucle opérationnelle.
-- **Interventions natives** :
-  - Brief initial (rédige ou valide le charter de l'engagement).
-  - Répond aux **escalades** remontées par le conductor (ou plus rarement par un agent ou un control).
-  - **Takeover** ponctuel d'un agent ou d'un conductor (REQ-013/014).
-  - Accepte le livrable final (clôture).
-- **Synonymes envisagés** : `human-principal`, `commanditaire`, `owner`, `executive`. **Question ouverte** : un seul PRINCIPAL par engagement, ou plusieurs (copropriété d'engagement) ?
-
-### 1.2 CONDUCTOR — le délégué qui pilote au nom du PRINCIPAL
-
-- **Qui** : l'instrument de pilotage de l'engagement. Souvent un agent CLI ; **peut être un humain** si le PRINCIPAL choisit de conduire lui-même.
-- **Présence par défaut** : **dans la boucle**, sommet de l'arbre de l'engagement.
-- **Responsabilités** :
-  - Décompose le goal en assignments pour les agents.
-  - Supervise l'exécution, consolide les outputs.
-  - Tranche les décisions opérationnelles.
-  - **Channel par défaut** PRINCIPAL ↔ cheptel : tout ce qui vient du PRINCIPAL atterrit au conductor, et c'est le conductor qui remonte au PRINCIPAL.
-  - Propose la plupart des amendements ordinaires (DEC-004).
-- **Synonymes envisagés** : `conductor`, `chef-d-orchestre`, `lead`, `pilot-delegate`. **Question ouverte** : un seul conductor par engagement, ou plusieurs (co-conduction) ?
-
-### 1.2.bis EXECUTIF — le responsable de l'activité d'ensemble (DEC-016)
-
-- **Qui** : rôle canonique séparé de PRINCIPAL (DEC-017), humain ou agentique, responsable d'un scope supérieur couvrant plusieurs PRINCIPAUX, leurs mini-organisations, leurs CONDUCTORS, leurs AGENTS et leurs CONTROL.
-- **Présence par défaut** : **au-dessus ou autour** des mini-organisations fédérées. L'EXECUTIF porte l'accountability du scope d'ensemble, sans supprimer l'autorité locale des PRINCIPAUX.
-- **Interventions natives** :
-  - Définit ou ratifie l'intention d'ensemble.
-  - Crée ou ratifie des engagements d'ensemble.
-  - Arbitre les conflits entre PRINCIPAUX, mini-organisations, policies ou CONTROL.
-  - Ratifie les policies globales et les exceptions majeures.
-  - Reçoit des escalades d'ensemble quand le PRINCIPAL local n'est pas l'autorité suffisante.
-- **Ne fait pas par défaut** : piloter le travail quotidien de chaque mini-organisation. Ce pilotage reste au PRINCIPAL local et à ses CONDUCTORS, sauf engagement ou takeover explicite.
-- **Synonymes envisagés** : `executive`, `sponsor`, `portfolio-owner`, `program-owner`. **Règle schema** : toujours représenter `{instance, role, scope}` ; une même INSTANCE peut être PRINCIPAL sur un scope et EXECUTIF sur un autre.
-
-### 1.3 AGENTS — les opérateurs (DEC-008)
-
-- **Qui** : acteurs (CLI tier — Claude Code, Codex, Gemini, … — ou humain en mode operator) qui **exécutent** le travail dans le cadre de leurs slots de rôle. Pluriel par convention : on raisonne sur le cheptel, pas sur l'individu.
-- **Présence par défaut** : **dans la boucle**, chacun lié à un slot pour la durée de son binding.
-- **Flux natifs** :
-  - Reçoivent des assignments du conductor (vertical).
-  - **Collaborent entre pairs** (horizontal) — c'est explicitement la "collab entre CLI" de l'intention.
-  - Reportent au conductor (status, livrable, blocage).
-  - Peuvent, dans des cas définis, demander une décision au PRINCIPAL via escalade.
-
-#### 1.3.bis SUBAGENTS — la profondeur réservée (DEC-008)
-
-- **Qui** : agents enfants opérant à l'intérieur du scope d'un AGENT (ex. l'Agent tool de Claude Code, les subagents de Codex, …).
-- **Statut V1** : **internes à l'AGENT**, non adressables par le protocole, non visibles individuellement par CONTROL ou MANDATAIRE. L'AGENT consolide.
-- **Statut V2 anticipé** : first-class — slots, bindings, audit et takeover à la granularité subagent.
-- **Pourquoi cette réserve** : ne pas bloater V1, mais éviter de se peindre dans un coin (le protocole V1 doit pouvoir évoluer vers V2 sans break).
-- **Question ouverte** (différée) : à quel moment on bascule en V2 ? Critère d'activation à définir.
-
-### 1.4 CONTROL — les fonctions de contrôle cross-tree (DEC-007)
-
-- **Qui** : rôles **non subordonnés** au conductor. Exemples canoniques : **cyber, finance, éthique, legal, qualité**. Tenu par un agent CLI ou un humain.
-- **Pourquoi ce nom** : DEC-007 — toutes les fonctions transverses observées sont des fonctions de contrôle ; nommer par la fonction (CONTROL) plutôt que par la topologie ("transverse"). La propriété cross-tree reste vraie.
-- **Présence par défaut** : **dans la boucle**, attaché au scope de l'engagement, **hors de l'arbre de subordination**.
-- **Droits natifs** :
-  - Observation / audit cross-tree selon les droits de disclosure du scope. Un CONTROL ne lit pas automatiquement tout : il peut recevoir vues redigées, hashes, attestations ou evidence packages.
-  - Ajout de contraintes au charter (auto-signé pour son propre domaine — DEC-004).
-  - Veto sur certaines actions (à définir par convention de chaque CONTROL).
-  - Alerte/notification vers le conductor ou le PRINCIPAL (via `alert`, avec court-circuit contrôlé possible — DEC-014).
-- **Synonymes envisagés** : `control`, `control-role`, `oversight`. **Question ouverte** : un CONTROL parle-t-il aux agents directement, ou seulement via le conductor ?
-
-### 1.5 MANDATAIRE — le présentateur neutre
-
-- **Qui** : rôle **built-in du protocole** (pas tenu par un humain en général ; rendu par un sous-agent dédié, possiblement l'implémentation de référence).
-- **Présence par défaut** : **inactif**, instancié à la demande quand une décision nécessite une présentation neutre.
-- **Interventions** :
-  - Met en forme et présente les options sans biais pour les escalades `decide` et `alert` vers le PRINCIPAL (DEC-013).
-  - N'est pas requis sur `advise`, qui reste un chemin léger non bloquant (DEC-013).
-  - Conduit les votes de quorum (DEC-004).
-  - Mène la session de signature pour les takeovers humains.
-- **Ne fait jamais** : voter, décider, choisir le wording d'une question dans un sens favorable à un acteur.
-- **Ne fait pas non plus** : médiation, arbitrage, jugement, résolution de deadlock. Ces décisions appartiennent à l'autorité compétente du scope (DEC-024).
-- **Synonymes envisagés** : `mandataire`, `notary`, `clerk`, `arbiter`. **Question ouverte** : faut-il un mandataire dédié par engagement, ou un mandataire global "de service" qui sert plusieurs engagements ?
+**Conclusion**: the human is not "an external expert one consults". They are resident in the loop **above the conductor by default**; they step into the loop (takeover) or answer **escalations** when the conductor cannot/will not decide.
 
 ---
 
-## 2. Substrat : INSTANCE, SCOPE, PARTY, AUTHORITY, MANDATE, SLOT, BINDING, CONTRACT, POLICY, REGISTRY, NEGOTIATION
+## 1. Primary actors
 
-Concepts à ne pas confondre :
+Six actor types. Each has a **default presence** (where they live in the loop) and an **activation mode** (when they intervene).
 
-- **INSTANCE** — une entité concrète (ex. `claude-code:session-42`, ou `human:alice@org`). Stable, identifiable.
-- **SCOPE** — périmètre d'application : mini-organisation, engagement, fédération, programme, territoire, contrat, domaine réglementaire. Un scope ne signe jamais.
-- **PARTY** — partie engagée par un artefact contractuel : humain, organisation, fédération, administration, fournisseur, client, etc.
-- **AUTHORITY** — INSTANCE ou quorum habilité à décider/signifier pour une PARTY ou un SCOPE.
-- **MANDATE** — délégation explicite qui lie `{instance, role, scope, rights}` et précise ce que l'autorité peut négocier, signer, refuser ou escalader.
-- **RÔLE** (template) — un contrat réutilisable défini hors engagement (ex. *Conductor*, *Reviewer*, *Cyber*). Décrit responsabilités, droits de signature, format des outputs attendus.
-- **SLOT** — un placeholder dans un engagement (ex. dans l'engagement `ship-v1`, le slot `Conductor` existe).
-- **BINDING** — l'attachement d'une INSTANCE à un SLOT pour une durée (ex. `alice` est bind à `Conductor` jusqu'à la clôture). Un binding peut être amendé (changement, takeover humain temporaire, etc.).
-- **CONTRACT** — un conteneur normatif applicable à des parties/scopes et signé par les autorités mandatées. Il peut contenir policies, obligations, droits, clauses, références externes, et instancier un ou plusieurs engagements.
-- **POLICY** — une règle durable, versionnée et applicable à un scope. Une policy contraint les contracts, engagements et actions ; elle peut être autonome ou clause d'un CONTRACT. Elle déclare `sourceAuthority` et `adoptionMode` (`ratified`, `contractual`, `imposed`, `acknowledged`).
-- **REGISTRY** — répertoire runtime des INSTANCE, rôles, scopes, endpoints, capabilities, clés et policies acceptées. Il sert à la découverte et à l'adressage ; il ne décide rien.
-- **NEGOTIATION** — session transitoire de proposition/contre-proposition/signature pour stabiliser un CONTRACT, une POLICY, un ENGAGEMENT ou un amendement. Elle suit un ledger append-only et n'est applicable qu'une fois l'artefact signé stabilisé.
-- **OBLIGATION** — devoir imposé ou accepté : livrer, payer, déclarer, ne pas faire, maintenir une preuve, respecter une échéance. Peut être ponctuel ou récurrent.
-- **RIGHT** — droit ou permission : audit, accès, veto, usage, paiement, décision réservée, recours.
-- **CLAUSE** — fragment normatif dans un CONTRACT/POLICY/ENGAGEMENT : obligation, droit, condition, exception, confidentialité, escalade, termination.
-- **EVIDENCE_PACKAGE** — paquet de preuve partageable avec disclosure contrôlée : documents, hashes, attestations, logs, signatures, redactions.
+### 1.1 PRINCIPAL — the human in executive function (DEC-009)
 
-Une même instance peut tenir plusieurs slots dans plusieurs engagements, ou (à valider) plusieurs slots dans le même engagement.
+- **Who**: the human (or humans) who holds the **executive function** over the engagement: owns the goal, authorizes, ratifies, accepts. Not an outside consultant — the ultimate decision-maker.
+- **Default presence**: **above** the conductor, **outside** the operational loop.
+- **Native interventions**:
+  - Initial brief (drafts or validates the engagement charter).
+  - Responds to **escalations** raised by the conductor (or, more rarely, by an agent or a control).
+  - Occasional **takeover** of an agent or a conductor (REQ-013/014).
+  - Accepts the final deliverable (closure).
+- **Synonyms considered**: `human-principal`, `commanditaire`, `owner`, `executive`. **Open question**: one PRINCIPAL per engagement, or several (joint engagement ownership)?
+
+### 1.2 CONDUCTOR — the delegate who pilots on the PRINCIPAL's behalf
+
+- **Who**: the engagement's piloting instrument. Often a CLI agent; **may be a human** if the PRINCIPAL chooses to conduct directly.
+- **Default presence**: **inside the loop**, at the top of the engagement tree.
+- **Responsibilities**:
+  - Decomposes the goal into assignments for agents.
+  - Supervises execution, consolidates outputs.
+  - Decides operational matters.
+  - **Default channel** between PRINCIPAL and herd: anything from the PRINCIPAL lands at the conductor, and the conductor is what reaches back to the PRINCIPAL.
+  - Proposes most ordinary amendments (DEC-004).
+- **Synonyms considered**: `conductor`, `chef-d-orchestre`, `lead`, `pilot-delegate`. **Open question**: one conductor per engagement, or several (co-conduction)?
+
+### 1.2.bis EXECUTIF — the holder of overall accountability (DEC-016)
+
+- **Who**: canonical role separate from PRINCIPAL (DEC-017), human or agentic, accountable for an upper scope spanning several PRINCIPALs, their mini-organizations, their CONDUCTORs, their AGENTS and their CONTROLs.
+- **Default presence**: **above or around** federated mini-organizations. EXECUTIF holds accountability for the umbrella scope without erasing each PRINCIPAL's local authority.
+- **Native interventions**:
+  - Defines or ratifies the overall intention.
+  - Creates or ratifies umbrella engagements.
+  - Arbitrates between PRINCIPALs, mini-organizations, policies or CONTROLs.
+  - Ratifies global policies and major exceptions.
+  - Receives umbrella escalations when the local PRINCIPAL is not the sufficient authority.
+- **Does NOT by default**: drive the day-to-day work of each mini-organization. That pilot work stays with the local PRINCIPAL and their CONDUCTORs, except by explicit engagement or takeover.
+- **Synonyms considered**: `executive`, `sponsor`, `portfolio-owner`, `program-owner`. **Schema rule**: always represent `{instance, role, scope}`; the same INSTANCE may be PRINCIPAL on one scope and EXECUTIF on another.
+
+### 1.3 AGENTS — the operators (DEC-008)
+
+- **Who**: actors (tier CLI — Claude Code, Codex, Gemini, … — or human in operator mode) who **execute** the work within their role slots. Plural by convention: we reason about the herd, not the individual.
+- **Default presence**: **inside the loop**, each bound to a slot for the duration of its binding.
+- **Native flows**:
+  - Receive assignments from the conductor (vertical).
+  - **Collaborate peer-to-peer** (horizontal) — this is explicitly the "collab between CLIs" of the intention.
+  - Report to the conductor (status, deliverable, blockage).
+  - May, in defined cases, ask the PRINCIPAL for a decision via escalation.
+
+#### 1.3.bis SUBAGENTS — the reserved depth (DEC-008)
+
+- **Who**: child agents operating inside an AGENT's scope (e.g. Claude Code's Agent tool, Codex subagents, …).
+- **V1 status**: **internal to the AGENT**, not addressable by the protocol, not individually visible to CONTROL or MANDATAIRE. The AGENT consolidates.
+- **Anticipated V2 status**: first-class — slots, bindings, audit and takeover at subagent granularity.
+- **Why this reserve**: avoid bloating V1, while not painting ourselves into a corner (the V1 protocol must be able to evolve to V2 without a break).
+- **Open question** (deferred): when do we flip to V2? Activation criterion to be defined.
+
+### 1.4 CONTROL — cross-tree control functions (DEC-007)
+
+- **Who**: roles **not subordinate** to the conductor. Canonical examples: **cyber, finance, ethics, legal, quality**. Held by a CLI agent or a human.
+- **Why the name**: DEC-007 — every cross-cutting function observed is a control function; name by the function (CONTROL) rather than by the topology ("transverse"). The cross-tree property still holds.
+- **Default presence**: **inside the loop**, attached to the engagement scope, **outside the subordination tree**.
+- **Native rights**:
+  - Observation / cross-tree audit subject to the scope's disclosure rights. A CONTROL does not automatically read everything: it may receive redacted views, hashes, attestations or evidence packages.
+  - Add constraints to the charter (self-signed for its own domain — DEC-004).
+  - Veto on certain actions (defined per CONTROL convention).
+  - Alert/notification toward the conductor or the PRINCIPAL (via `alert`, with controlled short-circuit possible — DEC-014).
+- **Synonyms considered**: `control`, `control-role`, `oversight`. **Open question**: does a CONTROL talk to agents directly, or only via the conductor?
+
+### 1.5 MANDATAIRE — the neutral presenter
+
+- **Who**: **protocol built-in** role (not typically held by a human; rendered by a dedicated sub-agent, possibly the reference implementation).
+- **Default presence**: **inactive**, instantiated on demand whenever a decision requires neutral presentation.
+- **Interventions**:
+  - Formats and presents options without bias for `decide` and `alert` escalations toward the PRINCIPAL (DEC-013).
+  - Not required on `advise`, which stays a light, non-blocking path (DEC-013).
+  - Conducts quorum votes (DEC-004).
+  - Leads the signing session for human takeovers.
+- **Never does**: vote, decide, choose the wording of a question in a way that favors an actor.
+- **Also does NOT**: mediate, arbitrate, judge, resolve deadlocks. Those decisions belong to the scope's competent authority (DEC-024).
+- **Synonyms considered**: `mandataire`, `notary`, `clerk`, `arbiter`. **Open question**: dedicated mandataire per engagement, or a global "service" mandataire serving several engagements?
 
 ---
 
-## 3. Flux par défaut (sans escalade, sans takeover)
+## 2. Substrate: INSTANCE, SCOPE, PARTY, AUTHORITY, MANDATE, SLOT, BINDING, CONTRACT, POLICY, REGISTRY, NEGOTIATION
+
+Concepts not to be confused:
+
+- **INSTANCE** — a concrete entity (e.g. `claude-code:session-42`, or `human:alice@org`). Stable, identifiable.
+- **SCOPE** — domain of application: mini-organization, engagement, federation, program, territory, contract, regulatory domain. A scope never signs.
+- **PARTY** — party bound by a contractual artefact: human, organization, federation, administration, supplier, customer, etc.
+- **AUTHORITY** — INSTANCE or quorum entitled to decide/signify for a PARTY or a SCOPE.
+- **MANDATE** — explicit delegation tying `{instance, role, scope, rights}` and stating what the authority may negotiate, sign, refuse or escalate.
+- **ROLE** (template) — a reusable contract defined outside an engagement (e.g. *Conductor*, *Reviewer*, *Cyber*). Describes responsibilities, signing rights, expected output format.
+- **SLOT** — a placeholder in an engagement (e.g. in engagement `ship-v1`, the `Conductor` slot exists).
+- **BINDING** — the attachment of an INSTANCE to a SLOT for a duration (e.g. `alice` is bound to `Conductor` until closure). A binding may be amended (change, temporary human takeover, etc.).
+- **CONTRACT** — a normative container applicable to parties/scopes and signed by mandated authorities. May contain policies, obligations, rights, clauses, external references, and instantiate one or more engagements.
+- **POLICY** — a durable, versioned rule applicable to a scope. A policy constrains contracts, engagements and actions; it may be standalone or a clause of a CONTRACT. It declares `sourceAuthority` and `adoptionMode` (`ratified`, `contractual`, `imposed`, `acknowledged`).
+- **REGISTRY** — runtime directory of INSTANCE, roles, scopes, endpoints, capabilities, keys and accepted policies. Serves discovery and addressing; it decides nothing.
+- **NEGOTIATION** — transient session of offer/counter-offer/signature to stabilize a CONTRACT, POLICY, ENGAGEMENT or amendment. Follows an append-only ledger and is applicable only once the signed artefact is stabilized.
+- **OBLIGATION** — duty imposed or accepted: deliver, pay, declare, refrain, keep proof, meet a deadline. May be one-shot or recurring.
+- **RIGHT** — right or permission: audit, access, veto, use, payment, reserved decision, recourse.
+- **CLAUSE** — normative fragment inside a CONTRACT/POLICY/ENGAGEMENT: obligation, right, condition, exception, confidentiality, escalation, termination.
+- **EVIDENCE_PACKAGE** — proof bundle shareable with controlled disclosure: documents, hashes, attestations, logs, signatures, redactions.
+
+The same instance may hold several slots across several engagements, or (to be validated) several slots in the same engagement.
+
+---
+
+## 3. Default flows (no escalation, no takeover)
 
 ```
-EXECUTIF ──┐ (intention d'ensemble / policy globale / arbitrage inter-périmètres)
+EXECUTIF ──┐ (overall intention / global policy / inter-perimeter arbitration)
            │
-PRINCIPAL ─┤ (brief / amendement / réponse-d'escalade)
+PRINCIPAL ─┤ (brief / amendment / escalation-response)
            ▼
-      CONDUCTOR ◄──────► CONTROL  (audit, contrainte, veto)
+      CONDUCTOR ◄──────► CONTROL  (audit, constraint, veto)
       │   ▲
-      │   │ (status, report, demande d'arbitrage)
+      │   │ (status, report, arbitration request)
       ▼   │
-     AGENTS ◄──► AGENTS            (collab "entre CLI")
+     AGENTS ◄──► AGENTS            (peer-to-peer "CLI collab")
      │
-     └─► SUBAGENTS (internes à chaque AGENT en V1)
+     └─► SUBAGENTS (internal to each AGENT in V1)
 ```
 
-Trois flux "normaux" :
-1. **Vertical descendant** : PRINCIPAL → CONDUCTOR → AGENTS (assignment).
-2. **Vertical montant** : AGENTS → CONDUCTOR → (selon besoin) PRINCIPAL (report).
-3. **Latéral** : AGENT ↔ AGENT (collab) ; CONTROL ↔ tout acteur (observation + contrainte).
-4. **Fédéré** : EXECUTIF ↔ PRINCIPAUX/CONDUCTORS/CONTROL quand un scope d'ensemble existe.
+Three "normal" flows:
+1. **Vertical downward**: PRINCIPAL → CONDUCTOR → AGENTS (assignment).
+2. **Vertical upward**: AGENTS → CONDUCTOR → (as needed) PRINCIPAL (report).
+3. **Lateral**: AGENT ↔ AGENT (collab); CONTROL ↔ any actor (observation + constraint).
+4. **Federated**: EXECUTIF ↔ PRINCIPALs/CONDUCTORs/CONTROL when an umbrella scope exists.
 
-Modes multi-humains structurés (DEC-042) :
+Structured multi-human modes (DEC-042):
 
-1. **PEER_DIALOGUE** : PRINCIPAL ↔ PRINCIPAL, discussion informelle entre mini-organisations.
-2. **DELEGATED_COORDINATION** : CONDUCTOR ↔ CONDUCTOR, coordination répétée sous mandats locaux.
-3. **SHARED_ENGAGEMENT** : charter partagé avec roles, controls, policies, success criteria et journal.
-4. **FEDERATED_EXECUTIF** : scope d'ensemble porté par EXECUTIF, sans effacer les PRINCIPAUX locaux.
-5. **CONSORTIUM_QUORUM** : scope partagé gouverné par quorum/comité plutôt que par EXECUTIF unique.
-6. **PUBLIC_AUTHORITY** : policy, preuve ou recours impliquant une autorité externe/publique.
+1. **PEER_DIALOGUE**: PRINCIPAL ↔ PRINCIPAL, informal discussion between mini-organizations.
+2. **DELEGATED_COORDINATION**: CONDUCTOR ↔ CONDUCTOR, repeated coordination under local mandates.
+3. **SHARED_ENGAGEMENT**: shared charter with roles, controls, policies, success criteria and journal.
+4. **FEDERATED_EXECUTIF**: umbrella scope owned by EXECUTIF, without erasing local PRINCIPALs.
+5. **CONSORTIUM_QUORUM**: shared scope governed by a quorum/committee rather than a single EXECUTIF.
+6. **PUBLIC_AUTHORITY**: policy, evidence or recourse involving an external/public authority.
 
-**Aucune "consultation à l'humain" n'existe dans le flux par défaut** : si un agent a besoin d'une décision, il la demande à son conductor, qui décide ou escalade.
+**No "consult-the-human" exists in the default flow**: if an agent needs a decision, it asks its conductor, which decides or escalates.
 
 ---
 
-## 4. Flux exceptionnels
+## 4. Exceptional flows
 
-### 4.1 Escalade
-Un acteur demande explicitement l'arbitrage de l'**autorité compétente du scope** parce qu'il ne peut/veut pas trancher dans son mandat.
-- AGENT → CONDUCTOR : pas une "escalade" — c'est le flux normal montant. Pas besoin de mandataire.
-- CONDUCTOR → PRINCIPAL : cas mono-humain par défaut, via `advise`, `decide` ou `alert` (DEC-012). MANDATAIRE requis sur `decide`/`alert`, pas sur `advise` (DEC-013).
-- CONDUCTOR/CONTROL/AGENT → EXECUTIF, quorum, autorité externe ou recours : cas fédéré, contractuel ou gouvernemental (DEC-024).
-- AGENT → PRINCIPAL ou CONTROL → PRINCIPAL : **escalade exceptionnelle**, conditionnée (ex. CONTROL cyber détecte un acte conducteur problématique). `alert` peut court-circuiter le CONDUCTOR de façon contrôlée : copie par défaut, exclusion possible avec raison tracée (DEC-014).
+### 4.1 Escalation
+An actor explicitly asks the **scope's competent authority** for arbitration because they cannot/will not decide within their mandate.
+- AGENT → CONDUCTOR: not an "escalation" — that is the normal upward flow. No mandataire required.
+- CONDUCTOR → PRINCIPAL: default mono-human case, via `advise`, `decide` or `alert` (DEC-012). MANDATAIRE required on `decide`/`alert`, not on `advise` (DEC-013).
+- CONDUCTOR/CONTROL/AGENT → EXECUTIF, quorum, external authority or recourse: federated, contractual or governmental case (DEC-024).
+- AGENT → PRINCIPAL or CONTROL → PRINCIPAL: **exceptional escalation**, conditioned (e.g. CONTROL cyber detects a problematic conductor act). `alert` may controlled-short-circuit the CONDUCTOR: default copy, exclusion possible with traced reason (DEC-014).
 
 ### 4.2 Takeover
-Le PRINCIPAL substitue son INSTANCE à un binding existant.
-- **takeover-agent** : PRINCIPAL devient l'agent sur un slot le temps de N actions ou d'une durée.
-- **takeover-conductor** : PRINCIPAL pilote directement, le conductor délégué est suspendu.
-- Régi par **amendement signé** (DEC-004) ; mandataire mène la session.
+The PRINCIPAL substitutes their INSTANCE in place of an existing binding.
+- **takeover-agent**: PRINCIPAL becomes the agent on a slot for N actions or a duration.
+- **takeover-conductor**: PRINCIPAL pilots directly, the delegated conductor is suspended.
+- Governed by **signed amendment** (DEC-004); mandataire leads the session.
 
 ---
 
-## 5. Ce qui n'est PAS un acteur du protocole
+## 5. What is NOT a protocol actor
 
-À ne pas confondre avec les acteurs :
+Not to be confused with actors:
 
-- **CLI hôte** (Claude Code, Codex, Gemini, autre) — c'est le *substrat technique* qui héberge un agent, pas l'agent lui-même.
-- **WORKSPACE** — le répertoire local d'un agent (utile pour le transport local-files), pas un acteur.
-- **TRANSPORT** (local-files, MCP central, remote) — couche basse, transparente pour le vocabulaire des acteurs.
-- **ENGAGEMENT** — c'est un artefact opérationnel qui a un scope, pas un acteur et pas le scope lui-même.
-- **CHARTER** — c'est le *document* qui décrit l'engagement, pas un acteur.
-- **CONTRACT** — c'est un *artefact normatif*, pas un acteur. Il peut contenir ou référencer policies et engagements.
-- **POLICY** — c'est une *règle durable de scope*, pas un acteur et pas un engagement. Elle est appliquée, auditée ou proposée par des acteurs, souvent CONTROL ou EXECUTIF.
-- **REGISTRY** — c'est un service ou dossier de découverte, pas une autorité. Le fait d'être inscrit ne vaut pas droit d'agir.
-- **NEGOTIATION** — c'est une session de convergence, pas un contrat. Elle produit éventuellement un artefact signé stabilisé.
-- **MEDIATOR inter-contrat** — absent de la V1. Les conflits globaux entre contrats sont détectés/tracés puis escaladés, pas résolus automatiquement par un acteur caché.
-- **ENFORCEMENT_PLAN** — c'est le plan d'application des règles, pas un acteur. Des acteurs CONTROL peuvent l'exécuter ou l'auditer.
-
----
-
-## 6. Questions ouvertes (à trancher dans les prochaines passes)
-
-1. **Unicité** : un PRINCIPAL et un CONDUCTOR uniques par engagement, ou pluralité possible ?
-2. **Humain-comme-agent** : le PRINCIPAL en mode operator est-il indistinguable d'un agent CLI au niveau du protocole, ou il y a une marque "this is human" sur le binding ?
-3. **CONTROL → AGENTS directement** : oui (cohérent avec audit cross-tree), ou seulement via le conductor (cohérent avec une seule chaîne de commandement) ?
-4. **Mandataire** : par engagement ou de service ? Si built-in, comment garantir/vérifier sa neutralité ?
-5. **AGENT ↔ AGENT en collab** : la collaboration latérale est-elle libre ou doit-elle être déclarée au conductor (a posteriori ? a priori ?) ?
-6. **SUBAGENTS V2** : critère/déclencheur du passage SUBAGENTS internes → first-class ? (Différée, V1 reste avec subagents internes.)
-7. **Multi-humain pair-à-pair** : résolu par DEC-042 (`selectMultiHumanMode`), de PRINCIPAL ↔ PRINCIPAL vers CONDUCTOR ↔ CONDUCTOR, ENGAGEMENT partagé, EXECUTIF, quorum ou autorité externe.
-8. **Humain multi-rôle** : comment représenter un même humain tenant simultanément PRINCIPAL local, rôle opérationnel, CONTROL ou EXECUTIF ?
-9. **CONTRACT** : schema minimal, signatures, parties, droits, obligations, policies, engagements dérivés.
-10. **POLICY** : cycle de vie, signature, héritage, précédence et résolution de conflit entre scopes.
-11. **CONTROL ↔ POLICY/CONTRACT** : quels droits minimaux par domaine (proposer, imposer, auditer, veto, alerter) ?
-12. **REGISTRY** : central MCP, local-files, remote, ou plusieurs registries synchronisables ?
-13. **NEGOTIATION** : format minimal d'offer/counteroffer, délais, expiration, quorum, hash canonical.
-14. **Sans médiateur inter-contrat** : quels conflits doivent seulement être signalés, et lesquels doivent bloquer une signature ?
-15. **Adjudication/recours** : faut-il un rôle canonique séparé pour tribunal/arbitre, ou une autorité externe suffit-elle en V1 ?
-16. **Disclosure CONTROL** : quels niveaux standards de redaction/preuve faut-il imposer dans les contracts cross-organisation ?
+- **Host CLI** (Claude Code, Codex, Gemini, other) — that is the *technical substrate* hosting an agent, not the agent itself.
+- **WORKSPACE** — an agent's local directory (useful for the local-files transport), not an actor.
+- **TRANSPORT** (local-files, central MCP, remote) — low layer, transparent to the actor vocabulary.
+- **ENGAGEMENT** — an operational artefact that has a scope, not an actor and not the scope itself.
+- **CHARTER** — the *document* describing the engagement, not an actor.
+- **CONTRACT** — a *normative artefact*, not an actor. May contain or reference policies and engagements.
+- **POLICY** — a *durable scope rule*, not an actor and not an engagement. Applied, audited or proposed by actors, often CONTROL or EXECUTIF.
+- **REGISTRY** — a discovery service or directory, not an authority. Being listed is not a right to act.
+- **NEGOTIATION** — a convergence session, not a contract. It may produce a stabilized signed artefact.
+- **Inter-contract MEDIATOR** — absent in V1. Global conflicts between contracts are detected/traced then escalated, not automatically resolved by a hidden actor.
+- **ENFORCEMENT_PLAN** — the application plan for rules, not an actor. CONTROL actors may execute or audit it.
 
 ---
 
-## 7. Pile contractuelle (V1.2 — révisée DEC-018/023)
+## 6. Open questions (to be settled in upcoming passes)
 
-> **Motivation** : un contrat réel mélange souvent règles durables, obligations, droits, missions exécutables, preuves et mécanismes d'application. La pile ne doit donc pas faire de `POLICY` une cinquième couche linéaire. Elle distingue les artefacts normatifs (`CONTRACT`, `POLICY`, `ENGAGEMENT`) du plan d'application (`ENFORCEMENT_PLAN`).
+1. **Uniqueness**: one unique PRINCIPAL and one unique CONDUCTOR per engagement, or plurality possible?
+2. **Human-as-agent**: is the PRINCIPAL in operator mode indistinguishable from a CLI agent at the protocol level, or is there a "this is human" mark on the binding?
+3. **CONTROL → AGENTS directly**: yes (consistent with cross-tree audit), or only via the conductor (consistent with a single command chain)?
+4. **Mandataire**: per-engagement or as a service? If built-in, how to guarantee/verify neutrality?
+5. **AGENT ↔ AGENT collab**: is lateral collaboration free or must it be declared to the conductor (a posteriori? a priori?)?
+6. **SUBAGENTS V2**: trigger/criterion for moving internal SUBAGENTS → first-class? (Deferred, V1 stays with internal subagents.)
+7. **Peer multi-human**: resolved by DEC-042 (`selectMultiHumanMode`), from PRINCIPAL ↔ PRINCIPAL to CONDUCTOR ↔ CONDUCTOR, shared ENGAGEMENT, EXECUTIF, quorum or external authority.
+8. **Multi-role human**: how to represent the same human simultaneously holding local PRINCIPAL, an operational role, CONTROL or EXECUTIF?
+9. **CONTRACT**: minimal schema, signatures, parties, rights, obligations, policies, derived engagements.
+10. **POLICY**: lifecycle, signature, inheritance, precedence and conflict resolution between scopes.
+11. **CONTROL ↔ POLICY/CONTRACT**: minimal rights per domain (propose, impose, audit, veto, alert)?
+12. **REGISTRY**: central MCP, local-files, remote, or several synchronizable registries?
+13. **NEGOTIATION**: minimal offer/counter-offer format, delays, expiration, quorum, canonical hash.
+14. **Without inter-contract mediator**: which conflicts should only be flagged, and which should block a signature?
+15. **Adjudication/recourse**: should there be a canonical role separate for tribunal/arbiter, or is an external authority enough in V1?
+16. **CONTROL disclosure**: which standard redaction/proof levels should be enforced in cross-organization contracts?
 
-### 7.1 INTENTION — le pourquoi
+---
 
-- **Définition** : objectif de haut niveau, value-driven, possiblement peu structuré. Énonce une finalité, pas une exécution.
-- **Source** : PRINCIPAL ou EXECUTIF selon le scope.
-- **Exemples** : *"livrer la v1 produit avant fin Q3"*, *"remédier à l'incident sécurité du 12 mai"*, *"atteindre conformité RGPD"*, *"piloter un cheptel d'agents CLI" (← notre cas)*.
-- **Propriétés** : narrative, persistante, peut survivre à plusieurs specs, contracts et engagements.
-- **Pas exécutable directement** — c'est l'amont de la chaîne.
+## 7. Contractual stack (V1.2 — revised DEC-018/023)
 
-### 7.2 SPÉCIFICATION — le quoi mesurable
+> **Motivation**: a real contract often mixes durable rules, obligations, rights, executable missions, evidence and enforcement mechanisms. The stack must therefore not make `POLICY` a linear fifth layer. It distinguishes normative artefacts (`CONTRACT`, `POLICY`, `ENGAGEMENT`) from the application plan (`ENFORCEMENT_PLAN`).
 
-- **Définition** : traduction d'une intention en **exigences vérifiables**, classées (fonctionnelles, non-fonctionnelles, contraintes de CONTROL).
-- **Source** : draft par PRINCIPAL, EXECUTIF ou CONDUCTOR ; revue par CONTROL pour les contraintes de domaine ; ratifiée par l'autorité appropriée.
-- **Propriétés** : numérotée, traçable, validable, idéalement testable.
-- **Pas exécutable directement**, mais sert de critère d'acceptance et de référence aux artefacts contractuels.
+### 7.1 INTENTION — the why
 
-### 7.3 Artefacts contractuels — ce qui lie les parties
+- **Definition**: high-level, value-driven, possibly loosely structured goal. States a purpose, not an execution.
+- **Source**: PRINCIPAL or EXECUTIF depending on scope.
+- **Examples**: *"ship product v1 by end of Q3"*, *"remediate the security incident of May 12"*, *"reach GDPR compliance"*, *"pilot a herd of CLI agents" (← our case)*.
+- **Properties**: narrative, persistent, may survive several specs, contracts and engagements.
+- **Not directly executable** — it is upstream of the chain.
 
-#### 7.3.1 CONTRACT — le conteneur normatif signé (DEC-018/021)
+### 7.2 SPECIFICATION — the measurable what
 
-- **Définition** : conteneur normatif applicable à des parties/scopes et signé par les autorités mandatées.
-- **Contenu possible** : policies, obligations, droits, parties, rôles, clauses de contrôle/escalade, preuves, références externes, modalités d'amendement.
-- **Relation aux engagements** : un contract peut instancier un ou plusieurs engagements, ou définir des conditions sous lesquelles des engagements seront créés.
-- **Exemples** : contrat fournisseur, contrat client, contrat employé, pacte d'actionnaires, contrat-cadre, convention de partenariat, règlement d'une plateforme.
+- **Definition**: translation of an intention into **verifiable requirements**, classified (functional, non-functional, CONTROL constraints).
+- **Source**: drafted by PRINCIPAL, EXECUTIF or CONDUCTOR; reviewed by CONTROL for domain constraints; ratified by the appropriate authority.
+- **Properties**: numbered, traceable, validatable, ideally testable.
+- **Not directly executable**, but serves as acceptance criterion and reference for contractual artefacts.
 
-#### 7.3.2 POLICY — la règle durable de scope (DEC-016/018)
+### 7.3 Contractual artefacts — what binds the parties
 
-- **Définition** : règle durable, versionnée et applicable à un scope organisationnel.
-- **Source** : PRINCIPAL local, EXECUTIF, CONTROL, contract, autorité externe ou engagement de gouvernance selon le scope.
-- **Portée** : mini-organisation, engagement, contract, fédération, activité d'ensemble, territoire, domaine réglementaire.
-- **Deux formes** : autonome (ex. policy interne, loi, règlement) ou clause/règle contenue dans un CONTRACT.
-- **Adoption** : `ratified` (ratifiée localement), `contractual` (acceptée par contrat), `imposed` (loi/taxe/règlement), ou `acknowledged` (reconnue sans consentement normatif local).
-- **Relation aux engagements** : un engagement référence les policies applicables ; une violation ou dérogation déclenche trace, contrôle, veto ou escalade selon le domaine.
+#### 7.3.1 CONTRACT — the signed normative container (DEC-018/021)
 
-#### 7.3.3 ENGAGEMENT — le contrat opérationnel exécutable (DEC-003/018/021)
+- **Definition**: normative container applicable to parties/scopes and signed by mandated authorities.
+- **Possible content**: policies, obligations, rights, parties, roles, control/escalation clauses, evidence, external references, amendment modalities.
+- **Relation to engagements**: a contract may instantiate one or more engagements, or define the conditions under which engagements will be created.
+- **Examples**: supplier contract, customer contract, employment contract, shareholders' agreement, master agreement, partnership convention, platform regulations.
 
-- **Définition** : artefact opérationnel exécutable qui a un scope concret, un charter, des role bindings, des controls attachés, des policies applicables, des success criteria et un journal.
-- **Source** : CONDUCTOR ou EXECUTIF/PRINCIPAL selon le scope ; signataires selon table de gouvernance.
-- **Lifecycle** : charter vivant + amendements signés.
-- **Relation aux contracts** : peut être autonome ou dérivé d'un CONTRACT plus large.
-- **Exécutable** : c'est ici que les acteurs travaillent et que les preuves d'exécution s'accumulent.
+#### 7.3.2 POLICY — the durable scope rule (DEC-016/018)
 
-### 7.4 ENFORCEMENT_PLAN / ESCALADE — le plan d'application
+- **Definition**: durable, versioned rule applicable to an organizational scope.
+- **Source**: local PRINCIPAL, EXECUTIF, CONTROL, contract, external authority or governance engagement depending on scope.
+- **Reach**: mini-organization, engagement, contract, federation, umbrella activity, territory, regulatory domain.
+- **Two forms**: standalone (e.g. internal policy, law, regulation) or clause/rule contained in a CONTRACT.
+- **Adoption**: `ratified` (locally ratified), `contractual` (accepted by contract), `imposed` (law/tax/regulation), or `acknowledged` (recognized without local normative consent).
+- **Relation to engagements**: an engagement references applicable policies; a violation or derogation triggers trace, control, veto or escalation depending on domain.
 
-- **Définition** : plan transversal qui applique et vérifie INTENTION, SPEC, CONTRACT, POLICY et ENGAGEMENT.
-- **Ce que ce n'est pas** : pas un contrat, pas une policy, pas un engagement ; c'est la gestion de leur application.
-- **Mode normal** : observation, audit, validation, veto, contrôle de conformité, preuve, disclosure minimisée.
-- **Mode exception** : `advise`, `decide`, `alert`; MANDATAIRE requis sur `decide`/`alert`, pas sur `advise`; `alert` autorise un court-circuit contrôlé du CONDUCTOR.
-- **Boucles de correction** : peut provoquer amendement d'engagement, exception de policy, révision de contract, révision de spec ou clarification d'intention.
+#### 7.3.3 ENGAGEMENT — the executable operational contract (DEC-003/018/021)
 
-### 7.5 Relations entre couches et artefacts
+- **Definition**: executable operational artefact with a concrete scope, a charter, role bindings, attached controls, applicable policies, success criteria and a journal.
+- **Source**: CONDUCTOR or EXECUTIF/PRINCIPAL depending on scope; signers per governance table.
+- **Lifecycle**: living charter + signed amendments.
+- **Relation to contracts**: may be standalone or derived from a wider CONTRACT.
+- **Executable**: this is where actors do the work and execution evidence accumulates.
+
+### 7.4 ENFORCEMENT_PLAN / ESCALATION — the application plan
+
+- **Definition**: cross-cutting plan that applies and verifies INTENTION, SPEC, CONTRACT, POLICY and ENGAGEMENT.
+- **What it is not**: not a contract, not a policy, not an engagement; it manages their application.
+- **Normal mode**: observation, audit, validation, veto, compliance check, evidence, minimized disclosure.
+- **Exception mode**: `advise`, `decide`, `alert`; MANDATAIRE required on `decide`/`alert`, not on `advise`; `alert` allows a controlled short-circuit of the CONDUCTOR.
+- **Correction loops**: may trigger engagement amendment, policy exception, contract revision, spec revision or intention clarification.
+
+### 7.5 Relations between layers and artefacts
 
 ```
-[INTENTION]                         ← pourquoi / direction
-     │ raffinée en
+[INTENTION]                         ← why / direction
+     │ refined into
      ▼
-[SPÉCIFICATION]                     ← quoi vérifiable
-     │ contractualisée par
+[SPECIFICATION]                     ← verifiable what
+     │ contractualized by
      ▼
-[CONTRACT / POLICY / ENGAGEMENT]    ← ce qui lie, contraint, engage
-     │ exécuté dans
+[CONTRACT / POLICY / ENGAGEMENT]    ← what binds, constrains, commits
+     │ executed in
      ▼
-[ACTIONS + JOURNAUX + PREUVES]      ← travail observable
+[ACTIONS + JOURNALS + EVIDENCE]     ← observable work
 
-[ENFORCEMENT_PLAN / ESCALADE]       ← applique, audite, alerte, route l'arbitrage
+[ENFORCEMENT_PLAN / ESCALATION]     ← applies, audits, alerts, routes arbitration
      ▲             │
-     └─────────────┴── peut corriger contract, policy, engagement, spec ou intention
+     └─────────────┴── may correct contract, policy, engagement, spec or intention
 ```
 
-- 1 INTENTION → N SPÉCIFICATIONS.
-- 1 SPÉCIFICATION → N CONTRACTS/POLICIES/ENGAGEMENTS.
-- 1 CONTRACT → N POLICIES et/ou N ENGAGEMENTS.
-- 1 POLICY → N scopes et N engagements contraints.
-- 1 ENGAGEMENT → N actions, journaux et preuves.
-- ENFORCEMENT_PLAN/ESCALADE s'attache à n'importe quel niveau contrôlable.
-- REGISTRY permet aux acteurs de se découvrir ; NEGOTIATION permet de produire ou amender les artefacts contractuels.
+- 1 INTENTION → N SPECIFICATIONS.
+- 1 SPECIFICATION → N CONTRACTS/POLICIES/ENGAGEMENTS.
+- 1 CONTRACT → N POLICIES and/or N ENGAGEMENTS.
+- 1 POLICY → N scopes and N constrained engagements.
+- 1 ENGAGEMENT → N actions, journals and evidence.
+- ENFORCEMENT_PLAN/ESCALATION attaches at any controllable level.
+- REGISTRY lets actors discover each other; NEGOTIATION lets them produce or amend contractual artefacts.
 
-### 7.6 Questions ouvertes pile contractuelle
+### 7.6 Open questions on the contractual stack
 
-1. **Numérotation et identité** : standardiser `INT-NNN` / `SPEC-NNN` / `CONTRACT-NNN` / `POLICY-NNN` / `ENG-NNN` ?
-2. **Versioning** : quels artefacts sont immuables + amendements signés, et lesquels restent éditables par leur autorité ?
-3. **CONTRACT minimal** : parties, scopes, policies, engagements, clauses d'escalade, signatures, preuves, amendements.
-4. **Contrat-cadre** : un master agreement est-il un CONTRACT sans engagement immédiat, ou un CONTRACT avec engagement-template ?
-5. **Autorité externe** : comment représenter loi/règlement/taxe imposés sans consentement contractuel local ?
-6. **Précédence** : règle de conflit entre policy interne, contractuelle, fédérée et publique.
+1. **Numbering and identity**: standardize `INT-NNN` / `SPEC-NNN` / `CONTRACT-NNN` / `POLICY-NNN` / `ENG-NNN`?
+2. **Versioning**: which artefacts are immutable + signed amendments, and which stay editable by their authority?
+3. **Minimal CONTRACT**: parties, scopes, policies, engagements, escalation clauses, signatures, evidence, amendments.
+4. **Master agreement**: is a master agreement a CONTRACT with no immediate engagement, or a CONTRACT with an engagement template?
+5. **External authority**: how to represent law/regulation/tax imposed without local contractual consent?
+6. **Precedence**: conflict rule between internal, contractual, federated and public policy.

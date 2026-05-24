@@ -1,439 +1,439 @@
-# Journal de décisions de design
+# Design decisions journal
 
-> **Rôle dans la pile contractuelle (DEC-010)** : ce fichier trace les **choix** faits pour satisfaire `SPEC.md` à partir de `INTENTION.md`. Ce n'est pas une couche de la pile en soi — c'est l'historique des arbitrages.
-> **Convention** : `DEC-NNN`, numérotation continue, append-only. Chaque DEC référence les REQs concernés. Une décision révisée → nouvelle DEC qui révise explicitement l'ancienne (pas d'édition silencieuse).
-> **Aval** : référencer ces DEC depuis les specs détaillées (`specs/SPEC-*.md`).
+> **Role in the contractual stack (DEC-010)**: this file traces the **choices** made to satisfy `SPEC.md` from `INTENTION.md`. It is not a layer of the stack — it is the history of arbitrations.
+> **Convention**: `DEC-NNN`, continuous numbering, append-only. Each DEC references the relevant REQs. A revised decision → a new DEC that explicitly revises the previous one (no silent edits).
+> **Downstream**: reference these DECs from detailed specs (`specs/SPEC-*.md`).
 
-## DEC-001 — Périmètre de la spec n°1
-**Date** : 2026-05-16. **Réfère** : REQ-001, REQ-007, REQ-010, REQ-013, REQ-014.
+## DEC-001 — Scope of spec #1
+**Date**: 2026-05-16. **Refers**: REQ-001, REQ-007, REQ-010, REQ-013, REQ-014.
 
-**Décision** : Spec n°1 = **Protocole core + Modèle org/rôles/HITL** (fusion des options A et C du scoping initial). La tranche verticale local-files (option B) sera traitée dans la spec n°2.
+**Decision**: Spec #1 = **Core protocol + Org/roles/HITL model** (merge of options A and C from the initial scoping). The vertical local-files slice (option B) will be handled in spec #2.
 
-**Pourquoi** : le contrat et l'organisation se définissent mutuellement, les figer séparément ferait diverger les deux.
+**Why**: contract and organization define each other; freezing them separately would let them diverge.
 
-## DEC-002 — Modèle d'organisation
-**Date** : 2026-05-16. **Réfère** : REQ-007, REQ-008, REQ-010, REQ-021.
+## DEC-002 — Organization model
+**Date**: 2026-05-16. **Refers**: REQ-007, REQ-008, REQ-010, REQ-021.
 
-**Décision** : **Rôles-templates + engagements ad-hoc** (option C). Les rôles sont des contrats réutilisables, instanciés dans des engagements (= missions concrètes avec scope défini). Les CONTROLS sont des rôles attachés au scope d'un engagement avec droits cross-tree. **Mappable** vers un org-chart classique pour visualisation (REQ-021).
+**Decision**: **Role templates + ad-hoc engagements** (option C). Roles are reusable contracts, instantiated in engagements (= concrete missions with a defined scope). CONTROLs are roles attached to an engagement's scope with cross-tree rights. **Mappable** onto a classic org-chart for visualization (REQ-021).
 
-**Pourquoi** : reflète comment les vraies orgs marchent, accueille nativement les CONTROLS, le HITL devient propre (binding humain ↔ slot de rôle).
+**Why**: reflects how real organizations actually work, natively accommodates CONTROLs, HITL becomes clean (human ↔ role-slot binding).
 
-## DEC-003 — Lifecycle d'engagement
-**Date** : 2026-05-16. **Réfère** : REQ-022, REQ-023, REQ-024.
+## DEC-003 — Engagement lifecycle
+**Date**: 2026-05-16. **Refers**: REQ-022, REQ-023, REQ-024.
 
-**Décision** : **Charter vivant + amendements signés**. Tout engagement démarre avec un charter initial (goal, bindings, CONTROLS, success criteria). Toute évolution (scope, bindings, CONTROLS attachés, contraintes, pause/reprise, clôture) passe par un **amendement signé** par l'autorité appropriée. La séquence d'amendements EST l'historique vérifiable de l'engagement.
+**Decision**: **Living charter + signed amendments**. Every engagement starts with an initial charter (goal, bindings, CONTROLs, success criteria). Every change (scope, bindings, attached CONTROLs, constraints, pause/resume, closure) goes through a **signed amendment** by the appropriate authority. The sequence of amendments IS the engagement's verifiable history.
 
-**Pourquoi** : seul moyen de tenir à la fois REQ-024 (exécutable sans ambiguïté — un charter existe à tout instant), REQ-022 (validable), REQ-023 (changeable de façon contrôlée).
+**Why**: only way to satisfy REQ-024 (executable without ambiguity — a charter exists at all times), REQ-022 (validatable), REQ-023 (changeable in a controlled way) simultaneously.
 
-## DEC-004 — Gouvernance des amendements
-**Date** : 2026-05-16. **Réfère** : DEC-003, REQ-011.
+## DEC-004 — Amendment governance
+**Date**: 2026-05-16. **Refers**: DEC-003, REQ-011.
 
-**Décision** : **Table déclarative typée + quorum M-of-N pour amendements sensibles** (option C). La spec n°1 livre la mécanique des deux ; la classification "ordinaire vs sensible" sera affinée par domaine.
+**Decision**: **Typed declarative table + M-of-N quorum for sensitive amendments** (option C). Spec #1 delivers the machinery for both; the "ordinary vs sensitive" classification will be refined per domain.
 
-**Pourquoi** : A (CONDUCTOR sole signer) viole REQ-011 et l'autonomie des CONTROLS ; B (table seule) couvre le quotidien mais manque de filet pour les ops vraiment risquées ; C concilie les deux.
+**Why**: A (CONDUCTOR sole signer) violates REQ-011 and CONTROL autonomy; B (table alone) covers everyday cases but lacks a safety net for genuinely risky ops; C combines both.
 
-## DEC-005 — MANDATAIRE = rôle built-in
-**Date** : 2026-05-16. **Réfère** : REQ-027.
+## DEC-005 — MANDATAIRE = built-in role
+**Date**: 2026-05-16. **Refers**: REQ-027.
 
-**Décision** : Pour tout vote de quorum ET pour toute escalade vers le PRINCIPAL, un rôle dédié — **MANDATAIRE** — formule la question et présente les options aux décideurs sans le biais du proposant. Ne vote pas, ne décide pas.
+**Decision**: For every quorum vote AND every escalation to the PRINCIPAL, a dedicated role — **MANDATAIRE** — formulates the question and presents the options to the deciders without the proposer's bias. Does not vote, does not decide.
 
-**Pourquoi** : sans présentation neutre, un proposant manipule la décision par la formulation. Analogue protocolaire du notaire / clerc de séance. À spécifier : qui peut tenir ce rôle, sa relation aux autres rôles, sa neutralité vérifiable.
+**Why**: without neutral presentation, a proposer manipulates the decision through wording. Protocol analogue of the notary / session clerk. To be specified: who may hold this role, its relation to other roles, verifiable neutrality.
 
-## DEC-006 — Escalade vers PRINCIPAL = primitive first-class
-**Date** : 2026-05-16. **Réfère** : REQ-026.
+## DEC-006 — Escalation to PRINCIPAL = first-class primitive
+**Date**: 2026-05-16. **Refers**: REQ-026.
 
-**Décision** : L'escalade vers le PRINCIPAL est une primitive first-class du protocole, **distincte du mécanisme d'amendement**. N'importe quel rôle peut déclencher une escalade ; le protocole gère canal, attente, timeout, action de repli (REQ-028), trace.
+**Decision**: Escalation toward the PRINCIPAL is a first-class protocol primitive, **distinct from the amendment mechanism**. Any role may trigger an escalation; the protocol handles channel, wait, timeout, fallback action (REQ-028), trace.
 
-**Pourquoi** : retour utilisateur explicite — l'avoir traité comme un amendement parmi d'autres était une erreur de design qui aurait rendu la moitié des cas d'usage humains forcés dans un format de cosignature inadapté (ex. "agent demande conseil au PRINCIPAL" n'a rien à voir avec "changer le charter").
+**Why**: explicit user feedback — treating it as just-another-amendment was a design mistake that would have forced half the human use cases into an inappropriate co-signature format (e.g. "agent asks PRINCIPAL for advice" has nothing to do with "change the charter").
 
-## DEC-007 — Renommage TRANSVERSE → CONTROL
-**Date** : 2026-05-16. **Réfère** : REQ-008, REQ-009.
+## DEC-007 — Rename TRANSVERSE → CONTROL
+**Date**: 2026-05-16. **Refers**: REQ-008, REQ-009.
 
-**Décision** : Renommer le rôle "TRANSVERSE" en **CONTROL**. Toutes les fonctions transverses identifiables sont des fonctions de contrôle (cyber, finance, éthique, legal, qualité). La topologie cross-tree reste vraie mais devient une *propriété* de CONTROL, pas son nom.
+**Decision**: Rename the "TRANSVERSE" role to **CONTROL**. Every identifiable cross-cutting function is a control function (cyber, finance, ethics, legal, quality). The cross-tree topology stays true but becomes a *property* of CONTROL, not its name.
 
-**Pourquoi** : nommer une chose par ce qu'elle fait, pas par où elle se trouve.
+**Why**: name a thing by what it does, not by where it sits.
 
-## DEC-008 — AGENT → AGENTS + couche SUBAGENTS prévue
-**Date** : 2026-05-16. **Réfère** : REQ-001, REQ-002.
+## DEC-008 — AGENT → AGENTS + SUBAGENTS layer planned
+**Date**: 2026-05-16. **Refers**: REQ-001, REQ-002.
 
-**Décision** : Pluriel par convention "AGENTS". Prévoir la couche **SUBAGENTS** (les CLI hôtes en ont nativement). **V1 par défaut** : SUBAGENTS internes à l'AGENT (non adressables, non auditables individuellement par le protocole) — l'AGENT consolide. **V2 anticipée** : SUBAGENTS first-class (slots, bindings, audit, takeover possibles à la granularité subagent).
+**Decision**: Plural by convention "AGENTS". Plan for the **SUBAGENTS** layer (host CLIs have them natively). **V1 default**: SUBAGENTS internal to the AGENT (not addressable, not individually auditable by the protocol) — the AGENT consolidates. **Anticipated V2**: first-class SUBAGENTS (slots, bindings, audit, takeover possible at subagent granularity).
 
-**Pourquoi** : ne pas bloater V1, mais réserver l'espace conceptuel pour ne pas se peindre dans un coin.
+**Why**: don't bloat V1, but reserve conceptual space to avoid painting ourselves into a corner.
 
-## DEC-009 — PRINCIPAL conservé, qualifié "fonction exécutive"
-**Date** : 2026-05-16. **Réfère** : REQ-013, REQ-014.
+## DEC-009 — PRINCIPAL retained, qualified as "executive function"
+**Date**: 2026-05-16. **Refers**: REQ-013, REQ-014.
 
-**Décision** : Le nom PRINCIPAL reste, la description précise que l'humain PRINCIPAL exerce une **fonction exécutive** (autorité ultime, fixe direction, ratifie). Aucune décision technique, clarification de description.
+**Decision**: The name PRINCIPAL stays, with the description making it precise that the human PRINCIPAL holds an **executive function** (ultimate authority, sets direction, ratifies). No technical decision, only a description clarification.
 
-**Pourquoi** : retour utilisateur.
+**Why**: user feedback.
 
-## DEC-010 — Pile contractuelle à 4 couches
-**Date** : 2026-05-16. **Réfère** : REQ-022, REQ-024.
+## DEC-010 — 4-layer contractual stack
+**Date**: 2026-05-16. **Refers**: REQ-022, REQ-024.
 
-**Décision** : **INTENTION → SPÉCIFICATION → ENGAGEMENT → CONTRÔLE/ESCALADE**. Définit la chaîne de raffinage depuis l'objectif vague vers l'action mesurable, exécutée et auditée. Matérialisée dans le repo par les fichiers `INTENTION.md`, `SPEC.md`, et `DECISIONS.md` (ce fichier). La couche ENGAGEMENT vit dans les engagements réels (charters + amendements) ; la couche CONTRÔLE/ESCALADE est opérationnelle et tracée dans les journaux d'engagement.
+**Decision**: **INTENTION → SPECIFICATION → ENGAGEMENT → CONTROL/ESCALATION**. Defines the refinement chain from vague goal to measurable, executed, audited action. Materialized in the repo by the files `INTENTION.md`, `SPEC.md`, and `DECISIONS.md` (this file). The ENGAGEMENT layer lives in real engagements (charters + amendments); the CONTROL/ESCALATION layer is operational and traced in engagement journals.
 
-**Pourquoi** : tracer la chaîne du vague vers l'exécuté de façon explicite, lisible et amendable. Détails par couche dans `VOCABULARY.md §7`.
+**Why**: trace the chain from vague to executed explicitly, readable and amendable. Per-layer details in `VOCABULARY.md §7`.
 
-## DEC-012 — 3 primitives d'escalade : `advise` + `decide` + `alert`
-**Date** : 2026-05-16. **Réfère** : REQ-026, REQ-028, DEC-006.
+## DEC-012 — 3 escalation primitives: `advise` + `decide` + `alert`
+**Date**: 2026-05-16. **Refers**: REQ-026, REQ-028, DEC-006.
 
-**Décision** : Le protocole expose **trois primitives distinctes** pour l'escalade d'un rôle vers le PRINCIPAL :
+**Decision**: The protocol exposes **three distinct primitives** for escalation from a role to the PRINCIPAL:
 
-- **`advise`** — non bloquant. Le rôle demande un avis ; il continue son travail et applique le fallback déclaré au timeout (REQ-028). Latence faible attendue.
-- **`decide`** — bloquant. Gate de décision avec timeout + repli déclaré. Le rôle attend la réponse avant d'agir.
-- **`alert`** — urgent. Canal prioritaire, notification immédiate, routing potentiellement court-circuit du CONDUCTOR. Surtout utilisé par les CONTROL sur incident (cyber, conformité, etc.). Sémantique d'urgence first-class.
+- **`advise`** — non-blocking. The role asks for an opinion; it continues its work and applies the declared timeout fallback (REQ-028). Low expected latency.
+- **`decide`** — blocking. Decision gate with timeout + declared fallback. The role waits for the answer before acting.
+- **`alert`** — urgent. Priority channel, immediate notification, potentially CONDUCTOR-short-circuit routing. Mostly used by CONTROLs on incident (cyber, compliance, etc.). First-class urgency semantics.
 
-**Périmètre** : ces trois primitives couvrent **uniquement** l'escalade vers le PRINCIPAL. Le takeover (PRINCIPAL prend la place d'un binding) et le vote de quorum sur amendement sensible passent par le mécanisme d'amendement défini en DEC-004, pas par ces primitives.
+**Scope**: these three primitives cover **only** escalation toward the PRINCIPAL. Takeover (PRINCIPAL replaces a binding) and quorum voting on sensitive amendments go through the amendment mechanism defined in DEC-004, not these primitives.
 
-**Pourquoi** : 
-- `advise` vs `decide` ont des sémantiques bloquantes fondamentalement différentes — les confondre serait une source de bugs subtils.
-- `alert` mérite d'être first-class plutôt qu'une flag sur `decide` parce que (1) son routing diffère (potentiellement court-circuit), (2) ses garanties de latence sont distinctes, (3) son émetteur typique (CONTROL) a une posture différente de celle d'un AGENT/CONDUCTOR en flux normal.
-- Surface API à 3 verbes typés reste petite et lintable, donne des signaux clairs au PRINCIPAL.
+**Why**:
+- `advise` vs `decide` have fundamentally different blocking semantics — conflating them would be a source of subtle bugs.
+- `alert` deserves to be first-class rather than a flag on `decide` because (1) its routing differs (potentially short-circuit), (2) its latency guarantees are distinct, (3) its typical emitter (CONTROL) has a different stance from an AGENT/CONDUCTOR in normal flow.
+- A 3-typed-verb API surface stays small and lintable, gives clear signals to the PRINCIPAL.
 
-**À spécifier en aval** : implication du MANDATAIRE sur chacune (DEC à venir), règles de routing d'`alert` (via CONDUCTOR ou court-circuit), taxonomie des fallbacks de timeout (REQ-028).
+**To be specified downstream**: MANDATAIRE involvement on each (DEC to come), `alert` routing rules (via CONDUCTOR or short-circuit), timeout fallback taxonomy (REQ-028).
 
-## DEC-011 — Split `INTENT.md` en 3 fichiers selon la pile
-**Date** : 2026-05-16. **Réfère** : DEC-010.
+## DEC-011 — Split `INTENT.md` into 3 files per the stack
+**Date**: 2026-05-16. **Refers**: DEC-010.
 
-**Décision** : Séparer l'ancien `INTENT.md` (qui mélangeait les 3 couches narrative+REQs+DECs) en :
-- `INTENTION.md` : verbatim utilisateur + reformulation narrative + périmètre projet
-- `SPEC.md` : toutes les `REQ-NNN`
-- `DECISIONS.md` : toutes les `DEC-NNN` (ce fichier)
+**Decision**: Split the former `INTENT.md` (which mixed the 3 layers narrative+REQs+DECs) into:
+- `INTENTION.md`: user verbatim + narrative rewrite + project scope
+- `SPEC.md`: all `REQ-NNN`
+- `DECISIONS.md`: all `DEC-NNN` (this file)
 
-`INTENT.md` est ensuite renommé `README.md` pour servir d'index minimal du repo (convention universelle) et lever l'ambiguïté avec `INTENTION.md`.
+`INTENT.md` is then renamed `README.md` to serve as the repo's minimal index (universal convention) and remove the ambiguity with `INTENTION.md`.
 
-**Pourquoi** : matérialise DEC-010 dans la structure du repo ; chaque type d'artefact a sa maison ; la lecture cible (intention pour cadrage, spec pour exigences, decisions pour traçabilité) ne mélange plus. Le rename `INTENT.md → README.md` lève la collision visuelle avec `INTENTION.md`.
+**Why**: materializes DEC-010 in the repo structure; each artefact type has its home; the target reading (intention for framing, spec for requirements, decisions for traceability) no longer mixes. The `INTENT.md → README.md` rename removes the visual clash with `INTENTION.md`.
 
-## DEC-013 — MANDATAIRE requis sur `decide` et `alert`, pas sur `advise`
-**Date** : 2026-05-16. **Réfère** : REQ-026, REQ-027, REQ-028, DEC-005, DEC-012.
+## DEC-013 — MANDATAIRE required on `decide` and `alert`, not on `advise`
+**Date**: 2026-05-16. **Refers**: REQ-026, REQ-027, REQ-028, DEC-005, DEC-012.
 
-**Décision** : Dans les trois primitives d'escalade vers le PRINCIPAL définies par DEC-012, le MANDATAIRE est :
+**Decision**: Across the three escalation primitives to the PRINCIPAL defined by DEC-012, the MANDATAIRE is:
 
-- **requis sur `decide`** : la décision bloque l'action et engage le PRINCIPAL sur un choix ; les options doivent être présentées sans biais par le proposant.
-- **requis sur `alert`** : l'urgence et le risque de court-circuit du CONDUCTOR augmentent le besoin de neutralité, même si la latence doit rester prioritaire.
-- **non requis sur `advise`** : l'avis est non bloquant ; le rôle peut formuler directement sa demande pour garder un chemin léger. Le fallback déclaré au timeout reste obligatoire.
+- **required on `decide`**: the decision blocks action and commits the PRINCIPAL to a choice; options must be presented without bias by the proposer.
+- **required on `alert`**: urgency and the risk of CONDUCTOR short-circuit increase the need for neutrality, even if latency must stay top priority.
+- **not required on `advise`**: the opinion is non-blocking; the role may phrase its request directly to keep a lightweight path. The declared timeout fallback remains mandatory.
 
-**Révision de DEC-005** : DEC-005 reste vraie pour les votes de quorum et pour les escalades qui demandent une décision ou signalent une alerte. Elle ne s'applique pas automatiquement au cas `advise`.
+**Revision of DEC-005**: DEC-005 still holds for quorum votes and for escalations asking a decision or signalling an alert. It does not apply automatically to the `advise` case.
 
-**Pourquoi** : `advise` doit rester une primitive de faible friction pour demander un avis sans interrompre le travail. `decide` et `alert` portent un enjeu plus fort : décision bloquante ou incident prioritaire. La neutralité du MANDATAIRE y est donc une garantie du protocole, pas une option.
+**Why**: `advise` must stay a low-friction primitive for getting an opinion without interrupting work. `decide` and `alert` carry higher stakes: blocking decision or priority incident. MANDATAIRE neutrality is therefore a protocol guarantee, not an option.
 
-**À spécifier en aval** : format minimal d'une demande `advise`, format de présentation du MANDATAIRE pour `decide`/`alert`, et règles de latence/routing quand `alert` requiert un MANDATAIRE.
+**To be specified downstream**: minimal format of an `advise` request, MANDATAIRE presentation format for `decide`/`alert`, and latency/routing rules when `alert` requires a MANDATAIRE.
 
-## DEC-014 — `alert` autorise un court-circuit contrôlé du CONDUCTOR
-**Date** : 2026-05-17. **Réfère** : REQ-026, REQ-027, REQ-028, DEC-012, DEC-013.
+## DEC-014 — `alert` allows a controlled short-circuit of the CONDUCTOR
+**Date**: 2026-05-17. **Refers**: REQ-026, REQ-027, REQ-028, DEC-012, DEC-013.
 
-**Décision** : Une escalade `alert` peut notifier directement le PRINCIPAL sans attendre le CONDUCTOR. Ce court-circuit est **contrôlé** :
+**Decision**: An `alert` escalation may notify the PRINCIPAL directly without waiting for the CONDUCTOR. This short-circuit is **controlled**:
 
-- le CONDUCTOR est copié par défaut dans la trace de l'alerte ;
-- le CONDUCTOR peut être exclu du routing immédiat si l'émetteur déclare qu'il est potentiellement partie au problème, indisponible, compromis, ou facteur de ralentissement critique ;
-- l'exclusion du CONDUCTOR doit être tracée avec une raison explicite ;
-- le MANDATAIRE reste requis sur `alert` selon DEC-013, mais son intervention doit être compatible avec la latence prioritaire de l'alerte.
+- the CONDUCTOR is copied by default in the alert trace;
+- the CONDUCTOR may be excluded from immediate routing if the emitter declares it potentially party to the issue, unavailable, compromised, or a critical slow-down factor;
+- excluding the CONDUCTOR must be traced with an explicit reason;
+- the MANDATAIRE remains required on `alert` per DEC-013, but its intervention must be compatible with the alert's latency priority.
 
-**Pourquoi** : `alert` existe précisément pour les incidents où la chaîne normale peut être trop lente ou elle-même concernée par le problème. Le court-circuit doit donc être possible, mais pas invisible : l'audit doit reconstruire qui a été notifié, qui a été exclu, et pourquoi.
+**Why**: `alert` exists precisely for incidents where the normal chain may be too slow or itself involved in the problem. The short-circuit must therefore be possible, but not invisible: audit must reconstruct who was notified, who was excluded, and why.
 
-**À spécifier en aval** : champs exacts de routing d'une `alert`, niveaux d'urgence, garanties de latence, et règles de notification différée du CONDUCTOR quand il est exclu du routing immédiat.
+**To be specified downstream**: exact routing fields of an `alert`, urgency levels, latency guarantees, and rules for delayed CONDUCTOR notification when it is excluded from immediate routing.
 
-## DEC-015 — Trois canaux multi-humains coexistent
-**Date** : 2026-05-17. **Réfère** : REQ-029, REQ-030, REQ-031, REQ-033.
+## DEC-015 — Three multi-human channels coexist
+**Date**: 2026-05-17. **Refers**: REQ-029, REQ-030, REQ-031, REQ-033.
 
-**Décision** : Le mode multi-humain pair-à-pair doit supporter trois canaux complémentaires, sans en choisir un comme unique :
+**Decision**: The peer multi-human mode must support three complementary channels, without choosing one as the only one:
 
-- **PRINCIPAL ↔ PRINCIPAL** : deux humains dialoguent directement comme responsables de leurs mini-organisations respectives.
-- **CONDUCTOR ↔ CONDUCTOR** : les humains délèguent la négociation opérationnelle à leurs conductors, qui parlent au nom de leurs périmètres.
-- **ENGAGEMENT partagé** : les parties créent un engagement commun avec charter, rôles, bindings, controls, policies applicables, success criteria et journaux propres.
+- **PRINCIPAL ↔ PRINCIPAL**: two humans talk directly as responsible parties of their respective mini-organizations.
+- **CONDUCTOR ↔ CONDUCTOR**: the humans delegate operational negotiation to their conductors, who speak on behalf of their perimeters.
+- **Shared ENGAGEMENT**: the parties create a joint engagement with charter, roles, bindings, controls, applicable policies, success criteria and dedicated journals.
 
-**Pourquoi** : ces trois formes correspondent à trois niveaux de maturité du même échange. La discussion directe est légère, la délégation conductor-conductor réduit la charge humaine, l'engagement partagé devient nécessaire dès qu'il y a scope, responsabilités ou livrables à auditer.
+**Why**: these three forms correspond to three maturity levels of the same exchange. Direct discussion is light, conductor-conductor delegation reduces human load, the shared engagement becomes necessary as soon as there is scope, responsibilities or auditable deliverables.
 
-**Règle de cadrage** : un dialogue informel peut rester PRINCIPAL ↔ PRINCIPAL ; une coordination opérationnelle répétée devrait passer par CONDUCTOR ↔ CONDUCTOR ; tout travail commun avec obligations, risques, livrables ou décisions durables doit être instancié comme ENGAGEMENT partagé.
+**Framing rule**: an informal dialogue may stay PRINCIPAL ↔ PRINCIPAL; repeated operational coordination should go through CONDUCTOR ↔ CONDUCTOR; any joint work with obligations, risks, deliverables or durable decisions must be instantiated as a shared ENGAGEMENT.
 
-## DEC-016 — EXECUTIF et POLICY complètent l'organisation multi-humaine
-**Date** : 2026-05-17. **Réfère** : REQ-008, REQ-010, REQ-011, REQ-020, REQ-029, REQ-032, REQ-033.
+## DEC-016 — EXECUTIF and POLICY complete the multi-human organization
+**Date**: 2026-05-17. **Refers**: REQ-008, REQ-010, REQ-011, REQ-020, REQ-029, REQ-032, REQ-033.
 
-**Décision** : Ajouter deux concepts canoniques au modèle :
+**Decision**: Add two canonical concepts to the model:
 
-- **EXECUTIF** : rôle humain ou agentique responsable de l'activité d'ensemble couvrant plusieurs PRINCIPAUX, leurs mini-organisations et leurs AGENTS. L'EXECUTIF n'efface pas les PRINCIPAUX locaux : il porte l'accountability du scope supérieur, arbitre les conflits inter-périmètres, ratifie les policies globales et peut créer des engagements d'ensemble.
-- **POLICY** : règle durable et versionnée applicable à un scope organisationnel (mini-organisation, engagement, fédération, activité d'ensemble). Une POLICY n'est pas un ENGAGEMENT : elle contraint des engagements et des actions, mais elle n'est pas le contrat opérationnel d'une mission.
+- **EXECUTIF**: human or agentic role accountable for the umbrella activity spanning several PRINCIPALs, their mini-organizations and their AGENTS. EXECUTIF does not erase local PRINCIPALs: it carries accountability for the upper scope, arbitrates inter-perimeter conflicts, ratifies global policies and may create umbrella engagements.
+- **POLICY**: durable, versioned rule applicable to an organizational scope (mini-organization, engagement, federation, umbrella activity). A POLICY is not an ENGAGEMENT: it constrains engagements and actions but is not a mission's operational contract.
 
-**Relation POLICY ↔ ENGAGEMENT** : un engagement déclare les policies applicables dans son charter. Modifier une policy peut nécessiter un engagement ou un amendement pour gouverner le changement, mais l'artefact policy reste distinct du charter d'engagement.
+**Relation POLICY ↔ ENGAGEMENT**: an engagement declares the applicable policies in its charter. Modifying a policy may require an engagement or amendment to govern the change, but the policy artefact stays distinct from the engagement charter.
 
-**Relation CONTROL ↔ POLICY** : les CONTROL sont les propriétaires ou validateurs naturels des policies de leur domaine (cyber, finance, éthique, legal, qualité). Ils peuvent proposer, imposer, auditer, alerter ou veto selon leur domaine et selon les droits attachés à la policy.
+**Relation CONTROL ↔ POLICY**: CONTROLs are the natural owners or validators of policies in their domain (cyber, finance, ethics, legal, quality). They may propose, impose, audit, alert or veto depending on their domain and on the rights attached to the policy.
 
-**Pourquoi** : sans EXECUTIF, le modèle multi-humain ne sait pas représenter la responsabilité d'ensemble. Sans POLICY, les contraintes transverses se retrouvent forcées dans les engagements, ce qui mélange règles durables et contrats opérationnels.
+**Why**: without EXECUTIF, the multi-human model cannot represent umbrella accountability. Without POLICY, cross-cutting constraints end up forced into engagements, which conflates durable rules with operational contracts.
 
-**À spécifier en aval** : cycle de vie des policies, précédence entre policies de scopes différents, résolution des conflits entre CONTROL, et règles d'escalade depuis une violation de policy.
+**To be specified downstream**: policy lifecycle, precedence between policies of different scopes, conflict resolution between CONTROLs, and escalation rules from a policy violation.
 
-## DEC-017 — EXECUTIF est un rôle séparé de PRINCIPAL
-**Date** : 2026-05-17. **Réfère** : REQ-029, REQ-030, REQ-032, REQ-035, REQ-036, DEC-016.
+## DEC-017 — EXECUTIF is a role separate from PRINCIPAL
+**Date**: 2026-05-17. **Refers**: REQ-029, REQ-030, REQ-032, REQ-035, REQ-036, DEC-016.
 
-**Décision** : EXECUTIF est un rôle canonique séparé de PRINCIPAL, même si une même INSTANCE humaine peut tenir les deux rôles sur des scopes différents.
+**Decision**: EXECUTIF is a canonical role separate from PRINCIPAL, even though the same human INSTANCE may hold both roles on different scopes.
 
-**Pourquoi** : PRINCIPAL porte l'autorité locale sur sa mini-organisation ; EXECUTIF porte la responsabilité d'ensemble sur une activité fédérée. Les confondre rendrait l'audit ambigu dès qu'un humain agit parfois pour son périmètre propre et parfois pour le collectif.
+**Why**: PRINCIPAL holds local authority over their mini-organization; EXECUTIF holds umbrella accountability over a federated activity. Conflating them would make audit ambiguous whenever a human acts sometimes for their own perimeter and sometimes for the collective.
 
-**Conséquence** : les schemas devront représenter explicitement le couple `{instance, role, scope}`. Une INSTANCE peut être `PRINCIPAL` sur `org:alice` et `EXECUTIF` sur `federation:program-x`, mais les droits, traces et escalades ne sont pas interchangeables.
+**Consequence**: schemas must explicitly represent the `{instance, role, scope}` triple. An INSTANCE may be `PRINCIPAL` on `org:alice` and `EXECUTIF` on `federation:program-x`, but rights, traces and escalations are not interchangeable.
 
-## DEC-018 — CONTRACT comme conteneur normatif ; CONTROL/ESCALADE comme plan d'application
-**Date** : 2026-05-17. **Réfère** : REQ-037, REQ-038, REQ-039, REQ-040, REQ-041, REQ-042, REQ-043, REQ-044, REQ-045.
+## DEC-018 — CONTRACT as normative container; CONTROL/ESCALATION as application plan
+**Date**: 2026-05-17. **Refers**: REQ-037, REQ-038, REQ-039, REQ-040, REQ-041, REQ-042, REQ-043, REQ-044, REQ-045.
 
-**Décision** : POLICY n'est pas une cinquième couche linéaire de la pile. Le modèle distingue plutôt trois artefacts contractuels et un plan d'application :
+**Decision**: POLICY is not a linear fifth layer of the stack. The model instead distinguishes three contractual artefacts and an application plan:
 
-- **CONTRACT** : conteneur normatif signé entre parties ou scopes. Il peut contenir des policies, des obligations, des droits, des clauses de contrôle/escalade, des références externes, et instancier un ou plusieurs engagements.
-- **ENGAGEMENT** : contrat opérationnel exécutable pour un scope de travail concret, avec charter, rôles, bindings, success criteria, policies applicables, journal et amendements.
-- **POLICY** : règle durable, versionnée, applicable à un scope. Elle peut être autonome (ex. règlement public, policy interne) ou être une clause/règle contenue dans un CONTRACT.
-- **CONTROL/ESCALADE** : plan d'application et d'enforcement des contracts, engagements et policies. Il observe, audite, détecte les violations, déclenche veto/alertes/escalades, et produit la preuve.
+- **CONTRACT**: signed normative container between parties or scopes. It may contain policies, obligations, rights, control/escalation clauses, external references, and instantiate one or more engagements.
+- **ENGAGEMENT**: executable operational contract for a concrete work scope, with charter, roles, bindings, success criteria, applicable policies, journal and amendments.
+- **POLICY**: durable, versioned rule applicable to a scope. It may be standalone (e.g. public regulation, internal policy) or a clause/rule contained in a CONTRACT.
+- **CONTROL/ESCALATION**: enforcement plan for contracts, engagements and policies. It observes, audits, detects violations, triggers veto/alerts/escalations, and produces proof.
 
-**Pourquoi** : dans les modèles réels (contrat client, contrat fournisseur, contrat employé, réglementation, taxes), un "contrat" mélange règles durables, obligations, droits, missions exécutables et mécanismes d'application. Forcer POLICY dans une 5e couche ou forcer tout contrat dans ENGAGEMENT confondrait le durable, l'exécutable et l'enforcement.
+**Why**: in real-world models (customer contract, supplier contract, employment contract, regulation, taxes), a "contract" mixes durable rules, obligations, rights, executable missions and enforcement mechanisms. Forcing POLICY into a 5th layer or every contract into ENGAGEMENT would conflate the durable, the executable and the enforcement.
 
-**Conséquence sur la pile** : la pile reste orientée par le flux `INTENTION → SPÉCIFICATION → ARTEFACTS CONTRACTUELS → EXÉCUTION`, tandis que `CONTROL/ESCALADE` opère comme plan transversal d'application. Il peut s'attacher à un CONTRACT, un ENGAGEMENT, une POLICY, une SPEC ou une INTENTION, selon ce qui doit être contrôlé.
+**Consequence on the stack**: the stack stays oriented by the flow `INTENTION → SPECIFICATION → CONTRACTUAL ARTEFACTS → EXECUTION`, while `CONTROL/ESCALATION` operates as a cross-cutting application plan. It may attach to a CONTRACT, an ENGAGEMENT, a POLICY, a SPEC or an INTENTION, depending on what must be controlled.
 
-**À spécifier en aval** : schema minimal de CONTRACT, relation CONTRACT ↔ POLICY ↔ ENGAGEMENT, statut des contrats-cadres, et règles de preuve/signature/amendement.
+**To be specified downstream**: minimal CONTRACT schema, CONTRACT ↔ POLICY ↔ ENGAGEMENT relation, status of master agreements, and proof/signature/amendment rules.
 
-## DEC-019 — REGISTRY et NEGOTIATION comme primitives runtime non-acteurs
-**Date** : 2026-05-17. **Réfère** : REQ-051, REQ-052, REQ-053, REQ-054, REQ-055.
+## DEC-019 — REGISTRY and NEGOTIATION as non-actor runtime primitives
+**Date**: 2026-05-17. **Refers**: REQ-051, REQ-052, REQ-053, REQ-054, REQ-055.
 
-**Décision** : Ajouter deux primitives runtime qui ne sont pas des acteurs :
+**Decision**: Add two runtime primitives that are not actors:
 
-- **REGISTRY** : répertoire minimal des INSTANCE, rôles, scopes, endpoints, capabilities, clés de signature et policies acceptées. Il permet à des CONDUCTORS/AGENTS/CONTROL de se découvrir sans imposer une autorité centrale.
-- **NEGOTIATION** : session transitoire de proposition, contre-proposition, acceptation et signature visant à stabiliser un CONTRACT, une POLICY, un ENGAGEMENT ou un amendement.
+- **REGISTRY**: minimal directory of INSTANCEs, roles, scopes, endpoints, capabilities, signing keys and accepted policies. Lets CONDUCTORs/AGENTS/CONTROLs discover each other without imposing a central authority.
+- **NEGOTIATION**: transient session of proposal, counter-proposal, acceptance and signature aiming to stabilize a CONTRACT, POLICY, ENGAGEMENT or amendment.
 
-Une NEGOTIATION devient stable quand les parties requises signent le même artefact canonique identifié par version et hash. Tant que ce seuil n'est pas atteint, elle reste un échange de propositions, pas un artefact contractuel applicable.
+A NEGOTIATION becomes stable when the required parties sign the same canonical artefact identified by version and hash. Until that threshold is reached, it stays a proposal exchange, not an applicable contractual artefact.
 
-**Pourquoi** : le cas "1 PRINCIPAL / 15 CONDUCTORS" exige que les conductors puissent se découvrir et contractualiser entre eux sans médiateur inter-contrat. REGISTRY et NEGOTIATION couvrent ce besoin minimal sans ajouter un nouvel acteur de gouvernance.
+**Why**: the "1 PRINCIPAL / 15 CONDUCTORS" case requires conductors to discover each other and contract between themselves without an inter-contract mediator. REGISTRY and NEGOTIATION cover this minimal need without adding a new governance actor.
 
-**Limite V1** : sans médiateur inter-contrat, le protocole ne garantit pas la cohérence globale entre tous les contrats. Il peut détecter et tracer les conflits ; leur résolution passe par ENFORCEMENT_PLAN/ESCALADE et par l'autorité compétente du scope (PRINCIPAL, EXECUTIF, quorum, CONTROL habilité ou autorité externe).
+**V1 limit**: without an inter-contract mediator, the protocol does not guarantee global coherence across all contracts. It can detect and trace conflicts; their resolution goes through ENFORCEMENT_PLAN/ESCALATION and the scope's competent authority (PRINCIPAL, EXECUTIF, quorum, authorized CONTROL or external authority).
 
-## DEC-020 — Nom recommandé : `a2a-accord`
-**Date** : 2026-05-17. **Réfère** : REQ-016, REQ-056, REQ-057, REQ-058, REQ-059.
+## DEC-020 — Recommended name: `a2a-accord`
+**Date**: 2026-05-17. **Refers**: REQ-016, REQ-056, REQ-057, REQ-058, REQ-059.
 
-**Décision** : Recommander `a2a-accord` comme nom de projet/package core, publié sous `@sentropic/a2a-accord`.
+**Decision**: Recommend `a2a-accord` as the core project/package name, published under `@sentropic/a2a-accord`.
 
-Packages complémentaires envisagés :
+Considered companion packages:
 
-- `@sentropic/a2a-accord-mcp` — serveur MCP minimal.
-- `@sentropic/a2a-accord-codex` — adapter/plugin Codex.
-- `@sentropic/a2a-accord-claude` — adapter/plugin Claude.
+- `@sentropic/a2a-accord-mcp` — minimal MCP server.
+- `@sentropic/a2a-accord-codex` — Codex adapter/plugin.
+- `@sentropic/a2a-accord-claude` — Claude adapter/plugin.
 
-**Pourquoi** : le coeur du projet n'est pas une CLI mais un langage/runtime d'accords stabilisés entre agents. `a2a-accord` garde le lien avec l'intention A2A sans réduire le package à l'artefact `CONTRACT` : il couvre aussi `POLICY`, `ENGAGEMENT`, négociation, signature, preuve et responsabilité. Les adapters CLI restent secondaires et remplaçables.
+**Why**: the heart of the project is not a CLI but a language/runtime of stabilized accords between agents. `a2a-accord` keeps the link to the A2A intention without narrowing the package to the `CONTRACT` artefact: it also covers `POLICY`, `ENGAGEMENT`, negotiation, signature, proof and responsibility. CLI adapters stay secondary and replaceable.
 
-**Statut** : recommandé mais non encore ratifié par l'utilisateur. Commit/push à faire seulement après validation du nom et création/vérification d'un vrai dépôt Git.
+**Status**: recommended but not yet ratified by the user. Commit/push to be done only after name validation and creation/verification of a real Git repo.
 
-## DEC-021 — Un scope ne signe pas ; une autorité mandatée signe pour lui
-**Date** : 2026-05-17. **Réfère** : REQ-061, REQ-062, REQ-063, REQ-064.
+## DEC-021 — A scope does not sign; a mandated authority signs on its behalf
+**Date**: 2026-05-17. **Refers**: REQ-061, REQ-062, REQ-063, REQ-064.
 
-**Décision** : Introduire explicitement `SCOPE`, `PARTY`, `AUTHORITY`, `MANDATE` et `SIGNATURE`.
+**Decision**: Explicitly introduce `SCOPE`, `PARTY`, `AUTHORITY`, `MANDATE` and `SIGNATURE`.
 
-Règle canonique : un **scope ne signe jamais**. Une `INSTANCE` signe en tenant un rôle autorisé (`PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`, quorum, autorité externe) et selon un `MANDATE` qui précise pour quelle `PARTY` ou quel `SCOPE` elle engage sa signature.
+Canonical rule: a **scope never signs**. An `INSTANCE` signs by holding an authorized role (`PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`, quorum, external authority) and under a `MANDATE` that states for which `PARTY` or `SCOPE` it commits its signature.
 
-**Conséquence** : les formulations "CONTRACT signé entre scopes" doivent être lues comme "CONTRACT applicable à des scopes, signé par les autorités mandatées des parties concernées".
+**Consequence**: phrasings like "CONTRACT signed between scopes" must be read as "CONTRACT applicable to scopes, signed by the mandated authorities of the concerned parties".
 
-**Pourquoi** : l'audit ABC montre que parties, scopes et autorités se recouvrent mais ne sont pas identiques. Les confondre rendrait les signatures, droits réservés, obligations réglementaires et recours impossibles à auditer correctement.
+**Why**: the ABC audit shows parties, scopes and authorities overlap but are not identical. Conflating them would make signatures, reserved rights, regulatory obligations and recourse impossible to audit properly.
 
-## DEC-022 — Stabilisation sans médiateur par ledger de négociation
-**Date** : 2026-05-17. **Réfère** : REQ-052, REQ-053, REQ-054, REQ-055, REQ-065, REQ-066, REQ-067.
+## DEC-022 — Stabilization without mediator via negotiation ledger
+**Date**: 2026-05-17. **Refers**: REQ-052, REQ-053, REQ-054, REQ-055, REQ-065, REQ-066, REQ-067.
 
-**Décision** : En V1, il n'y a pas de médiateur inter-contrat. La convergence entre conductors passe par une `NEGOTIATION` avec ledger append-only, propositions versionnées, base hash, états explicites et signatures requises.
+**Decision**: In V1, there is no inter-contract mediator. Convergence between conductors goes through a `NEGOTIATION` with append-only ledger, versioned proposals, base hash, explicit states and required signatures.
 
-State machine minimale : `draft`, `proposed`, `countered`, `accepted`, `rejected`, `withdrawn`, `expired`, `stabilized`, `abandoned`.
+Minimal state machine: `draft`, `proposed`, `countered`, `accepted`, `rejected`, `withdrawn`, `expired`, `stabilized`, `abandoned`.
 
-Une négociation n'est stable que si les signataires requis signent le même artefact canonique. Les conflits entre contrats stabilisés sont détectés et escaladés ; ils ne sont pas résolus automatiquement.
+A negotiation is stable only if the required signers sign the same canonical artefact. Conflicts between stabilized contracts are detected and escalated; they are not resolved automatically.
 
-**Pourquoi** : dans le cas 15 CONDUCTORS, il existe jusqu'à 105 canaux bilatéraux. Sans ledger et états terminaux, les conductors peuvent croire avoir convergé alors qu'ils ont signé des versions différentes ou des propositions stale.
+**Why**: in the 15 CONDUCTORS case, up to 105 bilateral channels exist. Without ledger and terminal states, conductors may believe they have converged while actually having signed different versions or stale proposals.
 
-## DEC-023 — CONTROL est un rôle ; ENFORCEMENT_PLAN est le plan d'application
-**Date** : 2026-05-17. **Réfère** : REQ-008, REQ-049, REQ-070.
+## DEC-023 — CONTROL is a role; ENFORCEMENT_PLAN is the application plan
+**Date**: 2026-05-17. **Refers**: REQ-008, REQ-049, REQ-070.
 
-**Décision** : Conserver `CONTROL` comme rôle canonique, mais nommer le plan transversal d'application **ENFORCEMENT_PLAN**.
+**Decision**: Keep `CONTROL` as a canonical role, but name the cross-cutting application plan **ENFORCEMENT_PLAN**.
 
-- `CONTROL` / `CONTROL_ROLE` : acteur ou rôle de domaine (cyber, finance, legal, qualité, éthique).
-- `ENFORCEMENT_PLAN` : mécanismes d'audit, validation, veto, alerte, preuve, exception, recours et escalade appliqués aux artefacts contractuels.
+- `CONTROL` / `CONTROL_ROLE`: domain actor or role (cyber, finance, legal, quality, ethics).
+- `ENFORCEMENT_PLAN`: audit, validation, veto, alert, evidence, exception, recourse and escalation mechanisms applied to contractual artefacts.
 
-**Révision de DEC-018** : l'ancien raccourci `CONTROL/ESCALADE` désignait le plan d'application. La terminologie précise devient `ENFORCEMENT_PLAN`, avec `ESCALADE` comme mécanisme de ce plan.
+**Revision of DEC-018**: the former shortcut `CONTROL/ESCALATION` designated the application plan. The precise terminology becomes `ENFORCEMENT_PLAN`, with `ESCALATION` as a mechanism of that plan.
 
-**Pourquoi** : employer `CONTROL` à la fois pour un rôle et pour un plan brouille les droits, surtout en cross-organisation et dans les modèles gouvernementaux. La séparation permet aussi d'imposer la minimisation de disclosure : un CONTROL n'a pas automatiquement accès à tout.
+**Why**: using `CONTROL` both for a role and for a plan blurs rights, especially cross-organization and in governmental models. The separation also allows enforcement of disclosure minimization: a CONTROL does not automatically have access to everything.
 
-## DEC-024 — Escalade vers l'autorité de scope ; MANDATAIRE non arbitre
-**Date** : 2026-05-17. **Réfère** : REQ-026, REQ-027, REQ-028, REQ-068, REQ-069.
+## DEC-024 — Escalation to scope authority; MANDATAIRE not an arbiter
+**Date**: 2026-05-17. **Refers**: REQ-026, REQ-027, REQ-028, REQ-068, REQ-069.
 
-**Décision** : Généraliser l'escalade : les primitives `advise`, `decide`, `alert` ciblent l'**autorité compétente du scope**, pas seulement le PRINCIPAL local.
+**Decision**: Generalize escalation: the `advise`, `decide`, `alert` primitives target the **scope's competent authority**, not only the local PRINCIPAL.
 
-Autorités possibles selon contexte : PRINCIPAL, EXECUTIF, quorum, CONTROL habilité, autorité externe, recours ou adjudication explicitement modélisée. Le PRINCIPAL reste la cible par défaut dans le cas mono-humain, mais les modèles B/C exigent d'autres autorités.
+Possible authorities depending on context: PRINCIPAL, EXECUTIF, quorum, authorized CONTROL, external authority, explicitly modelled recourse or adjudication. PRINCIPAL stays the default target in the mono-human case, but B/C models require other authorities.
 
-Le **MANDATAIRE** reste un présentateur neutre : il formule, met en forme et trace. Il ne médie pas, n'arbitre pas, ne juge pas et ne résout pas un deadlock.
+The **MANDATAIRE** stays a neutral presenter: it formulates, formats and traces. It does not mediate, does not arbitrate, does not judge and does not resolve a deadlock.
 
-**Pourquoi** : les entreprises, écosystèmes et administrations ont des décisions qui ne relèvent pas toujours du PRINCIPAL local. Confondre MANDATAIRE, médiateur et tribunal créerait une fausse autorité dans le protocole.
+**Why**: enterprises, ecosystems and administrations have decisions that do not always fall to the local PRINCIPAL. Conflating MANDATAIRE, mediator and tribunal would create a false authority in the protocol.
 
-## DEC-025 — `h2a` devient le nom parapluie ; `a2a` devient une sous-surface
-**Date** : 2026-05-18. **Réfère** : REQ-016, REQ-059, REQ-072.
+## DEC-025 — `h2a` becomes the umbrella name; `a2a` becomes a sub-surface
+**Date**: 2026-05-18. **Refers**: REQ-016, REQ-059, REQ-072.
 
-**Décision** : Réviser DEC-020. Le nom parapluie recommandé du projet devient **`h2a`** (`humans to agents`), publié côté core sous `@sentropic/h2a`.
+**Decision**: Revise DEC-020. The project's recommended umbrella name becomes **`h2a`** (`humans to agents`), published core-side under `@sentropic/h2a`.
 
-Packages complémentaires envisagés :
+Considered companion packages:
 
-- `@sentropic/h2a-mcp` — serveur MCP minimal.
-- `@sentropic/h2a-codex` — adapter/plugin Codex.
-- `@sentropic/h2a-claude` — adapter/plugin Claude.
-- `@sentropic/h2a-a2a` — sous-surface optionnelle pour le volet agent-to-agent pur si on veut l'isoler.
+- `@sentropic/h2a-mcp` — minimal MCP server.
+- `@sentropic/h2a-codex` — Codex adapter/plugin.
+- `@sentropic/h2a-claude` — Claude adapter/plugin.
+- `@sentropic/h2a-a2a` — optional sub-surface for pure agent-to-agent if we want to isolate it.
 
-**Pourquoi** : le projet ne traite pas seulement l'échange agent-to-agent. Il couvre aussi la coordination multi-humain, l'organisation, l'autorité, les mandats, les escalades et le human-in-the-loop. `a2a` est donc trop étroit pour le nom parapluie ; il reste pertinent comme sous-surface ou sous-package spécialisé.
+**Why**: the project does not only address agent-to-agent exchange. It also covers multi-human coordination, organization, authority, mandates, escalations and human-in-the-loop. `a2a` is therefore too narrow as an umbrella name; it stays relevant as a sub-surface or specialized sub-package.
 
-**Conséquence** : les noms runtime, packages, chemins locaux et identifiants de protocole proposés doivent désormais se caler sur `h2a`. L'ancien candidat `a2a-accord` reste dans l'historique de DEC-020 mais n'est plus le nom recommandé.
+**Consequence**: proposed runtime names, packages, local paths and protocol identifiers must now align with `h2a`. The former candidate `a2a-accord` remains in DEC-020's history but is no longer the recommended name.
 
-## DEC-026 — Réduire le bootstrap à 2 packages : `h2a` + `h2a-cli`
-**Date** : 2026-05-18. **Réfère** : REQ-017, REQ-018, REQ-056, REQ-057, REQ-058, REQ-059.
+## DEC-026 — Reduce bootstrap to 2 packages: `h2a` + `h2a-cli`
+**Date**: 2026-05-18. **Refers**: REQ-017, REQ-018, REQ-056, REQ-057, REQ-058, REQ-059.
 
-**Décision** : À ce stade, le bootstrap runtime est réduit à **deux packages** :
+**Decision**: At this stage, the runtime bootstrap is reduced to **two packages**:
 
-- `@sentropic/h2a` — core runtime et contrats partagés.
-- `@sentropic/h2a-cli` — surface d'intégration unique pour `mcp`, `codex`, `claude` et `gemini`.
+- `@sentropic/h2a` — core runtime and shared contracts.
+- `@sentropic/h2a-cli` — single integration surface for `mcp`, `codex`, `claude` and `gemini`.
 
-Le package `@sentropic/h2a-cli` reste **modularisé en interne** pour préserver l'orthogonalité des développements et la clarté des contrats, sans multiplier les packages publiés trop tôt.
+The `@sentropic/h2a-cli` package stays **internally modularized** to preserve development orthogonality and contract clarity, without multiplying published packages too early.
 
-**Pourquoi** : quatre packages publiés pour un bootstrap créent plus de friction de release et de versioning que de valeur. Le besoin immédiat est la clarté des frontières, pas la fragmentation du registre npm.
+**Why**: four published packages for a bootstrap create more release and versioning friction than value. The immediate need is boundary clarity, not npm registry fragmentation.
 
-**Conséquence** : les anciens candidats `@sentropic/h2a-mcp`, `@sentropic/h2a-codex` et `@sentropic/h2a-claude` sortent de la cible V1. Ils pourront réapparaître plus tard seulement si une divergence de dépendances, de cadence ou de contrat le justifie.
+**Consequence**: the former candidates `@sentropic/h2a-mcp`, `@sentropic/h2a-codex` and `@sentropic/h2a-claude` exit the V1 target. They may reappear later only if a divergence of dependencies, cadence or contract justifies it.
 
-## DEC-027 — Licence du projet = MIT
-**Date** : 2026-05-18. **Réfère** : REQ-016.
+## DEC-027 — Project license = MIT
+**Date**: 2026-05-18. **Refers**: REQ-016.
 
-**Décision** : Le projet `h2a` adopte la licence **MIT** (`SPDX: MIT`). Les deux packages publiés (`@sentropic/h2a`, `@sentropic/h2a-cli`) passent leur champ `license` de `UNLICENSED` à `MIT`. Un fichier `LICENSE` racine porte le texte canonique avec copyright `2026 Fabien Antoine (rhanka)`.
+**Decision**: The `h2a` project adopts the **MIT** license (`SPDX: MIT`). The two published packages (`@sentropic/h2a`, `@sentropic/h2a-cli`) switch their `license` field from `UNLICENSED` to `MIT`. A root `LICENSE` file carries the canonical text with copyright `2026 Fabien Antoine (rhanka)`.
 
-**Pourquoi** : licence permissive standard pour la couche protocole/CLI, compatible commercial et publication npm. Lève l'ambiguïté `UNLICENSED` qui bloquait la consommation aval.
+**Why**: standard permissive license for the protocol/CLI layer, commercial-compatible and npm-publishable. Removes the `UNLICENSED` ambiguity that blocked downstream consumption.
 
-**Conséquence** : prochains `npm publish` héritent automatiquement de `MIT`. Si un sous-package futur nécessite une licence différente (ex. AGPL pour un serveur), il faudra le justifier explicitement.
+**Consequence**: future `npm publish` automatically inherits `MIT`. If a future sub-package needs a different license (e.g. AGPL for a server), it must be justified explicitly.
 
-## DEC-028 — Gemini reporté en wave 2
-**Date** : 2026-05-18. **Réfère** : DEC-026, REQ-057, REQ-058.
+## DEC-028 — Gemini deferred to wave 2
+**Date**: 2026-05-18. **Refers**: DEC-026, REQ-057, REQ-058.
 
-**Décision** : L'intégration Gemini est **reportée en wave 2**. Wave 1 cible Codex + Claude pour l'effort plugin/registration/inbox. Le host descriptor `gemini` reste exposé via `h2a hosts` et la liste `H2A_CLI_HOSTS` pour la cohérence du surface CLI.
+**Decision**: Gemini integration is **deferred to wave 2**. Wave 1 targets Codex + Claude for the plugin/registration/inbox effort. The `gemini` host descriptor stays exposed via `h2a hosts` and the `H2A_CLI_HOSTS` list for CLI surface consistency.
 
-**Pourquoi** : tripler l'effort plugin en wave 1 ralentit la convergence du protocole core ; mieux vaut figer le pattern sur deux hôtes (Codex/Claude) avant d'en porter un troisième.
+**Why**: tripling the plugin effort in wave 1 slows core protocol convergence; better freeze the pattern on two hosts (Codex/Claude) before porting a third.
 
-**Conséquence** : la track `Gemini` du workpackage 40 reste vide en wave 1 ; aucun engagement de support négociation/inbox Gemini avant wave 2.
+**Consequence**: the `Gemini` track of workpackage 40 stays empty in wave 1; no commitment to Gemini negotiation/inbox support before wave 2.
 
-## DEC-029 — Dépréciation de `@sentropic/h2a-cli@0.1.0`
-**Date** : 2026-05-18. **Réfère** : DEC-026.
+## DEC-029 — Deprecation of `@sentropic/h2a-cli@0.1.0`
+**Date**: 2026-05-18. **Refers**: DEC-026.
 
-**Décision** : Marquer `@sentropic/h2a-cli@0.1.0` comme déprécié sur npm avec le message :
+**Decision**: Mark `@sentropic/h2a-cli@0.1.0` as deprecated on npm with the message:
 > `Use 0.1.1; 0.1.0 was published without the CLI bin entry.`
 
-La version `0.1.1` reste la version de référence. La dépréciation est non-destructive (pas d'`unpublish`) pour préserver la traçabilité du registre.
+Version `0.1.1` stays the reference version. The deprecation is non-destructive (no `unpublish`) to preserve registry traceability.
 
-**Pourquoi** : `0.1.0` ne fournit pas le bin `h2a` exécutable suite à une autocorrection npm lors de la première publication. Sa coexistence sans avertissement risque d'aiguiller les installs neufs vers une version cassée.
+**Why**: `0.1.0` does not provide the executable `h2a` bin due to an npm autocorrection on the first publish. Its silent coexistence risks routing fresh installs to a broken version.
 
-**Conséquence** : commande à exécuter en interactif côté utilisateur authentifié npm — `npm deprecate "@sentropic/h2a-cli@0.1.0" "Use 0.1.1; 0.1.0 was published without the CLI bin entry."`.
+**Consequence**: command to be run interactively by an npm-authenticated user — `npm deprecate "@sentropic/h2a-cli@0.1.0" "Use 0.1.1; 0.1.0 was published without the CLI bin entry."`.
 
-## DEC-030 — Prochaine livraison = schémas core d'abord
-**Date** : 2026-05-18. **Réfère** : WP-10.
+## DEC-030 — Next delivery = core schemas first
+**Date**: 2026-05-18. **Refers**: WP-10.
 
-**Décision** : Le prochain track de livraison est l'**implémentation des schémas core** dans `@sentropic/h2a` :
+**Decision**: The next delivery track is the **implementation of core schemas** in `@sentropic/h2a`:
 - `CONTRACT`, `POLICY`, `ENGAGEMENT`, `AMENDMENT`,
 - `MANDATE`, `AUTHORITY`, `SIGNATURE`, `ENFORCEMENT_PLAN`,
-- canonicalisation déterministe (sort de clés, JSON stable),
-- hachage SHA-256 sur la forme canonique.
+- deterministic canonicalization (key sort, stable JSON),
+- SHA-256 hashing of the canonical form.
 
-Implémentation guidée par tests (TDD) ; pas de runtime local-files ni MCP avant que les schémas soient minimalement stables.
+Test-driven implementation; no local-files runtime nor MCP before schemas are minimally stable.
 
-**Pourquoi** : tout le reste (registry, négociation, inbox, MCP, plugins) dépend d'artefacts dont l'identité, la canonicalisation et le hash sont stables. Les figer en premier réduit la dette de migration.
+**Why**: everything else (registry, negotiation, inbox, MCP, plugins) depends on artefacts whose identity, canonicalization and hash are stable. Freezing them first reduces migration debt.
 
-**Conséquence** : WP-20 (local-files), WP-30 (CLI surface au-delà de `hosts`/`mcp-tools`) et WP-40 (intégrations) attendent l'atterrissage de WP-10.
+**Consequence**: WP-20 (local-files), WP-30 (CLI surface beyond `hosts`/`mcp-tools`) and WP-40 (integrations) wait for WP-10 to land.
 
-## DEC-031 — Layout du store local-files figé
-**Date** : 2026-05-18. **Réfère** : RUNTIME_PROPOSAL.md, WP-20.
+## DEC-031 — Local-files store layout frozen
+**Date**: 2026-05-18. **Refers**: RUNTIME_PROPOSAL.md, WP-20.
 
-**Décision** : Le store local-files de la V1 utilise la racine **`<root>/.h2a/`** (configurable, par défaut `<cwd>/.h2a` dans l'usage CLI ; explicite `src/{project}/h2a/` quand intégré à un workspace nommé). À l'intérieur :
+**Decision**: The V1 local-files store uses the root **`<root>/.h2a/`** (configurable, default `<cwd>/.h2a` for CLI usage; explicit `src/{project}/h2a/` when integrated into a named workspace). Inside:
 
 ```
 <root>/.h2a/
-  registry/instances.jsonl     # append-only des H2AActorRegistration
-  contracts/<id>/contract.json # CONTRACT stabilisé immutable
-  policies/<id>.json           # POLICY stabilisée immutable
+  registry/instances.jsonl     # append-only H2AActorRegistration
+  contracts/<id>/contract.json # stabilized immutable CONTRACT
+  policies/<id>.json           # stabilized immutable POLICY
   engagements/<id>/
     charter.json
-    events.jsonl               # journal d'engagement
+    events.jsonl               # engagement journal
     inbox/<instance>/
     outbox/<instance>/
     evidence/
   negotiations/<id>/
-    state.json                 # H2ANegotiationRecord courant (mutable)
+    state.json                 # current H2ANegotiationRecord (mutable)
     offers/                    # proposals/counteroffers (append-only)
-    signatures/                # signatures collectées (append-only)
+    signatures/                # collected signatures (append-only)
     journal.jsonl              # H2AJournalEntry chain
-  inbox/<actor>/               # boîtes globales (hors engagement)
+  inbox/<actor>/               # global mailboxes (out of engagement)
   outbox/<actor>/
 ```
 
-**Pourquoi** : reprend la proposition de `RUNTIME_PROPOSAL.md` ; sépare clairement (a) registre runtime mutable append-only, (b) artefacts stabilisés immutables, (c) sessions de négociation mutables jusqu'à stabilisation. Le format `.jsonl` est portable, grep-friendly, et trivialement append-only.
+**Why**: picks up the proposal of `RUNTIME_PROPOSAL.md`; clearly separates (a) the mutable append-only runtime registry, (b) immutable stabilized artefacts, (c) negotiation sessions mutable until stabilization. The `.jsonl` format is portable, grep-friendly, and trivially append-only.
 
-**Conséquence** : la première implémentation cible **registre + journal de négociation** ; engagements et artefacts stabilisés viennent ensuite. Le module `runtime/local-files` vit dans `@sentropic/h2a-cli` (cible 2-package, DEC-026).
+**Consequence**: the first implementation targets **registry + negotiation journal**; engagements and stabilized artefacts come next. The `runtime/local-files` module lives in `@sentropic/h2a-cli` (2-package target, DEC-026).
 
-## DEC-032 — V1 sans authentification de transport ; identité déclarée par l'appelant
-**Date** : 2026-05-20. **Réfère** : DEC-026, RUNTIME_PROPOSAL.md, WP-40.
+## DEC-032 — V1 without transport authentication; identity declared by the caller
+**Date**: 2026-05-20. **Refers**: DEC-026, RUNTIME_PROPOSAL.md, WP-40.
 
-**Décision** : pour V1, le runtime local-files et le serveur MCP en stdio ne posent **aucune authentification de transport**. L'appelant déclare son `instance` dans les arguments (CLI flags ou MCP `tools/call` args). Le runtime fait confiance à cette déclaration ; il vérifie en revanche que **les signatures cryptographiques sur les artefacts** se valident contre les `publicKeys` enregistrées dans le registry. Trust-on-first-use sur l'enregistrement : la première `registerInstance` fixe la `publicKeys` ; les appels suivants utilisant le même `id` mais une clé différente seront détectés à la stabilization via échec de `verifyCanonical`.
+**Decision**: For V1, the local-files runtime and the stdio MCP server impose **no transport authentication**. The caller declares its `instance` in arguments (CLI flags or MCP `tools/call` args). The runtime trusts that declaration; it does verify that **cryptographic signatures on artefacts** validate against the `publicKeys` recorded in the registry. Trust-on-first-use on registration: the first `registerInstance` sets the `publicKeys`; subsequent calls using the same `id` but a different key will be detected at stabilization through `verifyCanonical` failure.
 
-**Pourquoi** : V1 cible un seul utilisateur sur sa machine (DEC-026, RUNTIME_PROPOSAL). Empiler de l'auth transport sur un store local-files single-user serait du gold-plating. La sécurité opérationnelle repose sur (a) les permissions filesystem, (b) la signature ed25519 des artefacts dans le journal, (c) la détection d'incohérence à la stabilization.
+**Why**: V1 targets a single user on their machine (DEC-026, RUNTIME_PROPOSAL). Stacking transport auth on a single-user local-files store would be gold-plating. Operational security rests on (a) filesystem permissions, (b) ed25519 artefact signatures in the journal, (c) inconsistency detection at stabilization.
 
-**Conséquence** : tout déploiement multi-utilisateur ou réseau exigera **DEC-V2** définissant un transport sécurisé (mTLS, bearer signé, etc.). Pas de chemin de mise à niveau caché dans le code V1.
+**Consequence**: any multi-user or network deployment will require **DEC-V2** defining a secure transport (mTLS, signed bearer, etc.). No hidden upgrade path in V1 code.
 
-## DEC-033 — Persistance immutable des artefacts stabilisés + propagation causationId/correlationId par défaut
-**Date** : 2026-05-20. **Réfère** : DEC-031, WP-20.
+## DEC-033 — Immutable persistence of stabilized artefacts + default causationId/correlationId propagation
+**Date**: 2026-05-20. **Refers**: DEC-031, WP-20.
 
-**Décision** : à la stabilization d'une négociation, le runtime local-files :
+**Decision**: at stabilization of a negotiation, the local-files runtime:
 
-1. **Retrouve l'artefact gagnant** en parcourant le journal pour trouver l'événement `offer`/`counter` dont `computeHash(body.artifact)` est égal au `winningHash` (le hash signé par le quorum). Si aucun événement ne correspond, la stabilization échoue (`stabilizeNegotiation: no offer/counter event matches the winning artifactHash <hash>`).
-2. **Écrit l'artefact en write-once** dans l'arborescence immutable de DEC-031 selon `artifact.kind` :
+1. **Finds the winning artefact** by walking the journal for the `offer`/`counter` event whose `computeHash(body.artifact)` equals the `winningHash` (the hash signed by the quorum). If no event matches, stabilization fails (`stabilizeNegotiation: no offer/counter event matches the winning artifactHash <hash>`).
+2. **Writes the artefact write-once** into the DEC-031 immutable tree per `artifact.kind`:
    - `CONTRACT` → `<root>/contracts/<artifact.id>/contract.json`
    - `POLICY` → `<root>/policies/<artifact.id>.json`
    - `ENGAGEMENT` → `<root>/engagements/<artifact.id>/charter.json`
-   - **Fallback** (toute autre `kind` ou `kind` manquante : `AMENDMENT`, `MANDATE`, `AUTHORITY`, `ENFORCEMENT_PLAN`, etc.) → `<root>/artifacts/<sha256_…>.json`, addressé par son hash canonique (les `:` du `sha256:` sont remplacés par `_` pour produire un nom de fichier portable).
-3. Refuse l'écriture si le fichier cible existe déjà (`writeFileSync(..., { flag: "wx" })`) : la stabilization rapporte `stabilizeNegotiation: stabilized artifact already on disk at <path>`. L'identifiant d'un artefact (`<kind>:<id>`) est donc unique à l'échelle du store ; deux négociations ne peuvent pas matérialiser le même `id` sans collision détectée.
-4. Renvoie le chemin d'écriture dans `artifactPath` (exposé via `LocalStore.stabilizeNegotiation`, `h2a negotiate stabilize` et `h2a_stabilize` MCP), et l'inscrit dans l'événement `stabilized` du journal.
+   - **Fallback** (any other `kind` or missing `kind`: `AMENDMENT`, `MANDATE`, `AUTHORITY`, `ENFORCEMENT_PLAN`, etc.) → `<root>/artifacts/<sha256_…>.json`, addressed by its canonical hash (the `:` of `sha256:` is replaced by `_` to produce a portable filename).
+3. Refuses the write if the target file already exists (`writeFileSync(..., { flag: "wx" })`): stabilization reports `stabilizeNegotiation: stabilized artifact already on disk at <path>`. An artefact identifier (`<kind>:<id>`) is therefore unique store-wide; two negotiations cannot materialize the same `id` without a detected collision.
+4. Returns the write path in `artifactPath` (exposed via `LocalStore.stabilizeNegotiation`, `h2a negotiate stabilize` and the `h2a_stabilize` MCP), and records it in the journal `stabilized` event.
 
-**Pourquoi (write-once)** : (a) preuve d'audit minimale — un artefact stabilisé ne change plus jamais sur disque, ce qui rend `cat <root>/contracts/<id>/contract.json` une source de vérité reproductible ; (b) défense en profondeur contre les bugs/race conditions qui réécriraient l'artefact à un hash divergent du contenu déjà stocké ; (c) le détail de l'erreur expose immédiatement la collision plutôt que de l'enfouir.
+**Why (write-once)**: (a) minimal audit proof — a stabilized artefact never changes on disk again, so `cat <root>/contracts/<id>/contract.json` is a reproducible source of truth; (b) defense in depth against bugs/race conditions that would rewrite the artefact to a hash divergent from the already-stored content; (c) the error detail exposes the collision immediately rather than burying it.
 
-**Pourquoi (fallback `artifacts/`)** : DEC-031 a figé les sous-arborescences pour `CONTRACT` / `POLICY` / `ENGAGEMENT`, mais le vocabulaire (DEC-018, DEC-019) déclare aussi `AMENDMENT`, `MANDATE`, `AUTHORITY`, `ENFORCEMENT_PLAN`. Plutôt que d'attendre qu'on leur invente un sous-arbre dédié, le fallback hash-adressé garantit que tout artefact signé+stabilisé reçoit dès aujourd'hui un emplacement immutable et grep-friendly.
+**Why (`artifacts/` fallback)**: DEC-031 froze the subtrees for `CONTRACT` / `POLICY` / `ENGAGEMENT`, but the vocabulary (DEC-018, DEC-019) also declares `AMENDMENT`, `MANDATE`, `AUTHORITY`, `ENFORCEMENT_PLAN`. Rather than waiting to invent a dedicated subtree for them, the hash-addressed fallback ensures every signed+stabilized artefact receives an immutable, grep-friendly location today.
 
-**Décision (causation/correlation)** : les flags CLI `--causation-id` / `--correlation-id` sont acceptés par `h2a negotiate offer / counter / sign / event`, mirorrés dans les tools MCP `h2a_offer / h2a_counteroffer / h2a_sign / h2a_escalate`. **Par défaut**, sans flag explicite, chaque nouvel événement journal hérite :
+**Decision (causation/correlation)**: the CLI flags `--causation-id` / `--correlation-id` are accepted by `h2a negotiate offer / counter / sign / event`, mirrored in the MCP tools `h2a_offer / h2a_counteroffer / h2a_sign / h2a_escalate`. **By default**, with no explicit flag, every new journal event inherits:
 
-- `causationId ← previous.id` — chaque événement est causé par celui qui le précède dans le journal, formant une chaîne de causalité parallèle à `prevHash`.
-- `correlationId ← previous.correlationId` — la négociation est, par convention, **un seul thread de corrélation** ; la valeur n'est jamais inventée, elle est seulement propagée si elle a été posée explicitement à un événement précédent.
+- `causationId ← previous.id` — every event is caused by the one preceding it in the journal, forming a causality chain parallel to `prevHash`.
+- `correlationId ← previous.correlationId` — the negotiation is, by convention, **a single correlation thread**; the value is never invented, only propagated if explicitly set on a previous event.
 
-**Pourquoi (thread = négociation)** : on évite à V1 de réinventer un identifiant de conversation orthogonal à `negotiationId`. Quand un appelant veut explicitement coudre plusieurs négociations dans le même thread (ex. orchestration multi-engagement par un PRINCIPAL), il passe `--correlation-id <thread>` à la première `offer` et tous les événements suivants l'héritent automatiquement. À l'inverse, un événement explicite (`--causation-id manual`) peut casser la chaîne — utile pour signaler une bifurcation côté audit.
+**Why (thread = negotiation)**: in V1 we avoid reinventing a conversation identifier orthogonal to `negotiationId`. When a caller wants to explicitly thread several negotiations together (e.g. multi-engagement orchestration by a PRINCIPAL), they pass `--correlation-id <thread>` on the first `offer` and every subsequent event automatically inherits it. Conversely, an explicit event (`--causation-id manual`) may break the chain — useful to signal a branch on the audit side.
 
-**Conséquence** : aucun changement de schéma pour V1 — `H2AJournalPayload` déclarait déjà ces deux champs (DEC-031 a fixé le layout, pas la sémantique de propagation). Cette DEC fige la sémantique d'inhéritance ; tout code consommateur peut désormais s'appuyer sur le fait que la `causationId` est non-vide pour tout événement autre que le premier d'une négociation.
+**Consequence**: no schema change for V1 — `H2AJournalPayload` already declared both fields (DEC-031 fixed the layout, not the propagation semantics). This DEC freezes the inheritance semantics; any consumer code can now rely on `causationId` being non-empty for every event other than the first in a negotiation.
 
-## DEC-034 — Contrat JSON output stable + table des codes de sortie
-**Date** : 2026-05-20. **Réfère** : DEC-026, DEC-031, DEC-033, WP-30.
+## DEC-034 — Stable JSON output contract + exit-code table
+**Date**: 2026-05-20. **Refers**: DEC-026, DEC-031, DEC-033, WP-30.
 
-**Décision** : la surface `@sentropic/h2a-cli` figée par cette DEC est **l'API publique des clients programmatiques** du CLI `h2a`. Tout verbe émettant du JSON sur `stdout` respecte **exactement une** des trois enveloppes canoniques suivantes :
+**Decision**: the `@sentropic/h2a-cli` surface frozen by this DEC is **the public API for programmatic clients** of the `h2a` CLI. Every verb emitting JSON on `stdout` follows **exactly one** of the three canonical envelopes:
 
-- **`resource`** — JSON brut de l'entité persistée/lue (record de négociation, entrée de journal, enveloppe, snippet de configuration hôte). Utilisé par `negotiate open / status / event / offer / counter / sign`, `inbox pop`, `host setup --print`.
-- **`list`** — tableau JSON brut. Utilisé par `hosts`, `mcp-tools`, `discover`, `inbox read`, `outbox read`, `negotiate journal`.
-- **`action`** — `{ "ok": true, ...details }` pour les verbes à effet de bord sans entité naturelle à retourner. Utilisé par `init`, `register`, `inbox put`, `outbox put`, `negotiate stabilize`, `host setup --write`.
+- **`resource`** — raw JSON of the persisted/read entity (negotiation record, journal entry, envelope, host config snippet). Used by `negotiate open / status / event / offer / counter / sign`, `inbox pop`, `host setup --print`.
+- **`list`** — raw JSON array. Used by `hosts`, `mcp-tools`, `discover`, `inbox read`, `outbox read`, `negotiate journal`.
+- **`action`** — `{ "ok": true, ...details }` for side-effect verbs with no natural entity to return. Used by `init`, `register`, `inbox put`, `outbox put`, `negotiate stabilize`, `host setup --write`.
 
-Deux cas hors enveloppe : `--help` émet du texte humain (`text`), `mcp-serve` parle JSON-RPC 2.0 framé sur stdio (`stream`).
+Two cases outside the envelope: `--help` emits human text (`text`); `mcp-serve` speaks JSON-RPC 2.0 framed on stdio (`stream`).
 
-Stderr suit toujours `h2a <verb> [sub]: <message>` pour grep déterministe.
+Stderr always follows `h2a <verb> [sub]: <message>` for deterministic grep.
 
-**Décision (codes de sortie)** : tous les verbes utilisent **uniquement** l'alphabet suivant :
+**Decision (exit codes)**: every verb uses **only** the following alphabet:
 
-- `0` — succès.
-- `1` — erreur utilisateur : flag manquant/incorrect, JSON invalide, validation de payload caller-supplied, verbe/subverbe/hôte inconnu.
-- `2` — erreur runtime/état contre le store local : négociation introuvable, déjà ouverte, déjà stabilisée, signature non vérifiée, quorum incomplet, journal cassé, entrée de configuration pré-existante divergente refusée sans `--force`.
-- `3` — erreur I/O / OS : fichier illisible, permission refusée, écriture refusée par le système de fichiers.
+- `0` — success.
+- `1` — user error: missing/wrong flag, invalid JSON, validation of caller-supplied payload, unknown verb/subverb/host.
+- `2` — runtime/state error against the local store: negotiation not found, already open, already stabilized, signature does not verify, incomplete quorum, broken journal, pre-existing divergent config entry refused without `--force`.
+- `3` — I/O / OS error: unreadable file, permission denied, filesystem-refused write.
 
-**Pourquoi** : (a) un client MCP, un script shell ou un test d'intégration doivent pouvoir parser le `stdout` JSON sans deviner la forme (objet, tableau, ou enveloppe `ok`) verbe par verbe ; (b) la séparation 1/2/3 distingue clairement les erreurs « ton input est mauvais » (le caller doit corriger sa requête), « ton état stocké refuse cette action » (le caller doit consulter le store), et « ton environnement OS bloque » (le caller doit corriger ses permissions/fichiers) — ce qui permet des branches de retry/abort différenciées en automation.
+**Why**: (a) an MCP client, a shell script or an integration test must be able to parse the `stdout` JSON without guessing the shape (object, array, or `ok` envelope) verb by verb; (b) the 1/2/3 separation clearly distinguishes "your input is bad" (caller must fix the request), "your stored state refuses this action" (caller must inspect the store), and "your OS environment blocks" (caller must fix permissions/files) — enabling distinct retry/abort branches in automation.
 
-**Pourquoi (`action` plutôt que bare-entity pour les writes)** : un verbe qui écrit mais n'a pas d'entité naturelle à retourner (`init` ne retourne pas un objet « root », `register` ne retourne pas le registre entier, `inbox put` ne retourne pas l'enveloppe stockée mais sa coordonnée) émet une confirmation explicite `{ok:true, …}`. Réinjecter l'entité d'entrée serait du bruit ; ne rien émettre serait perdre la traçabilité de l'écriture. La forme `action` rend l'opération auditable d'un seul `tee` shell.
+**Why (`action` rather than bare-entity for writes)**: a verb that writes but has no natural entity to return (`init` does not return a "root" object, `register` does not return the whole registry, `inbox put` does not return the stored envelope but its coordinate) emits an explicit confirmation `{ok:true, …}`. Re-injecting the input entity would be noise; emitting nothing would lose write traceability. The `action` form makes the operation auditable with a single shell `tee`.
 
-**Pourquoi `negotiate stabilize` reste `action` malgré l'entité disponible** : la stabilization retourne *plusieurs* artefacts d'un coup (`record`, `artifactHash`, `signers`, `artifactPath`, `finalEvent`) — il n'y a pas une entité unique mais un résultat composite, et le flag `ok` est sémantiquement informatif (le caller peut tester `parsed.ok` sans connaître la structure interne). Bare-unwrap dégraderait la lisibilité programmatique.
+**Why `negotiate stabilize` stays `action` despite the entity being available**: stabilization returns *several* artefacts at once (`record`, `artifactHash`, `signers`, `artifactPath`, `finalEvent`) — there is no single entity but a composite result, and the `ok` flag is semantically informative (the caller can test `parsed.ok` without knowing the internal structure). Bare-unwrap would degrade programmatic readability.
 
-**Conséquence** : (a) le manifeste `H2A_CLI_VERB_CONTRACTS` (`packages/h2a-cli/src/cli-contract.ts`) est ré-exporté publiquement et fait foi ; (b) `docs/cli-contract.md` est la référence humaine ; (c) toute modification rétro-incompatible exige une **nouvelle DEC** + un bump majeur de `@sentropic/h2a-cli` ; (d) les ajouts purement additifs (nouveau verbe, nouveau champ optionnel dans une enveloppe `action`/`resource`) restent compatibles mineur.
+**Consequence**: (a) the `H2A_CLI_VERB_CONTRACTS` manifest (`packages/h2a-cli/src/cli-contract.ts`) is re-exported publicly and is authoritative; (b) `docs/cli-contract.md` is the human reference; (c) any retro-incompatible change requires a **new DEC** + a major bump of `@sentropic/h2a-cli`; (d) purely additive changes (new verb, new optional field in an `action`/`resource` envelope) stay compatible at the minor level.
 
 
-## DEC-035 — Matrice d'autorité de signature + fixtures canoniques cross-language
-**Date** : 2026-05-20. **Réfère** : DEC-004, DEC-018, DEC-021, DEC-023, DEC-032, DEC-033.
+## DEC-035 — Signing authority matrix + cross-language canonical fixtures
+**Date**: 2026-05-20. **Refers**: DEC-004, DEC-018, DEC-021, DEC-023, DEC-032, DEC-033.
 
-**Décision (matrice d'autorité)** : `@sentropic/h2a` expose **`H2A_AUTHORITY_MATRIX`**, table déclarative mappant chaque `H2AArtifactKind` à la liste des rôles autorisés à produire une signature *liante* sur cet artefact. Baseline V1 :
+**Decision (authority matrix)**: `@sentropic/h2a` exposes **`H2A_AUTHORITY_MATRIX`**, a declarative table mapping each `H2AArtifactKind` to the list of roles allowed to produce a *binding* signature on that artefact. V1 baseline:
 
 - `CONTRACT` → `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`
 - `POLICY` → `PRINCIPAL`, `EXECUTIF`, `CONTROL`
@@ -441,52 +441,52 @@ Stderr suit toujours `h2a <verb> [sub]: <message>` pour grep déterministe.
 - `AMENDMENT` → `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`
 - `MANDATE` → `PRINCIPAL`, `EXECUTIF`
 - `AUTHORITY` → `PRINCIPAL`, `EXECUTIF`
-- `SIGNATURE` → tous les 6 rôles (trace d'un acte de signature)
+- `SIGNATURE` → all 6 roles (trace of a signing act)
 - `ENFORCEMENT_PLAN` → `PRINCIPAL`, `EXECUTIF`, `CONTROL`
 
-`MANDATAIRE` n'apparaît jamais pour un artefact *liant* — DEC-005 / DEC-024 le maintiennent comme *présentateur*. `canSignArtifactKind(role, kind)` retourne un booléen ; `assertCanSignArtifactKind(role, kind)` jette avec un message nommant rôle + kind + roster autorisé.
+`MANDATAIRE` never appears for a *binding* artefact — DEC-005 / DEC-024 keep it as *presenter*. `canSignArtifactKind(role, kind)` returns a boolean; `assertCanSignArtifactKind(role, kind)` throws with a message naming the role + kind + allowed roster.
 
-**Décision (exécution)** : `stabilizeNegotiation` (`@sentropic/h2a-cli/runtime/local-files/store.ts`) applique cette matrice après la vérification ed25519 (DEC-032) et avant la persistance write-once (DEC-033). Pour chaque signataire du `winningHash`, au moins un de ses `roles` registré doit appartenir au roster de la matrice pour le `kind` de l'artefact gagnant ; sinon `Negotiation <id>: signer <instance> is not authorized to sign artifact kind <KIND> (roles: [...])`. Si le kind est absent ou non canonique, un *warning* est émis sur `stderr` et la vérification d'autorité est *skipped* (V1 permissive sur l'extension).
+**Decision (execution)**: `stabilizeNegotiation` (`@sentropic/h2a-cli/runtime/local-files/store.ts`) applies this matrix after the ed25519 check (DEC-032) and before write-once persistence (DEC-033). For each signer of the `winningHash`, at least one of their registered `roles` must belong to the matrix roster for the winning artefact's `kind`; otherwise `Negotiation <id>: signer <instance> is not authorized to sign artifact kind <KIND> (roles: [...])`. If the kind is absent or non-canonical, a *warning* is emitted on `stderr` and the authority check is *skipped* (V1 permissive on extension).
 
-**Décision (fixtures cross-langage)** : `packages/h2a/fixtures/` contient 6 artefacts canoniques (un par kind liant : `CONTRACT`, `POLICY`, `ENGAGEMENT`, `MANDATE`, `AUTHORITY`, `ENFORCEMENT_PLAN`). Chaque fichier contient *exactement* `canonicalize(value)` en bytes (pas de pretty-print, pas de trailing newline) ; `fixtures/manifest.json` liste `{path, kind, id, sha256}` où `sha256` est le hex SHA-256 des bytes (sans préfixe). `H2A_CANONICAL_FIXTURES` est ré-exporté par `@sentropic/h2a`.
+**Decision (cross-language fixtures)**: `packages/h2a/fixtures/` contains 6 canonical artefacts (one per binding kind: `CONTRACT`, `POLICY`, `ENGAGEMENT`, `MANDATE`, `AUTHORITY`, `ENFORCEMENT_PLAN`). Each file contains *exactly* `canonicalize(value)` in bytes (no pretty-print, no trailing newline); `fixtures/manifest.json` lists `{path, kind, id, sha256}` where `sha256` is the hex SHA-256 of the bytes (no prefix). `H2A_CANONICAL_FIXTURES` is re-exported by `@sentropic/h2a`.
 
-**Pourquoi (matrice)** : (a) DEC-004 a déjà tranché que les amendements sensibles passent par quorum ; il manquait la table déclarative *qui peut signer quoi* en V1, sans laquelle un AGENTS pouvait techniquement signer un CONTRACT ; (b) le runtime applique la même matrice que celle exposée dans la bibliothèque — pas de divergence possible entre vérif client et vérif store ; (c) une implémentation cross-langage peut consommer la matrice directement (table simple, pas de DSL).
+**Why (matrix)**: (a) DEC-004 already decided that sensitive amendments go through quorum; what was missing was the declarative *who can sign what* table in V1, without which an AGENTS could technically sign a CONTRACT; (b) the runtime applies the same matrix as the one exposed by the library — no possible divergence between client check and store check; (c) a cross-language implementation can consume the matrix directly (simple table, no DSL).
 
-**Pourquoi (fixtures byte-canoniques)** : (a) la canonicalisation JSON sorted-key (DEC-031, `canonical.ts`) est trivialement portable mais doit être *testée* contre une référence ; (b) un binding non-TS (Python, Go, Rust) peut maintenant rejouer `manifest.json` et confirmer bit-pour-bit qu'il calcule la même `sha256` que la référence TS ; (c) les guards `is<Kind>` sont aussi validés contre les fixtures, donc une nouvelle implémentation des guards est testable contre la même batterie.
+**Why (byte-canonical fixtures)**: (a) the sorted-key JSON canonicalization (DEC-031, `canonical.ts`) is trivially portable but must be *tested* against a reference; (b) a non-TS binding (Python, Go, Rust) can now replay `manifest.json` and confirm bit-for-bit that it computes the same `sha256` as the TS reference; (c) the `is<Kind>` guards are also validated against the fixtures, so a new guard implementation is testable against the same battery.
 
-**Conséquence** : (a) toute extension future de `H2A_ARTIFACT_KINDS` doit étendre `H2A_AUTHORITY_MATRIX` (une garde *au moment du chargement* refuse un kind sans entrée) ; (b) toute modification des fixtures recalcule la `sha256` du manifeste (le test `fixtures.test.js` casserait sinon) ; (c) la matrice est volontairement *permissive sur kind inconnu* en V1 pour ne pas casser les extensions privées : la durcir (refus par défaut + opt-in) demandera une nouvelle DEC.
+**Consequence**: (a) any future extension of `H2A_ARTIFACT_KINDS` must extend `H2A_AUTHORITY_MATRIX` (a *load-time* guard refuses a kind with no entry); (b) any fixture change recomputes the manifest `sha256` (the `fixtures.test.js` test would otherwise break); (c) the matrix is intentionally *permissive on unknown kind* in V1 to avoid breaking private extensions: hardening it (default refusal + opt-in) will require a new DEC.
 
 
-## DEC-036 — Verrous fichier advisory + version de schéma du store local-files
-**Date** : 2026-05-20. **Réfère** : DEC-031, DEC-033, DEC-034.
+## DEC-036 — Advisory file locks + local-files store schema version
+**Date**: 2026-05-20. **Refers**: DEC-031, DEC-033, DEC-034.
 
-**Décision (verrouillage advisory)** : chaque section critique read-then-write du store local-files (`packages/h2a-cli/src/runtime/local-files/store.ts`) acquiert un verrou *advisory* via un fichier sentinelle `.lock` créé par `openSync(path, "wx")` (sémantique `O_CREAT|O_EXCL`). Le fichier contient `{pid, hostname, startedAt}` ; en cas de collision (`EEXIST`), on inspecte le payload, et si la `hostname` correspond et que `process.kill(pid, 0)` retourne `ESRCH`, le verrou est considéré *stale* et est récupéré (`unlinkSync` + retry). Sinon on polle jusqu'à `lockTimeoutMs` (défaut 5000 ms, poll 50 ms) puis on lève `LockTimeoutError` (exporté).
+**Decision (advisory locking)**: every read-then-write critical section of the local-files store (`packages/h2a-cli/src/runtime/local-files/store.ts`) acquires an *advisory* lock via a `.lock` sentinel file created by `openSync(path, "wx")` (`O_CREAT|O_EXCL` semantics). The file holds `{pid, hostname, startedAt}`; on collision (`EEXIST`), the payload is inspected, and if `hostname` matches and `process.kill(pid, 0)` returns `ESRCH`, the lock is considered *stale* and recovered (`unlinkSync` + retry). Otherwise polling continues until `lockTimeoutMs` (default 5000 ms, poll 50 ms) and `LockTimeoutError` (exported) is thrown.
 
-Le périmètre du verrou couvre :
+The lock perimeter covers:
 - `registerInstance` → `<root>/registry/.lock` (dup detection + append).
 - `openNegotiation` / `updateNegotiationStatus` / `appendNegotiationEvent` / `stabilizeNegotiation` → `<root>/negotiations/<id>/.lock`.
 - `putInboxMessage` / `popInboxMessage` → `<root>/inbox/<actor>/.lock`.
 - `putOutboxMessage` → `<root>/outbox/<actor>/.lock`.
 
-`createLocalStore({ root })` reste **rétro-compatible** ; deux options *optionnelles* étendent l'API : `lockTimeoutMs` (défaut 5000) et `allowVersionMismatch` (défaut false). La primitive `withLock` (async) / `withLockSync` est aussi exportée pour le code applicatif qui aurait besoin du même mécanisme hors du store.
+`createLocalStore({ root })` stays **backward-compatible**; two *optional* options extend the API: `lockTimeoutMs` (default 5000) and `allowVersionMismatch` (default false). The `withLock` (async) / `withLockSync` primitives are also exported so application code that needs the same mechanism outside the store can use it.
 
-**Décision (version de schéma)** : le store écrit `<root>/.h2a-schema.json` à la première création (`{version, createdAt, createdBy}`). La constante exportée `H2A_STORE_SCHEMA_VERSION = "1"` est l'unique source de vérité côté CLI. Ouvrir un store dont la sentinelle déclare une version inconnue lève `StoreSchemaMismatchError` (exporté) ; la sentinelle n'est **jamais** réécrite (idempotence — `createdAt` reste celui de la création initiale).
+**Decision (schema version)**: the store writes `<root>/.h2a-schema.json` on first creation (`{version, createdAt, createdBy}`). The exported constant `H2A_STORE_SCHEMA_VERSION = "1"` is the single source of truth on the CLI side. Opening a store whose sentinel declares an unknown version throws `StoreSchemaMismatchError` (exported); the sentinel is **never** rewritten (idempotence — `createdAt` stays the initial creation timestamp).
 
-L'option `createLocalStore({ root, allowVersionMismatch: true })` est une trappe d'évasion read-only : elle ignore la sentinelle, journalise un *warning* sur stderr, et ne réécrit rien. Le verbe CLI `h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]` (enveloppe `action`, codes 0/1) couvre l'avenir : V1 → V1 est un no-op (`changed:false`) ; toute version inconnue côté `--from` ou `--to` retourne 1 avec un message clair. Les transformations effectives seront ajoutées au moment du bump V2.
+The option `createLocalStore({ root, allowVersionMismatch: true })` is a read-only escape hatch: it ignores the sentinel, logs a *warning* on stderr, and rewrites nothing. The CLI verb `h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]` (envelope `action`, codes 0/1) covers the future: V1 → V1 is a no-op (`changed:false`); any unknown version on `--from` or `--to` returns 1 with a clear message. Actual transformations will be added at V2 bump time.
 
-**Pourquoi (verrous)** : (a) `appendFileSync` (mode `appendJsonl`) repose sur `PIPE_BUF` (~4096 octets sur Linux) pour garantir l'atomicité d'un append ; les sections critiques *read-then-write* (dup detection sur `registerInstance`, lien `prevHash` sur `appendNegotiationEvent`, vérification + persistance write-once dans `stabilizeNegotiation`) ne sont **pas** protégées par cette propriété — d'où la nécessité d'un verrou advisory ; (b) un verrou OS *mandatory* (`flock`, `fcntl`) supposerait des bindings natifs ou un add-on, ce qui violerait la contrainte « built-ins uniquement » (DEC-026) ; (c) le verrou par fichier-sentinelle est portable Linux/macOS/Windows, lisible (le payload se grep), et auto-récupérable via PID-staleness — c'est l'équivalent moderne d'un `pidfile` ; (d) le trade-off explicite : on protège la concurrence **sur la même machine** uniquement. Un partage du store via NFS / SMB *cross-host* est hors périmètre V1 ; tenter le détecter émettrait des faux positifs (deux hôtes ne peuvent pas se sonder mutuellement via `kill(pid, 0)`).
+**Why (locks)**: (a) `appendFileSync` (mode `appendJsonl`) relies on `PIPE_BUF` (~4096 bytes on Linux) to guarantee append atomicity; the *read-then-write* critical sections (dup detection on `registerInstance`, `prevHash` link on `appendNegotiationEvent`, verification + write-once persistence in `stabilizeNegotiation`) are **not** protected by that property — hence the need for an advisory lock; (b) an OS *mandatory* lock (`flock`, `fcntl`) would assume native bindings or an add-on, which would violate the "built-ins only" constraint (DEC-026); (c) the file-sentinel lock is portable Linux/macOS/Windows, readable (the payload greps), and self-recoverable via PID-staleness — the modern equivalent of a `pidfile`; (d) explicit trade-off: concurrency protection is **same-machine only**. Sharing the store via NFS / SMB *cross-host* is out of V1 scope; trying to detect it would emit false positives (two hosts cannot probe each other via `kill(pid, 0)`).
 
-**Pourquoi (version de schéma)** : (a) le layout de DEC-031 finira par évoluer (V2 : changement de format JSONL, partition par scope, ajout d'index secondaires) ; sans sentinelle, un CLI futur ouvre un store ancien et le corrompt silencieusement ; (b) la sentinelle versus un champ enfoui dans un fichier existant a deux avantages — elle est triviale à lire avant tout chargement, et son absence signale un store *pré-versioning* (auto-migré en V1 à la prochaine ouverture, sans interruption) ; (c) l'option `allowVersionMismatch` garde la voie ouverte pour un outillage de debug d'une version future depuis un CLI installé ; (d) le verbe `store migrate` matérialise la rampe — chaque future DEC qui bump la version doit l'étendre avec une transformation testable.
+**Why (schema version)**: (a) the DEC-031 layout will eventually evolve (V2: JSONL format change, partition by scope, secondary indexes); without a sentinel, a future CLI silently corrupts an old store; (b) the sentinel vs a field buried in an existing file has two advantages — it is trivial to read before any load, and its absence signals a *pre-versioning* store (auto-migrated to V1 on next open, without interruption); (c) the `allowVersionMismatch` option keeps the door open for debug tooling of a future version from an installed CLI; (d) the `store migrate` verb materializes the ramp — every future DEC that bumps the version must extend it with a testable transformation.
 
-**Conséquence** : (a) tout `h2a` ou `h2a mcp-serve` concurrent sur le **même `<root>`** sérialise désormais les sections critiques ; un test de timeout (`local-store-locking.test.js`) garantit que la limite par défaut reste raisonnable ; (b) les options ajoutées sont strictement additives — `createLocalStore({ root })` continue de fonctionner sans modification ; (c) la sortie de `h2a store migrate` suit l'enveloppe `action` figée par DEC-034 (`{ok:true, fromVersion, toVersion, changed, dryRun, root}`) ; (d) une release **majeure** future de `@sentropic/h2a-cli` portant une bump du schéma devra livrer simultanément la migration dans `cmdStoreMigrate`. Le V2 cross-host (lockd réseau, mTLS, store partagé) restera explicitement *out of scope* tant qu'une DEC dédiée ne l'aura pas justifié.
+**Consequence**: (a) any `h2a` or `h2a mcp-serve` running concurrently on the **same `<root>`** now serializes critical sections; a timeout test (`local-store-locking.test.js`) guarantees the default limit stays reasonable; (b) the added options are strictly additive — `createLocalStore({ root })` keeps working unmodified; (c) the output of `h2a store migrate` follows the `action` envelope frozen by DEC-034 (`{ok:true, fromVersion, toVersion, changed, dryRun, root}`); (d) a future **major** release of `@sentropic/h2a-cli` carrying a schema bump will have to deliver the migration simultaneously in `cmdStoreMigrate`. The V2 cross-host scenario (network lockd, mTLS, shared store) stays explicitly *out of scope* until a dedicated DEC justifies it.
 
 
-## DEC-037 — Statut de compatibilité hôtes + matrice Codex / Claude / Gemini / MCP
-**Date** : 2026-05-20. **Réfère** : DEC-028, DEC-032, DEC-034, WP-40, WP-60.
+## DEC-037 — Host compatibility status + Codex / Claude / Gemini / MCP matrix
+**Date**: 2026-05-20. **Refers**: DEC-028, DEC-032, DEC-034, WP-40, WP-60.
 
-**Décision** : chaque descriptor hôte exposé par `@sentropic/h2a-cli` déclare désormais une `wave` (`1 | 2`). Codex et Claude Code sont **wave 1** : descriptor public, `h2a host setup --host <codex|claude>` livré, et MCP local (`mcp-serve` stdio + serveur in-process) disponible. Gemini reste **wave 2** : descriptor visible dans `h2a hosts`, mais pas de snippet `host setup` ni scénario end-to-end livré.
+**Decision**: each host descriptor exposed by `@sentropic/h2a-cli` now declares a `wave` (`1 | 2`). Codex and Claude Code are **wave 1**: public descriptor, `h2a host setup --host <codex|claude>` shipped, and local MCP (`mcp-serve` stdio + in-process server) available. Gemini stays **wave 2**: descriptor visible in `h2a hosts`, but no `host setup` snippet or end-to-end scenario shipped.
 
-Le CLI ajoute `h2a host status [--host <name>]`, enveloppe `action` DEC-034 :
+The CLI adds `h2a host status [--host <name>]`, envelope `action` DEC-034:
 
 ```json
 {
@@ -503,505 +503,505 @@ Le CLI ajoute `h2a host status [--host <name>]`, enveloppe `action` DEC-034 :
 }
 ```
 
-`--host` filtre sur un host unique ; un nom inconnu sort en `1` avec la liste des hosts supportés.
+`--host` filters to a single host; an unknown name exits `1` with the list of supported hosts.
 
-**Décision (documentation)** : `docs/compatibility-matrix.md` est la matrice humaine Codex / Claude Code / Gemini / MCP. Elle est dérivée de la même source de vérité que `h2a host status` et distingue explicitement quatre niveaux : descriptor, MCP adapter, setup snippet, scénario end-to-end hôte. Les scénarios end-to-end Codex et Claude restent TODO malgré les snippets setup livrés.
+**Decision (documentation)**: `docs/compatibility-matrix.md` is the human Codex / Claude Code / Gemini / MCP matrix. It is derived from the same source of truth as `h2a host status` and explicitly distinguishes four levels: descriptor, MCP adapter, setup snippet, end-to-end host scenario. Codex and Claude end-to-end scenarios stay TODO despite the shipped setup snippets.
 
-**Pourquoi** : (a) DEC-028 a repoussé Gemini en wave 2 mais le statut n'était pas interrogeable par automation ; (b) les snippets Codex/Claude exposent déjà les 10 outils MCP, mais cela ne doit pas être confondu avec un scénario host-driven complet ; (c) les clients programmatiques ont besoin d'une réponse stable plutôt que de parser `h2a hosts` ou une doc Markdown ; (d) la matrice humaine évite de sur-vendre Gemini ou les tests end-to-end hôtes.
+**Why**: (a) DEC-028 had deferred Gemini to wave 2 but the status was not query-able by automation; (b) Codex/Claude snippets already expose the 10 MCP tools, but this must not be confused with a complete host-driven scenario; (c) programmatic clients need a stable response rather than parsing `h2a hosts` or a Markdown doc; (d) the human matrix avoids over-selling Gemini or end-to-end host tests.
 
-**Conséquence** : (a) `H2A_CLI_VERB_CONTRACTS` ajoute le verbe `host status` ; (b) tout nouveau host doit déclarer sa wave ; (c) promouvoir Gemini en wave 1 demandera une DEC ou une mise à jour explicite de DEC-028/037 et devra fournir au minimum `renderMcpConfig`, tests `host setup`, et une ligne de matrice mise à jour ; (d) la completion de WP-40 reste bloquée par les scénarios réels Codex/Claude, pas par la simple présence du setup MCP.
-
-
-## DEC-038 — Release prep local + publication tag-driven via GitHub Actions
-**Date** : 2026-05-20. **Réfère** : DEC-026, DEC-027, DEC-029, DEC-034, DEC-036, WP-00.
-
-**Décision** : le flux V1 de release devient **tag-driven**. La commande locale `npm run release -- --version X.Y.Z` prépare la release sans toucher au réseau :
-
-1. refuse un worktree sale avant vérification ;
-2. exécute `npm run typecheck` puis `npm test` ;
-3. refuse de continuer si la vérification a sali le worktree ;
-4. bump `package.json`, `package-lock.json`, `packages/h2a/package.json`, `packages/h2a-cli/package.json` ;
-5. aligne la dépendance `@sentropic/h2a-cli -> @sentropic/h2a` en `^X.Y.Z` ;
-6. commit `release: vX.Y.Z` ;
-7. crée un tag annoté `vX.Y.Z` (signé si `git config commit.gpgsign=true`).
-
-La version acceptée est strictement `X.Y.Z` sans préfixe `v`, sans pré-release/build metadata, et sans zéros initiaux.
-
-**Décision (CI publish)** : `.github/workflows/release.yml` se déclenche sur `v*.*.*`, réinstalle via `npm ci`, relance typecheck/tests, vérifie que le tag `vX.Y.Z` correspond aux deux package manifests, puis publie `@sentropic/h2a` et `@sentropic/h2a-cli` avec `npm publish --provenance --access public` lorsque `secrets.NPM_TOKEN` est présent. Le workflow crée ensuite une GitHub Release idempotente via `gh release create --generate-notes`. Si `NPM_TOKEN` est absent, le workflow avertit et saute publication + release GitHub.
-
-**Pourquoi** : (a) la première publication a déjà produit un `0.1.0` CLI cassé (DEC-029), donc le bump manuel + publish local n'est pas assez reproductible ; (b) le lockfile est suivi et consommé par `npm ci`, donc il doit être bumpé dans le commit de release ; (c) tester un worktree sale puis ne committer que les versions taguerait potentiellement un état différent de l'état validé ; (d) npm provenance exige un publish depuis CI avec OIDC, pas depuis un shell local.
-
-**Conséquence** : (a) la racine reste `private` et ne publie jamais ; (b) les releases V1 sont lockstep entre les deux packages publics ; (c) `@sentropic/h2a-cli@0.1.0` reste à déprécier manuellement par un maintainer authentifié npm, car la dépréciation rétroactive n'est pas le rôle du workflow de publication ; (d) une future release partielle non-lockstep demanderait une nouvelle DEC ou une extension explicite du script.
+**Consequence**: (a) `H2A_CLI_VERB_CONTRACTS` adds the `host status` verb; (b) any new host must declare its wave; (c) promoting Gemini to wave 1 will require a DEC or an explicit DEC-028/037 update and must provide at minimum `renderMcpConfig`, `host setup` tests, and an updated matrix row; (d) WP-40 completion stays blocked by the real Codex/Claude scenarios, not by the mere presence of MCP setup.
 
 
-## DEC-039 — Invariants exécutables CONTRACT / POLICY / ENGAGEMENT
-**Date** : 2026-05-20. **Réfère** : DEC-016, DEC-018, DEC-021, DEC-035, WP-50.
+## DEC-038 — Local release prep + tag-driven publication via GitHub Actions
+**Date**: 2026-05-20. **Refers**: DEC-026, DEC-027, DEC-029, DEC-034, DEC-036, WP-00.
 
-**Décision** : `@sentropic/h2a` expose une couche d'audit stricte pour empêcher le collapse entre les trois artefacts contractuels de DEC-018 :
+**Decision**: the V1 release flow becomes **tag-driven**. The local command `npm run release -- --version X.Y.Z` prepares the release without touching the network:
 
-- `CONTRACT` → profil `normative-container` : durable, non exécutable, peut contenir/référencer des policies et instancier des engagements.
-- `POLICY` → profil `durable-rule` : durable, non exécutable, n'instancie pas d'engagement et ne porte pas de charter opérationnel.
-- `ENGAGEMENT` → profil `operational-executable` : exécutable, non durable par nature, référence les policies applicables mais ne les contient pas comme règles autonomes.
+1. refuses a dirty worktree before verification;
+2. runs `npm run typecheck` then `npm test`;
+3. refuses to continue if verification left the worktree dirty;
+4. bumps `package.json`, `package-lock.json`, `packages/h2a/package.json`, `packages/h2a-cli/package.json`;
+5. aligns the `@sentropic/h2a-cli -> @sentropic/h2a` dependency to `^X.Y.Z`;
+6. commits `release: vX.Y.Z`;
+7. creates an annotated tag `vX.Y.Z` (signed if `git config commit.gpgsign=true`).
 
-La table `H2A_CONTRACTUAL_ARTIFACT_PROFILES` est ré-exportée publiquement. `auditContractualArtifact(value)` retourne `{ok, kind, profile, issues}` ; `assertContractualArtifactInvariants(value)` lève si un artefact porte des champs qui appartiennent à une autre catégorie.
+The accepted version is strictly `X.Y.Z` with no `v` prefix, no pre-release/build metadata, no leading zeros.
 
-**Invariants V1** :
+**Decision (CI publish)**: `.github/workflows/release.yml` triggers on `v*.*.*`, reinstalls via `npm ci`, reruns typecheck/tests, verifies that the tag `vX.Y.Z` matches both package manifests, then publishes `@sentropic/h2a` and `@sentropic/h2a-cli` with `npm publish --provenance --access public` when `secrets.NPM_TOKEN` is present. The workflow then creates an idempotent GitHub Release via `gh release create --generate-notes`. If `NPM_TOKEN` is missing, the workflow warns and skips both the publish and the GitHub release.
 
-- Un `CONTRACT` ne doit pas porter les champs de règle durable d'une `POLICY` (`rule`, `sourceAuthority`, `adoptionMode`, `parameters`) ni les champs exécutables d'un `ENGAGEMENT` (`charter`, `roleBindings`, `controls`, `successCriteria`, etc.).
-- Une `POLICY` ne doit pas porter les champs de conteneur normatif d'un `CONTRACT` (`parties`, `clauses`, `engagements`, `signatures`, etc.) ni les champs exécutables d'un `ENGAGEMENT`.
-- Un `ENGAGEMENT` ne doit pas porter les champs de règle durable d'une `POLICY` ni les champs de conteneur normatif d'un `CONTRACT`. Il peut seulement référencer des policies applicables via `policies[]` et référencer un contrat amont via `contractId`.
+**Why**: (a) the first publish already produced a broken `0.1.0` CLI (DEC-029), so manual bump + local publish is not reproducible enough; (b) the lockfile is tracked and consumed by `npm ci`, so it must be bumped in the release commit; (c) testing a dirty worktree then committing only the versions would tag a state different from the validated one; (d) npm provenance requires publishing from CI with OIDC, not from a local shell.
 
-**Pourquoi** : les guards `isContract` / `isPolicy` / `isEngagement` restent volontairement permissifs sur les champs additionnels pour compatibilité et extensibilité. Il fallait donc une primitive séparée qui encode la frontière sémantique sans casser les payloads existants. Cette séparation rend REQ-037/038/046/047/048/050 vérifiables par code : une policy ne devient pas une mission, un engagement ne devient pas une loi/règle autonome, et un contract-cadre ne devient pas le journal opérationnel.
-
-**Conséquence** : (a) les clients peuvent appeler l'audit strict avant négociation/stabilisation lorsqu'ils veulent refuser un artefact ambigu ; (b) le runtime local reste compatible avec les artefacts existants, car l'audit strict n'est pas encore imposé automatiquement dans `stabilizeNegotiation` ; (c) une future DEC pourra décider où rendre cet audit bloquant (CLI, MCP, store ou seulement tooling) ; (d) la précédence inter-policy et les règles d'exception restent ouvertes — DEC-039 fixe la distinction de catégorie, pas encore le moteur de résolution de conflits.
+**Consequence**: (a) the root stays `private` and never publishes; (b) V1 releases are lockstep between the two public packages; (c) `@sentropic/h2a-cli@0.1.0` still needs manual deprecation by an npm-authenticated maintainer, since retroactive deprecation is not the publishing workflow's job; (d) a future non-lockstep partial release would require a new DEC or an explicit script extension.
 
 
-## DEC-040 — Résolution exécutable des cibles d'escalade par scope
-**Date** : 2026-05-20. **Réfère** : DEC-012, DEC-014, DEC-021, DEC-023, DEC-024, REQ-068, WP-50.
+## DEC-039 — Executable CONTRACT / POLICY / ENGAGEMENT invariants
+**Date**: 2026-05-20. **Refers**: DEC-016, DEC-018, DEC-021, DEC-035, WP-50.
 
-**Décision** : `@sentropic/h2a` expose le vocabulaire et le résolveur V1 des cibles d'escalade :
+**Decision**: `@sentropic/h2a` exposes a strict audit layer to prevent the collapse between the three contractual artefacts of DEC-018:
 
-- canaux : `H2A_ESCALATION_CHANNELS = ["advise", "decide", "alert"]` ;
-- autorités cibles : `H2A_ESCALATION_AUTHORITY_KINDS = ["PRINCIPAL", "EXECUTIF", "QUORUM", "CONTROL", "EXTERNAL_AUTHORITY", "RECOURSE"]` ;
-- helper `resolveEscalationTarget(enforcementPlan, request, {fallbackPrincipal?})` ;
+- `CONTRACT` → profile `normative-container`: durable, non-executable, may contain/reference policies and instantiate engagements.
+- `POLICY` → profile `durable-rule`: durable, non-executable, does not instantiate engagements and does not carry an operational charter.
+- `ENGAGEMENT` → profile `operational-executable`: executable, non-durable by nature, references applicable policies but does not contain them as standalone rules.
+
+The table `H2A_CONTRACTUAL_ARTIFACT_PROFILES` is re-exported publicly. `auditContractualArtifact(value)` returns `{ok, kind, profile, issues}`; `assertContractualArtifactInvariants(value)` throws if an artefact carries fields belonging to another category.
+
+**V1 invariants**:
+
+- A `CONTRACT` must not carry the durable-rule fields of a `POLICY` (`rule`, `sourceAuthority`, `adoptionMode`, `parameters`) nor the executable fields of an `ENGAGEMENT` (`charter`, `roleBindings`, `controls`, `successCriteria`, etc.).
+- A `POLICY` must not carry the normative-container fields of a `CONTRACT` (`parties`, `clauses`, `engagements`, `signatures`, etc.) nor the executable fields of an `ENGAGEMENT`.
+- An `ENGAGEMENT` must not carry the durable-rule fields of a `POLICY` nor the normative-container fields of a `CONTRACT`. It may only reference applicable policies via `policies[]` and reference an upstream contract via `contractId`.
+
+**Why**: the guards `isContract` / `isPolicy` / `isEngagement` intentionally stay permissive on additional fields for compatibility and extensibility. We therefore needed a separate primitive that encodes the semantic boundary without breaking existing payloads. This separation makes REQ-037/038/046/047/048/050 code-verifiable: a policy doesn't become a mission, an engagement doesn't become a law/standalone rule, and a master agreement doesn't become the operational journal.
+
+**Consequence**: (a) clients may call the strict audit before negotiation/stabilization when they want to reject an ambiguous artefact; (b) the local runtime stays compatible with existing artefacts, since strict audit is not yet automatically enforced in `stabilizeNegotiation`; (c) a future DEC may decide where to make this audit blocking (CLI, MCP, store or tooling only); (d) inter-policy precedence and exception rules stay open — DEC-039 fixes the category distinction, not yet the conflict resolution engine.
+
+
+## DEC-040 — Executable resolution of escalation targets by scope
+**Date**: 2026-05-20. **Refers**: DEC-012, DEC-014, DEC-021, DEC-023, DEC-024, REQ-068, WP-50.
+
+**Decision**: `@sentropic/h2a` exposes the V1 vocabulary and resolver for escalation targets:
+
+- channels: `H2A_ESCALATION_CHANNELS = ["advise", "decide", "alert"]`;
+- target authorities: `H2A_ESCALATION_AUTHORITY_KINDS = ["PRINCIPAL", "EXECUTIF", "QUORUM", "CONTROL", "EXTERNAL_AUTHORITY", "RECOURSE"]`;
+- helper `resolveEscalationTarget(enforcementPlan, request, {fallbackPrincipal?})`;
 - helper `assertEscalationTargetResolved(resolution)`.
 
-Le résolveur lit `ENFORCEMENT_PLAN.escalations[]`. Chaque route peut déclarer `{trigger, target, channel, scope, authorityKind, domain}`. La sélection est déterministe : filtre par channel/scope/trigger/domain compatibles, préfère les routes les plus spécifiques (domain > trigger > scope > channel), puis conserve l'ordre du plan en cas d'égalité. Les anciennes routes qui n'indiquent pas `authorityKind` sont interprétées comme `PRINCIPAL` pour compatibilité.
+The resolver reads `ENFORCEMENT_PLAN.escalations[]`. Each route may declare `{trigger, target, channel, scope, authorityKind, domain}`. Selection is deterministic: filter by compatible channel/scope/trigger/domain, prefer the most specific routes (domain > trigger > scope > channel), then keep the plan order on ties. Older routes that don't include `authorityKind` are interpreted as `PRINCIPAL` for compatibility.
 
-**Décision (fallback)** : le PRINCIPAL n'est plus inventé implicitement. Le fallback mono-humain existe seulement si l'appelant fournit explicitement `fallbackPrincipal`. Sans route de plan et sans fallback, le résultat est `{ok:false, issues:[...]}`. C'est l'encodage exécutable de DEC-024 : l'escalade cible l'autorité compétente du scope, pas automatiquement le PRINCIPAL local.
+**Decision (fallback)**: PRINCIPAL is no longer implicitly invented. The mono-human fallback exists only if the caller explicitly provides `fallbackPrincipal`. Without a plan route and without fallback, the result is `{ok:false, issues:[...]}`. This is the executable encoding of DEC-024: escalation targets the scope's competent authority, not automatically the local PRINCIPAL.
 
-**Pourquoi** : (a) les modèles multi-humain/fédération/gouvernement exigent EXECUTIF, CONTROL, autorité externe, recours ou quorum selon le scope ; (b) une règle cachée "tout remonte au PRINCIPAL" recrée le goulot d'étranglement identifié dans EVALUATIONS.md ; (c) `ENFORCEMENT_PLAN` était déjà le bon artefact pour l'application, mais ses routes n'étaient pas exploitables par code ; (d) garder le fallback explicite préserve le cas mono-humain sans affaiblir les scénarios fédérés.
+**Why**: (a) multi-human/federation/government models require EXECUTIF, CONTROL, external authority, recourse or quorum depending on scope; (b) a hidden rule "everything goes to PRINCIPAL" recreates the bottleneck identified in EVALUATIONS.md; (c) `ENFORCEMENT_PLAN` was already the right artefact for application, but its routes were not code-consumable; (d) keeping the fallback explicit preserves the mono-human case without weakening federated scenarios.
 
-**Conséquence** : (a) `H2AEnforcementPlan.escalations[]` gagne des champs optionnels `scope`, `authorityKind`, `domain` ; (b) les clients peuvent résoudre une cible d'escalade avant d'écrire un événement `escalate` ; (c) le handler MCP existant reste compatible mais ne consomme pas encore ce résolveur — une future slice pourra ajouter `target`/`authorityKind` au payload d'escalade ; (d) DEC-040 ne résout pas la précédence entre policies : elle route seulement le besoin d'arbitrage vers l'autorité déclarée.
+**Consequence**: (a) `H2AEnforcementPlan.escalations[]` gains optional fields `scope`, `authorityKind`, `domain`; (b) clients may resolve an escalation target before writing an `escalate` event; (c) the existing MCP handler stays compatible but does not yet consume this resolver — a future slice may add `target`/`authorityKind` to the escalation payload; (d) DEC-040 does not resolve precedence between policies: it only routes the arbitration need to the declared authority.
 
 
-## DEC-041 — Profils exécutables de compatibilité ABC
-**Date** : 2026-05-20. **Réfère** : REQ-042, REQ-043, REQ-044, REQ-071, DEC-018, DEC-021, DEC-024, DEC-039, DEC-040, WP-50.
+## DEC-041 — Executable ABC compatibility profiles
+**Date**: 2026-05-20. **Refers**: REQ-042, REQ-043, REQ-044, REQ-071, DEC-018, DEC-021, DEC-024, DEC-039, DEC-040, WP-50.
 
-**Décision** : le mapping vers les trois modèles ABC de `EVALUATIONS.md` devient une primitive publique de `@sentropic/h2a`, pas seulement une prose d'audit.
+**Decision**: the mapping to the three ABC models in `EVALUATIONS.md` becomes a public primitive of `@sentropic/h2a`, not just audit prose.
 
-Exports ajoutés :
+Added exports:
 
-- `H2A_ABC_MODEL_IDS = ["A_ENTERPRISE", "B_ECOSYSTEM", "C_GOVERNMENT_CITIZEN"]` ;
-- `H2A_ABC_MODEL_PROFILES` : profils stables par modèle, avec `track`, `label`, `topology`, rôles requis, artefacts requis, modes d'adoption de policy, autorités d'escalade et capacités ;
-- `H2A_ABC_MODEL_CAPABILITIES` : vocabulaire des capacités transverses (scope first-class, policy first-class, separation contract/engagement, signature mandatée, négociation déterministe, escalade par autorité de scope, autorité externe, disclosure contrôlée, précédence policy, obligations récurrentes, recours, juridiction) ;
-- `getAbcModelProfile(modelId)` ;
+- `H2A_ABC_MODEL_IDS = ["A_ENTERPRISE", "B_ECOSYSTEM", "C_GOVERNMENT_CITIZEN"]`;
+- `H2A_ABC_MODEL_PROFILES`: stable profiles per model, with `track`, `label`, `topology`, required roles, required artefacts, policy adoption modes, escalation authorities and capabilities;
+- `H2A_ABC_MODEL_CAPABILITIES`: vocabulary of cross-cutting capabilities (scope first-class, policy first-class, contract/engagement separation, mandated signature, deterministic negotiation, scope-authority escalation, external authority, controlled disclosure, policy precedence, recurring obligations, recourse, jurisdiction);
+- `getAbcModelProfile(modelId)`;
 - `auditAbcModelCompatibility(modelId)`.
 
-`auditAbcModelCompatibility` vérifie que chaque profil intégré ne référence que le vocabulaire public V1 (`H2A_ROLES`, `H2A_ARTIFACT_KINDS`, `H2A_POLICY_ADOPTION_MODES`, `H2A_ESCALATION_AUTHORITY_KINDS`, `H2A_ABC_MODEL_CAPABILITIES`). Il retourne `{ok, ready, issues, gaps, shipped, partial, deferred}`. `ok` signifie que le mapping est cohérent avec le vocabulaire public ; `ready` signifie qu'aucune capacité du modèle n'est encore partielle ou différée.
+`auditAbcModelCompatibility` verifies that each built-in profile only references public V1 vocabulary (`H2A_ROLES`, `H2A_ARTIFACT_KINDS`, `H2A_POLICY_ADOPTION_MODES`, `H2A_ESCALATION_AUTHORITY_KINDS`, `H2A_ABC_MODEL_CAPABILITIES`). It returns `{ok, ready, issues, gaps, shipped, partial, deferred}`. `ok` means the mapping is consistent with public vocabulary; `ready` means no model capability is still partial or deferred.
 
-**Statut V1** : les trois modèles sont `ok:true` mais `ready:false`. Cela fige le mapping sans prétendre que tous les gaps de protocole sont résolus :
+**V1 status**: the three models are `ok:true` but `ready:false`. This freezes the mapping without pretending that every protocol gap is resolved:
 
-- A / entreprise traditionnelle : obligations récurrentes, disclosure contrôlée, recours et précédence inter-policy restent incomplets ;
-- B / écosystème multi-organisation : disclosure cross-organisation, deadlock/recours et précédence inter-policy restent incomplets ;
-- C / gouvernement/citoyen : juridiction structurée, recours/adjudication, disclosure publique et précédence loi/contrat/policy locale restent incomplets.
+- A / traditional enterprise: recurring obligations, controlled disclosure, recourse and inter-policy precedence are still incomplete;
+- B / multi-organization ecosystem: cross-organization disclosure, deadlock/recourse and inter-policy precedence are still incomplete;
+- C / government/citizen: structured jurisdiction, recourse/adjudication, public disclosure and law/contract/local-policy precedence are still incomplete.
 
-**Pourquoi** : (a) les modèles ABC servent de garde-fous contre les régressions sémantiques ; (b) les décisions DEC-039/040 ont déjà rendu exécutables deux morceaux de ce mapping, mais aucune table publique ne disait encore ce que chaque modèle exige ; (c) séparer `ok` de `ready` évite de sur-vendre la V1 : les capacités livrées et les gaps ouverts deviennent inspectables par code ; (d) tout futur moteur de précédence, disclosure ou recours pourra fermer un gap précis sans réinterpréter toute l'évaluation.
+**Why**: (a) the ABC models act as guardrails against semantic regressions; (b) decisions DEC-039/040 already made two pieces of this mapping executable, but no public table yet stated what each model requires; (c) separating `ok` from `ready` avoids over-selling V1: shipped capabilities and open gaps become inspectable by code; (d) any future precedence, disclosure or recourse engine can close a specific gap without reinterpreting the whole evaluation.
 
-**Conséquence** : (a) WP-50 coche le mapping ABC ; (b) `EVALUATIONS.md` reste la source narrative, mais `H2A_ABC_MODEL_PROFILES` devient la source machine-readable ; (c) toute évolution des tracks ABC devra mettre à jour DEC-041 ou une DEC suivante et les tests `packages/h2a/test/abc.test.js` ; (d) les items restants de WP-50 portent désormais sur les modes multi-humains au-delà du pair-à-pair et sur la frontière protocole / policy / implémentation.
+**Consequence**: (a) WP-50 checks off the ABC mapping; (b) `EVALUATIONS.md` stays the narrative source, but `H2A_ABC_MODEL_PROFILES` becomes the machine-readable source; (c) any ABC track evolution must update DEC-041 or a following DEC and the tests `packages/h2a/test/abc.test.js`; (d) the remaining WP-50 items now focus on multi-human modes beyond peer-to-peer and on the protocol / policy / implementation boundary.
 
 
-## DEC-042 — Taxonomie exécutable des modes multi-humains
-**Date** : 2026-05-20. **Réfère** : REQ-029, REQ-030, REQ-031, REQ-032, REQ-033, REQ-034, REQ-035, REQ-036, DEC-015, DEC-016, DEC-017, DEC-024, WP-50.
+## DEC-042 — Executable taxonomy of multi-human modes
+**Date**: 2026-05-20. **Refers**: REQ-029, REQ-030, REQ-031, REQ-032, REQ-033, REQ-034, REQ-035, REQ-036, DEC-015, DEC-016, DEC-017, DEC-024, WP-50.
 
-**Décision** : le cadrage multi-humain ne se limite plus au mode pair-à-pair. `@sentropic/h2a` expose une taxonomie V1 de modes multi-humains, avec un sélecteur déterministe pour choisir le niveau de cérémonie minimal :
+**Decision**: multi-human framing is no longer limited to peer-to-peer. `@sentropic/h2a` exposes a V1 taxonomy of multi-human modes, with a deterministic selector picking the minimal ceremony level:
 
-- `PEER_DIALOGUE` : dialogue informel PRINCIPAL ↔ PRINCIPAL entre mini-organisations, sans charter opérationnel partagé ;
-- `DELEGATED_COORDINATION` : coordination opérationnelle répétée déléguée CONDUCTOR ↔ CONDUCTOR, chaque PRINCIPAL gardant son autorité locale ;
-- `SHARED_ENGAGEMENT` : engagement partagé avec charter, role bindings, controls, policies, success criteria et journal propre ;
-- `FEDERATED_EXECUTIF` : scope d'ensemble porté par un EXECUTIF, sans effacer les PRINCIPAUX locaux ;
-- `CONSORTIUM_QUORUM` : gouvernance de scope partagé par quorum/comité plutôt que par EXECUTIF unique ;
-- `PUBLIC_AUTHORITY` : mode où une autorité publique/réglementaire/externe impose policy, reçoit preuve ou route recours.
+- `PEER_DIALOGUE`: informal PRINCIPAL ↔ PRINCIPAL dialogue between mini-organizations, with no shared operational charter;
+- `DELEGATED_COORDINATION`: repeated operational coordination delegated CONDUCTOR ↔ CONDUCTOR, each PRINCIPAL keeping local authority;
+- `SHARED_ENGAGEMENT`: shared engagement with charter, role bindings, controls, policies, success criteria and its own journal;
+- `FEDERATED_EXECUTIF`: umbrella scope owned by an EXECUTIF, without erasing local PRINCIPALs;
+- `CONSORTIUM_QUORUM`: governance of a shared scope by quorum/committee rather than a single EXECUTIF;
+- `PUBLIC_AUTHORITY`: mode where a public/regulatory/external authority imposes policy, receives proof or routes recourse.
 
-Exports ajoutés :
+Added exports:
 
-- `H2A_MULTI_HUMAN_MODE_IDS` ;
-- `H2A_MULTI_HUMAN_MODES` ;
-- `getMultiHumanMode(modeId)` ;
+- `H2A_MULTI_HUMAN_MODE_IDS`;
+- `H2A_MULTI_HUMAN_MODES`;
+- `getMultiHumanMode(modeId)`;
 - `selectMultiHumanMode(request)`.
 
-Le sélecteur refuse `principalCount < 2`. Pour les cas multi-humains, il applique la précédence suivante, du plus contraignant au plus léger : `externalAuthority` → `executiveScope` → `quorumGovernance` → `sharedCommitments` → `repeatedOperationalCoordination` → `PEER_DIALOGUE`.
+The selector refuses `principalCount < 2`. For multi-human cases, it applies the following precedence, from most constraining to lightest: `externalAuthority` → `executiveScope` → `quorumGovernance` → `sharedCommitments` → `repeatedOperationalCoordination` → `PEER_DIALOGUE`.
 
-**Pourquoi** : (a) DEC-015 avait bien distingué les trois canaux pair-à-pair, mais pas les modes structurés au-delà ; (b) DEC-016/017 introduisent EXECUTIF, mais sans règle simple pour savoir quand passer d'un dialogue à une fédération ; (c) les modèles ABC montrent aussi des consortiums/quorums et des autorités publiques qui ne doivent pas être forcés dans "EXECUTIF" ; (d) le protocole a besoin d'un choix déterministe de mode pour éviter qu'une coordination avec obligations, risques ou autorité externe reste traitée comme une simple discussion.
+**Why**: (a) DEC-015 correctly distinguished the three peer channels but not the structured modes beyond; (b) DEC-016/017 introduced EXECUTIF, but without a simple rule for when to move from a dialogue to a federation; (c) the ABC models also show consortiums/quorums and public authorities that must not be forced into "EXECUTIF"; (d) the protocol needs a deterministic mode choice to prevent a coordination with obligations, risks or external authority from being treated as a simple discussion.
 
-**Conséquence** : (a) WP-50 coche le cadrage multi-humain au-delà du pair-à-pair ; (b) `selectMultiHumanMode` ne crée pas encore d'artefact, il guide le choix entre conversation, coordination déléguée, ENGAGEMENT, scope fédéré, quorum ou autorité externe ; (c) une future slice peut utiliser ce mode pour générer des templates de `CONTRACT`, `ENGAGEMENT`, `ENFORCEMENT_PLAN` ou `MANDATE` ; (d) il reste à décider ce qui devient protocole obligatoire, policy recommandée ou comportement d'implémentation.
+**Consequence**: (a) WP-50 checks off the multi-human framing beyond peer-to-peer; (b) `selectMultiHumanMode` does not yet create an artefact, it guides the choice between conversation, delegated coordination, ENGAGEMENT, federated scope, quorum or external authority; (c) a future slice may use this mode to generate templates of `CONTRACT`, `ENGAGEMENT`, `ENFORCEMENT_PLAN` or `MANDATE`; (d) it remains to decide what becomes mandatory protocol, recommended policy or implementation behavior.
 
 
-## DEC-043 — Frontière protocole / policy / implémentation
-**Date** : 2026-05-20. **Réfère** : REQ-001, REQ-006, REQ-010, REQ-024, REQ-041, REQ-054, REQ-070, DEC-031, DEC-032, DEC-034, DEC-035, DEC-039, DEC-040, DEC-041, DEC-042, WP-50.
+## DEC-043 — Protocol / policy / implementation boundary
+**Date**: 2026-05-20. **Refers**: REQ-001, REQ-006, REQ-010, REQ-024, REQ-041, REQ-054, REQ-070, DEC-031, DEC-032, DEC-034, DEC-035, DEC-039, DEC-040, DEC-041, DEC-042, WP-50.
 
-**Décision** : la frontière entre protocole obligatoire, policy de gouvernance et implémentation de référence devient une table publique de `@sentropic/h2a`.
+**Decision**: the boundary between mandatory protocol, governance policy and reference implementation becomes a public table of `@sentropic/h2a`.
 
-Exports ajoutés :
+Added exports:
 
-- `H2A_GOVERNANCE_BOUNDARY_LAYERS = ["PROTOCOL", "POLICY", "IMPLEMENTATION"]` ;
-- `H2A_GOVERNANCE_BOUNDARY_STATUSES = ["v1-shipped", "v1-open", "v2-deferred"]` ;
-- `H2A_GOVERNANCE_BOUNDARY_ITEMS` ;
-- `classifyGovernanceBoundary(itemId)` ;
+- `H2A_GOVERNANCE_BOUNDARY_LAYERS = ["PROTOCOL", "POLICY", "IMPLEMENTATION"]`;
+- `H2A_GOVERNANCE_BOUNDARY_STATUSES = ["v1-shipped", "v1-open", "v2-deferred"]`;
+- `H2A_GOVERNANCE_BOUNDARY_ITEMS`;
+- `classifyGovernanceBoundary(itemId)`;
 - `listGovernanceBoundaryItems(layer?)`.
 
-**Protocole V1** : identité/version/enveloppe, vocabulaire public, artefacts canoniques, signatures mandatées, négociation + ledger, escalade par autorité de scope, profils ABC et taxonomie multi-humaine.
+**V1 protocol**: identity/version/envelope, public vocabulary, canonical artefacts, mandated signatures, negotiation + ledger, escalation by scope authority, ABC profiles and multi-human taxonomy.
 
-**Policy V1 ouverte** : précédence inter-policy, niveaux de disclosure/evidence package, cadence des obligations récurrentes, assignation concrète du MANDATAIRE, seuils de blocage vs escalade des conflits.
+**V1 open policy**: inter-policy precedence, disclosure/evidence-package levels, recurring obligation cadence, concrete MANDATAIRE assignment, blocking-vs-escalating conflict thresholds.
 
-**Implémentation V1** : store local-files, serveur MCP stdio, snippets host setup, contrat JSON/exit-code du CLI. L'authentification de transport multi-utilisateur reste `v2-deferred`.
+**V1 implementation**: local-files store, stdio MCP server, host setup snippets, CLI JSON/exit-code contract. Multi-user transport authentication stays `v2-deferred`.
 
-**Pourquoi** : (a) plusieurs décisions précédentes disent "hors V1", "policy", ou "implémentation" localement, mais aucune table ne les rendait inspectables ; (b) sans frontière explicite, une implémentation pourrait durcir une policy locale en règle de protocole cachée ; (c) inversement, un client pourrait traiter le layout local-files ou les snippets Codex/Claude comme des obligations du protocole ; (d) cette table donne un point d'extension pour promouvoir plus tard une policy ouverte vers le protocole via nouvelle DEC.
+**Why**: (a) several previous decisions say "out of V1", "policy", or "implementation" locally, but no table made them inspectable; (b) without an explicit boundary, an implementation could harden a local policy into a hidden protocol rule; (c) conversely, a client could treat the local-files layout or the Codex/Claude snippets as protocol obligations; (d) this table provides an extension point to later promote an open policy to the protocol via a new DEC.
 
-**Conséquence** : (a) WP-50 atteint 100% sur le cadrage gouvernance/modèle ; (b) les gaps de DEC-041 restent visibles comme `POLICY/v1-open`, pas comme oublis ; (c) les futures specs détaillées peuvent référencer `H2A_GOVERNANCE_BOUNDARY_ITEMS` pour éviter de mélanger contrat protocolaire et choix du CLI de référence ; (d) toute promotion d'un item policy ou implementation vers protocol exigera nouvelle DEC + tests.
+**Consequence**: (a) WP-50 reaches 100% on the governance/model framing; (b) DEC-041's gaps stay visible as `POLICY/v1-open`, not as oversights; (c) future detailed specs may reference `H2A_GOVERNANCE_BOUNDARY_ITEMS` to avoid mixing protocol contract with reference-CLI choices; (d) any promotion of a policy or implementation item to protocol will require a new DEC + tests.
 
 
-## DEC-044 — Scénarios hôtes Codex / Claude via snippets MCP
-**Date** : 2026-05-20. **Réfère** : DEC-026, DEC-028, DEC-034, DEC-037, WP-40, WP-60.
+## DEC-044 — Codex / Claude host scenarios via MCP snippets
+**Date**: 2026-05-20. **Refers**: DEC-026, DEC-028, DEC-034, DEC-037, WP-40, WP-60.
 
-**Décision** : Codex et Claude Code passent de "setup snippet livré" à "scénario hôte livré" pour la V1. Le test `packages/h2a-cli/test/host-mcp-scenario.test.js` rend le snippet `mcpServers.h2a` propre à chaque host avec `command = process.execPath`, `args = [dist/bin.js, "mcp-serve"]`, lance réellement le process MCP stdio depuis ce snippet, puis conduit en JSON-RPC :
+**Decision**: Codex and Claude Code move from "setup snippet shipped" to "host scenario shipped" for V1. The test `packages/h2a-cli/test/host-mcp-scenario.test.js` renders the `mcpServers.h2a` snippet specific to each host with `command = process.execPath`, `args = [dist/bin.js, "mcp-serve"]`, actually launches the stdio MCP process from that snippet, then drives in JSON-RPC:
 
-- `initialize` ;
-- `tools/list` ;
-- `h2a_register_instance` ;
-- `h2a_open_negotiation` ;
-- `h2a_offer` ;
+- `initialize`;
+- `tools/list`;
+- `h2a_register_instance`;
+- `h2a_open_negotiation`;
+- `h2a_offer`;
 - `h2a_inbox put/read`.
 
-**Décision (statut machine)** : `h2a host status` ajoute `hostScenarioShipped`. Codex et Claude retournent `true`; Gemini reste `false` tant qu'une DEC wave 2 ne le promeut pas.
+**Decision (machine status)**: `h2a host status` adds `hostScenarioShipped`. Codex and Claude return `true`; Gemini stays `false` until a wave-2 DEC promotes it.
 
-**Pourquoi** : (a) DEC-037 distinguait explicitement setup snippet et scénario end-to-end, et Codex/Claude restaient TODO ; (b) lancer le process à partir du snippet couvre le chemin réel qu'un host MCP utilise, sans dépendre de l'UI ou d'un binaire propriétaire ; (c) le scénario couvre à la fois discovery/registration, négociation et inbox, soit les opérations manquantes dans WP-40 ; (d) exposer `hostScenarioShipped` évite aux clients de déduire cette maturité depuis la doc Markdown.
+**Why**: (a) DEC-037 explicitly distinguished setup snippet from end-to-end scenario, and Codex/Claude were still TODO; (b) launching the process from the snippet covers the real path an MCP host uses, without depending on UI or a proprietary binary; (c) the scenario covers discovery/registration, negotiation and inbox at once — the operations missing in WP-40; (d) exposing `hostScenarioShipped` prevents clients from deducing that maturity from the Markdown doc.
 
-**Conséquence** : (a) les items Codex/Claude "inbox / negotiation operations" de WP-40 sont cochés ; (b) `docs/compatibility-matrix.md` marque les scénarios Codex/Claude comme shipped ; (c) `docs/cli-contract.md` et `H2A_CLI_VERB_CONTRACTS` incluent le nouveau champ ; (d) Gemini reste descriptor + MCP adapter seulement, avec setup et scénario différés.
+**Consequence**: (a) the Codex/Claude "inbox / negotiation operations" items of WP-40 are checked; (b) `docs/compatibility-matrix.md` marks the Codex/Claude scenarios as shipped; (c) `docs/cli-contract.md` and `H2A_CLI_VERB_CONTRACTS` include the new field; (d) Gemini stays descriptor + MCP adapter only, with setup and scenario deferred.
 
-## DEC-045 — Profils exécutables de disclosure contrôlée
-**Date** : 2026-05-22. **Réfère** : REQ-070, REQ-071, DEC-039, DEC-041, DEC-043, WP-50, WP-60.
+## DEC-045 — Executable controlled-disclosure profiles
+**Date**: 2026-05-22. **Refers**: REQ-070, REQ-071, DEC-039, DEC-041, DEC-043, WP-50, WP-60.
 
-**Décision** : la disclosure contrôlée V1 est livrée comme module déclaratif `packages/h2a/src/disclosure.ts`, miroir structurel de `policy-precedence.ts`. Exports publics :
+**Decision**: V1 controlled disclosure is shipped as a declarative module `packages/h2a/src/disclosure.ts`, structurally mirroring `policy-precedence.ts`. Public exports:
 
-- `H2A_DISCLOSURE_MODES`, ordre du plus restrictif au plus permissif : `denied`, `hash-only`, `attestation`, `evidence-package`, `redacted-view`, `full-view`.
+- `H2A_DISCLOSURE_MODES`, ordered from most restrictive to most permissive: `denied`, `hash-only`, `attestation`, `evidence-package`, `redacted-view`, `full-view`.
 - `H2A_DISCLOSURE_CONFLICT_DISPOSITIONS = ["escalate-not-resolve"]`.
-- `H2A_DISCLOSURE_PROFILES` indexés par `H2AAbcModelId`, chaque profil portant `modelId`, `label`, `allowedModes`, `defaultMode`, `conflictDisposition`, `rationale`, `references`.
-- Profils retenus :
-  - `A_ENTERPRISE` — `allowedModes = [full-view, redacted-view, evidence-package, attestation, hash-only]`, default `redacted-view` (full-view dans le scope, redacted-view comme défaut cross-domain CONTROL, attestation/hash-only pour les tiers).
-  - `B_ECOSYSTEM` — `allowedModes = [redacted-view, evidence-package, attestation, hash-only]`, default `evidence-package` (full-view non exposé hors organisation).
-  - `C_GOVERNMENT_CITIZEN` — `allowedModes = [full-view, redacted-view, evidence-package, attestation, hash-only]`, default `evidence-package` (full-view réservé à l'autorité publique mandatée).
-- `getDisclosureProfile(modelId)` et `auditDisclosureProfile(modelId)` : audit valide que `defaultMode ∈ allowedModes`, que les modes sont connus et sans doublons, que la disposition est supportée. `unresolved` rappelle explicitement que V1 ne **produit pas** la projection — les helpers de redaction/packaging restent à charge du consommateur.
+- `H2A_DISCLOSURE_PROFILES` indexed by `H2AAbcModelId`, each profile carrying `modelId`, `label`, `allowedModes`, `defaultMode`, `conflictDisposition`, `rationale`, `references`.
+- Selected profiles:
+  - `A_ENTERPRISE` — `allowedModes = [full-view, redacted-view, evidence-package, attestation, hash-only]`, default `redacted-view` (full-view inside the scope, redacted-view as default for cross-domain CONTROL, attestation/hash-only for third parties).
+  - `B_ECOSYSTEM` — `allowedModes = [redacted-view, evidence-package, attestation, hash-only]`, default `evidence-package` (full-view not exposed outside the organization).
+  - `C_GOVERNMENT_CITIZEN` — `allowedModes = [full-view, redacted-view, evidence-package, attestation, hash-only]`, default `evidence-package` (full-view reserved for the mandated public authority).
+- `getDisclosureProfile(modelId)` and `auditDisclosureProfile(modelId)`: audit validates that `defaultMode ∈ allowedModes`, that modes are known and not duplicated, that the disposition is supported. `unresolved` explicitly reminds that V1 does **not produce** the projection — redaction/packaging helpers stay with the consumer.
 
-**Décision (statut machine)** : `H2A_ABC_MODEL_PROFILES` flippe la capability `controlled-disclosure` de `partial` à `shipped` sur les trois profils (evidence = "DEC-045 declarative disclosure profile"). `H2A_GOVERNANCE_BOUNDARY_ITEMS` flippe `controlled-disclosure-profiles` de `v1-open` à `v1-shipped` ; les références incluent `DEC-045`.
+**Decision (machine status)**: `H2A_ABC_MODEL_PROFILES` flips the `controlled-disclosure` capability from `partial` to `shipped` on the three profiles (evidence = "DEC-045 declarative disclosure profile"). `H2A_GOVERNANCE_BOUNDARY_ITEMS` flips `controlled-disclosure-profiles` from `v1-open` to `v1-shipped`; references include `DEC-045`.
 
-**Pourquoi** : (a) REQ-070 et REQ-071 nomment la minimisation de disclosure (vues redigées, evidence packages, hashes, attestations) mais aucune surface exécutable ne la déclarait ; (b) DEC-043 classe `controlled-disclosure-profiles` comme couche POLICY ouverte, restant à fermer en V1 ; (c) DEC-041 marquait la capability `partial` sur les trois ABC sans levier de promotion ; (d) suivre la même forme que `policy-precedence` (DEC associé à DEC-041) donne une API exécutable et auditable sans introduire de moteur de redaction caché — la projection effective reste explicitement hors-protocole.
+**Why**: (a) REQ-070 and REQ-071 name disclosure minimization (redacted views, evidence packages, hashes, attestations) but no executable surface declared it; (b) DEC-043 classifies `controlled-disclosure-profiles` as POLICY-open, to be closed in V1; (c) DEC-041 marked the capability `partial` on the three ABC profiles without a promotion lever; (d) following the same form as `policy-precedence` (DEC associated with DEC-041) gives an executable and auditable API without introducing a hidden redaction engine — the effective projection stays explicitly out of protocol.
 
-**Conséquence** : (a) la couche POLICY a maintenant un module exécutable pour la disclosure ; (b) `auditAbcModelCompatibility` ne signale plus `controlled-disclosure` comme gap partiel ; (c) le helper de projection (rédacteur de champs, builder d'evidence-package) reste un travail policy/implémentation, documenté comme tel dans `unresolved` ; (d) un patch release `0.1.8` peut suivre quand build + tests sont verts.
+**Consequence**: (a) the POLICY layer now has an executable module for disclosure; (b) `auditAbcModelCompatibility` no longer reports `controlled-disclosure` as a partial gap; (c) the projection helper (field redactor, evidence-package builder) stays a policy/implementation job, documented as such in `unresolved`; (d) a patch release `0.1.8` can follow once build + tests are green.
 
-## DEC-046 — Profils exécutables de recours / adjudication
-**Date** : 2026-05-22. **Réfère** : REQ-068, REQ-069, REQ-071, DEC-040, DEC-041, DEC-043, WP-50.
+## DEC-046 — Executable recourse / adjudication profiles
+**Date**: 2026-05-22. **Refers**: REQ-068, REQ-069, REQ-071, DEC-040, DEC-041, DEC-043, WP-50.
 
-**Décision** : la procédure de recours/adjudication V1 est livrée comme module déclaratif `packages/h2a/src/recourse.ts`, miroir structurel de `policy-precedence.ts` et `disclosure.ts`. Exports publics :
+**Decision**: V1 recourse/adjudication is shipped as a declarative module `packages/h2a/src/recourse.ts`, structurally mirroring `policy-precedence.ts` and `disclosure.ts`. Public exports:
 
-- `H2A_RECOURSE_STATES` : `requested`, `accepted`, `dismissed`, `adjudicating`, `decided`, `appealed`, `closed`.
+- `H2A_RECOURSE_STATES`: `requested`, `accepted`, `dismissed`, `adjudicating`, `decided`, `appealed`, `closed`.
 - `H2A_RECOURSE_CONFLICT_DISPOSITIONS = ["escalate-not-resolve"]`.
-- `H2A_RECOURSE_PROFILES` indexés par `H2AAbcModelId`. Chaque profil porte `modelId`, `label`, `allowedStates`, `allowedDeciderKinds` (sous-ensemble de `H2A_ESCALATION_AUTHORITY_KINDS`), `defaultDeciderKind`, `appealable`, `conflictDisposition`, `rationale`, `references`.
-- Profils retenus :
-  - `A_ENTERPRISE` — `allowedDeciderKinds = [PRINCIPAL, CONTROL, EXTERNAL_AUTHORITY]`, default `PRINCIPAL`, `appealable: true` (CONTROL pour domaines spécialisés, EXTERNAL_AUTHORITY pour l'appel hors organisation).
-  - `B_ECOSYSTEM` — `allowedDeciderKinds = [QUORUM, EXTERNAL_AUTHORITY, RECOURSE]`, default `QUORUM`, `appealable: true` (QUORUM inter-parties par défaut, RECOURSE pour organes dédiés).
-  - `C_GOVERNMENT_CITIZEN` — `allowedDeciderKinds = [EXTERNAL_AUTHORITY, RECOURSE, PRINCIPAL]`, default `EXTERNAL_AUTHORITY`, `appealable: true` (tribunal/régulateur d'abord, RECOURSE pour recours administratif, PRINCIPAL pour étapes internes).
-- `getRecourseProfile(modelId)` et `auditRecourseProfile(modelId)` : audit valide que `requested` est présent, qu'au moins un état terminal (`decided` ou `dismissed`) est présent, que `defaultDeciderKind ∈ allowedDeciderKinds`, que les deciders sont des `H2AEscalationAuthorityKind` connus, sans duplication. Si `appealable = true`, l'état `appealed` est requis. `unresolved` rappelle explicitement que V1 **n'adjuge pas** — la décision est produite hors-protocole par l'autorité déclarée.
+- `H2A_RECOURSE_PROFILES` indexed by `H2AAbcModelId`. Each profile carries `modelId`, `label`, `allowedStates`, `allowedDeciderKinds` (subset of `H2A_ESCALATION_AUTHORITY_KINDS`), `defaultDeciderKind`, `appealable`, `conflictDisposition`, `rationale`, `references`.
+- Selected profiles:
+  - `A_ENTERPRISE` — `allowedDeciderKinds = [PRINCIPAL, CONTROL, EXTERNAL_AUTHORITY]`, default `PRINCIPAL`, `appealable: true` (CONTROL for specialized domains, EXTERNAL_AUTHORITY for appeals outside the organization).
+  - `B_ECOSYSTEM` — `allowedDeciderKinds = [QUORUM, EXTERNAL_AUTHORITY, RECOURSE]`, default `QUORUM`, `appealable: true` (inter-party QUORUM by default, RECOURSE for dedicated bodies).
+  - `C_GOVERNMENT_CITIZEN` — `allowedDeciderKinds = [EXTERNAL_AUTHORITY, RECOURSE, PRINCIPAL]`, default `EXTERNAL_AUTHORITY`, `appealable: true` (tribunal/regulator first, RECOURSE for administrative recourse, PRINCIPAL for internal steps).
+- `getRecourseProfile(modelId)` and `auditRecourseProfile(modelId)`: audit validates that `requested` is present, that at least one terminal state (`decided` or `dismissed`) is present, that `defaultDeciderKind ∈ allowedDeciderKinds`, that deciders are known `H2AEscalationAuthorityKind` without duplication. If `appealable = true`, the `appealed` state is required. `unresolved` explicitly reminds that V1 does **not adjudicate** — the decision is produced outside the protocol by the declared authority.
 
-**Décision (statut machine)** :
-- `abc.ts` : la capability `recourse` passe de `partial` à `shipped` sur les trois profils, evidence = "DEC-046 declarative recourse profile (default decider X, N allowed deciders, appealable=true)".
-- `governance-boundary.ts` : nouvel item POLICY `recourse-adjudication-profiles` (`v1-shipped`), references = `["REQ-068", "REQ-069", "REQ-071", "DEC-040", "DEC-041", "DEC-046"]`.
+**Decision (machine status)**:
+- `abc.ts`: the `recourse` capability moves from `partial` to `shipped` on the three profiles, evidence = "DEC-046 declarative recourse profile (default decider X, N allowed deciders, appealable=true)".
+- `governance-boundary.ts`: new POLICY item `recourse-adjudication-profiles` (`v1-shipped`), references = `["REQ-068", "REQ-069", "REQ-071", "DEC-040", "DEC-041", "DEC-046"]`.
 
-**Pourquoi** : (a) REQ-068 nomme le recours comme cible d'escalade légitime mais DEC-040 ne couvrait que le routage, pas la procédure ; (b) DEC-041 marquait `recourse` `partial` sur les **trois** profils ABC, ce qui en faisait la capability `partial` à plus fort fan-out ; (c) REQ-069 exige que le MANDATAIRE ne tienne pas le rôle d'arbitre — la décision doit être attribuée à une autorité déclarée, donc on déclare la taxonomie ; (d) calquer la forme `policy-precedence` / `disclosure` (déclaratif + `escalate-not-resolve`) évite d'introduire un moteur d'adjudication caché que V1 ne sait pas exécuter.
+**Why**: (a) REQ-068 names recourse as a legitimate escalation target but DEC-040 only covered routing, not the procedure; (b) DEC-041 marked `recourse` `partial` on the **three** ABC profiles, making it the highest-fan-out partial capability; (c) REQ-069 requires that MANDATAIRE not hold the arbiter role — the decision must be attributed to a declared authority, so we declare the taxonomy; (d) mirroring the `policy-precedence` / `disclosure` form (declarative + `escalate-not-resolve`) avoids introducing a hidden adjudication engine V1 cannot execute.
 
-**Conséquence** : (a) la couche POLICY ferme `recourse-adjudication-profiles` ; (b) `auditAbcModelCompatibility` ne signale plus `recourse` comme gap partiel ; (c) le déroulé effectif d'un recours (notification, dossier, délibération, signature, publication) reste un travail policy/implémentation explicitement documenté dans `unresolved` ; (d) un patch release `0.1.9` peut suivre quand build + tests sont verts.
+**Consequence**: (a) the POLICY layer closes `recourse-adjudication-profiles`; (b) `auditAbcModelCompatibility` no longer reports `recourse` as a partial gap; (c) the actual recourse playbook (notification, file, deliberation, signature, publication) stays explicitly out-of-protocol, documented in `unresolved`; (d) a patch release `0.1.9` can follow when build + tests are green.
 
-## DEC-047 — Profils exécutables de cadence des obligations récurrentes
-**Date** : 2026-05-22. **Réfère** : REQ-063, REQ-071, DEC-041, DEC-043, WP-50.
+## DEC-047 — Executable recurring-obligation cadence profiles
+**Date**: 2026-05-22. **Refers**: REQ-063, REQ-071, DEC-041, DEC-043, WP-50.
 
-**Décision** : la cadence des obligations récurrentes V1 est livrée comme module déclaratif `packages/h2a/src/recurring-obligations.ts`, miroir structurel de `policy-precedence.ts`, `disclosure.ts` et `recourse.ts`. Exports publics :
+**Decision**: V1 recurring-obligation cadence is shipped as a declarative module `packages/h2a/src/recurring-obligations.ts`, structurally mirroring `policy-precedence.ts`, `disclosure.ts` and `recourse.ts`. Public exports:
 
-- `H2A_OBLIGATION_CADENCES` : `daily`, `weekly`, `monthly`, `quarterly`, `yearly`, `on-event`, `ad-hoc`.
+- `H2A_OBLIGATION_CADENCES`: `daily`, `weekly`, `monthly`, `quarterly`, `yearly`, `on-event`, `ad-hoc`.
 - `H2A_RECURRING_OBLIGATION_CONFLICT_DISPOSITIONS = ["escalate-not-resolve"]`.
-- `H2A_RECURRING_OBLIGATION_PROFILES` indexés par `H2AAbcModelId` portant `modelId`, `label`, `allowedCadences`, `defaultCadence`, `defaultGraceDays`, `defaultReportingThresholdDays`, `conflictDisposition`, `rationale`, `references`.
-- Profils retenus :
-  - `A_ENTERPRISE` — `allowedCadences = [daily, weekly, monthly, quarterly, yearly, on-event]`, default `monthly`, grace `7j`, alerte `3j` avant breach. Cadence opérationnelle dense.
-  - `B_ECOSYSTEM` — `allowedCadences = [monthly, quarterly, yearly, on-event, ad-hoc]`, default `quarterly`, grace `14j`, alerte `7j`. Pas de sub-month en cross-organisation V1.
-  - `C_GOVERNMENT_CITIZEN` — `allowedCadences = [monthly, quarterly, yearly, on-event]`, default `yearly`, grace `30j`, alerte `15j`. Aligné sur les obligations légales/fiscales typiques.
-- `getRecurringObligationProfile(modelId)` et `auditRecurringObligationProfile(modelId)` : audit valide que `defaultCadence ∈ allowedCadences`, que `defaultGraceDays` et `defaultReportingThresholdDays` sont des entiers positifs, que `defaultReportingThresholdDays ≤ defaultGraceDays` (l'alerte précède le breach), que la disposition est supportée. `unresolved` rappelle explicitement que V1 **ne planifie pas, ne déclenche pas, n'évalue pas** les obligations — le runtime de suivi reste dans la couche policy.
+- `H2A_RECURRING_OBLIGATION_PROFILES` indexed by `H2AAbcModelId`, carrying `modelId`, `label`, `allowedCadences`, `defaultCadence`, `defaultGraceDays`, `defaultReportingThresholdDays`, `conflictDisposition`, `rationale`, `references`.
+- Selected profiles:
+  - `A_ENTERPRISE` — `allowedCadences = [daily, weekly, monthly, quarterly, yearly, on-event]`, default `monthly`, grace `7d`, alert `3d` before breach. Dense operational cadence.
+  - `B_ECOSYSTEM` — `allowedCadences = [monthly, quarterly, yearly, on-event, ad-hoc]`, default `quarterly`, grace `14d`, alert `7d`. No sub-month cadences in V1 cross-organization.
+  - `C_GOVERNMENT_CITIZEN` — `allowedCadences = [monthly, quarterly, yearly, on-event]`, default `yearly`, grace `30d`, alert `15d`. Aligned with typical legal/fiscal obligations.
+- `getRecurringObligationProfile(modelId)` and `auditRecurringObligationProfile(modelId)`: audit validates that `defaultCadence ∈ allowedCadences`, that `defaultGraceDays` and `defaultReportingThresholdDays` are non-negative integers, that `defaultReportingThresholdDays ≤ defaultGraceDays` (alert precedes breach), that the disposition is supported. `unresolved` explicitly reminds that V1 does **not schedule, fire or evaluate** obligations — the tracking runtime stays in the policy layer.
 
-**Décision (statut machine)** :
-- `abc.ts` : la capability `recurring-obligations` est désormais déclarée `shipped` sur les **trois** profils ABC (avant DEC-047 elle n'était présente que sur A en `partial`). Evidence = "DEC-047 declarative cadence profile (default X, grace Yd, alert Zd)".
-- `governance-boundary.ts` : l'item POLICY `recurring-obligation-cadence` passe de `v1-open` à `v1-shipped`, references = `["REQ-063", "REQ-071", "DEC-041", "DEC-047"]`.
+**Decision (machine status)**:
+- `abc.ts`: the `recurring-obligations` capability is now declared `shipped` on the **three** ABC profiles (before DEC-047 it was present only on A as `partial`). Evidence = "DEC-047 declarative cadence profile (default X, grace Yd, alert Zd)".
+- `governance-boundary.ts`: the POLICY item `recurring-obligation-cadence` moves from `v1-open` to `v1-shipped`, references = `["REQ-063", "REQ-071", "DEC-041", "DEC-047"]`.
 
-**Pourquoi** : (a) REQ-063 nomme OBLIGATION comme composant des artefacts contractuels et REQ-071 exige l'audit des obligations récurrentes par ABC, mais la cadence restait du domaine opaque ; (b) DEC-041 marquait `recurring-obligations` `partial` sur A_ENTERPRISE uniquement, sans entrée pour B/C alors que les écosystèmes et l'administration ont des obligations cycliques dominantes ; (c) calquer la forme `policy-precedence` / `disclosure` / `recourse` (déclaratif + `escalate-not-resolve`) évite d'introduire un scheduler caché que V1 ne sait pas exécuter ; (d) la contrainte `reportingThreshold ≤ grace` encode dans l'audit la règle implicite "l'alerte précède le breach" sans imposer de timer concret.
+**Why**: (a) REQ-063 names OBLIGATION as a component of contractual artefacts and REQ-071 requires recurring-obligation audit by ABC, but cadence stayed an opaque domain; (b) DEC-041 marked `recurring-obligations` `partial` on A_ENTERPRISE only, with no entry for B/C even though ecosystems and administrations have dominant cyclic obligations; (c) mirroring the `policy-precedence` / `disclosure` / `recourse` form (declarative + `escalate-not-resolve`) avoids introducing a hidden scheduler V1 cannot execute; (d) the constraint `reportingThreshold ≤ grace` encodes in the audit the implicit "alert precedes breach" rule without imposing a concrete timer.
 
-**Conséquence** : (a) la couche POLICY ferme `recurring-obligation-cadence` ; (b) `auditAbcModelCompatibility` ne signale plus `recurring-obligations` comme gap partiel sur A et l'expose comme `shipped` sur B/C aussi ; (c) la mécanique exécutoire (planificateur, journal de tick, calcul du breach, génération d'alerte) reste explicitement hors-protocole, documentée dans `unresolved` ; (d) un patch release `0.1.10` peut suivre quand build + tests sont verts.
+**Consequence**: (a) the POLICY layer closes `recurring-obligation-cadence`; (b) `auditAbcModelCompatibility` no longer reports `recurring-obligations` as a partial gap on A and now exposes it as `shipped` on B/C too; (c) the executory machinery (scheduler, tick journal, breach computation, alert generation) stays explicitly out-of-protocol, documented in `unresolved`; (d) a patch release `0.1.10` can follow when build + tests are green.
 
-## DEC-048 — Profils exécutables de juridiction
-**Date** : 2026-05-22. **Réfère** : REQ-042, REQ-043, REQ-044, REQ-071, DEC-041, DEC-043, WP-50.
+## DEC-048 — Executable jurisdiction profiles
+**Date**: 2026-05-22. **Refers**: REQ-042, REQ-043, REQ-044, REQ-071, DEC-041, DEC-043, WP-50.
 
-**Décision** : la structuration des juridictions V1 est livrée comme module déclaratif `packages/h2a/src/jurisdiction.ts`, miroir structurel des autres modules POLICY. Exports publics :
+**Decision**: V1 jurisdiction structuring is shipped as a declarative module `packages/h2a/src/jurisdiction.ts`, structurally mirroring the other POLICY modules. Public exports:
 
-- `H2A_JURISDICTION_KINDS` : `territorial`, `sectoral`, `functional`, `personal`, `temporal`, `delegated`, `private-contract`.
+- `H2A_JURISDICTION_KINDS`: `territorial`, `sectoral`, `functional`, `personal`, `temporal`, `delegated`, `private-contract`.
 - `H2A_JURISDICTION_CONFLICT_DISPOSITIONS = ["escalate-not-resolve"]`.
-- `H2A_JURISDICTION_PROFILES` indexés par `H2AAbcModelId` portant `modelId`, `label`, `allowedKinds`, `defaultKind`, `conflictDisposition`, `rationale`, `references`.
-- Profils retenus :
-  - `A_ENTERPRISE` — `allowedKinds = [private-contract, sectoral, functional, territorial]`, default `private-contract`. Pas de juridiction personnelle ou temporelle dans V1 enterprise.
-  - `B_ECOSYSTEM` — `allowedKinds = [delegated, private-contract, sectoral, functional, territorial]`, default `delegated`. Les contrats inter-organisations délèguent typiquement la juridiction.
-  - `C_GOVERNMENT_CITIZEN` — `allowedKinds = [territorial, sectoral, functional, personal, temporal, delegated]`, default `territorial`. Pas de `private-contract` : l'autorité publique ne s'auto-octroie pas par contrat privé.
-- `getJurisdictionProfile(modelId)` et `auditJurisdictionProfile(modelId)` : audit valide que `defaultKind ∈ allowedKinds`, que les kinds sont connus et sans doublons, que la disposition est supportée. `unresolved` rappelle explicitement que V1 **ne vérifie pas l'appartenance** d'un scope/acteur à une juridiction — le matching reste dans la couche policy.
+- `H2A_JURISDICTION_PROFILES` indexed by `H2AAbcModelId`, carrying `modelId`, `label`, `allowedKinds`, `defaultKind`, `conflictDisposition`, `rationale`, `references`.
+- Selected profiles:
+  - `A_ENTERPRISE` — `allowedKinds = [private-contract, sectoral, functional, territorial]`, default `private-contract`. No personal or temporal jurisdiction in V1 enterprise.
+  - `B_ECOSYSTEM` — `allowedKinds = [delegated, private-contract, sectoral, functional, territorial]`, default `delegated`. Inter-organization contracts typically delegate jurisdiction.
+  - `C_GOVERNMENT_CITIZEN` — `allowedKinds = [territorial, sectoral, functional, personal, temporal, delegated]`, default `territorial`. No `private-contract`: public authority does not self-confer through a private contract.
+- `getJurisdictionProfile(modelId)` and `auditJurisdictionProfile(modelId)`: audit validates that `defaultKind ∈ allowedKinds`, that kinds are known and not duplicated, that the disposition is supported. `unresolved` explicitly reminds that V1 does **not check membership** of a scope/actor to a jurisdiction — matching stays in the policy layer.
 
-**Décision (statut machine)** :
-- `abc.ts` : la capability `jurisdiction` est désormais déclarée `shipped` sur les **trois** profils ABC (avant DEC-048 elle n'était présente que sur C en `partial`). Evidence = "DEC-048 declarative jurisdiction profile (default X, N allowed kinds)".
-- `governance-boundary.ts` : nouvel item POLICY `jurisdiction-profiles` (`v1-shipped`), references = `["REQ-044", "REQ-071", "DEC-041", "DEC-048"]`.
+**Decision (machine status)**:
+- `abc.ts`: the `jurisdiction` capability is now declared `shipped` on the **three** ABC profiles (before DEC-048 it was present only on C as `partial`). Evidence = "DEC-048 declarative jurisdiction profile (default X, N allowed kinds)".
+- `governance-boundary.ts`: new POLICY item `jurisdiction-profiles` (`v1-shipped`), references = `["REQ-044", "REQ-071", "DEC-041", "DEC-048"]`.
 
-**Pourquoi** : (a) REQ-044 mentionne explicitement les écosystèmes gouvernementaux/citoyens, où la juridiction est first-class, mais V1 ne représentait jusqu'ici la juridiction que par des `scope` strings opaques ; (b) DEC-041 marquait `jurisdiction` `partial` sur C uniquement, sans entrée pour A/B alors que la frontière territorial/sectoriel/contractuel est constitutive aussi en entreprise et écosystème ; (c) calquer la forme `policy-precedence` / `disclosure` / `recourse` / `recurring-obligations` (déclaratif + `escalate-not-resolve`) évite d'introduire un moteur de matching de juridiction caché ; (d) refuser `private-contract` au profil C encode la règle que l'autorité publique ne se constitue pas par contrat privé.
+**Why**: (a) REQ-044 explicitly mentions government/citizen ecosystems where jurisdiction is first-class, but until now V1 represented jurisdiction only via opaque `scope` strings; (b) DEC-041 marked `jurisdiction` `partial` on C only, with no entry for A/B even though the territorial/sectoral/contractual boundary is also constitutive in enterprise and ecosystem; (c) mirroring the `policy-precedence` / `disclosure` / `recourse` / `recurring-obligations` form (declarative + `escalate-not-resolve`) avoids introducing a hidden jurisdiction-matching engine; (d) refusing `private-contract` on profile C encodes the rule that public authority cannot self-constitute through a private contract.
 
-**Conséquence** : (a) la couche POLICY clôt `jurisdiction-profiles` ; (b) `auditAbcModelCompatibility` ne signale plus `jurisdiction` comme gap partiel sur C et l'expose comme `shipped` sur A/B aussi ; (c) avec cette slice les quatre capabilities `partial` historiques (`controlled-disclosure`, `recourse`, `recurring-obligations`, `jurisdiction`) sont désormais toutes `shipped` — seul `policy-precedence` reste `partial` par choix explicite (pas de résolveur V1) ; (d) un patch release `0.1.11` peut suivre quand build + tests sont verts.
+**Consequence**: (a) the POLICY layer closes `jurisdiction-profiles`; (b) `auditAbcModelCompatibility` no longer reports `jurisdiction` as a partial gap on C and now exposes it as `shipped` on A/B too; (c) with this slice the four historical `partial` capabilities (`controlled-disclosure`, `recourse`, `recurring-obligations`, `jurisdiction`) are all `shipped` — only `policy-precedence` stays `partial` by explicit design (no V1 resolver); (d) a patch release `0.1.11` can follow when build + tests are green.
 
-## DEC-049 — Gemini promu wave 1 (host setup + scénario MCP)
-**Date** : 2026-05-22. **Réfère** : DEC-026, DEC-028, DEC-037, DEC-044, WP-40, WP-60.
+## DEC-049 — Gemini promoted to wave 1 (host setup + MCP scenario)
+**Date**: 2026-05-22. **Refers**: DEC-026, DEC-028, DEC-037, DEC-044, WP-40, WP-60.
 
-**Décision** : Gemini est promu de wave 2 à wave 1. `H2A_GEMINI_HOST` cesse d'être un descriptor-seul et devient un `H2AConfigurableHostDescriptor` complet :
+**Decision**: Gemini is promoted from wave 2 to wave 1. `H2A_GEMINI_HOST` is no longer a descriptor-only host and becomes a full `H2AConfigurableHostDescriptor`:
 
-- `packages/h2a-cli/src/hosts/gemini.ts` exporte `renderMcpConfig({ command?, args?, root? })` qui produit `mcpServers.h2a = { command, args }` (identique à Codex/Claude) ;
-- `path.hint` cible `~/.gemini/settings.json` (user-global) et `.gemini/settings.json` (project-local) ; `path.example = "~/.gemini/settings.json"` ;
+- `packages/h2a-cli/src/hosts/gemini.ts` exports `renderMcpConfig({ command?, args?, root? })` producing `mcpServers.h2a = { command, args }` (identical to Codex/Claude);
+- `path.hint` targets `~/.gemini/settings.json` (user-global) and `.gemini/settings.json` (project-local); `path.example = "~/.gemini/settings.json"`;
 - `wave = 1`, `hostScenarioShipped = true`.
 
-`h2a host setup --host gemini [--write <file>] [--print]` est désormais accepté (la garde DEC-028 a été retirée). Les comportements `--print` / `--write` / `--force` sont identiques à Codex/Claude. Le scénario `packages/h2a-cli/test/host-mcp-scenario.test.js` boucle maintenant sur `[H2A_CODEX_HOST, H2A_CLAUDE_HOST, H2A_GEMINI_HOST]` et lance réellement `mcp-serve` depuis le snippet Gemini puis conduit en JSON-RPC `initialize` / `tools/list` / `h2a_register_instance` / `h2a_open_negotiation` / `h2a_offer` / `h2a_inbox put|read`.
+`h2a host setup --host gemini [--write <file>] [--print]` is now accepted (the DEC-028 guard is removed). The `--print` / `--write` / `--force` behaviors are identical to Codex/Claude. The scenario `packages/h2a-cli/test/host-mcp-scenario.test.js` now loops over `[H2A_CODEX_HOST, H2A_CLAUDE_HOST, H2A_GEMINI_HOST]` and actually launches `mcp-serve` from the Gemini snippet, then drives in JSON-RPC `initialize` / `tools/list` / `h2a_register_instance` / `h2a_open_negotiation` / `h2a_offer` / `h2a_inbox put|read`.
 
-**Décision (statut machine)** : `h2a host status` retourne `wave: 1`, `hostSetupShipped: true`, `hostScenarioShipped: true` pour Gemini. `docs/compatibility-matrix.md` met les trois lignes Codex / Claude Code / Gemini à `Shipped` partout.
+**Decision (machine status)**: `h2a host status` returns `wave: 1`, `hostSetupShipped: true`, `hostScenarioShipped: true` for Gemini. `docs/compatibility-matrix.md` flips the three Codex / Claude Code / Gemini rows to `Shipped` everywhere.
 
-**Pourquoi** : (a) DEC-028 différait Gemini par prudence, mais la surface MCP/JSON-RPC est strictement la même que Codex/Claude — il n'y a plus de risque host-spécifique non couvert ; (b) DEC-044 a montré que le scénario hôte est dérivable directement du snippet `renderMcpConfig`, donc l'ajout est purement déclaratif côté Gemini ; (c) WP-40 ne peut pas être considéré clos tant qu'un host first-class référencé dans la doc reste en deferred ; (d) le path hint `~/.gemini/settings.json` reflète la configuration documentée du CLI officiel Gemini ; l'utilisateur peut adapter via les drapeaux `--command`/`--args` si son binaire diffère.
+**Why**: (a) DEC-028 deferred Gemini out of caution, but the MCP/JSON-RPC surface is strictly the same as Codex/Claude — no host-specific risk left uncovered; (b) DEC-044 showed that the host scenario is directly derivable from the `renderMcpConfig` snippet, so the Gemini addition is purely declarative; (c) WP-40 cannot be considered closed while a first-class host referenced in the docs stays deferred; (d) the path hint `~/.gemini/settings.json` reflects the documented official Gemini CLI configuration; the user can adapt via `--command`/`--args` if their binary differs.
 
-**Conséquence** : (a) WP-40 wave 1 est clos pour les trois hôtes V1 ; (b) le test `h2a host setup --host gemini --print rejects with DEC-028 message` devient obsolète et est remplacé par un test snippet positif ; (c) `cli-host-status.test.js` ne distingue plus Gemini des autres ; (d) la seule pièce restante de WP-40 est l'auth de transport V2 (mTLS / bearer signé), explicitement deferred ; (e) un patch release `0.1.12` peut suivre quand build + tests sont verts.
+**Consequence**: (a) WP-40 wave 1 is closed for the three V1 hosts; (b) the test `h2a host setup --host gemini --print rejects with DEC-028 message` becomes obsolete and is replaced with a positive snippet test; (c) `cli-host-status.test.js` no longer distinguishes Gemini from the others; (d) the only WP-40 piece left is V2 transport auth (mTLS / signed bearer), explicitly deferred; (e) a patch release `0.1.12` can follow when build + tests are green.
 
-## DEC-050 — Protocole de session h2a (vocabulaire core)
-**Date** : 2026-05-23. **Réfère** : INTENTION (multi-humain), REQ-001, REQ-014, REQ-015, DEC-019, DEC-026, DEC-032, DEC-043, WP-30, WP-40.
+## DEC-050 — h2a session protocol (core vocabulary)
+**Date**: 2026-05-23. **Refers**: INTENTION (multi-human), REQ-001, REQ-014, REQ-015, DEC-019, DEC-026, DEC-032, DEC-043, WP-30, WP-40.
 
-**Contexte** : la V1 jusqu'à v0.1.12 livrait `h2a_register_instance` comme une simple écriture append-only dans `registry/instances.jsonl`. Aucune notion de **session vivante** : un agent dont le process est mort reste "présent" indéfiniment, aucun autre agent n'est notifié, l'inbox doit être polled. Cet écart entre "API CRUD sur des fichiers" et "protocole de coopération entre agents CLI" était bloquant pour le cas d'usage premier de l'INTENTION (Claude, Codex, Gemini qui coopèrent).
+**Context**: V1 up to v0.1.12 shipped `h2a_register_instance` as a simple append-only write into `registry/instances.jsonl`. No notion of a **live session**: an agent whose process is dead stays "present" indefinitely, no other agent is notified, the inbox must be polled. This gap between "file CRUD API" and "protocol of cooperation between CLI agents" was blocking the primary INTENTION use case (Claude, Codex, Gemini cooperating).
 
-**Décision** : introduire un **protocole de session** comme couche PROTOCOL distincte de la couche INSTANCE :
+**Decision**: introduce a **session protocol** as a PROTOCOL layer distinct from the INSTANCE layer:
 
-- une **INSTANCE** (`claude:proj-1`) est identité durable, déjà couverte par DEC-019 ;
-- une **SESSION** est l'**attachement live** d'une instance au protocole sur un transport donné ; elle existe le temps qu'un process porte cette identité.
+- an **INSTANCE** (`claude:proj-1`) is durable identity, already covered by DEC-019;
+- a **SESSION** is the **live attachment** of an instance to the protocol over a given transport; it exists for the lifetime of a process carrying that identity.
 
-Le vocabulaire core (`@sentropic/h2a`, `packages/h2a/src/session.ts`) expose :
+The core vocabulary (`@sentropic/h2a`, `packages/h2a/src/session.ts`) exposes:
 
-- `H2A_SESSION_STATES = ["opening", "live", "draining", "closed", "expired"]` — cycle de vie.
-- `H2A_SESSION_NOTIFICATION_TOPICS = ["presence.peer_joined", "presence.peer_left", "inbox.envelope_arrived", "negotiation.event_appended"]` — topics auxquels une session peut s'abonner pour recevoir du **push** plutôt que de poller.
-- `H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS = 5000` et `H2A_SESSION_DEFAULT_EXPIRY_MS = 15000` — un seul battement raté reste sous l'expiry ; trois battements ratés expirent la session.
-- `H2ASession` interface : `{ sessionId, instance, host?, pid?, startedAt, heartbeatAt, state, interests: { scopes, negotiations }, subscribedTopics }`.
+- `H2A_SESSION_STATES = ["opening", "live", "draining", "closed", "expired"]` — lifecycle.
+- `H2A_SESSION_NOTIFICATION_TOPICS = ["presence.peer_joined", "presence.peer_left", "inbox.envelope_arrived", "negotiation.event_appended"]` — topics a session can subscribe to in order to receive **push** rather than poll.
+- `H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS = 5000` and `H2A_SESSION_DEFAULT_EXPIRY_MS = 15000` — a single missed beat stays below the expiry; three missed beats expire the session.
+- `H2ASession` interface: `{ sessionId, instance, host?, pid?, startedAt, heartbeatAt, state, interests: { scopes, negotiations }, subscribedTopics }`.
 - `isH2ASession(value)` type guard.
-- `isSessionExpired(session, { now?, expiryMs? })` : V/F sur l'état + fraîcheur heartbeat.
-- `pickFreshSessions(sessions, options)` : filtre déterministe.
+- `isSessionExpired(session, { now?, expiryMs? })`: T/F on state + heartbeat freshness.
+- `pickFreshSessions(sessions, options)`: deterministic filter.
 
-**Décision (statut machine)** : `governance-boundary` ajoute `session-protocol` (`v1-shipped`, layer `PROTOCOL`).
+**Decision (machine status)**: `governance-boundary` adds `session-protocol` (`v1-shipped`, layer `PROTOCOL`).
 
-**Pourquoi** : (a) sans **séparation INSTANCE / SESSION**, on confondait identité durable et présence transitoire — un crash de process figeait le registry ; (b) sans **heartbeat**, aucun moyen de détecter qu'un peer est mort sans daemon central, ce qui aurait cassé la promesse "pas de service central" (cohérente avec DEC-032) ; (c) figer les **topics de notification** dans la couche PROTOCOL permet aux implémentations alternatives (autre transport, autre langage) de respecter la même surface ; (d) garder le vocabulaire dans `@sentropic/h2a` (pur, sans I/O) découple la spec du runtime — c'est ce que fait déjà DEC-040 / DEC-041 pour escalade / ABC.
+**Why**: (a) without **INSTANCE / SESSION separation**, we conflated durable identity and transient presence — a process crash froze the registry; (b) without **heartbeat**, no way to detect a dead peer without a central daemon, which would have broken the "no central service" promise (consistent with DEC-032); (c) freezing the **notification topics** in the PROTOCOL layer lets alternative implementations (other transport, other language) respect the same surface; (d) keeping vocabulary in `@sentropic/h2a` (pure, no I/O) decouples spec from runtime — that's what DEC-040 / DEC-041 already do for escalation / ABC.
 
-**Conséquence** : (a) DEC-051 implémentera le **producteur de présence file-based** + verbe MCP `h2a_session_open` / `h2a_session_close` ; (b) DEC-052 implémentera la **dispatch de notifications JSON-RPC push** côté `mcp-serve` ; (c) DEC-053 ajoutera un **test cross-process réel** avec deux `mcp-serve` qui se découvrent et s'envoient des notifications ; (d) `h2a_register_instance` reste valide comme primitive bas niveau pour les usages CLI non interactifs (scripts batch, init).
+**Consequence**: (a) DEC-051 will implement the **file-based presence producer** + MCP verbs `h2a_session_open` / `h2a_session_close`; (b) DEC-052 will implement the **JSON-RPC push notification dispatch** on the `mcp-serve` side; (c) DEC-053 will add a **real cross-process test** with two `mcp-serve` discovering each other and sending notifications; (d) `h2a_register_instance` stays valid as a low-level primitive for non-interactive CLI uses (batch scripts, init).
 
-## DEC-051 — Producteur de présence + outils MCP de session
-**Date** : 2026-05-23. **Réfère** : DEC-031, DEC-032, DEC-036, DEC-050, WP-20, WP-40.
+## DEC-051 — Presence producer + MCP session tools
+**Date**: 2026-05-23. **Refers**: DEC-031, DEC-032, DEC-036, DEC-050, WP-20, WP-40.
 
-**Décision** : implémenter le producteur de présence file-based défini par DEC-050, exposé comme trois nouveaux outils MCP dans `@sentropic/h2a-cli`. Surface livrée :
+**Decision**: implement the file-based presence producer defined by DEC-050, exposed as three new MCP tools in `@sentropic/h2a-cli`. Shipped surface:
 
-- **Stockage** : nouveau répertoire `<root>/.h2a/presence/<sessionId>.json` (un fichier par session). Chaque fichier porte un `H2ASession` sérialisé. L'écriture passe par un fichier temporaire puis `rename` pour rester atomique vis-à-vis des lecteurs concurrents. Path helper public `presenceFile(paths, sid)`.
-- **Module `runtime/local-files/presence.ts`** :
-  - `writePresence(root, session)` — validation `isH2ASession` + écriture atomique.
-  - `readPresence(root, sid)` — undefined si absent ou malformé.
+- **Storage**: new directory `<root>/.h2a/presence/<sessionId>.json` (one file per session). Each file carries a serialized `H2ASession`. Write goes through a temp file then `rename` to stay atomic vs concurrent readers. Public path helper `presenceFile(paths, sid)`.
+- **Module `runtime/local-files/presence.ts`**:
+  - `writePresence(root, session)` — `isH2ASession` validation + atomic write.
+  - `readPresence(root, sid)` — undefined if absent or malformed.
   - `updatePresence(root, sid, { heartbeatAt?, state? })` — read+merge+write.
-  - `deletePresence(root, sid)` — idempotent (ENOENT toléré).
-  - `listPresence(root, { now?, expiryMs?, includeExpired? })` — lit tout le répertoire, filtre par fraîcheur, et **balaye les fichiers expirés** comme effet de bord (les fichiers stale disparaissent au prochain scan).
-- **Module `runtime/mcp/sessions.ts` — `SessionRegistry`** :
-  - en mémoire, scope process. Une instance par `createMcpServer` (le stdio transport active `autoHeartbeat: true` ; les tests in-process gardent `autoHeartbeat: false`).
-  - `open(request)` génère un `sessionId` UUID-like (`sess:<hex>`), écrit la présence à `state: "live"`, démarre un `setInterval(touch, heartbeatIntervalMs)` unref'é.
-  - `close(sid, finalState = "closed")` arrête le timer, écrit l'état final, puis supprime le fichier si terminal.
-  - `touch(sid)` met à jour `heartbeatAt` à `now`.
-  - `scanFresh(now)` délègue à `listPresence` avec l'expiry du registry.
-  - `closeAll()` ferme proprement toutes les sessions au shutdown.
-- **Trois nouveaux outils MCP** (port `H2A_CLI_MCP_TOOL_NAMES` passe de 10 à 13) :
-  - `h2a_session_open({ instance, host?, pid?, interests?, subscribedTopics?, sessionId? })` → `{ session, peers }`. Les `subscribedTopics` non canoniques sont refusés. Les peers retournés sont la liste fraîche au moment de l'ouverture (utile pour bootstrap).
-  - `h2a_session_close({ sessionId, state? })` → `{ ok, sessionId, session }`. États finaux acceptés : `closed`, `draining`, `expired`.
-  - `h2a_discover_sessions({ scope?, instance? })` → `{ sessions }` — liste des peers actuellement frais, filtrée.
-- **Shutdown hook stdio** : `runMcpStdio` appelle `server.sessions.closeAll("closed")` quand stdin atteint EOF ou en cas d'erreur, donc une session se ferme proprement à la fermeture du CLI hôte (Claude/Codex/Gemini qui termine).
+  - `deletePresence(root, sid)` — idempotent (ENOENT tolerated).
+  - `listPresence(root, { now?, expiryMs?, includeExpired? })` — reads the whole directory, filters by freshness, and **sweeps expired files** as a side effect (stale files disappear at the next scan).
+- **Module `runtime/mcp/sessions.ts` — `SessionRegistry`**:
+  - in memory, process scope. One instance per `createMcpServer` (the stdio transport enables `autoHeartbeat: true`; in-process tests keep `autoHeartbeat: false`).
+  - `open(request)` generates a UUID-like `sessionId` (`sess:<hex>`), writes presence at `state: "live"`, starts an unref'd `setInterval(touch, heartbeatIntervalMs)`.
+  - `close(sid, finalState = "closed")` stops the timer, writes the final state, then removes the file if terminal.
+  - `touch(sid)` updates `heartbeatAt` to `now`.
+  - `scanFresh(now)` delegates to `listPresence` with the registry's expiry.
+  - `closeAll()` cleanly closes all sessions on shutdown.
+- **Three new MCP tools** (`H2A_CLI_MCP_TOOL_NAMES` goes from 10 to 13):
+  - `h2a_session_open({ instance, host?, pid?, interests?, subscribedTopics?, sessionId? })` → `{ session, peers }`. Non-canonical `subscribedTopics` are refused. The peers returned are the fresh list at open time (useful for bootstrap).
+  - `h2a_session_close({ sessionId, state? })` → `{ ok, sessionId, session }`. Accepted final states: `closed`, `draining`, `expired`.
+  - `h2a_discover_sessions({ scope?, instance? })` → `{ sessions }` — list of currently-fresh peers, filtered.
+- **Stdio shutdown hook**: `runMcpStdio` calls `server.sessions.closeAll("closed")` when stdin reaches EOF or on error, so a session closes cleanly when the host CLI (Claude/Codex/Gemini) exits.
 
-**Décision (statut machine)** : `H2A_CLI_MCP_TOOL_NAMES` ajoute 3 entrées (ordering stable, append-only). `H2A_CLI_MCP_TOOL_DESCRIPTORS` les expose avec JSON schema permissif. Aucun changement breaking sur les 10 outils existants.
+**Decision (machine status)**: `H2A_CLI_MCP_TOOL_NAMES` adds 3 entries (stable ordering, append-only). `H2A_CLI_MCP_TOOL_DESCRIPTORS` exposes them with permissive JSON schema. No breaking change on the existing 10 tools.
 
-**Pourquoi** : (a) garder le format de fichier dérivable du vocabulaire core (DEC-050) plutôt qu'un schéma ad-hoc côté CLI ; (b) un fichier par session évite toute contention d'écriture (le propriétaire est unique), donc pas besoin de lock pour ce point précis — l'invariant DEC-036 reste pertinent ailleurs ; (c) le sweep automatique dans `listPresence` évite l'accumulation indéfinie de fichiers morts sans daemon central ; (d) l'unref du timer évite que le heartbeat ne maintienne le process Node en vie après la fermeture de stdin.
+**Why**: (a) keep the file format derivable from the core vocabulary (DEC-050) rather than an ad-hoc CLI-side schema; (b) one file per session avoids write contention (the owner is unique), so no lock needed for this point — the DEC-036 invariant stays relevant elsewhere; (c) the automatic sweep in `listPresence` prevents indefinite accumulation of dead files without a central daemon; (d) the timer unref prevents heartbeat from keeping the Node process alive after stdin close.
 
-**Conséquence** : (a) un agent peut maintenant savoir qui est *live*, pas juste qui a un jour appelé `register` ; (b) DEC-052 peut s'appuyer sur cette infrastructure pour pousser des notifications quand quelque chose change ; (c) le shutdown hook stdio garantit qu'une fermeture propre du CLI hôte n'orphelinise pas la présence ; (d) un crash ungraceful laisse la présence sur disque, mais le scan TTL la balaye au prochain `scanFresh` d'un autre peer ; (e) un patch release `0.1.14` peut suivre.
+**Consequence**: (a) an agent can now know who is *live*, not just who once called `register`; (b) DEC-052 can rely on this infrastructure to push notifications on state change; (c) the stdio shutdown hook guarantees that a clean host-CLI exit does not orphan presence; (d) an ungraceful crash leaves presence on disk, but the TTL scan sweeps it on the next `scanFresh` by another peer; (e) a patch release `0.1.14` can follow.
 
-## DEC-052 — Notifications MCP push (JSON-RPC notifications/h2a)
-**Date** : 2026-05-23. **Réfère** : DEC-050, DEC-051, WP-40.
+## DEC-052 — MCP push notifications (JSON-RPC notifications/h2a)
+**Date**: 2026-05-23. **Refers**: DEC-050, DEC-051, WP-40.
 
-**Décision** : convertir h2a d'une API CRUD pollée à un protocole où les sessions reçoivent des **notifications push** quand l'état partagé change. Surface livrée :
+**Decision**: turn h2a from a polled CRUD API into a protocol where sessions receive **push notifications** when shared state changes. Shipped surface:
 
-- **Format de notification** : message JSON-RPC 2.0 sans `id` (notification au sens JSON-RPC), méthode `"notifications/h2a"`, params `{ topic: H2ASessionNotificationTopic, sessionId: string, data: object }`. Aligne sur la convention MCP (les notifications standard sont `notifications/message`, `notifications/progress` — h2a réserve son propre sous-espace `notifications/h2a`).
-- **Module `runtime/mcp/notifications.ts` — `NotificationDispatcher`** :
-  - une instance par `createMcpServer` ;
-  - maintient un snapshot par session (peers vus, ids d'enveloppes inbox, longueur des journaux des négociations suivies) ;
-  - `start()` planifie un `setInterval(tick, intervalMs)` unref'é (par défaut = heartbeat interval = 5000 ms) ;
-  - `tick()` est public pour permettre aux tests de conduire la diffusion sans timer ;
-  - chaque tick : pour chaque session locale, calcule les diffs et pousse une notification par changement détecté sur un topic auquel la session est abonnée ;
-  - les sessions filtrent par `subscribedTopics` (DEC-050) — pas d'événement, pas de push.
-- **Quatre topics canoniques** déjà définis par DEC-050 (`H2A_SESSION_NOTIFICATION_TOPICS`) :
-  - `presence.peer_joined` — apparition d'un peer dans `<root>/.h2a/presence/` ;
-  - `presence.peer_left` — peer absent du scan suivant (équivalent expiré ou fermé) ;
-  - `inbox.envelope_arrived` — nouvelle enveloppe dans `inbox/<instance>/` ;
-  - `negotiation.event_appended` — nouvelle entrée de journal sur une négociation que la session a déclarée dans `interests.negotiations`.
-- **Stdio sink** : `runMcpStdio` installe un sink qui écrit `${JSON.stringify(notification)}\n` sur stdout (le même flux que les réponses JSON-RPC) ; le client MCP de l'hôte les démultiplexe naturellement (les notifications n'ont pas d'`id`). Le dispatcher est démarré dans `runMcpStdio` et arrêté dans le shutdown hook avant `closeAll` sur les sessions.
+- **Notification format**: JSON-RPC 2.0 message with no `id` (notification in the JSON-RPC sense), method `"notifications/h2a"`, params `{ topic: H2ASessionNotificationTopic, sessionId: string, data: object }`. Aligns with the MCP convention (standard notifications are `notifications/message`, `notifications/progress` — h2a reserves its own sub-namespace `notifications/h2a`).
+- **Module `runtime/mcp/notifications.ts` — `NotificationDispatcher`**:
+  - one instance per `createMcpServer`;
+  - maintains a per-session snapshot (seen peers, inbox envelope ids, journal length for followed negotiations);
+  - `start()` schedules an unref'd `setInterval(tick, intervalMs)` (default = heartbeat interval = 5000 ms);
+  - `tick()` is public so tests can drive dispatch without a timer;
+  - on each tick: for every local session, computes diffs and pushes one notification per change on a subscribed topic;
+  - sessions filter by `subscribedTopics` (DEC-050) — no event, no push.
+- **Four canonical topics** already defined by DEC-050 (`H2A_SESSION_NOTIFICATION_TOPICS`):
+  - `presence.peer_joined` — peer appearance in `<root>/.h2a/presence/`;
+  - `presence.peer_left` — peer absent from the next scan (equivalent to expired or closed);
+  - `inbox.envelope_arrived` — new envelope in `inbox/<instance>/`;
+  - `negotiation.event_appended` — new journal entry on a negotiation the session declared in `interests.negotiations`.
+- **Stdio sink**: `runMcpStdio` installs a sink that writes `${JSON.stringify(notification)}\n` to stdout (same stream as JSON-RPC responses); the host's MCP client demultiplexes naturally (notifications have no `id`). The dispatcher is started in `runMcpStdio` and stopped in the shutdown hook before `closeAll` on sessions.
 
-**Décision (statut machine)** : aucune extension de `H2A_CLI_MCP_TOOL_NAMES` (les notifications sont un canal séparé des outils). `McpServer` expose désormais `.notifications: NotificationDispatcher` et `.sessions: SessionRegistry`. Exports publics au top-level de `@sentropic/h2a-cli` : `NotificationDispatcher`, `McpPushNotification`, `NotificationSink`.
+**Decision (machine status)**: no extension of `H2A_CLI_MCP_TOOL_NAMES` (notifications are a channel separate from tools). `McpServer` now exposes `.notifications: NotificationDispatcher` and `.sessions: SessionRegistry`. Public top-level exports of `@sentropic/h2a-cli`: `NotificationDispatcher`, `McpPushNotification`, `NotificationSink`.
 
-**Pourquoi** : (a) sans push, l'agent doit poller, ce qui rend l'expérience d'un CLI hôte inutilisable pour un cas "Codex envoie un message à Claude" — l'utilisateur attend des secondes pour que Claude vienne lire ; (b) JSON-RPC notifications est déjà supporté par le protocole MCP — pas besoin de canal séparé ; (c) la convention `notifications/h2a` évite la collision avec les notifications MCP standard (`notifications/message`, etc.) ; (d) un scan poll-based plutôt que des hooks in-process garantit que les notifications captent aussi les changements faits par d'**autres** `mcp-serve` (cross-CLI, le cas qui motivait DEC-050) ; (e) le filtrage par `subscribedTopics` rend le canal contrôlable côté client — une session peut être bavarde (tous topics) ou silencieuse (aucun).
+**Why**: (a) without push, the agent must poll, making a host-CLI experience unusable for the "Codex sends a message to Claude" case — the user waits seconds for Claude to come read; (b) JSON-RPC notifications are already supported by the MCP protocol — no need for a separate channel; (c) the `notifications/h2a` convention avoids collision with standard MCP notifications (`notifications/message`, etc.); (d) a poll-based scan rather than in-process hooks ensures notifications also pick up changes made by **other** `mcp-serve` processes (cross-CLI, the case motivating DEC-050); (e) filtering by `subscribedTopics` makes the channel client-controllable — a session can be chatty (all topics) or silent (none).
 
-**Conséquence** : (a) un agent peut désormais réagir à un événement sans poller, dans la limite du tick interval (5s par défaut) ; (b) DEC-053 fournira le test cross-CLI réel qui démontre que deux `mcp-serve` séparés se notifient mutuellement ; (c) la latence de notification reste bornée par `intervalMs` — un raffinement V2 pourrait ajouter des hooks in-process pour le push immédiat sur les actions locales ; (d) un patch release `0.1.15` peut suivre.
+**Consequence**: (a) an agent can now react to an event without polling, bounded by the tick interval (5s default); (b) DEC-053 will provide the real cross-CLI test demonstrating that two separate `mcp-serve` processes notify each other; (c) notification latency stays bounded by `intervalMs` — a V2 refinement could add in-process hooks for immediate push on local actions; (d) a patch release `0.1.15` can follow.
 
-## DEC-053 — Test d'intégration cross-CLI réel
-**Date** : 2026-05-23. **Réfère** : DEC-050, DEC-051, DEC-052, INTENTION (cas Claude+Codex+Gemini), WP-40, WP-60.
+## DEC-053 — Real cross-CLI integration test
+**Date**: 2026-05-23. **Refers**: DEC-050, DEC-051, DEC-052, INTENTION (Claude+Codex+Gemini case), WP-40, WP-60.
 
-**Décision** : `packages/h2a-cli/test/cross-cli-cooperation.test.js` vérifie de bout en bout que deux processus `h2a mcp-serve` distincts, pointant sur le même `<root>`, coopèrent réellement via le protocole de session et les notifications. Le test :
+**Decision**: `packages/h2a-cli/test/cross-cli-cooperation.test.js` verifies end-to-end that two distinct `h2a mcp-serve` processes, pointing at the same `<root>`, actually cooperate through the session protocol and notifications. The test:
 
-1. Spawn deux subprocess `node dist/bin.js mcp-serve --root <root>` (un "Claude", un "Codex") via `child_process.spawn`. Les variables d'environnement `H2A_HEARTBEAT_INTERVAL_MS=100`, `H2A_NOTIFY_INTERVAL_MS=100`, `H2A_SESSION_EXPIRY_MS=500` accélèrent les ticks pour rester en sous-seconde de wall time sans affecter le code de production.
-2. `initialize` puis `h2a_session_open` côté chaque process — chaque side obtient son `session` + sa liste de peers initiale.
-3. Le tick suivant (~100ms) déclenche `presence.peer_joined` dans chaque process sur la session de l'autre.
-4. Codex appelle `h2a_inbox put` sur l'instance de Claude.
-5. Claude reçoit un push `inbox.envelope_arrived` avec le bon `envelopeId` et la bonne `instance`.
-6. Codex ferme proprement (`child.stdin.end()`) ; le shutdown hook de `runMcpStdio` (DEC-051) appelle `closeAll("closed")` et la présence est supprimée.
-7. Claude reçoit `presence.peer_left` pour la session Codex.
+1. Spawns two `node dist/bin.js mcp-serve --root <root>` subprocesses (one "Claude", one "Codex") via `child_process.spawn`. Env vars `H2A_HEARTBEAT_INTERVAL_MS=100`, `H2A_NOTIFY_INTERVAL_MS=100`, `H2A_SESSION_EXPIRY_MS=500` speed up ticks to stay sub-second wall time without affecting production code.
+2. `initialize` then `h2a_session_open` on each side — each side gets its `session` + initial peer list.
+3. The next tick (~100ms) triggers `presence.peer_joined` in each process for the other's session.
+4. Codex calls `h2a_inbox put` on Claude's instance.
+5. Claude receives a push `inbox.envelope_arrived` with the right `envelopeId` and `instance`.
+6. Codex closes cleanly (`child.stdin.end()`); the `runMcpStdio` shutdown hook (DEC-051) calls `closeAll("closed")` and presence is removed.
+7. Claude receives `presence.peer_left` for the Codex session.
 
-Un second test démontre la robustesse en cas d'arrêt **ungraceful** : Codex est tué par `SIGKILL`, son shutdown hook ne s'exécute pas, sa présence reste sur disque. Après l'expiry (500ms) + un tick de notifications (~100ms), Claude reçoit quand même `presence.peer_left` parce que `NotificationDispatcher.tick()` utilise désormais `SessionRegistry.scanFresh()` (qui applique l'expiry du registry) plutôt que la valeur par défaut globale.
+A second test demonstrates robustness on **ungraceful** termination: Codex is killed with `SIGKILL`, its shutdown hook does not run, its presence stays on disk. After the expiry (500ms) + a notification tick (~100ms), Claude still receives `presence.peer_left` because `NotificationDispatcher.tick()` now uses `SessionRegistry.scanFresh()` (which applies the registry's expiry) instead of the global default.
 
-**Décision (correction)** : `NotificationDispatcher.tick()` délègue désormais le calcul des peers frais à `SessionRegistry.scanFresh()`. La version initiale de DEC-052 utilisait `listPresence(root, {})` avec l'expiry par défaut (15s) — bug détecté par le test de SIGKILL, corrigé dans la même slice.
+**Decision (fix)**: `NotificationDispatcher.tick()` now delegates the computation of fresh peers to `SessionRegistry.scanFresh()`. The initial DEC-052 version used `listPresence(root, {})` with the default 15s expiry — a bug found by the SIGKILL test, fixed in the same slice.
 
-**Décision (overrides env)** : `RunMcpStdioOptions` expose maintenant trois overrides optionnels (`heartbeatIntervalMs`, `notifyIntervalMs`, `expiryMs`). Les mêmes valeurs peuvent être passées via `H2A_HEARTBEAT_INTERVAL_MS`, `H2A_NOTIFY_INTERVAL_MS`, `H2A_SESSION_EXPIRY_MS`. Réservé aux tests et tuning ops ; pas de nouveau flag CLI — DEC-034 (contrat CLI stable) n'est pas modifié.
+**Decision (env overrides)**: `RunMcpStdioOptions` now exposes three optional overrides (`heartbeatIntervalMs`, `notifyIntervalMs`, `expiryMs`). The same values can be passed via `H2A_HEARTBEAT_INTERVAL_MS`, `H2A_NOTIFY_INTERVAL_MS`, `H2A_SESSION_EXPIRY_MS`. Reserved for tests and ops tuning; no new CLI flag — DEC-034 (stable CLI contract) is unchanged.
 
-**Pourquoi** : (a) sans test cross-process, on avait juste un argument théorique que "deux mcp-serve cooperate" — DEC-053 le démontre concrètement ; (b) la régression sur le SIGKILL aurait été indétectable in-process, et c'est exactement le mode d'échec qu'on veut couvrir pour des sessions agent CLI vivantes ; (c) les overrides via env vars gardent la surface CLI publique stable tout en permettant aux tests d'éviter d'attendre les 5+15s par défaut.
+**Why**: (a) without a cross-process test, we only had a theoretical argument that "two mcp-serve cooperate" — DEC-053 demonstrates it concretely; (b) the SIGKILL regression would have been undetectable in-process, and that is exactly the failure mode we want to cover for live agent CLI sessions; (c) env-var overrides keep the public CLI surface stable while letting tests avoid waiting for the default 5+15s.
 
-**Conséquence** : (a) la promesse "Claude et Codex coopèrent" est désormais une réalité vérifiable, pas une affirmation ; (b) cette suite forme le squelette pour un test cross-CLI plus poussé (négociation complète, signatures, stabilisation) qui pourrait être ajouté plus tard sans changer l'infra ; (c) la suite des slices DEC-050..053 ferme le trou produit identifié à v0.1.12 ; (d) un patch release `0.1.16` peut suivre.
+**Consequence**: (a) the "Claude and Codex cooperate" promise is now verifiable, not asserted; (b) this suite forms the skeleton for a more pushed cross-CLI test (full negotiation, signatures, stabilization) that could be added later without changing the infra; (c) the DEC-050..053 slices close the product gap identified at v0.1.12; (d) a patch release `0.1.16` can follow.
 
-## DEC-054 — Verbes haut niveau + skills Claude + tutoriel cross-CLI
-**Date** : 2026-05-23. **Réfère** : INTENTION (cas multi-CLI), DEC-034, DEC-037, DEC-049..053, WP-30, WP-40, WP-60.
+## DEC-054 — High-level verbs + Claude skills + cross-CLI tutorial
+**Date**: 2026-05-23. **Refers**: INTENTION (multi-CLI case), DEC-034, DEC-037, DEC-049..053, WP-30, WP-40, WP-60.
 
-**Contexte** : à v0.1.16 le protocole et le runtime sont là, mais un utilisateur final qui installe `@sentropic/h2a-cli` doit lui-même composer 13 outils MCP pour démarrer une coopération. Le verbe `h2a host setup` connecte le binaire à l'hôte mais ne crée pas de session ni de clés ; et les agents (Claude, Codex, Gemini) n'ont aucune connaissance native de **quand** appeler les outils. C'est le trou UX que ferme cette slice.
+**Context**: at v0.1.16 the protocol and runtime are in place, but a user who installs `@sentropic/h2a-cli` must themselves compose 13 MCP tools to start cooperating. The `h2a host setup` verb connects the binary to the host but does not create a session or keys; and agents (Claude, Codex, Gemini) have no native knowledge of **when** to call the tools. This is the UX gap closed by this slice.
 
-**Décision** : ajouter une couche d'ergonomie complète, en deux briques.
+**Decision**: add a full ergonomics layer in two bricks.
 
-### Brique 1 — Cinq verbes CLI haut niveau (orchestration)
+### Brick 1 — Five high-level CLI verbs (orchestration)
 
-`H2A_CLI_VERB_CONTRACTS` passe de 23 à 28 entrées. Tous respectent DEC-034 (3 enveloppes JSON canoniques + codes de sortie 0/1/2/3).
+`H2A_CLI_VERB_CONTRACTS` goes from 23 to 28 entries. All respect DEC-034 (3 canonical JSON envelopes + exit codes 0/1/2/3).
 
-| Verbe | Shape | Exit codes | Rôle |
+| Verb | Shape | Exit codes | Role |
 |---|---|---|---|
-| `connect --host <h> [--root] [--instance]` | `action` | `0,1,3` | Bootstrap one-shot : `init` du store, génération d'un instance id par défaut (`<host>:<workspace>`), rendu du snippet MCP, plus les follow-up steps imprimés (génération de clé, install des skills). |
-| `doctor [--root]` | `action` | `0,2,3` | Health check : root accessible, schema sentinel v1, comptage des sessions live. `ok:false` (exit 2) si une check échoue. |
-| `sessions [--root] [--scope] [--instance]` | `list` | `0,3` | Lecture du dossier de présence (mirroir CLI de `h2a_discover_sessions`). |
-| `keys generate --instance <id> [--out] [--root]` | `action` | `0,1,3` | Génère une paire ed25519 (PKCS#8 PEM privée mode `0600`, SPKI PEM publique), nomme les fichiers depuis l'instance id avec `:` et `/` remplacés. |
-| `install-skills --host claude [--scope] [--force]` | `action` | `0,1,2,3` | Copie le bundle `packages/h2a-cli/skills/` vers `~/.claude/skills/` (`--scope user`, défaut) ou `<cwd>/.claude/skills/` (`--scope project`). Idempotent : les fichiers existants sont skippés sauf si `--force`. Périmètre V1 : Claude uniquement (Codex/Gemini ont d'autres conventions, voir gap ci-dessous). |
+| `connect --host <h> [--root] [--instance]` | `action` | `0,1,3` | One-shot bootstrap: store `init`, default instance id generation (`<host>:<workspace>`), MCP snippet render, plus follow-up steps printed (key generation, skills install). |
+| `doctor [--root]` | `action` | `0,2,3` | Health check: root reachable, schema sentinel v1, live session count. `ok:false` (exit 2) if any check fails. |
+| `sessions [--root] [--scope] [--instance]` | `list` | `0,3` | Read of the presence directory (CLI mirror of `h2a_discover_sessions`). |
+| `keys generate --instance <id> [--out] [--root]` | `action` | `0,1,3` | Generates an ed25519 pair (PKCS#8 PEM private mode `0600`, SPKI PEM public), names files from the instance id with `:` and `/` replaced. |
+| `install-skills --host claude [--scope] [--force]` | `action` | `0,1,2,3` | Copies the bundle `packages/h2a-cli/skills/` to `~/.claude/skills/` (`--scope user`, default) or `<cwd>/.claude/skills/` (`--scope project`). Idempotent: existing files are skipped unless `--force`. V1 scope: Claude only (Codex/Gemini have other conventions, see gap below). |
 
-### Brique 2 — Skills Claude (modèle graphify)
+### Brick 2 — Claude skills (graphify model)
 
-Trois fichiers SKILL.md livrés dans la distribution du package :
+Three SKILL.md files shipped in the package distribution:
 
-- `packages/h2a-cli/skills/h2a-connect/SKILL.md` : bootstrap pas-à-pas (vérif binaire → choix root → genkey → `h2a_session_open` → résumé).
-- `packages/h2a-cli/skills/h2a-discover/SKILL.md` : appelle `h2a_discover_sessions`, formate, filtre `self`.
-- `packages/h2a-cli/skills/h2a-send/SKILL.md` : compose un envelope, route via `h2a_inbox put`, modes de défaillance documentés.
+- `packages/h2a-cli/skills/h2a-connect/SKILL.md`: step-by-step bootstrap (binary check → root choice → genkey → `h2a_session_open` → summary).
+- `packages/h2a-cli/skills/h2a-discover/SKILL.md`: calls `h2a_discover_sessions`, formats, filters `self`.
+- `packages/h2a-cli/skills/h2a-send/SKILL.md`: composes an envelope, routes via `h2a_inbox put`, documents failure modes.
 
-Le champ `files` de `package.json` inclut désormais `"skills"` pour que `npm publish` les emporte. `cli.ts` résout `SKILLS_DIR` via `import.meta.url` (relativement à `dist/cli.js`) pour rester portable quand le package est installé globalement.
+The `files` field of `package.json` now includes `"skills"` so `npm publish` carries them. `cli.ts` resolves `SKILLS_DIR` via `import.meta.url` (relative to `dist/cli.js`) to stay portable when the package is installed globally.
 
-### Brique 3 — Tutoriel utilisateur
+### Brick 3 — User tutorial
 
-`docs/tutorial-cross-cli.md` documente le parcours "Claude + Codex coopèrent en 5 min" de bout en bout, avec un schéma ASCII, les commandes exactes à taper, le mapping V1 vs V2 et une section troubleshooting.
+`docs/tutorial-cross-cli.md` documents the "Claude + Codex cooperate in 5 minutes" walkthrough end to end, with an ASCII diagram, exact commands to type, the V1 vs V2 mapping, and a troubleshooting section.
 
-**Décision (statut machine)** : `H2A_CLI_VERB_CONTRACTS` étendu de 5 entrées (append-only). `cli-contract.test.js` est mis à jour avec les nouveaux verbes ; le test happy-path utilise `--scope project` sur `install-skills` pour rester hermétique. La matrice de compatibilité hôtes mentionne explicitement que le skill bundle est shipped pour Claude, deferred pour Codex/Gemini.
+**Decision (machine status)**: `H2A_CLI_VERB_CONTRACTS` extended by 5 entries (append-only). `cli-contract.test.js` is updated with the new verbs; the happy-path test uses `--scope project` on `install-skills` to stay hermetic. The host compatibility matrix explicitly mentions that the skill bundle is shipped for Claude, deferred for Codex/Gemini.
 
-**Pourquoi** : (a) la promesse "agent CLI coopère avec un autre agent CLI" ne peut pas se vérifier sans une couche d'ergonomie au-dessus des primitives MCP — DEC-050..053 ont mis les primitives, DEC-054 met l'orchestration ; (b) le modèle skill graphify est déjà familier aux utilisateurs Claude Code et bien intégré à l'UI ; (c) générer les clés est un point de friction réel — `keys generate` clos ce gap sans introduire de keyring ; (d) `doctor` rend l'état système diagnostiquable sans devoir inspecter le filesystem ; (e) le scope `--scope project` pour `install-skills` permet un usage repo-local sans toucher `~/.claude` (utile aux projets qui veulent versionner leurs skills).
+**Why**: (a) the "agent CLI cooperates with another agent CLI" promise cannot be verified without an ergonomics layer above the MCP primitives — DEC-050..053 laid down the primitives, DEC-054 lays down the orchestration; (b) the graphify skill model is already familiar to Claude Code users and well integrated in the UI; (c) generating keys is a real friction point — `keys generate` closes that gap without introducing a keyring; (d) `doctor` makes the system state diagnosable without inspecting the filesystem; (e) `--scope project` for `install-skills` enables repo-local usage without touching `~/.claude` (useful for projects that want to version their skills).
 
-**Conséquence** : (a) un nouvel utilisateur passe de "install + 13 outils à composer" à "5 commandes lisibles" pour bootstrapper ; (b) le test `cli-contract.test.js` couvre les 28 verbes ; (c) Codex et Gemini restent sans skills dans 0.1.17 — un DEC-055 ou similaire couvrira leurs conventions de skill quand elles seront mieux comprises ; (d) le tutoriel rend visible le delta V1/V2 sans flou ; (e) un patch release `0.1.17` peut suivre.
+**Consequence**: (a) a new user moves from "install + compose 13 tools" to "5 readable commands" to bootstrap; (b) `cli-contract.test.js` covers all 28 verbs; (c) Codex and Gemini stay without skills in 0.1.17 — DEC-055 or similar will cover their skill conventions once better understood; (d) the tutorial makes the V1/V2 delta visible without fuzz; (e) a patch release `0.1.17` can follow.
 
-## DEC-055 — `install-skills` étendu à Codex et Gemini
-**Date** : 2026-05-23. **Réfère** : DEC-049, DEC-054, INTENTION (Claude+Codex+Gemini).
+## DEC-055 — `install-skills` extended to Codex and Gemini
+**Date**: 2026-05-23. **Refers**: DEC-049, DEC-054, INTENTION (Claude+Codex+Gemini).
 
-**Contexte** : DEC-054 livre les skills uniquement pour Claude par prudence. Inspection des conventions installées sur la machine de référence (Claude Code, Codex CLI, Gemini CLI) montre que les deux autres hôtes ont des chemins canoniques exploitables. La fermeture du périmètre Claude-only est levée.
+**Context**: DEC-054 ships skills only for Claude out of caution. Inspection of conventions installed on the reference machine (Claude Code, Codex CLI, Gemini CLI) shows the two other hosts have usable canonical paths. The Claude-only perimeter is lifted.
 
-**Décision** : `h2a install-skills --host <h>` accepte désormais les trois hôtes `claude`, `codex`, `gemini`. Le bundle source unique (`packages/h2a-cli/skills/h2a-*/SKILL.md`) est rendu vers la convention de chaque hôte :
+**Decision**: `h2a install-skills --host <h>` now accepts the three hosts `claude`, `codex`, `gemini`. The single source bundle (`packages/h2a-cli/skills/h2a-*/SKILL.md`) is rendered to each host's convention:
 
-| Host | Path utilisateur | Path project | Format |
+| Host | User path | Project path | Format |
 |---|---|---|---|
 | `claude` | `~/.claude/skills/<name>/SKILL.md` | `<cwd>/.claude/skills/<name>/SKILL.md` | Markdown + YAML frontmatter (verbatim) |
-| `codex` | `~/.codex/skills/<name>/SKILL.md` | `<cwd>/.codex/skills/<name>/SKILL.md` | Markdown + YAML frontmatter (verbatim, même format que Claude) |
+| `codex` | `~/.codex/skills/<name>/SKILL.md` | `<cwd>/.codex/skills/<name>/SKILL.md` | Markdown + YAML frontmatter (verbatim, same format as Claude) |
 | `gemini` | `~/.gemini/commands/<name>.toml` | `<cwd>/.gemini/commands/<name>.toml` | TOML `description` + `prompt = '''...'''` |
 
-Deux helpers internes ajoutés à `packages/h2a-cli/src/cli.ts` :
+Two internal helpers added to `packages/h2a-cli/src/cli.ts`:
 
-- `parseSkill(raw)` — extrait `{ name, description, body }` du YAML frontmatter minimal des SKILL.md. Tolère les valeurs multilignes par indentation simple. Refuse une frontmatter sans `name` ou `description`.
-- `renderSkillAsGeminiToml(skill)` — produit un fichier TOML avec `description = "..."` et `prompt = '''<header>\n<body>'''`. L'en-tête `You are the <name> custom command for Gemini CLI.` est aligné sur la convention observée (cf. graphify.toml).
+- `parseSkill(raw)` — extracts `{ name, description, body }` from the minimal YAML frontmatter of SKILL.md. Tolerates multiline values via simple indentation. Refuses a frontmatter without `name` or `description`.
+- `renderSkillAsGeminiToml(skill)` — produces a TOML file with `description = "..."` and `prompt = '''<header>\n<body>'''`. The header `You are the <name> custom command for Gemini CLI.` is aligned with the observed convention (cf. graphify.toml).
 
-Le dispatcher `targetSpecFor(host, cwd)` encapsule par hôte le path utilisateur/projet, l'extension du fichier cible, et la fonction d'écriture.
+The dispatcher `targetSpecFor(host, cwd)` encapsulates per-host the user/project path, the target file extension, and the write function.
 
-**Décision (statut machine)** : `H2A_CLI_VERB_CONTRACTS["install-skills"].description` mentionne désormais explicitement le mapping Codex (SKILL.md) et Gemini (TOML). `cli-contract.test.js` happy-path reste sur Claude `--scope project`. Une nouvelle suite `install-skills-hosts.test.js` couvre les trois hôtes (install OK, refus d'overwrite sans `--force`, accept avec, contenu TOML attendu, rejet d'un host inconnu).
+**Decision (machine status)**: `H2A_CLI_VERB_CONTRACTS["install-skills"].description` now explicitly mentions the Codex (SKILL.md) and Gemini (TOML) mapping. `cli-contract.test.js` happy-path stays on Claude `--scope project`. A new suite `install-skills-hosts.test.js` covers the three hosts (install OK, refusal to overwrite without `--force`, accept with, expected TOML content, rejection of an unknown host).
 
-**Pourquoi** : (a) la prudence Claude-only de DEC-054 n'était plus justifiée une fois les conventions Codex/Gemini vérifiées sur la machine de référence ; (b) Codex utilise littéralement le même format que Claude (`<host-dir>/skills/<name>/SKILL.md`) — pas de divergence à gérer ; (c) Gemini diffère par le format (TOML) mais le contenu sémantique est identique — une conversion mécanique suffit, sans dupliquer les bundles à la source ; (d) garder un seul bundle source (`packages/h2a-cli/skills/`) évite la dérive entre les trois hôtes ; (e) la conversion TOML est suffisamment simple (1 fonction) pour rester en-ligne dans `cli.ts` sans nouveau module.
+**Why**: (a) DEC-054's Claude-only caution was no longer justified once the Codex/Gemini conventions were verified on the reference machine; (b) Codex literally uses the same format as Claude (`<host-dir>/skills/<name>/SKILL.md`) — no divergence to handle; (c) Gemini differs by format (TOML) but the semantic content is identical — a mechanical conversion suffices, no need to duplicate the bundles at the source; (d) keeping one source bundle (`packages/h2a-cli/skills/`) prevents drift between the three hosts; (e) the TOML conversion is simple enough (1 function) to stay inline in `cli.ts` without a new module.
 
-**Conséquence** : (a) "Claude + Codex + Gemini coopèrent" est un parcours utilisateur de **trois** `h2a install-skills`, pas un parcours partiel ; (b) le tutoriel cross-CLI documente les trois hôtes sans deferred ; (c) le bundle SKILL.md reste l'unique source — toute future skill h2a est automatiquement disponible sur les trois hôtes ; (d) un patch release `0.1.18` peut suivre.
+**Consequence**: (a) "Claude + Codex + Gemini cooperate" is a user journey of **three** `h2a install-skills`, not a partial journey; (b) the cross-CLI tutorial documents the three hosts with no deferred; (c) the SKILL.md bundle stays the single source — any future h2a skill is automatically available on the three hosts; (d) a patch release `0.1.18` can follow.
 
-## DEC-056 — Note d'instruction : déploiement K8s + interop `remote-controle`
-**Date** : 2026-05-23. **Réfère** : INTENTION (remote transport), DEC-032, DEC-050..053, contexte `../poc-k8s`, contexte `../remote` (`@sentropic/remote-controle`).
+## DEC-056 — Instruction note: K8s deployment + `remote-controle` interop
+**Date**: 2026-05-23. **Refers**: INTENTION (remote transport), DEC-032, DEC-050..053, context `../poc-k8s`, context `../remote` (`@sentropic/remote-controle`).
 
-**Statut** : **note d'instruction** (research/design), pas une décision d'implémentation. Document détaillé : `docs/instruction-k8s-and-remote-controle-interop.md`.
+**Status**: **instruction note** (research/design), not an implementation decision. Detailed document: `docs/instruction-k8s-and-remote-controle-interop.md`.
 
-**Contexte** : la demande utilisateur de 2026-05-23 nomme trois besoins distincts :
-1. Déployer `h2a mcp-serve` sur le cluster `../poc-k8s`.
-2. Harmoniser le verbe d'install / config avec `../remote` (`@sentropic/remote-controle`).
-3. Installer h2a dans le contexte d'une session `remote-controle` (probablement un contrat formel entre les deux projets).
+**Context**: the 2026-05-23 user request names three distinct needs:
+1. Deploy `h2a mcp-serve` on the cluster `../poc-k8s`.
+2. Harmonize the install/config verb with `../remote` (`@sentropic/remote-controle`).
+3. Install h2a inside the context of a `remote-controle` session (likely a formal contract between the two projects).
 
-**Décision (instructive, pas exécutoire)** : la note documentée distingue trois scénarios de déploiement :
-- **Scénario A — sidecar dans une session `remote-controle`** : `h2a mcp-serve` comme conteneur additionnel dans le Pod de session, partage `emptyDir` avec le runtime CLI. Le plus petit pas, le plus livrable. Recommandé comme prochaine slice si nous décidons d'implémenter.
-- **Scénario B — tenant `h2a` cluster-wide sur `poc-k8s`** : namespace dédié + PVC RWX partagé. Plus large mais contraint par l'absence de RWX natif sur Scaleway (NFS-Pod ou équivalent requis).
-- **Scénario C — transport réseau (`@sentropic/h2a-remote`)** : le 3e transport originel de l'INTENTION, jamais implémenté. Demande DEC-032 V2 (auth transport).
+**Decision (instructive, not executable)**: the documented note distinguishes three deployment scenarios:
+- **Scenario A — sidecar inside a `remote-controle` session**: `h2a mcp-serve` as an additional container in the session Pod, shares `emptyDir` with the CLI runtime. Smallest step, most deliverable. Recommended as the next slice if we decide to implement.
+- **Scenario B — cluster-wide `h2a` tenant on `poc-k8s`**: dedicated namespace + shared RWX PVC. Broader but constrained by Scaleway's lack of native RWX (NFS-Pod or equivalent required).
+- **Scenario C — network transport (`@sentropic/h2a-remote`)**: the original third transport from INTENTION, never implemented. Requires DEC-032 V2 (transport auth).
 
-**Décision (contrat envisagé)** : un contrat d'interop avec `remote-controle` est nommé en cinq clauses (identité, lifecycle, resource limits, disclosure, frontière d'auth). Sa formalisation est différée à une DEC ultérieure (DEC-057 ou sibling) qui livrerait soit le schéma TypeScript dans `@sentropic/h2a`, soit un PR vers `../remote/packages/protocol`.
+**Decision (envisaged contract)**: an interop contract with `remote-controle` is named in five clauses (identity, lifecycle, resource limits, disclosure, auth boundary). Its formalization is deferred to a later DEC (DEC-057 or sibling) that would deliver either the TypeScript schema in `@sentropic/h2a`, or a PR to `../remote/packages/protocol`.
 
-**Décision (périmètre, important)** : DEC-056 ne touche **aucun** code ni manifeste. Le seul artefact produit est `docs/instruction-k8s-and-remote-controle-interop.md` qui :
-- recense ce qui existe dans `../poc-k8s` (tenants, contrat de quota) et `../remote` (control plane, k8s-orchestrator, session-agent, packages/protocol),
-- établit le diff conceptuel `H2ASession` vs `SessionDescriptor` (complémentaires, pas redondants),
-- propose trois scénarios de déploiement et recommande A,
-- ébauche les verbes CLI futurs (`h2a deploy --target k8s-sidecar`, `h2a remote connect`),
-- liste quatre questions ouvertes pour l'utilisateur.
+**Decision (perimeter, important)**: DEC-056 touches **no** code or manifest. The only produced artefact is `docs/instruction-k8s-and-remote-controle-interop.md` which:
+- inventories what exists in `../poc-k8s` (tenants, quota contract) and `../remote` (control plane, k8s-orchestrator, session-agent, packages/protocol),
+- establishes the conceptual diff `H2ASession` vs `SessionDescriptor` (complementary, not redundant),
+- proposes three deployment scenarios and recommends A,
+- sketches future CLI verbs (`h2a deploy --target k8s-sidecar`, `h2a remote connect`),
+- lists four open questions for the user.
 
-**Pourquoi** : (a) le sujet est suffisamment vaste (multi-repo + multi-cluster + auth différée) pour mériter une note de cadrage avant un commit code ; (b) la sortie est lisible par un mainteneur de `../remote` qui n'a pas lu DEC-050..055 ; (c) la recommandation **Scénario A** est dérivable du contrat de quotas existant de `sentropic-remote` (rentre dans la classe `400m/768Mi`) sans renégocier de tenant ; (d) la frontière "h2a n'est pas redondant avec remote-controle" doit être posée explicitement pour éviter une fusion prématurée.
+**Why**: (a) the topic is broad enough (multi-repo + multi-cluster + deferred auth) to deserve a framing note before any code commit; (b) the output is readable by a `../remote` maintainer who has not read DEC-050..055; (c) the **Scenario A** recommendation is derivable from the existing `sentropic-remote` quota contract (fits the `400m/768Mi` class) without renegotiating a tenant; (d) the "h2a is not redundant with remote-controle" boundary must be drawn explicitly to avoid premature merge.
 
-**Conséquence** : (a) aucune slice implémentation ne suit DEC-056 directement — l'utilisateur tranche d'abord les 4 questions ouvertes ; (b) une DEC-057+ pourra livrer le scénario retenu (probablement A) avec sidecar manifest + contrat d'identité ; (c) le tutoriel cross-CLI mentionne désormais ce document comme référence pour le contexte k8s.
+**Consequence**: (a) no implementation slice follows DEC-056 directly — the user first picks the 4 open questions; (b) a DEC-057+ may deliver the chosen scenario (likely A) with sidecar manifest + identity contract; (c) the cross-CLI tutorial now mentions this document as the reference for the k8s context.
 
-## DEC-057 — Skill h2a unique avec sous-commandes (alignement graphify complet)
-**Date** : 2026-05-23. **Réfère** : DEC-054, DEC-055, INTENTION (Claude+Codex+Gemini), pattern de référence `~/.claude/skills/graphify/SKILL.md`.
+## DEC-057 — Single `h2a` skill with subcommands (full graphify alignment)
+**Date**: 2026-05-23. **Refers**: DEC-054, DEC-055, INTENTION (Claude+Codex+Gemini), reference pattern `~/.claude/skills/graphify/SKILL.md`.
 
-**Contexte** : DEC-054 et DEC-055 livraient trois skills distincts `h2a-connect`, `h2a-discover`, `h2a-send` avec trois slash commands à tirets. Inspection du fichier de référence `~/.gemini/commands/graphify.toml` (cité par l'utilisateur dès DEC-054) montre que graphify expose **un seul** slash command `/graphify` et route les sous-commandes (`/graphify summary`, `/graphify query "..."`, `/graphify path "A" "B"`, …) **à l'intérieur** du skill. Le pattern h2a était donc à moitié appliqué. Correction demandée par l'utilisateur le 23 mai 2026.
+**Context**: DEC-054 and DEC-055 shipped three distinct skills `h2a-connect`, `h2a-discover`, `h2a-send` with three hyphenated slash commands. Inspection of the reference file `~/.gemini/commands/graphify.toml` (cited by the user as early as DEC-054) shows graphify exposes **a single** slash command `/graphify` and routes subcommands (`/graphify summary`, `/graphify query "..."`, `/graphify path "A" "B"`, …) **inside** the skill. The h2a pattern was therefore only half-applied. Correction requested by the user on 2026-05-23.
 
-**Décision** : consolider les trois fichiers `h2a-connect/SKILL.md`, `h2a-discover/SKILL.md`, `h2a-send/SKILL.md` en un seul `packages/h2a-cli/skills/h2a/SKILL.md`. Le nouveau skill embarque un routeur de sous-commandes (graphify-style) couvrant :
+**Decision**: consolidate the three files `h2a-connect/SKILL.md`, `h2a-discover/SKILL.md`, `h2a-send/SKILL.md` into a single `packages/h2a-cli/skills/h2a/SKILL.md`. The new skill embeds a subcommand router (graphify-style) covering:
 
 ```
 /h2a                         → status (alias)
 /h2a connect [root]          → bootstrap session
-/h2a status                  → résumé santé session
-/h2a discover [scope]        → liste des peers vivants
-/h2a send <peer> "<text>"    → envoyer un envelope
-/h2a receive                 → lire l'inbox et réagir aux pushes
+/h2a status                  → session health summary
+/h2a discover [scope]        → list live peers
+/h2a send <peer> "<text>"    → send an envelope
+/h2a receive                 → read inbox and react to pushes
 /h2a negotiate <verb> ...    → open / offer / counter / sign / stabilize / journal
-/h2a disconnect              → fermer proprement la session
-/h2a help                    → carte des commandes
+/h2a disconnect              → cleanly close the session
+/h2a help                    → command map
 ```
 
-Le mapping reste 1 fichier source → 1 skill par hôte :
+The mapping stays 1 source file → 1 skill per host:
 
-- Claude : `~/.claude/skills/h2a/SKILL.md`
-- Codex : `~/.codex/skills/h2a/SKILL.md`
-- Gemini : `~/.gemini/commands/h2a.toml`
+- Claude: `~/.claude/skills/h2a/SKILL.md`
+- Codex: `~/.codex/skills/h2a/SKILL.md`
+- Gemini: `~/.gemini/commands/h2a.toml`
 
-Le skill consolidé ajoute deux sous-commandes que la version précédente n'exposait pas : `receive` (réaction au push `inbox.envelope_arrived`) et `negotiate` (lifecycle complet sur les 6 sous-verbes du protocole). Ces deux pans étaient logiquement nommés dans DEC-054 comme "skills futurs" — DEC-057 les promeut dans le skill consolidé.
+The consolidated skill adds two subcommands the previous version did not expose: `receive` (reaction to `inbox.envelope_arrived` push) and `negotiate` (full lifecycle over the 6 protocol subverbs). These were logically named in DEC-054 as "future skills" — DEC-057 promotes them into the consolidated skill.
 
-**Décision (migration)** : `h2a install-skills` détecte et **supprime** les entrées legacy (`h2a-connect`, `h2a-discover`, `h2a-send`) sur le filesystem cible avant l'installation du skill consolidé. Le rapport JSON sortie ajoute un champ `prunedLegacy: [{name, path}]`. Aucune confirmation interactive requise — l'opération est idempotente et toujours sûre.
+**Decision (migration)**: `h2a install-skills` detects and **removes** the legacy entries (`h2a-connect`, `h2a-discover`, `h2a-send`) on the target filesystem before installing the consolidated skill. The JSON output report gains a `prunedLegacy: [{name, path}]` field. No interactive confirmation required — the operation is idempotent and always safe.
 
-**Décision (statut machine)** : aucune modification du contrat CLI ni du nombre d'outils MCP. La description de `H2A_CLI_VERB_CONTRACTS["install-skills"]` reste valide. Les 6 tests pré-existants des hôtes (claude/codex/gemini × install/skip/force) sont mis à jour pour vérifier l'unique fichier produit ; trois nouveaux tests vérifient le prune des legacy entries sur les trois hôtes.
+**Decision (machine status)**: no change to the CLI contract or to the MCP tool count. The description of `H2A_CLI_VERB_CONTRACTS["install-skills"]` stays valid. The 6 pre-existing host tests (claude/codex/gemini × install/skip/force) are updated to verify the single produced file; three new tests verify legacy pruning on the three hosts.
 
-**Pourquoi** : (a) suivre la convention de référence (`graphify`) **complètement** plutôt qu'à moitié — l'utilisateur a explicitement nommé l'écart ("ça peut pas être /h2a connect /h2a négocier plutôt que des trucs avec des tirets ?") ; (b) un namespace unique facilite la découverte (tab-complétion `/h2a `, `/h2a help`) ; (c) un seul fichier source = pas de dérive entre les sous-commandes (versions, frontmatter, etc.) ; (d) le prune migration évite que les utilisateurs de 0.1.17/0.1.18 finissent avec un mélange legacy+consolidé qui les confondrait.
+**Why**: (a) follow the reference convention (`graphify`) **fully** rather than half-way — the user explicitly named the gap ("can't it be /h2a connect /h2a negotiate rather than hyphen things?"); (b) a single namespace eases discovery (tab-completion `/h2a `, `/h2a help`); (c) one source file = no drift between subcommands (versions, frontmatter, etc.); (d) the migration prune prevents 0.1.17/0.1.18 users from ending up with a legacy+consolidated mix that would confuse them.
 
-**Conséquence** : (a) la surface skill se réduit (1 entrée par hôte au lieu de 3) ; (b) deux capacités majeures (`receive`, `negotiate`) sont désormais accessibles via slash command ; (c) les utilisateurs des 2 dernières versions doivent juste re-lancer `h2a install-skills --host <h>` ; (d) un patch release `0.1.19` peut suivre.
+**Consequence**: (a) the skill surface shrinks (1 entry per host instead of 3); (b) two major capabilities (`receive`, `negotiate`) are now accessible via slash command; (c) users on the last 2 versions just need to re-run `h2a install-skills --host <h>`; (d) a patch release `0.1.19` can follow.
