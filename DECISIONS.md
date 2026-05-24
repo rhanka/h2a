@@ -1005,3 +1005,37 @@ The consolidated skill adds two subcommands the previous version did not expose:
 **Why**: (a) follow the reference convention (`graphify`) **fully** rather than half-way — the user explicitly named the gap ("can't it be /h2a connect /h2a negotiate rather than hyphen things?"); (b) a single namespace eases discovery (tab-completion `/h2a `, `/h2a help`); (c) one source file = no drift between subcommands (versions, frontmatter, etc.); (d) the migration prune prevents 0.1.17/0.1.18 users from ending up with a legacy+consolidated mix that would confuse them.
 
 **Consequence**: (a) the skill surface shrinks (1 entry per host instead of 3); (b) two major capabilities (`receive`, `negotiate`) are now accessible via slash command; (c) users on the last 2 versions just need to re-run `h2a install-skills --host <h>`; (d) a patch release `0.1.19` can follow.
+
+## DEC-058 — Kubernetes sidecar manifest renderer (Scenario A of DEC-056)
+**Date**: 2026-05-23. **Refers**: DEC-026, DEC-034, DEC-056, INTENTION (remote transport).
+
+**Context**: DEC-056 surveyed three deployment scenarios and recommended **Scenario A** (h2a as a sidecar inside a `remote-controle` session Pod) as the smallest deliverable unit. The 4 open questions of DEC-056 only block Scenarios B (cluster-wide tenant) and C (network broker); Scenario A can ship independently because it does not change shared infrastructure — it produces a per-session sidecar fragment the caller merges into their own Pod spec.
+
+**Decision**: ship a pure renderer + a new CLI verb to produce the Kubernetes sidecar fragment.
+
+### Module `runtime/deploy/k8s-sidecar.ts`
+
+- Public function `renderK8sSidecar(options) → { container, volume, mainContainerVolumeMount, yaml }`.
+- Pure: no I/O, no filesystem access; the caller decides what to do with the output.
+- Default container name `h2a-mcp`, default volume `h2a-workspace`, default mount `/workspace/.h2a` (aligned with `remote-controle`'s PVC mount).
+- Two image strategies controlled by the `image` option:
+  - `npm-runtime` (default, or any value that is `undefined` / `"npm-runtime"`) — base image `node:22-alpine`, runs `npm i -g @sentropic/h2a-cli@<cliVersion>` at Pod start before `h2a init` and `h2a mcp-serve`. `cliVersion` defaults to `latest`.
+  - Any other string — treated as an OCI reference (e.g. `ghcr.io/rhanka/h2a-cli:0.1.20`); the renderer skips the npm install line and assumes `h2a` is on `PATH`.
+- Three identity env vars exported by the container: `H2A_INSTANCE` (default `remote-controle:${SESSION_ID:-unknown}`), `H2A_HOST` (default `remote-controle`), `H2A_ROOT` (default `/workspace/.h2a`). The `${SESSION_ID:-unknown}` placeholder is resolved by `remote-controle`'s Pod template engine at Pod creation.
+- Default resources align with the `sentropic-remote` tenant contract (DEC-056): `50m/64Mi requests`, `200m/256Mi limits`.
+
+### CLI verb `h2a deploy k8s-sidecar`
+
+- Output shape `resource` (DEC-034). The default-path JSON envelope contains `{ target, container, volume, mainContainerVolumeMount, yaml }` so programmatic callers consume the structured pieces and humans pipe `.yaml` to `kubectl` via `jq -r .yaml`.
+- `--write <file>` switches the verb to an `action` envelope (`{ ok:true, target, path }`) and writes the YAML straight to disk; intermediate directories are created.
+- Optional flags: `--instance`, `--host`, `--root`, `--image`, `--cli-version`. Unknown subverbs return exit 1 with a clear stderr.
+
+### Documentation
+
+- `docs/k8s-sidecar.md` explains the merge points (`spec.containers[]`, `spec.volumes[]`, plus the mount the caller must also add to the main runtime container), the two image strategies, the identity bridge with `remote-controle`, and the explicit limits (single-Pod only — Scenarios B/C remain deferred).
+
+**Decision (CLI contract)**: `H2A_CLI_VERB_CONTRACTS` grows from 28 to 29 entries with `deploy k8s-sidecar`. The `cli-contract.test.js` happy-path covers the JSON resource envelope. A dedicated `k8s-sidecar.test.js` covers the renderer (defaults, custom image, env propagation, SESSION_ID placeholder), the verb (JSON + `--write`) and refusal modes (unknown subverb, missing subverb).
+
+**Why**: (a) DEC-056 explicitly recommended starting with Scenario A; sitting on the instruction note longer than necessary was misaligned with the "advance with a single preco" feedback; (b) the renderer is pure → testable without a real cluster, which matters because the test suite must stay hermetic; (c) the default `npm-runtime` strategy makes the manifest immediately runnable without first publishing an image — this lowers the activation cost of the sidecar to "merge YAML + run kubectl apply"; (d) exposing both a JSON envelope (DEC-034) and a `yaml` string in the same response keeps both audiences served — automation pipelines and `kubectl apply -f -` users; (e) the four DEC-056 questions stay open and explicitly do not block this slice (they govern Scenarios B/C only).
+
+**Consequence**: (a) `h2a deploy k8s-sidecar` is the first real deployment verb of the CLI; (b) `remote-controle` maintainers can adopt h2a inside a session Pod by appending the rendered fragment to their existing manifest; (c) the identity bridge env vars (`H2A_INSTANCE`, `H2A_HOST`, `H2A_ROOT`) become the V1 contract surface between h2a and `remote-controle`; later DEC may promote that to a formal TypeScript schema in `@sentropic/h2a`; (d) no `@sentropic/h2a-remote` is created — Scenario C still belongs to V2; (e) a patch release `0.1.21` can follow.

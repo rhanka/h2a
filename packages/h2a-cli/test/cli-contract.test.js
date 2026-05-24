@@ -413,6 +413,15 @@ function buildHappyArgv(verb, ctx) {
         "project",
         "--force"
       ];
+    case "deploy k8s-sidecar":
+      return [
+        "deploy",
+        "k8s-sidecar",
+        "--instance",
+        "remote-controle:test",
+        "--cli-version",
+        "0.1.20"
+      ];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -449,7 +458,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "doctor",
     "sessions",
     "keys generate",
-    "install-skills"
+    "install-skills",
+    "deploy k8s-sidecar"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {

@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-23 (Release v0.1.20 published — docs refresh: README rewrite + EN translation of VOCABULARY/SPEC/DECISIONS/INTENTION)
+> Last update: 2026-05-23 (DEC-058 — K8s sidecar manifest renderer + `h2a deploy k8s-sidecar` verb ; Scenario A of DEC-056 shipped)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -99,6 +99,7 @@
 - [x] High-level coordination verbs (`h2a connect`, `h2a doctor`, `h2a sessions`, `h2a keys generate`, `h2a install-skills`) + 3 Claude skills + tutorial — DEC-054
 - [x] `install-skills` extended to Codex (`~/.codex/skills/`) and Gemini (`~/.gemini/commands/` TOML) — DEC-055
 - [x] Single `/h2a` skill with subcommand routing (connect/status/discover/send/receive/negotiate/disconnect/help) + legacy pruning — DEC-057
+- [x] Kubernetes sidecar renderer + `h2a deploy k8s-sidecar` verb (Scenario A of DEC-056) — DEC-058
 
 ## Workpackage 40 - Host And Protocol Integrations (~95%)
 

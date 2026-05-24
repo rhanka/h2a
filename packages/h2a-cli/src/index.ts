@@ -78,6 +78,12 @@ export {
   type SessionRegistryOptions
 } from "./runtime/mcp/index.js";
 
+export {
+  renderK8sSidecar,
+  type K8sSidecarFragment,
+  type K8sSidecarOptions
+} from "./runtime/deploy/k8s-sidecar.js";
+
 export const H2A_CLI_HOSTS = [
   H2A_CODEX_HOST,
   H2A_CLAUDE_HOST,

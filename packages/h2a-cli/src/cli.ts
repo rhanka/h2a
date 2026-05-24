@@ -64,6 +64,7 @@ import {
   listPresence
 } from "./runtime/local-files/index.js";
 import { runMcpStdio } from "./runtime/mcp/index.js";
+import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -150,6 +151,7 @@ export function renderCliHelp(): string {
     "  h2a sessions [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a keys generate --instance <id> [--out <dir>] [--root <path>]",
     "  h2a install-skills --host claude [--scope user|project] [--force]",
+    "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
     `MCP tools: ${H2A_CLI_MCP_TOOL_NAMES.join(", ")}`
@@ -1385,6 +1387,69 @@ function cmdInstallSkills(
   return skipped.length === 0 ? 0 : 2;
 }
 
+function cmdDeploy(
+  argv: readonly string[],
+  streams: H2ACliStreams
+): number {
+  const { command: sub, flags } = parseFlags(argv);
+  if (!sub) {
+    streams.stderr.write(
+      "h2a deploy: subcommand required (currently supported: k8s-sidecar)\n"
+    );
+    return 1;
+  }
+  if (sub !== "k8s-sidecar") {
+    streams.stderr.write(
+      `h2a deploy: unknown subcommand "${sub}". Supported: k8s-sidecar.\n`
+    );
+    return 1;
+  }
+  // DEC-058: render the Kubernetes sidecar fragment for Scenario A
+  // of DEC-056 (remote-controle session sidecar).
+  const fragment = renderK8sSidecar({
+    instance: flags.instance,
+    host: flags.host,
+    root: flags.root,
+    image: flags.image,
+    cliVersion: flags["cli-version"]
+  });
+
+  const writeTo = flags.write;
+  if (writeTo) {
+    try {
+      mkdirSync(dirname(writeTo), { recursive: true });
+      writeFileSync(writeTo, fragment.yaml, "utf8");
+    } catch (error) {
+      streams.stderr.write(
+        `h2a deploy k8s-sidecar: cannot write ${writeTo} (${(error as Error).message})\n`
+      );
+      return 3;
+    }
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, target: "k8s-sidecar", path: writeTo }, null, 2)}\n`
+    );
+    return 0;
+  }
+
+  // Default: emit a JSON resource envelope (DEC-034). Programmatic callers
+  // can consume the structured `container` / `volume` / `volumeMount`
+  // pieces; humans pipe `.yaml` to kubectl: `h2a deploy k8s-sidecar | jq -r .yaml`.
+  streams.stdout.write(
+    `${JSON.stringify(
+      {
+        target: "k8s-sidecar",
+        container: fragment.container,
+        volume: fragment.volume,
+        mainContainerVolumeMount: fragment.mainContainerVolumeMount,
+        yaml: fragment.yaml
+      },
+      null,
+      2
+    )}\n`
+  );
+  return 0;
+}
+
 export function runCli(
   argv: readonly string[] = process.argv.slice(2),
   streams: H2ACliStreams = {
@@ -1421,6 +1486,7 @@ export function runCli(
   if (command === "doctor") return cmdDoctor(flags, streams);
   if (command === "connect") return cmdConnect(flags, streams);
   if (command === "install-skills") return cmdInstallSkills(flags, streams);
+  if (command === "deploy") return cmdDeploy(argv.slice(1), streams);
   if (command === "keys") {
     const { command: sub, flags: subFlags } = parseFlags(argv.slice(1));
     if (sub === "generate") return cmdKeysGenerate(subFlags, streams);
