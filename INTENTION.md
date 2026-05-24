@@ -1,45 +1,47 @@
-# Intention — couche 1 de la pile contractuelle (DEC-010)
+# Intention — layer 1 of the contractual stack (DEC-010)
 
-> **Couche** : INTENTION (le **pourquoi**). Narrative, value-driven, owned by PRINCIPAL.
-> **Source** : message utilisateur initial du 2026-05-16, préservé verbatim ci-dessous.
-> **Aval** : exigences mesurables dans `SPEC.md` ; décisions de design dans `DECISIONS.md`.
+> **Layer**: INTENTION (the **why**). Narrative, value-driven, owned by PRINCIPAL.
+> **Source**: initial user message from 2026-05-16, preserved verbatim below.
+> **Downstream**: measurable requirements in `SPEC.md`; design decisions in `DECISIONS.md`.
 
-## Verbatim utilisateur (préservé pour ne rien perdre)
+## User verbatim (preserved so nothing is lost)
 
-> Je veux concevoir un protocole permettant d'avoir un conductor d'agents CLI + une collab entre CLI de façon flexible. Un peu à la A2A mais entre CLI. L'idée serait d'avoir un tool / plugin dans chaque CLI (Claude, Codex, Gemini, autres), pour permettre aux agents de collaborer. Il faut que le protocole permette à la fois d'avoir une collaboration remote (projet `@sentropic/remote`) ou locale. L'idéal serait un plugin CLI + tool permettant de passer soit par un service MCP central soit simplement par des fichiers dans chaque workspace (i.e. il y a un endroit de réception pour recevoir les requêtes, les traiter).
+> *(Translation of the original French verbatim. The original message was preserved as-is until 2026-05-23, at which point the project policy "all docs in English" — see `README.md` — was applied retroactively. The French source is recoverable from git history at commit `195d1c2~1`.)*
 >
-> Le rôle conductor est essentiel : il permettra à l'humain de piloter un cheptel d'agents sous supervision / responsabilité d'un conductor. La terminologie n'est peut-être pas la bonne, parce qu'on pourrait imaginer des rôles largement transverses (cyber, etc.). Il faut prévoir in fine un mode permettant de répliquer le mode de travail d'une organisation. Dans ce contexte, il faut penser également la gestion globale de la coordination / consolidation de l'ensemble des rôles (qui peut être en mode "non central") — simplement l'un des rôles conductor (ou autre terminologie de fonction transverse à trouver) pour permettre une gestion cohérente. Il faut aussi permettre de gérer l'humain dans la boucle : au sein d'une organisation cohérente, un humain peut prendre le contrôle d'un agent, ou d'un des conductors.
+> I want to design a protocol that allows for a conductor of CLI agents + a flexible collab between CLIs. A bit like A2A but between CLIs. The idea would be to have a tool / plugin in each CLI (Claude, Codex, Gemini, others), so that agents can collaborate. The protocol must allow both remote collaboration (project `@sentropic/remote`) and local collaboration. The ideal is a CLI plugin + tool that can go either through a central MCP service or simply through files in each workspace (i.e. there is a reception point to receive requests and process them).
 >
-> Je cherche également un nom pour ce projet (qui sera un projet `@sentropic/{project}-modules` npm TypeScript — pas pnpm). À ce stade j'étais sur un nom de travail `a2a-cli`.
+> The conductor role is essential: it will let the human pilot a herd of agents under the supervision/responsibility of a conductor. The terminology may not be the right one, because we could imagine roles that are largely transverse (cyber, etc.). We must ultimately plan for a mode that lets us replicate how an organization works. In this context, we must also think about the global management of coordination/consolidation of all the roles (which may be in a "non-central" mode) — simply one of the conductor roles (or another transverse-function terminology to be found) to enable coherent management. We must also enable human-in-the-loop: within a coherent organization, a human can take control of an agent or of one of the conductors.
 >
-> Enregistre cette intention initiale, dont chaque exigence devra être mappée à des spec, et lance le mode brainstorming pour commencer à poser le concept, sa structure, ses modules. À un moment on pourra reprendre le projet `@sentropic/harness` de `../sentropic/` (je crois branche 25 ou 23) — ce serait peut-être plus cohérent pour l'intégrer à ce nouveau projet.
+> I am also looking for a name for this project (which will be a `@sentropic/{project}-modules` npm TypeScript project — not pnpm). At this stage I had `a2a-cli` as a working name.
+>
+> Record this initial intention, every requirement of which will need to be mapped to a spec, and start brainstorming mode to begin laying out the concept, its structure, its modules. At some point we can pick up the `@sentropic/harness` project from `../sentropic/` (I believe branch 25 or 23) — it might be more coherent to integrate it into this new project.
 
-## Reformulation narrative (distillation)
+## Narrative rewrite (distillation)
 
-Concevoir un **protocole d'organisation et de collaboration entre agents CLI hétérogènes** (Claude Code, Codex, Gemini, autres), permettant à un humain (PRINCIPAL) de piloter un cheptel d'agents par l'intermédiaire d'un CONDUCTOR, avec des fonctions de CONTROL transverses (cyber, finance, éthique, legal, qualité), et la possibilité pour l'humain de reprendre la main à tout moment sur un agent ou un conductor.
+Design an **organization and collaboration protocol between heterogeneous CLI agents** (Claude Code, Codex, Gemini, others) that lets a human (PRINCIPAL) pilot a herd of agents through a CONDUCTOR, with cross-cutting CONTROL functions (cyber, finance, ethics, legal, quality), and the ability for the human to take over an agent or a conductor at any moment.
 
-Ce protocole doit pouvoir s'exécuter sur trois transports interchangeables (local-files, MCP central, remote `@sentropic/remote`), être implémentable comme tool/plugin dans chaque CLI cible, et permettre de **répliquer le mode de fonctionnement d'une organisation** — y compris dans des modes de coordination non centralisés.
+The protocol must be able to run on three interchangeable transports (local-files, central MCP, remote `@sentropic/remote`), be implementable as a tool/plugin in each target CLI, and let one **replicate the way an organization works** — including in non-centralized coordination modes.
 
-## Extension d'intention — multi-humain (2026-05-17)
+## Intention extension — multi-human (2026-05-17)
 
-Chaque humain doit pouvoir fonctionner comme le PRINCIPAL de sa propre mini-organisation : son périmètre, ses agents, ses engagements, ses règles de contrôle et ses journaux. Ce même humain peut aussi tenir un rôle dans une organisation plus large, sans perdre sa responsabilité locale.
+Every human must be able to operate as the PRINCIPAL of their own mini-organization: their perimeter, their agents, their engagements, their control rules and their journals. The same human may also hold a role in a larger organization, without losing their local responsibility.
 
-Le protocole doit donc cadrer le **multi-humain** comme une fédération possible de mini-organisations humaines. Le premier mode à explorer est un mode pair-à-pair où les humains dialoguent entre eux, chacun parlant depuis sa mini-organisation. Les modes suivants devront couvrir des formes plus structurées, notamment lorsqu'un exécutif porte la responsabilité de l'activité d'ensemble, incluant plusieurs PRINCIPAUX et leurs agents.
+The protocol must therefore frame **multi-human** as a possible federation of human mini-organizations. The first mode to explore is a peer-to-peer mode where humans talk to each other, each speaking from their mini-organization. Subsequent modes must cover more structured forms, notably when an executive carries responsibility for the umbrella activity, including several PRINCIPALs and their agents.
 
-Cette organisation multi-humaine doit aussi traiter les **CONTROL** et les **POLICY** comme des éléments de premier ordre : les controls portent les responsabilités transverses (cyber, finance, éthique, legal, qualité), tandis que les policies expriment les règles durables applicables à une mini-organisation, une fédération, un engagement ou une activité d'ensemble.
+This multi-human organization must also treat **CONTROL** and **POLICY** as first-class elements: controls carry the transverse responsibilities (cyber, finance, ethics, legal, quality), while policies express the durable rules applicable to a mini-organization, a federation, an engagement or an umbrella activity.
 
-## Périmètre projet
+## Project perimeter
 
-- **Package cible** : `@sentropic/{nom-à-définir}-modules`, npm, TypeScript.
-- **Nom de travail** : `a2a-cli` (provisoire, à trancher).
-- **Intégration prévue** : reprise possible du projet `@sentropic/harness` (`../sentropic/`, branche à confirmer — `br23` ou `br25`).
+- **Target package**: `@sentropic/{name-to-be-defined}-modules`, npm, TypeScript.
+- **Working name**: `a2a-cli` (provisional, to be decided).
+- **Planned integration**: possible takeover of the `@sentropic/harness` project (`../sentropic/`, branch to confirm — `br23` or `br25`).
 
-## Couches aval
+## Downstream layers
 
-- Exigences traduisant cette intention en éléments mesurables : `SPEC.md`.
-- Décisions de design prises pour la satisfaire : `DECISIONS.md`.
-- Vocabulaire canonique : `VOCABULARY.md`.
+- Requirements translating this intention into measurable items: `SPEC.md`.
+- Design decisions taken to satisfy it: `DECISIONS.md`.
+- Canonical vocabulary: `VOCABULARY.md`.
 
-## Note de gouvernance de cette intention
+## Governance note for this intention
 
-Cette intention peut être révisée par le PRINCIPAL ; toute révision substantielle doit être tracée (date + raison) et déclencher une revue de cohérence sur `SPEC.md` et `DECISIONS.md`.
+This intention may be revised by the PRINCIPAL; any substantial revision must be traced (date + reason) and trigger a consistency review on `SPEC.md` and `DECISIONS.md`.

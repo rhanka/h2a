@@ -237,7 +237,7 @@ Plus a **push notification channel** (`notifications/h2a`) on 4 topics (DEC-052)
 | [docs/instruction-k8s-and-remote-controle-interop.md](./docs/instruction-k8s-and-remote-controle-interop.md) | K8s deployment + `@sentropic/remote-controle` interop note (DEC-056) |
 | [handover.md](./handover.md) | Handover prompt for a Claude session |
 
-> Project policy: all docs and code in this repository are in English. The only intentional exception is `INTENTION.md`, which preserves the original user verbatim and is kept as-is in its source language.
+> Project policy: all docs and code in this repository are in English. `INTENTION.md` contains an English translation of the original French user verbatim; the French source remains recoverable from git history at commit `195d1c2~1`.
 
 ---
 
