@@ -15,7 +15,7 @@
     "publish:h2a-cli": "npm publish --workspace @sentropic/h2a-cli",
     "release": "node scripts/release.mjs",
     "typecheck": "tsc -b --pretty false",
-    "test": "npm run build && node --test packages/h2a/test/*.test.js packages/h2a-cli/test/*.test.js"
+    "test": "npm run build && node scripts/run-tests.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
