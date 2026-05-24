@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-24 (Release v0.1.23 published ; DEC-060 — OCI image `ghcr.io/rhanka/h2a-cli:0.1.23` + `:latest` live on GHCR, multi-arch, non-root, SBOM+provenance)
+> Last update: 2026-05-24 (DEC-061 — cross-OS CI matrix ubuntu/macos/windows × node 20/22 ; cross-platform test runner ; WP-60 effectively closed)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -102,6 +102,7 @@
 - [x] Kubernetes sidecar renderer + `h2a deploy k8s-sidecar` verb (Scenario A of DEC-056) — DEC-058
 - [x] Host bridge contract formalized (`H2A_HOST_BRIDGE_PROFILES` + `auditHostBridge` + remote-controle profile + PR draft) — DEC-059
 - [x] OCI image build + GHCR publish workflow (`ghcr.io/rhanka/h2a-cli:<version>`, multi-arch, non-root, SBOM) — DEC-060
+- [x] Cross-OS CI matrix ubuntu/macOS/Windows × node 20/22 + cross-platform test runner — DEC-061
 
 ## Workpackage 40 - Host And Protocol Integrations (~95%)
 
@@ -156,7 +157,7 @@
 - [x] Declare recurring obligation cadence profiles per ABC context (`H2A_RECURRING_OBLIGATION_PROFILES` + `auditRecurringObligationProfile` ; 7 cadences with grace + reporting thresholds ; V1 ships no scheduler — DEC-047)
 - [x] Declare jurisdiction profiles per ABC context (`H2A_JURISDICTION_PROFILES` + `auditJurisdictionProfile` ; 7 jurisdiction kinds ; V1 does not check membership — DEC-048)
 
-## Workpackage 60 - Quality, Examples, And Ops (~70%)
+## Workpackage 60 - Quality, Examples, And Ops (~95%)
 
 - [x] Add baseline automated tests
 - [x] Keep `npm test` green after publication fixes
