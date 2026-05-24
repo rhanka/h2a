@@ -11,7 +11,14 @@ concurrency:
 
 jobs:
   smoke-install:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # DEC-061: smoke the npm-installed binary on the three target OSes.
+        # `shell: bash` on the Windows runner uses Git Bash, which supports
+        # the heredocs, `set -euo pipefail` and `mktemp -d` used below.
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
