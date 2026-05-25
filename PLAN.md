@@ -176,7 +176,7 @@
 All four resolved on 2026-05-23:
 
 - [x] Tenant model → **stay on Scenario A (sidecar per session)**, no dedicated `tenants/h2a/`. Re-open when cross-session coordination demand emerges.
-- [x] RWX storage → **n/a** (only mattered if a dedicated tenant was chosen).
+- [x] RWX storage → **available on Scaleway natively** (an earlier note wrongly claimed it was not, corrected 2026-05-25). Not a blocker for Scenario B. The real Scenario B prerequisite is a cross-Pod locking primitive (DEC-036 locks are same-machine only).
 - [x] Interop contract with `remote` → **two-way formalized** (DEC-059 + PR draft at `docs/pr-drafts/remote-h2a-bridge.md`).
 - [x] `@sentropic/h2a-remote` → **deferred V2** (depends on DEC-032 V2 auth, no design now).
 

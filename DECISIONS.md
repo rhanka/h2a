@@ -955,7 +955,7 @@ The dispatcher `targetSpecFor(host, cwd)` encapsulates per-host the user/project
 
 **Decision (instructive, not executable)**: the documented note distinguishes three deployment scenarios:
 - **Scenario A — sidecar inside a `remote` session**: `h2a mcp-serve` as an additional container in the session Pod, shares `emptyDir` with the CLI runtime. Smallest step, most deliverable. Recommended as the next slice if we decide to implement.
-- **Scenario B — cluster-wide `h2a` tenant on `poc-k8s`**: dedicated namespace + shared RWX PVC. Broader but constrained by Scaleway's lack of native RWX (NFS-Pod or equivalent required).
+- **Scenario B — cluster-wide `h2a` tenant on `poc-k8s`**: dedicated namespace + shared RWX PVC. Scaleway provides RWX natively (corrected 2026-05-25 — an earlier claim that it did not was wrong, so storage is **not** a blocker). The real open item for B is **cross-Pod locking**: DEC-036's `process.kill(pid, 0)` stale-lock recovery is same-machine only and needs a cross-host primitive (TTL lease + fencing token) before B is safe.
 - **Scenario C — network transport (`@sentropic/h2a-remote`)**: the original third transport from INTENTION, never implemented. Requires DEC-032 V2 (transport auth).
 
 **Decision (envisaged contract)**: an interop contract with `remote` is named in five clauses (identity, lifecycle, resource limits, disclosure, auth boundary). Its formalization is deferred to a later DEC (DEC-057 or sibling) that would deliver either the TypeScript schema in `@sentropic/h2a`, or a PR to `../remote/packages/protocol`.

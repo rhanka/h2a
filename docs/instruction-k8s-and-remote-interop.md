@@ -54,12 +54,18 @@ Cons: peers across different `remote` workspaces are NOT visible. h2a stays per-
 ### Scenario B — Cluster-wide h2a tenant on `poc-k8s` with a shared `<root>` PVC
 
 - New tenant `tenants/h2a/` in `../poc-k8s` with its own namespace + quota.
-- A `Deployment` running `h2a mcp-serve` per CLI agent (per-Pod for isolation) plus a shared `PersistentVolumeClaim` mounted at `/h2a-root`.
-- `remote` session Pods opt-in by mounting the same PVC (ReadWriteMany — Scaleway block storage doesn't support this natively, would need NFS-backed PVC or a small dedicated `h2a-store` Pod exposing the filesystem over a synced protocol).
+- A `Deployment` running `h2a mcp-serve` per CLI agent (per-Pod for isolation) plus a shared `PersistentVolumeClaim` mounted at `/h2a-root` in **ReadWriteMany** mode.
+- `remote` session Pods opt-in by mounting the same RWX PVC.
 - Each session calls `h2a_session_open` and is then visible cluster-wide.
 
+> **Correction (2026-05-25)**: an earlier version of this note claimed Scaleway had no native RWX and an NFS-Pod was required. That was wrong — Scaleway provides RWX volumes (File Storage / NFS-backed CSI), so a `ReadWriteMany` PVC is a first-class option on the `poc` cluster. Storage is **not** a blocker for Scenario B.
+
 Pros: any two cooperating sessions, regardless of workspace, can discover each other.
-Cons: RWX storage is a real constraint on Scaleway; cluster-scoped tenancy raises blast-radius concerns.
+Cons: the **cross-Pod concurrency model** is the real open item, not storage — see the locking note below. Cluster-scoped tenancy also raises blast-radius concerns.
+
+#### The actual Scenario B blocker: cross-Pod locking
+
+Once the store is on an RWX PVC shared across Pods, DEC-036's advisory locking no longer holds. Its stale-lock recovery uses `process.kill(pid, 0)`, which only works **same-machine**: two Pods on different nodes cannot probe each other's PIDs, so a crashed Pod's `.lock` would either never be reclaimed or be reclaimed unsafely. Scenario B therefore needs a cross-host lock primitive (lease file with TTL + fencing token, or a small coordination endpoint) before it is safe — this is the one genuinely new piece of engineering, and it overlaps with the V2 transport-auth work (Scenario C).
 
 ### Scenario C — `h2a` over the network via `@sentropic/remote` transport (V2 territory)
 
@@ -128,6 +134,6 @@ Out of scope of this instruction note:
 ## Open questions for the user
 
 1. Do we own a new `tenants/h2a/` in `poc-k8s` (Scenario B), or do we live as a sidecar of `sentropic-remote` (Scenario A)?
-2. RWX storage on Scaleway: are we ok with a small NFS-style Pod, or do we accept per-workspace partitioning until V2?
+2. ~~RWX storage on Scaleway~~ — **resolved**: Scaleway provides RWX volumes natively, so a `ReadWriteMany` PVC is fine. The remaining storage question is only *which* RWX class/perf tier to request in the tenant quota.
 3. Should the interop contract with `remote` be one-way (h2a documents the expectations) or two-way (both repos commit to the same schema)?
 4. Is `@sentropic/h2a-remote` a real future package, or do we fold the network transport into `@sentropic/h2a-cli` once it's needed?
