@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-25 (DEC-067 — `h2a deploy k8s-tenant` renderer + `H2A_LOCK_MODE` env fallback ; Scenario B now deployable end-to-end. Next: V1 wrap-up / docs)
+> Last update: 2026-05-25 (DEC-068 — **V2 line opened (0.2.x)**: first-class SUBAGENTS slice 1 = addressable binding layer in core. V1 complete: K8s A/B, cross-OS CI green. Next SUBAGENTS slices: store binding registration → inbox/outbox routing → per-subagent audit → takeover)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -125,6 +125,7 @@
 - [x] MCP push notifications (`notifications/h2a`) on presence join/leave + inbox arrival + negotiation event ; tick-based scanner, configurable interval, sink wired by runMcpStdio — DEC-052
 - [x] Real cross-CLI integration test (two `mcp-serve` subprocesses sharing a root, inbox push + graceful close + SIGKILL TTL expiry) — DEC-053
 - [ ] V2: transport auth (mTLS / signed bearer)
+- [~] V2: first-class SUBAGENTS (DEC-008) — **slice 1 done (DEC-068)**: addressable binding layer in core (`subagentAddress`/`validateSubagentBinding`/`subagentActorRef`, `parent~name` addressing, no new role, authority stays consolidated). Remaining slices: [ ] store binding registration + `h2a subagent register/list` ; [ ] inbox/outbox routing to a subagent address ; [ ] per-subagent audit trail ; [ ] takeover at subagent granularity.
 
 ### Codex track
 

@@ -207,6 +207,19 @@ export type {
 export { H2A_CANONICAL_FIXTURES } from "./fixtures-index.js";
 export type { H2ACanonicalFixtureManifestEntry } from "./fixtures-index.js";
 export {
+  SUBAGENT_ADDRESS_SEPARATOR,
+  isSubagentAddress,
+  parseSubagentAddress,
+  subagentActorRef,
+  subagentAddress,
+  validateSubagentBinding
+} from "./subagents.js";
+export type {
+  H2ASubagentBinding,
+  H2ASubagentValidation,
+  H2ASubagentValidationError
+} from "./subagents.js";
+export {
   H2A_ARTIFACT_KINDS,
   H2A_AUTHORITY_KINDS,
   H2A_ENVELOPE_TYPES,
