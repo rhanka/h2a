@@ -3,6 +3,7 @@
 .superpowers/
 .git.empty-broken/
 .playwright-mcp/
+.claude/
 node_modules/
 packages/*/dist/
 packages/*/*.tsbuildinfo
