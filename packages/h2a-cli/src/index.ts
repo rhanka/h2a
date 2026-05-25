@@ -48,11 +48,15 @@ export {
   safePathSegment,
   sanitizeStorePaths,
   updatePresence,
+  withLease,
+  withLeaseSync,
   withLock,
   withLockSync,
   writePresence,
   type CreateLocalStoreOptions,
   type H2AStoreSchemaSentinel,
+  type LeaseHandle,
+  type LeaseRecord,
   type ListPresenceOptions,
   type LocalStore,
   type LocalStorePaths,
@@ -60,6 +64,7 @@ export {
   type PresenceWriteResult,
   type SanitizePathsResult,
   type SanitizeRenameEntry,
+  type WithLeaseOptions,
   type WithLockOptions
 } from "./runtime/local-files/index.js";
 

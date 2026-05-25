@@ -40,6 +40,14 @@ export {
 } from "./locks.js";
 
 export {
+  withLease,
+  withLeaseSync,
+  type LeaseHandle,
+  type LeaseRecord,
+  type WithLeaseOptions
+} from "./lease.js";
+
+export {
   H2A_STORE_SCHEMA_FILE,
   H2A_STORE_SCHEMA_VERSION,
   StoreSchemaMismatchError,

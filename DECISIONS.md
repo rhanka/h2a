@@ -1240,3 +1240,23 @@ The pass does **not** bump the schema sentinel: the layout version stays `1`. Th
 **Why**: (a) DEC-062 fixed new writes but left existing data stranded; closing that gap is what makes the Windows fix complete for real upgraders; (b) opt-in + dry-run + conflict-safe keeps a mutating filesystem operation honest — nothing is renamed unless the user asks, and nothing is overwritten; (c) keeping the schema version at `1` avoids forcing a `StoreSchemaMismatchError` on every pre-0.1.24 store just for a naming cleanup; (d) a separate `migrate.ts` module keeps the rename logic out of the hot-path store.
 
 **Consequence**: (a) an upgrader runs `h2a store migrate --sanitize-paths --dry-run` to preview, then without `--dry-run` to apply; (b) conflicts (both `nego:codex` and `nego__codex` present) are surfaced, not silently merged; (c) no schema bump, so the pass is safe to run repeatedly (idempotent — a clean store yields `renamed: []`); (d) a patch release `0.1.26` ships the verb.
+
+## DEC-065 — Cross-host lease lock primitive
+**Date**: 2026-05-25. **Refers**: DEC-036, DEC-056 (Scenario B), WP-20.
+
+**Context**: the RWX-storage correction (2026-05-25) left **cross-Pod locking** as the one genuine engineering prerequisite for Scenario B. DEC-036's advisory lock recovers stale locks via `process.kill(pid, 0)`, which is same-machine only — two Pods on different nodes sharing a ReadWriteMany store cannot probe each other's PIDs, so a crashed holder's `.lock` is never safely reclaimed.
+
+**Decision**: add a **time-based lease lock** in `runtime/local-files/lease.ts`, independent of PID liveness. `withLeaseSync(lockPath, fn, opts)` (+ async `withLease`):
+
+- Lock file payload: `{ holder, nonce, acquiredAt, renewedAt, leaseMs, fencingToken }`.
+- A lease is *expired* when `now - renewedAt > leaseMs` — staleness is pure wall-clock, so it holds across hosts.
+- The atomic gate stays `openSync(path, "wx")` (`O_CREAT|O_EXCL`): only one contender wins the create, even cross-host on a POSIX-compliant shared FS. On EEXIST + expired, the contender unlinks and re-creates via O_EXCL, so the create-winner is the single stealer.
+- `nonce` (random per acquisition) guards release: we only unlink if the on-disk nonce still matches ours, so a holder that overran its lease and was stolen from never deletes the new holder's lease.
+- `fencingToken` increments on every steal (best-effort monotonic), returned to `fn` for downstream fencing / observability.
+- Defaults: `leaseMs = 30000`, `timeoutMs = 5000`, `pollMs = 50`. Reuses `LockTimeoutError` from DEC-036.
+
+**Clock-skew caveat**: `leaseMs` must exceed the longest critical section plus the max inter-host clock skew. The store's read-then-write sections are sub-second, so the 30s default leaves a wide margin. Documented in the module header.
+
+**Why**: (a) Scenario B is blocked on cross-host locking, not storage (RWX exists on Scaleway); this primitive removes that blocker; (b) a lease (TTL) is the standard cross-host replacement for PID-liveness — it makes no assumption about who or where the holder is; (c) the O_EXCL create gate keeps the steal atomic without needing a coordination service; (d) the nonce-guarded release prevents the classic "stale holder wakes up and deletes the new lease" bug; (e) keeping it a **separate** module (not a modification of `locks.ts`) means the same-machine PID lock stays the zero-config default and the lease is opt-in (wired in DEC-066).
+
+**Consequence**: (a) `withLeaseSync` / `withLease` are exported from `@sentropic/h2a-cli`; (b) DEC-066 will let `createLocalStore({ lockMode: "lease" })` route critical sections through the lease so a shared RWX store is safe under cross-Pod concurrency; (c) the PID lock (DEC-036) remains the default for the common single-machine case; (d) fencing-token monotonicity resets on a clean release+reacquire cycle — acceptable because h2a does not pass the token to an external system in V1 (the token's V1 job is holder self-verification at release); (e) a patch release `0.1.27` ships the primitive.
