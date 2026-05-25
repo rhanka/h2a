@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-24 (DEC-063 — host bridge + all references renamed `remote-controle` → `remote` ; upstream PR rhanka/remote#2 opened ; bumps to 0.1.25)
+> Last update: 2026-05-25 (DEC-064 — `h2a store migrate --sanitize-paths` migrates legacy `:`-named store entries to the safePathSegment form ; remote bridge live both sides)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -105,6 +105,7 @@
 - [x] Cross-OS CI matrix ubuntu/macOS × node 20/22 + cross-platform test runner ; Windows smoke covered, Windows full-test deferred (`:`-in-paths refactor) — DEC-061
 - [x] `safePathSegment` for Windows-compatible local-files layout (`:` → `__` in negotiation/instance/session ids and artefact paths) ; Windows back in full-test CI matrix — DEC-062
 - [x] Rename host bridge identity + all repo references `remote-controle` → `remote` (matches `@sentropic/remote`, upstream PR `rhanka/remote#2`) — DEC-063
+- [x] Store migration rename pass `h2a store migrate --sanitize-paths` (legacy `:`-named entries → safePathSegment form ; dry-run + conflict-safe) — DEC-064
 
 ## Workpackage 40 - Host And Protocol Integrations (~95%)
 

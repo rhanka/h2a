@@ -1218,3 +1218,25 @@ The chosen resolution (over "freeze `remote-controle` as a repo-independent cont
 **Why**: (a) the host maintainer (same owner) chose migration over freezing; (b) a single canonical identity is the whole point of the two-way contract from DEC-059 — an enum alias would re-weaken it; (c) doing it before any real interop traffic means zero data/registry migration; (d) keeps the bridge identity aligned with the product/repo/package name, avoiding a permanent legacy codename.
 
 **Consequence**: (a) `auditHostBridge("remote")` returns `ok: true`; `getHostBridgeProfile("remote-controle")` now returns `undefined` (intentional — no alias); (b) host PR `rhanka/remote#2` and this change are a matched pair; (c) a patch release `0.1.25` carries the rename to npm; (d) any future bridge contract change continues to require paired PRs in both repos.
+
+## DEC-064 — Store migration rename pass for `safePathSegment`
+**Date**: 2026-05-25. **Refers**: DEC-031, DEC-036, DEC-062.
+
+**Context**: DEC-062 made the local-files runtime write Windows-safe path segments (`:` → `__`), but stores created by `@sentropic/h2a-cli@<=0.1.23` already have directories/files named with raw `:` (`negotiations/nego:codex/`, `presence/sess:abc.json`, etc.). After upgrading, `h2a` looks for the `__` form and silently ignores the legacy entries. DEC-062 noted a future `h2a store migrate` pass would cover this — DEC-064 delivers it.
+
+**Decision**: add an **opt-in** maintenance pass to `h2a store migrate`, triggered by `--sanitize-paths`. New module `runtime/local-files/migrate.ts` exposes `sanitizeStorePaths(root, { dryRun })`:
+
+- Scans the id-named containers: directory children of `negotiations/`, `inbox/`, `outbox/`, `contracts/`, `engagements/`, and file children of `policies/` and `presence/`.
+- For each entry whose `safePathSegment` (file basename keeps its extension) differs from the on-disk name, renames it to the sanitized form.
+- Conservative: if the sanitized target already exists, records a `conflict` and does NOT overwrite. `--dry-run` reports `would-rename` and writes nothing.
+- Returns `{ ok, root, dryRun, renamed[], conflicts[] }`. `ok` is false iff any conflict.
+
+CLI wiring: `h2a store migrate --sanitize-paths [--dry-run] [--root <path>]`. Output is the `action`-shaped JSON of the result; exit 0 on success, exit 2 if any conflict (a state issue the caller must resolve). The flag is additive — without it, `store migrate` keeps its DEC-036 no-op schema behavior. `H2A_CLI_VERB_CONTRACTS["store migrate"]` gains `sanitize-paths` in `optionalFlags` and `2` in `exitCodes`.
+
+The pass does **not** bump the schema sentinel: the layout version stays `1`. This is a within-version cleanup, not a schema migration — the `:` vs `__` difference is a naming convention, not a structural format change.
+
+`sanitizeStorePaths` is re-exported from `@sentropic/h2a-cli` for tooling that wants to run the pass programmatically.
+
+**Why**: (a) DEC-062 fixed new writes but left existing data stranded; closing that gap is what makes the Windows fix complete for real upgraders; (b) opt-in + dry-run + conflict-safe keeps a mutating filesystem operation honest — nothing is renamed unless the user asks, and nothing is overwritten; (c) keeping the schema version at `1` avoids forcing a `StoreSchemaMismatchError` on every pre-0.1.24 store just for a naming cleanup; (d) a separate `migrate.ts` module keeps the rename logic out of the hot-path store.
+
+**Consequence**: (a) an upgrader runs `h2a store migrate --sanitize-paths --dry-run` to preview, then without `--dry-run` to apply; (b) conflicts (both `nego:codex` and `nego__codex` present) are surfaced, not silently merged; (c) no schema bump, so the pass is safe to run repeatedly (idempotent — a clean store yields `renamed: []`); (d) a patch release `0.1.26` ships the verb.

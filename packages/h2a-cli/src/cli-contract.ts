@@ -227,11 +227,11 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
   {
     verb: "store migrate",
     outputShape: "action",
-    exitCodes: [0, 1],
+    exitCodes: [0, 1, 2],
     requiredFlags: [],
-    optionalFlags: ["root", "from", "to", "dry-run"],
+    optionalFlags: ["root", "from", "to", "sanitize-paths", "dry-run"],
     description:
-      "Migrate the local-files store schema between known versions (DEC-036). V1→V1 is a no-op (`changed:false`). Unknown --from or --to → exit 1."
+      "Migrate the local-files store schema between known versions (DEC-036). V1→V1 is a no-op (`changed:false`). Unknown --from or --to → exit 1. With `--sanitize-paths` (DEC-064), rename pre-DEC-062 entries containing `:` to the safePathSegment form; a name collision with an already-sanitized target → exit 2."
   },
 
   // --- MCP transport ---

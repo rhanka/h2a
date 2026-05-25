@@ -20,6 +20,12 @@ export {
 } from "./presence.js";
 
 export {
+  sanitizeStorePaths,
+  type SanitizePathsResult,
+  type SanitizeRenameEntry
+} from "./migrate.js";
+
+export {
   createLocalStore,
   type CreateLocalStoreOptions,
   type LocalStore

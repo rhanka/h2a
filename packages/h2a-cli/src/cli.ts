@@ -61,7 +61,8 @@ import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 import {
   H2A_STORE_SCHEMA_VERSION,
   createLocalStore,
-  listPresence
+  listPresence,
+  sanitizeStorePaths
 } from "./runtime/local-files/index.js";
 import { runMcpStdio } from "./runtime/mcp/index.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
@@ -143,7 +144,7 @@ export function renderCliHelp(): string {
     "  h2a mcp-serve [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
-    "  h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]",
+    "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "",
     "High-level coordination (DEC-054):",
     "  h2a connect --host <codex|claude|gemini> [--root <path>] [--instance <id>]",
@@ -820,6 +821,17 @@ function cmdStoreMigrate(
   const from = flags.from ?? H2A_STORE_SCHEMA_VERSION;
   const to = flags.to ?? H2A_STORE_SCHEMA_VERSION;
   const dryRun = flags["dry-run"] === "true";
+
+  // DEC-064: opt-in within-version maintenance pass. Renames pre-DEC-062
+  // store entries with `:` (or other forbidden chars) in their names to the
+  // safePathSegment form, so a store created by <=0.1.23 works on Windows and
+  // is consistent on every OS. Does not touch the schema version.
+  if (flags["sanitize-paths"] === "true") {
+    const result = sanitizeStorePaths(root, { dryRun });
+    streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    // Conflicts (target already exists) are a state issue → exit 2.
+    return result.ok ? 0 : 2;
+  }
 
   const KNOWN_VERSIONS: readonly string[] = [H2A_STORE_SCHEMA_VERSION];
   if (!KNOWN_VERSIONS.includes(from)) {

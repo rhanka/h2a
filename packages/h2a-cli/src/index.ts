@@ -46,6 +46,7 @@ export {
   presenceFile,
   readPresence,
   safePathSegment,
+  sanitizeStorePaths,
   updatePresence,
   withLock,
   withLockSync,
@@ -57,6 +58,8 @@ export {
   type LocalStorePaths,
   type LockOwner,
   type PresenceWriteResult,
+  type SanitizePathsResult,
+  type SanitizeRenameEntry,
   type WithLockOptions
 } from "./runtime/local-files/index.js";
 

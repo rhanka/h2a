@@ -1,6 +1,6 @@
 # H2A Compatibility Matrix
 
-> Last update: 2026-05-22. Source of truth for host wave state: `h2a host status` (DEC-037 / DEC-049).
+> Last update: 2026-05-25. Source of truth for host wave state: `h2a host status` (DEC-037 / DEC-049).
 
 This matrix tracks what is shipped for each host adapter in V1. It is intentionally operational: if a cell says "shipped", there is code, a CLI surface, and test coverage behind it.
 
@@ -45,3 +45,13 @@ Unknown hosts return exit code `1` with a stderr message listing supported names
 - **MCP adapter** means the host can point at the same shipped local MCP server surface: JSON-RPC 2.0 over stdio and in-process handlers backed by the local-files runtime.
 - **`host setup` snippet** means the CLI can render or merge a ready `mcpServers.h2a` config entry for that host.
 - **End-to-end host scenario** means a host-specific automation test has driven inbox / negotiation / MCP operations through that host. Codex, Claude Code, and Gemini are all covered by `packages/h2a-cli/test/host-mcp-scenario.test.js` (DEC-044, DEC-049).
+
+## Runtime host bridge: `@sentropic/remote` (DEC-059 / DEC-063)
+
+Beyond the CLI hosts above, h2a defines a **host bridge contract** for runtimes that embed `h2a mcp-serve` as a Kubernetes sidecar (DEC-058). The first such runtime is `@sentropic/remote` (repo `rhanka/remote`).
+
+| Runtime | Bridge profile | h2a side | Host side | Status |
+| --- | --- | --- | --- | --- |
+| `@sentropic/remote` | `H2A_HOST_BRIDGE_PROFILES["remote"]` (5 clauses: identity, lifecycle, resource-limits, disclosure, auth-boundary) | shipped (DEC-059, key `remote` since DEC-063) | adopted — JSON Schema merged in `rhanka/remote` (`packages/protocol`, PR `rhanka/remote#2`) | **bilateral, live both sides** |
+
+The contract is symmetric: h2a publishes `hostId: "remote"`, `instanceTemplate: "remote:${SESSION_ID}"`, and `@sentropic/remote` validates the same shape at session creation. Any future change to the bridge requires paired PRs in both repos (DEC-059). Deployment scenarios B/C (cluster-wide tenant, network broker) remain deferred — see [`instruction-k8s-and-remote-interop.md`](./instruction-k8s-and-remote-interop.md).
