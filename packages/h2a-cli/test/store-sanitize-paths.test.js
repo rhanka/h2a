@@ -8,9 +8,20 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { platform } from "node:process";
 import test from "node:test";
 
 import { runCli, sanitizeStorePaths } from "../dist/index.js";
+
+// These tests seed a *legacy* store whose ids contain `:` used directly as
+// directory/file names (the pre-DEC-062 layout). Windows forbids `:` in path
+// names, so such a store can never have been created there in the first
+// place — the migration pass (DEC-064) is a POSIX-only concern. We skip the
+// colon-seeding tests on Windows and track it as a known, intentional gap.
+const skipOnWindows =
+  platform === "win32"
+    ? { skip: "Windows: legacy `:`-named stores are POSIX-only (DEC-062/064)" }
+    : {};
 
 function legacyStore() {
   const root = mkdtempSync(join(tmpdir(), "h2a-legacy-"));
@@ -28,7 +39,7 @@ function legacyStore() {
   return root;
 }
 
-test("sanitizeStorePaths dry-run reports would-rename without touching disk (DEC-064)", () => {
+test("sanitizeStorePaths dry-run reports would-rename without touching disk (DEC-064)", skipOnWindows, () => {
   const root = legacyStore();
   try {
     const result = sanitizeStorePaths(root, { dryRun: true });
@@ -55,7 +66,7 @@ test("sanitizeStorePaths dry-run reports would-rename without touching disk (DEC
   }
 });
 
-test("sanitizeStorePaths actually renames every `:`-bearing entry (DEC-064)", () => {
+test("sanitizeStorePaths actually renames every `:`-bearing entry (DEC-064)", skipOnWindows, () => {
   const root = legacyStore();
   try {
     const result = sanitizeStorePaths(root, { dryRun: false });
@@ -95,7 +106,7 @@ test("sanitizeStorePaths is a no-op on an already-clean store", () => {
   }
 });
 
-test("sanitizeStorePaths reports a conflict when the sanitized target already exists", () => {
+test("sanitizeStorePaths reports a conflict when the sanitized target already exists", skipOnWindows, () => {
   const root = mkdtempSync(join(tmpdir(), "h2a-conflict-"));
   try {
     mkdirSync(join(root, "negotiations", "nego:codex"), { recursive: true });
@@ -111,7 +122,7 @@ test("sanitizeStorePaths reports a conflict when the sanitized target already ex
   }
 });
 
-test("h2a store migrate --sanitize-paths --dry-run emits an action envelope", () => {
+test("h2a store migrate --sanitize-paths --dry-run emits an action envelope", skipOnWindows, () => {
   const root = legacyStore();
   try {
     let stdout = "";
@@ -134,7 +145,7 @@ test("h2a store migrate --sanitize-paths --dry-run emits an action envelope", ()
   }
 });
 
-test("h2a store migrate --sanitize-paths exits 2 on a conflict", () => {
+test("h2a store migrate --sanitize-paths exits 2 on a conflict", skipOnWindows, () => {
   const root = mkdtempSync(join(tmpdir(), "h2a-cli-conflict-"));
   try {
     mkdirSync(join(root, "inbox", "claude:proj-1"), { recursive: true });
