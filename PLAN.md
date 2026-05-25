@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-25 (DEC-077 — Transport auth slice 3b-ii: `h2a remote serve`/`send` CLI, store-wired, 127.0.0.1 default. **Signed-bearer transport-auth COMPLETE** (073→077). V2 line 0.2.x. Remaining V2: broker Scénario C + optional mTLS — both deferrable; likely needs user steer on priority)
+> Last update: 2026-05-25 (docs consolidation — added docs/remote-transport.md + docs/subagents.md, refreshed README status matrix/index. V1 100%, V2 SUBAGENTS + transport-auth both 100% (0.2.0→0.2.9). **Only remaining V2 candidate = network broker Scénario C — a large new subsystem; STOP and ask user for steer before starting it.**)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 

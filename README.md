@@ -6,7 +6,7 @@
 |---|---|
 | **Published packages** | `@sentropic/h2a@0.1.24` (core), `@sentropic/h2a-cli@0.1.24` (CLI binary + MCP server + skills) ; OCI image `ghcr.io/rhanka/h2a-cli:latest` |
 | **License** | MIT (DEC-027) |
-| **Status** | V1 end-to-end usable: protocol + local runtime + 3 hosts (Claude / Codex / Gemini) + skills. V2 (remote transport, transport auth, k8s) under design. |
+| **Status** | V1 end-to-end usable: protocol + local runtime + 3 hosts (Claude / Codex / Gemini) + skills + K8s (sidecar & tenant). V2 shipping on the 0.2.x line: first-class subagents + signed-bearer remote transport. Network broker (Scenario C) still under design. |
 | **Quickstart** | `npm i -g @sentropic/h2a-cli`, then see [§5-minute getting started](#5-minute-getting-started). |
 
 ---
@@ -132,9 +132,9 @@ Then, inside each CLI:
 | Session protocol: presence + heartbeat + push notifications | ✅ shipped (DEC-050..053) | — |
 | ed25519 signatures + canonical JSON + chained journal | ✅ shipped (DEC-035) | — |
 | Declarative ABC profiles: disclosure, recourse, recurring obligations, jurisdiction, precedence | ✅ shipped (DEC-045..048) | automatic resolvers (V2) |
-| Cross-machine (`@sentropic/remote`) | ❌ not started | V2 (`@sentropic/h2a-remote` candidate) |
-| Transport auth (mTLS / signed bearer) | ❌ V1 has none (DEC-032) | V2 |
-| First-class SUBAGENTS (individually addressable) | ❌ V1 consolidates them into AGENT | V2 (DEC-008) |
+| Cross-machine remote transport | ✅ signed-bearer over HTTP ([docs/remote-transport.md](./docs/remote-transport.md), DEC-073..077) | broker/relay (Scenario C) → V2 |
+| Transport auth (signed bearer) | ✅ signed envelopes + anti-replay + verify-on-receipt (DEC-073..077) | mTLS channel hardening optional |
+| First-class SUBAGENTS (individually addressable) | ✅ addressable/persistent/routable/auditable/revocable ([docs/subagents.md](./docs/subagents.md), DEC-068..072) | — |
 | Key management UX (rotation, keyring) | ❌ manual PEM via `h2a keys generate` | V2 candidate |
 | Kubernetes deployment | ✅ sidecar ([docs/k8s-sidecar.md](./docs/k8s-sidecar.md), DEC-058) + cluster tenant with RWX store + lease lock ([docs/k8s-tenant.md](./docs/k8s-tenant.md), DEC-067) | broker (Scenario C) → V2 |
 
@@ -237,6 +237,8 @@ Plus a **push notification channel** (`notifications/h2a`) on 4 topics (DEC-052)
 | [docs/instruction-k8s-and-remote-interop.md](./docs/instruction-k8s-and-remote-interop.md) | K8s deployment + `@sentropic/remote` interop note (DEC-056) |
 | [docs/k8s-sidecar.md](./docs/k8s-sidecar.md) | K8s sidecar deployment — Scenario A (DEC-058) |
 | [docs/k8s-tenant.md](./docs/k8s-tenant.md) | K8s cluster-tenant deployment — Scenario B, RWX + lease lock (DEC-067) |
+| [docs/remote-transport.md](./docs/remote-transport.md) | Cross-machine signed-bearer transport — `h2a remote serve`/`send` (DEC-073..077) |
+| [docs/subagents.md](./docs/subagents.md) | First-class subagents — addressable/auditable/revocable (DEC-068..072) |
 | [handover.md](./handover.md) | Handover prompt for a Claude session |
 
 > Project policy: all docs and code in this repository are in English. `INTENTION.md` contains an English translation of the original French user verbatim; the French source remains recoverable from git history at commit `195d1c2~1`.
