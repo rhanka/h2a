@@ -1260,3 +1260,19 @@ The pass does **not** bump the schema sentinel: the layout version stays `1`. Th
 **Why**: (a) Scenario B is blocked on cross-host locking, not storage (RWX exists on Scaleway); this primitive removes that blocker; (b) a lease (TTL) is the standard cross-host replacement for PID-liveness — it makes no assumption about who or where the holder is; (c) the O_EXCL create gate keeps the steal atomic without needing a coordination service; (d) the nonce-guarded release prevents the classic "stale holder wakes up and deletes the new lease" bug; (e) keeping it a **separate** module (not a modification of `locks.ts`) means the same-machine PID lock stays the zero-config default and the lease is opt-in (wired in DEC-066).
 
 **Consequence**: (a) `withLeaseSync` / `withLease` are exported from `@sentropic/h2a-cli`; (b) DEC-066 will let `createLocalStore({ lockMode: "lease" })` route critical sections through the lease so a shared RWX store is safe under cross-Pod concurrency; (c) the PID lock (DEC-036) remains the default for the common single-machine case; (d) fencing-token monotonicity resets on a clean release+reacquire cycle — acceptable because h2a does not pass the token to an external system in V1 (the token's V1 job is holder self-verification at release); (e) a patch release `0.1.27` ships the primitive.
+
+## DEC-066 — Wire `lockMode: "lease"` into the local store
+**Date**: 2026-05-25. **Refers**: DEC-036, DEC-065, DEC-056 (Scenario B), WP-20.
+
+**Context**: DEC-065 added the cross-host lease lock primitive but left it unused — every critical section in `store.ts` still went through DEC-036's PID-based `withLockSync`. To make a shared ReadWriteMany store actually safe under cross-Pod concurrency (Scenario B), the store has to be able to route its locked sections through the lease.
+
+**Decision**: add `lockMode?: "pid" | "lease"` and `leaseMs?: number` to `CreateLocalStoreOptions`. `createLocalStore` resolves a single internal `lock<T>(lockPath, fn, opts)` dispatcher that routes to `withLeaseSync` (lease) or `withLockSync` (pid); all eight critical sections (instance register, negotiation open/status/event/stabilize, inbox put/pop, outbox put) call the dispatcher rather than `withLockSync` directly.
+
+- `"pid"` is the default — zero-config, same-machine advisory lock with PID-staleness recovery (DEC-036). Unchanged behaviour for every existing caller.
+- `"lease"` routes through DEC-065's TTL lease; `leaseMs` (default 30000) tunes the lease duration and must exceed the longest critical section plus inter-host clock skew.
+
+The dispatcher is the *only* structural change — lock-path computation, journal-chain verification, and dup guards are identical across both modes, so the lease path inherits all existing invariants.
+
+**Why**: (a) a primitive nobody calls protects nothing; this is the slice that turns DEC-065 into a usable Scenario-B capability; (b) keeping `pid` the default means single-machine users (the common case) pay zero cost and see no behavioural change; (c) a single dispatcher (vs. branching at each of the 8 sites) keeps the two modes provably uniform — the only thing that varies is which lock primitive runs the closure; (d) surfacing `lockMode`/`leaseMs` on the public options type lets the K8s tenant renderer (DEC-067) and library consumers opt in declaratively.
+
+**Consequence**: (a) `createLocalStore({ lockMode: "lease" })` makes a shared RWX store safe across Pods; (b) the PID lock stays the default — no migration, no config required for existing deployments; (c) Scenario B now has its store-level concurrency story complete (lease lock primitive + store wiring); the remaining piece is the deployment manifest (DEC-067); (d) a patch release `0.1.28` ships the option.

@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-25 (DEC-065 — cross-host lease lock primitive ; Scenario B no longer blocked on storage or locking. Next: DEC-066 wire lockMode into store, DEC-067 k8s-tenant renderer)
+> Last update: 2026-05-25 (DEC-066 — store wired with opt-in `lockMode: "lease"` ; Scenario B store-level concurrency complete. Next: DEC-067 k8s-tenant manifest renderer)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -76,6 +76,7 @@
 - [x] Define migration/versioning strategy for local state (`<root>/.h2a-schema.json` v1 + `H2A_STORE_SCHEMA_VERSION`, `StoreSchemaMismatchError`, verbe `h2a store migrate` — DEC-036)
 - [x] File-based presence producer (`<root>/.h2a/presence/<sid>.json`) + `SessionRegistry` (heartbeat, scanFresh with TTL sweep, closeAll on stdio shutdown) — DEC-051
 - [x] Cross-host lease lock primitive (`withLeaseSync` / `withLease`, TTL + fencing token + nonce-guarded release) — unblocks Scenario B cross-Pod concurrency — DEC-065
+- [x] Wire lease lock into the store as opt-in `lockMode: "lease"` (`createLocalStore({ lockMode, leaseMs })`, single dispatcher over all 8 critical sections, `pid` stays default) — DEC-066
 
 ## Workpackage 30 - `h2a-cli` Surface (~100%)
 

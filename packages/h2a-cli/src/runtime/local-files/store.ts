@@ -31,6 +31,7 @@ import {
 } from "@sentropic/h2a";
 
 import { withLockSync } from "./locks.js";
+import { withLeaseSync } from "./lease.js";
 import {
   inboxDir,
   localStorePaths,
@@ -62,6 +63,20 @@ export interface CreateLocalStoreOptions {
    * rewrites the sentinel. Intended for inspection tooling. DEC-036.
    */
   allowVersionMismatch?: boolean;
+  /**
+   * Locking strategy for critical sections (DEC-066):
+   * - `"pid"` (default) — same-machine advisory lock with PID-staleness
+   *   recovery (DEC-036). Zero-config, correct for the common single-machine
+   *   case.
+   * - `"lease"` — time-based lease lock (DEC-065) safe across hosts/Pods on a
+   *   shared ReadWriteMany store (Scenario B of DEC-056). No PID assumption.
+   */
+  lockMode?: "pid" | "lease";
+  /**
+   * Lease duration (ms) when `lockMode === "lease"`. Must exceed the longest
+   * critical section plus inter-host clock skew. Default 30000.
+   */
+  leaseMs?: number;
 }
 
 export interface LocalStore {
@@ -219,7 +234,25 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   const lockTimeoutMs = options.lockTimeoutMs ?? 5000;
-  const lockOpts = { timeoutMs: lockTimeoutMs };
+  const lockMode = options.lockMode ?? "pid";
+  const lockOpts =
+    lockMode === "lease"
+      ? { timeoutMs: lockTimeoutMs, leaseMs: options.leaseMs ?? 30000 }
+      : { timeoutMs: lockTimeoutMs };
+
+  // DEC-066: route every critical section through the chosen strategy. `pid`
+  // is the same-machine default (DEC-036); `lease` is the cross-host primitive
+  // (DEC-065) for a shared RWX store. Both share the `(path, fn, opts)` shape;
+  // the lease handle arg is simply ignored by the store's sync sections.
+  function lock<T>(
+    lockPath: string,
+    fn: () => T,
+    opts: typeof lockOpts
+  ): T {
+    return lockMode === "lease"
+      ? withLeaseSync(lockPath, fn, opts)
+      : withLockSync(lockPath, fn, opts);
+  }
 
   const registryLock = join(paths.registry, ".lock");
   const negotiationLock = (id: string): string => join(negotiationDir(paths, id), ".lock");
@@ -235,7 +268,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function registerInstance(reg: H2AActorRegistration): void {
-    withLockSync(
+    lock(
       registryLock,
       () => {
         if (findInstance(reg.id)) {
@@ -254,7 +287,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   function openNegotiation(record: H2ANegotiationRecord): H2ANegotiationRecord {
     assertValidNegotiationState(record.status);
     ensureDir(negotiationDir(paths, record.id));
-    return withLockSync(
+    return lock(
       negotiationLock(record.id),
       () => {
         const file = negotiationStateFile(record.id);
@@ -280,7 +313,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   ): H2ANegotiationRecord {
     assertValidNegotiationState(status);
     ensureDir(negotiationDir(paths, id));
-    return withLockSync(
+    return lock(
       negotiationLock(id),
       () => {
         const current = readNegotiation(id);
@@ -325,7 +358,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     payload: H2AJournalPayload<TBody>
   ): H2AJournalEntry<TBody> {
     ensureDir(negotiationDir(paths, negotiationId));
-    return withLockSync(
+    return lock(
       negotiationLock(negotiationId),
       () => {
         const file = negotiationJournalFile(paths, negotiationId);
@@ -346,7 +379,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     options: { eventId?: string } = {}
   ) {
     ensureDir(negotiationDir(paths, negotiationId));
-    return withLockSync(
+    return lock(
       negotiationLock(negotiationId),
       () => {
         const record = readNegotiation(negotiationId);
@@ -559,7 +592,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     }
     const dir = inboxDir(paths, actor);
     ensureDir(dir);
-    withLockSync(
+    lock(
       inboxLock(actor),
       () => {
         writeFileSync(envelopeFile(dir, envelope.id), JSON.stringify(envelope, null, 2), "utf8");
@@ -575,7 +608,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   function popInboxMessage(actor: string, envelopeId: string): H2AEnvelope | undefined {
     const dir = inboxDir(paths, actor);
     ensureDir(dir);
-    return withLockSync(
+    return lock(
       inboxLock(actor),
       () => {
         const file = envelopeFile(dir, envelopeId);
@@ -594,7 +627,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     }
     const dir = outboxDir(paths, actor);
     ensureDir(dir);
-    withLockSync(
+    lock(
       outboxLock(actor),
       () => {
         writeFileSync(envelopeFile(dir, envelope.id), JSON.stringify(envelope, null, 2), "utf8");
