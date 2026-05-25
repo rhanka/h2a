@@ -115,6 +115,18 @@ export {
   verifyEnvelopeSignature
 } from "./envelope.js";
 export {
+  H2A_DEFAULT_MAX_AGE_MS,
+  H2A_DEFAULT_MAX_SKEW_MS,
+  checkEnvelopeFreshness,
+  createReplayGuard
+} from "./replay.js";
+export type {
+  H2AFreshnessOptions,
+  H2AReplayCheck,
+  H2AReplayGuard,
+  H2AReplayRejection
+} from "./replay.js";
+export {
   H2A_SESSION_DEFAULT_EXPIRY_MS,
   H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS,
   H2A_SESSION_NOTIFICATION_TOPICS,
