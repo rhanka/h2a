@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-25 (DEC-070 — SUBAGENTS slice 3: validated routing + parent fan-in + `h2a subagent route/inbox`. V2 line 0.2.x. Next SUBAGENTS slices: per-subagent audit trail → takeover)
+> Last update: 2026-05-25 (DEC-071 — SUBAGENTS slice 4: append-only per-subagent audit trail + `h2a subagent audit`. V2 line 0.2.x. Next/last SUBAGENTS slice: takeover at subagent granularity)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -125,7 +125,7 @@
 - [x] MCP push notifications (`notifications/h2a`) on presence join/leave + inbox arrival + negotiation event ; tick-based scanner, configurable interval, sink wired by runMcpStdio — DEC-052
 - [x] Real cross-CLI integration test (two `mcp-serve` subprocesses sharing a root, inbox push + graceful close + SIGKILL TTL expiry) — DEC-053
 - [ ] V2: transport auth (mTLS / signed bearer)
-- [~] V2: first-class SUBAGENTS (DEC-008) — **slices 1-3 done**: [x] addressable binding layer in core (DEC-068) ; [x] store binding registration `registry/subagents.jsonl` + `h2a subagent register/list` (DEC-069) ; [x] validated routing `routeToSubagent` + parent fan-in `readSubagentInboxes` + `h2a subagent route/inbox` (DEC-070). Remaining slices: [ ] per-subagent audit trail ; [ ] takeover at subagent granularity.
+- [~] V2: first-class SUBAGENTS (DEC-008) — **slices 1-4 done**: [x] addressable binding layer in core (DEC-068) ; [x] store binding registration `registry/subagents.jsonl` + `h2a subagent register/list` (DEC-069) ; [x] validated routing + parent fan-in + `h2a subagent route/inbox` (DEC-070) ; [x] append-only per-subagent audit trail `registry/subagent-audit.jsonl` + `h2a subagent audit` (DEC-071). Remaining slice: [ ] takeover at subagent granularity.
 
 ### Codex track
 

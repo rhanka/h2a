@@ -81,6 +81,20 @@ export interface CreateLocalStoreOptions {
   leaseMs?: number;
 }
 
+/**
+ * An append-only audit event for a subagent (DEC-071). Distinct from the
+ * parent fan-in (DEC-070), which reflects *current* inbox state: the audit log
+ * is the permanent history of what happened to a subagent and survives an
+ * inbox pop.
+ */
+export interface H2ASubagentAuditEvent {
+  subagent: string;
+  type: "registered" | "routed";
+  at: string;
+  envelopeId?: string;
+  mailbox?: "inbox" | "outbox";
+}
+
 export interface LocalStore {
   paths: LocalStorePaths;
   registerInstance(reg: H2AActorRegistration): void;
@@ -124,6 +138,8 @@ export interface LocalStore {
   readSubagentInboxes(
     parentInstance: string
   ): Array<{ subagent: string; envelopes: H2AEnvelope[] }>;
+  readSubagentAudit(subagentId: string): H2ASubagentAuditEvent[];
+  readSubagentAuditOf(parentInstance: string): H2ASubagentAuditEvent[];
 }
 
 function ensureDir(path: string): void {
@@ -330,6 +346,25 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     return listSubagents().filter((b) => b.parentInstance === parentInstance);
   }
 
+  // DEC-071: append-only per-subagent audit log. Callers append under the
+  // registry lock (low-volume, co-located with the binding registry).
+  function appendSubagentAudit(event: H2ASubagentAuditEvent): void {
+    appendJsonl(paths.subagentAudit, event);
+  }
+
+  function readSubagentAudit(subagentId: string): H2ASubagentAuditEvent[] {
+    return readJsonl<H2ASubagentAuditEvent>(paths.subagentAudit).filter(
+      (e) => e.subagent === subagentId
+    );
+  }
+
+  function readSubagentAuditOf(parentInstance: string): H2ASubagentAuditEvent[] {
+    const ids = new Set(listSubagentsOf(parentInstance).map((b) => b.id));
+    return readJsonl<H2ASubagentAuditEvent>(paths.subagentAudit).filter((e) =>
+      ids.has(e.subagent)
+    );
+  }
+
   // DEC-068: subagent bindings share the registry lock with instance
   // registration — both are low-volume registry appends, so one lock keeps the
   // two files mutually consistent (a binding's parent must already be present).
@@ -353,6 +388,11 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
           throw new Error(`Subagent already registered: ${binding.id}`);
         }
         appendJsonl(paths.subagents, binding);
+        appendSubagentAudit({
+          subagent: binding.id,
+          type: "registered",
+          at: new Date().toISOString()
+        });
       },
       lockOpts
     );
@@ -733,6 +773,18 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     }
     if (mailbox === "outbox") putOutboxMessage(subagentId, envelope);
     else putInboxMessage(subagentId, envelope);
+    lock(
+      registryLock,
+      () =>
+        appendSubagentAudit({
+          subagent: subagentId,
+          type: "routed",
+          at: new Date().toISOString(),
+          envelopeId: envelope.id,
+          mailbox
+        }),
+      lockOpts
+    );
   }
 
   // DEC-070: parent fan-in — every registered subagent of a parent plus its
@@ -768,6 +820,8 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     putOutboxMessage,
     readOutbox,
     routeToSubagent,
-    readSubagentInboxes
+    readSubagentInboxes,
+    readSubagentAudit,
+    readSubagentAuditOf
   };
 }

@@ -54,6 +54,7 @@ export {
   withLockSync,
   writePresence,
   type CreateLocalStoreOptions,
+  type H2ASubagentAuditEvent,
   type H2AStoreSchemaSentinel,
   type LeaseHandle,
   type LeaseRecord,

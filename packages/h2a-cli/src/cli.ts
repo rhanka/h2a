@@ -132,6 +132,7 @@ export function renderCliHelp(): string {
     "  h2a subagent list [--parent <instance>] [--root <path>]",
     "  h2a subagent route --to <subagent-address> --json <envelope> [--mailbox inbox|outbox] [--root <path>]",
     "  h2a subagent inbox --parent <instance> [--root <path>]",
+    "  h2a subagent audit (--id <subagent-address> | --parent <instance>) [--root <path>]",
     "  h2a negotiate open --json <record-json> [--root <path>]",
     "  h2a negotiate status --id <id> --status <status> [--root <path>]",
     "  h2a negotiate event --id <id> --json <payload-json> [--causation-id <id>] [--correlation-id <id>] [--root <path>]",
@@ -340,6 +341,20 @@ function cmdSubagent(
     return 0;
   }
 
+  if (sub === "audit") {
+    if (!flags.id && !flags.parent) {
+      streams.stderr.write(
+        "h2a subagent audit: --id <subagent-address> or --parent <instance> is required\n"
+      );
+      return 1;
+    }
+    const events = flags.id
+      ? store.readSubagentAudit(flags.id)
+      : store.readSubagentAuditOf(flags.parent);
+    streams.stdout.write(`${JSON.stringify(events, null, 2)}\n`);
+    return 0;
+  }
+
   if (sub === "register") {
     if (!flags.parent || !flags.name) {
       streams.stderr.write(
@@ -371,7 +386,7 @@ function cmdSubagent(
   }
 
   streams.stderr.write(
-    `h2a subagent: subcommand required (supported: register, list, route, inbox)\n`
+    `h2a subagent: subcommand required (supported: register, list, route, inbox, audit)\n`
   );
   return 1;
 }

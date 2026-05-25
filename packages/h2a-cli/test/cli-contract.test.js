@@ -504,6 +504,8 @@ function buildHappyArgv(verb, ctx) {
       ];
     case "subagent inbox":
       return ["subagent", "inbox", "--root", root, "--parent", "agent-001"];
+    case "subagent audit":
+      return ["subagent", "audit", "--root", root, "--parent", "agent-001"];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -546,7 +548,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "subagent register",
     "subagent list",
     "subagent route",
-    "subagent inbox"
+    "subagent inbox",
+    "subagent audit"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {

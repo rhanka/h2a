@@ -152,6 +152,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     description:
       "Parent fan-in: list each registered subagent of `--parent` with the envelopes in its inbox, for coordination/audit. DEC-070."
   },
+  {
+    verb: "subagent audit",
+    outputShape: "list",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["root", "id", "parent"],
+    description:
+      "List the append-only audit events (`registered`, `routed`) for a single subagent via `--id <address>`, or for all subagents of `--parent <instance>`. The audit log is permanent history and survives an inbox pop (unlike the fan-in). DEC-071."
+  },
 
   // --- negotiation ---
   {

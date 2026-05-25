@@ -309,3 +309,105 @@ test("h2a subagent route to an unregistered subagent exits 2", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("registerSubagent + routeToSubagent append audit events (DEC-071)", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    store.registerSubagent(binding());
+    store.routeToSubagent("claude:proj-1~researcher", envelope("a1"));
+    store.routeToSubagent("claude:proj-1~researcher", envelope("a2"), "outbox");
+
+    const events = store.readSubagentAudit("claude:proj-1~researcher");
+    assert.equal(events.length, 3);
+    assert.equal(events[0].type, "registered");
+    assert.equal(events[1].type, "routed");
+    assert.equal(events[1].envelopeId, "a1");
+    assert.equal(events[1].mailbox, "inbox");
+    assert.equal(events[2].mailbox, "outbox");
+    // every event carries a timestamp + the subagent id
+    for (const e of events) {
+      assert.equal(e.subagent, "claude:proj-1~researcher");
+      assert.match(e.at, /^\d{4}-\d{2}-\d{2}T/);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("audit survives an inbox pop (it is history, not current state)", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    store.registerSubagent(binding());
+    store.routeToSubagent("claude:proj-1~researcher", envelope("p1"));
+    store.popInboxMessage("claude:proj-1~researcher", "p1");
+    // fan-in now shows an empty inbox...
+    assert.equal(
+      store.readSubagentInboxes("claude:proj-1")[0].envelopes.length,
+      0
+    );
+    // ...but the audit still records the routing.
+    const routed = store
+      .readSubagentAudit("claude:proj-1~researcher")
+      .filter((e) => e.type === "routed");
+    assert.equal(routed.length, 1);
+    assert.equal(routed[0].envelopeId, "p1");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("readSubagentAuditOf aggregates events across a parent's subagents", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    store.registerSubagent(binding({ id: "claude:proj-1~a", name: "a" }));
+    store.registerSubagent(binding({ id: "claude:proj-1~b", name: "b" }));
+    store.routeToSubagent("claude:proj-1~a", envelope("x"));
+    const all = store.readSubagentAuditOf("claude:proj-1");
+    // 2 registered + 1 routed
+    assert.equal(all.length, 3);
+    assert.equal(all.filter((e) => e.type === "registered").length, 2);
+    assert.equal(all.filter((e) => e.type === "routed").length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("h2a subagent audit --id lists a subagent's events via the CLI", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    store.registerSubagent(binding());
+    store.routeToSubagent("claude:proj-1~researcher", envelope("c1"));
+
+    const cap = captureStreams();
+    const rc = runCli(
+      ["subagent", "audit", "--root", root, "--id", "claude:proj-1~researcher"],
+      cap.streams
+    );
+    assert.equal(rc, 0);
+    const events = JSON.parse(cap.out());
+    assert.equal(events.length, 2);
+    assert.equal(events[0].type, "registered");
+    assert.equal(events[1].type, "routed");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("h2a subagent audit without --id/--parent exits 1", () => {
+  const root = freshRoot();
+  try {
+    const cap = captureStreams();
+    const rc = runCli(["subagent", "audit", "--root", root], cap.streams);
+    assert.equal(rc, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
