@@ -103,9 +103,15 @@ export {
 
 export {
   acceptRemoteEnvelope,
+  createRemoteServer,
+  rejectionStatus,
+  sendRemoteEnvelope,
   type AcceptRemoteOptions,
   type H2AAcceptRejection,
-  type H2AAcceptResult
+  type H2AAcceptResult,
+  type RemoteServerOptions,
+  type SendRemoteOptions,
+  type SendRemoteResult
 } from "./runtime/remote/index.js";
 
 export const H2A_CLI_HOSTS = [
