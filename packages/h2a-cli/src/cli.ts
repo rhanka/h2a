@@ -89,8 +89,9 @@ const STORE_STATE_ERROR_PATTERNS: readonly RegExp[] = [
   /no artifactHash has the full quorum/i,
   /no offer\/counter event matches/i,
   /stabilized artifact already on disk/i,
-  // DEC-069/070: subagent binding/routing preconditions on registry state.
+  // DEC-069/070/072: subagent binding/routing/revocation preconditions.
   /not registered/i,
+  /revoked/i,
   /parent-not-agents/,
   /parent-instance-mismatch/,
   /capabilities-exceed-parent/
@@ -133,6 +134,7 @@ export function renderCliHelp(): string {
     "  h2a subagent route --to <subagent-address> --json <envelope> [--mailbox inbox|outbox] [--root <path>]",
     "  h2a subagent inbox --parent <instance> [--root <path>]",
     "  h2a subagent audit (--id <subagent-address> | --parent <instance>) [--root <path>]",
+    "  h2a subagent revoke --id <subagent-address> [--reason <text>] [--root <path>]",
     "  h2a negotiate open --json <record-json> [--root <path>]",
     "  h2a negotiate status --id <id> --status <status> [--root <path>]",
     "  h2a negotiate event --id <id> --json <payload-json> [--causation-id <id>] [--correlation-id <id>] [--root <path>]",
@@ -293,7 +295,30 @@ function cmdSubagent(
     const entries = flags.parent
       ? store.listSubagentsOf(flags.parent)
       : store.listSubagents();
-    streams.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
+    // DEC-072: annotate each binding with its derived lifecycle status.
+    const annotated = entries.map((b) => ({
+      ...b,
+      status: store.subagentStatus(b.id)
+    }));
+    streams.stdout.write(`${JSON.stringify(annotated, null, 2)}\n`);
+    return 0;
+  }
+
+  if (sub === "revoke") {
+    if (!flags.id) {
+      streams.stderr.write("h2a subagent revoke: --id <subagent-address> is required\n");
+      return 1;
+    }
+    try {
+      store.revokeSubagent(flags.id, flags.reason);
+    } catch (error) {
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a subagent revoke: ${message}\n`);
+      return classifyStoreError(message);
+    }
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, id: flags.id, status: "revoked", ...(flags.reason ? { reason: flags.reason } : {}) }, null, 2)}\n`
+    );
     return 0;
   }
 
@@ -386,7 +411,7 @@ function cmdSubagent(
   }
 
   streams.stderr.write(
-    `h2a subagent: subcommand required (supported: register, list, route, inbox, audit)\n`
+    `h2a subagent: subcommand required (supported: register, list, route, inbox, audit, revoke)\n`
   );
   return 1;
 }

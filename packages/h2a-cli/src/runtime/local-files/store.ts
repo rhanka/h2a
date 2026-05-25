@@ -89,11 +89,14 @@ export interface CreateLocalStoreOptions {
  */
 export interface H2ASubagentAuditEvent {
   subagent: string;
-  type: "registered" | "routed";
+  type: "registered" | "routed" | "revoked";
   at: string;
   envelopeId?: string;
   mailbox?: "inbox" | "outbox";
+  reason?: string;
 }
+
+export type H2ASubagentStatus = "active" | "revoked";
 
 export interface LocalStore {
   paths: LocalStorePaths;
@@ -140,6 +143,8 @@ export interface LocalStore {
   ): Array<{ subagent: string; envelopes: H2AEnvelope[] }>;
   readSubagentAudit(subagentId: string): H2ASubagentAuditEvent[];
   readSubagentAuditOf(parentInstance: string): H2ASubagentAuditEvent[];
+  subagentStatus(subagentId: string): H2ASubagentStatus;
+  revokeSubagent(subagentId: string, reason?: string): void;
 }
 
 function ensureDir(path: string): void {
@@ -362,6 +367,39 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     const ids = new Set(listSubagentsOf(parentInstance).map((b) => b.id));
     return readJsonl<H2ASubagentAuditEvent>(paths.subagentAudit).filter((e) =>
       ids.has(e.subagent)
+    );
+  }
+
+  // DEC-072: a subagent's lifecycle status is *derived* from the append-only
+  // audit log rather than stored mutably — a `revoked` event flips it. This
+  // keeps `subagents.jsonl` append-only (no in-place binding edit) and reuses
+  // the slice-4 audit as the single source of truth.
+  function subagentStatus(subagentId: string): H2ASubagentStatus {
+    const events = readSubagentAudit(subagentId);
+    return events.some((e) => e.type === "revoked") ? "revoked" : "active";
+  }
+
+  // DEC-072: takeover at subagent granularity. Revoking deactivates a subagent
+  // (future routing is refused); its pending inbox stays readable by the parent
+  // via the fan-in (DEC-070), which is how the parent reclaims its work.
+  function revokeSubagent(subagentId: string, reason?: string): void {
+    lock(
+      registryLock,
+      () => {
+        if (!findSubagent(subagentId)) {
+          throw new Error(`Subagent not registered: ${subagentId}`);
+        }
+        if (subagentStatus(subagentId) === "revoked") {
+          throw new Error(`Subagent already revoked: ${subagentId}`);
+        }
+        appendSubagentAudit({
+          subagent: subagentId,
+          type: "revoked",
+          at: new Date().toISOString(),
+          ...(reason ? { reason } : {})
+        });
+      },
+      lockOpts
     );
   }
 
@@ -771,6 +809,9 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     if (!findSubagent(subagentId)) {
       throw new Error(`Subagent not registered: ${subagentId}`);
     }
+    if (subagentStatus(subagentId) === "revoked") {
+      throw new Error(`Subagent revoked: ${subagentId}`);
+    }
     if (mailbox === "outbox") putOutboxMessage(subagentId, envelope);
     else putInboxMessage(subagentId, envelope);
     lock(
@@ -822,6 +863,8 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     routeToSubagent,
     readSubagentInboxes,
     readSubagentAudit,
-    readSubagentAuditOf
+    readSubagentAuditOf,
+    subagentStatus,
+    revokeSubagent
   };
 }

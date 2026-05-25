@@ -159,7 +159,16 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: [],
     optionalFlags: ["root", "id", "parent"],
     description:
-      "List the append-only audit events (`registered`, `routed`) for a single subagent via `--id <address>`, or for all subagents of `--parent <instance>`. The audit log is permanent history and survives an inbox pop (unlike the fan-in). DEC-071."
+      "List the append-only audit events (`registered`, `routed`, `revoked`) for a single subagent via `--id <address>`, or for all subagents of `--parent <instance>`. The audit log is permanent history and survives an inbox pop (unlike the fan-in). DEC-071."
+  },
+  {
+    verb: "subagent revoke",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["id"],
+    optionalFlags: ["root", "reason"],
+    description:
+      "Takeover at subagent granularity: revoke a subagent (`--id <address>`) so future routing to it is refused (exit 2 on a later route). Status is derived from the audit log; revoking an already-revoked subagent is a state error (exit 2). The parent reclaims pending work via the fan-in (`subagent inbox`). DEC-072."
   },
 
   // --- negotiation ---

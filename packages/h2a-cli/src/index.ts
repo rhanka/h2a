@@ -55,6 +55,7 @@ export {
   writePresence,
   type CreateLocalStoreOptions,
   type H2ASubagentAuditEvent,
+  type H2ASubagentStatus,
   type H2AStoreSchemaSentinel,
   type LeaseHandle,
   type LeaseRecord,

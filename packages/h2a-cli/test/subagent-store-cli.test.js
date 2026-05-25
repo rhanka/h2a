@@ -411,3 +411,102 @@ test("h2a subagent audit without --id/--parent exits 1", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("revokeSubagent flips status and refuses further routing (DEC-072)", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    store.registerSubagent(binding());
+    assert.equal(store.subagentStatus("claude:proj-1~researcher"), "active");
+
+    store.revokeSubagent("claude:proj-1~researcher", "takeover");
+    assert.equal(store.subagentStatus("claude:proj-1~researcher"), "revoked");
+
+    // routing to a revoked subagent is refused
+    assert.throws(
+      () => store.routeToSubagent("claude:proj-1~researcher", envelope("r1")),
+      /revoked/i
+    );
+    // the revocation is recorded in the audit with its reason
+    const revoked = store
+      .readSubagentAudit("claude:proj-1~researcher")
+      .find((e) => e.type === "revoked");
+    assert.ok(revoked);
+    assert.equal(revoked.reason, "takeover");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("envelopes routed before revocation stay readable by the parent (takeover)", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    store.registerSubagent(binding());
+    store.routeToSubagent("claude:proj-1~researcher", envelope("keep1"));
+    store.revokeSubagent("claude:proj-1~researcher");
+    // the parent reclaims pending work via the fan-in
+    const fanIn = store.readSubagentInboxes("claude:proj-1");
+    assert.equal(fanIn[0].envelopes.length, 1);
+    assert.equal(fanIn[0].envelopes[0].id, "keep1");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("revoking twice is a state error", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    store.registerSubagent(binding());
+    store.revokeSubagent("claude:proj-1~researcher");
+    assert.throws(
+      () => store.revokeSubagent("claude:proj-1~researcher"),
+      /already revoked/i
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("h2a subagent revoke via CLI; list shows status; later route exits 2", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    store.registerSubagent(binding());
+
+    const rev = captureStreams();
+    const rcRev = runCli(
+      ["subagent", "revoke", "--root", root, "--id", "claude:proj-1~researcher", "--reason", "takeover"],
+      rev.streams
+    );
+    assert.equal(rcRev, 0);
+    assert.equal(JSON.parse(rev.out()).status, "revoked");
+
+    const ls = captureStreams();
+    runCli(["subagent", "list", "--root", root, "--parent", "claude:proj-1"], ls.streams);
+    assert.equal(JSON.parse(ls.out())[0].status, "revoked");
+
+    const rt = captureStreams();
+    const rcRoute = runCli(
+      [
+        "subagent",
+        "route",
+        "--root",
+        root,
+        "--to",
+        "claude:proj-1~researcher",
+        "--json",
+        JSON.stringify(envelope("after-revoke"))
+      ],
+      rt.streams
+    );
+    assert.equal(rcRoute, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

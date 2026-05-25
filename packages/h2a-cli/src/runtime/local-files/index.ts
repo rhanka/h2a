@@ -29,6 +29,7 @@ export {
   createLocalStore,
   type CreateLocalStoreOptions,
   type H2ASubagentAuditEvent,
+  type H2ASubagentStatus,
   type LocalStore
 } from "./store.js";
 
