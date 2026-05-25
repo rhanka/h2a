@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-25 (DEC-074 — Transport auth slice 2: anti-replay (`checkEnvelopeFreshness` + `createReplayGuard`) in core. Signed-bearer model now has provenance + freshness. V2 line 0.2.x. Next: slice 3 = `@sentropic/h2a-remote` transport moving signed envelopes with verify-on-receipt)
+> Last update: 2026-05-25 (DEC-075 — Transport auth slice 3a: remote-receive trust boundary `acceptRemoteEnvelope` in `runtime/remote/` (verify signature+replay → deliver to inbox; built in @sentropic/h2a-cli, 2-package rule held). V2 line 0.2.x. Next: slice 3b = HTTP server/client wiring + send side)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -124,7 +124,7 @@
 - [x] Session lifecycle MCP tools (`h2a_session_open`, `h2a_session_close`, `h2a_discover_sessions`) wired to the SessionRegistry — DEC-051
 - [x] MCP push notifications (`notifications/h2a`) on presence join/leave + inbox arrival + negotiation event ; tick-based scanner, configurable interval, sink wired by runMcpStdio — DEC-052
 - [x] Real cross-CLI integration test (two `mcp-serve` subprocesses sharing a root, inbox push + graceful close + SIGKILL TTL expiry) — DEC-053
-- [~] V2: transport auth — **mechanism DECIDED: signed-bearer end-to-end** (user steer 2026-05-25; transport moves bytes, auth = ed25519 envelope signatures + nonce/timestamp anti-replay; no PKI/mTLS, survives relays/brokers). Slices: [x] signed envelopes in core (DEC-073) ; [x] anti-replay — freshness window + id dedup, pure `checkEnvelopeFreshness` + in-memory `createReplayGuard` (DEC-074) ; [ ] `@sentropic/h2a-remote` transport moving signed envelopes over HTTP/relay with verify-on-receipt (signature + replay). mTLS only as an optional deployment-layer add-on, not built now.
+- [~] V2: transport auth — **mechanism DECIDED: signed-bearer end-to-end** (user steer 2026-05-25; transport moves bytes, auth = ed25519 envelope signatures + nonce/timestamp anti-replay; no PKI/mTLS, survives relays/brokers). Slices: [x] signed envelopes in core (DEC-073) ; [x] anti-replay — `checkEnvelopeFreshness` + `createReplayGuard` (DEC-074) ; [~] remote transport (in `runtime/remote/`, **not** a 3rd package): [x] 3a receive-side trust boundary `acceptRemoteEnvelope` — verify signature + replay then deliver to inbox (DEC-075) ; [ ] 3b HTTP server/client wiring + send side (sign + POST). mTLS only as an optional deployment-layer add-on, not built now.
 - [x] V2: first-class SUBAGENTS (DEC-008) — **COMPLETE (slices 1-5)**: [x] addressable binding layer in core (DEC-068) ; [x] store binding registration + `h2a subagent register/list` (DEC-069) ; [x] validated routing + parent fan-in + `h2a subagent route/inbox` (DEC-070) ; [x] append-only per-subagent audit trail + `h2a subagent audit` (DEC-071) ; [x] takeover via revocation (status derived from audit) + `h2a subagent revoke`, route refused once revoked (DEC-072). Subagents are addressable, persistent, routable, auditable, revocable.
 
 ### Codex track

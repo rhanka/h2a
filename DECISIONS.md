@@ -1410,3 +1410,23 @@ Reusing `id` as the dedup key (rather than a new `nonce` field) is sound because
 **Why**: (a) freshness + dedup are the standard, sufficient replay defense for a signed-bearer scheme, and keying them on already-signed fields means the signature also protects the replay metadata (an attacker can't alter `createdAt`/`id` without breaking the signature); (b) no new envelope field keeps the wire format and `isH2AEnvelope` unchanged; (c) window-bounded pruning makes the guard safe to run indefinitely without unbounded memory growth, and is correct because anything prunable is also stale; (d) shipping freshness as a *pure* function plus a thin stateful guard keeps the primitive testable and lets a future transport (in-memory guard now, a shared/persistent seen-set later if multi-process dedup is needed) swap the storage without touching the policy.
 
 **Consequence**: (a) `@sentropic/h2a` exports `checkEnvelopeFreshness` / `createReplayGuard` + the freshness/rejection types and the two default constants; (b) the signed-bearer auth model now has both halves — provenance (DEC-073) and freshness (DEC-074) — so a recipient can fully validate an envelope offline; (c) slice 3 (`@sentropic/h2a-remote`) can now move signed envelopes over HTTP/relay and verify signature + replay on receipt; multi-process dedup (a shared seen-set) is a possible later refinement if a broker fans out to several verifiers; (d) a patch release `0.2.6` ships the layer.
+
+## DEC-075 — Transport auth slice 3a: remote-receive pipeline (runtime/remote)
+**Date**: 2026-05-25. **Refers**: DEC-032, DEC-073, DEC-074. **Line**: V2 (0.2.x).
+
+**Context**: with provenance (DEC-073) and freshness (DEC-074) primitives in core, the remote transport needs the *trust boundary* where an off-host envelope is validated before it touches local state. This slice builds that boundary, decoupled from any wire protocol (HTTP wiring is slice 3b).
+
+**Package decision**: the repo keeps **exactly two packages** (`@sentropic/h2a`, `@sentropic/h2a-cli`). The `@sentropic/h2a-remote` name in earlier notes was indicative; remote transport ships as a `runtime/remote/` module **inside `@sentropic/h2a-cli`**, alongside `runtime/local-files`, `runtime/mcp`, `runtime/deploy`. No third package.
+
+**Decision**: `acceptRemoteEnvelope(payload, { resolvePublicKey, guard, deliver, now? })` in `runtime/remote/accept.ts`. It does not trust the channel; it validates in order and returns a structured `H2AAcceptResult` (never throws on rejection):
+1. `isH2AEnvelope(payload)` — else `malformed`.
+2. a local delivery target (`target.instance`) — else `no-target`.
+3. a signature `by` the emitter (`actor.instance`) — else `no-signature`; the emitter's key via `resolvePublicKey(signer)` — else `no-public-key`; `verifyEnvelopeSignature(…, { by: signer })` (DEC-073) — else `bad-signature`.
+4. `guard.accept(envelope, now)` (DEC-074) — else `invalid-timestamp` / `expired` / `future` / `replayed`.
+Only then `deliver(recipient, envelope)`.
+
+Key lookup, replay guard and delivery are **callbacks**, so the pipeline is transport-agnostic and unit-testable without a network or store. The CLI/HTTP layer (slice 3b) wires `resolvePublicKey` from the registry's `publicKeys`, `deliver` to `store.putInboxMessage`, and a process-wide `createReplayGuard`.
+
+**Why**: (a) the security of signed-bearer transport rests entirely on validating *before* delivery — making that an explicit, ordered, total function (structured result, no throw) keeps the trust boundary auditable and exhaustively testable; (b) verifying the signature specifically `by` the emitter (`actor.instance`) binds provenance to the declared sender, closing the "signed by someone else" gap; (c) callback injection keeps the pipeline pure of I/O and wire concerns, so slice 3b can choose HTTP/relay/anything without touching the validation logic; (d) building it in `runtime/remote` honours the 2-package constraint and mirrors the existing runtime-module layout, so no packaging/release-matrix change.
+
+**Consequence**: (a) `@sentropic/h2a-cli` exports `acceptRemoteEnvelope` + the `H2AAcceptResult`/`H2AAcceptRejection`/`AcceptRemoteOptions` types; (b) the receive-side trust boundary is complete and tested (malformed, no-target, unsigned, unknown-key, bad-signature, tampered, replayed, expired); (c) slice 3b adds the HTTP server/client that feeds this pipeline and the send side (sign + POST); (d) a patch release `0.2.7` ships the pipeline.

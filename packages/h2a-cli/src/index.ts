@@ -101,6 +101,13 @@ export {
   type K8sTenantOptions
 } from "./runtime/deploy/k8s-tenant.js";
 
+export {
+  acceptRemoteEnvelope,
+  type AcceptRemoteOptions,
+  type H2AAcceptRejection,
+  type H2AAcceptResult
+} from "./runtime/remote/index.js";
+
 export const H2A_CLI_HOSTS = [
   H2A_CODEX_HOST,
   H2A_CLAUDE_HOST,
