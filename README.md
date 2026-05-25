@@ -136,7 +136,7 @@ Then, inside each CLI:
 | Transport auth (mTLS / signed bearer) | ❌ V1 has none (DEC-032) | V2 |
 | First-class SUBAGENTS (individually addressable) | ❌ V1 consolidates them into AGENT | V2 (DEC-008) |
 | Key management UX (rotation, keyring) | ❌ manual PEM via `h2a keys generate` | V2 candidate |
-| Kubernetes deployment (sidecar / tenant / broker) | 🟡 sketched in [docs/instruction-k8s-and-remote-interop.md](./docs/instruction-k8s-and-remote-interop.md) (DEC-056) | DEC-057+ |
+| Kubernetes deployment | ✅ sidecar ([docs/k8s-sidecar.md](./docs/k8s-sidecar.md), DEC-058) + cluster tenant with RWX store + lease lock ([docs/k8s-tenant.md](./docs/k8s-tenant.md), DEC-067) | broker (Scenario C) → V2 |
 
 V1 declares what is permitted and traces everything. V1 **never** arbitrates a conflict in place of a human authority — that is by design (REQ-054).
 
@@ -235,6 +235,8 @@ Plus a **push notification channel** (`notifications/h2a`) on 4 topics (DEC-052)
 | [docs/release.md](./docs/release.md) | Release procedure + security notes |
 | [docs/tutorial-cross-cli.md](./docs/tutorial-cross-cli.md) | **Claude + Codex + Gemini in 5 minutes** |
 | [docs/instruction-k8s-and-remote-interop.md](./docs/instruction-k8s-and-remote-interop.md) | K8s deployment + `@sentropic/remote` interop note (DEC-056) |
+| [docs/k8s-sidecar.md](./docs/k8s-sidecar.md) | K8s sidecar deployment — Scenario A (DEC-058) |
+| [docs/k8s-tenant.md](./docs/k8s-tenant.md) | K8s cluster-tenant deployment — Scenario B, RWX + lease lock (DEC-067) |
 | [handover.md](./handover.md) | Handover prompt for a Claude session |
 
 > Project policy: all docs and code in this repository are in English. `INTENTION.md` contains an English translation of the original French user verbatim; the French source remains recoverable from git history at commit `195d1c2~1`.

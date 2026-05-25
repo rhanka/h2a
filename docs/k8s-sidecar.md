@@ -120,7 +120,7 @@ spec:
 
 ## Limits and out-of-scope
 
-- **Single Pod only.** This fragment only enables h2a coordination *within one Pod*. Two `remote` sessions in different Pods will not see each other through their `emptyDir` sidecars. That requires Scenario B (cluster-wide tenant with RWX storage) or Scenario C (network broker), both deferred — see [DEC-056](../DECISIONS.md#dec-056--instruction-note-k8s-deployment--remote-interop).
+- **Single Pod only.** This fragment only enables h2a coordination *within one Pod*. Two `remote` sessions in different Pods will not see each other through their `emptyDir` sidecars. For cross-Pod coordination use [Scenario B](./k8s-tenant.md) (cluster-wide tenant with an RWX store + lease lock, shipped in DEC-067); Scenario C (network broker) remains deferred to V2 — see [DEC-056](../DECISIONS.md#dec-056--instruction-note-k8s-deployment--remote-interop).
 - **No image is published yet.** The default `npm-runtime` strategy works today; an explicit `ghcr.io/rhanka/h2a-cli` image is a future deliverable.
 - **No NetworkPolicy.** The sidecar speaks stdio to the runtime container in the same Pod. There is no cross-Pod traffic and therefore nothing to allow/deny at the network layer. If you later move to a broker, that page needs to be reopened.
 
