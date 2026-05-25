@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-25 (DEC-072 — SUBAGENTS slice 5/5: takeover via revocation + `h2a subagent revoke`. **First-class SUBAGENTS (DEC-008) COMPLETE.** V2 line 0.2.x. Next V2 candidates: transport distant `@sentropic/h2a-remote`, transport auth DEC-032, broker Scénario C — higher decision density, likely needs user steer)
+> Last update: 2026-05-25 (DEC-073 — Transport auth slice 1: signed envelopes in core (`signEnvelope`/`verifyEnvelopeSignature`). V2 line 0.2.x. SUBAGENTS complete. Open decision before remote-transport slice: transport-layer auth mechanism — mTLS vs signed-bearer-over-wire — needs user steer)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -124,7 +124,7 @@
 - [x] Session lifecycle MCP tools (`h2a_session_open`, `h2a_session_close`, `h2a_discover_sessions`) wired to the SessionRegistry — DEC-051
 - [x] MCP push notifications (`notifications/h2a`) on presence join/leave + inbox arrival + negotiation event ; tick-based scanner, configurable interval, sink wired by runMcpStdio — DEC-052
 - [x] Real cross-CLI integration test (two `mcp-serve` subprocesses sharing a root, inbox push + graceful close + SIGKILL TTL expiry) — DEC-053
-- [ ] V2: transport auth (mTLS / signed bearer)
+- [~] V2: transport auth (mTLS / signed bearer) — **slice 1 done (DEC-073)**: signed-bearer foundation in core (`signEnvelope`/`verifyEnvelopeSignature` reusing ed25519, channel-independent envelope provenance). Open: transport-layer mechanism (mTLS vs signed-bearer-over-wire, replay/nonce, key exchange) — needs a user steer before the remote-transport slice commits.
 - [x] V2: first-class SUBAGENTS (DEC-008) — **COMPLETE (slices 1-5)**: [x] addressable binding layer in core (DEC-068) ; [x] store binding registration + `h2a subagent register/list` (DEC-069) ; [x] validated routing + parent fan-in + `h2a subagent route/inbox` (DEC-070) ; [x] append-only per-subagent audit trail + `h2a subagent audit` (DEC-071) ; [x] takeover via revocation (status derived from audit) + `h2a subagent revoke`, route refused once revoked (DEC-072). Subagents are addressable, persistent, routable, auditable, revocable.
 
 ### Codex track

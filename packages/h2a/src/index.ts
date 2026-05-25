@@ -110,7 +110,9 @@ export type {
 } from "./jurisdiction.js";
 export {
   createEnvelope,
-  isH2AEnvelope
+  isH2AEnvelope,
+  signEnvelope,
+  verifyEnvelopeSignature
 } from "./envelope.js";
 export {
   H2A_SESSION_DEFAULT_EXPIRY_MS,

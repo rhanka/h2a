@@ -1,3 +1,4 @@
+import { signCanonical, verifyCanonical, type SignOptions } from "./signature.js";
 import {
   H2A_ENVELOPE_TYPES,
   H2A_PROTOCOL,
@@ -46,6 +47,59 @@ export function createEnvelope<TBody>(
     createdAt: input.createdAt ?? new Date().toISOString(),
     ...input
   };
+}
+
+/**
+ * The portion of an envelope that a signature covers: everything except the
+ * `signatures` array itself. Excluding `signatures` makes the signed content
+ * stable, so multiple signers each sign the same provenance (DEC-073) — the
+ * same model as artifact signing (DEC-035).
+ */
+function envelopeSigningView<TBody>(
+  envelope: H2AEnvelope<TBody>
+): Omit<H2AEnvelope<TBody>, "signatures"> {
+  const { signatures: _omit, ...rest } = envelope;
+  return rest;
+}
+
+/**
+ * Sign an envelope's provenance (DEC-073). Returns a new envelope with the
+ * ed25519 signature appended to `signatures[]`; the original is not mutated.
+ * This is the "signed bearer" primitive underpinning authenticated transport
+ * (DEC-032): a recipient can verify *who* emitted an envelope independently of
+ * the channel it arrived on.
+ */
+export function signEnvelope<TBody>(
+  envelope: H2AEnvelope<TBody>,
+  options: SignOptions
+): H2AEnvelope<TBody> {
+  const signature = signCanonical(envelopeSigningView(envelope), options);
+  return {
+    ...envelope,
+    signatures: [...(envelope.signatures ?? []), signature]
+  };
+}
+
+/**
+ * Verify an envelope's signature(s) against a public key (DEC-073). With
+ * `options.by`, only that signer's signature(s) are checked; otherwise any
+ * signature that verifies against the key counts. Returns false when the
+ * envelope carries no (matching) signature.
+ */
+export function verifyEnvelopeSignature<TBody>(
+  envelope: H2AEnvelope<TBody>,
+  publicKeyPem: string,
+  options: { by?: string } = {}
+): boolean {
+  const signatures = envelope.signatures ?? [];
+  const candidates = options.by
+    ? signatures.filter((s) => s.by === options.by)
+    : signatures;
+  if (candidates.length === 0) {
+    return false;
+  }
+  const view = envelopeSigningView(envelope);
+  return candidates.some((sig) => verifyCanonical(view, sig, publicKeyPem));
 }
 
 export function isH2AEnvelope<TBody = unknown>(
