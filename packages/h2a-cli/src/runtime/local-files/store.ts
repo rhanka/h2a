@@ -222,6 +222,29 @@ function ensureSchemaSentinel(
   throw new StoreSchemaMismatchError(found, H2A_STORE_SCHEMA_VERSION, root);
 }
 
+/**
+ * Resolve the effective lock strategy (DEC-066 / DEC-067). Explicit option
+ * wins; otherwise fall back to `H2A_LOCK_MODE` env so a K8s tenant Deployment
+ * (Scenario B) can turn on the lease lock for every store-creation site —
+ * `mcp-serve` and the one-shot CLI verbs — without threading a flag through
+ * each call. Unknown env values fall through to the `"pid"` default.
+ */
+function resolveLockMode(
+  explicit: CreateLocalStoreOptions["lockMode"]
+): "pid" | "lease" {
+  if (explicit) return explicit;
+  const env = process.env.H2A_LOCK_MODE;
+  return env === "lease" || env === "pid" ? env : "pid";
+}
+
+/** Read `H2A_LEASE_MS` env as a positive integer, else undefined (DEC-067). */
+function envLeaseMs(): number | undefined {
+  const raw = process.env.H2A_LEASE_MS;
+  if (!raw) return undefined;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   const paths = localStorePaths(options.root);
   ensureLayout(paths);
@@ -234,10 +257,11 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   const lockTimeoutMs = options.lockTimeoutMs ?? 5000;
-  const lockMode = options.lockMode ?? "pid";
+  const lockMode = resolveLockMode(options.lockMode);
+  const leaseMs = options.leaseMs ?? envLeaseMs() ?? 30000;
   const lockOpts =
     lockMode === "lease"
-      ? { timeoutMs: lockTimeoutMs, leaseMs: options.leaseMs ?? 30000 }
+      ? { timeoutMs: lockTimeoutMs, leaseMs }
       : { timeoutMs: lockTimeoutMs };
 
   // DEC-066: route every critical section through the chosen strategy. `pid`

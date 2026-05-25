@@ -54,6 +54,39 @@ test("createLocalStore default lockMode is 'pid' (unchanged behaviour)", () => {
   }
 });
 
+test("H2A_LOCK_MODE=lease env enables the lease lock without an explicit option (DEC-067)", () => {
+  const root = freshRoot();
+  const prev = process.env.H2A_LOCK_MODE;
+  process.env.H2A_LOCK_MODE = "lease";
+  try {
+    // no lockMode option — the env fallback must kick in
+    const store = createLocalStore({ root });
+    store.registerInstance(registration("conductor:env-1"));
+    assert.ok(store.findInstance("conductor:env-1"));
+    assert.equal(existsSync(join(root, "registry", ".lock")), false);
+  } finally {
+    if (prev === undefined) delete process.env.H2A_LOCK_MODE;
+    else process.env.H2A_LOCK_MODE = prev;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("explicit lockMode option wins over H2A_LOCK_MODE env", () => {
+  const root = freshRoot();
+  const prev = process.env.H2A_LOCK_MODE;
+  process.env.H2A_LOCK_MODE = "lease";
+  try {
+    // explicit "pid" must override the env's "lease"
+    const store = createLocalStore({ root, lockMode: "pid" });
+    store.registerInstance(registration("conductor:env-2"));
+    assert.ok(store.findInstance("conductor:env-2"));
+  } finally {
+    if (prev === undefined) delete process.env.H2A_LOCK_MODE;
+    else process.env.H2A_LOCK_MODE = prev;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("lease lockMode drives a full negotiation lifecycle (open + event + journal)", () => {
   const root = freshRoot();
   try {

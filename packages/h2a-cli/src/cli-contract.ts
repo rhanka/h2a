@@ -320,6 +320,25 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     optionalFlags: ["instance", "host", "root", "image", "cli-version", "write"],
     description:
       "Render a Kubernetes sidecar fragment suitable for merging into a `remote` session Pod (Scenario A of DEC-056). Default `image` strategy is `npm-runtime` (uses `node:22-alpine` + `npm i -g @sentropic/h2a-cli` at Pod start). Pass an OCI reference to opt out of the runtime install. `--write <file>` switches to an `action` envelope and writes the fragment to disk; otherwise the YAML fragment is printed on stdout. DEC-058."
+  },
+  {
+    verb: "deploy k8s-tenant",
+    outputShape: "resource",
+    exitCodes: [0, 1, 3],
+    requiredFlags: [],
+    optionalFlags: [
+      "namespace",
+      "root",
+      "replicas",
+      "storage",
+      "storage-class",
+      "lease-ms",
+      "image",
+      "cli-version",
+      "write"
+    ],
+    description:
+      "Render a complete Kubernetes cluster-tenant manifest (Namespace + ResourceQuota + ReadWriteMany PVC + Deployment) for Scenario B of DEC-056. The Deployment runs the store in lease-lock mode (`H2A_LOCK_MODE=lease`, DEC-065/066) so multiple Pods can safely share the RWX store. Default 2 replicas, `1Gi` storage, cluster-default StorageClass (pass `--storage-class` for an RWX-capable class). `--write <file>` switches to an `action` envelope and writes the manifest to disk; otherwise the multi-document YAML is printed on stdout. DEC-067."
   }
 ] as const;
 

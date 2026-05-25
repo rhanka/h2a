@@ -66,6 +66,7 @@ import {
 } from "./runtime/local-files/index.js";
 import { runMcpStdio } from "./runtime/mcp/index.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
+import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -153,6 +154,7 @@ export function renderCliHelp(): string {
     "  h2a keys generate --instance <id> [--out <dir>] [--root <path>]",
     "  h2a install-skills --host claude [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
+    "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
     `MCP tools: ${H2A_CLI_MCP_TOOL_NAMES.join(", ")}`
@@ -1406,13 +1408,16 @@ function cmdDeploy(
   const { command: sub, flags } = parseFlags(argv);
   if (!sub) {
     streams.stderr.write(
-      "h2a deploy: subcommand required (currently supported: k8s-sidecar)\n"
+      "h2a deploy: subcommand required (supported: k8s-sidecar, k8s-tenant)\n"
     );
     return 1;
   }
+  if (sub === "k8s-tenant") {
+    return cmdDeployTenant(flags, streams);
+  }
   if (sub !== "k8s-sidecar") {
     streams.stderr.write(
-      `h2a deploy: unknown subcommand "${sub}". Supported: k8s-sidecar.\n`
+      `h2a deploy: unknown subcommand "${sub}". Supported: k8s-sidecar, k8s-tenant.\n`
     );
     return 1;
   }
@@ -1454,6 +1459,69 @@ function cmdDeploy(
         volume: fragment.volume,
         mainContainerVolumeMount: fragment.mainContainerVolumeMount,
         yaml: fragment.yaml
+      },
+      null,
+      2
+    )}\n`
+  );
+  return 0;
+}
+
+function cmdDeployTenant(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  // DEC-067: render the full cluster-tenant manifest for Scenario B of DEC-056
+  // (shared RWX store coordinated by the lease lock, DEC-065/066).
+  const replicas = flags.replicas ? Number.parseInt(flags.replicas, 10) : undefined;
+  if (flags.replicas && (!Number.isFinite(replicas) || (replicas as number) < 1)) {
+    streams.stderr.write(
+      `h2a deploy k8s-tenant: --replicas must be a positive integer (got "${flags.replicas}")\n`
+    );
+    return 1;
+  }
+  const leaseMs = flags["lease-ms"] ? Number.parseInt(flags["lease-ms"], 10) : undefined;
+  if (flags["lease-ms"] && (!Number.isFinite(leaseMs) || (leaseMs as number) < 1)) {
+    streams.stderr.write(
+      `h2a deploy k8s-tenant: --lease-ms must be a positive integer (got "${flags["lease-ms"]}")\n`
+    );
+    return 1;
+  }
+
+  const manifest = renderK8sTenant({
+    namespace: flags.namespace,
+    root: flags.root,
+    replicas,
+    storage: flags.storage,
+    storageClass: flags["storage-class"],
+    leaseMs,
+    image: flags.image,
+    cliVersion: flags["cli-version"]
+  });
+
+  const writeTo = flags.write;
+  if (writeTo) {
+    try {
+      mkdirSync(dirname(writeTo), { recursive: true });
+      writeFileSync(writeTo, manifest.yaml, "utf8");
+    } catch (error) {
+      streams.stderr.write(
+        `h2a deploy k8s-tenant: cannot write ${writeTo} (${(error as Error).message})\n`
+      );
+      return 3;
+    }
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, target: "k8s-tenant", path: writeTo }, null, 2)}\n`
+    );
+    return 0;
+  }
+
+  streams.stdout.write(
+    `${JSON.stringify(
+      {
+        target: "k8s-tenant",
+        documents: manifest.documents,
+        yaml: manifest.yaml
       },
       null,
       2

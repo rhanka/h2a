@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-25 (DEC-066 — store wired with opt-in `lockMode: "lease"` ; Scenario B store-level concurrency complete. Next: DEC-067 k8s-tenant manifest renderer)
+> Last update: 2026-05-25 (DEC-067 — `h2a deploy k8s-tenant` renderer + `H2A_LOCK_MODE` env fallback ; Scenario B now deployable end-to-end. Next: V1 wrap-up / docs)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -102,6 +102,7 @@
 - [x] `install-skills` extended to Codex (`~/.codex/skills/`) and Gemini (`~/.gemini/commands/` TOML) — DEC-055
 - [x] Single `/h2a` skill with subcommand routing (connect/status/discover/send/receive/negotiate/disconnect/help) + legacy pruning — DEC-057
 - [x] Kubernetes sidecar renderer + `h2a deploy k8s-sidecar` verb (Scenario A of DEC-056) — DEC-058
+- [x] Kubernetes cluster-tenant renderer + `h2a deploy k8s-tenant` verb (Namespace + ResourceQuota + RWX PVC + Deployment) with `H2A_LOCK_MODE`/`H2A_LEASE_MS` env fallback in `createLocalStore` — Scenario B of DEC-056, deployable end-to-end — DEC-067
 - [x] Host bridge contract formalized (`H2A_HOST_BRIDGE_PROFILES` + `auditHostBridge` + remote profile + PR draft) — DEC-059
 - [x] OCI image build + GHCR publish workflow (`ghcr.io/rhanka/h2a-cli:<version>`, multi-arch, non-root, SBOM) — DEC-060
 - [x] Cross-OS CI matrix ubuntu/macOS × node 20/22 + cross-platform test runner ; Windows smoke covered, Windows full-test deferred (`:`-in-paths refactor) — DEC-061
@@ -177,7 +178,7 @@
 
 All four resolved on 2026-05-23:
 
-- [x] Tenant model → **stay on Scenario A (sidecar per session)**, no dedicated `tenants/h2a/`. Re-open when cross-session coordination demand emerges.
+- [x] Tenant model → Scenario A (sidecar per session, DEC-058) **and** Scenario B (dedicated cluster tenant, DEC-067) now both shippable. Scenario B unblocked once cross-Pod locking landed (DEC-065/066); use A for per-session coordination, B for a standing shared-store tenant.
 - [x] RWX storage → **available on Scaleway natively** (an earlier note wrongly claimed it was not, corrected 2026-05-25). Not a blocker for Scenario B. The real Scenario B prerequisite is a cross-Pod locking primitive (DEC-036 locks are same-machine only).
 - [x] Interop contract with `remote` → **two-way formalized** (DEC-059 + PR draft at `docs/pr-drafts/remote-h2a-bridge.md`).
 - [x] `@sentropic/h2a-remote` → **deferred V2** (depends on DEC-032 V2 auth, no design now).
