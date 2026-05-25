@@ -14,3 +14,7 @@ export {
   type SendRemoteOptions,
   type SendRemoteResult
 } from "./client.js";
+export {
+  remoteServerForStore,
+  type RemoteServerForStoreOptions
+} from "./serve.js";

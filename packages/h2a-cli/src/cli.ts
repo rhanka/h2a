@@ -67,6 +67,7 @@ import {
 import { runMcpStdio } from "./runtime/mcp/index.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
+import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -155,6 +156,8 @@ export function renderCliHelp(): string {
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
     "  h2a mcp-serve [--root <path>]",
+    "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
+    "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
@@ -762,6 +765,100 @@ export async function runMcpServe(
     io.stderr.write(`h2a mcp-serve: ${(err as Error).message}\n`);
     return 1;
   }
+}
+
+/**
+ * `h2a remote serve` (DEC-077): long-running HTTP listener that authenticates
+ * POSTed envelopes against the store registry and delivers them to local
+ * inboxes. Async + blocking, so it is dispatched from bin.ts (like mcp-serve),
+ * not the synchronous runCli. Binds 127.0.0.1 by default — never expose to all
+ * interfaces implicitly; pass `--host 0.0.0.0` to opt in.
+ */
+export async function runRemoteServe(
+  flags: Record<string, string>,
+  io: {
+    stdout: NodeJS.WritableStream;
+    stderr: NodeJS.WritableStream;
+    cwd?: () => string;
+    onListening?: (server: import("node:http").Server) => void;
+  } = { stdout: process.stdout, stderr: process.stderr }
+): Promise<number> {
+  const cwd = io.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const host = flags.host ?? "127.0.0.1";
+  const port = flags.port ? Number.parseInt(flags.port, 10) : 8787;
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    io.stderr.write(`h2a remote serve: invalid --port "${flags.port}"\n`);
+    return 1;
+  }
+  let store;
+  try {
+    store = createLocalStore({ root });
+  } catch (error) {
+    io.stderr.write(`h2a remote serve: ${(error as Error).message}\n`);
+    return 1;
+  }
+  const server = remoteServerForStore(store, { path: flags.path });
+  return await new Promise<number>((resolve) => {
+    server.on("error", (err) => {
+      io.stderr.write(`h2a remote serve: ${err.message}\n`);
+      resolve(1);
+    });
+    server.listen(port, host, () => {
+      const addr = server.address();
+      const boundPort = typeof addr === "object" && addr ? addr.port : port;
+      io.stdout.write(
+        `h2a remote serve: listening on http://${host}:${boundPort}${flags.path ?? "/h2a/envelopes"} (root ${root})\n`
+      );
+      io.onListening?.(server);
+    });
+    server.on("close", () => resolve(0));
+  });
+}
+
+/**
+ * `h2a remote send` (DEC-077): sign an envelope and POST it to a remote h2a
+ * endpoint. Async (network), so dispatched from bin.ts. Exit 0 on a 2xx,
+ * 1 otherwise; prints `{ status, body }`.
+ */
+export async function runRemoteSend(
+  flags: Record<string, string>,
+  streams: H2ACliStreams = { stdout: process.stdout, stderr: process.stderr }
+): Promise<number> {
+  if (!flags.url || !flags.instance || !flags["private-key"] || !flags.json) {
+    streams.stderr.write(
+      "h2a remote send: --url, --instance, --private-key and --json are required\n"
+    );
+    return 1;
+  }
+  let envelope;
+  try {
+    envelope = JSON.parse(flags.json);
+  } catch (error) {
+    streams.stderr.write(`h2a remote send: invalid --json (${(error as Error).message})\n`);
+    return 1;
+  }
+  let privateKeyPem;
+  try {
+    privateKeyPem = readFileSync(flags["private-key"], "utf8");
+  } catch (error) {
+    streams.stderr.write(
+      `h2a remote send: cannot read --private-key (${(error as Error).message})\n`
+    );
+    return 1;
+  }
+  let result;
+  try {
+    result = await sendRemoteEnvelope(flags.url, envelope, {
+      by: flags.instance,
+      privateKeyPem
+    });
+  } catch (error) {
+    streams.stderr.write(`h2a remote send: ${(error as Error).message}\n`);
+    return 1;
+  }
+  streams.stdout.write(`${JSON.stringify({ status: result.status, body: result.body }, null, 2)}\n`);
+  return result.status >= 200 && result.status < 300 ? 0 : 1;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -1716,6 +1813,21 @@ export function runCli(
   if (command === "connect") return cmdConnect(flags, streams);
   if (command === "install-skills") return cmdInstallSkills(flags, streams);
   if (command === "deploy") return cmdDeploy(argv.slice(1), streams);
+  if (command === "remote") {
+    // `remote serve`/`remote send` are async and dispatched from bin.ts; if we
+    // reach here it is a misuse (e.g. via the sync runCli) or an unknown sub.
+    const sub = argv[1];
+    if (sub === "serve" || sub === "send") {
+      streams.stderr.write(
+        `h2a remote ${sub}: async verb — run via the h2a binary, not the synchronous API.\n`
+      );
+      return 1;
+    }
+    streams.stderr.write(
+      `h2a remote: subcommand required (serve, send).\n`
+    );
+    return 1;
+  }
   if (command === "keys") {
     const { command: sub, flags: subFlags } = parseFlags(argv.slice(1));
     if (sub === "generate") return cmdKeysGenerate(subFlags, streams);

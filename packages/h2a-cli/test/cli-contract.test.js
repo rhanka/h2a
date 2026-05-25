@@ -504,6 +504,9 @@ function buildHappyArgv(verb, ctx) {
       ];
     case "subagent inbox":
       return ["subagent", "inbox", "--root", root, "--parent", "agent-001"];
+    case "remote send":
+      // Needs a live HTTP server + signer key; covered by remote-cli.test.js.
+      return null;
     case "subagent audit":
       return ["subagent", "audit", "--root", root, "--parent", "agent-001"];
     case "subagent revoke":
@@ -546,6 +549,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "outbox put",
     "outbox read",
     "mcp-serve",
+    "remote serve",
+    "remote send",
     "host setup",
     "host status",
     "store migrate",
