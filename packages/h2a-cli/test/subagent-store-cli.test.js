@@ -174,3 +174,138 @@ test("h2a subagent register without --parent/--name exits 1", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+const envelope = (id) => ({
+  protocol: "sentropic.h2a",
+  version: "0.1",
+  id,
+  type: "propose",
+  actor: { instance: "claude:proj-1", role: "AGENTS", scope: "scope:demo" },
+  body: { task: "x" },
+  createdAt: "2026-05-25T00:00:02.000Z"
+});
+
+test("routeToSubagent delivers to a registered subagent's inbox (DEC-070)", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    store.registerSubagent(binding());
+    store.routeToSubagent("claude:proj-1~researcher", envelope("e1"));
+    const inbox = store.readInbox("claude:proj-1~researcher");
+    assert.equal(inbox.length, 1);
+    assert.equal(inbox[0].id, "e1");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("routeToSubagent rejects an unregistered subagent", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    assert.throws(
+      () => store.routeToSubagent("claude:proj-1~ghost", envelope("e2")),
+      /not registered/i
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("routeToSubagent can target the outbox", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    store.registerSubagent(binding());
+    store.routeToSubagent("claude:proj-1~researcher", envelope("e3"), "outbox");
+    assert.equal(store.readOutbox("claude:proj-1~researcher").length, 1);
+    assert.equal(store.readInbox("claude:proj-1~researcher").length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("readSubagentInboxes fans in every subagent of a parent (DEC-070)", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    store.registerSubagent(binding({ id: "claude:proj-1~a", name: "a" }));
+    store.registerSubagent(binding({ id: "claude:proj-1~b", name: "b" }));
+    store.routeToSubagent("claude:proj-1~a", envelope("ea"));
+    const fanIn = store.readSubagentInboxes("claude:proj-1");
+    assert.equal(fanIn.length, 2);
+    const a = fanIn.find((e) => e.subagent === "claude:proj-1~a");
+    const b = fanIn.find((e) => e.subagent === "claude:proj-1~b");
+    assert.equal(a.envelopes.length, 1);
+    assert.equal(b.envelopes.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("h2a subagent route + inbox fan-in round-trip via the CLI", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    store.registerSubagent(binding());
+
+    const r = captureStreams();
+    const rcRoute = runCli(
+      [
+        "subagent",
+        "route",
+        "--root",
+        root,
+        "--to",
+        "claude:proj-1~researcher",
+        "--json",
+        JSON.stringify(envelope("cli-e1"))
+      ],
+      r.streams
+    );
+    assert.equal(rcRoute, 0);
+    assert.equal(JSON.parse(r.out()).to, "claude:proj-1~researcher");
+
+    const f = captureStreams();
+    const rcInbox = runCli(
+      ["subagent", "inbox", "--root", root, "--parent", "claude:proj-1"],
+      f.streams
+    );
+    assert.equal(rcInbox, 0);
+    const fanIn = JSON.parse(f.out());
+    assert.equal(fanIn[0].subagent, "claude:proj-1~researcher");
+    assert.equal(fanIn[0].envelopes[0].id, "cli-e1");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("h2a subagent route to an unregistered subagent exits 2", () => {
+  const root = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(agent);
+    const cap = captureStreams();
+    const rc = runCli(
+      [
+        "subagent",
+        "route",
+        "--root",
+        root,
+        "--to",
+        "claude:proj-1~ghost",
+        "--json",
+        JSON.stringify(envelope("g1"))
+      ],
+      cap.streams
+    );
+    assert.equal(rc, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

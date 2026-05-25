@@ -89,8 +89,8 @@ const STORE_STATE_ERROR_PATTERNS: readonly RegExp[] = [
   /no artifactHash has the full quorum/i,
   /no offer\/counter event matches/i,
   /stabilized artifact already on disk/i,
-  // DEC-069: subagent binding preconditions that depend on registry state.
-  /parent not registered/i,
+  // DEC-069/070: subagent binding/routing preconditions on registry state.
+  /not registered/i,
   /parent-not-agents/,
   /parent-instance-mismatch/,
   /capabilities-exceed-parent/
@@ -130,6 +130,8 @@ export function renderCliHelp(): string {
     "  h2a discover [--role <role>] [--scope <scope>] [--root <path>]",
     "  h2a subagent register --parent <instance> --name <name> [--capabilities a,b] [--root <path>]",
     "  h2a subagent list [--parent <instance>] [--root <path>]",
+    "  h2a subagent route --to <subagent-address> --json <envelope> [--mailbox inbox|outbox] [--root <path>]",
+    "  h2a subagent inbox --parent <instance> [--root <path>]",
     "  h2a negotiate open --json <record-json> [--root <path>]",
     "  h2a negotiate status --id <id> --status <status> [--root <path>]",
     "  h2a negotiate event --id <id> --json <payload-json> [--causation-id <id>] [--correlation-id <id>] [--root <path>]",
@@ -294,6 +296,50 @@ function cmdSubagent(
     return 0;
   }
 
+  if (sub === "route") {
+    if (!flags.to || !flags.json) {
+      streams.stderr.write(
+        "h2a subagent route: --to <subagent-address> and --json <envelope-json> are required\n"
+      );
+      return 1;
+    }
+    const mailbox = flags.mailbox === "outbox" ? "outbox" : "inbox";
+    if (flags.mailbox && flags.mailbox !== "inbox" && flags.mailbox !== "outbox") {
+      streams.stderr.write(
+        `h2a subagent route: --mailbox must be inbox or outbox (got "${flags.mailbox}")\n`
+      );
+      return 1;
+    }
+    let envelope;
+    try {
+      envelope = JSON.parse(flags.json);
+    } catch (error) {
+      streams.stderr.write(`h2a subagent route: invalid JSON (${(error as Error).message})\n`);
+      return 1;
+    }
+    try {
+      store.routeToSubagent(flags.to, envelope, mailbox);
+    } catch (error) {
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a subagent route: ${message}\n`);
+      return classifyStoreError(message);
+    }
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, id: envelope.id, to: flags.to, mailbox }, null, 2)}\n`
+    );
+    return 0;
+  }
+
+  if (sub === "inbox") {
+    if (!flags.parent) {
+      streams.stderr.write("h2a subagent inbox: --parent <instance> is required\n");
+      return 1;
+    }
+    const fanIn = store.readSubagentInboxes(flags.parent);
+    streams.stdout.write(`${JSON.stringify(fanIn, null, 2)}\n`);
+    return 0;
+  }
+
   if (sub === "register") {
     if (!flags.parent || !flags.name) {
       streams.stderr.write(
@@ -325,7 +371,7 @@ function cmdSubagent(
   }
 
   streams.stderr.write(
-    `h2a subagent: subcommand required (supported: register, list)\n`
+    `h2a subagent: subcommand required (supported: register, list, route, inbox)\n`
   );
   return 1;
 }

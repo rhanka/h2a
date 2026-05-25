@@ -116,6 +116,14 @@ export interface LocalStore {
   popInboxMessage(actor: string, envelopeId: string): H2AEnvelope | undefined;
   putOutboxMessage(actor: string, envelope: H2AEnvelope): void;
   readOutbox(actor: string): H2AEnvelope[];
+  routeToSubagent(
+    subagentId: string,
+    envelope: H2AEnvelope,
+    mailbox?: "inbox" | "outbox"
+  ): void;
+  readSubagentInboxes(
+    parentInstance: string
+  ): Array<{ subagent: string; envelopes: H2AEnvelope[] }>;
 }
 
 function ensureDir(path: string): void {
@@ -710,6 +718,35 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     return readEnvelopesFrom(outboxDir(paths, actor));
   }
 
+  // DEC-070: validated routing to a subagent address. Unlike the raw mailbox
+  // put (which accepts any actor string), this asserts the subagent binding is
+  // registered before delivery, so an envelope can never be routed to a
+  // subagent that does not exist. Mailbox dirs are already safePathSegment-safe
+  // for the `~` separator (DEC-062/068), so the address routes unchanged.
+  function routeToSubagent(
+    subagentId: string,
+    envelope: H2AEnvelope,
+    mailbox: "inbox" | "outbox" = "inbox"
+  ): void {
+    if (!findSubagent(subagentId)) {
+      throw new Error(`Subagent not registered: ${subagentId}`);
+    }
+    if (mailbox === "outbox") putOutboxMessage(subagentId, envelope);
+    else putInboxMessage(subagentId, envelope);
+  }
+
+  // DEC-070: parent fan-in — every registered subagent of a parent plus its
+  // inbox, so the parent (or an auditor) sees what was routed to each subagent.
+  // This is the "individually auditable" half of DEC-008's V2 goal.
+  function readSubagentInboxes(
+    parentInstance: string
+  ): Array<{ subagent: string; envelopes: H2AEnvelope[] }> {
+    return listSubagentsOf(parentInstance).map((b) => ({
+      subagent: b.id,
+      envelopes: readInbox(b.id)
+    }));
+  }
+
   return {
     paths,
     registerInstance,
@@ -729,6 +766,8 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     readInbox,
     popInboxMessage,
     putOutboxMessage,
-    readOutbox
+    readOutbox,
+    routeToSubagent,
+    readSubagentInboxes
   };
 }

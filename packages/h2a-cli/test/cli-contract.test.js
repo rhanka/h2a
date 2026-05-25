@@ -130,6 +130,22 @@ function bootstrapHappyPath(dir, root) {
     captureStreams(dir)
   );
 
+  // A registered subagent under agent-001 so `subagent route/inbox` (DEC-070)
+  // have a valid target.
+  runCli(
+    [
+      "subagent",
+      "register",
+      "--root",
+      root,
+      "--parent",
+      "agent-001",
+      "--name",
+      "researcher"
+    ],
+    captureStreams(dir)
+  );
+
   const negoRecord = {
     id: "nego-cc",
     scope: "scope:contract",
@@ -451,6 +467,8 @@ function buildHappyArgv(verb, ctx) {
         "0.1.28"
       ];
     case "subagent register":
+      // `researcher` is pre-registered by bootstrapHappyPath (for route/inbox);
+      // use a distinct name here so this happy path is a fresh registration.
       return [
         "subagent",
         "register",
@@ -459,12 +477,33 @@ function buildHappyArgv(verb, ctx) {
         "--parent",
         "agent-001",
         "--name",
-        "researcher",
+        "analyst",
         "--capabilities",
         "research"
       ];
     case "subagent list":
       return ["subagent", "list", "--root", root, "--parent", "agent-001"];
+    case "subagent route":
+      return [
+        "subagent",
+        "route",
+        "--root",
+        root,
+        "--to",
+        "agent-001~researcher",
+        "--json",
+        JSON.stringify({
+          protocol: "sentropic.h2a",
+          version: "0.1",
+          id: "env-sub-route",
+          type: "propose",
+          actor: { instance: "req-001", role: "CONDUCTOR", scope: "scope:contract" },
+          body: { task: "research" },
+          createdAt: "2026-05-20T00:00:00.000Z"
+        })
+      ];
+    case "subagent inbox":
+      return ["subagent", "inbox", "--root", root, "--parent", "agent-001"];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -505,7 +544,9 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "deploy k8s-sidecar",
     "deploy k8s-tenant",
     "subagent register",
-    "subagent list"
+    "subagent list",
+    "subagent route",
+    "subagent inbox"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {

@@ -134,6 +134,24 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     description:
       "List registered subagent bindings, optionally filtered to one parent instance via `--parent`. DEC-068."
   },
+  {
+    verb: "subagent route",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["to", "json"],
+    optionalFlags: ["root", "mailbox"],
+    description:
+      "Route an H2A envelope to a registered subagent address (`<parent>~<name>`), validating the binding exists before delivery (exit 2 if unregistered). `--mailbox inbox|outbox` (default inbox). DEC-070."
+  },
+  {
+    verb: "subagent inbox",
+    outputShape: "list",
+    exitCodes: [0, 1],
+    requiredFlags: ["parent"],
+    optionalFlags: ["root"],
+    description:
+      "Parent fan-in: list each registered subagent of `--parent` with the envelopes in its inbox, for coordination/audit. DEC-070."
+  },
 
   // --- negotiation ---
   {
