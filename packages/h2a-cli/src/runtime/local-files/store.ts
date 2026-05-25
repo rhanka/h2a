@@ -18,9 +18,11 @@ import {
   computeHash,
   createJournalEntry,
   isH2AEnvelope,
+  validateSubagentBinding,
   verifyCanonical,
   verifyJournalChain,
   type H2AActorRegistration,
+  type H2ASubagentBinding,
   type H2AArtifactKind,
   type H2AEnvelope,
   type H2AJournalEntry,
@@ -84,6 +86,10 @@ export interface LocalStore {
   registerInstance(reg: H2AActorRegistration): void;
   listInstances(): H2AActorRegistration[];
   findInstance(id: string): H2AActorRegistration | undefined;
+  registerSubagent(binding: H2ASubagentBinding): void;
+  listSubagents(): H2ASubagentBinding[];
+  findSubagent(id: string): H2ASubagentBinding | undefined;
+  listSubagentsOf(parentInstance: string): H2ASubagentBinding[];
   openNegotiation(record: H2ANegotiationRecord): H2ANegotiationRecord;
   readNegotiation(id: string): H2ANegotiationRecord | undefined;
   updateNegotiationStatus(
@@ -299,6 +305,46 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
           throw new Error(`Instance already registered: ${reg.id}`);
         }
         appendJsonl(paths.instances, reg);
+      },
+      lockOpts
+    );
+  }
+
+  function listSubagents(): H2ASubagentBinding[] {
+    return readJsonl<H2ASubagentBinding>(paths.subagents);
+  }
+
+  function findSubagent(id: string): H2ASubagentBinding | undefined {
+    return listSubagents().find((entry) => entry.id === id);
+  }
+
+  function listSubagentsOf(parentInstance: string): H2ASubagentBinding[] {
+    return listSubagents().filter((b) => b.parentInstance === parentInstance);
+  }
+
+  // DEC-068: subagent bindings share the registry lock with instance
+  // registration — both are low-volume registry appends, so one lock keeps the
+  // two files mutually consistent (a binding's parent must already be present).
+  function registerSubagent(binding: H2ASubagentBinding): void {
+    lock(
+      registryLock,
+      () => {
+        const parent = findInstance(binding.parentInstance);
+        if (!parent) {
+          throw new Error(
+            `Subagent parent not registered: ${binding.parentInstance}`
+          );
+        }
+        const validation = validateSubagentBinding(binding, parent);
+        if (!validation.ok) {
+          throw new Error(
+            `Invalid subagent binding (${binding.id}): ${validation.errors.join(", ")}`
+          );
+        }
+        if (findSubagent(binding.id)) {
+          throw new Error(`Subagent already registered: ${binding.id}`);
+        }
+        appendJsonl(paths.subagents, binding);
       },
       lockOpts
     );
@@ -669,6 +715,10 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     registerInstance,
     listInstances,
     findInstance,
+    registerSubagent,
+    listSubagents,
+    findSubagent,
+    listSubagentsOf,
     openNegotiation,
     readNegotiation,
     updateNegotiationStatus,

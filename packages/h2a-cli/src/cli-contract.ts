@@ -115,6 +115,26 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     description: "List registered instances, optionally filtered by role/scope."
   },
 
+  // --- subagents (DEC-068 / V2) ---
+  {
+    verb: "subagent register",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["parent", "name"],
+    optionalFlags: ["root", "capabilities"],
+    description:
+      "Register an addressable subagent binding `<parent>~<name>` under an AGENTS parent instance, appended to `registry/subagents.jsonl`. `--capabilities a,b` declares a subset of the parent's capabilities. Validated against the parent (must be AGENTS; capabilities must be a subset) before write. DEC-068."
+  },
+  {
+    verb: "subagent list",
+    outputShape: "list",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["root", "parent"],
+    description:
+      "List registered subagent bindings, optionally filtered to one parent instance via `--parent`. DEC-068."
+  },
+
   // --- negotiation ---
   {
     verb: "negotiate open",

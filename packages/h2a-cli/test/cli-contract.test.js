@@ -113,6 +113,23 @@ function bootstrapHappyPath(dir, root) {
     captureStreams(dir)
   );
 
+  // An AGENTS parent so `subagent register/list` (DEC-068) has a valid parent.
+  const agentRegistration = {
+    id: "agent-001",
+    instance: "agent-001",
+    roles: ["AGENTS"],
+    scopes: ["scope:contract"],
+    capabilities: ["negotiate", "research"],
+    endpoints: [],
+    publicKeys: [],
+    acceptedPolicies: [],
+    createdAt: "2026-05-20T00:00:00.000Z"
+  };
+  runCli(
+    ["register", "--root", root, "--json", JSON.stringify(agentRegistration)],
+    captureStreams(dir)
+  );
+
   const negoRecord = {
     id: "nego-cc",
     scope: "scope:contract",
@@ -433,6 +450,21 @@ function buildHappyArgv(verb, ctx) {
         "--cli-version",
         "0.1.28"
       ];
+    case "subagent register":
+      return [
+        "subagent",
+        "register",
+        "--root",
+        root,
+        "--parent",
+        "agent-001",
+        "--name",
+        "researcher",
+        "--capabilities",
+        "research"
+      ];
+    case "subagent list":
+      return ["subagent", "list", "--root", root, "--parent", "agent-001"];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -471,7 +503,9 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "keys generate",
     "install-skills",
     "deploy k8s-sidecar",
-    "deploy k8s-tenant"
+    "deploy k8s-tenant",
+    "subagent register",
+    "subagent list"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {

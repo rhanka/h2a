@@ -52,7 +52,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { computeHash, signCanonical } from "@sentropic/h2a";
+import { computeHash, signCanonical, subagentAddress } from "@sentropic/h2a";
 
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
@@ -88,7 +88,12 @@ const STORE_STATE_ERROR_PATTERNS: readonly RegExp[] = [
   /fails verification/i,
   /no artifactHash has the full quorum/i,
   /no offer\/counter event matches/i,
-  /stabilized artifact already on disk/i
+  /stabilized artifact already on disk/i,
+  // DEC-069: subagent binding preconditions that depend on registry state.
+  /parent not registered/i,
+  /parent-not-agents/,
+  /parent-instance-mismatch/,
+  /capabilities-exceed-parent/
 ];
 
 function classifyStoreError(message: string): 1 | 2 {
@@ -123,6 +128,8 @@ export function renderCliHelp(): string {
     "  h2a init [--root <path>]",
     "  h2a register --json <json> [--root <path>]",
     "  h2a discover [--role <role>] [--scope <scope>] [--root <path>]",
+    "  h2a subagent register --parent <instance> --name <name> [--capabilities a,b] [--root <path>]",
+    "  h2a subagent list [--parent <instance>] [--root <path>]",
     "  h2a negotiate open --json <record-json> [--root <path>]",
     "  h2a negotiate status --id <id> --status <status> [--root <path>]",
     "  h2a negotiate event --id <id> --json <payload-json> [--causation-id <id>] [--correlation-id <id>] [--root <path>]",
@@ -266,6 +273,61 @@ function cmdRegister(
     `${JSON.stringify({ ok: true, id: registration.id, root: store.paths.root }, null, 2)}\n`
   );
   return 0;
+}
+
+function cmdSubagent(
+  argv: readonly string[],
+  streams: H2ACliStreams
+): number {
+  // DEC-068 (V2): manage addressable subagent bindings under a parent AGENTS
+  // instance. `register` constructs + persists a binding; `list` enumerates.
+  const { command: sub, flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const store = createLocalStore({ root });
+
+  if (sub === "list") {
+    const entries = flags.parent
+      ? store.listSubagentsOf(flags.parent)
+      : store.listSubagents();
+    streams.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
+    return 0;
+  }
+
+  if (sub === "register") {
+    if (!flags.parent || !flags.name) {
+      streams.stderr.write(
+        "h2a subagent register: --parent <instance> and --name <name> are required\n"
+      );
+      return 1;
+    }
+    const capabilities = flags.capabilities
+      ? flags.capabilities.split(",").map((c) => c.trim()).filter((c) => c.length > 0)
+      : undefined;
+    const binding = {
+      id: subagentAddress(flags.parent, flags.name),
+      parentInstance: flags.parent,
+      name: flags.name,
+      ...(capabilities ? { capabilities } : {}),
+      createdAt: new Date().toISOString()
+    };
+    try {
+      store.registerSubagent(binding);
+    } catch (error) {
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a subagent register: ${message}\n`);
+      return classifyStoreError(message);
+    }
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, id: binding.id, parentInstance: binding.parentInstance, root: store.paths.root }, null, 2)}\n`
+    );
+    return 0;
+  }
+
+  streams.stderr.write(
+    `h2a subagent: subcommand required (supported: register, list)\n`
+  );
+  return 1;
 }
 
 function cmdMailbox(
@@ -1557,6 +1619,7 @@ export function runCli(
   if (command === "init") return cmdInit(flags, streams);
   if (command === "register") return cmdRegister(flags, streams);
   if (command === "discover") return cmdDiscover(flags, streams);
+  if (command === "subagent") return cmdSubagent(argv.slice(1), streams);
   if (command === "negotiate") return cmdNegotiate(argv.slice(1), streams);
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);

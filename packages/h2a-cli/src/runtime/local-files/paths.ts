@@ -27,6 +27,7 @@ export interface LocalStorePaths {
   root: string;
   registry: string;
   instances: string;
+  subagents: string;
   contracts: string;
   policies: string;
   engagements: string;
@@ -42,6 +43,7 @@ export function localStorePaths(root: string): LocalStorePaths {
     root,
     registry: join(root, "registry"),
     instances: join(root, "registry", "instances.jsonl"),
+    subagents: join(root, "registry", "subagents.jsonl"),
     contracts: join(root, "contracts"),
     policies: join(root, "policies"),
     engagements: join(root, "engagements"),
