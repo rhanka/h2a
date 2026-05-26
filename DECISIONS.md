@@ -1509,3 +1509,22 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) deriving an executable profile from the narrative use-case is exactly the DEC-041 pattern — narrative stays the design source, the profile is the machine-readable check; (b) the agile-delivery model fits the V1 vocabulary with **no new role or artifact** — only a new model id + topology, so the protocol surface is unchanged; (c) excluding MANDATAIRE from `requiredRoles` records honestly that the squad/train model has no notary/clerk function; (d) keeping `policy-precedence` `partial` (like the other tracks) avoids implying a V1 conflict-resolution engine that does not exist; (e) the satellite values encode the model's real shape (fast weekly cadence, contract-first jurisdiction, redacted cross-firm disclosure) rather than copying an existing track.
 
 **Consequence**: (a) `@sentropic/h2a` exposes a fourth org profile; consumers calling `auditAbcModelCompatibility("D_SAFE")` get a stable mapping; (b) a **new model id is additive public surface → a minor bump `0.3.0`** ships it; (c) the PMX/ATL co-ownership (two sub-scopes, joint PI-engagement signature) and execution-only agent mandates are documented in the use-case and reflected in the profile's role/topology shape; (d) any later change to the D_SAFE mapping must update this DEC + the tests `packages/h2a/test/abc.test.js` (and the four satellite test key-lists).
+
+## DEC-081 — SysML v2 interop: specification & plan (not yet built)
+**Date**: 2026-05-26. **Refers**: DEC-035, DEC-045, DEC-073, DEC-074, DEC-077, DEC-080. **Line**: V2. **Spec**: docs/sysml-interop.md.
+
+**Context**: the `evaluations/sysml-v2.md` evaluation found that h2a can *govern* SysML v2 model deliverables by referencing immutable model commits in signed envelopes (facet §3), reusing the shipped signed-bearer transport. This DEC records the decision to **specify and plan** that interop now, and to **defer the build** to scheduled slices.
+
+**Decision**: adopt `docs/sysml-interop.md` as the interop specification and plan. Key commitments:
+
+- A pure `H2ASysmlRef { kind:"sysmlv2", apiBase?, project, commit, element?, elementHash? }` in `@sentropic/h2a`; an `ENGAGEMENT`/`CONTRACT` may carry `subject.sysmlRef`. Since `commit` is immutable and the ref is ordinary signed content (DEC-073), signing the envelope pins the model state — **no new signing path**.
+- Provenance composes without duplication: the SysML **commit chain** is model-side provenance, the h2a **journal** is governance-side.
+- Two trust levels: commit-trust (default) and content-integrity (re-fetch + re-hash against `elementHash`).
+- Disclosure rides SysML **views/queries** (DEC-045 mode → query scope).
+- Two independent auth boundaries: h2a authority to *sign* vs SysML API access to *read*; credentials never travel in envelopes.
+- All I/O in a `runtime/sysml/` adapter inside `@sentropic/h2a-cli` (**2-package rule held** — no `@sentropic/h2a-sysml`).
+- Plan: S1 pure ref type → S2 adapter (`resolveSysmlElement`/`hashSysmlElement`) → S3 `verifyEnvelopeSysmlRef` + `h2a sysml verify` → S4 disclosure-view mapping.
+
+**Why**: (a) referencing immutable commits reuses h2a's own hash-addressed/append-only design and the shipped transport — the interop is *reference + verification*, not a new transport or package; (b) keeping the ref pure (core) and all I/O in a cli runtime adapter respects the 2-package constraint and keeps the signed surface unchanged; (c) separating "authority to sign" from "access to read the repo" avoids conflating h2a governance with SysML API auth; (d) specifying + planning now (without building) lets the work be scheduled deliberately and surfaces the four open questions (granularity, API auth, branch/merge, canonicalization) before any code; (e) **no executable `D_*` profile** is created — SysML interop is a transport/runtime adapter, not an org topology.
+
+**Consequence**: (a) `docs/sysml-interop.md` is the reference spec + slice plan; (b) nothing ships in this DEC (no version bump) — S1 will be the first code slice (minor bump for the new core type) when scheduled; (c) the four open questions must be resolved before S1; (d) the interop depends on a chosen SysML v2 API & Services endpoint at S2 (mock-tested first).
