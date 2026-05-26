@@ -95,7 +95,7 @@ Several squads (each PMX+ATL+agents) under one train:
 
 ## Compatibility hypothesis
 
-Holds with the V1 vocabulary: **no new role or artifact**. The scaled-agile + contracted-delivery model maps onto `EXECUTIF`/`PRINCIPAL`/`CONDUCTOR`/`AGENTS`(+`SUBAGENTS`)/`CONTROL`, the `CONTRACT`/`ENGAGEMENT`(/`POLICY`) stack, and the `MANDATE`+`BINDING` pair for agent delegation and role contracting. Watch points: architecture ownership **must** be a `PRINCIPAL` (not only `CONTROL`), and the train/squad is a `SCOPE` distinct from the `ENGAGEMENT` it carries. An executable `D_SAFE` profile (machine-readable, DEC-041) is to be derived from this use-case in a later slice.
+Holds with the V1 vocabulary: **no new role or artifact**. The scaled-agile + contracted-delivery model maps onto `EXECUTIF`/`PRINCIPAL`/`CONDUCTOR`/`AGENTS`(+`SUBAGENTS`)/`CONTROL`, the `CONTRACT`/`ENGAGEMENT`(/`POLICY`) stack, and the `MANDATE`+`BINDING` pair for agent delegation and role contracting. Watch points: architecture ownership **must** be a `PRINCIPAL` (not only `CONTROL`), and the train/squad is a `SCOPE` distinct from the `ENGAGEMENT` it carries. **Shipped**: the executable `D_SAFE` profile (machine-readable, `H2A_ABC_MODEL_PROFILES.D_SAFE`, topology `agile-train`) is derived from this use-case and verified by `auditAbcModelCompatibility("D_SAFE")` — DEC-080.
 
 ## References
 

@@ -84,6 +84,22 @@ export const H2A_DISCLOSURE_PROFILES = Object.freeze({
     rationale:
       "Public-authority contexts may require full-view by mandated authority, but citizen and inter-administration exchanges default to evidence-package with redacted-view available on demand.",
     references: ["REQ-070", "REQ-071", "DEC-041", "DEC-043", "DEC-045"] as const
+  }),
+  D_SAFE: Object.freeze({
+    modelId: "D_SAFE",
+    label: "D - agentic-delivery squad",
+    allowedModes: [
+      "full-view",
+      "redacted-view",
+      "evidence-package",
+      "attestation",
+      "hash-only"
+    ] as const,
+    defaultMode: "redacted-view",
+    conflictDisposition: "escalate-not-resolve",
+    rationale:
+      "A squad works full-view inside its own scope, but a contracted external delivery firm and cross-scope CONTROL get redacted-view by default; evidence-package/attestation/hash-only cover the contracting-firm boundary.",
+    references: ["REQ-070", "REQ-071", "DEC-041", "DEC-043", "DEC-045", "DEC-080"] as const
   })
 } as const satisfies Record<H2AAbcModelId, H2ADisclosureProfileDescriptor>);
 

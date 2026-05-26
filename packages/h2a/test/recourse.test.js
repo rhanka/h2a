@@ -25,7 +25,8 @@ test("recourse profiles are declared for the three ABC contexts", () => {
   assert.deepEqual(Object.keys(H2A_RECOURSE_PROFILES).sort(), [
     "A_ENTERPRISE",
     "B_ECOSYSTEM",
-    "C_GOVERNMENT_CITIZEN"
+    "C_GOVERNMENT_CITIZEN",
+    "D_SAFE"
   ]);
 
   const enterprise = getRecourseProfile("A_ENTERPRISE");

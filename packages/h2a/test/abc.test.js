@@ -8,11 +8,12 @@ import {
   getAbcModelProfile
 } from "../dist/index.js";
 
-test("H2A_ABC_MODEL_PROFILES exposes the three stabilized ABC mappings", () => {
+test("H2A_ABC_MODEL_PROFILES exposes the stabilized organizational mappings", () => {
   assert.deepEqual([...H2A_ABC_MODEL_IDS], [
     "A_ENTERPRISE",
     "B_ECOSYSTEM",
-    "C_GOVERNMENT_CITIZEN"
+    "C_GOVERNMENT_CITIZEN",
+    "D_SAFE"
   ]);
 
   assert.equal(
@@ -27,12 +28,17 @@ test("H2A_ABC_MODEL_PROFILES exposes the three stabilized ABC mappings", () => {
     H2A_ABC_MODEL_PROFILES.C_GOVERNMENT_CITIZEN.topology,
     "public-authority"
   );
+  assert.equal(
+    H2A_ABC_MODEL_PROFILES.D_SAFE.topology,
+    "agile-train"
+  );
 });
 
 test("getAbcModelProfile returns only known ABC profiles", () => {
   assert.equal(getAbcModelProfile("A_ENTERPRISE").track, "A");
   assert.equal(getAbcModelProfile("B_ECOSYSTEM").track, "B");
   assert.equal(getAbcModelProfile("C_GOVERNMENT_CITIZEN").track, "C");
+  assert.equal(getAbcModelProfile("D_SAFE").track, "D");
   assert.equal(getAbcModelProfile("D_OTHER"), undefined);
 });
 
@@ -83,6 +89,24 @@ test("government mapping preserves imposed public policy with recourse and juris
   assert.equal(result.ready, false);
   assert.equal(result.shipped.includes("recourse"), true);
   assert.equal(result.shipped.includes("jurisdiction"), true);
+  assert.match(result.gaps.join("\n"), /policy precedence/);
+});
+
+test("SAFE mapping uses the agile-train topology with shaper/builder principals and AGENTS", () => {
+  const profile = getAbcModelProfile("D_SAFE");
+  assert.equal(profile.track, "D");
+  assert.equal(profile.topology, "agile-train");
+  assert.equal(profile.requiredRoles.includes("PRINCIPAL"), true);
+  assert.equal(profile.requiredRoles.includes("AGENTS"), true);
+  assert.equal(profile.requiredRoles.includes("CONDUCTOR"), true);
+  // MANDATAIRE is not part of the agile-delivery model
+  assert.equal(profile.requiredRoles.includes("MANDATAIRE"), false);
+
+  const result = auditAbcModelCompatibility("D_SAFE");
+  assert.equal(result.ok, true, result.issues.join("; "));
+  assert.equal(result.ready, false);
+  assert.equal(result.shipped.includes("controlled-disclosure"), true);
+  assert.equal(result.shipped.includes("recurring-obligations"), true);
   assert.match(result.gaps.join("\n"), /policy precedence/);
 });
 

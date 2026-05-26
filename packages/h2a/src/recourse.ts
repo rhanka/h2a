@@ -120,6 +120,31 @@ export const H2A_RECOURSE_PROFILES = Object.freeze({
       "DEC-043",
       "DEC-046"
     ] as const
+  }),
+  D_SAFE: Object.freeze({
+    modelId: "D_SAFE",
+    label: "D - agentic-delivery squad",
+    allowedStates: FULL_LIFECYCLE,
+    allowedDeciderKinds: [
+      "PRINCIPAL",
+      "CONTROL",
+      "EXTERNAL_AUTHORITY"
+    ] as const,
+    defaultDeciderKind: "PRINCIPAL",
+    appealable: true,
+    conflictDisposition: "escalate-not-resolve",
+    rationale:
+      "Delivery disputes resolve at the owning PRINCIPAL (epic/product); CONTROL handles architecture/security/compliance recourse; EXTERNAL_AUTHORITY keeps the contracting-firm dispute/arbitration path open.",
+    references: [
+      "REQ-068",
+      "REQ-069",
+      "REQ-071",
+      "DEC-040",
+      "DEC-041",
+      "DEC-043",
+      "DEC-046",
+      "DEC-080"
+    ] as const
   })
 } as const satisfies Record<H2AAbcModelId, H2ARecourseProfileDescriptor>);
 

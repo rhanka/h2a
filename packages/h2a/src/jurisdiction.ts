@@ -104,6 +104,29 @@ export const H2A_JURISDICTION_PROFILES = Object.freeze({
       "DEC-043",
       "DEC-048"
     ] as const
+  }),
+  D_SAFE: Object.freeze({
+    modelId: "D_SAFE",
+    label: "D - agentic-delivery squad",
+    allowedKinds: [
+      "private-contract",
+      "delegated",
+      "functional",
+      "sectoral",
+      "territorial"
+    ] as const,
+    defaultKind: "private-contract",
+    conflictDisposition: "escalate-not-resolve",
+    rationale:
+      "A contracted delivery squad is governed primarily by the private framework contract; authority is delegated from the client; functional/sectoral/territorial cover the client's regulated domains.",
+    references: [
+      "REQ-042",
+      "REQ-071",
+      "DEC-041",
+      "DEC-043",
+      "DEC-048",
+      "DEC-080"
+    ] as const
   })
 } as const satisfies Record<H2AAbcModelId, H2AJurisdictionProfileDescriptor>);
 

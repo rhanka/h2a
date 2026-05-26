@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-25 (DEC-079 — key management slice 2: `h2a keys revoke` rotate-out. **Key rotation COMPLETE end-to-end** (add/list/revoke). V1 + 3 V2 WPs done (SUBAGENTS, transport-auth, key-mgmt), 0.2.0→0.2.11. Remaining V2: broker Scénario C (parked, needs user steer) + optional polish/mTLS.)
+> Last update: 2026-05-26 (DEC-080 — executable `D_SAFE` org profile (agentic-delivery squad, topology `agile-train`) derived from `evaluations/e-agentic-squad.md`; 4th model id in `H2A_ABC_MODEL_PROFILES` + 5 satellite profiles. **Minor bump 0.3.0.** Docs: `evaluations/` library now EN, OCTO/Accenture removed. Co-authoring stripped from git history. Remaining V2: broker Scénario C (parked, needs user steer).)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 

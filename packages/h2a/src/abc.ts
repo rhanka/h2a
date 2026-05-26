@@ -19,7 +19,8 @@ import { H2A_JURISDICTION_PROFILES } from "./jurisdiction.js";
 export const H2A_ABC_MODEL_IDS = [
   "A_ENTERPRISE",
   "B_ECOSYSTEM",
-  "C_GOVERNMENT_CITIZEN"
+  "C_GOVERNMENT_CITIZEN",
+  "D_SAFE"
 ] as const;
 
 export const H2A_ABC_MODEL_CAPABILITIES = [
@@ -38,11 +39,12 @@ export const H2A_ABC_MODEL_CAPABILITIES = [
 ] as const;
 
 export type H2AAbcModelId = (typeof H2A_ABC_MODEL_IDS)[number];
-export type H2AAbcTrack = "A" | "B" | "C";
+export type H2AAbcTrack = "A" | "B" | "C" | "D";
 export type H2AAbcTopology =
   | "enterprise-hierarchy"
   | "peer-federation"
-  | "public-authority";
+  | "public-authority"
+  | "agile-train";
 export type H2AAbcModelCapability =
   (typeof H2A_ABC_MODEL_CAPABILITIES)[number];
 export type H2AAbcModelCapabilityStatus =
@@ -98,6 +100,17 @@ const ALL_ROLES = [
   "AGENTS",
   "CONTROL",
   "MANDATAIRE"
+] as const satisfies readonly H2ARole[];
+
+// D_SAFE squad/train roles: EXECUTIF (portfolio), PRINCIPAL (epic/product/
+// architecture/PMX/ATL), CONDUCTOR (RTE/SM), AGENTS (delegated AI), CONTROL
+// (security/compliance). MANDATAIRE is not part of the agile-delivery model.
+const SAFE_ROLES = [
+  "PRINCIPAL",
+  "EXECUTIF",
+  "CONDUCTOR",
+  "AGENTS",
+  "CONTROL"
 ] as const satisfies readonly H2ARole[];
 
 const ALL_SCOPE_AUTHORITIES = [
@@ -275,6 +288,24 @@ export const H2A_ABC_MODEL_PROFILES = Object.freeze({
       recourseCapability("C_GOVERNMENT_CITIZEN"),
       jurisdictionCapability("C_GOVERNMENT_CITIZEN"),
       policyPrecedenceCapability("C_GOVERNMENT_CITIZEN")
+    ] as const
+  }),
+  D_SAFE: Object.freeze({
+    id: "D_SAFE",
+    track: "D",
+    label: "D - agentic-delivery squad (scaled agile)",
+    topology: "agile-train",
+    requiredRoles: SAFE_ROLES,
+    requiredArtifactKinds: ALL_ARTIFACTS,
+    requiredPolicyAdoptionModes: ALL_POLICY_ADOPTION_MODES,
+    escalationAuthorityKinds: ALL_SCOPE_AUTHORITIES,
+    capabilities: [
+      ...BASE_SHIPPED_CAPABILITIES,
+      controlledDisclosureCapability("D_SAFE"),
+      recurringObligationsCapability("D_SAFE"),
+      recourseCapability("D_SAFE"),
+      jurisdictionCapability("D_SAFE"),
+      policyPrecedenceCapability("D_SAFE")
     ] as const
   })
 } as const satisfies Record<H2AAbcModelId, H2AAbcModelProfileDescriptor>);

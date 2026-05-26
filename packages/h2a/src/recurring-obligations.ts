@@ -114,6 +114,31 @@ export const H2A_RECURRING_OBLIGATION_PROFILES = Object.freeze({
       "DEC-043",
       "DEC-047"
     ] as const
+  }),
+  D_SAFE: Object.freeze({
+    modelId: "D_SAFE",
+    label: "D - agentic-delivery squad",
+    allowedCadences: [
+      "daily",
+      "weekly",
+      "monthly",
+      "quarterly",
+      "on-event"
+    ] as const,
+    defaultCadence: "weekly",
+    defaultGraceDays: 2,
+    defaultReportingThresholdDays: 1,
+    conflictDisposition: "escalate-not-resolve",
+    rationale:
+      "Agile delivery runs fast cadences: weekly/bi-weekly iterations within a quarterly PI, plus dailies; short grace and an early alert match the tight feedback loop. on-event covers PI-boundary commitments.",
+    references: [
+      "REQ-063",
+      "REQ-071",
+      "DEC-041",
+      "DEC-043",
+      "DEC-047",
+      "DEC-080"
+    ] as const
   })
 } as const satisfies Record<H2AAbcModelId, H2ARecurringObligationProfileDescriptor>);
 

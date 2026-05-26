@@ -76,6 +76,20 @@ export const H2A_POLICY_PRECEDENCE_PROFILES = Object.freeze({
     rationale:
       "Public-authority contexts read imposed public policy first; contracts and delegated/federated rules remain explicit below that surface.",
     references: ["REQ-041", "DEC-039", "DEC-041"] as const
+  }),
+  D_SAFE: Object.freeze({
+    modelId: "D_SAFE",
+    label: "D - agentic-delivery squad",
+    orderedTiers: [
+      "public-authority",
+      "contractual",
+      "federated",
+      "local"
+    ] as const,
+    conflictDisposition: "escalate-not-resolve",
+    rationale:
+      "A contracted squad reads law, then the framework contract and portfolio guardrails (contractual), then train/ART shared policy (federated), then squad-local policy; conflicts escalate rather than auto-resolve.",
+    references: ["REQ-041", "DEC-039", "DEC-041", "DEC-080"] as const
   })
 } as const satisfies Record<H2AAbcModelId, H2APolicyPrecedenceProfileDescriptor>);
 
