@@ -36,7 +36,7 @@ Repository:
   - `SPEC.md`: numbered requirements
   - `VOCABULARY.md`: canonical vocabulary
   - `DECISIONS.md`: append-only decision log
-  - `EVALUATIONS.md`: compatibility evaluations
+  - `evaluations/`: org-model use-case library (compatibility evaluations + Mermaid diagrams; `EVALUATIONS.md` is a thin pointer)
   - `RUNTIME_PROPOSAL.md`: runtime proposal
   - `packages/h2a`: core package
   - `packages/h2a-cli`: unified CLI package

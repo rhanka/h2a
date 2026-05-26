@@ -228,7 +228,7 @@ Plus a **push notification channel** (`notifications/h2a`) on 4 topics (DEC-052)
 | [VOCABULARY.md](./VOCABULARY.md) | Canonical vocabulary (frozen V1.x) |
 | [DECISIONS.md](./DECISIONS.md) | Append-only journal of `DEC-NNN` (model, runtime, host, governance) |
 | [PLAN.md](./PLAN.md) | Project plan, workpackages, status |
-| [EVALUATIONS.md](./EVALUATIONS.md) | ABC compatibility evaluations (enterprise / ecosystem / public-authority) |
+| [evaluations/](./evaluations/README.md) | Use-case library — org-model evaluations with Mermaid diagrams (enterprise / ecosystem / government / 15-conductors / SAFe-octo) |
 | [RUNTIME_PROPOSAL.md](./RUNTIME_PROPOSAL.md) | Original minimal-runtime proposal |
 | [docs/cli-contract.md](./docs/cli-contract.md) | CLI contract, verb by verb (DEC-034) |
 | [docs/compatibility-matrix.md](./docs/compatibility-matrix.md) | Host compatibility matrix (DEC-037) |
