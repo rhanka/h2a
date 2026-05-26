@@ -51,6 +51,25 @@ h2a remote send \
 
 It signs the envelope as `--instance` with `--private-key`, POSTs it, prints `{ status, body }`, and exits `0` on a 2xx, `1` otherwise. Generate a keypair with `h2a keys generate`.
 
+## Key rotation (DEC-078/079)
+
+The receiver authenticates a sender against the **active** public keys for that instance: the keys in its registration plus a per-instance **keyring** (`registry/keys.jsonl`, append-only), minus any revoked. Crucially, a signature is accepted if it verifies against *any* active key — which is what makes zero-downtime rotation possible.
+
+```bash
+# inspect the active keys for an instance
+h2a keys list --instance claude:proj-1
+
+# rotate IN: add a new key (both old and new now verify — overlap window)
+h2a keys add --instance claude:proj-1 --public-key ./claude-new.pub.pem
+
+# … switch the sender to the new private key …
+
+# rotate OUT: revoke the old key (the receiver stops accepting it immediately)
+h2a keys revoke --instance claude:proj-1 --public-key ./claude-old.pub.pem
+```
+
+Because verification reads the derived active set, a `revoke` takes effect everywhere at once — no server restart, no registration rewrite. Revoking a key that is not currently active is a state error (exit 2).
+
 ## Using it as a library
 
 The pieces are exported from `@sentropic/h2a` (pure crypto) and `@sentropic/h2a-cli` (transport):

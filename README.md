@@ -135,7 +135,7 @@ Then, inside each CLI:
 | Cross-machine remote transport | ✅ signed-bearer over HTTP ([docs/remote-transport.md](./docs/remote-transport.md), DEC-073..077) | broker/relay (Scenario C) → V2 |
 | Transport auth (signed bearer) | ✅ signed envelopes + anti-replay + verify-on-receipt (DEC-073..077) | mTLS channel hardening optional |
 | First-class SUBAGENTS (individually addressable) | ✅ addressable/persistent/routable/auditable/revocable ([docs/subagents.md](./docs/subagents.md), DEC-068..072) | — |
-| Key management UX (rotation, keyring) | ❌ manual PEM via `h2a keys generate` | V2 candidate |
+| Key management UX (rotation, keyring) | ✅ keyring + zero-downtime rotation: `h2a keys generate/add/list/revoke` (DEC-078/079) | — |
 | Kubernetes deployment | ✅ sidecar ([docs/k8s-sidecar.md](./docs/k8s-sidecar.md), DEC-058) + cluster tenant with RWX store + lease lock ([docs/k8s-tenant.md](./docs/k8s-tenant.md), DEC-067) | broker (Scenario C) → V2 |
 
 V1 declares what is permitted and traces everything. V1 **never** arbitrates a conflict in place of a human authority — that is by design (REQ-054).
