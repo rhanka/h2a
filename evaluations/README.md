@@ -16,6 +16,10 @@
 
 Each file follows the same structure: Mermaid diagram, mapping, contracts vs policies, multi-actor case, gaps, compatibility hypothesis.
 
+## Review program & backlog
+
+[BACKLOG.md](./BACKLOG.md) — the triple-review protocol + rubric for every artifact, and the backlog of new evaluations to author (ISO 9001 / ISO 27001 / SOC 2 / smart-contract).
+
 ## Complementary evaluations
 
 Not organizational topologies — they test `h2a` against external standards/frameworks:
