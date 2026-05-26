@@ -4,7 +4,7 @@
 
 A scaled-agile organization (SAFe-style) that manages a mix of **human roles** and **AI agents**, where some roles are **contracted in** from an external delivery firm. The base squad is a **PMX** (*product shaper*) and an **ATL** (*product builder*), both *builders* of the squad, each augmented by their own delegated AI agents.
 
-> **On PMX / ATL**: these role names appear to be proprietary/internal labels — no public founding document defines them by name (see [References](#references)). They are kept here as the operating model's role names. The underlying pattern (AI-augmented micro-squad; convergence of product + build; "delegate, review, own") is publicly documented.
+> **On PMX / ATL**: the acronyms appear to be proprietary/internal labels — no public founding document names them (see [References](#references)). Their *substance* maps onto two publicly described archetypes: **PMX ≈ the augmented Product Manager / product shaper** (defines the why, shapes the what, orchestrates discovery/spec agents) and **ATL ≈ the AI product builder / product maker** (materializes the shape into a tested artifact, orchestrates build agents). Both are hands-on *builders*, not managers.
 
 ## Diagram
 
@@ -48,12 +48,28 @@ flowchart TD
 | Role filled via external firm | `CONTRACT` framework + `ENGAGEMENT` + `BINDING` | The client contracts the firm; principal slots are bound to firm instances. |
 | Guardrails / DoD / NFR / lean budget | `ENGAGEMENT` clauses (default) or standalone `POLICY` | Engagement-centric; standalone `POLICY` reserved for cross-cutting/imposed rules (portfolio). |
 
-## The PMX + ATL squad (core of the model)
+## PMX and ATL — the two squad principals (core of the model)
 
-- The **squad** is a `SCOPE` carrying an `ENGAGEMENT` (the squad's mission for the current PI).
-- **PMX** and **ATL** are **co-`PRINCIPAL`** (multi-human `shared` mode, DEC-042): PMX owns the *product shaping* facet, ATL the *build* facet. Either one shared squad scope with two principals, **or** two sub-scopes (`squad/shaping`, `squad/build`) with one principal each.
-- Each principal **delegates its AI agents** as `AGENTS` via an explicit `MANDATE` (`{instance, role, scope, rights}`) + a `BINDING` of the slot to the agent instance. An agent's authority never exceeds its principal's mandate.
-- If an AI agent spawns its own sub-agents → the **SUBAGENTS** layer (DEC-068: address `pmx~researcher`, authority consolidated under the parent, audit + revocation per parent).
+Both are **builders** (hands-on producers, not managers), each owning a distinct facet of the product and each orchestrating their own AI agents under the "delegate, review, own" loop. The split follows the industry's product/build convergence — the *augmented PM / shaper* who defines the why and shapes the what, and the *AI product builder* who materializes it.
+
+| | **PMX — product shaper** | **ATL — product builder** |
+|---|---|---|
+| Owns | product intent & shape: discovery, value, problem framing, spec, validation hypotheses, user empathy | materialization: turning the shape into working, architecture-sound software (MVP → product) |
+| Produces | validated direction, specs, throwaway prototypes-for-validation | running increments, tested code, integrations |
+| Augmenting agents | shaping agents: research, analysis, spec drafting, prototyping | build agents: codegen, test, integration, refactor |
+| `h2a` role | `PRINCIPAL` of `squad/shaping` | `PRINCIPAL` of `squad/build` |
+| Seam | hands a validated, specified direction across the shape→build seam | pulls from it; feeds buildability constraints back |
+
+### Scopes & signatures (resolved)
+
+- One **squad `SCOPE`** with **two sub-scopes** — `squad/shaping` (PMX) and `squad/build` (ATL), one `PRINCIPAL` each — so ownership, mandate and audit boundaries are unambiguous (cleaner than two principals sharing a single scope).
+- The squad's **PI `ENGAGEMENT`** spans both sub-scopes → it requires **both** signatures (PMX + ATL): joint stabilization, multi-human `shared` mode (DEC-042). Artifacts internal to a sub-scope are signed by that sub-scope's principal alone.
+
+### Agent delegation (resolved)
+
+- Each principal delegates AI agents into its sub-scope as `AGENTS` via an explicit `MANDATE` (`{instance, role, scope, rights}`) + a `BINDING` of the slot to the agent instance.
+- Default agent rights are **execution-only / non-signing**: `propose`, `negotiate`, `audit` — **never `sign`**. Accountability stays on the human principal who reviews and signs ("delegate, review, own"). An agent's authority never exceeds its principal's mandate.
+- If an agent spawns its own sub-agents → the **SUBAGENTS** layer (DEC-068: address `atl~test-runner`, authority consolidated under the parent, per-parent audit + revocation).
 
 ## Contracting the roles
 
@@ -72,9 +88,8 @@ Several squads (each PMX+ATL+agents) under one train:
 
 ## Gaps
 
-- PMX/ATL co-ownership: one scope with two principals vs two sub-scopes — joint-signature rule?
-- Standard mandate for a delegated AI agent (rights: usually execution-only, non-signing).
-- `AGENTS` mandated vs `SUBAGENTS` (DEC-068) boundary: at what level an agent becomes individually addressable/auditable.
+- **Resolved**: PMX/ATL co-ownership (two sub-scopes, joint PI-engagement signature) and delegated-agent rights (execution-only, non-signing) — see the section above.
+- `AGENTS` mandated vs `SUBAGENTS` (DEC-068) boundary: at what fan-out level an agent becomes individually addressable/auditable.
 - The contract grants **principal-level** authority to an external provider: which control/exit clauses bound it?
 - Guardrails as engagement clauses vs standalone `POLICY`: switch criterion (cross-cutting/imposed ⇒ POLICY).
 
@@ -86,6 +101,7 @@ Holds with the V1 vocabulary: **no new role or artifact**. The scaled-agile + co
 
 No public founding document defines the **PMX**/**ATL** acronyms by name; they appear to be proprietary/internal role labels. The closest public sources for the underlying operating model (AI-augmented micro-squad; product/build convergence; human + agent teams) are listed for context only:
 
-- Sébastien Bourguignon (Sopra Steria Next), *« De la micro-squad augmentée à un modèle opérationnel … à l'ère du SDLC agentique »*, Journal du Net, 2026-04-09 — [journaldunet.com](https://www.journaldunet.com/developpeur/1549427-de-la-micro-squad-augmentee-a-un-modele-operationnel-comment-structurer-les-equipes-produit-a-l-ere-du-sdlc-agentique/)
-- Converteo, *AI Product Builder vs PM et Designer* — [converteo.com](https://converteo.com/blog/ai-product-builder-roles-equipe-ia/)
-- CIO, *How agentic AI will reshape engineering workflows in 2026* — [cio.com](https://www.cio.com/article/4134741/how-agentic-ai-will-reshape-engineering-workflows-in-2026.html)
+- Sébastien Bourguignon (Sopra Steria Next), *« De la micro-squad augmentée à un modèle opérationnel … à l'ère du SDLC agentique »*, Journal du Net, 2026-04-09 — [journaldunet.com](https://www.journaldunet.com/developpeur/1549427-de-la-micro-squad-augmentee-a-un-modele-operationnel-comment-structurer-les-equipes-produit-a-l-ere-du-sdlc-agentique/) — the augmented micro-squad operating model.
+- SFEIR, *Product Manager augmenté : comment l'IA révolutionne le job de PM/PO* — [sfeir.dev](https://www.sfeir.dev/ia/product-manager-augmente-comment-lia-revolutionne-le-job-de-pm-po/) — the **shaper** archetype (PMX).
+- Converteo, *AI Product Builder vs PM et Designer* — [converteo.com](https://converteo.com/blog/ai-product-builder-roles-equipe-ia/) — the **builder** archetype (ATL): "materializes the vision into a testable artifact".
+- CIO, *How agentic AI will reshape engineering workflows in 2026* — [cio.com](https://www.cio.com/article/4134741/how-agentic-ai-will-reshape-engineering-workflows-in-2026.html) — the "delegate, review, own" operating loop.
