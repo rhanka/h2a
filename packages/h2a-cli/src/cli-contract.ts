@@ -396,6 +396,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "List an instance's active public keys (registration keys + keyring additions, minus revoked). DEC-078."
   },
   {
+    verb: "keys revoke",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["instance", "public-key"],
+    optionalFlags: ["root"],
+    description:
+      "Revoke a public key (PEM file) from an instance's keyring (rotate-out). Appends a `revoked` event; the verifier stops accepting it. Exit 2 if the key is not currently active. DEC-079."
+  },
+  {
     verb: "install-skills",
     outputShape: "action",
     exitCodes: [0, 1, 2, 3],

@@ -474,6 +474,19 @@ function buildHappyArgv(verb, ctx) {
     }
     case "keys list":
       return ["keys", "list", "--root", root, "--instance", "agent-001"];
+    case "keys revoke": {
+      // Add a key first so there is an active key to revoke.
+      const { publicKey } = generateKeyPairSync("ed25519");
+      const pubPath = join(root, "..", "keys-revoke.pub.pem");
+      writeFileSync(pubPath, publicKey.export({ format: "pem", type: "spki" }).toString(), "utf8");
+      const sink = {
+        stdout: { write: () => {} },
+        stderr: { write: () => {} },
+        cwd: () => process.cwd()
+      };
+      runCli(["keys", "add", "--root", root, "--instance", "agent-001", "--public-key", pubPath], sink);
+      return ["keys", "revoke", "--root", root, "--instance", "agent-001", "--public-key", pubPath];
+    }
     case "subagent register":
       // `researcher` is pre-registered by bootstrapHappyPath (for route/inbox);
       // use a distinct name here so this happy path is a fresh registration.
@@ -568,6 +581,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "keys generate",
     "keys add",
     "keys list",
+    "keys revoke",
     "install-skills",
     "deploy k8s-sidecar",
     "deploy k8s-tenant",

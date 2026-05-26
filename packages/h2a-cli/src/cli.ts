@@ -93,6 +93,7 @@ const STORE_STATE_ERROR_PATTERNS: readonly RegExp[] = [
   // DEC-069/070/072: subagent binding/routing/revocation preconditions.
   /not registered/i,
   /revoked/i,
+  /key not active/i,
   /parent-not-agents/,
   /parent-instance-mismatch/,
   /capabilities-exceed-parent/
@@ -169,6 +170,7 @@ export function renderCliHelp(): string {
     "  h2a keys generate --instance <id> [--out <dir>] [--root <path>]",
     "  h2a keys add --instance <id> --public-key <pem-file> [--root <path>]",
     "  h2a keys list --instance <id> [--root <path>]",
+    "  h2a keys revoke --instance <id> --public-key <pem-file> [--root <path>]",
     "  h2a install-skills --host claude [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
@@ -1351,6 +1353,41 @@ function cmdKeysList(
   return 0;
 }
 
+function cmdKeysRevoke(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  // DEC-079: revoke a public key from an instance's keyring (rotate-out).
+  if (!flags.instance || !flags["public-key"]) {
+    streams.stderr.write(
+      "h2a keys revoke: --instance <id> and --public-key <pem-file> are required\n"
+    );
+    return 1;
+  }
+  let publicKeyPem;
+  try {
+    publicKeyPem = readFileSync(flags["public-key"], "utf8");
+  } catch (error) {
+    streams.stderr.write(
+      `h2a keys revoke: cannot read --public-key (${(error as Error).message})\n`
+    );
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+  try {
+    store.revokeInstanceKey(flags.instance, publicKeyPem);
+  } catch (error) {
+    const message = (error as Error).message;
+    streams.stderr.write(`h2a keys revoke: ${message}\n`);
+    return classifyStoreError(message);
+  }
+  streams.stdout.write(
+    `${JSON.stringify({ ok: true, instance: flags.instance, status: "revoked", keys: store.listInstanceKeys(flags.instance).length }, null, 2)}\n`
+  );
+  return 0;
+}
+
 function cmdConnect(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -1884,7 +1921,8 @@ export function runCli(
     if (sub === "generate") return cmdKeysGenerate(subFlags, streams);
     if (sub === "add") return cmdKeysAdd(subFlags, streams);
     if (sub === "list") return cmdKeysList(subFlags, streams);
-    streams.stderr.write(`h2a keys: unknown subcommand "${sub ?? ""}" (generate, add, list)\n`);
+    if (sub === "revoke") return cmdKeysRevoke(subFlags, streams);
+    streams.stderr.write(`h2a keys: unknown subcommand "${sub ?? ""}" (generate, add, list, revoke)\n`);
     return 1;
   }
 

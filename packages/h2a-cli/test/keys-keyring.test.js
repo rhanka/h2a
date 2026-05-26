@@ -102,6 +102,81 @@ test("h2a keys add/list via CLI", () => {
   }
 });
 
+test("revokeInstanceKey removes a key and rejects revoking an inactive one (DEC-079)", () => {
+  const root = freshRoot();
+  try {
+    const a = keypair();
+    const b = keypair();
+    const store = createLocalStore({ root });
+    registerSigner(store, [a.publicKeyPem]);
+    store.addInstanceKey(SIGNER, b.publicKeyPem);
+    assert.equal(store.listInstanceKeys(SIGNER).length, 2);
+
+    store.revokeInstanceKey(SIGNER, a.publicKeyPem);
+    const keys = store.listInstanceKeys(SIGNER);
+    assert.deepEqual(keys, [b.publicKeyPem]);
+
+    // revoking again (now inactive) is a state error
+    assert.throws(() => store.revokeInstanceKey(SIGNER, a.publicKeyPem), /not active/i);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("full rotation: add new key, revoke old; only the new key verifies (DEC-079)", async () => {
+  const root = freshRoot();
+  try {
+    const oldKey = keypair();
+    const newKey = keypair();
+    const store = createLocalStore({ root });
+    registerSigner(store, [oldKey.publicKeyPem]);
+    store.addInstanceKey(SIGNER, newKey.publicKeyPem);
+    store.revokeInstanceKey(SIGNER, oldKey.publicKeyPem);
+
+    const server = remoteServerForStore(store);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const url = `http://127.0.0.1:${server.address().port}/h2a/envelopes`;
+    const sink = { stdout: { write: () => {} }, stderr: { write: () => {} }, cwd: () => process.cwd() };
+    try {
+      const mkEnv = (id) =>
+        JSON.stringify(
+          createEnvelope({
+            id,
+            type: "propose",
+            actor: { instance: SIGNER, role: "AGENTS", scope: "scope:demo" },
+            target: { instance: RECIPIENT },
+            body: {},
+            createdAt: new Date().toISOString()
+          })
+        );
+      // the REVOKED (old) key must be refused
+      const oldPath = join(root, "..", "old.key.pem");
+      writeFileSync(oldPath, oldKey.privateKeyPem, "utf8");
+      const rcOld = await runRemoteSend(
+        { url, instance: SIGNER, "private-key": oldPath, json: mkEnv("env-old") },
+        sink
+      );
+      assert.equal(rcOld, 1);
+      assert.equal(store.readInbox(RECIPIENT).length, 0);
+
+      // the NEW key still works
+      const newPath = join(root, "..", "new.key.pem");
+      writeFileSync(newPath, newKey.privateKeyPem, "utf8");
+      const rcNew = await runRemoteSend(
+        { url, instance: SIGNER, "private-key": newPath, json: mkEnv("env-new") },
+        sink
+      );
+      assert.equal(rcNew, 0);
+      assert.equal(store.readInbox(RECIPIENT).length, 1);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rotation: a freshly-added key verifies at the remote server (DEC-078)", async () => {
   const root = freshRoot();
   try {

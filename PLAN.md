@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-25 (DEC-078 — key management slice 1: keyring `registry/keys.jsonl` + multi-key verification (`resolvePublicKeys`) + `h2a keys add/list`; rotate-in works. V2 line 0.2.x. Next: slice 2 = `h2a keys revoke` (rotate-out). Broker Scénario C still parked, needs user steer.)
+> Last update: 2026-05-25 (DEC-079 — key management slice 2: `h2a keys revoke` rotate-out. **Key rotation COMPLETE end-to-end** (add/list/revoke). V1 + 3 V2 WPs done (SUBAGENTS, transport-auth, key-mgmt), 0.2.0→0.2.11. Remaining V2: broker Scénario C (parked, needs user steer) + optional polish/mTLS.)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -125,7 +125,7 @@
 - [x] MCP push notifications (`notifications/h2a`) on presence join/leave + inbox arrival + negotiation event ; tick-based scanner, configurable interval, sink wired by runMcpStdio — DEC-052
 - [x] Real cross-CLI integration test (two `mcp-serve` subprocesses sharing a root, inbox push + graceful close + SIGKILL TTL expiry) — DEC-053
 - [~] V2: transport auth — **mechanism DECIDED: signed-bearer end-to-end** (user steer 2026-05-25; transport moves bytes, auth = ed25519 envelope signatures + nonce/timestamp anti-replay; no PKI/mTLS, survives relays/brokers). Slices: [x] signed envelopes in core (DEC-073) ; [x] anti-replay — `checkEnvelopeFreshness` + `createReplayGuard` (DEC-074) ; [x] remote transport (in `runtime/remote/`, **not** a 3rd package): [x] 3a receive boundary `acceptRemoteEnvelope` (DEC-075) ; [x] 3b-i HTTP `createRemoteServer`/`sendRemoteEnvelope` (DEC-076) ; [x] 3b-ii CLI `h2a remote serve` (binds 127.0.0.1 by default) / `h2a remote send`, store+registry-wired (DEC-077). **Signed-bearer transport-auth COMPLETE end-to-end.** mTLS only as an optional deployment-layer add-on, not built.
-- [~] V2: key management UX (user steer 2026-05-25) — complements signed-bearer transport. Slices: [x] keyring store `registry/keys.jsonl` + multi-key verification (`resolvePublicKeys` tries ALL active keys) + `h2a keys add/list` (DEC-078) ; [ ] key revocation `h2a keys revoke` (rotate-out — append `revoked`, already subtracted by `listInstanceKeys`) ; [ ] rotation ergonomics/keyring polish. Rotate-in works: add new key, both verify during overlap.
+- [x] V2: key management UX (user steer 2026-05-25) — **core COMPLETE**: [x] keyring `registry/keys.jsonl` + multi-key verification + `h2a keys add/list` (DEC-078) ; [x] `h2a keys revoke` rotate-out (DEC-079). Full rotation works end-to-end (add new → revoke old; old refused, new accepted). Optional polish (timestamps in list, generate auto-register) deferrable.
 - [x] V2: first-class SUBAGENTS (DEC-008) — **COMPLETE (slices 1-5)**: [x] addressable binding layer in core (DEC-068) ; [x] store binding registration + `h2a subagent register/list` (DEC-069) ; [x] validated routing + parent fan-in + `h2a subagent route/inbox` (DEC-070) ; [x] append-only per-subagent audit trail + `h2a subagent audit` (DEC-071) ; [x] takeover via revocation (status derived from audit) + `h2a subagent revoke`, route refused once revoked (DEC-072). Subagents are addressable, persistent, routable, auditable, revocable.
 
 ### Codex track

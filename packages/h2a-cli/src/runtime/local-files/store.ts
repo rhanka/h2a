@@ -118,6 +118,7 @@ export interface LocalStore {
   findInstance(id: string): H2AActorRegistration | undefined;
   addInstanceKey(instanceId: string, publicKeyPem: string): void;
   listInstanceKeys(instanceId: string): string[];
+  revokeInstanceKey(instanceId: string, publicKeyPem: string): void;
   registerSubagent(binding: H2ASubagentBinding): void;
   listSubagents(): H2ASubagentBinding[];
   findSubagent(id: string): H2ASubagentBinding | undefined;
@@ -388,6 +389,27 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
           instance: instanceId,
           publicKey: publicKeyPem,
           type: "added",
+          at: new Date().toISOString()
+        });
+      },
+      lockOpts
+    );
+  }
+
+  // DEC-079: revoke a key (rotate-out). Appends a `revoked` event; the
+  // `listInstanceKeys` union already subtracts it, so the verifier stops
+  // accepting it. Rejects revoking a key that is not currently active.
+  function revokeInstanceKey(instanceId: string, publicKeyPem: string): void {
+    lock(
+      registryLock,
+      () => {
+        if (!listInstanceKeys(instanceId).includes(publicKeyPem)) {
+          throw new Error(`Key not active for ${instanceId}`);
+        }
+        appendJsonl(paths.keys, {
+          instance: instanceId,
+          publicKey: publicKeyPem,
+          type: "revoked",
           at: new Date().toISOString()
         });
       },
@@ -903,6 +925,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     findInstance,
     addInstanceKey,
     listInstanceKeys,
+    revokeInstanceKey,
     registerSubagent,
     listSubagents,
     findSubagent,
