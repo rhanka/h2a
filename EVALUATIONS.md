@@ -253,6 +253,66 @@ complet de précédence/disclosure/recours.
 
 ---
 
+## Track E — Organisation SAFe à delivery agentique (modèle octo)
+
+### Modèle à tester
+
+Une organisation **SAFe** (Scaled Agile Framework) où l'on gère un mélange de **rôles humains** et d'**agents IA**, et où certains rôles sont **contractualisés** auprès d'une filiale de delivery (modèle **octo**, filiale innovante d'Accenture). Le squad de base est composé d'un **PMX** (*product shaper*) et d'un **ATL** (*product builder*), tous deux *builders* du squad, chacun augmenté de ses propres agents IA délégués.
+
+### Mapping initial
+
+| Construct SAFe / octo | Mapping `h2a` | Remarques |
+|---|---|---|
+| LPM / Business Owners | `EXECUTIF` | Scope d'ensemble (portefeuille / value streams), finance et arbitre ; ne pilote pas le quotidien des squads. |
+| Epic Owner | `PRINCIPAL` (scope epic/portfolio) | Possède l'outcome d'un epic et son budget. |
+| Product Owner / Product Management (côté client) | `PRINCIPAL` (scope produit) | Quand l'ownership produit reste côté client au-dessus du squad octo. |
+| **System / Solution / Enterprise Architect** | `PRINCIPAL` (scope architecture) | **Possède** le runway et les NFR (sinon chaos) ; `CONTROL` ne possède rien, il audite. |
+| RTE / Scrum Master / STE | `CONDUCTOR` | Oriente/facilite l'ART ou la solution ; ne possède pas le scope. |
+| Sécurité / Compliance / Audit / Antitrust | `CONTROL` | Audit, veto, vue minimisée (redaction, evidence packages). |
+| **PMX — product shaper** | `PRINCIPAL` (facette *shaping* du squad) | Co-owner du squad ; ses agents IA lui sont **délégués** (voir ci-dessous). |
+| **ATL — product builder** | `PRINCIPAL` (facette *build* du squad) | Co-owner du squad ; idem, agents IA délégués. |
+| Agents IA de PMX/ATL | `AGENTS` mandatés (ou `SUBAGENTS`, DEC-068) | Délégués via `MANDATE` + `BINDING` dans le scope du principal qui les porte. |
+| Squad / ART / Solution Train / Value Stream | `SCOPE` (squad → fédération) | Le scope durable ; il *porte* un engagement, il n'*est* pas l'engagement. |
+| PI / PI Objectives / commitment | `ENGAGEMENT` | La mission exécutable ratifiée au PI Planning ; *a* le scope ART. |
+| Rôle pourvu via octo | `CONTRACT` cadre + `ENGAGEMENT` + `BINDING` | Le client contractualise octo ; les slots-principals sont bindés à des instances octo. |
+| Guardrails / DoD / NFR / lean budget | Clauses d'`ENGAGEMENT` (par défaut) ou `POLICY` autonome | Engagement-centric par défaut ; `POLICY` autonome réservée aux règles transverses/imposées (LPM). |
+
+### Le squad PMX + ATL (cœur du modèle)
+
+- Le **squad** est un `SCOPE` porté par un `ENGAGEMENT` (la mission du squad pour le PI courant).
+- **PMX** et **ATL** sont **co-`PRINCIPAL`** du squad (mode multi-humain `shared`, DEC-042) : PMX possède la facette *product shaping*, ATL la facette *build*. Ils peuvent partager un seul scope squad, ou scinder en deux sous-scopes (`squad/shaping`, `squad/build`) avec un principal chacun.
+- Chaque principal **délègue ses agents IA** comme `AGENTS` via un `MANDATE` explicite (`{instance, role, scope, rights}`) + un `BINDING` du slot vers l'instance agent. L'autorité de l'agent ne dépasse jamais le mandat de son principal.
+- Si un agent IA essaime ses propres sous-agents, on bascule sur la couche **SUBAGENTS** (DEC-068 : adresse `pmx~rechercheur`, autorité consolidée sous le parent, audit + révocation par parent).
+
+### Contractualisation des rôles (modèle octo)
+
+- Un `CONTRACT` cadre lie le client et la filiale octo (SLA, confidentialité, IP, audit rights, conditions de sortie).
+- La prestation du squad est un `ENGAGEMENT` dérivé de ce contrat (charter, critères de succès, durée, journal).
+- Les **slots-principals** PMX/ATL sont **bindés** à des instances fournies par octo → octo porte une responsabilité **niveau principal** (product + build), pas du simple staffing. L'`EXECUTIF`/Epic Owner client reste au-dessus.
+- Le même schéma `CONTRACT → ENGAGEMENT → BINDING` couvre aussi un agent IA fourni sous contrat (l'instance bindée au slot est un agent au lieu d'un humain).
+
+### Mapping du cas 15 CONDUCTORS
+
+Une organisation SAFe à plusieurs squads ressemble à N squads (chacun PMX+ATL+agents) sous un ART :
+
+- Chaque squad négocie son `ENGAGEMENT` de PI ; l'`EXECUTIF` (LPM) arbitre le portefeuille, pas chaque tâche.
+- Les escalades inter-squads ciblent l'autorité de scope (RTE/CONDUCTOR de l'ART, puis EXECUTIF), pas un flux brut vers le sommet.
+- Les guardrails communs (DoD, NFR, archi runway) sont portés par le `PRINCIPAL` archi et référencés en clauses d'engagement ; un conflit bloquant escalade au lieu d'élire un gagnant caché (DEC-041, `policy-precedence` `partial`).
+
+### Gaps à évaluer
+
+- Représenter proprement la **co-propriété** PMX/ATL : un seul scope à deux principals, ou deux sous-scopes — quelle règle de signature conjointe ?
+- Formaliser le **mandat type** d'un agent IA délégué (rights : `negotiate`/`propose`/`sign`? généralement non-signataire, exécution seulement).
+- Frontière `AGENTS` mandaté vs `SUBAGENTS` (DEC-068) : à quel niveau un agent devient-il adressable/auditable individuellement ?
+- Le contrat octo confère une autorité **niveau principal** à un prestataire externe : quelles limites/clauses de contrôle et de sortie ?
+- Guardrails en clauses d'engagement vs `POLICY` autonome : critère de bascule (transverse/imposé ⇒ POLICY).
+
+### Hypothèse de compatibilité
+
+Le modèle tient avec le vocabulaire V1 : pas de nouveau rôle ni artefact. SAFe + octo se mappe sur `EXECUTIF`/`PRINCIPAL`/`CONDUCTOR`/`AGENTS`(+`SUBAGENTS`)/`CONTROL`, la pile `CONTRACT`/`ENGAGEMENT`(/`POLICY`), et le couple `MANDATE`+`BINDING` pour la délégation d'agents et la contractualisation des rôles. Point de vigilance : l'ownership de l'architecture **doit** être un `PRINCIPAL` (pas seulement `CONTROL`), et l'ART/squad est un `SCOPE` distinct de l'`ENGAGEMENT` qu'il porte. Profil exécutable `D_SAFE` (machine-readable, DEC-041) à dériver de cette track dans une slice suivante.
+
+---
+
 ## Synthèse des besoins transverses
 
 Ces trois tracks font émerger les mêmes besoins de protocole :
