@@ -16,6 +16,14 @@
 
 Each file follows the same structure: Mermaid diagram, mapping, contracts vs policies, multi-actor case, gaps, compatibility hypothesis.
 
+## Complementary evaluations
+
+Not organizational topologies — they test `h2a` against external standards/frameworks:
+
+| Topic | Scope | File |
+|---|---|---|
+| SysML v2 (OMG) | metamodel mapping · SE use-case · API & Services interop · formalizing h2a in SysML/KerML | [sysml-v2.md](./sysml-v2.md) |
+
 ## Machine-readable source
 
 Since **DEC-041**, the A/B/C mapping is also machine-readable through `H2A_ABC_MODEL_PROFILES` and verified by `auditAbcModelCompatibility(modelId)` (`packages/h2a/src/abc.ts`, tests `packages/h2a/test/abc.test.js`). These narrative use-cases stay the **design source**; the executable profiles are derived from them. Any track change must update a DEC + the tests.
