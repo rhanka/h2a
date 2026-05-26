@@ -239,7 +239,6 @@ Plus a **push notification channel** (`notifications/h2a`) on 4 topics (DEC-052)
 | [docs/k8s-tenant.md](./docs/k8s-tenant.md) | K8s cluster-tenant deployment — Scenario B, RWX + lease lock (DEC-067) |
 | [docs/remote-transport.md](./docs/remote-transport.md) | Cross-machine signed-bearer transport — `h2a remote serve`/`send` (DEC-073..077) |
 | [docs/subagents.md](./docs/subagents.md) | First-class subagents — addressable/auditable/revocable (DEC-068..072) |
-| [handover.md](./handover.md) | Handover prompt for a Claude session |
 
 > Project policy: all docs and code in this repository are in English. `INTENTION.md` contains an English translation of the original French user verbatim; the French source remains recoverable from git history at commit `195d1c2~1`.
 
