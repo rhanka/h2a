@@ -41,10 +41,13 @@ export type H2AAcceptResult =
 
 export interface AcceptRemoteOptions {
   /**
-   * Resolve a signer instance to its ed25519 public-key PEM (typically from the
-   * local registry's `publicKeys`). Return undefined for an unknown signer.
+   * Resolve a signer instance to its active ed25519 public-key PEMs (DEC-078:
+   * registration keys + keyring, minus revoked). The signature is accepted if
+   * it verifies against ANY of them, which is what makes key rotation work
+   * (old + new key both valid during the overlap). Return `[]` for an unknown
+   * or key-less signer.
    */
-  resolvePublicKey: (signerInstance: string) => string | undefined;
+  resolvePublicKeys: (signerInstance: string) => string[];
   /** Replay guard (DEC-074). Its freshness window also enforces timestamp checks. */
   guard: H2AReplayGuard;
   /** Deliver the accepted envelope to a local recipient's inbox. */
@@ -78,11 +81,14 @@ export function acceptRemoteEnvelope(
     return { ok: false, reason: "no-signature" };
   }
 
-  const publicKeyPem = options.resolvePublicKey(signer);
-  if (!publicKeyPem) {
+  const publicKeys = options.resolvePublicKeys(signer);
+  if (publicKeys.length === 0) {
     return { ok: false, reason: "no-public-key" };
   }
-  if (!verifyEnvelopeSignature(envelope, publicKeyPem, { by: signer })) {
+  const verified = publicKeys.some((pem) =>
+    verifyEnvelopeSignature(envelope, pem, { by: signer })
+  );
+  if (!verified) {
     return { ok: false, reason: "bad-signature" };
   }
 

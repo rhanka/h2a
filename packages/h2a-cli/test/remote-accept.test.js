@@ -37,7 +37,7 @@ function harness(extra = {}) {
   const { privateKeyPem, publicKeyPem } = keypair();
   const delivered = [];
   const options = {
-    resolvePublicKey: (who) => (who === SIGNER ? publicKeyPem : undefined),
+    resolvePublicKeys: (who) => (who === SIGNER ? [publicKeyPem] : []),
     guard: createReplayGuard(),
     deliver: (recipient, env) => delivered.push({ recipient, env }),
     now: T0,
@@ -87,7 +87,7 @@ test("rejects an unsigned envelope", () => {
 });
 
 test("rejects when the signer's public key is unknown", () => {
-  const h = harness({ resolvePublicKey: () => undefined });
+  const h = harness({ resolvePublicKeys: () => [] });
   const signed = signEnvelope(makeEnvelope(), { by: SIGNER, privateKeyPem: h.privateKeyPem });
   const res = acceptRemoteEnvelope(signed, h.options);
   assert.equal(res.reason, "no-public-key");

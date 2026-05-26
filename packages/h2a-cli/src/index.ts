@@ -56,6 +56,7 @@ export {
   withLockSync,
   writePresence,
   type CreateLocalStoreOptions,
+  type H2AKeyEvent,
   type H2ASubagentAuditEvent,
   type H2ASubagentStatus,
   type H2AStoreSchemaSentinel,

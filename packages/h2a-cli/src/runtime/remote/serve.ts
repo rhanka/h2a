@@ -34,7 +34,7 @@ export function remoteServerForStore(
   options: RemoteServerForStoreOptions = {}
 ): Server {
   return createRemoteServer({
-    resolvePublicKey: (signer) => store.findInstance(signer)?.publicKeys[0],
+    resolvePublicKeys: (signer) => store.listInstanceKeys(signer),
     deliver: (recipient, envelope) => store.putInboxMessage(recipient, envelope),
     guard: options.guard ?? createReplayGuard(),
     path: options.path,

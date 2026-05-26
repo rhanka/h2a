@@ -37,7 +37,7 @@ async function startServer(over = {}) {
   const { publicKeyPem } = over.keys ?? keypair();
   const delivered = [];
   const server = createRemoteServer({
-    resolvePublicKey: (who) => (who === SIGNER ? publicKeyPem : undefined),
+    resolvePublicKeys: (who) => (who === SIGNER ? [publicKeyPem] : []),
     deliver: (recipient, env) => delivered.push({ recipient, env }),
     guard: createReplayGuard(),
     ...over.serverOptions

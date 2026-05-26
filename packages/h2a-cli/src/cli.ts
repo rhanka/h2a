@@ -167,6 +167,8 @@ export function renderCliHelp(): string {
     "  h2a doctor [--root <path>]",
     "  h2a sessions [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a keys generate --instance <id> [--out <dir>] [--root <path>]",
+    "  h2a keys add --instance <id> --public-key <pem-file> [--root <path>]",
+    "  h2a keys list --instance <id> [--root <path>]",
     "  h2a install-skills --host claude [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
@@ -1300,6 +1302,55 @@ function cmdKeysGenerate(
   return 0;
 }
 
+function cmdKeysAdd(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  // DEC-078: append a public key to an instance's keyring (rotate-in).
+  if (!flags.instance || !flags["public-key"]) {
+    streams.stderr.write(
+      "h2a keys add: --instance <id> and --public-key <pem-file> are required\n"
+    );
+    return 1;
+  }
+  let publicKeyPem;
+  try {
+    publicKeyPem = readFileSync(flags["public-key"], "utf8");
+  } catch (error) {
+    streams.stderr.write(
+      `h2a keys add: cannot read --public-key (${(error as Error).message})\n`
+    );
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+  try {
+    store.addInstanceKey(flags.instance, publicKeyPem);
+  } catch (error) {
+    const message = (error as Error).message;
+    streams.stderr.write(`h2a keys add: ${message}\n`);
+    return classifyStoreError(message);
+  }
+  streams.stdout.write(
+    `${JSON.stringify({ ok: true, instance: flags.instance, keys: store.listInstanceKeys(flags.instance).length }, null, 2)}\n`
+  );
+  return 0;
+}
+
+function cmdKeysList(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  if (!flags.instance) {
+    streams.stderr.write("h2a keys list: --instance <id> is required\n");
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+  streams.stdout.write(`${JSON.stringify(store.listInstanceKeys(flags.instance), null, 2)}\n`);
+  return 0;
+}
+
 function cmdConnect(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -1831,7 +1882,9 @@ export function runCli(
   if (command === "keys") {
     const { command: sub, flags: subFlags } = parseFlags(argv.slice(1));
     if (sub === "generate") return cmdKeysGenerate(subFlags, streams);
-    streams.stderr.write(`h2a keys: unknown subcommand "${sub ?? ""}"\n`);
+    if (sub === "add") return cmdKeysAdd(subFlags, streams);
+    if (sub === "list") return cmdKeysList(subFlags, streams);
+    streams.stderr.write(`h2a keys: unknown subcommand "${sub ?? ""}" (generate, add, list)\n`);
     return 1;
   }
 

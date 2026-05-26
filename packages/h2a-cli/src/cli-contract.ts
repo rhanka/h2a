@@ -378,6 +378,24 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Generate an ed25519 PEM keypair for an instance (PKCS#8 private, SPKI public). Default output directory is <root>/keys/. Returns the on-disk paths and the public PEM. DEC-054."
   },
   {
+    verb: "keys add",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["instance", "public-key"],
+    optionalFlags: ["root"],
+    description:
+      "Append a public key (PEM file) to an instance's keyring `registry/keys.jsonl` (rotate-in). The verifier then accepts a signature from ANY active key, enabling overlap during rotation. Exit 2 if the instance is unregistered or the key is already active. DEC-078."
+  },
+  {
+    verb: "keys list",
+    outputShape: "list",
+    exitCodes: [0, 1],
+    requiredFlags: ["instance"],
+    optionalFlags: ["root"],
+    description:
+      "List an instance's active public keys (registration keys + keyring additions, minus revoked). DEC-078."
+  },
+  {
     verb: "install-skills",
     outputShape: "action",
     exitCodes: [0, 1, 2, 3],

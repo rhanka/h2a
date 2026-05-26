@@ -15,8 +15,8 @@ import { createReplayGuard, type H2AEnvelope, type H2AReplayGuard } from "@sentr
 import { acceptRemoteEnvelope, type H2AAcceptRejection } from "./accept.js";
 
 export interface RemoteServerOptions {
-  /** Resolve a signer instance to its ed25519 public-key PEM (e.g. from the registry). */
-  resolvePublicKey: (signerInstance: string) => string | undefined;
+  /** Resolve a signer instance to its active ed25519 public-key PEMs (DEC-078). */
+  resolvePublicKeys: (signerInstance: string) => string[];
   /** Deliver an accepted envelope to a local recipient's inbox. */
   deliver: (recipient: string, envelope: H2AEnvelope) => void;
   /** Shared replay guard. Defaults to a fresh in-memory guard (DEC-074). */
@@ -103,7 +103,7 @@ export function createRemoteServer(options: RemoteServerOptions): Server {
         return;
       }
       const result = acceptRemoteEnvelope(payload, {
-        resolvePublicKey: options.resolvePublicKey,
+        resolvePublicKeys: options.resolvePublicKeys,
         guard,
         deliver: options.deliver,
         now: options.now?.()

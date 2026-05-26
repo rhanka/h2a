@@ -28,6 +28,7 @@ export {
 export {
   createLocalStore,
   type CreateLocalStoreOptions,
+  type H2AKeyEvent,
   type H2ASubagentAuditEvent,
   type H2ASubagentStatus,
   type LocalStore

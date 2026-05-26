@@ -98,11 +98,26 @@ export interface H2ASubagentAuditEvent {
 
 export type H2ASubagentStatus = "active" | "revoked";
 
+/**
+ * An append-only keyring event for an instance (DEC-078). Keys can be added
+ * (and, from DEC-079, revoked) without rewriting the append-only instance
+ * registration, enabling key rotation: add a new key, both verify during the
+ * overlap, then revoke the old one.
+ */
+export interface H2AKeyEvent {
+  instance: string;
+  publicKey: string;
+  type: "added" | "revoked";
+  at: string;
+}
+
 export interface LocalStore {
   paths: LocalStorePaths;
   registerInstance(reg: H2AActorRegistration): void;
   listInstances(): H2AActorRegistration[];
   findInstance(id: string): H2AActorRegistration | undefined;
+  addInstanceKey(instanceId: string, publicKeyPem: string): void;
+  listInstanceKeys(instanceId: string): string[];
   registerSubagent(binding: H2ASubagentBinding): void;
   listSubagents(): H2ASubagentBinding[];
   findSubagent(id: string): H2ASubagentBinding | undefined;
@@ -334,6 +349,47 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
           throw new Error(`Instance already registered: ${reg.id}`);
         }
         appendJsonl(paths.instances, reg);
+      },
+      lockOpts
+    );
+  }
+
+  // DEC-078: the active public keys for an instance = the keys baked into its
+  // registration PLUS keys added to the keyring, MINUS any revoked. Derived
+  // from append-only sources so a rotation never rewrites a registration.
+  function listInstanceKeys(instanceId: string): string[] {
+    const fromRegistration = findInstance(instanceId)?.publicKeys ?? [];
+    const events = readJsonl<H2AKeyEvent>(paths.keys).filter(
+      (e) => e.instance === instanceId
+    );
+    const revoked = new Set(
+      events.filter((e) => e.type === "revoked").map((e) => e.publicKey)
+    );
+    const active = new Set<string>();
+    for (const pem of fromRegistration) active.add(pem);
+    for (const e of events) {
+      if (e.type === "added") active.add(e.publicKey);
+    }
+    for (const pem of revoked) active.delete(pem);
+    return [...active];
+  }
+
+  function addInstanceKey(instanceId: string, publicKeyPem: string): void {
+    lock(
+      registryLock,
+      () => {
+        if (!findInstance(instanceId)) {
+          throw new Error(`Instance not registered: ${instanceId}`);
+        }
+        if (listInstanceKeys(instanceId).includes(publicKeyPem)) {
+          throw new Error(`Key already registered for ${instanceId}`);
+        }
+        appendJsonl(paths.keys, {
+          instance: instanceId,
+          publicKey: publicKeyPem,
+          type: "added",
+          at: new Date().toISOString()
+        });
       },
       lockOpts
     );
@@ -845,6 +901,8 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     registerInstance,
     listInstances,
     findInstance,
+    addInstanceKey,
+    listInstanceKeys,
     registerSubagent,
     listSubagents,
     findSubagent,
