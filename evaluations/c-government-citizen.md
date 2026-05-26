@@ -1,64 +1,64 @@
-# Use-case C — Gouvernement / citoyen
+# Use-case C — Government / citizen
 
-> Topologie : **autorité publique**. [← librairie](./README.md)
+> Topology: **public authority**. [← library](./README.md)
 
-Relations entre citoyens, administrations, agences publiques, élus, régulateurs, services publics, obligations légales, fiscalité, droits et recours.
+Relations between citizens, administrations, public agencies, elected officials, regulators, public services, legal obligations, taxation, rights and recourse.
 
-## Schéma
+## Diagram
 
 ```mermaid
 flowchart TD
-  GOV[EXECUTIF public — élus / gouvernement<br/>intention publique]
-  GOV == POLICY publique (imposed) ==> ADM[Administration<br/>EXECUTIF public + CONDUCTORS de service]
-  ADM --> SVC[ENGAGEMENT de service<br/>demande · instruction · décision]
-  CIT[Citoyen — PRINCIPAL de sa mini-org] -- engagement de service --> ADM
-  CIT -. délègue .-> REP[AGENTS / représentants]
-  REG[Régulateur — CONTROL externe] -. audit / veto / sanction .-> CIT
-  LAW[(Loi / règlement — POLICY publique<br/>territoriale / sectorielle)] -. s'applique par scope .-> CIT
-  REC[AUTHORITY de recours / tribunal] -. adjudication .-> CIT
-  MAND[MANDATAIRE] -. présente la question, ne juge pas .-> REC
+  GOV[Public EXECUTIF — elected / government<br/>public intent]
+  GOV == public POLICY (imposed) ==> ADM[Administration<br/>public EXECUTIF + service CONDUCTORS]
+  ADM --> SVC[service ENGAGEMENT<br/>request · processing · decision]
+  CIT[Citizen — PRINCIPAL of own mini-org] -- service engagement --> ADM
+  CIT -. delegates .-> REP[AGENTS / representatives]
+  REG[Regulator — external CONTROL] -. audit / veto / sanction .-> CIT
+  LAW[(Law / regulation — public POLICY<br/>territorial / sectoral)] -. applies by scope .-> CIT
+  REC[Recourse AUTHORITY / tribunal] -. adjudication .-> CIT
+  MAND[MANDATAIRE] -. presents the question, does not judge .-> REC
 ```
 
 ## Mapping
 
-| Élément réel | Mapping `h2a` | Remarques |
+| Real-world element | `h2a` mapping | Notes |
 |---|---|---|
-| Citoyen | PRINCIPAL de sa mini-org personnelle | Peut déléguer à agents, représentants, services. |
-| Foyer / famille / association | Mini-organisation citoyenne | Plusieurs humains, rôles et policies internes. |
-| Administration | EXECUTIF public + CONDUCTORS de service | Exécute policies publiques et engagements de service. |
-| Élus / gouvernement | EXECUTIF public ou PRINCIPAUX de mandat | Intention publique, arbitrages globaux. |
-| Régulateur | CONTROL externe | Audit, veto, alerte, sanction. |
-| Loi / règlement | POLICY publique externe | S'applique par scope territorial/sectoriel/personnel. |
-| Impôt / taxe | POLICY fiscale + engagements déclaration/paiement | Citoyen/entreprise exécute, administration contrôle. |
-| Service public | ENGAGEMENT de service / workflow administratif | Demande, instruction, décision, recours, trace. |
-| Recours / tribunal | AUTHORITY externe / adjudication | Le MANDATAIRE présente, ne juge pas. |
+| Citizen | PRINCIPAL of own personal mini-org | May delegate to agents, representatives, services. |
+| Household / family / association | Citizen mini-organization | Several humans, internal roles and policies. |
+| Administration | public EXECUTIF + service CONDUCTORS | Executes public policies and service engagements. |
+| Elected officials / government | public EXECUTIF or mandate PRINCIPALs | Public intent, global arbitrations. |
+| Regulator | external CONTROL | Audit, veto, alert, sanction. |
+| Law / regulation | external public POLICY | Applies by territorial/sectoral/personal scope. |
+| Tax | tax POLICY + filing/payment engagements | Citizen/company executes, administration controls. |
+| Public service | service ENGAGEMENT / administrative workflow | Request, processing, decision, recourse, trace. |
+| Recourse / tribunal | external AUTHORITY / adjudication | The MANDATAIRE presents, does not judge. |
 
 ## Patterns
 
-- **Citoyen ↔ administration** : engagement de service sous policies publiques.
-- **Entreprise ↔ administration** : déclaration, taxe, conformité, licence, inspection.
-- **Régulateur ↔ entreprise/citoyen** : control externe avec audit, sanction, injonction.
-- **Élu/gouvernement ↔ administration** : EXECUTIF public définit policies, administration conduit engagements.
-- **Citoyen ↔ citoyen** : mini-orgs personnelles liées par contrat, médiation ou recours.
+- **Citizen ↔ administration**: service engagement under public policies.
+- **Company ↔ administration**: filing, tax, compliance, license, inspection.
+- **Regulator ↔ company/citizen**: external control with audit, sanction, injunction.
+- **Government ↔ administration**: public EXECUTIF defines policies, administration runs engagements.
+- **Citizen ↔ citizen**: personal mini-orgs linked by contract, mediation or recourse.
 
-## Cas 15 CONDUCTORS
+## 15-CONDUCTORS case
 
-15 services/guichets sous un PRINCIPAL citoyen, entreprise ou administration :
+15 services/desks under a citizen, company or administration PRINCIPAL:
 
-- Les policies publiques sont souvent `imposed`, pas signées localement.
-- Les conductors négocient des engagements de service/conformité, mais certaines obligations viennent d'une autorité externe.
-- Les escalades visent PRINCIPAL, EXECUTIF public, régulateur, recours ou tribunal selon le scope.
-- Preuves minimisées : l'administration demande une preuve, pas tout le journal interne.
+- Public policies are often `imposed`, not signed locally.
+- Conductors negotiate service/compliance engagements, but some obligations come from an external authority.
+- Escalations target PRINCIPAL, public EXECUTIF, regulator, recourse or tribunal by scope.
+- Evidence is minimized: the administration requests a proof, not the whole internal journal.
 
 ## Gaps
 
-- Policy publique obligatoire sans consentement contractuel individuel.
-- Distinguer droit, règlement, procédure administrative et engagement de service.
-- Recours, appel, preuve contradictoire, neutralité du MANDATAIRE.
-- Temporalité : mandat politique, validité des lois, prescription, obligations périodiques.
-- Asymétrie de pouvoir administration/citoyen.
-- Juridiction, recours, appel et validité temporelle sans consentement contractuel local.
+- Mandatory public policy without individual contractual consent.
+- Distinguishing law, regulation, administrative procedure and service engagement.
+- Recourse, appeal, adversarial evidence, MANDATAIRE neutrality.
+- Temporality: political mandate, law validity, statute of limitations, periodic obligations.
+- Power asymmetry between administration and citizen.
+- Jurisdiction, recourse, appeal and temporal validity without local contractual consent.
 
-## Hypothèse de compatibilité
+## Compatibility hypothesis
 
-Tient si `POLICY` peut être externe, obligatoire et territorialisée, et si le protocole distingue engagement contractuel volontaire, obligation réglementaire et recours. Le citoyen reste PRINCIPAL de son périmètre, mais l'administration peut imposer des policies et engagements de conformité via une autorité publique explicite.
+Holds if `POLICY` can be external, mandatory and territorialized, and if the protocol distinguishes voluntary contractual engagement, regulatory obligation and recourse. The citizen stays PRINCIPAL of their perimeter, but the administration can impose policies and compliance engagements via an explicit public authority.

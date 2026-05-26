@@ -1,66 +1,66 @@
-# Use-case B — Écosystème multi-entreprises
+# Use-case B — Multi-organization ecosystem
 
-> Topologie : **fédération pair-à-pair**. [← librairie](./README.md)
+> Topology: **peer federation**. [← library](./README.md)
 
-Écosystème client-fournisseur, partenaires, compétiteurs, coopétition, plateformes, consortiums, chaînes de valeur.
+A client-supplier ecosystem, partners, competitors, coopetition, platforms, consortia, value chains.
 
-## Schéma
+## Diagram
 
 ```mermaid
 flowchart TD
-  subgraph ORGA["Entreprise A — mini-org"]
+  subgraph ORGA["Company A — mini-org"]
     PA[PRINCIPAL A] --> CAa[CONDUCTOR] --> AGa[AGENTS]
   end
-  subgraph ORGB["Entreprise B — mini-org"]
+  subgraph ORGB["Company B — mini-org"]
     PB[PRINCIPAL B] --> CBb[CONDUCTOR] --> AGb[AGENTS]
   end
-  PA == CONTRACT inter-org<br/>+ ENGAGEMENTS partagés ==> PB
-  FED[EXECUTIF / comité de fédération<br/>consortium · plateforme · JV] -. policies communes / quorum .-> PA
-  FED -. policies communes / quorum .-> PB
-  CTRL[CONTROL — legal / antitrust / cyber / export] -. audit minimisé .-> PA
-  CTRL -. audit minimisé .-> PB
+  PA == inter-org CONTRACT<br/>+ shared ENGAGEMENTS ==> PB
+  FED[Federation EXECUTIF / committee<br/>consortium · platform · JV] -. common policies / quorum .-> PA
+  FED -. common policies / quorum .-> PB
+  CTRL[CONTROL — legal / antitrust / cyber / export] -. minimized audit .-> PA
+  CTRL -. minimized audit .-> PB
 ```
 
-## Modèles d'écosystème
+## Ecosystem models
 
-| Modèle | Mapping `h2a` | Point critique |
+| Model | `h2a` mapping | Critical point |
 |---|---|---|
-| Client ↔ fournisseur | CONTRACT inter-org + ENGAGEMENTS dérivés | SLA, qualité, facturation, confidentialité, escalades. |
-| Partenariat bilatéral | CONTRACT + policies communes + engagements | Gouvernance conjointe, responsabilités distribuées. |
-| Consortium | Fédération avec EXECUTIF / comité | Plusieurs PRINCIPAUX, policies communes, votes/quorum. |
-| Marketplace / plateforme | EXECUTIF de plateforme + policies d'accès | Participants gardent leur mini-org ; plateforme impose les règles. |
-| Coopétition | CONTRACT limité + engagements cloisonnés | Cloisonnement info + CONTROL legal/antitrust forts. |
-| Supply chain multi-niveaux | Chaîne d'engagements liés | Propagation de policy + audit de dépendances. |
-| Joint venture | Nouvelle mini-org partagée | EXECUTIF propre, PRINCIPAUX participants, policies fondatrices. |
-| Sous-traitance en cascade | Engagement principal + dérivés | Responsabilité finale ? Traçage des sous-engagements ? |
+| Client ↔ supplier | inter-org CONTRACT + derived ENGAGEMENTS | SLA, quality, billing, confidentiality, escalations. |
+| Bilateral partnership | CONTRACT + common policies + engagements | Joint governance, distributed responsibilities. |
+| Consortium | Federation with EXECUTIF / committee | Several PRINCIPALs, common policies, votes/quorum. |
+| Marketplace / platform | Platform EXECUTIF + access policies | Participants keep their mini-org; the platform imposes rules. |
+| Coopetition | Limited CONTRACT + siloed engagements | Information siloing + strong legal/antitrust CONTROL. |
+| Multi-tier supply chain | Chain of linked engagements | Policy propagation + dependency audit. |
+| Joint venture | New shared mini-org | Own EXECUTIF, participant PRINCIPALs, founding policies. |
+| Cascading subcontracting | Main engagement + derived ones | Who bears final responsibility? How to trace sub-engagements? |
 
-## Mapping initial
+## Initial mapping
 
-- Chaque entreprise = **mini-organisation** (PRINCIPAL(s), CONDUCTOR(s), AGENTS, CONTROL, policies propres).
-- L'écosystème reste **pair-à-pair** ou devient une **fédération** (EXECUTIF, comité, governance policy).
-- Contrats inter-entreprises = **CONTRACTS** pouvant contenir des **POLICY** et instancier des **ENGAGEMENTS partagés**.
-- Contrôles critiques : legal, compliance, cyber, finance, qualité, confidentialité, antitrust, export control.
+- Each company = a **mini-organization** (its own PRINCIPAL(s), CONDUCTOR(s), AGENTS, CONTROL, policies).
+- The ecosystem stays **peer-to-peer** or becomes a **federation** (EXECUTIF, committee, governance policy).
+- Inter-company contracts = **CONTRACTS** that may contain **POLICY** and instantiate **shared ENGAGEMENTS**.
+- Critical controls: legal, compliance, cyber, finance, quality, confidentiality, antitrust, export control.
 
-## Cas 15 CONDUCTORS
+## 15-CONDUCTORS case
 
-15 organisations/équipes autonomes négociant sans médiateur :
+15 autonomous organizations/teams negotiating without a mediator:
 
-- Topologie : jusqu'à 105 liens pair-à-pair ; le protocole limite la divergence par registry, negotiation ledger, hashes, evidence packages.
-- Les CONTRACTS inter-conductors déclarent disclosure, confidentialité, audit rights, antitrust/export-control si applicable.
-- Sans EXECUTIF commun, un conflit de précédence bloque la signature ou produit une escalade explicite vers les PRINCIPAUX concernés.
-- Un MCP central est un **bus**, pas une autorité. Une plateforme à pouvoir normatif devient un scope fédéré avec EXECUTIF/policies propres.
+- Topology: up to 105 peer-to-peer links; the protocol limits divergence via registry, negotiation ledger, hashes, evidence packages.
+- Inter-conductor CONTRACTS declare disclosure, confidentiality, audit rights, antitrust/export-control where applicable.
+- Without a common EXECUTIF, a precedence conflict blocks the signature or produces an explicit escalation to the concerned PRINCIPALs.
+- A central MCP is a **bus**, not an authority. A platform with normative power becomes a federated scope with its own EXECUTIF/policies.
 
 ## Gaps
 
-- Héritage de policy entre fédération, entreprise et engagement.
-- Cloisonnement d'information entre partenaires/compétiteurs.
-- Autorité d'un EXECUTIF de plateforme sur des PRINCIPAUX indépendants.
-- Droit d'audit cross-org sans accès complet.
-- Conflit entre policies incompatibles de deux organisations.
-- State machine de négociation : offre, contre-offre, retrait, expiration, ratification, stabilisation.
-- Propagation transitive de policies en supply chain sans divulguer tout le graphe.
-- Garde-fous antitrust en coopétition : l'échange autorisé doit être contractualisé.
+- Policy inheritance across federation, company and engagement.
+- Information siloing between partners/competitors.
+- Authority of a platform EXECUTIF over independent PRINCIPALs.
+- Cross-org audit rights without full access.
+- Conflict between incompatible policies of two organizations.
+- Negotiation state machine: offer, counter-offer, withdrawal, expiry, ratification, stabilization.
+- Transitive policy propagation in a supply chain without disclosing the whole graph.
+- Antitrust guardrails in coopetition: the allowed exchange must be contracted.
 
-## Hypothèse de compatibilité
+## Compatibility hypothesis
 
-Tient si les scopes sont explicites et si `POLICY` supporte héritage, précédence et exception. Les écosystèmes ne doivent pas être forcés dans une hiérarchie unique : pair-à-pair, fédération, plateforme et consortium sont des topologies distinctes.
+Holds if scopes are explicit and `POLICY` supports inheritance, precedence and exception. Ecosystems must not be forced into a single hierarchy: peer-to-peer, federation, platform and consortium are distinct topologies.

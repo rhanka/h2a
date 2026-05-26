@@ -1,79 +1,79 @@
-# Évaluations de compatibilité — librairie de use-cases organisationnels
+# Compatibility evaluations — organizational use-case library
 
-> **Rôle** : tester le modèle `h2a` contre des organisations réelles avant de figer la spec détaillée.
-> **Méthode** : pour chaque use-case, mapper acteurs → rôles, contrats, policies, controls, engagements, flux d'escalade, schéma, et gaps.
-> **Statut** : tracks lancés le 2026-05-17 ; refondus en librairie `evaluations/*.md` le 2026-05-25. Les conclusions sont des hypothèses de travail.
+> **Purpose**: test the `h2a` model against real organizations before freezing the detailed spec.
+> **Method**: for each use-case, map actors → roles, contracts, policies, controls, engagements, escalation flows, a diagram, and gaps.
+> **Status**: tracks opened 2026-05-17; refactored into the `evaluations/*.md` library on 2026-05-25; translated to English 2026-05-26. Conclusions are working hypotheses.
 
 ## Use-cases
 
-| # | Use-case | Topologie | Fichier |
+| # | Use-case | Topology | File |
 |---|---|---|---|
-| A | Entreprise traditionnelle | hiérarchie | [a-enterprise.md](./a-enterprise.md) |
-| B | Écosystème multi-entreprises | fédération pair-à-pair | [b-ecosystem.md](./b-ecosystem.md) |
-| C | Gouvernement / citoyen | autorité publique | [c-government-citizen.md](./c-government-citizen.md) |
-| D | 1 PRINCIPAL / 15 CONDUCTORS (sans médiateur) | étoile sans médiateur | [d-principal-15-conductors.md](./d-principal-15-conductors.md) |
-| E | Organisation SAFe à delivery agentique (modèle octo) | train agile + squads | [e-safe-octo.md](./e-safe-octo.md) |
+| A | Traditional enterprise | hierarchy | [a-enterprise.md](./a-enterprise.md) |
+| B | Multi-organization ecosystem | peer federation | [b-ecosystem.md](./b-ecosystem.md) |
+| C | Government / citizen | public authority | [c-government-citizen.md](./c-government-citizen.md) |
+| D | 1 PRINCIPAL / 15 CONDUCTORS (no mediator) | star, no mediator | [d-principal-15-conductors.md](./d-principal-15-conductors.md) |
+| E | Agentic-delivery squad (contracted roles) | agile train + squads | [e-agentic-squad.md](./e-agentic-squad.md) |
 
-Chaque fichier suit la même structure : schéma Mermaid, mapping, contrats vs policies, cas multi-acteurs, gaps, hypothèse de compatibilité.
+Each file follows the same structure: Mermaid diagram, mapping, contracts vs policies, multi-actor case, gaps, compatibility hypothesis.
 
-## Source machine-readable
+## Machine-readable source
 
-Depuis **DEC-041**, le mapping A/B/C est aussi exposé en machine-readable par `H2A_ABC_MODEL_PROFILES` et vérifié par `auditAbcModelCompatibility(modelId)` (`packages/h2a/src/abc.ts`, tests `packages/h2a/test/abc.test.js`). Ces use-cases narratifs restent la **source de conception** ; les profils exécutables en sont dérivés. Toute évolution d'un track doit mettre à jour un DEC + les tests.
+Since **DEC-041**, the A/B/C mapping is also machine-readable through `H2A_ABC_MODEL_PROFILES` and verified by `auditAbcModelCompatibility(modelId)` (`packages/h2a/src/abc.ts`, tests `packages/h2a/test/abc.test.js`). These narrative use-cases stay the **design source**; the executable profiles are derived from them. Any track change must update a DEC + the tests.
 
-## Grille commune
+## Common grid
 
-Chaque évaluation répond aux mêmes questions :
+Every evaluation answers the same questions:
 
-1. **Acteurs** : quelles INSTANCE tiennent quels rôles (`PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `AGENTS`, `CONTROL`, `MANDATAIRE`) ?
-2. **Scopes** : frontières entre mini-organisation, engagement, fédération, activité d'ensemble ?
-3. **Autorité / mandat / signature** : qui signe, pour quelle partie, sur quel scope, avec quel mandat ?
-4. **Contrats** : `CONTRACT`, `ENGAGEMENT`, `POLICY`, ou artefact externe référencé ?
-5. **Obligations / droits / clauses** : obligations, droits réservés, disclosure, recours, termination.
-6. **Controls / enforcement** : domaines à contraintes/audits cross-tree, niveau de disclosure.
-7. **Escalades / recours** : qui déclenche `advise`/`decide`/`alert`, vers quelle autorité de scope.
-8. **Audit** : traces prouvant responsabilité, consentement, conformité, exceptions, décisions.
-9. **Deadlocks / précédence** : règles quand deux policies/contracts/autorités sont incompatibles.
-10. **Gaps protocole** : concepts manquants ou à renforcer.
+1. **Actors**: which INSTANCE holds which roles (`PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `AGENTS`, `CONTROL`, `MANDATAIRE`)?
+2. **Scopes**: boundaries between mini-organization, engagement, federation, whole activity?
+3. **Authority / mandate / signature**: who signs, for which party, on which scope, with which mandate?
+4. **Contracts**: `CONTRACT`, `ENGAGEMENT`, `POLICY`, or referenced external artifact?
+5. **Obligations / rights / clauses**: obligations, reserved rights, disclosure, recourse, termination.
+6. **Controls / enforcement**: domains with cross-tree constraints/audits, disclosure level.
+7. **Escalations / recourse**: who triggers `advise`/`decide`/`alert`, toward which scope authority.
+8. **Audit**: traces proving responsibility, consent, compliance, exceptions, decisions.
+9. **Deadlocks / precedence**: rules when two policies/contracts/authorities conflict.
+10. **Protocol gaps**: missing or to-be-reinforced concepts.
 
-## Recherche Q9 — CONTRACT / POLICY / ENGAGEMENT
+## Q9 research — CONTRACT / POLICY / ENGAGEMENT
 
-Hypothèse retenue (modèles entreprise, écosystème, gouvernement) :
+Hypothesis retained (enterprise, ecosystem, government models):
 
-- **CONTRACT** : conteneur normatif applicable à des parties/scopes, signé par les autorités mandatées. Peut mélanger clauses durables, obligations, droits, policies, preuves, signatures, contrôle/escalade, engagements dérivés.
-- **POLICY** : règle durable applicable à un scope. Autonome (règlement, loi) **ou** clause d'un CONTRACT. Déclare `sourceAuthority` + `adoptionMode` (`ratified`/`contractual`/`imposed`/`acknowledged`). **POLICY n'est pas une 5ᵉ couche linéaire** (DEC-018) — c'est l'un des trois artefacts normatifs.
-- **ENGAGEMENT** : contrat opérationnel exécutable (mission, service, livraison) avec charter, rôles, critères de succès, journal. *A* un scope, n'*est* pas le scope.
-- **ENFORCEMENT_PLAN / ESCALADE** : plan d'application — vérifie le respect, détecte les violations, produit la preuve, bloque/alerte/escalade.
+- **CONTRACT**: a normative container applicable to parties/scopes, signed by mandated authorities. May mix durable clauses, obligations, rights, policies, evidence, signatures, control/escalation, derived engagements.
+- **POLICY**: a durable rule applicable to a scope. Standalone (bylaw, law) **or** a clause of a CONTRACT. Declares `sourceAuthority` + `adoptionMode` (`ratified`/`contractual`/`imposed`/`acknowledged`). **POLICY is not a linear fifth layer** (DEC-018) — it is one of the three normative artifacts.
+- **ENGAGEMENT**: the executable operational contract (mission, service, delivery) with charter, roles, success criteria, journal. It *has* a scope; it *is not* the scope.
+- **ENFORCEMENT_PLAN / ESCALATION**: the application plan — verifies compliance, detects violations, produces evidence, blocks/alerts/escalates.
 
-## Contre-audit 2026-05-17 (points figés)
+## Counter-audit 2026-05-17 (frozen points)
 
-- Un `SCOPE` ne signe jamais ; une INSTANCE mandatée signe pour une PARTY ou un SCOPE.
-- `ENGAGEMENT` n'est pas le scope : il *a* un scope.
-- `CONTROL` est un rôle ; le plan d'application est `ENFORCEMENT_PLAN`.
-- `MANDATAIRE` n'est ni médiateur, ni arbitre, ni tribunal.
-- L'escalade cible l'autorité compétente du scope, pas seulement le PRINCIPAL local.
-- Sans médiateur inter-contrat : ledger, états terminaux, base hash, signatures, règles de stale proposal.
-- Le droit d'audit cross-organisation est minimisé : redaction, evidence packages, attestations, hashes.
-- Les modèles exigent obligations récurrentes, droits réservés, recours, précédence et disclosure contrôlée.
+- A `SCOPE` never signs; a mandated INSTANCE signs for a PARTY or a SCOPE.
+- `ENGAGEMENT` is not the scope: it *has* a scope.
+- `CONTROL` is a role; the application plan is `ENFORCEMENT_PLAN`.
+- `MANDATAIRE` is neither mediator, arbiter, nor tribunal.
+- Escalation targets the scope's competent authority, not only the local PRINCIPAL.
+- Without an inter-contract mediator: ledger, terminal states, base hash, signatures, stale-proposal rules.
+- Cross-organization audit rights are minimized: redaction, evidence packages, attestations, hashes.
+- The models require recurring obligations, reserved rights, recourse, precedence and controlled disclosure.
 
-## Synthèse des besoins transverses
+## Cross-cutting needs (synthesis)
 
-- **Scope first-class** : chaque rôle/policy/engagement/trace attaché à un scope explicite.
-- **Policy first-class** : durable, versionnée, par scope, avec source authority + adoption mode, distincte de l'engagement.
-- **External authority** : un acteur externe peut imposer une policy sans être subordonné à l'organisation.
-- **Controls forts mais minimisés** : audit, veto, alerte, validation de policy, exception, preuve — sans accès excessif.
-- **Contracts-cadres vs engagements** : un CONTRACT durable génère plusieurs engagements opérationnels.
-- **Héritage et conflit** : policies locales, fédérées, contractuelles, publiques peuvent se contredire.
-- **Accountability multi-niveaux** : PRINCIPAL local, EXECUTIF global, CONTROL, autorité externe auditables simultanément.
-- **Mandat et signature** : un scope ne signe pas ; une instance mandatée signe pour une partie ou un scope.
-- **Négociation déterministe** : ledger, états, hashes, signatures, stale proposal.
+- **Scope first-class**: every role/policy/engagement/trace attached to an explicit scope.
+- **Policy first-class**: durable, versioned, per-scope, with source authority + adoption mode, distinct from the engagement.
+- **External authority**: an external actor can impose a policy without being subordinate to the organization.
+- **Strong but minimized controls**: audit, veto, alert, policy validation, exception, evidence — without excessive access.
+- **Framework contracts vs engagements**: a durable CONTRACT spawns several operational engagements.
+- **Inheritance and conflict**: local, federated, contractual and public policies can contradict each other.
+- **Multi-level accountability**: local PRINCIPAL, global EXECUTIF, CONTROL and external authority auditable simultaneously.
+- **Mandate and signature**: a scope does not sign; a mandated instance signs for a party or a scope.
+- **Deterministic negotiation**: ledger, states, hashes, signatures, stale-proposal rules.
 
-## Questions à instruire
+## Questions to instruct
 
-1. Schema minimal de `CONTRACT` (parties, scopes, policies, obligations, droits, engagements dérivés, signatures, preuves, amendements) ?
-2. Contrat-cadre durable = `CONTRACT` sans engagement immédiat, ou templates d'engagement ?
-3. Autorité externe obligatoire : CONTROL externe, EXECUTIF public, ou rôle dédié ?
-4. Précédence entre policy interne / contractuelle / fédérée / publique ?
-5. Niveau minimal d'audit pour taxes, régulation, actionnaires, investisseurs ?
-6. Schema minimal de `MANDATE` et `SIGNATURE` ?
-7. Quels conflits bloquent une signature en V1 ?
-8. Rôle d'adjudication/recours canonique, ou AUTHORITY externe suffit-elle ?
+1. Minimal schema for `CONTRACT` (parties, scopes, policies, obligations, rights, derived engagements, signatures, evidence, amendments)?
+2. Is a durable framework contract a `CONTRACT` with no immediate engagement, or engagement templates?
+3. Mandatory external authority: external CONTROL, public EXECUTIF, or a dedicated role?
+4. Precedence between internal / contractual / federated / public policy?
+5. Minimal audit level for taxes, regulation, shareholders, investors?
+6. Minimal schema for `MANDATE` and `SIGNATURE`?
+7. Which conflicts must block a signature in V1?
+8. A canonical adjudication/recourse role, or is an external AUTHORITY enough?

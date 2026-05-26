@@ -1,56 +1,56 @@
-# Use-case D — 1 PRINCIPAL / 15 CONDUCTORS (sans médiateur)
+# Use-case D — 1 PRINCIPAL / 15 CONDUCTORS (no mediator)
 
-> Topologie : **étoile sans médiateur inter-contrat**. [← librairie](./README.md)
+> Topology: **star, no inter-contract mediator**. [← library](./README.md)
 
-Un humain est PRINCIPAL de 15 CONDUCTORS. Chaque conductor peut négocier avec les autres pour stabiliser des CONTRACTS, POLICIES, ENGAGEMENTS ou amendements. Il n'existe pas encore de médiateur inter-contrat.
+A human is PRINCIPAL of 15 CONDUCTORS. Each conductor can negotiate with the others to stabilize CONTRACTS, POLICIES, ENGAGEMENTS or amendments. There is no inter-contract mediator yet.
 
-## Schéma
+## Diagram
 
 ```mermaid
 flowchart TD
-  P[PRINCIPAL — humain owner du scope racine<br/>reçoit des escalades AGRÉGÉES]
-  P --> C1[CONDUCTOR 1<br/>MANDATE borné]
+  P[PRINCIPAL — human owner of the root scope<br/>receives AGGREGATED escalations]
+  P --> C1[CONDUCTOR 1<br/>bounded MANDATE]
   P --> C2[CONDUCTOR 2]
   P --> Cn[CONDUCTOR … 15]
-  C1 <-->|NEGOTIATION ledger · baseArtifactHash · états terminaux| C2
-  C2 <-->|négociation pair-à-pair| Cn
-  C1 <-->|jusqu'à 105 liens| Cn
-  EP[ENFORCEMENT_PLAN — conflit bloquant] -.->|escalade filtrée| P
+  C1 <-->|NEGOTIATION ledger · baseArtifactHash · terminal states| C2
+  C2 <-->|peer-to-peer negotiation| Cn
+  C1 <-->|up to 105 links| Cn
+  EP[ENFORCEMENT_PLAN — blocking conflict] -.->|filtered escalation| P
 ```
 
 ## Mapping
 
-| Élément réel | Mapping `h2a` | Risque |
+| Real-world element | `h2a` mapping | Risk |
 |---|---|---|
-| Humain owner | PRINCIPAL du scope racine | Goulot d'escalade si tout remonte. |
-| 15 conductors | INSTANCE rôle CONDUCTOR + MANDATE borné | Mandats trop larges = signatures incohérentes. |
-| Découverte | REGISTRY local/MCP | Inscription ≠ droit d'agir. |
-| Négociation | NEGOTIATION ledger par sujet | Divergence sans base hash / état terminal. |
-| Accord stabilisé | CONTRACT/POLICY/ENGAGEMENT signé | Stable seulement si hash identique + signatures requises. |
-| Conflit inter-contrat | ENFORCEMENT_PLAN + escalade | Pas de résolution automatique en V1. |
-| Audit | Journaux append-only + evidence packages | Trop de logs bruts = fuite d'information. |
+| Human owner | PRINCIPAL of the root scope | Escalation bottleneck if everything bubbles up. |
+| 15 conductors | INSTANCE in CONDUCTOR role + bounded MANDATE | Over-broad mandates = inconsistent signatures. |
+| Discovery | local/MCP REGISTRY | Registration ≠ right to act. |
+| Negotiation | NEGOTIATION ledger per subject | Divergence without base hash / terminal state. |
+| Stabilized agreement | signed CONTRACT/POLICY/ENGAGEMENT | Stable only if identical hash + required signatures. |
+| Inter-contract conflict | ENFORCEMENT_PLAN + escalation | No automatic resolution in V1. |
+| Audit | append-only journals + evidence packages | Too many raw logs = information leak. |
 
-## Règles V1 proposées
+## Proposed V1 rules
 
-- Chaque CONDUCTOR déclare `mandate.rights` : `negotiate`, `propose`, `accept`, `sign`, `escalate`, `audit`, avec scopes autorisés.
-- Une proposition référence toujours `baseArtifactHash` ; si la base change, la proposition devient stale.
-- Une négociation se termine uniquement par `stabilized`, `rejected`, `withdrawn`, `expired` ou `abandoned`.
-- Une signature inclut `{instance, role, scope, mandate, artifactHash}`.
-- Un conflit policy/contract bloque la signature si la policy déclare `blocking: true` ; sinon il est tracé et escaladé.
-- Le PRINCIPAL reçoit des escalades **agrégées** : par conflit, par domaine CONTROL, ou par batch — pas un flux brut de toutes les contre-propositions.
+- Each CONDUCTOR declares `mandate.rights`: `negotiate`, `propose`, `accept`, `sign`, `escalate`, `audit`, with authorized scopes.
+- A proposal always references `baseArtifactHash`; if the base changes, the proposal becomes stale.
+- A negotiation ends only in `stabilized`, `rejected`, `withdrawn`, `expired` or `abandoned`.
+- A signature includes `{instance, role, scope, mandate, artifactHash}`.
+- A policy/contract conflict blocks the signature if the policy declares `blocking: true`; otherwise it is traced and escalated.
+- The PRINCIPAL receives **aggregated** escalations: per conflict, per CONTROL domain, or per batch — not a raw stream of every counter-proposal.
 
-## Compatibilité ABC
+## ABC compatibility
 
-- **A entreprise** : 15 responsables internes — mandats, budget, policies communes, obligations récurrentes, controls de domaine.
-- **B écosystème** : 15 organisations/partenaires — disclosure contrôlée, antitrust/confidentialité, registry non autoritaire, deadlock explicite.
-- **C gouvernement/citoyen** : 15 services/guichets — policies imposées, juridiction, recours, preuves minimisées.
+- **A enterprise**: 15 internal leads — mandates, budget, common policies, recurring obligations, domain controls.
+- **B ecosystem**: 15 organizations/partners — controlled disclosure, antitrust/confidentiality, non-authoritative registry, explicit deadlock.
+- **C government/citizen**: 15 services/desks — imposed policies, jurisdiction, recourse, minimized evidence.
 
-Depuis DEC-041, ce mapping est exposé en machine-readable par `H2A_ABC_MODEL_PROFILES` et vérifié par `auditAbcModelCompatibility(modelId)`. Les profils intégrés sont stables contre le vocabulaire V1 (`ok:true`) mais conservent des gaps explicites (`ready:false`).
+Since DEC-041, this mapping is machine-readable through `H2A_ABC_MODEL_PROFILES` and verified by `auditAbcModelCompatibility(modelId)`. Built-in profiles are stable against the V1 vocabulary (`ok:true`) but keep explicit gaps (`ready:false`).
 
 ## Gaps
 
-- Priorité entre policies en cas de conflit bloquant.
-- Format exact de MANDATE et signature.
-- Règle de batching des escalades pour éviter la saturation du PRINCIPAL.
-- Limites de disclosure standard par type de CONTROL.
-- Passage éventuel à un médiateur inter-contrat V2.
+- Priority between policies on a blocking conflict.
+- Exact MANDATE and signature format.
+- Escalation batching rule to avoid saturating the PRINCIPAL.
+- Standard disclosure limits per CONTROL type.
+- Possible move to an inter-contract mediator in V2.

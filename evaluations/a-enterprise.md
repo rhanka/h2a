@@ -1,68 +1,68 @@
-# Use-case A — Entreprise traditionnelle
+# Use-case A — Traditional enterprise
 
-> Topologie : **hiérarchie**. [← librairie](./README.md)
+> Topology: **hierarchy**. [← library](./README.md)
 
-Entreprise avec contrats fournisseurs, employés, clients, investisseurs, actionnaires, réglementation, administrations et taxes.
+An enterprise with supplier, employee and client contracts, investors, shareholders, regulation, public administrations and taxes.
 
-## Schéma
+## Diagram
 
 ```mermaid
 flowchart TD
-  SH[Actionnaires / Investisseurs<br/>PARTY + AUTHORITY réservée] -. nomme/contraint .-> EXEC
-  EXEC[EXECUTIF — direction générale<br/>scope d'ensemble]
-  EXEC --> P1[PRINCIPAL — BU / owner produit]
-  EXEC --> P2[PRINCIPAL — autre domaine]
-  P1 --> C1[CONDUCTOR — manager opérationnel]
-  C1 --> AG1[AGENTS — employés / agents IA]
-  REG[CONTROL externe — régulateur / fisc] -. POLICY imposée + audit .-> EXEC
-  CTRL[CONTROL interne — legal / compliance / finance] -. audit / veto .-> P1
-  SUP[Fournisseur — mini-org externe] == CONTRACT cadre ==> P1
-  CLI[Client — mini-org externe] == CONTRACT client ==> P1
-  P1 -. ENGAGEMENTS dérivés .-> AG1
+  SH[Shareholders / Investors<br/>PARTY + reserved AUTHORITY] -. appoints/constrains .-> EXEC
+  EXEC[EXECUTIF — top management<br/>umbrella scope]
+  EXEC --> P1[PRINCIPAL — BU / product owner]
+  EXEC --> P2[PRINCIPAL — other domain]
+  P1 --> C1[CONDUCTOR — operational manager]
+  C1 --> AG1[AGENTS — employees / AI agents]
+  REG[External CONTROL — regulator / tax authority] -. imposed POLICY + audit .-> EXEC
+  CTRL[Internal CONTROL — legal / compliance / finance] -. audit / veto .-> P1
+  SUP[Supplier — external mini-org] == framework CONTRACT ==> P1
+  CLI[Client — external mini-org] == client CONTRACT ==> P1
+  P1 -. derived ENGAGEMENTS .-> AG1
 ```
 
 ## Mapping
 
-| Élément réel | Mapping `h2a` | Remarques |
+| Real-world element | `h2a` mapping | Notes |
 |---|---|---|
-| Société / entreprise | Mini-organisation ou activité d'ensemble | EXECUTIF global + plusieurs PRINCIPAUX de domaines. |
-| CEO / direction générale | `EXECUTIF` | Responsabilité d'ensemble, arbitre entre domaines. |
-| Dirigeant de BU / owner produit | `PRINCIPAL` local | Responsable d'un périmètre, ses engagements et agents. |
-| Managers opérationnels | `CONDUCTOR` ou `PRINCIPAL` selon autorité | Pilote = conductor ; détenteur du budget/scope = principal. |
-| Employés | `AGENTS` humains liés par `BINDING` | Contrat de travail = policy/contrainte durable + engagements de mission. |
-| Fournisseurs | Mini-organisations externes | Contrat fournisseur = CONTRACT cadre + ENGAGEMENTS dérivés. |
-| Clients | Mini-org externes ou PRINCIPAUX externes | Contrat client = CONTRACT + ENGAGEMENTS de service/livraison. |
-| Investisseurs | PARTY avec RIGHTS réservés, parfois AUTHORITY | Pas d'autorité opérationnelle implicite. |
-| Actionnaires | PARTY capitalistique + AUTHORITY réservée | Nomment/contraignent l'EXECUTIF via statuts, sans piloter le quotidien. |
-| Régulateurs / administrations | CONTROL externe ou EXECUTIF public | Imposent policies ; reçoivent alertes/rapports. |
-| Taxes | POLICY légale imposée + OBLIGATION récurrente + CONTROL fiscal | Déclarations/paiements = engagements récurrents avec preuves. |
+| Company / enterprise | Mini-organization or umbrella activity | Global EXECUTIF + several domain PRINCIPALs. |
+| CEO / top management | `EXECUTIF` | Carries umbrella accountability, arbitrates across domains. |
+| BU head / product owner | local `PRINCIPAL` | Owns a perimeter, its engagements and agents. |
+| Operational managers | `CONDUCTOR` or local `PRINCIPAL` by authority | The pilot is a conductor; the budget/scope owner is a principal. |
+| Employees | human `AGENTS` bound by `BINDING` | Employment contract = durable policy/constraint + mission engagements. |
+| Suppliers | external mini-organizations | Supplier contract = framework CONTRACT + derived ENGAGEMENTS. |
+| Clients | external mini-orgs or external PRINCIPALs | Client contract = CONTRACT + service/delivery ENGAGEMENTS. |
+| Investors | PARTY with reserved RIGHTS, sometimes AUTHORITY | No implicit operational authority. |
+| Shareholders | capital PARTY + reserved AUTHORITY | Appoint/constrain EXECUTIF via bylaws, without piloting day-to-day. |
+| Regulators / administrations | external CONTROL or public EXECUTIF | Impose policies; receive alerts/reports. |
+| Taxes | imposed legal POLICY + recurring OBLIGATION + tax CONTROL | Filings/payments = recurring engagements with evidence. |
 
-## Contrats vs policies
+## Contracts vs policies
 
-- **Fournisseur** : CONTRACT cadre + policies sécurité/qualité/paiement/confidentialité, instancie des ENGAGEMENTS (SOW, commandes, livraisons).
-- **Employé** : CONTRACT d'emploi + policies durables (droits, confidentialité, temps) + bindings de rôle + engagements de mission.
-- **Client** : CONTRACT client + SLA, droits, responsabilités, engagements de livraison.
-- **Investissement/actionnariat** : CONTRACT/POLICY de gouvernance + droits de décision + engagements ponctuels (levée, reporting, board).
-- **Réglementation/taxes** : POLICY externe imposée, contrôlée par CONTROL legal/fiscal ; exécution via engagements de déclaration/paiement/audit.
+- **Supplier**: framework CONTRACT + security/quality/payment/confidentiality policies, instantiates ENGAGEMENTS (SOW, orders, deliveries).
+- **Employee**: employment CONTRACT + durable policies (rights, confidentiality, working time) + role bindings + mission engagements.
+- **Client**: client CONTRACT + SLA, rights, responsibilities, delivery engagements.
+- **Investment/shareholding**: governance CONTRACT/POLICY + decision rights + occasional engagements (fundraising, reporting, board).
+- **Regulation/taxes**: imposed external POLICY, controlled by legal/tax CONTROL; executed via filing/payment/audit engagements.
 
-## Cas 15 CONDUCTORS
+## 15-CONDUCTORS case
 
-Owner exécutif pilotant 15 responsables opérationnels :
+An executive owner steering 15 operational leads:
 
-- Chaque CONDUCTOR a un MANDATE borné : budget, domaine, droits de signature, policies acceptées.
-- Contrats inter-conductors = ENGAGEMENTS internes ou CONTRACTS internes de service.
-- Le PRINCIPAL ne reçoit pas 105 conflits bilatéraux : policies communes, seuils de signature et controls de domaine filtrent les escalades.
-- Obligations périodiques (taxes, reporting) = OBLIGATIONS récurrentes, pas de simples tâches.
+- Each CONDUCTOR has a bounded MANDATE: budget, domain, signing rights, accepted policies.
+- Inter-conductor contracts = internal ENGAGEMENTS or internal service CONTRACTS.
+- The PRINCIPAL does not receive 105 bilateral conflicts: common policies, signing thresholds and domain controls filter escalations.
+- Periodic obligations (taxes, reporting) = recurring OBLIGATIONS, not mere tasks.
 
 ## Gaps
 
-- Acteur externe imposant une policy sans être membre.
-- Contrat-cadre durable vs engagement opérationnel.
-- Budget, paiement, fiscalité, obligations périodiques.
-- Conflit policy interne / réglementation externe.
-- Influence actionnaires/investisseurs sur EXECUTIF sans piloter le quotidien.
-- Termination, confidentialité, IP, compensation dans les contrats employés.
+- An external actor imposing a policy without being a member.
+- Durable framework contract vs operational engagement.
+- Budget, payment, taxation, periodic obligations.
+- Conflict between internal policy and external regulation.
+- How shareholders/investors influence EXECUTIF without piloting day-to-day.
+- Termination, confidentiality, IP, compensation in employment contracts.
 
-## Hypothèse de compatibilité
+## Compatibility hypothesis
 
-Tient si `POLICY` est first-class et si un `ENGAGEMENT` peut référencer des policies internes, contractuelles et externes. L'entreprise n'est pas un seul arbre : un ensemble de scopes gouvernés par EXECUTIF, PRINCIPAUX locaux, CONTROL internes et externes.
+Holds if `POLICY` is first-class and an `ENGAGEMENT` can reference internal, contractual and external policies. The enterprise is not a single tree: it is a set of scopes governed by EXECUTIF, local PRINCIPALs, internal and external CONTROLs.
