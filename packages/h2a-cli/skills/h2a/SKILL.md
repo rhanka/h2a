@@ -15,6 +15,7 @@ When invoked, parse the arguments and dispatch to the matching subcommand below.
 /h2a send <peer> "<text>"      → put a message envelope in a peer's inbox
 /h2a receive                   → read this agent's inbox and react to new envelopes
 /h2a negotiate <verb> ...      → drive a negotiation lifecycle (open|offer|sign|stabilize)
+/h2a model "<situation>"       → propose a tailored h2a model for an org/situation
 /h2a disconnect                → cleanly close the current session
 /h2a help                      → print this command map
 ```
@@ -115,6 +116,30 @@ Drive a step of the h2a negotiation lifecycle. The subverb is one of:
 - `/h2a negotiate journal <id>` — print the journal entries.
 
 For each verb, validate the required arguments, surface any tool error verbatim, and print a one-line confirmation with the latest journal entry id.
+
+### `/h2a model "<situation>"`
+
+Propose a **tailored h2a model** for a free-form organization or situation (e.g. *"a hospital coordinating with insurers and a regulator"*, *"a 3-team scaled-agile delivery with AI agents"*). This is an **advisory mapping**, not a protocol action — it emits a design, it does not write to the store.
+
+Method (follow it faithfully — do not invent vocabulary):
+
+1. **Ground in the canonical model first.** Read `VOCABULARY.md` for the frozen roles (`PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `AGENTS`, `CONTROL`, `MANDATAIRE`) and substrate (`SCOPE`, `CONTRACT`, `POLICY`, `ENGAGEMENT`, `MANDATE`, `SLOT`, `BINDING`, `NEGOTIATION`, `AUTHORITY`), and skim `evaluations/README.md` (the common grid) plus the closest existing use-case in `evaluations/` (A enterprise, B ecosystem, C government, D 15-conductors, E agentic squad). Reuse their patterns; do not coin new roles or artifacts.
+2. **Map the situation** against the common grid: actors→roles, scopes, authority/mandate/signature, CONTRACT vs ENGAGEMENT vs POLICY, obligations/rights/clauses, controls, escalations, audit, deadlocks/precedence, gaps.
+3. **Respect the invariants** (these are load-bearing):
+   - A `SCOPE` never signs; a **mandated INSTANCE** signs for a party/scope.
+   - `ENGAGEMENT` *has* a scope — it is **not** the scope. Name both.
+   - Anything that must be *owned* needs a `PRINCIPAL` (e.g. architecture ownership) — `CONTROL` only audits/vetoes, it owns nothing.
+   - `POLICY` is a durable rule (standalone *or* a clause of a CONTRACT); prefer expressing rules as engagement clauses unless they are cross-cutting/imposed.
+   - Delegated AI agents are `AGENTS` (or `SUBAGENTS`, parent-addressed) via `MANDATE`+`BINDING`, default **execution-only / non-signing**.
+   - `MANDATAIRE` presents/records, never judges; escalation targets the scope's competent authority.
+4. **Output**, mirroring the `evaluations/*.md` structure:
+   - a **Mermaid diagram** of roles/scopes/contract flows;
+   - a **mapping table** (real element → h2a construct → note);
+   - **contracts vs policies**, a multi-actor case, **gaps**, and a one-paragraph **compatibility hypothesis**;
+   - the **nearest built-in profile** id (`A_ENTERPRISE` / `B_ECOSYSTEM` / `C_GOVERNMENT_CITIZEN` / `D_SAFE`) and how the situation differs from it.
+5. **Offer to persist**: ask whether to save the proposal as a new `evaluations/<slug>.md` (same format) for review. Only write the file if the user agrees.
+
+Keep it a proposal: surface assumptions and the genuine design forks (e.g. one scope with co-principals vs sub-scopes) rather than silently deciding them.
 
 ### `/h2a disconnect`
 

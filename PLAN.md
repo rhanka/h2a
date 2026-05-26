@@ -1,6 +1,6 @@
 # H2A Project Plan
 
-> Last update: 2026-05-26 (DEC-081 — SysML v2 interop **specified & planned** in `docs/sysml-interop.md` (h2a governs SysML model commits via signed envelopes; 4 slices, not built). Also shipped: `D_SAFE` profile (DEC-080, 0.3.0); `evaluations/` library EN + `evaluations/sysml-v2.md` 4-facet eval. Remaining V2 to build: SysML interop S1-S4, broker Scénario C (parked).)
+> Last update: 2026-05-26 (DEC-082 — `/h2a model "<situation>"` skill subcommand: advisory model proposal from a free-form org/situation, grounded in VOCABULARY + evaluations/, offers to persist as evaluations/<slug>.md. **Patch 0.3.1.** Prior: DEC-081 SysML interop spec+plan; DEC-080 D_SAFE (0.3.0). Remaining V2 to build: SysML interop S1-S4, broker Scénario C (parked).)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
