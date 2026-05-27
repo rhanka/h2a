@@ -47,7 +47,7 @@ flowchart TD
 
 | Slice | Deliverable | Layer |
 |---|---|---|
-| **D1** | presence `workStatus` + `launchContext` fields (types + store + pure `inferStall(record, now)`) | core + cli store |
+| **D1** | ✅ **done (DEC-085, 0.4.0)** — presence `workStatus` + `launchContext` fields + pure `inferStall` (core) + `updatePresence` patch (cli) | core + cli store |
 | **D2** | `h2a drumbeat watch` daemon — dumb anchor: detect stall → trigger relance via an adapter interface | cli runtime |
 | **D3** | **local-tmux adapter** (respawn/send-keys in captured pane) + headless fallback | cli runtime |
 | **D4** | **remote adapter** (relance via `@sentropic/remote`) | cli runtime + bridge |

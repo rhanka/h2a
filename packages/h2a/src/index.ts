@@ -127,20 +127,28 @@ export type {
   H2AReplayRejection
 } from "./replay.js";
 export {
+  H2A_DEFAULT_STALL_IDLE_MS,
   H2A_SESSION_DEFAULT_EXPIRY_MS,
   H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS,
   H2A_SESSION_NOTIFICATION_TOPICS,
   H2A_SESSION_STATES,
+  H2A_WORK_STATUSES,
+  inferStall,
   isH2ASession,
   isSessionExpired,
   pickFreshSessions
 } from "./session.js";
 export type {
+  H2ALaunchContext,
   H2ASession,
   H2ASessionExpiryOptions,
   H2ASessionInterests,
   H2ASessionNotificationTopic,
-  H2ASessionState
+  H2ASessionState,
+  H2AStallOptions,
+  H2AStallReason,
+  H2AStallVerdict,
+  H2AWorkStatus
 } from "./session.js";
 export {
   H2A_HOST_BRIDGE_CLAUSES,

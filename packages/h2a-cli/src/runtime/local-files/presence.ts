@@ -13,11 +13,14 @@ import { join } from "node:path";
 import {
   H2A_SESSION_DEFAULT_EXPIRY_MS,
   H2A_SESSION_STATES,
+  H2A_WORK_STATUSES,
   isH2ASession,
   isSessionExpired,
   pickFreshSessions,
+  type H2ALaunchContext,
   type H2ASession,
-  type H2ASessionState
+  type H2ASessionState,
+  type H2AWorkStatus
 } from "@sentropic/h2a";
 
 import {
@@ -165,7 +168,12 @@ export function listPresence(
 export function updatePresence(
   root: string,
   sessionId: string,
-  patch: { heartbeatAt?: string; state?: H2ASessionState }
+  patch: {
+    heartbeatAt?: string;
+    state?: H2ASessionState;
+    workStatus?: H2AWorkStatus;
+    launchContext?: H2ALaunchContext;
+  }
 ): H2ASession | undefined {
   const existing = readPresence(root, sessionId);
   if (!existing) return undefined;
@@ -175,10 +183,18 @@ export function updatePresence(
   ) {
     throw new TypeError(`updatePresence: unknown session state "${patch.state}"`);
   }
+  if (
+    patch.workStatus !== undefined &&
+    !H2A_WORK_STATUSES.includes(patch.workStatus)
+  ) {
+    throw new TypeError(`updatePresence: unknown work status "${patch.workStatus}"`);
+  }
   const next: H2ASession = {
     ...existing,
     ...(patch.heartbeatAt ? { heartbeatAt: patch.heartbeatAt } : {}),
-    ...(patch.state ? { state: patch.state } : {})
+    ...(patch.state ? { state: patch.state } : {}),
+    ...(patch.workStatus ? { workStatus: patch.workStatus } : {}),
+    ...(patch.launchContext ? { launchContext: patch.launchContext } : {})
   };
   writePresence(root, next);
   return next;

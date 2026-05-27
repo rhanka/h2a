@@ -34,6 +34,37 @@ export type H2ASessionState = (typeof H2A_SESSION_STATES)[number];
 export type H2ASessionNotificationTopic =
   (typeof H2A_SESSION_NOTIFICATION_TOPICS)[number];
 
+// Drumbeat (DEC-084): an agent's self-reported work status, surfaced in the
+// presence record so an external relance loop can detect stalls.
+export const H2A_WORK_STATUSES = [
+  "working",
+  "paused",
+  "done",
+  "blocked",
+  "out-of-tokens"
+] as const;
+export type H2AWorkStatus = (typeof H2A_WORK_STATUSES)[number];
+
+/**
+ * Where/how an agent session was launched — captured AT LAUNCH (DEC-084). It
+ * cannot be inferred later (a shell that did not launch the session cannot
+ * find its tmux pane), so the host plugin records it at start for the
+ * relauncher to use.
+ */
+export interface H2ALaunchContext {
+  readonly cwd: string;
+  /** The command that launched the session. */
+  readonly command: string;
+  /** How to resume it (e.g. `codex resume`, `claude -r <id>`). */
+  readonly resumeCommand?: string;
+  readonly tty?: string;
+  readonly tmux?: {
+    readonly session: string;
+    readonly window?: string;
+    readonly pane: string;
+  };
+}
+
 export interface H2ASessionInterests {
   /** Scopes the session wants to observe for presence and negotiation events. */
   readonly scopes: readonly string[];
@@ -55,6 +86,25 @@ export interface H2ASession {
   readonly state: H2ASessionState;
   readonly interests: H2ASessionInterests;
   readonly subscribedTopics: readonly H2ASessionNotificationTopic[];
+  /** Drumbeat (DEC-084): the agent's self-reported work status, if any. */
+  readonly workStatus?: H2AWorkStatus;
+  /** Drumbeat (DEC-084): launch context captured at session start, for relance. */
+  readonly launchContext?: H2ALaunchContext;
+}
+
+function isLaunchContext(value: unknown): value is H2ALaunchContext {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  if (typeof v.cwd !== "string" || typeof v.command !== "string") return false;
+  if (v.resumeCommand !== undefined && typeof v.resumeCommand !== "string") return false;
+  if (v.tty !== undefined && typeof v.tty !== "string") return false;
+  if (v.tmux !== undefined) {
+    if (!v.tmux || typeof v.tmux !== "object") return false;
+    const t = v.tmux as Record<string, unknown>;
+    if (typeof t.session !== "string" || typeof t.pane !== "string") return false;
+    if (t.window !== undefined && typeof t.window !== "string") return false;
+  }
+  return true;
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -95,6 +145,16 @@ export function isH2ASession(value: unknown): value is H2ASession {
   }
   if (v.host !== undefined && typeof v.host !== "string") return false;
   if (v.pid !== undefined && (typeof v.pid !== "number" || !Number.isInteger(v.pid))) {
+    return false;
+  }
+  if (
+    v.workStatus !== undefined &&
+    !(typeof v.workStatus === "string" &&
+      H2A_WORK_STATUSES.includes(v.workStatus as H2AWorkStatus))
+  ) {
+    return false;
+  }
+  if (v.launchContext !== undefined && !isLaunchContext(v.launchContext)) {
     return false;
   }
   return true;
@@ -140,4 +200,62 @@ export function pickFreshSessions(
   options: H2ASessionExpiryOptions = {}
 ): H2ASession[] {
   return sessions.filter((session) => !isSessionExpired(session, options));
+}
+
+/** Default idle window before a still-"working" session is treated as stalled. */
+export const H2A_DEFAULT_STALL_IDLE_MS = 120_000;
+
+export type H2AStallReason = "out-of-tokens" | "idle" | "idle-heuristic";
+
+export interface H2AStallOptions {
+  /** Reference instant; defaults to Date.now(). */
+  readonly now?: number;
+  /** Idle window (ms) before a working/paused session counts as stalled. */
+  readonly idleMs?: number;
+}
+
+export interface H2AStallVerdict {
+  readonly stalled: boolean;
+  readonly reason?: H2AStallReason;
+}
+
+/**
+ * Pure stall detection for the drumbeat (DEC-084): does this session look like
+ * an agent that stopped without finishing? It is session-level only — the
+ * daemon enriches it with engagement/journal progress.
+ *
+ * Rules:
+ * - `closed`/`expired` lifecycle, or `workStatus: "done"` → not a stall.
+ * - `workStatus: "blocked"` → not a drumbeat stall (the explicit-blockage
+ *   feedback loop, EVO-3, owns that).
+ * - `workStatus: "out-of-tokens"` → stalled, regardless of heartbeat.
+ * - otherwise, a heartbeat older than `idleMs` is a stall: reason `idle` when
+ *   the agent said it was `working`/`paused`, `idle-heuristic` when it never
+ *   reported a status. A fresh or unparseable heartbeat → not a stall.
+ */
+export function inferStall(
+  session: H2ASession,
+  options: H2AStallOptions = {}
+): H2AStallVerdict {
+  if (session.state === "closed" || session.state === "expired") {
+    return { stalled: false };
+  }
+  if (session.workStatus === "done" || session.workStatus === "blocked") {
+    return { stalled: false };
+  }
+  if (session.workStatus === "out-of-tokens") {
+    return { stalled: true, reason: "out-of-tokens" };
+  }
+  const now = options.now ?? Date.now();
+  const idleMs = options.idleMs ?? H2A_DEFAULT_STALL_IDLE_MS;
+  const beat = parseHeartbeat(session);
+  if (beat === 0) return { stalled: false };
+  if (now - beat <= idleMs) return { stalled: false };
+  if (session.workStatus === "working" || session.workStatus === "paused") {
+    return { stalled: true, reason: "idle" };
+  }
+  if (session.workStatus === undefined) {
+    return { stalled: true, reason: "idle-heuristic" };
+  }
+  return { stalled: false };
 }
