@@ -6,7 +6,7 @@
 |---|---|---|---|
 | EVO-0 | `agy` host parity | Séance 1 done | **framed** — agy = Antigravity (Gemini), **supports MCP** (config `~/.gemini/config/mcp_config.json`, empty); full parity via that config + plugin import; no special gap |
 | EVO-1 | Plugin bilateral-discussion & relance capability (per platform) | Séance 1 done | **framed** — feasible on all 4 (headless + resume/continue) |
-| EVO-2 | Drumbeat = engagement **tracking** (reframe) | yes (Séance 2) | intention (supersedes DEC-083 framing) |
+| EVO-2 | Drumbeat = **external anti-stall relance loop** | Séance 2 done | **specified** (DEC-084 + `docs/drumbeat.md`); supersedes DEC-083; deadlines = layer 2 |
 | EVO-3 | Agent-blockage **feedback loop** (cross-agent notification) | Séance 1 (partial) | framed — agy is the gap (no daemon); others have daemon/hooks |
 | EVO-4 | Decision support / situation presentation | yes (largest) | intention |
 | EVO-5 | NHI (Non-Human Identity) — NIST standard support | yes (research first) | intention → backlog |

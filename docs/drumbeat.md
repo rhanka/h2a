@@ -1,84 +1,71 @@
-# Drumbeat — timed relances & escalation (specification & plan)
+# Drumbeat — anti-stall relance & escalation (specification)
 
-> Time-based **follow-ups (relances) and escalation** for crisis/escalation management: when an h2a commitment is overdue or a response is awaited past a deadline, relance then escalate to the scope's competent authority. **Status: planned (not built).** Priority workstream. Decision: DEC-083.
+> Keep agent work **moving**: detect when a CLI agent has stalled (stopped without a real reason after a work sequence, or run out of tokens) and **relance** it; escalate to the owner when auto-relance fails. **Status: specified, not built.** Priority workstream. Supersedes the framing of DEC-083; recorded in DEC-084.
 
-## Problem
+## Problem (the real motivation)
 
-h2a today has the *channels* for escalation (`advise` / `decide` / `alert` + scope-authority resolution, DEC-040) and *liveness* heartbeats (presence/session, 5s/15s, DEC-050/051), but **nothing time-driven** ties a commitment's deadline to an escalation. There is no "if no signature/ack/response within T, remind, then escalate" — the core of follow-up and crisis management.
+CLI agents frequently **stop without finishing** after a work sequence; sometimes they run **out of tokens**. The cost is wasted wall-clock time. The deadline/SLA angle matters too, but it is secondary (layer 2).
 
-The `drumbeat` is that missing timer layer: a periodic beat that detects overdue items and drives the relance → escalation sequence, reusing the existing escalation channels.
+Crucially, **codex / agy / gemini have no `/loop`-style mechanism at all** — only Claude Code has one, and that one is a **self-wake** (the agent re-schedules itself), which **cannot recover an agent that has already exited or exhausted its tokens**. So the relance must be driven **from outside** the agent, uniformly across platforms. The drumbeat is that missing **external loop**.
 
-## Two layers
+## Architecture
 
 ```mermaid
 flowchart TD
-  subgraph HOST["Host scheduling layer (per platform)"]
-    SCHED[scheduled wake / cron<br/>claude · codex · gemini · agy?]
+  subgraph AGENT["Agent CLI (claude / codex / gemini / agy)"]
+    PLUG[plugin / launch wrapper<br/>captures launchContext at start<br/>reports workStatus on stop]
   end
-  subgraph H2A["h2a runtime layer (host-agnostic)"]
-    SCAN[drumbeat scan<br/>find overdue items]
-    POL[relance policy<br/>advise@T- · decide@T · alert@T+]
-    ESC[emit escalation envelope<br/>DEC-040 channels + scope authority]
-  end
-  SCHED -->|beat| SCAN --> POL --> ESC --> JRNL[(journal + target inbox)]
+  PLUG -->|workStatus + launchContext| PRES[(presence/session record)]
+  DAEMON[drumbeat daemon — `h2a drumbeat watch`<br/>dumb, always-on anchor] -->|read| PRES
+  DAEMON -->|stalled?| REFLEX[reflexive watchdog SUBAGENT<br/>LLM: relance / finish / escalate / re-route]
+  REFLEX -->|relance instance X, prompt P| ADPT{relauncher adapter}
+  ADPT -->|local + tmux| TMUX[respawn / send-keys<br/>in original pane]
+  ADPT -->|cloud| REMOTE[@sentropic/remote<br/>respawn session]
+  ADPT -->|fallback| HEADLESS[headless resume + log + notify]
+  REFLEX -->|N failures| ESC[escalate to PRINCIPAL<br/>the human owner]
 ```
 
-1. **Runtime layer (host-agnostic, in `@sentropic/h2a-cli`)** — deadlines/SLA on commitments + a scanner that detects overdue items and emits escalation envelopes. Pure timer/decision logic in core.
-2. **Host scheduling layer (per platform)** — each host needs a way to *wake the agent on a timer* to run the scan. This is the "plugin per platform" part.
+**Separation of concerns** (the load-bearing design):
 
-## Specification (runtime layer)
+1. **Detection — host-agnostic, in the presence layer.** Two additions to the presence/session record (DEC-050/051):
+   - `workStatus`: `working | paused | done | blocked | out-of-tokens`.
+   - `launchContext`: `{ tmux?: {session, window, pane}, tty?, cwd, command, resumeCommand }` — **captured at launch** by the plugin/wrapper (it cannot be inferred later: a shell that did not launch the session cannot find its tmux pane). 
+   - Reported by the **per-CLI plugin** when it can (precise); a **heuristic** fallback infers stall = *presence idle + engagement not `done` + no new journal entry for T*.
 
-### Deadlines & relance policy
+2. **The drumbeat daemon (`h2a drumbeat watch`) — the external loop, dumb and always-on.** It is the anchor that never stalls (a plain process/cron, no LLM). It reads `workStatus`, detects stalls, and triggers a relance. This is the `/loop` that codex/agy/gemini lack, and a more robust one for Claude (external, not self-wake).
 
-- A commitment (`ENGAGEMENT`, an awaited `inbox` envelope, or a `NEGOTIATION` with `deadline`) may carry a **relance policy**: `{ adviseAt, decideAt, alertAt }` (absolute or relative to a `deadline`), mapping elapsed time to an escalation **channel** (DEC-040: `advise` → `decide` → `alert`).
-- `H2ADrumbeatState = "on-time" | "advise-due" | "decide-due" | "alert-due"` derived from `(deadline/policy, now)` — a **pure** function `computeDrumbeatState(item, now)`. No I/O.
+3. **Relauncher adapters — environment-specific** (the daemon decides *"relance X with prompt P"*; the adapter performs the spawn):
+   - **local-tmux (priority)**: re-inject into the **original tmux pane** (`respawn-pane` / `send-keys` the resume command — `codex resume`, `agy -c`, `gemini -r`, `claude -r`) using the captured `launchContext` → the user sees it resume in place.
+   - **remote (cloud)**: `@sentropic/remote` respawns the session (it already owns session lifecycle; reuses the bridge DEC-059/063).
+   - **headless fallback**: original terminal gone → spawn headless (`-p`/resume) detached, log output, **notify the PRINCIPAL**.
 
-### Scanner
+4. **Reflexive function — a watchdog SUBAGENT (LLM, DEC-068).** Invoked by the daemon to *decide*: relance with what nudge / mark `done` / escalate / **re-route** (e.g. switch model when out-of-tokens). It is a *function*, not a new frozen role; it can also watch the conductor. The dumb daemon is the anchor that calls it (no recursion).
 
-- `scanDrumbeat(store, now)` → list of overdue items + the escalation each should emit (target authority resolved by scope, DEC-040). Reuses the presence-scanner shape (DEC-052).
-- For each overdue item, emit an **escalation envelope** to the scope's competent authority's inbox + append a journal event (so relances are auditable and idempotent — don't double-fire the same channel).
-
-### Surfaces
-
-- CLI: `h2a drumbeat scan --root <p>` (one-shot: report + emit), and optionally `h2a drumbeat watch` (loop).
-- MCP tool: `h2a_drumbeat` so a connected agent can run the beat in-session.
-- Skill: `/h2a drumbeat` subcommand.
-
-### Reuses (no new auth/transport)
-
-Escalation channels + scope-authority resolution (DEC-040), the journal (idempotent relance ledger), recurring-obligation cadence profiles (DEC-047) for default timings, signed envelopes (DEC-073) for cross-host escalation, controlled disclosure (DEC-045) for what the alerted authority sees.
-
-## Host scheduling layer (the "plugins")
-
-Each host must wake the agent on a timer to run the scan. Current h2a host integration = `/h2a` skill + MCP, for **claude / codex / gemini** (DEC-054/055).
-
-| Platform | Scheduling primitive | h2a host today |
-|---|---|---|
-| claude (Claude Code) | scheduled wake-up / cron (the `/loop` mechanism) | ✅ supported |
-| codex | cron / scheduled task (TBD per CLI) | ✅ supported |
-| gemini | cron / scheduled task (TBD per CLI) | ✅ supported |
-| **agy** | TBD | **❌ not a supported host** |
-
-> **Open decision**: the user's three target platforms are **agy / claude / codex**, but h2a's third host is **gemini**, not agy. Either add an `agy` host descriptor (skill + MCP snippet, mirroring DEC-055) or confirm the target set. This blocks the host-layer slices for agy.
+5. **Escalation chain.** `AGENTS ← CONDUCTOR ← PRINCIPAL` (the engagement's executive-function owner — **often the human who launched the session locally**). After **N failed relances**, escalate to the **PRINCIPAL** (human), not EXECUTIF. EXECUTIF only enters at a federated/umbrella scope. Anti-loop: cap relances per item, journal-guarded (idempotent).
 
 ## Plan (ordered slices)
 
-| Slice | Deliverable | Layer | Depends on |
-|---|---|---|---|
-| **D1** | relance-policy + `computeDrumbeatState` (pure) | core | DEC-040, DEC-047 |
-| **D2** | `scanDrumbeat` + `h2a drumbeat scan` + MCP tool: detect overdue → emit escalation (idempotent via journal) | cli runtime | D1, DEC-040 |
-| **D3** | host scheduling glue + `/h2a drumbeat` skill subcommand (claude/codex/gemini) | skill/host | D2, DEC-055 |
-| **D4** | crisis mode: aggregated alert fan-out + per-authority batching | cli runtime | D2 |
-| **D0?** | `agy` host descriptor (if agy is a confirmed target) | host | DEC-055 |
+| Slice | Deliverable | Layer |
+|---|---|---|
+| **D1** | presence `workStatus` + `launchContext` fields (types + store + pure `inferStall(record, now)`) | core + cli store |
+| **D2** | `h2a drumbeat watch` daemon — dumb anchor: detect stall → trigger relance via an adapter interface | cli runtime |
+| **D3** | **local-tmux adapter** (respawn/send-keys in captured pane) + headless fallback | cli runtime |
+| **D4** | **remote adapter** (relance via `@sentropic/remote`) | cli runtime + bridge |
+| **D5** | reflexive watchdog SUBAGENT (decide relance/finish/escalate/re-route) | skill/subagent |
+| **D6** | per-CLI plugins: capture `launchContext` at start, report `workStatus` on stop, clean-quit — claude/codex/gemini/**agy** | host plugins |
+| **D7** | escalation-to-PRINCIPAL after N fails + anti-loop cap | cli runtime |
+| **L2** | deadline/milestone layer (relance as an engagement deadline approaches) | later |
 
-## Open questions
+Reuses: presence/session (DEC-050/051), escalation channels (DEC-040), subagents (DEC-068), signed envelopes (DEC-073), the journal (idempotent relance ledger). agy is a host (EVO-0; supports MCP).
 
-1. Which items carry a deadline/relance policy — `ENGAGEMENT` only, or also awaited envelopes / negotiations?
-2. Relance idempotency: one escalation per channel per item (journal-guarded) — confirm semantics.
-3. Per-host scheduling primitives for codex / gemini (and agy) — do their CLIs expose a cron/wake hook like Claude Code's?
-4. **agy as a host** — add it, or is the third platform gemini after all?
-5. Default timings — derive from a recurring-obligation profile (DEC-047) or per-engagement explicit?
+## Open questions (for the build)
+
+1. **Token re-routing** policy on `out-of-tokens`: wait/retry, switch model, or escalate to human — per-engagement or global?
+2. Heuristic stall thresholds (idle time T, "no journal progress" window) — defaults + per-engagement override.
+3. Per-CLI **stop-hook** availability: can each plugin reliably emit `workStatus` on exit? (claude hooks/settings; gemini `hooks`; codex `app-server`; agy — TBD, captured by EVO-1 matrix.)
+4. How the daemon **authenticates** to relaunch / who runs it (local: started by the user once; cloud: by remote).
+5. Does the local-tmux adapter `send-keys` (gentler) or `respawn-pane` (cleaner) — likely `send-keys` to preserve scrollback.
 
 ## Related
 
-- DEC-040 (escalation channels + scope authority), DEC-047 (recurring-obligation cadence), DEC-050/051 (presence/session heartbeat), DEC-052 (notification scanner), DEC-054/055 (host skill + MCP), DEC-083 (this plan).
+DEC-040 (escalation), DEC-050/051 (presence/session), DEC-052 (notification scanner), DEC-068 (subagents), DEC-059/063 (remote bridge), DEC-083 (initial framing, superseded), DEC-084 (this spec), `docs/plugin-capability-matrix.md` (per-CLI hooks), `docs/evolution-intentions.md` (EVO-2).
