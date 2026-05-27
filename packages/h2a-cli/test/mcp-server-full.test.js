@@ -62,6 +62,38 @@ test("h2a_open_negotiation persists the record and returns it", () => {
   }
 });
 
+test("h2a_nhi_report derives a posture and flags key reuse (NHI9)", () => {
+  const root = freshRoot();
+  try {
+    const server = createMcpServer({ root });
+    const { publicPem } = newKeyPair();
+    // Two instances sharing ONE public key → NHI9 reuse.
+    server.callTool("h2a_register_instance", {
+      registration: registration("conductor:01", publicPem)
+    });
+    server.callTool("h2a_register_instance", {
+      registration: registration("conductor:02", publicPem)
+    });
+
+    const result = server.callTool("h2a_nhi_report", {});
+    assert.equal(result.error, undefined);
+    const report = result.report;
+    assert.equal(report.summary.instances, 2);
+    assert.equal(report.findings.length, 5);
+
+    const nhi9 = report.findings.find((f) => f.risk === "NHI9");
+    assert.equal(nhi9.severity, "high");
+    assert.equal(nhi9.count, 1);
+    // The PEM must never appear in the posture output (fingerprint only).
+    assert.ok(!JSON.stringify(report).includes(publicPem));
+
+    const nhi4 = report.findings.find((f) => f.risk === "NHI4");
+    assert.equal(nhi4.severity, "info"); // both instances have a key
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("h2a_open_negotiation: missing 'record' returns a structured error", () => {
   const root = freshRoot();
   try {

@@ -118,6 +118,7 @@ export interface LocalStore {
   findInstance(id: string): H2AActorRegistration | undefined;
   addInstanceKey(instanceId: string, publicKeyPem: string): void;
   listInstanceKeys(instanceId: string): string[];
+  listKeyEvents(): H2AKeyEvent[];
   revokeInstanceKey(instanceId: string, publicKeyPem: string): void;
   registerSubagent(binding: H2ASubagentBinding): void;
   listSubagents(): H2ASubagentBinding[];
@@ -373,6 +374,12 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     }
     for (const pem of revoked) active.delete(pem);
     return [...active];
+  }
+
+  // DEC-087: raw keyring events (added/revoked, append-only) for posture
+  // derivation — `auditNhiPosture` reads these to age active keys (NHI7).
+  function listKeyEvents(): H2AKeyEvent[] {
+    return readJsonl<H2AKeyEvent>(paths.keys);
   }
 
   function addInstanceKey(instanceId: string, publicKeyPem: string): void {
@@ -925,6 +932,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     findInstance,
     addInstanceKey,
     listInstanceKeys,
+    listKeyEvents,
     revokeInstanceKey,
     registerSubagent,
     listSubagents,

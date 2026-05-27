@@ -266,5 +266,19 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         instance: { type: "string" }
       }
     }
+  },
+  {
+    name: "h2a_nhi_report",
+    description:
+      "Derive a Non-Human-Identity posture (OWASP NHI Top 10 / NIST CSF) from the registry (DEC-087): per-risk findings (NHI1 offboarding, NHI4 auth, NHI5 over-privilege, NHI7 long-lived keys, NHI9 reuse) plus a summary. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        longLivedKeyMaxDays: {
+          type: "number",
+          description: "Keys older than this many days are flagged long-lived (NHI7). Default 90."
+        }
+      }
+    }
   }
 ];

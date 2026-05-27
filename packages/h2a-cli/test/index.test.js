@@ -19,11 +19,11 @@ test("h2a-cli aggregates the supported hosts", () => {
 
 test("h2a-cli exposes the canonical MCP tool names", () => {
   assert.equal(H2A_CLI_MCP_TOOL_NAMES[0], "h2a_register_instance");
-  // DEC-051 added the session lifecycle tools; the discover_sessions verb
-  // is the last canonical entry.
-  assert.equal(H2A_CLI_MCP_TOOL_NAMES.at(-1), "h2a_discover_sessions");
+  // DEC-087 added the NHI posture tool as the last canonical entry.
+  assert.equal(H2A_CLI_MCP_TOOL_NAMES.at(-1), "h2a_nhi_report");
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_session_open"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_session_close"));
+  assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_discover_sessions"));
 });
 
 test("h2a-cli renders help and command output", () => {

@@ -168,6 +168,23 @@ export type {
   H2AHostBridgeProfileId,
   H2AHostBridgeResourceLimitsClause
 } from "./h2a-bridge.js";
+export {
+  H2A_NHI_DEFAULT_LONG_LIVED_KEY_DAYS,
+  H2A_NHI_RISK_IDS,
+  auditNhiPosture,
+  nhiKeyFingerprint
+} from "./nhi.js";
+export type {
+  H2ANhiFinding,
+  H2ANhiInstanceSnapshot,
+  H2ANhiKeyEventSnapshot,
+  H2ANhiPostureInput,
+  H2ANhiPostureReport,
+  H2ANhiPostureSummary,
+  H2ANhiRiskId,
+  H2ANhiSeverity,
+  H2ANhiSubagentSnapshot
+} from "./nhi.js";
 export { assertValidNegotiationState } from "./negotiation.js";
 export { canonicalize, computeHash } from "./canonical.js";
 export { signCanonical, verifyCanonical } from "./signature.js";

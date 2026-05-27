@@ -443,6 +443,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Revoke a public key (PEM file) from an instance's keyring (rotate-out). Appends a `revoked` event; the verifier stops accepting it. Exit 2 if the key is not currently active. DEC-079."
   },
   {
+    verb: "nhi report",
+    outputShape: "resource",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["root", "long-lived-days"],
+    description:
+      "Derive a Non-Human-Identity posture (OWASP NHI Top 10 / NIST CSF) from the registry: per-risk findings (NHI1 offboarding, NHI4 auth, NHI5 over-privilege, NHI7 long-lived keys, NHI9 reuse) + a summary. Read-only. DEC-087."
+  },
+  {
     verb: "install-skills",
     outputShape: "action",
     exitCodes: [0, 1, 2, 3],

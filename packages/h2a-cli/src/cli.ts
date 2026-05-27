@@ -52,7 +52,13 @@ import { homedir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { computeHash, signCanonical, subagentAddress, H2A_WORK_STATUSES } from "@sentropic/h2a";
+import {
+  computeHash,
+  signCanonical,
+  subagentAddress,
+  auditNhiPosture,
+  H2A_WORK_STATUSES
+} from "@sentropic/h2a";
 
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
@@ -75,6 +81,7 @@ import {
   runDrumbeatWatch as runDrumbeatWatchLoop,
   loggingRelauncher
 } from "./runtime/drumbeat/index.js";
+import { gatherNhiSnapshot } from "./runtime/nhi.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -182,6 +189,7 @@ export function renderCliHelp(): string {
     "  h2a keys add --instance <id> --public-key <pem-file> [--root <path>]",
     "  h2a keys list --instance <id> [--root <path>]",
     "  h2a keys revoke --instance <id> --public-key <pem-file> [--root <path>]",
+    "  h2a nhi report [--long-lived-days <n>] [--root <path>]",
     "  h2a install-skills --host claude [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
@@ -932,6 +940,42 @@ function cmdDrumbeat(argv: readonly string[], streams: H2ACliStreams): number {
   }
 
   streams.stderr.write("h2a drumbeat: subcommand required (record, scan, clear, watch)\n");
+  return 1;
+}
+
+/**
+ * `h2a nhi` (DEC-087): Non-Human-Identity posture over the local registry. P1
+ * ships `report` — derive the OWASP NHI Top 10 / NIST CSF posture from
+ * instances, subagent bindings and the keyring. See evaluations/nhi.md.
+ */
+function cmdNhi(argv: readonly string[], streams: H2ACliStreams): number {
+  const { command: sub, flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+
+  if (sub === "report") {
+    let longLivedKeyMaxDays: number | undefined;
+    if (flags["long-lived-days"] !== undefined) {
+      longLivedKeyMaxDays = Number.parseInt(flags["long-lived-days"], 10);
+      if (!Number.isInteger(longLivedKeyMaxDays) || longLivedKeyMaxDays < 1) {
+        streams.stderr.write(
+          `h2a nhi report: --long-lived-days must be a positive integer (got "${flags["long-lived-days"]}")\n`
+        );
+        return 1;
+      }
+    }
+    const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+    const { instances, subagents, keyEvents } = gatherNhiSnapshot(store);
+    const report = auditNhiPosture({
+      instances,
+      subagents,
+      keyEvents,
+      ...(longLivedKeyMaxDays !== undefined ? { longLivedKeyMaxDays } : {})
+    });
+    streams.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    return 0;
+  }
+
+  streams.stderr.write(`h2a nhi: unknown subcommand "${sub ?? ""}" (report)\n`);
   return 1;
 }
 
@@ -2003,6 +2047,7 @@ export function runCli(
     }
     return cmdDrumbeat(argv.slice(1), streams);
   }
+  if (command === "nhi") return cmdNhi(argv.slice(1), streams);
   if (command === "negotiate") return cmdNegotiate(argv.slice(1), streams);
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);

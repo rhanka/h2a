@@ -534,6 +534,8 @@ function buildHappyArgv(verb, ctx) {
       return ["drumbeat", "scan", "--root", root];
     case "drumbeat clear":
       return ["drumbeat", "clear", "--root", root, "--instance", "agent-001"];
+    case "nhi report":
+      return ["nhi", "report", "--root", root];
     case "subagent audit":
       return ["subagent", "audit", "--root", root, "--parent", "agent-001"];
     case "subagent revoke":
@@ -592,6 +594,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "keys add",
     "keys list",
     "keys revoke",
+    "nhi report",
     "install-skills",
     "deploy k8s-sidecar",
     "deploy k8s-tenant",

@@ -1,6 +1,7 @@
 import {
   H2A_SESSION_NOTIFICATION_TOPICS,
   H2A_SESSION_STATES,
+  auditNhiPosture,
   computeHash,
   signCanonical,
   type H2AActorRegistration,
@@ -14,6 +15,7 @@ import {
 } from "@sentropic/h2a";
 
 import type { LocalStore } from "../local-files/store.js";
+import { gatherNhiSnapshot } from "../nhi.js";
 import type { SessionRegistry } from "./sessions.js";
 
 export interface McpToolResult {
@@ -460,6 +462,28 @@ export function handleDiscoverSessions(
       fresh = fresh.filter((session) => session.instance === wanted);
     }
     return { sessions: fresh };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+// DEC-087: NHI posture over the registry. Mirrors `h2a nhi report` — same
+// snapshot gatherer + core `auditNhiPosture`, so CLI and MCP agree.
+export function handleNhiReport(
+  store: LocalStore,
+  args: { longLivedKeyMaxDays?: number } | undefined
+): McpToolResult | McpErrorResult {
+  try {
+    const { instances, subagents, keyEvents } = gatherNhiSnapshot(store);
+    const report = auditNhiPosture({
+      instances,
+      subagents,
+      keyEvents,
+      ...(typeof args?.longLivedKeyMaxDays === "number"
+        ? { longLivedKeyMaxDays: args.longLivedKeyMaxDays }
+        : {})
+    });
+    return { report };
   } catch (err) {
     return safeError(err);
   }
