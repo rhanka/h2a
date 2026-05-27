@@ -1,0 +1,110 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  chainRelauncher,
+  headlessRelauncher,
+  localTmuxRelauncher,
+  tmuxTarget
+} from "../dist/index.js";
+
+function finding(overrides = {}) {
+  return {
+    instance: "claude:p1",
+    reason: "stopped",
+    workStatus: "paused",
+    relanceCount: 0,
+    ...overrides
+  };
+}
+
+function fakeRuntime() {
+  const calls = { run: [], spawnDetached: [], notes: [] };
+  return {
+    calls,
+    runtime: {
+      run: (file, args) => {
+        calls.run.push([file, ...args]);
+        return true;
+      },
+      spawnDetached: (command, opts) => {
+        calls.spawnDetached.push({ command, cwd: opts.cwd });
+        return true;
+      },
+      notify: (line) => calls.notes.push(line)
+    }
+  };
+}
+
+test("tmuxTarget builds session:window.pane or a bare pane id", () => {
+  assert.equal(tmuxTarget({ session: "s", window: "1", pane: "0" }), "s:1.0");
+  assert.equal(tmuxTarget({ session: "s", pane: "%5" }), "%5");
+});
+
+test("local-tmux relancer sends the resume command into the captured pane", () => {
+  const { calls, runtime } = fakeRuntime();
+  const r = localTmuxRelauncher({ runtime });
+  const ok = r.relance(
+    finding({
+      launchContext: {
+        cwd: "/work",
+        command: "claude",
+        resumeCommand: "claude --resume abc",
+        tmux: { session: "main", window: "2", pane: "1" }
+      }
+    })
+  );
+  assert.equal(ok, true);
+  assert.deepEqual(calls.run[0], ["tmux", "send-keys", "-t", "main:2.1", "claude --resume abc", "Enter"]);
+});
+
+test("local-tmux relancer declines (false) when there is no tmux context", () => {
+  const { calls, runtime } = fakeRuntime();
+  const r = localTmuxRelauncher({ runtime });
+  const ok = r.relance(finding({ launchContext: { cwd: "/w", command: "claude" } }));
+  assert.equal(ok, false);
+  assert.equal(calls.run.length, 0);
+});
+
+test("headless relancer respawns the captured command detached + notifies", () => {
+  const { calls, runtime } = fakeRuntime();
+  const r = headlessRelauncher({ runtime });
+  const ok = r.relance(finding({ launchContext: { cwd: "/work", command: "codex resume" } }));
+  assert.equal(ok, true);
+  assert.deepEqual(calls.spawnDetached[0], { command: "codex resume", cwd: "/work" });
+  assert.equal(calls.notes.length, 1);
+});
+
+test("headless relancer declines when there is no command to respawn", () => {
+  const { calls, runtime } = fakeRuntime();
+  const r = headlessRelauncher({ runtime });
+  assert.equal(r.relance(finding({})), false);
+  assert.equal(calls.spawnDetached.length, 0);
+});
+
+test("chain falls back from local-tmux to headless when there is no pane", async () => {
+  const { calls, runtime } = fakeRuntime();
+  const chain = chainRelauncher(
+    localTmuxRelauncher({ runtime }),
+    headlessRelauncher({ runtime })
+  );
+  // No tmux → local-tmux returns false → headless respawns.
+  const ok = await chain.relance(finding({ launchContext: { cwd: "/w", command: "gemini" } }));
+  assert.equal(ok, true);
+  assert.equal(calls.run.length, 0);
+  assert.deepEqual(calls.spawnDetached[0], { command: "gemini", cwd: "/w" });
+});
+
+test("chain stops at the first adapter that issues a relance", async () => {
+  const { calls, runtime } = fakeRuntime();
+  const chain = chainRelauncher(
+    localTmuxRelauncher({ runtime }),
+    headlessRelauncher({ runtime })
+  );
+  const ok = await chain.relance(
+    finding({ launchContext: { cwd: "/w", command: "claude", tmux: { session: "s", pane: "%1" } } })
+  );
+  assert.equal(ok, true);
+  assert.equal(calls.run.length, 1); // tmux handled it
+  assert.equal(calls.spawnDetached.length, 0); // headless not reached
+});

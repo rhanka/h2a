@@ -353,9 +353,9 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "stream",
     exitCodes: [0, 1],
     requiredFlags: [],
-    optionalFlags: ["root", "interval-ms", "max-relances"],
+    optionalFlags: ["root", "interval-ms", "max-relances", "relauncher"],
     description:
-      "Run the anti-stall daemon (long-running): each beat scans the registry and relances stalled agents via the relauncher adapter (logging adapter for now; local-tmux/remote land in D3/D4). The external `/loop` codex/agy/gemini lack. DEC-086."
+      "Run the anti-stall daemon (long-running): each beat scans the registry and relances stalled agents via the relauncher adapter. `--relauncher` selects logging (default, dry-run) | local-tmux (send-keys into the captured pane) | headless (detached respawn) | auto (local-tmux then headless). The external `/loop` codex/agy/gemini lack. DEC-086/091."
   },
 
   // --- host wiring ---

@@ -24,3 +24,12 @@ export {
   type DrumbeatTickResult,
   type DrumbeatWatchOptions
 } from "./watch.js";
+export {
+  localTmuxRelauncher,
+  headlessRelauncher,
+  chainRelauncher,
+  tmuxTarget,
+  defaultRelauncherRuntime,
+  type RelauncherRuntime,
+  type H2ARelauncherKind
+} from "./relaunchers.js";

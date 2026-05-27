@@ -84,7 +84,12 @@ import {
   scanDrumbeat,
   clearDrumbeatEntry,
   runDrumbeatWatch as runDrumbeatWatchLoop,
-  loggingRelauncher
+  loggingRelauncher,
+  localTmuxRelauncher,
+  headlessRelauncher,
+  chainRelauncher,
+  type H2ARelauncher,
+  type H2ARelauncherKind
 } from "./runtime/drumbeat/index.js";
 import { gatherNhiSnapshot } from "./runtime/nhi.js";
 
@@ -181,7 +186,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat record --instance <id> --status <working|paused|done|blocked|out-of-tokens> [--command <c>] [--resume-command <c>] [--tmux-session <s> --tmux-pane <p>] [--root <path>]",
     "  h2a drumbeat scan [--max-relances <n>] [--root <path>]",
     "  h2a drumbeat clear --instance <id> [--root <path>]",
-    "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--root <path>]",
+    "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
@@ -1094,8 +1099,32 @@ export async function runDrumbeatWatch(
     io.stderr.write(`h2a drumbeat watch: --interval-ms must be >= 1000 (got "${flags["interval-ms"]}")\n`);
     return 1;
   }
-  io.stdout.write(`h2a drumbeat watch: watching ${root} every ${intervalMs}ms (logging relauncher; real relaunch = D3)\n`);
-  await runDrumbeatWatchLoop(root, loggingRelauncher((line) => io.stdout.write(`${line}\n`)), {
+  const kind = (flags.relauncher ?? "logging") as H2ARelauncherKind;
+  const log = (line: string): void => void io.stdout.write(`${line}\n`);
+  let relauncher: H2ARelauncher;
+  // DEC-091 (D3): select the relauncher adapter. `auto` = local-tmux with a
+  // headless fallback (the D3 chain); `logging` stays the dry-run default.
+  switch (kind) {
+    case "local-tmux":
+      relauncher = localTmuxRelauncher({ log });
+      break;
+    case "headless":
+      relauncher = headlessRelauncher({ log });
+      break;
+    case "auto":
+      relauncher = chainRelauncher(localTmuxRelauncher({ log }), headlessRelauncher({ log }));
+      break;
+    case "logging":
+      relauncher = loggingRelauncher(log);
+      break;
+    default:
+      io.stderr.write(
+        `h2a drumbeat watch: --relauncher must be one of logging|local-tmux|headless|auto (got "${flags.relauncher}")\n`
+      );
+      return 1;
+  }
+  io.stdout.write(`h2a drumbeat watch: watching ${root} every ${intervalMs}ms (relauncher=${kind})\n`);
+  await runDrumbeatWatchLoop(root, relauncher, {
     intervalMs,
     ...(maxRelances !== undefined ? { maxRelances } : {}),
     signal: io.signal,
