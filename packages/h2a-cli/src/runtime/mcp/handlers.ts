@@ -1,9 +1,12 @@
 import {
+  H2A_ROLES,
   H2A_SESSION_NOTIFICATION_TOPICS,
   H2A_SESSION_STATES,
   auditNhiPosture,
   computeHash,
+  nhiAttestationEnvelope,
   signCanonical,
+  signEnvelope,
   type H2AActorRegistration,
   type H2AEnvelope,
   type H2AJournalPayload,
@@ -484,6 +487,61 @@ export function handleNhiReport(
         : {})
     });
     return { report };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+// DEC-087 (P1b): sign the current posture into an attestation envelope. Same
+// snapshot + classifier + envelope builder as `h2a nhi attest`.
+export function handleNhiAttest(
+  store: LocalStore,
+  args:
+    | {
+        instance?: string;
+        privateKeyPem?: string;
+        role?: string;
+        scope?: string;
+        longLivedKeyMaxDays?: number;
+      }
+    | undefined
+): McpToolResult | McpErrorResult {
+  if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_nhi_attest: missing 'instance'" };
+  }
+  if (typeof args.privateKeyPem !== "string" || args.privateKeyPem.length === 0) {
+    return { error: "h2a_nhi_attest: missing 'privateKeyPem'" };
+  }
+  try {
+    const registration = store.findInstance(args.instance);
+    const role = args.role ?? registration?.roles?.[0];
+    const scope = args.scope ?? registration?.scopes?.[0];
+    if (!role || !scope) {
+      return {
+        error: `h2a_nhi_attest: cannot resolve actor for "${args.instance}" — register it first, or pass role and scope`
+      };
+    }
+    if (!(H2A_ROLES as readonly string[]).includes(role)) {
+      return { error: `h2a_nhi_attest: invalid role "${role}"` };
+    }
+    const { instances, subagents, keyEvents } = gatherNhiSnapshot(store);
+    const report = auditNhiPosture({
+      instances,
+      subagents,
+      keyEvents,
+      ...(typeof args.longLivedKeyMaxDays === "number"
+        ? { longLivedKeyMaxDays: args.longLivedKeyMaxDays }
+        : {})
+    });
+    const envelope = nhiAttestationEnvelope({
+      report,
+      actor: { instance: args.instance, role: role as H2ARole, scope }
+    });
+    const attestation = signEnvelope(envelope, {
+      by: args.instance,
+      privateKeyPem: args.privateKeyPem
+    });
+    return { attestation };
   } catch (err) {
     return safeError(err);
   }

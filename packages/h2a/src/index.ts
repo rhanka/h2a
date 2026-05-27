@@ -169,12 +169,16 @@ export type {
   H2AHostBridgeResourceLimitsClause
 } from "./h2a-bridge.js";
 export {
+  H2A_NHI_ATTESTATION_BODY_KIND,
   H2A_NHI_DEFAULT_LONG_LIVED_KEY_DAYS,
   H2A_NHI_RISK_IDS,
   auditNhiPosture,
+  nhiAttestationEnvelope,
   nhiKeyFingerprint
 } from "./nhi.js";
 export type {
+  H2ANhiAttestationActor,
+  H2ANhiAttestationBody,
   H2ANhiFinding,
   H2ANhiInstanceSnapshot,
   H2ANhiKeyEventSnapshot,

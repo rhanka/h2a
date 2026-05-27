@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import test from "node:test";
 
 import {
+  H2A_NHI_ATTESTATION_BODY_KIND,
   H2A_NHI_RISK_IDS,
   auditNhiPosture,
-  nhiKeyFingerprint
+  isH2AEnvelope,
+  nhiAttestationEnvelope,
+  nhiKeyFingerprint,
+  signEnvelope,
+  verifyEnvelopeSignature
 } from "../dist/index.js";
 
 function findingFor(report, risk) {
@@ -126,4 +132,38 @@ test("NHI7 is info (age not evaluated) when no keyring events supplied", () => {
   const f = findingFor(report, "NHI7");
   assert.equal(f.severity, "info");
   assert.match(f.detail, /not evaluated/);
+});
+
+test("nhiAttestationEnvelope builds an event envelope that verifies once signed", () => {
+  const report = auditNhiPosture({
+    now: "2026-05-27T00:00:00.000Z",
+    instances: [{ id: "claude:p1", activeKeys: ["K"] }]
+  });
+  const envelope = nhiAttestationEnvelope({
+    report,
+    actor: { instance: "claude:p1", role: "CONTROL", scope: "scope:audit" }
+  });
+  assert.ok(isH2AEnvelope(envelope));
+  assert.equal(envelope.type, "event");
+  assert.equal(envelope.actor.instance, "claude:p1");
+  assert.equal(envelope.body.kind, H2A_NHI_ATTESTATION_BODY_KIND);
+  assert.deepEqual(envelope.body.report, report);
+  assert.equal(envelope.createdAt, report.generatedAt);
+  assert.ok(envelope.id.startsWith("nhi-attest-"));
+  assert.equal(envelope.signatures, undefined);
+
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const privatePem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
+  const publicPem = publicKey.export({ format: "pem", type: "spki" }).toString();
+
+  const signed = signEnvelope(envelope, { by: "claude:p1", privateKeyPem: privatePem });
+  assert.equal(signed.signatures.length, 1);
+  assert.equal(verifyEnvelopeSignature(signed, publicPem, { by: "claude:p1" }), true);
+
+  // Tampering with the report breaks verification.
+  const tampered = {
+    ...signed,
+    body: { ...signed.body, report: { ...signed.body.report, summary: { ...signed.body.report.summary, instances: 99 } } }
+  };
+  assert.equal(verifyEnvelopeSignature(tampered, publicPem, { by: "claude:p1" }), false);
 });

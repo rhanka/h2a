@@ -12,5 +12,6 @@ export const H2A_CLI_MCP_TOOL_NAMES = [
   "h2a_session_open",
   "h2a_session_close",
   "h2a_discover_sessions",
-  "h2a_nhi_report"
+  "h2a_nhi_report",
+  "h2a_nhi_attest"
 ] as const;

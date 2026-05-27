@@ -280,5 +280,24 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         }
       }
     }
+  },
+  {
+    name: "h2a_nhi_attest",
+    description:
+      "Emit a signed attestation of the current NHI posture (DEC-087): an ed25519-signed `event` envelope whose body carries the posture report. Actor role/scope default to the instance's registration.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        instance: { type: "string" },
+        privateKeyPem: {
+          type: "string",
+          description: "ed25519 PKCS#8 PEM-encoded private key contents (NOT a file path)."
+        },
+        role: { type: "string", description: "Actor role; defaults to the instance's first registered role." },
+        scope: { type: "string", description: "Actor scope; defaults to the instance's first registered scope." },
+        longLivedKeyMaxDays: { type: "number" }
+      },
+      required: ["instance", "privateKeyPem"]
+    }
   }
 ];

@@ -7,6 +7,7 @@ import {
   handleDiscoverSessions,
   handleEscalate,
   handleInbox,
+  handleNhiAttest,
   handleNhiReport,
   handleOffer,
   handleOpenNegotiation,
@@ -123,6 +124,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleDiscoverSessions(sessions, args as never);
       case "h2a_nhi_report":
         return handleNhiReport(store, args as never);
+      case "h2a_nhi_attest":
+        return handleNhiAttest(store, args as never);
       default:
         return { error: `unknown tool: ${name}` };
     }

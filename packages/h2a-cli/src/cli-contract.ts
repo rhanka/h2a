@@ -452,6 +452,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Derive a Non-Human-Identity posture (OWASP NHI Top 10 / NIST CSF) from the registry: per-risk findings (NHI1 offboarding, NHI4 auth, NHI5 over-privilege, NHI7 long-lived keys, NHI9 reuse) + a summary. Read-only. DEC-087."
   },
   {
+    verb: "nhi attest",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["instance", "private-key"],
+    optionalFlags: ["root", "role", "scope"],
+    description:
+      "Emit a signed attestation of the current NHI posture: an ed25519-signed `event` envelope (DEC-073) whose body carries the posture report. No new artifact kind. Actor role/scope default to the instance's registration. DEC-087."
+  },
+  {
     verb: "install-skills",
     outputShape: "action",
     exitCodes: [0, 1, 2, 3],

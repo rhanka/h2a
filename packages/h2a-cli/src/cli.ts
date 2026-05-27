@@ -55,10 +55,14 @@ import { fileURLToPath } from "node:url";
 import {
   computeHash,
   signCanonical,
+  signEnvelope,
   subagentAddress,
   auditNhiPosture,
+  nhiAttestationEnvelope,
+  H2A_ROLES,
   H2A_WORK_STATUSES
 } from "@sentropic/h2a";
+import type { H2ARole } from "@sentropic/h2a";
 
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
@@ -190,6 +194,7 @@ export function renderCliHelp(): string {
     "  h2a keys list --instance <id> [--root <path>]",
     "  h2a keys revoke --instance <id> --public-key <pem-file> [--root <path>]",
     "  h2a nhi report [--long-lived-days <n>] [--root <path>]",
+    "  h2a nhi attest --instance <id> --private-key <pem-file> [--role <role>] [--scope <scope>] [--root <path>]",
     "  h2a install-skills --host claude [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
@@ -975,7 +980,50 @@ function cmdNhi(argv: readonly string[], streams: H2ACliStreams): number {
     return 0;
   }
 
-  streams.stderr.write(`h2a nhi: unknown subcommand "${sub ?? ""}" (report)\n`);
+  if (sub === "attest") {
+    if (!flags.instance || !flags["private-key"]) {
+      streams.stderr.write(
+        "h2a nhi attest: --instance <id> and --private-key <pem-file> are required\n"
+      );
+      return 1;
+    }
+    let privateKeyPem: string;
+    try {
+      privateKeyPem = readFileSync(flags["private-key"], "utf8");
+    } catch (error) {
+      streams.stderr.write(
+        `h2a nhi attest: cannot read --private-key (${(error as Error).message})\n`
+      );
+      return 1;
+    }
+    const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+    const registration = store.findInstance(flags.instance);
+    const role = flags.role ?? registration?.roles?.[0];
+    const scope = flags.scope ?? registration?.scopes?.[0];
+    if (!role || !scope) {
+      streams.stderr.write(
+        `h2a nhi attest: cannot resolve actor for "${flags.instance}" — register it first, or pass --role and --scope\n`
+      );
+      return 2;
+    }
+    if (!(H2A_ROLES as readonly string[]).includes(role)) {
+      streams.stderr.write(
+        `h2a nhi attest: --role must be one of ${H2A_ROLES.join("|")} (got "${role}")\n`
+      );
+      return 1;
+    }
+    const { instances, subagents, keyEvents } = gatherNhiSnapshot(store);
+    const report = auditNhiPosture({ instances, subagents, keyEvents });
+    const envelope = nhiAttestationEnvelope({
+      report,
+      actor: { instance: flags.instance, role: role as H2ARole, scope }
+    });
+    const signed = signEnvelope(envelope, { by: flags.instance, privateKeyPem });
+    streams.stdout.write(`${JSON.stringify(signed, null, 2)}\n`);
+    return 0;
+  }
+
+  streams.stderr.write(`h2a nhi: unknown subcommand "${sub ?? ""}" (report, attest)\n`);
   return 1;
 }
 

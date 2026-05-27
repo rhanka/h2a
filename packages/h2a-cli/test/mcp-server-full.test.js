@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { verifyEnvelopeSignature } from "@sentropic/h2a";
+
 import { createMcpServer } from "../dist/index.js";
 
 function freshRoot() {
@@ -89,6 +91,45 @@ test("h2a_nhi_report derives a posture and flags key reuse (NHI9)", () => {
 
     const nhi4 = report.findings.find((f) => f.risk === "NHI4");
     assert.equal(nhi4.severity, "info"); // both instances have a key
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("h2a_nhi_attest signs the posture into a verifiable attestation envelope", () => {
+  const root = freshRoot();
+  try {
+    const server = createMcpServer({ root });
+    const { privatePem, publicPem } = newKeyPair();
+    server.callTool("h2a_register_instance", {
+      registration: registration("conductor:01", publicPem)
+    });
+
+    const result = server.callTool("h2a_nhi_attest", {
+      instance: "conductor:01",
+      privateKeyPem: privatePem
+    });
+    assert.equal(result.error, undefined);
+    const env = result.attestation;
+    assert.equal(env.type, "event");
+    assert.equal(env.actor.instance, "conductor:01");
+    assert.equal(env.body.kind, "nhi-attestation");
+    assert.ok(env.body.report.findings.length === 5);
+    assert.equal(env.signatures.length, 1);
+
+    // Verifiable against the registered public key via the standard primitive.
+    assert.equal(verifyEnvelopeSignature(env, publicPem, { by: "conductor:01" }), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("h2a_nhi_attest: missing key returns a structured error", () => {
+  const root = freshRoot();
+  try {
+    const server = createMcpServer({ root });
+    const result = server.callTool("h2a_nhi_attest", { instance: "x" });
+    assert.match(result.error ?? "", /missing 'privateKeyPem'/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
