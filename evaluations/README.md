@@ -27,6 +27,7 @@ Not organizational topologies — they test `h2a` against external standards/fra
 | Topic | Scope | File |
 |---|---|---|
 | SysML v2 (OMG) | metamodel mapping · SE use-case · API & Services interop · formalizing h2a in SysML/KerML | [sysml-v2.md](./sysml-v2.md) |
+| Non-Human Identity | h2a ↔ OWASP NHI Top 10 (2025) coverage + NIST SP 800-207 / CSF 2.0 alignment | [nhi.md](./nhi.md) |
 
 ## Machine-readable source
 

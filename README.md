@@ -219,6 +219,15 @@ Plus a **push notification channel** (`notifications/h2a`) on 4 topics (DEC-052)
 
 ---
 
+## Organizational & standards evaluations
+
+The model is stress-tested against real organizational settings and external standards in the [`evaluations/`](./evaluations/README.md) library — each a self-contained use-case with a Mermaid diagram, a concept-mapping table, gaps and a compatibility hypothesis, and each slated for independent multi-agent (triple) review (see [`evaluations/BACKLOG.md`](./evaluations/BACKLOG.md)):
+
+- **Org topologies**: [enterprise](./evaluations/a-enterprise.md) · [multi-org ecosystem](./evaluations/b-ecosystem.md) · [government/citizen](./evaluations/c-government-citizen.md) · [1 principal / 15 conductors](./evaluations/d-principal-15-conductors.md) · [agentic-delivery squad](./evaluations/e-agentic-squad.md) (the last is also the executable `D_SAFE` profile).
+- **Standards / interop**: [SysML v2](./evaluations/sysml-v2.md) (OMG metamodel + API & Services) · [Non-Human Identity](./evaluations/nhi.md) (OWASP NHI Top 10 2025 coverage + NIST SP 800-207 / CSF 2.0 alignment).
+
+---
+
 ## Reference documents
 
 | Document | Role |

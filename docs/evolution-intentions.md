@@ -70,7 +70,7 @@
 
 **Why/source**: user — "relativement à la gestion des identités NHI, il faudra mettre dans le backlog le support de la norme NIST associée, si elle est déjà sortie ou quelque chose d'équivalent."
 
-**Open framing**: identify the applicable NIST publication (or equivalent industry guidance) for NHI/machine identities; map it to h2a's identity model (instances, ed25519 keys, keyring/rotation DEC-078/079, mandates). **To verify**: which NIST doc applies (research needed).
+**Researched (2026-05-27)**: no dedicated NIST NHI standard exists — **NIST SP 800-207** flags NPE/NHI as an open ZTA gap, **NIST CSF 2.0** (govern) is the framing; the concrete de-facto standard is the **OWASP Non-Human Identities Top 10 (2025)** (+ CSA). h2a already covers several risks (NHI4 auth, NHI5 least-privilege, NHI7 rotation, NHI1 offboarding). **Evaluation written**: [`evaluations/nhi.md`](../evaluations/nhi.md) (pending triple-review, BACKLOG #9). Status: **researched + evaluation drafted**; build of any new control work TBD from the eval's gaps (secrets/SCA out of scope; discovery/inventory partial).
 
 ---
 
