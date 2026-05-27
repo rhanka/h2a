@@ -38,6 +38,7 @@ export interface LocalStorePaths {
   inbox: string;
   outbox: string;
   presence: string;
+  drumbeat: string;
 }
 
 export function localStorePaths(root: string): LocalStorePaths {
@@ -55,7 +56,8 @@ export function localStorePaths(root: string): LocalStorePaths {
     negotiations: join(root, "negotiations"),
     inbox: join(root, "inbox"),
     outbox: join(root, "outbox"),
-    presence: join(root, "presence")
+    presence: join(root, "presence"),
+    drumbeat: join(root, "drumbeat")
   };
 }
 

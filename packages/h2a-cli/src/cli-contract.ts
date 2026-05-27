@@ -320,6 +320,44 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Sign an envelope (`--json`) with `--private-key` as `--instance` and POST it to `--url`. Prints `{ status, body }`; exit 0 on a 2xx response, 1 otherwise. DEC-077."
   },
 
+  // --- drumbeat (DEC-086, anti-stall relance) ---
+  {
+    verb: "drumbeat record",
+    outputShape: "action",
+    exitCodes: [0, 1],
+    requiredFlags: ["instance", "status"],
+    optionalFlags: ["root", "command", "resume-command", "cwd", "tty", "tmux-session", "tmux-pane", "tmux-window"],
+    description:
+      "Record (durably) that an agent stopped, with its work status and launch context, in `<root>/.h2a/drumbeat/`. Survives the presence sweep so a stopped agent can be relanced. Called by the host plugin on exit. DEC-086."
+  },
+  {
+    verb: "drumbeat scan",
+    outputShape: "resource",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["root", "max-relances"],
+    description:
+      "List stalled agents from the drumbeat registry: `findings` (relance candidates) and `exhausted` (hit the relance cap → escalate). `done` entries are skipped. DEC-086."
+  },
+  {
+    verb: "drumbeat clear",
+    outputShape: "action",
+    exitCodes: [0, 1],
+    requiredFlags: ["instance"],
+    optionalFlags: ["root"],
+    description:
+      "Remove a drumbeat registry entry — call when an agent is cleanly resumed or finished. DEC-086."
+  },
+  {
+    verb: "drumbeat watch",
+    outputShape: "stream",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["root", "interval-ms", "max-relances"],
+    description:
+      "Run the anti-stall daemon (long-running): each beat scans the registry and relances stalled agents via the relauncher adapter (logging adapter for now; local-tmux/remote land in D3/D4). The external `/loop` codex/agy/gemini lack. DEC-086."
+  },
+
   // --- host wiring ---
   {
     verb: "host setup",

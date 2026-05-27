@@ -52,7 +52,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { computeHash, signCanonical, subagentAddress } from "@sentropic/h2a";
+import { computeHash, signCanonical, subagentAddress, H2A_WORK_STATUSES } from "@sentropic/h2a";
 
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
@@ -68,6 +68,13 @@ import { runMcpStdio } from "./runtime/mcp/index.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
+import {
+  recordStop,
+  scanDrumbeat,
+  clearDrumbeatEntry,
+  runDrumbeatWatch as runDrumbeatWatchLoop,
+  loggingRelauncher
+} from "./runtime/drumbeat/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -159,6 +166,10 @@ export function renderCliHelp(): string {
     "  h2a mcp-serve [--root <path>]",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
+    "  h2a drumbeat record --instance <id> --status <working|paused|done|blocked|out-of-tokens> [--command <c>] [--resume-command <c>] [--tmux-session <s> --tmux-pane <p>] [--root <path>]",
+    "  h2a drumbeat scan [--max-relances <n>] [--root <path>]",
+    "  h2a drumbeat clear --instance <id> [--root <path>]",
+    "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
@@ -863,6 +874,99 @@ export async function runRemoteSend(
   }
   streams.stdout.write(`${JSON.stringify({ status: result.status, body: result.body }, null, 2)}\n`);
   return result.status >= 200 && result.status < 300 ? 0 : 1;
+}
+
+function cmdDrumbeat(argv: readonly string[], streams: H2ACliStreams): number {
+  // DEC-086 (D2): durable anti-stall registry — record stops, scan candidates,
+  // clear. The long-running `watch` daemon is async (dispatched from bin.ts).
+  const { command: sub, flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+
+  if (sub === "record") {
+    if (!flags.instance || !flags.status) {
+      streams.stderr.write("h2a drumbeat record: --instance <id> and --status <work-status> are required\n");
+      return 1;
+    }
+    if (!(H2A_WORK_STATUSES as readonly string[]).includes(flags.status)) {
+      streams.stderr.write(
+        `h2a drumbeat record: --status must be one of ${H2A_WORK_STATUSES.join("|")} (got "${flags.status}")\n`
+      );
+      return 1;
+    }
+    const launchContext = flags.command
+      ? {
+          cwd: flags.cwd ?? cwd(),
+          command: flags.command,
+          ...(flags["resume-command"] ? { resumeCommand: flags["resume-command"] } : {}),
+          ...(flags.tty ? { tty: flags.tty } : {}),
+          ...(flags["tmux-session"] && flags["tmux-pane"]
+            ? { tmux: { session: flags["tmux-session"], pane: flags["tmux-pane"], ...(flags["tmux-window"] ? { window: flags["tmux-window"] } : {}) } }
+            : {})
+        }
+      : undefined;
+    const entry = recordStop(root, {
+      instance: flags.instance,
+      workStatus: flags.status as (typeof H2A_WORK_STATUSES)[number],
+      ...(launchContext ? { launchContext } : {})
+    });
+    streams.stdout.write(`${JSON.stringify({ ok: true, instance: entry.instance, workStatus: entry.workStatus }, null, 2)}\n`);
+    return 0;
+  }
+
+  if (sub === "scan") {
+    const maxRelances = flags["max-relances"] ? Number.parseInt(flags["max-relances"], 10) : undefined;
+    const result = scanDrumbeat(root, maxRelances !== undefined ? { maxRelances } : {});
+    streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  }
+
+  if (sub === "clear") {
+    if (!flags.instance) {
+      streams.stderr.write("h2a drumbeat clear: --instance <id> is required\n");
+      return 1;
+    }
+    clearDrumbeatEntry(root, flags.instance);
+    streams.stdout.write(`${JSON.stringify({ ok: true, instance: flags.instance, cleared: true }, null, 2)}\n`);
+    return 0;
+  }
+
+  streams.stderr.write("h2a drumbeat: subcommand required (record, scan, clear, watch)\n");
+  return 1;
+}
+
+/**
+ * `h2a drumbeat watch` (DEC-086): long-running anti-stall daemon. Async +
+ * blocking, dispatched from bin.ts like mcp-serve. Uses the logging relauncher
+ * by default; concrete relaunchers (local-tmux / remote) land in D3/D4.
+ */
+export async function runDrumbeatWatch(
+  flags: Record<string, string>,
+  io: { stdout: NodeJS.WritableStream; stderr: NodeJS.WritableStream; cwd?: () => string; signal?: AbortSignal } = {
+    stdout: process.stdout,
+    stderr: process.stderr
+  }
+): Promise<number> {
+  const cwd = io.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const intervalMs = flags["interval-ms"] ? Number.parseInt(flags["interval-ms"], 10) : 30_000;
+  const maxRelances = flags["max-relances"] ? Number.parseInt(flags["max-relances"], 10) : undefined;
+  if (!Number.isInteger(intervalMs) || intervalMs < 1000) {
+    io.stderr.write(`h2a drumbeat watch: --interval-ms must be >= 1000 (got "${flags["interval-ms"]}")\n`);
+    return 1;
+  }
+  io.stdout.write(`h2a drumbeat watch: watching ${root} every ${intervalMs}ms (logging relauncher; real relaunch = D3)\n`);
+  await runDrumbeatWatchLoop(root, loggingRelauncher((line) => io.stdout.write(`${line}\n`)), {
+    intervalMs,
+    ...(maxRelances !== undefined ? { maxRelances } : {}),
+    signal: io.signal,
+    onTick: (r) => {
+      if (r.relanced.length || r.exhausted.length) {
+        io.stdout.write(`drumbeat tick: relanced=[${r.relanced.join(",")}] exhausted=[${r.exhausted.join(",")}]\n`);
+      }
+    }
+  });
+  return 0;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -1891,6 +1995,14 @@ export function runCli(
   if (command === "register") return cmdRegister(flags, streams);
   if (command === "discover") return cmdDiscover(flags, streams);
   if (command === "subagent") return cmdSubagent(argv.slice(1), streams);
+  if (command === "drumbeat") {
+    const sub = argv[1];
+    if (sub === "watch") {
+      streams.stderr.write("h2a drumbeat watch: async daemon — run via the h2a binary, not the synchronous API.\n");
+      return 1;
+    }
+    return cmdDrumbeat(argv.slice(1), streams);
+  }
   if (command === "negotiate") return cmdNegotiate(argv.slice(1), streams);
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);

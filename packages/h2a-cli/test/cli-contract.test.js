@@ -528,6 +528,12 @@ function buildHappyArgv(verb, ctx) {
     case "remote send":
       // Needs a live HTTP server + signer key; covered by remote-cli.test.js.
       return null;
+    case "drumbeat record":
+      return ["drumbeat", "record", "--root", root, "--instance", "agent-001", "--status", "out-of-tokens"];
+    case "drumbeat scan":
+      return ["drumbeat", "scan", "--root", root];
+    case "drumbeat clear":
+      return ["drumbeat", "clear", "--root", root, "--instance", "agent-001"];
     case "subagent audit":
       return ["subagent", "audit", "--root", root, "--parent", "agent-001"];
     case "subagent revoke":
@@ -572,6 +578,10 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "mcp-serve",
     "remote serve",
     "remote send",
+    "drumbeat record",
+    "drumbeat scan",
+    "drumbeat clear",
+    "drumbeat watch",
     "host setup",
     "host status",
     "store migrate",

@@ -48,7 +48,7 @@ flowchart TD
 | Slice | Deliverable | Layer |
 |---|---|---|
 | **D1** | ✅ **done (DEC-085, 0.4.0)** — presence `workStatus` + `launchContext` fields + pure `inferStall` (core) + `updatePresence` patch (cli) | core + cli store |
-| **D2** | `h2a drumbeat watch` daemon — dumb anchor: detect stall → trigger relance via an adapter interface | cli runtime |
+| **D2** | ✅ **done (DEC-086, 0.5.0)** — durable registry (`recordStop`/`listDrumbeat`/`clear`/`markRelanced`) + `scanDrumbeat` + `drumbeatTick`/`runDrumbeatWatch` + `H2ARelauncher` adapter interface + `h2a drumbeat record/scan/clear/watch` | cli runtime |
 | **D3** | **local-tmux adapter** (respawn/send-keys in captured pane) + headless fallback | cli runtime |
 | **D4** | **remote adapter** (relance via `@sentropic/remote`) | cli runtime + bridge |
 | **D5** | reflexive watchdog SUBAGENT (decide relance/finish/escalate/re-route) | skill/subagent |

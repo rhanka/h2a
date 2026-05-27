@@ -105,6 +105,26 @@ export {
 } from "./runtime/deploy/k8s-tenant.js";
 
 export {
+  recordStop,
+  readDrumbeatEntry,
+  listDrumbeat,
+  clearDrumbeatEntry,
+  markRelanced,
+  scanDrumbeat,
+  drumbeatTick,
+  runDrumbeatWatch,
+  loggingRelauncher,
+  H2A_DEFAULT_MAX_RELANCES,
+  type H2ADrumbeatEntry,
+  type H2ADrumbeatFinding,
+  type H2ADrumbeatReason,
+  type H2ADrumbeatScanResult,
+  type H2ARelauncher,
+  type DrumbeatTickResult,
+  type DrumbeatWatchOptions
+} from "./runtime/drumbeat/index.js";
+
+export {
   acceptRemoteEnvelope,
   createRemoteServer,
   rejectionStatus,

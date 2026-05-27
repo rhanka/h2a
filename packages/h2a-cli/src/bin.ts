@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { runCli, runMcpServe, runRemoteSend, runRemoteServe } from "./cli.js";
+import { runCli, runMcpServe, runRemoteSend, runRemoteServe, runDrumbeatWatch } from "./cli.js";
 
 const argv = process.argv.slice(2);
 
@@ -42,6 +42,8 @@ if (argv[0] === "mcp-serve") {
   runAsync("remote serve", runRemoteServe(parseFlagsFrom(2)));
 } else if (argv[0] === "remote" && argv[1] === "send") {
   runAsync("remote send", runRemoteSend(parseFlagsFrom(2)));
+} else if (argv[0] === "drumbeat" && argv[1] === "watch") {
+  runAsync("drumbeat watch", runDrumbeatWatch(parseFlagsFrom(2)));
 } else {
   process.exitCode = runCli(argv);
 }
