@@ -4,12 +4,14 @@
 
 | ID | Intention | Spec session? | Status |
 |---|---|---|---|
-| EVO-0 | `agy` host parity | yes (with EVO-1) | intention |
-| EVO-1 | Plugin bilateral-discussion & relance capability (per platform) | yes | intention |
-| EVO-2 | Drumbeat = engagement **tracking** (reframe) | yes | intention (supersedes DEC-083 framing) |
-| EVO-3 | Agent-blockage **feedback loop** (cross-agent notification) | yes | intention |
+| EVO-0 | `agy` host parity | Séance 1 done | **framed** — agy via plugin-import + CLI (no MCP); MCP-only-feature gap is an open decision |
+| EVO-1 | Plugin bilateral-discussion & relance capability (per platform) | Séance 1 done | **framed** — feasible on all 4 (headless + resume/continue) |
+| EVO-2 | Drumbeat = engagement **tracking** (reframe) | yes (Séance 2) | intention (supersedes DEC-083 framing) |
+| EVO-3 | Agent-blockage **feedback loop** (cross-agent notification) | Séance 1 (partial) | framed — agy is the gap (no daemon); others have daemon/hooks |
 | EVO-4 | Decision support / situation presentation | yes (largest) | intention |
-| EVO-5 | NHI (Non-Human Identity) — NIST standard support | yes | intention → backlog |
+| EVO-5 | NHI (Non-Human Identity) — NIST standard support | yes (research first) | intention → backlog |
+
+> **Spec session 1 output**: [`docs/plugin-capability-matrix.md`](./plugin-capability-matrix.md) — factual CLI audit + capability matrix + per-intention implications.
 
 ---
 
