@@ -63,6 +63,21 @@ Each follows the library structure (diagram, mapping, contracts vs policies, gap
 - Recurring-obligation cadence (DEC-047) for surveillance audits / continuous monitoring.
 - Nearest built-in profile (likely `A_ENTERPRISE`) + the certification delta.
 
+## Backlog C — NHI solutions landscape (veille, **preliminary to P3**)
+
+> **Gate**: NHI **P3 (interop connectors)** is deliberately **parked** until this landscape is done (DEC-090 left P3 open). P3's target (which external NHI/IAM system to export posture/attestation to) and its build location (`@sentropic/h2a` vs `../sentropic/` connectors) are decisions this veille must inform — we do not pick a connector target before surveying the field.
+
+| # | Artifact | Type | Angle | File (planned) | Reviews |
+|---|---|---|---|---|---|
+| C1 | **NHI solutions landscape** | veille / market survey | Survey the Non-Human-Identity security field (~2025-2026): commercial vendors, OSS, and standards. For each: identity model, lifecycle coverage (discovery/inventory · auth · rotation · offboarding), integration/API surface, and **fit as an h2a P3 interop target**. Conclude with a shortlist of candidate interop targets + the export shape h2a would need (posture report / signed attestation envelope, DEC-087/088). | `evaluations/nhi-landscape.md` | ☐☐☐ (triple-review after draft) |
+
+**Scope checklist for C1** (the landscape must cover, factually + sourced):
+- **Standards / frameworks**: OWASP NHI Top 10, CSA, NIST (SP 800-207 NPE, CSF 2.0), **SPIFFE/SPIRE** (workload identity), IETF WIMSE.
+- **Commercial NHI platforms**: the discovery/governance vendors (e.g. Astrix, Entro, Oasis, Token Security, Clutch, Natoma, Aembit, GitGuardian NHI, Andromeda/SailPoint-adjacent) — capabilities, not marketing.
+- **Adjacent**: secrets managers (HashiCorp Vault, cloud KMS), CIEM/CSPM, IdP service-account governance.
+- **Per item**: what it is · identity & lifecycle model · API/integration surface · **how h2a posture/attestation could feed it (or vice-versa)** · maturity/caveats.
+- **Output discipline**: cite sources (URLs); state only what is sourced; flag uncertainty explicitly (no vendor claim asserted without a citation). Status header: `draft, pending triple-review`.
+
 ## How to run a review (once the mechanism is chosen)
 
 1. Pick an item from Backlog A or author one from Backlog B.
