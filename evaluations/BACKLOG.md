@@ -42,7 +42,7 @@ Each artifact gets **three independent reviews**, then a consolidation:
 | 6 | `sysml-v2.md` | ☐ | ☐ | ☐ | ☐ |
 | 7 | Skills — `skills/h2a/SKILL.md` | ☐ | ☐ | ☐ | ☐ |
 | 8 | Foundations — `VOCABULARY.md` + `SPEC.md` | ☐ | ☐ | ☐ | ☐ |
-| 9 | `nhi.md` (NHI / OWASP Top 10) | ☐ | ☐ | ☐ | ☐ |
+| 9 | `nhi.md` (NHI / OWASP Top 10) | ✅ | ✅ | ✅ | ✅ [consolidated](./reviews/nhi.consolidated.md) |
 
 ## Backlog B — new evaluations to author (then triple-review each)
 

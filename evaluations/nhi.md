@@ -2,13 +2,13 @@
 
 > A *complementary* evaluation (not an org track A-E): how `h2a` maps onto **Non-Human Identity (NHI)** security guidance. [← library](./README.md) · **Status: draft, pending triple-review** (see [BACKLOG](./BACKLOG.md)).
 
-Agents, service accounts, API keys and workloads now outnumber human identities ~100:1. **Non-Human Identity (NHI)** security is the discipline of authenticating, scoping, rotating and offboarding these machine identities. h2a coordinates **AI-agent** instances — themselves NHIs — so it sits squarely in this space.
+Agents, service accounts, API keys and workloads now outnumber human identities (figures cited range from ~10:1 to ~100:1). **Non-Human Identity (NHI)** security is the discipline of authenticating, scoping, rotating and offboarding these machine identities. h2a coordinates **AI-agent** instances — themselves NHIs — so it sits squarely in this space.
 
 ## The standards landscape (what to align with)
 
-- **No dedicated NIST NHI standard exists** (as of 2026-05). **NIST SP 800-207** (Zero Trust Architecture) explicitly flags **Non-Person Entities (NPE) / NHI** — service accounts, AI agents, API keys, OAuth apps — as an **open challenge**: authenticating, managing and auditing them in a ZTA is unsolved at the spec level.
+- **No dedicated NIST NHI standard exists** (as of 2026-05). **NIST SP 800-207** (Zero Trust Architecture) discusses **Non-Person Entities (NPE)** and notes their authentication/audit as a concern in a ZTA, leaving NPE governance largely to the implementation — it is not a prescriptive NHI spec.
 - **NIST CSF 2.0** (govern · identify · protect · detect · respond · recover) is the framework an NHI strategy maps to; the new **govern** function is where NHI ownership/accountability lives.
-- The concrete, actionable de-facto standard is the **OWASP Non-Human Identities Top 10 (2025)** (relayed/standardized by the Cloud Security Alliance). It ranks the ten most critical NHI risks by exploitability/prevalence/impact.
+- The concrete, actionable de-facto standard is the **OWASP Non-Human Identities Top 10 (2025)** (endorsed by the Cloud Security Alliance). It ranks the ten most critical NHI risks by exploitability/prevalence/impact.
 
 ⇒ h2a aligns with **NIST SP 800-207 / CSF 2.0** at the framing level and maps concretely against the **OWASP NHI Top 10**.
 
@@ -17,9 +17,9 @@ Agents, service accounts, API keys and workloads now outnumber human identities 
 ```mermaid
 flowchart LR
   subgraph H2A["h2a mechanisms"]
-    A[ed25519 signed envelopes<br/>verify-on-receipt]
-    B[mandate {instance,role,scope,rights}<br/>+ subagent caps ⊆ parent]
-    C[key rotation add/list/revoke]
+    A["ed25519 signed envelopes<br/>verify-on-receipt"]
+    B["MANDATE {instance,role,scope,rights}<br/>+ subagent caps ⊆ parent"]
+    C["key rotation add/list/revoke"]
     D[subagent + key revocation]
     E[scopes · K8s tenant · disclosure]
   end
@@ -30,7 +30,11 @@ flowchart LR
   E --> NHI8[NHI8 Env Isolation]
 ```
 
+*(The diagram shows representative mechanisms → risk clusters, not all ten risks.)*
+
 ## OWASP NHI Top 10 (2025) — h2a coverage
+
+**Coverage legend** — h2a is a **coordination protocol**, so it provides *primitives*, not end-to-end enforcement: **✅** = strong primitive (full prevention still depends on key custody / IAM / deployment outside h2a) · **~** = partial · **✕** = out of scope.
 
 | # | OWASP NHI risk | h2a relevance | Coverage |
 |---|---|---|---|
@@ -54,10 +58,10 @@ flowchart LR
 
 ## Compatibility hypothesis
 
-h2a is **strong on the identity-and-authority axes** the OWASP NHI Top 10 emphasizes — authentication (NHI4), least privilege (NHI5), rotation (NHI7), offboarding (NHI1), reuse (NHI9) — because those are exactly its primitives (ed25519 signatures, mandates, keyring, subagent/key revocation). It is **partial on deployment/isolation** (NHI6/8) and **deliberately out of scope on secrets-management/SCA** (NHI2/3). So h2a is best positioned as the **agent-identity governance layer** within an NHI program, aligned with NIST SP 800-207 / CSF 2.0, **not** as a secrets vault or NHI-inventory platform. No new role or artifact is required to claim this coverage.
+h2a offers **strong primitives on the core identity-and-authority axes** the OWASP NHI Top 10 emphasizes — authentication (NHI4), least privilege (NHI5), rotation (NHI7) — because those are exactly what it implements (ed25519 signatures, mandates, keyring). It is **partial** on offboarding (NHI1), reuse (NHI9) and deployment/isolation (NHI6/8) — it gives the revocation/distinct-identity/secure-default mechanisms but not their org-wide enforcement — and **deliberately out of scope** on secrets-management/SCA (NHI2/3). So h2a is best positioned as the **protocol-level agent-identity coordination & provenance layer** within an NHI program, aligned with NIST SP 800-207 / CSF 2.0, **not** as a secrets vault, IAM, or NHI-inventory platform. No new role or artifact is required to claim this coverage.
 
 ## References
 
-- OWASP **Non-Human Identities Top 10 (2025)** — [owasp.org/www-project-non-human-identities-top-10](https://owasp.org/www-project-non-human-identities-top-10/2025/) (CSA endorsement: [cloudsecurityalliance.org](https://cloudsecurityalliance.org/blog/2025/06/30/introducing-the-owasp-nhi-top-10-standardizing-non-human-identity-security)).
+- OWASP **Non-Human Identities Top 10 (2025)** — [owasp.org/www-project-non-human-identities-top-10](https://owasp.org/www-project-non-human-identities-top-10/) (endorsed by the CSA: [cloudsecurityalliance.org](https://cloudsecurityalliance.org/blog/2025/06/30/introducing-the-owasp-nhi-top-10-standardizing-non-human-identity-security)).
 - NIST **SP 800-207** *Zero Trust Architecture* — flags NPE/NHI as an open challenge.
 - NIST **Cybersecurity Framework 2.0** — govern/identify/protect/detect/respond/recover.
