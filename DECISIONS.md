@@ -1649,3 +1649,18 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) decommissioning an NHI spans keys + subagents — doing it in one verb closes the NHI1 gap the report flags, instead of leaving the operator to revoke piecemeal; (b) reusing the validated `revokeInstanceKey`/`revokeSubagent` (append-only) means the revocations keep their existing audit trail and the offboard adds only a single "offboarded at T" mark for the auditor; (c) idempotency makes the verb safe to retry after a partial failure (each step is individually committed); (d) sequencing individually-locked ops avoids a non-reentrant nested-lock deadlock; (e) being explicit that sessions are out of scope keeps the claim honest — presence is ephemeral, not a durable identity register.
 
 **Consequence**: (a) the store gains `offboardInstance` + `listOffboards` + the `H2AOffboardTombstone` type; `LocalStorePaths` gains `offboard`; (b) `h2a nhi offboard` + `h2a_nhi_offboard` are live and contract-tested (revocation effects in the posture + idempotency + unregistered → exit 2); (c) **additive public surface → minor bump `0.8.0`**; (d) **P1 (posture · attestation · offboard) is complete**; next is **P2** (`nhi inventory` — reuse/TTL across the estate) then **P3** (interop connectors), per `evaluations/nhi.md`.
+
+## DEC-090 — NHI P2: estate inventory (`h2a nhi inventory`)
+**Date**: 2026-05-27. **Refers**: DEC-078, DEC-087, DEC-089. **Line**: V2 (0.9.x).
+
+**Context**: P1's `report` answers "what risks?"; an operator planning rotations and hunting reused credentials also needs "what *exists*?" — a per-identity view of the whole NHI estate. P2 adds that inventory, reusing the same snapshot the posture already gathers.
+
+**Decision**: a pure `nhiInventory(input) → inventory` in core + one read-only verb/tool.
+
+- **Core**: for each instance, list its active keys — `{fingerprint, addedAt?, ageDays?, longLived, sharedWith[]}` (age from keyring `added` events; `sharedWith` = other instances holding the same active key = reuse) — its subagents `{id, status, capabilities[], bounded}`, and its offboard state `{offboarded, offboardedAt?, offboardReason?}` from the tombstones. Plus estate `totals` (instances, offboarded, activeKeys, reusedKeys, longLivedKeys, subagents, activeSubagents). Keys appear only as `nhiKeyFingerprint`, never the PEM.
+- **Snapshot**: `gatherNhiSnapshot` now also returns the offboard tombstones (`store.listOffboards`), so inventory can mark decommissioned identities; the posture path ignores the extra field.
+- **CLI**: `h2a nhi inventory [--long-lived-days <n>] [--root <path>]` → `resource`. **MCP**: `h2a_nhi_inventory` mirrors it.
+
+**Why**: (a) inventory and posture answer different questions (estate view vs risk findings) but share the exact same registry snapshot — reusing `gatherNhiSnapshot` keeps them consistent and cheap; (b) surfacing per-key age + `sharedWith` is the actionable substrate for rotation planning and reuse remediation (the P2 goal), without a new data source; (c) folding offboard tombstones into the snapshot lets the estate view distinguish live from decommissioned identities; (d) fingerprint-only output keeps the inventory safe to share.
+
+**Consequence**: (a) `@sentropic/h2a` exports `nhiInventory` + the `H2ANhiInventory*` / `H2ANhiOffboardSnapshot` types; `gatherNhiSnapshot` gains `offboards`; (b) `h2a nhi inventory` + `h2a_nhi_inventory` are live and contract-tested; (c) **additive public surface → minor bump `0.9.0`**; (d) **P3** (interop connectors — export posture/attestation to external NHI/IAM tooling) is the remaining NHI palier; it is the candidate to live under `../sentropic/` connectors with the core staying in h2a.

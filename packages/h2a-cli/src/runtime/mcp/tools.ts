@@ -282,6 +282,20 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
     }
   },
   {
+    name: "h2a_nhi_inventory",
+    description:
+      "Per-identity inventory of the NHI estate (DEC-090): each instance with its active keys (fingerprint, age, long-lived flag, reuse), subagents (status, capability bound) and offboard state, plus estate totals. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        longLivedKeyMaxDays: {
+          type: "number",
+          description: "Keys older than this many days are flagged long-lived. Default 90."
+        }
+      }
+    }
+  },
+  {
     name: "h2a_nhi_attest",
     description:
       "Emit a signed attestation of the current NHI posture (DEC-087): an ed25519-signed `event` envelope whose body carries the posture report. Actor role/scope default to the instance's registration.",

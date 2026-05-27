@@ -5,6 +5,7 @@ import {
   auditNhiPosture,
   computeHash,
   nhiAttestationEnvelope,
+  nhiInventory,
   signCanonical,
   signEnvelope,
   type H2AActorRegistration,
@@ -487,6 +488,28 @@ export function handleNhiReport(
         : {})
     });
     return { report };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+// DEC-090 (P2): per-identity inventory of the estate. Same snapshot gatherer.
+export function handleNhiInventory(
+  store: LocalStore,
+  args: { longLivedKeyMaxDays?: number } | undefined
+): McpToolResult | McpErrorResult {
+  try {
+    const { instances, subagents, keyEvents, offboards } = gatherNhiSnapshot(store);
+    const inventory = nhiInventory({
+      instances,
+      subagents,
+      keyEvents,
+      offboards,
+      ...(typeof args?.longLivedKeyMaxDays === "number"
+        ? { longLivedKeyMaxDays: args.longLivedKeyMaxDays }
+        : {})
+    });
+    return { inventory };
   } catch (err) {
     return safeError(err);
   }

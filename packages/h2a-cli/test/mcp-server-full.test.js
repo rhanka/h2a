@@ -96,6 +96,33 @@ test("h2a_nhi_report derives a posture and flags key reuse (NHI9)", () => {
   }
 });
 
+test("h2a_nhi_inventory lists the estate with reuse + totals (fingerprints only)", () => {
+  const root = freshRoot();
+  try {
+    const server = createMcpServer({ root });
+    const { publicPem } = newKeyPair();
+    // Two instances sharing one key → reusedKeys = 1.
+    server.callTool("h2a_register_instance", {
+      registration: registration("conductor:01", publicPem)
+    });
+    server.callTool("h2a_register_instance", {
+      registration: registration("conductor:02", publicPem)
+    });
+
+    const result = server.callTool("h2a_nhi_inventory", {});
+    assert.equal(result.error, undefined);
+    const inv = result.inventory;
+    assert.equal(inv.totals.instances, 2);
+    assert.equal(inv.totals.activeKeys, 2);
+    assert.equal(inv.totals.reusedKeys, 1);
+    const c1 = inv.instances.find((i) => i.id === "conductor:01");
+    assert.deepEqual(c1.keys[0].sharedWith, ["conductor:02"]);
+    assert.ok(!JSON.stringify(inv).includes(publicPem));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("h2a_nhi_attest signs the posture into a verifiable attestation envelope", () => {
   const root = freshRoot();
   try {

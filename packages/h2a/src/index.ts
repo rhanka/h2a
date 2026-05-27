@@ -174,19 +174,27 @@ export {
   H2A_NHI_RISK_IDS,
   auditNhiPosture,
   nhiAttestationEnvelope,
+  nhiInventory,
   nhiKeyFingerprint
 } from "./nhi.js";
 export type {
   H2ANhiAttestationActor,
   H2ANhiAttestationBody,
   H2ANhiFinding,
+  H2ANhiInstanceInventory,
   H2ANhiInstanceSnapshot,
+  H2ANhiInventory,
+  H2ANhiInventoryInput,
+  H2ANhiInventoryTotals,
   H2ANhiKeyEventSnapshot,
+  H2ANhiKeyInventory,
+  H2ANhiOffboardSnapshot,
   H2ANhiPostureInput,
   H2ANhiPostureReport,
   H2ANhiPostureSummary,
   H2ANhiRiskId,
   H2ANhiSeverity,
+  H2ANhiSubagentInventory,
   H2ANhiSubagentSnapshot
 } from "./nhi.js";
 export { assertValidNegotiationState } from "./negotiation.js";

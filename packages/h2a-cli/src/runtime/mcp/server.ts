@@ -8,6 +8,7 @@ import {
   handleEscalate,
   handleInbox,
   handleNhiAttest,
+  handleNhiInventory,
   handleNhiOffboard,
   handleNhiReport,
   handleOffer,
@@ -125,6 +126,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleDiscoverSessions(sessions, args as never);
       case "h2a_nhi_report":
         return handleNhiReport(store, args as never);
+      case "h2a_nhi_inventory":
+        return handleNhiInventory(store, args as never);
       case "h2a_nhi_attest":
         return handleNhiAttest(store, args as never);
       case "h2a_nhi_offboard":

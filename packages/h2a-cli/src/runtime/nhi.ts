@@ -6,6 +6,7 @@
 import type {
   H2ANhiInstanceSnapshot,
   H2ANhiKeyEventSnapshot,
+  H2ANhiOffboardSnapshot,
   H2ANhiSubagentSnapshot
 } from "@sentropic/h2a";
 
@@ -15,6 +16,7 @@ export interface H2ANhiSnapshot {
   instances: H2ANhiInstanceSnapshot[];
   subagents: H2ANhiSubagentSnapshot[];
   keyEvents: H2ANhiKeyEventSnapshot[];
+  offboards: H2ANhiOffboardSnapshot[];
 }
 
 export function gatherNhiSnapshot(store: LocalStore): H2ANhiSnapshot {
@@ -35,5 +37,10 @@ export function gatherNhiSnapshot(store: LocalStore): H2ANhiSnapshot {
     type: e.type,
     at: e.at
   }));
-  return { instances, subagents, keyEvents };
+  const offboards: H2ANhiOffboardSnapshot[] = store.listOffboards().map((o) => ({
+    instance: o.instance,
+    at: o.at,
+    ...(o.reason ? { reason: o.reason } : {})
+  }));
+  return { instances, subagents, keyEvents, offboards };
 }

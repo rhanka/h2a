@@ -536,6 +536,8 @@ function buildHappyArgv(verb, ctx) {
       return ["drumbeat", "clear", "--root", root, "--instance", "agent-001"];
     case "nhi report":
       return ["nhi", "report", "--root", root];
+    case "nhi inventory":
+      return ["nhi", "inventory", "--root", root];
     case "nhi attest":
       return ["nhi", "attest", "--root", root, "--instance", "agent-001", "--private-key", privateKeyPath];
     case "nhi offboard":
@@ -599,6 +601,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "keys list",
     "keys revoke",
     "nhi report",
+    "nhi inventory",
     "nhi attest",
     "nhi offboard",
     "install-skills",

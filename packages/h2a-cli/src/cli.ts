@@ -59,6 +59,7 @@ import {
   subagentAddress,
   auditNhiPosture,
   nhiAttestationEnvelope,
+  nhiInventory,
   H2A_ROLES,
   H2A_WORK_STATUSES
 } from "@sentropic/h2a";
@@ -194,6 +195,7 @@ export function renderCliHelp(): string {
     "  h2a keys list --instance <id> [--root <path>]",
     "  h2a keys revoke --instance <id> --public-key <pem-file> [--root <path>]",
     "  h2a nhi report [--long-lived-days <n>] [--root <path>]",
+    "  h2a nhi inventory [--long-lived-days <n>] [--root <path>]",
     "  h2a nhi attest --instance <id> --private-key <pem-file> [--role <role>] [--scope <scope>] [--root <path>]",
     "  h2a nhi offboard --instance <id> [--reason <text>] [--root <path>]",
     "  h2a install-skills --host claude [--scope user|project] [--force]",
@@ -981,6 +983,30 @@ function cmdNhi(argv: readonly string[], streams: H2ACliStreams): number {
     return 0;
   }
 
+  if (sub === "inventory") {
+    let longLivedKeyMaxDays: number | undefined;
+    if (flags["long-lived-days"] !== undefined) {
+      longLivedKeyMaxDays = Number.parseInt(flags["long-lived-days"], 10);
+      if (!Number.isInteger(longLivedKeyMaxDays) || longLivedKeyMaxDays < 1) {
+        streams.stderr.write(
+          `h2a nhi inventory: --long-lived-days must be a positive integer (got "${flags["long-lived-days"]}")\n`
+        );
+        return 1;
+      }
+    }
+    const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+    const { instances, subagents, keyEvents, offboards } = gatherNhiSnapshot(store);
+    const inventory = nhiInventory({
+      instances,
+      subagents,
+      keyEvents,
+      offboards,
+      ...(longLivedKeyMaxDays !== undefined ? { longLivedKeyMaxDays } : {})
+    });
+    streams.stdout.write(`${JSON.stringify(inventory, null, 2)}\n`);
+    return 0;
+  }
+
   if (sub === "attest") {
     if (!flags.instance || !flags["private-key"]) {
       streams.stderr.write(
@@ -1043,7 +1069,7 @@ function cmdNhi(argv: readonly string[], streams: H2ACliStreams): number {
   }
 
   streams.stderr.write(
-    `h2a nhi: unknown subcommand "${sub ?? ""}" (report, attest, offboard)\n`
+    `h2a nhi: unknown subcommand "${sub ?? ""}" (report, inventory, attest, offboard)\n`
   );
   return 1;
 }

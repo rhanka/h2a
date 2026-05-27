@@ -8,6 +8,7 @@ import {
   auditNhiPosture,
   isH2AEnvelope,
   nhiAttestationEnvelope,
+  nhiInventory,
   nhiKeyFingerprint,
   signEnvelope,
   verifyEnvelopeSignature
@@ -166,4 +167,58 @@ test("nhiAttestationEnvelope builds an event envelope that verifies once signed"
     body: { ...signed.body, report: { ...signed.body.report, summary: { ...signed.body.report.summary, instances: 99 } } }
   };
   assert.equal(verifyEnvelopeSignature(tampered, publicPem, { by: "claude:p1" }), false);
+});
+
+test("nhiInventory lists keys with age/reuse, subagents, offboard state + totals", () => {
+  const inv = nhiInventory({
+    now: "2026-05-27T00:00:00.000Z",
+    longLivedKeyMaxDays: 90,
+    instances: [
+      { id: "a:one", role: "CONDUCTOR", activeKeys: ["OLD", "SHARED"] },
+      { id: "b:two", activeKeys: ["SHARED"] },
+      { id: "c:gone", activeKeys: [] }
+    ],
+    subagents: [
+      { id: "a:one~r", parentInstance: "a:one", status: "active", capabilities: ["read"] },
+      { id: "a:one~x", parentInstance: "a:one", status: "revoked" }
+    ],
+    keyEvents: [
+      { instance: "a:one", publicKey: "OLD", type: "added", at: "2026-01-01T00:00:00.000Z" } // ~146d
+    ],
+    offboards: [{ instance: "c:gone", at: "2026-05-20T00:00:00.000Z", reason: "decommission" }]
+  });
+
+  assert.equal(inv.totals.instances, 3);
+  assert.equal(inv.totals.activeKeys, 3);
+  assert.equal(inv.totals.reusedKeys, 1); // SHARED across a:one + b:two
+  assert.equal(inv.totals.longLivedKeys, 1); // OLD
+  assert.equal(inv.totals.offboarded, 1);
+  assert.equal(inv.totals.subagents, 2);
+  assert.equal(inv.totals.activeSubagents, 1);
+
+  const a = inv.instances.find((i) => i.id === "a:one");
+  assert.equal(a.role, "CONDUCTOR");
+  assert.equal(a.offboarded, false);
+  const oldKey = a.keys.find((k) => k.fingerprint === nhiKeyFingerprint("OLD"));
+  assert.equal(oldKey.longLived, true);
+  assert.equal(oldKey.ageDays, 146);
+  assert.deepEqual(oldKey.sharedWith, []);
+  const sharedKey = a.keys.find((k) => k.fingerprint === nhiKeyFingerprint("SHARED"));
+  assert.deepEqual(sharedKey.sharedWith, ["b:two"]); // reuse surfaced
+  assert.equal(sharedKey.longLived, false); // no add event → age unknown
+  assert.equal(sharedKey.ageDays, undefined);
+
+  // Subagent bound vs revoked.
+  assert.equal(a.subagents.find((s) => s.id === "a:one~r").bounded, true);
+  assert.equal(a.subagents.find((s) => s.id === "a:one~x").status, "revoked");
+
+  // Offboarded instance carries its tombstone metadata.
+  const c = inv.instances.find((i) => i.id === "c:gone");
+  assert.equal(c.offboarded, true);
+  assert.equal(c.offboardedAt, "2026-05-20T00:00:00.000Z");
+  assert.equal(c.offboardReason, "decommission");
+  assert.deepEqual(c.keys, []);
+
+  // Fingerprints only — never the raw PEM.
+  assert.ok(!JSON.stringify(inv).includes("SHARED"));
 });

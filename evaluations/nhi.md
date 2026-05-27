@@ -1,6 +1,6 @@
 # Complementary evaluation — h2a × Non-Human Identity (OWASP NHI Top 10 / NIST)
 
-> A *complementary* evaluation (not an org track A-E): how `h2a` maps onto **Non-Human Identity (NHI)** security guidance. [← library](./README.md) · **Status: triple-reviewed** ([consolidated](./reviews/nhi.consolidated.md)) · **P1 complete** (`h2a nhi report` DEC-087 · `attest` DEC-088 · `offboard` DEC-089).
+> A *complementary* evaluation (not an org track A-E): how `h2a` maps onto **Non-Human Identity (NHI)** security guidance. [← library](./README.md) · **Status: triple-reviewed** ([consolidated](./reviews/nhi.consolidated.md)) · **P1+P2 complete** (`report` DEC-087 · `attest` DEC-088 · `offboard` DEC-089 · `inventory` DEC-090).
 
 Agents, service accounts, API keys and workloads now outnumber human identities (figures cited range from ~10:1 to ~100:1). **Non-Human Identity (NHI)** security is the discipline of authenticating, scoping, rotating and offboarding these machine identities. h2a coordinates **AI-agent** instances — themselves NHIs — so it sits squarely in this space.
 
@@ -67,7 +67,7 @@ The target is **a + b + c** — posture/attestation, active lifecycle, interop �
 | Palier | Surface | What it adds | Reuses |
 |---|---|---|---|
 | **P1 — posture / attestation / offboard** ✅ | `h2a nhi report` ✅ · `h2a nhi attest` ✅ · `h2a nhi offboard` ✅ (+ `h2a_nhi_report/attest/offboard`) | (1) **report ✅ (DEC-087)**: derive an OWASP-NHI / CSF posture from the registry (auth coverage, overprivileged subagents, key reuse, long-lived keys, offboarding hygiene); (2) **attest ✅ (DEC-088)**: a signed `event` envelope of the posture (verify with `verifyEnvelopeSignature`); (3) **offboard ✅ (DEC-089)**: coordinated decommission (revoke keys + revoke subagents + tombstone; sessions are ephemeral presence, out of scope) | registry/keyring (DEC-078/079), subagents (DEC-072), `signEnvelope` (DEC-073) |
-| **P2 — inventory / reuse / TTL** | `h2a nhi inventory` (+ TTL/age flags) | full machine-identity inventory view, reuse-detection across instances, key-age/TTL surfacing for rotation planning | same, extended |
+| **P2 — inventory / reuse / TTL** ✅ | `h2a nhi inventory` ✅ (DEC-090) | full machine-identity inventory view, reuse-detection across instances (`sharedWith`), key-age/`longLived` surfacing for rotation planning, offboard state, estate totals | same, extended |
 | **P3 — interop** | IAM/secrets connectors | export posture/attestation to external NHI/IAM tooling; candidate to live in `../sentropic/` (connectors), core stays in h2a | attestation envelopes |
 
 P1 ships in coherent sub-slices (report first — it is the shared posture model attest and offboard both build on).
