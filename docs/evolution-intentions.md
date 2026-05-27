@@ -4,7 +4,7 @@
 
 | ID | Intention | Spec session? | Status |
 |---|---|---|---|
-| EVO-0 | `agy` host parity | Séance 1 done | **framed** — agy via plugin-import + CLI (no MCP); MCP-only-feature gap is an open decision |
+| EVO-0 | `agy` host parity | Séance 1 done | **framed** — agy = Antigravity (Gemini), **supports MCP** (config `~/.gemini/config/mcp_config.json`, empty); full parity via that config + plugin import; no special gap |
 | EVO-1 | Plugin bilateral-discussion & relance capability (per platform) | Séance 1 done | **framed** — feasible on all 4 (headless + resume/continue) |
 | EVO-2 | Drumbeat = engagement **tracking** (reframe) | yes (Séance 2) | intention (supersedes DEC-083 framing) |
 | EVO-3 | Agent-blockage **feedback loop** (cross-agent notification) | Séance 1 (partial) | framed — agy is the gap (no daemon); others have daemon/hooks |
