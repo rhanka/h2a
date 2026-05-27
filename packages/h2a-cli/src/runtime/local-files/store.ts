@@ -111,6 +111,17 @@ export interface H2AKeyEvent {
   at: string;
 }
 
+// DEC-089: an append-only record of a coordinated NHI offboarding — what the
+// decommission revoked, for the auditor (NHI1). The revocations themselves live
+// in keys.jsonl / subagent-audit.jsonl; this is the single "offboarded at T" mark.
+export interface H2AOffboardTombstone {
+  instance: string;
+  reason?: string;
+  revokedKeys: number;
+  revokedSubagents: string[];
+  at: string;
+}
+
 export interface LocalStore {
   paths: LocalStorePaths;
   registerInstance(reg: H2AActorRegistration): void;
@@ -120,6 +131,8 @@ export interface LocalStore {
   listInstanceKeys(instanceId: string): string[];
   listKeyEvents(): H2AKeyEvent[];
   revokeInstanceKey(instanceId: string, publicKeyPem: string): void;
+  offboardInstance(instanceId: string, reason?: string): H2AOffboardTombstone;
+  listOffboards(): H2AOffboardTombstone[];
   registerSubagent(binding: H2ASubagentBinding): void;
   listSubagents(): H2ASubagentBinding[];
   findSubagent(id: string): H2ASubagentBinding | undefined;
@@ -486,6 +499,35 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       },
       lockOpts
     );
+  }
+
+  // DEC-089: coordinated NHI offboarding. Revokes every active key and every
+  // active subagent of the instance (each via the already-locked revoke
+  // primitives — no nested lock), then appends a tombstone. Re-running is safe:
+  // it revokes only what is still active, so a second call records 0/empty.
+  function offboardInstance(instanceId: string, reason?: string): H2AOffboardTombstone {
+    if (!findInstance(instanceId)) {
+      throw new Error(`Instance not registered: ${instanceId}`);
+    }
+    const activeKeys = listInstanceKeys(instanceId);
+    for (const pem of activeKeys) revokeInstanceKey(instanceId, pem);
+    const activeSubs = listSubagentsOf(instanceId).filter(
+      (b) => subagentStatus(b.id) === "active"
+    );
+    for (const b of activeSubs) revokeSubagent(b.id, reason ?? "offboard");
+    const tombstone: H2AOffboardTombstone = {
+      instance: instanceId,
+      ...(reason ? { reason } : {}),
+      revokedKeys: activeKeys.length,
+      revokedSubagents: activeSubs.map((b) => b.id),
+      at: new Date().toISOString()
+    };
+    lock(registryLock, () => appendJsonl(paths.offboard, tombstone), lockOpts);
+    return tombstone;
+  }
+
+  function listOffboards(): H2AOffboardTombstone[] {
+    return readJsonl<H2AOffboardTombstone>(paths.offboard);
   }
 
   // DEC-068: subagent bindings share the registry lock with instance
@@ -934,6 +976,8 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     listInstanceKeys,
     listKeyEvents,
     revokeInstanceKey,
+    offboardInstance,
+    listOffboards,
     registerSubagent,
     listSubagents,
     findSubagent,

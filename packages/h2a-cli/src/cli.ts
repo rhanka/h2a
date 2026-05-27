@@ -195,6 +195,7 @@ export function renderCliHelp(): string {
     "  h2a keys revoke --instance <id> --public-key <pem-file> [--root <path>]",
     "  h2a nhi report [--long-lived-days <n>] [--root <path>]",
     "  h2a nhi attest --instance <id> --private-key <pem-file> [--role <role>] [--scope <scope>] [--root <path>]",
+    "  h2a nhi offboard --instance <id> [--reason <text>] [--root <path>]",
     "  h2a install-skills --host claude [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
@@ -1023,7 +1024,27 @@ function cmdNhi(argv: readonly string[], streams: H2ACliStreams): number {
     return 0;
   }
 
-  streams.stderr.write(`h2a nhi: unknown subcommand "${sub ?? ""}" (report, attest)\n`);
+  if (sub === "offboard") {
+    if (!flags.instance) {
+      streams.stderr.write("h2a nhi offboard: --instance <id> is required\n");
+      return 1;
+    }
+    const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+    let tombstone;
+    try {
+      tombstone = store.offboardInstance(flags.instance, flags.reason);
+    } catch (error) {
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a nhi offboard: ${message}\n`);
+      return classifyStoreError(message);
+    }
+    streams.stdout.write(`${JSON.stringify({ ok: true, ...tombstone }, null, 2)}\n`);
+    return 0;
+  }
+
+  streams.stderr.write(
+    `h2a nhi: unknown subcommand "${sub ?? ""}" (report, attest, offboard)\n`
+  );
   return 1;
 }
 

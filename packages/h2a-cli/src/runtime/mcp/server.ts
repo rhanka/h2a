@@ -8,6 +8,7 @@ import {
   handleEscalate,
   handleInbox,
   handleNhiAttest,
+  handleNhiOffboard,
   handleNhiReport,
   handleOffer,
   handleOpenNegotiation,
@@ -126,6 +127,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleNhiReport(store, args as never);
       case "h2a_nhi_attest":
         return handleNhiAttest(store, args as never);
+      case "h2a_nhi_offboard":
+        return handleNhiOffboard(store, args as never);
       default:
         return { error: `unknown tool: ${name}` };
     }

@@ -461,6 +461,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Emit a signed attestation of the current NHI posture: an ed25519-signed `event` envelope (DEC-073) whose body carries the posture report. No new artifact kind. Actor role/scope default to the instance's registration. DEC-087."
   },
   {
+    verb: "nhi offboard",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["instance"],
+    optionalFlags: ["root", "reason"],
+    description:
+      "Coordinated decommission of an NHI: revoke every active key (DEC-079) and every active subagent (DEC-072) of the instance, then append an offboard tombstone. Idempotent (re-running revokes only what is still active). Exit 2 if the instance is not registered. DEC-089."
+  },
+  {
     verb: "install-skills",
     outputShape: "action",
     exitCodes: [0, 1, 2, 3],

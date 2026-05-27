@@ -547,6 +547,22 @@ export function handleNhiAttest(
   }
 }
 
+// DEC-089 (P1c): coordinated decommission — revoke keys + subagents + tombstone.
+export function handleNhiOffboard(
+  store: LocalStore,
+  args: { instance?: string; reason?: string } | undefined
+): McpToolResult | McpErrorResult {
+  if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_nhi_offboard: missing 'instance'" };
+  }
+  try {
+    const tombstone = store.offboardInstance(args.instance, args.reason);
+    return { tombstone };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
 export function notImplemented(toolName: string): McpErrorResult {
   return { error: `${toolName}: not implemented in this slice` };
 }

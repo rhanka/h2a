@@ -299,5 +299,18 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
       },
       required: ["instance", "privateKeyPem"]
     }
+  },
+  {
+    name: "h2a_nhi_offboard",
+    description:
+      "Coordinated decommission of an NHI (DEC-089): revoke every active key and every active subagent of the instance, then append an offboard tombstone. Idempotent. Returns the tombstone.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        instance: { type: "string" },
+        reason: { type: "string" }
+      },
+      required: ["instance"]
+    }
   }
 ];
