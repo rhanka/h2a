@@ -71,7 +71,12 @@ import { H2A_CODEX_HOST } from "./hosts/codex.js";
 import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_AGY_HOST } from "./hosts/agy.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
-import { renderStopHook, H2A_HOST_PLUGIN_HOSTS } from "./hosts/plugin.js";
+import {
+  renderStopHook,
+  claudeStopHookEntry,
+  isH2ARecordHook,
+  H2A_HOST_PLUGIN_HOSTS
+} from "./hosts/plugin.js";
 import {
   H2A_STORE_SCHEMA_VERSION,
   createLocalStore,
@@ -205,7 +210,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini|agy> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
-    "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>]",
+    "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]]",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "",
     "High-level coordination (DEC-054):",
@@ -1511,6 +1516,72 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
     );
     return 1;
   }
+
+  // DEC-102 (D6 slice b): --write installs the stop hook. Only claude has a
+  // clean settings.json merge (hooks.Stop); the others' wake mechanisms are a
+  // CLI/daemon registration (codex/gemini) or poll-only (agy), so --write is
+  // refused for them and the rendered hook + hint are surfaced instead.
+  if (flags.write) {
+    if (flags.host !== "claude") {
+      streams.stderr.write(
+        `h2a host plugin: --write is only supported for --host claude (settings.json Stop hook). ` +
+          `For ${flags.host}, register the hook manually: ${render.hint}\n`
+      );
+      return 1;
+    }
+    const targetPath = flags.write;
+    let existing: Record<string, unknown> = {};
+    if (existsSync(targetPath)) {
+      let raw: string;
+      try {
+        raw = readFileSync(targetPath, "utf8");
+      } catch (error) {
+        streams.stderr.write(`h2a host plugin: cannot read ${targetPath} (${(error as Error).message})\n`);
+        return 3;
+      }
+      if (raw.trim().length > 0) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (!isPlainObject(parsed)) {
+            streams.stderr.write(`h2a host plugin: ${targetPath} is valid JSON but not an object; refusing to merge.\n`);
+            return 2;
+          }
+          existing = parsed;
+        } catch (error) {
+          streams.stderr.write(
+            `h2a host plugin: ${targetPath} is not valid JSON (${(error as Error).message}). Use --force to overwrite.\n`
+          );
+          if (flags.force !== "true") return 2;
+          existing = {};
+        }
+      }
+    }
+    const existingHooks = isPlainObject(existing.hooks) ? existing.hooks : {};
+    const existingStop = Array.isArray(existingHooks.Stop) ? [...existingHooks.Stop] : [];
+    // Idempotent: drop any prior h2a drumbeat-record Stop hook, then append ours.
+    const withoutH2A = existingStop.filter((e) => !isH2ARecordHook(e));
+    if (withoutH2A.length !== existingStop.length && flags.force !== "true") {
+      // A previous h2a hook exists; replacing it is safe & idempotent, allow it.
+    }
+    const mergedStop = [...withoutH2A, claudeStopHookEntry(render.record)];
+    const merged: Record<string, unknown> = {
+      ...existing,
+      hooks: { ...existingHooks, Stop: mergedStop }
+    };
+    try {
+      const dir = dirname(targetPath);
+      if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
+      writeFileSync(targetPath, `${JSON.stringify(merged, null, 2)}\n`);
+    } catch (error) {
+      streams.stderr.write(`h2a host plugin: cannot write ${targetPath} (${(error as Error).message})\n`);
+      return 3;
+    }
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, host: flags.host, written: targetPath, mechanism: render.mechanism, hook: "hooks.Stop" }, null, 2)}\n`
+    );
+    return 0;
+  }
+
   streams.stdout.write(`${JSON.stringify(render, null, 2)}\n`);
   return 0;
 }

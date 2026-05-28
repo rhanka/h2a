@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { runCli } from "../dist/index.js";
@@ -20,7 +23,7 @@ test("host plugin renders a push-capable stop hook for claude/codex/gemini", () 
     const r = JSON.parse(stdout);
     assert.equal(r.host, host);
     assert.equal(r.push, true, `${host} can be push-notified`);
-    assert.equal(r.poll, undefined);
+    assert.match(r.poll, /h2a drumbeat scan/); // poll is a manual fallback on push hosts too
     // The hook records a stop with the launch context D3 needs.
     assert.match(r.record, /h2a drumbeat record --instance claude:p1 --status paused/);
     assert.match(r.record, /\$TMUX_PANE/);
@@ -36,6 +39,50 @@ test("host plugin marks agy as poll-only (no daemon) with a poll command", () =>
   assert.equal(r.push, false);
   assert.match(r.poll, /h2a drumbeat scan/);
   assert.equal(r.mechanism, "agy-plugin-poll");
+});
+
+test("host plugin --write claude merges an idempotent Stop hook into settings.json (DEC-102)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
+  const settings = join(dir, "settings.json");
+  try {
+    // Pre-existing settings with an unrelated hook → must be preserved.
+    writeFileSync(settings, JSON.stringify({ model: "opus", hooks: { Stop: [{ hooks: [{ type: "command", command: "echo bye" }] }] } }), "utf8");
+    const run = (extra = []) => {
+      let stdout = "", stderr = "";
+      const rc = runCli(["host", "plugin", "--host", "claude", "--instance", "claude:p1", "--write", settings, ...extra], {
+        stdout: { write: (c) => void (stdout += c) }, stderr: { write: (c) => void (stderr += c) }
+      });
+      return { rc, stdout, stderr };
+    };
+    const r1 = run();
+    assert.equal(r1.rc, 0, r1.stderr);
+    assert.equal(JSON.parse(r1.stdout).written, settings);
+    let cfg = JSON.parse(readFileSync(settings, "utf8"));
+    assert.equal(cfg.model, "opus"); // unrelated keys preserved
+    assert.equal(cfg.hooks.Stop.length, 2); // unrelated hook + ours
+    const ours = cfg.hooks.Stop.find((e) => e.hooks[0].command.includes("h2a drumbeat record"));
+    assert.match(ours.hooks[0].command, /--instance claude:p1/);
+    // Idempotent: a second write does not duplicate our hook.
+    assert.equal(run().rc, 0);
+    cfg = JSON.parse(readFileSync(settings, "utf8"));
+    assert.equal(cfg.hooks.Stop.filter((e) => e.hooks[0].command.includes("h2a drumbeat record")).length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("host plugin --write is refused for non-claude hosts (agy is poll-only)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
+  try {
+    let stderr = "";
+    const rc = runCli(["host", "plugin", "--host", "agy", "--instance", "agy:p1", "--write", join(dir, "x.json")], {
+      stdout: { write: () => {} }, stderr: { write: (c) => void (stderr += c) }
+    });
+    assert.equal(rc, 1);
+    assert.match(stderr, /only supported for --host claude/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("host plugin rejects an unknown host and requires --instance", () => {

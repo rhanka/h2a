@@ -109,6 +109,37 @@ export function renderStopHook(
     push: target.push,
     hint: target.hint,
     record,
-    ...(target.push ? {} : { poll: `h2a drumbeat scan${rootArg}` })
+    // Poll command for every host (agy uses it as its only path; the others
+    // can use it as a manual fallback). Drumbeat scan + blockage list.
+    poll: `h2a drumbeat scan${rootArg}`
   };
+}
+
+/** A single Claude Code `Stop` hook entry (settings.json `hooks.Stop[]`). */
+export interface H2AClaudeStopHook {
+  readonly hooks: ReadonlyArray<{ readonly type: "command"; readonly command: string }>;
+}
+
+/**
+ * DEC-102 (D6 slice b): build the Claude Code `Stop` hook entry that runs the
+ * rendered `record` command when a claude session stops — so the drumbeat (D2)
+ * gets a stop recorded with launch context (D1) and D3 can relance it. This is
+ * the merge fragment for `~/.claude/settings.json` `hooks.Stop`.
+ */
+export function claudeStopHookEntry(record: string): H2AClaudeStopHook {
+  return { hooks: [{ type: "command", command: record }] };
+}
+
+/** True if a settings.json Stop-hook entry is an h2a drumbeat-record hook. */
+export function isH2ARecordHook(entry: unknown): boolean {
+  if (typeof entry !== "object" || entry === null) return false;
+  const hooks = (entry as { hooks?: unknown }).hooks;
+  if (!Array.isArray(hooks)) return false;
+  return hooks.some(
+    (h) =>
+      typeof h === "object" &&
+      h !== null &&
+      typeof (h as { command?: unknown }).command === "string" &&
+      (h as { command: string }).command.includes("h2a drumbeat record")
+  );
 }

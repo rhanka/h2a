@@ -389,11 +389,11 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
   {
     verb: "host plugin",
     outputShape: "resource",
-    exitCodes: [0, 1],
+    exitCodes: [0, 1, 2, 3],
     requiredFlags: ["host", "instance"],
-    optionalFlags: ["root", "status"],
+    optionalFlags: ["root", "status", "write", "force"],
     description:
-      "Render the per-host stop-hook command + placement (claude settings hook / gemini hooks / codex app-server / agy plugin+poll) so a stop is recorded with a launch context the drumbeat (D2) and local-tmux relauncher (D3) can relance. agy is poll-only. DEC-093."
+      "Render the per-host stop-hook command + placement (claude settings hook / gemini hooks / codex app-server / agy plugin+poll) so a stop is recorded with a launch context the drumbeat (D2) and local-tmux relauncher (D3) can relance. `--write <settings.json>` installs it (claude only — merges into `hooks.Stop`, idempotent; other hosts register manually per the hint). agy is poll-only. DEC-093/102."
   },
   {
     verb: "host status",

@@ -46,3 +46,7 @@
 
 ## Loop end — 2026-05-28 ~13:25 EDT
 All derivable code + Backlog B (authored+reviewed) + feasible Backlog A reviews are done. Everything remaining needs a user decision (D4/D5/EVO-4/broker-C, P3 connector location, install-skills agy) or a review re-completion (R3-claude + codex/agy partials when the CLIs are reliable). Loop not rescheduled. All commits on `main`, no npm release/bump (review-gated), 533 tests green, origin 0 co-authoring.
+
+## Post-loop follow-ups (user-directed, 2026-05-28 PM)
+- **EVO-0 agy install-skills (DEC-101)** — `install-skills --host agy` (gemini-style TOML + `agy plugin import gemini` hint). EVO-0 complete. Shipped in **v0.13.0** (published).
+- **Drumbeat D6 slice b (DEC-102)** — `host plugin --write` installs the claude Stop hook (idempotent settings.json merge); non-claude refused+render; `poll` now universal. claude auto-relance is end-to-end. Pending release (0.14.0).

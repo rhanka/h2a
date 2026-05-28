@@ -1838,3 +1838,14 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) grounded in the probed reality — agy imports from gemini/claude and shares `~/.gemini/`, so the gemini command *is* the agy source; (b) no new on-disk layout invented; (c) the import step is a real user action agy must run, so it is surfaced as a hint, not silently assumed.
 
 **Consequence**: (a) `install-skills` accepts `agy` (4 hosts), gemini-style write + `importHint`; help/contract updated; (b) resolves the DEC-096 deferred agy install-skills item and loop-decision #4; **EVO-0 (agy parity) is now complete** (MCP config + host scenario + stop-hook plugin + skill install); (c) additive surface, ships in the **0.13.0** release.
+
+## DEC-102 — Drumbeat D6 (slice b): install the claude Stop hook (`host plugin --write`)
+**Date**: 2026-05-28. **Refers**: DEC-085, DEC-091, DEC-093, DEC-096. **Line**: V2 (0.14.x).
+
+**Context**: D6 slice a (DEC-093) *rendered* the per-host stop-hook command; the remaining D6 step is to actually **install** it into the host runtime so a stop is recorded with launch context (D1) and the drumbeat (D2) + local-tmux relauncher (D3) fire **unattended**. Among the four hosts, only **claude** has a clean file-merge target (`~/.claude/settings.json` `hooks.Stop`); gemini/codex register via a CLI/daemon and **agy has no daemon** (poll-only, capability matrix).
+
+**Decision**: `h2a host plugin --write <settings.json> [--force]` installs the hook for **claude** only — idempotent merge into `hooks.Stop` (drops any prior `h2a drumbeat record` entry, appends the freshly-rendered one; preserves unrelated keys/hooks). For non-claude hosts `--write` is refused with the manual-registration `hint`. `renderStopHook` now also returns `poll` for **every** host (agy's only path; a manual fallback for the others). Pure helpers `claudeStopHookEntry`/`isH2ARecordHook` in `hosts/plugin.ts`.
+
+**Why**: (a) claude's settings.json is the one verifiable, mergeable hook target — installing there makes the drumbeat actually fire on the most-used host without inventing config formats for the others; (b) idempotent dedupe by the `h2a drumbeat record` marker makes re-install safe; (c) refusing `--write` elsewhere (rather than faking it) keeps the honest boundary — codex/gemini register via their own CLI, agy polls; (d) exposing `poll` universally gives agy its first-class path (DEC-096/101) and the others a manual fallback.
+
+**Consequence**: (a) `host plugin` gains `--write`/`--force` (claude installs; others render+refuse); `H2AStopHookRender.poll` is always present; (b) **D6 is functionally complete for claude** (auto-record-on-stop installable); codex/gemini/agy remain render+manual / poll until their native registration is automated; (c) additive surface → next minor (**0.14.0**); (d) the auto-relance loop is now end-to-end on claude: stop-hook records → `drumbeat watch` scans → D3 relances → D7 escalates on exhaustion.
