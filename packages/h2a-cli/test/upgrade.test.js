@@ -19,7 +19,10 @@ function fakeRuntime(overrides = {}) {
     runtime: {
       fetchLatest: () => {
         calls.fetch++;
-        return overrides.latest ?? "0.16.0";
+        // Default far-future version so "upgrade available" holds regardless of
+        // the package.json version the test runs against (CI runs at the bumped
+        // version, which once equalled the old hard-coded "0.16.0" fixture).
+        return overrides.latest ?? "999.0.0";
       },
       runInstall: () => {
         calls.install++;
@@ -82,7 +85,7 @@ test("performUpgrade delegates to runInstall", () => {
 });
 
 test("cmdUpgrade --check reports without installing", () => {
-  const { runtime, calls } = fakeRuntime({ latest: "0.16.0" });
+  const { runtime, calls } = fakeRuntime(); // default latest 999.0.0 → always newer
   let out = "";
   const rc = cmdUpgrade({ check: "true" }, { stdout: { write: (c) => void (out += c) }, stderr: { write: () => {} } }, runtime);
   assert.equal(rc, 0);
@@ -91,7 +94,7 @@ test("cmdUpgrade --check reports without installing", () => {
 });
 
 test("cmdUpgrade (bare) installs when an upgrade is available", () => {
-  const { runtime, calls } = fakeRuntime({ latest: "0.16.0", installOk: true });
+  const { runtime, calls } = fakeRuntime({ installOk: true }); // default latest 999.0.0
   let out = "";
   const rc = cmdUpgrade({}, { stdout: { write: (c) => void (out += c) }, stderr: { write: () => {} } }, runtime);
   assert.equal(rc, 0);
