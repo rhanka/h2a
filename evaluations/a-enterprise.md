@@ -1,6 +1,6 @@
 # Use-case A — Traditional enterprise
 
-> Topology: **hierarchy**. [← library](./README.md)
+> Topology: **hierarchy** (with contractual + regulatory overlays). [← library](./README.md)
 
 An enterprise with supplier, employee and client contracts, investors, shareholders, regulation, public administrations and taxes.
 
@@ -65,4 +65,6 @@ An executive owner steering 15 operational leads:
 
 ## Compatibility hypothesis
 
-Holds if `POLICY` is first-class and an `ENGAGEMENT` can reference internal, contractual and external policies. The enterprise is not a single tree: it is a set of scopes governed by EXECUTIF, local PRINCIPALs, internal and external CONTROLs.
+Holds if `POLICY` is first-class and an `ENGAGEMENT` can reference internal, contractual and external policies. The enterprise is not a single tree: it is a set of scopes governed by EXECUTIF, local PRINCIPALs, internal and external CONTROLs. The umbrella scope's owning `PRINCIPAL` is the board/shareholder body that appoints (and reserves `AUTHORITY` over) the `EXECUTIF`.
+
+**Nearest built-in profile**: **`A_ENTERPRISE`** (machine-readable as `H2A_ABC_MODEL_PROFILES`, verified by `auditAbcModelCompatibility('A_ENTERPRISE')` — DEC-041). **Deltas vs a pure tree**: an external `CONTROL` (regulator/tax authority); imposed external `POLICY`; supplier/client `CONTRACT`s with external `PRINCIPAL`s; shareholder reserved `AUTHORITY`; recurring `ENGAGEMENT`s (filings/payments).
