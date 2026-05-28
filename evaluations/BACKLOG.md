@@ -41,7 +41,7 @@ Each artifact gets **three independent reviews**, then a consolidation:
 | 5 | `e-agentic-squad.md` | ✅ | ✅ | ☐ | ✅ [consolidated](./reviews/e-agentic-squad.consolidated.md) — 2/3; escalation/D_SAFE/Mermaid applied, SUBAGENTS false-positive rejected |
 | 6 | `sysml-v2.md` | ✅ | ☐ | ☐ | ◐ [consolidated](./reviews/sysml-v2.consolidated.md) — 1/3 (agy; codex exit1); S1-S4 cross-ref + Mermaid quoting applied |
 | 7 | Skills — `skills/h2a/SKILL.md` | ✅ | ☐ | ☐ | ◐ [consolidated](./reviews/skills.consolidated.md) — 1/3 (agy; codex exit1); stale-surface + agy-host updates applied |
-| 8 | Foundations — `VOCABULARY.md` + `SPEC.md` | ☐ | ☐ | ☐ | ☐ |
+| 8 | Foundations — `VOCABULARY.md` + `SPEC.md` | ✅ | ☐ | ☐ | ◐ [consolidated](./reviews/foundations.consolidated.md) — 1/3, note-only (frozen); false-positives rejected vs source, no edits |
 | 9 | `nhi.md` (NHI / OWASP Top 10) | ✅ | ✅ | ✅ | ✅ [consolidated](./reviews/nhi.consolidated.md) |
 
 ## Backlog B — new evaluations to author (then triple-review each)
