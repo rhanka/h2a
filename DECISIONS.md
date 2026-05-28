@@ -1778,3 +1778,20 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) a pure, total ref type + validator is the safe, dependency-free foundation the I/O adapter (S2) builds on; (b) keeping equality strict avoids a surprising "equal but different content/mirror" and is trivially looseneable later; (c) it reuses canonical hashing + envelope signing unchanged — the interop adds *reference + verification*, not a transport.
 
 **Consequence**: (a) `@sentropic/h2a` exports `H2ASysmlRef`/`validateSysmlRef`/`isH2ASysmlRef`/`sysmlRefEquals`/`H2A_SYSML_REF_KIND` + types; (b) **no version bump in this loop** (review-gated; when released, additive core surface = minor); (c) **S2** adds `runtime/sysml/` (`resolveSysmlElement`/`hashSysmlElement`, mock-API tested), **S3** `verifyEnvelopeSysmlRef` + `h2a sysml verify`, **S4** disclosure→view mapping.
+
+## DEC-098 — SysML v2 interop S2: fetch + hash adapter (`runtime/sysml/`)
+**Date**: 2026-05-28. **Refers**: DEC-035, DEC-081, DEC-097. **Line**: V2 (unreleased — autonomous loop, pending review).
+
+**Context**: S1 (DEC-097) gave the pure `H2ASysmlRef`. S2 is the I/O adapter that content-integrity (trust level (b), spec §4) needs: fetch the referenced element from the SysML v2 API & Services and canonical-hash it. Pure types stay in core; all I/O is in the cli runtime (2-package rule, §7).
+
+**Decision**: `packages/h2a-cli/src/runtime/sysml/client.ts`.
+
+- `resolveSysmlElement(ref, {apiBase?, auth?, fetchImpl?})` → GET `{apiBase}/projects/{project}/commits/{commit}/elements/{element}` (OMG SysML v2 API & Services REST PSM). `fetchImpl` is injectable (defaults to global `fetch`) so it is unit-testable against a mock API; `auth` (Bearer) is passed per call and never embedded in an envelope (§6). Throws on non-OK status.
+- `hashSysmlElement(element)` → `computeHash` (DEC-035), comparable to a `ref.elementHash` embedded at sign time.
+
+**Reversible default decision** (loop, `docs/loop-decisions.md`):
+- `resolveSysmlElement` **requires `ref.element`** — whole-project resolution (element omitted) throws for now. Reversible: add a project/commit elements-collection fetch when a whole-project use case lands.
+
+**Why**: (a) an injectable HTTP client keeps the adapter deterministic and network-free in tests while the default `fetch` works in production; (b) reusing the core canonical hash means sign-time and verify-time hashes are directly comparable; (c) per-call out-of-band auth honours the auth-boundary invariant (a signed engagement asserts authority, not repository access).
+
+**Consequence**: (a) `@sentropic/h2a-cli` exports `resolveSysmlElement`/`hashSysmlElement` + the `SysmlFetchImpl`/`SysmlFetchResponse`/`ResolveSysmlOptions` types; (b) mock-API tested; (c) **no version bump in this loop** (review-gated); (d) **S3** = `verifyEnvelopeSysmlRef` (commit-trust + content-integrity) + `h2a sysml verify` CLI; **S4** = disclosure→view mapping.

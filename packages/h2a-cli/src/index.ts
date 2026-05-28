@@ -160,6 +160,14 @@ export {
 } from "./runtime/escalation/index.js";
 
 export {
+  resolveSysmlElement,
+  hashSysmlElement,
+  type SysmlFetchImpl,
+  type SysmlFetchResponse,
+  type ResolveSysmlOptions
+} from "./runtime/sysml/index.js";
+
+export {
   acceptRemoteEnvelope,
   createRemoteServer,
   rejectionStatus,
