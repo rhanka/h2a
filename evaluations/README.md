@@ -31,6 +31,7 @@ Not organizational topologies — they test `h2a` against external standards/fra
 | NHI solutions landscape | veille of the NHI field (vendors/OSS/standards) gating NHI P3 interop | [nhi-landscape.md](./nhi-landscape.md) |
 | Smart contracts (blockchain) | h2a off-chain negotiation/authority ↔ on-chain execution; `{chain,address,txHash}` reference | [smart-contract.md](./smart-contract.md) |
 | ISO/IEC 27001 (ISMS) | h2a as the management-system evidence layer — SoA/Annex A → POLICY+CONTROL, journal = audit evidence | [iso-27001.md](./iso-27001.md) |
+| ISO 9001 (QMS) | process approach → ENGAGEMENT; quality policy → POLICY; journal = cl.7.5 documented information | [iso-9001.md](./iso-9001.md) |
 
 ## Machine-readable source
 
