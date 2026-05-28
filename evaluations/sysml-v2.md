@@ -91,7 +91,7 @@ flowchart TD
   OEM[PRINCIPAL — OEM system owner] == CONTRACT (work package) ==> SUP[PRINCIPAL — supplier subsystem owner]
   OEM -. interface NEGOTIATION .- SUP
   SE[CONDUCTOR — systems engineer / model lead] --> AGS[AGENTS — modelers + AI assistants]
-  VV[CONTROL — V&V / safety / configuration mgmt] -. verifies model .-> MODEL[(SysML v2 model<br/>interfaces · requirements)]
+  VV["CONTROL — V&V / safety / configuration mgmt"] -. verifies model .-> MODEL[(SysML v2 model<br/>interfaces · requirements)]
   AGS --> MODEL
   SUP --> MODEL
   OEM --> MODEL
@@ -136,6 +136,8 @@ Key alignments:
 - **Transport**: the shipped `h2a remote` (signed-bearer, DEC-077) carries envelopes that *reference* model elements; the model bytes stay in the SysML repository, the envelope carries authority + the ref. h2a does not need to move the model — only the signed claim about it.
 
 **Gaps / open**: mapping h2a identities to API & Services auth (the API has its own auth); whether h2a verifies the *content* at `{commit, elementId}` (re-hash the element vs trust the commit id); branch/merge semantics when two negotiations touch the same elements; the API's element-level vs commit-level granularity for `artifactRef`.
+
+> **Status — specified & shipped**: this §3 interop is now the detailed spec [`docs/sysml-interop.md`](../docs/sysml-interop.md) (DEC-081) and is **implemented** in the two packages: `H2ASysmlRef` + `validateSysmlRef`/`sysmlRefEquals` (S1, DEC-097); `resolveSysmlElement`/`hashSysmlElement` (S2, DEC-098); `verifyEnvelopeSysmlRef` + `h2a sysml verify` — commit-trust + content-integrity (S3, DEC-099); `sysmlQueryScope` disclosure→query-scope mapping (S4, DEC-100). The open points above are addressed there: **content verification** = the S3 two-trust-levels (commit-trust default + content-integrity re-hash); **identity↔API auth** = held out-of-band by the adapter, never in an envelope (§6 of the spec); **granularity** = `ref.element` optional (commit-level vs element-level); **branch/merge** = out of V1 interop scope (reference commits only).
 
 ---
 
