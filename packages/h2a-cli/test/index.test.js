@@ -19,11 +19,10 @@ test("h2a-cli aggregates the supported hosts", () => {
 
 test("h2a-cli exposes the canonical MCP tool names", () => {
   assert.equal(H2A_CLI_MCP_TOOL_NAMES[0], "h2a_register_instance");
-  // DEC-087..090 added the NHI tools; offboard is the last canonical entry.
-  assert.equal(H2A_CLI_MCP_TOOL_NAMES.at(-1), "h2a_nhi_offboard");
-  assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_nhi_report"));
-  assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_nhi_inventory"));
-  assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_nhi_attest"));
+  // DEC-092 added the blockage tools; resolve is the last canonical entry.
+  assert.equal(H2A_CLI_MCP_TOOL_NAMES.at(-1), "h2a_blockage_resolve");
+  assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_nhi_offboard"));
+  assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_blockage_raise"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_session_open"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_discover_sessions"));
 });

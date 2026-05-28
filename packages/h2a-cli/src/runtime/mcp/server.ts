@@ -6,6 +6,9 @@ import {
   handleDiscoverInstances,
   handleDiscoverSessions,
   handleEscalate,
+  handleBlockageList,
+  handleBlockageRaise,
+  handleBlockageResolve,
   handleInbox,
   handleNhiAttest,
   handleNhiInventory,
@@ -132,6 +135,12 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleNhiAttest(store, args as never);
       case "h2a_nhi_offboard":
         return handleNhiOffboard(store, args as never);
+      case "h2a_blockage_raise":
+        return handleBlockageRaise(store, args as never);
+      case "h2a_blockage_list":
+        return handleBlockageList(store, args as never);
+      case "h2a_blockage_resolve":
+        return handleBlockageResolve(store, args as never);
       default:
         return { error: `unknown tool: ${name}` };
     }

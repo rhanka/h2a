@@ -92,6 +92,11 @@ import {
   type H2ARelauncherKind
 } from "./runtime/drumbeat/index.js";
 import { gatherNhiSnapshot } from "./runtime/nhi.js";
+import {
+  raiseBlockage,
+  listBlockages,
+  resolveBlockage
+} from "./runtime/blockage/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -203,6 +208,9 @@ export function renderCliHelp(): string {
     "  h2a nhi inventory [--long-lived-days <n>] [--root <path>]",
     "  h2a nhi attest --instance <id> --private-key <pem-file> [--role <role>] [--scope <scope>] [--root <path>]",
     "  h2a nhi offboard --instance <id> [--reason <text>] [--root <path>]",
+    "  h2a blockage raise --instance <id> --reason <text> [--scope <s>] [--needs <text>] [--root <path>]",
+    "  h2a blockage list [--scope <s>] [--active] [--root <path>]",
+    "  h2a blockage resolve --instance <id> [--by <id>] [--root <path>]",
     "  h2a install-skills --host claude [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
@@ -953,6 +961,58 @@ function cmdDrumbeat(argv: readonly string[], streams: H2ACliStreams): number {
   }
 
   streams.stderr.write("h2a drumbeat: subcommand required (record, scan, clear, watch)\n");
+  return 1;
+}
+
+/**
+ * `h2a blockage` (DEC-092, EVO-3): the peer-facing blockage feedback loop —
+ * distinct from the drumbeat (silent stall) and escalation (→ authority). Raise
+ * a blockage so peers in scope are notified (`peer.blocked` push); resolve it
+ * when unblocked (`peer.unblocked`).
+ */
+function cmdBlockage(argv: readonly string[], streams: H2ACliStreams): number {
+  const { command: sub, flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+
+  if (sub === "raise") {
+    if (!flags.instance || !flags.reason) {
+      streams.stderr.write("h2a blockage raise: --instance <id> and --reason <text> are required\n");
+      return 1;
+    }
+    const blockage = raiseBlockage(root, {
+      instance: flags.instance,
+      scope: flags.scope ?? "",
+      reason: flags.reason,
+      ...(flags.needs ? { needs: flags.needs } : {})
+    });
+    streams.stdout.write(`${JSON.stringify({ ok: true, ...blockage }, null, 2)}\n`);
+    return 0;
+  }
+
+  if (sub === "list") {
+    let blockages = listBlockages(root);
+    if (flags.scope) blockages = blockages.filter((b) => b.scope === flags.scope);
+    if (flags.active !== undefined) blockages = blockages.filter((b) => b.resolvedAt === undefined);
+    streams.stdout.write(`${JSON.stringify(blockages, null, 2)}\n`);
+    return 0;
+  }
+
+  if (sub === "resolve") {
+    if (!flags.instance) {
+      streams.stderr.write("h2a blockage resolve: --instance <id> is required\n");
+      return 1;
+    }
+    const resolved = resolveBlockage(root, flags.instance, flags.by ? { by: flags.by } : {});
+    if (!resolved) {
+      streams.stderr.write(`h2a blockage resolve: no blockage recorded for "${flags.instance}"\n`);
+      return 2;
+    }
+    streams.stdout.write(`${JSON.stringify({ ok: true, ...resolved }, null, 2)}\n`);
+    return 0;
+  }
+
+  streams.stderr.write(`h2a blockage: unknown subcommand "${sub ?? ""}" (raise, list, resolve)\n`);
   return 1;
 }
 
@@ -2172,6 +2232,7 @@ export function runCli(
     return cmdDrumbeat(argv.slice(1), streams);
   }
   if (command === "nhi") return cmdNhi(argv.slice(1), streams);
+  if (command === "blockage") return cmdBlockage(argv.slice(1), streams);
   if (command === "negotiate") return cmdNegotiate(argv.slice(1), streams);
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);

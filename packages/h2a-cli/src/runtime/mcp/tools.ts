@@ -326,5 +326,43 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
       },
       required: ["instance"]
     }
+  },
+  {
+    name: "h2a_blockage_raise",
+    description:
+      "Raise a blockage (DEC-092, EVO-3) so peers in scope are notified (peer.blocked push) — distinct from the drumbeat stall and from escalation. Durable.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        instance: { type: "string" },
+        reason: { type: "string" },
+        scope: { type: "string" },
+        needs: { type: "string", description: "What would unblock it (helps a peer act)." }
+      },
+      required: ["instance", "reason"]
+    }
+  },
+  {
+    name: "h2a_blockage_list",
+    description: "List recorded blockages (DEC-092), optionally filtered by scope or active-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        scope: { type: "string" },
+        active: { type: "boolean", description: "Only unresolved blockages." }
+      }
+    }
+  },
+  {
+    name: "h2a_blockage_resolve",
+    description: "Resolve a blockage (DEC-092, idempotent); the dispatcher then pushes peer.unblocked.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        instance: { type: "string" },
+        by: { type: "string" }
+      },
+      required: ["instance"]
+    }
   }
 ];

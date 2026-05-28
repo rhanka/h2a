@@ -479,6 +479,33 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Coordinated decommission of an NHI: revoke every active key (DEC-079) and every active subagent (DEC-072) of the instance, then append an offboard tombstone. Idempotent (re-running revokes only what is still active). Exit 2 if the instance is not registered. DEC-089."
   },
   {
+    verb: "blockage raise",
+    outputShape: "action",
+    exitCodes: [0, 1],
+    requiredFlags: ["instance", "reason"],
+    optionalFlags: ["root", "scope", "needs"],
+    description:
+      "Raise a blockage so peers in scope are notified (the EVO-3 feedback loop, distinct from the drumbeat stall and from escalation). Durable under `<root>/.h2a/blockage/`; the MCP dispatcher pushes `peer.blocked` to subscribed peers. DEC-092."
+  },
+  {
+    verb: "blockage list",
+    outputShape: "list",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["root", "scope", "active"],
+    description:
+      "List recorded blockages (optionally filtered by `--scope` or `--active`). The polling path for hosts without a background daemon (e.g. agy). DEC-092."
+  },
+  {
+    verb: "blockage resolve",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["instance"],
+    optionalFlags: ["root", "by"],
+    description:
+      "Resolve a blockage (idempotent); the dispatcher then pushes `peer.unblocked`. Exit 2 if the instance has no blockage recorded. DEC-092."
+  },
+  {
     verb: "install-skills",
     outputShape: "action",
     exitCodes: [0, 1, 2, 3],

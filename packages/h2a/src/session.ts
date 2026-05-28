@@ -24,7 +24,9 @@ export const H2A_SESSION_NOTIFICATION_TOPICS = [
   "presence.peer_joined",
   "presence.peer_left",
   "inbox.envelope_arrived",
-  "negotiation.event_appended"
+  "negotiation.event_appended",
+  "peer.blocked",
+  "peer.unblocked"
 ] as const;
 
 export const H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS = 5000;

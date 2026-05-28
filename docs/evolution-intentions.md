@@ -51,6 +51,8 @@
 
 **Open framing**: notification transport (bg task vs MCP push vs inbox); per-platform compatibility (depends on EVO-1 matrix); relation to the existing escalation channels.
 
+**Status (DEC-092, 0.11.0)**: ✅ **Phase A shipped** — `h2a blockage raise|list|resolve` + `h2a_blockage_*` MCP tools; durable registry `<root>/.h2a/blockage/`; new topics `peer.blocked`/`peer.unblocked` pushed by the MCP dispatcher to subscribed peers in scope (connected peers on all 4 hosts). ✅ **Phase B adapter layer shipped** — `BlockageNotifier` (`loggingNotifier`/`commandNotifier`/`pollingNotifier`/`chainNotifier`), the agy case = polling fallback. **Remaining**: wire the per-host wake command into each plugin (D6). Design spec: `docs/superpowers/specs/2026-05-27-evo3-blockage-feedback-loop-design.md`.
+
 ## EVO-4 — Decision support / situation presentation
 
 **Intention**: when a solicitation notifies that **an action/decision is needed** (by `PRINCIPAL` or `EXECUTIF`), a **situation-presentation / decision-aid tool** must be available. Delivery modes envisaged (one or several):

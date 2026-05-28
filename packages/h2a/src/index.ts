@@ -197,6 +197,13 @@ export type {
   H2ANhiSubagentInventory,
   H2ANhiSubagentSnapshot
 } from "./nhi.js";
+export {
+  H2A_BLOCKAGE_BODY_KIND,
+  H2A_BLOCKAGE_CLEARED_BODY_KIND,
+  blockageEnvelope,
+  isActiveBlockage
+} from "./blockage.js";
+export type { H2ABlockage, H2ABlockageBody } from "./blockage.js";
 export { assertValidNegotiationState } from "./negotiation.js";
 export { canonicalize, computeHash } from "./canonical.js";
 export { signCanonical, verifyCanonical } from "./signature.js";

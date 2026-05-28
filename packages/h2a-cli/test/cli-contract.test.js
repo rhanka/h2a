@@ -542,6 +542,20 @@ function buildHappyArgv(verb, ctx) {
       return ["nhi", "attest", "--root", root, "--instance", "agent-001", "--private-key", privateKeyPath];
     case "nhi offboard":
       return ["nhi", "offboard", "--root", root, "--instance", "agent-001", "--reason", "contract-test"];
+    case "blockage raise":
+      return ["blockage", "raise", "--root", root, "--instance", "agent-001", "--reason", "waiting on review", "--scope", "scope:contract"];
+    case "blockage list":
+      return ["blockage", "list", "--root", root];
+    case "blockage resolve": {
+      // Raise a blockage first so there is one to resolve.
+      const sink = {
+        stdout: { write: () => {} },
+        stderr: { write: () => {} },
+        cwd: () => process.cwd()
+      };
+      runCli(["blockage", "raise", "--root", root, "--instance", "agent-001", "--reason", "x"], sink);
+      return ["blockage", "resolve", "--root", root, "--instance", "agent-001", "--by", "conductor:01"];
+    }
     case "subagent audit":
       return ["subagent", "audit", "--root", root, "--parent", "agent-001"];
     case "subagent revoke":
@@ -604,6 +618,9 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "nhi inventory",
     "nhi attest",
     "nhi offboard",
+    "blockage raise",
+    "blockage list",
+    "blockage resolve",
     "install-skills",
     "deploy k8s-sidecar",
     "deploy k8s-tenant",

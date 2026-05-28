@@ -1,9 +1,11 @@
 import {
   H2A_SESSION_NOTIFICATION_TOPICS,
+  isActiveBlockage,
   type H2ASession,
   type H2ASessionNotificationTopic
 } from "@sentropic/h2a";
 
+import { listBlockages } from "../blockage/registry.js";
 import type { LocalStore } from "../local-files/store.js";
 import type { SessionRegistry } from "./sessions.js";
 
@@ -36,6 +38,8 @@ interface SessionDiffState {
   inbox: InboxSnapshot;
   /** Per-negotiation journal-length snapshots. */
   negotiations: Map<string, NegotiationSnapshot>;
+  /** Instances seen with an active in-scope blockage (minus self) at last scan. */
+  blocked: Set<string>;
 }
 
 function isInterestedIn(
@@ -65,7 +69,8 @@ function emptyDiffState(): SessionDiffState {
   return {
     peers: new Set(),
     inbox: { envelopeIds: new Set() },
-    negotiations: new Map()
+    negotiations: new Map(),
+    blocked: new Set()
   };
 }
 
@@ -117,6 +122,10 @@ export class NotificationDispatcher {
     // correctly), regardless of which process wrote the file.
     const freshPeers = this.registry.scanFresh();
     const peerIds = new Set(freshPeers.map((s) => s.sessionId));
+
+    // Active blockages, computed once per tick (EVO-3, DEC-092). Per session we
+    // filter to its scopes and exclude its own blockage.
+    const activeBlockages = listBlockages(this.root).filter(isActiveBlockage);
 
     for (const session of ownSessions) {
       const prev = this.snapshots.get(session.sessionId) ?? emptyDiffState();
@@ -185,10 +194,39 @@ export class NotificationDispatcher {
         }
       }
 
+      // 4. Peer blockages in this session's scope (EVO-3). Notify of a peer's
+      // active blockage (peer.blocked) and of its clearing (peer.unblocked).
+      const inScope = activeBlockages.filter(
+        (b) =>
+          b.instance !== session.instance &&
+          session.interests.scopes.includes(b.scope)
+      );
+      const blockedNow = new Set(inScope.map((b) => b.instance));
+      if (isInterestedIn(session, "peer.blocked")) {
+        for (const b of inScope) {
+          if (!prev.blocked.has(b.instance)) {
+            this.push(session.sessionId, "peer.blocked", {
+              instance: b.instance,
+              scope: b.scope,
+              reason: b.reason,
+              ...(b.needs ? { needs: b.needs } : {})
+            });
+          }
+        }
+      }
+      if (isInterestedIn(session, "peer.unblocked")) {
+        for (const instance of prev.blocked) {
+          if (!blockedNow.has(instance)) {
+            this.push(session.sessionId, "peer.unblocked", { instance });
+          }
+        }
+      }
+
       this.snapshots.set(session.sessionId, {
         peers: others,
         inbox: { envelopeIds: new Set(inboxIds) },
-        negotiations: negotiationSnap
+        negotiations: negotiationSnap,
+        blocked: blockedNow
       });
     }
   }

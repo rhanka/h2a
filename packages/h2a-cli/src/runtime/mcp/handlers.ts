@@ -18,6 +18,11 @@ import {
   type H2ASessionState
 } from "@sentropic/h2a";
 
+import {
+  listBlockages,
+  raiseBlockage,
+  resolveBlockage
+} from "../blockage/registry.js";
 import type { LocalStore } from "../local-files/store.js";
 import { gatherNhiSnapshot } from "../nhi.js";
 import type { SessionRegistry } from "./sessions.js";
@@ -581,6 +586,67 @@ export function handleNhiOffboard(
   try {
     const tombstone = store.offboardInstance(args.instance, args.reason);
     return { tombstone };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+// DEC-092 (EVO-3): blockage feedback loop. The dispatcher turns the registry
+// changes these write into peer.blocked/peer.unblocked pushes.
+export function handleBlockageRaise(
+  store: LocalStore,
+  args: { instance?: string; reason?: string; scope?: string; needs?: string } | undefined
+): McpToolResult | McpErrorResult {
+  if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_blockage_raise: missing 'instance'" };
+  }
+  if (typeof args.reason !== "string" || args.reason.length === 0) {
+    return { error: "h2a_blockage_raise: missing 'reason'" };
+  }
+  try {
+    const blockage = raiseBlockage(store.paths.root, {
+      instance: args.instance,
+      scope: typeof args.scope === "string" ? args.scope : "",
+      reason: args.reason,
+      ...(typeof args.needs === "string" ? { needs: args.needs } : {})
+    });
+    return { blockage };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+export function handleBlockageList(
+  store: LocalStore,
+  args: { scope?: string; active?: boolean } | undefined
+): McpToolResult | McpErrorResult {
+  try {
+    let blockages = listBlockages(store.paths.root);
+    if (typeof args?.scope === "string") blockages = blockages.filter((b) => b.scope === args.scope);
+    if (args?.active === true) blockages = blockages.filter((b) => b.resolvedAt === undefined);
+    return { blockages };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+export function handleBlockageResolve(
+  store: LocalStore,
+  args: { instance?: string; by?: string } | undefined
+): McpToolResult | McpErrorResult {
+  if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_blockage_resolve: missing 'instance'" };
+  }
+  try {
+    const resolved = resolveBlockage(
+      store.paths.root,
+      args.instance,
+      typeof args.by === "string" ? { by: args.by } : {}
+    );
+    if (!resolved) {
+      return { error: `h2a_blockage_resolve: no blockage recorded for "${args.instance}"` };
+    }
+    return { blockage: resolved };
   } catch (err) {
     return safeError(err);
   }

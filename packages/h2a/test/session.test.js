@@ -37,6 +37,8 @@ test("session protocol constants are stable", () => {
   assert.deepEqual([...H2A_SESSION_NOTIFICATION_TOPICS].sort(), [
     "inbox.envelope_arrived",
     "negotiation.event_appended",
+    "peer.blocked",
+    "peer.unblocked",
     "presence.peer_joined",
     "presence.peer_left"
   ]);

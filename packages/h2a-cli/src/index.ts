@@ -132,6 +132,22 @@ export {
 } from "./runtime/drumbeat/index.js";
 
 export {
+  raiseBlockage,
+  readBlockage,
+  listBlockages,
+  resolveBlockage,
+  loggingNotifier as blockageLoggingNotifier,
+  commandNotifier,
+  pollingNotifier,
+  chainNotifier as chainBlockageNotifier,
+  defaultNotifierRuntime,
+  type RaiseBlockageInput,
+  type BlockageNotifier,
+  type BlockagePeer,
+  type NotifierRuntime
+} from "./runtime/blockage/index.js";
+
+export {
   acceptRemoteEnvelope,
   createRemoteServer,
   rejectionStatus,
