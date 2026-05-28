@@ -216,6 +216,22 @@ export {
 } from "./blockage.js";
 export type { H2ABlockage, H2ABlockageBody } from "./blockage.js";
 export {
+  H2A_ORG_PROPOSAL_BODY_KIND,
+  H2A_ORG_RATIFIED_BODY_KIND,
+  orgAssignmentEnvelope,
+  validateOrgManifest
+} from "./org.js";
+export type {
+  H2AOrgAssignmentActor,
+  H2AOrgAssignmentBody,
+  H2AOrgAssignmentKind,
+  H2AOrgCommEdge,
+  H2AOrgInstance,
+  H2AOrgManifest,
+  H2AOrgValidationError,
+  H2AOrgValidationResult
+} from "./org.js";
+export {
   H2A_SYSML_REF_KIND,
   isH2ASysmlRef,
   sysmlRefEquals,
