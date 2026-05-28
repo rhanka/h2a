@@ -534,6 +534,8 @@ function buildHappyArgv(verb, ctx) {
       return ["drumbeat", "scan", "--root", root];
     case "drumbeat clear":
       return ["drumbeat", "clear", "--root", root, "--instance", "agent-001"];
+    case "drumbeat escalations":
+      return ["drumbeat", "escalations", "--root", root];
     case "nhi report":
       return ["nhi", "report", "--root", root];
     case "nhi inventory":
@@ -607,6 +609,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "drumbeat record",
     "drumbeat scan",
     "drumbeat clear",
+    "drumbeat escalations",
     "drumbeat watch",
     "host setup",
     "host status",

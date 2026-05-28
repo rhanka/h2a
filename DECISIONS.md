@@ -1723,3 +1723,22 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) SPIFFE is the closest *standard* to what h2a already is, vendor-neutral and lowest-risk (the veille flagged the Cisco→Astrix acquisition as a vendor-bet risk), so it is the right first target; (b) a pure, dependency-free transform keeps the core clean and lets a connector own the live SPIRE/Federation network side; (c) shaping the output as a real trust bundle while h2a-namespacing the key material avoids overclaiming SVID compliance — demonstrated-facts discipline applied to a wire format. Design + SPIFFE sources: `docs/superpowers/specs/2026-05-28-nhi-p3-interop-design.md`.
 
 **Consequence**: (a) `@sentropic/h2a` exports `nhiSpiffeId`/`nhiTrustBundle` + `H2A_NHI_EXPORT_KEY_USE`/`H2A_NHI_SPIFFE_PATH_ENCODINGS` + the `H2ANhiTrustBundle*` types; (b) `h2a nhi export` + `h2a_nhi_export` are live and contract-tested; (c) **additive surface → minor bump `0.12.0`** (shared with DEC-093); (d) **NHI P3** is opened (the trust-anchor export); remaining P3: the `../sentropic/` connector (PEM→JWK, SVID, live bundle endpoint, Federation) and the evidence-feed/secrets-manager targets; the `:`/`~` path encoding is provisional pending real SPIRE interop.
+
+## DEC-095 — Drumbeat D7: escalate-to-PRINCIPAL on relance-exhaustion
+**Date**: 2026-05-28. **Refers**: DEC-040, DEC-084, DEC-086. **Line**: V2 (unreleased — autonomous loop, pending review).
+
+**Context**: D2's `scanDrumbeat` already separates relance `findings` from `exhausted` entries (relanceCount ≥ cap), and `drumbeatTick` calls `onExhausted` — but the daemon only logged it. D7 makes exhaustion actionable: stop relancing that agent and **escalate to the PRINCIPAL** (DEC-084: the engagement owner, not EXECUTIF), over the `alert` channel (DEC-040). The relance cap (`--max-relances`) is the anti-loop guard; the escalation replaces further relances.
+
+**Decision**: a durable escalation registry + auto-escalation on exhaustion + a list verb.
+
+- `runtime/escalation/registry.ts`: `recordEscalation`/`listEscalations`/`readEscalation`/`clearEscalation` over `<root>/.h2a/escalation/<instance>.json`. `H2AEscalationRecord = {instance, reason:"relance-exhausted", relanceCount, channel, to, at}`; **idempotent upsert** per instance (one open alert per agent, not a flood).
+- `h2a drumbeat watch` wires `onExhausted` → `recordEscalation(...)` and prints `ESCALATE <instance> → PRINCIPAL`.
+- `h2a drumbeat escalations` lists open escalations; `h2a drumbeat clear` now also clears the escalation (a clean resume/finish closes the alert).
+
+**Reversible default decisions** (loop, traced in `docs/loop-decisions.md`):
+1. The escalation target is modelled **symbolically** as role `PRINCIPAL` + channel `alert`, not a resolved actor id — the drumbeat entry doesn't carry the scope/principal, so `resolveEscalationTarget` (DEC-040) can't run yet. Reversible: carry `scope` in the drumbeat entry (D6 capture) and resolve a concrete authority later.
+2. Escalations live in a **dedicated registry**, not the PRINCIPAL's inbox. Reversible: a later slice can also fan an escalation envelope into the resolved principal's inbox once (1) is in place.
+
+**Why**: (a) an exhausted budget must break the relance loop, and the spec's chain ends at the PRINCIPAL; (b) a durable, idempotent record gives the human one actionable alert per stuck agent and is the substrate a future notification/inbox fan-out consumes; (c) symbolic targeting keeps D7 shippable now without inventing a scope→authority resolution the data doesn't yet support — and it is explicitly reversible.
+
+**Consequence**: (a) `@sentropic/h2a-cli` exports the escalation registry API; `LocalStorePaths` gains `escalation`; (b) `h2a drumbeat escalations` + auto-escalation in `watch` are live and contract-tested; (c) **no version bump in this loop** (left for review); when released this is an additive minor; (d) remaining Drumbeat: D4 (remote relauncher), D5 (reflexive watchdog subagent); the scope→PRINCIPAL resolution + notification fan-out are the natural D7 follow-ons.

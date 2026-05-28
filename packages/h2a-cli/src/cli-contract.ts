@@ -349,6 +349,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Remove a drumbeat registry entry — call when an agent is cleanly resumed or finished. DEC-086."
   },
   {
+    verb: "drumbeat escalations",
+    outputShape: "list",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["root"],
+    description:
+      "List open escalations the daemon raised when an agent exhausted its relance budget (→ PRINCIPAL, channel alert). The anti-loop cap (`--max-relances`) is the guard; this is the escalation that replaces further relances. Cleared by `drumbeat clear`. DEC-095."
+  },
+  {
     verb: "drumbeat watch",
     outputShape: "stream",
     exitCodes: [0, 1],

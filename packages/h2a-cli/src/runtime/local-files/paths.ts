@@ -41,6 +41,7 @@ export interface LocalStorePaths {
   presence: string;
   drumbeat: string;
   blockage: string;
+  escalation: string;
 }
 
 export function localStorePaths(root: string): LocalStorePaths {
@@ -61,7 +62,8 @@ export function localStorePaths(root: string): LocalStorePaths {
     outbox: join(root, "outbox"),
     presence: join(root, "presence"),
     drumbeat: join(root, "drumbeat"),
-    blockage: join(root, "blockage")
+    blockage: join(root, "blockage"),
+    escalation: join(root, "escalation")
   };
 }
 

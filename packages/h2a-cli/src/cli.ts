@@ -99,6 +99,11 @@ import {
   listBlockages,
   resolveBlockage
 } from "./runtime/blockage/index.js";
+import {
+  recordEscalation,
+  listEscalations,
+  clearEscalation
+} from "./runtime/escalation/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -193,6 +198,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat record --instance <id> --status <working|paused|done|blocked|out-of-tokens> [--command <c>] [--resume-command <c>] [--tmux-session <s> --tmux-pane <p>] [--root <path>]",
     "  h2a drumbeat scan [--max-relances <n>] [--root <path>]",
     "  h2a drumbeat clear --instance <id> [--root <path>]",
+    "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
@@ -960,11 +966,19 @@ function cmdDrumbeat(argv: readonly string[], streams: H2ACliStreams): number {
       return 1;
     }
     clearDrumbeatEntry(root, flags.instance);
+    // DEC-095 (D7): a clean resume/finish also clears any open escalation.
+    clearEscalation(root, flags.instance);
     streams.stdout.write(`${JSON.stringify({ ok: true, instance: flags.instance, cleared: true }, null, 2)}\n`);
     return 0;
   }
 
-  streams.stderr.write("h2a drumbeat: subcommand required (record, scan, clear, watch)\n");
+  if (sub === "escalations") {
+    // DEC-095 (D7): the open escalations the daemon raised on relance-exhaustion.
+    streams.stdout.write(`${JSON.stringify(listEscalations(root), null, 2)}\n`);
+    return 0;
+  }
+
+  streams.stderr.write("h2a drumbeat: subcommand required (record, scan, clear, escalations, watch)\n");
   return 1;
 }
 
@@ -1215,6 +1229,18 @@ export async function runDrumbeatWatch(
     intervalMs,
     ...(maxRelances !== undefined ? { maxRelances } : {}),
     signal: io.signal,
+    // DEC-095 (D7): an exhausted relance budget stops the loop for that agent
+    // and escalates to the PRINCIPAL (the anti-loop cap is `maxRelances`).
+    onExhausted: (entry) => {
+      const record = recordEscalation(root, {
+        instance: entry.instance,
+        reason: "relance-exhausted",
+        relanceCount: entry.relanceCount
+      });
+      io.stdout.write(
+        `drumbeat: ESCALATE ${record.instance} → ${record.to} (${record.channel}, relances=${record.relanceCount})\n`
+      );
+    },
     onTick: (r) => {
       if (r.relanced.length || r.exhausted.length) {
         io.stdout.write(`drumbeat tick: relanced=[${r.relanced.join(",")}] exhausted=[${r.exhausted.join(",")}]\n`);

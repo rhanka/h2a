@@ -148,6 +148,16 @@ export {
 } from "./runtime/blockage/index.js";
 
 export {
+  recordEscalation,
+  readEscalation,
+  listEscalations,
+  clearEscalation,
+  type H2AEscalationRecord,
+  type H2AEscalationReason,
+  type RecordEscalationInput
+} from "./runtime/escalation/index.js";
+
+export {
   acceptRemoteEnvelope,
   createRemoteServer,
   rejectionStatus,

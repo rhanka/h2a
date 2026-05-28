@@ -53,7 +53,7 @@ flowchart TD
 | **D4** | **remote adapter** (relance via `@sentropic/remote`) | cli runtime + bridge |
 | **D5** | reflexive watchdog SUBAGENT (decide relance/finish/escalate/re-route) | skill/subagent |
 | **D6** | 🟡 **slice a done (DEC-093, 0.12.0)** — `h2a host plugin` renders the per-host stop-hook command (records the stop with launch context for D3) + placement, all four hosts at parity (claude settings hook / gemini hooks / codex app-server / **agy** plugin+poll). Remaining: register the rendered hook into each host's config | host plugins |
-| **D7** | escalation-to-PRINCIPAL after N fails + anti-loop cap | cli runtime |
+| **D7** | ✅ **done (DEC-095, unreleased)** — durable escalation registry + `h2a drumbeat watch` auto-escalates an exhausted agent to the PRINCIPAL (channel `alert`); `h2a drumbeat escalations` lists open alerts; `drumbeat clear` closes them. Anti-loop cap = `--max-relances`. Target resolution is symbolic (reversible, see loop-decisions). | cli runtime |
 | **L2** | deadline/milestone layer (relance as an engagement deadline approaches) | later |
 
 Reuses: presence/session (DEC-050/051), escalation channels (DEC-040), subagents (DEC-068), signed envelopes (DEC-073), the journal (idempotent relance ledger). agy is a host (EVO-0; supports MCP).
