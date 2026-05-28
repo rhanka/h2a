@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  H2A_AGY_HOST,
   H2A_CLAUDE_HOST,
   H2A_CODEX_HOST,
   H2A_GEMINI_HOST
@@ -114,7 +115,7 @@ function toolPayload(response) {
   return JSON.parse(response.result.content[0].text);
 }
 
-for (const descriptor of [H2A_CODEX_HOST, H2A_CLAUDE_HOST, H2A_GEMINI_HOST]) {
+for (const descriptor of [H2A_CODEX_HOST, H2A_CLAUDE_HOST, H2A_GEMINI_HOST, H2A_AGY_HOST]) {
   test(`${descriptor.host} host setup snippet drives MCP registration, negotiation, and inbox`, async () => {
     const root = mkdtempSync(join(tmpdir(), `h2a-${descriptor.host}-host-scenario-`));
     try {

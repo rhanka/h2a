@@ -41,7 +41,7 @@ test("h2a host status (no filter) lists every known host with wave info", () => 
   assert.ok(byHost.agy, "agy entry must be present");
   assert.equal(byHost.agy.wave, 1);
   assert.equal(byHost.agy.hostSetupShipped, true);
-  assert.equal(byHost.agy.hostScenarioShipped, false);
+  assert.equal(byHost.agy.hostScenarioShipped, true);
 
   // Wave assignments per DEC-037 / DEC-049 (Gemini promoted to wave 1).
   assert.equal(byHost.codex.wave, 1);

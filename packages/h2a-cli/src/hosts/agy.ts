@@ -49,8 +49,8 @@ export const H2A_AGY_HOST: H2AConfigurableHostDescriptor = {
   host: "agy",
   protocol: "sentropic.h2a",
   wave: 1,
-  // No dedicated end-to-end host scenario test yet (EVO-0 follow-on); the MCP
-  // config + setup/connect parity ships here.
-  hostScenarioShipped: false,
+  // host-mcp-scenario test covers agy (DEC-096) — the snippet drives the same
+  // `h2a mcp-serve` backend as the other three.
+  hostScenarioShipped: true,
   renderMcpConfig
 } as const;
