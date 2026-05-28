@@ -548,7 +548,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: ["host"],
     optionalFlags: ["scope", "force"],
     description:
-      "Install the h2a skill bundle into the host's skill directory. Claude/Codex receive SKILL.md files under `~/.<host>/skills/<name>/`; Gemini receives TOML custom commands under `~/.gemini/commands/<name>.toml` (DEC-055). `--scope user` (default) targets the home directory; `--scope project` targets `<cwd>/.<host>/`. Pre-existing files are skipped unless `--force` is set. DEC-054/055."
+      "Install the h2a skill bundle into the host's skill directory. Claude/Codex receive SKILL.md files under `~/.<host>/skills/<name>/`; Gemini and agy receive TOML custom commands under `~/.gemini/commands/<name>.toml` (DEC-055) — agy shares the gemini location and the summary emits an `importHint` (`agy plugin import gemini`) since agy imports plugins from gemini/claude (DEC-101). `--scope user` (default) targets the home directory; `--scope project` targets `<cwd>/.<host>/`. Pre-existing files are skipped unless `--force` is set. DEC-054/055/096/101."
   },
 
   // --- deployment (DEC-058 / Scenario A of DEC-056) ---

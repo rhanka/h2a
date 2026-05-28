@@ -113,6 +113,33 @@ test("install-skills --host gemini --scope project writes a single h2a.toml cust
   }
 });
 
+test("install-skills --host agy writes the gemini-style h2a.toml + emits an importHint (DEC-101)", () => {
+  const cwd = freshCwd();
+  try {
+    const streams = captureStreams(cwd);
+    const rc = runCli(
+      ["install-skills", "--host", "agy", "--scope", "project"],
+      streams
+    );
+    assert.equal(rc, 0, streams.stderrText);
+    const parsed = JSON.parse(streams.stdoutText);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.host, "agy");
+    // agy shares the gemini location (~/.gemini/commands), here project-scoped.
+    assert.equal(parsed.targetBase, join(cwd, ".gemini", "commands"));
+    assert.equal(parsed.installed.length, 1);
+    const file = parsed.installed[0];
+    assert.ok(file.endsWith(`${sep}h2a.toml`), `expected h2a.toml, got ${file}`);
+    assert.ok(existsSync(file));
+    // agy has no own skill store → the summary tells the user to import it.
+    assert.match(parsed.importHint, /agy plugin import gemini/);
+    const body = readFileSync(file, "utf8");
+    assert.match(body, /\/h2a connect/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 for (const host of ["claude", "codex"]) {
   test(`install-skills prunes legacy h2a-connect/discover/send on ${host} (DEC-057 migration)`, () => {
     const cwd = freshCwd();
@@ -223,7 +250,7 @@ test("install-skills rejects unknown host", () => {
       streams
     );
     assert.equal(rc, 1);
-    assert.match(streams.stderrText, /Supported: claude, codex, gemini/);
+    assert.match(streams.stderrText, /Supported: claude, codex, gemini, agy/);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

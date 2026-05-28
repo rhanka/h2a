@@ -225,7 +225,7 @@ export function renderCliHelp(): string {
     "  h2a blockage list [--scope <s>] [--active] [--root <path>]",
     "  h2a blockage resolve --instance <id> [--by <id>] [--root <path>]",
     "  h2a sysml verify --json <envelope> --public-key <pem-file> [--by <id>] [--content-integrity --api-base <url> [--auth <token>]]",
-    "  h2a install-skills --host claude [--scope user|project] [--force]",
+    "  h2a install-skills --host <claude|codex|gemini|agy> [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "",
@@ -2053,6 +2053,25 @@ function targetSpecFor(
       }
     };
   }
+  if (host === "agy") {
+    // DEC-096/101: agy (Antigravity) is in the Gemini ecosystem and shares
+    // `~/.gemini/`; it has no own skill store but imports plugins from gemini
+    // or claude (`agy plugin import gemini`). So installing the gemini TOML
+    // command IS the agy source — same write/location as gemini; the import
+    // step is surfaced as `importHint` in the summary.
+    return {
+      host: "agy",
+      userBase: join(homedir(), ".gemini", "commands"),
+      projectBase: join(cwd, ".gemini", "commands"),
+      extension: ".toml",
+      write: (base, skillName, parsed) => {
+        mkdirSync(base, { recursive: true });
+        const target = join(base, `${skillName}.toml`);
+        writeFileSync(target, renderSkillAsGeminiToml(parsed), "utf8");
+        return target;
+      }
+    };
+  }
   return undefined;
 }
 
@@ -2069,7 +2088,7 @@ function pruneLegacy(
 ): Array<{ name: string; path: string }> {
   const pruned: Array<{ name: string; path: string }> = [];
   for (const legacyName of LEGACY_SKILL_NAMES) {
-    if (spec.host === "gemini") {
+    if (spec.host === "gemini" || spec.host === "agy") {
       const file = join(base, `${legacyName}.toml`);
       if (existsSync(file)) {
         try {
@@ -2101,7 +2120,7 @@ function cmdInstallSkills(
   const host = flags.host;
   if (!host) {
     streams.stderr.write(
-      "h2a install-skills: --host <claude|codex|gemini> is required\n"
+      "h2a install-skills: --host <claude|codex|gemini|agy> is required\n"
     );
     return 1;
   }
@@ -2109,7 +2128,7 @@ function cmdInstallSkills(
   const spec = targetSpecFor(host, cwd());
   if (!spec) {
     streams.stderr.write(
-      `h2a install-skills: unknown --host "${host}". Supported: claude, codex, gemini.\n`
+      `h2a install-skills: unknown --host "${host}". Supported: claude, codex, gemini, agy.\n`
     );
     return 1;
   }
@@ -2163,7 +2182,7 @@ function cmdInstallSkills(
     // Probe the would-be target file before writing so existing files are
     // surfaced as skipped (mirrors the previous Claude-only behavior).
     const probeTarget =
-      spec.host === "gemini"
+      spec.host === "gemini" || spec.host === "agy"
         ? join(targetBase, `${skillName}.toml`)
         : join(targetBase, skillName, "SKILL.md");
     if (existsSync(probeTarget) && flags.force !== "true") {
@@ -2193,7 +2212,13 @@ function cmdInstallSkills(
         targetBase,
         installed,
         skipped,
-        prunedLegacy
+        prunedLegacy,
+        // DEC-101: agy has no own skill store — it imports from gemini/claude.
+        // The TOML above is written to the shared ~/.gemini location; the user
+        // then pulls it into agy with `agy plugin import gemini`.
+        ...(host === "agy"
+          ? { importHint: "agy plugin import gemini   # then: agy plugin enable h2a" }
+          : {})
       },
       null,
       2

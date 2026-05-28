@@ -180,7 +180,7 @@ These can be invoked directly from the shell at any time, outside the slash-comm
 - `h2a doctor [--root <path>]` — quick health probe.
 - `h2a sessions [--root <path>]` — same listing as `/h2a discover` but from the shell.
 - `h2a keys generate --instance <id>` — produce an ed25519 PEM keypair.
-- `h2a install-skills --host <claude|codex|gemini>` — re-install or update this skill on another host. *(agy/Antigravity is a first-class MCP host (`h2a host setup --host agy`, `h2a host plugin --host agy`) but its skill goes via `agy plugin import`, so `install-skills` does not yet take an `agy` target — see DEC-096.)*
+- `h2a install-skills --host <claude|codex|gemini|agy>` — re-install or update this skill on another host. *(For **agy**/Antigravity the skill is written to the shared `~/.gemini/commands/h2a.toml`; the command then prints an `importHint` — run `agy plugin import gemini` (then `agy plugin enable h2a`) to pull it into agy. DEC-096/101.)*
 
 **Operational surfaces** (also shell-invocable; matching `h2a_*` MCP tools where noted):
 

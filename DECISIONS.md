@@ -1827,3 +1827,14 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) a total mode→scope mapping makes the disclosure policy drive the query without hard-coding a repo's API dialect; (b) the `fetch` flag composes with S3's content-integrity (no-content modes skip the re-fetch); (c) keeping it abstract honours the non-goal "h2a does not implement the SysML API server".
 
 **Consequence**: (a) `@sentropic/h2a-cli` exports `sysmlQueryScope` + `H2ASysmlQueryScope`/`H2ASysmlQueryDetail`; (b) **SysML v2 interop S1-S4 is complete** (DEC-097..100) — ref + adapter + verify + disclosure mapping; (c) **no version bump in this loop** (review-gated); remaining is only the concrete per-API param translation (out of the V1 interop scope, DEC-081).
+
+## DEC-101 — EVO-0: `agy` target for `install-skills` (via gemini import)
+**Date**: 2026-05-28. **Refers**: DEC-055, DEC-096. **Line**: V2 (0.13.x).
+
+**Context**: DEC-096 made agy a first-class MCP host but deferred the `install-skills` agy target pending confirmation of the plugin-import format. Probed live: `agy plugin import [gemini|claude]` — agy has **no own skill store**; it imports plugins from the gemini or claude installs, and shares `~/.gemini/`.
+
+**Decision**: `install-skills --host agy` writes the **gemini-style TOML** (`~/.gemini/commands/h2a.toml` — the exact gemini location/format) and the summary emits an **`importHint`** (`agy plugin import gemini` then `agy plugin enable h2a`). agy reuses the gemini target/prune/probe paths.
+
+**Why**: (a) grounded in the probed reality — agy imports from gemini/claude and shares `~/.gemini/`, so the gemini command *is* the agy source; (b) no new on-disk layout invented; (c) the import step is a real user action agy must run, so it is surfaced as a hint, not silently assumed.
+
+**Consequence**: (a) `install-skills` accepts `agy` (4 hosts), gemini-style write + `importHint`; help/contract updated; (b) resolves the DEC-096 deferred agy install-skills item and loop-decision #4; **EVO-0 (agy parity) is now complete** (MCP config + host scenario + stop-hook plugin + skill install); (c) additive surface, ships in the **0.13.0** release.

@@ -17,7 +17,7 @@
 
 ## EVO-0 — `agy` host parity
 
-**Status (DEC-093 + DEC-096, unreleased)**: 🟡 **MCP parity shipped** — `H2A_AGY_HOST` (`renderMcpConfig` → `~/.gemini/config/mcp_config.json`), accepted by `host setup`/`connect`/`host status` (4 hosts at parity); agy is a first-class stop-hook target (`host plugin`, poll-only, DEC-093). **Remaining**: agy end-to-end scenario test + `install-skills` agy target (via `agy plugin import`).
+**Status (DEC-093 + DEC-096, unreleased)**: 🟡 **MCP parity shipped** — `H2A_AGY_HOST` (`renderMcpConfig` → `~/.gemini/config/mcp_config.json`), accepted by `host setup`/`connect`/`host status` (4 hosts at parity); agy is a first-class stop-hook target (`host plugin`, poll-only, DEC-093). **Complete** (DEC-101): scenario test ✅ + `install-skills --host agy` ✅ (gemini-style TOML + `agy plugin import gemini` hint).
 
 **Intention**: support **agy** as a first-class h2a host, on the **same functional perimeter** as the others.
 
