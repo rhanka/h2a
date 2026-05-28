@@ -28,6 +28,8 @@ Not organizational topologies — they test `h2a` against external standards/fra
 |---|---|---|
 | SysML v2 (OMG) | metamodel mapping · SE use-case · API & Services interop · formalizing h2a in SysML/KerML | [sysml-v2.md](./sysml-v2.md) |
 | Non-Human Identity | h2a ↔ OWASP NHI Top 10 (2025) coverage + NIST SP 800-207 / CSF 2.0 alignment | [nhi.md](./nhi.md) |
+| NHI solutions landscape | veille of the NHI field (vendors/OSS/standards) gating NHI P3 interop | [nhi-landscape.md](./nhi-landscape.md) |
+| Smart contracts (blockchain) | h2a off-chain negotiation/authority ↔ on-chain execution; `{chain,address,txHash}` reference | [smart-contract.md](./smart-contract.md) |
 
 ## Machine-readable source
 

@@ -26,3 +26,4 @@
 - **SysML S2 — fetch+hash adapter** (DEC-098) — `runtime/sysml/` `resolveSysmlElement` (injectable fetch) + `hashSysmlElement`, mock-API tested. 523 tests green.
 - **SysML S3 — envelope verification** (DEC-099) — `verifyEnvelopeSysmlRef` (commit-trust + content-integrity) + `extractSysmlRef` + async CLI `h2a sysml verify`. 530 tests green.
 - **SysML S4 — disclosure → query scope** (DEC-100) — `sysmlQueryScope(mode)` total over DEC-045 modes. 533 tests green. **➡ SysML interop S1-S4 COMPLETE** (DEC-097..100).
+- **Backlog B — `evaluations/smart-contract.md` authored** (B4) — h2a off-chain negotiation/authority ↔ on-chain execution; `{chain,address,txHash}` reference (mirrors SysML interop); off-chain boundary + gaps + compatibility hypothesis. Doc only, pending triple-review. Linked in evaluations/README.md.
