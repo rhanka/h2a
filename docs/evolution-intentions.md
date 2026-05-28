@@ -12,6 +12,7 @@
 | EVO-5 | NHI (Non-Human Identity) — NIST standard support | yes (research first) | intention → backlog |
 | EVO-6 | Auto-connect at host startup (opt-in default + `/h2a disconnect`) | small (framed below) | intention |
 | EVO-7 | Coach mode — assign roles + shape who-talks-to-whom across many instances, org committed to a repo | yes | 🟡 slice 1 (DEC-106) — core org model shipped; coach skill + provisioning = later slices |
+| EVO-8 | CLI auto-upgrade (h2a upgrade + boot version-check; opt-in self-update) | small (framed below) | intention |
 
 > **Spec session 1 output**: [`docs/plugin-capability-matrix.md`](./plugin-capability-matrix.md) — factual CLI audit + capability matrix + per-intention implications.
 
@@ -111,3 +112,16 @@
 - **Ratification — coach proposes, does NOT impose (user, key constraint)**: a role/mandate assignment is not a unilateral coach write — it runs the existing **negotiation + signature** lifecycle: the coach **offers** the assignment, **each affected agent can counter / give input**, and the **owning `PRINCIPAL` ratifies (signs)**; only the ratified assignment is provisioned. Respects the invariants (a `SCOPE`/coach never signs; owned ⇒ `PRINCIPAL`; `CONDUCTOR` orchestrates, does not own/decide). The org-assignment is thus itself an h2a-governed, signed, negotiated artifact — `MANDATE`s issued under the PRINCIPAL's `AUTHORITY`, reusing `signEnvelope` + the negotiation journal (as the NHI attestation reuses the signed envelope).
 
 **Open framing** (spec session): the org-manifest schema; `h2a org`/`h2a coach` CLI+MCP surface; how scope-membership gates `discover`/`inbox` (enforce vs advise); whether the coach can *act* (write mandates/scopes) or only *recommend*; relation to `model` (coach consumes a model output); multi-PRINCIPAL ownership of the org file.
+
+## EVO-8 — CLI auto-upgrade
+
+**Intention**: the `h2a` CLI should help keep itself current — an **auto-upgrade** path so users (and the per-host MCP servers) don't run a stale binary after a release.
+
+**Why/source**: user — "propose un auto upgrade à la cli aussi" (right after shipping 0.15.0 + manually upgrading the global install + re-registering the hosts — that manual upgrade is exactly what this automates).
+
+**Framing + preco** (three levels, increasing aggressiveness):
+1. **`h2a upgrade [--check]` (preco, safe)** — `--check`: query the npm registry for the latest `@sentropic/h2a-cli` and report `current vs latest` (no install); bare `h2a upgrade`: run `npm i -g @sentropic/h2a-cli@latest` and print the result (surface errors verbatim if the global install isn't npm-managed). Explicit, user-invoked, zero surprise.
+2. **Boot version-check notice (preco, safe)** — `mcp-serve` does a **non-blocking, cached, opt-out** check at boot (once per interval, cached in `<root>/upgrade-check.json`; network failure ignored) and writes a stderr notice *"h2a X available (current A) — run `h2a upgrade`"*. Never auto-installs; opt-out via `--no-upgrade-check` / env.
+3. **`mcp-serve --auto-upgrade` (opt-in, propose only)** — self-install `@latest` at boot before serving. Powerful but **sensitive** (replaces the running binary; needs care with a long-lived server / concurrent hosts), so opt-in + documented, not default.
+
+**Open framing**: install-method detection (npm-global vs other) for level 1; cache TTL + state file location for level 2; whether level 3 restarts the server cleanly; security (only upgrade from the official registry; pin major). Reuses the `mcp-serve` boot path (like `--auto-open`, DEC-105).
