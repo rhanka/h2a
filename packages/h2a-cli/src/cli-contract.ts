@@ -319,6 +319,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     description:
       "Sign an envelope (`--json`) with `--private-key` as `--instance` and POST it to `--url`. Prints `{ status, body }`; exit 0 on a 2xx response, 1 otherwise. DEC-077."
   },
+  {
+    verb: "sysml verify",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["json", "public-key"],
+    optionalFlags: ["by", "content-integrity", "api-base", "auth"],
+    description:
+      "Verify an envelope's embedded SysML v2 ref: commit-trust (signature, default) + optional content-integrity (`--content-integrity`: re-fetch the element and compare its hash to `elementHash`). Async (network on the content path). Exit 2 if verification fails. DEC-099."
+  },
 
   // --- drumbeat (DEC-086, anti-stall relance) ---
   {

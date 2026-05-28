@@ -1795,3 +1795,21 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) an injectable HTTP client keeps the adapter deterministic and network-free in tests while the default `fetch` works in production; (b) reusing the core canonical hash means sign-time and verify-time hashes are directly comparable; (c) per-call out-of-band auth honours the auth-boundary invariant (a signed engagement asserts authority, not repository access).
 
 **Consequence**: (a) `@sentropic/h2a-cli` exports `resolveSysmlElement`/`hashSysmlElement` + the `SysmlFetchImpl`/`SysmlFetchResponse`/`ResolveSysmlOptions` types; (b) mock-API tested; (c) **no version bump in this loop** (review-gated); (d) **S3** = `verifyEnvelopeSysmlRef` (commit-trust + content-integrity) + `h2a sysml verify` CLI; **S4** = disclosure→view mapping.
+
+## DEC-099 — SysML v2 interop S3: envelope verification (`verifyEnvelopeSysmlRef` + `h2a sysml verify`)
+**Date**: 2026-05-28. **Refers**: DEC-073, DEC-081, DEC-097, DEC-098. **Line**: V2 (unreleased — autonomous loop, pending review).
+
+**Context**: S1 gave the ref, S2 the fetch+hash adapter. S3 ties them to the signature (DEC-073): verify *who committed to which model state* — commit-trust by default, content-integrity as hardening (spec §4).
+
+**Decision**: `runtime/sysml/verify.ts` + an async CLI verb.
+
+- `extractSysmlRef(envelope)` reads the ref from the conventional `body.subject.sysmlRef` (spec §2) and type-guards it.
+- `verifyEnvelopeSysmlRef(envelope, {publicKeyPem, by?, contentIntegrity?, apiBase?, auth?, fetchImpl?})` → `{ok, ref?, signatureVerified, contentVerified?, reason?}`. **(a) commit-trust** (default): valid `H2ASysmlRef` + `verifyEnvelopeSignature` pass ⇒ ok. **(b) content-integrity**: additionally re-fetch (S2) + `hashSysmlElement` and compare to `ref.elementHash` (`content-hash-mismatch` / `no-element-hash` reasons). Tampering with the ref breaks the signature (`signature-failed`).
+- **CLI**: `h2a sysml verify --json <envelope> --public-key <pem-file> [--by] [--content-integrity --api-base --auth]` — async (network on the content path) → dispatched from `bin.ts` like `remote`/`drumbeat watch`. Exit 2 on verification failure (DEC-034).
+
+**Reversible default decision** (loop, `docs/loop-decisions.md`):
+- The ref is read from a fixed path `body.subject.sysmlRef`. Reversible: accept additional locations or a configurable path if artifacts embed refs elsewhere.
+
+**Why**: (a) reusing `verifyEnvelopeSignature` means commit-trust is just the existing signature check plus a valid ref — no new crypto; (b) content-integrity composes S2 cleanly and is opt-in (the default is the cheap, offline commit-trust); (c) exit 2 on a failed verification matches the state/business-outcome code, distinct from a usage error (1).
+
+**Consequence**: (a) `@sentropic/h2a-cli` exports `verifyEnvelopeSysmlRef`/`extractSysmlRef` (+ option/result types); `h2a sysml verify` is live (contract entry; happy-path covered by `sysml-verify.test.js`, the contract single-shot skips it as async); (b) **no version bump in this loop** (review-gated); (c) **S4** (disclosure mode → API query scope/views) is the last SysML interop slice.

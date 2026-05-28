@@ -105,6 +105,7 @@ import {
   listEscalations,
   clearEscalation
 } from "./runtime/escalation/index.js";
+import { verifyEnvelopeSysmlRef } from "./runtime/sysml/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -223,6 +224,7 @@ export function renderCliHelp(): string {
     "  h2a blockage raise --instance <id> --reason <text> [--scope <s>] [--needs <text>] [--root <path>]",
     "  h2a blockage list [--scope <s>] [--active] [--root <path>]",
     "  h2a blockage resolve --instance <id> [--by <id>] [--root <path>]",
+    "  h2a sysml verify --json <envelope> --public-key <pem-file> [--by <id>] [--content-integrity --api-base <url> [--auth <token>]]",
     "  h2a install-skills --host claude [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
@@ -1250,6 +1252,48 @@ export async function runDrumbeatWatch(
     }
   });
   return 0;
+}
+
+/**
+ * `h2a sysml verify` (DEC-099, S3): verify an envelope's embedded SysML ref —
+ * commit-trust (signature) by default; add `--content-integrity` to re-fetch +
+ * re-hash the element (network). Async → dispatched from bin.ts like remote.
+ */
+export async function runSysmlVerify(
+  flags: Record<string, string>,
+  io: { stdout: NodeJS.WritableStream; stderr: NodeJS.WritableStream; cwd?: () => string } = {
+    stdout: process.stdout,
+    stderr: process.stderr
+  }
+): Promise<number> {
+  if (!flags.json || !flags["public-key"]) {
+    io.stderr.write("h2a sysml verify: --json <envelope> and --public-key <pem-file> are required\n");
+    return 1;
+  }
+  let envelope: Parameters<typeof verifyEnvelopeSysmlRef>[0];
+  try {
+    envelope = JSON.parse(flags.json) as Parameters<typeof verifyEnvelopeSysmlRef>[0];
+  } catch (error) {
+    io.stderr.write(`h2a sysml verify: --json is not valid JSON (${(error as Error).message})\n`);
+    return 1;
+  }
+  let publicKeyPem: string;
+  try {
+    publicKeyPem = readFileSync(flags["public-key"], "utf8");
+  } catch (error) {
+    io.stderr.write(`h2a sysml verify: cannot read --public-key (${(error as Error).message})\n`);
+    return 1;
+  }
+  const result = await verifyEnvelopeSysmlRef(envelope, {
+    publicKeyPem,
+    ...(flags.by ? { by: flags.by } : {}),
+    ...(flags["content-integrity"] ? { contentIntegrity: true } : {}),
+    ...(flags["api-base"] ? { apiBase: flags["api-base"] } : {}),
+    ...(flags.auth ? { auth: flags.auth } : {})
+  });
+  io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  // Verification failure is a state/business outcome → exit 2 (DEC-034).
+  return result.ok ? 0 : 2;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -2325,6 +2369,17 @@ export function runCli(
   }
   if (command === "nhi") return cmdNhi(argv.slice(1), streams);
   if (command === "blockage") return cmdBlockage(argv.slice(1), streams);
+  if (command === "sysml") {
+    const sub = argv[1];
+    if (sub === "verify") {
+      streams.stderr.write(
+        "h2a sysml verify: async verb — run via the h2a binary, not the synchronous API.\n"
+      );
+      return 1;
+    }
+    streams.stderr.write("h2a sysml: subcommand required (verify).\n");
+    return 1;
+  }
   if (command === "negotiate") return cmdNegotiate(argv.slice(1), streams);
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);

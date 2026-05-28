@@ -75,7 +75,7 @@ Pure ref types stay in core; all I/O stays in the cli runtime adapter.
 |---|---|---|---|
 | **S1** | ✅ **done (DEC-097, unreleased)** — `H2ASysmlRef` type + `validateSysmlRef`/`sysmlRefEquals`/`isH2ASysmlRef` (pure, core) | `@sentropic/h2a` | DEC-035/073 |
 | **S2** | ✅ **done (DEC-098, unreleased)** — `runtime/sysml/` adapter: `resolveSysmlElement` (injectable `fetchImpl`) + `hashSysmlElement`, mock-API tested | `@sentropic/h2a-cli` | S1, API & Services PSM |
-| **S3** | `verifyEnvelopeSysmlRef` (commit-trust + content-integrity) + CLI `h2a sysml verify` | `@sentropic/h2a-cli` | S2, DEC-073/074 |
+| **S3** | ✅ **done (DEC-099, unreleased)** — `verifyEnvelopeSysmlRef` (commit-trust + content-integrity) + `extractSysmlRef` + CLI `h2a sysml verify` (async) | `@sentropic/h2a-cli` | S2, DEC-073/074 |
 | **S4** | disclosure mode → API query scope mapping (views) | `@sentropic/h2a-cli` | S2, DEC-045 |
 
 - **Versioning**: S1 adds public core surface → minor bump; S2-S4 patch/minor as shipped.

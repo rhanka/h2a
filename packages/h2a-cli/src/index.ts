@@ -162,9 +162,13 @@ export {
 export {
   resolveSysmlElement,
   hashSysmlElement,
+  verifyEnvelopeSysmlRef,
+  extractSysmlRef,
   type SysmlFetchImpl,
   type SysmlFetchResponse,
-  type ResolveSysmlOptions
+  type ResolveSysmlOptions,
+  type VerifyEnvelopeSysmlOptions,
+  type VerifyEnvelopeSysmlResult
 } from "./runtime/sysml/index.js";
 
 export {

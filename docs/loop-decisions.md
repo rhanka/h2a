@@ -13,6 +13,7 @@
 | 4 | EVO-0 agy host | `install-skills` left at `claude\|codex\|gemini` (no agy) | agy's `/h2a` skill travels via `agy plugin import`, a different path (matrix), not yet confirmed | Add an `agy` branch to `install-skills` once the plugin-import format is confirmed |
 | 5 | SysML S1 | `sysmlRefEquals` is **strict over all fields** (incl. `apiBase`, `elementHash`) | Avoids a surprising "equal but different mirror/content"; total + simple | Add a looser `sameModelState(a,b)` predicate if a use case needs it |
 | 6 | SysML S2 | `resolveSysmlElement` **requires `ref.element`** (whole-project resolution throws) | Element fetch is the content-integrity case; whole-project has no single hash target | Add a project/commit elements-collection fetch when needed |
+| 7 | SysML S3 | The ref is read from a fixed path `body.subject.sysmlRef` | The spec's conventional embedding location (§2) | Accept additional locations / a configurable path if artifacts embed refs elsewhere |
 | — | loop infra | Loop is **rate-limit-resilient**: each turn re-derives the next slice from repo state (an un-committed slice is simply redone) and always reschedules the wakeup as its last action; iterations spaced to let transient rate-limits clear | User asked the loop to survive rate-limits | n/a (behavioral) |
 
 ## Slices completed in this loop (no release yet)
@@ -21,4 +22,5 @@
 - **EVO-0 — agy as a first-class host (MCP parity)** (DEC-096) — `H2A_AGY_HOST` + `host setup`/`connect`/`status` accept agy (4 hosts). 511 tests green.
 - **EVO-0 — agy host-MCP e2e scenario test** (DEC-096 follow-through) — agy added to `host-mcp-scenario.test.js`, `hostScenarioShipped: true`. 512 tests green. Remaining EVO-0: `install-skills` agy target (decision #4).
 - **SysML S1 — `H2ASysmlRef` pure model reference** (DEC-097) — type + `validateSysmlRef`/`isH2ASysmlRef`/`sysmlRefEquals` in core. 518 tests green.
-- **SysML S2 — fetch+hash adapter** (DEC-098) — `runtime/sysml/` `resolveSysmlElement` (injectable fetch) + `hashSysmlElement`, mock-API tested. 523 tests green. Next: S3 (`verifyEnvelopeSysmlRef` + `h2a sysml verify`).
+- **SysML S2 — fetch+hash adapter** (DEC-098) — `runtime/sysml/` `resolveSysmlElement` (injectable fetch) + `hashSysmlElement`, mock-API tested. 523 tests green.
+- **SysML S3 — envelope verification** (DEC-099) — `verifyEnvelopeSysmlRef` (commit-trust + content-integrity) + `extractSysmlRef` + async CLI `h2a sysml verify`. 530 tests green. Next: S4 (disclosure→view mapping) — last SysML slice.

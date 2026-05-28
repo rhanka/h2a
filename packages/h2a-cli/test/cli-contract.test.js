@@ -528,6 +528,10 @@ function buildHappyArgv(verb, ctx) {
     case "remote send":
       // Needs a live HTTP server + signer key; covered by remote-cli.test.js.
       return null;
+    case "sysml verify":
+      // Async verb (network on the content path) + needs a signed envelope with
+      // a ref; covered by sysml-verify.test.js.
+      return null;
     case "drumbeat record":
       return ["drumbeat", "record", "--root", root, "--instance", "agent-001", "--status", "out-of-tokens"];
     case "drumbeat scan":
@@ -606,6 +610,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "mcp-serve",
     "remote serve",
     "remote send",
+    "sysml verify",
     "drumbeat record",
     "drumbeat scan",
     "drumbeat clear",
