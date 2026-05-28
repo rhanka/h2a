@@ -1,5 +1,5 @@
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
-import { renderCliHelp, runCli, runMcpServe, runRemoteSend, runRemoteServe } from "./cli.js";
+import { renderCliHelp, resolveAutoOpen, runCli, runMcpServe, runRemoteSend, runRemoteServe } from "./cli.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
 import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_AGY_HOST } from "./hosts/agy.js";
@@ -20,6 +20,7 @@ export {
   H2A_AGY_HOST,
   H2A_CLI_MCP_TOOL_NAMES,
   renderCliHelp,
+  resolveAutoOpen,
   runCli,
   runMcpServe,
   runRemoteSend,

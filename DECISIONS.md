@@ -1871,3 +1871,14 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) codex's hooks.json is byte-compatible with the claude/gemini structure (verified against codex's own installed plugin), so the same merge yields a correct codex hooks.json — no faking; (b) the residual codex-specific step (plugin.json wrap + trust) can't be safely fully-scaffolded without codex's exact plugin-dir/enable contract, so it is surfaced as an honest `pluginHint` rather than guessed; (c) this gives all four of the user's tonight hosts a path: claude/gemini one-shot settings.json, codex hooks.json + 2-step wrap, agy poll.
 
 **Consequence**: (a) `host plugin --write` covers claude/gemini/codex; agy refused→poll; tests cover all three installs + the agy refusal; (b) **D6 slice b is complete across the supported surface** — the only remaining D6 automation is scaffolding codex's plugin.json wrapper (deferred, needs codex's plugin contract); (c) ships in **0.14.0**.
+
+## DEC-105 — EVO-6: auto-open a session at host startup (`mcp-serve --auto-open`)
+**Date**: 2026-05-28. **Refers**: DEC-051, DEC-054. **Line**: V2 (0.15.x).
+
+**Context**: the user wants a session to open **automatically when the host CLI starts** (opt-in, configured by default, recommended in install docs), with `/h2a disconnect` to leave.
+
+**Decision**: the bus-join happens at the **MCP-server boot** (the host already spawns `mcp-serve` at startup), not via an LLM-dependent hook. `mcp-serve --auto-open [--host <h>] [--instance <id>] [--scope <s>]` opens a presence session on boot; the instance is `--instance` or `<--host>:<cwd-leaf>` (pure `resolveAutoOpen`). The session auto-closes on `mcp-serve` exit (DEC-051); `/h2a disconnect` (`h2a_session_close`) leaves early (re-opens next launch). Best-effort: an auto-open failure logs to stderr and never crashes the transport.
+
+**Why**: (a) the MCP server is the one process guaranteed to start with the host and already owns session lifecycle (DEC-051), so opening there is robust and needs no model compliance; (b) deriving the instance from host+cwd keeps it zero-config while overridable; (c) keeping it a flag the installer bakes into the MCP `add` args makes it "configured for you" + recommended-by-default in docs, while remaining opt-in.
+
+**Consequence**: (a) `mcp-serve` gains `--auto-open/--host/--instance/--scope`; `runMcpStdio` gains an `autoOpen` option; `resolveAutoOpen` is exported + unit-tested; an in-process test asserts a presence session is written at boot; (b) **additive → 0.15.x**; (c) activation for a user = upgrade the global binary to ≥0.15.0 and re-register the MCP server with `--auto-open --host <h>` (e.g. `claude mcp add ... -- h2a mcp-serve --auto-open --host claude --root <shared>`); (d) install docs to recommend it by default.

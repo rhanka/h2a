@@ -160,6 +160,8 @@ Print the command map at the top of this file. Concise, no extra prose.
 
 ## Defaults and conventions
 
+- **Auto-connect (recommended)**: register the MCP server with `mcp-serve --auto-open --host <h>` so a session opens at host startup (EVO-6/DEC-105); `/h2a disconnect` leaves early. `/h2a connect` stays available for manual/explicit connect.
+
 - **Shared root**: same `<root>/.h2a/` for every cooperating CLI. If the user has not declared one, look for `<cwd>/.h2a/`, then `~/h2a-workspace/.h2a`, ask if neither exists.
 - **Instance id**: `<host>:<workspace-leaf>`. Don't ask for confirmation if the default looks sensible.
 - **Subscriptions**: when opening a session, subscribe to all four canonical notification topics (`presence.peer_joined`, `presence.peer_left`, `inbox.envelope_arrived`, `negotiation.event_appended`) unless the user narrows the scope.

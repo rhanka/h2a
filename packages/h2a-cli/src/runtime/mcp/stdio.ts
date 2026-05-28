@@ -55,6 +55,17 @@ export interface RunMcpStdioOptions {
    * H2A_SESSION_DEFAULT_EXPIRY_MS or, if set, H2A_SESSION_EXPIRY_MS.
    */
   expiryMs?: number;
+  /**
+   * DEC-105 (EVO-6): open a presence session automatically when the server
+   * boots, so the host is on the bus at startup without an explicit
+   * `/h2a connect`. The session auto-closes on shutdown (DEC-051); the agent
+   * can still close it early with `h2a_session_close` (`/h2a disconnect`).
+   */
+  autoOpen?: {
+    readonly instance: string;
+    readonly host?: string;
+    readonly scopes?: readonly string[];
+  };
 }
 
 function envInt(name: string): number | undefined {
@@ -165,6 +176,28 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // DEC-052: start the periodic diff scan so subscribed sessions receive
   // pushed presence/inbox/negotiation notifications.
   server.notifications.start();
+
+  // DEC-105 (EVO-6): auto-open a presence session at boot when requested, so
+  // the host joins the bus at startup. Best-effort: a failure here must not
+  // crash the transport (diagnostics to stderr only — stdout is protocol).
+  if (options.autoOpen) {
+    try {
+      server.sessions.open({
+        instance: options.autoOpen.instance,
+        ...(options.autoOpen.host !== undefined ? { host: options.autoOpen.host } : {}),
+        interests: {
+          scopes: [...(options.autoOpen.scopes ?? ["scope:default"])],
+          negotiations: []
+        }
+      });
+      stderr.write(
+        `h2a mcp-serve: auto-opened session for ${options.autoOpen.instance}\n`
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      stderr.write(`h2a mcp-serve: auto-open failed: ${message}\n`);
+    }
+  }
 
   const rl = createInterface({ input: stdin, crlfDelay: Infinity });
   (stdin as Readable & { ref?: () => void }).ref?.();

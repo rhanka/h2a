@@ -200,7 +200,7 @@ export function renderCliHelp(): string {
     "  h2a inbox pop --instance <id> --envelope <id> [--root <path>]",
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
-    "  h2a mcp-serve [--root <path>]",
+    "  h2a mcp-serve [--root <path>] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]]   (--auto-open joins the bus at startup; /h2a disconnect to leave)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a drumbeat record --instance <id> --status <working|paused|done|blocked|out-of-tokens> [--command <c>] [--resume-command <c>] [--tmux-session <s> --tmux-pane <p>] [--root <path>]",
@@ -801,6 +801,27 @@ function cmdNegotiate(
  * (write-only) cannot express a readable stdin; tests cover `runMcpStdio`
  * with `PassThrough` streams instead of going through this verb.
  */
+/**
+ * DEC-105 (EVO-6): resolve the auto-open session config from `mcp-serve` flags.
+ * `--auto-open` enables it; the instance is `--instance <id>` or, if absent,
+ * `<host>:<cwd-leaf>` (host = `--host` or "agent"). Pure + total so it can be
+ * unit-tested without spawning the server. Returns undefined when not enabled.
+ */
+export function resolveAutoOpen(
+  flags: Record<string, string>,
+  cwd: () => string
+): { instance: string; host?: string; scopes?: string[] } | undefined {
+  if (flags["auto-open"] === undefined) return undefined;
+  const host = flags.host;
+  const leaf = (cwd().split("/").filter(Boolean).pop() || "workspace");
+  const instance = flags.instance ?? `${host ?? "agent"}:${leaf}`;
+  return {
+    instance,
+    ...(host ? { host } : {}),
+    ...(flags.scope ? { scopes: [flags.scope] } : {})
+  };
+}
+
 export async function runMcpServe(
   flags: Record<string, string>,
   io: {
@@ -816,12 +837,14 @@ export async function runMcpServe(
 ): Promise<number> {
   const cwd = io.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
+  const autoOpen = resolveAutoOpen(flags, cwd);
   try {
     await runMcpStdio({
       root,
       stdin: io.stdin as never,
       stdout: io.stdout as never,
-      stderr: io.stderr as never
+      stderr: io.stderr as never,
+      ...(autoOpen ? { autoOpen } : {})
     });
     return 0;
   } catch (err) {

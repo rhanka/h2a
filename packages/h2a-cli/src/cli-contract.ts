@@ -296,8 +296,9 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "stream",
     exitCodes: [0, 1],
     requiredFlags: [],
-    optionalFlags: ["root"],
-    description: "Run the built-in MCP server speaking JSON-RPC 2.0 over stdio (long-running)."
+    optionalFlags: ["root", "auto-open", "host", "instance", "scope"],
+    description:
+      "Run the built-in MCP server speaking JSON-RPC 2.0 over stdio (long-running). `--auto-open` opens a presence session at boot (EVO-6, DEC-105): instance = `--instance` or `<--host>:<cwd-leaf>`; the session auto-closes on exit and `/h2a disconnect` (h2a_session_close) leaves early."
   },
 
   // --- remote transport (DEC-076/077, signed-bearer) ---
