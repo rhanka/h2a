@@ -69,6 +69,7 @@ import type { H2ARole } from "@sentropic/h2a";
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
 import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
+import { H2A_AGY_HOST } from "./hosts/agy.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 import { renderStopHook, H2A_HOST_PLUGIN_HOSTS } from "./hosts/plugin.js";
 import {
@@ -151,7 +152,8 @@ export interface H2ACliStreams {
 const CLI_HOSTS = [
   H2A_CODEX_HOST,
   H2A_CLAUDE_HOST,
-  H2A_GEMINI_HOST
+  H2A_GEMINI_HOST,
+  H2A_AGY_HOST
 ] as const;
 
 export function renderCliHelp(): string {
@@ -200,13 +202,13 @@ export function renderCliHelp(): string {
     "  h2a drumbeat clear --instance <id> [--root <path>]",
     "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
-    "  h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]",
+    "  h2a host setup --host <codex|claude|gemini|agy> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
     "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>]",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "",
     "High-level coordination (DEC-054):",
-    "  h2a connect --host <codex|claude|gemini> [--root <path>] [--instance <id>]",
+    "  h2a connect --host <codex|claude|gemini|agy> [--root <path>] [--instance <id>]",
     "  h2a doctor [--root <path>]",
     "  h2a sessions [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a keys generate --instance <id> [--out <dir>] [--root <path>]",
@@ -1269,7 +1271,7 @@ function cmdHostSetup(
   const host = flags.host;
   if (!host) {
     streams.stderr.write(
-      "h2a host setup: --host <codex|claude|gemini> is required\n"
+      "h2a host setup: --host <codex|claude|gemini|agy> is required\n"
     );
     return 1;
   }
@@ -1280,9 +1282,11 @@ function cmdHostSetup(
     snippet = H2A_CLAUDE_HOST.renderMcpConfig({ root: flags.root });
   } else if (host === "gemini") {
     snippet = H2A_GEMINI_HOST.renderMcpConfig({ root: flags.root });
+  } else if (host === "agy") {
+    snippet = H2A_AGY_HOST.renderMcpConfig({ root: flags.root });
   } else {
     streams.stderr.write(
-      `h2a host setup: unknown --host "${host}". Supported: codex, claude, gemini.\n`
+      `h2a host setup: unknown --host "${host}". Supported: codex, claude, gemini, agy.\n`
     );
     return 1;
   }
@@ -1474,7 +1478,7 @@ function cmdHost(argv: readonly string[], streams: H2ACliStreams): number {
   if (sub === "plugin") return cmdHostPlugin(flags, streams);
   streams.stderr.write(`Unknown host subcommand: ${sub ?? "<none>"}\n`);
   streams.stderr.write(
-    "Use: h2a host setup --host <codex|claude|gemini> ...\n" +
+    "Use: h2a host setup --host <codex|claude|gemini|agy> ...\n" +
       "     h2a host status [--host <name>]\n" +
       "     h2a host plugin --host <codex|claude|gemini|agy> --instance <id>\n"
   );
@@ -1812,13 +1816,13 @@ function cmdConnect(
 ): number {
   if (!flags.host) {
     streams.stderr.write(
-      "h2a connect: --host <codex|claude|gemini> is required\n"
+      "h2a connect: --host <codex|claude|gemini|agy> is required\n"
     );
     return 1;
   }
-  if (!["codex", "claude", "gemini"].includes(flags.host)) {
+  if (!["codex", "claude", "gemini", "agy"].includes(flags.host)) {
     streams.stderr.write(
-      `h2a connect: unknown --host "${flags.host}". Supported: codex, claude, gemini.\n`
+      `h2a connect: unknown --host "${flags.host}". Supported: codex, claude, gemini, agy.\n`
     );
     return 1;
   }
@@ -1852,7 +1856,9 @@ function cmdConnect(
       ? H2A_CODEX_HOST
       : flags.host === "claude"
         ? H2A_CLAUDE_HOST
-        : H2A_GEMINI_HOST;
+        : flags.host === "gemini"
+          ? H2A_GEMINI_HOST
+          : H2A_AGY_HOST;
   const snippet = hostDescriptor.renderMcpConfig({ root });
   steps.push({
     step: "host-setup",

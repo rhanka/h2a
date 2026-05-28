@@ -1742,3 +1742,21 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) an exhausted budget must break the relance loop, and the spec's chain ends at the PRINCIPAL; (b) a durable, idempotent record gives the human one actionable alert per stuck agent and is the substrate a future notification/inbox fan-out consumes; (c) symbolic targeting keeps D7 shippable now without inventing a scope→authority resolution the data doesn't yet support — and it is explicitly reversible.
 
 **Consequence**: (a) `@sentropic/h2a-cli` exports the escalation registry API; `LocalStorePaths` gains `escalation`; (b) `h2a drumbeat escalations` + auto-escalation in `watch` are live and contract-tested; (c) **no version bump in this loop** (left for review); when released this is an additive minor; (d) remaining Drumbeat: D4 (remote relauncher), D5 (reflexive watchdog subagent); the scope→PRINCIPAL resolution + notification fan-out are the natural D7 follow-ons.
+
+## DEC-096 — EVO-0: `agy` (Antigravity) as a first-class host (MCP parity)
+**Date**: 2026-05-28. **Refers**: DEC-049, DEC-054, DEC-093. **Line**: V2 (unreleased — autonomous loop, pending review).
+
+**Context**: the capability matrix established agy embeds an MCP runtime and reads servers from `~/.gemini/config/mcp_config.json` (empty by default) — so it integrates like the other three, **no reduced-parity gap** (EVO-0). D6 (DEC-093) already made agy a first-class stop-hook target (poll-only). This adds the MCP-config side.
+
+**Decision**: a `H2A_AGY_HOST` descriptor + wiring into the host surface.
+
+- `hosts/agy.ts`: `renderMcpConfig` targets `~/.gemini/config/mcp_config.json`; `H2A_AGY_HOST` (wave 1, `hostScenarioShipped: false`).
+- Added to `CLI_HOSTS` + exported `H2A_CLI_HOSTS`, and accepted by `h2a host setup`, `h2a connect`, `h2a host status` (all four hosts at parity in the `hosts`/status output).
+
+**Reversible default decisions** (loop, traced in `docs/loop-decisions.md`):
+1. `hostScenarioShipped: false` for agy — no end-to-end host-MCP scenario test yet (the other three have one). Reversible: add an agy scenario test and flip the flag.
+2. `install-skills` keeps `claude|codex|gemini` only — the agy `/h2a` skill travels via `agy plugin import` (a different path, matrix), deferred. Reversible: add an `agy` branch to `install-skills` when the plugin-import format is confirmed.
+
+**Why**: (a) MCP parity is the bulk of "agy parity" and follows the existing `renderMcpConfig` pattern exactly — low risk, grounded in the primary-source matrix; (b) treating agy as a full host in setup/connect/status removes the asymmetry without inventing capabilities it lacks (the scenario test + skill-install are honestly deferred); (c) it composes with DEC-093 (agy stop-hook, poll-only) for a coherent agy story.
+
+**Consequence**: (a) `@sentropic/h2a-cli` exports `H2A_AGY_HOST`; `H2A_CLI_HOSTS` is now four hosts; `host setup/connect/status` accept `agy`; (b) tests updated (host list, status count 4, agy setup render); (c) **no version bump in this loop** (review-gated); (d) remaining EVO-0: the agy end-to-end scenario test + `install-skills` agy target (via `agy plugin import`).

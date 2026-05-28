@@ -12,7 +12,7 @@ import {
 test("h2a-cli aggregates the supported hosts", () => {
   assert.deepEqual(
     H2A_CLI_HOSTS.map((host) => host.host),
-    ["codex", "claude", "gemini"]
+    ["codex", "claude", "gemini", "agy"]
   );
   assert.equal(H2A_CLI_ADAPTER.packageName, "@sentropic/h2a-cli");
 });
