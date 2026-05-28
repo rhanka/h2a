@@ -14,6 +14,7 @@
 | 5 | SysML S1 | `sysmlRefEquals` is **strict over all fields** (incl. `apiBase`, `elementHash`) | Avoids a surprising "equal but different mirror/content"; total + simple | Add a looser `sameModelState(a,b)` predicate if a use case needs it |
 | 6 | SysML S2 | `resolveSysmlElement` **requires `ref.element`** (whole-project resolution throws) | Element fetch is the content-integrity case; whole-project has no single hash target | Add a project/commit elements-collection fetch when needed |
 | 7 | SysML S3 | The ref is read from a fixed path `body.subject.sysmlRef` | The spec's conventional embedding location (§2) | Accept additional locations / a configurable path if artifacts embed refs elsewhere |
+| 8 | SysML S4 | Query scope is **abstract** (`fetch`/`detail`/`view`), not concrete SysML API params | Repo-specific param/view-id translation is the adapter's job; V1 interop non-goal to implement the API server | Emit concrete query params once a target API & Services profile is fixed |
 | — | loop infra | Loop is **rate-limit-resilient**: each turn re-derives the next slice from repo state (an un-committed slice is simply redone) and always reschedules the wakeup as its last action; iterations spaced to let transient rate-limits clear | User asked the loop to survive rate-limits | n/a (behavioral) |
 
 ## Slices completed in this loop (no release yet)
@@ -23,4 +24,5 @@
 - **EVO-0 — agy host-MCP e2e scenario test** (DEC-096 follow-through) — agy added to `host-mcp-scenario.test.js`, `hostScenarioShipped: true`. 512 tests green. Remaining EVO-0: `install-skills` agy target (decision #4).
 - **SysML S1 — `H2ASysmlRef` pure model reference** (DEC-097) — type + `validateSysmlRef`/`isH2ASysmlRef`/`sysmlRefEquals` in core. 518 tests green.
 - **SysML S2 — fetch+hash adapter** (DEC-098) — `runtime/sysml/` `resolveSysmlElement` (injectable fetch) + `hashSysmlElement`, mock-API tested. 523 tests green.
-- **SysML S3 — envelope verification** (DEC-099) — `verifyEnvelopeSysmlRef` (commit-trust + content-integrity) + `extractSysmlRef` + async CLI `h2a sysml verify`. 530 tests green. Next: S4 (disclosure→view mapping) — last SysML slice.
+- **SysML S3 — envelope verification** (DEC-099) — `verifyEnvelopeSysmlRef` (commit-trust + content-integrity) + `extractSysmlRef` + async CLI `h2a sysml verify`. 530 tests green.
+- **SysML S4 — disclosure → query scope** (DEC-100) — `sysmlQueryScope(mode)` total over DEC-045 modes. 533 tests green. **➡ SysML interop S1-S4 COMPLETE** (DEC-097..100).

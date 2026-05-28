@@ -1813,3 +1813,17 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) reusing `verifyEnvelopeSignature` means commit-trust is just the existing signature check plus a valid ref — no new crypto; (b) content-integrity composes S2 cleanly and is opt-in (the default is the cheap, offline commit-trust); (c) exit 2 on a failed verification matches the state/business-outcome code, distinct from a usage error (1).
 
 **Consequence**: (a) `@sentropic/h2a-cli` exports `verifyEnvelopeSysmlRef`/`extractSysmlRef` (+ option/result types); `h2a sysml verify` is live (contract entry; happy-path covered by `sysml-verify.test.js`, the contract single-shot skips it as async); (b) **no version bump in this loop** (review-gated); (c) **S4** (disclosure mode → API query scope/views) is the last SysML interop slice.
+
+## DEC-100 — SysML v2 interop S4: disclosure → query scope (`sysmlQueryScope`)
+**Date**: 2026-05-28. **Refers**: DEC-045, DEC-081, DEC-098. **Line**: V2 (unreleased — autonomous loop, pending review).
+
+**Context**: last SysML interop slice (spec §5). A CONTROL/recipient reads a referenced element through a filtered API query; the h2a disclosure mode (DEC-045) selects the scope, mapping onto SysML's viewpoint/view mechanism.
+
+**Decision**: `runtime/sysml/disclosure.ts` — `sysmlQueryScope(mode)` total over the six DEC-045 modes → `{mode, fetch, detail, view?, note}`:
+- `denied` / `hash-only` → `fetch:false, detail:"none"` (no content; hash-only compares the embedded hash). `attestation` → `fetch:false, detail:"attestation"` (the signed envelope is the attestation). `evidence-package` → `fetch:true, detail:"metadata"`. `redacted-view` → `fetch:true, detail:"redacted", view:"redacted"`. `full-view` → `fetch:true, detail:"full", view:"full"`.
+
+**Reversible default decision** (loop, `docs/loop-decisions.md`): the scope is **abstract** (`detail`/`view`/`fetch`), not concrete SysML API query params — the repo-specific param/`view`-id translation is left to the adapter (spec says it "maps onto SysML's native view mechanism"). Reversible: emit concrete query params once a target API & Services profile is fixed.
+
+**Why**: (a) a total mode→scope mapping makes the disclosure policy drive the query without hard-coding a repo's API dialect; (b) the `fetch` flag composes with S3's content-integrity (no-content modes skip the re-fetch); (c) keeping it abstract honours the non-goal "h2a does not implement the SysML API server".
+
+**Consequence**: (a) `@sentropic/h2a-cli` exports `sysmlQueryScope` + `H2ASysmlQueryScope`/`H2ASysmlQueryDetail`; (b) **SysML v2 interop S1-S4 is complete** (DEC-097..100) — ref + adapter + verify + disclosure mapping; (c) **no version bump in this loop** (review-gated); remaining is only the concrete per-API param translation (out of the V1 interop scope, DEC-081).

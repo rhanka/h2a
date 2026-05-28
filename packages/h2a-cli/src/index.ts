@@ -164,11 +164,14 @@ export {
   hashSysmlElement,
   verifyEnvelopeSysmlRef,
   extractSysmlRef,
+  sysmlQueryScope,
   type SysmlFetchImpl,
   type SysmlFetchResponse,
   type ResolveSysmlOptions,
   type VerifyEnvelopeSysmlOptions,
-  type VerifyEnvelopeSysmlResult
+  type VerifyEnvelopeSysmlResult,
+  type H2ASysmlQueryScope,
+  type H2ASysmlQueryDetail
 } from "./runtime/sysml/index.js";
 
 export {

@@ -11,3 +11,8 @@ export {
   type VerifyEnvelopeSysmlOptions,
   type VerifyEnvelopeSysmlResult
 } from "./verify.js";
+export {
+  sysmlQueryScope,
+  type H2ASysmlQueryScope,
+  type H2ASysmlQueryDetail
+} from "./disclosure.js";
