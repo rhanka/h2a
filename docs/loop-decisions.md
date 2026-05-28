@@ -11,6 +11,7 @@
 | 2 | D7 escalation | Escalations live in a **dedicated registry** (`<root>/.h2a/escalation/`), not the PRINCIPAL's inbox | Simplest durable, idempotent record; inbox fan-out needs a resolved principal (dep. on #1) | Add an inbox fan-out (and/or a `peer.escalated` notification topic) once #1 lands |
 | 3 | EVO-0 agy host | ~~agy `hostScenarioShipped: false`~~ → **RESOLVED**: agy added to `host-mcp-scenario.test.js` (same `mcp-serve` backend), flag now `true` | — | — |
 | 4 | EVO-0 agy host | `install-skills` left at `claude\|codex\|gemini` (no agy) | agy's `/h2a` skill travels via `agy plugin import`, a different path (matrix), not yet confirmed | Add an `agy` branch to `install-skills` once the plugin-import format is confirmed |
+| 5 | SysML S1 | `sysmlRefEquals` is **strict over all fields** (incl. `apiBase`, `elementHash`) | Avoids a surprising "equal but different mirror/content"; total + simple | Add a looser `sameModelState(a,b)` predicate if a use case needs it |
 | — | loop infra | Loop is **rate-limit-resilient**: each turn re-derives the next slice from repo state (an un-committed slice is simply redone) and always reschedules the wakeup as its last action; iterations spaced to let transient rate-limits clear | User asked the loop to survive rate-limits | n/a (behavioral) |
 
 ## Slices completed in this loop (no release yet)
@@ -18,3 +19,4 @@
 - **D7 — escalate-to-PRINCIPAL on relance-exhaustion** (DEC-095) — escalation registry + `drumbeat watch` auto-escalate + `drumbeat escalations` list + `clear` closes. 510 tests green.
 - **EVO-0 — agy as a first-class host (MCP parity)** (DEC-096) — `H2A_AGY_HOST` + `host setup`/`connect`/`status` accept agy (4 hosts). 511 tests green.
 - **EVO-0 — agy host-MCP e2e scenario test** (DEC-096 follow-through) — agy added to `host-mcp-scenario.test.js`, `hostScenarioShipped: true`. 512 tests green. Remaining EVO-0: `install-skills` agy target (decision #4).
+- **SysML S1 — `H2ASysmlRef` pure model reference** (DEC-097) — type + `validateSysmlRef`/`isH2ASysmlRef`/`sysmlRefEquals` in core. 518 tests green. Next: S2 (`runtime/sysml/` fetch+hash adapter).

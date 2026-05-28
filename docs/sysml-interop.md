@@ -73,7 +73,7 @@ Pure ref types stay in core; all I/O stays in the cli runtime adapter.
 
 | Slice | Deliverable | Package | Depends on |
 |---|---|---|---|
-| **S1** | `H2ASysmlRef` type + `validateSysmlRef`/`sysmlRefEquals` (pure) | `@sentropic/h2a` | DEC-035/073 |
+| **S1** | ✅ **done (DEC-097, unreleased)** — `H2ASysmlRef` type + `validateSysmlRef`/`sysmlRefEquals`/`isH2ASysmlRef` (pure, core) | `@sentropic/h2a` | DEC-035/073 |
 | **S2** | `runtime/sysml/` adapter: `resolveSysmlElement` + `hashSysmlElement` (mock-API tested) | `@sentropic/h2a-cli` | S1, API & Services PSM |
 | **S3** | `verifyEnvelopeSysmlRef` (commit-trust + content-integrity) + CLI `h2a sysml verify` | `@sentropic/h2a-cli` | S2, DEC-073/074 |
 | **S4** | disclosure mode → API query scope mapping (views) | `@sentropic/h2a-cli` | S2, DEC-045 |

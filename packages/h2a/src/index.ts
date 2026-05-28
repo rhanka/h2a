@@ -215,6 +215,17 @@ export {
   isActiveBlockage
 } from "./blockage.js";
 export type { H2ABlockage, H2ABlockageBody } from "./blockage.js";
+export {
+  H2A_SYSML_REF_KIND,
+  isH2ASysmlRef,
+  sysmlRefEquals,
+  validateSysmlRef
+} from "./sysml.js";
+export type {
+  H2ASysmlRef,
+  H2ASysmlRefValidation,
+  H2ASysmlRefValidationError
+} from "./sysml.js";
 export { assertValidNegotiationState } from "./negotiation.js";
 export { canonicalize, computeHash } from "./canonical.js";
 export { signCanonical, verifyCanonical } from "./signature.js";

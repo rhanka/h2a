@@ -1760,3 +1760,21 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) MCP parity is the bulk of "agy parity" and follows the existing `renderMcpConfig` pattern exactly — low risk, grounded in the primary-source matrix; (b) treating agy as a full host in setup/connect/status removes the asymmetry without inventing capabilities it lacks (the scenario test + skill-install are honestly deferred); (c) it composes with DEC-093 (agy stop-hook, poll-only) for a coherent agy story.
 
 **Consequence**: (a) `@sentropic/h2a-cli` exports `H2A_AGY_HOST`; `H2A_CLI_HOSTS` is now four hosts; `host setup/connect/status` accept `agy`; (b) tests updated (host list, status count 4, agy setup render); (c) **no version bump in this loop** (review-gated); (d) remaining EVO-0: the agy end-to-end scenario test + `install-skills` agy target (via `agy plugin import`).
+
+## DEC-097 — SysML v2 interop S1: `H2ASysmlRef` pure model reference
+**Date**: 2026-05-28. **Refers**: DEC-035, DEC-073, DEC-081. **Line**: V2 (unreleased — autonomous loop, pending review).
+
+**Context**: the SysML interop spec (DEC-081, `docs/sysml-interop.md`) ships in ordered slices S1-S4. S1 is the pure foundation: a serializable reference that pins a SysML v2 element at an immutable commit, so an h2a signed `ENGAGEMENT`/`CONTRACT` embedding it transitively pins the model state (h2a never moves model bytes).
+
+**Decision**: add `packages/h2a/src/sysml.ts` (pure, no I/O).
+
+- `H2ASysmlRef = { kind:"sysmlv2", apiBase?, project, commit, element?, elementHash? }`. `commit` is immutable → signing an artifact that embeds the ref pins the state without copying it; it is ordinary signed content (DEC-035/073), no new signing path.
+- `validateSysmlRef(ref)` (total → `{ok, errors[]}`): required `kind`/`project`/`commit`; optional fields must be non-empty when present. `isH2ASysmlRef(value)` type guard for refs pulled from an envelope body. `sysmlRefEquals(a,b)`.
+- Resolves the spec's open question on granularity with the documented default: **element optional** (omit = whole project at commit).
+
+**Reversible default decision** (loop, `docs/loop-decisions.md`):
+- `sysmlRefEquals` is **strict over all fields** (incl. `apiBase`, `elementHash`): same `{project,commit,element}` on two mirrors, or with/without a content hash, are not equal. Reversible: add a looser `sameModelState(a,b)` predicate later if a use case needs it.
+
+**Why**: (a) a pure, total ref type + validator is the safe, dependency-free foundation the I/O adapter (S2) builds on; (b) keeping equality strict avoids a surprising "equal but different content/mirror" and is trivially looseneable later; (c) it reuses canonical hashing + envelope signing unchanged — the interop adds *reference + verification*, not a transport.
+
+**Consequence**: (a) `@sentropic/h2a` exports `H2ASysmlRef`/`validateSysmlRef`/`isH2ASysmlRef`/`sysmlRefEquals`/`H2A_SYSML_REF_KIND` + types; (b) **no version bump in this loop** (review-gated; when released, additive core surface = minor); (c) **S2** adds `runtime/sysml/` (`resolveSysmlElement`/`hashSysmlElement`, mock-API tested), **S3** `verifyEnvelopeSysmlRef` + `h2a sysml verify`, **S4** disclosure→view mapping.
