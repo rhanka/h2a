@@ -52,7 +52,7 @@ flowchart TD
 | **D3** | ✅ **done (DEC-091, 0.10.0)** — `localTmuxRelauncher` (send-keys the resume/launch command into the captured pane) + `headlessRelauncher` (detached respawn + notify) + `chainRelauncher` (tmux→headless), injectable `RelauncherRuntime`; `h2a drumbeat watch --relauncher logging\|local-tmux\|headless\|auto` | cli runtime |
 | **D4** | **remote adapter** (relance via `@sentropic/remote`) | cli runtime + bridge |
 | **D5** | reflexive watchdog SUBAGENT (decide relance/finish/escalate/re-route) | skill/subagent |
-| **D6** | 🟡 **slice a+b (DEC-093/096/101/102)** — `h2a host plugin` renders the per-host stop-hook (4 hosts at parity); **`--write` installs it for claude** (settings.json `hooks.Stop`, idempotent); agy parity (MCP + scenario + install-skills + poll). Remaining: automate codex/gemini native hook registration (claude ✅ installable; others render+manual). | host plugins |
+| **D6** | 🟡 **slice a+b (DEC-093/096/101/102)** — `h2a host plugin` renders the per-host stop-hook (4 hosts at parity); **`--write` installs it for claude + gemini** (Claude-format settings.json `hooks.Stop`, idempotent); agy parity (MCP + scenario + install-skills + poll). Remaining: automate codex plugin-hook registration (claude+gemini ✅ installable; codex render+manual, agy poll). | host plugins |
 | **D7** | ✅ **done (DEC-095, unreleased)** — durable escalation registry + `h2a drumbeat watch` auto-escalates an exhausted agent to the PRINCIPAL (channel `alert`); `h2a drumbeat escalations` lists open alerts; `drumbeat clear` closes them. Anti-loop cap = `--max-relances`. Target resolution is symbolic (reversible, see loop-decisions). | cli runtime |
 | **L2** | deadline/milestone layer (relance as an engagement deadline approaches) | later |
 

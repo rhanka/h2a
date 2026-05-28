@@ -71,17 +71,40 @@ test("host plugin --write claude merges an idempotent Stop hook into settings.js
   }
 });
 
-test("host plugin --write is refused for non-claude hosts (agy is poll-only)", () => {
+test("host plugin --write gemini merges the Claude-format Stop hook into settings.json (DEC-103)", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
+  const settings = join(dir, "settings.json");
   try {
-    let stderr = "";
-    const rc = runCli(["host", "plugin", "--host", "agy", "--instance", "agy:p1", "--write", join(dir, "x.json")], {
-      stdout: { write: () => {} }, stderr: { write: (c) => void (stderr += c) }
+    writeFileSync(settings, JSON.stringify({ security: { auth: {} } }), "utf8");
+    let stdout = "", stderr = "";
+    const rc = runCli(["host", "plugin", "--host", "gemini", "--instance", "gemini:p1", "--write", settings], {
+      stdout: { write: (c) => void (stdout += c) }, stderr: { write: (c) => void (stderr += c) }
     });
-    assert.equal(rc, 1);
-    assert.match(stderr, /only supported for --host claude/);
+    assert.equal(rc, 0, stderr);
+    assert.equal(JSON.parse(stdout).host, "gemini");
+    const cfg = JSON.parse(readFileSync(settings, "utf8"));
+    assert.ok(cfg.security); // unrelated keys preserved
+    const ours = cfg.hooks.Stop.find((e) => e.hooks[0].command.includes("h2a drumbeat record"));
+    assert.match(ours.hooks[0].command, /--instance gemini:p1/);
+    assert.match(ours.hooks[0].command, /gemini -r/); // gemini's resume command
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("host plugin --write is refused for codex (plugin/hook-trust) and agy (poll-only)", () => {
+  for (const host of ["codex", "agy"]) {
+    const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
+    try {
+      let stderr = "";
+      const rc = runCli(["host", "plugin", "--host", host, "--instance", `${host}:p1`, "--write", join(dir, "x.json")], {
+        stdout: { write: () => {} }, stderr: { write: (c) => void (stderr += c) }
+      });
+      assert.equal(rc, 1, `${host} --write should be refused`);
+      assert.match(stderr, /claude or gemini only/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 

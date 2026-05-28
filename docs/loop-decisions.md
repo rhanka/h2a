@@ -50,3 +50,4 @@ All derivable code + Backlog B (authored+reviewed) + feasible Backlog A reviews 
 ## Post-loop follow-ups (user-directed, 2026-05-28 PM)
 - **EVO-0 agy install-skills (DEC-101)** — `install-skills --host agy` (gemini-style TOML + `agy plugin import gemini` hint). EVO-0 complete. Shipped in **v0.13.0** (published).
 - **Drumbeat D6 slice b (DEC-102)** — `host plugin --write` installs the claude Stop hook (idempotent settings.json merge); non-claude refused+render; `poll` now universal. claude auto-relance is end-to-end. Pending release (0.14.0).
+- **Drumbeat D6 slice b cont. (DEC-103)** — `host plugin --write` extended to **gemini** (Claude-format hooks.Stop in ~/.gemini/settings.json; proven by `gemini hooks migrate --from-claude`). codex (plugin/hook-trust, unverified schema) + agy (poll-only) stay render+manual. Tonight's hosts covered: claude+gemini auto-install, agy poll, codex manual. Batched for 0.14.0 (bump pending user approval).

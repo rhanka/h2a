@@ -210,7 +210,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini|agy> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
-    "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]]",
+    "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]]   (--write installs the Stop hook for claude|gemini)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "",
     "High-level coordination (DEC-054):",
@@ -1517,14 +1517,16 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
     return 1;
   }
 
-  // DEC-102 (D6 slice b): --write installs the stop hook. Only claude has a
-  // clean settings.json merge (hooks.Stop); the others' wake mechanisms are a
-  // CLI/daemon registration (codex/gemini) or poll-only (agy), so --write is
-  // refused for them and the rendered hook + hint are surfaced instead.
+  // DEC-102/103 (D6 slice b): --write installs the stop hook for the hosts with
+  // a clean Claude-format settings.json `hooks.Stop` merge — **claude** and
+  // **gemini** (gemini accepts Claude hooks; cf. `gemini hooks migrate
+  // --from-claude`). codex uses a plugin/hook-trust mechanism (not a single
+  // settings file) and agy is poll-only (no daemon), so --write is refused for
+  // them and the rendered hook + hint are surfaced instead.
   if (flags.write) {
-    if (flags.host !== "claude") {
+    if (flags.host !== "claude" && flags.host !== "gemini") {
       streams.stderr.write(
-        `h2a host plugin: --write is only supported for --host claude (settings.json Stop hook). ` +
+        `h2a host plugin: --write installs a settings.json Stop hook (claude or gemini only). ` +
           `For ${flags.host}, register the hook manually: ${render.hint}\n`
       );
       return 1;
