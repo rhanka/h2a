@@ -9,14 +9,14 @@ Relations between citizens, administrations, public agencies, elected officials,
 ```mermaid
 flowchart TD
   GOV[Public EXECUTIF — elected / government<br/>public intent]
-  GOV == public POLICY (imposed) ==> ADM[Administration<br/>public EXECUTIF + service CONDUCTORS]
+  GOV == "public POLICY (imposed)" ==> ADM[Administration<br/>public EXECUTIF + service CONDUCTORS]
   ADM --> SVC[service ENGAGEMENT<br/>request · processing · decision]
   CIT[Citizen — PRINCIPAL of own mini-org] -- service engagement --> ADM
   CIT -. delegates .-> REP[AGENTS / representatives]
   REG[Regulator — external CONTROL] -. audit / veto / sanction .-> CIT
   LAW[(Law / regulation — public POLICY<br/>territorial / sectoral)] -. applies by scope .-> CIT
   REC[Recourse AUTHORITY / tribunal] -. adjudication .-> CIT
-  MAND[MANDATAIRE] -. presents the question, does not judge .-> REC
+  MAND[MANDATAIRE] -. "presents the question, does not judge" .-> REC
 ```
 
 ## Mapping
@@ -62,3 +62,5 @@ flowchart TD
 ## Compatibility hypothesis
 
 Holds if `POLICY` can be external, mandatory and territorialized, and if the protocol distinguishes voluntary contractual engagement, regulatory obligation and recourse. The citizen stays PRINCIPAL of their perimeter, but the administration can impose policies and compliance engagements via an explicit public authority.
+
+**Nearest built-in profile**: **`C_GOVERNMENT_CITIZEN`** (machine-readable as `H2A_ABC_MODEL_PROFILES`, verified by `auditAbcModelCompatibility('C_GOVERNMENT_CITIZEN')` — DEC-041). **Deltas vs the enterprise tree**: external mandatory `POLICY` applied by territorial/sectoral/personal scope (no local contractual consent); a `Recourse AUTHORITY`/tribunal adjudicating disputed service `ENGAGEMENT`s; and the citizen remaining `PRINCIPAL` of their own perimeter under that imposed authority (the power-asymmetry case).

@@ -36,7 +36,7 @@ Each artifact gets **three independent reviews**, then a consolidation:
 |---|---|---|---|---|---|
 | 1 | `a-enterprise.md` | ✅ | ✅ | ☐ | ✅ [consolidated](./reviews/a-enterprise.consolidated.md) — 2/3; valid refinements applied, false-positives (veto, party/rights/obligation) rejected vs source |
 | 2 | `b-ecosystem.md` | ☐ | ✅ | ☐ | ◐ [consolidated](./reviews/b-ecosystem.consolidated.md) — 1/3 (codex; agy/claude timed out); profile `B_ECOSYSTEM`+delta applied |
-| 3 | `c-government-citizen.md` | ☐ | ☐ | ☐ | ☐ |
+| 3 | `c-government-citizen.md` | ✅ | ✅ | ☐ | ✅ [consolidated](./reviews/c-government-citizen.consolidated.md) — 2/3; profile + Mermaid quoting applied, 10Q-grid deferred |
 | 4 | `d-principal-15-conductors.md` | ☐ | ☐ | ☐ | ☐ |
 | 5 | `e-agentic-squad.md` | ☐ | ☐ | ☐ | ☐ |
 | 6 | `sysml-v2.md` | ☐ | ☐ | ☐ | ☐ |
