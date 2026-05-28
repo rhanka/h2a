@@ -25,7 +25,7 @@ flowchart TD
   end
 
   EPIC -. PI Objectives = ratified ENGAGEMENT .-> SQUAD
-  FIRM[(External delivery firm)] == framework CONTRACT<br/>+ mission ENGAGEMENT ==> SQUAD
+  FIRM[(External delivery firm)] == "framework CONTRACT + mission ENGAGEMENT" ==> SQUAD
   FIRM -. BINDING of principal slots .-> PMX
   FIRM -. BINDING of principal slots .-> ATL
 ```
@@ -83,7 +83,7 @@ Both are **builders** (hands-on producers, not managers), each owning a distinct
 Several squads (each PMX+ATL+agents) under one train:
 
 - Each squad negotiates its PI `ENGAGEMENT`; the `EXECUTIF` (portfolio) arbitrates the portfolio, not each task.
-- Inter-squad escalations target the scope authority (RTE/CONDUCTOR of the train, then EXECUTIF), not a raw stream to the top.
+- Inter-squad escalations target the **scope's competent authority** — the train/architecture `PRINCIPAL` or portfolio `EXECUTIF` — with the RTE/`CONDUCTOR` **facilitating/routing** (not deciding); not a raw stream to the top.
 - Common guardrails (DoD, NFR, runway) are owned by the architecture `PRINCIPAL`, referenced as engagement clauses; a blocking conflict escalates (DEC-041, `policy-precedence` `partial`).
 
 ## Gaps
@@ -95,7 +95,7 @@ Several squads (each PMX+ATL+agents) under one train:
 
 ## Compatibility hypothesis
 
-Holds with the V1 vocabulary: **no new role or artifact**. The scaled-agile + contracted-delivery model maps onto `EXECUTIF`/`PRINCIPAL`/`CONDUCTOR`/`AGENTS`(+`SUBAGENTS`)/`CONTROL`, the `CONTRACT`/`ENGAGEMENT`(/`POLICY`) stack, and the `MANDATE`+`BINDING` pair for agent delegation and role contracting. Watch points: architecture ownership **must** be a `PRINCIPAL` (not only `CONTROL`), and the train/squad is a `SCOPE` distinct from the `ENGAGEMENT` it carries. **Shipped**: the executable `D_SAFE` profile (machine-readable, `H2A_ABC_MODEL_PROFILES.D_SAFE`, topology `agile-train`) is derived from this use-case and verified by `auditAbcModelCompatibility("D_SAFE")` — DEC-080.
+Holds with the V1 vocabulary: **no new role or artifact**. The scaled-agile + contracted-delivery model maps onto `EXECUTIF`/`PRINCIPAL`/`CONDUCTOR`/`AGENTS`(+`SUBAGENTS`)/`CONTROL`, the `CONTRACT`/`ENGAGEMENT`(/`POLICY`) stack, and the `MANDATE`+`BINDING` pair for agent delegation and role contracting. Watch points: architecture ownership **must** be a `PRINCIPAL` (not only `CONTROL`), and the train/squad is a `SCOPE` distinct from the `ENGAGEMENT` it carries. **Shipped**: the executable `D_SAFE` profile (machine-readable, `H2A_ABC_MODEL_PROFILES.D_SAFE`, topology `agile-train`) is derived from this use-case and verified by `auditAbcModelCompatibility("D_SAFE")` — DEC-080. This use-case **is** the source of `D_SAFE`, so the nearest-profile delta is ≈ **none** — it is the canonical agile-train reference; the only open watch points are the external-`PRINCIPAL` contracting clauses (control/exit) and the `AGENTS`↔`SUBAGENTS` fan-out boundary (DEC-068).
 
 ## References
 
