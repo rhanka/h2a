@@ -1860,3 +1860,14 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) gemini's Claude-hook compatibility (proven by the migrate command) makes the install a zero-risk reuse of the same merge — so two of four hosts get true auto-record-on-stop; (b) refusing `--write` for codex (unverified hook schema) and agy (no daemon) keeps the honest boundary rather than faking an install; (c) covers the user's tonight set (claude + gemini auto-installable, agy poll, codex manual) before the 0.14.0 bump.
 
 **Consequence**: (a) `host plugin --write` installs for claude **and** gemini; codex/agy refused+render; (b) tests cover both installs + both refusals; (c) D6 auto-relance is end-to-end on **claude + gemini**; remaining D6 = automate codex's plugin-hook registration (needs a verified codex hook schema) — gemini/claude done, agy poll, codex manual; (d) additive, batched for **0.14.0** (no bump until the user approves, per the review gate).
+
+## DEC-104 — Drumbeat D6 (slice b done): `host plugin --write` for codex (all 4 hosts covered)
+**Date**: 2026-05-28. **Refers**: DEC-093, DEC-102, DEC-103. **Line**: V2 (0.14.x).
+
+**Context**: completing D6 install across all four hosts before the 0.14.0 bump. Verified codex's hook schema against `~/.codex/superpowers/hooks/hooks.json`: codex hooks use the **identical Claude-format hooks object** (`{ hooks: { <Event>: [{ matcher?, hooks: [{ type:"command", command, async? }] }] } }`), loaded via a plugin (`plugin.json` → `./hooks.json`; cf. the plugin-json spec).
+
+**Decision**: `host plugin --write` now installs the Claude-format `hooks.Stop` for **claude / gemini / codex** (the same idempotent merge — for codex the file IS a valid plugin `hooks.json`). codex additionally gets a `pluginHint` (wrap with a `plugin.json` referencing the hooks.json + enable/trust it). **agy** is the only `--write`-refused host (poll-only, no daemon) and is steered to its poll command.
+
+**Why**: (a) codex's hooks.json is byte-compatible with the claude/gemini structure (verified against codex's own installed plugin), so the same merge yields a correct codex hooks.json — no faking; (b) the residual codex-specific step (plugin.json wrap + trust) can't be safely fully-scaffolded without codex's exact plugin-dir/enable contract, so it is surfaced as an honest `pluginHint` rather than guessed; (c) this gives all four of the user's tonight hosts a path: claude/gemini one-shot settings.json, codex hooks.json + 2-step wrap, agy poll.
+
+**Consequence**: (a) `host plugin --write` covers claude/gemini/codex; agy refused→poll; tests cover all three installs + the agy refusal; (b) **D6 slice b is complete across the supported surface** — the only remaining D6 automation is scaffolding codex's plugin.json wrapper (deferred, needs codex's plugin contract); (c) ships in **0.14.0**.

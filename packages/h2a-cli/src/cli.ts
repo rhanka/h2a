@@ -210,7 +210,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini|agy> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
-    "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]]   (--write installs the Stop hook for claude|gemini)",
+    "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]]   (--write installs the Stop hook for claude|gemini|codex; agy is poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "",
     "High-level coordination (DEC-054):",
@@ -1517,17 +1517,17 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
     return 1;
   }
 
-  // DEC-102/103 (D6 slice b): --write installs the stop hook for the hosts with
-  // a clean Claude-format settings.json `hooks.Stop` merge — **claude** and
-  // **gemini** (gemini accepts Claude hooks; cf. `gemini hooks migrate
-  // --from-claude`). codex uses a plugin/hook-trust mechanism (not a single
-  // settings file) and agy is poll-only (no daemon), so --write is refused for
-  // them and the rendered hook + hint are surfaced instead.
+  // DEC-102/103/104 (D6 slice b): --write installs the Claude-format `hooks.Stop`
+  // entry for the three hosts that accept it — **claude** + **gemini** (single
+  // settings.json; gemini via `gemini hooks migrate --from-claude`) and **codex**
+  // (its plugin `hooks.json` uses the identical Claude-format hooks object;
+  // verified against `~/.codex/.../hooks/hooks.json`). agy is poll-only (no
+  // daemon), so --write is refused for it and the rendered hook + hint surface.
   if (flags.write) {
-    if (flags.host !== "claude" && flags.host !== "gemini") {
+    if (flags.host === "agy") {
       streams.stderr.write(
-        `h2a host plugin: --write installs a settings.json Stop hook (claude or gemini only). ` +
-          `For ${flags.host}, register the hook manually: ${render.hint}\n`
+        `h2a host plugin: --write is not available for agy (poll-only, no daemon). ` +
+          `Use the poll path: ${render.poll}\n`
       );
       return 1;
     }
@@ -1579,7 +1579,26 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
       return 3;
     }
     streams.stdout.write(
-      `${JSON.stringify({ ok: true, host: flags.host, written: targetPath, mechanism: render.mechanism, hook: "hooks.Stop" }, null, 2)}\n`
+      `${JSON.stringify(
+        {
+          ok: true,
+          host: flags.host,
+          written: targetPath,
+          mechanism: render.mechanism,
+          hook: "hooks.Stop",
+          // codex loads hooks via a plugin (plugin.json → ./hooks.json); the
+          // file written above is a valid codex hooks.json, but codex needs a
+          // plugin.json referencing it + the plugin enabled/trusted.
+          ...(flags.host === "codex"
+            ? {
+                pluginHint:
+                  'this is a codex hooks.json — add a plugin.json next to it ({"hooks":"./hooks.json"}), then enable + trust it (codex plugin enable <name>; --dangerously-bypass-hook-trust for automation)'
+              }
+            : {})
+        },
+        null,
+        2
+      )}\n`
     );
     return 0;
   }

@@ -92,19 +92,39 @@ test("host plugin --write gemini merges the Claude-format Stop hook into setting
   }
 });
 
-test("host plugin --write is refused for codex (plugin/hook-trust) and agy (poll-only)", () => {
-  for (const host of ["codex", "agy"]) {
-    const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
-    try {
-      let stderr = "";
-      const rc = runCli(["host", "plugin", "--host", host, "--instance", `${host}:p1`, "--write", join(dir, "x.json")], {
-        stdout: { write: () => {} }, stderr: { write: (c) => void (stderr += c) }
-      });
-      assert.equal(rc, 1, `${host} --write should be refused`);
-      assert.match(stderr, /claude or gemini only/);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+test("host plugin --write codex writes a valid Claude-format hooks.json + pluginHint (DEC-104)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
+  const hooksJson = join(dir, "hooks.json");
+  try {
+    let stdout = "", stderr = "";
+    const rc = runCli(["host", "plugin", "--host", "codex", "--instance", "codex:p1", "--write", hooksJson], {
+      stdout: { write: (c) => void (stdout += c) }, stderr: { write: (c) => void (stderr += c) }
+    });
+    assert.equal(rc, 0, stderr);
+    const out = JSON.parse(stdout);
+    assert.equal(out.host, "codex");
+    assert.match(out.pluginHint, /plugin\.json/);
+    // The written file is a valid codex hooks.json: { hooks: { Stop: [...] } }
+    const cfg = JSON.parse(readFileSync(hooksJson, "utf8"));
+    const ours = cfg.hooks.Stop.find((e) => e.hooks[0].command.includes("h2a drumbeat record"));
+    assert.match(ours.hooks[0].command, /--instance codex:p1/);
+    assert.match(ours.hooks[0].command, /codex resume/); // codex's resume command
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("host plugin --write is refused for agy only (poll-only, no daemon)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
+  try {
+    let stderr = "";
+    const rc = runCli(["host", "plugin", "--host", "agy", "--instance", "agy:p1", "--write", join(dir, "x.json")], {
+      stdout: { write: () => {} }, stderr: { write: (c) => void (stderr += c) }
+    });
+    assert.equal(rc, 1);
+    assert.match(stderr, /not available for agy/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
