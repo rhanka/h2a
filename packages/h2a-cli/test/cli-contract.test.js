@@ -540,6 +540,10 @@ function buildHappyArgv(verb, ctx) {
       return ["nhi", "inventory", "--root", root];
     case "nhi attest":
       return ["nhi", "attest", "--root", root, "--instance", "agent-001", "--private-key", privateKeyPath];
+    case "nhi export":
+      return ["nhi", "export", "--root", root, "--instance", "agent-001", "--trust-domain", "example.org"];
+    case "host plugin":
+      return ["host", "plugin", "--host", "claude", "--instance", "agent-001"];
     case "nhi offboard":
       return ["nhi", "offboard", "--root", root, "--instance", "agent-001", "--reason", "contract-test"];
     case "blockage raise":
@@ -607,6 +611,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "host setup",
     "host status",
     "store migrate",
+    "host plugin",
     "connect",
     "doctor",
     "sessions",
@@ -618,6 +623,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "nhi inventory",
     "nhi attest",
     "nhi offboard",
+    "nhi export",
     "blockage raise",
     "blockage list",
     "blockage resolve",

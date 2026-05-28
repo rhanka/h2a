@@ -6,6 +6,7 @@ import {
   computeHash,
   nhiAttestationEnvelope,
   nhiInventory,
+  nhiTrustBundle,
   signCanonical,
   signEnvelope,
   type H2AActorRegistration,
@@ -586,6 +587,29 @@ export function handleNhiOffboard(
   try {
     const tombstone = store.offboardInstance(args.instance, args.reason);
     return { tombstone };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+// DEC-094 (NHI P3): SPIFFE-trust-bundle export of an instance's active keys.
+export function handleNhiExport(
+  store: LocalStore,
+  args: { instance?: string; trustDomain?: string } | undefined
+): McpToolResult | McpErrorResult {
+  if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_nhi_export: missing 'instance'" };
+  }
+  if (typeof args.trustDomain !== "string" || args.trustDomain.length === 0) {
+    return { error: "h2a_nhi_export: missing 'trustDomain'" };
+  }
+  try {
+    const bundle = nhiTrustBundle({
+      instance: args.instance,
+      trustDomain: args.trustDomain,
+      activeKeys: store.listInstanceKeys(args.instance)
+    });
+    return { bundle };
   } catch (err) {
     return safeError(err);
   }

@@ -328,6 +328,19 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
     }
   },
   {
+    name: "h2a_nhi_export",
+    description:
+      "Export an instance's active public keys as a SPIFFE-trust-bundle / JWKS-shaped object (NHI P3 interop, DEC-094). Trust-anchor material in a bundle shape; live SPIRE integration stays in an external connector.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        instance: { type: "string" },
+        trustDomain: { type: "string", description: "SPIFFE trust domain, e.g. example.org" }
+      },
+      required: ["instance", "trustDomain"]
+    }
+  },
+  {
     name: "h2a_blockage_raise",
     description:
       "Raise a blockage (DEC-092, EVO-3) so peers in scope are notified (peer.blocked push) — distinct from the drumbeat stall and from escalation. Durable.",

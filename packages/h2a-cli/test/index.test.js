@@ -22,6 +22,7 @@ test("h2a-cli exposes the canonical MCP tool names", () => {
   // DEC-092 added the blockage tools; resolve is the last canonical entry.
   assert.equal(H2A_CLI_MCP_TOOL_NAMES.at(-1), "h2a_blockage_resolve");
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_nhi_offboard"));
+  assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_nhi_export"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_blockage_raise"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_session_open"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_discover_sessions"));

@@ -369,6 +369,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Render or merge the `mcpServers.h2a` snippet for a host (codex|claude). `--print` (default) emits the snippet as a resource on stdout; `--write <file>` switches the verb to an action envelope and merges/creates the target config file."
   },
   {
+    verb: "host plugin",
+    outputShape: "resource",
+    exitCodes: [0, 1],
+    requiredFlags: ["host", "instance"],
+    optionalFlags: ["root", "status"],
+    description:
+      "Render the per-host stop-hook command + placement (claude settings hook / gemini hooks / codex app-server / agy plugin+poll) so a stop is recorded with a launch context the drumbeat (D2) and local-tmux relauncher (D3) can relance. agy is poll-only. DEC-093."
+  },
+  {
     verb: "host status",
     outputShape: "action",
     exitCodes: [0, 1],
@@ -459,6 +468,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     optionalFlags: ["root", "long-lived-days"],
     description:
       "Per-identity inventory of the NHI estate: each instance with its active keys (fingerprint, age, long-lived flag, reuse across instances), its subagents (status, capability bound) and its offboard state, plus estate totals. Read-only. DEC-090."
+  },
+  {
+    verb: "nhi export",
+    outputShape: "resource",
+    exitCodes: [0, 1],
+    requiredFlags: ["instance", "trust-domain"],
+    optionalFlags: ["root"],
+    description:
+      "Export an instance's active public keys as a SPIFFE-trust-bundle / JWKS-shaped object (NHI P3 interop, DEC-094): the first interop primitive from the veille. Carries trust-anchor material in a bundle shape; PEM→JWK/SVID + live endpoint stay in an external connector. Exit 1 on an invalid trust domain. DEC-094."
   },
   {
     verb: "nhi attest",

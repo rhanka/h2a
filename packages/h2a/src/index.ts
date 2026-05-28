@@ -198,6 +198,17 @@ export type {
   H2ANhiSubagentSnapshot
 } from "./nhi.js";
 export {
+  H2A_NHI_EXPORT_KEY_USE,
+  H2A_NHI_SPIFFE_PATH_ENCODINGS,
+  nhiSpiffeId,
+  nhiTrustBundle
+} from "./nhi-export.js";
+export type {
+  H2ANhiTrustBundle,
+  H2ANhiTrustBundleInput,
+  H2ANhiTrustBundleKey
+} from "./nhi-export.js";
+export {
   H2A_BLOCKAGE_BODY_KIND,
   H2A_BLOCKAGE_CLEARED_BODY_KIND,
   blockageEnvelope,

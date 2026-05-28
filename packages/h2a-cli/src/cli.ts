@@ -60,6 +60,7 @@ import {
   auditNhiPosture,
   nhiAttestationEnvelope,
   nhiInventory,
+  nhiTrustBundle,
   H2A_ROLES,
   H2A_WORK_STATUSES
 } from "@sentropic/h2a";
@@ -69,6 +70,7 @@ import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
 import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
+import { renderStopHook, H2A_HOST_PLUGIN_HOSTS } from "./hosts/plugin.js";
 import {
   H2A_STORE_SCHEMA_VERSION,
   createLocalStore,
@@ -194,6 +196,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
+    "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>]",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "",
     "High-level coordination (DEC-054):",
@@ -208,6 +211,7 @@ export function renderCliHelp(): string {
     "  h2a nhi inventory [--long-lived-days <n>] [--root <path>]",
     "  h2a nhi attest --instance <id> --private-key <pem-file> [--role <role>] [--scope <scope>] [--root <path>]",
     "  h2a nhi offboard --instance <id> [--reason <text>] [--root <path>]",
+    "  h2a nhi export --instance <id> --trust-domain <domain> [--root <path>]",
     "  h2a blockage raise --instance <id> --reason <text> [--scope <s>] [--needs <text>] [--root <path>]",
     "  h2a blockage list [--scope <s>] [--active] [--root <path>]",
     "  h2a blockage resolve --instance <id> [--by <id>] [--root <path>]",
@@ -1072,6 +1076,29 @@ function cmdNhi(argv: readonly string[], streams: H2ACliStreams): number {
     return 0;
   }
 
+  if (sub === "export") {
+    if (!flags.instance || !flags["trust-domain"]) {
+      streams.stderr.write(
+        "h2a nhi export: --instance <id> and --trust-domain <domain> are required\n"
+      );
+      return 1;
+    }
+    const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+    const activeKeys = store.listInstanceKeys(flags.instance);
+    try {
+      const bundle = nhiTrustBundle({
+        instance: flags.instance,
+        trustDomain: flags["trust-domain"],
+        activeKeys
+      });
+      streams.stdout.write(`${JSON.stringify(bundle, null, 2)}\n`);
+      return 0;
+    } catch (error) {
+      streams.stderr.write(`h2a nhi export: ${(error as Error).message}\n`);
+      return 1;
+    }
+  }
+
   if (sub === "attest") {
     if (!flags.instance || !flags["private-key"]) {
       streams.stderr.write(
@@ -1134,7 +1161,7 @@ function cmdNhi(argv: readonly string[], streams: H2ACliStreams): number {
   }
 
   streams.stderr.write(
-    `h2a nhi: unknown subcommand "${sub ?? ""}" (report, inventory, attest, offboard)\n`
+    `h2a nhi: unknown subcommand "${sub ?? ""}" (report, inventory, attest, offboard, export)\n`
   );
   return 1;
 }
@@ -1383,14 +1410,47 @@ function cmdHostStatus(
   return 0;
 }
 
+/**
+ * `h2a host plugin` (DEC-093, D6): render the per-host stop-hook command + where
+ * it goes, so a stop is recorded with a launch context the drumbeat/D3 can
+ * relance. Mirrors `host setup` (h2a renders, the host runtime places it).
+ */
+function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): number {
+  if (!flags.host) {
+    streams.stderr.write(
+      `h2a host plugin: --host <${H2A_HOST_PLUGIN_HOSTS.join("|")}> is required\n`
+    );
+    return 1;
+  }
+  if (!flags.instance) {
+    streams.stderr.write("h2a host plugin: --instance <id> is required\n");
+    return 1;
+  }
+  const render = renderStopHook(flags.host, {
+    instance: flags.instance,
+    ...(flags.root ? { root: flags.root } : {}),
+    ...(flags.status ? { status: flags.status } : {})
+  });
+  if (!render) {
+    streams.stderr.write(
+      `h2a host plugin: unknown --host "${flags.host}". Supported: ${H2A_HOST_PLUGIN_HOSTS.join(", ")}.\n`
+    );
+    return 1;
+  }
+  streams.stdout.write(`${JSON.stringify(render, null, 2)}\n`);
+  return 0;
+}
+
 function cmdHost(argv: readonly string[], streams: H2ACliStreams): number {
   const { command: sub, flags } = parseFlags(argv);
   if (sub === "setup") return cmdHostSetup(flags, streams);
   if (sub === "status") return cmdHostStatus(flags, streams);
+  if (sub === "plugin") return cmdHostPlugin(flags, streams);
   streams.stderr.write(`Unknown host subcommand: ${sub ?? "<none>"}\n`);
   streams.stderr.write(
-    "Use: h2a host setup --host <codex|claude> ...\n" +
-      "     h2a host status [--host <name>]\n"
+    "Use: h2a host setup --host <codex|claude|gemini> ...\n" +
+      "     h2a host status [--host <name>]\n" +
+      "     h2a host plugin --host <codex|claude|gemini|agy> --instance <id>\n"
   );
   return 1;
 }

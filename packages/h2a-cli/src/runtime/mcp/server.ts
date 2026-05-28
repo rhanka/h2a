@@ -11,6 +11,7 @@ import {
   handleBlockageResolve,
   handleInbox,
   handleNhiAttest,
+  handleNhiExport,
   handleNhiInventory,
   handleNhiOffboard,
   handleNhiReport,
@@ -135,6 +136,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleNhiAttest(store, args as never);
       case "h2a_nhi_offboard":
         return handleNhiOffboard(store, args as never);
+      case "h2a_nhi_export":
+        return handleNhiExport(store, args as never);
       case "h2a_blockage_raise":
         return handleBlockageRaise(store, args as never);
       case "h2a_blockage_list":

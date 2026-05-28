@@ -123,6 +123,34 @@ test("h2a_nhi_inventory lists the estate with reuse + totals (fingerprints only)
   }
 });
 
+test("h2a_nhi_export returns a SPIFFE-bundle-shaped export of an instance's keys", () => {
+  const root = freshRoot();
+  try {
+    const server = createMcpServer({ root });
+    const { publicPem } = newKeyPair();
+    server.callTool("h2a_register_instance", {
+      registration: registration("conductor:01", publicPem)
+    });
+
+    const result = server.callTool("h2a_nhi_export", {
+      instance: "conductor:01",
+      trustDomain: "example.org"
+    });
+    assert.equal(result.error, undefined);
+    const bundle = result.bundle;
+    assert.equal(bundle.spiffe_id, "spiffe://example.org/conductor.01");
+    assert.equal(bundle.trust_domain, "example.org");
+    assert.equal(bundle.keys.length, 1);
+    assert.equal(bundle.keys[0].h2a_public_key_pem, publicPem);
+
+    // Invalid trust domain → structured error (not a throw).
+    const bad = server.callTool("h2a_nhi_export", { instance: "conductor:01", trustDomain: "BAD_DOMAIN" });
+    assert.ok(bad.error);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("h2a_nhi_attest signs the posture into a verifiable attestation envelope", () => {
   const root = freshRoot();
   try {
