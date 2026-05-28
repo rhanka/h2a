@@ -47,6 +47,8 @@ flowchart TD
 
 Since DEC-041, this mapping is machine-readable through `H2A_ABC_MODEL_PROFILES` and verified by `auditAbcModelCompatibility(modelId)`. Built-in profiles are stable against the V1 vocabulary (`ok:true`) but keep explicit gaps (`ready:false`).
 
+**No dedicated profile**: this star/no-mediator case has no own `abc.ts` profile id — it is a **variant of `A_ENTERPRISE`** (one root `PRINCIPAL` over internal `CONDUCTOR`s). **Deltas**: 15 conductors; per-subject peer **negotiation ledgers** (the `C↔C` links are negotiation, *not* a mediator or mesh authority — the star is the authority/escalation topology only); and **aggregated** escalations to the root `PRINCIPAL` (the bottleneck the Gaps flag). The conflict mechanism is `POLICY blocking:true` + `ENFORCEMENT_PLAN` escalation; a `CONTROL` may additionally veto.
+
 ## Gaps
 
 - Priority between policies on a blocking conflict.
