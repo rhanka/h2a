@@ -1882,3 +1882,17 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) the MCP server is the one process guaranteed to start with the host and already owns session lifecycle (DEC-051), so opening there is robust and needs no model compliance; (b) deriving the instance from host+cwd keeps it zero-config while overridable; (c) keeping it a flag the installer bakes into the MCP `add` args makes it "configured for you" + recommended-by-default in docs, while remaining opt-in.
 
 **Consequence**: (a) `mcp-serve` gains `--auto-open/--host/--instance/--scope`; `runMcpStdio` gains an `autoOpen` option; `resolveAutoOpen` is exported + unit-tested; an in-process test asserts a presence session is written at boot; (b) **additive → 0.15.x**; (c) activation for a user = upgrade the global binary to ≥0.15.0 and re-register the MCP server with `--auto-open --host <h>` (e.g. `claude mcp add ... -- h2a mcp-serve --auto-open --host claude --root <shared>`); (d) install docs to recommend it by default.
+
+## DEC-106 — EVO-7 slice 1: core org model (manifest + validate + ratification envelope)
+**Date**: 2026-05-28. **Refers**: DEC-018, DEC-068, DEC-073, DEC-088. **Line**: V2 (0.15.x).
+
+**Context**: first slice of coach mode (EVO-7). Pure core only — the committable org declaration + the ratification artifact shape; no I/O, no CLI/coach skill yet (later slices). Built in an isolated worktree in parallel with EVO-6.
+
+**Decision**: `packages/h2a/src/org.ts` (pure):
+- `H2AOrgManifest` = `{ scope, version?, instances:[{instance, role:H2ARole, scopes[], mandateRights?}], commEdges?:[{from,to}] }` — instances→roles→scopes→comm-edges.
+- `validateOrgManifest` (total → `{ok, errors[]}`): codes `no-principal` (owned ⇒ a PRINCIPAL must own the org scope), `duplicate-instance`, `instance-empty`, `instance-no-scope`, `instance-bad-role` (role ∉ `H2A_ROLES`), `edge-unknown-instance`.
+- `orgAssignmentEnvelope({manifest, actor, kind?})` → a signed-able `event` envelope, `body.kind ∈ {org-proposal, org-ratified}`, deterministic `org-<hash>` id (reuses `createEnvelope`/`computeHash`, mirrors `nhiAttestationEnvelope`). **No new artifact kind.** Caller signs with `signEnvelope`: coach/CONDUCTOR signs the `org-proposal` → agents counter → owning PRINCIPAL signs the `org-ratified`; only the ratified manifest is provisioned (later cli slice). Core never signs.
+
+**Why**: (a) keeping the org model pure + the assignment a signed envelope reuses the existing negotiation/signature machinery — the coach proposes and the PRINCIPAL ratifies, honouring "a scope/coach never signs; owned ⇒ PRINCIPAL" (the user's constraint); (b) one extra error code `instance-bad-role` was added (role canonicality) — flagged for review; (c) parallel worktree build kept it isolated from EVO-6 (disjoint files → clean cherry-pick).
+
+**Consequence**: (a) `@sentropic/h2a` exports `validateOrgManifest`/`orgAssignmentEnvelope`/`H2A_ORG_*` + the `H2AOrg*` types; (b) 10 org tests + full suite 551 green; (c) **additive → 0.15.x**; (d) next EVO-7 slices: `org.h2a.yaml` parse + `h2a org`/`h2a coach` CLI+MCP (propose→counter→ratify→provision scopes/mandates), scope-membership gating, drift detection.
