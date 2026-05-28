@@ -35,7 +35,7 @@ Steps:
 1. Verify the `h2a` binary is on PATH (`h2a --help`). If absent, instruct the user to run `npm i -g @sentropic/h2a-cli@latest` and stop.
 2. Decide the shared root. If `[root]` was passed, use it; otherwise prefer `<this-workspace>/.h2a`, else `~/h2a-workspace/.h2a`. Confirm with the user only if ambiguous.
 3. Run `h2a init --root <root>` (idempotent).
-4. Pick an instance id. Default: `<host>:<workspace-leaf>` (host = claude|codex|gemini; workspace-leaf = `basename <cwd>`).
+4. Pick an instance id. Default: `<host>:<workspace-leaf>` (host = claude|codex|gemini|agy; workspace-leaf = `basename <cwd>`).
 5. Call the MCP tool `h2a_session_open` with `{ instance, host, interests: { scopes: ["scope:default"], negotiations: [] } }`.
 6. Print a short summary: instance id, session id, peers currently live, the four notification topics this session is subscribed to.
 
@@ -180,4 +180,12 @@ These can be invoked directly from the shell at any time, outside the slash-comm
 - `h2a doctor [--root <path>]` — quick health probe.
 - `h2a sessions [--root <path>]` — same listing as `/h2a discover` but from the shell.
 - `h2a keys generate --instance <id>` — produce an ed25519 PEM keypair.
-- `h2a install-skills --host <claude|codex|gemini>` — re-install or update this skill on another host.
+- `h2a install-skills --host <claude|codex|gemini>` — re-install or update this skill on another host. *(agy/Antigravity is a first-class MCP host (`h2a host setup --host agy`, `h2a host plugin --host agy`) but its skill goes via `agy plugin import`, so `install-skills` does not yet take an `agy` target — see DEC-096.)*
+
+**Operational surfaces** (also shell-invocable; matching `h2a_*` MCP tools where noted):
+
+- `h2a nhi report|inventory|attest|offboard|export` — Non-Human-Identity posture / inventory / signed attestation / coordinated offboard / SPIFFE-bundle export (`h2a_nhi_*`, DEC-087..090/094).
+- `h2a blockage raise|list|resolve` — the peer blockage feedback loop, distinct from the drumbeat and from escalation (`h2a_blockage_*`, DEC-092). Subscribed sessions get `peer.blocked`/`peer.unblocked` pushes.
+- `h2a drumbeat record|scan|clear|escalations|watch` — anti-stall relance daemon + escalation-to-PRINCIPAL (DEC-086/091/095).
+- `h2a sysml verify --json <env> --public-key <pem>` — verify a SysML-v2 ref embedded in a signed envelope (commit-trust + content-integrity, DEC-099).
+- `h2a host setup|status|plugin --host <codex|claude|gemini|agy>` — render the per-host MCP config / stop-hook glue (DEC-093/096).

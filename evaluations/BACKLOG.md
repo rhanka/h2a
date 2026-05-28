@@ -40,7 +40,7 @@ Each artifact gets **three independent reviews**, then a consolidation:
 | 4 | `d-principal-15-conductors.md` | ✅ | ✅ | ☐ | ✅ [consolidated](./reviews/d-principal-15-conductors.consolidated.md) — 2/3; A_ENTERPRISE-variant note applied, mandate.rights/MANDATAIRE false-positives rejected |
 | 5 | `e-agentic-squad.md` | ✅ | ✅ | ☐ | ✅ [consolidated](./reviews/e-agentic-squad.consolidated.md) — 2/3; escalation/D_SAFE/Mermaid applied, SUBAGENTS false-positive rejected |
 | 6 | `sysml-v2.md` | ✅ | ☐ | ☐ | ◐ [consolidated](./reviews/sysml-v2.consolidated.md) — 1/3 (agy; codex exit1); S1-S4 cross-ref + Mermaid quoting applied |
-| 7 | Skills — `skills/h2a/SKILL.md` | ☐ | ☐ | ☐ | ☐ |
+| 7 | Skills — `skills/h2a/SKILL.md` | ✅ | ☐ | ☐ | ◐ [consolidated](./reviews/skills.consolidated.md) — 1/3 (agy; codex exit1); stale-surface + agy-host updates applied |
 | 8 | Foundations — `VOCABULARY.md` + `SPEC.md` | ☐ | ☐ | ☐ | ☐ |
 | 9 | `nhi.md` (NHI / OWASP Top 10) | ✅ | ✅ | ✅ | ✅ [consolidated](./reviews/nhi.consolidated.md) |
 
