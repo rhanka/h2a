@@ -64,3 +64,5 @@ flowchart TD
 ## Compatibility hypothesis
 
 Holds if scopes are explicit and `POLICY` supports inheritance, precedence and exception. Ecosystems must not be forced into a single hierarchy: peer-to-peer, federation, platform and consortium are distinct topologies.
+
+**Nearest built-in profile**: **`B_ECOSYSTEM`** (machine-readable as `H2A_ABC_MODEL_PROFILES`, verified by `auditAbcModelCompatibility('B_ECOSYSTEM')` — DEC-041). **Deltas vs the enterprise tree**: no common `EXECUTIF` (peer federation); inter-org `CONTRACT`s with disclosure/confidentiality/antitrust clauses; and the **no-mediator negotiation ledger** (terminal states, base-hash, signatures, stale-proposal rejection) listed under Gaps — a precedence conflict blocks the signature or escalates to the concerned PRINCIPALs.
