@@ -10,6 +10,8 @@
 | EVO-3 | Agent-blockage **feedback loop** (cross-agent notification) | Séance 1 (partial) | framed — agy is the gap (no daemon); others have daemon/hooks |
 | EVO-4 | Decision support / situation presentation | yes (largest) | intention |
 | EVO-5 | NHI (Non-Human Identity) — NIST standard support | yes (research first) | intention → backlog |
+| EVO-6 | Auto-connect at host startup (opt-in default + `/h2a disconnect`) | small (framed below) | intention |
+| EVO-7 | Coach mode — assign roles + shape who-talks-to-whom across many instances, org committed to a repo | yes | intention |
 
 > **Spec session 1 output**: [`docs/plugin-capability-matrix.md`](./plugin-capability-matrix.md) — factual CLI audit + capability matrix + per-intention implications.
 
@@ -82,3 +84,29 @@
 
 1. **Plan the spec sessions** — group these intentions into dedicated framing/spec sessions (proposed grouping to be confirmed by the user).
 2. **Inscribe to a backlog** once each is framed.
+
+## EVO-6 — Auto-connect at host startup (opt-in default)
+
+**Intention**: a session should **open automatically when the host CLI starts**, so the agent is on the bus without typing `/h2a connect`. Not mandatory, but **configured by default for the user** and **recommended-by-default in the install docs**, with an explicit **`/h2a disconnect`** escape.
+
+**Why/source**: user — "une option pour que le connect se fasse par défaut au démarrage (pas obligatoire, mais configurée pour moi, et préconisée dans la doc d'install par défaut — avec bien sûr une option `/h2a disconnect`)."
+
+**Framing + preco**: two mechanisms —
+1. **`mcp-serve --auto-open` (preco)** — the MCP server, already launched by the host at startup (now configured for claude/codex), opens the presence session itself on boot (instance derived from `--host` + cwd-leaf, or explicit `--instance`). Robust (no LLM compliance needed), and the session already auto-closes when `mcp-serve` exits (DEC-051). The installer bakes `--auto-open --host <h>` into the MCP args, so it is "configured for you"; `/h2a disconnect` calls `h2a_session_close` for the rest of the process (re-opens next launch). Install docs recommend it by default.
+2. *(alt)* a **SessionStart hook** that injects a "you are h2a-connected" instruction — LLM-dependent, less reliable; rejected as the primary.
+
+**Open framing**: instance-id derivation at server boot (host flag + cwd-leaf); should `/h2a disconnect` persist across restarts (preco: no — ephemeral, re-opens next launch); per-host: claude/codex/gemini bake the flag via the MCP add; agy via its MCP config slot.
+
+## EVO-7 — Coach mode (role assignment + communication topology across many instances)
+
+**Intention**: with **many instances** (e.g. 30 claude), **not all need to talk**; some must talk to all. A **coach** — a `CONDUCTOR` or a **transversal** advisor — helps **assign roles** and **shape the communication mode** (who discovers/messages whom). The **personal organization is committed to a repo** so it is durable and shareable. The `model` skill already proposes a tailored h2a mapping; coach is the **concrete operational** counterpart that drives it against live instances.
+
+**Why/source**: user — "un mode coach. genre j'ai 30 instances claude, toutes n'ont pas besoin de se parler, certaines doivent parler à toutes ; le coach (un conductor ou un transversal) aide à attribuer les rôles et favoriser le mode de communication. on pourrait commiter l'organisation personnelle dans un repo. `model` sert un peu à ça mais là ce serait plus en appui concret."
+
+**Framing + preco**: this maps cleanly onto existing primitives —
+- **Who-talks-to-whom = `SCOPE` membership** (presence/`discover` is already scope-filtered, DEC-051). The topology is "which instances share which scope". → no new transport needed; the coach provisions scopes.
+- **Roles** = the frozen set (`PRINCIPAL`/`CONDUCTOR`/`AGENTS`/`CONTROL`/`MANDATAIRE`). The coach assigns them per instance per scope via `MANDATE`s.
+- **Committed org (preco)**: an **org manifest** in a repo — `org.h2a.yaml` (or `h2a org` verbs) declaring `instances → roles → scopes → comm-edges`. Durable, reviewable, diffable.
+- **Coach (preco)**: a `/h2a coach` skill (operational) that reads the committed manifest **+ live presence** and (a) assigns roles/mandates, (b) provisions scopes so only the intended instances discover each other, (c) advises/sets the comm mode (broadcast scope vs targeted), (d) flags drift (a live instance not in the manifest, or an unfilled role). The coach **role** is a `CONDUCTOR` by default (orchestrates) and can hold a **transversal `CONTROL`-like** cross-scope read for advice. `model` = the *design proposal*; `coach` = *operating it*.
+
+**Open framing** (spec session): the org-manifest schema; `h2a org`/`h2a coach` CLI+MCP surface; how scope-membership gates `discover`/`inbox` (enforce vs advise); whether the coach can *act* (write mandates/scopes) or only *recommend*; relation to `model` (coach consumes a model output); multi-PRINCIPAL ownership of the org file.
