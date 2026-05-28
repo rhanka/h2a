@@ -12,7 +12,7 @@
 | EVO-5 | NHI (Non-Human Identity) — NIST standard support | yes (research first) | intention → backlog |
 | EVO-6 | Auto-connect at host startup (opt-in default + `/h2a disconnect`) | small (framed below) | intention |
 | EVO-7 | Coach mode — assign roles + shape who-talks-to-whom across many instances, org committed to a repo | yes | 🟡 slice 1 (DEC-106) — core org model shipped; coach skill + provisioning = later slices |
-| EVO-8 | CLI auto-upgrade (h2a upgrade + boot version-check; opt-in self-update) | small (framed below) | intention |
+| EVO-8 | CLI auto-upgrade (h2a upgrade + boot version-check; opt-in self-update) | small | ✅ built (DEC-107) — levels 1+2+3; bump 0.16.0 pending review |
 
 > **Spec session 1 output**: [`docs/plugin-capability-matrix.md`](./plugin-capability-matrix.md) — factual CLI audit + capability matrix + per-intention implications.
 

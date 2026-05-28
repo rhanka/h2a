@@ -161,6 +161,22 @@ export {
 } from "./runtime/escalation/index.js";
 
 export {
+  isNewerVersion,
+  parseSemver,
+  checkUpgrade,
+  performUpgrade,
+  currentCliVersion,
+  upgradeCachePath,
+  H2A_CLI_PACKAGE,
+  H2A_UPGRADE_CHECK_TTL_MS,
+  type UpgradeRuntime,
+  type UpgradeCacheEntry,
+  type UpgradeCheckResult
+} from "./runtime/upgrade/index.js";
+
+export { cmdUpgrade } from "./cli.js";
+
+export {
   resolveSysmlElement,
   hashSysmlElement,
   verifyEnvelopeSysmlRef,

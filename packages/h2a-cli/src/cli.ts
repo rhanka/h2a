@@ -111,6 +111,13 @@ import {
   clearEscalation
 } from "./runtime/escalation/index.js";
 import { verifyEnvelopeSysmlRef } from "./runtime/sysml/index.js";
+import {
+  checkUpgrade,
+  performUpgrade,
+  currentCliVersion,
+  upgradeCachePath,
+  type UpgradeRuntime
+} from "./runtime/upgrade/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -200,7 +207,8 @@ export function renderCliHelp(): string {
     "  h2a inbox pop --instance <id> --envelope <id> [--root <path>]",
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
-    "  h2a mcp-serve [--root <path>] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]]   (--auto-open joins the bus at startup; /h2a disconnect to leave)",
+    "  h2a mcp-serve [--root <path>] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--no-upgrade-check | --auto-upgrade]   (--auto-open joins the bus at startup; /h2a disconnect to leave)",
+    "  h2a upgrade [--check]   (--check: report current vs latest; bare: npm i -g @sentropic/h2a-cli@latest)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a drumbeat record --instance <id> --status <working|paused|done|blocked|out-of-tokens> [--command <c>] [--resume-command <c>] [--tmux-session <s> --tmux-pane <p>] [--root <path>]",
@@ -822,6 +830,42 @@ export function resolveAutoOpen(
   };
 }
 
+/**
+ * `h2a upgrade [--check]` (DEC-107, EVO-8 level 1): explicit self-upgrade.
+ * `--check` reports current vs latest (no install); bare runs the global
+ * install of `@latest`. Sync (spawnSync). `runtime` is injectable for tests.
+ */
+export function cmdUpgrade(
+  flags: Record<string, string>,
+  streams: H2ACliStreams,
+  runtime?: UpgradeRuntime
+): number {
+  const current = currentCliVersion();
+  if (flags.check !== undefined) {
+    const result = checkUpgrade(current, { ...(runtime ? { runtime } : {}), force: true });
+    streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  }
+  const result = checkUpgrade(current, { ...(runtime ? { runtime } : {}), force: true });
+  if (!result.upgradeAvailable) {
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, current, latest: result.latest ?? current, upgraded: false, reason: "already current or registry unreachable" }, null, 2)}\n`
+    );
+    return 0;
+  }
+  const ok = performUpgrade(runtime);
+  streams.stdout.write(
+    `${JSON.stringify({ ok, current, latest: result.latest, upgraded: ok, package: "@sentropic/h2a-cli" }, null, 2)}\n`
+  );
+  if (!ok) {
+    streams.stderr.write(
+      "h2a upgrade: global install failed — run `npm i -g @sentropic/h2a-cli@latest` manually (or check your install method).\n"
+    );
+    return 1;
+  }
+  return 0;
+}
+
 export async function runMcpServe(
   flags: Record<string, string>,
   io: {
@@ -838,6 +882,33 @@ export async function runMcpServe(
   const cwd = io.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
   const autoOpen = resolveAutoOpen(flags, cwd);
+
+  // DEC-107 (EVO-8 levels 2/3): cached, non-blocking version check at boot.
+  // `--no-upgrade-check` opts out. `--auto-upgrade` self-installs @latest now
+  // (it applies on the NEXT launch — a running process can't swap its binary).
+  if (flags["no-upgrade-check"] === undefined) {
+    try {
+      const current = currentCliVersion();
+      const result = checkUpgrade(current, { cachePath: upgradeCachePath(root) });
+      if (result.upgradeAvailable) {
+        if (flags["auto-upgrade"] !== undefined) {
+          const ok = performUpgrade();
+          io.stderr.write(
+            ok
+              ? `h2a mcp-serve: auto-upgraded ${current} → ${result.latest} (applies on next launch)\n`
+              : `h2a mcp-serve: auto-upgrade to ${result.latest} failed; staying on ${current}\n`
+          );
+        } else {
+          io.stderr.write(
+            `h2a mcp-serve: h2a ${result.latest} available (current ${current}) — run \`h2a upgrade\`\n`
+          );
+        }
+      }
+    } catch {
+      // best-effort: a check/upgrade failure must never block serving.
+    }
+  }
+
   try {
     await runMcpStdio({
       root,
@@ -2507,6 +2578,7 @@ export function runCli(
     }
     return cmdDrumbeat(argv.slice(1), streams);
   }
+  if (command === "upgrade") return cmdUpgrade(flags, streams);
   if (command === "nhi") return cmdNhi(argv.slice(1), streams);
   if (command === "blockage") return cmdBlockage(argv.slice(1), streams);
   if (command === "sysml") {

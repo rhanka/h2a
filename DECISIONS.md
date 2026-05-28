@@ -1896,3 +1896,15 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Why**: (a) keeping the org model pure + the assignment a signed envelope reuses the existing negotiation/signature machinery — the coach proposes and the PRINCIPAL ratifies, honouring "a scope/coach never signs; owned ⇒ PRINCIPAL" (the user's constraint); (b) one extra error code `instance-bad-role` was added (role canonicality) — flagged for review; (c) parallel worktree build kept it isolated from EVO-6 (disjoint files → clean cherry-pick).
 
 **Consequence**: (a) `@sentropic/h2a` exports `validateOrgManifest`/`orgAssignmentEnvelope`/`H2A_ORG_*` + the `H2AOrg*` types; (b) 10 org tests + full suite 551 green; (c) **additive → 0.15.x**; (d) next EVO-7 slices: `org.h2a.yaml` parse + `h2a org`/`h2a coach` CLI+MCP (propose→counter→ratify→provision scopes/mandates), scope-membership gating, drift detection.
+
+## DEC-107 — EVO-8: CLI auto-upgrade (h2a upgrade + boot check + --auto-upgrade)
+**Date**: 2026-05-28. **Refers**: DEC-054, DEC-105. **Line**: V2 (0.16.x).
+
+**Decision**: three levels, pure logic + injectable `UpgradeRuntime` (`runtime/upgrade/`):
+1. **`h2a upgrade [--check]`** — `--check` reports `{current, latest, upgradeAvailable}` (no install); bare runs `npm i -g @sentropic/h2a-cli@latest`. Exit 1 on install failure.
+2. **boot version-check notice** — `mcp-serve` does a **cached** (`<root>/upgrade-check.json`, TTL 24h), **non-blocking**, **opt-out** (`--no-upgrade-check`) check at startup; if a newer version is published it writes a stderr notice. Reuses the boot path (like `--auto-open`).
+3. **`mcp-serve --auto-upgrade`** — self-installs `@latest` at boot; **honest semantics**: a running Node process cannot swap its own binary, so the upgrade **applies on the next launch** (the stderr message says so).
+
+**Why**: (a) `h2a upgrade` is the explicit, safe automation of the manual `npm i -g` we just ran for 0.15.0; (b) the boot notice keeps long-lived host-spawned servers from silently running stale, cached so it costs one `npm view` per day max and never blocks/crashes serving; (c) `--auto-upgrade` is opt-in and honest about next-launch application (no fake hot-swap); (d) the injectable runtime makes all of it testable without npm/network.
+
+**Consequence**: (a) `@sentropic/h2a-cli` exports the upgrade API (`isNewerVersion`/`checkUpgrade`/`performUpgrade`/`currentCliVersion`/…) + `cmdUpgrade`; `h2a upgrade` verb + `mcp-serve --no-upgrade-check`/`--auto-upgrade` flags; (b) 10 upgrade tests + full suite 560 green; (c) **additive → 0.16.x** (bump review-gated); (d) once 0.16.0 is published + the global binary on it, the notice/auto-upgrade keep every host current automatically — closing the manual-upgrade loop.

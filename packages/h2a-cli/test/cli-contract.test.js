@@ -532,6 +532,10 @@ function buildHappyArgv(verb, ctx) {
       // Async verb (network on the content path) + needs a signed envelope with
       // a ref; covered by sysml-verify.test.js.
       return null;
+    case "upgrade":
+      // Would hit the npm registry / run a global install; covered by
+      // upgrade.test.js with an injected runtime.
+      return null;
     case "drumbeat record":
       return ["drumbeat", "record", "--root", root, "--instance", "agent-001", "--status", "out-of-tokens"];
     case "drumbeat scan":
@@ -608,6 +612,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "outbox put",
     "outbox read",
     "mcp-serve",
+    "upgrade",
     "remote serve",
     "remote send",
     "sysml verify",

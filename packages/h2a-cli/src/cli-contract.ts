@@ -296,9 +296,18 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "stream",
     exitCodes: [0, 1],
     requiredFlags: [],
-    optionalFlags: ["root", "auto-open", "host", "instance", "scope"],
+    optionalFlags: ["root", "auto-open", "host", "instance", "scope", "no-upgrade-check", "auto-upgrade"],
     description:
-      "Run the built-in MCP server speaking JSON-RPC 2.0 over stdio (long-running). `--auto-open` opens a presence session at boot (EVO-6, DEC-105): instance = `--instance` or `<--host>:<cwd-leaf>`; the session auto-closes on exit and `/h2a disconnect` (h2a_session_close) leaves early."
+      "Run the built-in MCP server speaking JSON-RPC 2.0 over stdio (long-running). `--auto-open` opens a presence session at boot (EVO-6, DEC-105). `--auto-upgrade` self-installs @latest at boot (applies next launch); a cached non-blocking version-check notice runs by default (`--no-upgrade-check` to opt out) — EVO-8/DEC-107."
+  },
+  {
+    verb: "upgrade",
+    outputShape: "action",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["check"],
+    description:
+      "Self-upgrade the global `@sentropic/h2a-cli` (EVO-8, DEC-107). `--check` reports `{current, latest, upgradeAvailable}` without installing; bare runs `npm i -g @sentropic/h2a-cli@latest`. Exit 1 if the install fails."
   },
 
   // --- remote transport (DEC-076/077, signed-bearer) ---
