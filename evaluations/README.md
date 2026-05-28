@@ -32,6 +32,7 @@ Not organizational topologies — they test `h2a` against external standards/fra
 | Smart contracts (blockchain) | h2a off-chain negotiation/authority ↔ on-chain execution; `{chain,address,txHash}` reference | [smart-contract.md](./smart-contract.md) |
 | ISO/IEC 27001 (ISMS) | h2a as the management-system evidence layer — SoA/Annex A → POLICY+CONTROL, journal = audit evidence | [iso-27001.md](./iso-27001.md) |
 | ISO 9001 (QMS) | process approach → ENGAGEMENT; quality policy → POLICY; journal = cl.7.5 documented information | [iso-9001.md](./iso-9001.md) |
+| SOC 2 (TSC) | Trust Services Criteria → POLICY+CONTROL; report period ↔ journal window (Type II operating-effectiveness evidence) | [soc2.md](./soc2.md) |
 
 ## Machine-readable source
 
