@@ -1182,6 +1182,36 @@ function readOrgSource(
 }
 
 /**
+ * `--deliver` for `coach propose`/`ratify`: drop the (un)signed org envelope into
+ * each declared instance's inbox so affected agents actually receive it and can
+ * have their say (counter) — closing the propose→counter→ratify loop over the
+ * existing mailbox primitives. The envelope itself stays the stdout payload;
+ * delivery is reported on stderr so the `resource` contract is preserved.
+ */
+function deliverOrgEnvelope(
+  flags: Record<string, string>,
+  cwd: () => string,
+  streams: H2ACliStreams,
+  manifest: { instances: ReadonlyArray<{ instance: string }> },
+  envelope: Parameters<ReturnType<typeof createLocalStore>["putInboxMessage"]>[1],
+  verb: string
+): void {
+  const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+  const delivered: string[] = [];
+  for (const inst of manifest.instances) {
+    try {
+      store.putInboxMessage(inst.instance, envelope);
+      delivered.push(inst.instance);
+    } catch (error) {
+      streams.stderr.write(`${verb}: deliver to ${inst.instance} failed: ${(error as Error).message}\n`);
+    }
+  }
+  streams.stderr.write(
+    `${verb}: delivered to ${delivered.length} inbox(es)${delivered.length ? `: ${delivered.join(", ")}` : ""}\n`
+  );
+}
+
+/**
  * `h2a org` (EVO-7 slice 2, DEC-109): read-only tooling over the committed org
  * manifest (`org.h2a.yaml`). `validate` parses + checks the h2a invariants;
  * `show` prints the normalized manifest with its validation result. The coach's
@@ -1349,6 +1379,9 @@ export function cmdCoach(argv: readonly string[], streams: H2ACliStreams): numbe
       },
       kind: H2A_ORG_PROPOSAL_BODY_KIND
     });
+    if (flags.deliver !== undefined) {
+      deliverOrgEnvelope(flags, cwd, streams, parsed.manifest, envelope, "h2a coach propose");
+    }
     streams.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
     return 0;
   }
@@ -1400,6 +1433,9 @@ export function cmdCoach(argv: readonly string[], streams: H2ACliStreams): numbe
       kind: H2A_ORG_RATIFIED_BODY_KIND
     });
     const signed = signEnvelope(envelope, { by: flags.as, privateKeyPem });
+    if (flags.deliver !== undefined) {
+      deliverOrgEnvelope(flags, cwd, streams, parsed.manifest, signed, "h2a coach ratify");
+    }
     streams.stdout.write(`${JSON.stringify(signed, null, 2)}\n`);
     return 0;
   }
@@ -2063,13 +2099,19 @@ function cmdDiscover(
   const root = resolveRoot(flags, cwd);
   const store = createLocalStore({ root });
   let entries = store.listInstances();
+  // DEC-110: filter by the EFFECTIVE org view (registration scopes/roles ∪
+  // provisioned membership grants), so a `provision`-granted scope actually
+  // gates discovery at runtime. Output stays the raw registration (grants only
+  // widen the match set, never narrow it).
+  const effective = effectiveOrgInstances(entries, store.listOrgMembership());
+  const effByInstance = new Map(effective.map((e) => [e.instance, e]));
   if (flags.role) {
     const role = flags.role;
-    entries = entries.filter((entry) => (entry.roles as readonly string[]).includes(role));
+    entries = entries.filter((entry) => effByInstance.get(entry.instance)?.roles.includes(role));
   }
   if (flags.scope) {
     const scope = flags.scope;
-    entries = entries.filter((entry) => entry.scopes.includes(scope));
+    entries = entries.filter((entry) => effByInstance.get(entry.instance)?.scopes.includes(scope));
   }
   streams.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
   return 0;

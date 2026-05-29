@@ -226,6 +226,57 @@ test("org provision → grants for keyed instances, pending for unregistered, id
   }
 });
 
+test("discover --scope reflects a provisioned grant (effective-view gating)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-org-"));
+  const file = join(dir, "provision.h2a.yaml");
+  const root = join(dir, ".h2a");
+  writeFileSync(file, PROVISION, "utf8"); // claude:lead declared in org:acme + org:acme/ops
+  try {
+    run(["init", "--root", root]);
+    const reg = {
+      id: "reg-lead",
+      instance: "claude:lead",
+      roles: ["PRINCIPAL"],
+      scopes: ["org:acme"],
+      capabilities: [],
+      endpoints: [],
+      publicKeys: [],
+      acceptedPolicies: [],
+      createdAt: "2026-05-29T00:00:00.000Z"
+    };
+    run(["register", "--root", root, "--json", JSON.stringify(reg)]);
+
+    // before provisioning: not a member of org:acme/ops
+    const before = JSON.parse(run(["discover", "--root", root, "--scope", "org:acme/ops"]).stdout);
+    assert.equal(before.length, 0);
+
+    run(["org", "provision", "--root", root, "--file", file]);
+
+    // after provisioning: the grant makes it discoverable in the granted scope
+    const after = JSON.parse(run(["discover", "--root", root, "--scope", "org:acme/ops"]).stdout);
+    assert.equal(after.length, 1);
+    assert.equal(after[0].instance, "claude:lead");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("coach propose --deliver drops the org-proposal into declared inboxes", () => {
+  const { dir, file } = writeManifest(VALID);
+  const root = join(dir, ".h2a");
+  try {
+    run(["init", "--root", root]);
+    const r = run(["coach", "propose", "--root", root, "--file", file, "--as", "claude:coach", "--deliver"]);
+    assert.equal(r.rc, 0, r.stderr);
+    // each declared instance received the proposal in its inbox
+    const inbox = JSON.parse(run(["inbox", "read", "--root", root, "--instance", "codex:dev-1"]).stdout);
+    assert.equal(inbox.length, 1);
+    assert.equal(inbox[0].body.kind, "org-proposal");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("coach ratify → PRINCIPAL-signed org-ratified envelope, signature verifies", () => {
   const { dir, file } = writeManifest(VALID);
   const keyPath = join(dir, "principal.pkcs8.pem");

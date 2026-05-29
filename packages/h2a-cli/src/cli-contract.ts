@@ -565,18 +565,18 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "resource",
     exitCodes: [0, 1, 3],
     requiredFlags: ["as"],
-    optionalFlags: ["file", "role", "scope"],
+    optionalFlags: ["file", "role", "scope", "deliver", "root"],
     description:
-      "Emit the *unsigned* `org-proposal` envelope for a validated manifest — the coach proposes, does not impose. `--as <coach-instance>` is the proposing coach (`--role`, default CONDUCTOR; `--scope`, default the manifest scope). Refuses an invalid manifest (exit 1). Signing, persistence, the PRINCIPAL ratification and live provisioning are later slices. EVO-7 slice 2, DEC-109."
+      "Emit the *unsigned* `org-proposal` envelope for a validated manifest — the coach proposes, does not impose. `--as <coach-instance>` is the proposing coach (`--role`, default CONDUCTOR; `--scope`, default the manifest scope). `--deliver` also drops it into each declared instance's inbox so agents can have their say (counter). Refuses an invalid manifest (exit 1). EVO-7, DEC-109."
   },
   {
     verb: "coach ratify",
     outputShape: "resource",
     exitCodes: [0, 1, 3],
     requiredFlags: ["as", "private-key"],
-    optionalFlags: ["file", "role", "scope"],
+    optionalFlags: ["file", "role", "scope", "deliver", "root"],
     description:
-      "The PRINCIPAL ratifies a proposed org: emits the `org-ratified` envelope for a valid manifest, ed25519-signed with `--private-key` as `--as` (`--role`, default PRINCIPAL; `--scope`, default the manifest scope) — verifiable with the standard `verifyEnvelopeSignature`. Refuses an invalid manifest (exit 1). Only the ratified manifest is provisioned (a later slice). EVO-7, DEC-109."
+      "The PRINCIPAL ratifies a proposed org: emits the `org-ratified` envelope for a valid manifest, ed25519-signed with `--private-key` as `--as` (`--role`, default PRINCIPAL; `--scope`, default the manifest scope) — verifiable with the standard `verifyEnvelopeSignature`. `--deliver` drops it into each declared instance's inbox. Refuses an invalid manifest (exit 1). Provision it with `h2a org provision`. EVO-7, DEC-109."
   },
   {
     verb: "blockage raise",

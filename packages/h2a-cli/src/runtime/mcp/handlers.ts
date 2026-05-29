@@ -4,6 +4,7 @@ import {
   H2A_SESSION_STATES,
   auditNhiPosture,
   computeHash,
+  effectiveOrgInstances,
   nhiAttestationEnvelope,
   nhiInventory,
   nhiTrustBundle,
@@ -68,13 +69,17 @@ export function handleDiscoverInstances(
 ): McpToolResult | McpErrorResult {
   try {
     let instances = store.listInstances();
+    // DEC-110: gate discovery on the effective org view (registration ∪
+    // provisioned membership grants), matching the CLI `discover` verb.
+    const effective = effectiveOrgInstances(instances, store.listOrgMembership());
+    const effByInstance = new Map(effective.map((e) => [e.instance, e]));
     if (args?.role) {
       const wanted = args.role;
-      instances = instances.filter((reg) => reg.roles.includes(wanted));
+      instances = instances.filter((reg) => effByInstance.get(reg.instance)?.roles.includes(wanted));
     }
     if (args?.scope) {
       const wanted = args.scope;
-      instances = instances.filter((reg) => reg.scopes.includes(wanted));
+      instances = instances.filter((reg) => effByInstance.get(reg.instance)?.scopes.includes(wanted));
     }
     return { instances };
   } catch (err) {

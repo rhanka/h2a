@@ -51,3 +51,13 @@ All derivable code + Backlog B (authored+reviewed) + feasible Backlog A reviews 
 - **EVO-0 agy install-skills (DEC-101)** — `install-skills --host agy` (gemini-style TOML + `agy plugin import gemini` hint). EVO-0 complete. Shipped in **v0.13.0** (published).
 - **Drumbeat D6 slice b (DEC-102)** — `host plugin --write` installs the claude Stop hook (idempotent settings.json merge); non-claude refused+render; `poll` now universal. claude auto-relance is end-to-end. Pending release (0.14.0).
 - **Drumbeat D6 slice b cont. (DEC-103)** — `host plugin --write` extended to **gemini** (Claude-format hooks.Stop in ~/.gemini/settings.json; proven by `gemini hooks migrate --from-claude`). codex (plugin/hook-trust, unverified schema) + agy (poll-only) stay render+manual. Tonight's hosts covered: claude+gemini auto-install, agy poll, codex manual. Batched for 0.14.0 (bump pending user approval).
+
+## Autonomous run — 2026-05-29 (backlog finalization, user: "finaliser ce backlog … jusqu'à EVO-3 (/loop)")
+Scope: finish EVO-7 (no "optional/later"), then continue D5/D4 → NHI P3 → EVO-3. Reversible decisions, commit+push each slice, stop only for genuine framing/decision.
+- **EVO-7 slice 2 (DEC-109)** — pure zero-dep `org.h2a.yaml` parser + `h2a org validate/show` + `coach propose` (unsigned). Reversible: CLI-only surface (like deploy/keys). Shipped.
+- **EVO-7 `org diff` (DEC-109)** — read-only drift report (declared vs live). Shipped.
+- **EVO-7 `coach ratify` (DEC-109)** — PRINCIPAL signs `org-ratified` (mirrors nhi attest). Shipped.
+- **Provisioning fork** — PRINCIPAL chose **reconcile keyed-only** (no fabricated identities); mechanism = append-only `org-membership.jsonl` (DEC-078 keyring pattern). `org provision` shipped (DEC-109).
+- **EVO-7 finish (DEC-110)** — runtime scope-gating: `discover`/`h2a_discover_instances` consult the effective view (grants widen the match set, non-breaking). `coach propose/ratify --deliver` circulates the envelope via inboxes. EVO-7 complete. Shipped.
+- **Deferred-but-not-optional**: MCP *signing* tools need server-side key custody (project-wide decision) → flagged, not silently parked.
+- **Release**: 0.18.0 bump awaits PRINCIPAL GO (publish is irreversible/outward); all work additive on main meanwhile.

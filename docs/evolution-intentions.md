@@ -11,7 +11,7 @@
 | EVO-4 | Decision support / situation presentation | yes (largest) | intention |
 | EVO-5 | NHI (Non-Human Identity) — NIST standard support | yes (research first) | intention → backlog |
 | EVO-6 | Auto-connect at host startup (opt-in default + `/h2a disconnect`) | small (framed below) | intention |
-| EVO-7 | Coach mode — assign roles + shape who-talks-to-whom across many instances, org committed to a repo | yes | ✅ functionally complete (DEC-106, DEC-109) — core org model + `org.h2a.yaml` parser + full `h2a org` (validate/show/diff/provision) + `h2a coach` (propose/ratify) lifecycle; provisioning is reconcile keyed-only via an append-only membership log. Optional later: runtime scope-gating from the effective view + propose→counter→ratify MCP flow |
+| EVO-7 | Coach mode — assign roles + shape who-talks-to-whom across many instances, org committed to a repo | yes | ✅ **complete** (DEC-106, DEC-109, DEC-110) — core org model + `org.h2a.yaml` parser + full `h2a org` (validate/show/diff/provision) + `h2a coach` (propose/ratify, `--deliver`) lifecycle; provisioning is reconcile keyed-only via an append-only membership log; grants gate `discover`/`h2a_discover_instances` at runtime (effective view). Remaining future work is MCP *signing* tools, blocked on project-wide server key custody — not an EVO-7 gap |
 | EVO-8 | CLI auto-upgrade (h2a upgrade + opt-in boot check + in-place restart) | small | ✅ built (DEC-107+108) — levels 1+2+3 incl. process.execve in-place restart; bump 0.17.0 |
 
 > **Spec session 1 output**: [`docs/plugin-capability-matrix.md`](./plugin-capability-matrix.md) — factual CLI audit + capability matrix + per-intention implications.
