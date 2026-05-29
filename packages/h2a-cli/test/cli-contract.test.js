@@ -559,7 +559,8 @@ function buildHappyArgv(verb, ctx) {
     case "org validate":
     case "org show":
     case "org diff":
-    case "coach propose": {
+    case "coach propose":
+    case "coach ratify": {
       const manifest =
         "scope: org:acme\ninstances:\n  - instance: agent-001\n    role: PRINCIPAL\n    scopes: [org:acme]\n";
       const file = join(root, "..", `org-${verb.split(" ")[1]}.h2a.yaml`);
@@ -567,7 +568,8 @@ function buildHappyArgv(verb, ctx) {
       if (verb === "org validate") return ["org", "validate", "--file", file];
       if (verb === "org show") return ["org", "show", "--file", file];
       if (verb === "org diff") return ["org", "diff", "--root", root, "--file", file];
-      return ["coach", "propose", "--file", file, "--as", "agent-001"];
+      if (verb === "coach propose") return ["coach", "propose", "--file", file, "--as", "agent-001"];
+      return ["coach", "ratify", "--file", file, "--as", "agent-001", "--private-key", privateKeyPath];
     }
     case "blockage raise":
       return ["blockage", "raise", "--root", root, "--instance", "agent-001", "--reason", "waiting on review", "--scope", "scope:contract"];
@@ -654,6 +656,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "org show",
     "org diff",
     "coach propose",
+    "coach ratify",
     "blockage raise",
     "blockage list",
     "blockage resolve",

@@ -67,6 +67,7 @@ import {
   orgAssignmentEnvelope,
   H2A_ORG_MANIFEST_FILENAME,
   H2A_ORG_PROPOSAL_BODY_KIND,
+  H2A_ORG_RATIFIED_BODY_KIND,
   H2A_ROLES,
   H2A_WORK_STATUSES
 } from "@sentropic/h2a";
@@ -1294,7 +1295,58 @@ export function cmdCoach(argv: readonly string[], streams: H2ACliStreams): numbe
     return 0;
   }
 
-  streams.stderr.write(`h2a coach: unknown subcommand "${sub ?? ""}" (propose)\n`);
+  if (sub === "ratify") {
+    if (!flags.as || !flags["private-key"]) {
+      streams.stderr.write(
+        "h2a coach ratify: --as <principal-instance> and --private-key <pem-file> are required\n"
+      );
+      return 1;
+    }
+    const roleStr = flags.role ?? "PRINCIPAL";
+    if (!(H2A_ROLES as readonly string[]).includes(roleStr)) {
+      streams.stderr.write(
+        `h2a coach ratify: --role must be one of ${H2A_ROLES.join(", ")} (got "${flags.role}")\n`
+      );
+      return 1;
+    }
+    let privateKeyPem: string;
+    try {
+      privateKeyPem = readFileSync(flags["private-key"], "utf8");
+    } catch (error) {
+      streams.stderr.write(
+        `h2a coach ratify: cannot read --private-key (${(error as Error).message})\n`
+      );
+      return 1;
+    }
+    const source = readOrgSource(flags, cwd, streams, "h2a coach ratify");
+    if (source === undefined) return 3;
+    const parsed = parseOrgManifest(source);
+    if (!parsed.manifest) {
+      streams.stderr.write(`h2a coach ratify: ${parsed.errors.join("; ")}\n`);
+      return 1;
+    }
+    const validation = validateOrgManifest(parsed.manifest);
+    if (!validation.ok) {
+      streams.stderr.write(
+        `h2a coach ratify: refusing to ratify an invalid org (${validation.errors.join(", ")})\n`
+      );
+      return 1;
+    }
+    const envelope = orgAssignmentEnvelope({
+      manifest: parsed.manifest,
+      actor: {
+        instance: flags.as,
+        role: roleStr as H2ARole,
+        scope: flags.scope ?? parsed.manifest.scope
+      },
+      kind: H2A_ORG_RATIFIED_BODY_KIND
+    });
+    const signed = signEnvelope(envelope, { by: flags.as, privateKeyPem });
+    streams.stdout.write(`${JSON.stringify(signed, null, 2)}\n`);
+    return 0;
+  }
+
+  streams.stderr.write(`h2a coach: unknown subcommand "${sub ?? ""}" (propose, ratify)\n`);
   return 1;
 }
 

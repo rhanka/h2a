@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import { runCli } from "../dist/index.js";
+import { verifyEnvelopeSignature } from "@sentropic/h2a";
 
 function run(argv) {
   let stdout = "";
@@ -162,6 +164,39 @@ test("coach propose → unsigned org-proposal envelope", () => {
     assert.equal(env.body.manifest.instances.length, 3);
     assert.ok(env.id.startsWith("org-"));
     assert.equal(env.signature, undefined); // read-only: unsigned
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("coach ratify → PRINCIPAL-signed org-ratified envelope, signature verifies", () => {
+  const { dir, file } = writeManifest(VALID);
+  const keyPath = join(dir, "principal.pkcs8.pem");
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  writeFileSync(keyPath, privateKey.export({ format: "pem", type: "pkcs8" }).toString(), "utf8");
+  const publicPem = publicKey.export({ format: "pem", type: "spki" }).toString();
+  try {
+    const r = run(["coach", "ratify", "--file", file, "--as", "claude:lead", "--private-key", keyPath]);
+    assert.equal(r.rc, 0, r.stderr);
+    const env = JSON.parse(r.stdout);
+    assert.equal(env.type, "event");
+    assert.equal(env.body.kind, "org-ratified");
+    assert.equal(env.actor.instance, "claude:lead");
+    assert.equal(env.actor.role, "PRINCIPAL"); // default ratifier role
+    assert.equal(env.signatures.length, 1, "ratified envelope must carry one signature");
+    // the signature verifies against the signer's public key
+    assert.equal(verifyEnvelopeSignature(env, publicPem, { by: "claude:lead" }), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("coach ratify → requires --private-key (exit 1)", () => {
+  const { dir, file } = writeManifest(VALID);
+  try {
+    const r = run(["coach", "ratify", "--file", file, "--as", "claude:lead"]);
+    assert.equal(r.rc, 1);
+    assert.match(r.stderr, /--private-key/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
