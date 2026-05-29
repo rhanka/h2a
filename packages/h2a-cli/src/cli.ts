@@ -116,6 +116,9 @@ import {
   performUpgrade,
   currentCliVersion,
   upgradeCachePath,
+  canReexec,
+  reexecSelf,
+  H2A_REEXEC_GUARD_ENV,
   type UpgradeRuntime
 } from "./runtime/upgrade/index.js";
 
@@ -207,7 +210,7 @@ export function renderCliHelp(): string {
     "  h2a inbox pop --instance <id> --envelope <id> [--root <path>]",
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
-    "  h2a mcp-serve [--root <path>] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--no-upgrade-check | --auto-upgrade]   (--auto-open joins the bus at startup; /h2a disconnect to leave)",
+    "  h2a mcp-serve [--root <path>] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--upgrade-check | --auto-upgrade [--no-restart]]   (--auto-open joins the bus at startup; --auto-upgrade self-updates + restarts in place; --upgrade-check = notice only; both opt-in/no network by default; /h2a disconnect to leave)",
     "  h2a upgrade [--check]   (--check: report current vs latest; bare: npm i -g @sentropic/h2a-cli@latest)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
@@ -883,16 +886,30 @@ export async function runMcpServe(
   const root = resolveRoot(flags, cwd);
   const autoOpen = resolveAutoOpen(flags, cwd);
 
-  // DEC-107 (EVO-8 levels 2/3): cached, non-blocking version check at boot.
-  // `--no-upgrade-check` opts out. `--auto-upgrade` self-installs @latest now
-  // (it applies on the NEXT launch — a running process can't swap its binary).
-  if (flags["no-upgrade-check"] === undefined) {
+  // DEC-107/108 (EVO-8 levels 2/3): version handling at boot. **Opt-in** — no
+  // network on a default boot. `--auto-upgrade` self-installs @latest then
+  // re-execs in place via process.execve (same PID/stdio, host stays connected;
+  // falls back to next-launch where execve is unavailable or `--no-restart`).
+  // `--upgrade-check` (notice only) prints a cached, bounded availability hint.
+  // The H2A_REEXEC_GUARD_ENV flag (set across the re-exec) prevents a re-loop.
+  const wantAutoUpgrade = flags["auto-upgrade"] !== undefined;
+  const wantCheckOnly = flags["upgrade-check"] !== undefined;
+  if (
+    (wantAutoUpgrade || wantCheckOnly) &&
+    process.env[H2A_REEXEC_GUARD_ENV] === undefined
+  ) {
     try {
       const current = currentCliVersion();
       const result = checkUpgrade(current, { cachePath: upgradeCachePath(root) });
       if (result.upgradeAvailable) {
-        if (flags["auto-upgrade"] !== undefined) {
+        if (wantAutoUpgrade) {
           const ok = performUpgrade();
+          if (ok && flags["no-restart"] === undefined && canReexec()) {
+            io.stderr.write(
+              `h2a mcp-serve: auto-upgraded ${current} → ${result.latest}; restarting into the new version…\n`
+            );
+            reexecSelf(); // on success the image is replaced (never returns)
+          }
           io.stderr.write(
             ok
               ? `h2a mcp-serve: auto-upgraded ${current} → ${result.latest} (applies on next launch)\n`

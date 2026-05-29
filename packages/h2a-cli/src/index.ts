@@ -167,8 +167,12 @@ export {
   performUpgrade,
   currentCliVersion,
   upgradeCachePath,
+  canReexec,
+  reexecSelf,
   H2A_CLI_PACKAGE,
   H2A_UPGRADE_CHECK_TTL_MS,
+  H2A_REEXEC_GUARD_ENV,
+  type ReexecOptions,
   type UpgradeRuntime,
   type UpgradeCacheEntry,
   type UpgradeCheckResult

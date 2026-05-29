@@ -9,7 +9,10 @@ import {
   checkUpgrade,
   isNewerVersion,
   performUpgrade,
-  upgradeCachePath
+  upgradeCachePath,
+  canReexec,
+  reexecSelf,
+  H2A_REEXEC_GUARD_ENV
 } from "../dist/index.js";
 
 function fakeRuntime(overrides = {}) {
@@ -115,4 +118,44 @@ test("cmdUpgrade (bare) does not install when already current", () => {
 
 test("upgradeCachePath is under the root", () => {
   assert.equal(upgradeCachePath("/r/.h2a"), join("/r/.h2a", "upgrade-check.json"));
+});
+
+test("reexecSelf calls execve with the same binary+args and the guard env set", () => {
+  let captured;
+  // Use the real node path so the existsSync guard passes; fake execve records.
+  const ok = reexecSelf({
+    execve: (file, args, env) => {
+      captured = { file, args, env };
+      return undefined; // a real execve never returns; the fake just records
+    },
+    execPath: process.execPath,
+    argv: ["/path/bin.js", "mcp-serve", "--auto-upgrade"],
+    env: { PATH: "/x" }
+  });
+  assert.equal(ok, true);
+  assert.equal(captured.file, process.execPath);
+  assert.deepEqual(captured.args, [process.execPath, "/path/bin.js", "mcp-serve", "--auto-upgrade"]);
+  assert.equal(captured.env[H2A_REEXEC_GUARD_ENV], "1", "guard env must be set to break re-exec loops");
+});
+
+test("reexecSelf returns false (no native crash) when the target binary is missing", () => {
+  // A non-existent execPath must be refused BEFORE calling execve — a failing
+  // process.execve aborts natively, so the existsSync guard is load-bearing.
+  let called = false;
+  assert.equal(
+    reexecSelf({ execve: () => { called = true; }, execPath: "/no/such/binary-xyz", argv: [] }),
+    false
+  );
+  assert.equal(called, false, "execve must not be called for a missing target");
+});
+
+test("reexecSelf returns false when execve throws (catchable)", () => {
+  assert.equal(
+    reexecSelf({ execve: () => { throw new Error("ENOSYS"); }, execPath: process.execPath, argv: [] }),
+    false
+  );
+});
+
+test("canReexec reflects process.execve availability (true on this Node 24)", () => {
+  assert.equal(canReexec(), typeof process.execve === "function");
 });

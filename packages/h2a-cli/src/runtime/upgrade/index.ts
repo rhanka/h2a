@@ -71,7 +71,8 @@ export interface UpgradeRuntime {
 export const defaultUpgradeRuntime: UpgradeRuntime = {
   fetchLatest(pkg) {
     try {
-      const r = spawnSync("npm", ["view", pkg, "version"], { encoding: "utf8" });
+      // Bounded: a registry call must never hang a server boot.
+      const r = spawnSync("npm", ["view", pkg, "version"], { encoding: "utf8", timeout: 4000 });
       if (r.status !== 0) return undefined;
       const v = r.stdout.trim();
       return parseSemver(v) ? v : undefined;
@@ -81,7 +82,7 @@ export const defaultUpgradeRuntime: UpgradeRuntime = {
   },
   runInstall(pkg) {
     try {
-      const r = spawnSync("npm", ["i", "-g", `${pkg}@latest`], { stdio: "ignore" });
+      const r = spawnSync("npm", ["i", "-g", `${pkg}@latest`], { stdio: "ignore", timeout: 120_000 });
       return r.status === 0;
     } catch {
       return false;
@@ -169,4 +170,53 @@ export function performUpgrade(runtime: UpgradeRuntime = defaultUpgradeRuntime):
 /** Default cache path for the boot check, under the store root. */
 export function upgradeCachePath(root: string): string {
   return join(root, "upgrade-check.json");
+}
+
+/**
+ * Env flag set across an in-place re-exec so the freshly-exec'd process does
+ * NOT auto-upgrade + re-exec again this boot (breaks any pathological loop if
+ * an install reports success without changing the on-disk version).
+ */
+export const H2A_REEXEC_GUARD_ENV = "H2A_UPGRADE_REEXECED";
+
+export interface ReexecOptions {
+  /** Injectable for tests; defaults to `process.execve` when present. */
+  readonly execve?: (file: string, args: readonly string[], env: Record<string, string | undefined>) => never;
+  readonly execPath?: string;
+  readonly argv?: readonly string[];
+  readonly env?: Record<string, string | undefined>;
+}
+
+/** True when an in-place re-exec is possible (POSIX `process.execve`, Node ≥ 23.10). */
+export function canReexec(): boolean {
+  return typeof (process as unknown as { execve?: unknown }).execve === "function";
+}
+
+/**
+ * Re-exec the current process into the (just-upgraded) binary at the SAME path,
+ * preserving PID + stdio fds — so a host-spawned `mcp-serve` picks up the new
+ * version immediately without the host seeing a disconnect. On success the
+ * process image is replaced and this never returns; returns `false` if re-exec
+ * is unavailable or failed (caller falls back to "applies next launch"). The
+ * `H2A_REEXEC_GUARD_ENV` flag is set so the new image does not re-upgrade.
+ */
+export function reexecSelf(options: ReexecOptions = {}): boolean {
+  const execve =
+    options.execve ??
+    (process as unknown as { execve?: ReexecOptions["execve"] }).execve;
+  if (typeof execve !== "function") return false;
+  const execPath = options.execPath ?? process.execPath;
+  // CRITICAL: a failing `process.execve` (e.g. a bad path) aborts the process
+  // *natively* — it is NOT a catchable throw — so we must not call it on a
+  // target that might fail. Guard on existence first; the real boot path uses
+  // `process.execPath` (the running node), which is always valid.
+  if (!existsSync(execPath)) return false;
+  const argv = options.argv ?? process.argv.slice(1);
+  const env = { ...(options.env ?? process.env), [H2A_REEXEC_GUARD_ENV]: "1" };
+  try {
+    execve(execPath, [execPath, ...argv], env);
+    return true; // unreachable when execve truly replaces the image
+  } catch {
+    return false;
+  }
 }

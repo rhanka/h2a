@@ -296,9 +296,9 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "stream",
     exitCodes: [0, 1],
     requiredFlags: [],
-    optionalFlags: ["root", "auto-open", "host", "instance", "scope", "no-upgrade-check", "auto-upgrade"],
+    optionalFlags: ["root", "auto-open", "host", "instance", "scope", "upgrade-check", "auto-upgrade", "no-restart"],
     description:
-      "Run the built-in MCP server speaking JSON-RPC 2.0 over stdio (long-running). `--auto-open` opens a presence session at boot (EVO-6, DEC-105). `--auto-upgrade` self-installs @latest at boot (applies next launch); a cached non-blocking version-check notice runs by default (`--no-upgrade-check` to opt out) — EVO-8/DEC-107."
+      "Run the built-in MCP server speaking JSON-RPC 2.0 over stdio (long-running). `--auto-open` opens a presence session at boot (EVO-6, DEC-105). Version handling is **opt-in** (no network on a default boot): `--auto-upgrade` self-installs @latest and re-execs in place (process.execve, same PID/stdio so the host stays connected; `--no-restart` keeps next-launch); `--upgrade-check` prints a cached availability notice only — EVO-8/DEC-107/108."
   },
   {
     verb: "upgrade",
