@@ -543,6 +543,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Print the normalized org manifest (scope, version, instances, comm edges) with its `validation` result. Exit 1 on a parse error, exit 3 if unreadable. Read-only. EVO-7 slice 2, DEC-109."
   },
   {
+    verb: "org diff",
+    outputShape: "resource",
+    exitCodes: [0, 1, 3],
+    requiredFlags: [],
+    optionalFlags: ["file", "root"],
+    description:
+      "Reconcile the declared org manifest against the live registry: `{ scope, matched, missing, undeclared, roleMismatch, scopeGaps, inSync }`. `inSync` is true iff the live estate matches the declared org exactly. Read-only — reports what provisioning would change, changes nothing. Exit 1 on a parse error, exit 3 if unreadable. EVO-7 slice 2, DEC-109."
+  },
+  {
     verb: "coach propose",
     outputShape: "resource",
     exitCodes: [0, 1, 3],

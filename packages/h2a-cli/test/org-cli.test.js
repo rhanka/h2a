@@ -107,6 +107,47 @@ test("org show → normalized manifest + validation block", () => {
   }
 });
 
+test("org diff → reports drift against the live registry, then inSync", () => {
+  const { dir, file } = writeManifest(VALID);
+  const root = join(dir, ".h2a");
+  try {
+    run(["init", "--root", root]);
+
+    // nothing registered yet → all declared instances are missing
+    const before = JSON.parse(run(["org", "diff", "--root", root, "--file", file]).stdout);
+    assert.equal(before.scope, "org:acme");
+    assert.equal(before.inSync, false);
+    assert.equal(before.missing.length, 3);
+
+    // register the three declared instances with matching roles + scope
+    for (const [instance, role] of [
+      ["claude:lead", "PRINCIPAL"],
+      ["claude:coach", "CONDUCTOR"],
+      ["codex:dev-1", "AGENTS"]
+    ]) {
+      const reg = {
+        id: `reg-${instance}`,
+        instance,
+        roles: [role],
+        scopes: ["org:acme"],
+        capabilities: [],
+        endpoints: [],
+        publicKeys: [],
+        acceptedPolicies: [],
+        createdAt: "2026-05-29T00:00:00.000Z"
+      };
+      const r = run(["register", "--root", root, "--json", JSON.stringify(reg)]);
+      assert.equal(r.rc, 0, r.stderr);
+    }
+
+    const after = JSON.parse(run(["org", "diff", "--root", root, "--file", file]).stdout);
+    assert.equal(after.inSync, true, JSON.stringify(after));
+    assert.equal(after.matched.length, 3);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("coach propose → unsigned org-proposal envelope", () => {
   const { dir, file } = writeManifest(VALID);
   try {

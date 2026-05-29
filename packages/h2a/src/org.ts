@@ -183,3 +183,109 @@ export function orgAssignmentEnvelope(input: {
     createdAt
   });
 }
+
+/** A live registry entry, reduced to the fields the org diff reconciles against. */
+export interface H2AOrgRegisteredInstance {
+  readonly instance: string;
+  readonly roles: readonly string[];
+  readonly scopes: readonly string[];
+}
+
+/** One reconciliation finding between the declared manifest and the live registry. */
+export interface H2AOrgDiffEntry {
+  readonly instance: string;
+  readonly declaredRole?: string;
+  readonly registeredRoles?: readonly string[];
+  readonly declaredScopes?: readonly string[];
+  readonly registeredScopes?: readonly string[];
+  /** Declared scopes the registered instance is not (yet) a member of. */
+  readonly missingScopes?: readonly string[];
+}
+
+/**
+ * Drift between a declared org manifest and the live registry. `inSync` is true
+ * iff all four finding buckets are empty (the live estate matches the declared
+ * org exactly). Read-only — describing drift, never reconciling it.
+ */
+export interface H2AOrgDiff {
+  readonly scope: string;
+  /** Declared instances present and fully consistent (role + scopes). */
+  readonly matched: string[];
+  /** Declared but not registered. */
+  readonly missing: H2AOrgDiffEntry[];
+  /** Registered but not declared. */
+  readonly undeclared: H2AOrgDiffEntry[];
+  /** Registered, but its declared role is not among its registered roles. */
+  readonly roleMismatch: H2AOrgDiffEntry[];
+  /** Registered, but missing one or more declared scopes. */
+  readonly scopeGaps: H2AOrgDiffEntry[];
+  readonly inSync: boolean;
+}
+
+/**
+ * Reconcile a declared org manifest against the live registry instances. Pure +
+ * total: the CLI gathers `listInstances()` and hands the reduced rows in. This
+ * is the read-only precursor to provisioning — it reports what provisioning
+ * *would* change, without changing anything.
+ */
+export function diffOrgManifest(
+  manifest: H2AOrgManifest,
+  registered: readonly H2AOrgRegisteredInstance[]
+): H2AOrgDiff {
+  const byInstance = new Map<string, H2AOrgRegisteredInstance>();
+  for (const r of registered) byInstance.set(r.instance, r);
+
+  const matched: string[] = [];
+  const missing: H2AOrgDiffEntry[] = [];
+  const roleMismatch: H2AOrgDiffEntry[] = [];
+  const scopeGaps: H2AOrgDiffEntry[] = [];
+  const declared = new Set<string>();
+
+  for (const inst of manifest.instances) {
+    declared.add(inst.instance);
+    const reg = byInstance.get(inst.instance);
+    if (!reg) {
+      missing.push({
+        instance: inst.instance,
+        declaredRole: inst.role,
+        declaredScopes: inst.scopes
+      });
+      continue;
+    }
+    let consistent = true;
+    if (!reg.roles.includes(inst.role)) {
+      consistent = false;
+      roleMismatch.push({
+        instance: inst.instance,
+        declaredRole: inst.role,
+        registeredRoles: reg.roles
+      });
+    }
+    const missingScopes = inst.scopes.filter((s) => !reg.scopes.includes(s));
+    if (missingScopes.length > 0) {
+      consistent = false;
+      scopeGaps.push({
+        instance: inst.instance,
+        declaredScopes: inst.scopes,
+        registeredScopes: reg.scopes,
+        missingScopes
+      });
+    }
+    if (consistent) matched.push(inst.instance);
+  }
+
+  const undeclared: H2AOrgDiffEntry[] = [];
+  for (const reg of registered) {
+    if (!declared.has(reg.instance)) {
+      undeclared.push({ instance: reg.instance, registeredRoles: reg.roles, registeredScopes: reg.scopes });
+    }
+  }
+
+  const inSync =
+    missing.length === 0 &&
+    roleMismatch.length === 0 &&
+    scopeGaps.length === 0 &&
+    undeclared.length === 0;
+
+  return { scope: manifest.scope, matched, missing, undeclared, roleMismatch, scopeGaps, inSync };
+}

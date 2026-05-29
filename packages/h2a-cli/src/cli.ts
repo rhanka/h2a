@@ -63,6 +63,7 @@ import {
   nhiTrustBundle,
   parseOrgManifest,
   validateOrgManifest,
+  diffOrgManifest,
   orgAssignmentEnvelope,
   H2A_ORG_MANIFEST_FILENAME,
   H2A_ORG_PROPOSAL_BODY_KIND,
@@ -1220,7 +1221,26 @@ export function cmdOrg(argv: readonly string[], streams: H2ACliStreams): number 
     return 0;
   }
 
-  streams.stderr.write(`h2a org: unknown subcommand "${sub ?? ""}" (validate, show)\n`);
+  if (sub === "diff") {
+    const source = readOrgSource(flags, cwd, streams, "h2a org diff");
+    if (source === undefined) return 3;
+    const parsed = parseOrgManifest(source);
+    if (!parsed.manifest) {
+      streams.stderr.write(`h2a org diff: ${parsed.errors.join("; ")}\n`);
+      return 1;
+    }
+    const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+    const registered = store.listInstances().map((r) => ({
+      instance: r.instance,
+      roles: r.roles,
+      scopes: r.scopes
+    }));
+    const diff = diffOrgManifest(parsed.manifest, registered);
+    streams.stdout.write(`${JSON.stringify(diff, null, 2)}\n`);
+    return 0;
+  }
+
+  streams.stderr.write(`h2a org: unknown subcommand "${sub ?? ""}" (validate, show, diff)\n`);
   return 1;
 }
 
