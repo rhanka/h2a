@@ -22,6 +22,7 @@ import {
   verifyCanonical,
   verifyJournalChain,
   type H2AActorRegistration,
+  type H2AOrgMembershipGrant,
   type H2ASubagentBinding,
   type H2AArtifactKind,
   type H2AEnvelope,
@@ -131,6 +132,9 @@ export interface LocalStore {
   listInstanceKeys(instanceId: string): string[];
   listKeyEvents(): H2AKeyEvent[];
   revokeInstanceKey(instanceId: string, publicKeyPem: string): void;
+  /** DEC-109 org provisioning: append a role/scope membership grant (keyed-only). */
+  grantOrgMembership(grant: H2AOrgMembershipGrant): void;
+  listOrgMembership(): H2AOrgMembershipGrant[];
   offboardInstance(instanceId: string, reason?: string): H2AOffboardTombstone;
   listOffboards(): H2AOffboardTombstone[];
   registerSubagent(binding: H2ASubagentBinding): void;
@@ -432,6 +436,26 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
           type: "revoked",
           at: new Date().toISOString()
         });
+      },
+      lockOpts
+    );
+  }
+
+  // DEC-109: append-only org-membership grants, layered over registrations like
+  // the DEC-078 keyring. A grant only augments an already-registered instance
+  // (keyed-only); the `effectiveOrgInstances` union surfaces it to diff/discover.
+  function listOrgMembership(): H2AOrgMembershipGrant[] {
+    return readJsonl<H2AOrgMembershipGrant>(paths.orgMembership);
+  }
+
+  function grantOrgMembership(grant: H2AOrgMembershipGrant): void {
+    lock(
+      registryLock,
+      () => {
+        if (!listInstances().some((r) => r.instance === grant.instance)) {
+          throw new Error(`Instance not registered: ${grant.instance}`);
+        }
+        appendJsonl(paths.orgMembership, grant);
       },
       lockOpts
     );
@@ -976,6 +1000,8 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     listInstanceKeys,
     listKeyEvents,
     revokeInstanceKey,
+    grantOrgMembership,
+    listOrgMembership,
     offboardInstance,
     listOffboards,
     registerSubagent,

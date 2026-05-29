@@ -289,3 +289,52 @@ export function diffOrgManifest(
 
   return { scope: manifest.scope, matched, missing, undeclared, roleMismatch, scopeGaps, inSync };
 }
+
+/**
+ * An append-only org-membership grant (provisioning, DEC-109). Mirrors the
+ * DEC-078 keyring: role/scope membership is layered over a registration via a
+ * separate event log (`registry/org-membership.jsonl`) — never a registration
+ * rewrite — so provisioning a ratified org is additive and idempotent. A grant
+ * only ever *augments* an already-registered (keyed) instance; it never conjures
+ * an identity (reconcile keyed-only — the resolved provisioning fork).
+ */
+export interface H2AOrgMembershipGrant {
+  readonly instance: string;
+  readonly role: string;
+  readonly scope: string;
+  /** The actor that granted it (e.g. the ratifying PRINCIPAL). */
+  readonly by?: string;
+  readonly at: string;
+}
+
+/**
+ * The *effective* registry view: each registered instance's roles + scopes,
+ * unioned across all its registration rows AND any membership grants. Grants to
+ * an unregistered instance are ignored (keyed-only). Pure — the CLI gathers
+ * `listInstances()` + `listOrgMembership()` and hands them in; `diffOrgManifest`
+ * then reconciles the manifest against this view, so a provisioned org reads
+ * back in-sync without ever rewriting a registration.
+ */
+export function effectiveOrgInstances(
+  registrations: readonly H2AOrgRegisteredInstance[],
+  grants: readonly H2AOrgMembershipGrant[]
+): H2AOrgRegisteredInstance[] {
+  const acc = new Map<string, { roles: Set<string>; scopes: Set<string> }>();
+  for (const r of registrations) {
+    const entry = acc.get(r.instance) ?? { roles: new Set<string>(), scopes: new Set<string>() };
+    for (const role of r.roles) entry.roles.add(role);
+    for (const scope of r.scopes) entry.scopes.add(scope);
+    acc.set(r.instance, entry);
+  }
+  for (const g of grants) {
+    const entry = acc.get(g.instance);
+    if (!entry) continue; // keyed-only: never materialize an unregistered instance
+    entry.roles.add(g.role);
+    entry.scopes.add(g.scope);
+  }
+  return [...acc.entries()].map(([instance, { roles, scopes }]) => ({
+    instance,
+    roles: [...roles],
+    scopes: [...scopes]
+  }));
+}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { diffOrgManifest } from "../dist/index.js";
+import { diffOrgManifest, effectiveOrgInstances } from "../dist/index.js";
 
 const manifest = {
   scope: "org:acme",
@@ -72,4 +72,34 @@ test("empty registry → every declared instance is missing", () => {
   assert.equal(diff.inSync, false);
   assert.equal(diff.missing.length, 2);
   assert.deepEqual(diff.matched, []);
+});
+
+test("effectiveOrgInstances unions registration rows + grants", () => {
+  const eff = effectiveOrgInstances(
+    [{ instance: "codex:dev-1", roles: ["AGENTS"], scopes: ["org:acme"] }],
+    [{ instance: "codex:dev-1", role: "AGENTS", scope: "org:acme/build", at: "t" }]
+  );
+  const dev = eff.find((e) => e.instance === "codex:dev-1");
+  assert.deepEqual([...dev.scopes].sort(), ["org:acme", "org:acme/build"]);
+});
+
+test("effectiveOrgInstances ignores grants to unregistered instances (keyed-only)", () => {
+  const eff = effectiveOrgInstances(
+    [{ instance: "claude:lead", roles: ["PRINCIPAL"], scopes: ["org:acme"] }],
+    [{ instance: "ghost", role: "AGENTS", scope: "org:acme", at: "t" }]
+  );
+  assert.equal(eff.find((e) => e.instance === "ghost"), undefined);
+  assert.equal(eff.length, 1);
+});
+
+test("a grant makes a scopeGap reconcile to inSync via the effective view", () => {
+  const registrations = [
+    { instance: "claude:lead", roles: ["PRINCIPAL"], scopes: ["org:acme"] },
+    { instance: "codex:dev-1", roles: ["AGENTS"], scopes: ["org:acme"] }
+  ];
+  const before = diffOrgManifest(manifest, effectiveOrgInstances(registrations, []));
+  assert.equal(before.inSync, false); // codex:dev-1 missing org:acme/build
+  const grants = [{ instance: "codex:dev-1", role: "AGENTS", scope: "org:acme/build", at: "t" }];
+  const after = diffOrgManifest(manifest, effectiveOrgInstances(registrations, grants));
+  assert.equal(after.inSync, true);
 });

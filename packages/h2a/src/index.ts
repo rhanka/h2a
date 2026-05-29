@@ -219,6 +219,7 @@ export {
   H2A_ORG_PROPOSAL_BODY_KIND,
   H2A_ORG_RATIFIED_BODY_KIND,
   diffOrgManifest,
+  effectiveOrgInstances,
   orgAssignmentEnvelope,
   validateOrgManifest
 } from "./org.js";
@@ -231,6 +232,7 @@ export type {
   H2AOrgDiffEntry,
   H2AOrgInstance,
   H2AOrgManifest,
+  H2AOrgMembershipGrant,
   H2AOrgRegisteredInstance,
   H2AOrgValidationError,
   H2AOrgValidationResult

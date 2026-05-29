@@ -552,6 +552,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Reconcile the declared org manifest against the live registry: `{ scope, matched, missing, undeclared, roleMismatch, scopeGaps, inSync }`. `inSync` is true iff the live estate matches the declared org exactly. Read-only — reports what provisioning would change, changes nothing. Exit 1 on a parse error, exit 3 if unreadable. EVO-7 slice 2, DEC-109."
   },
   {
+    verb: "org provision",
+    outputShape: "action",
+    exitCodes: [0, 1, 3],
+    requiredFlags: [],
+    optionalFlags: ["file", "root", "by"],
+    description:
+      "Apply a (ratified) org manifest to the live estate — **reconcile keyed-only**: for each declared instance already registered, append role/scope membership **grants** (append-only `org-membership.jsonl`, DEC-078-style; never a registration rewrite; idempotent). A declared-but-unregistered instance is reported under `pending` (needs key + register), never auto-stubbed. Returns `{ ok, scope, applied, unchanged, pending }`. Refuses an invalid manifest (exit 1), exit 3 if unreadable. EVO-7, DEC-109."
+  },
+  {
     verb: "coach propose",
     outputShape: "resource",
     exitCodes: [0, 1, 3],

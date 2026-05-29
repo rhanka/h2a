@@ -64,6 +64,7 @@ import {
   parseOrgManifest,
   validateOrgManifest,
   diffOrgManifest,
+  effectiveOrgInstances,
   orgAssignmentEnvelope,
   H2A_ORG_MANIFEST_FILENAME,
   H2A_ORG_PROPOSAL_BODY_KIND,
@@ -1231,17 +1232,74 @@ export function cmdOrg(argv: readonly string[], streams: H2ACliStreams): number 
       return 1;
     }
     const store = createLocalStore({ root: resolveRoot(flags, cwd) });
-    const registered = store.listInstances().map((r) => ({
-      instance: r.instance,
-      roles: r.roles,
-      scopes: r.scopes
-    }));
-    const diff = diffOrgManifest(parsed.manifest, registered);
+    const effective = effectiveOrgInstances(store.listInstances(), store.listOrgMembership());
+    const diff = diffOrgManifest(parsed.manifest, effective);
     streams.stdout.write(`${JSON.stringify(diff, null, 2)}\n`);
     return 0;
   }
 
-  streams.stderr.write(`h2a org: unknown subcommand "${sub ?? ""}" (validate, show, diff)\n`);
+  if (sub === "provision") {
+    const source = readOrgSource(flags, cwd, streams, "h2a org provision");
+    if (source === undefined) return 3;
+    const parsed = parseOrgManifest(source);
+    if (!parsed.manifest) {
+      streams.stderr.write(`h2a org provision: ${parsed.errors.join("; ")}\n`);
+      return 1;
+    }
+    const validation = validateOrgManifest(parsed.manifest);
+    if (!validation.ok) {
+      streams.stderr.write(
+        `h2a org provision: refusing to provision an invalid org (${validation.errors.join(", ")})\n`
+      );
+      return 1;
+    }
+    const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+    const at = new Date().toISOString();
+    const applied: Array<{ instance: string; role: string; grantedScopes: string[] }> = [];
+    const unchanged: string[] = [];
+    const pending: Array<{ instance: string; reason: string }> = [];
+
+    for (const inst of parsed.manifest.instances) {
+      // Re-derive the effective view each iteration so repeated declared
+      // instances and prior grants this run are reflected (idempotent).
+      const eff = effectiveOrgInstances(store.listInstances(), store.listOrgMembership());
+      const reg = eff.find((e) => e.instance === inst.instance);
+      if (!reg) {
+        pending.push({ instance: inst.instance, reason: "not registered (needs key + register)" });
+        continue;
+      }
+      const roleMissing = !reg.roles.includes(inst.role);
+      const missingScopes = inst.scopes.filter((s) => !reg.scopes.includes(s));
+      const scopesToGrant = roleMissing ? [...new Set(inst.scopes)] : missingScopes;
+      if (scopesToGrant.length === 0) {
+        unchanged.push(inst.instance);
+        continue;
+      }
+      for (const scope of scopesToGrant) {
+        store.grantOrgMembership({
+          instance: inst.instance,
+          role: inst.role,
+          scope,
+          ...(flags.by ? { by: flags.by } : {}),
+          at
+        });
+      }
+      applied.push({ instance: inst.instance, role: inst.role, grantedScopes: scopesToGrant });
+    }
+
+    streams.stdout.write(
+      `${JSON.stringify(
+        { ok: true, scope: parsed.manifest.scope, applied, unchanged, pending },
+        null,
+        2
+      )}\n`
+    );
+    return 0;
+  }
+
+  streams.stderr.write(
+    `h2a org: unknown subcommand "${sub ?? ""}" (validate, show, diff, provision)\n`
+  );
   return 1;
 }
 

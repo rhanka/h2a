@@ -169,6 +169,63 @@ test("coach propose → unsigned org-proposal envelope", () => {
   }
 });
 
+const PROVISION = `scope: org:acme
+instances:
+  - instance: claude:lead
+    role: PRINCIPAL
+    scopes: [org:acme, org:acme/ops]
+  - instance: codex:dev-1
+    role: AGENTS
+    scopes: [org:acme]
+`;
+
+test("org provision → grants for keyed instances, pending for unregistered, idempotent", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-org-"));
+  const file = join(dir, "provision.h2a.yaml");
+  const root = join(dir, ".h2a");
+  writeFileSync(file, PROVISION, "utf8");
+  try {
+    run(["init", "--root", root]);
+    // register only claude:lead, with a subset of its declared scopes
+    const reg = {
+      id: "reg-lead",
+      instance: "claude:lead",
+      roles: ["PRINCIPAL"],
+      scopes: ["org:acme"],
+      capabilities: [],
+      endpoints: [],
+      publicKeys: [],
+      acceptedPolicies: [],
+      createdAt: "2026-05-29T00:00:00.000Z"
+    };
+    assert.equal(run(["register", "--root", root, "--json", JSON.stringify(reg)]).rc, 0);
+
+    const p = run(["org", "provision", "--root", root, "--file", file]);
+    assert.equal(p.rc, 0, p.stderr);
+    const out = JSON.parse(p.stdout);
+    assert.equal(out.ok, true);
+    assert.equal(out.applied.length, 1);
+    assert.equal(out.applied[0].instance, "claude:lead");
+    assert.deepEqual(out.applied[0].grantedScopes, ["org:acme/ops"]);
+    assert.equal(out.pending.length, 1);
+    assert.equal(out.pending[0].instance, "codex:dev-1"); // unregistered → not fabricated
+
+    // diff now sees claude:lead matched (grant took effect); codex:dev-1 still missing
+    const diff = JSON.parse(run(["org", "diff", "--root", root, "--file", file]).stdout);
+    assert.ok(diff.matched.includes("claude:lead"));
+    assert.equal(diff.missing.length, 1);
+    assert.equal(diff.missing[0].instance, "codex:dev-1");
+
+    // idempotent: re-provision grants nothing new
+    const again = JSON.parse(run(["org", "provision", "--root", root, "--file", file]).stdout);
+    assert.equal(again.applied.length, 0);
+    assert.ok(again.unchanged.includes("claude:lead"));
+    assert.equal(again.pending.length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("coach ratify → PRINCIPAL-signed org-ratified envelope, signature verifies", () => {
   const { dir, file } = writeManifest(VALID);
   const keyPath = join(dir, "principal.pkcs8.pem");
