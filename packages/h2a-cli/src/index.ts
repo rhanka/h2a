@@ -178,7 +178,7 @@ export {
   type UpgradeCheckResult
 } from "./runtime/upgrade/index.js";
 
-export { cmdUpgrade } from "./cli.js";
+export { cmdUpgrade, cmdOrg, cmdCoach } from "./cli.js";
 
 export {
   resolveSysmlElement,

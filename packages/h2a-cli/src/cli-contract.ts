@@ -525,6 +525,33 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Coordinated decommission of an NHI: revoke every active key (DEC-079) and every active subagent (DEC-072) of the instance, then append an offboard tombstone. Idempotent (re-running revokes only what is still active). Exit 2 if the instance is not registered. DEC-089."
   },
   {
+    verb: "org validate",
+    outputShape: "action",
+    exitCodes: [0, 1, 3],
+    requiredFlags: [],
+    optionalFlags: ["file"],
+    description:
+      "Parse the committed org manifest (`--file`, default `org.h2a.yaml` in cwd; block-YAML subset or JSON) and check the h2a invariants (a PRINCIPAL exists, unique instances, canonical roles, every instance scoped, comm edges reference declared instances). Prints `{ ok, errors }`; exit 1 on a parse error or an invalid manifest, exit 3 if the file is unreadable. Read-only. EVO-7 slice 2, DEC-109."
+  },
+  {
+    verb: "org show",
+    outputShape: "resource",
+    exitCodes: [0, 1, 3],
+    requiredFlags: [],
+    optionalFlags: ["file"],
+    description:
+      "Print the normalized org manifest (scope, version, instances, comm edges) with its `validation` result. Exit 1 on a parse error, exit 3 if unreadable. Read-only. EVO-7 slice 2, DEC-109."
+  },
+  {
+    verb: "coach propose",
+    outputShape: "resource",
+    exitCodes: [0, 1, 3],
+    requiredFlags: ["as"],
+    optionalFlags: ["file", "role", "scope"],
+    description:
+      "Emit the *unsigned* `org-proposal` envelope for a validated manifest — the coach proposes, does not impose. `--as <coach-instance>` is the proposing coach (`--role`, default CONDUCTOR; `--scope`, default the manifest scope). Refuses an invalid manifest (exit 1). Signing, persistence, the PRINCIPAL ratification and live provisioning are later slices. EVO-7 slice 2, DEC-109."
+  },
+  {
     verb: "blockage raise",
     outputShape: "action",
     exitCodes: [0, 1],

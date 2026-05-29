@@ -231,6 +231,8 @@ export type {
   H2AOrgValidationError,
   H2AOrgValidationResult
 } from "./org.js";
+export { H2A_ORG_MANIFEST_FILENAME, parseOrgManifest } from "./org-parse.js";
+export type { H2AOrgParseResult, YamlValue } from "./org-parse.js";
 export {
   H2A_SYSML_REF_KIND,
   isH2ASysmlRef,

@@ -61,6 +61,11 @@ import {
   nhiAttestationEnvelope,
   nhiInventory,
   nhiTrustBundle,
+  parseOrgManifest,
+  validateOrgManifest,
+  orgAssignmentEnvelope,
+  H2A_ORG_MANIFEST_FILENAME,
+  H2A_ORG_PROPOSAL_BODY_KIND,
   H2A_ROLES,
   H2A_WORK_STATUSES
 } from "@sentropic/h2a";
@@ -1151,6 +1156,125 @@ function cmdBlockage(argv: readonly string[], streams: H2ACliStreams): number {
   }
 
   streams.stderr.write(`h2a blockage: unknown subcommand "${sub ?? ""}" (raise, list, resolve)\n`);
+  return 1;
+}
+
+/** Resolve `--file` (default `org.h2a.yaml` in cwd) and read its text, or report an I/O error. */
+function readOrgSource(
+  flags: Record<string, string>,
+  cwd: () => string,
+  streams: H2ACliStreams,
+  verb: string
+): string | undefined {
+  const file = flags.file
+    ? resolvePath(cwd(), flags.file)
+    : join(cwd(), H2A_ORG_MANIFEST_FILENAME);
+  try {
+    return readFileSync(file, "utf8");
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    streams.stderr.write(`${verb}: cannot read ${file}: ${code ?? (error as Error).message}\n`);
+    return undefined;
+  }
+}
+
+/**
+ * `h2a org` (EVO-7 slice 2, DEC-109): read-only tooling over the committed org
+ * manifest (`org.h2a.yaml`). `validate` parses + checks the h2a invariants;
+ * `show` prints the normalized manifest with its validation result. The coach's
+ * propose/ratify lifecycle is `h2a coach`; live provisioning is a later slice.
+ */
+export function cmdOrg(argv: readonly string[], streams: H2ACliStreams): number {
+  const { command: sub, flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+
+  if (sub === "validate" || sub === "show") {
+    const source = readOrgSource(flags, cwd, streams, `h2a org ${sub}`);
+    if (source === undefined) return 3;
+    const parsed = parseOrgManifest(source);
+    if (!parsed.manifest) {
+      streams.stdout.write(`${JSON.stringify({ ok: false, errors: parsed.errors }, null, 2)}\n`);
+      return 1;
+    }
+    const validation = validateOrgManifest(parsed.manifest);
+    if (sub === "validate") {
+      streams.stdout.write(
+        `${JSON.stringify({ ok: validation.ok, errors: validation.errors }, null, 2)}\n`
+      );
+      return validation.ok ? 0 : 1;
+    }
+    const m = parsed.manifest;
+    streams.stdout.write(
+      `${JSON.stringify(
+        {
+          scope: m.scope,
+          ...(m.version !== undefined ? { version: m.version } : {}),
+          instances: m.instances,
+          ...(m.commEdges !== undefined ? { commEdges: m.commEdges } : {}),
+          validation
+        },
+        null,
+        2
+      )}\n`
+    );
+    return 0;
+  }
+
+  streams.stderr.write(`h2a org: unknown subcommand "${sub ?? ""}" (validate, show)\n`);
+  return 1;
+}
+
+/**
+ * `h2a coach` (EVO-7 slice 2, DEC-109): the coach **proposes, does not impose**.
+ * `propose` emits the *unsigned* `org-proposal` envelope for a validated
+ * manifest, signed (later) by the coach (a CONDUCTOR); affected agents may
+ * counter and the owning PRINCIPAL then ratifies. Read-only here — signing,
+ * persistence and provisioning are later slices.
+ */
+export function cmdCoach(argv: readonly string[], streams: H2ACliStreams): number {
+  const { command: sub, flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+
+  if (sub === "propose") {
+    if (!flags.as) {
+      streams.stderr.write("h2a coach propose: --as <coach-instance> is required\n");
+      return 1;
+    }
+    const roleStr = flags.role ?? "CONDUCTOR";
+    if (!(H2A_ROLES as readonly string[]).includes(roleStr)) {
+      streams.stderr.write(
+        `h2a coach propose: --role must be one of ${H2A_ROLES.join(", ")} (got "${flags.role}")\n`
+      );
+      return 1;
+    }
+    const source = readOrgSource(flags, cwd, streams, "h2a coach propose");
+    if (source === undefined) return 3;
+    const parsed = parseOrgManifest(source);
+    if (!parsed.manifest) {
+      streams.stderr.write(`h2a coach propose: ${parsed.errors.join("; ")}\n`);
+      return 1;
+    }
+    const validation = validateOrgManifest(parsed.manifest);
+    if (!validation.ok) {
+      streams.stderr.write(
+        `h2a coach propose: refusing to propose an invalid org (${validation.errors.join(", ")})\n`
+      );
+      return 1;
+    }
+    const envelope = orgAssignmentEnvelope({
+      manifest: parsed.manifest,
+      actor: {
+        instance: flags.as,
+        role: roleStr as H2ARole,
+        scope: flags.scope ?? parsed.manifest.scope
+      },
+      kind: H2A_ORG_PROPOSAL_BODY_KIND
+    });
+    streams.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
+    return 0;
+  }
+
+  streams.stderr.write(`h2a coach: unknown subcommand "${sub ?? ""}" (propose)\n`);
   return 1;
 }
 
@@ -2597,6 +2721,8 @@ export function runCli(
   }
   if (command === "upgrade") return cmdUpgrade(flags, streams);
   if (command === "nhi") return cmdNhi(argv.slice(1), streams);
+  if (command === "org") return cmdOrg(argv.slice(1), streams);
+  if (command === "coach") return cmdCoach(argv.slice(1), streams);
   if (command === "blockage") return cmdBlockage(argv.slice(1), streams);
   if (command === "sysml") {
     const sub = argv[1];

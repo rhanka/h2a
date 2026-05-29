@@ -11,7 +11,7 @@
 | EVO-4 | Decision support / situation presentation | yes (largest) | intention |
 | EVO-5 | NHI (Non-Human Identity) — NIST standard support | yes (research first) | intention → backlog |
 | EVO-6 | Auto-connect at host startup (opt-in default + `/h2a disconnect`) | small (framed below) | intention |
-| EVO-7 | Coach mode — assign roles + shape who-talks-to-whom across many instances, org committed to a repo | yes | 🟡 slice 1 (DEC-106) — core org model shipped; coach skill + provisioning = later slices |
+| EVO-7 | Coach mode — assign roles + shape who-talks-to-whom across many instances, org committed to a repo | yes | 🟡 slices 1-2 (DEC-106, DEC-109) — core org model + `org.h2a.yaml` parser + `h2a org`/`h2a coach` read-only verbs shipped; ratification MCP flow + live provisioning = later slices |
 | EVO-8 | CLI auto-upgrade (h2a upgrade + opt-in boot check + in-place restart) | small | ✅ built (DEC-107+108) — levels 1+2+3 incl. process.execve in-place restart; bump 0.17.0 |
 
 > **Spec session 1 output**: [`docs/plugin-capability-matrix.md`](./plugin-capability-matrix.md) — factual CLI audit + capability matrix + per-intention implications.
