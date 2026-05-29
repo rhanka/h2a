@@ -1138,6 +1138,17 @@ function cmdBlockage(argv: readonly string[], streams: H2ACliStreams): number {
 
   if (sub === "list") {
     let blockages = listBlockages(root);
+    // EVO-3 (DEC-110): one-shot poll digest for daemonless hosts (e.g. agy) —
+    // `--instance <id>` returns only blockages in scopes that instance is a
+    // member of, per the effective org view (registration ∪ provisioned grants).
+    // A daemonless agent can poll a single command instead of one per scope.
+    if (flags.instance) {
+      const store = createLocalStore({ root });
+      const effective = effectiveOrgInstances(store.listInstances(), store.listOrgMembership());
+      const mine = effective.find((e) => e.instance === flags.instance);
+      const scopes = new Set(mine?.scopes ?? []);
+      blockages = blockages.filter((b) => scopes.has(b.scope));
+    }
     if (flags.scope) blockages = blockages.filter((b) => b.scope === flags.scope);
     if (flags.active !== undefined) blockages = blockages.filter((b) => b.resolvedAt === undefined);
     streams.stdout.write(`${JSON.stringify(blockages, null, 2)}\n`);

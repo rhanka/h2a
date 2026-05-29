@@ -592,9 +592,9 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "list",
     exitCodes: [0, 1],
     requiredFlags: [],
-    optionalFlags: ["root", "scope", "active"],
+    optionalFlags: ["root", "scope", "active", "instance"],
     description:
-      "List recorded blockages (optionally filtered by `--scope` or `--active`). The polling path for hosts without a background daemon (e.g. agy). DEC-092."
+      "List recorded blockages (optionally filtered by `--scope` or `--active`). The polling path for hosts without a background daemon (e.g. agy). `--instance <id>` is the one-shot poll digest: only blockages in scopes that instance belongs to (effective org view, EVO-3/DEC-110). DEC-092."
   },
   {
     verb: "blockage resolve",

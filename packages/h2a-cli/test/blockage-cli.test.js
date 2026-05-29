@@ -112,3 +112,36 @@ test("pollingNotifier declines (poll-only); chain falls through to command", asy
   assert.equal(ok, true);
   assert.deepEqual(calls[0], ["wake", "b"]);
 });
+
+test("blockage list --instance is the EVO-3 poll digest (only my effective scopes)", () => {
+  const { dir, root } = freshRoot();
+  try {
+    run(["init", "--root", root]);
+    const reg = {
+      id: "reg-agy",
+      instance: "agy:1",
+      roles: ["AGENTS"],
+      scopes: ["scope:team-a"],
+      capabilities: [],
+      endpoints: [],
+      publicKeys: [],
+      acceptedPolicies: [],
+      createdAt: "2026-05-29T00:00:00.000Z"
+    };
+    assert.equal(run(["register", "--root", root, "--json", JSON.stringify(reg)]).rc, 0);
+
+    run(["blockage", "raise", "--root", root, "--instance", "x:1", "--scope", "scope:team-a", "--reason", "A"]);
+    run(["blockage", "raise", "--root", root, "--instance", "y:1", "--scope", "scope:team-b", "--reason", "B"]);
+
+    // agy:1 belongs only to scope:team-a → digest shows just that blockage
+    const digest = JSON.parse(run(["blockage", "list", "--root", root, "--instance", "agy:1", "--active"]).stdout);
+    assert.equal(digest.length, 1);
+    assert.equal(digest[0].scope, "scope:team-a");
+
+    // sanity: unfiltered list still shows both
+    const all = JSON.parse(run(["blockage", "list", "--root", root, "--active"]).stdout);
+    assert.equal(all.length, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
