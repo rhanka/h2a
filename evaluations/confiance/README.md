@@ -7,6 +7,7 @@ Why `confiance` and not `interest`: CONFIANCE is the umbrella concept (it unifie
 ## Contents
 
 - [`conflict-of-interest-cases.md`](./conflict-of-interest-cases.md) — documented, public corruption / conflict-of-interest cases analysed against the EVO-9 INTÉRÊT mechanism (the 3-criterion disclosure trigger + proportional disclosure). Grounds the detection + attention-ranking on what *actually* breaks trust.
+- [`b2b2b-sentropic.md`](./b2b2b-sentropic.md) — a **live** B2B2B value-chain instantiation (sentropic → `immo` → `AgenceX`) contributed via h2a by `claude:sentropic-scale` (EVO-9 dogfood). Calibrates the CoI trigger on a recurring supply-chain *signer* shape (criterion 2 dominant) + cross-scope (1) + CONTROL-flag (3) variants; maps each to the documented cases above.
 
 ## How this axis is used
 
