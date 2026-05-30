@@ -259,6 +259,19 @@ export type {
   H2ASysmlRefValidation,
   H2ASysmlRefValidationError
 } from "./sysml.js";
+export {
+  deriveInstanceId,
+  deriveWorkspaceId,
+  isH2AWorkspaceRef,
+  mintAgentUuid,
+  slugify,
+  uuid12
+} from "./identity.js";
+export type {
+  DeriveInstanceIdInput,
+  DeriveWorkspaceIdInput,
+  H2AWorkspaceRef
+} from "./identity.js";
 export { assertValidNegotiationState } from "./negotiation.js";
 export { canonicalize, computeHash } from "./canonical.js";
 export { signCanonical, verifyCanonical } from "./signature.js";
@@ -340,7 +353,8 @@ export {
   H2A_POLICY_ADOPTION_MODES,
   H2A_PROTOCOL,
   H2A_ROLES,
-  H2A_VERSION
+  H2A_VERSION,
+  isH2AActorRegistration
 } from "./types.js";
 export type {
   H2AActorRef,

@@ -12,6 +12,9 @@
  * dispatch are implemented in `@sentropic/h2a-cli` (DEC-051 / DEC-052).
  */
 
+import { isH2AWorkspaceRef } from "./identity.js";
+import type { H2AWorkspaceRef } from "./identity.js";
+
 export const H2A_SESSION_STATES = [
   "opening",
   "live",
@@ -92,6 +95,17 @@ export interface H2ASession {
   readonly workStatus?: H2AWorkStatus;
   /** Drumbeat (DEC-084): launch context captured at session start, for relance. */
   readonly launchContext?: H2ALaunchContext;
+  /**
+   * DEC-114 (agent-identity fix): first-class WORKSPACE the session is attached
+   * to (a traced place, not an actor). Additive — old presence records without
+   * it stay valid; the guard validates it only when present.
+   */
+  readonly workspace?: H2AWorkspaceRef;
+  /**
+   * DEC-114: the perennial agent's mutable display name (e.g. set via `--name`
+   * or a `/rename`). UX only — never a routing key (the `instance` handle is).
+   */
+  readonly name?: string;
 }
 
 function isLaunchContext(value: unknown): value is H2ALaunchContext {
@@ -157,6 +171,12 @@ export function isH2ASession(value: unknown): value is H2ASession {
     return false;
   }
   if (v.launchContext !== undefined && !isLaunchContext(v.launchContext)) {
+    return false;
+  }
+  if (v.workspace !== undefined && !isH2AWorkspaceRef(v.workspace)) {
+    return false;
+  }
+  if (v.name !== undefined && typeof v.name !== "string") {
     return false;
   }
   return true;

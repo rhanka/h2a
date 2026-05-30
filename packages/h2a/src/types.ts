@@ -1,3 +1,6 @@
+import { isH2AWorkspaceRef } from "./identity.js";
+import type { H2AWorkspaceRef } from "./identity.js";
+
 export const H2A_PROTOCOL = "sentropic.h2a";
 export const H2A_VERSION = "0.1";
 
@@ -109,6 +112,20 @@ export interface H2AActorRegistration {
   publicKeys: string[];
   acceptedPolicies: string[];
   createdAt: string;
+  /**
+   * DEC-114 (agent-identity fix): the perennial agent UUID this registration
+   * belongs to. Additive — pre-fix registrations omit it (their `id`/`instance`
+   * is the legacy `host:label` address). The ed25519 keyring remains the sole
+   * authority anchor; this is a stable cross-session correlation handle.
+   */
+  agentUuid?: string;
+  /**
+   * DEC-114: first-class WORKSPACE the agent was minted in (a traced place, not
+   * an actor). Validated only when present.
+   */
+  workspace?: H2AWorkspaceRef;
+  /** DEC-114: the agent's mutable display name. UX only, never a routing key. */
+  name?: string;
 }
 
 export interface H2ANegotiationRecord {
@@ -247,4 +264,37 @@ export interface H2AEnforcementPlan {
     condition: string;
   }>;
   references?: string[];
+}
+
+function isStringList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+/**
+ * DEC-114: structural guard for `H2AActorRegistration`. The store has always
+ * appended whatever JSON it was handed; this guard lets the registration path
+ * validate the additive identity fields **when present** while keeping every
+ * pre-fix record valid (the new fields are all optional). It checks the
+ * already-required core fields plus `agentUuid?` / `workspace?` / `name?`.
+ */
+export function isH2AActorRegistration(
+  value: unknown
+): value is H2AActorRegistration {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  if (typeof v.id !== "string" || v.id.length === 0) return false;
+  if (typeof v.instance !== "string" || v.instance.length === 0) return false;
+  if (!Array.isArray(v.roles)) return false;
+  if (!isStringList(v.scopes)) return false;
+  if (!isStringList(v.capabilities)) return false;
+  if (!Array.isArray(v.endpoints)) return false;
+  if (!isStringList(v.publicKeys)) return false;
+  if (!isStringList(v.acceptedPolicies)) return false;
+  if (typeof v.createdAt !== "string") return false;
+  if (v.principal !== undefined && typeof v.principal !== "string") return false;
+  if (v.conductor !== undefined && typeof v.conductor !== "string") return false;
+  if (v.agentUuid !== undefined && typeof v.agentUuid !== "string") return false;
+  if (v.workspace !== undefined && !isH2AWorkspaceRef(v.workspace)) return false;
+  if (v.name !== undefined && typeof v.name !== "string") return false;
+  return true;
 }
