@@ -381,9 +381,9 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "stream",
     exitCodes: [0, 1],
     requiredFlags: [],
-    optionalFlags: ["root", "interval-ms", "max-relances", "relauncher"],
+    optionalFlags: ["root", "interval-ms", "max-relances", "relauncher", "decider", "decider-after", "decider-enforce"],
     description:
-      "Run the anti-stall daemon (long-running): each beat scans the registry and relances stalled agents via the relauncher adapter. `--relauncher` selects logging (default, dry-run) | local-tmux (send-keys into the captured pane) | headless (detached respawn) | auto (local-tmux then headless). The external `/loop` codex/agy/gemini lack. DEC-086/091."
+      "Run the anti-stall daemon (long-running): each beat scans the registry and relances stalled agents via the relauncher adapter. `--relauncher` selects logging (default, dry-run) | local-tmux (send-keys into the captured pane) | headless (detached respawn) | auto (local-tmux then headless). The external `/loop` codex/agy/gemini lack. DEC-086/091. D5: `--decider logging|<command>` adds a reflexive watchdog, consulted only after `--decider-after` relances (default 1; must be < --max-relances); it decides relance/finish/escalate/reroute. Decisions are logged to `drumbeat/decisions.jsonl` and applied only with `--decider-enforce` (advisory-first); reroute escalates with a hint. The decider is consulted each beat in [decider-after, max-relances) — a documented cost. DEC-111."
   },
 
   // --- host wiring ---

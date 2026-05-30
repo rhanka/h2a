@@ -104,8 +104,12 @@ import {
   localTmuxRelauncher,
   headlessRelauncher,
   chainRelauncher,
+  loggingDecider,
+  subagentDecider,
+  H2A_DEFAULT_MAX_RELANCES,
   type H2ARelauncher,
-  type H2ARelauncherKind
+  type H2ARelauncherKind,
+  type ReflexiveDecider
 } from "./runtime/drumbeat/index.js";
 import { gatherNhiSnapshot } from "./runtime/nhi.js";
 import {
@@ -226,7 +230,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat scan [--max-relances <n>] [--root <path>]",
     "  h2a drumbeat clear --instance <id> [--root <path>]",
     "  h2a drumbeat escalations [--root <path>]",
-    "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
+    "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|headless|auto] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini|agy> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
     "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]]   (--write installs the Stop hook for claude|gemini|codex; agy is poll-only)",
@@ -1645,11 +1649,38 @@ export async function runDrumbeatWatch(
       );
       return 1;
   }
-  io.stdout.write(`h2a drumbeat watch: watching ${root} every ${intervalMs}ms (relauncher=${kind})\n`);
+  // DEC-111 (D5): the reflexive watchdog. Opt-in via --decider; consulted only
+  // after --decider-after relances; decisions applied only with --decider-enforce.
+  const deciderAfter = flags["decider-after"] ? Number.parseInt(flags["decider-after"], 10) : 1;
+  if (!Number.isInteger(deciderAfter) || deciderAfter < 1) {
+    io.stderr.write(`h2a drumbeat watch: --decider-after must be a positive integer (got "${flags["decider-after"]}")\n`);
+    return 1;
+  }
+  const enforce = flags["decider-enforce"] !== undefined;
+  let decider: ReflexiveDecider | undefined;
+  let deciderLabel = "logging";
+  if (flags.decider !== undefined && flags.decider !== "logging") {
+    decider = subagentDecider({ command: flags.decider });
+    deciderLabel = "subagent";
+  } else if (flags.decider === "logging") {
+    decider = loggingDecider();
+  }
+  const effectiveMax = maxRelances ?? H2A_DEFAULT_MAX_RELANCES;
+  if (decider && deciderAfter >= effectiveMax) {
+    io.stderr.write(
+      `h2a drumbeat watch: --decider-after (${deciderAfter}) must be < --max-relances (${effectiveMax})\n`
+    );
+    return 1;
+  }
+
+  io.stdout.write(
+    `h2a drumbeat watch: watching ${root} every ${intervalMs}ms (relauncher=${kind}, decider=${deciderLabel}${decider ? `, enforce=${enforce}` : ""})\n`
+  );
   await runDrumbeatWatchLoop(root, relauncher, {
     intervalMs,
     ...(maxRelances !== undefined ? { maxRelances } : {}),
     signal: io.signal,
+    ...(decider ? { decider, deciderAfter, enforce, deciderLabel } : {}),
     // DEC-095 (D7): an exhausted relance budget stops the loop for that agent
     // and escalates to the PRINCIPAL (the anti-loop cap is `maxRelances`).
     onExhausted: (entry) => {
@@ -1661,6 +1692,24 @@ export async function runDrumbeatWatch(
       io.stdout.write(
         `drumbeat: ESCALATE ${record.instance} → ${record.to} (${record.channel}, relances=${record.relanceCount})\n`
       );
+    },
+    // DEC-111 (D5): the decider's escalate/reroute verdicts route through the
+    // same escalation registry (reroute = escalate-with-hint in v1).
+    onEscalate: (finding, decision) => {
+      recordEscalation(root, {
+        instance: finding.instance,
+        reason: "watchdog-escalate",
+        relanceCount: finding.relanceCount
+      });
+      io.stdout.write(`drumbeat: WATCHDOG-ESCALATE ${finding.instance}${decision.reason ? ` — ${decision.reason}` : ""}\n`);
+    },
+    onReroute: (finding, decision) => {
+      recordEscalation(root, {
+        instance: finding.instance,
+        reason: "reroute-suggested",
+        relanceCount: finding.relanceCount
+      });
+      io.stdout.write(`drumbeat: REROUTE-SUGGESTED ${finding.instance}${decision.reason ? ` — ${decision.reason}` : ""}\n`);
     },
     onTick: (r) => {
       if (r.relanced.length || r.exhausted.length) {

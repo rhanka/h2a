@@ -13,8 +13,12 @@ import { join } from "node:path";
 
 import { localStorePaths, safePathSegment } from "../local-files/paths.js";
 
-/** Why the escalation fired. Only `relance-exhausted` for now (D7). */
-export type H2AEscalationReason = "relance-exhausted";
+/**
+ * Why the escalation fired. `relance-exhausted` (D7, relance budget spent);
+ * `watchdog-escalate` / `reroute-suggested` (D5, the reflexive watchdog decided
+ * a human must look, or that the work should be reassigned).
+ */
+export type H2AEscalationReason = "relance-exhausted" | "watchdog-escalate" | "reroute-suggested";
 
 export interface H2AEscalationRecord {
   readonly instance: string;
