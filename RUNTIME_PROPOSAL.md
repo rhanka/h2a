@@ -1,37 +1,41 @@
-# Proposition runtime minimale — plugins, MCP, local-files
+# Minimal runtime proposal — plugins, MCP, local-files
 
-> **Statut** : proposition de cadrage, 2026-05-17.
-> **Nom recommandé** : `h2a`.
-> **Package core recommandé** : `@sentropic/h2a`.
+> **Status**: framing proposal, 2026-05-17.
+> **Recommended name**: `h2a`.
+> **Recommended core package**: `@sentropic/h2a`.
 
-## Principe
+## Principle
 
-Le runtime minimal doit rester un protocole de coordination gouvernée entre humains et agents, pas une dépendance forte à un CLI particulier.
+The minimal runtime must stay a governed coordination protocol between humans
+and agents, not a hard dependency on any particular CLI.
 
-`H2A` est le nom parapluie. Le volet `A2A` peut exister comme sous-surface spécialisée, mais il ne couvre pas à lui seul l'organisation, les mandats et le human-in-the-loop.
+`H2A` is the umbrella name. The `A2A` aspect can exist as a specialised
+sub-surface, but on its own it does not cover the organization, the mandates,
+or the human-in-the-loop.
 
-Architecture recommandée :
+Recommended architecture:
 
 1. **Core library** — `@sentropic/h2a`
-   - Types TypeScript et schemas JSON.
-   - Validation de `CONTRACT`, `POLICY`, `ENGAGEMENT`, `REGISTRY`, `NEGOTIATION`.
-   - Canonicalisation + hash d'artefact.
-   - Signatures, amendements, journal append-only.
-   - Store local abstrait.
+   - TypeScript types and JSON schemas.
+   - Validation of `CONTRACT`, `POLICY`, `ENGAGEMENT`, `REGISTRY`, `NEGOTIATION`.
+   - Canonicalisation + artifact hash.
+   - Signatures, amendments, append-only journal.
+   - Abstract local store.
 
 2. **CLI runtime** — `@sentropic/h2a-cli`
-   - Regroupe la surface MCP et les adapters hôtes.
-   - Modules internes séparés pour `mcp`, `codex`, `claude`, `gemini`.
-   - Ne contient pas la sémantique contractuelle ; dépend du core.
+   - Bundles the MCP surface and the host adapters.
+   - Separate internal modules for `mcp`, `codex`, `claude`, `gemini`.
+   - Holds no contractual semantics; depends on the core.
 
-3. **Mode local-files bilatéral**
-   - Dossier conventionnel `src/{project}/a2a/...`.
-   - Fonctionne offline et sans serveur MCP.
-   - Un agent lit son inbox, écrit ses propositions et signe les artefacts locaux.
+3. **Bilateral local-files mode**
+   - Conventional folder `src/{project}/a2a/...`.
+   - Works offline and without an MCP server.
+   - An agent reads its inbox, writes its proposals, and signs the local
+     artifacts.
 
-## Use case initial : 1 PRINCIPAL / 15 CONDUCTORS
+## Initial use case: 1 PRINCIPAL / 15 CONDUCTORS
 
-Topologie :
+Topology:
 
 ```text
 human:antoine as PRINCIPAL
@@ -41,34 +45,40 @@ human:antoine as PRINCIPAL
   └─ conductor:15
 ```
 
-Flux minimal :
+Minimal flow:
 
-1. Le PRINCIPAL crée le scope racine `scope:principal/antoine`.
-2. Chaque CONDUCTOR s'enregistre dans le REGISTRY avec son rôle, ses capabilities, son endpoint et ses policies acceptées.
-3. Un CONDUCTOR découvre un autre CONDUCTOR via le REGISTRY.
-4. Il ouvre une NEGOTIATION sur un sujet : `CONTRACT`, `POLICY`, `ENGAGEMENT` ou amendement.
-5. Les parties échangent offres et contre-offres.
-6. La NEGOTIATION se stabilise quand les signataires requis signent le même artefact canonique.
-7. Si une incompatibilité apparaît entre contrats, elle est tracée et escaladée au PRINCIPAL, à l'EXECUTIF, à un CONTROL habilité ou à une autre autorité de scope. En V1, aucun médiateur inter-contrat ne résout automatiquement le conflit.
+1. The PRINCIPAL creates the root scope `scope:principal/antoine`.
+2. Each CONDUCTOR registers in the REGISTRY with its role, its capabilities,
+   its endpoint, and its accepted policies.
+3. A CONDUCTOR discovers another CONDUCTOR via the REGISTRY.
+4. It opens a NEGOTIATION on a subject: `CONTRACT`, `POLICY`, `ENGAGEMENT`, or
+   an amendment.
+5. The parties exchange offers and counter-offers.
+6. The NEGOTIATION stabilises once the required signers sign the same canonical
+   artifact.
+7. If an incompatibility appears between contracts, it is traced and escalated
+   to the PRINCIPAL, the EXECUTIF, an authorised CONTROL, or another scope
+   authority. In V1, no inter-contract mediator resolves the conflict
+   automatically.
 
-## Primitives MCP minimales
+## Minimal MCP primitives
 
-Les noms exacts peuvent évoluer, mais la surface V1 devrait rester petite :
+The exact names may evolve, but the V1 surface should stay small:
 
-| Tool MCP | Rôle |
+| MCP tool | Role |
 |---|---|
-| `h2a_register_instance` | Inscrire une INSTANCE dans un REGISTRY. |
-| `h2a_discover_instances` | Trouver des acteurs par rôle, scope, capability ou policy acceptée. |
-| `h2a_open_negotiation` | Ouvrir une session de NEGOTIATION. |
-| `h2a_offer` | Déposer une proposition d'artefact. |
-| `h2a_counteroffer` | Répondre par une contre-proposition. |
-| `h2a_sign` | Signer une version canonique d'artefact. |
-| `h2a_stabilize` | Vérifier signatures/hash et déclarer l'artefact stable. |
-| `h2a_inbox` | Lire les messages et demandes adressées à l'acteur courant. |
-| `h2a_append_journal` | Ajouter un événement audit append-only. |
-| `h2a_escalate` | Déclencher `advise`, `decide` ou `alert`. |
+| `h2a_register_instance` | Register an INSTANCE in a REGISTRY. |
+| `h2a_discover_instances` | Find actors by role, scope, capability, or accepted policy. |
+| `h2a_open_negotiation` | Open a NEGOTIATION session. |
+| `h2a_offer` | Submit an artifact proposal. |
+| `h2a_counteroffer` | Reply with a counter-proposal. |
+| `h2a_sign` | Sign a canonical version of an artifact. |
+| `h2a_stabilize` | Verify signatures/hash and declare the artifact stable. |
+| `h2a_inbox` | Read the messages and requests addressed to the current actor. |
+| `h2a_append_journal` | Append an append-only audit event. |
+| `h2a_escalate` | Trigger `advise`, `decide`, or `alert`. |
 
-## Structures minimales
+## Minimal structures
 
 ```ts
 type ActorRegistration = {
@@ -123,7 +133,7 @@ type ContractArtifact = {
 };
 ```
 
-Enveloppe d'échange minimale :
+Minimal exchange envelope:
 
 ```ts
 type Role =
@@ -166,9 +176,9 @@ type H2AEnvelope = {
 };
 ```
 
-## Mode local-files
+## Local-files mode
 
-Structure recommandée :
+Recommended structure:
 
 ```text
 src/{project}/h2a/
@@ -199,25 +209,33 @@ src/{project}/h2a/
     {actorId}/
 ```
 
-Règles :
+Rules:
 
-- Les fichiers d'artefacts stabilisés sont immuables ; toute évolution passe par amendement.
-- Les journaux sont append-only.
-- Les `inbox/outbox` transportent les mêmes enveloppes que le MCP server.
-- Le hash canonique est calculé sur le contenu normalisé hors signatures.
-- Les événements portent `causationId`, `correlationId` et `prevHash` pour rendre les divergences auditables entre deux journaux locaux.
+- Stabilised artifact files are immutable; any evolution goes through an
+  amendment.
+- The journals are append-only.
+- The `inbox/outbox` carry the same envelopes as the MCP server.
+- The canonical hash is computed over the normalised content, excluding
+  signatures.
+- Events carry `causationId`, `correlationId`, and `prevHash` to make
+  divergences auditable between two local journals.
 
-## Plugins Codex et Claude
+## Codex and Claude plugins
 
-Objectif V1 : adapters minces.
+V1 goal: thin adapters.
 
-- **Codex / Claude / Gemini** : exposer les opérations H2A via des modules internes de `@sentropic/h2a-cli`.
-- **Point commun** : tous les hosts lisent/écrivent les mêmes artefacts et acceptent le même registry.
-- **Interdit V1** : mettre la logique de négociation dans un host spécifique. Sinon les intégrations divergent.
+- **Codex / Claude / Gemini**: expose the H2A operations via internal modules
+  of `@sentropic/h2a-cli`.
+- **Common ground**: every host reads/writes the same artifacts and accepts the
+  same registry.
+- **Forbidden in V1**: putting negotiation logic inside a specific host.
+  Otherwise the integrations diverge.
 
-Risque principal : les surfaces plugin de Codex, Claude et Gemini peuvent évoluer. Le protocole doit donc considérer MCP et local-files comme les deux contrats de compatibilité stables ; les adapters hôtes restent remplaçables à l'intérieur de `h2a-cli`.
+Main risk: the plugin surfaces of Codex, Claude, and Gemini may evolve. The
+protocol must therefore treat MCP and local-files as the two stable
+compatibility contracts; the host adapters stay replaceable inside `h2a-cli`.
 
-## Commandes CLI probables
+## Likely CLI commands
 
 ```bash
 h2a init --project my-project
@@ -230,12 +248,13 @@ h2a negotiate stabilize --negotiation neg-123
 h2a inbox read --actor conductor:01
 ```
 
-## Limites V1 assumées
+## Assumed V1 limits
 
-- Pas de médiateur inter-contrat.
-- Pas de résolution automatique des conflits de policies.
-- Pas de consensus global entre 15 CONDUCTORS.
-- Pas de subagents first-class.
-- Pas de dépendance obligatoire à un service remote.
+- No inter-contract mediator.
+- No automatic resolution of policy conflicts.
+- No global consensus among the 15 CONDUCTORS.
+- No first-class subagents.
+- No mandatory dependency on a remote service.
 
-Ces limites sont acceptables si le protocole trace les conflits et rend l'escalade actionnable.
+These limits are acceptable as long as the protocol traces the conflicts and
+makes the escalation actionable.
