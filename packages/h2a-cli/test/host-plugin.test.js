@@ -114,13 +114,13 @@ test("host plugin --write codex writes a valid Claude-format hooks.json + plugin
   }
 });
 
-test("host plugin --scaffold codex writes the full plugin (manifest + hooks.json) + emits the trust step (DEC-113)", () => {
+test("host plugin --scaffold codex writes the full local marketplace + emits the trust step (DEC-113)", () => {
   const root = mkdtempSync(join(tmpdir(), "h2a-codex-"));
-  const pluginDir = join(root, "h2a-drumbeat");
+  const marketplaceDir = join(root, "h2a-mkt");
   try {
     const run = () => {
       let stdout = "", stderr = "";
-      const rc = runCli(["host", "plugin", "--host", "codex", "--instance", "codex:p1", "--scaffold", pluginDir], {
+      const rc = runCli(["host", "plugin", "--host", "codex", "--instance", "codex:p1", "--scaffold", marketplaceDir], {
         stdout: { write: (c) => void (stdout += c) }, stderr: { write: (c) => void (stderr += c) }
       });
       return { rc, stdout, stderr };
@@ -130,16 +130,29 @@ test("host plugin --scaffold codex writes the full plugin (manifest + hooks.json
     const out = JSON.parse(r1.stdout);
     assert.equal(out.ok, true);
     assert.equal(out.host, "codex");
-    assert.equal(out.scaffolded, pluginDir);
+    assert.equal(out.scaffolded, marketplaceDir);
     assert.equal(out.mechanism, "codex-app-server");
 
-    // The codex-native plugin manifest references the hooks via a relative path.
+    // codex loads a plugin from a MARKETPLACE dir, not a bare plugin dir: the
+    // marketplace manifest lists the plugin via a relative source path.
+    const marketplacePath = join(marketplaceDir, ".agents", "plugins", "marketplace.json");
+    assert.ok(existsSync(marketplacePath), "marketplace.json written");
+    const mkt = JSON.parse(readFileSync(marketplacePath, "utf8"));
+    assert.ok(mkt.name, "marketplace has a name"); // the @<marketplace> selector
+    assert.equal(mkt.plugins.length, 1);
+    assert.equal(mkt.plugins[0].source.source, "local");
+    assert.match(mkt.plugins[0].source.path, /h2a-drumbeat$/);
+    assert.equal(mkt.plugins[0].policy.authentication, "ON_INSTALL"); // NONE is rejected by codex
+    assert.equal(out.marketplace, marketplacePath);
+
+    // The plugin manifest references the hooks via a relative path.
+    const pluginDir = join(marketplaceDir, "plugins", "h2a-drumbeat");
     const manifestPath = join(pluginDir, ".codex-plugin", "plugin.json");
-    assert.ok(existsSync(manifestPath), "manifest written");
+    assert.ok(existsSync(manifestPath), "plugin manifest written");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    assert.ok(manifest.name, "manifest has a name");
+    assert.equal(manifest.name, mkt.plugins[0].name);
     assert.match(manifest.hooks, /hooks\.json$/); // points at ./hooks/hooks.json
-    assert.ok(out.manifest.endsWith(join(".codex-plugin", "plugin.json")));
+    assert.equal(out.manifest, manifestPath);
 
     // The hooks.json is the Claude-format Stop hook (same merge as --write codex).
     const hooksPath = join(pluginDir, "hooks", "hooks.json");
@@ -148,18 +161,20 @@ test("host plugin --scaffold codex writes the full plugin (manifest + hooks.json
     const ours = cfg.hooks.Stop.find((e) => e.hooks[0].command.includes("h2a drumbeat record"));
     assert.match(ours.hooks[0].command, /--instance codex:p1/);
     assert.match(ours.hooks[0].command, /codex resume/);
-    assert.ok(out.hooks.endsWith(join("hooks", "hooks.json")));
+    assert.equal(out.hooks, hooksPath);
 
     // The trust step is surfaced (not a silent gap): the exact CLI commands.
     assert.ok(Array.isArray(out.trust) && out.trust.length >= 2, "trust commands emitted");
-    assert.ok(out.trust.some((c) => c.includes("codex plugin marketplace add") && c.includes(pluginDir)));
-    assert.ok(out.trust.some((c) => /codex plugin add .+@/.test(c)));
+    assert.ok(out.trust.some((c) => c.includes("codex plugin marketplace add") && c.includes(marketplaceDir)));
+    // The install selector uses a concrete <name>@<marketplace> (no placeholder).
+    assert.ok(out.trust.some((c) => c.includes(`codex plugin add ${manifest.name}@${mkt.name}`)));
 
-    // Idempotent: re-running produces the same manifest + a single h2a Stop hook.
+    // Idempotent: re-running produces a single h2a Stop hook + one plugin entry.
     const r2 = run();
     assert.equal(r2.rc, 0, r2.stderr);
     const cfg2 = JSON.parse(readFileSync(hooksPath, "utf8"));
     assert.equal(cfg2.hooks.Stop.filter((e) => e.hooks[0].command.includes("h2a drumbeat record")).length, 1);
+    assert.equal(JSON.parse(readFileSync(marketplacePath, "utf8")).plugins.length, 1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -84,6 +84,7 @@ import {
   claudeStopHookEntry,
   isH2ARecordHook,
   codexPluginManifest,
+  codexMarketplaceManifest,
   codexPluginTrustCommands,
   H2A_CODEX_PLUGIN_NAME,
   H2A_HOST_PLUGIN_HOSTS
@@ -236,7 +237,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|headless|auto] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini|agy> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
-    "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex; --scaffold writes codex's full plugin + trust step; agy is poll-only)",
+    "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex; --scaffold writes codex's full local marketplace + trust step; agy is poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "",
     "High-level coordination (DEC-054):",
@@ -1981,50 +1982,60 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
     return 1;
   }
 
-  // DEC-113 (D6 done): --scaffold <dir> writes codex's FULL plugin — the
-  // codex-native manifest (`.codex-plugin/plugin.json` referencing
-  // `./hooks/hooks.json`) + the Claude-format `hooks/hooks.json` it would
-  // otherwise only hint at — and emits the trust step (codex has no drop-in
-  // plugin dir / bypass flag; trust = `codex plugin marketplace add` +
-  // `plugin add`). codex-only: the manifest is codex-specific (claude/gemini
-  // merge a single settings.json via --write; agy polls).
+  // DEC-113 (D6 done): --scaffold <dir> writes codex's FULL local marketplace —
+  // verified live, codex installs a plugin only from a marketplace dir, NOT a
+  // bare plugin dir. Layout mirrors codex's own openai-curated marketplace:
+  //   <dir>/.agents/plugins/marketplace.json          (marketplace manifest)
+  //   <dir>/plugins/<name>/.codex-plugin/plugin.json  (plugin manifest)
+  //   <dir>/plugins/<name>/hooks/hooks.json           (Claude-format Stop hook)
+  // then emits the trust step (codex plugin marketplace add → plugin add).
+  // codex-only: the manifests are codex-specific (claude/gemini merge a single
+  // settings.json via --write; agy polls).
   if (flags.scaffold) {
     if (flags.host !== "codex") {
       streams.stderr.write(
-        `h2a host plugin: --scaffold is codex-only (the plugin manifest is codex-specific). ` +
+        `h2a host plugin: --scaffold is codex-only (the marketplace/plugin manifests are codex-specific). ` +
           `For ${flags.host}, use --write <settings.json> (claude/gemini) or the poll path (agy).\n`
       );
       return 1;
     }
-    const pluginDir = flags.scaffold;
+    const marketplaceDir = flags.scaffold;
+    const pluginDir = join(marketplaceDir, "plugins", H2A_CODEX_PLUGIN_NAME);
     const hooksPath = join(pluginDir, "hooks", "hooks.json");
     const manifestPath = join(pluginDir, ".codex-plugin", "plugin.json");
+    const marketplacePath = join(marketplaceDir, ".agents", "plugins", "marketplace.json");
     // The hooks.json is the same idempotent Claude-format merge as --write.
     const hooksMerge = mergeStopHooksFile(hooksPath, render.record, flags.force === "true", streams);
     if (typeof hooksMerge === "number") return hooksMerge;
-    const manifest = codexPluginManifest(H2A_CODEX_PLUGIN_NAME);
-    try {
-      const manifestDir = dirname(manifestPath);
-      if (!existsSync(manifestDir)) mkdirSync(manifestDir, { recursive: true });
-      // Manifest is a stable identity — rewrite is idempotent (same bytes).
-      writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    } catch (error) {
-      streams.stderr.write(`h2a host plugin: cannot write ${manifestPath} (${(error as Error).message})\n`);
-      return 3;
+    // Manifests are stable identities — rewriting them is idempotent (same bytes).
+    const writes: ReadonlyArray<readonly [string, unknown]> = [
+      [manifestPath, codexPluginManifest(H2A_CODEX_PLUGIN_NAME)],
+      [marketplacePath, codexMarketplaceManifest(H2A_CODEX_PLUGIN_NAME)]
+    ];
+    for (const [path, body] of writes) {
+      try {
+        const d = dirname(path);
+        if (!existsSync(d)) mkdirSync(d, { recursive: true });
+        writeFileSync(path, `${JSON.stringify(body, null, 2)}\n`);
+      } catch (error) {
+        streams.stderr.write(`h2a host plugin: cannot write ${path} (${(error as Error).message})\n`);
+        return 3;
+      }
     }
     streams.stdout.write(
       `${JSON.stringify(
         {
           ok: true,
           host: "codex",
-          scaffolded: pluginDir,
+          scaffolded: marketplaceDir,
+          marketplace: marketplacePath,
           manifest: manifestPath,
           hooks: hooksPath,
           mechanism: render.mechanism,
           hook: "hooks.Stop",
           // The trust step is surfaced, not silently dropped: codex cannot be
           // auto-trusted from outside, so run these to load the plugin.
-          trust: codexPluginTrustCommands(pluginDir, H2A_CODEX_PLUGIN_NAME)
+          trust: codexPluginTrustCommands(marketplaceDir, H2A_CODEX_PLUGIN_NAME)
         },
         null,
         2
