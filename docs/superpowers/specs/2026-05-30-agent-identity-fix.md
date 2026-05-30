@@ -175,3 +175,19 @@ h2a already models `@sentropic/remote` (repo `rhanka/remote`) as a host-bridge p
 - The bridge contract is **bilateral** (DEC-059): any change to the identity *shape* requires **paired PRs** in h2a + `rhanka/remote`. The composite `host:label:uuid8` (local) must stay consistent with `remote:${SESSION_ID}` (bridge) — `SESSION_ID` is already the unique anchor there; reconcile the `H2AHostBridgeIdentityClause` in the paired PR.
 
 **Verdict**: yes, it works with `@sentropic/remote`, and that context is the cleanest (unique bridge `SESSION_ID`, no transcript fragility). The build adds the `host:"remote"` branch to the resolver and keeps the bilateral identity clause consistent. To verify the exact `SESSION_ID` injection + design the paired PR, investigate `../remote`.
+
+---
+
+## Verification vs `../remote` (2026-05-30) — CORRECTS the "cleanest case" framing above
+
+A read-only audit of `rhanka/remote` corrects the previous section (which overclaimed):
+
+- ✅ **Uniqueness**: `SESSION_ID` reaches h2a via env (Pod `spec.ts:293`); `remote:${SESSION_ID}` is collision-free per session. Nuance: it is `Math.random()` base36 (`sess-xxxxxxxx`), **not** a CSPRNG UUID — unique-by-provisioning, weak entropy; addressing keys on the opaque string so no breakage (the bridge could strengthen the mint, minor).
+- ✅ **Workspace — the bridge is AHEAD of us**: first-class `workspaceId` (`ws-…`), injected as `SESSION_WORKSPACE_ID`, drives the PVC + stamped into presence. → `resolveProviderSession(host:"remote")` takes the workspace from **`SESSION_WORKSPACE_ID`** (authoritative, Pod-scoped), NOT `cwd()` — **F6 solved for free**. BONUS: the bridge also reports **`cliSessionId`** (the wrapped CLI's own conversation id) — a better de-collision hint than `SESSION_ID` if a Pod ever hosts multiple CLI conversations.
+- ❌ **Key anchor (F1) is ABSENT in the bridge today** — RETRACTS the "F1 applies uniformly / key travels" claim above. `rhanka/remote` has **no** ed25519 key / keyring / signing and **never spawns `h2a mcp-serve`**: a bridge session is a **presence-file projection only** (`session-agent` writes `{instance:"remote:<id>", host:"remote"}`; the image installs no `@sentropic/h2a-cli`). Its only auth is an HMAC-JWT (`REMOTE_TOKEN`) for session-agent↔control-plane callbacks, not an h2a identity key.
+
+**Corrected verdict**:
+- The **local 0.20.0 fix is fully compatible with the bridge and needs ZERO `rhanka/remote` changes**: `remote:${SESSION_ID}` stays a valid opaque instance (nothing parses `:`); the `host:"remote"` resolver branch (use `env.SESSION_ID` + `env.SESSION_WORKSPACE_ID` + optional `cliSessionId`) is h2a-internal. The byte-identical bridge profiles (h2a `h2a-bridge.ts:111` ↔ remote `packages/protocol/src/schemas/h2a-bridge.ts:43`) stay consistent.
+- **Making a bridge session a genuine key-anchored NHI is a SEPARATE, larger paired slice** in `rhanka/remote`: spawn `h2a mcp-serve` in the Pod + persist a per-session/per-agent ed25519 key (mounted Secret like `REMOTE_TOKEN`, or a workspace-PVC keystore keyed per fingerprint — F2). Gap until then: ephemeral Pods (`restartPolicy:Never`) lose any keystore → reclaim impossible → always-mint (internally consistent, since `SESSION_ID` is new per session). Today bridge sessions are **discoverable presence, not signing agents**.
+
+→ So: **works with the bridge now (no remote change)**; **full NHI key-anchoring for bridge sessions = a future paired slice** (a product decision, gated by the same threat-model call).
