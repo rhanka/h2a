@@ -1,69 +1,68 @@
-# Exemple — 1 PRINCIPAL / 15 CONDUCTORS
+# Example — 1 PRINCIPAL / 15 CONDUCTORS
 
-> Cet exemple est la **définition exécutable** du cas d'usage cible documenté
-> dans [`PLAN.md`](../../PLAN.md) (WP-50 / WP-60). Il fait tourner la pile
-> `h2a` complète de bout en bout, en mémoire et sur disque, contre les API
-> publiques des deux packages publiés.
+> This example is the **executable definition** of the target use case
+> documented in [`PLAN.md`](../../PLAN.md) (WP-50 / WP-60). It runs the full
+> `h2a` stack end-to-end, in memory and on disk, against the public APIs of the
+> two published packages.
 
-## Topologie
+## Topology
 
-- **1 PRINCIPAL** : `human:antoine`
-- **15 CONDUCTORS** : `conductor:01` … `conductor:15`, tous rattachés au
-  scope `scope:principal/antoine` et négociant sur `scope:engagement/ship-v1`.
+- **1 PRINCIPAL**: `human:antoine`
+- **15 CONDUCTORS**: `conductor:01` … `conductor:15`, all attached to the
+  scope `scope:principal/antoine` and negotiating on `scope:engagement/ship-v1`.
 
-Chaque instance dispose de sa propre paire de clés `ed25519` (PEM PKCS8
-pour la clé privée, SPKI pour la clé publique enregistrée au registry).
+Each instance has its own `ed25519` key pair (PEM PKCS8 for the private key,
+SPKI for the public key registered in the registry).
 
-## Scénario joué
+## Scenario played
 
-Le script `run.mjs` :
+The `run.mjs` script:
 
-1. Initialise un store `local-files` éphémère sous `<tmp>/h2a-pc-*/.h2a`.
-2. Génère **16 paires de clés** `ed25519` (1 PRINCIPAL + 15 CONDUCTORS).
-3. Enregistre les 16 instances via `createLocalStore(...).registerInstance(...)`
-   (API librairie, pas le binaire CLI).
-4. Ouvre la négociation `nego-charter` avec
+1. Initialises an ephemeral `local-files` store under `<tmp>/h2a-pc-*/.h2a`.
+2. Generates **16 key pairs** `ed25519` (1 PRINCIPAL + 15 CONDUCTORS).
+3. Registers the 16 instances via `createLocalStore(...).registerInstance(...)`
+   (library API, not the CLI binary).
+4. Opens the negotiation `nego-charter` with
    `requiredSigners = ["conductor:01", "conductor:02", "conductor:03"]`
-   (quorum 3 sur 15).
-5. `conductor:01` émet une `offer` (artefact `ENGAGEMENT`
+   (quorum 3 of 15).
+5. `conductor:01` emits an `offer` (artifact `ENGAGEMENT`
    `engagement:ship-v1`).
-6. `conductor:02` et `conductor:03` émettent chacun un `counter` portant
-   l'artefact final ; les trois signent ensuite ce même artefact via
+6. `conductor:02` and `conductor:03` each emit a `counter` carrying the final
+   artifact; the three then sign that same artifact via
    `signCanonical({ artifactHash }, { by, privateKeyPem })`.
-7. Stabilise la négociation via `stabilizeNegotiation` (vérification ed25519
-   sur les `publicKeys` du registry + check de quorum) et imprime le record
-   résultant ainsi que l'`artifactHash` gagnant.
-8. Démarre le serveur MCP (`node packages/h2a-cli/dist/bin.js mcp-serve --root <tempRoot>`)
-   en process enfant, envoie un `initialize`, un `tools/list`, puis un
-   `tools/call` `h2a_discover_instances({ role: "CONDUCTOR" })` et affiche
-   la liste retournée par le serveur (les 15 conducteurs).
-9. Nettoie tous les répertoires temporaires.
+7. Stabilises the negotiation via `stabilizeNegotiation` (ed25519 verification
+   against the registry `publicKeys` + quorum check) and prints the resulting
+   record together with the winning `artifactHash`.
+8. Starts the MCP server (`node packages/h2a-cli/dist/bin.js mcp-serve --root <tempRoot>`)
+   as a child process, sends an `initialize`, a `tools/list`, then a
+   `tools/call` `h2a_discover_instances({ role: "CONDUCTOR" })` and prints the
+   list returned by the server (the 15 conductors).
+9. Cleans up all temporary directories.
 
-Le script sort `0` en cas de succès complet et imprime une ligne verte
-récapitulative.
+The script exits `0` on full success and prints a green summary line.
 
-## Pré-requis
+## Prerequisites
 
 - Node.js ≥ 20.
-- Workspace **buildé** : le serveur MCP est démarré comme process enfant et
-  a besoin de `packages/h2a-cli/dist/bin.js`. Exécutez `npm test` ou
-  `npm --workspaces run build` au moins une fois avant de lancer l'exemple.
-- Aucune dépendance externe : tout repose sur les modules `node:*` et sur
-  les deux packages workspace `@sentropic/h2a` et `@sentropic/h2a-cli`.
+- A **built** workspace: the MCP server is started as a child process and
+  needs `packages/h2a-cli/dist/bin.js`. Run `npm test` or
+  `npm --workspaces run build` at least once before launching the example.
+- No external dependencies: everything relies on the `node:*` modules and on
+  the two workspace packages `@sentropic/h2a` and `@sentropic/h2a-cli`.
 
-## Lancement
+## Launching
 
-Depuis la racine du dépôt :
+From the repository root:
 
 ```bash
-# Variante portable (build + run)
+# Portable variant (build + run)
 ./examples/principal-conductors/run.sh
 
-# Ou directement, si `dist/` est déjà à jour
+# Or directly, if `dist/` is already up to date
 node examples/principal-conductors/run.mjs
 ```
 
-## Sortie attendue (extrait)
+## Expected output (excerpt)
 
 ```
 1. Bootstrap local-files store
@@ -84,13 +83,13 @@ node examples/principal-conductors/run.mjs
 [OK] stabilized engagement:ship-v1 / quorum 3 of 15 conductors / 15 conductors discovered via MCP
 ```
 
-## Brancher sur Codex / Claude Code
+## Wiring into Codex / Claude Code
 
-Une fois `@sentropic/h2a-cli` installé (le binaire `h2a` doit être résolvable
-via `PATH`), un seul commande émet le snippet MCP à coller dans la config de
-l'hôte. Le verbe `host setup` n'écrit jamais ailleurs que la cible passée
-explicitement à `--write` ; sans `--write` il se contente d'imprimer le JSON
-sur `stdout` et le hint de chemin sur `stderr`.
+Once `@sentropic/h2a-cli` is installed (the `h2a` binary must be resolvable via
+`PATH`), a single command emits the MCP snippet to paste into the host config.
+The `host setup` verb never writes anywhere other than the target passed
+explicitly to `--write`; without `--write` it just prints the JSON on `stdout`
+and the path hint on `stderr`.
 
 ### Codex CLI
 
@@ -111,13 +110,13 @@ h2a host setup --host codex --print
 # # example path: ~/.config/codex/mcp.json
 ```
 
-Pour appliquer directement (avec merge non destructif des autres serveurs MCP
-déjà présents) :
+To apply it directly (with a non-destructive merge of any other MCP servers
+already present):
 
 ```bash
 h2a host setup --host codex --write ~/.config/codex/mcp.json
-# ajouter --root /chemin/projet/.h2a pour épingler le store local du serveur,
-# --force pour écraser un mcpServers.h2a divergent déjà présent.
+# add --root /path/to/project/.h2a to pin the server's local store,
+# --force to overwrite a divergent mcpServers.h2a already present.
 ```
 
 ### Claude Code
@@ -134,35 +133,35 @@ h2a host setup --host claude --print
 # }
 # # claude — paste this snippet under `mcpServers` in:
 # # Claude Code reads its MCP config from either ~/.config/claude/mcp.json
-# # (user-global) ou un .mcp.json local au workspace racine.
+# # (user-global) or a workspace-local .mcp.json at the root.
 ```
 
-Variantes équivalentes :
+Equivalent variants:
 
 ```bash
-# Config user-global
+# User-global config
 h2a host setup --host claude --write ~/.config/claude/mcp.json
 
-# Config projet, épinglée sur un store .h2a local
+# Project config, pinned to a local .h2a store
 h2a host setup --host claude --root "$PWD/.h2a" --write "$PWD/.mcp.json"
 ```
 
-> Gemini est volontairement refusé (`DEC-028` — wave 2). Le descripteur reste
+> Gemini is deliberately refused (`DEC-028` — wave 2). The descriptor stays
 > visible via `h2a hosts`.
 
-## Pourquoi cet exemple ?
+## Why this example?
 
-Il joue le rôle de **documentation vivante** et de **smoke test** pour les
-trois couches du runtime :
+It serves as **living documentation** and a **smoke test** for the three layers
+of the runtime:
 
-- la couche **artefacts / signatures** de `@sentropic/h2a`
-  (`computeHash`, `signCanonical`, journal `prevHash`, quorum) ;
-- le runtime **local-files** de `@sentropic/h2a-cli`
-  (`createLocalStore`, ouverture / journal / stabilisation) ;
-- la couche **MCP** (`runMcpStdio`) accédée comme un client externe le ferait
-  via JSON-RPC 2.0 sur stdio.
+- the **artifacts / signatures** layer of `@sentropic/h2a`
+  (`computeHash`, `signCanonical`, journal `prevHash`, quorum);
+- the **local-files** runtime of `@sentropic/h2a-cli`
+  (`createLocalStore`, opening / journal / stabilisation);
+- the **MCP** layer (`runMcpStdio`) accessed the way an external client would
+  via JSON-RPC 2.0 over stdio.
 
-Le test d'intégration
+The integration test
 [`packages/h2a-cli/test/integration-example.test.js`](../../packages/h2a-cli/test/integration-example.test.js)
-ré-exécute le script lorsque `H2A_RUN_EXAMPLE=1` est positionné (skip par
-défaut pour garder la suite par défaut rapide).
+re-runs the script when `H2A_RUN_EXAMPLE=1` is set (skipped by default to keep
+the default suite fast).
