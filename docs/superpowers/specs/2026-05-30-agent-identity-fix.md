@@ -65,3 +65,19 @@ Because identity = `agent.uuid` and is bound to a per-agent key: `nhi inventory`
 **Build prerequisite — per-provider investigation (ties to EVO-1 host matrix)**: determine HOW to read each provider's native session UUID at `mcp-serve`/`connect` time — claude (session id from the transcript path / hook context / env), codex / gemini / agy (their equivalents). Where a provider truly exposes none, fall back to a minted UUID cached per `(workspace, provider-process)`, and log that the weaker fallback was used. The provider session UUID is preferred because it is authoritative per running agent and survives label changes.
 
 **Net**: `instance = host:label:uuid8` where the UUID is the perennial agent UUID; the perennial agent is bound to `(provider, providerSessionUuid, workspaceId)` so reconnects reclaim and collisions split — deterministically, at the connection layer, before any addressing/keyring/negotiation touches `instance`.
+
+---
+
+## Migration — transparent, beneficial, immediate (PRINCIPAL build requirement, 0.20.0)
+
+> **Verbatim (PRINCIPAL)**: « il faut absolument que la migration (immédiate pour les utilisateurs comme moi) soit transparente (et bénéfique). »
+
+Hard requirements for the 0.20.0 rollout to live users (who already have `claude:label` registrations, keys, inboxes, history on a shared bus):
+
+- **Immediate, zero manual step**: the existing auto-upgrade + in-place re-exec (DEC-108) lands 0.20.0; the **next auto-connect performs the migration itself** — no command to run. `store migrate` (if used) is idempotent + auto-invoked; the connect path is self-healing.
+- **Transparent (no breakage)**: schema stays **additive** (optional `workspace`/`name`/uuid); **legacy bare `claude:label` ids remain valid addresses**, so in-flight inbox messages, existing registrations and keys keep working through the transition. Forward- and backward-compatible (a downgrade still reads the data).
+- **Legacy continuity (no re-keying, no lost mail)**: a legacy `claude:label` that maps **unambiguously** to a single agent (one provider session in that workspace) is **adopted** as that agent's perennial identity — its existing keyring + inbox + history carry over; the legacy id becomes an **alias** of the new perennial UUID. Nothing is regenerated, nothing is lost.
+- **Collision split = the benefit**: where a legacy id was shared by several live agents (the bug), the first reconnects **split** them into distinct perennial identities (each bound to its provider session UUID); the legacy shared id is kept as a **transitional alias** whose inbox stays readable during a grace window so no message is dropped, while new traffic routes to the now-distinct identities. The collision **resolves itself in the user's favour**.
+- **Beneficial + observable**: immediately each agent gains its own traceable NHI (attest/inventory/offboard finally meaningful), workspace grouping, and remote-auth disambiguation — with nothing to do. Surface a one-line notice (`migrated: N agents de-collided, workspace ws:<id> registered`) so the benefit is visible.
+
+This makes the migration a **net upgrade the user simply receives**, not a chore — exactly the "transparente et bénéfique" bar.
