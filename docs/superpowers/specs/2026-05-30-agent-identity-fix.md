@@ -48,3 +48,20 @@ Because identity = `agent.uuid` and is bound to a per-agent key: `nhi inventory`
 ## Open (small) confirmations folded into the build
 - Where the **workspace UUID** is cached (proposed `<cwd>/.h2a/workspace-id`, git-ignored) vs a shared-root workspace registry — build picks the simplest (cwd-local cache) unless the PRINCIPAL prefers a registry.
 - `name` source of truth: registration (durable) with a session-level override for `/rename` (display) — build uses registration + session override.
+
+---
+
+## Reconnect de-collision (PRINCIPAL build requirement, 0.20.0)
+
+> **Verbatim (PRINCIPAL)**: « faudra bien gérer la décollision, avec une gestion de désambiguation quand deux agents reviennent avec une id ; à la reconnexion il y a une renego basée sur des id de session du provider (codex, gemini, agy, claude — pas la version de label de session, une vraie uuid de session associée au répertoire de travail ou l'identifiant du workspace dans le contexte du provider). »
+
+**This supersedes the earlier "stable agent token cached in env/file" sketch.** The authoritative disambiguator is the **provider's native session UUID** (claude / codex / gemini / agy each expose one, tied to the working directory / workspace in the provider's context) — **never** a session label. The cached token is only a last-resort fallback.
+
+**Re-binding negotiation at (re)connect** maps `(provider, providerSessionUuid, workspaceId) → agentUuid` against a durable, append-only **binding registry**:
+- **Reclaim** — if `(providerSessionUuid, workspaceId)` is already bound to a perennial agent → reconnect under the **same** agent UUID + key + inbox + history (a reconnection is the same agent).
+- **De-collision (mint-distinct)** — if a *new* `providerSessionUuid` appears in a workspace that already hosts a live/registered agent → mint a **distinct** perennial identity. This is the core fix: two agents in one workspace become two perennial NHIs, each keyed by its own provider session.
+- **Ambiguity guard** — if two live agents would resolve to the same `instance`, the renego forces a fresh distinct identity rather than letting them share an inbox/key.
+
+**Build prerequisite — per-provider investigation (ties to EVO-1 host matrix)**: determine HOW to read each provider's native session UUID at `mcp-serve`/`connect` time — claude (session id from the transcript path / hook context / env), codex / gemini / agy (their equivalents). Where a provider truly exposes none, fall back to a minted UUID cached per `(workspace, provider-process)`, and log that the weaker fallback was used. The provider session UUID is preferred because it is authoritative per running agent and survives label changes.
+
+**Net**: `instance = host:label:uuid8` where the UUID is the perennial agent UUID; the perennial agent is bound to `(provider, providerSessionUuid, workspaceId)` so reconnects reclaim and collisions split — deterministically, at the connection layer, before any addressing/keyring/negotiation touches `instance`.
