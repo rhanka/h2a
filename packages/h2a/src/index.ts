@@ -244,6 +244,8 @@ export type {
   H2ADeriveValueChainOptions,
   H2AValueChainNode
 } from "./value-chain.js";
+export { deriveMutualisationOpportunities } from "./mutualisation.js";
+export type { H2AMutualisationOpportunity } from "./mutualisation.js";
 export { H2A_REFLEXIVE_ACTIONS, parseReflexiveDecision } from "./drumbeat-decision.js";
 export type { H2AReflexiveAction, H2AReflexiveDecision } from "./drumbeat-decision.js";
 export {
