@@ -1,7 +1,7 @@
 # H2A Project Plan
 
 > Last update: 2026-05-27 (DEC-086 — **Drumbeat D2 shipped (0.5.0)**: durable registry (`<root>/.h2a/drumbeat/`) + `scanDrumbeat` + `runDrumbeatWatch` daemon + `H2ARelauncher` adapter interface + `h2a drumbeat record/scan/clear/watch`. Next: D3 local-tmux + headless relaunchers (consume `launchContext`). Prior: DEC-085 Drumbeat D1 (0.4.0); DEC-084 drumbeat refined = external anti-stall relance loop (`docs/drumbeat.md`, supersedes DEC-083); framed w/ user: codex/agy/gemini have no `/loop`, need an external daemon + relauncher adapters (local-tmux/remote/headless) + reflexive watchdog subagent, escalate to PRINCIPAL. Spec sessions: S1 plugin capability matrix done (agy = Antigravity/Gemini, HAS MCP), S2 drumbeat done. Pending build: drumbeat D1-D7. Backlog: triple-reviews, ISO/SOC2/smart-contract evals, SysML interop, NHI/NIST.)
-> Earlier: DEC-082 — `/h2a model "<situation>"` skill subcommand: advisory model proposal from a free-form org/situation, grounded in VOCABULARY + evaluations/, offers to persist as evaluations/<slug>.md. **Patch 0.3.1.** Prior: DEC-081 SysML interop spec+plan; DEC-080 D_SAFE (0.3.0). Remaining V2 to build: SysML interop S1-S4, broker Scénario C (parked).)
+> Earlier: DEC-082 — `/h2a model "<situation>"` skill subcommand: advisory model proposal from a free-form org/situation, grounded in VOCABULARY + evaluations/, offers to persist as evaluations/<slug>.md. **Patch 0.3.1.** Prior: DEC-081 SysML interop spec+plan; DEC-080 D_SAFE (0.3.0). Remaining V2 to build: SysML interop S1-S4, broker Scenario C (parked).)
 > Purpose: durable project board for backlog, progress, and sequencing.
 > Tracking rule: keep `[x]` for done and `[ ]` for remaining work; update this file after each meaningful change.
 
@@ -59,7 +59,7 @@
 - [x] Add canonicalization and hash computation (sorted-key JSON + SHA-256)
 - [x] Add append-only journal structures (`H2AJournalEntry` + `verifyJournalChain`)
 - [x] Add signature verification (ed25519 sign/verify on canonical payload)
-- [x] Encode role/authority constraints for `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`, `MANDATAIRE` (DEC-035 : `H2A_AUTHORITY_MATRIX` + `canSignArtifactKind` ; appliquée par `stabilizeNegotiation`)
+- [x] Encode role/authority constraints for `PRINCIPAL`, `EXECUTIF`, `CONDUCTOR`, `CONTROL`, `MANDATAIRE` (DEC-035: `H2A_AUTHORITY_MATRIX` + `canSignArtifactKind`; enforced by `stabilizeNegotiation`)
 - [x] Add compatibility tests on canonical artifacts (cross-language fixtures) (DEC-035 : `packages/h2a/fixtures/` + `manifest.json` + `H2A_CANONICAL_FIXTURES`)
 - [x] Declare h2a session protocol vocabulary (`H2A_SESSION_STATES` / `H2A_SESSION_NOTIFICATION_TOPICS` / `H2ASession` / `isSessionExpired` / `pickFreshSessions` — DEC-050)
 
@@ -156,9 +156,9 @@
 - [x] Capture the 2-package topology decision
 - [x] Produce compatibility evaluation notes
 - [x] Produce the initial runtime proposal
-- [x] Stabilize the mapping to the three ABC models (DEC-041 : `H2A_ABC_MODEL_PROFILES` + `auditAbcModelCompatibility`, profils `ok:true` / `ready:false` avec gaps explicites)
-- [x] Counter-audit `CONTRACT` vs `POLICY` vs `ENGAGEMENT` (DEC-039 : profils `normative-container` / `durable-rule` / `operational-executable` + `auditContractualArtifact`)
-- [x] Define escalation targets per scope in executable terms (DEC-040 : `resolveEscalationTarget` sur `ENFORCEMENT_PLAN.escalations[]`, fallback PRINCIPAL explicite)
+- [x] Stabilize the mapping to the three ABC models (DEC-041: `H2A_ABC_MODEL_PROFILES` + `auditAbcModelCompatibility`, profiles `ok:true` / `ready:false` with explicit gaps)
+- [x] Counter-audit `CONTRACT` vs `POLICY` vs `ENGAGEMENT` (DEC-039: profiles `normative-container` / `durable-rule` / `operational-executable` + `auditContractualArtifact`)
+- [x] Define escalation targets per scope in executable terms (DEC-040: `resolveEscalationTarget` over `ENFORCEMENT_PLAN.escalations[]`, explicit PRINCIPAL fallback)
 - [x] Define the `1 PRINCIPAL / 15 CONDUCTORS` use case end-to-end (definition is executable in `examples/principal-conductors/`)
 - [x] Frame multi-human modes beyond pairwise dialogue (DEC-042 : `H2A_MULTI_HUMAN_MODES` + `selectMultiHumanMode`, pair/delegated/shared/federated/quorum/public-authority)
 - [x] Decide what becomes protocol, what stays policy, what stays implementation (DEC-043 : `H2A_GOVERNANCE_BOUNDARY_ITEMS` + `classifyGovernanceBoundary`)
