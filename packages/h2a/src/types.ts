@@ -167,6 +167,19 @@ export interface H2AEngagement {
   contractId?: string;
   amendments?: string[];
   status?: H2ANegotiationState;
+  /**
+   * VALEUR (EVO-9). Optional id of the **downstream** engagement this one feeds
+   * — the next link in the value chain. Additive: the chain is derived by `aval`
+   * traversal (`deriveValueChain`), never stored as an object. Must not collide
+   * with the CONTRACT/POLICY field profiles (passes the collapse-guard).
+   */
+  aval?: string;
+  /**
+   * VALEUR (EVO-9). Optional name of the **upstream** finalité this engagement
+   * serves — the *linkable, named finalité* the INTENTION/`successCriteria`
+   * already express, made explicit so the value chain reads end-to-end.
+   */
+  finaliteAmont?: string;
 }
 
 export interface H2AAmendment {
