@@ -255,7 +255,6 @@ The model is stress-tested against real organizational settings and external sta
 
 ## Contribution conventions
 
-- See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the full contributor guide, including the **language policy** (all committed artifacts are English-first; the only permitted French is verbatim user intentions, labelled translations, and the frozen lexicon).
 - Any new requirement → add to `SPEC.md` (continuous `REQ-NNN` numbering).
 - Any new decision → add to `DECISIONS.md` (continuous `DEC-NNN`, append-only).
 - Any concept rename → new DEC + version bump of `VOCABULARY.md`.
