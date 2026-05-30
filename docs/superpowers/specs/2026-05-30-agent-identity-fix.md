@@ -103,3 +103,31 @@ Env-first (the channel all four use to spawn `h2a mcp-serve`); per-provider tran
 **Live tests to run during the build** (env-first works regardless thanks to the fallback): confirm `CODEX_THREAD_ID` / `GEMINI_SESSION_ID` / `ANTIGRAVITY_CONVERSATION_ID` are present in the env of an MCP server spawned by codex / gemini / agy respectively. claude is already proven.
 
 → The identity fix is now fully specified and unblocked; the TDD plan (this doc) + this resolver are sufficient to build 0.20.0.
+
+---
+
+## Stabilization — adversarial Opus 4.8 review (2026-05-30) — CHANGES THE BUILD
+
+The diagnosis + the 3-layer model are sound, but the central security claim is unmet in code. Findings:
+
+- **F1 (FATAL)** — reclaim is anchored on a **spoofable env var with NO proof-of-possession**. Code is TOFU (DEC-035:371; `registerInstance` `store.ts:363` dedups only on `id`; `addInstanceKey` `store.ts:402` requires only that the instance exists; remote auth resolves keys by `actor.instance` `serve.ts:37`). A local process presenting a victim's `CLAUDE_CODE_SESSION_ID` + `workspaceId` reclaims the victim's `agentUuid` → its inbox, signer slot, and can then attach its own key. "Key-anchored NHI" is aspirational, not implemented → **a security regression as written.**
+- **F2 (SERIOUS)** — the minted fallback keyed per `(workspace, provider)` (line 99) **re-collides** two concurrent same-workspace/same-provider agents (same cache file → same id). The de-collision is a no-op for exactly the providers (codex/gemini/agy) whose env is unconfirmed.
+- **F3 (SERIOUS)** — reclaim-vs-mint is a read-decide-append TOCTOU; no single-lock perimeter specified → double-mint / tuple-stomp.
+- **F4 (SERIOUS)** — migration "alias inbox readable + no re-keying" is unbacked: legacy `claude:sentropic` → inbox dir `claude__sentropic` ≠ composite `claude__sentropic__<uuid>` (`paths.ts:87`, `safePathSegment` maps `:`→`__`). Default behaviour strands or double-delivers mail; collision-split sharing one legacy keyring = key confusion.
+- **F5/F6 (model)** — nothing parses `instance` by `:` (good: uuid8 safe; but "greppable structure" buys nothing — forbid future `:`-splitting). Freeze the handle at mint (rename = display only, never moves the inbox). Widen uuid8→uuid12. Workspace id in a git-ignored cwd file aliases across clones/containers → salt by machine-id + realpath, mint into a per-host registry.
+- **F7 (minor)** — `nhi offboard` is per-`id` (correct post-fix) but unsafe against a live legacy-alias during the migration window.
+
+### What survives (the build MUST adopt)
+1. **Proof-of-possession at reclaim** (closes F1): reclaim requires signing a fresh server nonce with the private key already bound to that `agentUuid` (verify via `verifyCanonical`/`verifyEnvelopeSignature`). No key → no reclaim → mint fresh. The **ed25519 keypair is the sole authority anchor**; the provider session id is demoted to a **routing hint** only. `addInstanceKey` requires a signature by an already-active key (signed rotate-in).
+2. **Fallback mints per agent keypair fingerprint** (closes F2), not per `(workspace, provider)` — so reconnect-with-same-key reclaims, new key mints.
+3. **One lock**: binding read+decide+append inside one `registryLock` critical section (closes F3).
+4. **Migration = dual-read + dedup-by-`envelope.id`** over `{newDir ∪ legacyDir}` with single-writer cutover (closes F4 mail loss); **one** split agent inherits the legacy keyring (first to prove possession), the others **mint net-new keys** → soften the spec's "no re-keying" to "no re-keying for the adopting agent; net-new key for the de-collided peers". Forbid `nhi offboard` on a live legacy alias.
+5. Freeze `instance` at mint (uuid12); never parse it by `:`; salt the workspace id by machine + realpath.
+
+### Verdict on ratified choices
+Option A composite instance — **hold** (widen to uuid12, freeze at mint). Provider-session-uuid — **demote to routing hint**, key-possession is the anchor (load-bearing change). Transparent migration — **hold the goal, change the mechanism** (dual-read + dedup; honest re-key for split peers). Env-first + fallback — hold env as hint, **fallback mints per keypair fingerprint**.
+
+### Residual decisions — PRINCIPAL (not derivable)
+1. **Threat model**: is a hostile/buggy **same-user local process** in scope? If yes → proof-of-possession (F1) is mandatory + private key needs at-rest protection (file perms / OS keystore). If "single trusted user, same machine" is declared out of scope → F1 is defense-in-depth and the env anchor can ship with a documented caveat. **This one call sizes the whole slice.**
+2. **Migration re-keying honesty**: accept "one agent inherits the legacy key, the de-collided peers mint fresh" (surfaced in the notice), or invest in per-agent key-provenance migration?
+3. **Workspace on clone/container**: is a copied checkout the *same* workspace or a *new* one? (salt-by-machine = new; travels-with-tree = same.)
