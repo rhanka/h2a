@@ -143,3 +143,62 @@ export function isH2ARecordHook(entry: unknown): boolean {
       (h as { command: string }).command.includes("h2a drumbeat record")
   );
 }
+
+/**
+ * DEC-113 (D6 done): the codex plugin manifest, written to
+ * `<plugin-dir>/.codex-plugin/plugin.json`. Verified against codex's own
+ * installed plugins (`~/.codex/plugins/cache/.../.codex-plugin/plugin.json`):
+ * a JSON manifest with `name`/`version`/`description` and a relative `hooks`
+ * pointer to the Claude-format `hooks.json` (cf. the cross-CLI
+ * `.cursor-plugin/plugin.json` `"hooks": "./hooks/hooks.json"` convention).
+ */
+export interface H2ACodexPluginManifest {
+  readonly name: string;
+  readonly version: string;
+  readonly description: string;
+  /** Relative path (POSIX) from the manifest's plugin-dir to the hooks.json. */
+  readonly hooks: string;
+}
+
+/** Default plugin name codex registers this scaffold under. */
+export const H2A_CODEX_PLUGIN_NAME = "h2a-drumbeat";
+
+/**
+ * Build the codex-native plugin manifest. The `hooks` pointer is the relative
+ * path codex resolves from the plugin root (`./hooks/hooks.json`), matching the
+ * `hooks.json` the same `--scaffold` writes.
+ */
+export function codexPluginManifest(
+  name: string = H2A_CODEX_PLUGIN_NAME
+): H2ACodexPluginManifest {
+  return {
+    name,
+    version: "0.1.0",
+    description:
+      "h2a drumbeat stop-hook: records a stop with launch context so the " +
+      "drumbeat (D2) and local-tmux relauncher (D3) can relance this codex agent.",
+    hooks: "./hooks/hooks.json"
+  };
+}
+
+/**
+ * The trust step a codex user must run to load a freshly-scaffolded plugin.
+ * Codex has **no drop-in plugin dir and no `--bypass-hook-trust` flag** in the
+ * shipped CLI (probed live: `codex plugin {marketplace add, list, add}`; trust
+ * is recorded in `~/.codex/config.toml` as `[plugins."<name>@<mkt>"] enabled =
+ * true`). `marketplace add` derives the marketplace name from the source — it
+ * is NOT caller-named — so h2a cannot safely pre-write that snapshot/config
+ * itself. Instead it emits the exact, idempotent commands: register the dir as
+ * a local marketplace, list to read the assigned marketplace name, then install
+ * `<plugin>@<marketplace>` (codex prompts to enable/trust). No faked install.
+ */
+export function codexPluginTrustCommands(
+  pluginDir: string,
+  name: string = H2A_CODEX_PLUGIN_NAME
+): readonly string[] {
+  return [
+    `codex plugin marketplace add ${JSON.stringify(pluginDir)}`,
+    "codex plugin marketplace list   # read the marketplace name assigned to the dir above",
+    `codex plugin add ${name}@<marketplace>`
+  ];
+}
