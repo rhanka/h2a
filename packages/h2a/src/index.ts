@@ -353,7 +353,8 @@ export {
   H2A_POLICY_ADOPTION_MODES,
   H2A_PROTOCOL,
   H2A_ROLES,
-  H2A_VERSION
+  H2A_VERSION,
+  isH2AActorRegistration
 } from "./types.js";
 export type {
   H2AActorRef,
