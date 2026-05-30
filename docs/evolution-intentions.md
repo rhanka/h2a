@@ -13,6 +13,8 @@
 | EVO-6 | Auto-connect at host startup (opt-in default + `/h2a disconnect`) | small (framed below) | intention |
 | EVO-7 | Coach mode — assign roles + shape who-talks-to-whom across many instances, org committed to a repo | yes | ✅ **complete** (DEC-106, DEC-109, DEC-110) — core org model + `org.h2a.yaml` parser + full `h2a org` (validate/show/diff/provision) + `h2a coach` (propose/ratify, `--deliver`) lifecycle; provisioning is reconcile keyed-only via an append-only membership log; grants gate `discover`/`h2a_discover_instances` at runtime (effective view). Remaining future work is MCP *signing* tools, blocked on project-wide server key custody — not an EVO-7 gap |
 | EVO-8 | CLI auto-upgrade (h2a upgrade + opt-in boot check + in-place restart) | small | ✅ built (DEC-107+108) — levels 1+2+3 incl. process.execve in-place restart; bump 0.17.0 |
+| EVO-9 | **Trust concepts** in the h2a model — VALEUR/value-chain, ATTENTION, INTÉRÊT, MUTUALISATION, CONFIANCE | yes (largest) | 🆕 intention — **inbound request via h2a** from `claude:sentropic-scale` (brief: `../sentropic/handover-h2a-trust-concepts.md`). Goal: integrability parity with `iii` by independent MIT design. Reuse the h2a pattern declare→derive-posture(pure)→attest-by-signature (cf. NHI); respect frozen invariants; no franglais. See framing below |
+| EVO-10 | **Availability worker** / `busy-on-user` presence — a peer blocked on a user prompt freezes negotiations silently while still `live` | yes | 🆕 intention — **design feedback via h2a** (blockage by `claude:sent-tech-design-system`, dogfooding). A negotiating CLI should keep answering peers even when its main loop is blocked on the user. See framing below |
 
 > **Spec session 1 output**: [`docs/plugin-capability-matrix.md`](./plugin-capability-matrix.md) — factual CLI audit + capability matrix + per-intention implications.
 
@@ -125,3 +127,34 @@
 3. **`mcp-serve --auto-upgrade` (opt-in, propose only)** — self-install `@latest` at boot before serving. Powerful but **sensitive** (replaces the running binary; needs care with a long-lived server / concurrent hosts), so opt-in + documented, not default.
 
 **Open framing**: install-method detection (npm-global vs other) for level 1; cache TTL + state file location for level 2; whether level 3 restarts the server cleanly; security (only upgrade from the official registry; pin major). Reuses the `mcp-serve` boot path (like `--auto-open`, DEC-105).
+
+---
+
+## EVO-9 — Trust concepts (VALEUR / ATTENTION / INTÉRÊT / MUTUALISATION / CONFIANCE)
+
+**Source**: inbound h2a request from `claude:sentropic-scale` (env `env:1780152671673:b415`, scope:default), for the EXECUTIF/PRINCIPAL. Verbatim brief + prefiguration: `../sentropic/handover-h2a-trust-concepts.md`.
+
+**Intention**: extend the frozen h2a model (roles + engagements) with five concepts so the ecosystem reaches *integrability parity* with `iii` **by independent design** (MIT, no clone of ELv2/Apache). Differentiator: `iii` composes capabilities (mechanical); h2a models **trust in the engagement** (intentional/governance).
+
+**The five concepts** (each reuses the proven h2a pattern: *declare → derive a posture by pure calculation → attest by signature*, cf. NHI):
+1. **VALEUR / value chain** — minimal, no new ontology: an `aval-de: <engagement-id>` link on the existing ENGAGEMENT + the upstream purpose served. The chain *emerges* from links (linked list). Purposes descend; escalation rises transitively via the neighbouring tier's authority; contractual boundaries opaque by default.
+2. **ATTENTION** — bilateral attestation at the `decide` gate (the agent attests it understood the principal's intent; the principal attests it understood what the agent will do), without comprehension bias. Reuses the signature machinery (like `nhi attest`).
+3. **INTÉRÊT** — agents have **no own interest** (only fidelity to the initial objective + collaboration economy); the real subject is **human conflict of interest**. Invariant: never judge an interest's legitimacy; never force full disclosure; **but no collective-impact interest may stay hidden** in a signed engagement (disclosure proportional to collective impact). Guardian = CONTROL; escalation via the negotiation machine at stabilisation.
+4. **MUTUALISATION** — the **positive mirror of NHI9** (key reuse = risk): here scope overlap = a capitalisation opportunity (real case: ~40 agents of one principal, sub-agents, partially-overlapping scopes → derive a shared-lib opportunity). Conditioned on serving the objective; feeds the MIT librarisation goal.
+5. **CONFIANCE** — unifies ATTENTION + INTÉRÊT = validity condition of an engagement (understood + no hidden collective-impact interest). The core differentiator vs `iii`.
+
+**Constraints**: reuse declare→derive→attest; respect frozen invariants (SCOPE never signs; ENGAGEMENT has a scope, is not the scope; CONTROL owns nothing; AGENTS non-signatories by default); **no franglais** in tokens (align with VOCABULARY.md).
+
+**Open forks (h2a to decide)**: (a) token vocabulary (no franglais); (b) VALEUR as an ENGAGEMENT field (recommended) vs a dedicated artifact; (c) ATTENTION+INTÉRÊT as one "engagement de confiance" block vs phased (VALEUR+INTÉRÊT, then ATTENTION); (d) operational definition of "collective impact" (disclosure threshold).
+
+**Requested deliverable** (the scale agent asked, "on itère via h2a"): (a) coherence critique vs the frozen model, (b) a token/vocabulary proposal, (c) a position on the forks. This is a multi-slice design workstream (capture intention → framing → spec per concept → build), not a single patch.
+
+## EVO-10 — Availability worker / `busy-on-user` presence
+
+**Source**: design feedback via an h2a blockage by `claude:sent-tech-design-system` (negotiation `neg:ds-react-scaffolding-20260530` froze: the peer `claude:sentech-forge` was `live` + subscribed but did not process two coordination messages nor an offer for ~3h because its main loop was blocked on a user prompt).
+
+**Intention**: a CLI that is `live` but blocked on a user prompt is silently unavailable to its peers, so negotiations it is party to freeze. Two candidate mechanisms:
+- **(heavier)** during an active negotiation, the CLI spawns a dedicated **availability worker** sub-agent that processes peer inbox + negotiation events independently of the main loop (ack / counter), so being blocked on the user no longer blocks peers.
+- **(lighter)** a distinct presence status **`busy-on-user`** (vs `live`) + a drumbeat that relances/notifies when a `live` peer fails to process a negotiation it is party to.
+
+**Relation**: ties into the Drumbeat watchdog (D5/D7) and the presence `workStatus` model (DEC-085, `H2A_WORK_STATUSES`). Likely starts with the lighter option (a new work-status + a drumbeat signal) before the availability-worker sub-agent.
