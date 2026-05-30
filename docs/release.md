@@ -98,10 +98,10 @@ V2 will likely move the private key out of plain disk PEMs (OS keyring / signing
 ## Cross-references
 
 - DEC-026 — 2-package topology (`@sentropic/h2a` + `@sentropic/h2a-cli`).
-- DEC-027 — Licence MIT.
-- DEC-029 — Dépréciation de `@sentropic/h2a-cli@0.1.0`.
-- DEC-031 — Layout `<root>/.h2a/` du store local-files.
-- DEC-032 — V1 sans authentification de transport ; identité déclarée par l'appelant.
+- DEC-027 — MIT license.
+- DEC-029 — Deprecation of `@sentropic/h2a-cli@0.1.0`.
+- DEC-031 — Layout `<root>/.h2a/` of the local-files store.
+- DEC-032 — V1 with no transport authentication; identity declared by the caller.
 - DEC-038 — Release prep local + publication tag-driven via GitHub Actions.
 - `.github/workflows/ci.yml` — build + tests gate.
 - `.github/workflows/smoke.yml` — published-package smoke gate.
