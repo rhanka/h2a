@@ -81,3 +81,25 @@ Hard requirements for the 0.20.0 rollout to live users (who already have `claude
 - **Beneficial + observable**: immediately each agent gains its own traceable NHI (attest/inventory/offboard finally meaningful), workspace grouping, and remote-auth disambiguation — with nothing to do. Surface a one-line notice (`migrated: N agents de-collided, workspace ws:<id> registered`) so the benefit is visible.
 
 This makes the migration a **net upgrade the user simply receives**, not a chore — exactly the "transparente et bénéfique" bar.
+
+---
+
+## Provider session resolution (investigation outcome, 2026-05-30) — UNBLOCKS the build
+
+Per-provider native session UUID (the de-collision anchor):
+- **claude** — `env.CLAUDE_CODE_SESSION_ID` (UUID). **Proven** inheritable to the spawned MCP subprocess (matches the transcript filename); stable across `--continue`/`--resume`, distinct per concurrent session. Solid.
+- **codex** — `env.CODEX_THREAD_ID`; fallback = newest `~/.codex/sessions/**` rollout whose `session_meta.payload.cwd === cwd()` → `payload.id`. MCP-subprocess env presence unconfirmed (codex `shell_environment_policy` may strip) → **live test**.
+- **gemini** — `env.GEMINI_SESSION_ID` (proven for hooks); fallback = `~/.gemini/tmp/<projectKey>/logs.json` last `sessionId` where `.project_root === cwd()` (match by `.project_root`, do NOT recompute the key hash). MCP path unconfirmed → **live test**.
+- **agy** — `env.ANTIGRAVITY_CONVERSATION_ID` (format-string in the binary; strongly indicated). Conversations are flat (no per-workspace index) → take the workspace from h2a's own `cwd()`. MCP env presence → **live test**.
+
+**Uniform resolver** (pure, core/CLI), called at `mcp-serve` boot (`runMcpServe`/`resolveAutoOpen`) + `cmdConnect` + the stop-hook record path:
+```
+resolveProviderSession({ host, env, cwd }) -> { providerSessionId?, source: "env"|"transcript"|"minted-fallback", workspaceHint? }
+```
+Env-first (the channel all four use to spawn `h2a mcp-serve`); per-provider transcript fallback where it exists; else **mint + cache per `(workspaceId, provider)`** at `<root>/.h2a/provider-session/<host>.json` (NOT by PID — PID is not reconnect-stable) and log `source:"minted-fallback"`. De-collision binding registry keys on `(host, providerSessionId, workspaceId) → agentUuid`.
+
+**Plumbing note**: the MCP `initialize` `params` are currently discarded (`stdio.ts:106`); capture them so a `clientInfo`/roots fallback exists, and have `renderStopHook` (`hosts/plugin.ts:91`) forward the hook `session_id` into the `drumbeat record` command (claude/codex/gemini all expose `session_id` to hooks → the stop path can stamp it without relying on env).
+
+**Live tests to run during the build** (env-first works regardless thanks to the fallback): confirm `CODEX_THREAD_ID` / `GEMINI_SESSION_ID` / `ANTIGRAVITY_CONVERSATION_ID` are present in the env of an MCP server spawned by codex / gemini / agy respectively. claude is already proven.
+
+→ The identity fix is now fully specified and unblocked; the TDD plan (this doc) + this resolver are sufficient to build 0.20.0.
