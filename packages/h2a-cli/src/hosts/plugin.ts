@@ -143,3 +143,109 @@ export function isH2ARecordHook(entry: unknown): boolean {
       (h as { command: string }).command.includes("h2a drumbeat record")
   );
 }
+
+/**
+ * DEC-113 (D6 done): codex loads a plugin from a **local marketplace**, not a
+ * bare plugin dir (verified live against codex CLI: `codex plugin marketplace
+ * add <bare-plugin-dir>` is rejected with "marketplace root does not contain a
+ * supported manifest"). A self-installable codex scaffold is therefore a
+ * marketplace directory laid out exactly like codex's own `openai-curated`:
+ *
+ *   <dir>/.agents/plugins/marketplace.json    — the marketplace manifest
+ *   <dir>/plugins/<name>/.codex-plugin/plugin.json  — the plugin manifest
+ *   <dir>/plugins/<name>/hooks/hooks.json      — the Claude-format Stop hook
+ *
+ * The marketplace NAME comes from `marketplace.json.name` (codex assigns it on
+ * `marketplace add` — confirmed it registered as `h2a-local`), so the trust
+ * commands can use a fixed `<name>@<marketplace>` selector — no placeholder.
+ */
+export const H2A_CODEX_PLUGIN_NAME = "h2a-drumbeat";
+export const H2A_CODEX_MARKETPLACE_NAME = "h2a-local";
+/** POSIX-relative path the plugin manifest's `hooks` key points at. */
+export const H2A_CODEX_PLUGIN_HOOKS_REL = "./hooks/hooks.json";
+
+/** The codex-native plugin manifest (`.codex-plugin/plugin.json`). */
+export interface H2ACodexPluginManifest {
+  readonly name: string;
+  readonly version: string;
+  readonly description: string;
+  /** Relative path (POSIX) from the plugin root to the hooks.json. */
+  readonly hooks: string;
+}
+
+/**
+ * One plugin entry in a codex `marketplace.json` (matches codex's curated
+ * marketplace: `policy.authentication` ∈ {`ON_INSTALL`,`ON_USE`} — `NONE` is
+ * rejected; verified live).
+ */
+export interface H2ACodexMarketplacePluginEntry {
+  readonly name: string;
+  readonly source: { readonly source: "local"; readonly path: string };
+  readonly policy: { readonly installation: "AVAILABLE"; readonly authentication: "ON_INSTALL" };
+  readonly category: string;
+}
+
+/** The codex marketplace manifest (`.agents/plugins/marketplace.json`). */
+export interface H2ACodexMarketplaceManifest {
+  readonly name: string;
+  readonly interface: { readonly displayName: string };
+  readonly plugins: ReadonlyArray<H2ACodexMarketplacePluginEntry>;
+}
+
+/** Build the codex-native plugin manifest pointing at the scaffolded hooks.json. */
+export function codexPluginManifest(
+  name: string = H2A_CODEX_PLUGIN_NAME
+): H2ACodexPluginManifest {
+  return {
+    name,
+    version: "0.1.0",
+    description:
+      "h2a drumbeat stop-hook: records a stop with launch context so the " +
+      "drumbeat (D2) and local-tmux relauncher (D3) can relance this codex agent.",
+    hooks: H2A_CODEX_PLUGIN_HOOKS_REL
+  };
+}
+
+/**
+ * Build the codex marketplace manifest that lists the scaffolded plugin. The
+ * plugin `source.path` is the marketplace-relative `./plugins/<name>` dir.
+ */
+export function codexMarketplaceManifest(
+  name: string = H2A_CODEX_PLUGIN_NAME,
+  marketplace: string = H2A_CODEX_MARKETPLACE_NAME
+): H2ACodexMarketplaceManifest {
+  return {
+    name: marketplace,
+    interface: { displayName: "h2a (local)" },
+    plugins: [
+      {
+        name,
+        source: { source: "local", path: `./plugins/${name}` },
+        policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" },
+        category: "Developer Tools"
+      }
+    ]
+  };
+}
+
+/**
+ * The trust step a codex user must run to load the freshly-scaffolded plugin.
+ * Codex has **no drop-in plugin dir and no hook-trust-bypass flag** in the
+ * shipped CLI (probed live: `codex plugin {marketplace add, list, add}`; trust
+ * is recorded in `~/.codex/config.toml` as `[plugins."<name>@<mkt>"] enabled =
+ * true`). h2a cannot safely pre-write that config, so it scaffolds the
+ * marketplace + emits the exact, idempotent two-command trust step (register
+ * the local marketplace, then install — codex prompts to enable/trust). No
+ * faked install. Verified live: `marketplace add` registers as `<marketplace>`
+ * and `plugin list` then shows `<name>@<marketplace>` ready to install.
+ */
+export function codexPluginTrustCommands(
+  marketplaceDir: string,
+  name: string = H2A_CODEX_PLUGIN_NAME,
+  marketplace: string = H2A_CODEX_MARKETPLACE_NAME
+): readonly string[] {
+  return [
+    `codex plugin marketplace add ${JSON.stringify(marketplaceDir)}`,
+    `codex plugin add ${name}@${marketplace}`
+  ];
+}

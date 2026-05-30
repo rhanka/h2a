@@ -83,6 +83,10 @@ import {
   renderStopHook,
   claudeStopHookEntry,
   isH2ARecordHook,
+  codexPluginManifest,
+  codexMarketplaceManifest,
+  codexPluginTrustCommands,
+  H2A_CODEX_PLUGIN_NAME,
   H2A_HOST_PLUGIN_HOSTS
 } from "./hosts/plugin.js";
 import {
@@ -233,7 +237,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|headless|auto] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini|agy> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
-    "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]]   (--write installs the Stop hook for claude|gemini|codex; agy is poll-only)",
+    "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex; --scaffold writes codex's full local marketplace + trust step; agy is poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "",
     "High-level coordination (DEC-054):",
@@ -1978,6 +1982,68 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
     return 1;
   }
 
+  // DEC-113 (D6 done): --scaffold <dir> writes codex's FULL local marketplace —
+  // verified live, codex installs a plugin only from a marketplace dir, NOT a
+  // bare plugin dir. Layout mirrors codex's own openai-curated marketplace:
+  //   <dir>/.agents/plugins/marketplace.json          (marketplace manifest)
+  //   <dir>/plugins/<name>/.codex-plugin/plugin.json  (plugin manifest)
+  //   <dir>/plugins/<name>/hooks/hooks.json           (Claude-format Stop hook)
+  // then emits the trust step (codex plugin marketplace add → plugin add).
+  // codex-only: the manifests are codex-specific (claude/gemini merge a single
+  // settings.json via --write; agy polls).
+  if (flags.scaffold) {
+    if (flags.host !== "codex") {
+      streams.stderr.write(
+        `h2a host plugin: --scaffold is codex-only (the marketplace/plugin manifests are codex-specific). ` +
+          `For ${flags.host}, use --write <settings.json> (claude/gemini) or the poll path (agy).\n`
+      );
+      return 1;
+    }
+    const marketplaceDir = flags.scaffold;
+    const pluginDir = join(marketplaceDir, "plugins", H2A_CODEX_PLUGIN_NAME);
+    const hooksPath = join(pluginDir, "hooks", "hooks.json");
+    const manifestPath = join(pluginDir, ".codex-plugin", "plugin.json");
+    const marketplacePath = join(marketplaceDir, ".agents", "plugins", "marketplace.json");
+    // The hooks.json is the same idempotent Claude-format merge as --write.
+    const hooksMerge = mergeStopHooksFile(hooksPath, render.record, flags.force === "true", streams);
+    if (typeof hooksMerge === "number") return hooksMerge;
+    // Manifests are stable identities — rewriting them is idempotent (same bytes).
+    const writes: ReadonlyArray<readonly [string, unknown]> = [
+      [manifestPath, codexPluginManifest(H2A_CODEX_PLUGIN_NAME)],
+      [marketplacePath, codexMarketplaceManifest(H2A_CODEX_PLUGIN_NAME)]
+    ];
+    for (const [path, body] of writes) {
+      try {
+        const d = dirname(path);
+        if (!existsSync(d)) mkdirSync(d, { recursive: true });
+        writeFileSync(path, `${JSON.stringify(body, null, 2)}\n`);
+      } catch (error) {
+        streams.stderr.write(`h2a host plugin: cannot write ${path} (${(error as Error).message})\n`);
+        return 3;
+      }
+    }
+    streams.stdout.write(
+      `${JSON.stringify(
+        {
+          ok: true,
+          host: "codex",
+          scaffolded: marketplaceDir,
+          marketplace: marketplacePath,
+          manifest: manifestPath,
+          hooks: hooksPath,
+          mechanism: render.mechanism,
+          hook: "hooks.Stop",
+          // The trust step is surfaced, not silently dropped: codex cannot be
+          // auto-trusted from outside, so run these to load the plugin.
+          trust: codexPluginTrustCommands(marketplaceDir, H2A_CODEX_PLUGIN_NAME)
+        },
+        null,
+        2
+      )}\n`
+    );
+    return 0;
+  }
+
   // DEC-102/103/104 (D6 slice b): --write installs the Claude-format `hooks.Stop`
   // entry for the three hosts that accept it — **claude** + **gemini** (single
   // settings.json; gemini via `gemini hooks migrate --from-claude`) and **codex**
@@ -1993,52 +2059,8 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
       return 1;
     }
     const targetPath = flags.write;
-    let existing: Record<string, unknown> = {};
-    if (existsSync(targetPath)) {
-      let raw: string;
-      try {
-        raw = readFileSync(targetPath, "utf8");
-      } catch (error) {
-        streams.stderr.write(`h2a host plugin: cannot read ${targetPath} (${(error as Error).message})\n`);
-        return 3;
-      }
-      if (raw.trim().length > 0) {
-        try {
-          const parsed = JSON.parse(raw);
-          if (!isPlainObject(parsed)) {
-            streams.stderr.write(`h2a host plugin: ${targetPath} is valid JSON but not an object; refusing to merge.\n`);
-            return 2;
-          }
-          existing = parsed;
-        } catch (error) {
-          streams.stderr.write(
-            `h2a host plugin: ${targetPath} is not valid JSON (${(error as Error).message}). Use --force to overwrite.\n`
-          );
-          if (flags.force !== "true") return 2;
-          existing = {};
-        }
-      }
-    }
-    const existingHooks = isPlainObject(existing.hooks) ? existing.hooks : {};
-    const existingStop = Array.isArray(existingHooks.Stop) ? [...existingHooks.Stop] : [];
-    // Idempotent: drop any prior h2a drumbeat-record Stop hook, then append ours.
-    const withoutH2A = existingStop.filter((e) => !isH2ARecordHook(e));
-    if (withoutH2A.length !== existingStop.length && flags.force !== "true") {
-      // A previous h2a hook exists; replacing it is safe & idempotent, allow it.
-    }
-    const mergedStop = [...withoutH2A, claudeStopHookEntry(render.record)];
-    const merged: Record<string, unknown> = {
-      ...existing,
-      hooks: { ...existingHooks, Stop: mergedStop }
-    };
-    try {
-      const dir = dirname(targetPath);
-      if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
-      writeFileSync(targetPath, `${JSON.stringify(merged, null, 2)}\n`);
-    } catch (error) {
-      streams.stderr.write(`h2a host plugin: cannot write ${targetPath} (${(error as Error).message})\n`);
-      return 3;
-    }
+    const merge = mergeStopHooksFile(targetPath, render.record, flags.force === "true", streams);
+    if (typeof merge === "number") return merge;
     streams.stdout.write(
       `${JSON.stringify(
         {
@@ -2047,13 +2069,16 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
           written: targetPath,
           mechanism: render.mechanism,
           hook: "hooks.Stop",
-          // codex loads hooks via a plugin (plugin.json → ./hooks.json); the
-          // file written above is a valid codex hooks.json, but codex needs a
-          // plugin.json referencing it + the plugin enabled/trusted.
+          // codex loads hooks via a plugin (manifest → ./hooks/hooks.json); the
+          // file written above is a valid codex hooks.json, but codex still
+          // needs the manifest + trust. `--scaffold <dir>` does the full job;
+          // this hint covers the manual wrap when only the hooks.json is wanted.
           ...(flags.host === "codex"
             ? {
                 pluginHint:
-                  'this is a codex hooks.json — add a plugin.json next to it ({"hooks":"./hooks.json"}), then enable + trust it (codex plugin enable <name>; --dangerously-bypass-hook-trust for automation)'
+                  "this is a codex hooks.json — run `h2a host plugin --host codex --scaffold <dir>` " +
+                  "to also write the .codex-plugin/plugin.json manifest + emit the trust step " +
+                  "(codex plugin marketplace add <dir> → codex plugin add <name>@<marketplace>)."
               }
             : {})
         },
@@ -2066,6 +2091,65 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
 
   streams.stdout.write(`${JSON.stringify(render, null, 2)}\n`);
   return 0;
+}
+
+/**
+ * Idempotently merge the h2a drumbeat-record `Stop` hook into a Claude-format
+ * hooks file (claude/gemini `settings.json` or a codex `hooks.json`). Drops any
+ * prior h2a Stop hook, appends the freshly-rendered one, preserves unrelated
+ * keys/hooks. Returns an exit code on failure, or `undefined` on success.
+ * DEC-102/103/104; reused by `--scaffold` (DEC-113).
+ */
+function mergeStopHooksFile(
+  targetPath: string,
+  record: string,
+  force: boolean,
+  streams: H2ACliStreams
+): number | undefined {
+  let existing: Record<string, unknown> = {};
+  if (existsSync(targetPath)) {
+    let raw: string;
+    try {
+      raw = readFileSync(targetPath, "utf8");
+    } catch (error) {
+      streams.stderr.write(`h2a host plugin: cannot read ${targetPath} (${(error as Error).message})\n`);
+      return 3;
+    }
+    if (raw.trim().length > 0) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (!isPlainObject(parsed)) {
+          streams.stderr.write(`h2a host plugin: ${targetPath} is valid JSON but not an object; refusing to merge.\n`);
+          return 2;
+        }
+        existing = parsed;
+      } catch (error) {
+        streams.stderr.write(
+          `h2a host plugin: ${targetPath} is not valid JSON (${(error as Error).message}). Use --force to overwrite.\n`
+        );
+        if (!force) return 2;
+        existing = {};
+      }
+    }
+  }
+  const existingHooks = isPlainObject(existing.hooks) ? existing.hooks : {};
+  const existingStop = Array.isArray(existingHooks.Stop) ? [...existingHooks.Stop] : [];
+  // Idempotent: drop any prior h2a drumbeat-record Stop hook, then append ours.
+  const withoutH2A = existingStop.filter((e) => !isH2ARecordHook(e));
+  const mergedStop = [...withoutH2A, claudeStopHookEntry(record)];
+  const merged: Record<string, unknown> = {
+    ...existing,
+    hooks: { ...existingHooks, Stop: mergedStop }
+  };
+  try {
+    const dir = dirname(targetPath);
+    if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true });
+    writeFileSync(targetPath, `${JSON.stringify(merged, null, 2)}\n`);
+  } catch (error) {
+    streams.stderr.write(`h2a host plugin: cannot write ${targetPath} (${(error as Error).message})\n`);
+    return 3;
+  }
+  return undefined;
 }
 
 function cmdHost(argv: readonly string[], streams: H2ACliStreams): number {
