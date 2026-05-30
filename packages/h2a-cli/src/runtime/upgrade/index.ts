@@ -71,8 +71,11 @@ export interface UpgradeRuntime {
 export const defaultUpgradeRuntime: UpgradeRuntime = {
   fetchLatest(pkg) {
     try {
-      // Bounded: a registry call must never hang a server boot.
-      const r = spawnSync("npm", ["view", pkg, "version"], { encoding: "utf8", timeout: 4000 });
+      // Bounded, but realistic: `npm view` routinely takes ~5s, so the old 4s
+      // timeout fired every time and SILENTLY broke every upgrade check (the
+      // global + all hosts stayed pinned — DEC-114). 15s covers a slow registry;
+      // the boot check is cached (24h TTL) so this network call is rare.
+      const r = spawnSync("npm", ["view", pkg, "version"], { encoding: "utf8", timeout: 15_000 });
       if (r.status !== 0) return undefined;
       const v = r.stdout.trim();
       return parseSemver(v) ? v : undefined;
