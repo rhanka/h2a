@@ -239,6 +239,11 @@ export type {
 } from "./org.js";
 export { H2A_ORG_MANIFEST_FILENAME, parseOrgManifest } from "./org-parse.js";
 export type { H2AOrgParseResult, YamlValue } from "./org-parse.js";
+export { deriveValueChain } from "./value-chain.js";
+export type {
+  H2ADeriveValueChainOptions,
+  H2AValueChainNode
+} from "./value-chain.js";
 export { H2A_REFLEXIVE_ACTIONS, parseReflexiveDecision } from "./drumbeat-decision.js";
 export type { H2AReflexiveAction, H2AReflexiveDecision } from "./drumbeat-decision.js";
 export {
