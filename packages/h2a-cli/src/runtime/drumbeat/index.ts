@@ -4,9 +4,22 @@ export {
   listDrumbeat,
   clearDrumbeatEntry,
   markRelanced,
+  markDrumbeatTerminal,
   type H2ADrumbeatEntry,
   type RecordStopInput
 } from "./registry.js";
+export {
+  loggingDecider,
+  subagentDecider,
+  type ReflexiveDecider,
+  type DeciderRuntime,
+  type SubagentDeciderOptions
+} from "./deciders.js";
+export {
+  recordDrumbeatDecision,
+  listDrumbeatDecisions,
+  type H2ADrumbeatDecisionRecord
+} from "./decisions.js";
 export {
   scanDrumbeat,
   H2A_DEFAULT_MAX_RELANCES,

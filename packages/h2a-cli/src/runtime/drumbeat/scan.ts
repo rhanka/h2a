@@ -47,6 +47,7 @@ export function scanDrumbeat(
   const exhausted: H2ADrumbeatEntry[] = [];
   for (const entry of listDrumbeat(root)) {
     if (entry.workStatus === "done") continue;
+    if (entry.terminal) continue; // D5: a watchdog terminal action already resolved this
     if (entry.relanceCount >= maxRelances) {
       exhausted.push(entry);
       continue;

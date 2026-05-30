@@ -113,6 +113,7 @@ export {
   listDrumbeat,
   clearDrumbeatEntry,
   markRelanced,
+  markDrumbeatTerminal,
   scanDrumbeat,
   drumbeatTick,
   runDrumbeatWatch,
@@ -122,6 +123,10 @@ export {
   chainRelauncher,
   tmuxTarget,
   defaultRelauncherRuntime,
+  loggingDecider,
+  subagentDecider,
+  recordDrumbeatDecision,
+  listDrumbeatDecisions,
   H2A_DEFAULT_MAX_RELANCES,
   type H2ADrumbeatEntry,
   type H2ADrumbeatFinding,
@@ -131,7 +136,11 @@ export {
   type H2ARelauncherKind,
   type RelauncherRuntime,
   type DrumbeatTickResult,
-  type DrumbeatWatchOptions
+  type DrumbeatWatchOptions,
+  type ReflexiveDecider,
+  type DeciderRuntime,
+  type SubagentDeciderOptions,
+  type H2ADrumbeatDecisionRecord
 } from "./runtime/drumbeat/index.js";
 
 export {

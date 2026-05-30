@@ -15,7 +15,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { H2ALaunchContext, H2AWorkStatus } from "@sentropic/h2a";
+import type { H2ALaunchContext, H2AReflexiveAction, H2AWorkStatus } from "@sentropic/h2a";
 
 import { localStorePaths, safePathSegment } from "../local-files/paths.js";
 
@@ -31,6 +31,12 @@ export interface H2ADrumbeatEntry {
   readonly relanceCount: number;
   /** ISO timestamp of the last relance, if any. */
   readonly lastRelanceAt?: string;
+  /**
+   * D5: set when a reflexive-watchdog terminal action (escalate/reroute) resolved
+   * this stop. `scanDrumbeat` skips terminal entries so they are not re-decided;
+   * a genuine fresh `recordStop` overwrites the entry (a new relance budget).
+   */
+  readonly terminal?: { readonly action: H2AReflexiveAction; readonly at: string };
 }
 
 function entryFile(root: string, instance: string): string {
@@ -121,6 +127,28 @@ export function markRelanced(
     ...existing,
     relanceCount: existing.relanceCount + 1,
     lastRelanceAt: new Date(now).toISOString()
+  };
+  writeFileSync(entryFile(root, instance), `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  return next;
+}
+
+/**
+ * D5: mark an entry terminal (a reflexive-watchdog escalate/reroute resolved it).
+ * `scanDrumbeat` skips terminal entries, so the watchdog does not re-decide it
+ * each beat — without the destructive delete that a later `recordStop` (which
+ * resets `relanceCount`) would re-arm into a slow loop.
+ */
+export function markDrumbeatTerminal(
+  root: string,
+  instance: string,
+  action: H2AReflexiveAction,
+  now: number = Date.now()
+): H2ADrumbeatEntry | undefined {
+  const existing = readDrumbeatEntry(root, instance);
+  if (!existing) return undefined;
+  const next: H2ADrumbeatEntry = {
+    ...existing,
+    terminal: { action, at: new Date(now).toISOString() }
   };
   writeFileSync(entryFile(root, instance), `${JSON.stringify(next, null, 2)}\n`, "utf8");
   return next;
