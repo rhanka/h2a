@@ -96,3 +96,15 @@ An adversarial Opus 4.8 review stress-tested the concepts against the frozen inv
 > **Verbatim (PRINCIPAL)**: « j'ai aussi le sentiment que l'intérêt, intention et valeur doivent être liés, notamment dans le contexte d'une chaîne executif / humain / agents (notamment pour l'amélioration des policies et etc). »
 
 Direction to formalize (pending its own adversarial pass): **INTENTION** (the upstream value-driven goal, VOCABULARY §7.1), **VALEUR** (the delivered finalité, the `aval`/`finaliteAmont` links of this EVO), and **INTÉRÊT** (alignment / conflict of the humans in the chain) are **one coupled triad along the e2h2a chain** (EXECUTIF → human PRINCIPALs → AGENTS). The coupling is the basis of a **policy-improvement feedback loop**: an EXECUTIF's INTENTION frames the value chain; the realised VALEUR and the declared/derived INTÉRÊT alignment along the chain are the *evidence* that should **inform and improve POLICY** (the existing POLICY artifact / rules). This connects EVO-9 to the build-app vision (prompt 1: agents managing development raise attention; specs/policies evolve via the UI). **Open**: is this a derived "alignment posture" over (intention, value-chain, conflict-postures) that surfaces POLICY-amendment candidates (advisory, like MUTUALISATION) — or a tighter binding? To be framed + stabilized as a follow-on, after the 5 base concepts.
+
+---
+
+## Forks — RATIFIED (PRINCIPAL, 2026-05-30)
+
+- Fork A (VALEUR) = **ENGAGEMENT field + derived chain**. ✓
+- Fork B (phasing) = **3 slices**, with the review's split repair (ATTENTION comprehension-core first, dossier-layer after INTÉRÊT). ✓
+- Fork C (impact collectif) = **3-criterion disjunction**; CONFIANCE / collective-conflict is **advisory + escalation**, NOT a hard stabilizer veto (residual Q1 resolved). ✓
+- Fork D (agent-side ATTENTION) = **`attester-comprehension` MANDATE right, non-binding** (no artifactKind, not a stabilization signer). ✓
+- INTÉRÊT obligation (residual Q2) = **self-declared by default; CONTROL may flag/attest (native veto/alert); the obligation to disclose bites only at the collective-impact threshold** — no forced blanket disclosure. ✓
+
+**Calibration directive (PRINCIPAL)**: the conflict-of-interest detection must be **grounded in real, documented corruption cases** (analysed under `evaluations/`), so the disclosure trigger + attention-ranking are calibrated against reality. New evaluation axis: `evaluations/confiance/` (see that folder). All four forks ratified → the full (a)(b)(c) reply can now be sent to `claude:sentropic-scale`, and the VALEUR + MUTUALISATION slices can start.
