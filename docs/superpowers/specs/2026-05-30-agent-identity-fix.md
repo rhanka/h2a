@@ -144,3 +144,20 @@ Ran the PRINCIPAL's tmux method (env-dump MCP server spawned by each provider in
 **SECURITY finding (reinforces F1)**: gemini **and** agy pass the **full inherited parent env** to the MCP server, so the parent's `CLAUDE_CODE_SESSION_ID` **leaks through verbatim**. An env-first resolver MUST therefore key on the **exact per-host variable name** (`host==="claude" ? env.CLAUDE_CODE_SESSION_ID : …`) and **never** a generic `*SESSION_ID` match — otherwise an agent under gemini/agy would mis-identify as the parent claude session (cross-provider identity confusion). This is a second reason the **env is only a hint** and the authority anchor must be **key possession** (F1).
 
 **Net**: the env channel is effectively **claude-only**; the documented **transcript/cache fallback** is the load-bearing path for codex/gemini/agy, and the **minted-per-keypair fallback** (F2 fix) is the universal floor. All 3 live tests are now resolved (env ABSENT, confirmed).
+
+---
+
+## Clean re-test (definitive, 2026-05-30) — supersedes the contaminated run + retracts the "leak" finding
+
+Re-ran standalone with a sanitized env (all `CLAUDE_*` unset; the MCP-spawn env showed zero `CLAUDE_*` in every case). Definitive results:
+
+- **No provider exposes its own session/thread/conversation id to the MCP server it spawns** — codex (scrubbed minimal env), gemini (passes inherited env + only `GEMINI_CLI`/`GEMINI_CLI_NO_RELAUNCH`/`AI_AGENT`, no session id), agy (inherited env, nothing provider-specific). The earlier **"`CLAUDE_CODE_SESSION_ID` leak" was test contamination** (providers were nested under a claude session) — **RETRACTED** as a security finding. (`AI_AGENT=claude-code_…` is an inherited harness marker, not a session id.)
+- **Definitive per-provider de-collision *hint* source** (all transcript/cache, cwd-matched, verified):
+  - **claude** → `env.CLAUDE_CODE_SESSION_ID` (the only provider with an env channel).
+  - **codex** → `~/.codex/sessions/**` rollout where `session_meta.payload.cwd === cwd()` → `payload.id`.
+  - **gemini** → `~/.gemini/tmp/<dir>/chats/session-*.jsonl` `sessionId`, cwd via sibling `.project_root`.
+  - **agy** → `~/.gemini/antigravity-cli/cache/last_conversations.json` explicit `cwd → uuid` map (or newest `.pb`).
+  - **all** → minted-per-keypair fallback as the universal floor (F2 fix).
+- The session id is **only a routing hint**; the authority anchor is the **key** (F1) — unchanged.
+
+**Final resolver**: `resolveProviderSession({host, env, cwd})` = env (claude only) → transcript/cache (cwd-matched, per provider above) → minted-per-keypair. All 3 live tests resolved; the "key strictly per-host var" rule is now moot for codex/gemini/agy (they set no session var at all) and trivially holds for claude.
