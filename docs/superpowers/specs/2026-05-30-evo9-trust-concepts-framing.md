@@ -39,3 +39,31 @@ Concept names stay French proper nouns (VALEUR, ATTENTION, INTÉRÊT, MUTUALISAT
 ## Slice plan (once ratified)
 
 VALEUR (field + derived chain) and MUTUALISATION (pure advisory) in parallel first (lowest risk); then ATTENTION (signed attestation); then INTÉRÊT (declaration + derived conflict posture + CONTROL gate at stabilization); then CONFIANCE (derived predicate). Each: declare → derive (pure) → attest, with `node:test` and a DEC.
+
+---
+
+## ATTENTION — refinement (PRINCIPAL directive, 2026-05-30) — TO BE ADVERSARIALLY STABILIZED
+
+> **Verbatim (PRINCIPAL)**: « l'attention doit être aussi pour l'humain. un dossier de décision pour la revue d'un contrat doit être présenté relativement à l'intérêt de celui-ci pour motiver son attention relative à son intérêt, et favoriser également l'intérêt de celui qui présente, mais systématiquement favorablement dans un intérêt non biaisé : ie celui qui pose le dossier ne doit pas avoir d'intérêt susceptible de porter atteinte aux intérêts de l'autre en forçant la décision. Le besoin d'attention doit donc être porté sur les éléments les plus risqués d'un point de vue potentiel risque d'intérêts conflictuels potentiellement inducteur de perte de confiance d'une part, mais aussi intrinsèquement à la complexité d'un sujet (technique, à impacts masqués ou difficiles à mesurer) pour que celui qui décide soit pleinement responsable de sa décision sans zone d'ombre. »
+
+**Structured interpretation** (the model adaptation envisaged; pending adversarial stabilization):
+
+ATTENTION is not merely a bilateral "I understood" attestation. It is the discipline that makes a decision **informed and fully owned**, centred on a **decision dossier** (*dossier de décision*) presented for a contract/engagement review:
+
+1. **Bidirectional, human included.** ATTENTION applies to the *human decider* too, not only the agent. The dossier is framed **relative to the decider's interest** — to motivate genuine attention on what is at stake *for them*.
+2. **Presenter non-bias precondition (ties to INTÉRÊT).** The dossier also serves the **presenter's** interest, but only within an **unbiased** frame: the presenter must hold **no interest capable of harming the decider's interest by forcing the decision**. A decision-forcing conflict on the presenter side invalidates the presentation.
+3. **Attention is targeted at the highest-risk elements** — a derived *ranking*, not a flat "did you read it". Risk has two axes: (a) **conflict-of-interest risk** (potential loss of CONFIANCE — links INTÉRÊT) and (b) **intrinsic complexity** of the subject (technical; masked or hard-to-measure impacts).
+4. **Goal: no blind spot (*zone d'ombre*).** The decider is **fully responsible** because the riskiest / most-complex elements were deliberately surfaced and attested-understood.
+
+**Consequences for the model**:
+- ATTENTION binds **ATTENTION ↔ INTÉRÊT ↔ CONFIANCE** into one gate at `decide` / stabilization: comprehension (ATTENTION) of a risk-ranked dossier, presented by a non-conflicted presenter (INTÉRÊT), is the validity condition (CONFIANCE).
+- The **presenter** is MANDATAIRE-like (neutral presentation, VOCABULARY §1.5) but with an explicit duty to **rank and surface risk** + a **non-bias precondition**.
+- The **dossier de décision** is a **derived, risk-ranked view** (declare → derive), attested bilaterally (declare → derive → **attest**) — consistent with VALEUR/MUTUALISATION being derivations, not artifacts.
+- The **risk ranking** is a pure derivation: conflict-posture (from INTÉRÊT) × complexity signals.
+
+**Open questions for the adversarial (Opus 4.8) review**:
+- Does "attention targeted at the highest-risk elements" over-reach the invariants "the system never judges legitimacy" / "never forces disclosure"? Surfacing/ranking risk implies *some* model of risk — is that a forbidden judgment, or acceptable because it ranks *attention* (procedural) not *legitimacy* (substantive)?
+- How is **intrinsic complexity** made operational without the system pretending to measure the explicitly-unmeasurable ("masked / hard-to-measure impacts")? Declared complexity flags? derived from impact-scope + masked-impact markers? A humble "we flag *that* it is hard-to-measure, we do not measure it"?
+- Is the presenter non-bias precondition the **same** gate as INTÉRÊT's stabilization gate, or a **distinct, earlier** gate at presentation time (`decide`)?
+- How does "fully responsible, no blind spot" become **verifiable** rather than an unfalsifiable claim? (The bilateral signature attests comprehension of the *ranked dossier* at a given hash — is that enough?)
+- Does this collapse ATTENTION and INTÉRÊT back into one concept (contradicting the chosen phased B), or does the dossier/presentation layer sit cleanly on top of both?
