@@ -161,3 +161,17 @@ Re-ran standalone with a sanitized env (all `CLAUDE_*` unset; the MCP-spawn env 
 - The session id is **only a routing hint**; the authority anchor is the **key** (F1) — unchanged.
 
 **Final resolver**: `resolveProviderSession({host, env, cwd})` = env (claude only) → transcript/cache (cwd-matched, per provider above) → minted-per-keypair. All 3 live tests resolved; the "key strictly per-host var" rule is now moot for codex/gemini/agy (they set no session var at all) and trivially holds for claude.
+
+---
+
+## @sentropic/remote (bridge / cloud) context — already collision-free; the cleanest case
+
+h2a already models `@sentropic/remote` (repo `rhanka/remote`) as a host-bridge profile (DEC-059/063): `H2A_HOST_BRIDGE_PROFILES["remote"]`, `hostId:"remote"`, **`identity.instanceTemplate: "remote:${SESSION_ID}"`**. So in a bridge-managed (cloud Pod) session:
+
+- Instance = `remote:${SESSION_ID}`, where `SESSION_ID` is the **bridge's own session id — unique per session by construction → already collision-free**. The collision this fix addresses is the **local terminal** case (two agents in one repo sharing `claude:label`); the fix brings local up to the standard the bridge already meets.
+- The provider-session source under the bridge is the **bridge-injected `SESSION_ID`** (authoritative, per the identity clause + the Pod template engine) — **no transcript-reading needed**, so the ephemeral-Pod-home fragility of the local transcript fallback is a **non-issue** here. `resolveProviderSession` must recognise `host:"remote"` → use `env.SESSION_ID` as the first/preferred source.
+- h2a `mcp-serve` runs as a **sidecar co-located with the session** (DEC-058) → still co-located with the provider; the **key anchor (F1)** + workspace tracing apply uniformly (workspace/machine-salt = the Pod/session identity, not a shared host).
+- Cross-machine, identity travels via the **key** (signed envelopes, h2a remote transport DEC-073/077), **never** by reading a peer's local state → robust by F1, independent of the bridge.
+- The bridge contract is **bilateral** (DEC-059): any change to the identity *shape* requires **paired PRs** in h2a + `rhanka/remote`. The composite `host:label:uuid8` (local) must stay consistent with `remote:${SESSION_ID}` (bridge) — `SESSION_ID` is already the unique anchor there; reconcile the `H2AHostBridgeIdentityClause` in the paired PR.
+
+**Verdict**: yes, it works with `@sentropic/remote`, and that context is the cleanest (unique bridge `SESSION_ID`, no transcript fragility). The build adds the `host:"remote"` branch to the resolver and keeps the bilateral identity clause consistent. To verify the exact `SESSION_ID` injection + design the paired PR, investigate `../remote`.
