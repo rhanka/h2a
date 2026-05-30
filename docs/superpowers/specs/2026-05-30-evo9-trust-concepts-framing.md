@@ -67,3 +67,32 @@ ATTENTION is not merely a bilateral "I understood" attestation. It is the discip
 - Is the presenter non-bias precondition the **same** gate as INTÉRÊT's stabilization gate, or a **distinct, earlier** gate at presentation time (`decide`)?
 - How does "fully responsible, no blind spot" become **verifiable** rather than an unfalsifiable claim? (The bilateral signature attests comprehension of the *ranked dossier* at a given hash — is that enough?)
 - Does this collapse ATTENTION and INTÉRÊT back into one concept (contradicting the chosen phased B), or does the dossier/presentation layer sit cleanly on top of both?
+
+---
+
+## Stabilization — adversarial review (Opus 4.8, 2026-05-30)
+
+An adversarial Opus 4.8 review stress-tested the concepts against the frozen invariants. Outcome: all five survive in the declare→derive→attest spine with **no new artifact-kind, no new role**. Two substantive corrections + an honesty fix.
+
+**Must-fix (one mistake from two angles):**
+- **F1 — honesty register.** "Fully responsible, no blind spot (*zone d'ombre*)" is **unfalsifiable** — a signature over a dossier proves only "dossier at hash H was presented and acknowledged", never completeness/understanding. **Replace** the claim with its verifiable proxy: *"both parties attested comprehension of the risk-ranked dossier at hash H."* Claim that; explicitly disclaim "no blind spot" (the `nhi.ts` honesty register).
+- **F2/F4 — dependency direction.** The refined ATTENTION's *risk-ranked dossier* and *presenter non-bias* are INTÉRÊT computations, so ATTENTION-as-refined cannot ship before INTÉRÊT. **Split ATTENTION**: (1) a bias-free **comprehension core** (true DEC-088 clone — signs the hash of the presented dossier) ships first; (2) the **risk-ranked dossier layer** depends on INTÉRÊT and lands with/after it. Stabilized sequence: **VALEUR + MUTUALISATION (parallel) → ATTENTION comprehension-core → INTÉRÊT → ATTENTION dossier-layer → CONFIANCE** (the 3-bucket spirit of ratified Fork B holds; the boundary moves).
+
+**Stabilized formalization:**
+- **Risk ranking = procedural, not substantive (F3/F5).** Ranking *attention* ("look here first") is permitted (it is what MANDATAIRE already does); ranking *risk by a model of harm* is the forbidden "judge legitimacy". So every ranking input must be **structural or declared**, never an engine opinion: conflict-posture (structural), a **declared** masked-impact flag (declare, not derive — h2a flags *that* it is hard-to-measure, never measures it), and structural proxies (touches a cross-scope `aval`, amends a signed artifact, empty `successCriteria`).
+- **Presenter non-bias gate ≠ INTÉRÊT stabilization gate (F4).** One pure `derivePostureConflit(subject, …)`, **two call sites**: the presenter at `decide` (earlier), the signers at stabilization. Same derivation, different subjects/moments — keep distinct.
+- **CONFIANCE is advisory, not a hard stabilizer gate (F9).** The frozen `stabilizeNegotiation` is deliberately syntactic (signatures + authority matrix). CONFIANCE = a pure derived predicate the caller may attest + an **advisory** surfaced at stabilization; making it *block* is a PRINCIPAL governance choice (open question 1).
+- **Agent-side ATTENTION (Fork D) holds, tightened:** a signed `event` comprehension envelope carrying **no `artifactKind`**, contributing **nothing** to the stabilization signer set — never a step toward agents signing engagements. Mechanically it touches nothing frozen (`SIGNATURE` already maps to all 6 roles); the guardrail is semantic.
+
+**Fork verdicts:** A holds (mark opaque-boundary truncation in the derived chain). B holds *after the split repair*. C holds substantively but the trigger **routes/escalates**, it does not weld a veto into the frozen stabilizer (advisory in V1). D holds with the non-binding guardrail.
+
+**Residual questions that genuinely need the PRINCIPAL (not derivable):**
+1. Should CONFIANCE / collective-conflict ever **block** stabilization, or only ever advise + escalate? (the frozen stabilizer is syntactic by design.)
+2. Who is **obliged to declare** an interest / the presenter non-bias — self-declared, CONTROL-attested, or mandated? (the "chacun porte ses intérêts mais l'impact collectif est protégé" balance — a normative call.)
+3. Agent-side ATTENTION: the cryptographic MANDATE right **now**, or unsigned acknowledgement as the V1 default with the signed form deferred?
+
+## Triad coupling — INTÉRÊT ↔ INTENTION ↔ VALEUR (PRINCIPAL insight, 2026-05-30)
+
+> **Verbatim (PRINCIPAL)**: « j'ai aussi le sentiment que l'intérêt, intention et valeur doivent être liés, notamment dans le contexte d'une chaîne executif / humain / agents (notamment pour l'amélioration des policies et etc). »
+
+Direction to formalize (pending its own adversarial pass): **INTENTION** (the upstream value-driven goal, VOCABULARY §7.1), **VALEUR** (the delivered finalité, the `aval`/`finaliteAmont` links of this EVO), and **INTÉRÊT** (alignment / conflict of the humans in the chain) are **one coupled triad along the e2h2a chain** (EXECUTIF → human PRINCIPALs → AGENTS). The coupling is the basis of a **policy-improvement feedback loop**: an EXECUTIF's INTENTION frames the value chain; the realised VALEUR and the declared/derived INTÉRÊT alignment along the chain are the *evidence* that should **inform and improve POLICY** (the existing POLICY artifact / rules). This connects EVO-9 to the build-app vision (prompt 1: agents managing development raise attention; specs/policies evolve via the UI). **Open**: is this a derived "alignment posture" over (intention, value-chain, conflict-postures) that surfaces POLICY-amendment candidates (advisory, like MUTUALISATION) — or a tighter binding? To be framed + stabilized as a follow-on, after the 5 base concepts.
