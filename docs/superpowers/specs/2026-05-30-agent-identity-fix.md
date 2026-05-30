@@ -131,3 +131,16 @@ Option A composite instance — **hold** (widen to uuid12, freeze at mint). Prov
 1. **Threat model**: is a hostile/buggy **same-user local process** in scope? If yes → proof-of-possession (F1) is mandatory + private key needs at-rest protection (file perms / OS keystore). If "single trusted user, same machine" is declared out of scope → F1 is defense-in-depth and the env anchor can ship with a documented caveat. **This one call sizes the whole slice.**
 2. **Migration re-keying honesty**: accept "one agent inherits the legacy key, the de-collided peers mint fresh" (surfaced in the notice), or invest in per-agent key-provenance migration?
 3. **Workspace on clone/container**: is a copied checkout the *same* workspace or a *new* one? (salt-by-machine = new; travels-with-tree = same.)
+
+---
+
+## Live tests (tmux, 2026-05-30) — env channel is claude-only; fallback is load-bearing + a leak finding
+
+Ran the PRINCIPAL's tmux method (env-dump MCP server spawned by each provider in a scratch workspace):
+- **codex** — `CODEX_THREAD_ID` **ABSENT** from the MCP-spawn env (codex whitelists ~7 vars; `shell_environment_policy`). Transcript fallback **verified**: newest `~/.codex/sessions/**` rollout with `session_meta.payload.cwd === cwd()` → `payload.id` (matched the live session id). → build uses the transcript fallback for codex.
+- **gemini** — `GEMINI_SESSION_ID` **ABSENT** (only `GEMINI_CLI`/`GEMINI_CLI_NO_RELAUNCH`). Fallback = `~/.gemini/tmp/<dir>/.project_root === cwd()` (match on `.project_root`, NOT a fixed filename/hash — layout drifted across versions; one-shot `-p` may not flush `logs.json`).
+- **agy** — `ANTIGRAVITY_CONVERSATION_ID` **ABSENT**. Fallback via `~/.gemini/antigravity-cli/cache/last_conversations.json` / newest `.pb`, workspace from h2a's own `cwd()` (conversations are flat, not per-workspace-indexed).
+
+**SECURITY finding (reinforces F1)**: gemini **and** agy pass the **full inherited parent env** to the MCP server, so the parent's `CLAUDE_CODE_SESSION_ID` **leaks through verbatim**. An env-first resolver MUST therefore key on the **exact per-host variable name** (`host==="claude" ? env.CLAUDE_CODE_SESSION_ID : …`) and **never** a generic `*SESSION_ID` match — otherwise an agent under gemini/agy would mis-identify as the parent claude session (cross-provider identity confusion). This is a second reason the **env is only a hint** and the authority anchor must be **key possession** (F1).
+
+**Net**: the env channel is effectively **claude-only**; the documented **transcript/cache fallback** is the load-bearing path for codex/gemini/agy, and the **minted-per-keypair fallback** (F2 fix) is the universal floor. All 3 live tests are now resolved (env ABSENT, confirmed).
