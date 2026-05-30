@@ -1,6 +1,6 @@
 # Drumbeat D5 — Reflexive Watchdog (design)
 
-**Date**: 2026-05-29 (rev. 2026-05-30) · **Feature**: Drumbeat D5 · **Status**: ratified design, pre-implementation
+**Date**: 2026-05-29 (rev. 3, 2026-05-30 post-review) · **Feature**: Drumbeat D5 · **Status**: ratified design, pre-implementation
 **Refers**: DEC-084/085/086 (drumbeat), DEC-091 (relaunchers), DEC-095 (escalation/D7), DEC-092 (blockage/EVO-3).
 
 ## Problem
@@ -10,49 +10,54 @@
 the cap, even when relancing is pointless or wrong. D5 inserts a **judgment step** — a *reflexive
 watchdog* — that decides, per stalled agent, between **relance / finish / escalate / reroute**.
 
-## Ratified decisions (brainstorm, 2026-05-29 → 30)
+## Ratified decisions (brainstorm 2026-05-29, hardened by a spec/plan review 2026-05-30)
 
-1. **Invocation** = a pluggable **`ReflexiveDecider`** interface (like the relauncher adapters); the
-   default real adapter shells out a **host CLI headless**. The decider is **opt-in** (`--decider`).
-2. **Decision context** = the **finding only** (no transcript, no extra store reads). YAGNI.
-3. **Cadence (cost guard)** = the decider is consulted **only after K relances** (`--decider-after`,
-   default 1) — relance cheaply first; spend an AI call only when relancing isn't working. Bounds
-   cost and avoids an AI call on every beat for every finding.
-4. **Rollout = advisory-first** = by default the decider's choice is **logged but NOT applied**; the
-   watch does the safe default (relance, or escalate at the cap). Actions are applied only with
-   **`--decider-enforce`**. Lets the operator observe decision quality before delegating action.
-5. **`reroute` = advisory** = raises a **`blockage`** in scope signalling "needs pickup" — it does
-   **NOT** copy the stalled agent's `launchContext` into a peer's inbox (that would hand work +
-   possible secrets to an unauthorised peer, and nothing consumes an inbox automatically). A peer
-   or the PRINCIPAL picks it up via the existing EVO-3 blockage loop.
-6. **`finish` = guarded** = clears the entry only when the recorded `workStatus ∈ {paused, done}`
-   (a deliberate stop); for an active/interrupted status (`working`, `out-of-tokens`, `blocked`) a
-   `finish` is suspect → falls back to `escalate`. In practice finish mostly escalates (safe) and
-   clears only clearly-deliberate stops — **no false abandonment**.
-7. **Audit** = an **append-only decision log** (`decisions.jsonl`), recording `decided` vs `applied`.
+1. **Invocation** — a pluggable **`ReflexiveDecider`** (like the relauncher adapters); the default
+   real adapter shells out a host CLI headless. **Opt-in** (`--decider`).
+2. **Decision context** — the **finding only** (no transcript). Untrusted fields (`instance`,
+   `launchContext`) are clearly delimited in the prompt as data, not instructions (injection guard).
+3. **Cadence (cost guard)** — consult the decider **only after K relances** (`--decider-after`,
+   default 1). The effective window is `[deciderAfter, maxRelances)`; `--decider-after` must be
+   `< --max-relances` (validated, else exit 1). Advisory mode still consults the decider each beat
+   in that window (a known, documented cost — see Safety).
+4. **Rollout = advisory-first** — by default the decider's choice is **logged but NOT applied**; the
+   watch does the safe default (`relance`). Applied only with **`--decider-enforce`**.
+5. **`reroute` = escalate-with-hint (v1)** — routed through **escalation** (`recordEscalation`,
+   reason `reroute-suggested`), so it actually reaches the PRINCIPAL who reassigns. It does **not**
+   raise a peer blockage: a review showed that path is a silent no-op (a blockage in an empty/unknown
+   scope is pushed to no subscriber) and conflates "I am blocked" with "take my work". A true
+   peer-to-peer hand-off waits until EVO-3 supports ownership transfer.
+6. **`finish` = guarded to `done` only** — clears the entry **only** when `workStatus === "done"`
+   (the sole real completion signal); every other status → `escalate`. A review found `paused` is the
+   stop-hook **default for an unexpected stop**, so `{paused, done}` would silently abandon normal
+   stops — hence `done`-only. A `finish` is always recorded in the decision log (a recoverable trace),
+   never a bare unlink without a trail.
+7. **Terminal lifecycle** — after an enforced terminal action the entry is **marked terminal**
+   (`markDrumbeatTerminal`), and `scanDrumbeat` **skips terminal entries** — instead of a destructive
+   `clearDrumbeatEntry` that a later `recordStop` (which resets `relanceCount` to 0) would re-arm into
+   a slow loop. `finish` on `done` clears (the agent is genuinely complete); `escalate`/`reroute`
+   mark terminal. A genuine fresh `recordStop` overwrites the entry (new budget) by design.
+8. **Audit** — an **append-only decision log** (`decisions.jsonl`) recording `decided` vs `applied`.
 
 ## Architecture
 
 ```
-scanDrumbeat → findings[] ──for each──▶ relanceCount < K ? ── yes ─▶ relance (cheap, as today)
+scanDrumbeat → findings[]  (skips done + terminal; entries at/over cap are `exhausted`, not findings)
+   └ for each finding:
+        relanceCount < K (--decider-after) ?  ── yes ─▶ relance (cheap, as today)
                                               │ no
-                                              ▼
-                                   decider.decide(finding) ─▶ { action, reason? }
+        decision = decider.decide(finding)    │
+        record decisions.jsonl (decided + applied)
                                               │
-                                   record decisions.jsonl (decided + applied)
-                                              │
-                            --decider-enforce ? ── no ─▶ safe default (relance / cap→escalate)
+        --decider-enforce ? ── no ─▶ applied = relance (safe default)
                                               │ yes
-                                              ▼
-   relance ─▶ relauncher.relance(finding)                 (counts against --max-relances)
-   finish  ─▶ workStatus ∈ {paused,done} ? clear : escalate
-   escalate─▶ recordEscalation (D7) + mark entry           (terminal)
-   reroute ─▶ raiseBlockage(instance, scope, reason) + mark entry   (terminal, advisory)
+        relance ─▶ relauncher.relance(finding)                     (counts against the cap)
+        finish  ─▶ workStatus === "done" ? clearDrumbeatEntry : escalate
+        escalate─▶ recordEscalation(reason "watchdog-escalate") + markDrumbeatTerminal
+        reroute ─▶ recordEscalation(reason "reroute-suggested")  + markDrumbeatTerminal
 ```
 
-`exhausted` entries still go straight to escalation (unchanged). After a **terminal applied action**
-(`finish` clear, `escalate`, `reroute`) the entry is cleared/marked so it is **not re-decided next
-beat** (no decision loop).
+`exhausted` entries still escalate via the unchanged `onExhausted`/D7 path.
 
 ## Components
 
@@ -60,112 +65,78 @@ beat** (no decision loop).
 
 ```ts
 export type H2AReflexiveAction = "relance" | "finish" | "escalate" | "reroute";
-
-export interface H2AReflexiveDecision {
-  readonly action: H2AReflexiveAction;
-  readonly reason?: string;
-}
-
-/** Parse + validate a decider's JSON output. Total — never throws. Unknown/missing action →
- *  `{ action: "relance" }` (the safe fallback). Mirrors `parseOrgManifest`. */
+export interface H2AReflexiveDecision { readonly action: H2AReflexiveAction; readonly reason?: string; }
+/** Total — never throws; unknown/missing/garbage → { action: "relance" }. Mirrors parseOrgManifest. */
 export function parseReflexiveDecision(text: string): H2AReflexiveDecision;
 ```
 
-`target` is dropped from the decision shape: reroute is advisory (blockage-only), so no peer
-target is needed. The parser is the only D5 logic in core — keeps subagent-output parsing pure and
-dependency-free; decision *interpretation* (clear/escalate/blockage) is CLI-runtime (touches the store).
-
 ### CLI runtime — `packages/h2a-cli/src/runtime/drumbeat/`
 
-```ts
-export interface ReflexiveDecider {
-  decide(finding: H2ADrumbeatFinding): H2AReflexiveDecision | Promise<H2AReflexiveDecision>;
-}
-```
+- **`ReflexiveDecider { decide(finding): H2AReflexiveDecision | Promise<…> }`**.
+- **`loggingDecider`** (default): always `relance` → identical to today when `--decider` is omitted.
+- **`subagentDecider({ command, runtime, timeoutMs })`**: shells out a host CLI headless. The prompt
+  is passed as a **command argument** (host CLIs read the task from argv, not stdin) with **stdin
+  closed**; bounded `timeoutMs` (default 60 s). Any failure (non-zero exit, timeout, unparseable) →
+  `relance`. `DeciderRuntime.run(command, prompt, timeoutMs)` is injected for tests.
+- **`decisions.ts`** — `recordDrumbeatDecision`/`listDrumbeatDecisions` over
+  `<root>/.h2a/drumbeat/decisions.jsonl` (same dir/file style as `registry.ts`, **not** the store).
 
-- **`loggingDecider`** (default when no `--decider`): always `{ action: "relance" }` → behaviour is
-  **identical to today**. The reflexive watchdog is strictly opt-in.
-- **`subagentDecider({ command, runtime, timeoutMs })`**: shells out a host CLI **headless** (the
-  triple-review pattern: foreground, `</dev/null`, bounded `timeoutMs`, default 60 s). Prompt =
-  the **finding only** (instance, reason, relanceCount, launchContext, workStatus), asking for JSON
-  `{action, reason}`. Stdout → `parseReflexiveDecision`. **Any failure** (non-zero exit, timeout,
-  unparseable) → `{ action: "relance" }` — never worse than today. `runtime` (spawn) is injected so
-  it is testable without a real CLI.
+### Registry / scan changes
 
-### Watch beat dispatch (`runDrumbeatBeat`)
+- `H2ADrumbeatEntry` gains `terminal?: { action: H2AReflexiveAction; at: string }`.
+- `markDrumbeatTerminal(root, instance, action, now?)` sets it (overwrite, like `markRelanced`).
+- `scanDrumbeat` skips entries where `entry.terminal` is set (in addition to the existing `done` skip).
 
-For each `finding`:
-1. If `relanceCount < K` (`--decider-after`, default 1) → `relance` directly (skip the decider — cost guard).
-2. Else `decision = await decider.decide(finding)`; **always** append a `decisions.jsonl` record.
-3. If **not** `--decider-enforce` → apply the **safe default** (`relance`; or, at the cap, `escalate`)
-   and record `applied` = that default (so advisory mode is visible vs `decided`).
-4. If `--decider-enforce` → apply `decision.action`:
+### Watch dispatch (`drumbeatTick`)
 
-| action     | effect (enforced)                                                                       |
-|------------|-----------------------------------------------------------------------------------------|
-| `relance`  | `relauncher.relance(finding)` → if issued, `markRelanced` (counts against the cap).     |
-| `finish`   | clear iff `workStatus ∈ {paused, done}`; else `escalate`.                                |
-| `escalate` | `recordEscalation(...)` (D7) even under the cap; mark the entry terminal.                |
-| `reroute`  | `raiseBlockage(instance, scope, reason)` (advisory, EVO-3); mark the entry terminal.     |
-
-### Audit log
-
-`<root>/.h2a/drumbeat/decisions.jsonl`, append-only, one record per consulted finding:
-
-```jsonc
-{ "instance":"claude:p1", "decided":"finish", "applied":"escalate",
-  "reason":"looks done", "decider":"subagent", "enforced":false, "at":"2026-05-30T..." }
-```
-
-`decided` = decider output; `applied` = what the watch actually did (advisory default, or the
-enforced action after guards). New store path `drumbeatDecisions` +
-`recordDrumbeatDecision`/`listDrumbeatDecisions` (mirrors the subagent-audit log).
+`DrumbeatTickOptions` gains `decider?`, `deciderAfter?` (default 1), `enforce?`, `deciderLabel?`, and
+the effect hooks `onEscalate?(finding, decision)` / `onReroute?(finding, decision)` (injected, like
+the existing `onExhausted`, so the escalation wiring stays in `cli.ts`). `finish`-clear and the audit
+write are done in `watch.ts` (it already imports the registry).
 
 ### CLI surface (`drumbeat watch`)
 
 - `--decider <logging|COMMAND>` (default `logging`).
-- `--decider-after <K>` (default 1) — minimum `relanceCount` before the decider is consulted.
-- `--decider-enforce` (default off) — apply decisions instead of just logging them.
-- `--max-relances`, `--relauncher`, `--interval-ms` unchanged; the cap still governs `relance`.
+- `--decider-after <K>` (default 1; must be `< --max-relances`).
+- `--decider-enforce` (default off).
+- `--max-relances`, `--relauncher`, `--interval-ms` unchanged.
 
-## Safety / anti-loop
+## Safety / anti-loop / cost
 
-- No `--decider` → `logging` → behaviour identical to today.
-- Decider consulted only after K relances; any decider failure/timeout → `relance`.
-- Decider call bounded (`</dev/null` + `timeoutMs`) so the watchdog cannot stall on it.
-- Advisory-first: actions apply only with `--decider-enforce`; otherwise just logged.
-- Terminal applied actions (`finish` clear / `escalate` / `reroute`) mark/clear the entry → not
-  re-decided next beat. `--max-relances` still caps `relance`.
+- No `--decider` → behaviour identical to today.
+- Decider consulted only in `[deciderAfter, maxRelances)`; any failure/timeout → `relance`.
+- Decider call bounded (stdin closed + `timeoutMs`) so the watchdog cannot stall on it. **Known cost:**
+  in advisory mode the decider is consulted every beat in the window and the verdict is discarded
+  (the price of observing decision quality); and a foreground `spawnSync` per finding serialises a
+  beat — documented in `--help`/DEC-111; throttling/parallelism is a later refinement.
+- Terminal actions mark the entry; `scanDrumbeat` skips terminal → not re-decided. `--max-relances`
+  still caps `relance`.
+- **Authority note (DEC-111):** `--decider-enforce` delegates "abandon / escalate / reroute agent X"
+  to a headless CLI's JSON output. Advisory-first is the default mitigation; the prompt delimits the
+  agent-controlled fields as untrusted data.
 
 ## Testing
 
-- **Core** (pure): `parseReflexiveDecision` — valid each action; unknown/missing → `relance`;
-  malformed JSON → `relance`.
-- **CLI** (`runtime` injected): `subagentDecider` maps a fake command's JSON stdout to each action;
-  non-zero exit / timeout / garbage → `relance`. `runDrumbeatBeat`:
-  - `relanceCount < K` → relance, decider never called;
-  - advisory (no enforce) → decider called + `decisions.jsonl` written, but action = safe default
-    (`decided` ≠ `applied` recorded);
-  - enforce → `finish` clears only for `paused/done` (else escalate); `escalate` records + marks
-    terminal; `reroute` raises a blockage + marks terminal; a terminal entry is not re-decided.
+- **Core**: `parseReflexiveDecision` — each action; unknown/missing/garbage → `relance`.
+- **CLI**: `subagentDecider` maps a fake runtime's stdout to each action; non-zero/timeout/garbage →
+  `relance`; the prompt is forwarded as the command **argument**. `recordDrumbeatDecision`/`list`
+  round-trip. `drumbeatTick`: below K the decider is never called; advisory logs `decided≠applied`
+  and applies `relance`; enforce: `finish` clears only on `done` (else escalate); `escalate`/`reroute`
+  call the hook + mark terminal; a terminal entry is skipped by the next scan.
 
 ## Out of scope (v1 — YAGNI)
 
-- A learned/heuristic decider (only `logging` default + `subagentDecider`).
-- reroute **hand-off** (copying launchContext to a peer inbox) — advisory blockage only for now;
-  full hand-off needs a task-aware context + authorisation model.
-- Enriched context (transcript tail, inbox/escalation signals) — finding only.
-- A CLI verb to read the decision log (the JSONL is inspectable; add later if needed).
+- A learned/heuristic decider (only `logging` + `subagentDecider`).
+- Peer-to-peer reroute hand-off (needs EVO-3 ownership transfer) — v1 reroute escalates with a hint.
+- Enriched context (transcript/inbox/escalation signals) — finding only.
+- Decider call throttling/parallelism — documented cost for now.
+- A CLI verb to read the decision log (the JSONL is inspectable).
 
 ## Files touched
 
-- `packages/h2a/src/drumbeat-decision.ts` (new) + index export — `H2AReflexiveDecision`,
-  `parseReflexiveDecision`.
-- `packages/h2a-cli/src/runtime/drumbeat/deciders.ts` (new) — `ReflexiveDecider`, `loggingDecider`,
-  `subagentDecider`.
-- `packages/h2a-cli/src/runtime/drumbeat/watch.ts` — K-gate, decider, advisory/enforce, dispatch,
-  terminal-marking.
-- `packages/h2a-cli/src/runtime/drumbeat/decisions.ts` (new) + `local-files/{paths,store}.ts` —
-  `decisions.jsonl` + `recordDrumbeatDecision`/`listDrumbeatDecisions`.
-- `packages/h2a-cli/src/cli.ts` + `cli-contract.ts` — `drumbeat watch --decider/--decider-after/--decider-enforce`.
-- Tests as above + a `DEC-111` entry.
+- `packages/h2a/src/drumbeat-decision.ts` (new) + index export.
+- `packages/h2a-cli/src/runtime/drumbeat/deciders.ts` (new), `decisions.ts` (new),
+  `watch.ts` / `scan.ts` / `registry.ts` / `index.ts` (modify), and the cli `index.ts` re-export list.
+- `packages/h2a-cli/src/runtime/escalation/registry.ts` — add reasons `watchdog-escalate`, `reroute-suggested`.
+- `packages/h2a-cli/src/cli.ts` (`runDrumbeatWatch` + `--help`) + `cli-contract.ts`.
+- `DECISIONS.md` — DEC-111.
