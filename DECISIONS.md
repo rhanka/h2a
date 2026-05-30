@@ -1967,8 +1967,8 @@ Status is derived from the append-only keyring (like subagent status from its au
 
 **Consequence**: (a) `@sentropic/h2a` exports `parseReflexiveDecision`/`H2A_REFLEXIVE_ACTIONS` + types; `@sentropic/h2a-cli` adds `loggingDecider`/`subagentDecider`/`recordDrumbeatDecision`/`listDrumbeatDecisions`/`markDrumbeatTerminal`, the `drumbeat watch --decider/--decider-after/--decider-enforce` flags, and two escalation reasons; (b) full suite green; (c) **additive → 0.19.x**; (d) **documented non-fixes**: advisory mode pays for a discarded decider call per finding per beat (the price of observing quality); foreground `spawnSync` per finding serialises a beat; `--decider-enforce` is an authority delegation to a headless CLI (advisory-first + prompt delimiting are the mitigations). Throttling/parallelism + a true peer-to-peer reroute hand-off are later refinements.
 
-## DEC-112 — EVO-9 slice 1: VALEUR (chaîne de valeur) + MUTUALISATION (advisory) — DRAFT
-**Date**: 2026-05-30. **Refers**: DEC-087/DEC-088 (NHI declare→derive→attest spine), DEC-109/DEC-110 (org model, `effectiveOrgInstances`). **Framing**: `docs/superpowers/specs/2026-05-30-evo9-trust-concepts-framing.md` (ratified forks). **Line**: V2 (0.19.x). **Status**: DRAFT — pending PRINCIPAL integration after review.
+## DEC-112 — EVO-9 slice 1: VALEUR (chaîne de valeur) + MUTUALISATION (advisory)
+**Date**: 2026-05-30. **Refers**: DEC-087/DEC-088 (NHI declare→derive→attest spine), DEC-109/DEC-110 (org model, `effectiveOrgInstances`). **Framing**: `docs/superpowers/specs/2026-05-30-evo9-trust-concepts-framing.md` (ratified forks). **Line**: V2 (0.20.x). **Status**: merged to main, released in 0.20.0.
 
 **Context**: EVO-9 models trust *in the engagement* (intentional/governance), parity with `iii` by independent MIT design. The framing ratified five concepts on the proven `declare → derive (pure) → attest` spine with zero additions to the frozen `H2A_ARTIFACT_KINDS`/`H2A_ROLES`. This slice lands the two lowest-risk pure derivations (Fork B: VALEUR + MUTUALISATION in parallel first).
 
