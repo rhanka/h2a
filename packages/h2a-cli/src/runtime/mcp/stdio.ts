@@ -1,6 +1,8 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 
+import type { H2AWorkspaceRef } from "@sentropic/h2a";
+
 import { createMcpServer, type McpServer } from "./server.js";
 
 /**
@@ -64,6 +66,8 @@ export interface RunMcpStdioOptions {
   autoOpen?: {
     readonly instance: string;
     readonly host?: string;
+    readonly workspace?: H2AWorkspaceRef;
+    readonly name?: string;
     readonly scopes?: readonly string[];
   };
 }
@@ -185,6 +189,10 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       server.sessions.open({
         instance: options.autoOpen.instance,
         ...(options.autoOpen.host !== undefined ? { host: options.autoOpen.host } : {}),
+        ...(options.autoOpen.workspace !== undefined
+          ? { workspace: options.autoOpen.workspace }
+          : {}),
+        ...(options.autoOpen.name !== undefined ? { name: options.autoOpen.name } : {}),
         interests: {
           scopes: [...(options.autoOpen.scopes ?? ["scope:default"])],
           negotiations: []

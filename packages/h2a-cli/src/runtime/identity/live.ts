@@ -1,0 +1,286 @@
+import { createHash, generateKeyPairSync } from "node:crypto";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync
+} from "node:fs";
+import { hostname } from "node:os";
+import { basename, join } from "node:path";
+
+import {
+  deriveInstanceId,
+  deriveWorkspaceId,
+  mintAgentUuid,
+  signCanonical,
+  type H2AActorRegistration,
+  type H2AWorkspaceRef
+} from "@sentropic/h2a";
+
+import { createLocalStore } from "../local-files/store.js";
+import { findBinding, reclaimOrMint, verifyReclaimProof } from "./bindings.js";
+import {
+  decideLegacyAdoption,
+  legacyAliasAlreadyAdopted,
+  recordIdentityAlias
+} from "./migration.js";
+import { defaultProviderSessionReaders } from "./readers.js";
+import { resolveProviderSession, type ProviderSessionReaders } from "./resolver.js";
+
+export interface ResolveLiveIdentityInput {
+  readonly root: string;
+  readonly host: string;
+  readonly cwd: string;
+  readonly explicitInstance?: string;
+  readonly name?: string;
+  readonly scopes?: readonly string[];
+  readonly readers?: ProviderSessionReaders;
+  readonly now?: () => number;
+}
+
+export interface ResolvedLiveIdentity {
+  readonly instance: string;
+  readonly host: string;
+  readonly workspace?: H2AWorkspaceRef;
+  readonly name?: string;
+  readonly legacyInstance?: string;
+  readonly action: "override" | "reclaim" | "mint";
+  readonly providerSessionSource?: string;
+  readonly privateKeyPath?: string;
+  readonly publicKeyPath?: string;
+  readonly migrationNotice?: string;
+}
+
+function safeKeyName(instance: string): string {
+  return instance.replace(/[:/]/g, "-");
+}
+
+function keyPaths(root: string, instance: string): { privateKeyPath: string; publicKeyPath: string } {
+  const keysDir = join(root, "keys");
+  return {
+    privateKeyPath: join(keysDir, `${safeKeyName(instance)}.key.pem`),
+    publicKeyPath: join(keysDir, `${safeKeyName(instance)}.pub.pem`)
+  };
+}
+
+function readMachineId(): string {
+  for (const path of ["/etc/machine-id", "/var/lib/dbus/machine-id"]) {
+    try {
+      const id = readFileSync(path, "utf8").trim();
+      if (id.length > 0) return id;
+    } catch {
+      // try the next source
+    }
+  }
+  return hostname() || "unknown-machine";
+}
+
+function realWorkspacePath(cwd: string): string {
+  try {
+    return realpathSync(cwd);
+  } catch {
+    return cwd;
+  }
+}
+
+function labelFromCwd(cwd: string): string {
+  return basename(cwd) || "workspace";
+}
+
+function publicKeyFingerprint(publicKeyPem: string): string {
+  return createHash("sha256").update(publicKeyPem, "utf8").digest("hex").slice(0, 16);
+}
+
+function generateKeypair(): { privateKeyPem: string; publicKeyPem: string } {
+  const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+  return {
+    privateKeyPem: privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
+    publicKeyPem: publicKey.export({ format: "pem", type: "spki" }).toString()
+  };
+}
+
+function readKeypair(root: string, instance: string):
+  | { privateKeyPem: string; publicKeyPem: string; privateKeyPath: string; publicKeyPath: string }
+  | undefined {
+  const paths = keyPaths(root, instance);
+  if (!existsSync(paths.privateKeyPath) || !existsSync(paths.publicKeyPath)) return undefined;
+  return {
+    privateKeyPem: readFileSync(paths.privateKeyPath, "utf8"),
+    publicKeyPem: readFileSync(paths.publicKeyPath, "utf8"),
+    ...paths
+  };
+}
+
+function ensureKeypair(
+  root: string,
+  instance: string,
+  adoptFromInstance?: string
+): { publicKeyPem: string; privateKeyPath: string; publicKeyPath: string } {
+  const existing = readKeypair(root, instance);
+  if (existing) {
+    return {
+      publicKeyPem: existing.publicKeyPem,
+      privateKeyPath: existing.privateKeyPath,
+      publicKeyPath: existing.publicKeyPath
+    };
+  }
+
+  const paths = keyPaths(root, instance);
+  mkdirSync(join(root, "keys"), { recursive: true });
+  const adopted = adoptFromInstance ? readKeypair(root, adoptFromInstance) : undefined;
+  if (adopted) {
+    copyFileSync(adopted.privateKeyPath, paths.privateKeyPath);
+    copyFileSync(adopted.publicKeyPath, paths.publicKeyPath);
+    return { publicKeyPem: adopted.publicKeyPem, ...paths };
+  }
+
+  const generated = generateKeypair();
+  writeFileSync(paths.privateKeyPath, generated.privateKeyPem, { encoding: "utf8", mode: 0o600 });
+  writeFileSync(paths.publicKeyPath, generated.publicKeyPem, "utf8");
+  return { publicKeyPem: generated.publicKeyPem, ...paths };
+}
+
+function provesLocalKey(root: string, instance: string): boolean {
+  const store = createLocalStore({ root });
+  const keypair = readKeypair(root, instance);
+  if (!keypair) return false;
+  const activeKeys = store.listInstanceKeys(instance);
+  if (activeKeys.length === 0) return false;
+  const nonce = `identity-reclaim:${instance}:${publicKeyFingerprint(keypair.publicKeyPem)}`;
+  try {
+    const signature = signCanonical(nonce, { by: instance, privateKeyPem: keypair.privateKeyPem });
+    return verifyReclaimProof(nonce, signature, activeKeys);
+  } catch {
+    return false;
+  }
+}
+
+function ensureRegistered(input: {
+  readonly root: string;
+  readonly instance: string;
+  readonly agentUuid: string;
+  readonly workspace: H2AWorkspaceRef;
+  readonly name: string;
+  readonly publicKeyPem: string;
+  readonly scopes: readonly string[];
+  readonly now: () => number;
+}): void {
+  const store = createLocalStore({ root: input.root });
+  const existing = store.findInstance(input.instance);
+  if (!existing) {
+    const registration: H2AActorRegistration = {
+      id: input.instance,
+      instance: input.instance,
+      roles: ["AGENTS"],
+      scopes: [...input.scopes],
+      capabilities: [],
+      endpoints: [{ kind: "local-files", uri: `file://${input.root}` }],
+      publicKeys: [input.publicKeyPem],
+      acceptedPolicies: [],
+      agentUuid: input.agentUuid,
+      workspace: input.workspace,
+      name: input.name,
+      createdAt: new Date(input.now()).toISOString()
+    };
+    store.registerInstance(registration);
+    return;
+  }
+  if (!store.listInstanceKeys(input.instance).includes(input.publicKeyPem)) {
+    store.addInstanceKey(input.instance, input.publicKeyPem);
+  }
+}
+
+export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLiveIdentity {
+  const host = input.host || "agent";
+  const label = labelFromCwd(input.cwd);
+  const name = input.name ?? label;
+  if (input.explicitInstance) {
+    return { instance: input.explicitInstance, host, action: "override" };
+  }
+
+  const readers = input.readers ?? defaultProviderSessionReaders;
+  const provider = resolveProviderSession({ host, cwd: input.cwd, readers });
+  const realPath = realWorkspacePath(input.cwd);
+  const workspaceId =
+    provider.workspaceHint ??
+    deriveWorkspaceId({ machineId: readMachineId(), path: realPath });
+  const workspace: H2AWorkspaceRef = {
+    id: workspaceId,
+    path: realPath,
+    host,
+    label
+  };
+  const legacyInstance = `${host}:${label}`;
+  const now = input.now ?? Date.now;
+  const scopes = input.scopes?.length ? input.scopes : ["scope:default"];
+
+  const mint = () => {
+    const agentUuid = mintAgentUuid();
+    return {
+      agentUuid,
+      instance: deriveInstanceId({ host, label: name, uuid: agentUuid })
+    };
+  };
+
+  const providerSessionId =
+    provider.providerSessionId ?? `fallback:${host}:${workspace.id}:${Date.now()}`;
+  const result =
+    host === "remote"
+      ? { action: "mint" as const, ...mint() }
+      : reclaimOrMint(
+          input.root,
+          { host, providerSessionId, workspaceId: workspace.id },
+          {
+            verifyProof: (binding) => provesLocalKey(input.root, binding.instance),
+            mint,
+            now
+          }
+        );
+
+  const existingBinding = findBinding(input.root, {
+    host,
+    providerSessionId,
+    workspaceId: workspace.id
+  });
+  const legacyDecision = decideLegacyAdoption({
+    legacyAlreadyAdopted: legacyAliasAlreadyAdopted(input.root, legacyInstance),
+    provedLegacyPossession: provesLocalKey(input.root, legacyInstance)
+  });
+  const adoptedFrom =
+    result.action === "mint" && legacyDecision.adopt ? legacyInstance : undefined;
+  const keypair = ensureKeypair(input.root, result.instance, adoptedFrom);
+  ensureRegistered({
+    root: input.root,
+    instance: result.instance,
+    agentUuid: result.agentUuid,
+    workspace,
+    name,
+    publicKeyPem: keypair.publicKeyPem,
+    scopes,
+    now
+  });
+  recordIdentityAlias(input.root, {
+    instance: result.instance,
+    legacyInstance,
+    adoptedKeyring: Boolean(adoptedFrom),
+    at: new Date(now()).toISOString()
+  });
+
+  return {
+    instance: result.instance,
+    host,
+    workspace,
+    name,
+    legacyInstance,
+    action: result.action,
+    providerSessionSource: provider.source,
+    privateKeyPath: keypair.privateKeyPath,
+    publicKeyPath: keypair.publicKeyPath,
+    migrationNotice:
+      result.action === "mint" || !existingBinding
+        ? `identity migration: ${result.instance} reads legacy ${legacyInstance}; ${legacyDecision.reason}`
+        : undefined
+  };
+}

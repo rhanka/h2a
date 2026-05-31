@@ -72,7 +72,7 @@ import {
   H2A_ROLES,
   H2A_WORK_STATUSES
 } from "@sentropic/h2a";
-import type { H2AActorRef, H2ARole } from "@sentropic/h2a";
+import type { H2AActorRef, H2ARole, H2AWorkspaceRef } from "@sentropic/h2a";
 
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
@@ -139,6 +139,7 @@ import {
   H2A_REEXEC_GUARD_ENV,
   type UpgradeRuntime
 } from "./runtime/upgrade/index.js";
+import { resolveLiveIdentity } from "./runtime/identity/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -244,7 +245,7 @@ export function renderCliHelp(): string {
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "",
     "High-level coordination (DEC-054):",
-    "  h2a connect --host <codex|claude|gemini|agy> [--root <path>] [--instance <id>]",
+    "  h2a connect --host <codex|claude|gemini|agy|remote> [--root <path>] [--instance <id>] [--name <display>]",
     "  h2a doctor [--root <path>]",
     "  h2a sessions [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a keys generate --instance <id> [--out <dir>] [--root <path>]",
@@ -840,15 +841,33 @@ function cmdNegotiate(
 export function resolveAutoOpen(
   flags: Record<string, string>,
   cwd: () => string
-): { instance: string; host?: string; scopes?: string[] } | undefined {
+): {
+  instance: string;
+  host?: string;
+  workspace?: H2AWorkspaceRef;
+  name?: string;
+  scopes?: string[];
+  migrationNotice?: string;
+} | undefined {
   if (flags["auto-open"] === undefined) return undefined;
   const host = flags.host;
-  const leaf = (cwd().split("/").filter(Boolean).pop() || "workspace");
-  const instance = flags.instance ?? `${host ?? "agent"}:${leaf}`;
+  const identity = resolveLiveIdentity({
+    root: resolveRoot(flags, cwd),
+    host: host ?? "agent",
+    cwd: cwd(),
+    ...(flags.instance !== undefined ? { explicitInstance: flags.instance } : {}),
+    ...(flags.name !== undefined ? { name: flags.name } : {}),
+    ...(flags.scope !== undefined ? { scopes: [flags.scope] } : {})
+  });
   return {
-    instance,
+    instance: identity.instance,
     ...(host ? { host } : {}),
-    ...(flags.scope ? { scopes: [flags.scope] } : {})
+    ...(identity.workspace !== undefined ? { workspace: identity.workspace } : {}),
+    ...(identity.name !== undefined ? { name: identity.name } : {}),
+    ...(flags.scope ? { scopes: [flags.scope] } : {}),
+    ...(identity.migrationNotice !== undefined
+      ? { migrationNotice: identity.migrationNotice }
+      : {})
   };
 }
 
@@ -946,6 +965,9 @@ export async function runMcpServe(
   }
 
   try {
+    if (autoOpen?.migrationNotice) {
+      io.stderr.write(`h2a mcp-serve: ${autoOpen.migrationNotice}\n`);
+    }
     await runMcpStdio({
       root,
       stdin: io.stdin as never,
@@ -2627,27 +2649,33 @@ function cmdConnect(
 ): number {
   if (!flags.host) {
     streams.stderr.write(
-      "h2a connect: --host <codex|claude|gemini|agy> is required\n"
+      "h2a connect: --host <codex|claude|gemini|agy|remote> is required\n"
     );
     return 1;
   }
-  if (!["codex", "claude", "gemini", "agy"].includes(flags.host)) {
+  if (!["codex", "claude", "gemini", "agy", "remote"].includes(flags.host)) {
     streams.stderr.write(
-      `h2a connect: unknown --host "${flags.host}". Supported: codex, claude, gemini, agy.\n`
+      `h2a connect: unknown --host "${flags.host}". Supported: codex, claude, gemini, agy, remote.\n`
     );
     return 1;
   }
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
-  const instance =
-    flags.instance ??
-    `${flags.host}:${cwd().split("/").pop() || "workspace"}`;
+  const identity = resolveLiveIdentity({
+    root,
+    host: flags.host,
+    cwd: cwd(),
+    ...(flags.instance !== undefined ? { explicitInstance: flags.instance } : {}),
+    ...(flags.name !== undefined ? { name: flags.name } : {})
+  });
+  const instance = identity.instance;
 
   const summary: Record<string, unknown> = {
     ok: true,
     root,
     host: flags.host,
     instance,
+    identity,
     steps: []
   };
   const steps = summary.steps as Array<Record<string, unknown>>;
@@ -2662,28 +2690,46 @@ function cmdConnect(
   }
 
   // 2. host setup snippet (print only — write requires explicit --write)
-  const hostDescriptor =
-    flags.host === "codex"
-      ? H2A_CODEX_HOST
-      : flags.host === "claude"
-        ? H2A_CLAUDE_HOST
-        : flags.host === "gemini"
-          ? H2A_GEMINI_HOST
-          : H2A_AGY_HOST;
-  const snippet = hostDescriptor.renderMcpConfig({ root });
-  steps.push({
-    step: "host-setup",
-    ok: true,
-    pathHint: snippet.path.hint,
-    pathExample: snippet.path.example,
-    snippet: snippet.config
-  });
+  if (flags.host === "remote") {
+    steps.push({
+      step: "host-setup",
+      ok: true,
+      pathHint: "@sentropic/remote bridge environment",
+      pathExample: "remote session Pod env",
+      snippet: {
+        H2A_HOST: "remote",
+        H2A_INSTANCE: instance,
+        H2A_ROOT: root
+      }
+    });
+  } else {
+    const hostDescriptor =
+      flags.host === "codex"
+        ? H2A_CODEX_HOST
+        : flags.host === "claude"
+          ? H2A_CLAUDE_HOST
+          : flags.host === "gemini"
+            ? H2A_GEMINI_HOST
+            : H2A_AGY_HOST;
+    const snippet = hostDescriptor.renderMcpConfig({ root });
+    steps.push({
+      step: "host-setup",
+      ok: true,
+      pathHint: snippet.path.hint,
+      pathExample: snippet.path.example,
+      snippet: snippet.config
+    });
+  }
 
   // 3. Print follow-up instructions
   const followUp = [
-    `Merge the snippet above under \`mcpServers\` in ${snippet.path.example}`,
-    `then run: h2a keys generate --instance ${instance} --root ${root}`,
-    `and: h2a install-skills --host ${flags.host}`
+    flags.host === "remote"
+      ? "Use the bridge-provided environment in the remote session Pod"
+      : `Merge the snippet above under \`mcpServers\` in ${steps[1].pathExample}`,
+    identity.privateKeyPath
+      ? `keypair ready: ${identity.privateKeyPath}`
+      : `legacy override: run h2a keys generate --instance ${instance} --root ${root} if needed`,
+    flags.host === "remote" ? "remote bridge skills are managed by the host" : `and: h2a install-skills --host ${flags.host}`
   ];
   summary.followUp = followUp;
 

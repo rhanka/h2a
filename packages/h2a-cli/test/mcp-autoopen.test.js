@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
@@ -12,19 +12,33 @@ test("resolveAutoOpen: undefined when --auto-open absent", () => {
 });
 
 test("resolveAutoOpen: explicit --instance wins; else <host>:<cwd-leaf>", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "h2a-autoopen-cwd-"));
+  const root = join(mkdtempSync(join(tmpdir(), "h2a-autoopen-root-")), ".h2a");
+  const previous = process.env.CLAUDE_CODE_SESSION_ID;
+  process.env.CLAUDE_CODE_SESSION_ID = "claude-autoopen-session";
+  try {
   assert.deepEqual(
-    resolveAutoOpen({ "auto-open": "true", host: "claude", instance: "claude:custom" }, () => "/home/u/proj"),
+    resolveAutoOpen(
+      { "auto-open": "true", host: "claude", instance: "claude:custom", root },
+      () => cwd
+    ),
     { instance: "claude:custom", host: "claude" }
   );
-  assert.deepEqual(
-    resolveAutoOpen({ "auto-open": "true", host: "codex" }, () => "/home/u/my-app"),
-    { instance: "codex:my-app", host: "codex" }
-  );
+  const resolved = resolveAutoOpen({ "auto-open": "true", host: "claude", root }, () => cwd);
+  assert.match(resolved.instance, /^claude:h2a-autoopen-cwd-[a-z0-9]+:[a-f0-9]{12}$/);
+  assert.equal(resolved.host, "claude");
+  assert.equal(resolved.name, basename(cwd));
+  assert.equal(resolved.workspace.id.startsWith("ws:"), true);
   // no host → "agent:<leaf>"; scope carried through
-  assert.deepEqual(
-    resolveAutoOpen({ "auto-open": "true", scope: "scope:team" }, () => "/srv/x/"),
-    { instance: "agent:x", scopes: ["scope:team"] }
-  );
+  const agent = resolveAutoOpen({ "auto-open": "true", scope: "scope:team", root }, () => cwd);
+  assert.match(agent.instance, /^agent:h2a-autoopen-cwd-[a-z0-9]+:[a-f0-9]{12}$/);
+  assert.deepEqual(agent.scopes, ["scope:team"]);
+  } finally {
+    if (previous === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
+    else process.env.CLAUDE_CODE_SESSION_ID = previous;
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("runMcpStdio with autoOpen writes a presence session at boot (EVO-6)", async () => {

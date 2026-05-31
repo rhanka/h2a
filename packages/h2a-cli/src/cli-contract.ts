@@ -430,9 +430,9 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "action",
     exitCodes: [0, 1, 3],
     requiredFlags: ["host"],
-    optionalFlags: ["root", "instance"],
+    optionalFlags: ["root", "instance", "name"],
     description:
-      "Bootstrap a coordinated session: ensures the local store under --root, picks an instance id, renders the host MCP snippet, and prints follow-up steps (key generation + skill install). DEC-054."
+      "Bootstrap a coordinated session: ensures the local store under --root, resolves or mints the perennial instance id, renders the host MCP snippet, and prints follow-up steps (keypair ready + skill install). DEC-054/116."
   },
   {
     verb: "doctor",

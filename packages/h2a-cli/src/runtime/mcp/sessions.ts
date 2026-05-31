@@ -7,7 +7,8 @@ import {
   type H2ASession,
   type H2ASessionInterests,
   type H2ASessionNotificationTopic,
-  type H2ASessionState
+  type H2ASessionState,
+  type H2AWorkspaceRef
 } from "@sentropic/h2a";
 
 import {
@@ -22,6 +23,10 @@ export interface OpenSessionRequest {
   readonly instance: string;
   /** Host CLI hint (claude / codex / gemini / ...). Optional. */
   readonly host?: string;
+  /** First-class workspace trace for the perennial identity. */
+  readonly workspace?: H2AWorkspaceRef;
+  /** Mutable display name for the perennial agent. */
+  readonly name?: string;
   /** PID of the holding process. Defaults to process.pid. */
   readonly pid?: number;
   /** Scopes / negotiations the session wants to follow. Defaults to empty arrays. */
@@ -108,6 +113,8 @@ export class SessionRegistry {
       sessionId,
       instance: request.instance,
       ...(request.host !== undefined ? { host: request.host } : {}),
+      ...(request.workspace !== undefined ? { workspace: request.workspace } : {}),
+      ...(request.name !== undefined ? { name: request.name } : {}),
       pid: request.pid ?? process.pid,
       startedAt: now,
       heartbeatAt: now,
