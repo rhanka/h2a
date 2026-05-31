@@ -2001,3 +2001,14 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Decision**: raise the `npm view` timeout 4000ms → **15000ms** (covers a slow registry with margin; the boot check is cached 24h TTL so this network call is rare; explicit `h2a upgrade` can afford it). No API change.
 
 **Consequence**: (a) `h2a upgrade`/`--check` + the boot auto-upgrade actually see new versions again; (b) **patch 0.20.1**; (c) the fix only takes effect once a host runs a version ≥ 0.20.1 — so the fleet (global + each host config) needs **one manual `npm i -g @sentropic/h2a-cli@latest`** to reach the fixed version, after which auto-upgrade self-sustains; (d) follow-up to consider: make the boot check fully non-blocking (async) so even a slow `npm view` never delays server startup.
+
+## DEC-115 — fix: mcp-serve replied to JSON-RPC notifications with an `id:null` error → broke strict clients (codex)
+**Date**: 2026-05-31. **Refers**: DEC-051 (MCP stdio transport). **Line**: V2 (0.20.2).
+
+**Context**: codex crashed at startup ("plante au démarrage") with `rmcp::transport::async_rw: Error reading from stream: serde error data did not match any variant of untagged enum JsonRpcMessage`. Isolation test: codex starts clean with the h2a MCP server removed; a stdout probe of `h2a mcp-serve` showed it emit **two** lines for an init handshake — the `initialize` response (`id:1`) **and** a `{ "jsonrpc":"2.0", "id":null, "error":{-32601} }` reply to the client's `notifications/initialized`.
+
+**Root cause**: the stdio dispatcher (`runMcpStdio`) answered **every** line with `id: request.id ?? null`. A JSON-RPC 2.0 **notification** is a message with no `id` member (e.g. the standard `notifications/initialized`); the server **MUST NOT** reply to it. h2a treated the unknown notification as a request and returned an `id:null` error — which strict clients (codex's Rust `rmcp`) reject as a non-`JsonRpcMessage`, aborting the stream.
+
+**Decision**: gate every stdout write on the message being a **request** (`"id" in request`). A notification is processed if recognised but **never answered** (neither success nor error); an unhandled notification is a silent no-op (genuine internal errors still go to stderr). Parse-error responses (`id:null`, -32700) on truly unparseable input are kept (standard; the input may have been a request).
+
+**Consequence**: (a) `runMcpStdio` no longer emits a response to notifications (regression test added — a notification draws zero responses, never `id:null`); (b) **patch 0.20.2**; (c) unblocks codex and any strict MCP client at startup; (d) the global + each host re-pull to ≥0.20.2 (auto-upgrade works again since DEC-114) to receive the fix.

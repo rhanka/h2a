@@ -74,6 +74,33 @@ test("runMcpStdio: initialize returns the expected serverInfo", async () => {
   }
 });
 
+test("runMcpStdio: a notification (no id) draws NO response — never id:null (DEC-115)", async () => {
+  const root = freshRoot();
+  try {
+    const responses = await runScenario(root, [
+      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+      // notification (no id): the standard post-init signal — MUST get no reply
+      JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
+      // an unknown notification (no id): still no reply, not a -32601 error
+      JSON.stringify({ jsonrpc: "2.0", method: "notifications/something-unknown" }),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" })
+    ]);
+    // exactly the two REQUESTS get responses; the two notifications get none
+    assert.equal(responses.length, 2);
+    assert.deepEqual(
+      responses.map((r) => r.id).sort((a, b) => a - b),
+      [1, 2]
+    );
+    // crucially: no id:null line (that is what broke codex's rmcp at startup)
+    assert.equal(
+      responses.some((r) => r.id === null),
+      false
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("runMcpStdio: tools/list returns all canonical tool names (DEC-051 added 3)", async () => {
   const root = freshRoot();
   try {

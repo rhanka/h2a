@@ -227,26 +227,42 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         return;
       }
 
+      // JSON-RPC 2.0: a message with NO `id` member is a NOTIFICATION — the
+      // server MUST NOT reply to it (not even an error). Previously every line
+      // got a response with `id: request.id ?? null`, so a notification such as
+      // the standard `notifications/initialized` drew back an `id:null` error
+      // response, which strict clients (codex's rmcp) reject with "data did not
+      // match any variant of untagged enum JsonRpcMessage" — breaking the stream
+      // at startup. Gate every stdout write on the message actually being a
+      // request (DEC-115).
+      const isNotification = !("id" in request);
+
       if (request.jsonrpc !== "2.0" || typeof request.method !== "string") {
-        writeResponse(
-          stdout,
-          errorResponse(request.id ?? null, -32600, "Invalid Request")
-        );
+        if (!isNotification) {
+          writeResponse(stdout, errorResponse(request.id ?? null, -32600, "Invalid Request"));
+        }
         return;
       }
 
       try {
         const result = handleMethod(server, request.method, request.params);
-        writeResponse(stdout, successResponse(request.id ?? null, result));
+        if (!isNotification) {
+          writeResponse(stdout, successResponse(request.id ?? null, result));
+        }
       } catch (err) {
+        if (isNotification) {
+          // An unhandled notification (e.g. `notifications/initialized`) is a
+          // silent no-op; surface only genuine internal errors on stderr.
+          if (!(err instanceof MethodNotFoundError)) {
+            const message = err instanceof Error ? err.message : String(err);
+            stderr.write(`h2a mcp-serve: internal error (notification ${request.method}): ${message}\n`);
+          }
+          return;
+        }
         if (err instanceof MethodNotFoundError) {
           writeResponse(
             stdout,
-            errorResponse(
-              request.id ?? null,
-              -32601,
-              `Method not found: ${err.method}`
-            )
+            errorResponse(request.id ?? null, -32601, `Method not found: ${err.method}`)
           );
           return;
         }
