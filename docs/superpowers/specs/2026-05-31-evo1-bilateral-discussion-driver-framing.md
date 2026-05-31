@@ -55,6 +55,12 @@ EVO-1's driver is **not new infrastructure** — it composes three shipped/ratif
 - **E1c** — authority gate (MANDATE / `H2A_AUTHORITY_MATRIX`) on inbound injections in each host plugin hook.
 - **E1d** — remote injection service (with EVO-11 bridge/sidecar).
 
+## Delivery status (2026-05-31, DEC-120)
+
+**E1a delivered + merged** (`runtime/drive/`, `h2a drive`, Opus-reviewed): signed-line formatter/parser/**verifier** + replay guard, `H2ADriver` interface (logging/native/local-tmux/headless/auto chain), local-tmux transport (generalizing D3 `send-keys`), and a **sender-side authority gate** (refuses to sign/dispatch unless self / explicit conductor-principal / shared-scope MANDATE via `H2A_AUTHORITY_MATRIX`).
+
+**Scope clarification (closes review finding B1) — receiver-side enforcement is library-only in E1a, deferred by design.** `verifySignedDriveInstruction` + the receiver `authorizeDrive` ship as exported, tested primitives but are **not yet wired into any host receive hook**: a tmux-injected `[h2a …] <instruction>` line is, today, read by the target CLI as text. This is **consistent with the ratified local threat model** (single trusted user — a malicious local injector is out of scope; the signature still gives provenance + accountability, and the sender-side gate blocks unauthorized *h2a* drives). Wiring the receiver to **verify-before-act** belongs to **E1c** (local plugin authority hook) and is **mandatory** in **E1d** (remote, where the injection service crosses the trust boundary). Until then the driver is sender-enforced, not receiver-enforced — stated here so it is a declared boundary, not a silent gap. Non-blocking nits N1–N5 (async `auto` path, tmux `-l`, ephemeral replay guard, parser robustness) tracked for E1c.
+
 ## Open product decisions (PRINCIPAL)
 
 1. **Host priority** — which transport/host first? (local-tmux for codex is the immediate unblock; codex `app-server` is the no-tmux path.)

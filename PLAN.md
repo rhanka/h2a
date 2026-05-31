@@ -30,8 +30,8 @@
 | WP | Owner | Status | Notes |
 |---|---|---|---|
 | CI blocking (release gate on cross-OS matrix) | codex:a2a-cli | ✅ **done + merged** (`8e9c357`) | `publish: needs: verify` (ubuntu/macos/win × node 20/22) |
-| Identity CLI wiring → 0.22.0 (DEC-116) | codex:a2a-cli | 🟢 **delivered, under Opus review** (`codex/identity-live-wiring-022`) | 709 tests pass; merge on clear |
-| EVO-1 bilateral-discussion driver E1a–E1c | codex:a2a-cli-conductor | 🟢 **delivered, under Opus review** (`codex/evo1-bilateral-driver`) | 714 tests pass; merge on clear |
+| Identity CLI wiring → 0.22.0 (DEC-116) | codex:a2a-cli | ✅ **merged** (Opus APPROVE) | live perennial instances; ships in 0.22.0 |
+| EVO-1 bilateral-discussion driver E1a | codex:a2a-cli-conductor | ✅ **merged** (Opus APPROVE-WITH-FIXES; B1 declared) | sender-enforced; receiver verify-on-act deferred to E1c/E1d (DEC-120) |
 | Drumbeat D1–D7 | codex + claude | ✅ **all done** (D7 = DEC-095: escalation registry + auto-escalate-to-PRINCIPAL) | full anti-stall loop complete |
 | EVO-9 ATTENTION comprehension-core | codex:a2a-cli-conductor (next) | 🟡 **design ✅, assigning** | `2026-05-31-evo9-attention-core-design.md` (DEC-118) |
 | EVO-9 INTÉRÊT (conflit posture) | codex:a2a-cli (next) | 🟡 **design ✅, assigning** | `2026-05-31-evo9-interet-design.md` (DEC-119) |

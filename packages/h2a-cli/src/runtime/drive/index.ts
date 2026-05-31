@@ -1,3 +1,20 @@
+/**
+ * EVO-1 bilateral-discussion driver (signed terminal injection), slice E1a.
+ *
+ * Provides the SENDER half end-to-end (`h2a drive`): a signed instruction line
+ * `[h2a from=… sig=…] <instruction>`, an `H2ADriver` chain
+ * (logging/native/local-tmux/headless/auto), and a sender-side authority gate.
+ *
+ * `verifySignedDriveInstruction` + the receiver `authorizeDrive` below are
+ * exported, tested primitives but are **library-only in E1a — not yet wired
+ * into any host receive hook**. The receiver-side "verify-before-act" is
+ * deferred to E1c (local plugin authority hook) and is mandatory in E1d
+ * (remote, which crosses the trust boundary). This is consistent with the
+ * ratified single-trusted-user local threat model (DEC-116): a malicious local
+ * injector is out of scope; the signature gives provenance + accountability and
+ * the sender gate blocks unauthorized h2a drives. Declared boundary, not a gap
+ * — see docs/superpowers/specs/2026-05-31-evo1-bilateral-discussion-driver-framing.md.
+ */
 import { randomBytes } from "node:crypto";
 
 import {
