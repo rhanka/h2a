@@ -23,6 +23,20 @@
   - recurring obligation cadence is now explicit per ABC context (`H2A_RECURRING_OBLIGATION_PROFILES`) ; scheduling and breach evaluation remain policy/implementation work (DEC-047)
   - jurisdiction is now explicit per ABC context (`H2A_JURISDICTION_PROFILES`) ; matching a scope/actor to a jurisdiction remains policy/implementation work (DEC-048)
 
+## Active delegation board (2026-05-31)
+
+> Orchestration model: `claude:a2a-cli` = validation/escalation/spec authority (no merge without its review); `codex:a2a-cli` + `codex:a2a-cli-conductor` = executor workers (≤4 sub-agents each, **mandatory git worktree isolation**); bus is passive (workers must be triggered to read inbox until EVO-1 driver ships).
+
+| WP | Owner | Status | Notes |
+|---|---|---|---|
+| CI blocking (release gate on cross-OS matrix) | codex:a2a-cli | ✅ **done + merged** (`8e9c357`) | `publish: needs: verify` (ubuntu/macos/win × node 20/22) |
+| Identity CLI wiring → 0.22.0 (DEC-116) | codex:a2a-cli | 🟡 **assigned** (env `…:3j0h`) | whole slice; 5 inert units built; trusted-user model |
+| EVO-1 bilateral-discussion driver E1a–E1c (signed terminal injection) | codex:a2a-cli-conductor | 🟡 **assigned** (env `…:b4c3`) | framing `docs/superpowers/specs/2026-05-31-evo1-…md` |
+| Drumbeat D7 (escalate-to-PRINCIPAL) | unassigned | ⬜ backlog | last drumbeat slice |
+| EVO-9 ATTENTION-core → INTÉRÊT → CONFIANCE | unassigned (design = claude first) | ⬜ backlog | build after claude validates the design |
+| EVO-11 bridge NHI (paired w/ remote) | claude (interface doc) + remote | ⛔ **product-gated (HOLD)** | design accepted both sides; PRINCIPAL holds PRs; claude drafts the interface contract |
+| B2B2B confiance eval | — | ✅ **closed** | scale aligned its copy on the 5 corrections |
+
 ## Priority Order
 
 1. Stabilize the `h2a` core artifact model.
