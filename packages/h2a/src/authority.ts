@@ -5,6 +5,12 @@ import {
   type H2ARole
 } from "./types.js";
 
+export const H2A_ATTESTER_COMPREHENSION_RIGHT = "attester-comprehension" as const;
+
+export type H2AAuthorityMatrixKind =
+  | H2AArtifactKind
+  | typeof H2A_ATTESTER_COMPREHENSION_RIGHT;
+
 /**
  * V1 signing authority matrix (DEC-035).
  *
@@ -19,7 +25,7 @@ import {
  * trace of a signing act produced by whoever signed.
  */
 export const H2A_AUTHORITY_MATRIX: Readonly<
-  Record<H2AArtifactKind, { roles: readonly H2ARole[]; notes?: string }>
+  Record<H2AAuthorityMatrixKind, { roles: readonly H2ARole[]; notes?: string }>
 > = Object.freeze({
   CONTRACT: {
     roles: Object.freeze(["PRINCIPAL", "EXECUTIF", "CONDUCTOR"]) as readonly H2ARole[],
@@ -65,6 +71,11 @@ export const H2A_AUTHORITY_MATRIX: Readonly<
     roles: Object.freeze(["PRINCIPAL", "EXECUTIF", "CONTROL"]) as readonly H2ARole[],
     notes:
       "Enforcement plans are produced by CONTROL under PRINCIPAL/EXECUTIF authority (DEC-023)."
+  },
+  [H2A_ATTESTER_COMPREHENSION_RIGHT]: {
+    roles: Object.freeze(["PRINCIPAL", "EXECUTIF", "MANDATAIRE", "AGENTS"]) as readonly H2ARole[],
+    notes:
+      "Comprehension attestations are non-binding: PRINCIPAL/EXECUTIF/MANDATAIRE attest natively, while AGENTS require the attester-comprehension mandate right."
   }
 });
 

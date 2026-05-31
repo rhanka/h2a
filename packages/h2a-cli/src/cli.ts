@@ -53,27 +53,40 @@ import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  computeHash,
-  signCanonical,
-  signEnvelope,
-  subagentAddress,
-  auditNhiPosture,
-  nhiAttestationEnvelope,
-  nhiInventory,
-  nhiTrustBundle,
-  parseOrgManifest,
-  validateOrgManifest,
-  diffOrgManifest,
-  effectiveOrgInstances,
-  orgAssignmentEnvelope,
+  H2A_ATTESTER_COMPREHENSION_RIGHT,
+  H2A_COMPREHENSION_ATTESTATION_BODY_KIND,
   H2A_DECLARATION_INTERET_BODY_KIND,
   H2A_ORG_MANIFEST_FILENAME,
   H2A_ORG_PROPOSAL_BODY_KIND,
   H2A_ORG_RATIFIED_BODY_KIND,
   H2A_ROLES,
-  H2A_WORK_STATUSES
+  H2A_WORK_STATUSES,
+  auditNhiPosture,
+  buildComprehensionAttestation,
+  canAttestComprehension,
+  computeHash,
+  createEnvelope,
+  diffOrgManifest,
+  effectiveOrgInstances,
+  isComprehensionAttestation,
+  nhiAttestationEnvelope,
+  nhiInventory,
+  nhiTrustBundle,
+  orgAssignmentEnvelope,
+  parseOrgManifest,
+  signCanonical,
+  signEnvelope,
+  subagentAddress,
+  validateOrgManifest,
+  verifyComprehensionAttestation
 } from "@sentropic/h2a";
-import type { H2AActorRef, H2ALaunchContext, H2ARole, H2AWorkspaceRef } from "@sentropic/h2a";
+import type {
+  H2AActorRef,
+  H2AActorRegistration,
+  H2ALaunchContext,
+  H2ARole,
+  H2AWorkspaceRef
+} from "@sentropic/h2a";
 
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
@@ -174,6 +187,7 @@ const STORE_STATE_ERROR_PATTERNS: readonly RegExp[] = [
   /no artifactHash has the full quorum/i,
   /no offer\/counter event matches/i,
   /stabilized artifact already on disk/i,
+  /attester-comprehension/i,
   // DEC-069/070/072: subagent binding/routing/revocation preconditions.
   /not registered/i,
   /revoked/i,
@@ -232,6 +246,9 @@ export function renderCliHelp(): string {
     "  h2a negotiate journal --id <id> [--root <path>]",
     "  h2a declare-interest --negotiation <id> --instance <id> --interets <a,b> [--bindings <scope,...>] [--masque-impact-collectif] [--event-id <id>] [--root <path>]",
     "  h2a conflict-posture --negotiation <id> [--root <path>]",
+    "  h2a attest-comprehension --instance <id> --dossier <file|sha256:...> --private-key <pem-path> [--negotiation <id> | --to <instance>] [--role <role>] [--scope <scope>] [--root <path>]",
+    "  h2a comprehension list --negotiation <id> [--root <path>]",
+    "  h2a comprehension verify --json <event-or-envelope-json> --public-key <pem-file>",
     "",
     "Auto-propagation (DEC-033):",
     "  offer/counter/sign/event inherit causationId from the previous journal",
@@ -853,6 +870,50 @@ function splitCsvFlag(value: string | undefined): string[] {
     .filter((item) => item.length > 0);
 }
 
+const SHA256_HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
+
+function findRegisteredInstance(
+  store: ReturnType<typeof createLocalStore>,
+  instance: string
+): H2AActorRegistration | undefined {
+  return store.findInstance(instance) ?? store.listInstances().find((entry) => entry.instance === instance);
+}
+
+function parseRoleFlag(value: string | undefined): H2ARole | undefined {
+  if (!value) return undefined;
+  return H2A_ROLES.includes(value as H2ARole) ? (value as H2ARole) : undefined;
+}
+
+function resolveDossierHash(dossier: string): string {
+  if (SHA256_HASH_PATTERN.test(dossier)) {
+    return dossier;
+  }
+  const content = readFileSync(dossier, "utf8");
+  try {
+    return computeHash(JSON.parse(content));
+  } catch {
+    return computeHash(content);
+  }
+}
+
+function comprehensionActorFor(
+  registration: H2AActorRegistration,
+  flags: Record<string, string>
+): H2AActorRef {
+  const role = parseRoleFlag(flags.role) ?? registration.roles[0];
+  if (!role) {
+    throw new Error(`${registration.instance} has no role and --role was not provided`);
+  }
+  if (flags.role && !parseRoleFlag(flags.role)) {
+    throw new Error(`unknown role ${flags.role}`);
+  }
+  const scope = flags.scope ?? registration.scopes[0];
+  if (!scope) {
+    throw new Error(`${registration.instance} has no scope and --scope was not provided`);
+  }
+  return { instance: registration.instance, role, scope };
+}
+
 function cmdDeclareInteret(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -930,6 +991,209 @@ function cmdConflictPosture(
     streams.stderr.write(`h2a conflict-posture: ${message}\n`);
     return classifyStoreError(message);
   }
+}
+
+function cmdAttestComprehension(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  if (!flags.instance || !flags.dossier || !flags["private-key"]) {
+    streams.stderr.write(
+      "h2a attest-comprehension: --instance <id> --dossier <file|sha256:...> --private-key <pem-path> required\n"
+    );
+    return 1;
+  }
+  if (flags.negotiation && flags.to) {
+    streams.stderr.write("h2a attest-comprehension: use either --negotiation or --to, not both\n");
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const store = createLocalStore({ root });
+  const registration = findRegisteredInstance(store, flags.instance);
+  if (!registration) {
+    streams.stderr.write(`h2a attest-comprehension: instance ${flags.instance} not registered\n`);
+    return 2;
+  }
+
+  let actor: H2AActorRef;
+  try {
+    actor = comprehensionActorFor(registration, flags);
+  } catch (error) {
+    streams.stderr.write(`h2a attest-comprehension: ${(error as Error).message}\n`);
+    return 1;
+  }
+  if (!canAttestComprehension(actor.role, registration.capabilities)) {
+    streams.stderr.write(
+      `h2a attest-comprehension: role ${actor.role} for ${flags.instance} cannot attest comprehension; AGENTS require ${H2A_ATTESTER_COMPREHENSION_RIGHT}\n`
+    );
+    return 2;
+  }
+
+  let privateKeyPem: string;
+  try {
+    privateKeyPem = readFileSync(flags["private-key"], "utf8");
+  } catch (error) {
+    streams.stderr.write(
+      `h2a attest-comprehension: cannot read private key at ${flags["private-key"]} (${(error as Error).message})\n`
+    );
+    return 3;
+  }
+
+  let dossierHash: string;
+  try {
+    dossierHash = resolveDossierHash(flags.dossier);
+  } catch (error) {
+    streams.stderr.write(
+      `h2a attest-comprehension: cannot read dossier at ${flags.dossier} (${(error as Error).message})\n`
+    );
+    return 3;
+  }
+
+  let body;
+  try {
+    body = buildComprehensionAttestation({
+      subject: flags.instance,
+      dossierHash,
+      ...(flags.at ? { at: flags.at } : {})
+    });
+  } catch (error) {
+    streams.stderr.write(`h2a attest-comprehension: ${(error as Error).message}\n`);
+    return 1;
+  }
+  const signature = signCanonical(body, { by: flags.instance, privateKeyPem });
+
+  if (flags.negotiation) {
+    const record = store.readNegotiation(flags.negotiation);
+    if (!record) {
+      streams.stderr.write(`h2a attest-comprehension: negotiation ${flags.negotiation} not found\n`);
+      return 2;
+    }
+    const existing = store.readNegotiationJournal(flags.negotiation);
+    const previous = existing[existing.length - 1] as
+      | { id: string; correlationId?: string }
+      | undefined;
+    const chain = resolveCausationCorrelation(flags, previous);
+    const payload = {
+      id: flags["event-id"] ?? `evt-comprehension-${Date.now().toString(36)}`,
+      type: "event" as const,
+      actor: { ...actor, scope: flags.scope ?? record.scope },
+      body,
+      signatures: [signature],
+      createdAt: body.at,
+      ...chain
+    };
+    try {
+      const entry = store.appendNegotiationEvent(flags.negotiation, payload);
+      streams.stdout.write(`${JSON.stringify(entry, null, 2)}\n`);
+      return 0;
+    } catch (error) {
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a attest-comprehension: ${message}\n`);
+      return classifyStoreError(message);
+    }
+  }
+
+  const envelope = createEnvelope({
+    id: flags["event-id"] ?? `env-comprehension-${Date.now().toString(36)}`,
+    type: "event" as const,
+    actor,
+    ...(flags.to ? { target: { instance: flags.to } } : {}),
+    body,
+    signatures: [signature],
+    createdAt: body.at
+  });
+  if (flags.to) {
+    try {
+      store.putInboxMessage(flags.to, envelope);
+    } catch (error) {
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a attest-comprehension: ${message}\n`);
+      return classifyStoreError(message);
+    }
+  }
+  streams.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
+  return 0;
+}
+
+function cmdComprehension(
+  argv: readonly string[],
+  streams: H2ACliStreams
+): number {
+  const { command: sub, flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+
+  if (sub === "list") {
+    if (!flags.negotiation) {
+      streams.stderr.write("h2a comprehension list: --negotiation <id> required\n");
+      return 1;
+    }
+    const store = createLocalStore({ root });
+    if (!store.readNegotiation(flags.negotiation)) {
+      streams.stderr.write(`h2a comprehension list: negotiation ${flags.negotiation} not found\n`);
+      return 2;
+    }
+    try {
+      const entries = store.readNegotiationJournal(flags.negotiation).filter((entry) =>
+        isComprehensionAttestation(entry.body)
+      );
+      streams.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
+      return 0;
+    } catch (error) {
+      const message = (error as Error).message;
+      streams.stderr.write(`h2a comprehension list: ${message}\n`);
+      return classifyStoreError(message);
+    }
+  }
+
+  if (sub === "verify") {
+    if (!flags.json || !flags["public-key"]) {
+      streams.stderr.write("h2a comprehension verify: --json <event-or-envelope-json> --public-key <pem-file> required\n");
+      return 1;
+    }
+    let envelopeOrEntry;
+    try {
+      envelopeOrEntry = JSON.parse(flags.json);
+    } catch (error) {
+      streams.stderr.write(`h2a comprehension verify: invalid JSON (${(error as Error).message})\n`);
+      return 1;
+    }
+    let publicKeyPem: string;
+    try {
+      publicKeyPem = readFileSync(flags["public-key"], "utf8");
+    } catch (error) {
+      streams.stderr.write(
+        `h2a comprehension verify: cannot read public key at ${flags["public-key"]} (${(error as Error).message})\n`
+      );
+      return 3;
+    }
+    const ok = verifyComprehensionAttestation(envelopeOrEntry, [publicKeyPem]);
+    const body = isComprehensionAttestation(envelopeOrEntry?.body)
+      ? envelopeOrEntry.body
+      : undefined;
+    streams.stdout.write(
+      `${JSON.stringify(
+        {
+          ok,
+          ...(body
+            ? {
+                kind: H2A_COMPREHENSION_ATTESTATION_BODY_KIND,
+                subject: body.subject,
+                dossierHash: body.dossierHash
+              }
+            : {})
+        },
+        null,
+        2
+      )}\n`
+    );
+    return ok ? 0 : 2;
+  }
+
+  streams.stderr.write(`Unknown comprehension subcommand: ${sub ?? "<none>"}\n`);
+  streams.stderr.write("Use one of: list, verify\n");
+  return 1;
 }
 
 /**
@@ -3428,6 +3692,8 @@ export function runCli(
   if (command === "negotiate") return cmdNegotiate(argv.slice(1), streams);
   if (command === "declare-interest") return cmdDeclareInteret(flags, streams);
   if (command === "conflict-posture") return cmdConflictPosture(flags, streams);
+  if (command === "attest-comprehension") return cmdAttestComprehension(flags, streams);
+  if (command === "comprehension") return cmdComprehension(argv.slice(1), streams);
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);
   if (command === "host") return cmdHost(argv.slice(1), streams);

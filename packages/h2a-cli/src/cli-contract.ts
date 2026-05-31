@@ -254,6 +254,33 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     description:
       "Derive postureConflit for the negotiation signers and declared subjects."
   },
+  {
+    verb: "attest-comprehension",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2, 3],
+    requiredFlags: ["instance", "dossier", "private-key"],
+    optionalFlags: ["root", "negotiation", "to", "event-id", "role", "scope", "at", "causation-id", "correlation-id"],
+    description:
+      "Emit a signed non-binding comprehension-attestation for a dossier hash, either as a negotiation journal event or an event envelope."
+  },
+  {
+    verb: "comprehension list",
+    outputShape: "list",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["negotiation"],
+    optionalFlags: ["root"],
+    description:
+      "List comprehension-attestation journal events for a negotiation."
+  },
+  {
+    verb: "comprehension verify",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2, 3],
+    requiredFlags: ["json", "public-key"],
+    optionalFlags: ["root"],
+    description:
+      "Verify a comprehension-attestation event/envelope body signature against a public key."
+  },
 
   // --- mailboxes ---
   {

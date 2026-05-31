@@ -147,6 +147,33 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
     }
   },
   {
+    name: "h2a_attest_comprehension",
+    description:
+      "Emit a signed, non-binding comprehension-attestation for a dossier hash. When negotiationId is provided, appends an event with no artifactKind.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        negotiationId: { type: "string" },
+        instance: { type: "string" },
+        dossier: {
+          description: "JSON-serializable dossier. The tool computes its canonical sha256 hash."
+        },
+        dossierHash: { type: "string", description: "Precomputed sha256:<hex> dossier hash." },
+        privateKeyPem: {
+          type: "string",
+          description: "ed25519 PKCS#8 PEM-encoded private key contents (NOT a file path)."
+        },
+        role: { type: "string", description: "Actor role; defaults to the instance's first registered role." },
+        scope: { type: "string", description: "Actor scope; defaults to the instance's first registered scope or negotiation scope." },
+        eventId: { type: "string" },
+        at: { type: "string" },
+        causationId: { type: "string" },
+        correlationId: { type: "string" }
+      },
+      required: ["instance", "privateKeyPem"]
+    }
+  },
+  {
     name: "h2a_declare_conflit_interet",
     description:
       "Append a declaration-interet journal event for an instance in a negotiation.",
