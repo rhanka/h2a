@@ -393,6 +393,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Verify a signed drive instruction before a host hook acts on it: signature/key, target, authority, and replay/freshness. EVO-1 E1c."
   },
   {
+    verb: "drive serve",
+    outputShape: "stream",
+    exitCodes: [0, 1],
+    requiredFlags: ["to", "inject-command"],
+    optionalFlags: ["root", "host", "port", "path"],
+    description:
+      "Run the remote/sidecar drive injection endpoint. It accepts POST /h2a/drive with a signed line, verifies signature/key, target, authority, freshness, and replay, then invokes the configured injector command. EVO-1 E1d."
+  },
+  {
     verb: "sysml verify",
     outputShape: "resource",
     exitCodes: [0, 1, 2],

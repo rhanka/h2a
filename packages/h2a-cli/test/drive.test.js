@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
+import { once } from "node:events";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +20,9 @@ import {
   nativeDriveCommand,
   nativeBackchannelDriver,
   parseSignedDriveInstruction,
+  remoteDriveServerForStore,
   runCli,
+  runDriveServe,
   verifyDriveOnReceive,
   verifySignedDriveInstruction
 } from "../dist/index.js";
@@ -54,7 +57,7 @@ function captureStreams(cwd = () => process.cwd(), stdinText) {
   };
 }
 
-function registerPair(store, publicKeyPem) {
+function registerPair(store, publicKeyPem, to = TO) {
   store.registerInstance({
     id: FROM,
     instance: FROM,
@@ -67,8 +70,8 @@ function registerPair(store, publicKeyPem) {
     createdAt: "2026-05-31T00:00:00.000Z"
   });
   store.registerInstance({
-    id: TO,
-    instance: TO,
+    id: to,
+    instance: to,
     roles: ["AGENTS"],
     scopes: ["scope:demo"],
     conductor: FROM,
@@ -78,6 +81,26 @@ function registerPair(store, publicKeyPem) {
     acceptedPolicies: [],
     createdAt: "2026-05-31T00:00:00.000Z"
   });
+}
+
+async function startRemoteDriveServer(store, to, inject) {
+  const injected = [];
+  const server = remoteDriveServerForStore(store, {
+    to,
+    inject: (payload, line) => {
+      injected.push({ payload, line });
+      return inject?.(payload, line) ?? true;
+    },
+    guard: createReplayGuard()
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const { port } = server.address();
+  return {
+    url: `http://127.0.0.1:${port}/h2a/drive`,
+    injected,
+    close: () => new Promise((resolve) => server.close(resolve))
+  };
 }
 
 test("formatSignedDriveInstruction signs a visible h2a preamble that verifies once", () => {
@@ -760,6 +783,195 @@ test("h2a drive receive persists replay rejection across hook invocations", () =
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("remoteDriveServerForStore verifies a signed drive line before remote injection", async () => {
+  const root = freshRoot();
+  try {
+    const remote = "remote:pod-1";
+    const { privateKeyPem, publicKeyPem } = keypair();
+    const store = createLocalStore({ root });
+    registerPair(store, publicKeyPem, remote);
+    const srv = await startRemoteDriveServer(store, remote);
+    try {
+      const line = formatSignedDriveInstruction({
+        from: FROM,
+        to: remote,
+        instruction: "Read your inbox.",
+        nonce: "nonce-remote-drive",
+        at: new Date().toISOString(),
+        privateKeyPem
+      });
+      const accepted = await fetch(srv.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ line })
+      });
+      assert.equal(accepted.status, 202);
+      assert.deepEqual(await accepted.json(), {
+        ok: true,
+        from: FROM,
+        to: remote,
+        instruction: "Read your inbox."
+      });
+      assert.equal(srv.injected.length, 1);
+      assert.equal(srv.injected[0].payload.instruction, "Read your inbox.");
+      assert.equal(srv.injected[0].line, line);
+
+      const intruder = keypair();
+      store.registerInstance({
+        id: "codex:intruder",
+        instance: "codex:intruder",
+        roles: ["AGENTS"],
+        scopes: ["scope:demo"],
+        capabilities: [],
+        endpoints: [],
+        publicKeys: [intruder.publicKeyPem],
+        acceptedPolicies: [],
+        createdAt: "2026-05-31T00:00:00.000Z"
+      });
+      const unauthorizedLine = formatSignedDriveInstruction({
+        from: "codex:intruder",
+        to: remote,
+        instruction: "Do it.",
+        nonce: "nonce-remote-unauthorized",
+        at: new Date().toISOString(),
+        privateKeyPem: intruder.privateKeyPem
+      });
+      const rejected = await fetch(srv.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ line: unauthorizedLine })
+      });
+      assert.equal(rejected.status, 403);
+      assert.equal((await rejected.json()).reason, "unauthorized");
+      assert.equal(srv.injected.length, 1);
+    } finally {
+      await srv.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("remoteDriveServerForStore rejects replays and malformed drive requests", async () => {
+  const root = freshRoot();
+  try {
+    const remote = "remote:pod-2";
+    const { privateKeyPem, publicKeyPem } = keypair();
+    const store = createLocalStore({ root });
+    registerPair(store, publicKeyPem, remote);
+    const srv = await startRemoteDriveServer(store, remote);
+    try {
+      const line = formatSignedDriveInstruction({
+        from: FROM,
+        to: remote,
+        instruction: "Read your inbox.",
+        nonce: "nonce-remote-replay",
+        at: new Date().toISOString(),
+        privateKeyPem
+      });
+      const first = await fetch(srv.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ line })
+      });
+      assert.equal(first.status, 202);
+      const replay = await fetch(srv.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ line })
+      });
+      assert.equal(replay.status, 409);
+      assert.equal((await replay.json()).reason, "replayed");
+      assert.equal(srv.injected.length, 1);
+
+      const missingLine = await fetch(srv.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: line })
+      });
+      assert.equal(missingLine.status, 400);
+      assert.equal((await missingLine.json()).reason, "missing-line");
+
+      const wrongPath = await fetch(srv.url.replace("/h2a/drive", "/h2a/nope"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ line })
+      });
+      assert.equal(wrongPath.status, 404);
+    } finally {
+      await srv.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runDriveServe exposes the remote drive service for sidecars", async () => {
+  const root = freshRoot();
+  try {
+    const remote = "remote:pod-serve";
+    const { privateKeyPem, publicKeyPem } = keypair();
+    const store = createLocalStore({ root });
+    registerPair(store, publicKeyPem, remote);
+    const line = formatSignedDriveInstruction({
+      from: FROM,
+      to: remote,
+      instruction: "Read your inbox.",
+      nonce: "nonce-drive-serve",
+      at: new Date().toISOString(),
+      privateKeyPem
+    });
+    const cap = captureStreams(() => root);
+    const injected = [];
+    let serverRef;
+    let url;
+    const serving = runDriveServe(
+      {
+        root,
+        to: remote,
+        port: "0"
+      },
+      {
+        ...cap.streams,
+        onListening(server) {
+          serverRef = server;
+          const { port } = server.address();
+          url = `http://127.0.0.1:${port}/h2a/drive`;
+        }
+      },
+      {
+        inject(payload, signedLine) {
+          injected.push({ payload, signedLine });
+          return true;
+        }
+      }
+    );
+    while (!url) await new Promise((resolve) => setTimeout(resolve, 1));
+
+    const accepted = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ line })
+    });
+    assert.equal(accepted.status, 202);
+    assert.equal(injected.length, 1);
+    assert.equal(injected[0].payload.instruction, "Read your inbox.");
+    assert.match(cap.out(), /h2a drive serve: listening/);
+
+    await new Promise((resolve) => serverRef.close(resolve));
+    assert.equal(await serving, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runDriveServe requires an injector command outside tests", async () => {
+  const cap = captureStreams();
+  const rc = await runDriveServe({ to: "remote:pod", port: "0" }, cap.streams);
+  assert.equal(rc, 1);
+  assert.match(cap.err(), /--inject-command/);
 });
 
 test("localTmuxDriver declines when literal send succeeds but Enter fails", async () => {

@@ -37,6 +37,7 @@
  * (`H2A_CLI_VERB_CONTRACTS`). Human-readable reference: `docs/cli-contract.md`.
  */
 
+import { spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import {
   copyFileSync,
@@ -156,7 +157,9 @@ import {
   localTmuxDriver,
   loggingDriver,
   nativeBackchannelDriver,
+  remoteDriveServerForStore,
   verifyDriveOnReceive,
+  type H2ADriveInstructionPayload,
   type H2ADriver,
   type H2ADriverKind
 } from "./runtime/drive/index.js";
@@ -274,6 +277,7 @@ export function renderCliHelp(): string {
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a drive --from <instance> --to <instance> --instruction <text> --private-key <pem> [--driver logging|native|local-tmux|headless|auto] [--host <host>] [--root <path>]",
     "  h2a drive receive --to <instance> (--line <signed-line> | --stdin) [--ignore-non-drive] [--root <path>]   (verify-before-act gate for host hooks)",
+    "  h2a drive serve --to <instance> --inject-command <command> [--port <n>] [--host <h>] [--path </h2a/drive>] [--root <path>]   (remote verify-before-inject service)",
     "  h2a drumbeat record --instance <id> --status <working|paused|done|blocked|out-of-tokens> [--command <c>] [--resume-command <c>] [--tmux-session <s> --tmux-pane <p>] [--root <path>]",
     "  h2a drumbeat scan [--max-relances <n>] [--root <path>]",
     "  h2a drumbeat clear --instance <id> [--root <path>]",
@@ -1403,6 +1407,108 @@ export async function runRemoteServe(
       const boundPort = typeof addr === "object" && addr ? addr.port : port;
       io.stdout.write(
         `h2a remote serve: listening on http://${host}:${boundPort}${flags.path ?? "/h2a/envelopes"} (root ${root})\n`
+      );
+      io.onListening?.(server);
+    });
+    server.on("close", () => resolve(0));
+  });
+}
+
+export interface RunDriveServeOptions {
+  readonly inject?: (
+    payload: H2ADriveInstructionPayload,
+    signedLine: string
+  ) => boolean | Promise<boolean>;
+}
+
+function commandDriveInjector(
+  command: string,
+  io: Pick<H2ACliStreams, "stderr">
+): (payload: H2ADriveInstructionPayload, signedLine: string) => boolean {
+  return (payload, signedLine) => {
+    const result = spawnSync(command, {
+      shell: true,
+      input: `${signedLine}\n`,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        H2A_DRIVE_LINE: signedLine,
+        H2A_DRIVE_FROM: payload.from,
+        H2A_DRIVE_TO: payload.to,
+        H2A_DRIVE_INSTRUCTION: payload.instruction
+      },
+      timeout: 30_000
+    });
+    if (result.error) {
+      io.stderr.write(`h2a drive serve: injector command failed: ${result.error.message}\n`);
+      return false;
+    }
+    if (result.status !== 0) {
+      io.stderr.write(
+        `h2a drive serve: injector command exited ${result.status ?? "unknown"}\n`
+      );
+      return false;
+    }
+    return true;
+  };
+}
+
+/**
+ * `h2a drive serve` (EVO-1 E1d): long-running HTTP endpoint for remote/sidecar
+ * injection. It verifies signature, target, authority, freshness, and replay
+ * before crossing the remote trust boundary into the caller-provided injector.
+ */
+export async function runDriveServe(
+  flags: Record<string, string>,
+  io: {
+    stdout: NodeJS.WritableStream;
+    stderr: NodeJS.WritableStream;
+    cwd?: () => string;
+    onListening?: (server: import("node:http").Server) => void;
+  } = { stdout: process.stdout, stderr: process.stderr },
+  options: RunDriveServeOptions = {}
+): Promise<number> {
+  if (!flags.to) {
+    io.stderr.write("h2a drive serve: --to is required\n");
+    return 1;
+  }
+  const inject = options.inject ?? (
+    flags["inject-command"] ? commandDriveInjector(flags["inject-command"], io) : undefined
+  );
+  if (!inject) {
+    io.stderr.write("h2a drive serve: --inject-command is required\n");
+    return 1;
+  }
+  const cwd = io.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const host = flags.host ?? "127.0.0.1";
+  const port = flags.port ? Number.parseInt(flags.port, 10) : 8788;
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    io.stderr.write(`h2a drive serve: invalid --port "${flags.port}"\n`);
+    return 1;
+  }
+  let store;
+  try {
+    store = createLocalStore({ root });
+  } catch (error) {
+    io.stderr.write(`h2a drive serve: ${(error as Error).message}\n`);
+    return 1;
+  }
+  const server = remoteDriveServerForStore(store, {
+    to: flags.to,
+    path: flags.path,
+    inject
+  });
+  return await new Promise<number>((resolve) => {
+    server.on("error", (err) => {
+      io.stderr.write(`h2a drive serve: ${err.message}\n`);
+      resolve(1);
+    });
+    server.listen(port, host, () => {
+      const addr = server.address();
+      const boundPort = typeof addr === "object" && addr ? addr.port : port;
+      io.stdout.write(
+        `h2a drive serve: listening on http://${host}:${boundPort}${flags.path ?? "/h2a/drive"} (to ${flags.to}, root ${root})\n`
       );
       io.onListening?.(server);
     });
@@ -3877,6 +3983,12 @@ export function runCli(
   if (command === "drive") {
     if (argv[1] === "receive") {
       return cmdDriveReceive(parseFlags(argv.slice(1)).flags, streams);
+    }
+    if (argv[1] === "serve") {
+      streams.stderr.write(
+        "h2a drive serve: async verb — run via the h2a binary, not the synchronous API.\n"
+      );
+      return 1;
     }
     return cmdDrive(flags, streams);
   }

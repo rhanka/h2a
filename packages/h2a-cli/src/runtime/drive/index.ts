@@ -9,10 +9,12 @@
  * boundary for E1d.
  */
 import { randomBytes } from "node:crypto";
+import { createServer, type Server } from "node:http";
 
 import {
   H2A_AUTHORITY_MATRIX,
   canSignArtifactKind,
+  createReplayGuard,
   signCanonical,
   verifyCanonical,
   type H2AActorRegistration,
@@ -137,6 +139,42 @@ export interface NativeDriveCommandInput {
   readonly host?: string;
   readonly launchContext?: H2ALaunchContext;
 }
+
+export type H2ADriveRemoteReason =
+  | H2ADriveAcceptReason
+  | "missing-line"
+  | "payload-too-large";
+
+export type H2ADriveRemoteResult =
+  | {
+      readonly ok: true;
+      readonly from: string;
+      readonly to: string;
+      readonly instruction: string;
+    }
+  | { readonly ok: false; readonly reason: H2ADriveRemoteReason };
+
+export interface RemoteDriveServerOptions {
+  /** Local remote/sidecar instance that this injector is allowed to drive. */
+  readonly to: string;
+  /** Registry/key lookup used by the verify-before-inject gate. */
+  readonly store: Pick<LocalStore, "findInstance" | "listInstanceKeys">;
+  /** Called only after signature, freshness, target, and authority pass. */
+  readonly inject: (
+    payload: H2ADriveInstructionPayload,
+    line: string
+  ) => boolean | Promise<boolean>;
+  /** Shared replay guard. Defaults to an in-memory guard for the service lifetime. */
+  readonly guard?: H2AReplayGuard;
+  /** POST endpoint path. Default `/h2a/drive`. */
+  readonly path?: string;
+  /** Reject bodies larger than this many bytes. Default 64 KiB. */
+  readonly maxBodyBytes?: number;
+  /** Clock source handed to the replay guard. Defaults to `Date.now`. */
+  readonly now?: () => number;
+}
+
+export type RemoteDriveServerForStoreOptions = Omit<RemoteDriveServerOptions, "store">;
 
 function randomNonce(): string {
   return randomBytes(12).toString("hex");
@@ -517,6 +555,130 @@ export function headlessDriver(options: DriverRuntimeOptions = {}): H2ADriver {
       return ok;
     }
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function remoteDriveRejectionStatus(reason: H2ADriveRemoteReason): number {
+  switch (reason) {
+    case "malformed":
+    case "missing-line":
+    case "invalid-timestamp":
+      return 400;
+    case "no-public-key":
+    case "bad-signature":
+      return 401;
+    case "missing-registration":
+    case "unauthorized":
+    case "target-mismatch":
+      return 403;
+    case "replayed":
+      return 409;
+    case "expired":
+    case "future":
+      return 422;
+    case "inject-failed":
+      return 502;
+    case "payload-too-large":
+      return 413;
+    default:
+      return 400;
+  }
+}
+
+export function createRemoteDriveServer(options: RemoteDriveServerOptions): Server {
+  const guard = options.guard ?? createReplayGuard();
+  const path = options.path ?? "/h2a/drive";
+  const maxBodyBytes = options.maxBodyBytes ?? 64 * 1024;
+
+  return createServer((req, res) => {
+    const respond = (status: number, body: H2ADriveRemoteResult | { ok: false; error: string }): void => {
+      const payload = JSON.stringify(body);
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(payload);
+    };
+
+    const url = req.url ?? "";
+    if (url.split("?")[0] !== path) {
+      respond(404, { ok: false, error: "not-found" });
+      return;
+    }
+    if (req.method !== "POST") {
+      res.setHeader("allow", "POST");
+      respond(405, { ok: false, error: "method-not-allowed" });
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let aborted = false;
+    req.on("data", (chunk: Buffer) => {
+      if (aborted) return;
+      total += chunk.length;
+      if (total > maxBodyBytes) {
+        aborted = true;
+        respond(remoteDriveRejectionStatus("payload-too-large"), {
+          ok: false,
+          reason: "payload-too-large"
+        });
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", async () => {
+      if (aborted) return;
+      let payload: unknown;
+      try {
+        payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } catch {
+        respond(remoteDriveRejectionStatus("malformed"), { ok: false, reason: "malformed" });
+        return;
+      }
+      if (!isRecord(payload) || typeof payload.line !== "string") {
+        respond(remoteDriveRejectionStatus("missing-line"), {
+          ok: false,
+          reason: "missing-line"
+        });
+        return;
+      }
+
+      let result: H2ADriveAcceptResult;
+      try {
+        result = await acceptDriveInstruction(payload.line, {
+          store: options.store,
+          guard,
+          expectedTo: options.to,
+          now: options.now?.(),
+          inject: (drivePayload) => options.inject(drivePayload, payload.line as string)
+        });
+      } catch {
+        result = { ok: false, reason: "inject-failed" };
+      }
+      if (!result.ok) {
+        respond(remoteDriveRejectionStatus(result.reason), {
+          ok: false,
+          reason: result.reason
+        });
+        return;
+      }
+      respond(202, {
+        ok: true,
+        from: result.payload.from,
+        to: result.payload.to,
+        instruction: result.payload.instruction
+      });
+    });
+  });
+}
+
+export function remoteDriveServerForStore(
+  store: Pick<LocalStore, "findInstance" | "listInstanceKeys">,
+  options: RemoteDriveServerForStoreOptions
+): Server {
+  return createRemoteDriveServer({ ...options, store });
 }
 
 export function chainDriver(...drivers: readonly H2ADriver[]): H2ADriver {

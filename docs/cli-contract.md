@@ -240,6 +240,15 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 - **Exit codes**: `0`, `1`, `2`, `3`.
 - **Description**: Host-hook verify-before-act gate for an incoming signed drive line. It checks the sender key/signature, target instance, authority (`authorizeDrive`), and replay/freshness before a host plugin or remote injector acts. `--stdin` accepts either a raw signed line or a JSON hook event with `prompt`/`line`; `--ignore-non-drive` returns `{ ok:true, ignored:true }` for ordinary user prompts. Accepted drive ids are persisted under the local store so separate hook invocations reject replays.
 
+#### `h2a drive serve --to <instance> --inject-command <command> [--port <n>] [--host <h>] [--path </h2a/drive>] [--root <path>]`
+
+- **Required**: `--to`, `--inject-command`.
+- **Optional**: `--root`, `--host`, `--port`, `--path`.
+- **Envelope**: `stream`.
+- **HTTP shape**: `POST /h2a/drive` with `{ "line": "[h2a ...] <instruction>" }`; success returns `202` with `{ "ok": true, "from": "<instance>", "to": "<instance>", "instruction": "<text>" }`.
+- **Exit codes**: `0`, `1`.
+- **Description**: Remote/sidecar verify-before-inject service for EVO-1 E1d. It rejects malformed bodies, missing/bad keys, bad signatures, unauthorized senders, target mismatches, replayed lines, and freshness failures before invoking `--inject-command`. The signed line is passed on stdin and in `H2A_DRIVE_LINE`; parsed fields are available as `H2A_DRIVE_FROM`, `H2A_DRIVE_TO`, and `H2A_DRIVE_INSTRUCTION`.
+
 ### Host wiring
 
 #### `h2a host setup --host <codex|claude> [--root <path>] [--print | --write <file>] [--force]`

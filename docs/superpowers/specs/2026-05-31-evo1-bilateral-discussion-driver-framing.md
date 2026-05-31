@@ -67,7 +67,11 @@ EVO-1's driver is **not new infrastructure** — it composes three shipped/ratif
 - `headlessDriver` has host defaults for `codex exec`, `claude -p`, `gemini -p`, and `agy -p` when no launch command was captured.
 - Receiver-side verify-before-act is exposed as `verifyDriveOnReceive`, `acceptDriveInstruction`, and `h2a drive receive --to <instance> (--line <signed-line> | --stdin)`: signature/key, target, authority, and replay/freshness are checked before a host hook or remote injector acts. The CLI receive gate accepts JSON hook events with `prompt`/`line`, can ignore ordinary prompts with `--ignore-non-drive`, and persists accepted drive ids in the local store so separate hook invocations reject replays.
 
-**Remaining outside this h2a-side slice**: installing host-specific receive hooks into each proprietary runtime and the remote-side sidecar injection endpoint. The h2a verifier/injector primitive is present for those hooks; this PR does not modify the external Codex/Claude/Gemini/remote images.
+**E1d h2a-side slice delivered**:
+- `remoteDriveServerForStore` / `createRemoteDriveServer` expose a sidecar HTTP endpoint (`POST /h2a/drive`) that verifies the signed drive line before remote injection. Rejections are mapped to HTTP status codes: malformed/missing line `400`, missing/bad key `401`, unauthorized/target mismatch `403`, replay `409`, freshness `422`, and injector failure `502`.
+- `h2a drive serve --to <instance> --inject-command <command>` runs that endpoint for remote/sidecar deployment. The signed line is passed to the injector on stdin and via `H2A_DRIVE_LINE`; parsed fields are available as `H2A_DRIVE_FROM`, `H2A_DRIVE_TO`, and `H2A_DRIVE_INSTRUCTION`.
+
+**Remaining outside this h2a-side slice**: installing host-specific receive hooks into each proprietary runtime and packaging the sidecar command into external Codex/Claude/Gemini/remote images.
 
 ## Open product decisions (PRINCIPAL)
 
