@@ -30,10 +30,12 @@
 | WP | Owner | Status | Notes |
 |---|---|---|---|
 | CI blocking (release gate on cross-OS matrix) | codex:a2a-cli | ✅ **done + merged** (`8e9c357`) | `publish: needs: verify` (ubuntu/macos/win × node 20/22) |
-| Identity CLI wiring → 0.22.0 (DEC-116) | codex:a2a-cli | 🟡 **assigned** (env `…:3j0h`) | whole slice; 5 inert units built; trusted-user model |
-| EVO-1 bilateral-discussion driver E1a–E1c (signed terminal injection) | codex:a2a-cli-conductor | 🟡 **assigned** (env `…:b4c3`) | framing `docs/superpowers/specs/2026-05-31-evo1-…md` |
-| Drumbeat D7 (escalate-to-PRINCIPAL) | unassigned | ⬜ backlog | last drumbeat slice |
-| EVO-9 ATTENTION-core → INTÉRÊT → CONFIANCE | unassigned (design = claude first) | ⬜ backlog | build after claude validates the design |
+| Identity CLI wiring → 0.22.0 (DEC-116) | codex:a2a-cli | 🟢 **delivered, under Opus review** (`codex/identity-live-wiring-022`) | 709 tests pass; merge on clear |
+| EVO-1 bilateral-discussion driver E1a–E1c | codex:a2a-cli-conductor | 🟢 **delivered, under Opus review** (`codex/evo1-bilateral-driver`) | 714 tests pass; merge on clear |
+| Drumbeat D1–D7 | codex + claude | ✅ **all done** (D7 = DEC-095: escalation registry + auto-escalate-to-PRINCIPAL) | full anti-stall loop complete |
+| EVO-9 ATTENTION comprehension-core | codex:a2a-cli-conductor (next) | 🟡 **design ✅, assigning** | `2026-05-31-evo9-attention-core-design.md` (DEC-118) |
+| EVO-9 INTÉRÊT (conflit posture) | codex:a2a-cli (next) | 🟡 **design ✅, assigning** | `2026-05-31-evo9-interet-design.md` (DEC-119) |
+| EVO-9 ATTENTION dossier-layer → CONFIANCE | unassigned | ⬜ backlog | after INTÉRÊT (composes both) |
 | EVO-11 bridge NHI (paired w/ remote) | claude (interface doc) + remote | ⛔ **product-gated (HOLD)** | design accepted both sides; PRINCIPAL holds PRs; claude drafts the interface contract |
 | B2B2B confiance eval | — | ✅ **closed** | scale aligned its copy on the 5 corrections |
 
