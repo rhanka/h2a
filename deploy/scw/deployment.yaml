@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: h2a-mcp
+  labels:
+    app.kubernetes.io/name: h2a-mcp
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: h2a-mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: h2a-mcp
+    spec:
+      serviceAccountName: h2a-mcp
+      # The image is published to GHCR by .github/workflows/docker.yml. If the
+      # ghcr.io/rhanka/h2a-cli package is private, create the pull secret first:
+      #   kubectl -n h2a-mcp create secret docker-registry ghcr-pull \
+      #     --docker-server=ghcr.io --docker-username=<gh-user> --docker-password=<PAT-read:packages>
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: h2a-mcp
+          image: ghcr.io/rhanka/h2a-cli:latest
+          imagePullPolicy: IfNotPresent
+          # The image ENTRYPOINT is the `h2a` CLI; override it to launch the
+          # EVO-12 hosted MCP HTTP server (self-AS OAuth, read-only surface).
+          command:
+            - node
+            - /opt/h2a/packages/h2a-cli/dist/runtime/mcp-http/main.js
+          ports:
+            - name: http
+              containerPort: 8787
+          envFrom:
+            - configMapRef:
+                name: h2a-mcp-config
+            - secretRef:
+                name: h2a-mcp-secret
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/h2a
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        # Persists the self-AS OAuth client/token store AND the h2a root
+        # (H2A_ROOT) across restarts. DEC-116 invariant: no ed25519 private key
+        # is ever written here — the hosted surface is read-only.
+        - name: data
+          persistentVolumeClaim:
+            claimName: h2a-mcp-data
+        - name: tmp
+          emptyDir: {}

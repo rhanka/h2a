@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: h2a-mcp
+  annotations:
+    # cert-manager provisions the TLS secret via the shared ClusterIssuer
+    # (DNS-01 Cloudflare on sent-tech.ca), same as the mcp-wave tenant.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - h2a-mcp.sent-tech.ca
+      secretName: h2a-mcp-tls
+  rules:
+    - host: h2a-mcp.sent-tech.ca
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: h2a-mcp
+                port:
+                  name: http

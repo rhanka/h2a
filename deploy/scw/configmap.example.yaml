@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: h2a-mcp-config
+  namespace: h2a-mcp
+data:
+  NODE_ENV: production
+  PORT: "8787"
+  # Public HTTPS origin claude.ai connects to. Must match the Ingress host and
+  # the issuer below (no trailing slash — RFC 8414).
+  PUBLIC_BASE_URL: https://h2a-mcp.sent-tech.ca
+  OAUTH_ISSUER_URL: https://h2a-mcp.sent-tech.ca
+  # claude.ai / claude.com OAuth callback URLs (DCR redirect allowlist).
+  OAUTH_ALLOWED_REDIRECT_URIS: https://claude.ai/api/mcp/auth_callback,https://claude.com/api/mcp/auth_callback
+  OAUTH_ACCESS_TOKEN_TTL_SECONDS: "3600"
+  OAUTH_REFRESH_TOKEN_TTL_SECONDS: "1209600"
+  OAUTH_AUTH_CODE_TTL_SECONDS: "60"
+  # Both the self-AS client/token store and the h2a root live on the PVC
+  # (readOnlyRootFilesystem: true → only mounted volumes are writable).
+  OAUTH_STORE_PATH: /var/lib/h2a/oauth-clients.json
+  H2A_ROOT: /var/lib/h2a/root
