@@ -172,10 +172,18 @@ export {
 export {
   resolveProviderSession,
   defaultProviderSessionReaders,
+  listBindings,
+  findBinding,
+  verifyReclaimProof,
+  reclaimOrMint,
   type ProviderSession,
   type ProviderSessionReaders,
   type ProviderSessionSource,
-  type ResolveProviderSessionInput
+  type ResolveProviderSessionInput,
+  type H2AIdentityBinding,
+  type IdentityBindingKey,
+  type ReclaimOrMintDeps,
+  type ReclaimOrMintResult
 } from "./runtime/identity/index.js";
 
 export {
