@@ -18,4 +18,5 @@ export type {
   ReclaimOrMintDeps,
   ReclaimOrMintResult
 } from "./bindings.js";
-export { mergeInboxDedup } from "./migration.js";
+export { mergeInboxDedup, decideLegacyAdoption } from "./migration.js";
+export type { LegacyAdoptionInput, LegacyAdoptionDecision } from "./migration.js";

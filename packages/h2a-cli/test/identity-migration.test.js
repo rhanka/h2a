@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { mergeInboxDedup } from "../dist/index.js";
+import { mergeInboxDedup, decideLegacyAdoption } from "../dist/index.js";
 
 const env = (id, text = "") => ({
   protocol: "sentropic.h2a",
@@ -40,4 +40,24 @@ test("legacy-only ids are surfaced (transparent dual-read)", () => {
 test("entries without a string id are skipped, never throw", () => {
   const out = mergeInboxDedup([[env("env:ok"), { id: 42 }, null, {}]]);
   assert.deepEqual(out.map((e) => e.id), ["env:ok"]);
+});
+
+test("decideLegacyAdoption: first to prove possession inherits the legacy keyring", () => {
+  const d = decideLegacyAdoption({ legacyAlreadyAdopted: false, provedLegacyPossession: true });
+  assert.equal(d.adopt, true);
+  assert.equal(d.netNewKeys, false);
+});
+
+test("decideLegacyAdoption: de-collided peer (already adopted) mints net-new keys", () => {
+  const d = decideLegacyAdoption({ legacyAlreadyAdopted: true, provedLegacyPossession: true });
+  assert.equal(d.adopt, false);
+  assert.equal(d.netNewKeys, true);
+});
+
+test("decideLegacyAdoption: no proof of possession → never inherits, mints net-new", () => {
+  for (const legacyAlreadyAdopted of [false, true]) {
+    const d = decideLegacyAdoption({ legacyAlreadyAdopted, provedLegacyPossession: false });
+    assert.equal(d.adopt, false);
+    assert.equal(d.netNewKeys, true);
+  }
 });

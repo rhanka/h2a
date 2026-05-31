@@ -35,3 +35,48 @@ export function mergeInboxDedup(
   }
   return [...byId.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
+
+export interface LegacyAdoptionInput {
+  /** Has some agent already inherited this legacy id's keyring (single-inheritor lock)? */
+  readonly legacyAlreadyAdopted: boolean;
+  /** Did this connector prove possession of one of the legacy keyring's keys? */
+  readonly provedLegacyPossession: boolean;
+}
+
+export interface LegacyAdoptionDecision {
+  /** Adopt the legacy id as an alias of this agent's perennial uuid + inherit its keyring. */
+  readonly adopt: boolean;
+  /** Mint a fresh key for this agent (honest re-key for de-collided peers). */
+  readonly netNewKeys: boolean;
+  readonly reason: string;
+}
+
+/**
+ * Ratified migration rule (DEC-116, spec §Migration F4): the FIRST agent to
+ * prove possession of a legacy key inherits the legacy keyring and adopts the
+ * legacy id as an alias of its new perennial uuid; every de-collided peer mints
+ * **net-new keys** (honest re-key, surfaced in the migration notice). No proof
+ * → no inheritance. Pure + total. The adoption record + keyring copy are the
+ * caller's (impure, locked) job; this is the deterministic decision.
+ */
+export function decideLegacyAdoption(input: LegacyAdoptionInput): LegacyAdoptionDecision {
+  if (!input.provedLegacyPossession) {
+    return {
+      adopt: false,
+      netNewKeys: true,
+      reason: "no proof of possession of a legacy key — mint net-new keys"
+    };
+  }
+  if (input.legacyAlreadyAdopted) {
+    return {
+      adopt: false,
+      netNewKeys: true,
+      reason: "legacy id already adopted by a peer — de-collided peer mints net-new keys"
+    };
+  }
+  return {
+    adopt: true,
+    netNewKeys: false,
+    reason: "first to prove possession — inherits legacy keyring, legacy id becomes an alias"
+  };
+}
