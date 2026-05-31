@@ -1,5 +1,6 @@
 import {
   H2A_ROLES,
+  H2A_DECLARATION_INTERET_BODY_KIND,
   H2A_SESSION_NOTIFICATION_TOPICS,
   H2A_SESSION_STATES,
   auditNhiPosture,
@@ -328,7 +329,82 @@ export function handleStabilize(
       artifactHash: result.artifactHash,
       signers: result.signers,
       artifactPath: result.artifactPath,
+      advisoryEvents: result.advisoryEvents.map((entry) => ({
+        id: entry.id,
+        sequence: entry.sequence
+      })),
       finalEvent: { id: result.finalEvent.id, sequence: result.finalEvent.sequence }
+    };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+function stringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    return undefined;
+  }
+  return value.map((item) => item.trim()).filter((item) => item.length > 0);
+}
+
+export function handleDeclareConflitInteret(
+  store: LocalStore,
+  args:
+    | {
+        negotiationId?: string;
+        instance?: string;
+        interets?: unknown;
+        bindings?: unknown;
+        masqueImpactCollectif?: boolean;
+        eventId?: string;
+        at?: string;
+      }
+    | undefined
+): McpToolResult | McpErrorResult {
+  if (!args || typeof args.negotiationId !== "string" || args.negotiationId.length === 0) {
+    return { error: "h2a_declare_conflit_interet: missing 'negotiationId'" };
+  }
+  if (typeof args.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_declare_conflit_interet: missing 'instance'" };
+  }
+  const interets = stringList(args.interets);
+  if (!interets || interets.length === 0) {
+    return { error: "h2a_declare_conflit_interet: 'interets' must be a non-empty string array" };
+  }
+  const bindings = args.bindings === undefined ? [] : stringList(args.bindings);
+  if (bindings === undefined) {
+    return { error: "h2a_declare_conflit_interet: 'bindings' must be a string array when provided" };
+  }
+  try {
+    const entry = store.declareConflitInteret(
+      args.negotiationId,
+      {
+        kind: H2A_DECLARATION_INTERET_BODY_KIND,
+        subject: args.instance,
+        interets,
+        ...(bindings.length > 0 ? { bindings } : {}),
+        ...(args.masqueImpactCollectif === true ? { masqueImpactCollectif: true } : {}),
+        at: args.at ?? nowIso()
+      },
+      { eventId: args.eventId }
+    );
+    return { entry };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+export function handleConflictPosture(
+  store: LocalStore,
+  args: { negotiationId?: string } | undefined
+): McpToolResult | McpErrorResult {
+  if (!args || typeof args.negotiationId !== "string" || args.negotiationId.length === 0) {
+    return { error: "h2a_conflict_posture: missing 'negotiationId'" };
+  }
+  try {
+    return {
+      negotiationId: args.negotiationId,
+      postures: store.derivePosturesConflit(args.negotiationId)
     };
   } catch (err) {
     return safeError(err);

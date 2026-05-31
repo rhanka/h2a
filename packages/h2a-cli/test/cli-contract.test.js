@@ -355,6 +355,20 @@ function buildHappyArgv(verb, ctx) {
       return null;
     case "negotiate journal":
       return ["negotiate", "journal", "--root", root, "--id", "nego-cc"];
+    case "declare-interest":
+      return [
+        "declare-interest",
+        "--root",
+        root,
+        "--negotiation",
+        "nego-cc",
+        "--instance",
+        "req-001",
+        "--interets",
+        "vendor stake"
+      ];
+    case "conflict-posture":
+      return ["conflict-posture", "--root", root, "--negotiation", "nego-cc"];
     case "inbox put":
       return [
         "inbox",
@@ -629,6 +643,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "negotiate sign",
     "negotiate stabilize",
     "negotiate journal",
+    "declare-interest",
+    "conflict-posture",
     "inbox put",
     "inbox read",
     "inbox pop",

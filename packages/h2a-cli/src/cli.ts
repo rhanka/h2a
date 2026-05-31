@@ -66,6 +66,7 @@ import {
   diffOrgManifest,
   effectiveOrgInstances,
   orgAssignmentEnvelope,
+  H2A_DECLARATION_INTERET_BODY_KIND,
   H2A_ORG_MANIFEST_FILENAME,
   H2A_ORG_PROPOSAL_BODY_KIND,
   H2A_ORG_RATIFIED_BODY_KIND,
@@ -229,6 +230,8 @@ export function renderCliHelp(): string {
     "  h2a negotiate sign --id <id> --instance <id> --artifact <json> --private-key <pem-path> [--event-id <id>] [--causation-id <id>] [--correlation-id <id>] [--root <path>]",
     "  h2a negotiate stabilize --id <id> [--event-id <id>] [--root <path>]",
     "  h2a negotiate journal --id <id> [--root <path>]",
+    "  h2a declare-interest --negotiation <id> --instance <id> --interets <a,b> [--bindings <scope,...>] [--masque-impact-collectif] [--event-id <id>] [--root <path>]",
+    "  h2a conflict-posture --negotiation <id> [--root <path>]",
     "",
     "Auto-propagation (DEC-033):",
     "  offer/counter/sign/event inherit causationId from the previous journal",
@@ -770,6 +773,10 @@ function cmdNegotiate(
             artifactHash: result.artifactHash,
             signers: result.signers,
             artifactPath: result.artifactPath,
+            advisoryEvents: result.advisoryEvents.map((entry) => ({
+              id: entry.id,
+              sequence: entry.sequence
+            })),
             finalEvent: { id: result.finalEvent.id, sequence: result.finalEvent.sequence }
           },
           null,
@@ -836,6 +843,93 @@ function cmdNegotiate(
   streams.stderr.write(`Unknown negotiate subcommand: ${sub ?? "<none>"}\n`);
   streams.stderr.write("Use one of: open, status, event, offer, counter, sign, stabilize, journal\n");
   return 1;
+}
+
+function splitCsvFlag(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function cmdDeclareInteret(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  if (!flags.negotiation || !flags.instance || !flags.interets) {
+    streams.stderr.write(
+      "h2a declare-interest: --negotiation <id> --instance <id> --interets <a,b> required\n"
+    );
+    return 1;
+  }
+  const interets = splitCsvFlag(flags.interets);
+  if (interets.length === 0) {
+    streams.stderr.write("h2a declare-interest: --interets must contain at least one value\n");
+    return 1;
+  }
+  const bindings = splitCsvFlag(flags.bindings);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const store = createLocalStore({ root });
+  const declaration: {
+    kind: typeof H2A_DECLARATION_INTERET_BODY_KIND;
+    subject: string;
+    interets: string[];
+    at: string;
+    bindings?: string[];
+    masqueImpactCollectif?: boolean;
+  } = {
+    kind: H2A_DECLARATION_INTERET_BODY_KIND,
+    subject: flags.instance,
+    interets,
+    at: flags.at ?? new Date().toISOString()
+  };
+  if (bindings.length > 0) declaration.bindings = bindings;
+  if (flags["masque-impact-collectif"] !== undefined) {
+    declaration.masqueImpactCollectif = true;
+  }
+  try {
+    const entry = store.declareConflitInteret(flags.negotiation, declaration, {
+      eventId: flags["event-id"]
+    });
+    streams.stdout.write(`${JSON.stringify(entry, null, 2)}\n`);
+    return 0;
+  } catch (error) {
+    const message = (error as Error).message;
+    streams.stderr.write(`h2a declare-interest: ${message}\n`);
+    return classifyStoreError(message);
+  }
+}
+
+function cmdConflictPosture(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  if (!flags.negotiation) {
+    streams.stderr.write("h2a conflict-posture: --negotiation <id> required\n");
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const store = createLocalStore({ root });
+  try {
+    streams.stdout.write(
+      `${JSON.stringify(
+        {
+          negotiationId: flags.negotiation,
+          postures: store.derivePosturesConflit(flags.negotiation)
+        },
+        null,
+        2
+      )}\n`
+    );
+    return 0;
+  } catch (error) {
+    const message = (error as Error).message;
+    streams.stderr.write(`h2a conflict-posture: ${message}\n`);
+    return classifyStoreError(message);
+  }
 }
 
 /**
@@ -3332,6 +3426,8 @@ export function runCli(
     return 1;
   }
   if (command === "negotiate") return cmdNegotiate(argv.slice(1), streams);
+  if (command === "declare-interest") return cmdDeclareInteret(flags, streams);
+  if (command === "conflict-posture") return cmdConflictPosture(flags, streams);
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);
   if (command === "host") return cmdHost(argv.slice(1), streams);

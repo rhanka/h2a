@@ -70,6 +70,20 @@ export type {
   H2ADisclosureProfileDescriptor
 } from "./disclosure.js";
 export {
+  H2A_CRITERES_CONFLIT,
+  H2A_DECLARATION_INTERET_BODY_KIND,
+  H2A_POSTURES_CONFLIT,
+  derivePostureConflit,
+  isH2ADeclarationInteret
+} from "./conflit-interet.js";
+export type {
+  H2ACritereConflit,
+  H2ADeclarationInteret,
+  H2APostureConflit,
+  H2APostureConflitContext,
+  H2APostureConflitResult
+} from "./conflit-interet.js";
+export {
   H2A_RECOURSE_CONFLICT_DISPOSITIONS,
   H2A_RECOURSE_PROFILES,
   H2A_RECOURSE_STATES,

@@ -131,6 +131,7 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
     "artifactHash": "sha256:<hex>",
     "signers": ["<instance>", ...],
     "artifactPath": "<absolute-path>",
+    "advisoryEvents": [{ "id": "<event-id>", "sequence": <n> }],
     "finalEvent": { "id": "<event-id>", "sequence": <n> }
   }
   ```
@@ -142,6 +143,20 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 - **Required**: `--id`.
 - **Envelope**: `list`.
 - **Stdout shape**: `H2AJournalEntry[]` (with hash-chain verified by the store on read).
+- **Exit codes**: `0`, `1`, `2`.
+
+#### `h2a declare-interest --negotiation <id> --instance <id> --interets <a,b> [--bindings <scope,...>] [--masque-impact-collectif] [--event-id <id>] [--root <path>]`
+
+- **Required**: `--negotiation`, `--instance`, `--interets`.
+- **Envelope**: `resource`.
+- **Stdout shape**: the appended `H2AJournalEntry` carrying `body.kind = "declaration-interet"`.
+- **Exit codes**: `0`, `1`, `2`.
+
+#### `h2a conflict-posture --negotiation <id> [--root <path>]`
+
+- **Required**: `--negotiation`.
+- **Envelope**: `resource`.
+- **Stdout shape**: `{ "negotiationId": "<id>", "postures": ["<H2APostureConflitResult>", ...] }`.
 - **Exit codes**: `0`, `1`, `2`.
 
 ### Mailbox
