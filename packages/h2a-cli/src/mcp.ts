@@ -6,6 +6,8 @@ export const H2A_CLI_MCP_TOOL_NAMES = [
   "h2a_counteroffer",
   "h2a_sign",
   "h2a_stabilize",
+  "h2a_declare_conflit_interet",
+  "h2a_conflict_posture",
   "h2a_inbox",
   "h2a_append_journal",
   "h2a_escalate",

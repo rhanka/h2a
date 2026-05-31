@@ -2,7 +2,9 @@ import { createLocalStore, type LocalStore } from "../local-files/store.js";
 
 import {
   handleAppendJournal,
+  handleConflictPosture,
   handleCounteroffer,
+  handleDeclareConflitInteret,
   handleDiscoverInstances,
   handleDiscoverSessions,
   handleEscalate,
@@ -120,6 +122,10 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleSign(store, args as never);
       case "h2a_stabilize":
         return handleStabilize(store, args as never);
+      case "h2a_declare_conflit_interet":
+        return handleDeclareConflitInteret(store, args as never);
+      case "h2a_conflict_posture":
+        return handleConflictPosture(store, args as never);
       case "h2a_escalate":
         return handleEscalate(store, args as never);
       case "h2a_session_open":

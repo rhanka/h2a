@@ -147,6 +147,42 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
     }
   },
   {
+    name: "h2a_declare_conflit_interet",
+    description:
+      "Append a declaration-interet journal event for an instance in a negotiation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        negotiationId: { type: "string" },
+        instance: { type: "string" },
+        interets: {
+          type: "array",
+          items: { type: "string" }
+        },
+        bindings: {
+          type: "array",
+          items: { type: "string" }
+        },
+        masqueImpactCollectif: { type: "boolean" },
+        eventId: { type: "string" },
+        at: { type: "string" }
+      },
+      required: ["negotiationId", "instance", "interets"]
+    }
+  },
+  {
+    name: "h2a_conflict_posture",
+    description:
+      "Derive postureConflit for the negotiation signers and declared subjects.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        negotiationId: { type: "string" }
+      },
+      required: ["negotiationId"]
+    }
+  },
+  {
     name: "h2a_inbox",
     description:
       "Inbox dispatch — read | put | pop envelopes for a given instance.",

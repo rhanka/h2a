@@ -12,12 +12,15 @@ import { dirname, join } from "node:path";
 import {
   H2A_ARTIFACT_KINDS,
   H2A_AUTHORITY_MATRIX,
+  H2A_DECLARATION_INTERET_BODY_KIND,
   appendJournalEntry,
   assertValidNegotiationState,
   canSignArtifactKind,
   computeHash,
   createJournalEntry,
+  derivePostureConflit,
   isH2AEnvelope,
+  isH2ADeclarationInteret,
   validateSubagentBinding,
   verifyCanonical,
   verifyJournalChain,
@@ -29,6 +32,8 @@ import {
   type H2AJournalEntry,
   type H2AJournalPayload,
   type H2ANegotiationRecord,
+  type H2ADeclarationInteret,
+  type H2APostureConflitResult,
   type H2ARole,
   type H2ASignature
 } from "@sentropic/h2a";
@@ -153,6 +158,12 @@ export interface LocalStore {
     payload: H2AJournalPayload<TBody>
   ): H2AJournalEntry<TBody>;
   readNegotiationJournal(negotiationId: string): H2AJournalEntry<unknown>[];
+  declareConflitInteret(
+    negotiationId: string,
+    declaration: H2ADeclarationInteret,
+    options?: { eventId?: string }
+  ): H2AJournalEntry<H2ADeclarationInteret>;
+  derivePosturesConflit(negotiationId: string): H2APostureConflitResult[];
   stabilizeNegotiation(
     negotiationId: string,
     options?: { eventId?: string }
@@ -161,6 +172,7 @@ export interface LocalStore {
     artifactHash: string;
     signers: string[];
     finalEvent: H2AJournalEntry<unknown>;
+    advisoryEvents: H2AJournalEntry<unknown>[];
     artifactPath: string;
   };
   putInboxMessage(actor: string, envelope: H2AEnvelope): void;
@@ -682,6 +694,142 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     );
   }
 
+  function asPlainRecord(value: unknown): Record<string, unknown> | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return undefined;
+    }
+    return value as Record<string, unknown>;
+  }
+
+  function addScopeValue(scopes: Set<string>, value: unknown): void {
+    if (typeof value === "string" && value.length > 0) {
+      scopes.add(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) addScopeValue(scopes, item);
+      return;
+    }
+    const nested = asPlainRecord(value);
+    if (nested) addScopeValue(scopes, nested.scope);
+  }
+
+  function collectDecisionScopes(
+    record: H2ANegotiationRecord,
+    entries: readonly H2AJournalEntry<unknown>[],
+    artifact?: unknown
+  ): string[] {
+    const scopes = new Set<string>([record.scope]);
+    const addArtifactScopes = (candidate: unknown): void => {
+      const body = asPlainRecord(candidate);
+      if (!body) return;
+      addScopeValue(scopes, body.scope);
+      addScopeValue(scopes, body.aval);
+      addScopeValue(scopes, body.scopeAval);
+    };
+    for (const entry of entries) {
+      const body = asPlainRecord(entry.body);
+      if (body && "artifact" in body) addArtifactScopes(body.artifact);
+    }
+    addArtifactScopes(artifact);
+    return [...scopes];
+  }
+
+  function collectDeclarations(
+    entries: readonly H2AJournalEntry<unknown>[]
+  ): H2ADeclarationInteret[] {
+    return entries
+      .map((entry) => entry.body)
+      .filter(isH2ADeclarationInteret);
+  }
+
+  function collectControleFlags(
+    entries: readonly H2AJournalEntry<unknown>[]
+  ): string[] {
+    const subjects = new Set<string>();
+    for (const entry of entries) {
+      if (entry.actor.role !== "CONTROL") continue;
+      const body = asPlainRecord(entry.body);
+      if (!body) continue;
+      const subject = body.subject;
+      if (typeof subject !== "string" || subject.length === 0) continue;
+      if (
+        body.kind === "postureConflit" ||
+        body.kind === "conflitInteret" ||
+        body.postureConflit === "conflit-declarable" ||
+        body.conflitInteret === true
+      ) {
+        subjects.add(subject);
+      }
+    }
+    return [...subjects];
+  }
+
+  function derivePosturesConflitFor(
+    record: H2ANegotiationRecord,
+    entries: readonly H2AJournalEntry<unknown>[],
+    artifact?: unknown
+  ): H2APostureConflitResult[] {
+    const declarations = collectDeclarations(entries);
+    const controleFlags = collectControleFlags(entries);
+    const subjects: string[] = [];
+    const seen = new Set<string>();
+    const addSubject = (subject: string): void => {
+      if (seen.has(subject)) return;
+      seen.add(subject);
+      subjects.push(subject);
+    };
+
+    for (const signer of record.requiredSigners ?? []) addSubject(signer);
+    for (const declaration of declarations) addSubject(declaration.subject);
+    for (const subject of controleFlags) addSubject(subject);
+
+    const decisionScopes = collectDecisionScopes(record, entries, artifact);
+    return subjects.map((subject) =>
+      derivePostureConflit(subject, {
+        declarations,
+        ownScopes: findInstance(subject)?.scopes ?? [],
+        decisionScopes,
+        signers: record.requiredSigners ?? [],
+        controleFlags
+      })
+    );
+  }
+
+  function declareConflitInteret(
+    negotiationId: string,
+    declaration: H2ADeclarationInteret,
+    options: { eventId?: string } = {}
+  ): H2AJournalEntry<H2ADeclarationInteret> {
+    if (!isH2ADeclarationInteret(declaration)) {
+      throw new Error(
+        `${H2A_DECLARATION_INTERET_BODY_KIND}: invalid declaration body`
+      );
+    }
+    const record = readNegotiation(negotiationId);
+    if (!record) {
+      throw new Error(`Negotiation not found: ${negotiationId}`);
+    }
+    const registration = findInstance(declaration.subject);
+    const role = (registration?.roles?.[0] ?? "CONDUCTOR") as H2ARole;
+    const scope = registration?.scopes?.[0] ?? record.scope;
+    return appendNegotiationEvent(negotiationId, {
+      id: options.eventId ?? `evt-declaration-interet-${Date.now().toString(36)}`,
+      type: "event",
+      actor: { instance: declaration.subject, role, scope },
+      body: declaration,
+      createdAt: declaration.at
+    });
+  }
+
+  function derivePosturesConflit(negotiationId: string): H2APostureConflitResult[] {
+    const record = readNegotiation(negotiationId);
+    if (!record) {
+      throw new Error(`Negotiation not found: ${negotiationId}`);
+    }
+    return derivePosturesConflitFor(record, readNegotiationJournalUnlocked(negotiationId));
+  }
+
   function stabilizeNegotiation(
     negotiationId: string,
     options: { eventId?: string } = {}
@@ -834,7 +982,47 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
         // Inline append + status update (we already hold the per-negotiation
         // lock, so we cannot recurse into the wrapped helpers).
         const journalFile = negotiationJournalFile(paths, negotiationId);
-        const entriesForAppend = readNegotiationJournalUnlocked(negotiationId);
+        let entriesForAppend = readNegotiationJournalUnlocked(negotiationId);
+        const advisoryEvents: H2AJournalEntry<unknown>[] = [];
+        const posturesConflit = derivePosturesConflitFor(
+          record,
+          entriesForAppend,
+          winningArtifact
+        ).filter(
+          (posture) =>
+            posture.postureConflit === "conflit-declarable" &&
+            record.requiredSigners.includes(posture.subject)
+        );
+        for (const [index, posture] of posturesConflit.entries()) {
+          const previousAdvisory = entriesForAppend[entriesForAppend.length - 1];
+          const advisoryPayload: H2AJournalPayload<unknown> = {
+            id: `evt-postureConflit-${index}-${Date.now().toString(36)}`,
+            type: "escalate",
+            actor: { instance: "h2a-cli", role: "MANDATAIRE", scope: record.scope },
+            body: {
+              kind: "escalation",
+              channel: "alert",
+              payload: {
+                kind: "postureConflit",
+                subject: posture.subject,
+                postureConflit: posture.postureConflit,
+                criteres: posture.criteres,
+                disclosureMode: posture.disclosureMode,
+                masqueImpactCollectif: posture.masqueImpactCollectif,
+                requiredBodyKind: H2A_DECLARATION_INTERET_BODY_KIND,
+                disposition: "route-escalate"
+              }
+            },
+            createdAt: new Date().toISOString()
+          };
+          const advisoryEvent = previousAdvisory
+            ? appendJournalEntry(previousAdvisory, advisoryPayload)
+            : createJournalEntry(advisoryPayload);
+          appendJsonl(journalFile, advisoryEvent);
+          advisoryEvents.push(advisoryEvent);
+          entriesForAppend = [...entriesForAppend, advisoryEvent];
+        }
+
         const previous = entriesForAppend[entriesForAppend.length - 1];
         const finalPayload: H2AJournalPayload<unknown> = {
           id: options.eventId ?? `evt-stabilize-${Date.now().toString(36)}`,
@@ -869,6 +1057,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
           artifactHash: winningHash,
           signers: record.requiredSigners,
           finalEvent,
+          advisoryEvents,
           artifactPath
         };
       },
@@ -1026,6 +1215,8 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     updateNegotiationStatus,
     appendNegotiationEvent,
     readNegotiationJournal,
+    declareConflitInteret,
+    derivePosturesConflit,
     stabilizeNegotiation,
     putInboxMessage,
     readInbox,

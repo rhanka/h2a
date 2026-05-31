@@ -236,6 +236,24 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     optionalFlags: ["root"],
     description: "Read and verify the full hash-chained journal for a negotiation."
   },
+  {
+    verb: "declare-interest",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["negotiation", "instance", "interets"],
+    optionalFlags: ["root", "bindings", "masque-impact-collectif", "event-id", "at"],
+    description:
+      "Append a declaration-interet journal event for an instance in a negotiation."
+  },
+  {
+    verb: "conflict-posture",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["negotiation"],
+    optionalFlags: ["root"],
+    description:
+      "Derive postureConflit for the negotiation signers and declared subjects."
+  },
 
   // --- mailboxes ---
   {
