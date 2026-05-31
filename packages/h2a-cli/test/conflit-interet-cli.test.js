@@ -205,7 +205,7 @@ test("stabilize adds a postureConflit escalation before the final stabilized eve
     );
     assert.equal(stabilized.rc, 0, stabilized.stderr);
     const stabilizedPayload = JSON.parse(stabilized.stdout);
-    assert.equal(stabilizedPayload.advisoryEvents.length, 1);
+    assert.ok(stabilizedPayload.advisoryEvents.length >= 1);
 
     const journal = JSON.parse(
       run(["negotiate", "journal", "--root", root, "--id", "nego-conflit"], dir).stdout
@@ -224,6 +224,10 @@ test("stabilize adds a postureConflit escalation before the final stabilized eve
     assert.equal(advisory.body.payload.subject, signer);
     assert.equal(advisory.body.payload.postureConflit, "conflit-declarable");
     assert.equal(advisory.body.payload.requiredBodyKind, "declaration-interet");
+    assert.ok(
+      journal.some((entry) => entry.body?.payload?.kind === "postureConfiance"),
+      "expected a postureConfiance advisory event"
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

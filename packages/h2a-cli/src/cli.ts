@@ -246,6 +246,8 @@ export function renderCliHelp(): string {
     "  h2a negotiate journal --id <id> [--root <path>]",
     "  h2a declare-interest --negotiation <id> --instance <id> --interets <a,b> [--bindings <scope,...>] [--masque-impact-collectif] [--event-id <id>] [--root <path>]",
     "  h2a conflict-posture --negotiation <id> [--root <path>]",
+    "  h2a dossier --negotiation <id> [--presenter <id>] [--advisory-gate] [--event-id <id>] [--root <path>]",
+    "  h2a confiance --negotiation <id> [--root <path>]",
     "  h2a attest-comprehension --instance <id> --dossier <file|sha256:...> --private-key <pem-path> [--negotiation <id> | --to <instance>] [--role <role>] [--scope <scope>] [--root <path>]",
     "  h2a comprehension list --negotiation <id> [--root <path>]",
     "  h2a comprehension verify --json <event-or-envelope-json> --public-key <pem-file>",
@@ -989,6 +991,56 @@ function cmdConflictPosture(
   } catch (error) {
     const message = (error as Error).message;
     streams.stderr.write(`h2a conflict-posture: ${message}\n`);
+    return classifyStoreError(message);
+  }
+}
+
+function cmdDossier(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  if (!flags.negotiation) {
+    streams.stderr.write("h2a dossier: --negotiation <id> required\n");
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const store = createLocalStore({ root });
+  try {
+    const result = store.deriveDecisionDossier(flags.negotiation, {
+      presenter: flags.presenter,
+      advisoryGate: flags["advisory-gate"] === "true",
+      eventId: flags["event-id"]
+    });
+    streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  } catch (error) {
+    const message = (error as Error).message;
+    streams.stderr.write(`h2a dossier: ${message}\n`);
+    return classifyStoreError(message);
+  }
+}
+
+function cmdConfiance(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  if (!flags.negotiation) {
+    streams.stderr.write("h2a confiance: --negotiation <id> required\n");
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const store = createLocalStore({ root });
+  try {
+    const posture = store.derivePostureConfiance(flags.negotiation);
+    streams.stdout.write(
+      `${JSON.stringify({ negotiationId: flags.negotiation, posture }, null, 2)}\n`
+    );
+    return 0;
+  } catch (error) {
+    const message = (error as Error).message;
+    streams.stderr.write(`h2a confiance: ${message}\n`);
     return classifyStoreError(message);
   }
 }
@@ -3692,6 +3744,8 @@ export function runCli(
   if (command === "negotiate") return cmdNegotiate(argv.slice(1), streams);
   if (command === "declare-interest") return cmdDeclareInteret(flags, streams);
   if (command === "conflict-posture") return cmdConflictPosture(flags, streams);
+  if (command === "dossier") return cmdDossier(flags, streams);
+  if (command === "confiance") return cmdConfiance(flags, streams);
   if (command === "attest-comprehension") return cmdAttestComprehension(flags, streams);
   if (command === "comprehension") return cmdComprehension(argv.slice(1), streams);
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
