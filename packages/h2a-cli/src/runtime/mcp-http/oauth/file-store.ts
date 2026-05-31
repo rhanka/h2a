@@ -126,6 +126,12 @@ export class FileOAuthStore implements OAuthRegisteredClientsStore {
     const handle = await open(tempPath, "r");
     try {
       await handle.sync();
+    } catch (error) {
+      // Windows rejects fsync on some handles with EPERM, and exotic FUSE/CI
+      // filesystems return ENOSYS. The durability hint is best-effort; the
+      // rename below still provides atomic replace on every platform.
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "ENOSYS") throw error;
     } finally {
       await handle.close();
     }
