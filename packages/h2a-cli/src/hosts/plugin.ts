@@ -245,7 +245,11 @@ export function codexPluginTrustCommands(
   marketplace: string = H2A_CODEX_MARKETPLACE_NAME
 ): readonly string[] {
   return [
-    `codex plugin marketplace add ${JSON.stringify(marketplaceDir)}`,
+    // Double-quote (not JSON.stringify) so the displayed command is correct on
+    // Windows too: JSON-escaping doubles every backslash (`D:\\mkt`), which is
+    // both wrong for the user's shell and breaks the literal-path assertion.
+    // Plain double quotes still cover spaces on POSIX and Windows.
+    `codex plugin marketplace add "${marketplaceDir}"`,
     `codex plugin add ${name}@${marketplace}`
   ];
 }
