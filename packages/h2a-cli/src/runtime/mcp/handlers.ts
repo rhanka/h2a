@@ -1,17 +1,24 @@
 import {
+  H2A_ATTESTER_COMPREHENSION_RIGHT,
+  H2A_COMPREHENSION_ATTESTATION_BODY_KIND,
   H2A_ROLES,
   H2A_DECLARATION_INTERET_BODY_KIND,
   H2A_SESSION_NOTIFICATION_TOPICS,
   H2A_SESSION_STATES,
   auditNhiPosture,
+  buildComprehensionAttestation,
+  canAttestComprehension,
   computeHash,
+  createEnvelope,
   effectiveOrgInstances,
+  isComprehensionAttestation,
   nhiAttestationEnvelope,
   nhiInventory,
   nhiTrustBundle,
   signCanonical,
   signEnvelope,
   type H2AActorRegistration,
+  type H2AActorRef,
   type H2AEnvelope,
   type H2AJournalPayload,
   type H2ANegotiationRecord,
@@ -335,6 +342,112 @@ export function handleStabilize(
       })),
       finalEvent: { id: result.finalEvent.id, sequence: result.finalEvent.sequence }
     };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+function findRegisteredInstance(
+  store: LocalStore,
+  instance: string
+): H2AActorRegistration | undefined {
+  return store.findInstance(instance) ?? store.listInstances().find((entry) => entry.instance === instance);
+}
+
+function roleFromArg(value: unknown): H2ARole | undefined {
+  if (typeof value !== "string") return undefined;
+  return H2A_ROLES.includes(value as H2ARole) ? (value as H2ARole) : undefined;
+}
+
+export function handleAttestComprehension(
+  store: LocalStore,
+  args:
+    | {
+        negotiationId?: string;
+        instance?: string;
+        dossier?: unknown;
+        dossierHash?: string;
+        privateKeyPem?: string;
+        role?: string;
+        scope?: string;
+        eventId?: string;
+        at?: string;
+        causationId?: string;
+        correlationId?: string;
+      }
+    | undefined
+): McpToolResult | McpErrorResult {
+  if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_attest_comprehension: missing 'instance'" };
+  }
+  if (typeof args.privateKeyPem !== "string" || args.privateKeyPem.length === 0) {
+    return { error: "h2a_attest_comprehension: missing 'privateKeyPem'" };
+  }
+  if (args.dossierHash === undefined && args.dossier === undefined) {
+    return { error: "h2a_attest_comprehension: missing 'dossierHash' or 'dossier'" };
+  }
+  const registration = findRegisteredInstance(store, args.instance);
+  if (!registration) {
+    return { error: `h2a_attest_comprehension: instance ${args.instance} not registered` };
+  }
+  const record = args.negotiationId ? store.readNegotiation(args.negotiationId) : undefined;
+  if (args.negotiationId && !record) {
+    return { error: `h2a_attest_comprehension: negotiation ${args.negotiationId} not found` };
+  }
+  const role = args.role === undefined ? registration.roles[0] : roleFromArg(args.role);
+  if (!role) {
+    return { error: `h2a_attest_comprehension: unknown or missing role ${String(args.role ?? "")}` };
+  }
+  const scope = args.scope ?? record?.scope ?? registration.scopes[0];
+  if (!scope) {
+    return { error: `h2a_attest_comprehension: ${args.instance} has no scope` };
+  }
+  if (!canAttestComprehension(role, registration.capabilities)) {
+    return {
+      error: `h2a_attest_comprehension: role ${role} for ${args.instance} cannot attest comprehension; AGENTS require ${H2A_ATTESTER_COMPREHENSION_RIGHT}`
+    };
+  }
+
+  try {
+    const body = buildComprehensionAttestation({
+      subject: args.instance,
+      dossierHash: args.dossierHash ?? computeHash(args.dossier),
+      ...(args.at ? { at: args.at } : {})
+    });
+    if (
+      body.kind !== H2A_COMPREHENSION_ATTESTATION_BODY_KIND ||
+      !isComprehensionAttestation(body)
+    ) {
+      return { error: "h2a_attest_comprehension: invalid comprehension-attestation body" };
+    }
+    const actor: H2AActorRef = { instance: args.instance, role, scope };
+    const signature = signCanonical(body, { by: args.instance, privateKeyPem: args.privateKeyPem });
+    if (args.negotiationId) {
+      const chain = resolveChain(store, args.negotiationId, {
+        causationId: args.causationId,
+        correlationId: args.correlationId
+      });
+      const payload: H2AJournalPayload<typeof body> = {
+        id: args.eventId ?? `evt-comprehension-${Date.now().toString(36)}`,
+        type: "event",
+        actor,
+        body,
+        signatures: [signature],
+        createdAt: body.at,
+        ...chain
+      };
+      const entry = store.appendNegotiationEvent(args.negotiationId, payload);
+      return { entry };
+    }
+    const envelope = createEnvelope({
+      id: args.eventId ?? `env-comprehension-${Date.now().toString(36)}`,
+      type: "event",
+      actor,
+      body,
+      signatures: [signature],
+      createdAt: body.at
+    });
+    return { envelope };
   } catch (err) {
     return safeError(err);
   }

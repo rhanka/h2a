@@ -159,6 +159,29 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 - **Stdout shape**: `{ "negotiationId": "<id>", "postures": ["<H2APostureConflitResult>", ...] }`.
 - **Exit codes**: `0`, `1`, `2`.
 
+#### `h2a attest-comprehension --instance <id> --dossier <file|sha256:...> --private-key <pem-path> [--negotiation <id> | --to <instance>] [--root <path>]`
+
+- **Required**: `--instance`, `--dossier`, `--private-key`.
+- **Optional**: `--negotiation`, `--to`, `--event-id`, `--role`, `--scope`, `--at`, `--causation-id`, `--correlation-id`, `--root`.
+- **Envelope**: `resource`.
+- **Stdout shape**: the appended `H2AJournalEntry` when `--negotiation` is used, otherwise a signed `H2AEnvelope` event.
+- **Exit codes**: `0`, `1`, `2`, `3`.
+- **Description**: Emit a signed, non-binding `comprehension-attestation`. AGENTS need the `attester-comprehension` grant; the event has no `artifactKind` and does not count toward stabilization quorum.
+
+#### `h2a comprehension list --negotiation <id> [--root <path>]`
+
+- **Required**: `--negotiation`.
+- **Envelope**: `list`.
+- **Stdout shape**: `H2AJournalEntry[]` filtered to `body.kind = "comprehension-attestation"`.
+- **Exit codes**: `0`, `1`, `2`.
+
+#### `h2a comprehension verify --json <event-or-envelope-json> --public-key <pem-file>`
+
+- **Required**: `--json`, `--public-key`.
+- **Envelope**: `resource`.
+- **Stdout shape**: `{ "ok": true, "kind": "comprehension-attestation", "subject": "<instance>", "dossierHash": "sha256:<hex>" }` on success.
+- **Exit codes**: `0`, `1`, `2`, `3`.
+
 ### Mailbox
 
 #### `h2a inbox put --instance <id> --json <envelope> [--root <path>]`

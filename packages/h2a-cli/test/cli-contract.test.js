@@ -119,7 +119,7 @@ function bootstrapHappyPath(dir, root) {
     instance: "agent-001",
     roles: ["AGENTS"],
     scopes: ["scope:contract"],
-    capabilities: ["negotiate", "research"],
+    capabilities: ["negotiate", "research", "attester-comprehension"],
     endpoints: [],
     publicKeys: [],
     acceptedPolicies: [],
@@ -222,7 +222,7 @@ function bootstrapHappyPath(dir, root) {
  * needs a quorum + ed25519 keypair which is covered by the dedicated test).
  */
 function buildHappyArgv(verb, ctx) {
-  const { root, privateKeyPath } = ctx;
+  const { root, privateKeyPath, publicKeyPath } = ctx;
   switch (verb) {
     case "--help":
       return ["--help"];
@@ -369,6 +369,85 @@ function buildHappyArgv(verb, ctx) {
       ];
     case "conflict-posture":
       return ["conflict-posture", "--root", root, "--negotiation", "nego-cc"];
+    case "attest-comprehension":
+      return [
+        "attest-comprehension",
+        "--root",
+        root,
+        "--instance",
+        "agent-001",
+        "--dossier",
+        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "--private-key",
+        privateKeyPath,
+        "--negotiation",
+        "nego-cc",
+        "--event-id",
+        "evt-cc-comprehension"
+      ];
+    case "comprehension list": {
+      const sink = {
+        stdout: { write: () => {} },
+        stderr: { write: () => {} },
+        cwd: () => process.cwd()
+      };
+      runCli(
+        [
+          "attest-comprehension",
+          "--root",
+          root,
+          "--instance",
+          "agent-001",
+          "--dossier",
+          "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "--private-key",
+          privateKeyPath,
+          "--negotiation",
+          "nego-cc",
+          "--event-id",
+          "evt-cc-comprehension-list"
+        ],
+        sink
+      );
+      return ["comprehension", "list", "--root", root, "--negotiation", "nego-cc"];
+    }
+    case "comprehension verify": {
+      const sink = {
+        stdout: { write: () => {} },
+        stderr: { write: () => {} },
+        cwd: () => process.cwd()
+      };
+      let envelopeJson = "";
+      const capture = {
+        stdout: { write: (chunk) => void (envelopeJson += chunk) },
+        stderr: sink.stderr,
+        cwd: sink.cwd
+      };
+      runCli(
+        [
+          "attest-comprehension",
+          "--root",
+          root,
+          "--instance",
+          "agent-001",
+          "--dossier",
+          "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "--private-key",
+          privateKeyPath
+        ],
+        capture
+      );
+      return [
+        "comprehension",
+        "verify",
+        "--root",
+        root,
+        "--json",
+        envelopeJson,
+        "--public-key",
+        publicKeyPath
+      ];
+    }
     case "inbox put":
       return [
         "inbox",
@@ -645,6 +724,9 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "negotiate journal",
     "declare-interest",
     "conflict-posture",
+    "attest-comprehension",
+    "comprehension list",
+    "comprehension verify",
     "inbox put",
     "inbox read",
     "inbox pop",
@@ -715,20 +797,26 @@ for (const contract of H2A_CLI_VERB_CONTRACTS) {
     const dir = mkdtempSync(join(tmpdir(), "h2a-contract-"));
     const root = join(dir, ".h2a");
     const privateKeyPath = join(dir, "req-001.pkcs8.pem");
+    const publicKeyPath = join(dir, "req-001.spki.pem");
     try {
       bootstrapHappyPath(dir, root);
       // Generate a real ed25519 PEM so the `negotiate sign` verb can read it.
       // We only need the file to exist; the registry's `publicKeys` is empty
       // so the signature would fail verification at stabilize-time, but the
       // `sign` verb itself does not verify and is happy with any valid PEM.
-      const { privateKey } = generateKeyPairSync("ed25519");
+      const { privateKey, publicKey } = generateKeyPairSync("ed25519");
       writeFileSync(
         privateKeyPath,
         privateKey.export({ format: "pem", type: "pkcs8" }).toString(),
         "utf8"
       );
+      writeFileSync(
+        publicKeyPath,
+        publicKey.export({ format: "pem", type: "spki" }).toString(),
+        "utf8"
+      );
 
-      const argv = buildHappyArgv(contract.verb, { root, privateKeyPath });
+      const argv = buildHappyArgv(contract.verb, { root, privateKeyPath, publicKeyPath });
       if (argv === null) {
         t.skip(`${contract.verb}: no single-shot happy-path harness`);
         return;

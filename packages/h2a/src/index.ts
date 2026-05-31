@@ -84,6 +84,18 @@ export type {
   H2APostureConflitResult
 } from "./conflit-interet.js";
 export {
+  H2A_COMPREHENSION_ATTESTATION_BODY_KIND,
+  buildComprehensionAttestation,
+  canAttestComprehension,
+  isComprehensionAttestation,
+  verifyComprehensionAttestation
+} from "./comprehension-attestation.js";
+export type {
+  BuildComprehensionAttestationInput,
+  H2AComprehensionAttestation,
+  H2APublicKeyRing
+} from "./comprehension-attestation.js";
+export {
   H2A_RECOURSE_CONFLICT_DISPOSITIONS,
   H2A_RECOURSE_PROFILES,
   H2A_RECOURSE_STATES,
@@ -318,9 +330,11 @@ export {
 } from "./artifacts.js";
 export {
   H2A_AUTHORITY_MATRIX,
+  H2A_ATTESTER_COMPREHENSION_RIGHT,
   assertCanSignArtifactKind,
   canSignArtifactKind
 } from "./authority.js";
+export type { H2AAuthorityMatrixKind } from "./authority.js";
 export {
   H2A_CONTRACTUAL_ARTIFACT_PROFILES,
   assertContractualArtifactInvariants,
