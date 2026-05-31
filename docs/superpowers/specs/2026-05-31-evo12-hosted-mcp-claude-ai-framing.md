@@ -35,5 +35,26 @@ The HTTP-MCP + OIDC-validation + OAuth-metadata endpoints live in **`@sentropic/
 2. **Study mcp-wave's oauth-kapsule** design + implementation (the proven SCW-OAuth path) — adapt, don't reinvent.
 3. Confirm claude.ai's current **remote-MCP OAuth requirements** (the well-known endpoints + DCR it expects).
 
+## REVISION 2026-05-31 (post Opus 4.8 review + 39-auth BR-39c)
+
+The Opus review returned **revise** — and the load-bearing correction is now being resolved by the 39-auth side.
+
+**39-auth IdP — was a false premise, now being BUILT (BR-39c).** At framing time `auth-hono` was WebAuthn/magic-link/session-cookie (an SSO *consumer*, no `/authorize` `/token` JWKS DCR). PRINCIPAL decision = **build the IdP first** — and 39-auth is doing exactly that (BR-39c: OAuth2/OIDC IdP block — DB schemas, endpoints, `<OAuthConsent/>`, mock-RP integration tests). So the EVO-12 "39-auth = IdP" model becomes real; EVO-12 H1 proceeds **in parallel** and federates to 39-auth once BR-39c lands.
+
+**MUTUALISATION (capitalize — the big win): 39-auth signs its JWTs with Ed25519** — the **same curve as h2a's entire NHI/keyring** (ed25519 SPKI PEM + `signCanonical`/`verifyCanonical`). So:
+- h2a **confirms Ed25519 is the right call** for 39-auth (we already run it in prod; recommend their Ed25519 + RS256-fallback exactly).
+- **Shared crypto plane**: h2a can validate a 39-auth Ed25519 JWT with the *same* primitives it uses for keyring verification (one verification path, one key model). The JWKS = an ed25519 public key set, identical shape to the h2a registry's `publicKeys`.
+- **Reuse, don't reinvent**: the token→identity mapping + JWT validation reuse h2a's existing ed25519 verify; no new crypto lib.
+- Their **PostgreSQL** token/code store is fine (no premature Redis) — h2a doesn't depend on it; it only validates tokens against the JWKS.
+
+**Opus corrections folded into the model:**
+1. **HTTP-MCP is NET-NEW**, not "extend `remote serve`" (that's the envelope receiver). Add an HTTP-MCP entrypoint via the **MCP SDK + `@hono/mcp` Streamable HTTP**, mirroring mcp-wave. The proven base = **mcp-wave's `OAuthServerProvider`** (the MCP can be its own AS *and/or* validate 39-auth tokens once BR-39c lands).
+2. **Read-only = a STRUCTURAL deployment invariant**, not a phase: no tool taking `privateKeyPem` (`sign`/`attest_comprehension`/`counteroffer`/`offer`) is ever routable on the hosted surface — the ed25519 private key must never travel on the wire (defends DEC-116/EVO-11 key custody). Hosted = a read-only tool allowlist; signing stays keyring-side.
+3. **Auth context**: thread an authenticated `RequestContext` (from the OAuth middleware) into `callTool` + a pure `claim→workspace/role` resolver — this is core-CLI surgery in H1 (not a thin add).
+4. **Multi-tenant (phase 2) = per-tenant store ROOT** (`<root>/<tenant>/.h2a`), NOT one MCP over a shared registry (the flat registry/inbox would cross-leak). Own DEC.
+5. `renderK8sTenant` is a shared-RWX single-workspace renderer (wrong shape for tenant isolation) — H2 needs SCW Service/Ingress/TLS manifests adapted from mcp-wave's `deploy/scw/`, not that renderer as-is.
+
+**Net**: model stands with 39-auth as IdP (now under construction, Ed25519 → mutualized with h2a), the hosted MCP is a new MCP-SDK HTTP entrypoint (read-only allowlist), and phase-2 isolation is root-per-tenant. EVO-12 H1 is now greenlit to start in parallel with BR-39c.
+
 ## Note (related)
 The identity migration (DEC-116) is now LIVE and minted one perennial NHI **per launch** (no stable agent-token) → id proliferation. A **stable-agent-token** follow-up (a logical agent keeps one id across relaunches) is recommended as a small priority WP — it also cleans up which tenant/agent a 39-auth-authenticated human maps onto here.
