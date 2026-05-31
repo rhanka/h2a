@@ -23,6 +23,7 @@ import type { H2ARelauncher } from "./watch.js";
 export type H2ARelanceInboxSkipReason =
   | "malformed"
   | "target-mismatch"
+  | "requester-mismatch"
   | "no-entry"
   | "done"
   | "terminal"
@@ -94,6 +95,20 @@ export async function relanceFromInbox(
       if (body.target !== inboxInstance) {
         store.popInboxMessage(inboxInstance, envelope.id);
         skipped.push({ envelopeId: envelope.id, reason: "target-mismatch", target: body.target });
+        continue;
+      }
+
+      // Log-integrity / hygiene (DEC-117 authentication-only model): the
+      // resume's claimed `requestedBy` must equal the cryptographically
+      // verified signer (`acceptRemoteEnvelope` checks the signature against
+      // the registry before delivery). A mismatch is a forged/relabelled
+      // attribution — drop it so a relance is never recorded under a false
+      // requester. Security is already enforced at ingestion; this guards
+      // accountability only. (Skipped when no actor is present.)
+      const signer = envelope.actor?.instance;
+      if (signer && body.requestedBy !== signer) {
+        store.popInboxMessage(inboxInstance, envelope.id);
+        skipped.push({ envelopeId: envelope.id, reason: "requester-mismatch", target: body.target });
         continue;
       }
 

@@ -8,10 +8,12 @@ import test from "node:test";
 import {
   H2A_DRUMBEAT_RESUME_BODY_KIND,
   createEnvelope,
+  createReplayGuard,
   parseDrumbeatResumeBody,
   signEnvelope
 } from "@sentropic/h2a";
 import {
+  acceptRemoteEnvelope,
   createLocalStore,
   recordStop,
   readDrumbeatEntry,
@@ -311,4 +313,100 @@ test("runDrumbeatWatch rejects remote or auto relaunchers without signer key mat
   const capAuto = captureStreams();
   assert.equal(await runCliDrumbeatWatch({ relauncher: "auto", instance: SIGNER }, capAuto.streams), 1);
   assert.match(capAuto.err(), /--instance and --private-key are required/);
+});
+
+// End-to-end through the trust gate (review finding 2): a resume envelope POSTed
+// the way `remoteServerForStore` wires it — `acceptRemoteEnvelope` verifies the
+// signature against the registry, then delivers to the inbox, then the relay
+// consumes it. Proves a signed resume relances and a forged/unsigned one is
+// rejected at ingestion and never relances.
+function acceptOptionsFor(store, signerPub) {
+  return {
+    resolvePublicKeys: (signer) => (signer === SIGNER ? [signerPub] : store.listInstanceKeys(signer)),
+    deliver: (recipient, envelope) => store.putInboxMessage(recipient, envelope),
+    guard: createReplayGuard(),
+    // `resumeEnvelope` stamps `createdAt: new Date()`, so track real time to
+    // stay inside the freshness window (the gate rejects stale envelopes).
+    now: Date.now()
+  };
+}
+
+test("e2e: a signed resume accepted through the gate relances the local entry", async () => {
+  const root = freshRoot("h2a-d4-e2e-ok-");
+  try {
+    const store = createLocalStore({ root });
+    const { privateKeyPem, publicKeyPem } = keypair();
+    register(store, SIGNER, { publicKeys: [publicKeyPem] });
+    recordStop(root, {
+      instance: TARGET,
+      workStatus: "paused",
+      launchContext: { cwd: "/remote", command: "claude", resumeCommand: "claude --resume xyz" }
+    });
+
+    const signed = signEnvelope(resumeEnvelope("env-e2e-ok"), { by: SIGNER, privateKeyPem });
+    const res = acceptRemoteEnvelope(signed, acceptOptionsFor(store, publicKeyPem));
+    assert.equal(res.ok, true, "signed resume must pass the trust gate");
+    assert.equal(store.readInbox(TARGET).length, 1, "verified resume is delivered to the inbox");
+
+    const calls = [];
+    const out = await relanceFromInbox(root, {
+      instances: [TARGET],
+      relauncher: { relance: (f) => (calls.push(f), true) },
+      now: 1780189000000
+    });
+    assert.deepEqual(out.relanced, [TARGET]);
+    assert.equal(calls[0].launchContext.resumeCommand, "claude --resume xyz");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("relanceFromInbox drops a resume whose requestedBy != the verified signer (requester-mismatch)", async () => {
+  const root = freshRoot("h2a-d4-reqmm-");
+  try {
+    const store = createLocalStore({ root });
+    recordStop(root, { instance: TARGET, workStatus: "paused", launchContext: { cwd: "/remote", command: "claude" } });
+    // actor.instance stays SIGNER (the verified signer); the body claims someone else requested it.
+    store.putInboxMessage(TARGET, resumeEnvelope("env-reqmm", { requestedBy: "codex:impostor" }));
+    const out = await relanceFromInbox(root, {
+      instances: [TARGET],
+      relauncher: { relance: () => true }
+    });
+    assert.deepEqual(out.relanced, []);
+    assert.equal(out.skipped.length, 1);
+    assert.equal(out.skipped[0].reason, "requester-mismatch");
+    assert.equal(store.readInbox(TARGET).length, 0, "the mismatched resume is popped, not left to poison future passes");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("e2e: an unsigned or wrong-key resume is rejected at ingestion and never relances", async () => {
+  const root = freshRoot("h2a-d4-e2e-bad-");
+  try {
+    const store = createLocalStore({ root });
+    const { publicKeyPem } = keypair(); // SIGNER's registered key
+    const stranger = keypair(); // not registered for SIGNER
+    register(store, SIGNER, { publicKeys: [publicKeyPem] });
+    recordStop(root, { instance: TARGET, workStatus: "paused", launchContext: { cwd: "/remote", command: "claude" } });
+
+    // (a) unsigned: no signature on the envelope
+    const unsigned = acceptRemoteEnvelope(resumeEnvelope("env-e2e-unsigned"), acceptOptionsFor(store, publicKeyPem));
+    assert.equal(unsigned.ok, false, "unsigned resume must be refused");
+
+    // (b) wrong key: signed by a key not registered for SIGNER
+    const forged = signEnvelope(resumeEnvelope("env-e2e-forged"), { by: SIGNER, privateKeyPem: stranger.privateKeyPem });
+    const wrongKey = acceptRemoteEnvelope(forged, acceptOptionsFor(store, publicKeyPem));
+    assert.equal(wrongKey.ok, false, "resume signed by an unregistered key must be refused");
+
+    assert.equal(store.readInbox(TARGET).length, 0, "no rejected resume reaches the inbox");
+    const out = await relanceFromInbox(root, {
+      instances: [TARGET],
+      relauncher: { relance: () => true }
+    });
+    assert.deepEqual(out.relanced, [], "a rejected resume never relances");
+    assert.equal(readDrumbeatEntry(root, TARGET).relanceCount, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

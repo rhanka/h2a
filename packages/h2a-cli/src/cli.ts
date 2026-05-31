@@ -1644,6 +1644,10 @@ function resolveRemoteActor(
   }
   const store = createLocalStore({ root });
   const registration = store.findInstance(flags.instance);
+  // The actor role here is only metadata stamped on the signed resume envelope.
+  // The receiving host re-derives its own `launchContext` and never grants the
+  // sender authority from this role, so the `AGENTS` default cannot widen any
+  // privilege — it is the safe least-authority fallback (DEC-117).
   const role = flags.role ?? registration?.roles?.[0] ?? "AGENTS";
   const scope = flags.scope ?? registration?.scopes?.[0] ?? "scope:default";
   if (!(H2A_ROLES as readonly string[]).includes(role)) {
