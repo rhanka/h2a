@@ -170,6 +170,15 @@ export {
 } from "./runtime/escalation/index.js";
 
 export {
+  resolveProviderSession,
+  defaultProviderSessionReaders,
+  type ProviderSession,
+  type ProviderSessionReaders,
+  type ProviderSessionSource,
+  type ResolveProviderSessionInput
+} from "./runtime/identity/index.js";
+
+export {
   isNewerVersion,
   parseSemver,
   checkUpgrade,
