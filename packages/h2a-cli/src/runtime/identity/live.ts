@@ -93,6 +93,12 @@ function publicKeyFingerprint(publicKeyPem: string): string {
   return createHash("sha256").update(publicKeyPem, "utf8").digest("hex").slice(0, 16);
 }
 
+function remoteBridgeInstance(providerSessionId: string): string {
+  return providerSessionId.startsWith("remote:")
+    ? providerSessionId
+    : `remote:${providerSessionId}`;
+}
+
 function generateKeypair(): { privateKeyPem: string; publicKeyPem: string } {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   return {
@@ -223,12 +229,21 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
       instance: deriveInstanceId({ host, label: name, uuid: agentUuid })
     };
   };
+  const mintRemote = () => {
+    const agentUuid = mintAgentUuid();
+    return {
+      agentUuid,
+      instance: provider.providerSessionId
+        ? remoteBridgeInstance(provider.providerSessionId)
+        : deriveInstanceId({ host, label: name, uuid: agentUuid })
+    };
+  };
 
   const providerSessionId =
     provider.providerSessionId ?? `fallback:${host}:${workspace.id}:${Date.now()}`;
   const result =
     host === "remote"
-      ? { action: "mint" as const, ...mint() }
+      ? { action: "mint" as const, ...mintRemote() }
       : reclaimOrMint(
           input.root,
           { host, providerSessionId, workspaceId: workspace.id },
