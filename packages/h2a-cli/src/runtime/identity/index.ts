@@ -18,3 +18,4 @@ export type {
   ReclaimOrMintDeps,
   ReclaimOrMintResult
 } from "./bindings.js";
+export { mergeInboxDedup } from "./migration.js";

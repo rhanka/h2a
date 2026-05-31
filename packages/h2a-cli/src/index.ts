@@ -176,6 +176,7 @@ export {
   findBinding,
   verifyReclaimProof,
   reclaimOrMint,
+  mergeInboxDedup,
   type ProviderSession,
   type ProviderSessionReaders,
   type ProviderSessionSource,
