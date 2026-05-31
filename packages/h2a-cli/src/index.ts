@@ -282,6 +282,8 @@ export {
   type SendRemoteResult
 } from "./runtime/remote/index.js";
 
+export * from "./runtime/mcp-http/index.js";
+
 export const H2A_CLI_HOSTS = [
   H2A_CODEX_HOST,
   H2A_CLAUDE_HOST,
