@@ -33,10 +33,12 @@
 | Identity CLI wiring → 0.22.0 (DEC-116) | codex:a2a-cli | ✅ **merged** (Opus APPROVE) | live perennial instances; ships in 0.22.0 |
 | EVO-1 bilateral-discussion driver E1a | codex:a2a-cli-conductor | ✅ **merged** (Opus APPROVE-WITH-FIXES; B1 declared) | sender-enforced; receiver verify-on-act deferred to E1c/E1d (DEC-120) |
 | Drumbeat D1–D7 | codex + claude | ✅ **all done** (D7 = DEC-095: escalation registry + auto-escalate-to-PRINCIPAL) | full anti-stall loop complete |
-| EVO-9 ATTENTION comprehension-core | codex:a2a-cli-conductor (next) | 🟡 **design ✅, assigning** | `2026-05-31-evo9-attention-core-design.md` (DEC-118) |
+| EVO-9 ATTENTION comprehension-core | codex:a2a-cli | ✅ **merged, 0.24.0** (Opus APPROVE) | non-binding guardrail proven (DEC-118) |
 | EVO-9 INTÉRÊT (conflit posture) | codex:a2a-cli | ✅ **merged, 0.23.0** (Opus APPROVE) | follow-up (non-blocking): CONTROL-flag e2e test + body-shape doc |
-| EVO-9 ATTENTION dossier-layer → CONFIANCE | unassigned | ⬜ backlog | after INTÉRÊT (composes both) |
-| EVO-11 bridge NHI (paired w/ remote) | claude (interface doc) + remote | ⛔ **product-gated (HOLD)** | design accepted both sides; PRINCIPAL holds PRs; claude drafts the interface contract |
+| EVO-9 ATTENTION dossier-layer | codex:a2a-cli (next) | 🟡 **design ✅, assigning** | risk-ranked dossier + presenter non-bias (DEC-123) |
+| EVO-9 CONFIANCE (postureConfiance) | unassigned | ⬜ backlog | composes ATTENTION+INTÉRÊT; last EVO-9 slice |
+| EVO-10 availability / negotiation-neglect | codex:a2a-cli-conductor (next) | 🟡 **design ✅, assigning** | DEC-121 |
+| EVO-11 bridge NHI (h2a-side) | codex:a2a-cli-conductor | ✅ **merged, 0.24.0** (Opus APPROVE, DEC-122) | bridge = signing peer; remote-side PR + `neg:remote-nhi-bridge` pending remote |
 | B2B2B confiance eval | — | ✅ **closed** | scale aligned its copy on the 5 corrections |
 
 ## Priority Order
