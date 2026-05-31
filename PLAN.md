@@ -39,6 +39,8 @@
 | EVO-9 CONFIANCE (postureConfiance) | unassigned | 🟢 **design ✅ (DEC-124)**, build after dossier-layer | composes ATTENTION+INTÉRÊT; last EVO-9 slice |
 | EVO-10 availability / negotiation-neglect | codex:a2a-cli-conductor (next) | 🟡 **design ✅, assigning** | DEC-121 |
 | EVO-11 bridge NHI (h2a-side) | codex:a2a-cli-conductor | ✅ **merged, 0.24.0** (Opus APPROVE, DEC-122) | bridge = signing peer; remote-side PR + `neg:remote-nhi-bridge` pending remote |
+| EVO-12 hosted MCP on SCW + claude.ai | unassigned (framed) | 🟡 **framed, model ratified** | SCW Kapsule (mcp-wave patron) + 39-auth OIDC IdP + read-first ; slices H1–H4 (`…evo12-hosted-mcp-claude-ai-framing.md`) |
+| Identity stable-agent-token (follow-up) | unassigned | 🟢 **recommended priority** | DEC-116 live → 1 NHI minted per launch (proliferation) ; a logical agent must keep 1 id across relaunches |
 | B2B2B confiance eval | — | ✅ **closed** | scale aligned its copy on the 5 corrections |
 
 ## Priority Order
