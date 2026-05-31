@@ -1,6 +1,6 @@
-# EVO-11 — bridge NHI: h2a-side interface contract (design, product-gated)
+# EVO-11 — bridge NHI: h2a-side interface contract (DEC-122)
 
-**Date**: 2026-05-31 · **Status**: design / interface contract — **product-gated HOLD** (no PR commitment; PRINCIPAL rhanka holds the paired PRs). Answers `claude:remote`'s return questions (envelope `…:a83e`, point 5). Pairs with `rhanka/remote`. **Refers**: DEC-059 (host bridge), DEC-116 (identity, threat model), DEC-058 (k8s-sidecar), DEC-067 (k8s-tenant RWX PVC), DEC-073/075 (signed remote transport / `acceptRemoteEnvelope`).
+**Date**: 2026-05-31 · **Status**: h2a-side implementation greenlit / shipped as DEC-122; paired sidecar image work stays in `rhanka/remote`. Answers `claude:remote`'s return questions (envelope `…:a83e`, point 5). Pairs with `rhanka/remote`. **Refers**: DEC-059 (host bridge), DEC-116 (identity, threat model), DEC-058 (k8s-sidecar), DEC-067 (k8s-tenant RWX PVC), DEC-073/075 (signed remote transport / `acceptRemoteEnvelope`).
 
 Design is **ACCEPTED both sides**: bridge sessions become first-class **signing** peers, **always-mint** (no reclaim), ed25519 key **generated + held by the sidecar** (never on the shared PVC, never in the wrapped CLI). This doc fixes the h2a-side contract so remote can scope its image work once greenlit.
 
@@ -31,10 +31,20 @@ No control-plane custody, no injection expected from remote's side. Key possessi
 
 **Bootstrap / trust**: first registration is **TOFU** (the existing model — `registerInstance` dedups on `id`); thereafter a key rotation requires a signature by an already-active key (`addInstanceKey` rule). One registration per session id (always-mint → fresh id per session → no collision).
 
-**h2a-side PR scope** (when greenlit — small, additive):
+**h2a-side PR scope** (greenlit; DEC-122):
 1. `host:"remote"` resolution consumes the env hints `SESSION_ID` + `SESSION_WORKSPACE_ID` → the resolver branch already exists (`resolveProviderSession`, source `bridge`).
 2. Accept **remote-minted always-mint** NHIs: no binding/reclaim for `host:"remote"` (already the case — the identity wiring bypasses `reclaimOrMint` for remote).
 3. Nothing else — registration + verification reuse the shipped transport. The contract is "the sidecar registers; h2a verifies via the registry."
+
+## Delivery status (DEC-122, h2a-side)
+
+Implemented in h2a:
+- `connect --host remote` now wires `SESSION_ID` into the registered instance id as `remote:<SESSION_ID>` and carries `SESSION_WORKSPACE_ID` into the workspace reference.
+- The remote identity path remains **always-mint**: it still bypasses binding/reclaim, so a bridge session id is not used to reclaim a previous agent identity.
+- The registration is discoverable like any other peer; `discover` exposes the registered `publicKeys`, making the bridge session a signing peer instead of presence-only.
+- The existing `remoteServerForStore` path remains the verifier: it resolves keys with `store.listInstanceKeys(signer)` and therefore accepts a signed bridge envelope only when the `remote:<SESSION_ID>` registration carries the matching public key.
+
+Regression proof: `packages/h2a-cli/test/bridge-nhi.test.js` simulates a bridge session, verifies `discover`, posts a signed envelope through `remoteServerForStore`, and rejects unsigned / wrong-key attempts.
 
 ## Q3 — sidecar ↔ session-agent mount / interface contract
 
@@ -45,5 +55,6 @@ What **h2a requires** (and only that — the Pod layout is remote's product call
 
 So the only **hard** mount contract h2a imposes: the shared `.h2a` root must be mounted in both containers; the private key must **not** be on it.
 
-## Next step (gated)
-On rhanka's go: open a signed h2a negotiation **`neg:remote-nhi-bridge`** (DEC-059 bilateral: open → offer → sign) to anchor this contract, then twin PRs (`rhanka/h2a` consuming hints + accepting remote NHIs; `rhanka/remote` sidecar + key-gen + presence→NHI promotion). Until then: design-only, iterate over h2a.
+## Next step
+
+Pair with `rhanka/remote` for the sidecar-held private key, sidecar registration, and presence→NHI promotion in the remote image/runtime. h2a-side accepts the registered bridge NHI through the existing registry + signed remote transport.
