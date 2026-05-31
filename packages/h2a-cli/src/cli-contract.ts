@@ -330,6 +330,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Sign an envelope (`--json`) with `--private-key` as `--instance` and POST it to `--url`. Prints `{ status, body }`; exit 0 on a 2xx response, 1 otherwise. DEC-077."
   },
   {
+    verb: "drive",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["from", "to", "instruction", "private-key"],
+    optionalFlags: ["root", "driver", "nonce", "at"],
+    description:
+      "Inject a signed instruction into a live peer through a driver adapter (logging|native|local-tmux|headless|auto). The preamble is ed25519-signed and authority is checked before dispatch. EVO-1."
+  },
+  {
     verb: "sysml verify",
     outputShape: "resource",
     exitCodes: [0, 1, 2],

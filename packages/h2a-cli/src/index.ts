@@ -178,6 +178,30 @@ export {
 } from "./runtime/blockage/index.js";
 
 export {
+  authorizeDrive,
+  chainDriver,
+  formatSignedDriveInstruction,
+  headlessDriver,
+  localTmuxDriver,
+  loggingDriver,
+  nativeBackchannelDriver,
+  parseSignedDriveInstruction,
+  verifySignedDriveInstruction,
+  type FormatSignedDriveInstructionOptions,
+  type H2ADriveAuthorizeReason,
+  type H2ADriveAuthorizeResult,
+  type H2ADriveInstructionPayload,
+  type H2ADriveRequest,
+  type H2ADriveVerifyReason,
+  type H2ADriveVerifyResult,
+  type H2ADriver,
+  type H2ADriverKind,
+  type NativeBackchannelDriverOptions,
+  type ParsedSignedDriveInstruction,
+  type VerifySignedDriveInstructionOptions
+} from "./runtime/drive/index.js";
+
+export {
   recordEscalation,
   readEscalation,
   listEscalations,

@@ -72,7 +72,7 @@ import {
   H2A_ROLES,
   H2A_WORK_STATUSES
 } from "@sentropic/h2a";
-import type { H2AActorRef, H2ARole, H2AWorkspaceRef } from "@sentropic/h2a";
+import type { H2AActorRef, H2ALaunchContext, H2ARole, H2AWorkspaceRef } from "@sentropic/h2a";
 
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
@@ -128,6 +128,17 @@ import {
   listEscalations,
   clearEscalation
 } from "./runtime/escalation/index.js";
+import {
+  authorizeDrive,
+  chainDriver,
+  formatSignedDriveInstruction,
+  headlessDriver,
+  localTmuxDriver,
+  loggingDriver,
+  nativeBackchannelDriver,
+  type H2ADriver,
+  type H2ADriverKind
+} from "./runtime/drive/index.js";
 import { verifyEnvelopeSysmlRef } from "./runtime/sysml/index.js";
 import {
   checkUpgrade,
@@ -233,6 +244,7 @@ export function renderCliHelp(): string {
     "  h2a upgrade [--check]   (--check: report current vs latest; bare: npm i -g @sentropic/h2a-cli@latest)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
+    "  h2a drive --from <instance> --to <instance> --instruction <text> --private-key <pem> [--driver logging|native|local-tmux|headless|auto] [--root <path>]",
     "  h2a drumbeat record --instance <id> --status <working|paused|done|blocked|out-of-tokens> [--command <c>] [--resume-command <c>] [--tmux-session <s> --tmux-pane <p>] [--root <path>]",
     "  h2a drumbeat scan [--max-relances <n>] [--root <path>]",
     "  h2a drumbeat clear --instance <id> [--root <path>]",
@@ -1684,6 +1696,104 @@ function readPrivateKeyFlag(label: string, flags: Record<string, string>): strin
   } catch (error) {
     return new Error(`${label}: cannot read --private-key (${(error as Error).message})`);
   }
+}
+
+function latestLaunchContext(root: string, instance: string): H2ALaunchContext | undefined {
+  return listPresence(root)
+    .filter((session) => session.instance === instance && session.launchContext)
+    .sort((a, b) => Date.parse(b.heartbeatAt) - Date.parse(a.heartbeatAt))[0]?.launchContext;
+}
+
+function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void): H2ADriver {
+  switch (kind) {
+    case "logging":
+      return loggingDriver(log);
+    case "native":
+      return nativeBackchannelDriver();
+    case "local-tmux":
+      return localTmuxDriver({ log });
+    case "headless":
+      return headlessDriver({ log });
+    case "auto":
+      return {
+        drive(request) {
+          for (const driver of [
+            nativeBackchannelDriver(),
+            localTmuxDriver({ log }),
+            headlessDriver({ log })
+          ]) {
+            const result = driver.drive(request);
+            if (result === true) return true;
+          }
+          return false;
+        }
+      };
+  }
+}
+
+function cmdDrive(flags: Record<string, string>, streams: H2ACliStreams): number {
+  const cwd = streams.cwd ?? (() => process.cwd());
+  if (!flags.from || !flags.to || !flags.instruction || !flags["private-key"]) {
+    streams.stderr.write(
+      "h2a drive: --from, --to, --instruction and --private-key are required\n"
+    );
+    return 1;
+  }
+  const kind = (flags.driver ?? "auto") as H2ADriverKind;
+  if (!["logging", "native", "local-tmux", "headless", "auto"].includes(kind)) {
+    streams.stderr.write(
+      `h2a drive: --driver must be one of logging|native|local-tmux|headless|auto (got "${flags.driver}")\n`
+    );
+    return 1;
+  }
+  const privateKeyPem = readPrivateKeyFlag("h2a drive", flags);
+  if (privateKeyPem instanceof Error) {
+    streams.stderr.write(`${privateKeyPem.message}\n`);
+    return 1;
+  }
+  const root = resolveRoot(flags, cwd);
+  const store = createLocalStore({ root });
+  const auth = authorizeDrive(store, { from: flags.from, to: flags.to });
+  if (!auth.ok) {
+    streams.stderr.write(`h2a drive: ${auth.reason} (${flags.from} -> ${flags.to})\n`);
+    return 2;
+  }
+
+  const instructionLine = formatSignedDriveInstruction({
+    from: flags.from,
+    to: flags.to,
+    instruction: flags.instruction,
+    privateKeyPem,
+    nonce: flags.nonce,
+    at: flags.at
+  });
+  const log = (line: string): void => void streams.stderr.write(`${line}\n`);
+  const driver = buildDriveDriver(kind, log);
+  const result = driver.drive({
+    to: flags.to,
+    instructionLine,
+    launchContext: latestLaunchContext(root, flags.to)
+  });
+  if (typeof (result as Promise<boolean>)?.then === "function") {
+    streams.stderr.write("h2a drive: async driver unavailable in synchronous CLI path\n");
+    return 1;
+  }
+  const driven = result === true;
+  streams.stdout.write(
+    `${JSON.stringify(
+      {
+        ok: true,
+        from: flags.from,
+        to: flags.to,
+        driver: kind,
+        driven,
+        instructionLine
+      },
+      null,
+      2
+    )}\n`
+  );
+  return driven ? 0 : 2;
 }
 
 export async function runDrumbeatRelanceInbox(
@@ -3231,6 +3341,7 @@ export function runCli(
   if (command === "connect") return cmdConnect(flags, streams);
   if (command === "install-skills") return cmdInstallSkills(flags, streams);
   if (command === "deploy") return cmdDeploy(argv.slice(1), streams);
+  if (command === "drive") return cmdDrive(flags, streams);
   if (command === "remote") {
     // `remote serve`/`remote send` are async and dispatched from bin.ts; if we
     // reach here it is a misuse (e.g. via the sync runCli) or an unknown sub.
