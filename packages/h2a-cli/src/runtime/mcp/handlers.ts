@@ -17,7 +17,8 @@ import {
   type H2ARole,
   type H2ASessionInterests,
   type H2ASessionNotificationTopic,
-  type H2ASessionState
+  type H2ASessionState,
+  type H2AWorkspaceRef
 } from "@sentropic/h2a";
 
 import {
@@ -391,6 +392,8 @@ export function handleSessionOpen(
     | {
         instance?: string;
         host?: string;
+        workspace?: H2AWorkspaceRef;
+        name?: string;
         pid?: number;
         interests?: Partial<H2ASessionInterests>;
         subscribedTopics?: readonly string[];
@@ -419,6 +422,8 @@ export function handleSessionOpen(
     const session = sessions.open({
       instance: args.instance,
       ...(args.host !== undefined ? { host: args.host } : {}),
+      ...(args.workspace !== undefined ? { workspace: args.workspace } : {}),
+      ...(args.name !== undefined ? { name: args.name } : {}),
       ...(args.pid !== undefined ? { pid: args.pid } : {}),
       ...(args.interests !== undefined ? { interests: args.interests } : {}),
       ...(args.subscribedTopics !== undefined

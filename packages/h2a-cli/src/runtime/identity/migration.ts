@@ -13,6 +13,9 @@
  * is the deterministic merge that is unit-tested in isolation.
  */
 
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { H2AEnvelope } from "@sentropic/h2a";
 
 /**
@@ -79,4 +82,51 @@ export function decideLegacyAdoption(input: LegacyAdoptionInput): LegacyAdoption
     netNewKeys: false,
     reason: "first to prove possession — inherits legacy keyring, legacy id becomes an alias"
   };
+}
+
+export interface H2AIdentityAlias {
+  readonly instance: string;
+  readonly legacyInstance: string;
+  readonly adoptedKeyring: boolean;
+  readonly at: string;
+}
+
+function identityDir(root: string): string {
+  return join(root, "identity");
+}
+
+function aliasesFile(root: string): string {
+  return join(identityDir(root), "aliases.jsonl");
+}
+
+export function listIdentityAliases(root: string, instance?: string): H2AIdentityAlias[] {
+  const f = aliasesFile(root);
+  if (!existsSync(f)) return [];
+  const out: H2AIdentityAlias[] = [];
+  for (const line of readFileSync(f, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const parsed = JSON.parse(line) as H2AIdentityAlias;
+      if (instance === undefined || parsed.instance === instance) out.push(parsed);
+    } catch {
+      // skip malformed alias records
+    }
+  }
+  return out;
+}
+
+export function legacyAliasAlreadyAdopted(root: string, legacyInstance: string): boolean {
+  return listIdentityAliases(root).some(
+    (alias) => alias.legacyInstance === legacyInstance && alias.adoptedKeyring
+  );
+}
+
+export function recordIdentityAlias(root: string, alias: H2AIdentityAlias): void {
+  mkdirSync(identityDir(root), { recursive: true });
+  const exists = listIdentityAliases(root).some(
+    (entry) =>
+      entry.instance === alias.instance && entry.legacyInstance === alias.legacyInstance
+  );
+  if (exists) return;
+  appendFileSync(aliasesFile(root), `${JSON.stringify(alias)}\n`, "utf8");
 }

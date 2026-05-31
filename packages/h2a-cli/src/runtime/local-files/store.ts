@@ -51,6 +51,7 @@ import {
   readCliPackageVersion,
   type H2AStoreSchemaSentinel
 } from "./schema.js";
+import { listIdentityAliases, mergeInboxDedup } from "../identity/migration.js";
 
 export interface CreateLocalStoreOptions {
   root: string;
@@ -909,20 +910,32 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function readInbox(actor: string): H2AEnvelope[] {
-    return readEnvelopesFrom(inboxDir(paths, actor));
+    const current = readEnvelopesFrom(inboxDir(paths, actor));
+    const legacy = listIdentityAliases(paths.root, actor).map((alias) =>
+      readEnvelopesFrom(inboxDir(paths, alias.legacyInstance))
+    );
+    return mergeInboxDedup([current, ...legacy]);
   }
 
   function popInboxMessage(actor: string, envelopeId: string): H2AEnvelope | undefined {
-    const dir = inboxDir(paths, actor);
-    ensureDir(dir);
+    const dirs = [
+      inboxDir(paths, actor),
+      ...listIdentityAliases(paths.root, actor).map((alias) =>
+        inboxDir(paths, alias.legacyInstance)
+      )
+    ];
+    for (const dir of dirs) ensureDir(dir);
     return lock(
       inboxLock(actor),
       () => {
-        const file = envelopeFile(dir, envelopeId);
-        if (!existsSync(file)) return undefined;
-        const envelope = JSON.parse(readFileSync(file, "utf8")) as H2AEnvelope;
-        unlinkSync(file);
-        return envelope;
+        for (const dir of dirs) {
+          const file = envelopeFile(dir, envelopeId);
+          if (!existsSync(file)) continue;
+          const envelope = JSON.parse(readFileSync(file, "utf8")) as H2AEnvelope;
+          unlinkSync(file);
+          return envelope;
+        }
+        return undefined;
       },
       lockOpts
     );

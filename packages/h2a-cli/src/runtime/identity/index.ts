@@ -18,5 +18,17 @@ export type {
   ReclaimOrMintDeps,
   ReclaimOrMintResult
 } from "./bindings.js";
-export { mergeInboxDedup, decideLegacyAdoption } from "./migration.js";
-export type { LegacyAdoptionInput, LegacyAdoptionDecision } from "./migration.js";
+export {
+  mergeInboxDedup,
+  decideLegacyAdoption,
+  listIdentityAliases,
+  legacyAliasAlreadyAdopted,
+  recordIdentityAlias
+} from "./migration.js";
+export type {
+  H2AIdentityAlias,
+  LegacyAdoptionInput,
+  LegacyAdoptionDecision
+} from "./migration.js";
+export { resolveLiveIdentity } from "./live.js";
+export type { ResolveLiveIdentityInput, ResolvedLiveIdentity } from "./live.js";
