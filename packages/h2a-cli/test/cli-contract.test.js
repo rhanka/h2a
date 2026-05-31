@@ -624,6 +624,9 @@ function buildHappyArgv(verb, ctx) {
     case "drive":
       // Needs a signer key + actor registrations; covered by drive.test.js.
       return null;
+    case "drive receive":
+      // Needs a signed line + actor registrations; covered by drive.test.js.
+      return null;
     case "sysml verify":
       // Async verb (network on the content path) + needs a signed envelope with
       // a ref; covered by sysml-verify.test.js.
@@ -737,6 +740,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "remote serve",
     "remote send",
     "drive",
+    "drive receive",
     "sysml verify",
     "drumbeat record",
     "drumbeat scan",

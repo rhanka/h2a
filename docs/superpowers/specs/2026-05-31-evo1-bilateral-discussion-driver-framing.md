@@ -55,11 +55,19 @@ EVO-1's driver is **not new infrastructure** — it composes three shipped/ratif
 - **E1c** — authority gate (MANDATE / `H2A_AUTHORITY_MATRIX`) on inbound injections in each host plugin hook.
 - **E1d** — remote injection service (with EVO-11 bridge/sidecar).
 
-## Delivery status (2026-05-31, DEC-120)
+## Delivery status (2026-05-31, DEC-120 / DEC-125)
 
 **E1a delivered + merged** (`runtime/drive/`, `h2a drive`, Opus-reviewed): signed-line formatter/parser/**verifier** + replay guard, `H2ADriver` interface (logging/native/local-tmux/headless/auto chain), local-tmux transport (generalizing D3 `send-keys`), and a **sender-side authority gate** (refuses to sign/dispatch unless self / explicit conductor-principal / shared-scope MANDATE via `H2A_AUTHORITY_MATRIX`).
 
 **Scope clarification (closes review finding B1) — receiver-side enforcement is library-only in E1a, deferred by design.** `verifySignedDriveInstruction` + the receiver `authorizeDrive` ship as exported, tested primitives but are **not yet wired into any host receive hook**: a tmux-injected `[h2a …] <instruction>` line is, today, read by the target CLI as text. This is **consistent with the ratified local threat model** (single trusted user — a malicious local injector is out of scope; the signature still gives provenance + accountability, and the sender-side gate blocks unauthorized *h2a* drives). Wiring the receiver to **verify-before-act** belongs to **E1c** (local plugin authority hook) and is **mandatory** in **E1d** (remote, where the injection service crosses the trust boundary). Until then the driver is sender-enforced, not receiver-enforced — stated here so it is a declared boundary, not a silent gap. Non-blocking nits N1–N5 (async `auto` path, tmux `-l`, ephemeral replay guard, parser robustness) tracked for E1c.
+
+**E1b/E1c h2a-side slice delivered (DEC-125)**:
+- `nativeBackchannelDriver` now has deterministic native command rendering for the supported no-tmux paths: Codex `app-server proxy` with a `turn/start` JSON-RPC request when a `codex resume <threadId>` launch hint is known, Claude `--remote-control <name> --brief -p ...` when the remote-control name is present, and a guarded Gemini ACP command when the launch context declares `gemini --acp`. If no reliable native hint exists, native declines so `auto` falls through to local-tmux/headless.
+- `localTmuxDriver` uses `tmux send-keys -l <signed-line>` then `Enter`, so the h2a preamble is sent literally instead of being parsed by tmux as key names.
+- `headlessDriver` has host defaults for `codex exec`, `claude -p`, `gemini -p`, and `agy -p` when no launch command was captured.
+- Receiver-side verify-before-act is exposed as `verifyDriveOnReceive`, `acceptDriveInstruction`, and `h2a drive receive --to <instance> (--line <signed-line> | --stdin)`: signature/key, target, authority, and replay/freshness are checked before a host hook or remote injector acts. The CLI receive gate accepts JSON hook events with `prompt`/`line`, can ignore ordinary prompts with `--ignore-non-drive`, and persists accepted drive ids in the local store so separate hook invocations reject replays.
+
+**Remaining outside this h2a-side slice**: installing host-specific receive hooks into each proprietary runtime and the remote-side sidecar injection endpoint. The h2a verifier/injector primitive is present for those hooks; this PR does not modify the external Codex/Claude/Gemini/remote images.
 
 ## Open product decisions (PRINCIPAL)
 

@@ -78,6 +78,8 @@ export interface H2AStopHookRender {
   readonly hint: string;
   /** Shell command the stop hook runs — captures the launch context (DEC-085) for D3. */
   readonly record: string;
+  /** Pre-action host hook: verifies signed h2a drive prompts before the host acts. */
+  readonly receive: string;
   /** Poll-only hosts (agy): the command to discover peers' stalls/blockages. */
   readonly poll?: string;
 }
@@ -103,22 +105,29 @@ export function renderStopHook(
     ` --tmux-session "$(tmux display-message -p '#{session_name}' 2>/dev/null)"` +
     ` --tmux-pane "$TMUX_PANE"` +
     rootArg;
+  const receive =
+    `h2a drive receive --to ${options.instance} --stdin --ignore-non-drive` +
+    rootArg;
   return {
     host: target.host,
     mechanism: target.mechanism,
     push: target.push,
     hint: target.hint,
     record,
+    receive,
     // Poll command for every host (agy uses it as its only path; the others
     // can use it as a manual fallback). Drumbeat scan + blockage list.
     poll: `h2a drumbeat scan${rootArg}`
   };
 }
 
-/** A single Claude Code `Stop` hook entry (settings.json `hooks.Stop[]`). */
-export interface H2AClaudeStopHook {
+/** A single Claude-format command hook entry. */
+export interface H2AClaudeCommandHook {
   readonly hooks: ReadonlyArray<{ readonly type: "command"; readonly command: string }>;
 }
+
+/** A single Claude Code `Stop` hook entry (settings.json `hooks.Stop[]`). */
+export type H2AClaudeStopHook = H2AClaudeCommandHook;
 
 /**
  * DEC-102 (D6 slice b): build the Claude Code `Stop` hook entry that runs the
@@ -128,6 +137,15 @@ export interface H2AClaudeStopHook {
  */
 export function claudeStopHookEntry(record: string): H2AClaudeStopHook {
   return { hooks: [{ type: "command", command: record }] };
+}
+
+/**
+ * Build the pre-action receive gate hook. The command reads the host hook JSON
+ * from stdin, ignores ordinary user prompts, and rejects invalid signed h2a
+ * drive prompts before the host processes them.
+ */
+export function claudeDriveReceiveHookEntry(receive: string): H2AClaudeCommandHook {
+  return { hooks: [{ type: "command", command: receive }] };
 }
 
 /** True if a settings.json Stop-hook entry is an h2a drumbeat-record hook. */
@@ -141,6 +159,20 @@ export function isH2ARecordHook(entry: unknown): boolean {
       h !== null &&
       typeof (h as { command?: unknown }).command === "string" &&
       (h as { command: string }).command.includes("h2a drumbeat record")
+  );
+}
+
+/** True if a Claude-format hook entry is an h2a drive receive gate. */
+export function isH2ADriveReceiveHook(entry: unknown): boolean {
+  if (typeof entry !== "object" || entry === null) return false;
+  const hooks = (entry as { hooks?: unknown }).hooks;
+  if (!Array.isArray(hooks)) return false;
+  return hooks.some(
+    (h) =>
+      typeof h === "object" &&
+      h !== null &&
+      typeof (h as { command?: unknown }).command === "string" &&
+      (h as { command: string }).command.includes("h2a drive receive")
   );
 }
 
