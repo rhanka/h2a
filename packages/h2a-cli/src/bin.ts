@@ -5,6 +5,7 @@ import {
   runMcpServe,
   runRemoteSend,
   runRemoteServe,
+  runDrumbeatRelanceInbox,
   runDrumbeatWatch,
   runSysmlVerify
 } from "./cli.js";
@@ -49,6 +50,8 @@ if (argv[0] === "mcp-serve") {
   runAsync("remote serve", runRemoteServe(parseFlagsFrom(2)));
 } else if (argv[0] === "remote" && argv[1] === "send") {
   runAsync("remote send", runRemoteSend(parseFlagsFrom(2)));
+} else if (argv[0] === "drumbeat" && argv[1] === "relance-inbox") {
+  runAsync("drumbeat relance-inbox", runDrumbeatRelanceInbox(parseFlagsFrom(2)));
 } else if (argv[0] === "drumbeat" && argv[1] === "watch") {
   runAsync("drumbeat watch", runDrumbeatWatch(parseFlagsFrom(2)));
 } else if (argv[0] === "sysml" && argv[1] === "verify") {

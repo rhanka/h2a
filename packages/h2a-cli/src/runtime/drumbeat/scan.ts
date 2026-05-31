@@ -30,6 +30,8 @@ export interface H2ADrumbeatScanResult {
 
 export interface ScanDrumbeatOptions {
   readonly maxRelances?: number;
+  /** Instances already handled by a pre-scan D4 inbox consume pass. */
+  readonly skipInstances?: readonly string[];
 }
 
 /**
@@ -43,9 +45,11 @@ export function scanDrumbeat(
   options: ScanDrumbeatOptions = {}
 ): H2ADrumbeatScanResult {
   const maxRelances = options.maxRelances ?? H2A_DEFAULT_MAX_RELANCES;
+  const skip = new Set(options.skipInstances ?? []);
   const findings: H2ADrumbeatFinding[] = [];
   const exhausted: H2ADrumbeatEntry[] = [];
   for (const entry of listDrumbeat(root)) {
+    if (skip.has(entry.instance)) continue;
     if (entry.workStatus === "done") continue;
     if (entry.terminal) continue; // D5: a watchdog terminal action already resolved this
     if (entry.relanceCount >= maxRelances) {

@@ -1,5 +1,13 @@
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
-import { renderCliHelp, resolveAutoOpen, runCli, runMcpServe, runRemoteSend, runRemoteServe } from "./cli.js";
+import {
+  renderCliHelp,
+  resolveAutoOpen,
+  runCli,
+  runDrumbeatRelanceInbox,
+  runMcpServe,
+  runRemoteSend,
+  runRemoteServe
+} from "./cli.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
 import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_AGY_HOST } from "./hosts/agy.js";
@@ -22,6 +30,7 @@ export {
   renderCliHelp,
   resolveAutoOpen,
   runCli,
+  runDrumbeatRelanceInbox,
   runMcpServe,
   runRemoteSend,
   runRemoteServe
@@ -120,9 +129,11 @@ export {
   loggingRelauncher,
   localTmuxRelauncher,
   headlessRelauncher,
+  remoteRelauncher,
   chainRelauncher,
   tmuxTarget,
   defaultRelauncherRuntime,
+  relanceFromInbox,
   loggingDecider,
   subagentDecider,
   recordDrumbeatDecision,
@@ -134,7 +145,14 @@ export {
   type H2ADrumbeatScanResult,
   type H2ARelauncher,
   type H2ARelauncherKind,
+  type H2ARelanceInboxResult,
+  type H2ARelanceInboxSkip,
+  type H2ARelanceInboxSkipReason,
   type RelauncherRuntime,
+  type RemoteEndpointResolver,
+  type RemoteEnvelopeSender,
+  type RemoteRelauncherOptions,
+  type RelanceFromInboxOptions,
   type DrumbeatTickResult,
   type DrumbeatWatchOptions,
   type ReflexiveDecider,

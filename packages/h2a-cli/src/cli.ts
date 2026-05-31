@@ -72,7 +72,7 @@ import {
   H2A_ROLES,
   H2A_WORK_STATUSES
 } from "@sentropic/h2a";
-import type { H2ARole } from "@sentropic/h2a";
+import type { H2AActorRef, H2ARole } from "@sentropic/h2a";
 
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
@@ -107,7 +107,9 @@ import {
   loggingRelauncher,
   localTmuxRelauncher,
   headlessRelauncher,
+  remoteRelauncher,
   chainRelauncher,
+  relanceFromInbox,
   loggingDecider,
   subagentDecider,
   H2A_DEFAULT_MAX_RELANCES,
@@ -234,7 +236,8 @@ export function renderCliHelp(): string {
     "  h2a drumbeat scan [--max-relances <n>] [--root <path>]",
     "  h2a drumbeat clear --instance <id> [--root <path>]",
     "  h2a drumbeat escalations [--root <path>]",
-    "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|headless|auto] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
+    "  h2a drumbeat relance-inbox [--instance <id>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
+    "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini|agy> [--root <path>] [--print | --write <file>] [--force]",
     "  h2a host status [--host <name>]",
     "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex; --scaffold writes codex's full local marketplace + trust step; agy is poll-only)",
@@ -1610,6 +1613,79 @@ function cmdNhi(argv: readonly string[], streams: H2ACliStreams): number {
 }
 
 /**
+ * Build the local relauncher used when consuming D4 resume envelopes on the
+ * receiving host. `auto` here is intentionally local-only: resume envelopes
+ * must not be re-relayed.
+ */
+function buildLocalInboxRelauncher(
+  kind: H2ARelauncherKind | undefined,
+  log: (line: string) => void
+): H2ARelauncher {
+  switch (kind) {
+    case "local-tmux":
+      return localTmuxRelauncher({ log });
+    case "headless":
+      return headlessRelauncher({ log });
+    case "logging":
+      return loggingRelauncher(log);
+    case "remote":
+    case "auto":
+    case undefined:
+      return chainRelauncher(localTmuxRelauncher({ log }), headlessRelauncher({ log }));
+  }
+}
+
+function resolveRemoteActor(
+  root: string,
+  flags: Record<string, string>
+): H2AActorRef | string {
+  if (!flags.instance || !flags["private-key"]) {
+    return "--instance and --private-key are required for --relauncher remote|auto";
+  }
+  const store = createLocalStore({ root });
+  const registration = store.findInstance(flags.instance);
+  const role = flags.role ?? registration?.roles?.[0] ?? "AGENTS";
+  const scope = flags.scope ?? registration?.scopes?.[0] ?? "scope:default";
+  if (!(H2A_ROLES as readonly string[]).includes(role)) {
+    return `--role must be one of ${H2A_ROLES.join("|")} (got "${role}")`;
+  }
+  return { instance: flags.instance, role: role as H2ARole, scope };
+}
+
+function readPrivateKeyFlag(label: string, flags: Record<string, string>): string | Error {
+  try {
+    return readFileSync(flags["private-key"], "utf8");
+  } catch (error) {
+    return new Error(`${label}: cannot read --private-key (${(error as Error).message})`);
+  }
+}
+
+export async function runDrumbeatRelanceInbox(
+  flags: Record<string, string>,
+  io: { stdout: NodeJS.WritableStream; stderr: NodeJS.WritableStream; cwd?: () => string } = {
+    stdout: process.stdout,
+    stderr: process.stderr
+  }
+): Promise<number> {
+  const cwd = io.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const kind = (flags.relauncher ?? "auto") as H2ARelauncherKind;
+  if (!["logging", "local-tmux", "headless", "auto"].includes(kind)) {
+    io.stderr.write(
+      `h2a drumbeat relance-inbox: --relauncher must be one of logging|local-tmux|headless|auto (got "${flags.relauncher}")\n`
+    );
+    return 1;
+  }
+  const log = (line: string): void => void io.stdout.write(`${line}\n`);
+  const result = await relanceFromInbox(root, {
+    ...(flags.instance ? { instances: [flags.instance] } : {}),
+    relauncher: buildLocalInboxRelauncher(kind, log)
+  });
+  io.stdout.write(`${JSON.stringify({ ok: true, ...result }, null, 2)}\n`);
+  return 0;
+}
+
+/**
  * `h2a drumbeat watch` (DEC-086): long-running anti-stall daemon. Async +
  * blocking, dispatched from bin.ts like mcp-serve. Uses the logging relauncher
  * by default; concrete relaunchers (local-tmux / remote) land in D3/D4.
@@ -1632,8 +1708,24 @@ export async function runDrumbeatWatch(
   const kind = (flags.relauncher ?? "logging") as H2ARelauncherKind;
   const log = (line: string): void => void io.stdout.write(`${line}\n`);
   let relauncher: H2ARelauncher;
-  // DEC-091 (D3): select the relauncher adapter. `auto` = local-tmux with a
-  // headless fallback (the D3 chain); `logging` stays the dry-run default.
+  let remoteActor: H2AActorRef | undefined;
+  let remotePrivateKeyPem: string | undefined;
+  if (kind === "remote" || kind === "auto") {
+    const actor = resolveRemoteActor(root, flags);
+    if (typeof actor === "string") {
+      io.stderr.write(`h2a drumbeat watch: ${actor}\n`);
+      return 1;
+    }
+    const pem = readPrivateKeyFlag("h2a drumbeat watch", flags);
+    if (pem instanceof Error) {
+      io.stderr.write(`${pem.message}\n`);
+      return 1;
+    }
+    remoteActor = actor;
+    remotePrivateKeyPem = pem;
+  }
+  // DEC-091/117: select the relauncher adapter. `auto` = local-tmux, then the
+  // D4 remote relay, then headless fallback; `logging` stays the dry-run default.
   switch (kind) {
     case "local-tmux":
       relauncher = localTmuxRelauncher({ log });
@@ -1641,15 +1733,32 @@ export async function runDrumbeatWatch(
     case "headless":
       relauncher = headlessRelauncher({ log });
       break;
+    case "remote":
+      relauncher = remoteRelauncher({
+        root,
+        actor: remoteActor!,
+        privateKeyPem: remotePrivateKeyPem!,
+        log
+      });
+      break;
     case "auto":
-      relauncher = chainRelauncher(localTmuxRelauncher({ log }), headlessRelauncher({ log }));
+      relauncher = chainRelauncher(
+        localTmuxRelauncher({ log }),
+        remoteRelauncher({
+          root,
+          actor: remoteActor!,
+          privateKeyPem: remotePrivateKeyPem!,
+          log
+        }),
+        headlessRelauncher({ log })
+      );
       break;
     case "logging":
       relauncher = loggingRelauncher(log);
       break;
     default:
       io.stderr.write(
-        `h2a drumbeat watch: --relauncher must be one of logging|local-tmux|headless|auto (got "${flags.relauncher}")\n`
+        `h2a drumbeat watch: --relauncher must be one of logging|local-tmux|remote|headless|auto (got "${flags.relauncher}")\n`
       );
       return 1;
   }
@@ -1684,6 +1793,17 @@ export async function runDrumbeatWatch(
     intervalMs,
     ...(maxRelances !== undefined ? { maxRelances } : {}),
     signal: io.signal,
+    beforeScan: async () => {
+      const result = await relanceFromInbox(root, {
+        relauncher: buildLocalInboxRelauncher(kind, log)
+      });
+      if (result.relanced.length || result.skipped.length) {
+        io.stdout.write(
+          `drumbeat inbox: relanced=[${result.relanced.join(",")}] skipped=${result.skipped.length}\n`
+        );
+      }
+      return result.relanced;
+    },
     ...(decider ? { decider, deciderAfter, enforce, deciderLabel } : {}),
     // DEC-095 (D7): an exhausted relance budget stops the loop for that agent
     // and escalates to the PRINCIPAL (the anti-loop cap is `maxRelances`).

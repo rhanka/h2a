@@ -249,6 +249,11 @@ export type { H2AMutualisationOpportunity } from "./mutualisation.js";
 export { H2A_REFLEXIVE_ACTIONS, parseReflexiveDecision } from "./drumbeat-decision.js";
 export type { H2AReflexiveAction, H2AReflexiveDecision } from "./drumbeat-decision.js";
 export {
+  H2A_DRUMBEAT_RESUME_BODY_KIND,
+  parseDrumbeatResumeBody
+} from "./drumbeat-resume.js";
+export type { H2ADrumbeatResumeBody } from "./drumbeat-resume.js";
+export {
   H2A_SYSML_REF_KIND,
   isH2ASysmlRef,
   sysmlRefEquals,

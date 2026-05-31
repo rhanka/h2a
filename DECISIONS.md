@@ -2012,3 +2012,18 @@ Status is derived from the append-only keyring (like subagent status from its au
 **Decision**: gate every stdout write on the message being a **request** (`"id" in request`). A notification is processed if recognised but **never answered** (neither success nor error); an unhandled notification is a silent no-op (genuine internal errors still go to stderr). Parse-error responses (`id:null`, -32700) on truly unparseable input are kept (standard; the input may have been a request).
 
 **Consequence**: (a) `runMcpStdio` no longer emits a response to notifications (regression test added — a notification draws zero responses, never `id:null`); (b) **patch 0.20.2**; (c) unblocks codex and any strict MCP client at startup; (d) the global + each host re-pull to ≥0.20.2 (auto-upgrade works again since DEC-114) to receive the fix.
+
+## DEC-117 — Drumbeat D4: remote relance relay chain
+**Date**: 2026-05-31. **Refers**: DEC-086 (drumbeat), DEC-091 (D3 relaunchers), DEC-073..077 (signed remote transport), DEC-111 (D5). **Line**: V2 (unreleased — pending review/integration).
+
+**Context**: D3 relaunchers are local: the daemon and stalled agent share the host. D4 covers the case where the daemon can see a stalled remote instance but cannot safely spawn on that remote machine. The existing remote transport's sole authority is authenticated delivery to a local inbox; widening `remote serve` into "POST = execute a process" would cross a security boundary.
+
+**Decision**: ship Option A from the D4 framing: a relay chain.
+- Core adds total `parseDrumbeatResumeBody` and `H2A_DRUMBEAT_RESUME_BODY_KIND` for `{ kind:"drumbeat.resume", target, reason, requestedBy }`.
+- `remoteRelauncher` resolves the target's `endpoints[{kind:"remote"}].uri`, creates a `drumbeat.resume` event envelope, signs it with the caller's `--instance` / `--private-key` via `sendRemoteEnvelope`, and returns `true` only on 2xx. Missing endpoint, non-2xx, or network failure returns `false` so fallback/escalation remains available.
+- The receive side is `relanceFromInbox` plus `h2a drumbeat relance-inbox`: it drains only `drumbeat.resume` envelopes, looks up the local drumbeat entry, invokes a local D3 relauncher with the remote host's own `launchContext`, marks the entry relanced when issued, and pops malformed/stale D4 messages so they do not poison future passes. Ordinary inbox mail is left untouched.
+- `h2a drumbeat watch` consumes D4 inbox resumes before each scan and skips those just relanced for that beat. `--relauncher remote` uses only the signed relay; `--relauncher auto` is now `local-tmux → remote → headless`. `remote` and `auto` require `--instance` + `--private-key`; the remote endpoint remains a pure delivery sink.
+
+**Why**: this preserves the load-bearing boundary: the local daemon decides "relance X"; the transport authenticates and delivers; the remote host performs any spawn locally with its own launch context. It reuses the tested keyring, signed envelope transport, inbox, and D3 relaunchers without introducing remote execution authority. The explicit consume verb gives operators a manual/cron path when no watch loop is running.
+
+**Consequence**: (a) `@sentropic/h2a` exports the D4 resume body parser/constants; `@sentropic/h2a-cli` exports `remoteRelauncher`, `relanceFromInbox`, and the receive result types; (b) CLI adds `drumbeat relance-inbox` and `drumbeat watch --relauncher remote`; (c) D4 tests cover parser, remote relay success/failure, inbox consume idempotence, CLI consume, and the signer-key validation; (d) deferred options remain out of scope: direct remote-exec on `serve` needs its own security DEC, and broker-managed respawn belongs to the remote bridge track.

@@ -37,6 +37,8 @@ export function loggingRelauncher(write: (line: string) => void): H2ARelauncher 
 }
 
 export interface DrumbeatTickOptions extends ScanDrumbeatOptions {
+  /** D4: optional pre-scan hook, used by watch to consume remote resume inboxes. */
+  beforeScan?: () => readonly string[] | Promise<readonly string[]>;
   /** Hook for entries that hit the relance cap → escalate to PRINCIPAL (D7). */
   onExhausted?: (entry: H2ADrumbeatEntry) => void | Promise<void>;
   now?: number;
@@ -64,7 +66,11 @@ export async function drumbeatTick(
   relauncher: H2ARelauncher,
   options: DrumbeatTickOptions = {}
 ): Promise<DrumbeatTickResult> {
-  const { findings, exhausted } = scanDrumbeat(root, { maxRelances: options.maxRelances });
+  const preRelanced = await options.beforeScan?.();
+  const { findings, exhausted } = scanDrumbeat(root, {
+    maxRelances: options.maxRelances,
+    skipInstances: [...(options.skipInstances ?? []), ...(preRelanced ?? [])]
+  });
   const relanced: string[] = [];
   const k = options.deciderAfter ?? 1;
   for (const finding of findings) {
@@ -128,7 +134,7 @@ export interface DrumbeatWatchOptions extends DrumbeatTickOptions {
   intervalMs?: number;
   /** Stop the loop. */
   signal?: AbortSignal;
-  onTick?: (result: DrumbeatTickResult) => void;
+  onTick?: (result: DrumbeatTickResult) => void | Promise<void>;
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -158,7 +164,7 @@ export async function runDrumbeatWatch(
   const intervalMs = options.intervalMs ?? 30_000;
   while (!options.signal?.aborted) {
     const result = await drumbeatTick(root, relauncher, options);
-    options.onTick?.(result);
+    await options.onTick?.(result);
     if (options.signal?.aborted) break;
     await delay(intervalMs, options.signal);
   }

@@ -40,9 +40,20 @@ export {
 export {
   localTmuxRelauncher,
   headlessRelauncher,
+  remoteRelauncher,
   chainRelauncher,
   tmuxTarget,
   defaultRelauncherRuntime,
   type RelauncherRuntime,
+  type RemoteEndpointResolver,
+  type RemoteEnvelopeSender,
+  type RemoteRelauncherOptions,
   type H2ARelauncherKind
 } from "./relaunchers.js";
+export {
+  relanceFromInbox,
+  type H2ARelanceInboxResult,
+  type H2ARelanceInboxSkip,
+  type H2ARelanceInboxSkipReason,
+  type RelanceFromInboxOptions
+} from "./inbox-relance.js";

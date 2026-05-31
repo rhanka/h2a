@@ -20,7 +20,8 @@ flowchart TD
   DAEMON -->|stalled?| REFLEX[reflexive watchdog SUBAGENT<br/>LLM: relance / finish / escalate / re-route]
   REFLEX -->|relance instance X, prompt P| ADPT{relauncher adapter}
   ADPT -->|local + tmux| TMUX[respawn / send-keys<br/>in original pane]
-  ADPT -->|cloud| REMOTE[@sentropic/remote<br/>respawn session]
+  ADPT -->|remote relay| REMOTE[`drumbeat.resume` envelope<br/>remote serve -> inbox]
+  REMOTE -->|remote host consumes| REMOTEWATCH[remote `drumbeat watch` / `relance-inbox`<br/>local D3 relauncher]
   ADPT -->|fallback| HEADLESS[headless resume + log + notify]
   REFLEX -->|N failures| ESC[escalate to PRINCIPAL<br/>the human owner]
 ```
@@ -36,7 +37,7 @@ flowchart TD
 
 3. **Relauncher adapters — environment-specific** (the daemon decides *"relance X with prompt P"*; the adapter performs the spawn):
    - **local-tmux (priority)**: re-inject into the **original tmux pane** (`respawn-pane` / `send-keys` the resume command — `codex resume`, `agy -c`, `gemini -r`, `claude -r`) using the captured `launchContext` → the user sees it resume in place.
-   - **remote (cloud)**: `@sentropic/remote` respawns the session (it already owns session lifecycle; reuses the bridge DEC-059/063).
+   - **remote relay**: sign and POST a `drumbeat.resume` envelope to the target instance's declared `endpoints[{kind:"remote"}].uri`; the remote transport only delivers to inbox, and the remote host then consumes the inbox and relances locally with its own D3 adapters.
    - **headless fallback**: original terminal gone → spawn headless (`-p`/resume) detached, log output, **notify the PRINCIPAL**.
 
 4. **Reflexive function — a watchdog SUBAGENT (LLM, DEC-068).** Invoked by the daemon to *decide*: relance with what nudge / mark `done` / escalate / **re-route** (e.g. switch model when out-of-tokens). It is a *function*, not a new frozen role; it can also watch the conductor. The dumb daemon is the anchor that calls it (no recursion).
@@ -50,7 +51,7 @@ flowchart TD
 | **D1** | ✅ **done (DEC-085, 0.4.0)** — presence `workStatus` + `launchContext` fields + pure `inferStall` (core) + `updatePresence` patch (cli) | core + cli store |
 | **D2** | ✅ **done (DEC-086, 0.5.0)** — durable registry (`recordStop`/`listDrumbeat`/`clear`/`markRelanced`) + `scanDrumbeat` + `drumbeatTick`/`runDrumbeatWatch` + `H2ARelauncher` adapter interface + `h2a drumbeat record/scan/clear/watch` | cli runtime |
 | **D3** | ✅ **done (DEC-091, 0.10.0)** — `localTmuxRelauncher` (send-keys the resume/launch command into the captured pane) + `headlessRelauncher` (detached respawn + notify) + `chainRelauncher` (tmux→headless), injectable `RelauncherRuntime`; `h2a drumbeat watch --relauncher logging\|local-tmux\|headless\|auto` | cli runtime |
-| **D4** | **remote adapter** (relance via `@sentropic/remote`) | cli runtime + bridge |
+| **D4** | ✅ **done (DEC-117, unreleased)** — Option A relay chain: `remoteRelauncher` signs `drumbeat.resume` and POSTs it with `sendRemoteEnvelope`; `relanceFromInbox` / `h2a drumbeat relance-inbox` consume delivered resumes and relance locally with D3 adapters; `h2a drumbeat watch --relauncher remote` and `auto = local-tmux → remote → headless` require `--instance` + `--private-key`. The remote serve path remains a pure delivery sink. | cli runtime + remote transport |
 | **D5** | reflexive watchdog SUBAGENT (decide relance/finish/escalate/re-route) | skill/subagent |
 | **D6** | ✅ **done (DEC-093/096/101/102/103/104/113)** — `h2a host plugin` renders the per-host stop-hook (4 hosts at parity); **`--write` installs it for claude + gemini + codex** (Claude-format `hooks.Stop`; codex → a plugin `hooks.json`); **`--scaffold <dir>` (codex-only) writes codex's full local marketplace** — `.agents/plugins/marketplace.json` + `plugins/<name>/.codex-plugin/plugin.json` + `plugins/<name>/hooks/hooks.json` (verified live: codex installs from a marketplace dir, not a bare plugin) — and emits the **trust step** (`codex plugin marketplace add <dir>` → `codex plugin add h2a-drumbeat@h2a-local`) in the `trust` array; agy parity (MCP + scenario + install-skills + poll, no daemon). claude/gemini/codex are installable as close to one-shot as each trust model allows; agy polls. | host plugins |
 | **D7** | ✅ **done (DEC-095, unreleased)** — durable escalation registry + `h2a drumbeat watch` auto-escalates an exhausted agent to the PRINCIPAL (channel `alert`); `h2a drumbeat escalations` lists open alerts; `drumbeat clear` closes them. Anti-loop cap = `--max-relances`. Target resolution is symbolic (reversible, see loop-decisions). | cli runtime |
