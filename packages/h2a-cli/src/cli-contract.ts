@@ -255,6 +255,24 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Derive postureConflit for the negotiation signers and declared subjects."
   },
   {
+    verb: "dossier",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["negotiation"],
+    optionalFlags: ["root", "presenter", "advisory-gate", "event-id"],
+    description:
+      "Derive the advisory decision dossier and optional presenter-bias gate for a negotiation."
+  },
+  {
+    verb: "confiance",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["negotiation"],
+    optionalFlags: ["root"],
+    description:
+      "Derive the advisory postureConfiance for a negotiation from current dossier attention and conflicts."
+  },
+  {
     verb: "attest-comprehension",
     outputShape: "resource",
     exitCodes: [0, 1, 2, 3],

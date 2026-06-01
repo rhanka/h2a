@@ -96,6 +96,30 @@ export type {
   H2APublicKeyRing
 } from "./comprehension-attestation.js";
 export {
+  H2A_DECISION_DOSSIER_KIND,
+  H2A_DECISION_DOSSIER_RANK_REASONS,
+  deriveDecisionDossier,
+  evaluatePresenterBias
+} from "./decision-dossier.js";
+export type {
+  DeriveDecisionDossierInput,
+  H2ADecisionDossier,
+  H2ADecisionDossierItem,
+  H2ADecisionDossierRankReason,
+  H2APresenterBias
+} from "./decision-dossier.js";
+export {
+  H2A_CONFIANCE_REASONS,
+  H2A_POSTURES_CONFIANCE,
+  derivePostureConfiance
+} from "./confiance.js";
+export type {
+  DerivePostureConfianceInput,
+  H2AConfianceReason,
+  H2APostureConfiance,
+  H2APostureConfianceResult
+} from "./confiance.js";
+export {
   H2A_RECOURSE_CONFLICT_DISPOSITIONS,
   H2A_RECOURSE_PROFILES,
   H2A_RECOURSE_STATES,

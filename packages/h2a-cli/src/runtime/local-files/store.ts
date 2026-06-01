@@ -18,7 +18,10 @@ import {
   canSignArtifactKind,
   computeHash,
   createJournalEntry,
+  deriveDecisionDossier as deriveDecisionDossierCore,
   derivePostureConflit,
+  derivePostureConfiance as derivePostureConfianceCore,
+  evaluatePresenterBias,
   isH2AEnvelope,
   isH2ADeclarationInteret,
   validateSubagentBinding,
@@ -32,8 +35,11 @@ import {
   type H2AJournalEntry,
   type H2AJournalPayload,
   type H2ANegotiationRecord,
+  type H2ADecisionDossier,
   type H2ADeclarationInteret,
+  type H2APostureConfianceResult,
   type H2APostureConflitResult,
+  type H2APresenterBias,
   type H2ARole,
   type H2ASignature
 } from "@sentropic/h2a";
@@ -129,6 +135,14 @@ export interface H2AOffboardTombstone {
   at: string;
 }
 
+export interface H2ADerivedDecisionDossier {
+  negotiationId: string;
+  dossier: H2ADecisionDossier;
+  dossierHash: string;
+  presenterBias?: H2APresenterBias;
+  advisoryEvent?: H2AJournalEntry<unknown>;
+}
+
 export interface LocalStore {
   paths: LocalStorePaths;
   registerInstance(reg: H2AActorRegistration): void;
@@ -164,6 +178,11 @@ export interface LocalStore {
     options?: { eventId?: string }
   ): H2AJournalEntry<H2ADeclarationInteret>;
   derivePosturesConflit(negotiationId: string): H2APostureConflitResult[];
+  deriveDecisionDossier(
+    negotiationId: string,
+    options?: { presenter?: string; advisoryGate?: boolean; eventId?: string }
+  ): H2ADerivedDecisionDossier;
+  derivePostureConfiance(negotiationId: string): H2APostureConfianceResult;
   stabilizeNegotiation(
     negotiationId: string,
     options?: { eventId?: string }
@@ -796,6 +815,135 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     );
   }
 
+  function findInstanceBySubject(subject: string): H2AActorRegistration | undefined {
+    return listInstances().find(
+      (entry) => entry.id === subject || entry.instance === subject
+    );
+  }
+
+  function subjectScopesBySubject(): Record<string, readonly string[]> {
+    const out: Record<string, readonly string[]> = {};
+    for (const registration of listInstances()) {
+      const scopes = registration.scopes ?? [];
+      out[registration.id] = scopes;
+      out[registration.instance] = scopes;
+    }
+    return out;
+  }
+
+  function publicKeysBySubject(): Record<string, readonly string[]> {
+    const out: Record<string, readonly string[]> = {};
+    for (const registration of listInstances()) {
+      const keys = listInstanceKeys(registration.id);
+      out[registration.id] = keys;
+      out[registration.instance] = keys;
+    }
+    return out;
+  }
+
+  function deriveDecisionDossierFor(
+    record: H2ANegotiationRecord,
+    entries: readonly H2AJournalEntry<unknown>[],
+    artifact?: unknown
+  ): H2ADecisionDossier {
+    const recordForDossier =
+      artifact === undefined
+        ? record
+        : { ...record, currentArtifactHash: computeHash(artifact) };
+    return deriveDecisionDossierCore({
+      record: recordForDossier,
+      journal: entries,
+      subjectScopes: subjectScopesBySubject(),
+      controleFlags: collectControleFlags(entries)
+    });
+  }
+
+  function derivePostureConfianceFor(
+    record: H2ANegotiationRecord,
+    entries: readonly H2AJournalEntry<unknown>[],
+    artifact?: unknown
+  ): H2APostureConfianceResult {
+    return derivePostureConfianceCore({
+      record,
+      journal: entries,
+      dossier: deriveDecisionDossierFor(record, entries, artifact),
+      publicKeys: publicKeysBySubject(),
+      subjectScopes: subjectScopesBySubject(),
+      decisionScopes: collectDecisionScopes(record, entries, artifact)
+    });
+  }
+
+  function deriveDecisionDossier(
+    negotiationId: string,
+    options: { presenter?: string; advisoryGate?: boolean; eventId?: string } = {}
+  ): H2ADerivedDecisionDossier {
+    const record = readNegotiation(negotiationId);
+    if (!record) {
+      throw new Error(`Negotiation not found: ${negotiationId}`);
+    }
+    const entries = readNegotiationJournalUnlocked(negotiationId);
+    const declarations = collectDeclarations(entries);
+    const controleFlags = collectControleFlags(entries);
+    const subjectScopes = subjectScopesBySubject();
+    const dossier = deriveDecisionDossierCore({
+      record,
+      journal: entries,
+      subjectScopes,
+      controleFlags
+    });
+    const result: H2ADerivedDecisionDossier = {
+      negotiationId,
+      dossier,
+      dossierHash: computeHash(dossier)
+    };
+
+    if (!options.presenter) {
+      return result;
+    }
+
+    const presenterRegistration = findInstanceBySubject(options.presenter);
+    const presenterBias = evaluatePresenterBias(options.presenter, {
+      declarations,
+      ownScopes: presenterRegistration?.scopes ?? [],
+      decisionScopes: collectDecisionScopes(record, entries),
+      signers: record.requiredSigners ?? [],
+      controleFlags
+    });
+    if (!presenterBias.biased || options.advisoryGate !== true) {
+      return { ...result, presenterBias };
+    }
+
+    const advisoryEvent = appendNegotiationEvent(negotiationId, {
+      id: options.eventId ?? `evt-presenterBias-${Date.now().toString(36)}`,
+      type: "escalate",
+      actor: { instance: "h2a-cli", role: "MANDATAIRE", scope: record.scope },
+      body: {
+        kind: "escalation",
+        channel: "alert",
+        payload: {
+          kind: "presenterBias",
+          subject: presenterBias.subject,
+          postureConflit: presenterBias.posture.postureConflit,
+          criteres: presenterBias.posture.criteres,
+          disclosureMode: presenterBias.posture.disclosureMode,
+          masqueImpactCollectif: presenterBias.posture.masqueImpactCollectif,
+          requiredBodyKind: H2A_DECLARATION_INTERET_BODY_KIND,
+          disposition: "route-escalate"
+        }
+      },
+      createdAt: new Date().toISOString()
+    });
+    return { ...result, presenterBias, advisoryEvent };
+  }
+
+  function derivePostureConfiance(negotiationId: string): H2APostureConfianceResult {
+    const record = readNegotiation(negotiationId);
+    if (!record) {
+      throw new Error(`Negotiation not found: ${negotiationId}`);
+    }
+    return derivePostureConfianceFor(record, readNegotiationJournalUnlocked(negotiationId));
+  }
+
   function declareConflitInteret(
     negotiationId: string,
     declaration: H2ADeclarationInteret,
@@ -1023,6 +1171,45 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
           entriesForAppend = [...entriesForAppend, advisoryEvent];
         }
 
+        const postureConfiance = derivePostureConfianceFor(
+          record,
+          entriesForAppend,
+          winningArtifact
+        );
+        if (postureConfiance.postureConfiance !== "etablie") {
+          const previousAdvisory = entriesForAppend[entriesForAppend.length - 1];
+          const advisoryPayload: H2AJournalPayload<unknown> = {
+            id: `evt-postureConfiance-${Date.now().toString(36)}`,
+            type: "escalate",
+            actor: { instance: "h2a-cli", role: "MANDATAIRE", scope: record.scope },
+            body: {
+              kind: "escalation",
+              channel: "alert",
+              payload: {
+                kind: "postureConfiance",
+                postureConfiance: postureConfiance.postureConfiance,
+                dossierHash: postureConfiance.dossierHash,
+                attentionAttested: postureConfiance.attentionAttested,
+                noUndisclosedCollectiveConflict:
+                  postureConfiance.noUndisclosedCollectiveConflict,
+                missingAttestations: postureConfiance.missingAttestations,
+                staleAttestations: postureConfiance.staleAttestations,
+                undisclosedConflicts: postureConfiance.undisclosedConflicts,
+                disclosedConflicts: postureConfiance.disclosedConflicts,
+                reasons: postureConfiance.reasons,
+                disposition: "advisory-only"
+              }
+            },
+            createdAt: new Date().toISOString()
+          };
+          const advisoryEvent = previousAdvisory
+            ? appendJournalEntry(previousAdvisory, advisoryPayload)
+            : createJournalEntry(advisoryPayload);
+          appendJsonl(journalFile, advisoryEvent);
+          advisoryEvents.push(advisoryEvent);
+          entriesForAppend = [...entriesForAppend, advisoryEvent];
+        }
+
         const previous = entriesForAppend[entriesForAppend.length - 1];
         const finalPayload: H2AJournalPayload<unknown> = {
           id: options.eventId ?? `evt-stabilize-${Date.now().toString(36)}`,
@@ -1217,6 +1404,8 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     readNegotiationJournal,
     declareConflitInteret,
     derivePosturesConflit,
+    deriveDecisionDossier,
+    derivePostureConfiance,
     stabilizeNegotiation,
     putInboxMessage,
     readInbox,

@@ -159,6 +159,23 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 - **Stdout shape**: `{ "negotiationId": "<id>", "postures": ["<H2APostureConflitResult>", ...] }`.
 - **Exit codes**: `0`, `1`, `2`.
 
+#### `h2a dossier --negotiation <id> [--presenter <id>] [--advisory-gate] [--event-id <id>] [--root <path>]`
+
+- **Required**: `--negotiation`.
+- **Optional**: `--presenter`, `--advisory-gate`, `--event-id`, `--root`.
+- **Envelope**: `resource`.
+- **Stdout shape**: `{ "negotiationId": "<id>", "dossier": "<H2ADecisionDossier>", "dossierHash": "sha256:<hex>", "presenterBias"?: "<H2APresenterBias>" }`.
+- **Exit codes**: `0`, `1`, `2`.
+- **Description**: Derive the advisory decision dossier. With `--presenter`, also derives the presenter-bias posture; with `--advisory-gate`, a biased presenter appends an advisory escalation event without blocking later stabilization.
+
+#### `h2a confiance --negotiation <id> [--root <path>]`
+
+- **Required**: `--negotiation`.
+- **Envelope**: `resource`.
+- **Stdout shape**: `{ "negotiationId": "<id>", "posture": "<H2APostureConfianceResult>" }`.
+- **Exit codes**: `0`, `1`, `2`.
+- **Description**: Derive the advisory `postureConfiance` from the current dossier hash, valid comprehension attestations, and disclosed or undisclosed collective conflicts. It never blocks stabilization.
+
 #### `h2a attest-comprehension --instance <id> --dossier <file|sha256:...> --private-key <pem-path> [--negotiation <id> | --to <instance>] [--root <path>]`
 
 - **Required**: `--instance`, `--dossier`, `--private-key`.
