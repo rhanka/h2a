@@ -20,12 +20,9 @@ spec:
         app.kubernetes.io/name: h2a-mcp
     spec:
       serviceAccountName: h2a-mcp
-      # The image is published to GHCR by .github/workflows/docker.yml. If the
-      # ghcr.io/rhanka/h2a-cli package is private, create the pull secret first:
-      #   kubectl -n h2a-mcp create secret docker-registry ghcr-pull \
-      #     --docker-server=ghcr.io --docker-username=<gh-user> --docker-password=<PAT-read:packages>
-      imagePullSecrets:
-        - name: ghcr-pull
+      # Image lives in the Scaleway Container Registry namespace `h2a-mcp`, which
+      # is public (is_public=true, same convention as the mcp-wave tenant) — no
+      # imagePullSecret needed. Built + pushed by deploy/scw/deploy.sh.
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
@@ -33,7 +30,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: h2a-mcp
-          image: ghcr.io/rhanka/h2a-cli:latest
+          image: rg.fr-par.scw.cloud/h2a-mcp/h2a-cli:latest
           imagePullPolicy: IfNotPresent
           # The image ENTRYPOINT is the `h2a` CLI; override it to launch the
           # EVO-12 hosted MCP HTTP server (self-AS OAuth, read-only surface).

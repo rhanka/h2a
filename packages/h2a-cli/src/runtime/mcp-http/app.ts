@@ -27,6 +27,7 @@ interface McpHttpSession {
 
 export function createHostedApp(deps: HostedAppDeps): Hono {
   const app = new Hono();
+  const wwwAuthenticateHeader = `Bearer error="Unauthorized", error_description="Unauthorized", resource_metadata="${deps.oauthConfig.resourceMetadataUrl}"`;
 
   app.get("/healthz", (c) => c.json({ ok: true }));
   app.get("/readyz", (c) => c.json({ ok: true }));
@@ -43,7 +44,9 @@ export function createHostedApp(deps: HostedAppDeps): Hono {
       } catch {
         return false;
       }
-    }
+    },
+    noAuthenticationHeader: { wwwAuthenticateHeader: () => wwwAuthenticateHeader },
+    invalidAuthenticationHeader: { wwwAuthenticateHeader: () => wwwAuthenticateHeader }
   });
 
   const sessions = new Map<string, McpHttpSession>();

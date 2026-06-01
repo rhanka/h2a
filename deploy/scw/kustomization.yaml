@@ -7,6 +7,6 @@ resources:
   - ingress.yaml
   - pvc.yaml
 images:
-  - name: ghcr.io/rhanka/h2a-cli
-    newName: ghcr.io/rhanka/h2a-cli
+  - name: rg.fr-par.scw.cloud/h2a-mcp/h2a-cli
+    newName: rg.fr-par.scw.cloud/h2a-mcp/h2a-cli
     newTag: latest

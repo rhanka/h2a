@@ -3,6 +3,9 @@
 node_modules
 **/node_modules
 **/dist
+# Exclude incremental build state too: with dist/ ignored, a stale .tsbuildinfo
+# copied into the builder fools `tsc -b` into emitting nothing (missing dist/bin.js).
+**/*.tsbuildinfo
 .h2a
 .claude
 .codex

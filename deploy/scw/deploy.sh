@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # One-command Kapsule deploy for the h2a hosted MCP (EVO-12). Mirrors
-# deploy/scw/README.md. The container image is built and pushed to GHCR by
-# .github/workflows/docker.yml on every vX.Y.Z tag — this script does NOT build;
-# it pulls ghcr.io/rhanka/h2a-cli and runs the hosted MCP HTTP server from it.
+# deploy/scw/README.md and the mcp-wave convention: build the image, push it to
+# the Scaleway Container Registry namespace `h2a-mcp` (public, so the Kapsule
+# pulls without a secret), apply ConfigMap/Secret + manifests, then smoke-test.
 #
-# Prereqs (see README "Inputs"): kubectl context on the Kapsule cluster, the
-# `h2a-mcp` namespace + service account created, a `ghcr-pull` image-pull secret
-# if the GHCR package is private, and DNS for ${H2A_MCP_HOST} pointed at the
-# Traefik ingress.
+# Prereqs (see README "Inputs"): kubectl context on the Kapsule `poc` cluster
+# (`scw k8s kubeconfig get <id>`), the `h2a-mcp` namespace + service account
+# created from poc-k8s/tenants/h2a-mcp/00-namespace.yaml, docker logged in to
+# rg.fr-par.scw.cloud, and DNS for ${H2A_MCP_HOST} -> 51.159.11.157.
 set -euo pipefail
 
 # --- Required environment ---------------------------------------------------
@@ -16,14 +16,19 @@ set -euo pipefail
 
 # --- Optional (defaults) ----------------------------------------------------
 NAMESPACE="${NAMESPACE:-h2a-mcp}"
-IMAGE_REPO="${IMAGE_REPO:-ghcr.io/rhanka/h2a-cli}"
-IMAGE_TAG="${IMAGE_TAG:-latest}"
-IMAGE="${IMAGE:-${IMAGE_REPO}:${IMAGE_TAG}}"
+REGISTRY="${REGISTRY:-rg.fr-par.scw.cloud/h2a-mcp}"
+IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
+IMAGE="${IMAGE:-${REGISTRY}/h2a-cli:${IMAGE_TAG}}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 echo "==> Image:     ${IMAGE}"
 echo "==> Namespace: ${NAMESPACE}"
 echo "==> Host:      ${H2A_MCP_HOST}"
+
+# --- Build & push -----------------------------------------------------------
+echo "==> Building + pushing image to the SCW registry"
+docker build -t "${IMAGE}" "${REPO_ROOT}"
+docker push "${IMAGE}"
 
 # --- Runtime config (non-secret) --------------------------------------------
 echo "==> Applying ConfigMap"
@@ -50,7 +55,7 @@ echo "==> Applying manifests"
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 cp -R "${REPO_ROOT}/deploy/scw/." "${WORK}/"
-sed -i "s|newName: ghcr.io/rhanka/h2a-cli|newName: ${IMAGE%:*}|; s|newTag: latest|newTag: ${IMAGE##*:}|" "${WORK}/kustomization.yaml"
+sed -i "s|newName: rg.fr-par.scw.cloud/h2a-mcp/h2a-cli|newName: ${IMAGE%:*}|; s|newTag: latest|newTag: ${IMAGE##*:}|" "${WORK}/kustomization.yaml"
 kubectl apply -k "${WORK}"
 kubectl -n "${NAMESPACE}" rollout status deployment/h2a-mcp --timeout=180s
 

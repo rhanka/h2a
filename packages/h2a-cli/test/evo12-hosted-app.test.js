@@ -51,6 +51,10 @@ test("hosted app: /mcp without bearer -> 401; /healthz -> 200; OAuth metadata mo
   try {
     const noAuth = await app.request("/mcp", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     assert.equal(noAuth.status, 401);
+    assert.equal(
+      noAuth.headers.get("www-authenticate"),
+      'Bearer error="Unauthorized", error_description="Unauthorized", resource_metadata="https://h2a.example.com/.well-known/oauth-protected-resource/mcp"'
+    );
 
     assert.equal((await app.request("/healthz")).status, 200);
 
