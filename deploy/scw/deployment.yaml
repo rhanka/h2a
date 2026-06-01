@@ -6,11 +6,11 @@ metadata:
     app.kubernetes.io/name: h2a-mcp
 spec:
   replicas: 1
+  # Recreate (not RollingUpdate): the single replica owns a ReadWriteOnce PVC, so
+  # a surge pod on another node hits a Multi-Attach error and the rollout
+  # deadlocks. Recreate stops the old pod first, freeing the volume.
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: h2a-mcp
