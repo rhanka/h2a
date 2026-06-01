@@ -397,9 +397,27 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "action",
     exitCodes: [0, 1, 2],
     requiredFlags: ["from", "to", "instruction", "private-key"],
-    optionalFlags: ["root", "driver", "nonce", "at"],
+    optionalFlags: ["root", "driver", "host", "nonce", "at"],
     description:
       "Inject a signed instruction into a live peer through a driver adapter (logging|native|local-tmux|headless|auto). The preamble is ed25519-signed and authority is checked before dispatch. EVO-1."
+  },
+  {
+    verb: "drive receive",
+    outputShape: "action",
+    exitCodes: [0, 1, 2, 3],
+    requiredFlags: ["to"],
+    optionalFlags: ["root", "line", "stdin", "ignore-non-drive", "now"],
+    description:
+      "Verify a signed drive instruction before a host hook acts on it: signature/key, target, authority, and replay/freshness. EVO-1 E1c."
+  },
+  {
+    verb: "drive serve",
+    outputShape: "stream",
+    exitCodes: [0, 1],
+    requiredFlags: ["to", "inject-command"],
+    optionalFlags: ["root", "host", "port", "path"],
+    description:
+      "Run the remote/sidecar drive injection endpoint. It accepts POST /h2a/drive with a signed line, verifies signature/key, target, authority, freshness, and replay, then invokes the configured injector command. EVO-1 E1d."
   },
   {
     verb: "sysml verify",

@@ -27,6 +27,7 @@ test("host plugin renders a push-capable stop hook for claude/codex/gemini", () 
     // The hook records a stop with the launch context D3 needs.
     assert.match(r.record, /h2a drumbeat record --instance claude:p1 --status paused/);
     assert.match(r.record, /\$TMUX_PANE/);
+    assert.match(r.receive, /h2a drive receive --to claude:p1 --stdin --ignore-non-drive/);
     assert.ok(r.mechanism && r.hint);
   }
 });
@@ -62,10 +63,14 @@ test("host plugin --write claude merges an idempotent Stop hook into settings.js
     assert.equal(cfg.hooks.Stop.length, 2); // unrelated hook + ours
     const ours = cfg.hooks.Stop.find((e) => e.hooks[0].command.includes("h2a drumbeat record"));
     assert.match(ours.hooks[0].command, /--instance claude:p1/);
+    const receive = cfg.hooks.UserPromptSubmit.find((e) => e.hooks[0].command.includes("h2a drive receive"));
+    assert.match(receive.hooks[0].command, /--to claude:p1/);
+    assert.match(receive.hooks[0].command, /--stdin --ignore-non-drive/);
     // Idempotent: a second write does not duplicate our hook.
     assert.equal(run().rc, 0);
     cfg = JSON.parse(readFileSync(settings, "utf8"));
     assert.equal(cfg.hooks.Stop.filter((e) => e.hooks[0].command.includes("h2a drumbeat record")).length, 1);
+    assert.equal(cfg.hooks.UserPromptSubmit.filter((e) => e.hooks[0].command.includes("h2a drive receive")).length, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -87,6 +92,8 @@ test("host plugin --write gemini merges the Claude-format Stop hook into setting
     const ours = cfg.hooks.Stop.find((e) => e.hooks[0].command.includes("h2a drumbeat record"));
     assert.match(ours.hooks[0].command, /--instance gemini:p1/);
     assert.match(ours.hooks[0].command, /gemini -r/); // gemini's resume command
+    const receive = cfg.hooks.UserPromptSubmit.find((e) => e.hooks[0].command.includes("h2a drive receive"));
+    assert.match(receive.hooks[0].command, /--to gemini:p1/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -109,6 +116,8 @@ test("host plugin --write codex writes a valid Claude-format hooks.json + plugin
     const ours = cfg.hooks.Stop.find((e) => e.hooks[0].command.includes("h2a drumbeat record"));
     assert.match(ours.hooks[0].command, /--instance codex:p1/);
     assert.match(ours.hooks[0].command, /codex resume/); // codex's resume command
+    const receive = cfg.hooks.UserPromptSubmit.find((e) => e.hooks[0].command.includes("h2a drive receive"));
+    assert.match(receive.hooks[0].command, /--to codex:p1/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -161,6 +170,8 @@ test("host plugin --scaffold codex writes the full local marketplace + emits the
     const ours = cfg.hooks.Stop.find((e) => e.hooks[0].command.includes("h2a drumbeat record"));
     assert.match(ours.hooks[0].command, /--instance codex:p1/);
     assert.match(ours.hooks[0].command, /codex resume/);
+    const receive = cfg.hooks.UserPromptSubmit.find((e) => e.hooks[0].command.includes("h2a drive receive"));
+    assert.match(receive.hooks[0].command, /--to codex:p1/);
     assert.equal(out.hooks, hooksPath);
 
     // The trust step is surfaced (not a silent gap): the exact CLI commands.
@@ -174,6 +185,7 @@ test("host plugin --scaffold codex writes the full local marketplace + emits the
     assert.equal(r2.rc, 0, r2.stderr);
     const cfg2 = JSON.parse(readFileSync(hooksPath, "utf8"));
     assert.equal(cfg2.hooks.Stop.filter((e) => e.hooks[0].command.includes("h2a drumbeat record")).length, 1);
+    assert.equal(cfg2.hooks.UserPromptSubmit.filter((e) => e.hooks[0].command.includes("h2a drive receive")).length, 1);
     assert.equal(JSON.parse(readFileSync(marketplacePath, "utf8")).plugins.length, 1);
   } finally {
     rmSync(root, { recursive: true, force: true });

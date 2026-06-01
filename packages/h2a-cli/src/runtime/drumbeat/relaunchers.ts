@@ -40,7 +40,10 @@ export interface RelauncherRuntime {
   /** Run a foreground command; return true on exit code 0. */
   run(file: string, args: readonly string[]): boolean;
   /** Spawn a detached background process; return true if it started. */
-  spawnDetached(command: string, options: { cwd?: string }): boolean;
+  spawnDetached(
+    command: string | { file: string; args: readonly string[]; cwd?: string },
+    options: { cwd?: string }
+  ): boolean;
   /** Optional side-channel note (relances are observable). */
   notify?(line: string): void;
 }
@@ -52,12 +55,19 @@ export const defaultRelauncherRuntime: RelauncherRuntime = {
   },
   spawnDetached(command, options) {
     try {
-      const child = spawn(command, {
-        cwd: options.cwd,
-        shell: true,
-        detached: true,
-        stdio: "ignore"
-      });
+      const child =
+        typeof command === "string"
+          ? spawn(command, {
+              cwd: options.cwd,
+              shell: true,
+              detached: true,
+              stdio: "ignore"
+            })
+          : spawn(command.file, [...command.args], {
+              cwd: command.cwd ?? options.cwd,
+              detached: true,
+              stdio: "ignore"
+            });
       child.unref();
       return child.pid !== undefined;
     } catch {

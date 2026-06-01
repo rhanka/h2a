@@ -37,6 +37,7 @@
  * (`H2A_CLI_VERB_CONTRACTS`). Human-readable reference: `docs/cli-contract.md`.
  */
 
+import { spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import {
   copyFileSync,
@@ -64,6 +65,7 @@ import {
   auditNhiPosture,
   buildComprehensionAttestation,
   canAttestComprehension,
+  checkEnvelopeFreshness,
   computeHash,
   createEnvelope,
   diffOrgManifest,
@@ -84,6 +86,8 @@ import type {
   H2AActorRef,
   H2AActorRegistration,
   H2ALaunchContext,
+  H2AEnvelope,
+  H2AReplayGuard,
   H2ARole,
   H2AWorkspaceRef
 } from "@sentropic/h2a";
@@ -96,6 +100,8 @@ import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 import {
   renderStopHook,
   claudeStopHookEntry,
+  claudeDriveReceiveHookEntry,
+  isH2ADriveReceiveHook,
   isH2ARecordHook,
   codexPluginManifest,
   codexMarketplaceManifest,
@@ -107,6 +113,7 @@ import {
   H2A_STORE_SCHEMA_VERSION,
   createLocalStore,
   listPresence,
+  safePathSegment,
   sanitizeStorePaths
 } from "./runtime/local-files/index.js";
 import { runMcpStdio } from "./runtime/mcp/index.js";
@@ -150,6 +157,9 @@ import {
   localTmuxDriver,
   loggingDriver,
   nativeBackchannelDriver,
+  remoteDriveServerForStore,
+  verifyDriveOnReceive,
+  type H2ADriveInstructionPayload,
   type H2ADriver,
   type H2ADriverKind
 } from "./runtime/drive/index.js";
@@ -208,6 +218,7 @@ export interface H2ACliStreams {
   stderr: Pick<typeof process.stderr, "write">;
   stdout: Pick<typeof process.stdout, "write">;
   cwd?: () => string;
+  stdinText?: string | (() => string);
 }
 
 const CLI_HOSTS = [
@@ -266,7 +277,9 @@ export function renderCliHelp(): string {
     "  h2a upgrade [--check]   (--check: report current vs latest; bare: npm i -g @sentropic/h2a-cli@latest)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
-    "  h2a drive --from <instance> --to <instance> --instruction <text> --private-key <pem> [--driver logging|native|local-tmux|headless|auto] [--root <path>]",
+    "  h2a drive --from <instance> --to <instance> --instruction <text> --private-key <pem> [--driver logging|native|local-tmux|headless|auto] [--host <host>] [--root <path>]",
+    "  h2a drive receive --to <instance> (--line <signed-line> | --stdin) [--ignore-non-drive] [--root <path>]   (verify-before-act gate for host hooks)",
+    "  h2a drive serve --to <instance> --inject-command <command> [--port <n>] [--host <h>] [--path </h2a/drive>] [--root <path>]   (remote verify-before-inject service)",
     "  h2a drumbeat record --instance <id> --status <working|paused|done|blocked|out-of-tokens> [--command <c>] [--resume-command <c>] [--tmux-session <s> --tmux-pane <p>] [--root <path>]",
     "  h2a drumbeat scan [--max-relances <n>] [--root <path>]",
     "  h2a drumbeat clear --instance <id> [--root <path>]",
@@ -1453,6 +1466,108 @@ export async function runRemoteServe(
   });
 }
 
+export interface RunDriveServeOptions {
+  readonly inject?: (
+    payload: H2ADriveInstructionPayload,
+    signedLine: string
+  ) => boolean | Promise<boolean>;
+}
+
+function commandDriveInjector(
+  command: string,
+  io: Pick<H2ACliStreams, "stderr">
+): (payload: H2ADriveInstructionPayload, signedLine: string) => boolean {
+  return (payload, signedLine) => {
+    const result = spawnSync(command, {
+      shell: true,
+      input: `${signedLine}\n`,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        H2A_DRIVE_LINE: signedLine,
+        H2A_DRIVE_FROM: payload.from,
+        H2A_DRIVE_TO: payload.to,
+        H2A_DRIVE_INSTRUCTION: payload.instruction
+      },
+      timeout: 30_000
+    });
+    if (result.error) {
+      io.stderr.write(`h2a drive serve: injector command failed: ${result.error.message}\n`);
+      return false;
+    }
+    if (result.status !== 0) {
+      io.stderr.write(
+        `h2a drive serve: injector command exited ${result.status ?? "unknown"}\n`
+      );
+      return false;
+    }
+    return true;
+  };
+}
+
+/**
+ * `h2a drive serve` (EVO-1 E1d): long-running HTTP endpoint for remote/sidecar
+ * injection. It verifies signature, target, authority, freshness, and replay
+ * before crossing the remote trust boundary into the caller-provided injector.
+ */
+export async function runDriveServe(
+  flags: Record<string, string>,
+  io: {
+    stdout: NodeJS.WritableStream;
+    stderr: NodeJS.WritableStream;
+    cwd?: () => string;
+    onListening?: (server: import("node:http").Server) => void;
+  } = { stdout: process.stdout, stderr: process.stderr },
+  options: RunDriveServeOptions = {}
+): Promise<number> {
+  if (!flags.to) {
+    io.stderr.write("h2a drive serve: --to is required\n");
+    return 1;
+  }
+  const inject = options.inject ?? (
+    flags["inject-command"] ? commandDriveInjector(flags["inject-command"], io) : undefined
+  );
+  if (!inject) {
+    io.stderr.write("h2a drive serve: --inject-command is required\n");
+    return 1;
+  }
+  const cwd = io.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const host = flags.host ?? "127.0.0.1";
+  const port = flags.port ? Number.parseInt(flags.port, 10) : 8788;
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    io.stderr.write(`h2a drive serve: invalid --port "${flags.port}"\n`);
+    return 1;
+  }
+  let store;
+  try {
+    store = createLocalStore({ root });
+  } catch (error) {
+    io.stderr.write(`h2a drive serve: ${(error as Error).message}\n`);
+    return 1;
+  }
+  const server = remoteDriveServerForStore(store, {
+    to: flags.to,
+    path: flags.path,
+    inject
+  });
+  return await new Promise<number>((resolve) => {
+    server.on("error", (err) => {
+      io.stderr.write(`h2a drive serve: ${err.message}\n`);
+      resolve(1);
+    });
+    server.listen(port, host, () => {
+      const addr = server.address();
+      const boundPort = typeof addr === "object" && addr ? addr.port : port;
+      io.stdout.write(
+        `h2a drive serve: listening on http://${host}:${boundPort}${flags.path ?? "/h2a/drive"} (to ${flags.to}, root ${root})\n`
+      );
+      io.onListening?.(server);
+    });
+    server.on("close", () => resolve(0));
+  });
+}
+
 /**
  * `h2a remote send` (DEC-077): sign an envelope and POST it to a remote h2a
  * endpoint. Async (network), so dispatched from bin.ts. Exit 0 on a 2xx,
@@ -2141,6 +2256,39 @@ function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void): H2A
   }
 }
 
+function driveReplayGuard(root: string): H2AReplayGuard {
+  const dir = join(root, "drive-replay");
+  return {
+    accept(envelope: H2AEnvelope, now = Date.now()) {
+      const freshness = checkEnvelopeFreshness(envelope, { now });
+      if (!freshness.ok) return freshness;
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, `${safePathSegment(envelope.id)}.json`);
+      try {
+        writeFileSync(
+          file,
+          `${JSON.stringify({ id: envelope.id, createdAt: envelope.createdAt })}\n`,
+          { encoding: "utf8", flag: "wx" }
+        );
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          return { ok: false, reason: "replayed" as const };
+        }
+        throw error;
+      }
+      return { ok: true };
+    },
+    size() {
+      try {
+        return readdirSync(dir).filter((entry) => entry.endsWith(".json")).length;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+        throw error;
+      }
+    }
+  };
+}
+
 function cmdDrive(flags: Record<string, string>, streams: H2ACliStreams): number {
   const cwd = streams.cwd ?? (() => process.cwd());
   if (!flags.from || !flags.to || !flags.instruction || !flags["private-key"]) {
@@ -2181,6 +2329,7 @@ function cmdDrive(flags: Record<string, string>, streams: H2ACliStreams): number
   const driver = buildDriveDriver(kind, log);
   const result = driver.drive({
     to: flags.to,
+    host: flags.host ?? flags.to.split(":", 1)[0],
     instructionLine,
     launchContext: latestLaunchContext(root, flags.to)
   });
@@ -2204,6 +2353,66 @@ function cmdDrive(flags: Record<string, string>, streams: H2ACliStreams): number
     )}\n`
   );
   return driven ? 0 : 2;
+}
+
+function stdinText(streams: H2ACliStreams): string | undefined {
+  if (typeof streams.stdinText === "function") return streams.stdinText();
+  return streams.stdinText ?? readFileSync(0, "utf8");
+}
+
+function driveLineFromStdin(raw: string): string {
+  return driveLineFromHookInput(raw) ?? "";
+}
+
+function cmdDriveReceive(flags: Record<string, string>, streams: H2ACliStreams): number {
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const line = flags.line ?? (flags.stdin ? driveLineFromStdin(stdinText(streams) ?? "") : undefined);
+  if (!flags.to) {
+    streams.stderr.write("h2a drive receive: --to is required\n");
+    return 1;
+  }
+  if (!line) {
+    if (flags["ignore-non-drive"]) {
+      streams.stdout.write(
+        `${JSON.stringify({ ok: true, ignored: true, reason: "non-drive" }, null, 2)}\n`
+      );
+      return 0;
+    }
+    streams.stderr.write("h2a drive receive: --line or --stdin is required\n");
+    return 1;
+  }
+  if (flags["ignore-non-drive"] && !line.trim().startsWith("[h2a ")) {
+    streams.stdout.write(
+      `${JSON.stringify({ ok: true, ignored: true, reason: "non-drive" }, null, 2)}\n`
+    );
+    return 0;
+  }
+  const root = resolveRoot(flags, cwd);
+  const store = createLocalStore({ root });
+  const now = flags.now ? Number.parseInt(flags.now, 10) : undefined;
+  if (flags.now && Number.isNaN(now)) {
+    streams.stderr.write(
+      `h2a drive receive: --now must be a millisecond timestamp (got "${flags.now}")\n`
+    );
+    return 1;
+  }
+  let result: ReturnType<typeof verifyDriveOnReceive>;
+  try {
+    result = verifyDriveOnReceive(store, line, {
+      to: flags.to,
+      guard: driveReplayGuard(root),
+      ...(now !== undefined ? { now } : {})
+    });
+  } catch (error) {
+    streams.stderr.write(`h2a drive receive: ${(error as Error).message}\n`);
+    return 3;
+  }
+  if (!result.ok) {
+    streams.stderr.write(`h2a drive receive: ${result.reason}\n`);
+    return 2;
+  }
+  streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  return 0;
 }
 
 export async function runDrumbeatRelanceInbox(
@@ -2444,6 +2653,46 @@ function configsEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+function driveLineFromText(text: string): string | undefined {
+  const matchingLine = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.startsWith("[h2a "));
+  return matchingLine ?? (text.trim() ? text.trim() : undefined);
+}
+
+function hookPromptText(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const text = hookPromptText(item);
+      if (text) return text;
+    }
+    return undefined;
+  }
+  if (!isPlainObject(value)) return undefined;
+  for (const key of ["prompt", "line", "message", "text", "input"]) {
+    const text = hookPromptText(value[key]);
+    if (text) return text;
+  }
+  if (isPlainObject(value.params)) {
+    const text = hookPromptText(value.params);
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function driveLineFromHookInput(raw: string): string | undefined {
+  try {
+    const parsed = JSON.parse(raw);
+    const promptText = hookPromptText(parsed);
+    if (promptText) return driveLineFromText(promptText);
+  } catch {
+    // Non-JSON hook payloads may already be the prompt text.
+  }
+  return driveLineFromText(raw);
+}
+
 function cmdHostSetup(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -2671,7 +2920,13 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
     const manifestPath = join(pluginDir, ".codex-plugin", "plugin.json");
     const marketplacePath = join(marketplaceDir, ".agents", "plugins", "marketplace.json");
     // The hooks.json is the same idempotent Claude-format merge as --write.
-    const hooksMerge = mergeStopHooksFile(hooksPath, render.record, flags.force === "true", streams);
+    const hooksMerge = mergeStopHooksFile(
+      hooksPath,
+      render.record,
+      render.receive,
+      flags.force === "true",
+      streams
+    );
     if (typeof hooksMerge === "number") return hooksMerge;
     // Manifests are stable identities — rewriting them is idempotent (same bytes).
     const writes: ReadonlyArray<readonly [string, unknown]> = [
@@ -2698,7 +2953,7 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
           manifest: manifestPath,
           hooks: hooksPath,
           mechanism: render.mechanism,
-          hook: "hooks.Stop",
+          hook: "hooks.Stop + hooks.UserPromptSubmit",
           // The trust step is surfaced, not silently dropped: codex cannot be
           // auto-trusted from outside, so run these to load the plugin.
           trust: codexPluginTrustCommands(marketplaceDir, H2A_CODEX_PLUGIN_NAME)
@@ -2725,7 +2980,13 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
       return 1;
     }
     const targetPath = flags.write;
-    const merge = mergeStopHooksFile(targetPath, render.record, flags.force === "true", streams);
+    const merge = mergeStopHooksFile(
+      targetPath,
+      render.record,
+      render.receive,
+      flags.force === "true",
+      streams
+    );
     if (typeof merge === "number") return merge;
     streams.stdout.write(
       `${JSON.stringify(
@@ -2734,7 +2995,7 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
           host: flags.host,
           written: targetPath,
           mechanism: render.mechanism,
-          hook: "hooks.Stop",
+          hook: "hooks.Stop + hooks.UserPromptSubmit",
           // codex loads hooks via a plugin (manifest → ./hooks/hooks.json); the
           // file written above is a valid codex hooks.json, but codex still
           // needs the manifest + trust. `--scaffold <dir>` does the full job;
@@ -2760,15 +3021,17 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
 }
 
 /**
- * Idempotently merge the h2a drumbeat-record `Stop` hook into a Claude-format
- * hooks file (claude/gemini `settings.json` or a codex `hooks.json`). Drops any
- * prior h2a Stop hook, appends the freshly-rendered one, preserves unrelated
- * keys/hooks. Returns an exit code on failure, or `undefined` on success.
+ * Idempotently merge the h2a drumbeat-record `Stop` hook and the drive receive
+ * `UserPromptSubmit` gate into a Claude-format hooks file (claude/gemini
+ * `settings.json` or a codex `hooks.json`). Drops prior h2a hooks, appends the
+ * freshly-rendered ones, and preserves unrelated keys/hooks. Returns an exit
+ * code on failure, or `undefined` on success.
  * DEC-102/103/104; reused by `--scaffold` (DEC-113).
  */
 function mergeStopHooksFile(
   targetPath: string,
   record: string,
+  receive: string,
   force: boolean,
   streams: H2ACliStreams
 ): number | undefined {
@@ -2800,12 +3063,26 @@ function mergeStopHooksFile(
   }
   const existingHooks = isPlainObject(existing.hooks) ? existing.hooks : {};
   const existingStop = Array.isArray(existingHooks.Stop) ? [...existingHooks.Stop] : [];
+  const existingUserPromptSubmit = Array.isArray(existingHooks.UserPromptSubmit)
+    ? [...existingHooks.UserPromptSubmit]
+    : [];
   // Idempotent: drop any prior h2a drumbeat-record Stop hook, then append ours.
   const withoutH2A = existingStop.filter((e) => !isH2ARecordHook(e));
   const mergedStop = [...withoutH2A, claudeStopHookEntry(record)];
+  const withoutDriveReceive = existingUserPromptSubmit.filter(
+    (e) => !isH2ADriveReceiveHook(e)
+  );
+  const mergedUserPromptSubmit = [
+    ...withoutDriveReceive,
+    claudeDriveReceiveHookEntry(receive)
+  ];
   const merged: Record<string, unknown> = {
     ...existing,
-    hooks: { ...existingHooks, Stop: mergedStop }
+    hooks: {
+      ...existingHooks,
+      Stop: mergedStop,
+      UserPromptSubmit: mergedUserPromptSubmit
+    }
   };
   try {
     const dir = dirname(targetPath);
@@ -3757,7 +4034,18 @@ export function runCli(
   if (command === "connect") return cmdConnect(flags, streams);
   if (command === "install-skills") return cmdInstallSkills(flags, streams);
   if (command === "deploy") return cmdDeploy(argv.slice(1), streams);
-  if (command === "drive") return cmdDrive(flags, streams);
+  if (command === "drive") {
+    if (argv[1] === "receive") {
+      return cmdDriveReceive(parseFlags(argv.slice(1)).flags, streams);
+    }
+    if (argv[1] === "serve") {
+      streams.stderr.write(
+        "h2a drive serve: async verb — run via the h2a binary, not the synchronous API.\n"
+      );
+      return 1;
+    }
+    return cmdDrive(flags, streams);
+  }
   if (command === "remote") {
     // `remote serve`/`remote send` are async and dispatched from bin.ts; if we
     // reach here it is a misuse (e.g. via the sync runCli) or an unknown sub.
