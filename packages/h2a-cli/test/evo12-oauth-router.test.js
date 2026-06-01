@@ -21,6 +21,7 @@ async function freshApp() {
     resourceServerUrl: new URL("/mcp", base),
     resourceMetadataUrl: new URL("/.well-known/oauth-protected-resource/mcp", base).href,
     consentSecret: "s3cr3t",
+    enrollmentEnabled: true,
     allowedRedirectUris: [REDIRECT],
     accessTokenTtlSeconds: 3600,
     refreshTokenTtlSeconds: 1209600,

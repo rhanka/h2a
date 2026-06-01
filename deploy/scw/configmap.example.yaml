@@ -15,6 +15,10 @@ data:
   OAUTH_ACCESS_TOKEN_TTL_SECONDS: "3600"
   OAUTH_REFRESH_TOKEN_TTL_SECONDS: "1209600"
   OAUTH_AUTH_CODE_TTL_SECONDS: "60"
+  # Remote connector enrollment is disabled by default until the hosted service
+  # has an explicit multi-tenant policy. Set to "true" only for a controlled
+  # operator-gated enrollment window.
+  H2A_HOSTED_ENROLLMENT_ENABLED: "false"
   # Both the self-AS client/token store and the h2a root live on the PVC
   # (readOnlyRootFilesystem: true → only mounted volumes are writable).
   OAUTH_STORE_PATH: /var/lib/h2a/oauth-clients.json

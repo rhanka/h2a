@@ -38,7 +38,7 @@ function hostedApp() {
   const oauthConfig = {
     issuerUrl: base, publicBaseUrl: base, resourceServerUrl: new URL("/mcp", base),
     resourceMetadataUrl: new URL("/.well-known/oauth-protected-resource/mcp", base).href,
-    consentSecret: "s3cr3t", allowedRedirectUris: [REDIRECT],
+    consentSecret: "s3cr3t", enrollmentEnabled: false, allowedRedirectUris: [REDIRECT],
     accessTokenTtlSeconds: 3600, refreshTokenTtlSeconds: 1209600, authCodeTtlSeconds: 60, nodeEnv: "production"
   };
   const store = new FileOAuthStore(join(dir, "oauth.json"));
@@ -61,6 +61,25 @@ test("hosted app: /mcp without bearer -> 401; /healthz -> 200; OAuth metadata mo
     const meta = await app.request("/.well-known/oauth-authorization-server");
     assert.equal(meta.status, 200);
     assert.equal((await meta.json()).issuer, "https://h2a.example.com");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hosted app: remote enrollment endpoints are disabled unless explicitly enabled", async () => {
+  const { dir, app } = hostedApp();
+  try {
+    const dcr = await app.request("/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ redirect_uris: [REDIRECT] })
+    });
+    assert.equal(dcr.status, 403);
+    assert.equal((await dcr.json()).error, "enrollment_disabled");
+
+    const authorize = await app.request("/authorize?client_id=client-1");
+    assert.equal(authorize.status, 403);
+    assert.equal((await authorize.json()).error, "enrollment_disabled");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

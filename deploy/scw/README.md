@@ -1,8 +1,9 @@
 # h2a hosted MCP — Scaleway Kapsule Runbook (EVO-12)
 
 Hosts the **read-only** h2a MCP surface over HTTP with a self-contained OAuth
-authorization server (the mcp-wave "self-AS" pattern), so it can be enrolled as
-a remote MCP connector on **claude.ai / claude.com**.
+authorization server (the mcp-wave "self-AS" pattern). The default user posture
+is **local h2a only**; remote connector enrollment is disabled unless an operator
+explicitly opens a controlled enrollment window.
 
 The container image is built from this repo's root `Dockerfile` and pushed to
 the **Scaleway Container Registry** namespace `h2a-mcp`
@@ -20,7 +21,8 @@ The manual steps below are the equivalent it automates.
 > exposed tool takes a `privateKeyPem`. No ed25519 private key is ever written
 > to the PVC or sent over the wire. 39-auth OIDC federation comes later (swap
 > the self-AS for 39-auth Ed25519 JWT validation); for now the server is its own
-> single-tenant AS gated by an operator consent secret.
+> single-tenant AS. New remote enrollment is off by default until the hosted
+> service has an explicit multi-tenant policy.
 
 ## Inputs
 
@@ -63,10 +65,12 @@ kubectl -n h2a-mcp create configmap h2a-mcp-config \
   --from-literal=OAUTH_ACCESS_TOKEN_TTL_SECONDS=3600 \
   --from-literal=OAUTH_REFRESH_TOKEN_TTL_SECONDS=1209600 \
   --from-literal=OAUTH_AUTH_CODE_TTL_SECONDS=60 \
+  --from-literal=H2A_HOSTED_ENROLLMENT_ENABLED=false \
   --from-literal=OAUTH_STORE_PATH=/var/lib/h2a/oauth-clients.json \
   --from-literal=H2A_ROOT=/var/lib/h2a/root \
   --dry-run=client -o yaml | kubectl apply -f -
 
+# Only needed for an explicit operator-gated enrollment window:
 kubectl -n h2a-mcp create secret generic h2a-mcp-secret \
   --from-literal=OAUTH_CONSENT_SECRET="${OAUTH_CONSENT_SECRET}" \
   --dry-run=client -o yaml | kubectl apply -f -
@@ -100,13 +104,28 @@ curl -i "https://${H2A_MCP_HOST}/mcp" \
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'
 ```
 
-## Enroll on claude.ai
+With the default `H2A_HOSTED_ENROLLMENT_ENABLED=false`, new connector
+enrollment must be refused:
 
-1. claude.ai → Settings → Connectors → **Add custom connector**.
-2. URL: `https://h2a-mcp.sent-tech.ca/mcp`.
-3. claude.ai performs Dynamic Client Registration + the OAuth PKCE flow. On the
+```bash
+curl -i -X POST "https://${H2A_MCP_HOST}/register" \
+  -H 'content-type: application/json' \
+  --data '{"redirect_uris":["https://claude.ai/api/mcp/auth_callback"]}'
+# HTTP/2 403
+```
+
+## Optional controlled enrollment on claude.ai
+
+Do not enable this by default. Until multi-tenant policy is implemented, use it
+only for a controlled operator-gated test:
+
+1. Set `H2A_HOSTED_ENROLLMENT_ENABLED=true` and provide
+   `OAUTH_CONSENT_SECRET`.
+2. claude.ai → Settings → Connectors → **Add custom connector**.
+3. URL: `https://h2a-mcp.sent-tech.ca/mcp`.
+4. claude.ai performs Dynamic Client Registration + the OAuth PKCE flow. On the
    `/authorize` consent page, supply the operator `OAUTH_CONSENT_SECRET`.
-4. Once connected, only the read-only tools are listed (discover instances /
+5. Once connected, only the read-only tools are listed (discover instances /
    sessions, NHI inventory/report, conflict posture, blockage list).
 
 ## Rollback

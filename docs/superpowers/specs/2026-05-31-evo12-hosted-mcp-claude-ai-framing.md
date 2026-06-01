@@ -1,4 +1,4 @@
-# EVO-12 — Hosted h2a MCP on Scaleway k8s, enrollable from claude.ai — framing
+# EVO-12 — Hosted h2a MCP on Scaleway k8s, local-first + controlled remote enrollment — framing
 
 **Date**: 2026-05-31 · **Status**: framing (intention + ratified model) — NOT a full spec/DEC yet · **Refers**: DEC-058 (k8s-sidecar), DEC-067 (k8s-tenant RWX PVC), DEC-073/075/076/077 (signed remote transport / `remote serve`), DEC-116 (identity/NHI), EVO-11 (bridge NHI). **References**: `~/src/mcp-wave` (MCP-on-Kapsule + OAuth patron) ; `~/src/sentropic/packages/auth-hono` + `auth-ui` (= **39-auth**, WebAuthn + OAuth providers ; specs `sentropic/spec/SPEC_EVOL_MODEL_AUTH_PROVIDERS.md`, `WORKFLOW_AUTH.md`).
 
@@ -26,7 +26,7 @@ The HTTP-MCP + OIDC-validation + OAuth-metadata endpoints live in **`@sentropic/
 ## Proposed slices
 - **H1** — h2a-MCP over HTTP with **OIDC token validation** (39-auth issuer/JWKS) + pure **claim→h2a-identity mapping** + the read-tool surface (mono-tenant). The core deliverable.
 - **H2** — **Kapsule deploy** manifests (extend the k8s-tenant renderer for SCW; image build/publish like mcp-wave).
-- **H3** — **claude.ai enrollment**: the OAuth connector metadata (`/.well-known/oauth-protected-resource` + dynamic client registration) claude.ai's remote-MCP expects; documented enroll steps.
+- **H3** — **controlled claude.ai enrollment**: the OAuth connector metadata (`/.well-known/oauth-protected-resource` + dynamic client registration) claude.ai's remote-MCP expects; enrollment must be explicitly enabled by an operator and stays disabled by default until the multi-tenant policy exists.
 - **H1bis** — drive/send tools behind the **MANDATE** authority gate (after EVO-1 self-drive lands).
 - **H4** (Phase 2) — **multi-tenant** isolation by the tenant claim (per-tenant root/scope), mcp-wave-style.
 
@@ -55,6 +55,16 @@ The Opus review returned **revise** — and the load-bearing correction is now b
 5. `renderK8sTenant` is a shared-RWX single-workspace renderer (wrong shape for tenant isolation) — H2 needs SCW Service/Ingress/TLS manifests adapted from mcp-wave's `deploy/scw/`, not that renderer as-is.
 
 **Net**: model stands with 39-auth as IdP (now under construction, Ed25519 → mutualized with h2a), the hosted MCP is a new MCP-SDK HTTP entrypoint (read-only allowlist), and phase-2 isolation is root-per-tenant. EVO-12 H1 is now greenlit to start in parallel with BR-39c.
+
+## REVISION 2026-06-01 (local-first remote enrollment gate)
+
+Default user posture is **local h2a**. A hosted `sent-tech.ca` MCP can exist for
+read-only remote access tests, but new connector enrollment is **off by
+default** (`H2A_HOSTED_ENROLLMENT_ENABLED=false`). Enabling enrollment requires
+an explicit operator action plus `OAUTH_CONSENT_SECRET`; without that opt-in,
+Dynamic Client Registration and `/authorize` return `403 enrollment_disabled`.
+This prevents accidental single-tenant enrollment before the multi-tenant
+authorization/isolation layer is implemented.
 
 ## Note (related)
 The identity migration (DEC-116) is now LIVE and minted one perennial NHI **per launch** (no stable agent-token) → id proliferation. A **stable-agent-token** follow-up (a logical agent keeps one id across relaunches) is recommended as a small priority WP — it also cleans up which tenant/agent a 39-auth-authenticated human maps onto here.

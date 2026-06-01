@@ -45,6 +45,7 @@ spec:
                 name: h2a-mcp-config
             - secretRef:
                 name: h2a-mcp-secret
+                optional: true
           volumeMounts:
             - name: data
               mountPath: /var/lib/h2a

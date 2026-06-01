@@ -16,6 +16,7 @@ export interface H2AHostedOAuthEnv {
   OAUTH_ACCESS_TOKEN_TTL_SECONDS: number;
   OAUTH_REFRESH_TOKEN_TTL_SECONDS: number;
   OAUTH_AUTH_CODE_TTL_SECONDS: number;
+  H2A_HOSTED_ENROLLMENT_ENABLED?: string;
   NODE_ENV?: string;
 }
 
@@ -25,6 +26,7 @@ export interface H2AHostedOAuthConfig {
   resourceServerUrl: URL;
   resourceMetadataUrl: string;
   consentSecret: string;
+  enrollmentEnabled: boolean;
   allowedRedirectUris: readonly string[];
   accessTokenTtlSeconds: number;
   refreshTokenTtlSeconds: number;
@@ -39,15 +41,25 @@ export function parseOAuthCsv(value: string): string[] {
     .filter((item) => item.length > 0);
 }
 
+export function parseHostedEnrollmentEnabled(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
 export function oauthConfigFromEnv(env: H2AHostedOAuthEnv): H2AHostedOAuthConfig {
   const publicBaseUrl = new URL(env.PUBLIC_BASE_URL);
   const issuerUrl = new URL(env.OAUTH_ISSUER_URL);
+  const enrollmentEnabled = parseHostedEnrollmentEnabled(env.H2A_HOSTED_ENROLLMENT_ENABLED);
+  if (enrollmentEnabled && !env.OAUTH_CONSENT_SECRET) {
+    throw new Error("OAUTH_CONSENT_SECRET is required when H2A_HOSTED_ENROLLMENT_ENABLED=true");
+  }
   return {
     issuerUrl,
     publicBaseUrl,
     resourceServerUrl: new URL("/mcp", publicBaseUrl),
     resourceMetadataUrl: new URL("/.well-known/oauth-protected-resource/mcp", publicBaseUrl).href,
     consentSecret: env.OAUTH_CONSENT_SECRET ?? "local-dev-consent",
+    enrollmentEnabled,
     allowedRedirectUris: parseOAuthCsv(env.OAUTH_ALLOWED_REDIRECT_URIS),
     accessTokenTtlSeconds: env.OAUTH_ACCESS_TOKEN_TTL_SECONDS,
     refreshTokenTtlSeconds: env.OAUTH_REFRESH_TOKEN_TTL_SECONDS,

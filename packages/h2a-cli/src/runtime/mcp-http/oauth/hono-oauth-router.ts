@@ -23,6 +23,16 @@ import { Hono } from "hono";
 import { H2A_HOSTED_OAUTH_SCOPE as OAUTH_SCOPE, type H2AHostedOAuthConfig } from "./config.js";
 import type { SingleTenantOAuthProvider } from "./single-tenant-provider.js";
 
+function enrollmentDisabled(c: { json: (body: unknown, status: number) => Response }) {
+  return c.json(
+    {
+      error: "enrollment_disabled",
+      error_description: "Remote h2a enrollment is disabled by default; enable it explicitly after multi-tenant policy is configured."
+    },
+    403
+  );
+}
+
 export function buildOAuthRoutes(provider: SingleTenantOAuthProvider, oauth: H2AHostedOAuthConfig): Hono {
   const sdkProvider = provider as unknown as OAuthServerProvider;
   const clientsStore = provider.clientsStore as unknown as OAuthRegisteredClientsStore;
@@ -60,12 +70,17 @@ export function buildOAuthRoutes(provider: SingleTenantOAuthProvider, oauth: H2A
     })
   );
 
+  router.post("/register", (c, next) =>
+    oauth.enrollmentEnabled ? next() : enrollmentDisabled(c)
+  );
   router.post("/register", clientRegistrationHandler({ clientsStore }));
   router.post("/token", authenticateClient({ clientsStore }), tokenHandler(sdkProvider));
   router.post("/revoke", authenticateClient({ clientsStore }), revokeHandler(sdkProvider));
 
   router.on(["GET", "POST"], "/authorize", async (c) => {
     c.header("Cache-Control", "no-store");
+    if (!oauth.enrollmentEnabled) return enrollmentDisabled(c);
+
     const raw =
       c.req.method === "POST"
         ? ((await c.req.parseBody()) as Record<string, string>)
