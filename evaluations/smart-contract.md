@@ -1,6 +1,6 @@
 # Complementary evaluation — h2a × smart contracts (blockchain)
 
-> A *complementary* evaluation (not an org track A-E): how `h2a` relates to **on-chain smart contracts**. [← library](./README.md) · **Status: triple-reviewed** ([consolidated](./reviews/smart-contract.consolidated.md), all 3 verdicts `revise` → changes applied 2026-05-28).
+> A *complementary* evaluation (not an org track A-E): how `h2a` relates to **on-chain smart contracts**. [← library](./README.md) · **Status: triple-reviewed** — all 3 verdicts `revise`; changes applied 2026-05-28.
 
 h2a and a smart-contract platform both produce **signed, append-only, verifiable commitments** — but at different layers. h2a governs the **human/agent negotiation and authority** that *precedes and surrounds* a commitment; a smart contract is **autonomous on-chain execution** of an agreed rule. They compose: h2a journals *the act of agreeing* (who offered/countered/signed, under which mandate), an on-chain contract executes *the agreed mechanism*. This evaluation maps the concepts and specifies a **reference** (not a bridge that moves value).
 

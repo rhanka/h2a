@@ -16,9 +16,9 @@
 
 Each file follows the same structure: Mermaid diagram, mapping, contracts vs policies, multi-actor case, gaps, compatibility hypothesis.
 
-## Review program & backlog
+## Finalization backlog
 
-[BACKLOG.md](./BACKLOG.md) — the triple-review protocol + rubric for every artifact, and the backlog of new evaluations to author (ISO 9001 / ISO 27001 / SOC 2 / smart-contract).
+[BACKLOG.md](./BACKLOG.md) — the triple-review / finalization status for every artifact, and the backlog of new evaluations to author (ISO 9001 / ISO 27001 / SOC 2 / smart-contract).
 
 ## Complementary evaluations
 

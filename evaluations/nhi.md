@@ -1,6 +1,6 @@
 # Complementary evaluation — h2a × Non-Human Identity (OWASP NHI Top 10 / NIST)
 
-> A *complementary* evaluation (not an org track A-E): how `h2a` maps onto **Non-Human Identity (NHI)** security guidance. [← library](./README.md) · **Status: triple-reviewed** ([consolidated](./reviews/nhi.consolidated.md)) · **P1+P2 complete** (`report` DEC-087 · `attest` DEC-088 · `offboard` DEC-089 · `inventory` DEC-090).
+> A *complementary* evaluation (not an org track A-E): how `h2a` maps onto **Non-Human Identity (NHI)** security guidance. [← library](./README.md) · **Status: triple-reviewed** · **P1+P2 complete** (`report` DEC-087 · `attest` DEC-088 · `offboard` DEC-089 · `inventory` DEC-090).
 
 Agents, service accounts, API keys and workloads now outnumber human identities (figures cited range from ~10:1 to ~100:1). **Non-Human Identity (NHI)** security is the discipline of authenticating, scoping, rotating and offboarding these machine identities. h2a coordinates **AI-agent** instances — themselves NHIs — so it sits squarely in this space.
 

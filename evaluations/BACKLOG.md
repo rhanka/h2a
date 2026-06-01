@@ -1,10 +1,10 @@
-# Evaluations — review program & backlog
+# Evaluations — finalization backlog
 
-> Tracks (1) the **triple-review** of every evaluation, the skills, and the model foundations, and (2) the **new evaluations to author** (certification + smart-contract). [← library](./README.md)
+> Tracks (1) the **triple-review / finalization** status of every evaluation, the skills, and the model foundations, and (2) the **new evaluations to author**. [← library](./README.md)
 
 ## Triple-review protocol
 
-Each artifact gets **three independent reviews**, then a consolidation:
+Each artifact gets **three independent reviews**, then a finalization pass:
 
 | Slot | Reviewer config |
 |---|---|
@@ -12,7 +12,7 @@ Each artifact gets **three independent reviews**, then a consolidation:
 | R2 | gpt-5.5-xhigh |
 | R3 | opus-4.7-xhigh |
 
-- **Execution note**: a single model cannot fill all three slots. Reviews are run either by the user's own multi-model routing, by `/ultrareview` (multi-agent cloud review of the branch), or one slot at a time. Each review is recorded as `evaluations/reviews/<item>.<slot>.md`; a consolidation note merges the three. After consolidation, keep the `*.consolidated.md` note as the durable artifact and remove covered slot files.
+- **Execution note**: a single model cannot fill all three slots. Reviews are run either by the user's own multi-model routing, by `/ultrareview` (multi-agent cloud review of the branch), or one slot at a time. Reviewer notes are transient; after finalization, the durable repo artifact is the final article plus this backlog status.
 - **Output of each review**: findings against the rubric below (issue · severity · location · suggested fix), plus a verdict (`accept` / `accept-with-changes` / `revise`).
 
 ### Review rubric (h2a model evaluations)
@@ -32,17 +32,17 @@ Each artifact gets **three independent reviews**, then a consolidation:
 
 ## Backlog A — triple-review of existing artifacts
 
-| # | Artifact | R1 agy-3.5 | R2 gpt-5.5 | R3 opus-4.7 | Consolidated |
+| # | Artifact | R1 agy-3.5 | R2 gpt-5.5 | R3 opus-4.7 | Finalized |
 |---|---|---|---|---|---|
-| 1 | `a-enterprise.md` | ✅ | ✅ | ☐ | ✅ [consolidated](./reviews/a-enterprise.consolidated.md) — 2/3; valid refinements applied, false-positives (veto, party/rights/obligation) rejected vs source |
-| 2 | `b-ecosystem.md` | ☐ | ✅ | ☐ | ◐ [consolidated](./reviews/b-ecosystem.consolidated.md) — 1/3 (codex; agy/claude timed out); profile `B_ECOSYSTEM`+delta applied |
-| 3 | `c-government-citizen.md` | ✅ | ✅ | ☐ | ✅ [consolidated](./reviews/c-government-citizen.consolidated.md) — 2/3; profile + Mermaid quoting applied, 10Q-grid deferred |
-| 4 | `d-principal-15-conductors.md` | ✅ | ✅ | ☐ | ✅ [consolidated](./reviews/d-principal-15-conductors.consolidated.md) — 2/3; A_ENTERPRISE-variant note applied, mandate.rights/MANDATAIRE false-positives rejected |
-| 5 | `e-agentic-squad.md` | ✅ | ✅ | ☐ | ✅ [consolidated](./reviews/e-agentic-squad.consolidated.md) — 2/3; escalation/D_SAFE/Mermaid applied, SUBAGENTS false-positive rejected |
-| 6 | `sysml-v2.md` | ✅ | ☐ | ☐ | ◐ [consolidated](./reviews/sysml-v2.consolidated.md) — 1/3 (agy; codex exit1); S1-S4 cross-ref + Mermaid quoting applied |
-| 7 | Skills — `skills/h2a/SKILL.md` | ✅ | ☐ | ☐ | ◐ [consolidated](./reviews/skills.consolidated.md) — 1/3 (agy; codex exit1); stale-surface + agy-host updates applied |
-| 8 | Foundations — `VOCABULARY.md` + `SPEC.md` | ✅ | ☐ | ☐ | ◐ [consolidated](./reviews/foundations.consolidated.md) — 1/3, note-only (frozen); false-positives rejected vs source, no edits |
-| 9 | `nhi.md` (NHI / OWASP Top 10) | ✅ | ✅ | ✅ | ✅ [consolidated](./reviews/nhi.consolidated.md) |
+| 1 | `a-enterprise.md` | ✅ | ✅ | ☐ | ✅ 2/3; valid refinements applied, false-positives (veto, party/rights/obligation) rejected vs source |
+| 2 | `b-ecosystem.md` | ☐ | ✅ | ☐ | ◐ 1/3 (codex; agy/claude timed out); profile `B_ECOSYSTEM`+delta applied |
+| 3 | `c-government-citizen.md` | ✅ | ✅ | ☐ | ✅ 2/3; profile + Mermaid quoting applied, 10Q-grid deferred |
+| 4 | `d-principal-15-conductors.md` | ✅ | ✅ | ☐ | ✅ 2/3; A_ENTERPRISE-variant note applied, mandate.rights/MANDATAIRE false-positives rejected |
+| 5 | `e-agentic-squad.md` | ✅ | ✅ | ☐ | ✅ 2/3; escalation/D_SAFE/Mermaid applied, SUBAGENTS false-positive rejected |
+| 6 | `sysml-v2.md` | ✅ | ☐ | ☐ | ◐ 1/3 (agy; codex exit1); S1-S4 cross-ref + Mermaid quoting applied |
+| 7 | Skills — `skills/h2a/SKILL.md` | ✅ | ☐ | ☐ | ◐ 1/3 (agy; codex exit1); stale-surface + agy-host updates applied |
+| 8 | Foundations — `VOCABULARY.md` + `SPEC.md` | ✅ | ☐ | ☐ | ◐ 1/3, note-only (frozen); false-positives rejected vs source, no edits |
+| 9 | `nhi.md` (NHI / OWASP Top 10) | ✅ | ✅ | ✅ | ✅ final article updated |
 
 ## Backlog B — new evaluations to author (then triple-review each)
 
@@ -50,10 +50,10 @@ Each follows the library structure (diagram, mapping, contracts vs policies, gap
 
 | # | Evaluation | Type | Angle | File (planned) | Reviews |
 |---|---|---|---|---|---|
-| B1 | **ISO 9001** (QMS) | cross-cutting | quality-management processes, internal audits, nonconformities, continual improvement → `ENGAGEMENT`/`POLICY`/`CONTROL`/`ENFORCEMENT_PLAN` + recurring obligations; the audit trail is the h2a journal | [`evaluations/iso-9001.md`](./iso-9001.md) | ✅✅☐ [consolidated](./reviews/iso-9001.consolidated.md) — R3 deferred |
-| B2 | **ISO 27001** (ISMS) | cross-cutting | Annex A controls, risk treatment, Statement of Applicability → `POLICY` (imposed/contractual) + `CONTROL` + disclosure profile + evidence packages; signed engagements as control attestations | [`evaluations/iso-27001.md`](./iso-27001.md) | ✅✅☐ [consolidated](./reviews/iso-27001.consolidated.md) — R3 deferred (timeout) |
-| B3 | **SOC 2** (Trust Services Criteria) | cross-cutting | security/availability/confidentiality/processing-integrity/privacy → `CONTROL` + `attestation`/`evidence-package` disclosure + recurring-obligation cadence; the report period maps to the journal window | [`evaluations/soc2.md`](./soc2.md) | ✅✅☐ [consolidated](./reviews/soc2.consolidated.md) — R3 deferred |
-| B4 | **Smart contract (blockchain)** | complementary/interop | h2a signed `CONTRACT`/`ENGAGEMENT` ↔ on-chain contract; negotiation ledger ↔ chain; ed25519 signatures ↔ on-chain sigs; `ENFORCEMENT_PLAN` ↔ on-chain execution. Facets: (a) concept mapping, (b) interop — reference an on-chain artifact by `{chain, address, txHash}` the way SysML §3 references a commit, (c) what stays off-chain (negotiation, disclosure, human authority) | [`evaluations/smart-contract.md`](./smart-contract.md) | ✅✅✅ [consolidated](./reviews/smart-contract.consolidated.md) |
+| B1 | **ISO 9001** (QMS) | cross-cutting | quality-management processes, internal audits, nonconformities, continual improvement → `ENGAGEMENT`/`POLICY`/`CONTROL`/`ENFORCEMENT_PLAN` + recurring obligations; the audit trail is the h2a journal | [`evaluations/iso-9001.md`](./iso-9001.md) | ✅✅☐ final article updated — R3 deferred |
+| B2 | **ISO 27001** (ISMS) | cross-cutting | Annex A controls, risk treatment, Statement of Applicability → `POLICY` (imposed/contractual) + `CONTROL` + disclosure profile + evidence packages; signed engagements as control attestations | [`evaluations/iso-27001.md`](./iso-27001.md) | ✅✅☐ final article updated — R3 deferred (timeout) |
+| B3 | **SOC 2** (Trust Services Criteria) | cross-cutting | security/availability/confidentiality/processing-integrity/privacy → `CONTROL` + `attestation`/`evidence-package` disclosure + recurring-obligation cadence; the report period maps to the journal window | [`evaluations/soc2.md`](./soc2.md) | ✅✅☐ final article updated — R3 deferred |
+| B4 | **Smart contract (blockchain)** | complementary/interop | h2a signed `CONTRACT`/`ENGAGEMENT` ↔ on-chain contract; negotiation ledger ↔ chain; ed25519 signatures ↔ on-chain sigs; `ENFORCEMENT_PLAN` ↔ on-chain execution. Facets: (a) concept mapping, (b) interop — reference an on-chain artifact by `{chain, address, txHash}` the way SysML §3 references a commit, (c) what stays off-chain (negotiation, disclosure, human authority) | [`evaluations/smart-contract.md`](./smart-contract.md) | ✅✅✅ final article updated |
 
 ### Certification-set common questions (to instruct while authoring B1-B3)
 
@@ -80,8 +80,8 @@ Each follows the library structure (diagram, mapping, contracts vs policies, gap
 - **Per item**: what it is · identity & lifecycle model · API/integration surface · **how h2a posture/attestation could feed it (or vice-versa)** · maturity/caveats.
 - **Output discipline**: cite sources (URLs); state only what is sourced; flag uncertainty explicitly (no vendor claim asserted without a citation). Status header: `draft, pending triple-review`.
 
-## How to run a review (once the mechanism is chosen)
+## How to finalize an item
 
 1. Pick an item from Backlog A or author one from Backlog B.
-2. Run the three reviewer configs against the rubric; save each as `evaluations/reviews/<item>.<slot>.md`.
-3. Consolidate into `evaluations/reviews/<item>.consolidated.md`; apply accepted changes to the source doc; remove covered slot files; tick the row.
+2. Run the three reviewer configs against the rubric.
+3. Apply accepted changes to the source article and update the status in this backlog; do not keep reviewer-note artifacts in the repo.

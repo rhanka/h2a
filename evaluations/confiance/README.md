@@ -15,9 +15,9 @@ Each case is analysed under a fixed template (below) and the model's would-be be
 
 ## Note on evaluations reorganisation
 
-The PRINCIPAL asked to organise `evaluations/` **by axis** (sub-directories). This `confiance/` folder is the first axis-folder. Proposed mapping for the existing flat files (to be confirmed before moving, since `BACKLOG.md` + `reviews/` cross-reference them):
+The PRINCIPAL asked to organise `evaluations/` **by axis** (sub-directories). This `confiance/` folder is the first axis-folder. Proposed mapping for the existing flat files (to be confirmed before moving, since `BACKLOG.md` cross-references them):
 
 - `scenarios/` ← `a-enterprise.md`, `b-ecosystem.md`, `c-government-citizen.md`, `d-principal-15-conductors.md`, `e-agentic-squad.md`
 - `standards/` ← `nhi.md`, `nhi-landscape.md`, `sysml-v2.md`
 - `confiance/` ← (this axis, new)
-- `BACKLOG.md`, `reviews/` stay at the root of `evaluations/`.
+- `BACKLOG.md` stays at the root of `evaluations/`.
