@@ -1,6 +1,6 @@
 # smart-contract.md — consolidated triple-review
 
-> Three independent headless reviews on 2026-05-28 — R1 [agy/Antigravity](./smart-contract.r1-agy.md), R2 [codex/gpt](./smart-contract.r2-codex.md), R3 [claude/opus](./smart-contract.r3-claude.md). **All three verdicts: `revise`.** Run sequentially from a neutral tmp dir with the doc inline (autonomous loop, rate-limit-careful). All accepted changes below were applied to `evaluations/smart-contract.md`.
+> Three independent headless reviews on 2026-05-28 — R1 agy/Antigravity, R2 codex/gpt, R3 claude/opus. **All three verdicts: `revise`.** Run sequentially from a neutral tmp dir with the doc inline (autonomous loop, rate-limit-careful). All accepted changes below were applied to `evaluations/smart-contract.md`.
 
 ## Consensus findings → action
 

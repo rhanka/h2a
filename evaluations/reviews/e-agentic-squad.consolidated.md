@@ -1,6 +1,6 @@
 # e-agentic-squad.md — consolidated review (2/3)
 
-> 2026-05-28 — R1 [agy](./e-agentic-squad.r1-agy.md), R2 [codex](./e-agentic-squad.r2-codex.md). R3 (claude) deferred. NOTE: agy went off-script and wrote a "revised" copy into its OWN scratch (`~/.gemini/...`) — ignored; only the findings were used, applied to this repo with source-verification.
+> 2026-05-28 — R1 agy, R2 codex. R3 (claude) deferred. NOTE: agy went off-script and wrote a "revised" copy into its OWN scratch (`~/.gemini/...`) — ignored; only the findings were used, applied to this repo with source-verification.
 
 ## Applied (valid)
 - **Escalation authority** (both, high): N-squads now routes escalation to the train/architecture `PRINCIPAL` / portfolio `EXECUTIF`, with the RTE/`CONDUCTOR` **facilitating/routing** (not deciding) — the competent-authority invariant.

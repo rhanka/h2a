@@ -1,6 +1,6 @@
 # c-government-citizen.md — consolidated review (2/3)
 
-> 2026-05-28 — R1 [agy](./c-government-citizen.r1-agy.md) (`revise`), R2 [codex](./c-government-citizen.r2-codex.md) (`accept-with-changes`). R3 (claude) deferred (timeouts). Mature eval; findings verified vs source.
+> 2026-05-28 — R1 agy (`revise`), R2 codex (`accept-with-changes`). R3 (claude) deferred (timeouts). Mature eval; findings verified vs source.
 
 ## Applied (valid)
 - **Profile id + delta** (both): named `C_GOVERNMENT_CITIZEN` + deltas (external mandatory POLICY by scope, recourse AUTHORITY/tribunal, citizen-PRINCIPAL under imposed authority).

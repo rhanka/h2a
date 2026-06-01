@@ -1,6 +1,6 @@
 # soc2.md — consolidated review (2/3)
 
-> Reviews on 2026-05-28 — R1 [agy](./soc2.r1-agy.md), R2 [codex](./soc2.r2-codex.md) **both verdict `revise`**, strongly concurring. R3 (claude/opus) deferred (recurrent timeouts). Foreground run from a neutral tmp dir (autonomous loop). Accepted changes applied to `evaluations/soc2.md`.
+> Reviews on 2026-05-28 — R1 agy, R2 codex **both verdict `revise`**, strongly concurring. R3 (claude/opus) deferred (recurrent timeouts). Foreground run from a neutral tmp dir (autonomous loop). Accepted changes applied to `evaluations/soc2.md`.
 
 ## Consensus findings → action
 

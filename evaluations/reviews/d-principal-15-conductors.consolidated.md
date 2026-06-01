@@ -1,6 +1,6 @@
 # d-principal-15-conductors.md — consolidated review (2/3)
 
-> 2026-05-28 — R1 [agy](./d-principal-15-conductors.r1-agy.md) (`revise`), R2 [codex](./d-principal-15-conductors.r2-codex.md) (`accept-with-changes`). R3 (claude) deferred. Mature eval; findings verified vs source.
+> 2026-05-28 — R1 agy (`revise`), R2 codex (`accept-with-changes`). R3 (claude) deferred. Mature eval; findings verified vs source.
 
 ## Applied (valid)
 - **No dedicated profile → variant of A_ENTERPRISE + delta** (both): added an explicit statement (no own abc.ts profile; star/no-mediator variant of A_ENTERPRISE; deltas = 15 conductors, peer negotiation ledgers ≠ mesh authority, aggregated PRINCIPAL escalations) — also resolves the topology-ambiguity finding (star = authority; C↔C = negotiation) in the same edit.

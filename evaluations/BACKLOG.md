@@ -12,7 +12,7 @@ Each artifact gets **three independent reviews**, then a consolidation:
 | R2 | gpt-5.5-xhigh |
 | R3 | opus-4.7-xhigh |
 
-- **Execution note**: a single model cannot fill all three slots. Reviews are run either by the user's own multi-model routing, by `/ultrareview` (multi-agent cloud review of the branch), or one slot at a time. Each review is recorded as `evaluations/reviews/<item>.<slot>.md`; a consolidation note merges the three.
+- **Execution note**: a single model cannot fill all three slots. Reviews are run either by the user's own multi-model routing, by `/ultrareview` (multi-agent cloud review of the branch), or one slot at a time. Each review is recorded as `evaluations/reviews/<item>.<slot>.md`; a consolidation note merges the three. After consolidation, keep the `*.consolidated.md` note as the durable artifact and remove covered slot files.
 - **Output of each review**: findings against the rubric below (issue · severity · location · suggested fix), plus a verdict (`accept` / `accept-with-changes` / `revise`).
 
 ### Review rubric (h2a model evaluations)
@@ -84,4 +84,4 @@ Each follows the library structure (diagram, mapping, contracts vs policies, gap
 
 1. Pick an item from Backlog A or author one from Backlog B.
 2. Run the three reviewer configs against the rubric; save each as `evaluations/reviews/<item>.<slot>.md`.
-3. Consolidate into `evaluations/reviews/<item>.consolidated.md`; apply accepted changes to the source doc; tick the row.
+3. Consolidate into `evaluations/reviews/<item>.consolidated.md`; apply accepted changes to the source doc; remove covered slot files; tick the row.

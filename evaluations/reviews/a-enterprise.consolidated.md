@@ -1,6 +1,6 @@
 # a-enterprise.md — consolidated review (2/3)
 
-> Reviews on 2026-05-28 — R1 [agy](./a-enterprise.r1-agy.md), R2 [codex](./a-enterprise.r2-codex.md), both `revise`. R3 (claude) deferred. **Important**: the reviewers reviewed the eval **inline, without the model docs** (`README.md` / `VOCABULARY.md`), so several "high" findings are **false positives** against the actual h2a model — verified below and rejected. Only the genuinely-valid refinements were applied.
+> Reviews on 2026-05-28 — R1 agy, R2 codex, both `revise`. R3 (claude) deferred. **Important**: the reviewers reviewed the eval **inline, without the model docs** (`README.md` / `VOCABULARY.md`), so several "high" findings are **false positives** against the actual h2a model — verified below and rejected. Only the genuinely-valid refinements were applied.
 
 ## Applied (valid)
 

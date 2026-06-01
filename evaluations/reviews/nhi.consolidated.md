@@ -1,6 +1,6 @@
 # nhi.md — consolidated triple-review
 
-> Three independent headless reviews on 2026-05-27 — R1 [agy/Antigravity Gemini 3.5](./nhi.r1-agy.md), R2 [codex/gpt-5.5](./nhi.r2-codex.md), R3 [claude/opus 4.7](./nhi.r3-claude.md). **All three verdicts: `accept-with-changes`.** All changes below were applied to `evaluations/nhi.md`.
+> Three independent headless reviews on 2026-05-27 — R1 agy/Antigravity Gemini 3.5, R2 codex/gpt-5.5, R3 claude/opus 4.7. **All three verdicts: `accept-with-changes`.** All changes below were applied to `evaluations/nhi.md`.
 
 ## Consensus findings → action
 
