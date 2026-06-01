@@ -7,3 +7,5 @@
 node_modules/
 packages/*/dist/
 packages/*/*.tsbuildinfo
+
+.h2a/
