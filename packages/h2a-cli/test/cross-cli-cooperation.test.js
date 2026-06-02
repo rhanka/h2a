@@ -69,7 +69,7 @@ function spawnMcpServe(root, label) {
       const timeout = setTimeout(() => {
         responses.delete(id);
         reject(new Error(`[${label}] ${method} timed out; stderr:\n${errorLines.join("")}`));
-      }, 5000);
+      }, 20000);
       responses.set(id, (response) => {
         clearTimeout(timeout);
         resolve(response);
@@ -80,7 +80,11 @@ function spawnMcpServe(root, label) {
   function notificationsByTopic(topic) {
     return notifications.filter((n) => n.params?.topic === topic);
   }
-  async function waitForNotification(topic, predicate, timeoutMs = 3000) {
+  // Condition-polled, so a large ceiling is free in the success case (returns as
+  // soon as the event arrives). The ceiling only has to cover the WORST case —
+  // Windows CI subprocess startup + cross-process notification latency under a
+  // loaded matrix — which intermittently blew the old 3s/4s budgets (flaky 137/138).
+  async function waitForNotification(topic, predicate, timeoutMs = 20000) {
     const start = Date.now();
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -258,7 +262,7 @@ test(
       const left = await claude.waitForNotification(
         "presence.peer_left",
         (n) => n.params.data.peer.sessionId === "sess:codex-2",
-        4000
+        20000
       );
       assert.equal(left.params.sessionId, "sess:claude-2");
     } finally {
