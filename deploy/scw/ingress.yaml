@@ -18,6 +18,14 @@ spec:
     - host: h2a-mcp.sent-tech.ca
       http:
         paths:
+          # EVO-13: the mirror ingester (agents POST signed registrations here).
+          - path: /h2a/mirror
+            pathType: Prefix
+            backend:
+              service:
+                name: h2a-mirror-ingester
+                port:
+                  name: http
           - path: /
             pathType: Prefix
             backend:

@@ -40,6 +40,10 @@ spec:
           ports:
             - name: http
               containerPort: 8787
+          env:
+            # Shared RWX volume with the ingester → lease locking (DEC-065/067).
+            - name: H2A_LOCK_MODE
+              value: lease
           envFrom:
             - configMapRef:
                 name: h2a-mcp-config
@@ -86,6 +90,6 @@ spec:
         # is ever written here — the hosted surface is read-only.
         - name: data
           persistentVolumeClaim:
-            claimName: h2a-mcp-data
+            claimName: h2a-mcp-shared
         - name: tmp
           emptyDir: {}

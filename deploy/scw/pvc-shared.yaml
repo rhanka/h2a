@@ -1,0 +1,15 @@
+# EVO-13 — shared h2a root, ReadWriteMany so the read-only MCP pod and the
+# mirror ingester co-mount it (matchid-rwx = Scaleway File Storage, already used
+# by the sentropic-remote tenant). Replaces the per-pod RWO PVC; the root only
+# ever holds replicated registry/presence (no ed25519 private key — DEC-116).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: h2a-mcp-shared
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: matchid-rwx
+  resources:
+    requests:
+      storage: 1Gi
