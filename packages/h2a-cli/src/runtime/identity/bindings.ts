@@ -2,8 +2,11 @@
  * Identity binding registry + proof-of-possession (DEC-116, F1 — the
  * load-bearing security fix).
  *
- * Reconnect de-collision binds `(host, providerSessionId, workspaceId)` → the
- * agent's perennial identity. **RECLAIM requires proof-of-possession**: the
+ * Reconnect de-collision binds the perennial identity to its stability unit
+ * `(host, workspaceId)` — one identity per workspace per host, reused across
+ * every provider session and fan-out (`providerSessionId` is recorded as a hint
+ * but is NOT a match key; keying on it minted a fresh id per session, the
+ * proliferation this fix removes). **RECLAIM requires proof-of-possession**: the
  * connector must sign a fresh nonce with the ed25519 key already bound to that
  * identity (verified against the instance's active keys). The provider session
  * id is a spoofable *routing hint* — never the authenticator. No valid
@@ -61,15 +64,21 @@ export function listBindings(root: string): H2AIdentityBinding[] {
   return out;
 }
 
-/** The latest binding matching the key (append-only → last wins), or undefined. */
+/**
+ * The latest binding for the identity's stability unit `(host, workspaceId)`
+ * (append-only → last wins), or undefined.
+ *
+ * `providerSessionId` is intentionally NOT part of the match: it is an ephemeral
+ * routing hint (e.g. `CLAUDE_CODE_SESSION_ID`, fresh per conversation and per
+ * fan-out). Matching on it would mint a new perennial id for every session,
+ * which is exactly the per-session proliferation DEC-116 exists to prevent. The
+ * id is therefore perennial **per workspace per host**; reclaim across sessions
+ * is still gated by proof-of-possession in `reclaimOrMint`.
+ */
 export function findBinding(root: string, key: IdentityBindingKey): H2AIdentityBinding | undefined {
   let found: H2AIdentityBinding | undefined;
   for (const b of listBindings(root)) {
-    if (
-      b.host === key.host &&
-      b.providerSessionId === key.providerSessionId &&
-      b.workspaceId === key.workspaceId
-    ) {
+    if (b.host === key.host && b.workspaceId === key.workspaceId) {
       found = b;
     }
   }

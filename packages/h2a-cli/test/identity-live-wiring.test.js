@@ -60,25 +60,24 @@ function env(id, text) {
   };
 }
 
-test("connect mints distinct perennial identities for distinct provider sessions in the same cwd", () => {
+test("connect reclaims ONE perennial identity per workspace across distinct provider sessions (no per-session proliferation)", () => {
   const { cwd, root } = freshWorkspace();
   try {
+    // Two distinct Claude Code sessions (CLAUDE_CODE_SESSION_ID) in the SAME
+    // workspace must collapse onto a single perennial identity — the binding is
+    // keyed on (host, workspaceId); providerSessionId is only a hint.
     const first = connect(root, cwd, "claude-session-a");
     const second = connect(root, cwd, "claude-session-b");
 
     assert.match(first.instance, /^claude:[a-z0-9._-]+:[a-f0-9]{12}$/);
-    assert.match(second.instance, /^claude:[a-z0-9._-]+:[a-f0-9]{12}$/);
-    assert.notEqual(second.instance, first.instance);
+    assert.equal(second.instance, first.instance);
     assert.equal(first.identity.action, "mint");
-    assert.equal(second.identity.action, "mint");
+    assert.equal(second.identity.action, "reclaim");
 
     const store = createLocalStore({ root });
-    assert.ok(store.findInstance(first.instance));
-    assert.ok(store.findInstance(second.instance));
+    assert.equal(store.listInstances().length, 1, "one identity per workspace, not per session");
     assert.equal(store.listInstanceKeys(first.instance).length, 1);
-    assert.equal(store.listInstanceKeys(second.instance).length, 1);
     assert.equal(existsSync(first.identity.privateKeyPath), true);
-    assert.equal(existsSync(second.identity.privateKeyPath), true);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });

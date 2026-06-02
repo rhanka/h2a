@@ -75,6 +75,41 @@ test("a present id/workspace but FAILED proof → MINT a fresh identity (spoof r
   }
 });
 
+test("collapses on (host, workspaceId): a DIFFERENT providerSessionId reclaims the same identity", () => {
+  const { dir, root } = freshRoot();
+  try {
+    const first = reclaimOrMint(
+      root,
+      { host: "claude", providerSessionId: "psid-A", workspaceId: "ws-1" },
+      deps()
+    ); // mint
+    const other = reclaimOrMint(
+      root,
+      { host: "claude", providerSessionId: "psid-B", workspaceId: "ws-1" },
+      deps(true)
+    ); // distinct session, proof OK → reclaim the same workspace identity
+    assert.equal(other.action, "reclaim");
+    assert.equal(other.instance, first.instance);
+    assert.equal(other.agentUuid, first.agentUuid);
+    assert.equal(listBindings(root).length, 1, "no new binding for the same workspace");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("still mints a distinct identity per distinct workspace", () => {
+  const { dir, root } = freshRoot();
+  try {
+    const a = reclaimOrMint(root, { host: "claude", providerSessionId: "p", workspaceId: "ws-1" }, deps());
+    const b = reclaimOrMint(root, { host: "claude", providerSessionId: "p", workspaceId: "ws-2" }, deps(true));
+    assert.equal(b.action, "mint");
+    assert.notEqual(b.instance, a.instance);
+    assert.equal(listBindings(root).length, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("verifyReclaimProof: a nonce signed by a bound key verifies; a stranger key does not", () => {
   const a = generateKeyPairSync("ed25519");
   const b = generateKeyPairSync("ed25519");
