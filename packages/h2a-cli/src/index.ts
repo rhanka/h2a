@@ -306,6 +306,8 @@ export {
 
 export * from "./runtime/mcp-http/index.js";
 
+export * from "./runtime/mirror/index.js";
+
 export const H2A_CLI_HOSTS = [
   H2A_CODEX_HOST,
   H2A_CLAUDE_HOST,
