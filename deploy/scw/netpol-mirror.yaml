@@ -1,0 +1,23 @@
+# The poc-k8s tenant contract's allow-traefik NetworkPolicy opens only 8787 to
+# the h2a-mcp pod. The mirror-ingester sidecar listens on 8788 in the same pod;
+# allow Traefik (and kube-system) to reach it there too. Additive (policies OR).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-traefik-mirror
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: h2a-mcp
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: TCP
+          port: 8788

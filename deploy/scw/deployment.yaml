@@ -41,7 +41,8 @@ spec:
             - name: http
               containerPort: 8787
           env:
-            # Shared RWX volume with the ingester → lease locking (DEC-065/067).
+            # Same RWO volume shared with the mirror-ingester sidecar (same pod →
+            # same node → RWO co-mount is safe) → lease locking (DEC-065/067).
             - name: H2A_LOCK_MODE
               value: lease
           envFrom:
@@ -84,12 +85,63 @@ spec:
             capabilities:
               drop:
                 - ALL
+        # EVO-13 P1 — instance-mirror ingester as a SIDECAR (the matchid-rwx node
+        # pool is currently at max-volume-count, so a separate RWX pod can't bind;
+        # co-locating in the MCP pod shares the RWO volume on one node). It WRITES
+        # registry/presence; the MCP container only reads. Authority = the
+        # operator-enrolled signing key (H2A_MIRROR_ENROLLED_KEYS).
+        - name: mirror-ingester
+          image: rg.fr-par.scw.cloud/h2a-mcp/h2a-cli:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - h2a
+            - remote
+            - mirror-serve
+            - --root
+            - /var/lib/h2a/root
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8788"
+          ports:
+            - name: mirror
+              containerPort: 8788
+          env:
+            - name: H2A_LOCK_MODE
+              value: lease
+          envFrom:
+            - secretRef:
+                name: h2a-mirror-secret
+                optional: true
+          readinessProbe:
+            tcpSocket:
+              port: mirror
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/h2a
+            - name: tmp
+              mountPath: /tmp
       volumes:
         # Persists the self-AS OAuth client/token store AND the h2a root
         # (H2A_ROOT) across restarts. DEC-116 invariant: no ed25519 private key
         # is ever written here — the hosted surface is read-only.
         - name: data
           persistentVolumeClaim:
-            claimName: h2a-mcp-shared
+            claimName: h2a-mcp-data
         - name: tmp
           emptyDir: {}

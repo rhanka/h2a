@@ -5,8 +5,8 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
-  - pvc-shared.yaml
-  - mirror-ingester.yaml
+  - pvc.yaml
+  - netpol-mirror.yaml
 images:
   - name: rg.fr-par.scw.cloud/h2a-mcp/h2a-cli
     newName: rg.fr-par.scw.cloud/h2a-mcp/h2a-cli

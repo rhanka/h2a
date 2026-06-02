@@ -1,0 +1,14 @@
+# Shared h2a root + self-AS OAuth store. ReadWriteOnce: the MCP container and
+# the mirror-ingester sidecar live in the SAME pod (same node), so a single RWO
+# volume co-mounts safely without needing RWX. DEC-116: no ed25519 private key
+# is ever written here.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: h2a-mcp-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

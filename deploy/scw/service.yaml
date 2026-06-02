@@ -12,3 +12,7 @@ spec:
     - name: http
       port: 80
       targetPort: http
+    # EVO-13: the mirror-ingester sidecar (agents POST signed registrations).
+    - name: mirror
+      port: 8788
+      targetPort: mirror
