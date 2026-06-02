@@ -120,6 +120,7 @@ import { runMcpStdio } from "./runtime/mcp/index.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
+import { buildInstanceMirror, mirrorServerForStore } from "./runtime/mirror/index.js";
 import {
   recordStop,
   scanDrumbeat,
@@ -277,6 +278,8 @@ export function renderCliHelp(): string {
     "  h2a upgrade [--check]   (--check: report current vs latest; bare: npm i -g @sentropic/h2a-cli@latest)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
+    "  h2a remote mirror-serve [--port <n>] [--host <h>] [--path </h2a/mirror>] [--enrolled-keys-file <json>] [--root <path>]   (EVO-13 instance-mirror ingester; enrolled keys also via H2A_MIRROR_ENROLLED_KEYS base64)",
+    "  h2a remote mirror --url <u> --instance <id> --private-key <pem> [--root <path>]   (push this instance's registration to a remote ingester)",
     "  h2a drive --from <instance> --to <instance> --instruction <text> --private-key <pem> [--driver logging|native|local-tmux|headless|auto] [--host <host>] [--root <path>]",
     "  h2a drive receive --to <instance> (--line <signed-line> | --stdin) [--ignore-non-drive] [--root <path>]   (verify-before-act gate for host hooks)",
     "  h2a drive serve --to <instance> --inject-command <command> [--port <n>] [--host <h>] [--path </h2a/drive>] [--root <path>]   (remote verify-before-inject service)",
@@ -1607,6 +1610,121 @@ export async function runRemoteSend(
     });
   } catch (error) {
     streams.stderr.write(`h2a remote send: ${(error as Error).message}\n`);
+    return 1;
+  }
+  streams.stdout.write(`${JSON.stringify({ status: result.status, body: result.body }, null, 2)}\n`);
+  return result.status >= 200 && result.status < 300 ? 0 : 1;
+}
+
+/**
+ * Operator-enrolled key PEMs the mirror ingester trusts (EVO-13). Source order:
+ * `--enrolled-keys-file` (JSON array of PEM strings), else `H2A_MIRROR_ENROLLED_KEYS`
+ * (base64 of that JSON array — newline-safe for a k8s Secret env). Empty = refuse
+ * every not-yet-registered signer (no TOFU on the wire).
+ */
+function loadEnrolledKeys(
+  flags: Record<string, string>,
+  env: NodeJS.ProcessEnv
+): string[] {
+  const raw = flags["enrolled-keys-file"]
+    ? readFileSync(flags["enrolled-keys-file"], "utf8")
+    : env.H2A_MIRROR_ENROLLED_KEYS
+      ? Buffer.from(env.H2A_MIRROR_ENROLLED_KEYS, "base64").toString("utf8")
+      : "[]";
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed) || parsed.some((k) => typeof k !== "string")) {
+    throw new Error("enrolled keys must be a JSON array of PEM strings");
+  }
+  return parsed;
+}
+
+/**
+ * `h2a remote mirror-serve` (EVO-13 P1): long-running ingester that applies
+ * signed instance mirrors to the store registry. Authority = an operator-enrolled
+ * key or an already-registered key (never a self-declared id). Binds 127.0.0.1
+ * unless `--host 0.0.0.0`. Async + blocking → dispatched from bin.ts.
+ */
+export async function runMirrorServe(
+  flags: Record<string, string>,
+  io: {
+    stdout: NodeJS.WritableStream;
+    stderr: NodeJS.WritableStream;
+    cwd?: () => string;
+    onListening?: (server: import("node:http").Server) => void;
+  } = { stdout: process.stdout, stderr: process.stderr }
+): Promise<number> {
+  const cwd = io.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const host = flags.host ?? "127.0.0.1";
+  const port = flags.port ? Number.parseInt(flags.port, 10) : 8788;
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    io.stderr.write(`h2a remote mirror-serve: invalid --port "${flags.port}"\n`);
+    return 1;
+  }
+  let enrolledKeys: string[];
+  try {
+    enrolledKeys = loadEnrolledKeys(flags, process.env);
+  } catch (error) {
+    io.stderr.write(`h2a remote mirror-serve: ${(error as Error).message}\n`);
+    return 1;
+  }
+  let store;
+  try {
+    store = createLocalStore({ root });
+  } catch (error) {
+    io.stderr.write(`h2a remote mirror-serve: ${(error as Error).message}\n`);
+    return 1;
+  }
+  const server = mirrorServerForStore(store, { enrolledKeys, ...(flags.path ? { path: flags.path } : {}) });
+  return await new Promise<number>((resolve) => {
+    server.on("error", (err) => {
+      io.stderr.write(`h2a remote mirror-serve: ${err.message}\n`);
+      resolve(1);
+    });
+    server.listen(port, host, () => {
+      io.stdout.write(
+        `h2a remote mirror-serve: listening on http://${host}:${port}${flags.path ?? "/h2a/mirror"} (root ${root}, ${enrolledKeys.length} enrolled keys)\n`
+      );
+      io.onListening?.(server);
+    });
+    server.on("close", () => resolve(0));
+  });
+}
+
+/**
+ * `h2a remote mirror` (EVO-13 P1): build the local instance's own registration
+ * mirror, sign it with `--private-key`, and POST it to a remote ingester `--url`.
+ * Exit 0 on a 2xx. Async (network) → dispatched from bin.ts.
+ */
+export async function runMirrorPush(
+  flags: Record<string, string>,
+  streams: H2ACliStreams = { stdout: process.stdout, stderr: process.stderr }
+): Promise<number> {
+  if (!flags.url || !flags.instance || !flags["private-key"]) {
+    streams.stderr.write("h2a remote mirror: --url, --instance and --private-key are required\n");
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  let envelope;
+  try {
+    envelope = buildInstanceMirror(createLocalStore({ root }), flags.instance, Date.now());
+  } catch (error) {
+    streams.stderr.write(`h2a remote mirror: ${(error as Error).message}\n`);
+    return 1;
+  }
+  let privateKeyPem;
+  try {
+    privateKeyPem = readFileSync(flags["private-key"], "utf8");
+  } catch (error) {
+    streams.stderr.write(`h2a remote mirror: cannot read --private-key (${(error as Error).message})\n`);
+    return 1;
+  }
+  let result;
+  try {
+    result = await sendRemoteEnvelope(flags.url, envelope, { by: flags.instance, privateKeyPem });
+  } catch (error) {
+    streams.stderr.write(`h2a remote mirror: ${(error as Error).message}\n`);
     return 1;
   }
   streams.stdout.write(`${JSON.stringify({ status: result.status, body: result.body }, null, 2)}\n`);

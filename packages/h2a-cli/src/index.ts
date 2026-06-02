@@ -7,7 +7,9 @@ import {
   runDrumbeatRelanceInbox,
   runMcpServe,
   runRemoteSend,
-  runRemoteServe
+  runRemoteServe,
+  runMirrorServe,
+  runMirrorPush
 } from "./cli.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
 import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
@@ -35,7 +37,9 @@ export {
   runDrumbeatRelanceInbox,
   runMcpServe,
   runRemoteSend,
-  runRemoteServe
+  runRemoteServe,
+  runMirrorServe,
+  runMirrorPush
 };
 
 export {
@@ -305,6 +309,8 @@ export {
 } from "./runtime/remote/index.js";
 
 export * from "./runtime/mcp-http/index.js";
+
+export * from "./runtime/mirror/index.js";
 
 export const H2A_CLI_HOSTS = [
   H2A_CODEX_HOST,
