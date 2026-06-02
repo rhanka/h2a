@@ -65,16 +65,17 @@ surface reflects reality — without weakening any existing invariant.
   payload cannot resurrect stale presence/keys.
 
 ### Ingestion topology
-- Ingestion runs **outside the read-only MCP process** — a separate deployment
-  (or at minimum a separate network binding not exposed to the claude.ai
-  ingress) that writes the PVC.
-- A separate writer co-mounting the store requires **RWX + `H2A_LOCK_MODE=lease`**
-  (already supported, DEC-065/067). Presence writes on the remote go through a
+- Ingestion runs **outside the read-only MCP process** — a **separate
+  deployment** that co-mounts the store and writes it; the claude.ai-facing MCP
+  pod stays strictly read-only.
+- **DECIDED (verified on the `poc` Kapsule, 2026-06-02):** RWX is available via
+  storage class **`matchid-rwx`** (`filestorage.csi.scaleway.com`) and already in
+  production — the `sentropic-remote` tenant runs 5 `ReadWriteMany` PVCs on it.
+  So the store PVC moves to **RWX (`matchid-rwx`) + `H2A_LOCK_MODE=lease`**
+  (DEC-065/067), letting the read-only MCP pod and the ingester co-mount it. No
+  in-process fallback needed. Presence writes on the remote go through a
   **locked** path, not the lockless `writePresence` (which assumes the session
   owns its own file — false here, the ingester writes on behalf of others).
-- Fallback if RWX is unavailable on the cluster: run the ingester in-process in
-  the same pod (single writer, keep RWO), documented as a tradeoff. The design
-  recommends the separate writer + RWX/lease.
 
 ## Components
 
@@ -137,8 +138,8 @@ claude.ai: sees the local agent
   restart → rejected (no resurrection).
 
 ## Risks / open questions
-- **RWX on Kapsule**: current PVC is RWO. A separate ingester needs an RWX
-  storage class; confirm availability or take the in-process fallback.
+- ~~RWX on Kapsule~~ — RESOLVED: `matchid-rwx` storage class available + in use
+  (`sentropic-remote`); the store PVC uses it with lease locking.
 - **39-auth contract**: keep the verifier interface narrow so the enrolled-key
   check can later defer to 39-auth without changing the wire format.
 
