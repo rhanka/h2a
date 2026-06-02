@@ -6,6 +6,8 @@ import {
   runMcpServe,
   runRemoteSend,
   runRemoteServe,
+  runMirrorServe,
+  runMirrorPush,
   runDrumbeatRelanceInbox,
   runDrumbeatWatch,
   runSysmlVerify
@@ -51,6 +53,10 @@ if (argv[0] === "mcp-serve") {
   runAsync("remote serve", runRemoteServe(parseFlagsFrom(2)));
 } else if (argv[0] === "remote" && argv[1] === "send") {
   runAsync("remote send", runRemoteSend(parseFlagsFrom(2)));
+} else if (argv[0] === "remote" && argv[1] === "mirror-serve") {
+  runAsync("remote mirror-serve", runMirrorServe(parseFlagsFrom(2)));
+} else if (argv[0] === "remote" && argv[1] === "mirror") {
+  runAsync("remote mirror", runMirrorPush(parseFlagsFrom(2)));
 } else if (argv[0] === "drive" && argv[1] === "serve") {
   runAsync("drive serve", runDriveServe(parseFlagsFrom(2)));
 } else if (argv[0] === "drumbeat" && argv[1] === "relance-inbox") {
