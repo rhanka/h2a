@@ -6,6 +6,8 @@
  * (DEC-116 key custody; see ../readonly-allowlist).
  */
 
+import type { H2AUpstreamOidcConfig } from "./oidc-rp.js";
+
 export const H2A_HOSTED_OAUTH_SCOPE = "h2a:read";
 
 export interface H2AHostedOAuthEnv {
@@ -18,6 +20,17 @@ export interface H2AHostedOAuthEnv {
   OAUTH_AUTH_CODE_TTL_SECONDS: number;
   H2A_HOSTED_ENROLLMENT_ENABLED?: string;
   NODE_ENV?: string;
+  // EVO-12 P2 (mode 3) — broker: delegate user login to 39-auth instead of the
+  // single-tenant consent secret. Enabled by H2A_BROKER_MODE=true; the rest are
+  // the seeded 39-auth client + endpoints (required when broker mode is on).
+  H2A_BROKER_MODE?: string;
+  H2A_UPSTREAM_ISSUER?: string;
+  H2A_UPSTREAM_AUTHORIZE_URL?: string;
+  H2A_UPSTREAM_TOKEN_URL?: string;
+  H2A_UPSTREAM_CLIENT_ID?: string;
+  H2A_UPSTREAM_CLIENT_SECRET?: string;
+  H2A_UPSTREAM_REDIRECT_URI?: string;
+  H2A_UPSTREAM_SCOPES?: string;
 }
 
 export interface H2AHostedOAuthConfig {
@@ -32,6 +45,10 @@ export interface H2AHostedOAuthConfig {
   refreshTokenTtlSeconds: number;
   authCodeTtlSeconds: number;
   nodeEnv: string;
+  /** EVO-12 P2: broker mode (delegate login to 39-auth). */
+  brokerMode: boolean;
+  /** The seeded 39-auth RP config — present iff broker mode. */
+  upstream?: H2AUpstreamOidcConfig;
 }
 
 export function parseOAuthCsv(value: string): string[] {
@@ -53,6 +70,8 @@ export function oauthConfigFromEnv(env: H2AHostedOAuthEnv): H2AHostedOAuthConfig
   if (enrollmentEnabled && !env.OAUTH_CONSENT_SECRET) {
     throw new Error("OAUTH_CONSENT_SECRET is required when H2A_HOSTED_ENROLLMENT_ENABLED=true");
   }
+  const brokerMode = env.H2A_BROKER_MODE === "true";
+  const upstream = brokerMode ? upstreamFromEnv(env) : undefined;
   return {
     issuerUrl,
     publicBaseUrl,
@@ -64,6 +83,32 @@ export function oauthConfigFromEnv(env: H2AHostedOAuthEnv): H2AHostedOAuthConfig
     accessTokenTtlSeconds: env.OAUTH_ACCESS_TOKEN_TTL_SECONDS,
     refreshTokenTtlSeconds: env.OAUTH_REFRESH_TOKEN_TTL_SECONDS,
     authCodeTtlSeconds: env.OAUTH_AUTH_CODE_TTL_SECONDS,
-    nodeEnv: env.NODE_ENV ?? "development"
+    nodeEnv: env.NODE_ENV ?? "development",
+    brokerMode,
+    ...(upstream ? { upstream } : {})
+  };
+}
+
+/** Parse the seeded 39-auth RP config from env; throws if a field is missing. */
+function upstreamFromEnv(env: H2AHostedOAuthEnv): H2AUpstreamOidcConfig {
+  const required = {
+    issuer: env.H2A_UPSTREAM_ISSUER,
+    authorizeUrl: env.H2A_UPSTREAM_AUTHORIZE_URL,
+    tokenUrl: env.H2A_UPSTREAM_TOKEN_URL,
+    clientId: env.H2A_UPSTREAM_CLIENT_ID,
+    clientSecret: env.H2A_UPSTREAM_CLIENT_SECRET,
+    redirectUri: env.H2A_UPSTREAM_REDIRECT_URI
+  };
+  for (const [key, value] of Object.entries(required)) {
+    if (!value) throw new Error(`H2A_BROKER_MODE=true requires H2A_UPSTREAM_* (missing ${key})`);
+  }
+  return {
+    issuer: required.issuer as string,
+    authorizeUrl: required.authorizeUrl as string,
+    tokenUrl: required.tokenUrl as string,
+    clientId: required.clientId as string,
+    clientSecret: required.clientSecret as string,
+    redirectUri: required.redirectUri as string,
+    scopes: env.H2A_UPSTREAM_SCOPES ? parseOAuthCsv(env.H2A_UPSTREAM_SCOPES) : ["openid", "profile", "email"]
   };
 }
