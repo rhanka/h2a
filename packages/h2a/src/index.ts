@@ -332,6 +332,13 @@ export { canonicalize, computeHash } from "./canonical.js";
 export { signCanonical, verifyCanonical } from "./signature.js";
 export type { SignOptions } from "./signature.js";
 export {
+  decideInboxWake,
+  formatWakeLine,
+  H2A_WAKE_REASON_INBOX,
+  type InboxWakeInput,
+  type InboxWakeDecision
+} from "./wake.js";
+export {
   appendJournalEntry,
   createJournalEntry,
   journalEntryAsCanonicalString,
