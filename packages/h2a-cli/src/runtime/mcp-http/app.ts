@@ -15,6 +15,7 @@ import { buildBrokerRoutes } from "./oauth/broker-routes.js";
 import { H2A_HOSTED_OAUTH_SCOPE, type H2AHostedOAuthConfig } from "./oauth/config.js";
 import { buildOAuthRoutes } from "./oauth/hono-oauth-router.js";
 import type { SingleTenantOAuthProvider } from "./oauth/single-tenant-provider.js";
+import { rootForSub } from "./oauth/tenancy.js";
 
 export interface HostedAppDeps {
   oauthProvider: SingleTenantOAuthProvider;
@@ -27,10 +28,26 @@ export interface HostedAppDeps {
    * 39-auth instead of the consent secret. Omit for single-tenant.
    */
   brokerLogin?: BrokerLogin;
+  /**
+   * EVO-12 P2 (mode 3, multi-tenant): per-user /mcp serving. When present AND
+   * `oauthConfig.brokerMode`, the /mcp handler derives each request's tenant
+   * root from the access token's `sub` (rootForSub(baseRoot, sub)) and serves
+   * that tenant's h2a dispatch — instead of the single `h2aMcpServer`. Underlying
+   * servers are cached per root; a session is pinned to the tenant that opened
+   * it (a token for another tenant cannot reuse it). `h2aMcpServer` remains the
+   * fallback for any non-broker path.
+   */
+  tenancy?: {
+    baseRoot: string;
+    /** Build the in-process h2a dispatch rooted at `root` (e.g. createMcpServer({ root })). */
+    createServer: (root: string) => McpServer;
+  };
 }
 
 interface McpHttpSession {
   transport: StreamableHTTPTransport;
+  /** EVO-12 P2: the tenant root this session was opened for (multi-tenant only). */
+  tenantRoot?: string;
 }
 
 export function createHostedApp(deps: HostedAppDeps): Hono {
@@ -48,22 +65,22 @@ export function createHostedApp(deps: HostedAppDeps): Hono {
       "/",
       buildBrokerRoutes({
         brokerLogin: deps.brokerLogin,
-        issueClaudeaiCode: async (claudeai, _ctx) => {
+        issueClaudeaiCode: async (claudeai, ctx) => {
           const client = await deps.oauthProvider.clientsStore.getClient(claudeai.client_id);
           if (!client) throw new Error("unknown client_id");
+          // Bind the 39-auth subject to the issued code: it rides code→token so
+          // verifyAccessToken restores it and /mcp serves rootForSub(base, sub).
           const code = await deps.oauthProvider.issueAuthorizationCode(client, {
             redirectUri: claudeai.redirect_uri,
             codeChallenge: claudeai.code_challenge ?? "",
             scopes: [H2A_HOSTED_OAUTH_SCOPE],
-            ...(claudeai.state ? { state: claudeai.state } : {})
+            ...(claudeai.state ? { state: claudeai.state } : {}),
+            ...(ctx.sub ? { sub: ctx.sub } : {})
           });
           const redirect = new URL(claudeai.redirect_uri);
           redirect.searchParams.set("code", code);
           if (claudeai.state) redirect.searchParams.set("state", claudeai.state);
           return redirect.href;
-          // NOTE: per-user-root /mcp serving (binding _ctx.sub/root through the
-          // token → serving that tenant's root) is the seed-gated finale — needs
-          // provider token metadata + a live 39-auth client to validate.
         }
       })
     );
@@ -88,9 +105,52 @@ export function createHostedApp(deps: HostedAppDeps): Hono {
 
   const sessions = new Map<string, McpHttpSession>();
 
+  // EVO-12 P2 (mode 3): per-tenant h2a dispatch, cached by root. The underlying
+  // server is reused across sessions/requests of the same tenant; the hosted
+  // read-only wrapper is still built per session.
+  const multiTenant = Boolean(deps.oauthConfig.brokerMode && deps.tenancy);
+  const tenantServers = new Map<string, McpServer>();
+  const tenantServerFor = (root: string): McpServer => {
+    let server = tenantServers.get(root);
+    if (!server) {
+      server = deps.tenancy!.createServer(root);
+      tenantServers.set(root, server);
+    }
+    return server;
+  };
+
+  /**
+   * Resolve the tenant root for a request from its (already bearer-validated)
+   * access token. Returns undefined in single-tenant mode. Throws if a broker
+   * token carries no `sub` (it is not bound to any tenant → forbidden).
+   */
+  const resolveTenantRoot = async (c: Context): Promise<string | undefined> => {
+    if (!multiTenant) return undefined;
+    const header = c.req.header("authorization") ?? "";
+    const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+    const info = await deps.oauthProvider.verifyAccessToken(token);
+    const sub = typeof info.extra?.sub === "string" ? info.extra.sub : undefined;
+    if (!sub) throw new Error("access token is not bound to a tenant");
+    return rootForSub(deps.tenancy!.baseRoot, sub);
+  };
+
+  const forbidden = (c: Context) =>
+    c.json({ error: "access_denied", error_description: "token is not bound to this tenant" }, 403);
+
   const mcpHandler = async (c: Context) => {
+    let tenantRoot: string | undefined;
+    try {
+      tenantRoot = await resolveTenantRoot(c);
+    } catch {
+      return forbidden(c);
+    }
+
     const requestedSessionId = c.req.header("mcp-session-id");
     let session = requestedSessionId ? sessions.get(requestedSessionId) : undefined;
+
+    // A session is pinned to the tenant that opened it: a token for another
+    // tenant must not be able to reuse it.
+    if (session && session.tenantRoot !== tenantRoot) return forbidden(c);
 
     if (!session) {
       let created: McpHttpSession | undefined;
@@ -104,9 +164,11 @@ export function createHostedApp(deps: HostedAppDeps): Hono {
           sessions.delete(sessionId);
         }
       });
-      created = { transport };
-      // One SDK server per session, exposing ONLY the read-only allowlist.
-      const server = buildHostedMcpServer(deps.h2aMcpServer);
+      created = { transport, ...(tenantRoot !== undefined && { tenantRoot }) };
+      // One SDK server per session, exposing ONLY the read-only allowlist —
+      // backed by the tenant's root in multi-tenant mode, else the single server.
+      const base = tenantRoot !== undefined ? tenantServerFor(tenantRoot) : deps.h2aMcpServer;
+      const server = buildHostedMcpServer(base);
       await server.connect(transport);
       session = created;
     }

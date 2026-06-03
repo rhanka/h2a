@@ -20,6 +20,12 @@ export interface StoredAuthorizationCode {
   createdAt: number;
   expiresAt: number;
   consumedAt?: number;
+  /**
+   * EVO-12 P2 (mode 3, multi-tenant): the upstream 39-auth subject this code was
+   * minted for. Threaded code→token so /mcp can serve the per-user root. Absent
+   * for single-tenant (consent-secret) codes.
+   */
+  sub?: string;
 }
 
 export interface StoredToken {
@@ -32,6 +38,8 @@ export interface StoredToken {
   expiresAt: number;
   revokedAt?: number;
   parentRefreshTokenHash?: string;
+  /** EVO-12 P2: the 39-auth subject (see StoredAuthorizationCode.sub). */
+  sub?: string;
 }
 
 interface Snapshot {

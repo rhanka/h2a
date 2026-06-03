@@ -1,7 +1,9 @@
 # Framing — h2a-mcp tenancy & the sentropic MCP gateway (cross-repo intention)
 
-Status: **intention / framing only** — no spec, no code, no branch. Captured to
-decide calmly later. Spans 3 repos: **h2a** (this), **sentropic** (the platform /
+Status: **framing + broker code-complete on the h2a side (0.39.0)** — the gateway
+shim (mode 3) is built & headless-tested; what remains is live (39-auth client
+seed + deploy). See "Implementation status" at the foot. Spans 3 repos: **h2a**
+(this), **sentropic** (the platform /
 API), **39-auth** (the OIDC IdP, BR-39). The home of the decision is sentropic
 **BR-39l** ("MCP + claude.ai connector") / BR-39h ("NHI+agents incl. h2a
 connector"); this note is the h2a-side capture + pointer.
@@ -76,3 +78,33 @@ the target: (1) replace the consent-secret gate with a **39-auth OIDC login**;
 
 Until decided, `h2a-mcp` stays as-is: P1+P2 live, **remote enrollment OFF by
 default**. No code changes implied by this note.
+
+## Implementation status — gateway broker shim is code-complete (0.39.0, 2026-06-03)
+
+The user chose this path ("Attendre le gateway, multi-tenant + 39-auth") over the
+single-tenant enrollment demo. The broker (mode 3) is now **code-complete** on the
+h2a side; all of it is headless-tested:
+
+- **39-auth OIDC RP** (`oauth/oidc-rp.ts`): `buildUpstreamAuthorizeUrl` + PKCE,
+  `exchangeUpstreamCode` → `sub` from the id_token (Basic-auth client).
+- **Per-user root** (`oauth/tenancy.ts`): `rootForSub(base, sub)` =
+  `base/tenants/<sanitized sub>` (traversal-safe, single inert segment).
+- **Broker login + routes** (`oauth/broker-login.ts`, `broker-routes.ts`):
+  `/authorize` → 302 to 39-auth (state+PKCE held server-side, single-use, TTL);
+  `/oidc/callback` → exchange → `sub` → issue the claude.ai code bound to `sub`.
+- **Tenant binding through the token** (`single-tenant-provider.ts` +
+  `file-store.ts`): the `sub` rides **code → access/refresh token**;
+  `verifyAccessToken` restores it in `extra.sub`.
+- **Per-user `/mcp` serving** (`app.ts`): the `/mcp` handler derives
+  `root = rootForSub(baseRoot, sub)`, serves `createMcpServer({ root })` for that
+  tenant (cached per root) instead of the single server. A session is **pinned to
+  the tenant that opened it** — another tenant's token gets 403; a token with no
+  `sub` (legacy single-tenant) is 403 on the multi-tenant surface.
+- **Live wiring** (`serve.ts`): `H2A_BROKER_MODE=true` + `H2A_UPSTREAM_*` env mounts
+  the broker (real `fetch` exchange) + tenancy automatically; absent → single-tenant.
+
+**Remaining (live / sentropic-side, not h2a code):**
+1. **Seed the 39-auth client** `h2a-gateway` (Drizzle script — 39-auth has no DCR):
+   client_id/secret + redirect_uri `https://h2a-mcp.sent-tech.ca/oidc/callback`.
+2. **Deploy** the broker image with the `H2A_BROKER_MODE`/`H2A_UPSTREAM_*` env +
+   the client-secret k8s Secret, then connect claude.ai (login delegates to 39-auth).

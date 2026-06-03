@@ -52,6 +52,8 @@ interface IssueCodeParams {
   scopes: string[];
   resource?: URL;
   state?: string;
+  /** EVO-12 P2 (mode 3): the 39-auth subject this code is minted for (broker flow). */
+  sub?: string;
 }
 
 type WideClientsStore = Omit<OAuthRegisteredClientsStore, "registerClient"> & {
@@ -122,7 +124,8 @@ export class SingleTenantOAuthProvider {
       scopes,
       resource: resource.href,
       createdAt: now,
-      expiresAt: now + this.opts.authCodeTtlSeconds
+      expiresAt: now + this.opts.authCodeTtlSeconds,
+      ...(params.sub !== undefined && { sub: params.sub })
     });
     return code;
   }
@@ -216,7 +219,7 @@ export class SingleTenantOAuthProvider {
       throw new InvalidGrantError("redirect_uri does not match authorization code");
     if (this.normalizeResource(resource).href !== record.resource)
       throw new InvalidTargetError("resource does not match authorization code");
-    return this.issueTokens(client, record.scopes, new URL(record.resource), undefined);
+    return this.issueTokens(client, record.scopes, new URL(record.resource), undefined, record.sub);
   }
 
   async exchangeRefreshToken(
@@ -239,7 +242,7 @@ export class SingleTenantOAuthProvider {
       throw new InvalidScopeError("requested scope exceeds refresh token scope");
     }
     await this.opts.store.revokeToken(refreshToken, now);
-    return this.issueTokens(client, requestedScopes, new URL(record.resource), sha256Hex(refreshToken));
+    return this.issueTokens(client, requestedScopes, new URL(record.resource), sha256Hex(refreshToken), record.sub);
   }
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
@@ -254,7 +257,13 @@ export class SingleTenantOAuthProvider {
       scopes: record.scopes,
       expiresAt: record.expiresAt,
       resource: new URL(record.resource),
-      extra: { tokenHashPrefix: tokenHashPrefix(record.tokenHash) }
+      extra: {
+        tokenHashPrefix: tokenHashPrefix(record.tokenHash),
+        // EVO-12 P2 (mode 3): the per-user root key. Present iff this token was
+        // minted through the broker flow; the /mcp handler derives the tenant
+        // root from it (rootForSub) and serves that root.
+        ...(record.sub !== undefined && { sub: record.sub })
+      }
     };
   }
 
@@ -270,7 +279,8 @@ export class SingleTenantOAuthProvider {
     client: OAuthClientInformationFull,
     scopes: string[],
     resource: URL,
-    parentRefreshTokenHash: string | undefined
+    parentRefreshTokenHash: string | undefined,
+    sub?: string
   ): Promise<OAuthTokens> {
     const accessToken = randomToken();
     const refreshToken = randomToken();
@@ -282,7 +292,8 @@ export class SingleTenantOAuthProvider {
       resource: resource.href,
       issuedAt: now,
       expiresAt: now + this.opts.accessTokenTtlSeconds,
-      ...(parentRefreshTokenHash !== undefined && { parentRefreshTokenHash })
+      ...(parentRefreshTokenHash !== undefined && { parentRefreshTokenHash }),
+      ...(sub !== undefined && { sub })
     });
     await this.opts.store.putToken(refreshToken, {
       tokenType: "refresh",
@@ -291,7 +302,8 @@ export class SingleTenantOAuthProvider {
       resource: resource.href,
       issuedAt: now,
       expiresAt: now + this.opts.refreshTokenTtlSeconds,
-      ...(parentRefreshTokenHash !== undefined && { parentRefreshTokenHash })
+      ...(parentRefreshTokenHash !== undefined && { parentRefreshTokenHash }),
+      ...(sub !== undefined && { sub })
     });
     return {
       access_token: accessToken,
