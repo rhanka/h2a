@@ -3,6 +3,9 @@ import type { Readable, Writable } from "node:stream";
 
 import type { H2AWorkspaceRef } from "@sentropic/h2a";
 
+import { createInboxWakeHandler } from "../drive/inbox-wake.js";
+import type { H2ADriver } from "../drive/index.js";
+import { createLocalStore } from "../local-files/index.js";
 import { createMcpServer, type McpServer } from "./server.js";
 
 /**
@@ -69,6 +72,17 @@ export interface RunMcpStdioOptions {
     readonly workspace?: H2AWorkspaceRef;
     readonly name?: string;
     readonly scopes?: readonly string[];
+  };
+  /**
+   * EVO-1 inbox wake (bug #3): when set (with `autoOpen`), inject a signed,
+   * h2a-tagged wake line into the host via `driver` whenever a new inbox
+   * envelope arrives for the auto-opened instance. The host is woken to run
+   * `/h2a receive`. Driver-injected so it's testable; `nativeBackchannelDriver`
+   * is the real wake.
+   */
+  wake?: {
+    readonly driver: H2ADriver;
+    readonly privateKeyPem: string;
   };
 }
 
@@ -204,6 +218,24 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       stderr.write(`h2a mcp-serve: auto-open failed: ${message}\n`);
+    }
+
+    // EVO-1 wake (bug #3): wake the idle host when a new inbox envelope arrives.
+    if (options.wake) {
+      const wakeInstance = options.autoOpen.instance;
+      const wakeStore = createLocalStore({ root });
+      const wake = createInboxWakeHandler({
+        instance: wakeInstance,
+        readInbox: () => wakeStore.readInbox(wakeInstance),
+        privateKeyPem: options.wake.privateKeyPem,
+        driver: options.wake.driver,
+        ...(options.autoOpen.host !== undefined ? { host: options.autoOpen.host } : {}),
+        log: (line) => stderr.write(`h2a mcp-serve: ${line}\n`)
+      });
+      server.notifications.setOnInboxArrival((instance) => {
+        if (instance === wakeInstance) void wake();
+      });
+      stderr.write(`h2a mcp-serve: inbox-wake armed for ${wakeInstance}\n`);
     }
   }
 

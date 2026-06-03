@@ -96,6 +96,16 @@ export class NotificationDispatcher {
     this.sink = sink;
   }
 
+  /**
+   * EVO-1 wake hook (bug #3): invoked once per tick, per own session that saw
+   * new inbox envelopes. mcp-serve wires this to the inbox-wake handler so an
+   * idle host is woken on arrival. Non-breaking (optional).
+   */
+  private onInboxArrival?: (instance: string) => void;
+  setOnInboxArrival(cb: ((instance: string) => void) | undefined): void {
+    this.onInboxArrival = cb;
+  }
+
   start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => this.tick(), this.intervalMs);
@@ -166,14 +176,18 @@ export class NotificationDispatcher {
         ? readInboxIds(this.store, session.instance)
         : [];
       if (isInterestedIn(session, "inbox.envelope_arrived")) {
+        let hadArrival = false;
         for (const envelopeId of inboxIds) {
           if (!prev.inbox.envelopeIds.has(envelopeId)) {
             this.push(session.sessionId, "inbox.envelope_arrived", {
               instance: session.instance,
               envelopeId
             });
+            hadArrival = true;
           }
         }
+        // EVO-1 wake (bug #3): nudge the host once per tick if anything arrived.
+        if (hadArrival) this.onInboxArrival?.(session.instance);
       }
 
       // 3. Negotiation event arrivals (only on negotiations the session follows)

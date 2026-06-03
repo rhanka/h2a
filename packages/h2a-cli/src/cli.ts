@@ -274,7 +274,7 @@ export function renderCliHelp(): string {
     "  h2a inbox pop --instance <id> --envelope <id> [--root <path>]",
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
-    "  h2a mcp-serve [--root <path>] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--upgrade-check | --auto-upgrade [--no-restart]]   (--auto-open joins the bus at startup; --auto-upgrade self-updates + restarts in place; --upgrade-check = notice only; both opt-in/no network by default; /h2a disconnect to leave)",
+    "  h2a mcp-serve [--root <path>] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--wake <native|logging>] [--upgrade-check | --auto-upgrade [--no-restart]]   (--auto-open joins the bus at startup; --wake injects a signed h2a-tagged wake into the host on inbox arrival, EVO-1, needs --auto-open; --auto-upgrade self-updates + restarts in place; --upgrade-check = notice only; both opt-in/no network by default; /h2a disconnect to leave)",
     "  h2a upgrade [--check]   (--check: report current vs latest; bare: npm i -g @sentropic/h2a-cli@latest)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
@@ -1292,6 +1292,7 @@ export function resolveAutoOpen(
   name?: string;
   scopes?: string[];
   migrationNotice?: string;
+  privateKeyPath?: string;
 } | undefined {
   if (flags["auto-open"] === undefined) return undefined;
   const host = flags.host;
@@ -1311,6 +1312,9 @@ export function resolveAutoOpen(
     ...(flags.scope ? { scopes: [flags.scope] } : {}),
     ...(identity.migrationNotice !== undefined
       ? { migrationNotice: identity.migrationNotice }
+      : {}),
+    ...(identity.privateKeyPath !== undefined
+      ? { privateKeyPath: identity.privateKeyPath }
       : {})
   };
 }
@@ -1408,6 +1412,24 @@ export async function runMcpServe(
     }
   }
 
+  // EVO-1 inbox wake (bug #3): --wake <native|logging> injects a signed wake on
+  // inbox arrival (requires --auto-open + a resolvable private key).
+  let wake: { driver: ReturnType<typeof loggingDriver>; privateKeyPem: string } | undefined;
+  if (flags.wake !== undefined && autoOpen?.privateKeyPath) {
+    try {
+      const privateKeyPem = readFileSync(autoOpen.privateKeyPath, "utf8");
+      const driver =
+        flags.wake === "native"
+          ? nativeBackchannelDriver()
+          : loggingDriver((line) => io.stderr.write(`${line}\n`));
+      wake = { driver, privateKeyPem };
+    } catch (err) {
+      io.stderr.write(`h2a mcp-serve: --wake disabled (cannot read key): ${(err as Error).message}\n`);
+    }
+  } else if (flags.wake !== undefined && !autoOpen) {
+    io.stderr.write("h2a mcp-serve: --wake requires --auto-open; ignored\n");
+  }
+
   try {
     if (autoOpen?.migrationNotice) {
       io.stderr.write(`h2a mcp-serve: ${autoOpen.migrationNotice}\n`);
@@ -1417,7 +1439,8 @@ export async function runMcpServe(
       stdin: io.stdin as never,
       stdout: io.stdout as never,
       stderr: io.stderr as never,
-      ...(autoOpen ? { autoOpen } : {})
+      ...(autoOpen ? { autoOpen } : {}),
+      ...(wake ? { wake } : {})
     });
     return 0;
   } catch (err) {

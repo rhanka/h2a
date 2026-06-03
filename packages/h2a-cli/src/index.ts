@@ -227,6 +227,8 @@ export {
   type VerifySignedDriveInstructionOptions
 } from "./runtime/drive/index.js";
 
+export { createInboxWakeHandler, type InboxWakeHandlerDeps } from "./runtime/drive/inbox-wake.js";
+
 export {
   recordEscalation,
   readEscalation,
