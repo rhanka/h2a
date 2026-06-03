@@ -33,7 +33,7 @@ function registration(pub) {
 
 function signedMirror(pub, priv) {
   const env = buildInstanceMirror(
-    { findInstance: (id) => (id === INSTANCE ? registration(pub) : undefined), paths: { root: "/tmp/h2a-evo13-srv-nopresence" } },
+    { findInstance: (id) => (id === INSTANCE ? registration(pub) : undefined), listSubagentsOf: () => [], paths: { root: "/tmp/h2a-evo13-srv-nopresence" } },
     INSTANCE,
     Date.now()
   );

@@ -13,7 +13,8 @@ import {
   H2A_VERSION,
   type H2AActorRegistration,
   type H2AEnvelope,
-  type H2ASession
+  type H2ASession,
+  type H2ASubagentBinding
 } from "@sentropic/h2a";
 
 import { listPresence, type LocalStore } from "../local-files/index.js";
@@ -36,6 +37,12 @@ export interface H2AInstanceMirrorBody {
    * (fencing), so a replayed older beat cannot resurrect stale presence.
    */
   readonly seq?: number;
+  /**
+   * P3: the sender's subagent bindings (NHI inventory). Append-only on the
+   * remote (idempotent — re-mirroring a known binding is a no-op). Only bindings
+   * whose `parentInstance` the verified key owns are applied. Omitted in P1/P2.
+   */
+  readonly subagents?: H2ASubagentBinding[];
 }
 
 /**
@@ -54,6 +61,7 @@ export function buildInstanceMirror(
   const presence = listPresence(store.paths.root, { now: nowMs }).filter(
     (s) => s.instance === instance
   );
+  const subagents = store.listSubagentsOf(instance);
   return {
     protocol: H2A_PROTOCOL,
     version: H2A_VERSION,
@@ -61,7 +69,7 @@ export function buildInstanceMirror(
     type: "event",
     actor: { instance, role: reg.roles?.[0] ?? "AGENTS", scope: "scope:default" },
     target: { instance },
-    body: { kind: H2A_MIRROR_BODY_KIND, registrations: [reg], presence, seq: nowMs },
+    body: { kind: H2A_MIRROR_BODY_KIND, registrations: [reg], presence, seq: nowMs, subagents },
     createdAt: new Date(nowMs).toISOString()
   };
 }

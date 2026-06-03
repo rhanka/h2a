@@ -133,6 +133,15 @@ export function mirrorServerForStore(store: LocalStore, options: MirrorServerFor
         // beat (no local-clock skew, no immortal ghost when the agent dies).
         applyPresence: (session) =>
           writePresence(root, { ...session, heartbeatAt: new Date(stampMs).toISOString(), state: "live" }),
+        // Idempotent: registerSubagent throws on a known id — re-mirroring a beat
+        // re-sends the same bindings, so treat "already registered" as a no-op.
+        applySubagent: (binding) => {
+          try {
+            store.registerSubagent(binding);
+          } catch (error) {
+            if (!/already registered/i.test((error as Error).message)) throw error;
+          }
+        },
         fenceSequence,
         now: stampMs
       });

@@ -20,7 +20,8 @@ import {
   type H2AEnvelope,
   type H2AReplayCheck,
   type H2AReplayGuard,
-  type H2ASession
+  type H2ASession,
+  type H2ASubagentBinding
 } from "@sentropic/h2a";
 
 import { H2A_MIRROR_BODY_KIND, type H2AInstanceMirrorBody } from "./build.js";
@@ -63,6 +64,12 @@ export interface AcceptMirrorOptions {
    * beat. Omit to skip fencing (P1 behavior).
    */
   fenceSequence?: (signerInstance: string, seq: number) => boolean;
+  /**
+   * P3: apply a subagent binding (the impl is idempotent — a known binding is a
+   * no-op). Only called for bindings whose `parentInstance` is owned by the
+   * verified key. Omit to ignore subagents (P1/P2 behavior).
+   */
+  applySubagent?: (binding: H2ASubagentBinding) => void;
   /** Reference time (ms epoch) for the guard. Defaults to `Date.now()`. */
   now?: number;
 }
@@ -104,11 +111,19 @@ export function acceptMirrorEnvelope(payload: unknown, options: AcceptMirrorOpti
 
   for (const reg of authorized) options.applyRegistration(reg);
 
+  const owned = new Set(authorized.map((r) => r.instance ?? r.id));
+
   // P2 presence — only sessions whose instance the verified key owns.
   if (options.applyPresence && Array.isArray(body.presence)) {
-    const owned = new Set(authorized.map((r) => r.instance ?? r.id));
     for (const session of body.presence) {
       if (owned.has(session.instance)) options.applyPresence(session);
+    }
+  }
+
+  // P3 subagents — only bindings whose parent the verified key owns.
+  if (options.applySubagent && Array.isArray(body.subagents)) {
+    for (const binding of body.subagents) {
+      if (owned.has(binding.parentInstance)) options.applySubagent(binding);
     }
   }
 

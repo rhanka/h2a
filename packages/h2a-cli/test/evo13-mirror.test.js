@@ -38,6 +38,7 @@ function fakeStore(reg) {
   // returns [] (ENOENT handled). P2 presence cases hand-craft the body instead.
   return {
     findInstance: (id) => (id === reg.instance ? reg : undefined),
+    listSubagentsOf: () => [],
     paths: { root: "/tmp/h2a-evo13-build-nopresence" }
   };
 }
@@ -221,6 +222,32 @@ test("P2: a stale sequence is rejected (no registration/presence applied)", () =
     now: NOW
   });
   assert.deepEqual(res, { ok: false, reason: "stale-sequence" });
+});
+
+test("P3: dispatches subagents whose parent the key owns; ignores foreign parents", () => {
+  const k = keypair();
+  const reg = registration("claude:proj:aaaaaaaaaaaa", k.pub);
+  const mine = { id: `${reg.instance}~researcher`, parentInstance: reg.instance, name: "researcher" };
+  const foreign = {
+    id: "claude:other:zzzzzzzzzzzz~x",
+    parentInstance: "claude:other:zzzzzzzzzzzz",
+    name: "x"
+  };
+  const signed = signedWithBody(reg.instance, k.priv, {
+    registrations: [reg],
+    subagents: [mine, foreign]
+  });
+  const applied = [];
+  const res = acceptMirrorEnvelope(signed, {
+    resolvePublicKeys: () => [],
+    enrolledKeys: [k.pub],
+    guard: createReplayGuard(),
+    applyRegistration: () => {},
+    applySubagent: (b) => applied.push(b.id),
+    now: NOW
+  });
+  assert.equal(res.ok, true);
+  assert.deepEqual(applied, [mine.id], "only the owned subagent is applied");
 });
 
 test("P2: presence for an instance the key does not own is ignored", () => {
