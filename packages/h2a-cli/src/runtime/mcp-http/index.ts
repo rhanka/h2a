@@ -30,6 +30,13 @@ export {
 } from "./oauth/oidc-rp.js";
 export { rootForSub } from "./oauth/tenancy.js";
 export {
+  createBrokerLogin,
+  type BrokerLogin,
+  type BrokerLoginDeps,
+  type BrokerStart,
+  type BrokerComplete
+} from "./oauth/broker-login.js";
+export {
   oauthConfigFromEnv,
   H2A_HOSTED_OAUTH_SCOPE,
   type H2AHostedOAuthConfig,
