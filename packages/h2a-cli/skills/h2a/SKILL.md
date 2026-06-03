@@ -35,8 +35,8 @@ Steps:
 1. Verify the `h2a` binary is on PATH (`h2a --help`). If absent, instruct the user to run `npm i -g @sentropic/h2a-cli@latest` and stop.
 2. Decide the shared root. If `[root]` was passed, use it; otherwise prefer `<this-workspace>/.h2a`, else `~/h2a-workspace/.h2a`. Confirm with the user only if ambiguous.
 3. Run `h2a init --root <root>` (idempotent).
-4. Pick an instance id. Default: `<host>:<workspace-leaf>` (host = claude|codex|gemini|agy; workspace-leaf = `basename <cwd>`).
-5. Call the MCP tool `h2a_session_open` with `{ instance, host, interests: { scopes: ["scope:default"], negotiations: [] } }`.
+4. **Resolve YOUR perennial identity — do NOT invent it.** Run `h2a connect --host <h> --root <root>`; it returns the perennial instance id `host:slug(label):uuid12` (DEC-114/116), bound per `(host, workspace)` and reclaimed on reconnect — the same workspace always gets the same id (never mint `host:workspace-leaf` by hand; that bare `host:label` form is the *channel* alias, see "Identity & addressing"). Use the returned `instance`.
+5. Call the MCP tool `h2a_session_open` with `{ instance, host, interests: { scopes: ["scope:default"], negotiations: [] } }` (instance = the resolved perennial id from step 4).
 6. Print a short summary: instance id, session id, peers currently live, the four notification topics this session is subscribed to.
 
 End with the cue: *"Connected. Try `/h2a discover` to see who else is around, or `/h2a send <peer> \"hi\"` to message someone."*
@@ -70,7 +70,10 @@ Compose and route an envelope to a named peer.
 
 Steps:
 
-1. If `<peer>` is missing, call `h2a_discover_sessions` and ask the user to pick.
+1. **Resolve the target + check liveness FIRST (`h2a_discover_sessions`).** Pick the addressing form (see "Identity & addressing"):
+   - target is a **specific live agent** → use its **full perennial id** `host:slug:uuid12` from discover (NOT the bare `host:label`, which is ambiguous when several agents share a workspace);
+   - target is a **role/channel or a known-dormant peer** → use the **channel** form `host:label`.
+   - If `<peer>` is missing, list discover and ask the user to pick.
 2. If `"<text>"` is missing, prompt the user for the content.
 3. Compose an `H2AEnvelope` JSON:
    ```json
@@ -89,7 +92,9 @@ Steps:
    }
    ```
 4. Call `h2a_inbox` with `{ action: "put", instance: "<peer>", envelope }`.
-5. Print: envelope id + recipient + *"Delivered. They will see a push notification if their session is subscribed."*
+5. **Report honestly per the target's liveness** (h2a writes the inbox unconditionally — it does NOT yet error on a dead target, so YOU must say which it was):
+   - target was **live** in discover → *"Delivered to `<peer>` (live) — push fires if subscribed."*
+   - target was **NOT live** → *"`<peer>` is dormant — envelope deposited for its wake (no live session; it will only see this once woken)."* Never claim "Delivered" to a dormant/unknown peer.
 
 For richer payloads (file pointer, deliverable, status update), set `body.kind` to a category and add the relevant fields; ask the user if ambiguous.
 
@@ -158,12 +163,36 @@ Print the command map at the top of this file. Concise, no extra prose.
 
 ---
 
+## Identity & addressing (DEC-114/116 — read before sending)
+
+There are **two addressable forms**; pick deliberately:
+
+- **Agent (perennial, specific):** `host:slug(label):uuid12` — e.g.
+  `claude:sentropic:cbf32fe0800b`. This is YOUR identity (resolved by `h2a
+  connect`, reclaimed per `(host, workspace)`) and how you address **one specific
+  live agent**. Get a peer's full id from `/h2a discover` — never guess the uuid.
+- **Channel (role / alias):** `host:label` — e.g. `claude:sentropic-scale`. The
+  bare `host:label` form is a **named mailbox/alias**, not a specific agent; use
+  it for a role, a known-dormant peer you want to leave a message for, or a wake
+  drop. A perennial agent also reads its own `host:label` alias inbox (dedup), so
+  channel messages reach whichever agent adopts that label.
+
+Consequences to respect:
+- **One perennial id per `(host, workspace)`** — several *concurrent sessions* of
+  the same agent share that id and its inbox (they are distinguishable in
+  `/h2a discover` by `sessionId`, but inbox delivery is per-agent, not
+  per-session). To reach "whoever is working in project X", address the agent id;
+  there is no per-session inbox today.
+- **Liveness is not enforced on send** — `h2a_inbox put` writes even to a dead
+  target. Always `/h2a discover` first and report truthfully (see `/h2a send`):
+  *delivered (live)* vs *deposited for wake (dormant)*.
+
 ## Defaults and conventions
 
 - **Auto-connect (recommended)**: register the MCP server with `mcp-serve --auto-open --host <h>` so a session opens at host startup (EVO-6/DEC-105); `/h2a disconnect` leaves early. `/h2a connect` stays available for manual/explicit connect.
 
 - **Shared root**: same `<root>/.h2a/` for every cooperating CLI. If the user has not declared one, look for `<cwd>/.h2a/`, then `~/h2a-workspace/.h2a`, ask if neither exists.
-- **Instance id**: `<host>:<workspace-leaf>`. Don't ask for confirmation if the default looks sensible.
+- **Instance id**: the **perennial** `host:slug(label):uuid12` resolved by `h2a connect` (reclaimed per `(host, workspace)`) — do NOT hand-mint `host:workspace-leaf`; that bare form is the channel alias.
 - **Subscriptions**: when opening a session, subscribe to all four canonical notification topics (`presence.peer_joined`, `presence.peer_left`, `inbox.envelope_arrived`, `negotiation.event_appended`) unless the user narrows the scope.
 - **JSON-RPC notifications**: `notifications/h2a` messages arrive on stdout interleaved with tool responses. They have no `id` field and use `method: "notifications/h2a"`. React to them in real time rather than polling.
 
