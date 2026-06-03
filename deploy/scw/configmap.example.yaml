@@ -23,3 +23,17 @@ data:
   # (readOnlyRootFilesystem: true → only mounted volumes are writable).
   OAUTH_STORE_PATH: /var/lib/h2a/oauth-clients.json
   H2A_ROOT: /var/lib/h2a/root
+  # ── EVO-12 P2 (mode 3): multi-tenant gateway broker ──────────────────────
+  # When "true", /authorize delegates the USER login to 39-auth (OIDC) instead
+  # of the consent secret, and /mcp serves each user their own per-tenant root
+  # under H2A_ROOT/tenants/<sub>. The client secret goes in the Secret below.
+  # Leave "false" (the default) for single-tenant; flip to "true" + supply the
+  # H2A_UPSTREAM_* values once the 39-auth client `h2a-gateway` is seeded.
+  H2A_BROKER_MODE: "false"
+  H2A_UPSTREAM_ISSUER: https://sentropic.sent-tech.ca
+  H2A_UPSTREAM_AUTHORIZE_URL: https://sentropic.sent-tech.ca/api/v1/auth/oauth/authorize
+  H2A_UPSTREAM_TOKEN_URL: https://sentropic.sent-tech.ca/api/v1/auth/oauth/token
+  H2A_UPSTREAM_CLIENT_ID: h2a-gateway
+  # Must be registered at 39-auth for the seeded client (this gateway's callback):
+  H2A_UPSTREAM_REDIRECT_URI: https://h2a-mcp.sent-tech.ca/oidc/callback
+  H2A_UPSTREAM_SCOPES: openid
