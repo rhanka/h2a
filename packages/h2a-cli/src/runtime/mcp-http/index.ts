@@ -22,6 +22,13 @@ export { FileOAuthStore } from "./oauth/file-store.js";
 export { SingleTenantOAuthProvider } from "./oauth/single-tenant-provider.js";
 export { buildOAuthRoutes } from "./oauth/hono-oauth-router.js";
 export {
+  buildUpstreamAuthorizeUrl,
+  exchangeUpstreamCode,
+  type H2AUpstreamOidcConfig,
+  type UpstreamFetch,
+  type UpstreamLogin
+} from "./oauth/oidc-rp.js";
+export {
   oauthConfigFromEnv,
   H2A_HOSTED_OAUTH_SCOPE,
   type H2AHostedOAuthConfig,
