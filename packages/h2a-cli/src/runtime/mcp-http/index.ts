@@ -36,6 +36,7 @@ export {
   type BrokerStart,
   type BrokerComplete
 } from "./oauth/broker-login.js";
+export { buildBrokerRoutes, type BrokerRoutesDeps } from "./oauth/broker-routes.js";
 export {
   oauthConfigFromEnv,
   H2A_HOSTED_OAUTH_SCOPE,
