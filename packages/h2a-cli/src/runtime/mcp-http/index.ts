@@ -28,6 +28,7 @@ export {
   type UpstreamFetch,
   type UpstreamLogin
 } from "./oauth/oidc-rp.js";
+export { rootForSub } from "./oauth/tenancy.js";
 export {
   oauthConfigFromEnv,
   H2A_HOSTED_OAUTH_SCOPE,
