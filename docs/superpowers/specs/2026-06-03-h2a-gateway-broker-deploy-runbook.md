@@ -16,20 +16,36 @@ surface), cached per root. A session is pinned to the tenant that opened it.
 Self-AS DCR for claude.ai stays in the gateway (39-auth has no DCR); only the
 **user login** is delegated. claude.ai → gateway → 39-auth is the only added hop.
 
-## Step 1 (sentropic / 39-auth) — seed the gateway client  ⟵ BLOCKING
+## Step 1 (sentropic repo / 39-auth) — seed the gateway client  ⟵ BLOCKING
 
-39-auth has no DCR, so the `h2a-gateway` client must be **seeded** (Drizzle), like
-any other 39-auth OAuth client:
+This is the ONLY 39-auth-side work, and it needs **no new 39-auth code** — 39-auth
+already supports everything the broker uses (verified 2026-06-03 against
+`/home/antoinefa/src/sentropic`): `client_secret_basic` (Basic auth) at the token
+endpoint (`packages/auth-hono/src/oauth/token-handler.ts:55`), mandatory PKCE S256
+(`authorize-handler.ts:124`), `openid` scope with an `id_token` whose `sub` is the
+stable user id (`token-handler.ts:190`, `subject: codePayload.userId`), and
+exact-match HTTPS redirect_uri (`authorize-handler.ts:143`).
+
+39-auth has **no DCR, no admin API, no admin UI** for clients — the only creation
+path is the **Drizzle seed**, whose clients are **hardcoded** in
+`api/src/scripts/oauth-seed-clients.ts` (today: `example-mock-rp`, `example-dpop-rp`).
+So "seed the client" = **add an `h2a-gateway` entry to that script and run the seed
+against prod** (a small sentropic-repo change, not a manual one-off):
 
 - `client_id`: `h2a-gateway`
-- `client_secret`: a fresh secret (store the same value in the k8s Secret, step 3)
-- `redirect_uris`: `https://h2a-mcp.sent-tech.ca/oidc/callback`
-- grant: `authorization_code`; PKCE S256; scope: `openid` (required for `sub`)
+- `token_endpoint_auth_method`: `client_secret_basic`; `require_pkce`: true
+- `redirect_uris`: `['https://h2a-mcp.sent-tech.ca/oidc/callback']`
+- `allowed_scopes`: `['openid']`; `grant_types`: `['authorization_code']`
+- `client_secret_hash`: **SHA256(secret)** — 39-auth stores only the hash
+  (`api/src/services/auth/oauth-client-seed.ts:91`). Put the **plaintext** in the
+  k8s Secret (step 3, `H2A_UPSTREAM_CLIENT_SECRET`); the two must match.
+- A signing key must exist (`make oauth-init-keys ENV=prod`) — already done since
+  39-auth is live, but confirm.
 
 Note: 39-auth does not emit `tenant_id` and does not expose a public
-`/.well-known/openid-configuration` (BR-39 facts). The gateway therefore uses the
-explicit `H2A_UPSTREAM_AUTHORIZE_URL` / `H2A_UPSTREAM_TOKEN_URL` (no discovery) and
-keys tenancy on `sub` alone — which is all `rootForSub` needs.
+`/.well-known/openid-configuration`/JWKS (BR-39 facts). The gateway therefore uses
+the explicit `H2A_UPSTREAM_AUTHORIZE_URL` / `H2A_UPSTREAM_TOKEN_URL` (no discovery)
+and keys tenancy on `sub` alone — which is all `rootForSub` needs.
 
 ## Step 2 (h2a) — configure the deploy
 
