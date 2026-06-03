@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import test from "node:test";
 
-import { createBrokerLogin } from "../dist/index.js";
+import { createBrokerLogin, safePathSegment } from "../dist/index.js";
 
 const CONFIG = {
   issuer: "https://sentropic.sent-tech.ca",
@@ -45,7 +46,7 @@ test("start stores pending + redirects to 39-auth with state+PKCE; complete exch
   const done = await broker.complete(started.state, "up-code");
   assert.deepEqual(done.claudeai, claudeai, "original claude.ai request is carried through");
   assert.equal(done.sub, "user-7");
-  assert.equal(done.root, "/var/lib/h2a/root/tenants/user-7");
+  assert.equal(done.root, join("/var/lib/h2a/root", "tenants", safePathSegment("user-7")));
   assert.equal(broker.pendingCount(), 0, "pending consumed (single-use)");
 });
 

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { join } from "node:path";
 import test from "node:test";
 
-import { buildBrokerRoutes, createBrokerLogin } from "../dist/index.js";
+import { buildBrokerRoutes, createBrokerLogin, safePathSegment } from "../dist/index.js";
 
 const CONFIG = {
   issuer: "https://sentropic.sent-tech.ca",
@@ -58,7 +59,7 @@ test("GET /oidc/callback → exchanges, binds user/root, 302 back to claude.ai w
   assert.equal(res.status, 302);
   assert.equal(res.headers.get("location"), "https://claude.ai/cb?code=ISSUED&state=cl");
   assert.equal(bound.ctx.sub, "user-9");
-  assert.equal(bound.ctx.root, "/var/lib/h2a/root/tenants/user-9");
+  assert.equal(bound.ctx.root, join("/var/lib/h2a/root", "tenants", safePathSegment("user-9")));
   assert.equal(bound.claudeai.state, "cl", "original claude.ai request carried through");
 });
 
