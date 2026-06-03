@@ -34,6 +34,7 @@ import {
   raiseBlockage,
   resolveBlockage
 } from "../blockage/registry.js";
+import { listPresence } from "../local-files/index.js";
 import type { LocalStore } from "../local-files/store.js";
 import { gatherNhiSnapshot } from "../nhi.js";
 import type { SessionRegistry } from "./sessions.js";
@@ -117,7 +118,20 @@ export function handleInbox(
       case "put": {
         if (!args.envelope) return { error: "h2a_inbox put: missing 'envelope'" };
         store.putInboxMessage(args.instance, args.envelope);
-        return { ok: true, envelopeId: args.envelope.id };
+        // Bug-2 backstop: report whether the recipient actually has a fresh
+        // session. The write always succeeds (a dormant deposit-for-wake is
+        // legitimate), but the caller must know live vs dormant rather than
+        // assuming delivery. Exact-instance match — a live agent is addressed by
+        // its full perennial id; the bare channel/alias form reads as dormant.
+        const freshSessions = listPresence(store.paths.root).filter(
+          (s) => s.instance === args.instance
+        ).length;
+        return {
+          ok: true,
+          envelopeId: args.envelope.id,
+          recipientLive: freshSessions > 0,
+          freshSessions
+        };
       }
       case "pop": {
         if (typeof args.envelopeId !== "string" || args.envelopeId.length === 0) {

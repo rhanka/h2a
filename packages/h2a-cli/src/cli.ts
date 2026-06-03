@@ -596,8 +596,14 @@ function cmdMailbox(
       } else {
         store.putOutboxMessage(flags.instance, envelope);
       }
+      // Bug-2 backstop: tell the caller whether the recipient is actually live
+      // (the write always succeeds — a dormant deposit-for-wake is legitimate).
+      const recipientLive =
+        mailbox === "inbox"
+          ? listPresence(store.paths.root).some((s) => s.instance === flags.instance)
+          : undefined;
       streams.stdout.write(
-        `${JSON.stringify({ ok: true, id: envelope.id, mailbox, instance: flags.instance }, null, 2)}\n`
+        `${JSON.stringify({ ok: true, id: envelope.id, mailbox, instance: flags.instance, ...(recipientLive !== undefined ? { recipientLive } : {}) }, null, 2)}\n`
       );
       return 0;
     } catch (error) {
