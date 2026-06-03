@@ -34,7 +34,24 @@ function registration(instance, pub) {
 }
 
 function fakeStore(reg) {
-  return { findInstance: (id) => (id === reg.instance ? reg : undefined) };
+  // paths.root points at a nonexistent dir → buildInstanceMirror's listPresence
+  // returns [] (ENOENT handled). P2 presence cases hand-craft the body instead.
+  return {
+    findInstance: (id) => (id === reg.instance ? reg : undefined),
+    paths: { root: "/tmp/h2a-evo13-build-nopresence" }
+  };
+}
+
+function session(sessionId, instance, heartbeatAt) {
+  return {
+    sessionId,
+    instance,
+    startedAt: "2026-06-02T10:00:00.000Z",
+    heartbeatAt,
+    state: "live",
+    interests: { scopes: ["scope:default"], negotiations: [] },
+    subscribedTopics: []
+  };
 }
 
 function signedMirror(store, instance, priv) {
@@ -150,4 +167,78 @@ test("replay: same mirror envelope twice → second is replayed", () => {
   };
   assert.equal(acceptMirrorEnvelope(signed, opts).ok, true);
   assert.deepEqual(acceptMirrorEnvelope(signed, opts), { ok: false, reason: "replayed" });
+});
+
+function signedWithBody(instance, priv, extra) {
+  const env = {
+    protocol: "sentropic.h2a",
+    version: "0.1",
+    id: `mirror:${instance}:${extra.seq ?? 1}`,
+    type: "event",
+    actor: { instance, role: "AGENTS", scope: "scope:default" },
+    target: { instance },
+    body: { kind: H2A_MIRROR_BODY_KIND, ...extra },
+    createdAt: new Date(NOW).toISOString()
+  };
+  return signEnvelope(env, { by: instance, privateKeyPem: priv });
+}
+
+test("P2: dispatches the sender's presence and fences the sequence", () => {
+  const k = keypair();
+  const reg = registration("claude:proj:aaaaaaaaaaaa", k.pub);
+  const signed = signedWithBody(reg.instance, k.priv, {
+    registrations: [reg],
+    presence: [session("sess:1", reg.instance, "2026-06-02T09:00:00.000Z")],
+    seq: 1000
+  });
+  const appliedPresence = [];
+  const fenced = [];
+  const res = acceptMirrorEnvelope(signed, {
+    resolvePublicKeys: () => [],
+    enrolledKeys: [k.pub],
+    guard: createReplayGuard(),
+    applyRegistration: () => {},
+    applyPresence: (s) => appliedPresence.push(s.sessionId),
+    fenceSequence: (inst, seq) => (fenced.push([inst, seq]), true),
+    now: NOW
+  });
+  assert.equal(res.ok, true);
+  assert.deepEqual(appliedPresence, ["sess:1"]);
+  assert.deepEqual(fenced, [[reg.instance, 1000]]);
+});
+
+test("P2: a stale sequence is rejected (no registration/presence applied)", () => {
+  const k = keypair();
+  const reg = registration("claude:proj:aaaaaaaaaaaa", k.pub);
+  const signed = signedWithBody(reg.instance, k.priv, { registrations: [reg], seq: 5 });
+  const res = acceptMirrorEnvelope(signed, {
+    resolvePublicKeys: () => [],
+    enrolledKeys: [k.pub],
+    guard: createReplayGuard(),
+    applyRegistration: () => assert.fail("must not apply on stale seq"),
+    applyPresence: () => assert.fail("must not apply on stale seq"),
+    fenceSequence: () => false,
+    now: NOW
+  });
+  assert.deepEqual(res, { ok: false, reason: "stale-sequence" });
+});
+
+test("P2: presence for an instance the key does not own is ignored", () => {
+  const k = keypair();
+  const reg = registration("claude:proj:aaaaaaaaaaaa", k.pub);
+  const signed = signedWithBody(reg.instance, k.priv, {
+    registrations: [reg],
+    presence: [session("sess:x", "claude:other:zzzzzzzzzzzz", "2026-06-02T09:00:00.000Z")]
+  });
+  const appliedPresence = [];
+  const res = acceptMirrorEnvelope(signed, {
+    resolvePublicKeys: () => [],
+    enrolledKeys: [k.pub],
+    guard: createReplayGuard(),
+    applyRegistration: () => {},
+    applyPresence: (s) => appliedPresence.push(s.sessionId),
+    now: NOW
+  });
+  assert.equal(res.ok, true);
+  assert.deepEqual(appliedPresence, [], "must not write another instance's presence");
 });

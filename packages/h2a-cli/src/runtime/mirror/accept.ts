@@ -19,7 +19,8 @@ import {
   type H2AActorRegistration,
   type H2AEnvelope,
   type H2AReplayCheck,
-  type H2AReplayGuard
+  type H2AReplayGuard,
+  type H2ASession
 } from "@sentropic/h2a";
 
 import { H2A_MIRROR_BODY_KIND, type H2AInstanceMirrorBody } from "./build.js";
@@ -34,6 +35,7 @@ export type H2AMirrorRejection =
   | "expired"
   | "future"
   | "replayed"
+  | "stale-sequence"
   | "instance-key-mismatch";
 
 export type H2AMirrorResult =
@@ -49,6 +51,18 @@ export interface AcceptMirrorOptions {
   guard: H2AReplayGuard;
   /** Apply an authorized registration to the local (remote-side) store. */
   applyRegistration: (registration: H2AActorRegistration) => void;
+  /**
+   * P2: apply a presence session (the impl RE-STAMPS heartbeatAt with the remote
+   * clock so freshness derives from the beat). Only called for sessions whose
+   * instance is owned by the verified key. Omit to ignore presence (P1 behavior).
+   */
+  applyPresence?: (session: H2ASession) => void;
+  /**
+   * P2 fencing: return true iff `seq` is strictly newer than the last applied
+   * for `signerInstance` (and record it). Return false to reject a stale/replayed
+   * beat. Omit to skip fencing (P1 behavior).
+   */
+  fenceSequence?: (signerInstance: string, seq: number) => boolean;
   /** Reference time (ms epoch) for the guard. Defaults to `Date.now()`. */
   now?: number;
 }
@@ -82,6 +96,21 @@ export function acceptMirrorEnvelope(payload: unknown, options: AcceptMirrorOpti
   const replay: H2AReplayCheck = options.guard.accept(envelope, options.now);
   if (!replay.ok) return { ok: false, reason: replay.reason as H2AMirrorRejection };
 
+  // P2 monotonic fencing — after replay/freshness so a stale beat (new id, fresh
+  // window) still can't regress/resurrect state across a guard reset/restart.
+  if (typeof body.seq === "number" && options.fenceSequence) {
+    if (!options.fenceSequence(signer, body.seq)) return { ok: false, reason: "stale-sequence" };
+  }
+
   for (const reg of authorized) options.applyRegistration(reg);
+
+  // P2 presence — only sessions whose instance the verified key owns.
+  if (options.applyPresence && Array.isArray(body.presence)) {
+    const owned = new Set(authorized.map((r) => r.instance ?? r.id));
+    for (const session of body.presence) {
+      if (owned.has(session.instance)) options.applyPresence(session);
+    }
+  }
+
   return { ok: true, applied: authorized.map((r) => r.instance ?? r.id), signer };
 }
