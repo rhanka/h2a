@@ -30,9 +30,12 @@ data:
   # Leave "false" (the default) for single-tenant; flip to "true" + supply the
   # H2A_UPSTREAM_* values once the 39-auth client `h2a-gateway` is seeded.
   H2A_BROKER_MODE: "false"
-  H2A_UPSTREAM_ISSUER: https://sentropic.sent-tech.ca
-  H2A_UPSTREAM_AUTHORIZE_URL: https://sentropic.sent-tech.ca/api/v1/auth/oauth/authorize
-  H2A_UPSTREAM_TOKEN_URL: https://sentropic.sent-tech.ca/api/v1/auth/oauth/token
+  # Issuer = the standalone 39-auth IdP auth.sent-tech.ca (sentropic's reco, PR #243).
+  # The oauth router uses prefix /api/v1/auth/oauth by default; the standalone host's
+  # exact authorize/token paths are pending sentropic confirmation (no public discovery).
+  H2A_UPSTREAM_ISSUER: https://auth.sent-tech.ca
+  H2A_UPSTREAM_AUTHORIZE_URL: https://auth.sent-tech.ca/api/v1/auth/oauth/authorize
+  H2A_UPSTREAM_TOKEN_URL: https://auth.sent-tech.ca/api/v1/auth/oauth/token
   H2A_UPSTREAM_CLIENT_ID: h2a-gateway
   # Must be registered at 39-auth for the seeded client (this gateway's callback):
   H2A_UPSTREAM_REDIRECT_URI: https://h2a-mcp.sent-tech.ca/oidc/callback

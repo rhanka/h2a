@@ -9,3 +9,6 @@ packages/*/dist/
 packages/*/*.tsbuildinfo
 
 .h2a/
+
+# local secrets (EVO-12 gateway broker)
+.env
