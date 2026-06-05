@@ -230,6 +230,7 @@ export {
 } from "./runtime/drive/index.js";
 
 export { createInboxWakeHandler, type InboxWakeHandlerDeps } from "./runtime/drive/inbox-wake.js";
+export { agentVersion, readInstalledSkillVersion } from "./runtime/version/agent-version.js";
 
 export {
   recordEscalation,

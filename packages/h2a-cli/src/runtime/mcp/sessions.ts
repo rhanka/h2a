@@ -4,6 +4,7 @@ import {
   H2A_SESSION_DEFAULT_EXPIRY_MS,
   H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS,
   H2A_SESSION_NOTIFICATION_TOPICS,
+  type H2AAgentVersion,
   type H2ASession,
   type H2ASessionInterests,
   type H2ASessionNotificationTopic,
@@ -33,6 +34,8 @@ export interface OpenSessionRequest {
   readonly interests?: Partial<H2ASessionInterests>;
   /** Topics the session subscribes to. Defaults to all four canonical topics. */
   readonly subscribedTopics?: readonly H2ASessionNotificationTopic[];
+  /** Deployed-version stamp ({cli, skill}) for drift visibility. */
+  readonly version?: H2AAgentVersion;
   /** Optional explicit session id (UUID-ish). Generated if omitted. */
   readonly sessionId?: string;
 }
@@ -115,6 +118,7 @@ export class SessionRegistry {
       ...(request.host !== undefined ? { host: request.host } : {}),
       ...(request.workspace !== undefined ? { workspace: request.workspace } : {}),
       ...(request.name !== undefined ? { name: request.name } : {}),
+      ...(request.version !== undefined ? { version: request.version } : {}),
       pid: request.pid ?? process.pid,
       startedAt: now,
       heartbeatAt: now,

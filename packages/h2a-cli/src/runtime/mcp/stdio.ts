@@ -6,6 +6,7 @@ import type { H2AWorkspaceRef } from "@sentropic/h2a";
 import { createInboxWakeHandler } from "../drive/inbox-wake.js";
 import type { H2ADriver } from "../drive/index.js";
 import { createLocalStore } from "../local-files/index.js";
+import { agentVersion } from "../version/agent-version.js";
 import { createMcpServer, type McpServer } from "./server.js";
 
 /**
@@ -207,6 +208,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
           ? { workspace: options.autoOpen.workspace }
           : {}),
         ...(options.autoOpen.name !== undefined ? { name: options.autoOpen.name } : {}),
+        version: agentVersion(options.autoOpen.host),
         interests: {
           scopes: [...(options.autoOpen.scopes ?? ["scope:default"])],
           negotiations: []

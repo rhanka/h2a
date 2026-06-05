@@ -37,6 +37,7 @@ import {
 import { listPresence } from "../local-files/index.js";
 import type { LocalStore } from "../local-files/store.js";
 import { gatherNhiSnapshot } from "../nhi.js";
+import { agentVersion } from "../version/agent-version.js";
 import type { SessionRegistry } from "./sessions.js";
 
 export interface McpToolResult {
@@ -627,6 +628,7 @@ export function handleSessionOpen(
       ...(args.host !== undefined ? { host: args.host } : {}),
       ...(args.workspace !== undefined ? { workspace: args.workspace } : {}),
       ...(args.name !== undefined ? { name: args.name } : {}),
+      version: agentVersion(typeof args.host === "string" ? args.host : undefined),
       ...(args.pid !== undefined ? { pid: args.pid } : {}),
       ...(args.interests !== undefined ? { interests: args.interests } : {}),
       ...(args.subscribedTopics !== undefined

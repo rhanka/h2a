@@ -189,6 +189,7 @@ export {
   pickFreshSessions
 } from "./session.js";
 export type {
+  H2AAgentVersion,
   H2ALaunchContext,
   H2ASession,
   H2ASessionExpiryOptions,

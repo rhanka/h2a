@@ -106,6 +106,21 @@ export interface H2ASession {
    * or a `/rename`). UX only — never a routing key (the `instance` handle is).
    */
   readonly name?: string;
+  /**
+   * Deployed-version stamp captured at session open, so drift is visible in
+   * `/h2a discover` / `h2a doctor` without polling each host: `cli` = the running
+   * `@sentropic/h2a-cli`, `skill` = the installed h2a skill for this host (the
+   * binary auto-upgrades but the skill does not). Additive; absent on old records.
+   */
+  readonly version?: H2AAgentVersion;
+}
+
+/** Deployed-version stamp for an agent session (see {@link H2ASession.version}). */
+export interface H2AAgentVersion {
+  /** Running `@sentropic/h2a-cli` version (its package.json). */
+  readonly cli?: string;
+  /** Installed h2a skill version for the host (frontmatter `version:`), if resolvable. */
+  readonly skill?: string;
 }
 
 function isLaunchContext(value: unknown): value is H2ALaunchContext {

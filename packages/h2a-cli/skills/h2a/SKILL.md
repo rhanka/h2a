@@ -1,5 +1,6 @@
 ---
 name: h2a
+version: 0.41.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
