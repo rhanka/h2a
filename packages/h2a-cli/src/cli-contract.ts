@@ -534,6 +534,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Run a health check on the shared root: existence, schema sentinel version, live presence count. Returns `ok:false` (exit 2) if any check fails. DEC-054."
   },
   {
+    verb: "status",
+    outputShape: "action",
+    exitCodes: [0, 3],
+    requiredFlags: [],
+    optionalFlags: ["root", "scope", "instance"],
+    description:
+      "Inventory connected agent sessions: direct (local presence heartbeat) vs indirect (mirrored in from a remote/sidecar). Reads presence; partitions on the mirror origin tag."
+  },
+  {
     verb: "sessions",
     outputShape: "list",
     exitCodes: [0, 3],

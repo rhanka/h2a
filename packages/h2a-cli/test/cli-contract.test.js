@@ -519,6 +519,8 @@ function buildHappyArgv(verb, ctx) {
       return ["connect", "--host", "claude", "--root", root, "--instance", "claude:contract"];
     case "doctor":
       return ["doctor", "--root", root];
+    case "status":
+      return ["status", "--root", root];
     case "sessions":
       return ["sessions", "--root", root];
     case "keys generate":
@@ -764,6 +766,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "host plugin",
     "connect",
     "doctor",
+    "status",
     "sessions",
     "keys generate",
     "keys add",

@@ -113,6 +113,11 @@ export interface H2ASession {
    * binary auto-upgrades but the skill does not). Additive; absent on old records.
    */
   readonly version?: H2AAgentVersion;
+  /**
+   * ISO timestamp set by the mirror ingester when this session's presence was
+   * ingested from a remote/sidecar (absent for a directly-connected local session).
+   */
+  readonly mirroredAt?: string;
 }
 
 /** Deployed-version stamp for an agent session (see {@link H2ASession.version}). */
@@ -192,6 +197,9 @@ export function isH2ASession(value: unknown): value is H2ASession {
     return false;
   }
   if (v.name !== undefined && typeof v.name !== "string") {
+    return false;
+  }
+  if (v.mirroredAt !== undefined && typeof v.mirroredAt !== "string") {
     return false;
   }
   return true;

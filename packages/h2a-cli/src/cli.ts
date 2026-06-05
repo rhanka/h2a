@@ -299,6 +299,7 @@ export function renderCliHelp(): string {
     "High-level coordination (DEC-054):",
     "  h2a connect --host <codex|claude|gemini|agy|remote> [--root <path>] [--instance <id>] [--name <display>]",
     "  h2a doctor [--root <path>]",
+    "  h2a status [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a sessions [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a keys generate --instance <id> [--out <dir>] [--root <path>]",
     "  h2a keys add --instance <id> --public-key <pem-file> [--root <path>]",
@@ -3381,6 +3382,44 @@ function cmdSessions(
   }
 }
 
+function cmdStatus(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  try {
+    let sessions = listPresence(root);
+    if (flags.scope) {
+      const wanted = flags.scope;
+      sessions = sessions.filter((s) => s.interests.scopes.includes(wanted));
+    }
+    if (flags.instance) {
+      const wanted = flags.instance;
+      sessions = sessions.filter((s) => s.instance === wanted);
+    }
+    const indirect = sessions.filter((s) => typeof s.mirroredAt === "string");
+    const direct = sessions.filter((s) => typeof s.mirroredAt !== "string");
+    streams.stdout.write(
+      `${JSON.stringify(
+        {
+          ok: true,
+          root,
+          counts: { direct: direct.length, indirect: indirect.length, total: sessions.length },
+          direct,
+          indirect
+        },
+        null,
+        2
+      )}\n`
+    );
+    return 0;
+  } catch (error) {
+    streams.stderr.write(`h2a status: ${(error as Error).message}\n`);
+    return 3;
+  }
+}
+
 function cmdDoctor(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -4183,6 +4222,7 @@ export function runCli(
   if (command === "host") return cmdHost(argv.slice(1), streams);
   if (command === "store") return cmdStore(argv.slice(1), streams);
   if (command === "sessions") return cmdSessions(flags, streams);
+  if (command === "status") return cmdStatus(flags, streams);
   if (command === "doctor") return cmdDoctor(flags, streams);
   if (command === "connect") return cmdConnect(flags, streams);
   if (command === "install-skills") return cmdInstallSkills(flags, streams);

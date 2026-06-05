@@ -1,6 +1,6 @@
 ---
 name: h2a
-version: 0.41.0
+version: 0.43.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
@@ -217,6 +217,7 @@ These can be invoked directly from the shell at any time, outside the slash-comm
 
 - `h2a doctor [--root <path>]` — quick health probe.
 - `h2a sessions [--root <path>]` — same listing as `/h2a discover` but from the shell.
+- `h2a status [--root <path>] [--scope <s>] [--instance <i>]` — inventory of connected sessions split **direct** (local mcp-serve heartbeat) vs **indirect** (mirrored in from a remote/sidecar), with counts.
 - `h2a keys generate --instance <id>` — produce an ed25519 PEM keypair.
 - `h2a install-skills --host <claude|codex|gemini|agy>` — re-install or update this skill on another host. *(For **agy**/Antigravity the skill is written to the shared `~/.gemini/commands/h2a.toml`; the command then prints an `importHint` — run `agy plugin import gemini` (then `agy plugin enable h2a`) to pull it into agy. DEC-096/101.)*
 
