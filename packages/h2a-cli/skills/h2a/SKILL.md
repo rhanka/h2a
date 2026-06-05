@@ -178,6 +178,12 @@ There are **two addressable forms**; pick deliberately:
   channel messages reach whichever agent adopts that label.
 
 Consequences to respect:
+- **Addressing is case-insensitive; the label is slugified** (0.40.0+). The handle
+  is canonicalized as `lower(host):slugify(label)[:lower(uuid)]`, so `claude:matchID`
+  ≡ `claude:matchid` — both reach the one inbox. The canonical channel for a label
+  is therefore `host:slugify(label)` (lowercased, `[a-z0-9._-]`), **not** the raw
+  display case. Don't tell a peer to address you by a mixed-case label; it resolves
+  the same either way. (Pre-0.40.0 deposits in a raw mis-cased dir are still read.)
 - **One perennial id per `(host, workspace)`** — several *concurrent sessions* of
   the same agent share that id and its inbox (they are distinguishable in
   `/h2a discover` by `sessionId`, but inbox delivery is per-agent, not

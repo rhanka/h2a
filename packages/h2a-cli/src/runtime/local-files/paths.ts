@@ -1,5 +1,7 @@
 import { join } from "node:path";
 
+import { slugify } from "@sentropic/h2a";
+
 /**
  * Map an arbitrary id into a filesystem-safe path segment (DEC-062).
  *
@@ -84,10 +86,43 @@ export function negotiationJournalFile(
   return join(negotiationDir(paths, negotiationId), "journal.jsonl");
 }
 
+/**
+ * Canonicalize an addressable instance/channel handle so addressing is
+ * **case-insensitive** and **label-slug-stable**.
+ *
+ * The footgun this closes: `deriveInstanceId` builds `host:slugify(label):uuid`
+ * (the label is lowercased + slugified), but inbox dirs were keyed on the RAW
+ * handle via `safePathSegment`. So a sender addressing `claude:matchID` wrote to
+ * `inbox/claude__matchID` while the agent (registered as `claude:matchid:…`)
+ * read `inbox/claude__matchid` — the message was silently lost. Routing handles
+ * through this first makes both forms resolve to the one canonical inbox.
+ *
+ * `host:label[:uuid…]` → `lower(host):slugify(label)[:lower(uuid…)]`. A bare
+ * token with no `:` (not an instance handle) is returned unchanged.
+ */
+export function canonicalAddress(addr: string): string {
+  if (typeof addr !== "string" || addr.length === 0) return addr;
+  const parts = addr.split(":");
+  if (parts.length < 2) return addr;
+  const [host, label, ...rest] = parts;
+  const canonLabel = label.length === 0 ? label : slugify(label);
+  return [host.toLowerCase(), canonLabel, ...rest.map((segment) => segment.toLowerCase())].join(":");
+}
+
+/** Inbox dir for an actor, keyed on its **canonical** handle (case-folded). */
 export function inboxDir(paths: LocalStorePaths, actor: string): string {
+  return join(paths.inbox, safePathSegment(canonicalAddress(actor)));
+}
+
+/**
+ * Inbox dir keyed on the RAW (pre-canonicalization) handle — read-only fallback
+ * so envelopes deposited before the case-fold fix are still recovered. Writes
+ * always go to the canonical dir; these raw dirs drain as messages are popped.
+ */
+export function inboxDirRaw(paths: LocalStorePaths, actor: string): string {
   return join(paths.inbox, safePathSegment(actor));
 }
 
 export function outboxDir(paths: LocalStorePaths, actor: string): string {
-  return join(paths.outbox, safePathSegment(actor));
+  return join(paths.outbox, safePathSegment(canonicalAddress(actor)));
 }

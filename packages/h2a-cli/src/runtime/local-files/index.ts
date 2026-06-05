@@ -1,5 +1,7 @@
 export {
+  canonicalAddress,
   inboxDir,
+  inboxDirRaw,
   localStorePaths,
   negotiationDir,
   negotiationJournalFile,

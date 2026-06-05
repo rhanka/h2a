@@ -48,6 +48,7 @@ import { withLockSync } from "./locks.js";
 import { withLeaseSync } from "./lease.js";
 import {
   inboxDir,
+  inboxDirRaw,
   localStorePaths,
   negotiationDir,
   negotiationJournalFile,
@@ -1285,21 +1286,26 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     );
   }
 
+  // Every dir an actor's inbox may live in: its canonical (case-folded) dir plus
+  // the raw pre-fix dir, for the actor and each legacy identity alias. Reading
+  // the raw form recovers envelopes deposited before the case-fold fix; writes
+  // always target the canonical dir, so the raw dirs drain as messages are popped.
+  function inboxSourceDirs(actor: string): string[] {
+    const handles = [actor, ...listIdentityAliases(paths.root, actor).map((alias) => alias.legacyInstance)];
+    const dirs = new Set<string>();
+    for (const handle of handles) {
+      dirs.add(inboxDir(paths, handle));
+      dirs.add(inboxDirRaw(paths, handle));
+    }
+    return [...dirs];
+  }
+
   function readInbox(actor: string): H2AEnvelope[] {
-    const current = readEnvelopesFrom(inboxDir(paths, actor));
-    const legacy = listIdentityAliases(paths.root, actor).map((alias) =>
-      readEnvelopesFrom(inboxDir(paths, alias.legacyInstance))
-    );
-    return mergeInboxDedup([current, ...legacy]);
+    return mergeInboxDedup(inboxSourceDirs(actor).map((dir) => readEnvelopesFrom(dir)));
   }
 
   function popInboxMessage(actor: string, envelopeId: string): H2AEnvelope | undefined {
-    const dirs = [
-      inboxDir(paths, actor),
-      ...listIdentityAliases(paths.root, actor).map((alias) =>
-        inboxDir(paths, alias.legacyInstance)
-      )
-    ];
+    const dirs = inboxSourceDirs(actor);
     for (const dir of dirs) ensureDir(dir);
     return lock(
       inboxLock(actor),
