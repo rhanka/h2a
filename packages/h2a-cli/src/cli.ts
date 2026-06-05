@@ -1419,16 +1419,21 @@ export async function runMcpServe(
     }
   }
 
-  // EVO-1 inbox wake (bug #3): --wake <native|logging> injects a signed wake on
+  // EVO-1 inbox wake (bug #3): --wake <driver-kind> injects a signed wake on
   // inbox arrival (requires --auto-open + a resolvable private key).
-  let wake: { driver: ReturnType<typeof loggingDriver>; privateKeyPem: string } | undefined;
-  if (flags.wake !== undefined && autoOpen?.privateKeyPath) {
+  const WAKE_KINDS: readonly string[] = ["logging", "native", "local-tmux", "headless", "auto"];
+  let wake: { driver: H2ADriver; privateKeyPem: string } | undefined;
+  if (flags.wake !== undefined && !WAKE_KINDS.includes(flags.wake)) {
+    io.stderr.write(
+      "h2a mcp-serve: --wake must be one of logging|native|local-tmux|headless|auto; ignored\n"
+    );
+  } else if (flags.wake !== undefined && autoOpen?.privateKeyPath) {
     try {
       const privateKeyPem = readFileSync(autoOpen.privateKeyPath, "utf8");
-      const driver =
-        flags.wake === "native"
-          ? nativeBackchannelDriver()
-          : loggingDriver((line) => io.stderr.write(`${line}\n`));
+      const driver = buildDriveDriver(
+        flags.wake as H2ADriverKind,
+        (line) => io.stderr.write(`${line}\n`)
+      );
       wake = { driver, privateKeyPem };
     } catch (err) {
       io.stderr.write(`h2a mcp-serve: --wake disabled (cannot read key): ${(err as Error).message}\n`);

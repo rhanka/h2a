@@ -25,6 +25,7 @@ import {
 } from "@sentropic/h2a";
 
 import type { LocalStore } from "../local-files/store.js";
+import { listPresence } from "../local-files/index.js";
 import {
   defaultRelauncherRuntime,
   tmuxTarget,
@@ -489,13 +490,20 @@ export function localTmuxDriver(options: DriverRuntimeOptions = {}): H2ADriver {
         "-l",
         request.instructionLine
       ]);
-      const enter = runtime.run("tmux", [
+      const enter1 = runtime.run("tmux", [
         "send-keys",
         "-t",
         target,
         "Enter"
       ]);
-      const ok = literal && enter;
+      // modern TUIs (codex/claude) buffer the first Enter; a second submits (verified live).
+      const enter2 = runtime.run("tmux", [
+        "send-keys",
+        "-t",
+        target,
+        "Enter"
+      ]);
+      const ok = literal && enter1 && enter2;
       options.log?.(`drive[local-tmux]: ${request.to} -> ${target} (${ok ? "ok" : "failed"})`);
       return ok;
     }
@@ -690,4 +698,15 @@ export function chainDriver(...drivers: readonly H2ADriver[]): H2ADriver {
       return false;
     }
   };
+}
+
+/**
+ * Return the most-recently-heartbeated launch context recorded for `instance`
+ * in the local presence store under `root`. Used to supply `launchContext` to
+ * drivers (e.g. local-tmux) that need to know the agent's tmux pane.
+ */
+export function latestLaunchContext(root: string, instance: string): H2ALaunchContext | undefined {
+  return listPresence(root)
+    .filter((session) => session.instance === instance && session.launchContext)
+    .sort((a, b) => Date.parse(b.heartbeatAt) - Date.parse(a.heartbeatAt))[0]?.launchContext;
 }

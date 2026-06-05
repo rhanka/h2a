@@ -4,7 +4,7 @@ import type { Readable, Writable } from "node:stream";
 import type { H2AWorkspaceRef } from "@sentropic/h2a";
 
 import { createInboxWakeHandler } from "../drive/inbox-wake.js";
-import type { H2ADriver } from "../drive/index.js";
+import { latestLaunchContext, type H2ADriver } from "../drive/index.js";
 import { createLocalStore } from "../local-files/index.js";
 import { agentVersion } from "../version/agent-version.js";
 import { createMcpServer, type McpServer } from "./server.js";
@@ -232,6 +232,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         privateKeyPem: options.wake.privateKeyPem,
         driver: options.wake.driver,
         ...(options.autoOpen.host !== undefined ? { host: options.autoOpen.host } : {}),
+        resolveLaunchContext: () => latestLaunchContext(root, wakeInstance),
         log: (line) => stderr.write(`h2a mcp-serve: ${line}\n`)
       });
       server.notifications.setOnInboxArrival((instance) => {

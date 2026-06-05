@@ -24,6 +24,36 @@ function env(id, from, topic) {
   };
 }
 
+test("inbox-wake handler threads launchContext from resolveLaunchContext into the drive request", async () => {
+  const inbox = [];
+  const calls = [];
+  const driver = {
+    drive(req) {
+      calls.push(req);
+      return true;
+    }
+  };
+  const tmuxContext = { cwd: "/work", command: "claude", tmux: { session: "s", pane: "%1" } };
+  const handler = createInboxWakeHandler({
+    instance: INSTANCE,
+    readInbox: () => inbox,
+    privateKeyPem: priv(),
+    driver,
+    resolveLaunchContext: () => tmuxContext,
+    now
+  });
+
+  // No envelope yet — no wake, no drive call.
+  assert.equal(await handler(), false);
+  assert.equal(calls.length, 0);
+
+  // New envelope arrives → wake with launchContext set.
+  inbox.push(env("lc1", "codex:peer:2", "RELANCE"));
+  assert.equal(await handler(), true);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].launchContext, tmuxContext, "drive request must carry launchContext");
+});
+
 test("inbox-wake handler injects a signed wake on a NEW envelope, dedups, and ignores boot backlog", async () => {
   const inbox = [env("boot1", "x:1:1", "old")]; // backlog present at construction
   const calls = [];

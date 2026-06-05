@@ -329,6 +329,13 @@ test("localTmuxDriver sends the signed instruction into the target pane", async 
       "-t",
       "main:1.2",
       "Enter"
+    ],
+    [
+      "tmux",
+      "send-keys",
+      "-t",
+      "main:1.2",
+      "Enter"
     ]
   ]);
 });
@@ -999,7 +1006,7 @@ test("localTmuxDriver declines when literal send succeeds but Enter fails", asyn
   });
 
   assert.equal(ok, false);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
 });
 
 test("nativeBackchannelDriver declines codex when no resumable thread id is known", async () => {
@@ -1170,7 +1177,7 @@ test("chainDriver tries native, then tmux, then headless", async () => {
   });
 
   assert.equal(ok, true);
-  assert.deepEqual(attempts, ["native", "tmux", "tmux", "headless:codex exec 'signed instruction'"]);
+  assert.deepEqual(attempts, ["native", "tmux", "tmux", "tmux", "headless:codex exec 'signed instruction'"]);
 });
 
 test("h2a drive signs and dispatches an authorized instruction in logging mode", () => {
@@ -1272,4 +1279,67 @@ test("h2a drive refuses an unauthorized driver before dispatch", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("localTmuxDriver issues literal + two Enter send-keys (double-Enter for modern TUIs)", async () => {
+  const calls = [];
+  const driver = localTmuxDriver({
+    runtime: {
+      run(file, args) {
+        calls.push([file, ...args]);
+        return true;
+      },
+      spawnDetached() {
+        throw new Error("not used");
+      }
+    }
+  });
+
+  const ok = await driver.drive({
+    to: "claude:local",
+    instructionLine: "[h2a from=a to=b nonce=n at=t sig=s] wake up",
+    launchContext: {
+      cwd: "/work",
+      command: "claude",
+      tmux: { session: "s", pane: "%1" }
+    }
+  });
+
+  // 3 run calls: literal, Enter #1, Enter #2
+  assert.equal(calls.length, 3, "must issue 3 run calls: literal + Enter + Enter");
+  assert.deepEqual(calls[0], ["tmux", "send-keys", "-t", "%1", "-l", "[h2a from=a to=b nonce=n at=t sig=s] wake up"]);
+  assert.deepEqual(calls[1], ["tmux", "send-keys", "-t", "%1", "Enter"]);
+  assert.deepEqual(calls[2], ["tmux", "send-keys", "-t", "%1", "Enter"]);
+  assert.equal(ok, true);
+});
+
+test("localTmuxDriver returns false when second Enter fails (all three must succeed)", async () => {
+  const calls = [];
+  let callCount = 0;
+  const driver = localTmuxDriver({
+    runtime: {
+      run(file, args) {
+        calls.push([file, ...args]);
+        callCount++;
+        // first two succeed, third fails
+        return callCount < 3;
+      },
+      spawnDetached() {
+        throw new Error("not used");
+      }
+    }
+  });
+
+  const ok = await driver.drive({
+    to: "claude:local",
+    instructionLine: "[h2a from=a to=b nonce=n at=t sig=s] wake up",
+    launchContext: {
+      cwd: "/work",
+      command: "claude",
+      tmux: { session: "s", pane: "%1" }
+    }
+  });
+
+  assert.equal(ok, false);
+  assert.equal(calls.length, 3);
 });

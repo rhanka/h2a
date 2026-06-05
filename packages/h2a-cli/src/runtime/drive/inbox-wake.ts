@@ -9,7 +9,7 @@
  * smoke. Seeds `seen` from the inbox at construction so it does NOT wake on the
  * boot backlog — only on arrivals after the handler is wired.
  */
-import { decideInboxWake, type H2AEnvelope } from "@sentropic/h2a";
+import { decideInboxWake, type H2AEnvelope, type H2ALaunchContext } from "@sentropic/h2a";
 
 import { formatSignedDriveInstruction, type H2ADriver } from "./index.js";
 
@@ -24,6 +24,11 @@ export interface InboxWakeHandlerDeps {
   readonly driver: H2ADriver;
   /** Optional host hint passed to the driver. */
   readonly host?: string;
+  /**
+   * Resolve the host's own launch context (its tmux pane) so the
+   * local-tmux/native driver can target it.
+   */
+  readonly resolveLaunchContext?: () => H2ALaunchContext | undefined;
   /** Clock (drive nonce/at + wake tag). Defaults to `Date.now`. */
   readonly now?: () => number;
   readonly log?: (line: string) => void;
@@ -49,10 +54,12 @@ export function createInboxWakeHandler(deps: InboxWakeHandlerDeps): () => Promis
       privateKeyPem: deps.privateKeyPem,
       now
     });
+    const launchContext = deps.resolveLaunchContext?.();
     const ok = await deps.driver.drive({
       to: deps.instance,
       instructionLine,
-      ...(deps.host ? { host: deps.host } : {})
+      ...(deps.host ? { host: deps.host } : {}),
+      ...(launchContext ? { launchContext } : {})
     });
     deps.log?.(`inbox-wake: ${decision.fresh.length} new envelope(s) → drive ${ok ? "ok" : "failed"}`);
     return ok;
