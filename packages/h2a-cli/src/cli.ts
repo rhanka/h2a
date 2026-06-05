@@ -172,7 +172,9 @@ import {
   upgradeCachePath,
   canReexec,
   reexecSelf,
+  H2A_AUTO_UPGRADE_CHECK_TTL_MS,
   H2A_REEXEC_GUARD_ENV,
+  H2A_UPGRADE_CHECK_TTL_MS,
   type UpgradeRuntime
 } from "./runtime/upgrade/index.js";
 import { resolveLiveIdentity } from "./runtime/identity/index.js";
@@ -1386,7 +1388,11 @@ export async function runMcpServe(
   ) {
     try {
       const current = currentCliVersion();
-      const result = checkUpgrade(current, { cachePath: upgradeCachePath(root) });
+      // `--auto-upgrade` is opt-in to stay current → short (1h) cache so a
+      // same-day release isn't masked by the 24h notice cache; the passive
+      // `--upgrade-check` notice keeps the 24h throttle.
+      const ttlMs = wantAutoUpgrade ? H2A_AUTO_UPGRADE_CHECK_TTL_MS : H2A_UPGRADE_CHECK_TTL_MS;
+      const result = checkUpgrade(current, { cachePath: upgradeCachePath(root), ttlMs });
       if (result.upgradeAvailable) {
         if (wantAutoUpgrade) {
           const ok = performUpgrade();

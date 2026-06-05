@@ -273,6 +273,7 @@ export {
   canReexec,
   reexecSelf,
   H2A_CLI_PACKAGE,
+  H2A_AUTO_UPGRADE_CHECK_TTL_MS,
   H2A_UPGRADE_CHECK_TTL_MS,
   H2A_REEXEC_GUARD_ENV,
   type ReexecOptions,

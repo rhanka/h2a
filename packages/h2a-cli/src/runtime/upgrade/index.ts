@@ -16,8 +16,15 @@ import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const H2A_CLI_PACKAGE = "@sentropic/h2a-cli";
-/** Re-check at most once per this window (level 2 throttle). */
+/** Re-check at most once per this window for the passive `--upgrade-check` notice. */
 export const H2A_UPGRADE_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * Shorter throttle for `--auto-upgrade`: it is opt-in to *stay current*, so a
+ * 24h notice cache must not make it lag a same-day release (the bug that left
+ * agents on 0.39.0 after a restart). 1h still dedups a mass restart through the
+ * shared per-root cache (only the first booting host hits the network).
+ */
+export const H2A_AUTO_UPGRADE_CHECK_TTL_MS = 60 * 60 * 1000;
 
 const STRICT_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 

@@ -12,7 +12,9 @@ import {
   upgradeCachePath,
   canReexec,
   reexecSelf,
-  H2A_REEXEC_GUARD_ENV
+  H2A_AUTO_UPGRADE_CHECK_TTL_MS,
+  H2A_REEXEC_GUARD_ENV,
+  H2A_UPGRADE_CHECK_TTL_MS
 } from "../dist/index.js";
 
 function fakeRuntime(overrides = {}) {
@@ -73,6 +75,42 @@ test("checkUpgrade uses a fresh cache (no network) and writes the cache when sta
   assert.equal(r2.fromCache, false);
   assert.equal(stale.calls.fetch, 1);
   assert.equal(stale.calls.written.latest, "0.16.0");
+});
+
+test("auto-upgrade TTL is short (1h) and well under the 24h notice TTL", () => {
+  assert.equal(H2A_AUTO_UPGRADE_CHECK_TTL_MS, 60 * 60 * 1000);
+  assert.ok(H2A_AUTO_UPGRADE_CHECK_TTL_MS < H2A_UPGRADE_CHECK_TTL_MS);
+});
+
+test("--auto-upgrade is not masked by the 24h notice cache (the 0.39.0-stuck bug)", () => {
+  const HOUR = 3_600_000;
+  const now = 100_000_000_000;
+  // exactly the observed state: cache written 16.4h ago saying 0.39.0 is latest
+  const cache = { checkedAt: now - Math.round(16.4 * HOUR), latest: "0.39.0" };
+
+  // 24h notice TTL: the 16.4h cache is still "fresh" → stale 0.39.0 returned, no
+  // upgrade seen, no network. This is the masking that left agents on 0.39.0.
+  const notice = fakeRuntime({ now, cache, latest: "0.41.0" });
+  const r24 = checkUpgrade("0.39.0", {
+    runtime: notice.runtime,
+    cachePath: "/x",
+    ttlMs: H2A_UPGRADE_CHECK_TTL_MS
+  });
+  assert.equal(r24.fromCache, true);
+  assert.equal(r24.upgradeAvailable, false);
+  assert.equal(notice.calls.fetch, 0);
+
+  // 1h auto-upgrade TTL: the 16.4h cache is stale → re-fetch → sees 0.41.0.
+  const auto = fakeRuntime({ now, cache, latest: "0.41.0" });
+  const r1 = checkUpgrade("0.39.0", {
+    runtime: auto.runtime,
+    cachePath: "/x",
+    ttlMs: H2A_AUTO_UPGRADE_CHECK_TTL_MS
+  });
+  assert.equal(r1.fromCache, false);
+  assert.equal(r1.latest, "0.41.0");
+  assert.equal(r1.upgradeAvailable, true);
+  assert.equal(auto.calls.fetch, 1);
 });
 
 test("checkUpgrade never throws on registry failure", () => {
