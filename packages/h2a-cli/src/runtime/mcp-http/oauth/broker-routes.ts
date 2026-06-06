@@ -24,6 +24,18 @@ export interface BrokerRoutesDeps {
     claudeai: Record<string, string>,
     ctx: { sub: string; root: string }
   ) => string | Promise<string>;
+  /**
+   * Validate the claude.ai /authorize request BEFORE delegating to 39-auth. The
+   * single-tenant flow is gated by the consent secret; the broker has none, so
+   * an unvalidated `redirect_uri` would let an attacker craft
+   * `/authorize?client_id=<real>&redirect_uri=https://evil&code_challenge=<theirs>`,
+   * have the victim log in at 39-auth, and collect a code at their URL bound to
+   * the victim's sub. This MUST reject an unregistered redirect_uri / bad PKCE
+   * before the login starts. Returns ok, or an error rendered as 400.
+   */
+  readonly validateClaudeaiAuthorize?: (
+    claudeai: Record<string, string>
+  ) => Promise<{ ok: true } | { ok: false; error: string; description: string }>;
   /** Callback path registered at 39-auth. Default `/oidc/callback`. */
   readonly callbackPath?: string;
 }
@@ -34,9 +46,17 @@ export function buildBrokerRoutes(deps: BrokerRoutesDeps): Hono {
 
   // claude.ai lands here (DCR+PKCE already done against our self-AS); we redirect
   // the human to 39-auth to actually log in.
-  router.get("/authorize", (c) => {
+  router.get("/authorize", async (c) => {
     c.header("Cache-Control", "no-store");
     const claudeai = c.req.query() as Record<string, string>;
+    if (deps.validateClaudeaiAuthorize) {
+      const v = await deps.validateClaudeaiAuthorize(claudeai);
+      if (!v.ok) {
+        // reject BEFORE sending the human to 39-auth — never issue a code to an
+        // unregistered redirect_uri.
+        return c.json({ error: v.error, error_description: v.description }, 400);
+      }
+    }
     const { redirectUrl } = deps.brokerLogin.start(claudeai);
     return c.redirect(redirectUrl, 302);
   });

@@ -65,15 +65,30 @@ test("broker-mode hosted app: /authorize → 39-auth; /oidc/callback → claude.
 
     const app = createHostedApp({ oauthProvider: provider, oauthConfig, h2aMcpServer: mcpStub, brokerLogin });
 
-    // /authorize → 302 to 39-auth (NOT the consent form)
+    // /authorize → 302 to 39-auth (NOT the consent form). A valid claude.ai
+    // request: registered redirect_uri + PKCE S256 (the broker validates these
+    // before delegating to 39-auth — see the redirect_uri-rejection test below).
     const a = await app.request(
-      `/authorize?client_id=cl1&redirect_uri=${encodeURIComponent(REDIRECT)}&state=cl&code_challenge=cc`
+      `/authorize?client_id=cl1&redirect_uri=${encodeURIComponent(REDIRECT)}&state=cl&code_challenge=cc&code_challenge_method=S256`
     );
     assert.equal(a.status, 302);
     const up = new URL(a.headers.get("location"));
     assert.equal(up.origin + up.pathname, oauthConfig.upstream.authorizeUrl);
     const upState = up.searchParams.get("state");
     assert.ok(upState);
+
+    // SECURITY: an UNREGISTERED redirect_uri must be rejected (400) BEFORE any
+    // 39-auth delegation — never let an attacker collect the victim's code.
+    const evil = await app.request(
+      `/authorize?client_id=cl1&redirect_uri=${encodeURIComponent("https://evil.example/grab")}&state=cl&code_challenge=cc&code_challenge_method=S256`
+    );
+    assert.equal(evil.status, 400);
+    assert.equal((await evil.json()).error, "invalid_request");
+    // and a missing PKCE challenge is rejected too
+    const noPkce = await app.request(
+      `/authorize?client_id=cl1&redirect_uri=${encodeURIComponent(REDIRECT)}&state=cl`
+    );
+    assert.equal(noPkce.status, 400);
 
     // /oidc/callback → exchange → issue claude.ai code → 302 back to claude.ai
     const cb = await app.request(`/oidc/callback?code=upcode&state=${upState}`);

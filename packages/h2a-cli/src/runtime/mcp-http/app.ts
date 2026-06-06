@@ -65,9 +65,33 @@ export function createHostedApp(deps: HostedAppDeps): Hono {
       "/",
       buildBrokerRoutes({
         brokerLogin: deps.brokerLogin,
+        // Gate the claude.ai request BEFORE delegating to 39-auth: the broker has
+        // no consent secret, so an unregistered redirect_uri / missing PKCE must
+        // be rejected here, else an attacker collects the victim's code.
+        validateClaudeaiAuthorize: async (claudeai) => {
+          if (!claudeai.client_id) return { ok: false, error: "invalid_request", description: "missing client_id" };
+          const client = await deps.oauthProvider.clientsStore.getClient(claudeai.client_id);
+          if (!client) return { ok: false, error: "invalid_client", description: "unknown client_id" };
+          const registered = client.redirect_uris ?? [];
+          if (!claudeai.redirect_uri || !registered.includes(claudeai.redirect_uri)) {
+            return { ok: false, error: "invalid_request", description: "redirect_uri is not registered for this client" };
+          }
+          if (claudeai.response_type !== undefined && claudeai.response_type !== "code") {
+            return { ok: false, error: "unsupported_response_type", description: "only response_type=code is supported" };
+          }
+          if (!claudeai.code_challenge || claudeai.code_challenge_method !== "S256") {
+            return { ok: false, error: "invalid_request", description: "PKCE code_challenge (S256) is required" };
+          }
+          return { ok: true };
+        },
         issueClaudeaiCode: async (claudeai, ctx) => {
           const client = await deps.oauthProvider.clientsStore.getClient(claudeai.client_id);
           if (!client) throw new Error("unknown client_id");
+          // Defense-in-depth: re-check the redirect_uri belongs to the client
+          // before minting the code (never trust the carried-through value alone).
+          if (!claudeai.redirect_uri || !(client.redirect_uris ?? []).includes(claudeai.redirect_uri)) {
+            throw new Error("redirect_uri is not registered for this client");
+          }
           // Bind the 39-auth subject to the issued code: it rides code→token so
           // verifyAccessToken restores it and /mcp serves rootForSub(base, sub).
           const code = await deps.oauthProvider.issueAuthorizationCode(client, {
