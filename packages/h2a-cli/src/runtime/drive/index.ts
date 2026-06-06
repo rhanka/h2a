@@ -710,3 +710,23 @@ export function latestLaunchContext(root: string, instance: string): H2ALaunchCo
     .filter((session) => session.instance === instance && session.launchContext)
     .sort((a, b) => Date.parse(b.heartbeatAt) - Date.parse(a.heartbeatAt))[0]?.launchContext;
 }
+
+/**
+ * Auto-detect the tmux pane this process runs in, as a launch context, so an
+ * agent launched inside a tmux pane becomes wakeable WITHOUT any launcher
+ * config: `mcp-serve` is spawned as the agent's MCP server and inherits the
+ * agent's `$TMUX_PANE`, so it can record its own pane in presence at auto-open.
+ * The local-tmux driver then targets that pane (`tmux send-keys -t %id`, a valid
+ * pane-id target — the session field is unused when no window is set). Returns
+ * undefined when not under tmux (e.g. a plain terminal), so wake gracefully
+ * no-ops there.
+ */
+export function detectTmuxLaunchContext(
+  env: NodeJS.ProcessEnv = process.env,
+  cwd: string = process.cwd(),
+  command = "h2a mcp-serve"
+): H2ALaunchContext | undefined {
+  const pane = env.TMUX_PANE;
+  if (!pane || !env.TMUX) return undefined;
+  return { cwd, command, tmux: { session: "", pane } };
+}

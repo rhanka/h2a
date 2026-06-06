@@ -4,7 +4,7 @@ import type { Readable, Writable } from "node:stream";
 import type { H2AWorkspaceRef } from "@sentropic/h2a";
 
 import { createInboxWakeHandler } from "../drive/inbox-wake.js";
-import { latestLaunchContext, type H2ADriver } from "../drive/index.js";
+import { detectTmuxLaunchContext, latestLaunchContext, type H2ADriver } from "../drive/index.js";
 import { createLocalStore } from "../local-files/index.js";
 import { agentVersion } from "../version/agent-version.js";
 import { createMcpServer, type McpServer } from "./server.js";
@@ -209,6 +209,16 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
           : {}),
         ...(options.autoOpen.name !== undefined ? { name: options.autoOpen.name } : {}),
         version: agentVersion(options.autoOpen.host),
+        // Auto-capture our tmux pane (inherited $TMUX_PANE) so the local-tmux
+        // wake driver can target this agent — no launcher config needed.
+        ...((() => {
+          const lc = detectTmuxLaunchContext(
+            process.env,
+            undefined,
+            `h2a mcp-serve --host ${options.autoOpen.host ?? ""}`.trim()
+          );
+          return lc ? { launchContext: lc } : {};
+        })()),
         interests: {
           scopes: [...(options.autoOpen.scopes ?? ["scope:default"])],
           negotiations: []
