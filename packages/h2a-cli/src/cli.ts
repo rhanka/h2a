@@ -291,7 +291,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat relance-inbox [--instance <id>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
-    "  h2a host setup --host <codex|claude|gemini|agy> [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (renders mcp-serve --auto-open --auto-upgrade --wake auto by default; --no-wake drops wake)",
+    "  h2a host setup --host <codex|claude|gemini|agy> [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (renders mcp-serve --auto-open --auto-upgrade --wake local-tmux by default; --no-wake drops wake)",
     "  h2a host status [--host <name>]",
     "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex; --scaffold writes codex's full local marketplace + trust step; agy is poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
@@ -2865,10 +2865,12 @@ function cmdHostSetup(
   }
   // Coordination-by-default (EVO-1 #3): the rendered config joins the bus
   // (--auto-open), stays current (--auto-upgrade), and is WAKEABLE on inbox
-  // arrival (--wake auto → native, else local-tmux into the agent's tmux pane).
-  // Wake is an essential coordination element, so it is ON by default; opt out
-  // with --no-wake (a warning is printed). Wake only fires when the agent runs
-  // in a tmux pane (mcp-serve self-detects the pane); outside tmux it no-ops.
+  // arrival (--wake local-tmux: inject the wake into the agent's tmux pane,
+  // which mcp-serve self-detects). Wake is an essential coordination element,
+  // so it is ON by default; opt out with --no-wake (a warning is printed).
+  // local-tmux (NOT auto) is deliberate: in a tmux pane it wakes; OUTSIDE tmux
+  // it cleanly no-ops. `auto` would fall through to the headless driver and
+  // SPAWN a new agent when no pane is found — wrong for a self-wake.
   const wakeEnabled = flags["no-wake"] !== "true";
   const serveArgs = [
     "mcp-serve",
@@ -2876,7 +2878,7 @@ function cmdHostSetup(
     "--host",
     host,
     "--auto-upgrade",
-    ...(wakeEnabled ? ["--wake", "auto"] : [])
+    ...(wakeEnabled ? ["--wake", "local-tmux"] : [])
   ];
   if (!wakeEnabled) {
     streams.stderr.write(

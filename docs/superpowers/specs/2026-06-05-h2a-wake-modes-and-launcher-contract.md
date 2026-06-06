@@ -30,8 +30,12 @@ Three fragilities were proven and addressed:
 | **headless** (spawn a fresh agent) | always | spawns a NEW agent — does **not** wake the existing one |
 | **logging** | always | proves the wake *decision* fires; injects nothing |
 
-→ **`--wake auto` is the right default**: it uses native where available and falls back
-to local-tmux (the proven path) otherwise.
+→ **`--wake local-tmux` is the right default**, NOT `--wake auto`. In a tmux pane it
+wakes; outside tmux it cleanly no-ops. `auto` is a footgun for *self-wake*: its chain is
+native→local-tmux→**headless**, and the headless driver builds a spawn command from the
+host alone (no pane needed) — so outside tmux `auto` would **spawn a brand-new agent on
+every inbox message**. Use `local-tmux` for wake; reserve `auto`/`headless` for an
+explicit `h2a drive` where spawning a dead peer is intended.
 
 ## Why it now needs **zero launcher config** (0.45.0)
 
@@ -49,9 +53,10 @@ To make agents wakeable, the launcher only has to:
 1. **Launch each agent inside a named tmux pane** (so `$TMUX_PANE` is set and the pane
    is addressable). This is the single hard requirement — there is no external-inject
    path for a plain-terminal interactive agent on npm codex.
-2. Run the agent's `h2a mcp-serve` with **`--auto-open --wake auto`** (it inherits
-   `$TMUX_PANE` → records the pane → wake works). The Stop-hook/host-plugin remain
-   useful for relance but are **not** required for wake anymore (auto-capture covers it).
+2. Run the agent's `h2a mcp-serve` with **`--auto-open --wake local-tmux`** (it inherits
+   `$TMUX_PANE` → records the pane → wake works; no-ops outside tmux, never spawns). The
+   Stop-hook/host-plugin remain useful for relance but are **not** required for wake
+   anymore (auto-capture covers it). Use `local-tmux`, not `auto` (auto would headless-spawn).
 3. Nothing else — no pane id needs to be threaded; h2a self-detects.
 
 Limitation to keep honest: an agent **not** in a tmux pane cannot be woken by injection
@@ -59,8 +64,8 @@ Limitation to keep honest: an agent **not** in a tmux pane cannot be woken by in
 (e.g. a bare sidecar), wake there needs the native/remote-control path or a poll-based
 Stop-hook, not local-tmux.
 
-## Install default (planned)
+## Install default (shipped 0.46.0 → corrected 0.47.0)
 
-`h2a host setup` should render `--wake auto` in the mcp-serve args by default, with a
+`h2a host setup` renders `--wake local-tmux` in the mcp-serve args by default, with a
 `--no-wake` opt-out + a warning (wake is essential to coordination). Documented here so
 opting out is a conscious choice.

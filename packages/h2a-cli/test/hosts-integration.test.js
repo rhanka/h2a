@@ -84,7 +84,7 @@ test("h2a host setup --host claude --print emits a claude-shaped snippet", () =>
     "claude",
     "--auto-upgrade",
     "--wake",
-    "auto"
+    "local-tmux"
   ]);
 });
 
@@ -111,7 +111,7 @@ test("h2a host setup --host gemini --print emits a gemini-shaped snippet (DEC-04
     "gemini",
     "--auto-upgrade",
     "--wake",
-    "auto"
+    "local-tmux"
   ]);
   assert.match(streams.stderrText, /gemini/);
 });
@@ -150,7 +150,7 @@ test("h2a host setup --write creates a new config file with mcpServers.h2a", () 
       "codex",
       "--auto-upgrade",
       "--wake",
-      "auto"
+      "local-tmux"
     ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -240,7 +240,7 @@ test("h2a host setup --write --force overwrites a divergent mcpServers.h2a", () 
       "codex",
       "--auto-upgrade",
       "--wake",
-      "auto"
+      "local-tmux"
     ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
