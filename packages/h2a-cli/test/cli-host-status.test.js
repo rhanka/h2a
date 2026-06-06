@@ -66,7 +66,16 @@ test("h2a host setup --host agy renders the Antigravity MCP config slot (EVO-0)"
   assert.equal(rc, 0, `expected exit 0, got ${rc} (stderr: ${streams.stderrText})`);
   const snippet = JSON.parse(streams.stdoutText);
   assert.ok(snippet.mcpServers.h2a, "agy snippet must expose mcpServers.h2a");
-  assert.deepEqual(snippet.mcpServers.h2a.args, ["mcp-serve"]);
+  // coordination-ready by default: joins the bus, stays current, wakeable
+  assert.deepEqual(snippet.mcpServers.h2a.args, [
+    "mcp-serve",
+    "--auto-open",
+    "--host",
+    "agy",
+    "--auto-upgrade",
+    "--wake",
+    "auto"
+  ]);
   // path hint points at agy's embedded-runtime config slot
   assert.match(streams.stderrText, /mcp_config\.json/);
 });

@@ -491,9 +491,9 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "resource",
     exitCodes: [0, 1, 2, 3],
     requiredFlags: ["host"],
-    optionalFlags: ["root", "print", "write", "force"],
+    optionalFlags: ["root", "print", "write", "force", "no-wake"],
     description:
-      "Render or merge the `mcpServers.h2a` snippet for a host (codex|claude). `--print` (default) emits the snippet as a resource on stdout; `--write <file>` switches the verb to an action envelope and merges/creates the target config file."
+      "Render or merge the `mcpServers.h2a` snippet for a host (codex|claude). The snippet is coordination-ready by default: `mcp-serve --auto-open --auto-upgrade --wake auto` (joins the bus, stays current, wakeable on inbox arrival when run in a tmux pane). `--no-wake` drops `--wake` (prints a warning). `--print` (default) emits the snippet; `--write <file>` merges/creates the target config file."
   },
   {
     verb: "host plugin",

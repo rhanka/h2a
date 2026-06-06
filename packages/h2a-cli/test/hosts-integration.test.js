@@ -77,7 +77,15 @@ test("h2a host setup --host claude --print emits a claude-shaped snippet", () =>
   assert.equal(rc, 0);
   const parsed = JSON.parse(streams.stdoutText);
   assert.equal(parsed.mcpServers.h2a.command, "h2a");
-  assert.deepEqual(parsed.mcpServers.h2a.args, ["mcp-serve"]);
+  assert.deepEqual(parsed.mcpServers.h2a.args, [
+    "mcp-serve",
+    "--auto-open",
+    "--host",
+    "claude",
+    "--auto-upgrade",
+    "--wake",
+    "auto"
+  ]);
 });
 
 test("H2A_GEMINI_HOST.renderMcpConfig includes --root when provided (DEC-049)", () => {
@@ -96,7 +104,15 @@ test("h2a host setup --host gemini --print emits a gemini-shaped snippet (DEC-04
   assert.equal(rc, 0);
   const parsed = JSON.parse(streams.stdoutText);
   assert.equal(parsed.mcpServers.h2a.command, "h2a");
-  assert.deepEqual(parsed.mcpServers.h2a.args, ["mcp-serve"]);
+  assert.deepEqual(parsed.mcpServers.h2a.args, [
+    "mcp-serve",
+    "--auto-open",
+    "--host",
+    "gemini",
+    "--auto-upgrade",
+    "--wake",
+    "auto"
+  ]);
   assert.match(streams.stderrText, /gemini/);
 });
 
@@ -127,7 +143,15 @@ test("h2a host setup --write creates a new config file with mcpServers.h2a", () 
     assert.equal(rc, 0);
     const written = JSON.parse(readFileSync(target, "utf8"));
     assert.equal(written.mcpServers.h2a.command, "h2a");
-    assert.deepEqual(written.mcpServers.h2a.args, ["mcp-serve"]);
+    assert.deepEqual(written.mcpServers.h2a.args, [
+      "mcp-serve",
+      "--auto-open",
+      "--host",
+      "codex",
+      "--auto-upgrade",
+      "--wake",
+      "auto"
+    ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -209,7 +233,15 @@ test("h2a host setup --write --force overwrites a divergent mcpServers.h2a", () 
     assert.equal(rc, 0);
     const after = JSON.parse(readFileSync(target, "utf8"));
     assert.equal(after.mcpServers.h2a.command, "h2a");
-    assert.deepEqual(after.mcpServers.h2a.args, ["mcp-serve"]);
+    assert.deepEqual(after.mcpServers.h2a.args, [
+      "mcp-serve",
+      "--auto-open",
+      "--host",
+      "codex",
+      "--auto-upgrade",
+      "--wake",
+      "auto"
+    ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

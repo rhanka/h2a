@@ -1,6 +1,6 @@
 ---
 name: h2a
-version: 0.43.0
+version: 0.46.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
@@ -193,6 +193,15 @@ Consequences to respect:
 - **Liveness is not enforced on send** — `h2a_inbox put` writes even to a dead
   target. Always `/h2a discover` first and report truthfully (see `/h2a send`):
   *delivered (live)* vs *deposited for wake (dormant)*.
+- **`recipientLive:false` / "dormant" ≠ "not working"** — liveness means only
+  "has a fresh `mcp-serve` presence session", i.e. *reachable by a push now*. An
+  agent doing real work **headless** (e.g. `codex exec`, a one-shot review) runs
+  with **no presence session** and so shows as not-live while it is busy. **Never
+  relaunch, reassign, or duplicate a task just because a peer reads as not-live.**
+  Before assuming a peer is idle: check its `workStatus` (`working|blocked|…` in
+  discover/`h2a status`, if it sets one), look for a recent delivery/report from
+  it, or ask the human — do not infer "free" from "not-live". Liveness gates
+  *delivery*, not *work in progress*.
 
 ## Defaults and conventions
 
