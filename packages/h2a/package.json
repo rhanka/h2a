@@ -1,6 +1,6 @@
 {
   "name": "@sentropic/h2a",
-  "version": "0.49.0",
+  "version": "0.50.0",
   "description": "Core contracts and runtime primitives for human-to-agent coordination.",
   "license": "MIT",
   "type": "module",
