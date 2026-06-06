@@ -1310,14 +1310,20 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
     return lock(
       inboxLock(actor),
       () => {
+        // Delete the id from EVERY source dir (canonical + raw + alias), not just
+        // the first: the same envelope can sit in the canonical and the raw/legacy
+        // dir at once, and a single-delete leaves the copy to resurface on the
+        // next read. Return the first copy found.
+        let found: H2AEnvelope | undefined;
         for (const dir of dirs) {
           const file = envelopeFile(dir, envelopeId);
           if (!existsSync(file)) continue;
-          const envelope = JSON.parse(readFileSync(file, "utf8")) as H2AEnvelope;
+          if (found === undefined) {
+            found = JSON.parse(readFileSync(file, "utf8")) as H2AEnvelope;
+          }
           unlinkSync(file);
-          return envelope;
         }
-        return undefined;
+        return found;
       },
       lockOpts
     );

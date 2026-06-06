@@ -27,3 +27,13 @@ test("rootForSub: sanitizes an unsafe sub (collapses to one inert segment, no tr
 test("rootForSub: empty sub throws", () => {
   assert.throws(() => rootForSub("/base", ""), /empty sub/);
 });
+
+test("rootForSub: a traversal sub ('..','.') cannot escape baseRoot/tenants (BLOCKER fix)", () => {
+  // safePathSegment("..") used to return ".." → join(base,"tenants","..") === base
+  // → a broker token with sub=".." reached the GLOBAL root, not a tenant.
+  for (const evil of ["..", ".", "../.."]) {
+    const r = rootForSub("/base", evil);
+    assert.notEqual(r, "/base", `sub="${evil}" must NOT resolve to baseRoot`);
+    assert.ok(r.startsWith(join("/base", "tenants") + sep), `sub="${evil}" stays under tenants/: ${r}`);
+  }
+});

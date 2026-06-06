@@ -34,6 +34,35 @@ test("canonicalAddress: folds case + slugifies the label, idempotent on canonica
   assert.equal(canonicalAddress("sentropic-chat"), "sentropic-chat");
 });
 
+test("canonicalAddress: subagent ~name is case-PRESERVED (no inbox collision between siblings)", () => {
+  // the instance part is canonicalized; the ~name rides verbatim (case-sensitive).
+  assert.equal(
+    canonicalAddress("claude:proj-1:07bcd1936752~Researcher"),
+    "claude:proj-1:07bcd1936752~Researcher"
+  );
+  // case-only-distinct siblings must NOT collapse to the same canonical handle
+  assert.notEqual(
+    canonicalAddress("claude:proj-1:07bcd1936752~Researcher"),
+    canonicalAddress("claude:proj-1:07bcd1936752~researcher")
+  );
+  // but the instance part still folds (host caps), name still verbatim
+  assert.equal(canonicalAddress("Claude:Proj:07bcd1936752~Bob"), "claude:proj:07bcd1936752~Bob");
+});
+
+test("two case-distinct subagents do NOT share an inbox (isolation)", () => {
+  const root = join(mkdtempSync(join(tmpdir(), "h2a-subagent-")), ".h2a");
+  try {
+    const store = createLocalStore({ root });
+    const R = "claude:proj:07bcd1936752~Researcher";
+    const r = "claude:proj:07bcd1936752~researcher";
+    store.putInboxMessage(R, env("to-R", "claude:a2a-cli:07bcd1936752", R));
+    assert.equal(store.readInbox(R).length, 1, "Researcher gets its message");
+    assert.equal(store.readInbox(r).length, 0, "researcher (lowercase sibling) must NOT see it");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("inbox routing is case-insensitive: put with one case, read with another", () => {
   const root = join(mkdtempSync(join(tmpdir(), "h2a-casefold-")), ".h2a");
   try {

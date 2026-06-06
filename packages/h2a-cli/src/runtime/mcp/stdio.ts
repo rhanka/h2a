@@ -4,7 +4,7 @@ import type { Readable, Writable } from "node:stream";
 import type { H2AWorkspaceRef } from "@sentropic/h2a";
 
 import { createInboxWakeHandler } from "../drive/inbox-wake.js";
-import { detectTmuxLaunchContext, latestLaunchContext, type H2ADriver } from "../drive/index.js";
+import { detectTmuxLaunchContext, type H2ADriver } from "../drive/index.js";
 import { createLocalStore } from "../local-files/index.js";
 import { agentVersion } from "../version/agent-version.js";
 import { createMcpServer, type McpServer } from "./server.js";
@@ -242,7 +242,16 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         privateKeyPem: options.wake.privateKeyPem,
         driver: options.wake.driver,
         ...(options.autoOpen.host !== undefined ? { host: options.autoOpen.host } : {}),
-        resolveLaunchContext: () => latestLaunchContext(root, wakeInstance),
+        // Self-wake targets THIS process's OWN tmux pane (inherited $TMUX_PANE),
+        // NOT latestLaunchContext(instance) — with concurrent sessions sharing one
+        // perennial id (durable bug #1), an instance lookup could inject keystrokes
+        // into a DIFFERENT agent's terminal. The waking process is the one in the pane.
+        resolveLaunchContext: () =>
+          detectTmuxLaunchContext(
+            process.env,
+            undefined,
+            `h2a mcp-serve --host ${options.autoOpen?.host ?? ""}`.trim()
+          ),
         log: (line) => stderr.write(`h2a mcp-serve: ${line}\n`)
       });
       server.notifications.setOnInboxArrival((instance) => {

@@ -1427,13 +1427,21 @@ export async function runMcpServe(
     io.stderr.write(
       "h2a mcp-serve: --wake must be one of logging|native|local-tmux|headless|auto; ignored\n"
     );
+  } else if (flags.wake === "headless") {
+    // A self-wake must NEVER spawn a new agent. headless does exactly that.
+    io.stderr.write(
+      "h2a mcp-serve: --wake headless is unsafe (it would spawn a NEW agent on inbox arrival, not wake this one); use local-tmux. ignored\n"
+    );
   } else if (flags.wake !== undefined && autoOpen?.privateKeyPath) {
     try {
       const privateKeyPem = readFileSync(autoOpen.privateKeyPath, "utf8");
-      const driver = buildDriveDriver(
-        flags.wake as H2ADriverKind,
-        (line) => io.stderr.write(`${line}\n`)
-      );
+      const log = (line: string) => io.stderr.write(`${line}\n`);
+      // `auto` for a self-wake is native→local-tmux ONLY (no headless leg — its
+      // fallback spawns a new agent, wrong for waking yourself).
+      const driver =
+        flags.wake === "auto"
+          ? chainDriver(nativeBackchannelDriver(), localTmuxDriver({ log }))
+          : buildDriveDriver(flags.wake as H2ADriverKind, log);
       wake = { driver, privateKeyPem };
     } catch (err) {
       io.stderr.write(`h2a mcp-serve: --wake disabled (cannot read key): ${(err as Error).message}\n`);

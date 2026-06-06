@@ -22,7 +22,11 @@ import { slugify } from "@sentropic/h2a";
 export function safePathSegment(id: string): string {
   if (typeof id !== "string" || id.length === 0) return "_";
   const cleaned = id.replace(/[:/\\<>"|?*]+/g, "__");
-  return cleaned.length === 0 ? "_" : cleaned;
+  // A pure-dot segment (".", "..", …) is a path-traversal vector: `join(base,
+  // "tenants", "..")` escapes to `base`. Neutralize it so no id (e.g. a broker
+  // `sub=".."` → rootForSub) can climb out of its directory.
+  if (cleaned.length === 0 || /^\.+$/.test(cleaned)) return "_";
+  return cleaned;
 }
 
 export interface LocalStorePaths {
@@ -102,6 +106,14 @@ export function negotiationJournalFile(
  */
 export function canonicalAddress(addr: string): string {
   if (typeof addr !== "string" || addr.length === 0) return addr;
+  // Subagent handle `<instance>~<name>` (DEC subagents): the `~name` is
+  // case-sensitive and charset-unrestricted — canonicalize ONLY the instance
+  // part and keep `~name` verbatim, else two siblings differing by case
+  // (…~Researcher vs …~researcher) collapse into one inbox (isolation break).
+  const tilde = addr.indexOf("~");
+  if (tilde >= 0) {
+    return canonicalAddress(addr.slice(0, tilde)) + addr.slice(tilde);
+  }
   const parts = addr.split(":");
   if (parts.length < 2) return addr;
   const [host, label, ...rest] = parts;

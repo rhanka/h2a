@@ -202,6 +202,12 @@ export function isH2ASession(value: unknown): value is H2ASession {
   if (v.mirroredAt !== undefined && typeof v.mirroredAt !== "string") {
     return false;
   }
+  if (v.version !== undefined) {
+    if (typeof v.version !== "object" || v.version === null) return false;
+    const ver = v.version as Record<string, unknown>;
+    if (ver.cli !== undefined && typeof ver.cli !== "string") return false;
+    if (ver.skill !== undefined && typeof ver.skill !== "string") return false;
+  }
   return true;
 }
 

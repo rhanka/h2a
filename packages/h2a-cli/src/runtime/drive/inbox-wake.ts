@@ -46,7 +46,6 @@ export function createInboxWakeHandler(deps: InboxWakeHandlerDeps): () => Promis
       nowIso: new Date(now()).toISOString()
     });
     if (!decision) return false;
-    seen = decision.seen;
     const instructionLine = formatSignedDriveInstruction({
       from: deps.instance,
       to: deps.instance,
@@ -61,6 +60,10 @@ export function createInboxWakeHandler(deps: InboxWakeHandlerDeps): () => Promis
       ...(deps.host ? { host: deps.host } : {}),
       ...(launchContext ? { launchContext } : {})
     });
+    // Advance `seen` ONLY on a successful drive: a transient failure (no pane,
+    // tmux hiccup) must leave the envelope fresh so the next tick retries it,
+    // instead of marking it seen and never waking on it again.
+    if (ok) seen = decision.seen;
     deps.log?.(`inbox-wake: ${decision.fresh.length} new envelope(s) → drive ${ok ? "ok" : "failed"}`);
     return ok;
   };
