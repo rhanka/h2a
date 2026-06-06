@@ -5,6 +5,7 @@ import {
   H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS,
   H2A_SESSION_NOTIFICATION_TOPICS,
   type H2AAgentVersion,
+  type H2ALaunchContext,
   type H2ASession,
   type H2ASessionInterests,
   type H2ASessionNotificationTopic,
@@ -36,6 +37,8 @@ export interface OpenSessionRequest {
   readonly subscribedTopics?: readonly H2ASessionNotificationTopic[];
   /** Deployed-version stamp ({cli, skill}) for drift visibility. */
   readonly version?: H2AAgentVersion;
+  /** Launch context (e.g. the tmux pane) so wake/relance drivers can target this agent. */
+  readonly launchContext?: H2ALaunchContext;
   /** Optional explicit session id (UUID-ish). Generated if omitted. */
   readonly sessionId?: string;
 }
@@ -119,6 +122,7 @@ export class SessionRegistry {
       ...(request.workspace !== undefined ? { workspace: request.workspace } : {}),
       ...(request.name !== undefined ? { name: request.name } : {}),
       ...(request.version !== undefined ? { version: request.version } : {}),
+      ...(request.launchContext !== undefined ? { launchContext: request.launchContext } : {}),
       pid: request.pid ?? process.pid,
       startedAt: now,
       heartbeatAt: now,

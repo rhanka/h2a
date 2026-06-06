@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
-import { detectTmuxLaunchContext } from "../dist/index.js";
+import { SessionRegistry, detectTmuxLaunchContext, latestLaunchContext } from "../dist/index.js";
 
 // Slice C of wake-by-default: mcp-serve (spawned as the agent's MCP server,
 // inheriting its $TMUX_PANE) auto-captures its tmux pane into the session launch
@@ -33,4 +36,26 @@ test("detectTmuxLaunchContext: the pane id alone is a valid local-tmux target (s
   // is fine — `tmux send-keys -t %42` addresses the pane globally.
   assert.equal(lc.tmux.session, "");
   assert.equal(lc.tmux.pane, "%42");
+});
+
+test("END-TO-END: session open RECORDS launchContext → latestLaunchContext resolves the pane", () => {
+  // Regression guard: SessionRegistry.open must thread launchContext into the
+  // presence record. Without it the auto-detected pane is silently dropped and
+  // the local-tmux wake driver has nothing to target (the bug behind pane=NONE).
+  const root = join(mkdtempSync(join(tmpdir(), "h2a-lc-")), ".h2a");
+  try {
+    const reg = new SessionRegistry(root, { autoHeartbeat: false });
+    const lc = detectTmuxLaunchContext({ TMUX: "s", TMUX_PANE: "%5" }, "/w", "h2a mcp-serve --host claude");
+    reg.open({
+      instance: "claude:proj:abcabcabcabc",
+      host: "claude",
+      launchContext: lc,
+      interests: { scopes: ["scope:default"], negotiations: [] }
+    });
+    const resolved = latestLaunchContext(root, "claude:proj:abcabcabcabc");
+    assert.ok(resolved, "launchContext must be persisted in presence");
+    assert.equal(resolved.tmux.pane, "%5");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
