@@ -3410,6 +3410,12 @@ function cmdSessions(
       const wanted = flags.instance;
       sessions = sessions.filter((s) => s.instance === wanted);
     }
+    if (flags.name) {
+      const needle = flags.name.toLowerCase();
+      sessions = sessions.filter(
+        (s) => typeof s.name === "string" && s.name.toLowerCase().includes(needle)
+      );
+    }
     streams.stdout.write(`${JSON.stringify(sessions, null, 2)}\n`);
     return 0;
   } catch (error) {
@@ -3433,6 +3439,12 @@ function cmdStatus(
     if (flags.instance) {
       const wanted = flags.instance;
       sessions = sessions.filter((s) => s.instance === wanted);
+    }
+    if (flags.name) {
+      const needle = flags.name.toLowerCase();
+      sessions = sessions.filter(
+        (s) => typeof s.name === "string" && s.name.toLowerCase().includes(needle)
+      );
     }
     const indirect = sessions.filter((s) => typeof s.mirroredAt === "string");
     const direct = sessions.filter((s) => typeof s.mirroredAt !== "string");

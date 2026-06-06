@@ -1,6 +1,6 @@
 ---
 name: h2a
-version: 0.46.0
+version: 0.51.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
@@ -55,11 +55,14 @@ Show the current connectivity state. Steps:
 
 List currently-live peer agents.
 
+**Peer resolution rule — always use `h2a_discover_sessions`, never grep the registry:**
+To reach a peer by PURPOSE/role, RESOLVE it via `h2a_discover_sessions` filtering on `scope` (the canonical purpose key) or `name` (case-insensitive substring match on the agent's display name) — e.g. `{ scope: "scope:chat" }` or `{ name: "radar" }`. NEVER grep the registry for a free-text name: instance ids are workspace-derived (`host:slug(workspace):uuid`), so a name grep misses. If several sessions match, list them and let the user pick (or pick the single live one); if none match, the agent has not advertised that scope/name yet.
+
 Steps:
 
-1. Call `h2a_discover_sessions` with `{ scope }` (omit if no argument).
+1. Call `h2a_discover_sessions` with `{ scope }` (omit if no argument); add `{ name: "<substring>" }` when the user asks to find a peer by friendly name.
 2. Filter out the current agent's own session (compare against `h2a_session_open`'s `sessionId` if known).
-3. For each remaining session, print: `instance`, `host`, `interests.scopes` (comma-joined), a relative heartbeat age ("12s ago"), and `sessionId`.
+3. For each remaining session, print: `instance`, `host`, `name` (if set), `interests.scopes` (comma-joined), a relative heartbeat age ("12s ago"), and `sessionId`.
 4. Sort by host then instance.
 5. If empty: say so and suggest the user check that the other CLIs ran `/h2a connect` against the same root.
 
@@ -74,6 +77,7 @@ Steps:
 1. **Resolve the target + check liveness FIRST (`h2a_discover_sessions`).** Pick the addressing form (see "Identity & addressing"):
    - target is a **specific live agent** → use its **full perennial id** `host:slug:uuid12` from discover (NOT the bare `host:label`, which is ambiguous when several agents share a workspace);
    - target is a **role/channel or a known-dormant peer** → use the **channel** form `host:label`.
+   - If the user names a peer by PURPOSE/role, call `h2a_discover_sessions` with `{ scope: "<purpose>" }`. If the user names a peer by FRIENDLY NAME, call `h2a_discover_sessions` with `{ name: "<substring>" }`. NEVER grep the registry for a name: instance ids are workspace-derived (`host:slug(workspace):uuid`) so a text search misses. If several match, list and ask; if none, the agent hasn't advertised that scope/name.
    - If `<peer>` is missing, list discover and ask the user to pick.
 2. If `"<text>"` is missing, prompt the user for the content.
 3. Compose an `H2AEnvelope` JSON:
@@ -177,6 +181,8 @@ There are **two addressable forms**; pick deliberately:
   it for a role, a known-dormant peer you want to leave a message for, or a wake
   drop. A perennial agent also reads its own `host:label` alias inbox (dedup), so
   channel messages reach whichever agent adopts that label.
+
+**Resolution rule — discover, never grep:** To reach a peer by PURPOSE/role, filter `h2a_discover_sessions` on `scope` (the canonical purpose key). To reach a peer by FRIENDLY NAME, filter on `name` (case-insensitive substring match on `session.name`). NEVER grep the registry file for a free-text name: instance ids are workspace-derived (`host:slug(workspace):uuid`), so a name grep misses. If several sessions match, list them and pick/ask; if none match, the agent hasn't advertised that scope/name yet.
 
 Consequences to respect:
 - **Addressing is case-insensitive; the label is slugified** (0.40.0+). The handle

@@ -321,12 +321,17 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_discover_sessions",
     description:
-      "List currently-live peer sessions (DEC-051). Reads presence files under <root>/.h2a/presence/ and filters by freshness (default expiry 15s). Optional scope/instance filters.",
+      "List currently-live peer sessions (DEC-051). Reads presence files under <root>/.h2a/presence/ and filters by freshness (default expiry 15s). Optional scope/instance/name filters.",
     inputSchema: {
       type: "object",
       properties: {
         scope: { type: "string" },
-        instance: { type: "string" }
+        instance: { type: "string" },
+        name: {
+          type: "string",
+          description:
+            "Case-insensitive substring match on session.name (display name). Use to find a peer by friendly name when you don't know the full instance id."
+        }
       }
     }
   },

@@ -672,7 +672,7 @@ export function handleSessionClose(
 
 export function handleDiscoverSessions(
   sessions: SessionRegistry,
-  args: { scope?: string; instance?: string } | undefined
+  args: { scope?: string; instance?: string; name?: string } | undefined
 ): McpToolResult | McpErrorResult {
   try {
     let fresh = sessions.scanFresh();
@@ -685,6 +685,14 @@ export function handleDiscoverSessions(
     if (args?.instance) {
       const wanted = args.instance;
       fresh = fresh.filter((session) => session.instance === wanted);
+    }
+    if (args?.name && typeof args.name === "string" && args.name.length > 0) {
+      const needle = args.name.toLowerCase();
+      fresh = fresh.filter(
+        (session) =>
+          typeof session.name === "string" &&
+          session.name.toLowerCase().includes(needle)
+      );
     }
     return { sessions: fresh };
   } catch (err) {

@@ -538,7 +538,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "action",
     exitCodes: [0, 3],
     requiredFlags: [],
-    optionalFlags: ["root", "scope", "instance"],
+    optionalFlags: ["root", "scope", "instance", "name"],
     description:
       "Inventory connected agent sessions: direct (local presence heartbeat) vs indirect (mirrored in from a remote/sidecar). Reads presence; partitions on the mirror origin tag."
   },
@@ -547,7 +547,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "list",
     exitCodes: [0, 3],
     requiredFlags: [],
-    optionalFlags: ["root", "scope", "instance"],
+    optionalFlags: ["root", "scope", "instance", "name"],
     description:
       "List currently-live h2a sessions (CLI mirror of the MCP h2a_discover_sessions tool). Reads presence files, filters by freshness. DEC-054."
   },
