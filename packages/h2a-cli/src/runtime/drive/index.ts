@@ -29,6 +29,7 @@ import { listPresence } from "../local-files/index.js";
 import {
   defaultRelauncherRuntime,
   tmuxTarget,
+  tmuxSendSubmit,
   type RelauncherRuntime
 } from "../drumbeat/relaunchers.js";
 
@@ -483,27 +484,8 @@ export function localTmuxDriver(options: DriverRuntimeOptions = {}): H2ADriver {
       const tmux = request.launchContext?.tmux;
       if (!tmux) return false;
       const target = tmuxTarget(tmux);
-      const literal = runtime.run("tmux", [
-        "send-keys",
-        "-t",
-        target,
-        "-l",
-        request.instructionLine
-      ]);
-      const enter1 = runtime.run("tmux", [
-        "send-keys",
-        "-t",
-        target,
-        "Enter"
-      ]);
-      // modern TUIs (codex/claude) buffer the first Enter; a second submits (verified live).
-      const enter2 = runtime.run("tmux", [
-        "send-keys",
-        "-t",
-        target,
-        "Enter"
-      ]);
-      const ok = literal && enter1 && enter2;
+      // shared submit path: literal text + separate Enter(s) (see tmuxSendSubmit).
+      const ok = tmuxSendSubmit(runtime, target, request.instructionLine);
       options.log?.(`drive[local-tmux]: ${request.to} -> ${target} (${ok ? "ok" : "failed"})`);
       return ok;
     }

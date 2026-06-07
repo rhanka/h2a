@@ -55,7 +55,11 @@ test("local-tmux relancer sends the resume command into the captured pane", () =
     })
   );
   assert.equal(ok, true);
-  assert.deepEqual(calls.run[0], ["tmux", "send-keys", "-t", "main:2.1", "claude --resume abc", "Enter"]);
+  // submit = literal text + two SEPARATE Enters (a combined `cmd Enter`, or no -l,
+  // does not commit in a TUI — the "line written, no Enter fires" bug).
+  assert.deepEqual(calls.run[0], ["tmux", "send-keys", "-t", "main:2.1", "-l", "claude --resume abc"]);
+  assert.deepEqual(calls.run[1], ["tmux", "send-keys", "-t", "main:2.1", "Enter"]);
+  assert.deepEqual(calls.run[2], ["tmux", "send-keys", "-t", "main:2.1", "Enter"]);
 });
 
 test("local-tmux relancer declines (false) when there is no tmux context", () => {
@@ -105,6 +109,6 @@ test("chain stops at the first adapter that issues a relance", async () => {
     finding({ launchContext: { cwd: "/w", command: "claude", tmux: { session: "s", pane: "%1" } } })
   );
   assert.equal(ok, true);
-  assert.equal(calls.run.length, 1); // tmux handled it
+  assert.equal(calls.run.length, 3); // tmux handled it: literal + Enter + Enter
   assert.equal(calls.spawnDetached.length, 0); // headless not reached
 });

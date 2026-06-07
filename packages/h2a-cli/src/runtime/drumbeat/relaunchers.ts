@@ -117,6 +117,26 @@ export function tmuxTarget(t: { session: string; window?: string; pane: string }
   return t.window !== undefined ? `${t.session}:${t.window}.${t.pane}` : t.pane;
 }
 
+/**
+ * Type `text` into a tmux pane AND submit it. Sends the text literally (`-l`, so
+ * spaces / special chars aren't interpreted as tmux key names) then Enter as a
+ * SEPARATE send-keys. A combined `send-keys "text" Enter` (or one without `-l`)
+ * leaves the line in the input but **never commits** on modern TUIs
+ * (codex/claude) — the bug behind "the line is written but no Enter fires". A
+ * second Enter covers TUIs that buffer the first. The single shared submit path
+ * for both the drumbeat relauncher and the EVO-1 wake/drive local-tmux driver.
+ */
+export function tmuxSendSubmit(
+  runtime: Pick<RelauncherRuntime, "run">,
+  target: string,
+  text: string
+): boolean {
+  const typed = runtime.run("tmux", ["send-keys", "-t", target, "-l", text]);
+  const enter1 = runtime.run("tmux", ["send-keys", "-t", target, "Enter"]);
+  const enter2 = runtime.run("tmux", ["send-keys", "-t", target, "Enter"]);
+  return typed && enter1 && enter2;
+}
+
 /** Revive a stalled agent by sending its resume/launch command into its pane. */
 export function localTmuxRelauncher(options: RelauncherCommonOptions = {}): H2ARelauncher {
   const runtime = options.runtime ?? defaultRelauncherRuntime;
@@ -126,7 +146,10 @@ export function localTmuxRelauncher(options: RelauncherCommonOptions = {}): H2AR
       if (!lc?.tmux) return false; // not a tmux-launched agent — let the chain fall through
       const command = lc.resumeCommand ?? lc.command;
       const target = tmuxTarget(lc.tmux);
-      const ok = runtime.run("tmux", ["send-keys", "-t", target, command, "Enter"]);
+      // literal command + separate Enter(s) — a combined `send-keys cmd Enter`
+      // doesn't commit in a TUI (the reported "line written, no Enter") and
+      // without -l the command keys can be misread as tmux key names.
+      const ok = tmuxSendSubmit(runtime, target, command);
       options.log?.(
         `drumbeat[local-tmux]: relance ${finding.instance} → tmux send-keys -t ${target} (${ok ? "ok" : "failed"})`
       );
