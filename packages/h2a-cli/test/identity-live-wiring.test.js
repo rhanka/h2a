@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import test from "node:test";
@@ -95,6 +95,37 @@ test("connect reclaims the same perennial identity for the same provider session
     assert.equal(createLocalStore({ root }).listInstances().length, 1);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a same-leaf de-collisioned peer does NOT read the owner's legacy inbox (review BLOCKER #2)", () => {
+  // Two DIFFERENT workspaces sharing a cwd leaf "proj" → same legacy alias
+  // `claude:proj` but distinct perennial instances. The FIRST claimant owns the
+  // bare-legacy inbox; the later peer must not read it (cross-read), while the
+  // owner still reads its own migrated inbox.
+  const parentA = mkdtempSync(join(tmpdir(), "h2a-ownerA-"));
+  const parentB = mkdtempSync(join(tmpdir(), "h2a-ownerB-"));
+  const cwdA = join(parentA, "proj");
+  const cwdB = join(parentB, "proj");
+  mkdirSync(cwdA);
+  mkdirSync(cwdB);
+  const root = join(mkdtempSync(join(tmpdir(), "h2a-owner-root-")), ".h2a");
+  try {
+    const owner = connect(root, cwdA, "sess-owner"); // first claimant of claude:proj
+    const peer = connect(root, cwdB, "sess-peer"); // later claimant, same leaf
+    assert.notEqual(owner.instance, peer.instance, "distinct workspaces → distinct instances");
+
+    const store = createLocalStore({ root });
+    store.putInboxMessage("claude:proj", env("env:owner-legacy", "for the legacy owner"));
+
+    const ownerSees = store.readInbox(owner.instance).some((m) => m.id === "env:owner-legacy");
+    const peerSees = store.readInbox(peer.instance).some((m) => m.id === "env:owner-legacy");
+    assert.equal(ownerSees, true, "the first claimant (owner) reads claude:proj");
+    assert.equal(peerSees, false, "the de-collisioned peer must NOT read the owner's legacy inbox");
+  } finally {
+    rmSync(parentA, { recursive: true, force: true });
+    rmSync(parentB, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });

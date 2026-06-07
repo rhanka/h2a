@@ -138,3 +138,8 @@ export function inboxDirRaw(paths: LocalStorePaths, actor: string): string {
 export function outboxDir(paths: LocalStorePaths, actor: string): string {
   return join(paths.outbox, safePathSegment(canonicalAddress(actor)));
 }
+
+/** Outbox dir keyed on the RAW handle — read-only fallback for pre-case-fold copies. */
+export function outboxDirRaw(paths: LocalStorePaths, actor: string): string {
+  return join(paths.outbox, safePathSegment(actor));
+}

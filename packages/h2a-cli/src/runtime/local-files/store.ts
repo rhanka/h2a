@@ -53,6 +53,7 @@ import {
   negotiationDir,
   negotiationJournalFile,
   outboxDir,
+  outboxDirRaw,
   safePathSegment,
   type LocalStorePaths
 } from "./paths.js";
@@ -1291,9 +1292,23 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   // the raw form recovers envelopes deposited before the case-fold fix; writes
   // always target the canonical dir, so the raw dirs drain as messages are popped.
   function inboxSourceDirs(actor: string): string[] {
-    const handles = [actor, ...listIdentityAliases(paths.root, actor).map((alias) => alias.legacyInstance)];
+    // A legacy alias (`host:<cwd-leaf>`) is shared by every agent that ever
+    // connected in that workspace, so a later (de-collisioned) peer must NOT
+    // read the OWNER's legacy inbox. Owner = the FIRST claimant of that
+    // legacyInstance (earliest alias `at`). `adoptedKeyring` can't gate this — a
+    // fresh first connect has adoptedKeyring:false too. This keeps the legit
+    // "read your own migrated inbox" while closing the cross-read.
+    const allAliases = listIdentityAliases(paths.root);
+    const ownedLegacy = allAliases
+      .filter((a) => a.instance === actor)
+      .filter((a) => {
+        const claimants = allAliases.filter((x) => x.legacyInstance === a.legacyInstance);
+        const earliest = claimants.reduce((m, x) => (x.at < m.at ? x : m), claimants[0]);
+        return earliest.instance === actor;
+      })
+      .map((a) => a.legacyInstance);
     const dirs = new Set<string>();
-    for (const handle of handles) {
+    for (const handle of [actor, ...ownedLegacy]) {
       dirs.add(inboxDir(paths, handle));
       dirs.add(inboxDirRaw(paths, handle));
     }
@@ -1345,7 +1360,10 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function readOutbox(actor: string): H2AEnvelope[] {
-    return readEnvelopesFrom(outboxDir(paths, actor));
+    // canonical + raw fallback (like the inbox) so pre-case-fold outbox copies
+    // stay visible; deduped by envelope id.
+    const dirs = new Set([outboxDir(paths, actor), outboxDirRaw(paths, actor)]);
+    return mergeInboxDedup([...dirs].map((dir) => readEnvelopesFrom(dir)));
   }
 
   // DEC-070: validated routing to a subagent address. Unlike the raw mailbox
