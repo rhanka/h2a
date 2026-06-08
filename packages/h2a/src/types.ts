@@ -92,6 +92,10 @@ export interface H2AEnvelope<TBody = unknown> {
   causationId?: string;
   correlationId?: string;
   prevHash?: string;
+  /** EVO-inbox-threading: optional conversation-thread id, minted by the opener (`thr:<ms>:<hex>`); replies inherit it. */
+  readonly threadId?: string;
+  /** EVO-inbox-threading: id of the envelope this is replying to. */
+  readonly replyTo?: string;
   body: TBody;
   createdAt: string;
   signatures?: H2ASignature[];

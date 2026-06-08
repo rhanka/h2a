@@ -1,6 +1,6 @@
 ---
 name: h2a
-version: 0.51.0
+version: 0.55.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
@@ -97,6 +97,17 @@ Steps:
    }
    ```
 4. Call `h2a_inbox` with `{ action: "put", instance: "<peer>", envelope }`.
+
+   **Conversation threading (optional, lightweight):** To continue an existing back-and-forth as a thread, add two top-level fields to the envelope JSON before putting it:
+   - `"threadId": "<id>"` — reuse the `threadId` from the peer's previous envelope, or mint a fresh one as `thr:<epoch-ms>:<4hex>` to start a new thread.
+   - `"replyTo": "<prev-envelope-id>"` — the `id` of the envelope you are replying to.
+
+   To reconstruct the ordered fil of a thread (for supervision or before opening a formal negotiation):
+   ```sh
+   h2a thread --id <threadId> --instance <self-instance> --root <root>
+   ```
+   This returns the envelopes (from your inbox + outbox) that share that `threadId`, sorted ascending by `createdAt`, deduped. No new store — storage is derived on the fly.
+
 5. **Report honestly per the target's liveness** (h2a writes the inbox unconditionally — it does NOT yet error on a dead target, so YOU must say which it was):
    - target was **live** in discover → *"Delivered to `<peer>` (live) — push fires if subscribed."*
    - target was **NOT live** → *"`<peer>` is dormant — envelope deposited for its wake (no live session; it will only see this once woken)."* Never claim "Delivered" to a dormant/unknown peer.

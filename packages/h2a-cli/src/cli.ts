@@ -301,6 +301,7 @@ export function renderCliHelp(): string {
     "  h2a doctor [--root <path>]",
     "  h2a status [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a sessions [--root <path>] [--scope <s>] [--instance <i>]",
+    "  h2a thread --id <threadId> --instance <self> [--root <path>]   (the ordered conversation for a thread, from your inbox+outbox)",
     "  h2a keys generate --instance <id> [--out <dir>] [--root <path>]",
     "  h2a keys add --instance <id> --public-key <pem-file> [--root <path>]",
     "  h2a keys list --instance <id> [--root <path>]",
@@ -3394,6 +3395,53 @@ function cmdDiscover(
   return 0;
 }
 
+/**
+ * `h2a thread --id <threadId> --instance <self> [--root <path>]`
+ *
+ * Derived read-only view: union of inbox and outbox for the given instance,
+ * filtered to `envelope.threadId === id`, deduped by envelope id, sorted
+ * ascending by `createdAt`. No new store — pure in-memory derivation.
+ */
+function cmdThread(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  if (!flags.id || !flags.instance) {
+    streams.stderr.write("h2a thread: --id <threadId> and --instance <self> are required\n");
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  let store;
+  try {
+    store = createLocalStore({ root });
+  } catch (error) {
+    streams.stderr.write(`h2a thread: ${(error as Error).message}\n`);
+    return 3;
+  }
+  let inboxEnvelopes: H2AEnvelope[];
+  let outboxEnvelopes: H2AEnvelope[];
+  try {
+    inboxEnvelopes = store.readInbox(flags.instance);
+    outboxEnvelopes = store.readOutbox(flags.instance);
+  } catch (error) {
+    streams.stderr.write(`h2a thread: ${(error as Error).message}\n`);
+    return 3;
+  }
+  const threadId = flags.id;
+  const seen = new Set<string>();
+  const thread: H2AEnvelope[] = [];
+  for (const env of [...inboxEnvelopes, ...outboxEnvelopes]) {
+    if (env.threadId === threadId && !seen.has(env.id)) {
+      seen.add(env.id);
+      thread.push(env);
+    }
+  }
+  thread.sort((a, b) => a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0);
+  streams.stdout.write(`${JSON.stringify(thread, null, 2)}\n`);
+  return 0;
+}
+
 function cmdSessions(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -4269,6 +4317,7 @@ export function runCli(
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);
   if (command === "host") return cmdHost(argv.slice(1), streams);
   if (command === "store") return cmdStore(argv.slice(1), streams);
+  if (command === "thread") return cmdThread(flags, streams);
   if (command === "sessions") return cmdSessions(flags, streams);
   if (command === "status") return cmdStatus(flags, streams);
   if (command === "doctor") return cmdDoctor(flags, streams);

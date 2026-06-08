@@ -109,13 +109,19 @@ export function isH2AEnvelope<TBody = unknown>(
     return false;
   }
 
-  return (
-    value.protocol === H2A_PROTOCOL &&
-    value.version === H2A_VERSION &&
-    typeof value.id === "string" &&
-    isEnvelopeType(value.type) &&
-    isActorRef(value.actor) &&
-    "body" in value &&
-    typeof value.createdAt === "string"
-  );
+  if (
+    value.protocol !== H2A_PROTOCOL ||
+    value.version !== H2A_VERSION ||
+    typeof value.id !== "string" ||
+    !isEnvelopeType(value.type) ||
+    !isActorRef(value.actor) ||
+    !("body" in value) ||
+    typeof value.createdAt !== "string"
+  ) {
+    return false;
+  }
+  // EVO-inbox-threading: optional fields validated only when present.
+  if (value.threadId !== undefined && typeof value.threadId !== "string") return false;
+  if (value.replyTo !== undefined && typeof value.replyTo !== "string") return false;
+  return true;
 }
