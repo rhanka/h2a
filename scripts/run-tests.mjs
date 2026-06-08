@@ -47,11 +47,29 @@ if (files.length === 0) {
   process.exit(1);
 }
 
+// Wall-clock backstop. A single hanging test (e.g. a spawned mcp-serve child
+// that never closes on Windows) used to eat the CI job's full 15-minute budget
+// and get CANCELLED — a silent, mysterious failure that blocked npm publish
+// twice. Cap the whole run well under any CI job timeout so a hang fails CLEAN
+// and NAMED instead. Portable across node versions (a spawnSync option, not the
+// node-20-incompatible `--test-timeout` flag). Override via H2A_TEST_TIMEOUT_MS.
+const RUN_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 600000;
+
 const result = spawnSync(process.execPath, ["--test", ...files], {
   cwd: REPO_ROOT,
-  stdio: "inherit"
+  stdio: "inherit",
+  timeout: RUN_TIMEOUT_MS,
+  killSignal: "SIGKILL"
 });
 
+if (result.error && result.error.code === "ETIMEDOUT") {
+  process.stderr.write(
+    `\nrun-tests: HUNG — the test run exceeded ${RUN_TIMEOUT_MS}ms and was killed. ` +
+      `A test is not terminating (often a spawned child that never exits). ` +
+      `Re-run locally with the same files to find the last test printed before this line.\n`
+  );
+  process.exit(124);
+}
 if (result.error) {
   process.stderr.write(`run-tests: ${result.error.message}\n`);
   process.exit(1);
