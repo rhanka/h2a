@@ -217,12 +217,15 @@ test("doctor: inboxHygiene warns on case-dup, host-less, and phantom 3-seg dirs"
       `expected phantomThreeSegment warning; warnings=${JSON.stringify(report.warnings)}`
     );
 
-    // Verify examples are dir names only (no paths)
-    const dupWarn = report.warnings.find((w) => w.kind === "caseDuplicates");
-    assert.ok(Array.isArray(dupWarn.examples), "examples should be an array");
-    // Each example should contain the original dir names (no slashes from abs path)
-    for (const ex of dupWarn.examples) {
-      assert.ok(!ex.includes("/"), `example should be a dir name, not a path: ${ex}`);
+    // Verify examples are dir names only (no paths). Only when the FS kept both
+    // case-distinct dirs (case-insensitive FS → no caseDuplicates warning exists).
+    if (caseDistinctFs) {
+      const dupWarn = report.warnings.find((w) => w.kind === "caseDuplicates");
+      assert.ok(Array.isArray(dupWarn.examples), "examples should be an array");
+      // Each example should contain the original dir names (no slashes from abs path)
+      for (const ex of dupWarn.examples) {
+        assert.ok(!ex.includes("/"), `example should be a dir name, not a path: ${ex}`);
+      }
     }
   } finally {
     if (savedEnv === undefined) {

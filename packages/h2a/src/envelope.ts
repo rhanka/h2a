@@ -102,26 +102,68 @@ export function verifyEnvelopeSignature<TBody>(
   return candidates.some((sig) => verifyCanonical(view, sig, publicKeyPem));
 }
 
+/**
+ * Field-level envelope validator. Collects ALL failures into `errors` rather
+ * than stopping at the first. Used by `isH2AEnvelope` so the two never drift.
+ */
+export function validateH2AEnvelope(
+  value: unknown
+): { ok: true } | { ok: false; errors: string[] } {
+  const errors: string[] = [];
+
+  if (!isRecord(value)) {
+    return { ok: false, errors: ["envelope must be a JSON object"] };
+  }
+
+  if (value.protocol !== H2A_PROTOCOL) {
+    errors.push(`protocol must be "${H2A_PROTOCOL}" (saw ${JSON.stringify(value.protocol)})`);
+  }
+
+  if (typeof value.version !== "string") {
+    errors.push("version (string) is required");
+  }
+
+  if (typeof value.id !== "string") {
+    errors.push("id (string) is required");
+  }
+
+  if (!isEnvelopeType(value.type)) {
+    errors.push(
+      `type must be one of ${H2A_ENVELOPE_TYPES.join(", ")} (saw ${JSON.stringify(value.type)})`
+    );
+  }
+
+  if (!isRecord(value.actor) || typeof (value.actor as Record<string, unknown>).instance !== "string") {
+    errors.push("actor.instance (string) is required");
+  }
+
+  if (!("body" in value) || !isRecord(value.body)) {
+    errors.push(
+      'body (object) is required — message content goes under body, not at the top level' +
+      ' (e.g. {"body":{"kind":"message","text":"…"}})'
+    );
+  }
+
+  if (typeof value.createdAt !== "string") {
+    errors.push("createdAt (ISO-8601 string) is required");
+  }
+
+  // EVO-inbox-threading: optional fields validated only when present.
+  if (value.threadId !== undefined && typeof value.threadId !== "string") {
+    errors.push("threadId must be a string when present");
+  }
+  if (value.replyTo !== undefined && typeof value.replyTo !== "string") {
+    errors.push("replyTo must be a string when present");
+  }
+
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+  return { ok: true };
+}
+
 export function isH2AEnvelope<TBody = unknown>(
   value: unknown
 ): value is H2AEnvelope<TBody> {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  if (
-    value.protocol !== H2A_PROTOCOL ||
-    value.version !== H2A_VERSION ||
-    typeof value.id !== "string" ||
-    !isEnvelopeType(value.type) ||
-    !isActorRef(value.actor) ||
-    !("body" in value) ||
-    typeof value.createdAt !== "string"
-  ) {
-    return false;
-  }
-  // EVO-inbox-threading: optional fields validated only when present.
-  if (value.threadId !== undefined && typeof value.threadId !== "string") return false;
-  if (value.replyTo !== undefined && typeof value.replyTo !== "string") return false;
-  return true;
+  return validateH2AEnvelope(value).ok;
 }
