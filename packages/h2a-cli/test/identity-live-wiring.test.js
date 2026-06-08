@@ -60,24 +60,24 @@ function env(id, text) {
   };
 }
 
-test("connect reclaims ONE perennial identity per workspace across distinct provider sessions (no per-session proliferation)", () => {
+test("re-anchored on conversation: two distinct provider sessions in the SAME workspace get DISTINCT identities (concurrent agents never share an inbox — the BR25 collision fix)", () => {
   const { cwd, root } = freshWorkspace();
   try {
-    // Two distinct Claude Code sessions (CLAUDE_CODE_SESSION_ID) in the SAME
-    // workspace must collapse onto a single perennial identity — the binding is
-    // keyed on (host, workspaceId); providerSessionId is only a hint.
+    // Two distinct Claude Code conversations (CLAUDE_CODE_SESSION_ID) in the SAME
+    // workspace must NOT collapse: each is a distinct addressable agent with its
+    // own inbox. The binding is keyed on (host, providerSessionId).
     const first = connect(root, cwd, "claude-session-a");
     const second = connect(root, cwd, "claude-session-b");
 
     assert.match(first.instance, /^claude:[a-z0-9._-]+:[a-f0-9]{12}$/);
-    assert.equal(second.instance, first.instance);
+    assert.notEqual(second.instance, first.instance);
     assert.equal(first.identity.action, "mint");
-    assert.equal(second.identity.action, "reclaim");
+    assert.equal(second.identity.action, "mint");
 
     const store = createLocalStore({ root });
-    assert.equal(store.listInstances().length, 1, "one identity per workspace, not per session");
-    assert.equal(store.listInstanceKeys(first.instance).length, 1);
+    assert.equal(store.listInstances().length, 2, "two conversations → two identities (no collision)");
     assert.equal(existsSync(first.identity.privateKeyPath), true);
+    assert.equal(existsSync(second.identity.privateKeyPath), true);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });

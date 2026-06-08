@@ -239,8 +239,12 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
     };
   };
 
+  // Re-anchor: the conversation UUID is the identity unit. When no provider
+  // session id is readable, fall back to a per-workspace-STABLE id (no
+  // timestamp) so that degenerate case keeps the old per-workspace reclaim
+  // behavior instead of minting a fresh id on every connect.
   const providerSessionId =
-    provider.providerSessionId ?? `fallback:${host}:${workspace.id}:${Date.now()}`;
+    provider.providerSessionId ?? `fallback:${host}:${workspace.id}`;
   const result =
     host === "remote"
       ? { action: "mint" as const, ...mintRemote() }

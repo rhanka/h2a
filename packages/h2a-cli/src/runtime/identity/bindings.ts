@@ -1,18 +1,28 @@
 /**
- * Identity binding registry + proof-of-possession (DEC-116, F1 — the
- * load-bearing security fix).
+ * Identity binding registry + proof-of-possession (DEC-116 F1 security core;
+ * stability unit RE-ANCHORED 2026-06-07 — supersedes the per-workspace choice).
  *
  * Reconnect de-collision binds the perennial identity to its stability unit
- * `(host, workspaceId)` — one identity per workspace per host, reused across
- * every provider session and fan-out (`providerSessionId` is recorded as a hint
- * but is NOT a match key; keying on it minted a fresh id per session, the
- * proliferation this fix removes). **RECLAIM requires proof-of-possession**: the
- * connector must sign a fresh nonce with the ed25519 key already bound to that
- * identity (verified against the instance's active keys). The provider session
- * id is a spoofable *routing hint* — never the authenticator. No valid
- * signature → **MINT** a fresh identity (so a process presenting a victim's
- * id/workspace, without the key, gets a new identity, not the victim's inbox).
- * The read → decide → append runs in ONE lock (no reclaim/mint race, F3).
+ * `(host, providerSessionId)` — the provider **conversation UUID**
+ * (`CLAUDE_CODE_SESSION_ID`, the Codex session id, …). One identity per live
+ * conversation: two concurrent conversations in the SAME workspace now get
+ * DISTINCT ids (no shared inbox — the collision this re-anchor removes), and a
+ * resume of the same conversation reclaims its id (the UUID survives resume).
+ * `workspaceId` is recorded as metadata only — NOT the match key. Keying on it
+ * (the prior design) collapsed concurrent agents in one repo onto one inbox; the
+ * per-session granularity is intended now, with dead ids reaped via presence TTL
+ * + discover=live-only rather than prevented. An agent with no readable
+ * conversation UUID is given a per-workspace fallback id
+ * (`fallback:<host>:<workspaceId>` by the caller), so that degenerate case keeps
+ * the old per-workspace behavior.
+ *
+ * **RECLAIM requires proof-of-possession**: the connector must sign a fresh
+ * nonce with the ed25519 key already bound to that identity (verified against
+ * the instance's active keys). The provider session id is a spoofable *routing
+ * hint* — never the authenticator. No valid signature → **MINT** a fresh
+ * identity (so a process presenting a victim's id, without the key, gets a new
+ * identity, not the victim's inbox). The read → decide → append runs in ONE lock
+ * (no reclaim/mint race, F3).
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -65,20 +75,21 @@ export function listBindings(root: string): H2AIdentityBinding[] {
 }
 
 /**
- * The latest binding for the identity's stability unit `(host, workspaceId)`
- * (append-only → last wins), or undefined.
+ * The latest binding for the identity's stability unit
+ * `(host, providerSessionId)` (append-only → last wins), or undefined.
  *
- * `providerSessionId` is intentionally NOT part of the match: it is an ephemeral
- * routing hint (e.g. `CLAUDE_CODE_SESSION_ID`, fresh per conversation and per
- * fan-out). Matching on it would mint a new perennial id for every session,
- * which is exactly the per-session proliferation DEC-116 exists to prevent. The
- * id is therefore perennial **per workspace per host**; reclaim across sessions
- * is still gated by proof-of-possession in `reclaimOrMint`.
+ * The match is the provider **conversation UUID** (`CLAUDE_CODE_SESSION_ID`, the
+ * Codex session id, or a `fallback:<host>:<workspaceId>` when none is readable).
+ * `workspaceId` is recorded on the binding for audit but is NOT part of the
+ * match: keying on it collapsed two concurrent conversations in one repo onto a
+ * single id + inbox (the BR25 collision). Two conversations → two ids; a resumed
+ * conversation reclaims its id (same UUID), still gated by proof-of-possession in
+ * `reclaimOrMint`.
  */
 export function findBinding(root: string, key: IdentityBindingKey): H2AIdentityBinding | undefined {
   let found: H2AIdentityBinding | undefined;
   for (const b of listBindings(root)) {
-    if (b.host === key.host && b.workspaceId === key.workspaceId) {
+    if (b.host === key.host && b.providerSessionId === key.providerSessionId) {
       found = b;
     }
   }

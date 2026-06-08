@@ -75,7 +75,7 @@ test("a present id/workspace but FAILED proof → MINT a fresh identity (spoof r
   }
 });
 
-test("collapses on (host, workspaceId): a DIFFERENT providerSessionId reclaims the same identity", () => {
+test("re-anchored on conversation: a DIFFERENT providerSessionId in the same workspace MINTS a distinct identity (no collision)", () => {
   const { dir, root } = freshRoot();
   try {
     const first = reclaimOrMint(
@@ -87,24 +87,28 @@ test("collapses on (host, workspaceId): a DIFFERENT providerSessionId reclaims t
       root,
       { host: "claude", providerSessionId: "psid-B", workspaceId: "ws-1" },
       deps(true)
-    ); // distinct session, proof OK → reclaim the same workspace identity
-    assert.equal(other.action, "reclaim");
-    assert.equal(other.instance, first.instance);
-    assert.equal(other.agentUuid, first.agentUuid);
-    assert.equal(listBindings(root).length, 1, "no new binding for the same workspace");
+    ); // distinct conversation in the SAME workspace → no binding for psid-B → MINT
+    assert.equal(other.action, "mint");
+    assert.notEqual(other.instance, first.instance);
+    assert.notEqual(other.agentUuid, first.agentUuid);
+    assert.equal(
+      listBindings(root).length,
+      2,
+      "two concurrent conversations in one workspace → two distinct identities (the BR25 collision fix)"
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("still mints a distinct identity per distinct workspace", () => {
+test("re-anchored on conversation: the SAME providerSessionId reclaims its identity even across workspaces (one conversation = one agent)", () => {
   const { dir, root } = freshRoot();
   try {
     const a = reclaimOrMint(root, { host: "claude", providerSessionId: "p", workspaceId: "ws-1" }, deps());
     const b = reclaimOrMint(root, { host: "claude", providerSessionId: "p", workspaceId: "ws-2" }, deps(true));
-    assert.equal(b.action, "mint");
-    assert.notEqual(b.instance, a.instance);
-    assert.equal(listBindings(root).length, 2);
+    assert.equal(b.action, "reclaim", "same conversation UUID → reclaim, regardless of cwd");
+    assert.equal(b.instance, a.instance);
+    assert.equal(listBindings(root).length, 1, "one conversation → one identity");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
