@@ -1,6 +1,6 @@
 ---
 name: h2a
-version: 0.56.0
+version: 0.59.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
@@ -71,6 +71,8 @@ End with: *"To message one of these: `/h2a send <instance> \"<text>\"`."*
 ### `/h2a send <peer> "<text>"`
 
 Compose and route an envelope to a named peer.
+
+**Resolve-before-send rule (0.59.0+):** Always resolve the peer to its LIVE full id (`host:label:uuid12`) via `h2a_discover_sessions` BEFORE sending. A bare `host:label` sent to an ambiguous target (>1 live agent sharing that alias) or a phantom target (0 live, 0 registered) is now **REFUSED** by `h2a_inbox put` / `h2a` CLI with exit 1. Never invent a sub-label. The safe pattern is: discover → pick the exact live `host:label:uuid12` → send to that. A bare alias is only acceptable for a dormant/wake-drop or exactly 1 live match (the tool surfaces the live candidate in `liveCandidate`).
 
 Steps:
 

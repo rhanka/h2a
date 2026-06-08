@@ -13,7 +13,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createEnvelope, isH2AEnvelope } from "@sentropic/h2a";
-import { runCli } from "../dist/index.js";
+import { createLocalStore, runCli } from "../dist/index.js";
 
 function captureStreams(cwd) {
   let stdout = "";
@@ -48,12 +48,29 @@ function makeEnvelope(id, createdAt, opts = {}) {
 test("h2a thread returns thread envelopes sorted ascending by createdAt, deduped", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-threading-"));
   const root = join(dir, ".h2a");
-  const self = "claude:test:001";
+  // WP-2: use a bare alias (2 segments) as self so inbox puts are not refused
+  // as malformed (3-seg non-12-hex was rejected). The registered entry makes
+  // it resolve as deliver-dormant (registered, 0 live sessions).
+  const self = "claude:test";
   const threadId = "thr:1700000000000:abcd";
   const otherThreadId = "thr:1700000000000:zzzz";
 
   try {
-    runCli(["init", "--root", root], captureStreams(dir));
+    const store = createLocalStore({ root });
+    // WP-2: register the self instance so inbox puts resolve to deliver-dormant
+    // (not phantom). The instance uses the test-style address claude:test:001;
+    // register it with its id so the resolver finds it.
+    store.registerInstance({
+      id: "claude:test",
+      instance: "claude:test",
+      roles: ["AGENTS"],
+      scopes: ["scope:thread-test"],
+      capabilities: [],
+      endpoints: [],
+      publicKeys: [],
+      acceptedPolicies: [],
+      createdAt: new Date().toISOString()
+    });
 
     // Envelope in THREAD, deposited in inbox, createdAt: T+2 (out of order)
     const envT2 = makeEnvelope("env-thr-02", "2026-06-07T10:00:02.000Z", {

@@ -101,6 +101,20 @@ test("callTool h2a_inbox put / read / pop round-trips", () => {
   const root = freshRoot();
   try {
     const server = createMcpServer({ root });
+    // WP-2: register the target so it resolves to deliver-dormant (not phantom).
+    server.callTool("h2a_register_instance", {
+      registration: {
+        id: "conductor:02",
+        instance: "conductor:02",
+        roles: ["CONDUCTOR"],
+        scopes: ["scope:x"],
+        capabilities: [],
+        endpoints: [],
+        publicKeys: [],
+        acceptedPolicies: [],
+        createdAt: new Date().toISOString()
+      }
+    });
 
     const putResult = server.callTool("h2a_inbox", {
       action: "put",

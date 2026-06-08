@@ -116,6 +116,7 @@ import {
   canonicalAddress,
   createLocalStore,
   listPresence,
+  resolveRecipient,
   safePathSegment,
   sanitizeStorePaths
 } from "./runtime/local-files/index.js";
@@ -643,6 +644,22 @@ function cmdMailbox(
         streams.stderr.write(`\n${(error as Error).message}\n`);
         return 1;
       }
+      // WP-2: resolve-before-send — legibility gate (does NOT change destination).
+      const root = resolveRoot(flags, streams.cwd ?? (() => process.cwd()));
+      const liveSessions = listPresence(root).map((s) => s.instance);
+      const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
+      const resolution = resolveRecipient({
+        target: flags.instance,
+        liveInstances: liveSessions,
+        registeredInstances: registeredIds
+      });
+      if (resolution.kind === "refuse") {
+        streams.stderr.write(
+          `\nh2a: ${resolution.reason}${resolution.candidates ? `\ncandidates: ${resolution.candidates.join(", ")}` : ""}\n`
+        );
+        return 1;
+      }
+      // deliver / deliver-dormant / deliver-hint → proceed with put below.
     }
     try {
       if (mailbox === "inbox") {
@@ -658,8 +675,25 @@ function cmdMailbox(
               (s) => canonicalAddress(s.instance) === canonicalAddress(flags.instance)
             )
           : undefined;
+      // WP-2: enrich stdout with resolution metadata.
+      let resolutionMeta: Record<string, unknown> = {};
+      if (mailbox === "inbox") {
+        const root2 = resolveRoot(flags, streams.cwd ?? (() => process.cwd()));
+        const liveSessions2 = listPresence(root2).map((s) => s.instance);
+        const registeredIds2 = store.listInstances().map((i) => i.instance ?? i.id);
+        const resolution2 = resolveRecipient({
+          target: flags.instance,
+          liveInstances: liveSessions2,
+          registeredInstances: registeredIds2
+        });
+        resolutionMeta = {
+          resolution: resolution2.kind,
+          ...(resolution2.kind === "deliver-hint" ? { liveCandidate: resolution2.liveCandidate, reason: resolution2.reason } : {}),
+          ...(resolution2.kind === "deliver-dormant" ? { reason: resolution2.reason, dormant: true } : {})
+        };
+      }
       streams.stdout.write(
-        `${JSON.stringify({ ok: true, id: envelope.id, mailbox, instance: flags.instance, ...(recipientLive !== undefined ? { recipientLive } : {}) }, null, 2)}\n`
+        `${JSON.stringify({ ok: true, id: envelope.id, mailbox, instance: flags.instance, ...(recipientLive !== undefined ? { recipientLive } : {}), ...resolutionMeta }, null, 2)}\n`
       );
       return 0;
     } catch (error) {

@@ -4,7 +4,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { runCli } from "../dist/index.js";
+import { createLocalStore, runCli } from "../dist/index.js";
+
+function makeRegistration(instance) {
+  return {
+    id: instance,
+    instance,
+    roles: ["AGENTS"],
+    scopes: ["scope:default"],
+    capabilities: [],
+    endpoints: [],
+    publicKeys: [],
+    acceptedPolicies: [],
+    createdAt: new Date().toISOString()
+  };
+}
 
 function captureStreams(cwd) {
   let stdout = "";
@@ -36,7 +50,9 @@ test("h2a inbox put + read round-trips a valid envelope", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-inbox-"));
   const root = join(dir, ".h2a");
   try {
-    runCli(["init", "--root", root], captureStreams(dir));
+    const store = createLocalStore({ root });
+    // WP-2: register the target so it is not refused as phantom.
+    store.registerInstance(makeRegistration("conductor:02"));
 
     const put = captureStreams(dir);
     const rc = runCli(
@@ -68,7 +84,9 @@ test("h2a inbox pop removes the envelope from disk", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-inbox-"));
   const root = join(dir, ".h2a");
   try {
-    runCli(["init", "--root", root], captureStreams(dir));
+    const store = createLocalStore({ root });
+    // WP-2: register the target so it is not refused as phantom.
+    store.registerInstance(makeRegistration("h2a:alpha"));
     runCli(
       [
         "inbox",
@@ -122,7 +140,9 @@ test("h2a inbox put rejects an invalid envelope", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-inbox-"));
   const root = join(dir, ".h2a");
   try {
-    runCli(["init", "--root", root], captureStreams(dir));
+    const store = createLocalStore({ root });
+    // WP-2: register the target so resolution proceeds to envelope validation.
+    store.registerInstance(makeRegistration("h2a:alpha"));
     const streams = captureStreams(dir);
     const rc = runCli(
       [

@@ -171,3 +171,125 @@ export function outboxDir(paths: LocalStorePaths, actor: string): string {
 export function outboxDirRaw(paths: LocalStorePaths, actor: string): string {
   return join(paths.outbox, safePathSegment(actor));
 }
+
+// ─── WP-2: Resolve-before-send ──────────────────────────────────────────────
+
+/**
+ * The outcome of resolving a send target BEFORE depositing (WP-2).
+ *
+ * - `deliver`        — full id / subagent / unambiguous bare alias with no live session
+ *                      hint: just put (legacy path).
+ * - `deliver-dormant` — bare alias, 0 live but ≥1 registered instance exists.
+ * - `deliver-hint`   — bare alias with exactly 1 live full-id match; deposit to bare
+ *                      dir (UNCHANGED destination), surface the uuid to the caller.
+ * - `refuse`         — phantom (0 live, 0 registered) | ambiguous (>1 live) | malformed.
+ *
+ * SAFETY: this function NEVER changes the delivery destination.
+ * Auto-routing to a live uuid is an interception risk and is explicitly PARKED.
+ */
+export type RecipientResolution =
+  | { kind: "deliver"; reason?: string }
+  | { kind: "deliver-dormant"; reason: string }
+  | { kind: "deliver-hint"; liveCandidate: string; reason: string }
+  | { kind: "refuse"; reason: string; candidates?: string[] };
+
+/** Pattern for a valid 12-hex UUID segment (case-insensitive). */
+const UUID12_PATTERN = /^[0-9a-f]{12}$/i;
+
+/**
+ * Compute the canonical `host:label` key for an instance address by taking
+ * only the first two colon-segments of the canonicalized form.
+ */
+function hostLabelKey(addr: string): string {
+  const canonical = canonicalAddress(addr);
+  const parts = canonical.split(":");
+  return `${parts[0]}:${parts[1]}`;
+}
+
+/**
+ * Resolve how a SEND to `target` should be handled.
+ *
+ * Does NOT deliver — the caller delivers. Never changes the destination.
+ * The `liveInstances` list comes from `listPresence(root).map(s => s.instance)`.
+ * The `registeredInstances` list comes from `store.listInstances().map(i => i.instance ?? i.id)`.
+ */
+export function resolveRecipient(opts: {
+  target: string;
+  liveInstances: readonly string[];
+  registeredInstances: readonly string[];
+}): RecipientResolution {
+  const { target, liveInstances, registeredInstances } = opts;
+
+  // 1. Subagent (contains `~`) — pass through unchanged.
+  if (target.includes("~")) {
+    return { kind: "deliver" };
+  }
+
+  // 2. Split on `:`. Fewer than 2 segments or empty host/label should already
+  //    be rejected by isHostQualifiedAddress upstream — don't double-gate.
+  const parts = target.split(":");
+  if (parts.length < 2 || parts[0].length === 0 || parts[1].length === 0) {
+    return { kind: "deliver" };
+  }
+
+  // 3. Full id: exactly 3 segments where seg3 is 12-hex.
+  if (parts.length === 3 && UUID12_PATTERN.test(parts[2])) {
+    return { kind: "deliver" };
+  }
+
+  // 4. Malformed 3-segment: seg3 is NOT 12-hex.
+  if (parts.length >= 3) {
+    const host = parts[0];
+    const label = parts[1];
+    return {
+      kind: "refuse",
+      reason:
+        `'${target}' has a 3rd segment that is not a uuid — address the channel as ${host}:${label} or a live peer as ${host}:${label}:<uuid> (resolve via discover).`
+    };
+  }
+
+  // 5. Bare alias (exactly 2 segments).
+  const key = hostLabelKey(target);
+
+  const liveMatches = liveInstances.filter(
+    (inst) => hostLabelKey(inst) === key
+  );
+
+  const registeredMatches = registeredInstances.filter(
+    (inst) => hostLabelKey(inst) === key
+  );
+
+  if (liveMatches.length > 1) {
+    return {
+      kind: "refuse",
+      reason:
+        `'${target}' is ambiguous — ${liveMatches.length} live agents share it; address the exact one (resolve via discover).`,
+      candidates: liveMatches
+    };
+  }
+
+  if (liveMatches.length === 1) {
+    const liveCandidate = liveMatches[0];
+    return {
+      kind: "deliver-hint",
+      liveCandidate,
+      reason:
+        `bare alias resolved to 1 live agent; deposited to the channel — prefer re-sending to ${liveCandidate} for direct delivery.`
+    };
+  }
+
+  // 0 live
+  if (registeredMatches.length > 0) {
+    return {
+      kind: "deliver-dormant",
+      reason:
+        `no live session for '${target}'; deposited for wake (a registered agent exists).`
+    };
+  }
+
+  return {
+    kind: "refuse",
+    reason:
+      `'${target}' matches no live or registered agent — likely a phantom/invented id or sub-label. Resolve via discover; do not invent labels.`
+  };
+}
