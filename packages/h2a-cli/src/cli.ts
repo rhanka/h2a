@@ -43,8 +43,9 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
+  realpathSync,
+  readFileSync,
   rmSync,
   unlinkSync,
   writeFileSync
@@ -300,7 +301,7 @@ export function renderCliHelp(): string {
     "",
     "High-level coordination (DEC-054):",
     "  h2a connect --host <codex|claude|gemini|agy|remote> [--root <path>] [--instance <id>] [--name <display>]",
-    "  h2a doctor [--root <path>]",
+    "  h2a doctor [--root <path>] [--scan <dir>]",
     "  h2a status [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a sessions [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a thread --id <threadId> --instance <self> [--root <path>]   (the ordered conversation for a thread, from your inbox+outbox)",
@@ -350,9 +351,48 @@ function parseFlags(argv: readonly string[]): ParsedFlags {
   return { command, flags };
 }
 
+/**
+ * Resolve the h2a store root, with its provenance.
+ *
+ * Precedence: explicit `--root` flag → `H2A_ROOT` env → the `cwd/.h2a` fallback.
+ * Honoring `H2A_ROOT` here brings the stdio CLI (incl. `mcp-serve`) to parity
+ * with the HTTP/k8s servers, which already read it (mcp-http/serve.ts). The
+ * `cwd` fallback silently forks an agent onto a repo-local bus that no peer on
+ * the shared root can see — the split-brain root failure (F4). Callers on
+ * long-lived paths (`mcp-serve`, `connect`) warn when `source === "cwd"`.
+ */
+function resolveRootInfo(
+  flags: Record<string, string>,
+  cwd: () => string
+): { root: string; source: "flag" | "env" | "cwd" } {
+  if (flags.root) return { root: flags.root, source: "flag" };
+  const env = process.env.H2A_ROOT;
+  if (env && env.length > 0) return { root: env, source: "env" };
+  return { root: join(cwd(), ".h2a"), source: "cwd" };
+}
+
 function resolveRoot(flags: Record<string, string>, cwd: () => string): string {
-  if (flags.root) return flags.root;
-  return join(cwd(), ".h2a");
+  return resolveRootInfo(flags, cwd).root;
+}
+
+/**
+ * Warn (once, to stderr) when the root was taken from the `cwd` fallback rather
+ * than an explicit `--root`/`H2A_ROOT`. Used by the long-lived `mcp-serve` /
+ * `connect` paths that establish an agent's bus — a silent cwd fork there is the
+ * split-brain root bug. One-shot verbs stay quiet.
+ */
+function warnIfCwdRootFallback(
+  flags: Record<string, string>,
+  cwd: () => string,
+  streams: H2ACliStreams
+): void {
+  const info = resolveRootInfo(flags, cwd);
+  if (info.source !== "cwd") return;
+  streams.stderr.write(
+    `h2a: no --root/H2A_ROOT set — using this repo's local bus ${info.root}. ` +
+      `Agents on different roots cannot see each other; if you meant the shared bus, ` +
+      `set H2A_ROOT (e.g. ~/h2a-workspace/.h2a) or pass --root. Run \`h2a doctor\` to check.\n`
+  );
 }
 
 /**
@@ -1391,6 +1431,7 @@ export async function runMcpServe(
   }
 ): Promise<number> {
   const cwd = io.cwd ?? (() => process.cwd());
+  warnIfCwdRootFallback(flags, cwd, { stderr: io.stderr, stdout: io.stdout, cwd });
   const root = resolveRoot(flags, cwd);
   const autoOpen = resolveAutoOpen(flags, cwd);
 
@@ -3543,9 +3584,11 @@ function cmdDoctor(
   const report: Record<string, unknown> = {
     ok: true,
     root,
+    warnings: [] as Array<Record<string, unknown>>,
     checks: {}
   };
   const checks = report.checks as Record<string, unknown>;
+  const warnings = report.warnings as Array<Record<string, unknown>>;
 
   // 1. Root reachable
   if (!existsSync(root)) {
@@ -3598,6 +3641,158 @@ function cmdDoctor(
 
   // 4. h2a binary reachable (self-check via existing API)
   checks.cliBinary = { ok: true };
+
+  // ── Warning checks (do NOT flip report.ok) ──────────────────────────────
+
+  // (a) rootSource: record where the root came from
+  const rootInfo = resolveRootInfo(flags, cwd);
+  report.rootSource = rootInfo.source;
+  if (rootInfo.source === "cwd") {
+    warnings.push({
+      check: "rootSource",
+      message:
+        `The bus root is the repo-local cwd fallback (${root}). ` +
+        `Set H2A_ROOT or pass --root <shared-bus-path> so all agents see each other. ` +
+        `Agents on different roots cannot exchange messages.`
+    });
+  }
+
+  // (b) splitBrain: a repo-local .h2a exists alongside a DIFFERENT active root
+  const cwdLocal = join(cwd(), ".h2a");
+  try {
+    if (existsSync(cwdLocal)) {
+      const resolvedLocal = realpathSync(cwdLocal);
+      const resolvedRoot = (() => {
+        try { return realpathSync(root); } catch { return root; }
+      })();
+      if (resolvedLocal !== resolvedRoot) {
+        warnings.push({
+          check: "splitBrain",
+          message:
+            `A repo-local .h2a (${cwdLocal}) exists alongside a DIFFERENT active root (${root}). ` +
+            `Messages written to the repo-local bus are invisible to peers on ${root} — split-brain.`
+        });
+      }
+    }
+  } catch {
+    // silently ignore (the cwd-local path may not be resolvable)
+  }
+
+  // (c) inboxHygiene: scan inbox for case/slug duplicates, host-less dirs, phantom 3-segment dirs
+  const inboxDir = join(root, "inbox");
+  if (existsSync(inboxDir)) {
+    let inboxEntries: string[] = [];
+    try {
+      inboxEntries = readdirSync(inboxDir);
+    } catch {
+      // not readable — skip hygiene check
+    }
+    if (inboxEntries.length > 0) {
+      const KNOWN_HOSTS = new Set(["claude", "codex", "gemini", "remote"]);
+
+      // Reconstruct an address from a dir name: double-underscore → colon.
+      function dirToAddress(name: string): string {
+        return name.replace(/__/g, ":");
+      }
+
+      // Case/slug duplicates: two dir names that map to the same canonicalAddress
+      const byCanonical = new Map<string, string[]>();
+      for (const entry of inboxEntries) {
+        const addr = dirToAddress(entry);
+        let canonical: string;
+        try { canonical = canonicalAddress(addr); } catch { canonical = addr.toLowerCase(); }
+        const group = byCanonical.get(canonical) ?? [];
+        group.push(entry);
+        byCanonical.set(canonical, group);
+      }
+      const dupGroups = [...byCanonical.values()].filter((g) => g.length > 1);
+      if (dupGroups.length > 0) {
+        const examples = dupGroups.slice(0, 5).map((g) => g.join(" | "));
+        warnings.push({
+          check: "inboxHygiene",
+          kind: "caseDuplicates",
+          count: dupGroups.length,
+          examples,
+          message:
+            `${dupGroups.length} case/slug duplicate group(s) in inbox — ` +
+            `different dir names map to the same canonical address. ` +
+            `Examples: ${examples.join(", ")}`
+        });
+      }
+
+      // Host-less dirs: first segment (before first __) is not a known host
+      const hostless = inboxEntries.filter((entry) => {
+        const firstSeg = entry.split("__")[0];
+        return !KNOWN_HOSTS.has(firstSeg);
+      });
+      if (hostless.length > 0) {
+        const examples = hostless.slice(0, 5);
+        warnings.push({
+          check: "inboxHygiene",
+          kind: "hostlessDirs",
+          count: hostless.length,
+          examples,
+          message:
+            `${hostless.length} host-less inbox dir(s) (first segment is not claude/codex/gemini/remote). ` +
+            `Examples: ${examples.join(", ")}`
+        });
+      }
+
+      // Phantom 3-segment dirs: exactly 3 __ segments but 3rd is not a 12-char hex session id
+      const VALID_TAIL_RE = /^[0-9a-f]{12}$/i;
+      const phantom = inboxEntries.filter((entry) => {
+        const segs = entry.split("__");
+        if (segs.length !== 3) return false;
+        return !VALID_TAIL_RE.test(segs[2]);
+      });
+      if (phantom.length > 0) {
+        const examples = phantom.slice(0, 5);
+        warnings.push({
+          check: "inboxHygiene",
+          kind: "phantomThreeSegment",
+          count: phantom.length,
+          examples,
+          message:
+            `${phantom.length} phantom 3-segment inbox dir(s) where the tail is not a 12-char hex session id. ` +
+            `Examples: ${examples.join(", ")}`
+        });
+      }
+    }
+  }
+
+  // (d) --scan <dir>: find immediate child buses (ONE level deep)
+  if (flags.scan) {
+    const strayBuses: Array<Record<string, unknown>> = [];
+    try {
+      const scanChildren = readdirSync(flags.scan);
+      for (const child of scanChildren) {
+        const candidateBus = join(flags.scan, child, ".h2a");
+        if (existsSync(candidateBus)) {
+          const instancesFile = join(candidateBus, "registry", "instances.jsonl");
+          let instances = 0;
+          try {
+            const content = readFileSync(instancesFile, "utf8");
+            instances = content.split("\n").filter((l) => l.trim().length > 0).length;
+          } catch {
+            instances = 0;
+          }
+          strayBuses.push({ path: candidateBus, instances });
+        }
+      }
+    } catch (error) {
+      streams.stderr.write(`h2a doctor: --scan ${flags.scan}: ${(error as Error).message}\n`);
+    }
+    if (strayBuses.length > 0) {
+      warnings.push({
+        check: "strayBuses",
+        count: strayBuses.length,
+        buses: strayBuses,
+        message:
+          `${strayBuses.length} stray repo-local .h2a bus(es) found under ${flags.scan} — ` +
+          `candidate split-brain forks. Each may have agents on a different root.`
+      });
+    }
+  }
 
   streams.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   return report.ok ? 0 : 2;
@@ -3763,6 +3958,7 @@ function cmdConnect(
     return 1;
   }
   const cwd = streams.cwd ?? (() => process.cwd());
+  warnIfCwdRootFallback(flags, cwd, streams);
   const root = resolveRoot(flags, cwd);
   const identity = resolveLiveIdentity({
     root,

@@ -529,9 +529,9 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "action",
     exitCodes: [0, 2, 3],
     requiredFlags: [],
-    optionalFlags: ["root"],
+    optionalFlags: ["root", "scan"],
     description:
-      "Run a health check on the shared root: existence, schema sentinel version, live presence count. Returns `ok:false` (exit 2) if any check fails. DEC-054."
+      "Diagnose the h2a store: root provenance, split-brain repo-local bus, inbox hygiene (case-dup / host-less / phantom dirs), and (--scan <dir>) stray repo-local buses. Hard checks (rootExists, schemaSentinel, liveSessions, cliBinary) drive exit 2; soft checks surface as `warnings[]` without flipping ok. DEC-054."
   },
   {
     verb: "status",
