@@ -34,7 +34,7 @@ import {
   raiseBlockage,
   resolveBlockage
 } from "../blockage/registry.js";
-import { canonicalAddress, isHostQualifiedAddress, listPresence } from "../local-files/index.js";
+import { canonicalAddress, isHostQualifiedAddress, listPresence, resolveRecipient } from "../local-files/index.js";
 import type { LocalStore } from "../local-files/store.js";
 import { gatherNhiSnapshot } from "../nhi.js";
 import { agentVersion } from "../version/agent-version.js";
@@ -125,6 +125,23 @@ export function handleInbox(
             error: `h2a: recipient "${args.instance}" is not host-qualified — address it as <host>:<label> (e.g. claude:${String(args.instance).replace(/^:+/, "") || "agent"}). A bare label is ambiguous (the same label can exist on several hosts) and routes to an orphan inbox nobody reads. Resolve the exact peer via discover.`
           };
         }
+        // WP-2: resolve-before-send legibility gate (does NOT change destination).
+        {
+          const liveSessions = listPresence(store.paths.root).map((s) => s.instance);
+          const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
+          const resolution = resolveRecipient({
+            target: args.instance,
+            liveInstances: liveSessions,
+            registeredInstances: registeredIds
+          });
+          if (resolution.kind === "refuse") {
+            return {
+              error: resolution.reason,
+              ...(resolution.candidates ? { candidates: resolution.candidates } : {})
+            };
+          }
+          // deliver / deliver-dormant / deliver-hint → proceed with put.
+        }
         store.putInboxMessage(args.instance, args.envelope);
         // Bug-2 backstop: report whether the recipient actually has a fresh
         // session. The write always succeeds (a dormant deposit-for-wake is
@@ -134,11 +151,22 @@ export function handleInbox(
         const freshSessions = listPresence(store.paths.root).filter(
           (s) => canonicalAddress(s.instance) === canonicalAddress(instance)
         ).length;
+        // WP-2: enrich return with resolution metadata.
+        const liveSessions2 = listPresence(store.paths.root).map((s) => s.instance);
+        const registeredIds2 = store.listInstances().map((i) => i.instance ?? i.id);
+        const resolution2 = resolveRecipient({
+          target: args.instance,
+          liveInstances: liveSessions2,
+          registeredInstances: registeredIds2
+        });
         return {
           ok: true,
           envelopeId: args.envelope.id,
           recipientLive: freshSessions > 0,
-          freshSessions
+          freshSessions,
+          resolution: resolution2.kind,
+          ...(resolution2.kind === "deliver-hint" ? { liveCandidate: resolution2.liveCandidate, reason: resolution2.reason } : {}),
+          ...(resolution2.kind === "deliver-dormant" ? { reason: resolution2.reason, dormant: true } : {})
         };
       }
       case "pop": {

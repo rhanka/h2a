@@ -113,6 +113,25 @@ function bootstrapHappyPath(dir, root) {
     captureStreams(dir)
   );
 
+  // WP-2: register the host-qualified alias for req-001 so `inbox put` to
+  // "claude:req-001" resolves to deliver-dormant (registered, no live session)
+  // rather than being refused as a phantom.
+  const reqQualifiedRegistration = {
+    id: "claude:req-001",
+    instance: "claude:req-001",
+    roles: ["CONDUCTOR"],
+    scopes: ["scope:contract"],
+    capabilities: ["negotiate", "sign"],
+    endpoints: [],
+    publicKeys: [],
+    acceptedPolicies: [],
+    createdAt: "2026-05-20T00:00:00.000Z"
+  };
+  runCli(
+    ["register", "--root", root, "--json", JSON.stringify(reqQualifiedRegistration)],
+    captureStreams(dir)
+  );
+
   // An AGENTS parent so `subagent register/list` (DEC-068) has a valid parent.
   const agentRegistration = {
     id: "agent-001",

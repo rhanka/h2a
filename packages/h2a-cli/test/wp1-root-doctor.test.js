@@ -7,7 +7,7 @@
 //  4. doctor inboxHygiene warnings (case dup, host-less, phantom 3-seg)
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -180,9 +180,14 @@ test("doctor: inboxHygiene warns on case-dup, host-less, and phantom 3-seg dirs"
     const inboxDir = join(root, "inbox");
     mkdirSync(inboxDir, { recursive: true });
 
-    // Case dup pair: claude__matchid and claude__matchID → same canonical address
+    // Case dup pair: claude__matchid and claude__matchID → same canonical address.
+    // On a case-INSENSITIVE filesystem (Windows/macOS CI) these two mkdirs collapse
+    // into ONE directory, so there is no dup pair to detect there — assert the
+    // caseDuplicates warning only when the FS actually kept both dirs distinct.
     mkdirSync(join(inboxDir, "claude__matchid"), { recursive: true });
     mkdirSync(join(inboxDir, "claude__matchID"), { recursive: true });
+    const caseDistinctFs =
+      readdirSync(inboxDir).filter((d) => d.toLowerCase() === "claude__matchid").length === 2;
 
     // Host-less: bare label with no known host prefix
     mkdirSync(join(inboxDir, "react"), { recursive: true });
@@ -197,10 +202,12 @@ test("doctor: inboxHygiene warns on case-dup, host-less, and phantom 3-seg dirs"
 
     const warnKinds = report.warnings.filter((w) => w.check === "inboxHygiene").map((w) => w.kind);
 
-    assert.ok(
-      warnKinds.includes("caseDuplicates"),
-      `expected caseDuplicates warning; warnings=${JSON.stringify(report.warnings)}`
-    );
+    if (caseDistinctFs) {
+      assert.ok(
+        warnKinds.includes("caseDuplicates"),
+        `expected caseDuplicates warning; warnings=${JSON.stringify(report.warnings)}`
+      );
+    }
     assert.ok(
       warnKinds.includes("hostlessDirs"),
       `expected hostlessDirs warning; warnings=${JSON.stringify(report.warnings)}`

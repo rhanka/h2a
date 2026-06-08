@@ -102,7 +102,19 @@ test("CLI inbox put with host-qualified instance exits 0", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-guard-"));
   const root = join(dir, ".h2a");
   try {
-    runCli(["init", "--root", root], captureStreams(dir));
+    const store = createLocalStore({ root });
+    // WP-2: register the target so it resolves to deliver-dormant (not phantom).
+    store.registerInstance({
+      id: "claude:radar-immobilier",
+      instance: "claude:radar-immobilier",
+      roles: ["AGENTS"],
+      scopes: ["scope:default"],
+      capabilities: [],
+      endpoints: [],
+      publicKeys: [],
+      acceptedPolicies: [],
+      createdAt: new Date().toISOString()
+    });
     const streams = captureStreams(dir);
     const rc = runCli(
       [
@@ -153,8 +165,19 @@ test("MCP handleInbox put with host-qualified instance succeeds (no error)", () 
   const dir = mkdtempSync(join(tmpdir(), "h2a-guard-mcp-"));
   const root = join(dir, ".h2a");
   try {
-    runCli(["init", "--root", root], captureStreams(dir));
     const store = createLocalStore({ root });
+    // WP-2: register the target so it resolves to deliver-dormant (not phantom).
+    store.registerInstance({
+      id: "claude:radar-immobilier",
+      instance: "claude:radar-immobilier",
+      roles: ["AGENTS"],
+      scopes: ["scope:default"],
+      capabilities: [],
+      endpoints: [],
+      publicKeys: [],
+      acceptedPolicies: [],
+      createdAt: new Date().toISOString()
+    });
     const result = handleInbox(store, {
       action: "put",
       instance: "claude:radar-immobilier",

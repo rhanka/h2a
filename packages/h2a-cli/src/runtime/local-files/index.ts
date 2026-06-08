@@ -9,8 +9,10 @@ export {
   negotiationJournalFile,
   outboxDir,
   presenceFile,
+  resolveRecipient,
   safePathSegment,
-  type LocalStorePaths
+  type LocalStorePaths,
+  type RecipientResolution
 } from "./paths.js";
 
 export {
