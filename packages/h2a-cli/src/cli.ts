@@ -112,6 +112,7 @@ import {
 import {
   H2A_STORE_SCHEMA_VERSION,
   assertHostQualifiedAddress,
+  canonicalAddress,
   createLocalStore,
   listPresence,
   safePathSegment,
@@ -613,7 +614,9 @@ function cmdMailbox(
       // (the write always succeeds — a dormant deposit-for-wake is legitimate).
       const recipientLive =
         mailbox === "inbox"
-          ? listPresence(store.paths.root).some((s) => s.instance === flags.instance)
+          ? listPresence(store.paths.root).some(
+              (s) => canonicalAddress(s.instance) === canonicalAddress(flags.instance)
+            )
           : undefined;
       streams.stdout.write(
         `${JSON.stringify({ ok: true, id: envelope.id, mailbox, instance: flags.instance, ...(recipientLive !== undefined ? { recipientLive } : {}) }, null, 2)}\n`

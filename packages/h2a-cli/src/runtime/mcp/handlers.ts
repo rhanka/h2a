@@ -34,7 +34,7 @@ import {
   raiseBlockage,
   resolveBlockage
 } from "../blockage/registry.js";
-import { isHostQualifiedAddress, listPresence } from "../local-files/index.js";
+import { canonicalAddress, isHostQualifiedAddress, listPresence } from "../local-files/index.js";
 import type { LocalStore } from "../local-files/store.js";
 import { gatherNhiSnapshot } from "../nhi.js";
 import { agentVersion } from "../version/agent-version.js";
@@ -112,6 +112,8 @@ export function handleInbox(
   if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
     return { error: "h2a_inbox: missing 'instance'" };
   }
+  // Narrowed once here so the type survives into the filter closures below.
+  const instance: string = args.instance;
   try {
     switch (args.action) {
       case "read":
@@ -130,7 +132,7 @@ export function handleInbox(
         // assuming delivery. Exact-instance match — a live agent is addressed by
         // its full perennial id; the bare channel/alias form reads as dormant.
         const freshSessions = listPresence(store.paths.root).filter(
-          (s) => s.instance === args.instance
+          (s) => canonicalAddress(s.instance) === canonicalAddress(instance)
         ).length;
         return {
           ok: true,
