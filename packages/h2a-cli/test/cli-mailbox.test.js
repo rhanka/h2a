@@ -158,7 +158,67 @@ test("h2a inbox put rejects an invalid envelope", () => {
       streams
     );
     assert.equal(rc, 1);
-    assert.match(streams.stderrText, /not a valid H2A envelope/);
+    assert.match(streams.stderrText, /invalid H2A envelope/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("h2a inbox put with missing createdAt reports createdAt in stderr (WP-D)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-inbox-"));
+  const root = join(dir, ".h2a");
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(makeRegistration("h2a:alpha"));
+    const streams = captureStreams(dir);
+    // Valid envelope MINUS createdAt
+    const noCreatedAt = {
+      protocol: "sentropic.h2a",
+      version: "0.1",
+      id: "env-no-date",
+      type: "event",
+      actor: { instance: "claude:peer:abc", role: "AGENTS", scope: "scope:default" },
+      body: { kind: "message", text: "hi" }
+      // createdAt deliberately omitted
+    };
+    const rc = runCli(
+      ["inbox", "put", "--root", root, "--instance", "h2a:alpha", "--json", JSON.stringify(noCreatedAt)],
+      streams
+    );
+    assert.equal(rc, 1);
+    assert.match(streams.stderrText, /createdAt/, "stderr should mention createdAt");
+    // Must NOT contain the old opaque message
+    assert.doesNotMatch(streams.stderrText, /payload is not a valid H2A envelope/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("h2a inbox put with missing body (flat fields) reports body in stderr (WP-D)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-inbox-"));
+  const root = join(dir, ".h2a");
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(makeRegistration("h2a:alpha"));
+    const streams = captureStreams(dir);
+    // Flat fields: kind/text at top level instead of under body
+    const flatFields = {
+      protocol: "sentropic.h2a",
+      version: "0.1",
+      id: "env-flat",
+      type: "event",
+      actor: { instance: "claude:peer:abc", role: "AGENTS", scope: "scope:default" },
+      kind: "message",
+      text: "oops — missing body wrapper",
+      createdAt: "2026-06-07T10:00:00.000Z"
+      // body deliberately omitted
+    };
+    const rc = runCli(
+      ["inbox", "put", "--root", root, "--instance", "h2a:alpha", "--json", JSON.stringify(flatFields)],
+      streams
+    );
+    assert.equal(rc, 1);
+    assert.match(streams.stderrText, /body/, "stderr should mention body");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

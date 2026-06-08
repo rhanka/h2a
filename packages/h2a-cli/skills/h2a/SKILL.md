@@ -1,6 +1,6 @@
 ---
 name: h2a
-version: 0.59.0
+version: 0.60.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
@@ -128,6 +128,8 @@ Steps:
 2. For each envelope, print: sender (`actor.instance`), `body.kind`, a short summary of the content, and the envelope id.
 3. Ask the user what to do with each (reply via `/h2a send`, mark read by calling `h2a_inbox` with `action: "pop"`, or ignore).
 4. If a `notifications/h2a` message with `topic: inbox.envelope_arrived` was just observed in the JSON-RPC stream, react immediately rather than waiting for the user to type `/h2a receive`.
+
+**Pop after processing (hygiene rule):** Once you have acted on an envelope, call `h2a_inbox` with `{ action: "pop", instance: "<this-agent-instance>", envelopeId: "<id>" }` to remove it from the inbox. `read` is non-destructive — an un-popped envelope resurfaces on every subsequent poll and masks genuinely new arrivals. Pop as soon as the envelope is handled, not just when explicitly instructed.
 
 ### `/h2a negotiate <verb> ...`
 

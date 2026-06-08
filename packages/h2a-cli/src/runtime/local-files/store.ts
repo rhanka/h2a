@@ -23,6 +23,7 @@ import {
   derivePostureConfiance as derivePostureConfianceCore,
   evaluatePresenterBias,
   isH2AEnvelope,
+  validateH2AEnvelope,
   isH2ADeclarationInteret,
   validateSubagentBinding,
   verifyCanonical,
@@ -1273,8 +1274,9 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function putInboxMessage(actor: string, envelope: H2AEnvelope): void {
-    if (!isH2AEnvelope(envelope)) {
-      throw new Error("putInboxMessage: payload is not a valid H2A envelope");
+    const validation = validateH2AEnvelope(envelope);
+    if (!validation.ok) {
+      throw new Error("putInboxMessage: invalid H2A envelope — " + validation.errors.join("; "));
     }
     const dir = inboxDir(paths, actor);
     ensureDir(dir);
@@ -1345,8 +1347,9 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function putOutboxMessage(actor: string, envelope: H2AEnvelope): void {
-    if (!isH2AEnvelope(envelope)) {
-      throw new Error("putOutboxMessage: payload is not a valid H2A envelope");
+    const validation = validateH2AEnvelope(envelope);
+    if (!validation.ok) {
+      throw new Error("putOutboxMessage: invalid H2A envelope — " + validation.errors.join("; "));
     }
     const dir = outboxDir(paths, actor);
     ensureDir(dir);

@@ -162,6 +162,7 @@ export {
   createEnvelope,
   isH2AEnvelope,
   signEnvelope,
+  validateH2AEnvelope,
   verifyEnvelopeSignature
 } from "./envelope.js";
 export {
