@@ -111,6 +111,7 @@ import {
 } from "./hosts/plugin.js";
 import {
   H2A_STORE_SCHEMA_VERSION,
+  assertHostQualifiedAddress,
   createLocalStore,
   listPresence,
   safePathSegment,
@@ -593,6 +594,14 @@ function cmdMailbox(
     } catch (error) {
       streams.stderr.write(`h2a ${mailbox} put: invalid JSON (${(error as Error).message})\n`);
       return 1;
+    }
+    if (mailbox === "inbox") {
+      try {
+        assertHostQualifiedAddress(flags.instance, "recipient");
+      } catch (error) {
+        streams.stderr.write(`\n${(error as Error).message}\n`);
+        return 1;
+      }
     }
     try {
       if (mailbox === "inbox") {
@@ -1182,6 +1191,12 @@ function cmdAttestComprehension(
     createdAt: body.at
   });
   if (flags.to) {
+    try {
+      assertHostQualifiedAddress(flags.to, "recipient");
+    } catch (error) {
+      streams.stderr.write(`\n${(error as Error).message}\n`);
+      return 1;
+    }
     try {
       store.putInboxMessage(flags.to, envelope);
     } catch (error) {

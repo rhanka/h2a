@@ -121,6 +121,34 @@ export function canonicalAddress(addr: string): string {
   return [host.toLowerCase(), canonLabel, ...rest.map((segment) => segment.toLowerCase())].join(":");
 }
 
+/**
+ * True iff `addr` is host-qualified (`host:label[:uuid…]`, optionally a
+ * subagent `…~name`): a non-empty host segment AND a non-empty label segment.
+ * A bare token with no ":" (e.g. "radar-immobilier"), ":label" (empty host) or
+ * "host:" (empty label) is NOT addressable — it mis-routes to an orphan inbox.
+ */
+export function isHostQualifiedAddress(addr: string): boolean {
+  if (typeof addr !== "string" || addr.length === 0) return false;
+  // Subagent handle `<instance>~<name>`: validate ONLY the instance part before "~".
+  const tilde = addr.indexOf("~");
+  const instancePart = tilde >= 0 ? addr.slice(0, tilde) : addr;
+  const parts = instancePart.split(":");
+  return parts.length >= 2 && parts[0].length > 0 && parts[1].length > 0;
+}
+
+/**
+ * Throws a user-facing Error if `addr` is not host-qualified. Message names
+ * the fix. Used to reject bare-label sends (e.g. "radar-immobilier" → must be
+ * "claude:radar-immobilier"): the same label can exist on several hosts.
+ */
+export function assertHostQualifiedAddress(addr: string, role = "recipient"): void {
+  if (!isHostQualifiedAddress(addr)) {
+    throw new Error(
+      `h2a: ${role} "${addr}" is not host-qualified — address it as <host>:<label> (e.g. claude:${String(addr).replace(/^:+/, "") || "agent"}). A bare label is ambiguous (the same label can exist on several hosts) and routes to an orphan inbox nobody reads. Resolve the exact peer via discover.`
+    );
+  }
+}
+
 /** Inbox dir for an actor, keyed on its **canonical** handle (case-folded). */
 export function inboxDir(paths: LocalStorePaths, actor: string): string {
   return join(paths.inbox, safePathSegment(canonicalAddress(actor)));

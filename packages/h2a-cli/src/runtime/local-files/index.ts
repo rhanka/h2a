@@ -1,7 +1,9 @@
 export {
+  assertHostQualifiedAddress,
   canonicalAddress,
   inboxDir,
   inboxDirRaw,
+  isHostQualifiedAddress,
   localStorePaths,
   negotiationDir,
   negotiationJournalFile,

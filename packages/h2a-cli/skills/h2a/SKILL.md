@@ -1,6 +1,6 @@
 ---
 name: h2a
-version: 0.55.0
+version: 0.56.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
@@ -96,7 +96,9 @@ Steps:
      "createdAt": "<ISO-8601-now>"
    }
    ```
-4. Call `h2a_inbox` with `{ action: "put", instance: "<peer>", envelope }`.
+4. **Hard rule: the recipient MUST be host-qualified (`<host>:<label>`, e.g. `claude:radar-immobilier`). A bare label (e.g. `radar-immobilier`) is rejected — the same label can live on several hosts (claude, codex, …), so a bare label is ambiguous and routes to an orphan inbox nobody reads.**
+
+   Call `h2a_inbox` with `{ action: "put", instance: "<peer>", envelope }`.
 
    **Conversation threading (optional, lightweight):** To continue an existing back-and-forth as a thread, add two top-level fields to the envelope JSON before putting it:
    - `"threadId": "<id>"` — reuse the `threadId` from the peer's previous envelope, or mint a fresh one as `thr:<epoch-ms>:<4hex>` to start a new thread.

@@ -194,7 +194,7 @@ function bootstrapHappyPath(dir, root) {
       "--root",
       root,
       "--instance",
-      "req-001",
+      "claude:req-001",
       "--json",
       JSON.stringify(envelope)
     ],
@@ -459,7 +459,7 @@ function buildHappyArgv(verb, ctx) {
         "--root",
         root,
         "--instance",
-        "req-001",
+        "claude:req-001",
         "--json",
         JSON.stringify({
           protocol: "sentropic.h2a",
@@ -472,7 +472,7 @@ function buildHappyArgv(verb, ctx) {
         })
       ];
     case "inbox read":
-      return ["inbox", "read", "--root", root, "--instance", "req-001"];
+      return ["inbox", "read", "--root", root, "--instance", "claude:req-001"];
     case "inbox pop":
       return [
         "inbox",
@@ -480,7 +480,7 @@ function buildHappyArgv(verb, ctx) {
         "--root",
         root,
         "--instance",
-        "req-001",
+        "claude:req-001",
         "--envelope",
         "env-cc-001"
       ];

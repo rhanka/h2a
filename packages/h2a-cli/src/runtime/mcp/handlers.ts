@@ -34,7 +34,7 @@ import {
   raiseBlockage,
   resolveBlockage
 } from "../blockage/registry.js";
-import { listPresence } from "../local-files/index.js";
+import { isHostQualifiedAddress, listPresence } from "../local-files/index.js";
 import type { LocalStore } from "../local-files/store.js";
 import { gatherNhiSnapshot } from "../nhi.js";
 import { agentVersion } from "../version/agent-version.js";
@@ -118,6 +118,11 @@ export function handleInbox(
         return { envelopes: store.readInbox(args.instance) };
       case "put": {
         if (!args.envelope) return { error: "h2a_inbox put: missing 'envelope'" };
+        if (!isHostQualifiedAddress(args.instance)) {
+          return {
+            error: `h2a: recipient "${args.instance}" is not host-qualified — address it as <host>:<label> (e.g. claude:${String(args.instance).replace(/^:+/, "") || "agent"}). A bare label is ambiguous (the same label can exist on several hosts) and routes to an orphan inbox nobody reads. Resolve the exact peer via discover.`
+          };
+        }
         store.putInboxMessage(args.instance, args.envelope);
         // Bug-2 backstop: report whether the recipient actually has a fresh
         // session. The write always succeeds (a dormant deposit-for-wake is

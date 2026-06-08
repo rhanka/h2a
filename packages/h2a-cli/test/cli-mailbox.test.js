@@ -76,7 +76,7 @@ test("h2a inbox pop removes the envelope from disk", () => {
         "--root",
         root,
         "--instance",
-        "alpha",
+        "h2a:alpha",
         "--json",
         JSON.stringify(envelope("env-100"))
       ],
@@ -85,7 +85,7 @@ test("h2a inbox pop removes the envelope from disk", () => {
 
     const pop = captureStreams(dir);
     const rc = runCli(
-      ["inbox", "pop", "--root", root, "--instance", "alpha", "--envelope", "env-100"],
+      ["inbox", "pop", "--root", root, "--instance", "h2a:alpha", "--envelope", "env-100"],
       pop
     );
     assert.equal(rc, 0);
@@ -93,7 +93,7 @@ test("h2a inbox pop removes the envelope from disk", () => {
     assert.equal(parsed.id, "env-100");
 
     const read = captureStreams(dir);
-    runCli(["inbox", "read", "--root", root, "--instance", "alpha"], read);
+    runCli(["inbox", "read", "--root", root, "--instance", "h2a:alpha"], read);
     assert.deepEqual(JSON.parse(read.stdoutText), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -131,7 +131,7 @@ test("h2a inbox put rejects an invalid envelope", () => {
         "--root",
         root,
         "--instance",
-        "alpha",
+        "h2a:alpha",
         "--json",
         JSON.stringify({ id: "no-protocol" })
       ],
