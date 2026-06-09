@@ -272,6 +272,11 @@ export {
 } from "./runtime/identity/index.js";
 
 export {
+  computeDurableWorkspaceId,
+  durableWorkspaceId
+} from "./runtime/identity/workspace-id.js";
+
+export {
   isNewerVersion,
   parseSemver,
   checkUpgrade,
