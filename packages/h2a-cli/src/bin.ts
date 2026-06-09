@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import {
+  cmdKeepalive,
   runCli,
   runDriveServe,
   runMcpServe,
@@ -65,6 +66,8 @@ if (argv[0] === "mcp-serve") {
   runAsync("drumbeat watch", runDrumbeatWatch(parseFlagsFrom(2)));
 } else if (argv[0] === "sysml" && argv[1] === "verify") {
   runAsync("sysml verify", runSysmlVerify(parseFlagsFrom(2)));
+} else if (argv[0] === "keepalive") {
+  runAsync("keepalive", cmdKeepalive(parseFlagsFrom(1), { stdout: process.stdout, stderr: process.stderr }));
 } else {
   process.exitCode = runCli(argv);
 }

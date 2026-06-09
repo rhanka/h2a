@@ -251,6 +251,7 @@ export {
 export {
   resolveProviderSession,
   defaultProviderSessionReaders,
+  readHostSessionName,
   listBindings,
   findBinding,
   verifyReclaimProof,
@@ -266,7 +267,8 @@ export {
   type H2AIdentityBinding,
   type IdentityBindingKey,
   type ReclaimOrMintDeps,
-  type ReclaimOrMintResult
+  type ReclaimOrMintResult,
+  type HostNameReaders
 } from "./runtime/identity/index.js";
 
 export {
@@ -288,7 +290,7 @@ export {
   type UpgradeCheckResult
 } from "./runtime/upgrade/index.js";
 
-export { cmdUpgrade, cmdOrg, cmdCoach } from "./cli.js";
+export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce } from "./cli.js";
 
 export {
   resolveSysmlElement,

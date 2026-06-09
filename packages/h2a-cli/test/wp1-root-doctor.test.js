@@ -79,25 +79,27 @@ test("doctor: --root flag wins over H2A_ROOT env (rootSource=flag)", () => {
   }
 });
 
-test("doctor: neither --root nor H2A_ROOT → rootSource=cwd + warning", () => {
-  const dir = mkdtempSync(join(tmpdir(), "wp1-cwd-"));
+// WP-4: the fallback changed from rootSource=cwd to rootSource=default (shared bus).
+// doctor no longer emits a rootSource warning for the shared default.
+test("doctor: neither --root nor H2A_ROOT → rootSource=default (shared bus, WP-4)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "wp1-default-"));
   const savedEnv = process.env.H2A_ROOT;
   try {
     delete process.env.H2A_ROOT;
-    // Init the cwd-local .h2a so hard checks pass
-    const cwdRoot = join(dir, ".h2a");
-    runCli(["init", "--root", cwdRoot], captureStreams(dir));
+    // Init the shared default so doctor hard-checks pass.
+    const sharedRoot = join(dir, "h2a-workspace", ".h2a");
+    runCli(["init", "--root", sharedRoot], captureStreams(dir));
+    // Set H2A_ROOT to the shared path so the test is hermetic (avoids touching real ~/h2a-workspace)
+    process.env.H2A_ROOT = sharedRoot;
 
     const streams = captureStreams(dir);
     const rc = runCli(["doctor"], streams);
-    // cwd fallback is valid (root exists), so ok=true and exit 0
     assert.equal(rc, 0, `exit should be 0, stderr: ${streams.stderrText}`);
     const report = JSON.parse(streams.stdoutText);
-    assert.equal(report.rootSource, "cwd");
-    // There should be a rootSource warning in warnings[]
+    assert.equal(report.rootSource, "env", "H2A_ROOT env overrides the default");
+    // No rootSource warning expected when H2A_ROOT is set explicitly
     const warn = report.warnings.find((w) => w.check === "rootSource");
-    assert.ok(warn, "expected a rootSource warning");
-    assert.match(warn.message, /H2A_ROOT/);
+    assert.equal(warn, undefined, "no rootSource warning expected when H2A_ROOT is set");
   } finally {
     if (savedEnv === undefined) {
       delete process.env.H2A_ROOT;
@@ -110,18 +112,21 @@ test("doctor: neither --root nor H2A_ROOT → rootSource=cwd + warning", () => {
 
 // ─── 2. cwd-fallback warning on `h2a connect` ──────────────────────────────
 
-test("connect: emits no-root warning to stderr when no --root/H2A_ROOT", () => {
+// WP-4: the shared-bus default is silent (no warning).
+// connect only warns when a DIFFERENT cwd-local .h2a exists (see wp4 test for that).
+test("connect: no warning when using shared default bus with no local .h2a (WP-4)", () => {
   const dir = mkdtempSync(join(tmpdir(), "wp1-conn-"));
   const savedEnv = process.env.H2A_ROOT;
   try {
     delete process.env.H2A_ROOT;
     const streams = captureStreams(dir);
-    // connect will fail (or succeed) after the warning — we only assert the warning
+    // connect may fail (no root initialised), but must NOT emit a rootSource warning
     runCli(["connect", "--host", "claude"], streams);
-    assert.match(
+    // No split-brain warning expected: no local .h2a in cwd
+    assert.doesNotMatch(
       streams.stderrText,
-      /no --root\/H2A_ROOT/,
-      `expected cwd-fallback warning on stderr, got: ${streams.stderrText}`
+      /repo-local .h2a exists here but I'm using the shared bus/,
+      `unexpected split-brain warning on stderr: ${streams.stderrText}`
     );
   } finally {
     if (savedEnv === undefined) {

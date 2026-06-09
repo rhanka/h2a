@@ -733,6 +733,9 @@ function buildHappyArgv(verb, ctx) {
     case "thread":
       // An empty thread (no matching threadId) is a valid `list` happy path.
       return ["thread", "--id", "thr:1", "--instance", "claude:x:abc", "--root", root];
+    case "keepalive":
+      // Async verb (long-running loop); covered by wp5-keepalive.test.js.
+      return null;
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -817,7 +820,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "subagent inbox",
     "subagent audit",
     "subagent revoke",
-    "thread"
+    "thread",
+    "keepalive"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {

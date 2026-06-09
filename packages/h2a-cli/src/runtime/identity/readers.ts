@@ -108,3 +108,160 @@ export const defaultProviderSessionReaders: ProviderSessionReaders = {
   geminiSessionForCwd,
   agyConversationForCwd
 };
+
+// ── WP-6: host-native session name reading ────────────────────────────────
+
+/**
+ * Injectable FS readers for `readHostSessionName` (test-friendly).
+ * Only reading is required; real-FS defaults are `defaultHostNameReaders`.
+ */
+export interface HostNameReaders {
+  /** Read up to `maxLines` newline-delimited lines from a file. Returns [] on any error. */
+  readLines(path: string, maxLines: number): string[];
+  /** List newline-delimited JSONL entries from `~/.codex/session_index.jsonl`. */
+  readCodexSessionIndex(): string[];
+  /** Whether the home dir root is known (for path construction). */
+  homedir(): string;
+}
+
+export const defaultHostNameReaders: HostNameReaders = {
+  readLines(path: string, maxLines: number): string[] {
+    try {
+      const raw = readFileSync(path, "utf8");
+      return raw.split("\n").slice(0, maxLines);
+    } catch {
+      return [];
+    }
+  },
+  readCodexSessionIndex(): string[] {
+    try {
+      const f = join(homedir(), ".codex", "session_index.jsonl");
+      const raw = readFileSync(f, "utf8");
+      return raw.split("\n");
+    } catch {
+      return [];
+    }
+  },
+  homedir(): string {
+    return homedir();
+  }
+};
+
+/**
+ * Read the host-native session name for the given session.
+ *
+ * - **claude**: reads the transcript JSONL (located via the CLAUDE_CODE_SESSION_ID
+ *   resolver); scans the first 40 lines for `customTitle` (user rename) first,
+ *   then falls back to `agentName`. Never returns `aiTitle`.
+ * - **codex**: reads `~/.codex/session_index.jsonl`; returns `thread_name` for
+ *   the entry whose `id === sessionId` (last-match wins).
+ * - Other hosts: returns undefined.
+ *
+ * Always best-effort (returns undefined on any parse/IO error).
+ */
+export function readHostSessionName(opts: {
+  host: string;
+  cwd: string;
+  sessionId?: string;
+  readers?: HostNameReaders;
+}): string | undefined {
+  const { host, cwd, sessionId } = opts;
+  const readers = opts.readers ?? defaultHostNameReaders;
+  try {
+    if (host === "claude") {
+      return readClaudeSessionName(cwd, sessionId, readers);
+    }
+    if (host === "codex") {
+      return readCodexSessionName(sessionId, readers);
+    }
+  } catch {
+    // best-effort
+  }
+  return undefined;
+}
+
+function findClaudeTranscript(
+  cwd: string,
+  sessionId: string | undefined,
+  home: string = homedir()
+): string | undefined {
+  // Claude Code transcript: ~/.claude/projects/<hash>/<session-id>.jsonl
+  // The resolver already locates it via CLAUDE_CODE_SESSION_ID → env reader.
+  // Here we use the same scan: look under ~/.claude/projects/ for a file named <sessionId>.jsonl
+  try {
+    const projectsBase = join(home, ".claude", "projects");
+    if (!existsSync(projectsBase)) return undefined;
+    const projectDirs = readdirSync(projectsBase);
+    for (const proj of projectDirs) {
+      const projDir = join(projectsBase, proj);
+      // Filter to directories to avoid stat issues
+      try {
+        const entries = readdirSync(projDir);
+        for (const entry of entries) {
+          if (sessionId && entry === `${sessionId}.jsonl`) {
+            return join(projDir, entry);
+          }
+          // Fallback: if no sessionId, look for the newest .jsonl in the project matching cwd
+          // We skip the fallback to keep things simple and correct.
+        }
+      } catch {
+        // skip
+      }
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function readClaudeSessionName(
+  cwd: string,
+  sessionId: string | undefined,
+  readers: HostNameReaders
+): string | undefined {
+  if (!sessionId) return undefined;
+  const transcriptPath = findClaudeTranscript(cwd, sessionId, readers.homedir());
+  if (!transcriptPath) return undefined;
+  const lines = readers.readLines(transcriptPath, 40);
+  let customTitle: string | undefined;
+  let agentName: string | undefined;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed) as Record<string, unknown>;
+      if (typeof obj.customTitle === "string" && obj.customTitle.length > 0) {
+        customTitle = obj.customTitle;
+        break; // prefer first customTitle found
+      }
+      if (!agentName && typeof obj.agentName === "string" && obj.agentName.length > 0) {
+        agentName = obj.agentName;
+      }
+    } catch {
+      // skip malformed lines
+    }
+  }
+  return customTitle ?? agentName;
+}
+
+function readCodexSessionName(
+  sessionId: string | undefined,
+  readers: HostNameReaders
+): string | undefined {
+  if (!sessionId) return undefined;
+  const lines = readers.readCodexSessionIndex();
+  let lastMatch: string | undefined;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed) as Record<string, unknown>;
+      if (obj.id === sessionId && typeof obj.thread_name === "string" && obj.thread_name.length > 0) {
+        lastMatch = obj.thread_name;
+      }
+    } catch {
+      // skip
+    }
+  }
+  return lastMatch;
+}
