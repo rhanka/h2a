@@ -22,5 +22,6 @@ export const H2A_CLI_MCP_TOOL_NAMES = [
   "h2a_nhi_export",
   "h2a_blockage_raise",
   "h2a_blockage_list",
-  "h2a_blockage_resolve"
+  "h2a_blockage_resolve",
+  "h2a_conductor"
 ] as const;

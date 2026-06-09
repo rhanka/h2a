@@ -1,3 +1,6 @@
+import { readFileSync, realpathSync } from "node:fs";
+import { hostname } from "node:os";
+
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
   H2A_COMPREHENSION_ATTESTATION_BODY_KIND,
@@ -10,6 +13,7 @@ import {
   canAttestComprehension,
   computeHash,
   createEnvelope,
+  deriveWorkspaceId,
   effectiveOrgInstances,
   isComprehensionAttestation,
   nhiAttestationEnvelope,
@@ -29,11 +33,22 @@ import {
   type H2AWorkspaceRef
 } from "@sentropic/h2a";
 
+function mcpReadMachineId(): string {
+  for (const p of ["/etc/machine-id", "/var/lib/dbus/machine-id"]) {
+    try {
+      const id = readFileSync(p, "utf8").trim();
+      if (id.length > 0) return id;
+    } catch { /* try next */ }
+  }
+  return hostname() || "unknown-machine";
+}
+
 import {
   listBlockages,
   raiseBlockage,
   resolveBlockage
 } from "../blockage/registry.js";
+import { conductorFor } from "../governance/conductor.js";
 import { canonicalAddress, isHostQualifiedAddress, listPresence, resolveRecipient, writePresence } from "../local-files/index.js";
 import type { LocalStore } from "../local-files/store.js";
 import { gatherNhiSnapshot } from "../nhi.js";
@@ -929,6 +944,36 @@ export function handleBlockageResolve(
       return { error: `h2a_blockage_resolve: no blockage recorded for "${args.instance}"` };
     }
     return { blockage: resolved };
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+/**
+ * h2a_conductor — resolve the live conductor/owner of a workspace (WP-G1).
+ * Mirrors `h2a conductor` CLI. Read-only.
+ */
+export function handleConductor(
+  root: string,
+  args: { workspaceId?: string; workspacePath?: string } | undefined
+): McpToolResult | McpErrorResult {
+  let workspaceId: string | undefined;
+
+  if (typeof args?.workspaceId === "string" && args.workspaceId.length > 0) {
+    workspaceId = args.workspaceId;
+  } else if (typeof args?.workspacePath === "string" && args.workspacePath.length > 0) {
+    let realPath = args.workspacePath;
+    try { realPath = realpathSync(realPath); } catch { /* use as-is */ }
+    workspaceId = deriveWorkspaceId({ machineId: mcpReadMachineId(), path: realPath });
+  }
+
+  if (!workspaceId) {
+    return { error: "h2a_conductor: provide workspaceId or workspacePath" };
+  }
+
+  try {
+    const result = conductorFor({ root, workspaceId });
+    return result as unknown as McpToolResult;
   } catch (err) {
     return safeError(err);
   }

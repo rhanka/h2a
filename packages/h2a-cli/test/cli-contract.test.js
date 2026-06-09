@@ -736,6 +736,9 @@ function buildHappyArgv(verb, ctx) {
     case "keepalive":
       // Async verb (long-running loop); covered by wp5-keepalive.test.js.
       return null;
+    case "conductor":
+      // Read-only resolver; workspace defaults to cwd (no flags needed).
+      return ["conductor", "--root", root];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -821,7 +824,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "subagent audit",
     "subagent revoke",
     "thread",
-    "keepalive"
+    "keepalive",
+    "conductor"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {
