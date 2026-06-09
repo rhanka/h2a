@@ -8,6 +8,9 @@
 
 import type { H2AReflexiveAction, H2AReflexiveDecision } from "@sentropic/h2a";
 
+import { reachGuard } from "../local-files/paths.js";
+import { listPresence } from "../local-files/presence.js";
+import { createLocalStore } from "../local-files/store.js";
 import { scanDrumbeat, type H2ADrumbeatFinding, type ScanDrumbeatOptions } from "./scan.js";
 import {
   markRelanced,
@@ -53,6 +56,18 @@ export interface DrumbeatTickOptions extends ScanDrumbeatOptions {
   /** D5: effect hooks (cli.ts wires escalation), keeping watch.ts store-free. */
   onEscalate?: (finding: H2ADrumbeatFinding, decision: H2AReflexiveDecision) => void | Promise<void>;
   onReroute?: (finding: H2ADrumbeatFinding, decision: H2AReflexiveDecision) => void | Promise<void>;
+  /**
+   * WP-7: store root for the reach-guard.  When provided, each finding is
+   * checked via `reachGuard` before reaching: phantom / ambiguous / malformed
+   * targets are SKIPPED (never relanced).  When absent the guard is bypassed
+   * and the tick behaves exactly as today — backward-compatible.
+   */
+  root?: string;
+  /**
+   * WP-7: optional log sink for reach-guard skip messages.  Defaults to a
+   * no-op; pass a `(line: string) => void` to surface the skip reason.
+   */
+  log?: (line: string) => void;
 }
 
 export interface DrumbeatTickResult {
@@ -71,9 +86,40 @@ export async function drumbeatTick(
     maxRelances: options.maxRelances,
     skipInstances: [...(options.skipInstances ?? []), ...(preRelanced ?? [])]
   });
+
+  // WP-7: Build reach-guard sets once per tick (avoid repeated I/O).
+  // When `options.root` is absent the guard is skipped — backward-compatible.
+  let guardRoot: string | undefined = options.root;
+  let liveInstances: readonly string[] | undefined;
+  let registeredInstances: readonly string[] | undefined;
+  if (guardRoot !== undefined) {
+    liveInstances = listPresence(guardRoot).map((s) => s.instance);
+    registeredInstances = createLocalStore({ root: guardRoot })
+      .listInstances()
+      .map((i) => i.instance);
+  }
+
   const relanced: string[] = [];
   const k = options.deciderAfter ?? 1;
   for (const finding of findings) {
+    // ── REACH-GUARD CHOKEPOINT ──────────────────────────────────────────────
+    // The future governance/conductor gate (clearance, conductor-liveness)
+    // hooks HERE, so every reach path inherits it.
+    if (guardRoot !== undefined) {
+      const guard = reachGuard({
+        target: finding.instance,
+        liveInstances: liveInstances!,
+        registeredInstances: registeredInstances!
+      });
+      if (!guard.ok) {
+        options.log?.(
+          `drumbeat: skipping relance of ${finding.instance} — ${guard.reason}`
+        );
+        continue;
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     // Cost guard: relance cheaply until K relances, then consult the decider.
     if (!options.decider || finding.relanceCount < k) {
       if (await relauncher.relance(finding)) {

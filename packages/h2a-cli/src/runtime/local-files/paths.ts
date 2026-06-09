@@ -293,3 +293,29 @@ export function resolveRecipient(opts: {
       `'${target}' matches no live or registered agent — likely a phantom/invented id or sub-label. Resolve via discover; do not invent labels.`
   };
 }
+
+// ─── WP-7: Reach Guard ──────────────────────────────────────────────────────
+
+/**
+ * Gate for REACHING paths (drumbeat relance / wake-another / remote drive).
+ *
+ * Unlike the inbox-put path, liveness is NOT a blocker for reaching: we
+ * intentionally wake dormant agents.  Only a `refuse` outcome (phantom,
+ * ambiguous, malformed) should block.  Wraps `resolveRecipient` so all
+ * addressing discipline lives in ONE place.
+ *
+ * This is the REACH-GUARD CHOKEPOINT — the future governance/conductor gate
+ * (clearance, conductor-liveness) hooks HERE via the `DrumbeatTickOptions`
+ * integration in `watch.ts`, so every reach path inherits it.
+ */
+export function reachGuard(opts: {
+  target: string;
+  liveInstances: readonly string[];
+  registeredInstances: readonly string[];
+}): { ok: true } | { ok: false; reason: string; kind: string } {
+  const r = resolveRecipient(opts);
+  if (r.kind === "refuse") {
+    return { ok: false, reason: r.reason, kind: r.kind };
+  }
+  return { ok: true };
+}
