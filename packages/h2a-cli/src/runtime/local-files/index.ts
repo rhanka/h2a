@@ -9,6 +9,7 @@ export {
   negotiationJournalFile,
   outboxDir,
   presenceFile,
+  reachGuard,
   resolveRecipient,
   safePathSegment,
   type LocalStorePaths,

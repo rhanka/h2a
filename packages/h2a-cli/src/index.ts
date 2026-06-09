@@ -68,6 +68,7 @@ export {
   negotiationJournalFile,
   outboxDir,
   presenceFile,
+  reachGuard,
   readPresence,
   resolveRecipient,
   safePathSegment,
