@@ -28,6 +28,7 @@ import {
 } from "./migration.js";
 import { defaultProviderSessionReaders, readHostSessionName } from "./readers.js";
 import { resolveProviderSession, type ProviderSessionReaders } from "./resolver.js";
+import { durableWorkspaceId } from "./workspace-id.js";
 
 export interface ResolveLiveIdentityInput {
   readonly root: string;
@@ -209,6 +210,7 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
   const provider = resolveProviderSession({ host, cwd: input.cwd, readers });
   const realPath = realWorkspacePath(input.cwd);
   const workspaceId =
+    durableWorkspaceId(realPath) ??
     provider.workspaceHint ??
     deriveWorkspaceId({ machineId: readMachineId(), path: realPath });
   const workspace: H2AWorkspaceRef = {
