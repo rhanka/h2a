@@ -1,6 +1,6 @@
 ---
 name: h2a
-version: 0.60.0
+version: 0.61.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
@@ -182,6 +182,12 @@ This is rarely needed manually — the session auto-closes when this CLI process
 ### `/h2a help`
 
 Print the command map at the top of this file. Concise, no extra prose.
+
+---
+
+## Keepalive (optional, launcher-side)
+
+When the launcher or remote infrastructure runs `h2a keepalive [--root <path>] [--interval <ms>]`, it acts as an external presence prober: it lists the live tmux panes via `tmux list-panes -aF '#{pane_id}'` and refreshes the `heartbeatAt` of every presence file whose `launchContext.tmux.pane` is still alive. This keeps pane-alive agents visible on the bus even if the host suspends the MCP child process's heartbeat interval. The `--once` flag does a single pass (useful for testing and scripting); without it, the prober loops on an unref'd interval. h2a works without it — keepalive is purely additive.
 
 ---
 

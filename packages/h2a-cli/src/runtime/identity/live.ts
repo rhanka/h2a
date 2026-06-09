@@ -26,7 +26,7 @@ import {
   legacyAliasAlreadyAdopted,
   recordIdentityAlias
 } from "./migration.js";
-import { defaultProviderSessionReaders } from "./readers.js";
+import { defaultProviderSessionReaders, readHostSessionName } from "./readers.js";
 import { resolveProviderSession, type ProviderSessionReaders } from "./resolver.js";
 
 export interface ResolveLiveIdentityInput {
@@ -201,7 +201,6 @@ function ensureRegistered(input: {
 export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLiveIdentity {
   const host = input.host || "agent";
   const label = labelFromCwd(input.cwd);
-  const name = input.name ?? label;
   if (input.explicitInstance) {
     return { instance: input.explicitInstance, host, action: "override" };
   }
@@ -221,6 +220,12 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
   const legacyInstance = `${host}:${label}`;
   const now = input.now ?? Date.now;
   const scopes = input.scopes?.length ? input.scopes : ["scope:default"];
+  // WP-6: prefer the host-native session name (Claude customTitle / Codex thread_name)
+  // over the cwd label. The explicit `--name` flag always takes precedence.
+  const hostName = input.name === undefined
+    ? readHostSessionName({ host, cwd: input.cwd, sessionId: provider.providerSessionId })
+    : undefined;
+  const name = input.name ?? hostName ?? label;
 
   const mint = () => {
     const agentUuid = mintAgentUuid();

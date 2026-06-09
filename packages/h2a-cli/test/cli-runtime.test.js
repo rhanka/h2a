@@ -39,15 +39,23 @@ test("h2a init creates the .h2a layout under the explicit --root", () => {
   }
 });
 
-test("h2a init defaults to <cwd>/.h2a", () => {
+// WP-4: the fallback changed from <cwd>/.h2a to ~/h2a-workspace/.h2a (shared bus default).
+// `init` without --root now initialises the shared bus, not the cwd.
+test("h2a init defaults to ~/h2a-workspace/.h2a (shared bus default, WP-4)", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-init-"));
+  const savedEnv = process.env.H2A_ROOT;
   try {
+    delete process.env.H2A_ROOT;
     const streams = captureStreams(dir);
     const rc = runCli(["init"], streams);
     assert.equal(rc, 0);
-    assert.match(streams.stdoutText, /.h2a/);
-    assert.equal(existsSync(join(dir, ".h2a", "registry")), true);
+    const payload = JSON.parse(streams.stdoutText);
+    assert.equal(payload.ok, true);
+    // root must be the shared default, not cwd
+    assert.match(payload.root, /h2a-workspace[/\\]\.h2a$/);
+    assert.equal(existsSync(join(dir, ".h2a")), false, "must NOT create .h2a in cwd");
   } finally {
+    if (savedEnv === undefined) { delete process.env.H2A_ROOT; } else { process.env.H2A_ROOT = savedEnv; }
     rmSync(dir, { recursive: true, force: true });
   }
 });

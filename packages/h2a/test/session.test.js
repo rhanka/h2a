@@ -43,7 +43,7 @@ test("session protocol constants are stable", () => {
     "presence.peer_left"
   ]);
   assert.equal(H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS, 5000);
-  assert.equal(H2A_SESSION_DEFAULT_EXPIRY_MS, 15000);
+  assert.equal(H2A_SESSION_DEFAULT_EXPIRY_MS, 90000);
   assert.ok(
     H2A_SESSION_DEFAULT_EXPIRY_MS > H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS,
     "expiry must outlast a single missed heartbeat"
@@ -80,14 +80,14 @@ test("isSessionExpired flags closed/expired states immediately", () => {
 
 test("isSessionExpired honors heartbeat freshness vs expiryMs", () => {
   const start = Date.parse("2026-05-23T12:00:00.000Z");
-  // 10s after start → still fresh under default 15s expiry
+  // 10s after start → still fresh under default 90s expiry
   assert.equal(
     isSessionExpired(liveSession(), { now: start + 10_000 }),
     false
   );
-  // 16s after start → expired under default 15s expiry
+  // 91s after start → expired under default 90s expiry
   assert.equal(
-    isSessionExpired(liveSession(), { now: start + 16_000 }),
+    isSessionExpired(liveSession(), { now: start + 91_000 }),
     true
   );
   // Custom expiryMs override
@@ -111,7 +111,8 @@ test("pickFreshSessions returns only live attachments under the expiry window", 
     }),
     liveSession({
       sessionId: "stale",
-      heartbeatAt: "2026-05-23T11:59:30.000Z"
+      // 150s before start → expired even under 90s default
+      heartbeatAt: "2026-05-23T11:57:30.000Z"
     }),
     liveSession({ sessionId: "closed", state: "closed" }),
     liveSession({
@@ -120,6 +121,7 @@ test("pickFreshSessions returns only live attachments under the expiry window", 
       heartbeatAt: "2026-05-23T12:00:13.500Z"
     })
   ];
+  // 15s after start — "stale" is 150+15=165s behind → expired; "fresh" and "draining" are within 90s
   const fresh = pickFreshSessions(sessions, { now: start + 15_000 });
   const ids = fresh.map((s) => s.sessionId).sort();
   assert.deepEqual(ids, ["draining", "fresh"]);

@@ -34,7 +34,7 @@ import {
   raiseBlockage,
   resolveBlockage
 } from "../blockage/registry.js";
-import { canonicalAddress, isHostQualifiedAddress, listPresence, resolveRecipient } from "../local-files/index.js";
+import { canonicalAddress, isHostQualifiedAddress, listPresence, resolveRecipient, writePresence } from "../local-files/index.js";
 import type { LocalStore } from "../local-files/store.js";
 import { gatherNhiSnapshot } from "../nhi.js";
 import { agentVersion } from "../version/agent-version.js";

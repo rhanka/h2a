@@ -5,7 +5,8 @@ export type {
   ProviderSessionSource,
   ResolveProviderSessionInput
 } from "./resolver.js";
-export { defaultProviderSessionReaders } from "./readers.js";
+export { defaultProviderSessionReaders, readHostSessionName } from "./readers.js";
+export type { HostNameReaders } from "./readers.js";
 export {
   listBindings,
   findBinding,

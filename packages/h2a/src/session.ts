@@ -33,7 +33,7 @@ export const H2A_SESSION_NOTIFICATION_TOPICS = [
 ] as const;
 
 export const H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS = 5000;
-export const H2A_SESSION_DEFAULT_EXPIRY_MS = 15000;
+export const H2A_SESSION_DEFAULT_EXPIRY_MS = 90000;
 
 export type H2ASessionState = (typeof H2A_SESSION_STATES)[number];
 export type H2ASessionNotificationTopic =

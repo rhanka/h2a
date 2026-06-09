@@ -37,7 +37,7 @@
  * (`H2A_CLI_VERB_CONTRACTS`). Human-readable reference: `docs/cli-contract.md`.
  */
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import {
   copyFileSync,
@@ -116,9 +116,11 @@ import {
   canonicalAddress,
   createLocalStore,
   listPresence,
+  readPresence,
   resolveRecipient,
   safePathSegment,
-  sanitizeStorePaths
+  sanitizeStorePaths,
+  writePresence
 } from "./runtime/local-files/index.js";
 import { runMcpStdio } from "./runtime/mcp/index.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
@@ -302,7 +304,9 @@ export function renderCliHelp(): string {
     "",
     "High-level coordination (DEC-054):",
     "  h2a connect --host <codex|claude|gemini|agy|remote> [--root <path>] [--instance <id>] [--name <display>]",
-    "  h2a doctor [--root <path>] [--scan <dir>]",
+    "  h2a doctor [--root <path>] [--scan <dir>] [--prune]   (--prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
+    "  h2a keepalive [--root <path>] [--interval <ms>] [--once]   (external keepalive prober — refreshes presence for agents whose tmux pane is still alive)",
+    "  h2a rename --instance <id> --name <name> [--root <path>]   (set a live session's display name so peers can find it via discover --name)",
     "  h2a status [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a sessions [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a thread --id <threadId> --instance <self> [--root <path>]   (the ordered conversation for a thread, from your inbox+outbox)",
@@ -355,21 +359,21 @@ function parseFlags(argv: readonly string[]): ParsedFlags {
 /**
  * Resolve the h2a store root, with its provenance.
  *
- * Precedence: explicit `--root` flag → `H2A_ROOT` env → the `cwd/.h2a` fallback.
- * Honoring `H2A_ROOT` here brings the stdio CLI (incl. `mcp-serve`) to parity
- * with the HTTP/k8s servers, which already read it (mcp-http/serve.ts). The
- * `cwd` fallback silently forks an agent onto a repo-local bus that no peer on
- * the shared root can see — the split-brain root failure (F4). Callers on
- * long-lived paths (`mcp-serve`, `connect`) warn when `source === "cwd"`.
+ * Precedence: explicit `--root` flag → `H2A_ROOT` env → the shared global
+ * default `~/h2a-workspace/.h2a`. The global default lets all agents on the
+ * same machine share one bus without any explicit configuration — eliminating
+ * the split-brain failure (F4) that the old `cwd/.h2a` fallback caused.
+ * Callers on long-lived paths (`mcp-serve`, `connect`) warn when a repo-local
+ * `.h2a` exists and is being ignored in favour of the shared bus.
  */
 function resolveRootInfo(
   flags: Record<string, string>,
   cwd: () => string
-): { root: string; source: "flag" | "env" | "cwd" } {
+): { root: string; source: "flag" | "env" | "default" } {
   if (flags.root) return { root: flags.root, source: "flag" };
   const env = process.env.H2A_ROOT;
   if (env && env.length > 0) return { root: env, source: "env" };
-  return { root: join(cwd(), ".h2a"), source: "cwd" };
+  return { root: join(homedir(), "h2a-workspace", ".h2a"), source: "default" };
 }
 
 function resolveRoot(flags: Record<string, string>, cwd: () => string): string {
@@ -377,10 +381,11 @@ function resolveRoot(flags: Record<string, string>, cwd: () => string): string {
 }
 
 /**
- * Warn (once, to stderr) when the root was taken from the `cwd` fallback rather
- * than an explicit `--root`/`H2A_ROOT`. Used by the long-lived `mcp-serve` /
- * `connect` paths that establish an agent's bus — a silent cwd fork there is the
- * split-brain root bug. One-shot verbs stay quiet.
+ * Warn (once, to stderr) when the root was taken from the shared default but a
+ * DIFFERENT repo-local `.h2a` exists in the current working directory. The
+ * user may have intended to use the local bus — so we alert them to pass
+ * `--root <cwd>/.h2a` if that was their intent. When the default IS the right
+ * bus (no local `.h2a` around), stay silent. Used by `mcp-serve` and `connect`.
  */
 function warnIfCwdRootFallback(
   flags: Record<string, string>,
@@ -388,12 +393,22 @@ function warnIfCwdRootFallback(
   streams: H2ACliStreams
 ): void {
   const info = resolveRootInfo(flags, cwd);
-  if (info.source !== "cwd") return;
-  streams.stderr.write(
-    `h2a: no --root/H2A_ROOT set — using this repo's local bus ${info.root}. ` +
-      `Agents on different roots cannot see each other; if you meant the shared bus, ` +
-      `set H2A_ROOT (e.g. ~/h2a-workspace/.h2a) or pass --root. Run \`h2a doctor\` to check.\n`
-  );
+  if (info.source !== "default") return;
+  const cwdLocal = join(cwd(), ".h2a");
+  try {
+    if (!existsSync(cwdLocal)) return;
+    const resolvedLocal = realpathSync(cwdLocal);
+    const resolvedRoot = (() => {
+      try { return realpathSync(info.root); } catch { return info.root; }
+    })();
+    if (resolvedLocal === resolvedRoot) return;
+    streams.stderr.write(
+      `h2a: a repo-local .h2a exists here but I'm using the shared bus ${info.root}. ` +
+        `Pass --root ${cwdLocal} if you meant the local one.\n`
+    );
+  } catch {
+    // silently ignore filesystem errors
+  }
 }
 
 /**
@@ -3681,12 +3696,12 @@ function cmdDoctor(
   // (a) rootSource: record where the root came from
   const rootInfo = resolveRootInfo(flags, cwd);
   report.rootSource = rootInfo.source;
-  if (rootInfo.source === "cwd") {
+  if (rootInfo.source === "default") {
     warnings.push({
       check: "rootSource",
       message:
-        `The bus root is the repo-local cwd fallback (${root}). ` +
-        `Set H2A_ROOT or pass --root <shared-bus-path> so all agents see each other. ` +
+        `The bus root is the global shared default (${root}). ` +
+        `Set H2A_ROOT or pass --root <path> to use a different bus. ` +
         `Agents on different roots cannot exchange messages.`
     });
   }
@@ -3714,6 +3729,8 @@ function cmdDoctor(
 
   // (c) inboxHygiene: scan inbox for case/slug duplicates, host-less dirs, phantom 3-segment dirs
   const inboxDir = join(root, "inbox");
+  // Collect dirs to prune (with --prune only).
+  const pruned: Array<{ name: string; path: string }> = [];
   if (existsSync(inboxDir)) {
     let inboxEntries: string[] = [];
     try {
@@ -3750,7 +3767,7 @@ function cmdDoctor(
           message:
             `${dupGroups.length} case/slug duplicate group(s) in inbox — ` +
             `different dir names map to the same canonical address. ` +
-            `Examples: ${examples.join(", ")}`
+            `Examples: ${examples.join(", ")}. (Not pruned — too risky; resolve manually.)`
         });
       }
 
@@ -3770,6 +3787,17 @@ function cmdDoctor(
             `${hostless.length} host-less inbox dir(s) (first segment is not claude/codex/gemini/remote). ` +
             `Examples: ${examples.join(", ")}`
         });
+        if (flags.prune !== undefined) {
+          for (const name of hostless) {
+            const dir = join(inboxDir, name);
+            try {
+              rmSync(dir, { recursive: true, force: true });
+              pruned.push({ name, path: dir });
+            } catch (error) {
+              streams.stderr.write(`h2a doctor --prune: cannot remove ${dir}: ${(error as Error).message}\n`);
+            }
+          }
+        }
       }
 
       // Phantom 3-segment dirs: exactly 3 __ segments but 3rd is not a 12-char hex session id
@@ -3790,13 +3818,66 @@ function cmdDoctor(
             `${phantom.length} phantom 3-segment inbox dir(s) where the tail is not a 12-char hex session id. ` +
             `Examples: ${examples.join(", ")}`
         });
+        if (flags.prune !== undefined) {
+          for (const name of phantom) {
+            const dir = join(inboxDir, name);
+            try {
+              rmSync(dir, { recursive: true, force: true });
+              pruned.push({ name, path: dir });
+            } catch (error) {
+              streams.stderr.write(`h2a doctor --prune: cannot remove ${dir}: ${(error as Error).message}\n`);
+            }
+          }
+        }
+      }
+
+      // Orphan 3-segment dirs: 3 segments, valid hex tail, but UUID is NOT in registry/instances.jsonl
+      if (flags.prune !== undefined) {
+        const instancesFile = join(root, "registry", "instances.jsonl");
+        let registeredUuids: Set<string> = new Set();
+        try {
+          const content = readFileSync(instancesFile, "utf8");
+          for (const line of content.split("\n")) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            try {
+              const obj = JSON.parse(trimmed);
+              const id: string = typeof obj.instance === "string" ? obj.instance : (typeof obj.id === "string" ? obj.id : "");
+              // Extract the hex tail segment from the instance id (e.g. host:label:abc123456789)
+              const parts = id.split(":");
+              if (parts.length >= 3) {
+                const tail = parts[parts.length - 1];
+                if (VALID_TAIL_RE.test(tail)) registeredUuids.add(tail.toLowerCase());
+              }
+            } catch {
+              // skip malformed
+            }
+          }
+        } catch {
+          // instances file absent — keep set empty (prune all orphans below)
+        }
+        const orphan3seg = inboxEntries.filter((entry) => {
+          const segs = entry.split("__");
+          if (segs.length !== 3) return false;
+          if (!VALID_TAIL_RE.test(segs[2])) return false; // already handled as phantom
+          return !registeredUuids.has(segs[2].toLowerCase());
+        });
+        for (const name of orphan3seg) {
+          const dir = join(inboxDir, name);
+          try {
+            rmSync(dir, { recursive: true, force: true });
+            pruned.push({ name, path: dir });
+          } catch (error) {
+            streams.stderr.write(`h2a doctor --prune: cannot remove ${dir}: ${(error as Error).message}\n`);
+          }
+        }
       }
     }
   }
 
   // (d) --scan <dir>: find immediate child buses (ONE level deep)
+  const strayBuses: Array<Record<string, unknown>> = [];
   if (flags.scan) {
-    const strayBuses: Array<Record<string, unknown>> = [];
     try {
       const scanChildren = readdirSync(flags.scan);
       for (const child of scanChildren) {
@@ -3825,7 +3906,22 @@ function cmdDoctor(
           `${strayBuses.length} stray repo-local .h2a bus(es) found under ${flags.scan} — ` +
           `candidate split-brain forks. Each may have agents on a different root.`
       });
+      if (flags.prune !== undefined) {
+        for (const bus of strayBuses) {
+          const busPath = bus.path as string;
+          try {
+            rmSync(busPath, { recursive: true, force: true });
+            pruned.push({ name: busPath, path: busPath });
+          } catch (error) {
+            streams.stderr.write(`h2a doctor --prune: cannot remove ${busPath}: ${(error as Error).message}\n`);
+          }
+        }
+      }
     }
+  }
+
+  if (flags.prune !== undefined) {
+    report.pruned = pruned;
   }
 
   streams.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
@@ -4502,6 +4598,112 @@ function cmdDeployTenant(
   return 0;
 }
 
+// ── WP-5: keepalive ────────────────────────────────────────────────────────
+
+/**
+ * Single-pass keepalive logic, testable without real tmux.
+ *
+ * For each presence file under `root`, if the session has a
+ * `launchContext.tmux.pane` that is in `livePanes`, rewrite its `heartbeatAt`
+ * to `now` so the session does not expire.
+ */
+export function keepaliveOnce(opts: {
+  root: string;
+  livePanes: Set<string>;
+  now?: Date;
+}): Array<{ instance: string; sessionId: string; pane: string }> {
+  const { root, livePanes } = opts;
+  const nowIso = (opts.now ?? new Date()).toISOString();
+  const refreshed: Array<{ instance: string; sessionId: string; pane: string }> = [];
+  // includeExpired=true so we can refresh sessions that are about to expire
+  const sessions = listPresence(root, { includeExpired: true });
+  for (const session of sessions) {
+    const pane = session.launchContext?.tmux?.pane;
+    if (!pane) continue;
+    if (!livePanes.has(pane)) continue;
+    // Rewrite heartbeatAt to now
+    const updated = { ...session, heartbeatAt: nowIso };
+    try {
+      writePresence(root, updated);
+      refreshed.push({ instance: session.instance, sessionId: session.sessionId, pane });
+    } catch {
+      // best-effort — ignore write failures
+    }
+  }
+  return refreshed;
+}
+
+/**
+ * `h2a keepalive [--root <path>] [--interval <ms>] [--once]`
+ *
+ * External keepalive prober: runs by the launcher/remote so a host-suspended
+ * `mcp-serve` still shows live as long as its tmux pane is alive. `--once`
+ * does a single pass then exits 0. Without `--once`, loops on an unref'd
+ * interval (default 30 000 ms).
+ */
+export async function cmdKeepalive(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): Promise<number> {
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const intervalMs = flags.interval ? Number.parseInt(flags.interval, 10) : 30_000;
+  if (!Number.isInteger(intervalMs) || intervalMs < 1000) {
+    streams.stderr.write(
+      `h2a keepalive: --interval must be >= 1000 ms (got "${flags.interval}")\n`
+    );
+    return 1;
+  }
+
+  function getLivePanes(): Set<string> {
+    try {
+      const out = execFileSync("tmux", ["list-panes", "-aF", "#{pane_id}"], {
+        encoding: "utf8",
+        timeout: 5000
+      });
+      const panes = new Set(
+        out
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0)
+      );
+      return panes;
+    } catch {
+      streams.stderr.write(
+        "h2a keepalive: tmux not available or returned an error — treating live-pane set as empty.\n"
+      );
+      return new Set<string>();
+    }
+  }
+
+  function runOnce(): void {
+    const livePanes = getLivePanes();
+    const refreshed = keepaliveOnce({ root, livePanes });
+    for (const item of refreshed) {
+      streams.stdout.write(
+        `h2a keepalive: refreshed ${item.instance} (session ${item.sessionId}, pane ${item.pane})\n`
+      );
+    }
+  }
+
+  runOnce();
+
+  if (flags.once !== undefined) {
+    return 0;
+  }
+
+  // Long-running loop — unref the interval so it does not keep the process alive.
+  return new Promise<number>((resolve) => {
+    const timer = setInterval(() => {
+      runOnce();
+    }, intervalMs);
+    timer.unref();
+    // The process will exit naturally when there is nothing else keeping it alive.
+    // For tests that want to abort, they should pass --once.
+    void resolve; // keep linter happy
+  });
+}
+
 export function runCli(
   argv: readonly string[] = process.argv.slice(2),
   streams: H2ACliStreams = {
@@ -4570,6 +4772,12 @@ export function runCli(
   if (command === "status") return cmdStatus(flags, streams);
   if (command === "doctor") return cmdDoctor(flags, streams);
   if (command === "connect") return cmdConnect(flags, streams);
+  if (command === "keepalive") {
+    streams.stderr.write(
+      "h2a keepalive: async command — run via the h2a binary, not the synchronous API.\n"
+    );
+    return 1;
+  }
   if (command === "install-skills") return cmdInstallSkills(flags, streams);
   if (command === "deploy") return cmdDeploy(argv.slice(1), streams);
   if (command === "drive") {
