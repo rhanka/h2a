@@ -19,8 +19,8 @@ test("h2a-cli aggregates the supported hosts", () => {
 
 test("h2a-cli exposes the canonical MCP tool names", () => {
   assert.equal(H2A_CLI_MCP_TOOL_NAMES[0], "h2a_register_instance");
-  // DEC-092 added the blockage tools; resolve is the last canonical entry.
-  assert.equal(H2A_CLI_MCP_TOOL_NAMES.at(-1), "h2a_blockage_resolve");
+  // WP-G1 added the conductor tool; it is now the last canonical entry.
+  assert.equal(H2A_CLI_MCP_TOOL_NAMES.at(-1), "h2a_conductor");
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_nhi_offboard"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_nhi_export"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_blockage_raise"));

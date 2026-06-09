@@ -293,6 +293,13 @@ export {
 export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce } from "./cli.js";
 
 export {
+  conductorFor,
+  type ConductorCandidate,
+  type ConductorForOptions,
+  type ConductorResolution
+} from "./runtime/governance/index.js";
+
+export {
   resolveSysmlElement,
   hashSysmlElement,
   verifyEnvelopeSysmlRef,

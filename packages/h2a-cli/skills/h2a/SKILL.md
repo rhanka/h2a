@@ -1,6 +1,6 @@
 ---
 name: h2a
-version: 0.61.0
+version: 0.62.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
@@ -13,6 +13,7 @@ When invoked, parse the arguments and dispatch to the matching subcommand below.
 /h2a connect [root]            → bootstrap a live session in this conversation
 /h2a status                    → show current session state and health summary
 /h2a discover [scope]          → list live peer agents
+/h2a conductor [workspace]     → who owns/conducts a workspace right now (null = none yet)
 /h2a send <peer> "<text>"      → put a message envelope in a peer's inbox
 /h2a receive                   → read this agent's inbox and react to new envelopes
 /h2a negotiate <verb> ...      → drive a negotiation lifecycle (open|offer|sign|stabilize)
@@ -67,6 +68,17 @@ Steps:
 5. If empty: say so and suggest the user check that the other CLIs ran `/h2a connect` against the same root.
 
 End with: *"To message one of these: `/h2a send <instance> \"<text>\"`."*
+
+### `/h2a conductor [workspace]`
+
+Resolve who owns/conducts a workspace right now. Call `h2a_conductor` (MCP) or `h2a conductor --workspace <id|path>` (CLI).
+
+- `conductor` = a live in-workspace agent registered with role `CONDUCTOR`, or `null` if none yet. **Null is the normal/expected state** today — agents auto-register as `AGENTS`, not `CONDUCTOR`. Do NOT treat `null` as an error; it means "no designated owner yet."
+- `candidates` = all in-workspace live agents (anyone who has a fresh presence record for that workspace), regardless of role.
+- `live` = `true` if at least one candidate is present.
+- `workspace` argument: a `ws:<uuid>` workspace id or a filesystem path (resolved via the same derivation presence uses). Defaults to cwd.
+
+**When to use it:** call `h2a_conductor` before acting in a workspace on behalf of another agent, to check whether a designated conductor is already live. If `conductor` is non-null, coordinate with them first rather than acting unilaterally.
 
 ### `/h2a send <peer> "<text>"`
 

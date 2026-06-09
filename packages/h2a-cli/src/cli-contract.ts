@@ -745,6 +745,17 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "List the ordered conversation (by createdAt) for a threadId, from the actor's inbox+outbox. Lightweight pre-negotiation threading: envelopes carry threadId/replyTo; storage is derived (no new store)."
   },
 
+  // --- governance layer (WP-G1) ---
+  {
+    verb: "conductor",
+    outputShape: "resource",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["workspace", "root"],
+    description:
+      "Resolve the live conductor/owner of a workspace (read-only, derived from presence): conductor = a live in-workspace agent registered with role CONDUCTOR (else null); candidates = all in-workspace live agents."
+  },
+
   // --- deployment (DEC-058 / Scenario A of DEC-056) ---
   {
     verb: "deploy k8s-sidecar",

@@ -445,5 +445,23 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
       },
       required: ["instance"]
     }
+  },
+  {
+    name: "h2a_conductor",
+    description:
+      "Resolve the live conductor/owner of a workspace (WP-G1, read-only). conductor = the live in-workspace agent registered with role CONDUCTOR (null if none). candidates = all in-workspace live agents. Accepts workspaceId (ws:…) or workspacePath (filesystem path).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspaceId: {
+          type: "string",
+          description: "Workspace id in ws:<uuid> form. Mutually exclusive with workspacePath."
+        },
+        workspacePath: {
+          type: "string",
+          description: "Filesystem path; resolved to a workspaceId via the same derivation presence uses."
+        }
+      }
+    }
   }
 ];

@@ -50,7 +50,7 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -69,6 +69,7 @@ import {
   checkEnvelopeFreshness,
   computeHash,
   createEnvelope,
+  deriveWorkspaceId,
   diffOrgManifest,
   effectiveOrgInstances,
   isComprehensionAttestation,
@@ -184,6 +185,7 @@ import {
   type UpgradeRuntime
 } from "./runtime/upgrade/index.js";
 import { resolveLiveIdentity } from "./runtime/identity/index.js";
+import { conductorFor } from "./runtime/governance/conductor.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -304,6 +306,7 @@ export function renderCliHelp(): string {
     "",
     "High-level coordination (DEC-054):",
     "  h2a connect --host <codex|claude|gemini|agy|remote> [--root <path>] [--instance <id>] [--name <display>]",
+    "  h2a conductor [--workspace <id|path>] [--root <path>]   (who is the live conductor/owner of a workspace — derived from presence; conductor=role CONDUCTOR if set, else null; candidates=in-workspace live agents)",
     "  h2a doctor [--root <path>] [--scan <dir>] [--prune]   (--prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
     "  h2a keepalive [--root <path>] [--interval <ms>] [--once]   (external keepalive prober — refreshes presence for agents whose tmux pane is still alive)",
     "  h2a rename --instance <id> --name <name> [--root <path>]   (set a live session's display name so peers can find it via discover --name)",
@@ -3624,6 +3627,66 @@ function cmdStatus(
   }
 }
 
+/**
+ * Read the stable machine-id for workspace derivation (mirrors live.ts).
+ * Used only by `cmdConductor` when the caller passes a filesystem path.
+ */
+function cliReadMachineId(): string {
+  for (const p of ["/etc/machine-id", "/var/lib/dbus/machine-id"]) {
+    try {
+      const id = readFileSync(p, "utf8").trim();
+      if (id.length > 0) return id;
+    } catch {
+      // try next source
+    }
+  }
+  return hostname() || "unknown-machine";
+}
+
+/**
+ * `h2a conductor [--workspace <id|path>] [--root <path>]`
+ *
+ * Resolve the live conductor/owner of a workspace (WP-G1, read-only).
+ * --workspace accepts a workspace id (`ws:…`) OR a filesystem path; a path
+ * is resolved to a workspaceId via the same derivation presence uses. If
+ * omitted, defaults to cwd.
+ *
+ * Output shape: resource (JSON of ConductorResolution). Exit 0 always.
+ */
+function cmdConductor(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+
+  let workspaceId: string;
+  const wsFlag = flags.workspace;
+  if (!wsFlag) {
+    // Default to cwd
+    const cwdPath = cwd();
+    let realPath = cwdPath;
+    try { realPath = realpathSync(cwdPath); } catch { /* use cwd as-is */ }
+    workspaceId = deriveWorkspaceId({ machineId: cliReadMachineId(), path: realPath });
+  } else if (wsFlag.startsWith("ws:")) {
+    workspaceId = wsFlag;
+  } else {
+    // Treat as a filesystem path
+    let realPath = wsFlag;
+    try { realPath = realpathSync(wsFlag); } catch { /* use as-is */ }
+    workspaceId = deriveWorkspaceId({ machineId: cliReadMachineId(), path: realPath });
+  }
+
+  try {
+    const result = conductorFor({ root, workspaceId });
+    streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  } catch (error) {
+    streams.stderr.write(`h2a conductor: ${(error as Error).message}\n`);
+    return 1;
+  }
+}
+
 function cmdDoctor(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -4772,6 +4835,7 @@ export function runCli(
   if (command === "status") return cmdStatus(flags, streams);
   if (command === "doctor") return cmdDoctor(flags, streams);
   if (command === "connect") return cmdConnect(flags, streams);
+  if (command === "conductor") return cmdConductor(flags, streams);
   if (command === "keepalive") {
     streams.stderr.write(
       "h2a keepalive: async command — run via the h2a binary, not the synchronous API.\n"

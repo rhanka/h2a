@@ -3,15 +3,16 @@ import { createLocalStore, type LocalStore } from "../local-files/store.js";
 import {
   handleAppendJournal,
   handleAttestComprehension,
+  handleBlockageList,
+  handleBlockageRaise,
+  handleBlockageResolve,
   handleConflictPosture,
+  handleConductor,
   handleCounteroffer,
   handleDeclareConflitInteret,
   handleDiscoverInstances,
   handleDiscoverSessions,
   handleEscalate,
-  handleBlockageList,
-  handleBlockageRaise,
-  handleBlockageResolve,
   handleInbox,
   handleNhiAttest,
   handleNhiExport,
@@ -153,6 +154,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleBlockageList(store, args as never);
       case "h2a_blockage_resolve":
         return handleBlockageResolve(store, args as never);
+      case "h2a_conductor":
+        return handleConductor(store.paths.root, args as never);
       default:
         return { error: `unknown tool: ${name}` };
     }
