@@ -14,7 +14,8 @@
  * Then invokes `node --test <file1> <file2> ...` and forwards the exit code.
  */
 import { spawnSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -55,11 +56,19 @@ if (files.length === 0) {
 // node-20-incompatible `--test-timeout` flag). Override via H2A_TEST_TIMEOUT_MS.
 const RUN_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 600000;
 
+// Defense-in-depth: create a throwaway temp dir for H2A_ROOT so that any test
+// that runs a writing verb (connect/register/mcp-serve) without --root AND with
+// H2A_ROOT unset writes to an isolated temp instead of the real shared bus.
+// Tests that pass --root explicitly override this; tests that set H2A_ROOT
+// themselves also override it within their own process.env assignments.
+const testRoot = mkdtempSync(join(tmpdir(), "h2a-test-root-"));
+
 const result = spawnSync(process.execPath, ["--test", ...files], {
   cwd: REPO_ROOT,
   stdio: "inherit",
   timeout: RUN_TIMEOUT_MS,
-  killSignal: "SIGKILL"
+  killSignal: "SIGKILL",
+  env: { ...process.env, H2A_ROOT: join(testRoot, ".h2a") }
 });
 
 if (result.error && result.error.code === "ETIMEDOUT") {
