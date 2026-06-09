@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -179,8 +179,11 @@ test("doctor without --prune: reports dead dirs but does not delete them", () =>
 test("connect: no stderr warning when using shared bus with NO local .h2a in cwd", () => {
   const dir = mkdtempSync(join(homedir(), "wp4-nowarn-test-"));
   const savedEnv = process.env.H2A_ROOT;
+  // Isolated temp shared-bus so the connect write never touches the real shared bus.
+  const isolatedBus = mkdtempSync(join(tmpdir(), "h2a-test-bus-"));
   try {
-    delete process.env.H2A_ROOT;
+    // Point H2A_ROOT at the isolated temp — source=env, cwd has NO local .h2a → no warning.
+    process.env.H2A_ROOT = join(isolatedBus, ".h2a");
     // No local .h2a in dir — should be quiet
     const streams = captureStreams(dir);
     runCli(["connect", "--host", "claude"], streams);
@@ -196,21 +199,25 @@ test("connect: no stderr warning when using shared bus with NO local .h2a in cwd
       process.env.H2A_ROOT = savedEnv;
     }
     rmSync(dir, { recursive: true, force: true });
+    rmSync(isolatedBus, { recursive: true, force: true });
   }
 });
 
 test("connect: warns when local .h2a exists and differs from shared default", () => {
   const dir = mkdtempSync(join(homedir(), "wp4-warn-test-"));
   const savedEnv = process.env.H2A_ROOT;
+  // Isolated temp shared-bus so the connect write never touches the real shared bus.
+  const isolatedBus = mkdtempSync(join(tmpdir(), "h2a-test-bus-"));
   try {
-    delete process.env.H2A_ROOT;
-    // Create a local .h2a in the cwd
+    // Point H2A_ROOT at the isolated temp (differs from cwd/.h2a) → warning fires.
+    process.env.H2A_ROOT = join(isolatedBus, ".h2a");
+    // Create a local .h2a in the cwd — this is what triggers the warning
     const localRoot = join(dir, ".h2a");
     mkdirSync(localRoot, { recursive: true });
 
     const streams = captureStreams(dir);
     runCli(["connect", "--host", "claude"], streams);
-    // Now the warning should appear
+    // Now the warning should appear: cwd/.h2a exists and differs from the resolved root
     assert.match(
       streams.stderrText,
       /a repo-local \.h2a exists here but I'm using the shared bus/,
@@ -223,5 +230,6 @@ test("connect: warns when local .h2a exists and differs from shared default", ()
       process.env.H2A_ROOT = savedEnv;
     }
     rmSync(dir, { recursive: true, force: true });
+    rmSync(isolatedBus, { recursive: true, force: true });
   }
 });

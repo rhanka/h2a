@@ -117,8 +117,11 @@ test("doctor: neither --root nor H2A_ROOT → rootSource=default (shared bus, WP
 test("connect: no warning when using shared default bus with no local .h2a (WP-4)", () => {
   const dir = mkdtempSync(join(tmpdir(), "wp1-conn-"));
   const savedEnv = process.env.H2A_ROOT;
+  // Isolated temp shared-bus so the connect write never touches the real shared bus.
+  const isolatedBus = mkdtempSync(join(tmpdir(), "h2a-test-bus-"));
   try {
-    delete process.env.H2A_ROOT;
+    // Point H2A_ROOT at the isolated temp — no local .h2a in cwd → no warning.
+    process.env.H2A_ROOT = join(isolatedBus, ".h2a");
     const streams = captureStreams(dir);
     // connect may fail (no root initialised), but must NOT emit a rootSource warning
     runCli(["connect", "--host", "claude"], streams);
@@ -135,6 +138,7 @@ test("connect: no warning when using shared default bus with no local .h2a (WP-4
       process.env.H2A_ROOT = savedEnv;
     }
     rmSync(dir, { recursive: true, force: true });
+    rmSync(isolatedBus, { recursive: true, force: true });
   }
 });
 

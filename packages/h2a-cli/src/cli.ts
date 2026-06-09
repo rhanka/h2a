@@ -384,11 +384,12 @@ function resolveRoot(flags: Record<string, string>, cwd: () => string): string {
 }
 
 /**
- * Warn (once, to stderr) when the root was taken from the shared default but a
- * DIFFERENT repo-local `.h2a` exists in the current working directory. The
- * user may have intended to use the local bus — so we alert them to pass
- * `--root <cwd>/.h2a` if that was their intent. When the default IS the right
- * bus (no local `.h2a` around), stay silent. Used by `mcp-serve` and `connect`.
+ * Warn (once, to stderr) when the resolved root (from the shared default OR
+ * from H2A_ROOT env) differs from a repo-local `.h2a` that exists in the
+ * current working directory. The user may have intended to use the local bus —
+ * so we alert them to pass `--root <cwd>/.h2a` if that was their intent. When
+ * no local `.h2a` exists around the cwd, or when an explicit `--root` flag was
+ * used (the user was unambiguous), stay silent. Used by `mcp-serve` and `connect`.
  */
 function warnIfCwdRootFallback(
   flags: Record<string, string>,
@@ -396,7 +397,9 @@ function warnIfCwdRootFallback(
   streams: H2ACliStreams
 ): void {
   const info = resolveRootInfo(flags, cwd);
-  if (info.source !== "default") return;
+  // Only warn for implicit resolution (default or env). An explicit --root flag
+  // means the user was unambiguous about which bus to use.
+  if (info.source === "flag") return;
   const cwdLocal = join(cwd(), ".h2a");
   try {
     if (!existsSync(cwdLocal)) return;
