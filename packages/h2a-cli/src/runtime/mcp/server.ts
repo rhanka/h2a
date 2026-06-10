@@ -8,6 +8,8 @@ import {
   handleBlockageResolve,
   handleConflictPosture,
   handleConductor,
+  handleConductorClaim,
+  handleConductorRelease,
   handleCounteroffer,
   handleDeclareConflitInteret,
   handleDiscoverInstances,
@@ -156,6 +158,10 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleBlockageResolve(store, args as never);
       case "h2a_conductor":
         return handleConductor(store.paths.root, args as never);
+      case "h2a_conductor_claim":
+        return handleConductorClaim(store.paths.root, args as never);
+      case "h2a_conductor_release":
+        return handleConductorRelease(store.paths.root, args as never);
       default:
         return { error: `unknown tool: ${name}` };
     }

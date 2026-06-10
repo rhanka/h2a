@@ -186,6 +186,7 @@ import {
 } from "./runtime/upgrade/index.js";
 import { resolveLiveIdentity } from "./runtime/identity/index.js";
 import { conductorFor } from "./runtime/governance/conductor.js";
+import { appendConductorClaim } from "./runtime/governance/claims.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -3647,39 +3648,80 @@ function cliReadMachineId(): string {
 }
 
 /**
- * `h2a conductor [--workspace <id|path>] [--root <path>]`
- *
- * Resolve the live conductor/owner of a workspace (WP-G1, read-only).
- * --workspace accepts a workspace id (`ws:…`) OR a filesystem path; a path
- * is resolved to a workspaceId via the same derivation presence uses. If
- * omitted, defaults to cwd.
- *
- * Output shape: resource (JSON of ConductorResolution). Exit 0 always.
+ * Resolve a workspace id from CLI flags (workspace flag or cwd default).
+ * Shared by `h2a conductor`, `h2a conductor claim`, and `h2a conductor release`.
  */
-function cmdConductor(
+function resolveConductorWorkspaceId(
   flags: Record<string, string>,
-  streams: H2ACliStreams
-): number {
-  const cwd = streams.cwd ?? (() => process.cwd());
-  const root = resolveRoot(flags, cwd);
-
-  let workspaceId: string;
+  cwd: () => string
+): string {
   const wsFlag = flags.workspace;
   if (!wsFlag) {
     // Default to cwd
     const cwdPath = cwd();
     let realPath = cwdPath;
     try { realPath = realpathSync(cwdPath); } catch { /* use cwd as-is */ }
-    workspaceId = deriveWorkspaceId({ machineId: cliReadMachineId(), path: realPath });
+    return deriveWorkspaceId({ machineId: cliReadMachineId(), path: realPath });
   } else if (wsFlag.startsWith("ws:")) {
-    workspaceId = wsFlag;
+    return wsFlag;
   } else {
     // Treat as a filesystem path
     let realPath = wsFlag;
     try { realPath = realpathSync(wsFlag); } catch { /* use as-is */ }
-    workspaceId = deriveWorkspaceId({ machineId: cliReadMachineId(), path: realPath });
+    return deriveWorkspaceId({ machineId: cliReadMachineId(), path: realPath });
+  }
+}
+
+/**
+ * `h2a conductor [claim|release] [--instance <self>] [--workspace <id|path>] [--root <path>]`
+ *
+ * - No subverb: resolve the live conductor/owner (WP-G1, read-only).
+ * - `claim`:   append a claim event and return the post-claim resolution.
+ * - `release`: append a release event and return the post-release resolution.
+ *
+ * Output shape: resource (JSON of ConductorResolution). Exit 0 on success,
+ * exit 1 on user error (missing --instance for claim/release).
+ */
+function cmdConductor(
+  argv: readonly string[],
+  streams: H2ACliStreams
+): number {
+  // Only "claim"/"release" are subverbs. Otherwise the first token is a flag
+  // (e.g. `conductor --workspace …`) — parseFlags would consume it as the
+  // command and DROP --workspace, silently defaulting to cwd. Prepend a
+  // placeholder so all flags parse from the full argv in the no-subverb case.
+  const sub =
+    argv[0] === "claim" || argv[0] === "release" ? argv[0] : undefined;
+  const { flags } = parseFlags(sub ? argv : ["", ...argv]);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+
+  // Subverbs: claim / release
+  if (sub === "claim" || sub === "release") {
+    if (!flags.instance) {
+      streams.stderr.write(`h2a conductor ${sub}: --instance <self> is required\n`);
+      return 1;
+    }
+    const workspaceId = resolveConductorWorkspaceId(flags, cwd);
+    try {
+      appendConductorClaim(root, {
+        type: sub,
+        workspaceId,
+        instance: flags.instance,
+        at: new Date().toISOString()
+      });
+      const result = conductorFor({ root, workspaceId });
+      streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return 0;
+    } catch (error) {
+      streams.stderr.write(`h2a conductor ${sub}: ${(error as Error).message}\n`);
+      return 1;
+    }
   }
 
+  // No subverb (or unrecognized subverb treated as workspace flag for back-compat):
+  // resolve the conductor (read-only).
+  const workspaceId = resolveConductorWorkspaceId(flags, cwd);
   try {
     const result = conductorFor({ root, workspaceId });
     streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -4838,7 +4880,7 @@ export function runCli(
   if (command === "status") return cmdStatus(flags, streams);
   if (command === "doctor") return cmdDoctor(flags, streams);
   if (command === "connect") return cmdConnect(flags, streams);
-  if (command === "conductor") return cmdConductor(flags, streams);
+  if (command === "conductor") return cmdConductor(argv.slice(1), streams);
   if (command === "keepalive") {
     streams.stderr.write(
       "h2a keepalive: async command — run via the h2a binary, not the synchronous API.\n"
