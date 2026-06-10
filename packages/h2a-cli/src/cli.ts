@@ -2831,6 +2831,13 @@ export async function runDrumbeatWatch(
     intervalMs,
     ...(maxRelances !== undefined ? { maxRelances } : {}),
     signal: io.signal,
+    // Gov D2/D4: pass the drumbeat runner's own identity so conductor-ownership
+    // and cross-workspace CoI checks are active.  `--instance` is required for
+    // the remote relauncher (the signer); when present it is also the self-id
+    // for governance.  Without it the checks are silently skipped (default-allow).
+    root,
+    ...(flags.instance !== undefined ? { selfInstance: flags.instance } : {}),
+    log,
     beforeScan: async () => {
       const result = await relanceFromInbox(root, {
         relauncher: buildLocalInboxRelauncher(kind, log)
