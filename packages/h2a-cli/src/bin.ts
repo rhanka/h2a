@@ -49,7 +49,28 @@ function runAsync(label: string, promise: Promise<number>): void {
 // `mcp-serve` and `remote serve/send` are async (long-running loop or network);
 // the synchronous `runCli` cannot represent them, so we dispatch directly here.
 if (argv[0] === "mcp-serve") {
-  runAsync("mcp-serve", runMcpServe(parseFlagsFrom(1)));
+  // Graceful shutdown: a host kill (or orderly stop) cleans presence
+  // immediately (sessions → `closed`) rather than leaving it to expire as
+  // false-live. We override the default signal terminate, so we MUST guarantee
+  // the process still exits — hence the unref'd fallback timer.
+  const ac = new AbortController();
+  const onSignal = (sig: NodeJS.Signals): void => {
+    process.stderr.write(`h2a mcp-serve: received ${sig}, shutting down gracefully\n`);
+    ac.abort();
+    setTimeout(() => process.exit(process.exitCode ?? 0), 750).unref();
+  };
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => onSignal(sig));
+  }
+  runAsync(
+    "mcp-serve",
+    runMcpServe(parseFlagsFrom(1), {
+      stdin: process.stdin,
+      stdout: process.stdout,
+      stderr: process.stderr,
+      signal: ac.signal
+    })
+  );
 } else if (argv[0] === "remote" && argv[1] === "serve") {
   runAsync("remote serve", runRemoteServe(parseFlagsFrom(2)));
 } else if (argv[0] === "remote" && argv[1] === "send") {

@@ -20,6 +20,8 @@ export {
   deletePresence,
   listPresence,
   readPresence,
+  reapAllDeadPresence,
+  reapDeadInstancePresence,
   updatePresence,
   writePresence,
   type ListPresenceOptions,

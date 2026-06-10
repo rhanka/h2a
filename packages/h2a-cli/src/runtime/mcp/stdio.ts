@@ -6,6 +6,7 @@ import type { H2AWorkspaceRef } from "@sentropic/h2a";
 import { createInboxWakeHandler } from "../drive/inbox-wake.js";
 import { detectTmuxLaunchContext, type H2ADriver } from "../drive/index.js";
 import { createLocalStore } from "../local-files/index.js";
+import { reapDeadInstancePresence } from "../local-files/presence.js";
 import { agentVersion } from "../version/agent-version.js";
 import { createMcpServer, type McpServer } from "./server.js";
 
@@ -85,6 +86,14 @@ export interface RunMcpStdioOptions {
     readonly driver: H2ADriver;
     readonly privateKeyPem: string;
   };
+  /**
+   * Optional abort signal for graceful shutdown. When it aborts, the server
+   * closes its sessions (presence → `closed`, so peers no longer see a
+   * false-live) and resolves. The real entry (bin.ts) wires SIGTERM/SIGINT/
+   * SIGHUP to an AbortController so a host kill cleans presence immediately
+   * instead of leaving it to expire. Tests omit it (no process listeners).
+   */
+  signal?: AbortSignal;
 }
 
 function envInt(name: string): number | undefined {
@@ -201,7 +210,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // crash the transport (diagnostics to stderr only — stdout is protocol).
   if (options.autoOpen) {
     try {
-      server.sessions.open({
+      const opened = server.sessions.open({
         instance: options.autoOpen.instance,
         ...(options.autoOpen.host !== undefined ? { host: options.autoOpen.host } : {}),
         ...(options.autoOpen.workspace !== undefined
@@ -227,6 +236,23 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       stderr.write(
         `h2a mcp-serve: auto-opened session for ${options.autoOpen.instance}\n`
       );
+      // Reap the false-live presence left by a previous connection of THIS
+      // agent that the host dropped without signalling (process lingered,
+      // blind heartbeat kept presence "live"). Best-effort, same-instance only.
+      try {
+        const reaped = reapDeadInstancePresence(
+          root,
+          options.autoOpen.instance,
+          opened.sessionId
+        );
+        if (reaped.length > 0) {
+          stderr.write(
+            `h2a mcp-serve: reaped ${reaped.length} stale presence file(s) for ${options.autoOpen.instance}\n`
+          );
+        }
+      } catch {
+        // best-effort
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       stderr.write(`h2a mcp-serve: auto-open failed: ${message}\n`);
@@ -265,7 +291,10 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   (stdin as Readable & { ref?: () => void }).ref?.();
   stdin.resume();
 
+  let didShutdown = false;
   function shutdown(): void {
+    if (didShutdown) return;
+    didShutdown = true;
     try {
       server.notifications.stop();
       server.sessions.closeAll("closed");
@@ -276,6 +305,26 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   }
 
   return new Promise<void>((resolve, reject) => {
+    // Graceful shutdown on abort (SIGTERM/SIGINT/SIGHUP, wired by bin.ts): close
+    // sessions so presence is marked `closed` immediately rather than lingering
+    // as false-live until expiry. Idempotent with the rl `close` path below.
+    const onAbort = (): void => {
+      shutdown();
+      try {
+        rl.close();
+      } catch {
+        // ignore
+      }
+      resolve();
+    };
+    if (options.signal) {
+      if (options.signal.aborted) {
+        onAbort();
+        return;
+      }
+      options.signal.addEventListener("abort", onAbort, { once: true });
+    }
+
     rl.on("line", (line) => {
       const trimmed = line.trim();
       if (trimmed.length === 0) return;

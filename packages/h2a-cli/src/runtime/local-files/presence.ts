@@ -199,3 +199,100 @@ export function updatePresence(
   writePresence(root, next);
   return next;
 }
+
+/**
+ * Default liveness probe: signal-0 to `pid`. `EPERM` means the process exists
+ * but we lack permission (alive); `ESRCH` means no such process (dead).
+ */
+function defaultPidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Reap presence files for the SAME `instance` whose owning process is provably
+ * dead — the "false-live" left behind when a host (Claude Code / Codex) drops
+ * the MCP stdio connection WITHOUT signalling the child: the process lingered
+ * and its blind heartbeat kept the presence "live", so peers kept routing to an
+ * agent that could no longer answer. A fresh `mcp-serve` boot calls this at
+ * auto-open to clear the stale presence of a previous connection of the SAME
+ * agent.
+ *
+ * Reaps an entry iff ALL hold:
+ *  - same `instance` (an instance never migrates machines — it is keyed on the
+ *    provider conversation — so the local pid probe is valid);
+ *  - a DIFFERENT `sessionId` than `keepSessionId` (never reap the caller);
+ *  - a numeric `pid` that `isAlive` reports dead.
+ *
+ * Best-effort: never throws. `isAlive` is injectable for deterministic tests.
+ *
+ * @returns the sessionIds that were reaped.
+ */
+export function reapDeadInstancePresence(
+  root: string,
+  instance: string,
+  keepSessionId: string,
+  isAlive: (pid: number) => boolean = defaultPidAlive
+): string[] {
+  let all: H2ASession[];
+  try {
+    all = listPresence(root, { includeExpired: true });
+  } catch {
+    return [];
+  }
+  const reaped: string[] = [];
+  for (const session of all) {
+    if (session.instance !== instance) continue;
+    if (session.sessionId === keepSessionId) continue;
+    const pid = (session as { pid?: number }).pid;
+    if (typeof pid !== "number") continue;
+    if (isAlive(pid)) continue;
+    try {
+      deletePresence(root, session.sessionId);
+      reaped.push(session.sessionId);
+    } catch {
+      // best-effort: a delete race is harmless (another booter reaped it)
+    }
+  }
+  return reaped;
+}
+
+/**
+ * Host-wide janitor: reap EVERY presence file whose owning process is provably
+ * dead, regardless of instance. The safest possible reap — a dead process
+ * cannot own a live session — but it assumes presence pids are local to this
+ * machine (true for a single-host bus). On a bus shared across machines, scope
+ * with `reapDeadInstancePresence` instead, since a remote pid would read as
+ * dead here. Best-effort: never throws. `isAlive` is injectable for tests.
+ *
+ * @returns the reaped sessionIds (and, for reporting, their instances).
+ */
+export function reapAllDeadPresence(
+  root: string,
+  isAlive: (pid: number) => boolean = defaultPidAlive
+): Array<{ sessionId: string; instance: string; pid: number }> {
+  let all: H2ASession[];
+  try {
+    all = listPresence(root, { includeExpired: true });
+  } catch {
+    return [];
+  }
+  const reaped: Array<{ sessionId: string; instance: string; pid: number }> = [];
+  for (const session of all) {
+    const pid = (session as { pid?: number }).pid;
+    if (typeof pid !== "number") continue;
+    if (isAlive(pid)) continue;
+    try {
+      deletePresence(root, session.sessionId);
+      reaped.push({ sessionId: session.sessionId, instance: session.instance, pid });
+    } catch {
+      // best-effort
+    }
+  }
+  return reaped;
+}

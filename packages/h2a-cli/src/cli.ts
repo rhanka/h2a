@@ -117,6 +117,8 @@ import {
   canonicalAddress,
   createLocalStore,
   listPresence,
+  reapAllDeadPresence,
+  reapDeadInstancePresence,
   readPresence,
   resolveRecipient,
   safePathSegment,
@@ -1481,6 +1483,40 @@ export function cmdUpgrade(
   return 0;
 }
 
+/**
+ * `h2a presence-reap` — false-live janitor. Deletes presence files whose owning
+ * process is provably dead: the stale "live" presence a host (Claude Code /
+ * Codex) leaves when it drops the MCP stdio connection WITHOUT killing the
+ * child, so the lingering process's blind heartbeat kept the presence fresh and
+ * peers kept routing to an unreachable agent. Safe by construction — a dead
+ * process owns no live session — and it never mints identity, so it is safe to
+ * call from a SessionStart hook. Default reaps EVERY dead-pid presence
+ * (host-wide; assumes a single-machine bus); `--instance <id>` scopes it to one
+ * instance (cross-machine-safe). Prints the reaped set as JSON for audit.
+ */
+export function cmdPresenceReap(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const instance = flags.instance;
+  const reaped = instance
+    ? reapDeadInstancePresence(root, instance, "").map((sessionId) => ({
+        sessionId,
+        instance
+      }))
+    : reapAllDeadPresence(root);
+  streams.stdout.write(
+    `${JSON.stringify(
+      { ok: true, root, scope: instance ?? "all-dead-pid", count: reaped.length, reaped },
+      null,
+      2
+    )}\n`
+  );
+  return 0;
+}
+
 export async function runMcpServe(
   flags: Record<string, string>,
   io: {
@@ -1488,6 +1524,8 @@ export async function runMcpServe(
     stdout: NodeJS.WritableStream;
     stderr: NodeJS.WritableStream;
     cwd?: () => string;
+    /** Graceful-shutdown signal; bin.ts wires SIGTERM/SIGINT/SIGHUP to it. */
+    signal?: AbortSignal;
   } = {
     stdin: process.stdin,
     stdout: process.stdout,
@@ -1584,7 +1622,8 @@ export async function runMcpServe(
       stdout: io.stdout as never,
       stderr: io.stderr as never,
       ...(autoOpen ? { autoOpen } : {}),
-      ...(wake ? { wake } : {})
+      ...(wake ? { wake } : {}),
+      ...(io.signal ? { signal: io.signal } : {})
     });
     return 0;
   } catch (err) {
@@ -5106,6 +5145,7 @@ export function runCli(
   if (command === "sessions") return cmdSessions(flags, streams);
   if (command === "status") return cmdStatus(flags, streams);
   if (command === "doctor") return cmdDoctor(flags, streams);
+  if (command === "presence-reap") return cmdPresenceReap(flags, streams);
   if (command === "connect") return cmdConnect(flags, streams);
   if (command === "conductor") return cmdConductor(argv.slice(1), streams);
   if (command === "conductor-launch-check") return cmdConductorLaunchCheck(argv.slice(1), streams);

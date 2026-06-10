@@ -70,6 +70,8 @@ export {
   presenceFile,
   reachGuard,
   readPresence,
+  reapAllDeadPresence,
+  reapDeadInstancePresence,
   resolveRecipient,
   safePathSegment,
   sanitizeStorePaths,
@@ -296,7 +298,7 @@ export {
   type UpgradeCheckResult
 } from "./runtime/upgrade/index.js";
 
-export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce, cmdConductorLaunch } from "./cli.js";
+export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce, cmdConductorLaunch, cmdPresenceReap } from "./cli.js";
 
 export {
   conductorFor,
