@@ -1,6 +1,6 @@
 ---
 name: h2a
-version: 0.65.0
+version: 0.66.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
@@ -17,6 +17,7 @@ When invoked, parse the arguments and dispatch to the matching subcommand below.
 /h2a conductor claim                → claim conductor for a workspace (earliest live claimant wins)
 /h2a conductor release              → release conductor claim (frees it for the next claimant)
 /h2a conductor-launch-check [workspace]  → DRY-RUN: polls track; recommends launching a conductor if stalled + none live
+/h2a conductor-launch [workspace]        → EMIT a launch REQUEST to remote when stalled+no conductor; capped 1/30min, requires --confirm; h2a never spawns
 /h2a send <peer> "<text>"      → put a message envelope in a peer's inbox
 /h2a receive                   → read this agent's inbox and react to new envelopes
 /h2a negotiate <verb> ...      → drive a negotiation lifecycle (open|offer|sign|stabilize)
@@ -119,6 +120,30 @@ Return shape: `{ workspaceId, trackAvailable, conductor, conductorLive, pending,
 - `--idle-ms` is the stall threshold passed to `track workspace-activity` (default 86400000 = 24h).
 
 A one-liner stderr note is emitted when `recommendation === "launch"` reminding callers this is a DRY-RUN.
+
+### `/h2a conductor-launch [workspace] [--idle-ms <ms>] [--confirm] [--remote <instance>] [--instance <self>]`
+
+**D3 EMISSION.** When `conductorLaunchCheck` returns `recommendation="launch"`, emits a `conductor-launch-request` envelope to a live remote agent.
+
+**h2a NEVER spawns a process.** It only puts a request envelope in the remote's inbox; the remote agent executes the actual spawn.
+
+**Gates (both must pass to emit):**
+1. **Human confirmation:** without `--confirm`, only preview the request (`action: "would-emit"`). With `--confirm`, emit + record the marker.
+2. **Cap/cooldown:** at most 1 emission per 30 minutes per workspace (`action: "cooldown"` if too recent).
+
+`--instance <self>` is required with `--confirm` (identifies the sender/signer).
+
+**Host preference in the request:** `["claude", "codex", "agy"]`.
+
+CLI: `h2a conductor-launch [--workspace <id|path>] [--root <path>] [--idle-ms <ms>] [--confirm] [--remote <instance>] [--instance <self>]`
+MCP: `h2a_conductor_launch { workspaceId|workspacePath, idleMs?, confirm?, remote?, instance? }`
+
+Return shape (all cases exit 0 except user errors):
+- `{ action: "none", reason, ...check }` — recommendation is not "launch".
+- `{ action: "cooldown", reason, lastSpawnAt }` — cooldown not elapsed.
+- `{ action: "would-emit", request, note }` — preview (no --confirm).
+- `{ action: "no-remote", reason }` — no live remote agent found (--confirm but no remote).
+- `{ action: "emitted", to, request }` — emitted + marker recorded.
 
 ### `/h2a send <peer> "<text>"`
 

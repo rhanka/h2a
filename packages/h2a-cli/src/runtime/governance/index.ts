@@ -21,3 +21,11 @@ export {
   type RecommendConductorLaunchOpts,
   type StalledItem
 } from "./launch-check.js";
+
+export {
+  recordSpawnRequest,
+  lastSpawnRequestAt,
+  spawnAllowed,
+  type SpawnRequestEvent,
+  type SpawnAllowedOpts
+} from "./spawns.js";

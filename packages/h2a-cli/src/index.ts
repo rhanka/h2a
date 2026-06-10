@@ -296,7 +296,7 @@ export {
   type UpgradeCheckResult
 } from "./runtime/upgrade/index.js";
 
-export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce } from "./cli.js";
+export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce, cmdConductorLaunch } from "./cli.js";
 
 export {
   conductorFor,
@@ -305,6 +305,9 @@ export {
   activeConductorClaims,
   recommendConductorLaunch,
   conductorLaunchCheck,
+  recordSpawnRequest,
+  lastSpawnRequestAt,
+  spawnAllowed,
   type ConductorCandidate,
   type ConductorClaimEvent,
   type ConductorForOptions,
@@ -313,7 +316,9 @@ export {
   type ConductorLaunchCheckOpts,
   type ConductorLaunchCheckResult,
   type RecommendConductorLaunchOpts,
-  type StalledItem
+  type StalledItem,
+  type SpawnRequestEvent,
+  type SpawnAllowedOpts
 } from "./runtime/governance/index.js";
 
 export {

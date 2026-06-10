@@ -531,5 +531,39 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         }
       }
     }
+  },
+  {
+    name: "h2a_conductor_launch",
+    description:
+      "D3 EMISSION: when work is stalled and no conductor is live, EMIT a conductor-launch-request envelope to a live remote agent. Gated by confirm=true (human gate) and a 1/30min/workspace cap. h2a NEVER spawns a process — it only puts a request envelope to remote; remote executes the actual spawn. Without confirm=true, returns a DRY-RUN preview (action: 'would-emit'). Requires instance (self/sender) when confirm=true.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspaceId: {
+          type: "string",
+          description: "Workspace id in ws:<uuid> form. Mutually exclusive with workspacePath."
+        },
+        workspacePath: {
+          type: "string",
+          description: "Filesystem path; resolved to a workspaceId via the same derivation presence uses."
+        },
+        idleMs: {
+          type: "number",
+          description: "Idle threshold in milliseconds (default 86400000 = 24h)."
+        },
+        confirm: {
+          type: "boolean",
+          description: "Human gate: set true to actually emit the request. Without it, returns a DRY-RUN preview."
+        },
+        remote: {
+          type: "string",
+          description: "Optional: explicit remote instance id to target. If absent, the first live remote: agent is used."
+        },
+        instance: {
+          type: "string",
+          description: "Self (sender/signer) instance id. Required when confirm=true."
+        }
+      }
+    }
   }
 ];

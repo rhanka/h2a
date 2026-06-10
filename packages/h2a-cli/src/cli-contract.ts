@@ -782,6 +782,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     description:
       "DRY-RUN (D3): poll track workspace-activity and return a recommendation to launch a conductor if work is durably stalled and no conductor is live. h2a does NOT spawn anything — recommendation is advisory only, launch parked pending spawn policy + remote. Returns { workspaceId, trackAvailable, conductor, conductorLive, pending, stalled, recommendation, reason, suggestedHosts? }. trackAvailable=false when track is absent (graceful). Exit 1 on bad --idle-ms."
   },
+  {
+    verb: "conductor-launch",
+    outputShape: "resource",
+    exitCodes: [0, 1, 3],
+    requiredFlags: [],
+    optionalFlags: ["workspace", "root", "idle-ms", "confirm", "remote", "instance"],
+    description:
+      "D3 EMISSION: when work is stalled and no conductor is live, EMIT a conductor-launch-request envelope to a live remote agent. Gated by --confirm (human gate) and a 1/30min/workspace cap. Without --confirm, returns a DRY-RUN preview (action: 'would-emit'). --instance <self> required with --confirm. h2a NEVER spawns — it only puts a request envelope to remote; remote executes the actual spawn. action: none|cooldown|would-emit|no-remote|emitted."
+  },
 
   // --- deployment (DEC-058 / Scenario A of DEC-056) ---
   {

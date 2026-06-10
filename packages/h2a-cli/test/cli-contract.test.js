@@ -748,6 +748,9 @@ function buildHappyArgv(verb, ctx) {
     case "conductor-launch-check":
       // DRY-RUN: track may be absent in CI (trackAvailable=false is graceful).
       return ["conductor-launch-check", "--root", root];
+    case "conductor-launch":
+      // Without --confirm → DRY-RUN preview (recommendation="none" since track absent, action="none").
+      return ["conductor-launch", "--root", root];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -837,7 +840,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "conductor",
     "conductor claim",
     "conductor release",
-    "conductor-launch-check"
+    "conductor-launch-check",
+    "conductor-launch"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {

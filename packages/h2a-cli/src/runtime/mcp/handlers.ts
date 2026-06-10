@@ -52,7 +52,9 @@ import { conductorFor } from "../governance/conductor.js";
 import { appendConductorClaim } from "../governance/claims.js";
 import { conductorLaunchCheck } from "../governance/launch-check.js";
 import { canonicalAddress, isHostQualifiedAddress, listPresence, resolveRecipient, writePresence } from "../local-files/index.js";
+import { createLocalStore } from "../local-files/store.js";
 import type { LocalStore } from "../local-files/store.js";
+import { lastSpawnRequestAt, recordSpawnRequest, spawnAllowed } from "../governance/spawns.js";
 import { gatherNhiSnapshot } from "../nhi.js";
 import { agentVersion } from "../version/agent-version.js";
 import type { SessionRegistry } from "./sessions.js";
@@ -1100,6 +1102,146 @@ export function handleConductorLaunchCheck(
   } catch (err) {
     return safeError(err);
   }
+}
+
+/**
+ * h2a_conductor_launch — D3 EMISSION: emit a conductor-launch-request envelope
+ * to a live remote agent when work is stalled and no conductor is live.
+ *
+ * Gated by --confirm (boolean) and a 1/30min/workspace cap.
+ * h2a NEVER spawns a process — it only puts a request envelope to remote.
+ */
+export function handleConductorLaunch(
+  root: string,
+  args:
+    | {
+        workspaceId?: string;
+        workspacePath?: string;
+        idleMs?: number;
+        confirm?: boolean;
+        remote?: string;
+        instance?: string;
+      }
+    | undefined
+): McpToolResult | McpErrorResult {
+  // Resolve workspace id (mirrors handleConductorLaunchCheck)
+  let workspaceId: string | undefined;
+  if (typeof args?.workspaceId === "string" && args.workspaceId.length > 0) {
+    workspaceId = args.workspaceId;
+  } else if (typeof args?.workspacePath === "string" && args.workspacePath.length > 0) {
+    let realPath = args.workspacePath;
+    try { realPath = realpathSync(realPath); } catch { /* use as-is */ }
+    workspaceId = deriveWorkspaceId({ machineId: mcpReadMachineId(), path: realPath });
+  }
+
+  if (!workspaceId) {
+    return { error: "h2a_conductor_launch: provide workspaceId or workspacePath" };
+  }
+
+  let idleMs: number | undefined;
+  if (args?.idleMs !== undefined) {
+    const parsed = Number(args.idleMs);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return { error: `h2a_conductor_launch: idleMs must be a positive number (got ${args.idleMs})` };
+    }
+    idleMs = parsed;
+  }
+
+  // 1. Compute the launch recommendation.
+  const check = conductorLaunchCheck({
+    root,
+    workspaceId,
+    ...(idleMs !== undefined ? { idleMs } : {})
+  });
+
+  if (check.recommendation !== "launch") {
+    return { action: "none", ...check } as McpToolResult;
+  }
+
+  // 2. Cooldown gate.
+  const last = lastSpawnRequestAt(root, workspaceId);
+  if (!spawnAllowed({ lastSpawnAt: last, now: Date.now() })) {
+    return {
+      action: "cooldown",
+      reason: "a launch request was emitted < 30min ago for this workspace",
+      lastSpawnAt: last
+    };
+  }
+
+  // 3. Build request object.
+  const request = {
+    kind: "conductor-launch-request" as const,
+    workspaceId,
+    hostPref: ["claude", "codex", "agy"],
+    stalled: check.stalled,
+    reason: check.reason
+  };
+
+  // 4. Without confirm → preview only.
+  if (!args?.confirm) {
+    return {
+      action: "would-emit",
+      request,
+      note: "DRY-RUN — pass confirm:true to emit this launch request to remote (h2a never spawns; remote does)"
+    };
+  }
+
+  // 5. confirm=true: instance required.
+  if (typeof args?.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_conductor_launch: 'instance' (self/sender) is required when confirm=true" };
+  }
+  const selfInstance = args.instance;
+
+  // 6. Resolve remote instance.
+  let remoteInstance: string;
+  if (typeof args.remote === "string" && args.remote.length > 0) {
+    remoteInstance = args.remote;
+  } else {
+    const sessions = listPresence(root);
+    const remoteSessions = sessions.filter(
+      (s) => s.host === "remote" || (s.instance && s.instance.startsWith("remote:"))
+    );
+    if (remoteSessions.length === 0) {
+      return {
+        action: "no-remote",
+        reason: "no live remote agent to receive the launch request"
+      };
+    }
+    const withPane = remoteSessions.filter((s) => s.launchContext?.tmux?.pane);
+    const chosen = withPane.length > 0 ? withPane[0] : remoteSessions[0];
+    remoteInstance = chosen.instance;
+  }
+
+  // 7. Compose envelope and deliver.
+  const store = createLocalStore({ root });
+  const envelope = createEnvelope({
+    id: `env-conductor-launch-${Date.now().toString(36)}`,
+    type: "event" as const,
+    actor: { instance: selfInstance, role: "CONDUCTOR" as const, scope: "scope:default" },
+    target: { instance: remoteInstance },
+    body: {
+      kind: "message" as const,
+      topic: "conductor-launch-request",
+      text: `Conductor-launch request for workspace ${workspaceId}: ${check.reason}`,
+      request
+    },
+    createdAt: nowIso()
+  });
+
+  try {
+    store.putInboxMessage(remoteInstance, envelope);
+  } catch (err) {
+    return safeError(err);
+  }
+
+  // 8. Record spawn marker.
+  recordSpawnRequest(root, {
+    workspaceId,
+    at: nowIso(),
+    to: remoteInstance
+  });
+
+  return { action: "emitted", to: remoteInstance, request };
 }
 
 export function notImplemented(toolName: string): McpErrorResult {
