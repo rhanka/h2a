@@ -303,10 +303,17 @@ export {
   appendConductorClaim,
   listConductorClaims,
   activeConductorClaims,
+  recommendConductorLaunch,
+  conductorLaunchCheck,
   type ConductorCandidate,
   type ConductorClaimEvent,
   type ConductorForOptions,
-  type ConductorResolution
+  type ConductorResolution,
+  type ConductorLaunchRecommendation,
+  type ConductorLaunchCheckOpts,
+  type ConductorLaunchCheckResult,
+  type RecommendConductorLaunchOpts,
+  type StalledItem
 } from "./runtime/governance/index.js";
 
 export {

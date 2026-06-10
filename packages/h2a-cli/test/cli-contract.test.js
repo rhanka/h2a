@@ -745,6 +745,9 @@ function buildHappyArgv(verb, ctx) {
     case "conductor release":
       // Release is a no-op when no prior claim exists; still exits 0.
       return ["conductor", "release", "--instance", "claude:test:aaaaaaaaaaaa", "--root", root];
+    case "conductor-launch-check":
+      // DRY-RUN: track may be absent in CI (trackAvailable=false is graceful).
+      return ["conductor-launch-check", "--root", root];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -833,7 +836,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "keepalive",
     "conductor",
     "conductor claim",
-    "conductor release"
+    "conductor release",
+    "conductor-launch-check"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {
