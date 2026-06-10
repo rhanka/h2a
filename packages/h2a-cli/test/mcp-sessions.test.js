@@ -140,9 +140,14 @@ test("h2a_session_close deletes the presence file and stops the heartbeat", () =
 test("SessionRegistry expires stale peer presence files on scan", () => {
   const root = makeRoot("expire");
   try {
+    // expiryMs must be comfortably larger than the test's own wall-clock so the
+    // just-opened "fresh" session cannot age out between open() and scanFresh()
+    // on a slow runner (a 100ms window flaked on Windows node22 — the fresh
+    // session aged past it during scheduling). The stale peer is 60s old, so any
+    // window < 60s still proves filtering; 30s removes the race.
     const reg = new SessionRegistry(root, {
       heartbeatIntervalMs: 50,
-      expiryMs: 100,
+      expiryMs: 30_000,
       autoHeartbeat: false
     });
     const live = reg.open({
