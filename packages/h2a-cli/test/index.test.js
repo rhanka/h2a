@@ -19,8 +19,9 @@ test("h2a-cli aggregates the supported hosts", () => {
 
 test("h2a-cli exposes the canonical MCP tool names", () => {
   assert.equal(H2A_CLI_MCP_TOOL_NAMES[0], "h2a_register_instance");
-  // D3 added conductor-launch-check (now last).
-  assert.equal(H2A_CLI_MCP_TOOL_NAMES.at(-1), "h2a_conductor_launch_check");
+  // D3 EMISSION added conductor-launch (now last).
+  assert.equal(H2A_CLI_MCP_TOOL_NAMES.at(-1), "h2a_conductor_launch");
+  assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_conductor_launch"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_conductor_launch_check"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_conductor"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_conductor_claim"));

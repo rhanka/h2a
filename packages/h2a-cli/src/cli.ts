@@ -188,6 +188,11 @@ import { resolveLiveIdentity } from "./runtime/identity/index.js";
 import { conductorFor } from "./runtime/governance/conductor.js";
 import { appendConductorClaim } from "./runtime/governance/claims.js";
 import { conductorLaunchCheck } from "./runtime/governance/launch-check.js";
+import {
+  lastSpawnRequestAt,
+  recordSpawnRequest,
+  spawnAllowed
+} from "./runtime/governance/spawns.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -310,6 +315,7 @@ export function renderCliHelp(): string {
     "  h2a connect --host <codex|claude|gemini|agy|remote> [--root <path>] [--instance <id>] [--name <display>]",
     "  h2a conductor [--workspace <id|path>] [--root <path>]   (who is the live conductor/owner of a workspace — derived from presence; conductor=role CONDUCTOR if set, else null; candidates=in-workspace live agents)",
     "  h2a conductor-launch-check [--workspace <id|path>] [--root <path>] [--idle-ms <ms>]   (DRY-RUN: polls track workspace-activity; recommends launching a conductor if work is stalled and none is live — h2a does NOT spawn; launch parked pending spawn policy + remote)",
+    "  h2a conductor-launch --workspace <id|path> [--root <path>] [--idle-ms <ms>] [--confirm] [--remote <instance>] [--instance <self>]   (D3 EMIT: if stalled+no conductor, emits a launch-REQUEST envelope to a live remote agent — gated by --confirm + 1/30min/workspace cap; h2a NEVER spawns; remote does the actual spawn)",
     "  h2a doctor [--root <path>] [--scan <dir>] [--prune]   (--prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
     "  h2a keepalive [--root <path>] [--interval <ms>] [--once]   (external keepalive prober — refreshes presence for agents whose tmux pane is still alive)",
     "  h2a rename --instance <id> --name <name> [--root <path>]   (set a live session's display name so peers can find it via discover --name)",
@@ -3791,6 +3797,168 @@ function cmdConductorLaunchCheck(
   }
 }
 
+/**
+ * `h2a conductor-launch --workspace <id|path> [--root] [--idle-ms <ms>] [--confirm] [--remote <instance>] [--instance <self>]`
+ *
+ * D3 EMISSION: when `conductorLaunchCheck` returns recommendation="launch",
+ * h2a emits a launch-REQUEST envelope to a live remote agent.
+ *
+ * Gates:
+ * 1. `conductorLaunchCheck` recommendation must be "launch".
+ * 2. Cooldown: at most 1 request per 30 min per workspace (checked via spawns store).
+ * 3. Human confirmation: WITHOUT `--confirm`, only PREVIEW the request (dry-run).
+ *    WITH `--confirm`, emit + record the marker.
+ *
+ * h2a NEVER spawns a process itself. It only puts a request envelope to remote.
+ * The remote agent reads the envelope and executes the actual spawn.
+ *
+ * Exit 0 (success: none/cooldown/would-emit/no-remote/emitted).
+ * Exit 1 (user error: missing --instance when --confirm given).
+ */
+export function cmdConductorLaunch(
+  argv: readonly string[],
+  streams: H2ACliStreams,
+  opts?: {
+    /** Injectable check for tests (bypasses conductorLaunchCheck). */
+    injectedCheck?: import("./runtime/governance/launch-check.js").ConductorLaunchCheckResult;
+  }
+): number {
+  const { flags } = parseFlags(["", ...argv]);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const workspaceId = resolveConductorWorkspaceId(flags, cwd);
+
+  let idleMs: number | undefined;
+  if (flags["idle-ms"] !== undefined) {
+    const parsed = Number(flags["idle-ms"]);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      streams.stderr.write(
+        `h2a conductor-launch: --idle-ms must be a positive number (got "${flags["idle-ms"]}")\n`
+      );
+      return 1;
+    }
+    idleMs = parsed;
+  }
+
+  // 1. Compute the launch recommendation (or use injected value for tests).
+  let check: import("./runtime/governance/launch-check.js").ConductorLaunchCheckResult;
+  if (opts?.injectedCheck !== undefined) {
+    check = opts.injectedCheck;
+  } else {
+    check = conductorLaunchCheck({ root, workspaceId, ...(idleMs !== undefined ? { idleMs } : {}) });
+  }
+
+  if (check.recommendation !== "launch") {
+    streams.stdout.write(
+      `${JSON.stringify({ action: "none", ...check }, null, 2)}\n`
+    );
+    return 0;
+  }
+
+  // 2. Cooldown gate.
+  const last = lastSpawnRequestAt(root, workspaceId);
+  if (!spawnAllowed({ lastSpawnAt: last, now: Date.now() })) {
+    streams.stdout.write(
+      `${JSON.stringify({
+        action: "cooldown",
+        reason: "a launch request was emitted < 30min ago for this workspace",
+        lastSpawnAt: last
+      }, null, 2)}\n`
+    );
+    return 0;
+  }
+
+  // 3. Build the request object.
+  const request = {
+    kind: "conductor-launch-request" as const,
+    workspaceId,
+    hostPref: ["claude", "codex", "agy"] as const,
+    stalled: check.stalled,
+    reason: check.reason
+  };
+
+  // 4. Without --confirm → preview only (dry-run). Never emit, never record.
+  if (!flags.confirm) {
+    streams.stdout.write(
+      `${JSON.stringify({
+        action: "would-emit",
+        request,
+        note: "DRY-RUN — pass --confirm to emit this launch request to remote (h2a never spawns; remote does)"
+      }, null, 2)}\n`
+    );
+    return 0;
+  }
+
+  // 5. With --confirm: --instance is required (the signer/sender identity).
+  if (!flags.instance) {
+    streams.stderr.write(
+      "h2a conductor-launch: --instance <self> is required with --confirm (the signer/sender identity)\n"
+    );
+    return 1;
+  }
+  const selfInstance = flags.instance;
+
+  // 6. Resolve the target remote instance.
+  let remoteInstance: string;
+  if (flags.remote) {
+    remoteInstance = flags.remote;
+  } else {
+    // Find a live session whose host is "remote".
+    const sessions = listPresence(root);
+    const remoteSessions = sessions.filter(
+      (s) => s.host === "remote" || (s.instance && s.instance.startsWith("remote:"))
+    );
+    if (remoteSessions.length === 0) {
+      streams.stdout.write(
+        `${JSON.stringify({
+          action: "no-remote",
+          reason: "no live remote agent to receive the launch request"
+        }, null, 2)}\n`
+      );
+      return 0;
+    }
+    // Prefer one with a launchContext/pane (they can actually spawn); else take first.
+    const withPaneCandidates = remoteSessions.filter((s) => s.launchContext?.tmux?.pane);
+    const chosen = withPaneCandidates.length > 0 ? withPaneCandidates[0] : remoteSessions[0];
+    remoteInstance = chosen.instance;
+  }
+
+  // 7. Compose the H2AEnvelope and deliver it to the remote's inbox.
+  const store = createLocalStore({ root });
+  const envelope = createEnvelope({
+    id: `env-conductor-launch-${Date.now().toString(36)}`,
+    type: "event" as const,
+    actor: { instance: selfInstance, role: "CONDUCTOR" as const, scope: "scope:default" },
+    target: { instance: remoteInstance },
+    body: {
+      kind: "message" as const,
+      topic: "conductor-launch-request",
+      text: `Conductor-launch request for workspace ${workspaceId}: ${check.reason}`,
+      request
+    },
+    createdAt: new Date().toISOString()
+  });
+
+  try {
+    store.putInboxMessage(remoteInstance, envelope);
+  } catch (error) {
+    streams.stderr.write(`h2a conductor-launch: failed to deliver to ${remoteInstance}: ${(error as Error).message}\n`);
+    return 1;
+  }
+
+  // 8. Record the spawn marker (after successful delivery).
+  recordSpawnRequest(root, {
+    workspaceId,
+    at: new Date().toISOString(),
+    to: remoteInstance
+  });
+
+  streams.stdout.write(
+    `${JSON.stringify({ action: "emitted", to: remoteInstance, request }, null, 2)}\n`
+  );
+  return 0;
+}
+
 function cmdDoctor(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -4941,6 +5109,7 @@ export function runCli(
   if (command === "connect") return cmdConnect(flags, streams);
   if (command === "conductor") return cmdConductor(argv.slice(1), streams);
   if (command === "conductor-launch-check") return cmdConductorLaunchCheck(argv.slice(1), streams);
+  if (command === "conductor-launch") return cmdConductorLaunch(argv.slice(1), streams);
   if (command === "keepalive") {
     streams.stderr.write(
       "h2a keepalive: async command — run via the h2a binary, not the synchronous API.\n"

@@ -11,6 +11,7 @@ import {
   handleConductorClaim,
   handleConductorRelease,
   handleConductorLaunchCheck,
+  handleConductorLaunch,
   handleCounteroffer,
   handleDeclareConflitInteret,
   handleDiscoverInstances,
@@ -165,6 +166,8 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleConductorRelease(store.paths.root, args as never);
       case "h2a_conductor_launch_check":
         return handleConductorLaunchCheck(store.paths.root, args as never);
+      case "h2a_conductor_launch":
+        return handleConductorLaunch(store.paths.root, args as never);
       default:
         return { error: `unknown tool: ${name}` };
     }
