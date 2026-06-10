@@ -25,5 +25,6 @@ export const H2A_CLI_MCP_TOOL_NAMES = [
   "h2a_blockage_resolve",
   "h2a_conductor",
   "h2a_conductor_claim",
-  "h2a_conductor_release"
+  "h2a_conductor_release",
+  "h2a_conductor_launch_check"
 ] as const;

@@ -773,6 +773,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     description:
       "Release the conductor claim for a workspace (WP-G1b, additive/reversible). Appends a release event; returns the post-release conductorFor resolution (null if sole claimant releases). Exit 1 if --instance is missing."
   },
+  {
+    verb: "conductor-launch-check",
+    outputShape: "resource",
+    exitCodes: [0, 1, 3],
+    requiredFlags: [],
+    optionalFlags: ["workspace", "root", "idle-ms"],
+    description:
+      "DRY-RUN (D3): poll track workspace-activity and return a recommendation to launch a conductor if work is durably stalled and no conductor is live. h2a does NOT spawn anything — recommendation is advisory only, launch parked pending spawn policy + remote. Returns { workspaceId, trackAvailable, conductor, conductorLive, pending, stalled, recommendation, reason, suggestedHosts? }. trackAvailable=false when track is absent (graceful). Exit 1 on bad --idle-ms."
+  },
 
   // --- deployment (DEC-058 / Scenario A of DEC-056) ---
   {

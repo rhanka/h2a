@@ -509,5 +509,27 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
       },
       required: ["instance"]
     }
+  },
+  {
+    name: "h2a_conductor_launch_check",
+    description:
+      "DRY-RUN (D3): poll track workspace-activity and return a recommendation to launch a conductor if work is durably stalled and no conductor is live. h2a does NOT spawn anything — this is advisory only. The launch is parked pending a spawn policy and remote-trigger support. Returns: { workspaceId, trackAvailable, conductor, conductorLive, pending, stalled, recommendation, reason, suggestedHosts? }.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspaceId: {
+          type: "string",
+          description: "Workspace id in ws:<uuid> form. Mutually exclusive with workspacePath."
+        },
+        workspacePath: {
+          type: "string",
+          description: "Filesystem path; resolved to a workspaceId via the same derivation presence uses."
+        },
+        idleMs: {
+          type: "number",
+          description: "Idle threshold in milliseconds for track workspace-activity (default 86400000 = 24h)."
+        }
+      }
+    }
   }
 ];

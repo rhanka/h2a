@@ -187,6 +187,7 @@ import {
 import { resolveLiveIdentity } from "./runtime/identity/index.js";
 import { conductorFor } from "./runtime/governance/conductor.js";
 import { appendConductorClaim } from "./runtime/governance/claims.js";
+import { conductorLaunchCheck } from "./runtime/governance/launch-check.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -308,6 +309,7 @@ export function renderCliHelp(): string {
     "High-level coordination (DEC-054):",
     "  h2a connect --host <codex|claude|gemini|agy|remote> [--root <path>] [--instance <id>] [--name <display>]",
     "  h2a conductor [--workspace <id|path>] [--root <path>]   (who is the live conductor/owner of a workspace — derived from presence; conductor=role CONDUCTOR if set, else null; candidates=in-workspace live agents)",
+    "  h2a conductor-launch-check [--workspace <id|path>] [--root <path>] [--idle-ms <ms>]   (DRY-RUN: polls track workspace-activity; recommends launching a conductor if work is stalled and none is live — h2a does NOT spawn; launch parked pending spawn policy + remote)",
     "  h2a doctor [--root <path>] [--scan <dir>] [--prune]   (--prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
     "  h2a keepalive [--root <path>] [--interval <ms>] [--once]   (external keepalive prober — refreshes presence for agents whose tmux pane is still alive)",
     "  h2a rename --instance <id> --name <name> [--root <path>]   (set a live session's display name so peers can find it via discover --name)",
@@ -3739,6 +3741,56 @@ function cmdConductor(
   }
 }
 
+/**
+ * `h2a conductor-launch-check [--workspace <id|path>] [--root <path>] [--idle-ms <ms>]`
+ *
+ * DRY-RUN: polls `track workspace-activity` and RECOMMENDS launching a
+ * conductor if work is durably stalled and no conductor is live.
+ *
+ * h2a does NOT spawn anything. A `recommendation === "launch"` result is
+ * purely advisory. The actual launch is parked pending a spawn policy and
+ * remote-trigger support.
+ *
+ * Exit 0 on success. Exit 1 on bad flag value.
+ * Output shape: resource (JSON of ConductorLaunchCheckResult).
+ */
+function cmdConductorLaunchCheck(
+  argv: readonly string[],
+  streams: H2ACliStreams
+): number {
+  const { flags } = parseFlags(["", ...argv]);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const workspaceId = resolveConductorWorkspaceId(flags, cwd);
+
+  let idleMs: number | undefined;
+  if (flags["idle-ms"] !== undefined) {
+    const parsed = Number(flags["idle-ms"]);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      streams.stderr.write(
+        `h2a conductor-launch-check: --idle-ms must be a positive number (got "${flags["idle-ms"]}")\n`
+      );
+      return 1;
+    }
+    idleMs = parsed;
+  }
+
+  try {
+    const result = conductorLaunchCheck({ root, workspaceId, idleMs });
+    if (result.recommendation === "launch") {
+      streams.stderr.write(
+        "h2a conductor-launch-check: DRY-RUN — h2a does NOT spawn. " +
+          "This is a recommendation only; the launch is parked pending a spawn policy + remote.\n"
+      );
+    }
+    streams.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  } catch (error) {
+    streams.stderr.write(`h2a conductor-launch-check: ${(error as Error).message}\n`);
+    return 1;
+  }
+}
+
 function cmdDoctor(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -4888,6 +4940,7 @@ export function runCli(
   if (command === "doctor") return cmdDoctor(flags, streams);
   if (command === "connect") return cmdConnect(flags, streams);
   if (command === "conductor") return cmdConductor(argv.slice(1), streams);
+  if (command === "conductor-launch-check") return cmdConductorLaunchCheck(argv.slice(1), streams);
   if (command === "keepalive") {
     streams.stderr.write(
       "h2a keepalive: async command — run via the h2a binary, not the synchronous API.\n"

@@ -50,6 +50,7 @@ import {
 } from "../blockage/registry.js";
 import { conductorFor } from "../governance/conductor.js";
 import { appendConductorClaim } from "../governance/claims.js";
+import { conductorLaunchCheck } from "../governance/launch-check.js";
 import { canonicalAddress, isHostQualifiedAddress, listPresence, resolveRecipient, writePresence } from "../local-files/index.js";
 import type { LocalStore } from "../local-files/store.js";
 import { gatherNhiSnapshot } from "../nhi.js";
@@ -1052,6 +1053,49 @@ export function handleConductorRelease(
       at: new Date().toISOString()
     });
     const result = conductorFor({ root, workspaceId });
+    return result as unknown as McpToolResult;
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+/**
+ * h2a_conductor_launch_check — DRY-RUN conductor launch recommendation (D3).
+ *
+ * Polls `track workspace-activity` and returns a recommendation to launch a
+ * conductor if work is durably stalled and no conductor is live.
+ * h2a does NOT spawn anything. This is advisory only; the launch is parked
+ * pending a spawn policy and remote-trigger support.
+ */
+export function handleConductorLaunchCheck(
+  root: string,
+  args: { workspaceId?: string; workspacePath?: string; idleMs?: number } | undefined
+): McpToolResult | McpErrorResult {
+  let workspaceId: string | undefined;
+
+  if (typeof args?.workspaceId === "string" && args.workspaceId.length > 0) {
+    workspaceId = args.workspaceId;
+  } else if (typeof args?.workspacePath === "string" && args.workspacePath.length > 0) {
+    let realPath = args.workspacePath;
+    try { realPath = realpathSync(realPath); } catch { /* use as-is */ }
+    workspaceId = deriveWorkspaceId({ machineId: mcpReadMachineId(), path: realPath });
+  }
+
+  if (!workspaceId) {
+    return { error: "h2a_conductor_launch_check: provide workspaceId or workspacePath" };
+  }
+
+  let idleMs: number | undefined;
+  if (args?.idleMs !== undefined) {
+    const parsed = Number(args.idleMs);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return { error: `h2a_conductor_launch_check: idleMs must be a positive number (got ${args.idleMs})` };
+    }
+    idleMs = parsed;
+  }
+
+  try {
+    const result = conductorLaunchCheck({ root, workspaceId, ...(idleMs !== undefined ? { idleMs } : {}) });
     return result as unknown as McpToolResult;
   } catch (err) {
     return safeError(err);

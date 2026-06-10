@@ -1,6 +1,6 @@
 ---
 name: h2a
-version: 0.64.0
+version: 0.65.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
@@ -13,9 +13,10 @@ When invoked, parse the arguments and dispatch to the matching subcommand below.
 /h2a connect [root]            → bootstrap a live session in this conversation
 /h2a status                    → show current session state and health summary
 /h2a discover [scope]          → list live peer agents
-/h2a conductor [workspace]     → who owns/conducts a workspace right now (null = none yet)
-/h2a conductor claim           → claim conductor for a workspace (earliest live claimant wins)
-/h2a conductor release         → release conductor claim (frees it for the next claimant)
+/h2a conductor [workspace]          → who owns/conducts a workspace right now (null = none yet)
+/h2a conductor claim                → claim conductor for a workspace (earliest live claimant wins)
+/h2a conductor release              → release conductor claim (frees it for the next claimant)
+/h2a conductor-launch-check [workspace]  → DRY-RUN: polls track; recommends launching a conductor if stalled + none live
 /h2a send <peer> "<text>"      → put a message envelope in a peer's inbox
 /h2a receive                   → read this agent's inbox and react to new envelopes
 /h2a negotiate <verb> ...      → drive a negotiation lifecycle (open|offer|sign|stabilize)
@@ -100,6 +101,24 @@ CLI: `h2a conductor release --instance <self> [--workspace <id|path>] [--root <p
 MCP: `h2a_conductor_release { instance, workspaceId|workspacePath }`
 
 Exit 1 if `--instance` is missing.
+
+### `/h2a conductor-launch-check [workspace] [--idle-ms <ms>]`
+
+**DRY-RUN (D3).** Polls `track workspace-activity` and returns a recommendation to launch a conductor if work is durably stalled and no conductor is live.
+
+**h2a does NOT spawn anything.** A `recommendation === "launch"` result is purely advisory. The actual launch is **parked** pending a spawn-policy decision and remote-trigger support.
+
+CLI: `h2a conductor-launch-check [--workspace <id|path>] [--root <path>] [--idle-ms <ms>]`
+MCP: `h2a_conductor_launch_check { workspaceId|workspacePath, idleMs? }`
+
+Return shape: `{ workspaceId, trackAvailable, conductor, conductorLive, pending, stalled, recommendation, reason, suggestedHosts? }`
+
+- `recommendation` is `"launch"` when: no conductor is live AND track reports at least one stalled item.
+- `suggestedHosts` = `["claude", "codex", "agy"]` (user preference order) when `recommendation === "launch"`.
+- `trackAvailable: false` when `track` is not installed or errors — graceful, `recommendation` stays `"none"` (no false positives).
+- `--idle-ms` is the stall threshold passed to `track workspace-activity` (default 86400000 = 24h).
+
+A one-liner stderr note is emitted when `recommendation === "launch"` reminding callers this is a DRY-RUN.
 
 ### `/h2a send <peer> "<text>"`
 

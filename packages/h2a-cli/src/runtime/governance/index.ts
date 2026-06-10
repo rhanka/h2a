@@ -11,3 +11,13 @@ export {
   activeConductorClaims,
   type ConductorClaimEvent
 } from "./claims.js";
+
+export {
+  recommendConductorLaunch,
+  conductorLaunchCheck,
+  type ConductorLaunchRecommendation,
+  type ConductorLaunchCheckOpts,
+  type ConductorLaunchCheckResult,
+  type RecommendConductorLaunchOpts,
+  type StalledItem
+} from "./launch-check.js";
