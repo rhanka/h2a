@@ -739,6 +739,12 @@ function buildHappyArgv(verb, ctx) {
     case "conductor":
       // Read-only resolver; workspace defaults to cwd (no flags needed).
       return ["conductor", "--root", root];
+    case "conductor claim":
+      // Claim by instance; workspace defaults to cwd.
+      return ["conductor", "claim", "--instance", "claude:test:aaaaaaaaaaaa", "--root", root];
+    case "conductor release":
+      // Release is a no-op when no prior claim exists; still exits 0.
+      return ["conductor", "release", "--instance", "claude:test:aaaaaaaaaaaa", "--root", root];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -825,7 +831,9 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "subagent revoke",
     "thread",
     "keepalive",
-    "conductor"
+    "conductor",
+    "conductor claim",
+    "conductor release"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {

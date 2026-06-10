@@ -300,7 +300,11 @@ export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce } from "./cli
 
 export {
   conductorFor,
+  appendConductorClaim,
+  listConductorClaims,
+  activeConductorClaims,
   type ConductorCandidate,
+  type ConductorClaimEvent,
   type ConductorForOptions,
   type ConductorResolution
 } from "./runtime/governance/index.js";

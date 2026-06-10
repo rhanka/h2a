@@ -449,7 +449,7 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_conductor",
     description:
-      "Resolve the live conductor/owner of a workspace (WP-G1, read-only). conductor = the live in-workspace agent registered with role CONDUCTOR (null if none). candidates = all in-workspace live agents. Accepts workspaceId (ws:…) or workspacePath (filesystem path).",
+      "Resolve the live conductor/owner of a workspace (WP-G1, read-only). conductor = the earliest active-claim live agent (WP-G1b), or the live agent registered with role CONDUCTOR (WP-G1a), or null. candidates = all in-workspace live agents. Accepts workspaceId (ws:…) or workspacePath (filesystem path).",
     inputSchema: {
       type: "object",
       properties: {
@@ -462,6 +462,52 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
           description: "Filesystem path; resolved to a workspaceId via the same derivation presence uses."
         }
       }
+    }
+  },
+  {
+    name: "h2a_conductor_claim",
+    description:
+      "Claim the conductor role for a workspace (WP-G1b, additive/reversible). Appends a claim event and returns the post-claim conductorFor resolution — the caller sees who the conductor now is (should be itself if it won the election). Earliest live claimant wins.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        instance: {
+          type: "string",
+          description: "The claiming instance id (perennial, host:label:uuid12)."
+        },
+        workspaceId: {
+          type: "string",
+          description: "Workspace id in ws:<uuid> form. Mutually exclusive with workspacePath."
+        },
+        workspacePath: {
+          type: "string",
+          description: "Filesystem path; resolved to a workspaceId via the same derivation presence uses."
+        }
+      },
+      required: ["instance"]
+    }
+  },
+  {
+    name: "h2a_conductor_release",
+    description:
+      "Release the conductor claim for a workspace (WP-G1b, additive/reversible). Appends a release event and returns the post-release conductorFor resolution so the caller sees the new conductor (or null if no other claimant is live).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        instance: {
+          type: "string",
+          description: "The releasing instance id (perennial, host:label:uuid12)."
+        },
+        workspaceId: {
+          type: "string",
+          description: "Workspace id in ws:<uuid> form. Mutually exclusive with workspacePath."
+        },
+        workspacePath: {
+          type: "string",
+          description: "Filesystem path; resolved to a workspaceId via the same derivation presence uses."
+        }
+      },
+      required: ["instance"]
     }
   }
 ];

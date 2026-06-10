@@ -49,6 +49,7 @@ import {
   resolveBlockage
 } from "../blockage/registry.js";
 import { conductorFor } from "../governance/conductor.js";
+import { appendConductorClaim } from "../governance/claims.js";
 import { canonicalAddress, isHostQualifiedAddress, listPresence, resolveRecipient, writePresence } from "../local-files/index.js";
 import type { LocalStore } from "../local-files/store.js";
 import { gatherNhiSnapshot } from "../nhi.js";
@@ -972,6 +973,84 @@ export function handleConductor(
   }
 
   try {
+    const result = conductorFor({ root, workspaceId });
+    return result as unknown as McpToolResult;
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+/**
+ * h2a_conductor_claim — append a conductor claim for (workspaceId, instance)
+ * and return the post-claim conductorFor resolution (WP-G1b).
+ */
+export function handleConductorClaim(
+  root: string,
+  args: { instance?: string; workspaceId?: string; workspacePath?: string } | undefined
+): McpToolResult | McpErrorResult {
+  if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_conductor_claim: missing 'instance'" };
+  }
+
+  let workspaceId: string | undefined;
+  if (typeof args.workspaceId === "string" && args.workspaceId.length > 0) {
+    workspaceId = args.workspaceId;
+  } else if (typeof args.workspacePath === "string" && args.workspacePath.length > 0) {
+    let realPath = args.workspacePath;
+    try { realPath = realpathSync(realPath); } catch { /* use as-is */ }
+    workspaceId = deriveWorkspaceId({ machineId: mcpReadMachineId(), path: realPath });
+  }
+
+  if (!workspaceId) {
+    return { error: "h2a_conductor_claim: provide workspaceId or workspacePath" };
+  }
+
+  try {
+    appendConductorClaim(root, {
+      type: "claim",
+      workspaceId,
+      instance: args.instance,
+      at: new Date().toISOString()
+    });
+    const result = conductorFor({ root, workspaceId });
+    return result as unknown as McpToolResult;
+  } catch (err) {
+    return safeError(err);
+  }
+}
+
+/**
+ * h2a_conductor_release — append a conductor release for (workspaceId, instance)
+ * and return the post-release conductorFor resolution (WP-G1b).
+ */
+export function handleConductorRelease(
+  root: string,
+  args: { instance?: string; workspaceId?: string; workspacePath?: string } | undefined
+): McpToolResult | McpErrorResult {
+  if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
+    return { error: "h2a_conductor_release: missing 'instance'" };
+  }
+
+  let workspaceId: string | undefined;
+  if (typeof args.workspaceId === "string" && args.workspaceId.length > 0) {
+    workspaceId = args.workspaceId;
+  } else if (typeof args.workspacePath === "string" && args.workspacePath.length > 0) {
+    let realPath = args.workspacePath;
+    try { realPath = realpathSync(realPath); } catch { /* use as-is */ }
+    workspaceId = deriveWorkspaceId({ machineId: mcpReadMachineId(), path: realPath });
+  }
+
+  if (!workspaceId) {
+    return { error: "h2a_conductor_release: provide workspaceId or workspacePath" };
+  }
+
+  try {
+    appendConductorClaim(root, {
+      type: "release",
+      workspaceId,
+      instance: args.instance,
+      at: new Date().toISOString()
+    });
     const result = conductorFor({ root, workspaceId });
     return result as unknown as McpToolResult;
   } catch (err) {

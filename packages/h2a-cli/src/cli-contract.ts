@@ -745,7 +745,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "List the ordered conversation (by createdAt) for a threadId, from the actor's inbox+outbox. Lightweight pre-negotiation threading: envelopes carry threadId/replyTo; storage is derived (no new store)."
   },
 
-  // --- governance layer (WP-G1) ---
+  // --- governance layer (WP-G1 / WP-G1b) ---
   {
     verb: "conductor",
     outputShape: "resource",
@@ -753,7 +753,25 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: [],
     optionalFlags: ["workspace", "root"],
     description:
-      "Resolve the live conductor/owner of a workspace (read-only, derived from presence): conductor = a live in-workspace agent registered with role CONDUCTOR (else null); candidates = all in-workspace live agents."
+      "Resolve the live conductor/owner of a workspace (read-only, derived from presence + claims): conductor = earliest live active-claimant (WP-G1b), or a live in-workspace agent registered with role CONDUCTOR (back-compat, WP-G1a), or null; candidates = all in-workspace live agents."
+  },
+  {
+    verb: "conductor claim",
+    outputShape: "resource",
+    exitCodes: [0, 1],
+    requiredFlags: ["instance"],
+    optionalFlags: ["workspace", "root"],
+    description:
+      "Claim the conductor role for a workspace (WP-G1b, additive/reversible). Appends a claim event; returns the post-claim conductorFor resolution. The caller should be itself if it won (earliest live claimant wins). Exit 1 if --instance is missing."
+  },
+  {
+    verb: "conductor release",
+    outputShape: "resource",
+    exitCodes: [0, 1],
+    requiredFlags: ["instance"],
+    optionalFlags: ["workspace", "root"],
+    description:
+      "Release the conductor claim for a workspace (WP-G1b, additive/reversible). Appends a release event; returns the post-release conductorFor resolution (null if sole claimant releases). Exit 1 if --instance is missing."
   },
 
   // --- deployment (DEC-058 / Scenario A of DEC-056) ---
