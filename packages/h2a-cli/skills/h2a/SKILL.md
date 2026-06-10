@@ -1,6 +1,6 @@
 ---
 name: h2a
-version: 0.63.0
+version: 0.64.0
 description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
@@ -296,6 +296,6 @@ These can be invoked directly from the shell at any time, outside the slash-comm
 
 - `h2a nhi report|inventory|attest|offboard|export` — Non-Human-Identity posture / inventory / signed attestation / coordinated offboard / SPIFFE-bundle export (`h2a_nhi_*`, DEC-087..090/094).
 - `h2a blockage raise|list|resolve` — the peer blockage feedback loop, distinct from the drumbeat and from escalation (`h2a_blockage_*`, DEC-092). Subscribed sessions get `peer.blocked`/`peer.unblocked` pushes.
-- `h2a drumbeat record|scan|clear|escalations|watch` — anti-stall relance daemon + escalation-to-PRINCIPAL (DEC-086/091/095).
+- `h2a drumbeat record|scan|clear|escalations|watch` — anti-stall relance daemon + escalation-to-PRINCIPAL (DEC-086/091/095). Gov D2/D4 (0.64.0): a claimed conductor owns its workspace's relances — peers defer on fresh stalls (relanceCount=0); a failsafe lets a peer step in if the conductor leaves an agent stuck (relanceCount>=1, preventing workspace freeze). Cross-workspace relances emit a CoI advisory (warn, not blocked). Both behaviors are opt-in and default-allow: pass `--instance <self>` to `h2a drumbeat watch` to activate them.
 - `h2a sysml verify --json <env> --public-key <pem>` — verify a SysML-v2 ref embedded in a signed envelope (commit-trust + content-integrity, DEC-099).
 - `h2a host setup|status|plugin --host <codex|claude|gemini|agy>` — render the per-host MCP config / stop-hook glue (DEC-093/096).

@@ -8,9 +8,11 @@
 
 import type { H2AReflexiveAction, H2AReflexiveDecision } from "@sentropic/h2a";
 
+import { canonicalAddress } from "../local-files/index.js";
 import { reachGuard } from "../local-files/paths.js";
 import { listPresence } from "../local-files/presence.js";
 import { createLocalStore } from "../local-files/store.js";
+import { conductorFor } from "../governance/conductor.js";
 import { scanDrumbeat, type H2ADrumbeatFinding, type ScanDrumbeatOptions } from "./scan.js";
 import {
   markRelanced,
@@ -68,6 +70,13 @@ export interface DrumbeatTickOptions extends ScanDrumbeatOptions {
    * no-op; pass a `(line: string) => void` to surface the skip reason.
    */
   log?: (line: string) => void;
+  /**
+   * Gov D2/D4: the instance id of the agent running this drumbeat.  When
+   * absent, BOTH governance checks (D2 conductor-ownership, D4 cross-workspace
+   * CoI advisory) are SKIPPED entirely — fully backward-compatible; all
+   * existing callers that do not pass this option are unaffected.
+   */
+  selfInstance?: string;
 }
 
 export interface DrumbeatTickResult {
@@ -92,19 +101,43 @@ export async function drumbeatTick(
   let guardRoot: string | undefined = options.root;
   let liveInstances: readonly string[] | undefined;
   let registeredInstances: readonly string[] | undefined;
+  let allSessions: ReturnType<typeof listPresence> | undefined;
   if (guardRoot !== undefined) {
-    liveInstances = listPresence(guardRoot).map((s) => s.instance);
+    allSessions = listPresence(guardRoot, options.now !== undefined ? { now: options.now } : {});
+    liveInstances = allSessions.map((s) => s.instance);
     registeredInstances = createLocalStore({ root: guardRoot })
       .listInstances()
       .map((i) => i.instance);
+  }
+
+  // Gov D2/D4: resolve wSelf (self's workspace) once per tick if selfInstance known.
+  // undefined = unknown/skip advisory.
+  const selfInstance = options.selfInstance;
+  let wSelf: string | undefined;
+  if (selfInstance !== undefined && guardRoot !== undefined) {
+    const selfSessions = (allSessions ?? []).filter(
+      (s) => canonicalAddress(s.instance) === canonicalAddress(selfInstance)
+    );
+    if (selfSessions.length > 0 && selfSessions[0].workspace?.id !== undefined) {
+      wSelf = selfSessions[0].workspace.id;
+    } else {
+      try {
+        const reg = createLocalStore({ root: guardRoot }).findInstance(selfInstance);
+        if (reg?.workspace?.id !== undefined) {
+          wSelf = reg.workspace.id;
+        }
+      } catch {
+        // if registry unreadable, wSelf stays undefined → D4 advisory skipped
+      }
+    }
   }
 
   const relanced: string[] = [];
   const k = options.deciderAfter ?? 1;
   for (const finding of findings) {
     // ── REACH-GUARD CHOKEPOINT ──────────────────────────────────────────────
-    // The future governance/conductor gate (clearance, conductor-liveness)
-    // hooks HERE, so every reach path inherits it.
+    // Governance gates (D2 conductor-ownership, D4 CoI advisory) hook HERE so
+    // every reach path inherits them.
     if (guardRoot !== undefined) {
       const guard = reachGuard({
         target: finding.instance,
@@ -118,6 +151,68 @@ export async function drumbeatTick(
         continue;
       }
     }
+
+    // ── GOV D2: conductor owns relances (opt-in, default-allow) ────────────
+    // Suppression only when ALL of:
+    //   (a) selfInstance and options.root are known
+    //   (b) wTarget (the finding's workspace) is resolvable
+    //   (c) a live conductor is claimed for that workspace
+    //   (d) self is NOT that conductor
+    //   (e) relanceCount === 0 (fresh stall — failsafe: if relanceCount >= 1
+    //       the conductor has already missed the window; peer steps in so
+    //       a workspace is never frozen by a stuck conductor)
+    // Also used by D4 CoI advisory below.
+    let wTarget: string | undefined;
+    if (selfInstance !== undefined && guardRoot !== undefined) {
+      // Resolve finding's workspace from live sessions first, then registry.
+      const targetSession = (allSessions ?? []).find(
+        (s) => canonicalAddress(s.instance) === canonicalAddress(finding.instance)
+      );
+      if (targetSession?.workspace?.id !== undefined) {
+        wTarget = targetSession.workspace.id;
+      } else {
+        try {
+          const reg = createLocalStore({ root: guardRoot }).findInstance(finding.instance);
+          if (reg?.workspace?.id !== undefined) {
+            wTarget = reg.workspace.id;
+          }
+        } catch {
+          // registry unreadable → wTarget stays undefined → ALLOW
+        }
+      }
+
+      if (wTarget !== undefined) {
+        const res = conductorFor({
+          root: guardRoot,
+          workspaceId: wTarget,
+          ...(options.now !== undefined ? { now: options.now } : {})
+        });
+        if (
+          res.conductor !== null &&
+          canonicalAddress(res.conductor) !== canonicalAddress(selfInstance) &&
+          finding.relanceCount === 0
+        ) {
+          options.log?.(
+            `drumbeat: ${finding.instance} in ${wTarget} owned by conductor ${res.conductor}; deferring relance`
+          );
+          continue; // D2 suppression
+        }
+      }
+    }
+    // ── END GOV D2 ──────────────────────────────────────────────────────────
+
+    // ── GOV D4: cross-workspace CoI advisory (warn only, never skip) ────────
+    if (
+      selfInstance !== undefined &&
+      wSelf !== undefined &&
+      wTarget !== undefined &&
+      canonicalAddress(wSelf) !== canonicalAddress(wTarget)
+    ) {
+      options.log?.(
+        `drumbeat: cross-workspace relance of ${finding.instance} (workspace ${wTarget}) by ${selfInstance} (workspace ${wSelf}) — no target-conductor mandate (advisory)`
+      );
+    }
+    // ── END GOV D4 ──────────────────────────────────────────────────────────
     // ────────────────────────────────────────────────────────────────────────
 
     // Cost guard: relance cheaply until K relances, then consult the decider.
