@@ -205,6 +205,10 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // pushed presence/inbox/negotiation notifications.
   server.notifications.start();
 
+  // WP-F: the auto-opened session id, so the line loop can mark MCP activity on
+  // it (presence-honesty — proof the host→server channel is carrying traffic).
+  let autoOpenedSessionId: string | undefined;
+
   // DEC-105 (EVO-6): auto-open a presence session at boot when requested, so
   // the host joins the bus at startup. Best-effort: a failure here must not
   // crash the transport (diagnostics to stderr only — stdout is protocol).
@@ -233,6 +237,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
           negotiations: []
         }
       });
+      autoOpenedSessionId = opened.sessionId;
       stderr.write(
         `h2a mcp-serve: auto-opened session for ${options.autoOpen.instance}\n`
       );
@@ -328,6 +333,10 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     rl.on("line", (line) => {
       const trimmed = line.trim();
       if (trimmed.length === 0) return;
+
+      // WP-F: any non-empty inbound line proves the host→server MCP channel is
+      // carrying traffic right now — record it (in-memory; flushed by heartbeat).
+      if (autoOpenedSessionId) server.sessions.markActivity(autoOpenedSessionId);
 
       let request: JsonRpcRequest;
       try {

@@ -173,6 +173,7 @@ export function updatePresence(
     state?: H2ASessionState;
     workStatus?: H2AWorkStatus;
     launchContext?: H2ALaunchContext;
+    lastMcpActivityAt?: string;
   }
 ): H2ASession | undefined {
   const existing = readPresence(root, sessionId);
@@ -194,7 +195,10 @@ export function updatePresence(
     ...(patch.heartbeatAt ? { heartbeatAt: patch.heartbeatAt } : {}),
     ...(patch.state ? { state: patch.state } : {}),
     ...(patch.workStatus ? { workStatus: patch.workStatus } : {}),
-    ...(patch.launchContext ? { launchContext: patch.launchContext } : {})
+    ...(patch.launchContext ? { launchContext: patch.launchContext } : {}),
+    ...(patch.lastMcpActivityAt
+      ? { lastMcpActivityAt: patch.lastMcpActivityAt }
+      : {})
   };
   writePresence(root, next);
   return next;

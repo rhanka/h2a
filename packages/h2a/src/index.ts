@@ -178,12 +178,14 @@ export type {
   H2AReplayRejection
 } from "./replay.js";
 export {
+  H2A_ACTIVITY_WINDOW_DEFAULT_MS,
   H2A_DEFAULT_STALL_IDLE_MS,
   H2A_SESSION_DEFAULT_EXPIRY_MS,
   H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS,
   H2A_SESSION_NOTIFICATION_TOPICS,
   H2A_SESSION_STATES,
   H2A_WORK_STATUSES,
+  deriveConnectionConfidence,
   inferStall,
   isH2ASession,
   isSessionExpired,
@@ -191,6 +193,8 @@ export {
 } from "./session.js";
 export type {
   H2AAgentVersion,
+  H2AConnectionConfidence,
+  H2AConnectionConfidenceOptions,
   H2ALaunchContext,
   H2ASession,
   H2ASessionExpiryOptions,

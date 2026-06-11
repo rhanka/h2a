@@ -58,6 +58,13 @@ export interface SessionRegistryOptions {
 interface SessionEntry {
   session: H2ASession;
   heartbeatHandle?: ReturnType<typeof setInterval>;
+  /**
+   * WP-F: in-memory ISO timestamp of the last inbound MCP line for this session.
+   * `markActivity()` updates it cheaply on every line; the next heartbeat
+   * `touch()` flushes it to the presence file, so a burst never thrashes disk.
+   * Seeded at `open()` (the boot handshake counts as activity).
+   */
+  lastActivityAt?: string;
 }
 
 function nowIso(): string {
@@ -126,6 +133,8 @@ export class SessionRegistry {
       pid: request.pid ?? process.pid,
       startedAt: now,
       heartbeatAt: now,
+      // WP-F: boot = a live MCP channel (the initialize handshake just landed).
+      lastMcpActivityAt: now,
       state: "live",
       interests: {
         scopes: request.interests?.scopes ?? [],
@@ -134,7 +143,7 @@ export class SessionRegistry {
       subscribedTopics: normalizeTopics(request.subscribedTopics)
     };
     writePresence(this.root, session);
-    const entry: SessionEntry = { session };
+    const entry: SessionEntry = { session, lastActivityAt: now };
     if (this.autoHeartbeat) {
       entry.heartbeatHandle = setInterval(
         () => this.touch(sessionId),
@@ -168,10 +177,24 @@ export class SessionRegistry {
     const entry = this.entries.get(sessionId);
     if (!entry) return undefined;
     const updated = updatePresence(this.root, sessionId, {
-      heartbeatAt: nowIso()
+      heartbeatAt: nowIso(),
+      // WP-F: flush the latest in-memory MCP-activity timestamp alongside the
+      // blind heartbeat. Unlike heartbeatAt (which the external keepalive prober
+      // can also refresh), this only advances on real inbound MCP traffic.
+      ...(entry.lastActivityAt ? { lastMcpActivityAt: entry.lastActivityAt } : {})
     });
     if (updated) entry.session = updated;
     return updated;
+  }
+
+  /**
+   * WP-F: record that the MCP channel carried an inbound line right now. Cheap
+   * (in-memory only); flushed to the presence file by the next heartbeat
+   * `touch()`. No-op on an unknown session id.
+   */
+  markActivity(sessionId: string): void {
+    const entry = this.entries.get(sessionId);
+    if (entry) entry.lastActivityAt = nowIso();
   }
 
   /** Snapshot of in-memory sessions held by this process. */

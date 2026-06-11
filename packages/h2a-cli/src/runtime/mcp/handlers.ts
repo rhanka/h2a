@@ -2,6 +2,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { hostname } from "node:os";
 
 import {
+  H2A_ACTIVITY_WINDOW_DEFAULT_MS,
   H2A_ATTESTER_COMPREHENSION_RIGHT,
   H2A_COMPREHENSION_ATTESTATION_BODY_KIND,
   H2A_ROLES,
@@ -9,6 +10,7 @@ import {
   H2A_SESSION_NOTIFICATION_TOPICS,
   H2A_SESSION_STATES,
   auditNhiPosture,
+  deriveConnectionConfidence,
   buildComprehensionAttestation,
   canAttestComprehension,
   computeHash,
@@ -27,6 +29,8 @@ import {
   type H2AJournalPayload,
   type H2ANegotiationRecord,
   type H2ARole,
+  type H2AConnectionConfidence,
+  type H2ASession,
   type H2ASessionInterests,
   type H2ASessionNotificationTopic,
   type H2ASessionState,
@@ -91,6 +95,45 @@ export function handleRegisterInstance(
   } catch (err) {
     return safeError(err);
   }
+}
+
+// ---------------------------------------------------------------------------
+// WP-F (presence-honesty): connection-confidence helpers — ADVISORY surfacing
+// only; nothing here gates routing (that change is parked).
+// ---------------------------------------------------------------------------
+
+/** Clock-skew margin (ms) for a mirrored session's cross-machine timestamp. */
+const ACTIVITY_SKEW_MARGIN_MS = 120_000;
+
+/** Activity window (ms): `H2A_ACTIVITY_WINDOW_MS` env override, else the default. */
+function activityWindowMs(): number {
+  const raw = process.env.H2A_ACTIVITY_WINDOW_MS;
+  if (raw !== undefined) {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return H2A_ACTIVITY_WINDOW_DEFAULT_MS;
+}
+
+/** Confidence of one session, adding a skew margin for mirrored records. */
+function confidenceOf(session: H2ASession, now: number): H2AConnectionConfidence {
+  return deriveConnectionConfidence(session, {
+    now,
+    activityWindowMs: activityWindowMs(),
+    ...(session.mirroredAt ? { skewMarginMs: ACTIVITY_SKEW_MARGIN_MS } : {})
+  });
+}
+
+/** Best confidence across sessions: active > idle-uncertain > unknown. */
+function bestConfidence(
+  sessions: readonly H2ASession[],
+  now: number
+): H2AConnectionConfidence | undefined {
+  if (sessions.length === 0) return undefined;
+  const set = new Set(sessions.map((s) => confidenceOf(s, now)));
+  if (set.has("active")) return "active";
+  if (set.has("idle-uncertain")) return "idle-uncertain";
+  return "unknown";
 }
 
 export function handleDiscoverInstances(
@@ -167,11 +210,20 @@ export function handleInbox(
         // legitimate), but the caller must know live vs dormant rather than
         // assuming delivery. Exact-instance match — a live agent is addressed by
         // its full perennial id; the bare channel/alias form reads as dormant.
-        const freshSessions = listPresence(store.paths.root).filter(
+        const allFresh = listPresence(store.paths.root);
+        const matchingFresh = allFresh.filter(
           (s) => canonicalAddress(s.instance) === canonicalAddress(instance)
-        ).length;
+        );
+        const freshSessions = matchingFresh.length;
+        // WP-F: honest at-send connection confidence for the recipient —
+        // recipientLive is heartbeat-based (which the keepalive prober can also
+        // refresh); recipientConfidence reflects ACTUAL MCP-channel traffic, so
+        // an "idle-uncertain" recipient may be silently disconnected even while
+        // recipientLive is true. Advisory — the put still delivers (dormant
+        // deposit-for-wake stays legitimate).
+        const recipientConfidence = bestConfidence(matchingFresh, Date.now());
         // WP-2: enrich return with resolution metadata.
-        const liveSessions2 = listPresence(store.paths.root).map((s) => s.instance);
+        const liveSessions2 = allFresh.map((s) => s.instance);
         const registeredIds2 = store.listInstances().map((i) => i.instance ?? i.id);
         const resolution2 = resolveRecipient({
           target: args.instance,
@@ -183,6 +235,7 @@ export function handleInbox(
           envelopeId: args.envelope.id,
           recipientLive: freshSessions > 0,
           freshSessions,
+          ...(recipientConfidence ? { recipientConfidence } : {}),
           resolution: resolution2.kind,
           ...(resolution2.kind === "deliver-hint" ? { liveCandidate: resolution2.liveCandidate, reason: resolution2.reason } : {}),
           ...(resolution2.kind === "deliver-dormant" ? { reason: resolution2.reason, dormant: true } : {})
@@ -748,7 +801,16 @@ export function handleDiscoverSessions(
           session.name.toLowerCase().includes(needle)
       );
     }
-    return { sessions: fresh };
+    // WP-F: surface connection-confidence per session (advisory). "active" =
+    // the MCP channel carried traffic within the window; "idle-uncertain" =
+    // process alive but channel silent (idle OR silently disconnected);
+    // "unknown" = legacy/mirrored record with no activity stamp.
+    const now = Date.now();
+    const enriched = fresh.map((session) => ({
+      ...session,
+      connectionConfidence: confidenceOf(session, now)
+    }));
+    return { sessions: enriched };
   } catch (err) {
     return safeError(err);
   }

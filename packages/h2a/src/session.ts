@@ -34,6 +34,15 @@ export const H2A_SESSION_NOTIFICATION_TOPICS = [
 
 export const H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS = 5000;
 export const H2A_SESSION_DEFAULT_EXPIRY_MS = 90000;
+/**
+ * WP-F (presence-honesty): default window (ms) within which a session's
+ * `lastMcpActivityAt` must fall for its connection to read as "active". Beyond
+ * it — while the heartbeat is still fresh — the connection is "idle-uncertain":
+ * the process lives but the MCP channel has carried no traffic, so it is either
+ * genuinely idle OR silently disconnected (the false-live case). Override at the
+ * CLI boundary via `H2A_ACTIVITY_WINDOW_MS`. Advisory only — never a routing gate.
+ */
+export const H2A_ACTIVITY_WINDOW_DEFAULT_MS = 600_000;
 
 export type H2ASessionState = (typeof H2A_SESSION_STATES)[number];
 export type H2ASessionNotificationTopic =
@@ -118,6 +127,15 @@ export interface H2ASession {
    * ingested from a remote/sidecar (absent for a directly-connected local session).
    */
   readonly mirroredAt?: string;
+  /**
+   * WP-F (presence-honesty): ISO timestamp of the last inbound MCP JSON-RPC
+   * line this session's mcp-serve actually received — proof the host→server
+   * channel carried traffic, NOT merely that the process lives (the blind
+   * heartbeat). Absent on legacy/mirrored records → "unknown" confidence, never
+   * "stale". Only the owning mcp-serve writes it; the external keepalive prober
+   * (which refreshes `heartbeatAt` from tmux-pane liveness) cannot fake it.
+   */
+  readonly lastMcpActivityAt?: string;
 }
 
 /** Deployed-version stamp for an agent session (see {@link H2ASession.version}). */
@@ -202,6 +220,12 @@ export function isH2ASession(value: unknown): value is H2ASession {
   if (v.mirroredAt !== undefined && typeof v.mirroredAt !== "string") {
     return false;
   }
+  if (
+    v.lastMcpActivityAt !== undefined &&
+    typeof v.lastMcpActivityAt !== "string"
+  ) {
+    return false;
+  }
   if (v.version !== undefined) {
     if (typeof v.version !== "object" || v.version === null) return false;
     const ver = v.version as Record<string, unknown>;
@@ -251,6 +275,49 @@ export function pickFreshSessions(
   options: H2ASessionExpiryOptions = {}
 ): H2ASession[] {
   return sessions.filter((session) => !isSessionExpired(session, options));
+}
+
+/** Connection-channel confidence derived from MCP-traffic recency (WP-F). */
+export type H2AConnectionConfidence = "active" | "idle-uncertain" | "unknown";
+
+export interface H2AConnectionConfidenceOptions {
+  /** Reference instant; defaults to Date.now(). */
+  readonly now?: number;
+  /** Activity window in ms; defaults to H2A_ACTIVITY_WINDOW_DEFAULT_MS. */
+  readonly activityWindowMs?: number;
+  /**
+   * Clock-skew margin (ms) added to the window when the timestamp may come from
+   * another machine (a mirrored session). Defaults to 0.
+   */
+  readonly skewMarginMs?: number;
+}
+
+/**
+ * Derive the connection-channel confidence for a session — distinct from
+ * heartbeat-based expiry, which only proves the PROCESS is alive. Pure, no I/O.
+ *
+ * - "unknown": no parseable `lastMcpActivityAt` (legacy/mirrored record) — never
+ *   infer staleness from absence.
+ * - "active": last MCP traffic within `activityWindowMs` (+ skew margin).
+ * - "idle-uncertain": the MCP channel has been silent past the window — the
+ *   process may be a genuinely-idle agent OR a silently-disconnected false-live.
+ *
+ * NEVER drops a session and is ADVISORY only: callers surface it; routing is not
+ * gated on it (that change is parked for an explicit decision).
+ */
+export function deriveConnectionConfidence(
+  session: H2ASession,
+  options: H2AConnectionConfidenceOptions = {}
+): H2AConnectionConfidence {
+  const raw = session.lastMcpActivityAt;
+  if (typeof raw !== "string") return "unknown";
+  const at = Date.parse(raw);
+  if (Number.isNaN(at)) return "unknown";
+  const now = options.now ?? Date.now();
+  const windowMs =
+    (options.activityWindowMs ?? H2A_ACTIVITY_WINDOW_DEFAULT_MS) +
+    (options.skewMarginMs ?? 0);
+  return now - at <= windowMs ? "active" : "idle-uncertain";
 }
 
 /** Default idle window before a still-"working" session is treated as stalled. */
