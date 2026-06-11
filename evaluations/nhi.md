@@ -12,6 +12,8 @@ Agents, service accounts, API keys and workloads now outnumber human identities 
 
 ⇒ h2a aligns with **NIST SP 800-207 / CSF 2.0** at the framing level and maps concretely against the **OWASP NHI Top 10**.
 
+*This section is the canonical statement (and sourcing) of the NIST/OWASP alignment. The **full survey** of the NHI field — standards including SPIFFE/SPIRE and IETF WIMSE, commercial platforms, adjacent technologies, and the P3 interop shortlist — lives in [`nhi-landscape.md`](./nhi-landscape.md), which defers the NIST/OWASP alignment sourcing back here rather than repeating it.*
+
 ## Where h2a sits
 
 ```mermaid
@@ -68,7 +70,7 @@ The target is **a + b + c** — posture/attestation, active lifecycle, interop �
 |---|---|---|---|
 | **P1 — posture / attestation / offboard** ✅ | `h2a nhi report` ✅ · `h2a nhi attest` ✅ · `h2a nhi offboard` ✅ (+ `h2a_nhi_report/attest/offboard`) | (1) **report ✅ (DEC-087)**: derive an OWASP-NHI / CSF posture from the registry (auth coverage, overprivileged subagents, key reuse, long-lived keys, offboarding hygiene); (2) **attest ✅ (DEC-088)**: a signed `event` envelope of the posture (verify with `verifyEnvelopeSignature`); (3) **offboard ✅ (DEC-089)**: coordinated decommission (revoke keys + revoke subagents + tombstone; sessions are ephemeral presence, out of scope) | registry/keyring (DEC-078/079), subagents (DEC-072), `signEnvelope` (DEC-073) |
 | **P2 — inventory / reuse / TTL** ✅ | `h2a nhi inventory` ✅ (DEC-090) | full machine-identity inventory view, reuse-detection across instances (`sharedWith`), key-age/`longLived` surfacing for rotation planning, offboard state, estate totals | same, extended |
-| **P3 — interop** 🟡 | `h2a nhi export` ✅ (DEC-094) + connectors | **slice a ✅**: SPIFFE-trust-bundle export of the keyring (`nhiTrustBundle`/`nhiSpiffeId`, pure core) — the veille's #1 target. Remaining: the `../sentropic/` connector (PEM→JWK, SVID, live Federation endpoint), evidence-feed + secrets-manager targets. Core stays dependency-free. | keyring (DEC-078), attestation envelopes (DEC-088), veille `nhi-landscape.md` |
+| **P3 — interop** 🟡 | `h2a nhi export` ✅ (DEC-094) + connectors | **slice a ✅**: SPIFFE-trust-bundle export of the keyring (`nhiTrustBundle`/`nhiSpiffeId`, pure core) — the veille's #1 target (design: [P3 interop spec](../docs/superpowers/specs/2026-05-28-nhi-p3-interop-design.md)). Remaining: the `../sentropic/` connector (PEM→JWK, SVID, live Federation endpoint), evidence-feed + secrets-manager targets. Core stays dependency-free. | keyring (DEC-078), attestation envelopes (DEC-088), veille [`nhi-landscape.md`](./nhi-landscape.md) |
 
 P1 ships in coherent sub-slices (report first — it is the shared posture model attest and offboard both build on).
 

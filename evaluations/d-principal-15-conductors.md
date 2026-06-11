@@ -41,9 +41,11 @@ flowchart TD
 
 ## ABC compatibility
 
-- **A enterprise**: 15 internal leads — mandates, budget, common policies, recurring obligations, domain controls.
-- **B ecosystem**: 15 organizations/partners — controlled disclosure, antitrust/confidentiality, non-authoritative registry, explicit deadlock.
-- **C government/citizen**: 15 services/desks — imposed policies, jurisdiction, recourse, minimized evidence.
+Each ABC model carries its own detailed "15-CONDUCTORS case" section; the one-line deltas:
+
+- **A enterprise** ([detail](./a-enterprise.md#15-conductors-case)): 15 internal leads — mandates, budget, common policies, recurring obligations, domain controls.
+- **B ecosystem** ([detail](./b-ecosystem.md#15-conductors-case)): 15 organizations/partners — controlled disclosure, antitrust/confidentiality, non-authoritative registry, explicit deadlock.
+- **C government/citizen** ([detail](./c-government-citizen.md#15-conductors-case)): 15 services/desks — imposed policies, jurisdiction, recourse, minimized evidence.
 
 Since DEC-041, this mapping is machine-readable through `H2A_ABC_MODEL_PROFILES` and verified by `auditAbcModelCompatibility(modelId)`. Built-in profiles are stable against the V1 vocabulary (`ok:true`) but keep explicit gaps (`ready:false`).
 

@@ -43,7 +43,7 @@ flowchart TD
 
 ## 15-CONDUCTORS case
 
-15 services/desks under a citizen, company or administration PRINCIPAL:
+15 services/desks under a citizen, company or administration PRINCIPAL (the public-authority variant of [use-case D](./d-principal-15-conductors.md)):
 
 - Public policies are often `imposed`, not signed locally.
 - Conductors negotiate service/compliance engagements, but some obligations come from an external authority.

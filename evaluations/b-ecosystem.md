@@ -43,7 +43,7 @@ flowchart TD
 
 ## 15-CONDUCTORS case
 
-15 autonomous organizations/teams negotiating without a mediator:
+15 autonomous organizations/teams negotiating without a mediator (the peer-negotiation variant of [use-case D](./d-principal-15-conductors.md)):
 
 - Topology: up to 105 peer-to-peer links; the protocol limits divergence via registry, negotiation ledger, hashes, evidence packages.
 - Inter-conductor CONTRACTS declare disclosure, confidentiality, audit rights, antitrust/export-control where applicable.

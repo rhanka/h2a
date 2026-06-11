@@ -34,6 +34,18 @@ Not organizational topologies — they test `h2a` against external standards/fra
 | ISO 9001 (QMS) | process approach → ENGAGEMENT; quality policy → POLICY; journal = cl.7.5 documented information | [iso-9001.md](./iso-9001.md) |
 | SOC 2 (TSC) | Trust Services Criteria → POLICY+CONTROL; report period ↔ journal window (Type II operating-effectiveness evidence) | [soc2.md](./soc2.md) |
 
+The NHI pair has a deliberate division of labour: [nhi.md](./nhi.md) is the canonical **coverage evaluation** (h2a vs OWASP NHI Top 10, gaps, palier roadmap, NIST/OWASP alignment claims + sourcing); [nhi-landscape.md](./nhi-landscape.md) is the canonical **field survey** (standards incl. SPIFFE/WIMSE, vendors, adjacents, and the P3 interop shortlist). Each points to the other rather than repeating it.
+
+Interop specs **derived from** these evaluations (the spec, not the evaluation, is the canonical home for design detail): [`docs/sysml-interop.md`](../docs/sysml-interop.md) (from `sysml-v2.md` §3, DEC-081) · [`docs/superpowers/specs/2026-05-28-nhi-p3-interop-design.md`](../docs/superpowers/specs/2026-05-28-nhi-p3-interop-design.md) (from the NHI-landscape shortlist #1; core primitive shipped as `h2a nhi export`, DEC-094) · [`docs/superpowers/specs/2026-05-31-evo11-bridge-nhi-interface-contract.md`](../docs/superpowers/specs/2026-05-31-evo11-bridge-nhi-interface-contract.md) (bridge sessions as first-class signing NHI peers, DEC-122).
+
+## Evaluation axes
+
+Thematic sub-folders ("axes") for evidence-calibration work spanning several documents:
+
+| Axis | Scope | Folder |
+|---|---|---|
+| `confiance` (trust model) | EVO-9 trust concepts (`VALEUR` · `ATTENTION` · `INTÉRÊT` · `MUTUALISATION` · `CONFIANCE`) calibrated on real-world evidence: documented conflict-of-interest cases + a live B2B2B value-chain instantiation | [confiance/](./confiance/README.md) |
+
 ## Machine-readable source
 
 Since **DEC-041**, the A/B/C mapping is also machine-readable through `H2A_ABC_MODEL_PROFILES` and verified by `auditAbcModelCompatibility(modelId)` (`packages/h2a/src/abc.ts`, tests `packages/h2a/test/abc.test.js`). These narrative use-cases stay the **design source**; the executable profiles are derived from them. Any track change must update a DEC + the tests.

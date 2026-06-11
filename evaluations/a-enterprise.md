@@ -47,7 +47,7 @@ flowchart TD
 
 ## 15-CONDUCTORS case
 
-An executive owner steering 15 operational leads:
+An executive owner steering 15 operational leads (the star topology of [use-case D](./d-principal-15-conductors.md), applied inside the enterprise):
 
 - Each CONDUCTOR has a bounded MANDATE: budget, domain, signing rights, accepted policies.
 - Inter-conductor contracts = internal ENGAGEMENTS or internal service CONTRACTS.
