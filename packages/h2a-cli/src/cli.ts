@@ -75,6 +75,7 @@ import {
   isComprehensionAttestation,
   nhiAttestationEnvelope,
   nhiInventory,
+  deriveConnectionConfidence,
   nhiTrustBundle,
   orgAssignmentEnvelope,
   parseOrgManifest,
@@ -3560,6 +3561,71 @@ function cmdDiscover(
     const scope = flags.scope;
     entries = entries.filter((entry) => effByInstance.get(entry.instance)?.scopes.includes(scope));
   }
+
+  // `--live` (WP-C/WP-F): the answer to "which of these can I actually reach
+  // RIGHT NOW?" — the full registry is the perennial ledger (every past
+  // conversation mints an id, so it grows to hundreds and drowns the live ones).
+  // Filter to instances with a fresh presence session and annotate each with
+  // its connection-confidence (active = MCP channel carried traffic recently;
+  // idle-uncertain = process alive but channel silent — possibly a false-live;
+  // unknown = legacy/mirrored presence with no activity stamp). Compact output
+  // (no public keys) so the reachable id is obvious. Heartbeat-fresh ≠ reachable.
+  if (flags.live !== undefined) {
+    const now = Date.now();
+    // PRESENCE-FIRST: liveness lives in the presence files, not the registry.
+    // An agent can hold a fresh presence on this bus without a registration here
+    // (it registered on a forked repo-local bus — the split-brain that strands
+    // mail). Enumerate live sessions and annotate from the registry where known,
+    // so a presence-but-unregistered peer still surfaces as reachable.
+    const sessions = listPresence(root);
+    const regByInstance = new Map(entries.map((e) => [e.instance, e]));
+    const byInstance = new Map<string, typeof sessions>();
+    for (const s of sessions) {
+      const arr = byInstance.get(s.instance) ?? [];
+      arr.push(s);
+      byInstance.set(s.instance, arr);
+    }
+    const rank = { active: 0, "idle-uncertain": 1, unknown: 2 } as const;
+    const live = Array.from(byInstance.entries())
+      .map(([instance, ss]) => {
+        const reg = regByInstance.get(instance);
+        const eff = effByInstance.get(instance);
+        // Best (most-reachable) confidence across this instance's sessions.
+        let best: "active" | "idle-uncertain" | "unknown" = "unknown";
+        let freshestActivity: string | undefined;
+        let name: string | undefined = reg?.name;
+        for (const s of ss) {
+          const c = deriveConnectionConfidence(s, { now });
+          if (rank[c] < rank[best]) best = c;
+          const a = (s as { lastMcpActivityAt?: string }).lastMcpActivityAt;
+          if (a && (!freshestActivity || a > freshestActivity)) freshestActivity = a;
+          const sn = (s as { name?: string }).name;
+          if (!name && sn) name = sn;
+        }
+        return {
+          instance,
+          ...(name !== undefined ? { name } : {}),
+          ...(reg?.workspace !== undefined ? { workspace: reg.workspace } : {}),
+          registered: reg !== undefined,
+          roles: eff?.roles ?? reg?.roles ?? [],
+          scopes: eff?.scopes ?? reg?.scopes ?? [],
+          sessions: ss.length,
+          connectionConfidence: best,
+          ...(freshestActivity ? { lastMcpActivityAt: freshestActivity } : {})
+        };
+      })
+      .filter((r) => {
+        // honor --role / --scope filters against the annotated values
+        if (flags.role && !r.roles.includes(flags.role)) return false;
+        if (flags.scope && !r.scopes.includes(flags.scope)) return false;
+        return true;
+      })
+      // Most-reachable first, so the addressable agent is at the top.
+      .sort((a, b) => rank[a.connectionConfidence] - rank[b.connectionConfidence]);
+    streams.stdout.write(`${JSON.stringify(live, null, 2)}\n`);
+    return 0;
+  }
+
   streams.stdout.write(`${JSON.stringify(entries, null, 2)}\n`);
   return 0;
 }
