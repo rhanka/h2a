@@ -203,6 +203,33 @@ test("SessionRegistry.touch keeps the heartbeat fresh", () => {
   }
 });
 
+test("SessionRegistry.touch recreates a missing presence file for a still-open session", () => {
+  const root = makeRoot("touch-recreate");
+  try {
+    const reg = new SessionRegistry(root, { autoHeartbeat: false });
+    const session = reg.open({
+      instance: "codex:remote:a6694dc87c1d",
+      sessionId: "sess:remote-live"
+    });
+    const paths = localStorePaths(root);
+    const file = presenceFile(paths, session.sessionId);
+    assert.ok(existsSync(file), "open session writes initial presence");
+
+    rmSync(file, { force: true });
+    assert.equal(existsSync(file), false, "presence was externally swept");
+
+    const revived = reg.touch(session.sessionId);
+    assert.ok(revived, "touch should revive presence for in-memory live session");
+    assert.ok(existsSync(file), "revived session must be visible on disk again");
+
+    const onDisk = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(onDisk.sessionId, session.sessionId);
+    assert.equal(onDisk.instance, session.instance);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS is < expiry (sanity)", () => {
   assert.equal(typeof H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS, "number");
 });

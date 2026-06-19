@@ -176,13 +176,21 @@ export class SessionRegistry {
   touch(sessionId: string): H2ASession | undefined {
     const entry = this.entries.get(sessionId);
     if (!entry) return undefined;
-    const updated = updatePresence(this.root, sessionId, {
+    let updated = updatePresence(this.root, sessionId, {
       heartbeatAt: nowIso(),
       // WP-F: flush the latest in-memory MCP-activity timestamp alongside the
       // blind heartbeat. Unlike heartbeatAt (which the external keepalive prober
       // can also refresh), this only advances on real inbound MCP traffic.
       ...(entry.lastActivityAt ? { lastMcpActivityAt: entry.lastActivityAt } : {})
     });
+    if (!updated) {
+      updated = {
+        ...entry.session,
+        heartbeatAt: nowIso(),
+        ...(entry.lastActivityAt ? { lastMcpActivityAt: entry.lastActivityAt } : {})
+      };
+      writePresence(this.root, updated);
+    }
     if (updated) entry.session = updated;
     return updated;
   }
