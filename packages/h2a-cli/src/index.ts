@@ -298,7 +298,7 @@ export {
   type UpgradeCheckResult
 } from "./runtime/upgrade/index.js";
 
-export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce, cmdConductorLaunch, cmdPresenceReap } from "./cli.js";
+export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce, cmdConductorLaunch, cmdPresenceReap, cmdWakeRequest } from "./cli.js";
 
 export {
   conductorFor,

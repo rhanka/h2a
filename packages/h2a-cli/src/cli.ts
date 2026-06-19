@@ -3920,6 +3920,115 @@ function cmdConductorLaunchCheck(
  * Exit 0 (success: none/cooldown/would-emit/no-remote/emitted).
  * Exit 1 (user error: missing --instance when --confirm given).
  */
+/**
+ * `h2a wake-request --to <instance>` (WP-F, Codex reachability): emit a signed
+ * `wake-request` envelope to a live remote/launcher agent so IT wakes the TARGET
+ * agent's tmux pane out-of-band.
+ *
+ * Why: a Codex agent tears down its h2a stdio MCP child on transport drop and
+ * never reconnects, so h2a deletes its presence and the in-process EVO-1
+ * self-wake can no longer fire — the agent is unreachable even though its pane
+ * is alive. The launcher (remote) holds the target's DURABLE pane and performs
+ * the actual wake; h2a never types into a pane here, so there is no stale-pane /
+ * wrong-pane risk on the h2a side. Claude does NOT need this (its presence stays
+ * live → the self-wake fires in-process).
+ *
+ * Flags: --to <target> (required), --instance <self> signer (required to emit),
+ * --remote <r> (override; else first live remote, pane-preferred), --dry-run,
+ * --reason <text>.
+ */
+export function cmdWakeRequest(
+  argv: readonly string[],
+  streams: H2ACliStreams
+): number {
+  const { flags } = parseFlags(["", ...argv]);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+
+  const target = flags.to;
+  if (!target) {
+    streams.stderr.write("h2a wake-request: --to <instance> is required (the agent to wake)\n");
+    return 1;
+  }
+  const request = {
+    kind: "wake-request" as const,
+    target,
+    reason: flags.reason ?? "peer not live on the bus; wake its pane out-of-band"
+  };
+
+  // --dry-run → preview only; never emit.
+  if (flags["dry-run"] !== undefined) {
+    streams.stdout.write(
+      `${JSON.stringify({
+        action: "would-emit",
+        request,
+        note: "DRY-RUN — pass --instance <self> (without --dry-run) to emit; remote performs the actual pane wake"
+      }, null, 2)}\n`
+    );
+    return 0;
+  }
+
+  // Emitting requires the signer/sender identity.
+  if (!flags.instance) {
+    streams.stderr.write(
+      "h2a wake-request: --instance <self> is required to emit (the signer/sender identity); or use --dry-run\n"
+    );
+    return 1;
+  }
+  const selfInstance = flags.instance;
+
+  // Resolve the target remote/launcher instance.
+  let remoteInstance: string;
+  if (flags.remote) {
+    remoteInstance = flags.remote;
+  } else {
+    const sessions = listPresence(root);
+    const remoteSessions = sessions.filter(
+      (s) => s.host === "remote" || (s.instance && s.instance.startsWith("remote:"))
+    );
+    if (remoteSessions.length === 0) {
+      streams.stdout.write(
+        `${JSON.stringify({
+          action: "no-remote",
+          reason: "no live remote/launcher agent to perform the out-of-band wake"
+        }, null, 2)}\n`
+      );
+      return 0;
+    }
+    const withPane = remoteSessions.filter((s) => s.launchContext?.tmux?.pane);
+    remoteInstance = (withPane.length > 0 ? withPane[0] : remoteSessions[0]).instance;
+  }
+
+  const store = createLocalStore({ root });
+  const envelope = createEnvelope({
+    id: `env-wake-${Date.now().toString(36)}`,
+    type: "event" as const,
+    actor: { instance: selfInstance, role: "AGENTS" as const, scope: "scope:default" },
+    target: { instance: remoteInstance },
+    body: {
+      kind: "message" as const,
+      topic: "wake-request",
+      text: `Wake request for ${target}: ${request.reason}`,
+      request
+    },
+    createdAt: new Date().toISOString()
+  });
+
+  try {
+    store.putInboxMessage(remoteInstance, envelope);
+  } catch (error) {
+    streams.stderr.write(
+      `h2a wake-request: failed to deliver to ${remoteInstance}: ${(error as Error).message}\n`
+    );
+    return 1;
+  }
+
+  streams.stdout.write(
+    `${JSON.stringify({ action: "emitted", to: remoteInstance, request }, null, 2)}\n`
+  );
+  return 0;
+}
+
 export function cmdConductorLaunch(
   argv: readonly string[],
   streams: H2ACliStreams,
@@ -5216,6 +5325,7 @@ export function runCli(
   if (command === "conductor") return cmdConductor(argv.slice(1), streams);
   if (command === "conductor-launch-check") return cmdConductorLaunchCheck(argv.slice(1), streams);
   if (command === "conductor-launch") return cmdConductorLaunch(argv.slice(1), streams);
+  if (command === "wake-request") return cmdWakeRequest(argv.slice(1), streams);
   if (command === "keepalive") {
     streams.stderr.write(
       "h2a keepalive: async command — run via the h2a binary, not the synchronous API.\n"
