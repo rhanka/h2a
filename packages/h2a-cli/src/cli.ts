@@ -3953,7 +3953,14 @@ export function cmdWakeRequest(
   const request = {
     kind: "wake-request" as const,
     target,
-    reason: flags.reason ?? "peer not live on the bus; wake its pane out-of-band"
+    reason: flags.reason ?? "peer not live on the bus; wake its pane out-of-band",
+    // Self-describing wake: the EXACT line the launcher should type into the
+    // target's pane. The target's MCP is likely dead (that's why it's being
+    // woken), so it must read its inbox via the CLI, not the MCP — and the bare
+    // `h2a inbox read` errors without --instance. h2a composes the precise
+    // command since it knows the target + root. Launchers SHOULD type this
+    // verbatim (literal send-keys) rather than hard-coding their own line.
+    instructionLine: `h2a inbox read --instance ${target} --root ${root}`
   };
 
   // --dry-run → preview only; never emit.

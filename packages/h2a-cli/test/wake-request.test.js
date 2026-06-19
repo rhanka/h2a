@@ -51,12 +51,19 @@ test("wake-request: emits a signed wake-request envelope to the remote inbox", (
     assert.equal(report.to, remote);
     assert.equal(report.request.kind, "wake-request");
     assert.equal(report.request.target, target);
+    // Self-describing: the exact CLI line the launcher should type into the
+    // target's pane — full, runnable (the bare `h2a inbox read` errors).
+    assert.equal(
+      report.request.instructionLine,
+      `h2a inbox read --instance ${target} --root ${root}`
+    );
 
     const store = createLocalStore({ root });
     const inbox = store.readInbox(remote);
     assert.equal(inbox.length, 1);
     assert.equal(inbox[0].body.topic, "wake-request");
     assert.equal(inbox[0].body.request.target, target);
+    assert.match(inbox[0].body.request.instructionLine, /^h2a inbox read --instance codex:foo:/);
     assert.equal(inbox[0].actor.instance, "claude:cond:bbbbbbbbbbbb");
   } finally {
     rmSync(dir, { recursive: true, force: true });
