@@ -81,7 +81,11 @@ async function runJsonRpcProcess(command, args, requests) {
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error(`MCP process timed out; stderr:\n${stderr}`));
-    }, 5000);
+      // 30s, not 5s: this spawns a real `node dist/bin.js mcp-serve`, and the
+      // Node cold-start of the bundled CLI alone is ~4–5s — it brushed a 5s cap
+      // and tipped over under machine load (many concurrent agents). The cap is
+      // only a hung-process backstop; the scenario itself is sub-second.
+    }, 30000);
     child.on("error", (error) => {
       clearTimeout(timeout);
       reject(error);
