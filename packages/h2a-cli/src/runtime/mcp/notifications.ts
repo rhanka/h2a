@@ -176,18 +176,20 @@ export class NotificationDispatcher {
         ? readInboxIds(this.store, session.instance)
         : [];
       if (isInterestedIn(session, "inbox.envelope_arrived")) {
-        let hadArrival = false;
         for (const envelopeId of inboxIds) {
           if (!prev.inbox.envelopeIds.has(envelopeId)) {
             this.push(session.sessionId, "inbox.envelope_arrived", {
               instance: session.instance,
               envelopeId
             });
-            hadArrival = true;
           }
         }
-        // EVO-1 wake (bug #3): nudge the host once per tick if anything arrived.
-        if (hadArrival) this.onInboxArrival?.(session.instance);
+        // EVO-1 wake (bug #3): nudge the host every tick while the inbox is
+        // NON-EMPTY (not just on a fresh arrival). The inbox-wake handler dedups
+        // via its own `seen`, so this is a no-op once a wake has landed — but it
+        // is what RETRIES a wake that was DEFERRED (driver returned false because
+        // a human was typing in the pane) until it can land without clobbering.
+        if (inboxIds.length > 0) this.onInboxArrival?.(session.instance);
       }
 
       // 3. Negotiation event arrivals (only on negotiations the session follows)

@@ -44,6 +44,8 @@ export interface RelauncherRuntime {
     command: string | { file: string; args: readonly string[]; cwd?: string },
     options: { cwd?: string }
   ): boolean;
+  /** Run a command and return its stdout (undefined on failure). For probes. */
+  capture?(file: string, args: readonly string[]): string | undefined;
   /** Optional side-channel note (relances are observable). */
   notify?(line: string): void;
 }
@@ -52,6 +54,17 @@ export const defaultRelauncherRuntime: RelauncherRuntime = {
   run(file, args) {
     const res = spawnSync(file, [...args], { stdio: "ignore" });
     return res.status === 0;
+  },
+  capture(file, args) {
+    try {
+      const res = spawnSync(file, [...args], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"]
+      });
+      return res.status === 0 ? res.stdout : undefined;
+    } catch {
+      return undefined;
+    }
   },
   spawnDetached(command, options) {
     try {
@@ -135,6 +148,66 @@ export function tmuxSendSubmit(
   const enter1 = runtime.run("tmux", ["send-keys", "-t", target, "Enter"]);
   const enter2 = runtime.run("tmux", ["send-keys", "-t", target, "Enter"]);
   return typed && enter1 && enter2;
+}
+
+/**
+ * Default window (ms): if a tmux client attached to the pane's session was
+ * active within this window, a wake/relance is DEFERRED so it does not clobber
+ * a human typing in the pane. Override via `H2A_WAKE_DEFER_ACTIVITY_MS` (0 = off).
+ */
+export const H2A_WAKE_DEFER_ACTIVITY_DEFAULT_MS = 4000;
+
+function activityWindowMs(): number {
+  const raw = process.env.H2A_WAKE_DEFER_ACTIVITY_MS;
+  if (raw !== undefined) {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return H2A_WAKE_DEFER_ACTIVITY_DEFAULT_MS;
+}
+
+/**
+ * True iff a tmux CLIENT attached to `target`'s session had activity within the
+ * defer window — i.e. a human is (probably) typing/looking RIGHT NOW, so a wake
+ * that types into the pane would clobber their in-progress input. TUI-agnostic
+ * (uses tmux `client_activity`, not any TUI's composer state). Fail-OPEN: if the
+ * probe can't be read (no `capture`, no tmux, detached/no client), returns false
+ * so waking still works — the guard only fires on a POSITIVE recent-activity read.
+ */
+export function paneHasRecentHumanActivity(
+  runtime: Pick<RelauncherRuntime, "capture">,
+  target: string,
+  opts: { now?: number; windowMs?: number } = {}
+): boolean {
+  if (!runtime.capture) return false;
+  const windowMs = opts.windowMs ?? activityWindowMs();
+  if (windowMs <= 0) return false; // disabled
+  const now = opts.now ?? Date.now();
+  const sessionRaw = runtime.capture("tmux", [
+    "display-message",
+    "-p",
+    "-t",
+    target,
+    "#{session_name}"
+  ]);
+  const session = sessionRaw?.trim();
+  if (!session) return false;
+  const clientsRaw = runtime.capture("tmux", [
+    "list-clients",
+    "-t",
+    `=${session}`,
+    "-F",
+    "#{client_activity}"
+  ]);
+  if (!clientsRaw) return false; // no attached client → no human → don't defer
+  let mostRecentSec = 0;
+  for (const line of clientsRaw.split("\n")) {
+    const epoch = Number.parseInt(line.trim(), 10);
+    if (Number.isFinite(epoch) && epoch > mostRecentSec) mostRecentSec = epoch;
+  }
+  if (mostRecentSec === 0) return false;
+  const ageMs = now - mostRecentSec * 1000; // client_activity is epoch SECONDS
+  return ageMs >= 0 && ageMs < windowMs;
 }
 
 /** Revive a stalled agent by sending its resume/launch command into its pane. */

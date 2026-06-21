@@ -28,6 +28,7 @@ import type { LocalStore } from "../local-files/store.js";
 import { listPresence } from "../local-files/index.js";
 import {
   defaultRelauncherRuntime,
+  paneHasRecentHumanActivity,
   tmuxTarget,
   tmuxSendSubmit,
   type RelauncherRuntime
@@ -484,6 +485,18 @@ export function localTmuxDriver(options: DriverRuntimeOptions = {}): H2ADriver {
       const tmux = request.launchContext?.tmux;
       if (!tmux) return false;
       const target = tmuxTarget(tmux);
+      // Don't clobber a human mid-type: if a client attached to this pane's
+      // session was active within the defer window, DEFER (return false). The
+      // inbox-wake dispatcher re-fires each tick while the inbox is non-empty,
+      // so the wake lands as soon as the human pauses/submits — the message is
+      // never lost and the in-progress input is never touched. Fail-open: if
+      // activity can't be read, send (no regression).
+      if (paneHasRecentHumanActivity(runtime, target)) {
+        options.log?.(
+          `drive[local-tmux]: ${request.to} -> ${target} DEFERRED (human active in pane)`
+        );
+        return false;
+      }
       // shared submit path: literal text + separate Enter(s) (see tmuxSendSubmit).
       const ok = tmuxSendSubmit(runtime, target, request.instructionLine);
       options.log?.(`drive[local-tmux]: ${request.to} -> ${target} (${ok ? "ok" : "failed"})`);
