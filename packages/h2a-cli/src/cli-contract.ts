@@ -115,6 +115,73 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     description: "List registered instances, optionally filtered by role/scope."
   },
 
+  // --- objective loop (h2a + track + remote MVP) ---
+  {
+    verb: "loop create",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["name", "goal"],
+    optionalFlags: ["root", "id", "repo", "track", "agent"],
+    description:
+      "Create a durable Objective Loop under `<root>/loops/<loopId>/` with state.json, events.jsonl and objective.md. Multiple --repo, --track JSON TrackRef and --agent host:role:placement flags may be supplied."
+  },
+  {
+    verb: "loop list",
+    outputShape: "list",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["root"],
+    description: "List locally persisted Objective Loops from `<root>/loops`."
+  },
+  {
+    verb: "loop status",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["loopId"],
+    optionalFlags: ["root", "json"],
+    description: "Read one Objective Loop state by id. Output is JSON regardless of --json for MVP stability."
+  },
+  {
+    verb: "loop agents",
+    outputShape: "list",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["loopId"],
+    optionalFlags: ["root", "json"],
+    description: "List the agents enrolled in one Objective Loop."
+  },
+  {
+    verb: "loop attach",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["loopId", "agent"],
+    optionalFlags: ["root"],
+    description: "Resolve a loop agent selector and return a not-yet-supported attach action envelope; remote delegation is parked for the MVP."
+  },
+  {
+    verb: "loop logs",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["loopId"],
+    optionalFlags: ["root", "agent"],
+    description: "Read the durable Objective Loop event journal, optionally resolving an agent selector for context."
+  },
+  {
+    verb: "loop tick",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["loopId"],
+    optionalFlags: ["root"],
+    description: "Validate the loop exists and return a not-yet-supported orchestration action envelope for the MVP."
+  },
+  {
+    verb: "loop watch",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["loopId"],
+    optionalFlags: ["root", "interval-ms"],
+    description: "Validate the loop exists and return a not-yet-supported watch action envelope for the MVP."
+  },
+
   // --- subagents (DEC-068 / V2) ---
   {
     verb: "subagent register",

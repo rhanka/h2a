@@ -196,6 +196,15 @@ import {
   recordSpawnRequest,
   spawnAllowed
 } from "./runtime/governance/spawns.js";
+import {
+  createObjectiveLoop,
+  listLoopEvents,
+  listObjectiveLoops,
+  readObjectiveLoop,
+  type H2ALoopAgent,
+  type H2ALoopRepoRef,
+  type H2ALoopTrackRef
+} from "./runtime/loop/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -341,6 +350,12 @@ export function renderCliHelp(): string {
     "  h2a install-skills --host <claude|codex|gemini|agy> [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
+    "  h2a loop create --name <n> --goal <text> [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement>] [--root <path>]",
+    "  h2a loop list [--root <path>]",
+    "  h2a loop status <loopId> [--root <path>]",
+    "  h2a loop agents <loopId> [--root <path>]",
+    "  h2a loop attach <loopId> --agent <selector> [--root <path>]",
+    "  h2a loop logs <loopId> [--agent <selector>] [--root <path>]",
     "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
     `MCP tools: ${H2A_CLI_MCP_TOOL_NAMES.join(", ")}`
@@ -1942,6 +1957,148 @@ export async function runMirrorPush(
   }
   streams.stdout.write(`${JSON.stringify({ status: result.status, body: result.body }, null, 2)}\n`);
   return result.status >= 200 && result.status < 300 ? 0 : 1;
+}
+
+function parseLoopRepo(value: string): H2ALoopRepoRef {
+  const [path, role] = value.split(":");
+  if (!path) throw new Error("--repo must be <path[:role]>");
+  return { path, ...(role ? { role } : {}) };
+}
+
+function parseLoopTrack(value: string): H2ALoopTrackRef {
+  const ref = JSON.parse(value) as H2ALoopTrackRef;
+  if (ref.system !== "track" || !ref.repoKey || !ref.workspace || !ref.aggregateKind || !ref.aggregateId || !ref.role) {
+    throw new Error("--track must be a JSON TrackRef with system, repoKey, workspace, aggregateKind, aggregateId and role");
+  }
+  return ref;
+}
+
+function parseLoopAgent(value: string, index: number): H2ALoopAgent {
+  const [host, role, placement] = value.split(":");
+  if (!host || !role || !placement) throw new Error("--agent must be <host:role:placement>");
+  if (!["claude", "codex", "agy", "gemini", "mistral", "opencode", "shell"].includes(host)) {
+    throw new Error(`--agent host is unsupported: ${host}`);
+  }
+  if (!["local", "remote", "auto", "headless-local", "headless-remote", "interactive-local", "interactive-remote"].includes(placement)) {
+    throw new Error(`--agent placement is unsupported: ${placement}`);
+  }
+  return {
+    id: `agent-${index + 1}`,
+    host: host as H2ALoopAgent["host"],
+    role,
+    placement: placement as H2ALoopAgent["placement"],
+    status: "planned"
+  };
+}
+
+function collectRepeatedFlag(argv: readonly string[], flag: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] !== flag) continue;
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith("--")) throw new Error(`${flag} requires a value`);
+    out.push(value);
+    i++;
+  }
+  return out;
+}
+
+function selectLoopAgent(loop: { agents: readonly H2ALoopAgent[] }, selector: string | undefined): H2ALoopAgent | undefined {
+  if (!selector) return undefined;
+  return loop.agents.find(
+    (agent) => agent.id === selector || agent.role === selector || agent.host === selector || agent.remoteAgentId === selector || agent.h2aInstance === selector
+  );
+}
+
+function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
+  const { command: sub, flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+
+  try {
+    if (sub === "create") {
+      const repos = collectRepeatedFlag(argv, "--repo").map(parseLoopRepo);
+      const refs = collectRepeatedFlag(argv, "--track").map(parseLoopTrack);
+      const agents = collectRepeatedFlag(argv, "--agent").map(parseLoopAgent);
+      const loop = createObjectiveLoop(root, {
+        ...(flags.id ? { id: flags.id } : {}),
+        name: flags.name,
+        goal: flags.goal,
+        repos,
+        refs,
+        agents
+      });
+      streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);
+      return 0;
+    }
+
+    if (sub === "list") {
+      streams.stdout.write(`${JSON.stringify(listObjectiveLoops(root), null, 2)}\n`);
+      return 0;
+    }
+
+    if (sub === "status") {
+      const loopId = argv[1];
+      if (!loopId || loopId.startsWith("--")) {
+        streams.stderr.write("h2a loop status: <loopId> is required\n");
+        return 1;
+      }
+      streams.stdout.write(`${JSON.stringify(readObjectiveLoop(root, loopId), null, 2)}\n`);
+      return 0;
+    }
+
+    if (sub === "agents") {
+      const loopId = argv[1];
+      if (!loopId || loopId.startsWith("--")) {
+        streams.stderr.write("h2a loop agents: <loopId> is required\n");
+        return 1;
+      }
+      streams.stdout.write(`${JSON.stringify(readObjectiveLoop(root, loopId).agents, null, 2)}\n`);
+      return 0;
+    }
+
+    if (sub === "attach") {
+      const loopId = argv[1];
+      if (!loopId || loopId.startsWith("--") || !flags.agent) {
+        streams.stderr.write("h2a loop attach: <loopId> and --agent <selector> are required\n");
+        return 1;
+      }
+      const loop = readObjectiveLoop(root, loopId);
+      const agent = selectLoopAgent(loop, flags.agent);
+      if (!agent) throw new Error(`agent not found: ${flags.agent}`);
+      streams.stdout.write(`${JSON.stringify({ ok: true, loopId, agent, action: "attach", supported: false, reason: "remote attach delegation is not implemented in h2a loop MVP" }, null, 2)}\n`);
+      return 0;
+    }
+
+    if (sub === "logs") {
+      const loopId = argv[1];
+      if (!loopId || loopId.startsWith("--")) {
+        streams.stderr.write("h2a loop logs: <loopId> is required\n");
+        return 1;
+      }
+      const loop = readObjectiveLoop(root, loopId);
+      const agent = selectLoopAgent(loop, flags.agent);
+      streams.stdout.write(`${JSON.stringify({ loopId, ...(agent ? { agent } : {}), events: listLoopEvents(root, loopId) }, null, 2)}\n`);
+      return 0;
+    }
+
+    if (sub === "tick" || sub === "watch") {
+      const loopId = argv[1];
+      if (!loopId || loopId.startsWith("--")) {
+        streams.stderr.write(`h2a loop ${sub}: <loopId> is required\n`);
+        return 1;
+      }
+      readObjectiveLoop(root, loopId);
+      streams.stdout.write(`${JSON.stringify({ ok: true, loopId, action: sub, supported: false, reason: "loop orchestration is not implemented in h2a loop MVP" }, null, 2)}\n`);
+      return 0;
+    }
+  } catch (error) {
+    streams.stderr.write(`h2a loop ${sub ?? ""}: ${(error as Error).message}\n`);
+    return classifyStoreError((error as Error).message);
+  }
+
+  streams.stderr.write("h2a loop: subcommand required (create, list, status, agents, attach, logs, tick, watch)\n");
+  return 1;
 }
 
 function cmdDrumbeat(argv: readonly string[], streams: H2ACliStreams): number {
@@ -5288,6 +5445,7 @@ export function runCli(
   if (command === "register") return cmdRegister(flags, streams);
   if (command === "discover") return cmdDiscover(flags, streams);
   if (command === "subagent") return cmdSubagent(argv.slice(1), streams);
+  if (command === "loop") return cmdLoop(argv.slice(1), streams);
   if (command === "drumbeat") {
     const sub = argv[1];
     if (sub === "watch") {

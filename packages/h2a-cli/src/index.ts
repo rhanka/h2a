@@ -132,6 +132,25 @@ export {
 } from "./runtime/deploy/k8s-tenant.js";
 
 export {
+  H2A_DEFAULT_LOOP_POLICY,
+  appendLoopEvent,
+  createLoopId,
+  createObjectiveLoop,
+  listLoopEvents,
+  listObjectiveLoops,
+  readObjectiveLoop,
+  type CreateObjectiveLoopInput,
+  type H2ALoopAgent,
+  type H2ALoopAgentStatus,
+  type H2ALoopEvent,
+  type H2ALoopPolicy,
+  type H2ALoopRepoRef,
+  type H2ALoopStatus,
+  type H2ALoopTrackRef,
+  type H2AObjectiveLoop
+} from "./runtime/loop/index.js";
+
+export {
   recordStop,
   readDrumbeatEntry,
   listDrumbeat,

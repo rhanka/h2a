@@ -94,6 +94,16 @@ interface RelauncherCommonOptions {
   log?: (line: string) => void;
 }
 
+const deferredRelaunchers = new WeakSet<H2ARelauncher>();
+
+function markDeferred(relauncher: H2ARelauncher, deferred: boolean): void {
+  if (deferred) {
+    deferredRelaunchers.add(relauncher);
+  } else {
+    deferredRelaunchers.delete(relauncher);
+  }
+}
+
 export type RemoteEndpointResolver = (
   instance: string
 ) => string | undefined | Promise<string | undefined>;
@@ -213,12 +223,20 @@ export function paneHasRecentHumanActivity(
 /** Revive a stalled agent by sending its resume/launch command into its pane. */
 export function localTmuxRelauncher(options: RelauncherCommonOptions = {}): H2ARelauncher {
   const runtime = options.runtime ?? defaultRelauncherRuntime;
-  return {
+  const relauncher: H2ARelauncher = {
     relance(finding: H2ADrumbeatFinding): boolean {
+      markDeferred(relauncher, false);
       const lc = finding.launchContext;
       if (!lc?.tmux) return false; // not a tmux-launched agent — let the chain fall through
       const command = lc.resumeCommand ?? lc.command;
       const target = tmuxTarget(lc.tmux);
+      if (paneHasRecentHumanActivity(runtime, target)) {
+        markDeferred(relauncher, true);
+        options.log?.(
+          `drumbeat[local-tmux]: relance ${finding.instance} → ${target} DEFERRED (human active in pane)`
+        );
+        return false;
+      }
       // literal command + separate Enter(s) — a combined `send-keys cmd Enter`
       // doesn't commit in a TUI (the reported "line written, no Enter") and
       // without -l the command keys can be misread as tmux key names.
@@ -229,6 +247,7 @@ export function localTmuxRelauncher(options: RelauncherCommonOptions = {}): H2AR
       return ok;
     }
   };
+  return relauncher;
 }
 
 /** Fallback: detached background respawn of the captured command + notify. */
@@ -254,6 +273,7 @@ export function chainRelauncher(...relaunchers: readonly H2ARelauncher[]): H2ARe
     async relance(finding: H2ADrumbeatFinding): Promise<boolean> {
       for (const r of relaunchers) {
         if (await r.relance(finding)) return true;
+        if (deferredRelaunchers.has(r)) return false;
       }
       return false;
     }

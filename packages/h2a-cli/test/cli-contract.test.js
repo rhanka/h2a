@@ -240,6 +240,31 @@ function bootstrapHappyPath(dir, root) {
  * invocation (e.g. `mcp-serve` is long-running, `negotiate stabilize`
  * needs a quorum + ed25519 keypair which is covered by the dedicated test).
  */
+function ensureContractLoop(root) {
+  const sink = {
+    stdout: { write: () => {} },
+    stderr: { write: () => {} },
+    cwd: () => process.cwd()
+  };
+  runCli(
+    [
+      "loop",
+      "create",
+      "--root",
+      root,
+      "--id",
+      "loop-contract",
+      "--name",
+      "Contract loop",
+      "--goal",
+      "Exercise the Objective Loop CLI contract",
+      "--agent",
+      "claude:conductor:local"
+    ],
+    sink
+  );
+}
+
 function buildHappyArgv(verb, ctx) {
   const { root, privateKeyPath, publicKeyPath } = ctx;
   switch (verb) {
@@ -272,6 +297,53 @@ function buildHappyArgv(verb, ctx) {
       ];
     case "discover":
       return ["discover", "--root", root];
+    case "loop create":
+      return [
+        "loop",
+        "create",
+        "--root",
+        root,
+        "--id",
+        "loop-contract",
+        "--name",
+        "Contract loop",
+        "--goal",
+        "Exercise the Objective Loop CLI contract",
+        "--repo",
+        "/tmp/repo:target",
+        "--track",
+        JSON.stringify({
+          system: "track",
+          repoKey: "h2a",
+          workspace: "ws:test",
+          aggregateKind: "wp",
+          aggregateId: "WP-1",
+          role: "target"
+        }),
+        "--agent",
+        "claude:conductor:local"
+      ];
+    case "loop list":
+      ensureContractLoop(root);
+      return ["loop", "list", "--root", root];
+    case "loop status":
+      ensureContractLoop(root);
+      return ["loop", "status", "loop-contract", "--root", root];
+    case "loop agents":
+      ensureContractLoop(root);
+      return ["loop", "agents", "loop-contract", "--root", root];
+    case "loop attach":
+      ensureContractLoop(root);
+      return ["loop", "attach", "loop-contract", "--root", root, "--agent", "conductor"];
+    case "loop logs":
+      ensureContractLoop(root);
+      return ["loop", "logs", "loop-contract", "--root", root];
+    case "loop tick":
+      ensureContractLoop(root);
+      return ["loop", "tick", "loop-contract", "--root", root];
+    case "loop watch":
+      ensureContractLoop(root);
+      return ["loop", "watch", "loop-contract", "--root", root];
     case "negotiate open":
       return [
         "negotiate",
@@ -766,6 +838,14 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "init",
     "register",
     "discover",
+    "loop create",
+    "loop list",
+    "loop status",
+    "loop agents",
+    "loop attach",
+    "loop logs",
+    "loop tick",
+    "loop watch",
     "negotiate open",
     "negotiate status",
     "negotiate event",

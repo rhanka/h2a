@@ -18,14 +18,21 @@ function finding(overrides = {}) {
   };
 }
 
-function fakeRuntime() {
-  const calls = { run: [], spawnDetached: [], notes: [] };
+function fakeRuntime(options = {}) {
+  const calls = { run: [], spawnDetached: [], notes: [], capture: [] };
   return {
     calls,
     runtime: {
       run: (file, args) => {
         calls.run.push([file, ...args]);
         return true;
+      },
+      capture: (file, args) => {
+        calls.capture.push([file, ...args]);
+        if (options.clientActivityEpochSec === undefined) return undefined;
+        if (args.includes("display-message")) return "main\n";
+        if (args.includes("list-clients")) return `${options.clientActivityEpochSec}\n`;
+        return undefined;
       },
       spawnDetached: (command, opts) => {
         calls.spawnDetached.push({ command, cwd: opts.cwd });
@@ -70,6 +77,31 @@ test("local-tmux relancer declines (false) when there is no tmux context", () =>
   assert.equal(calls.run.length, 0);
 });
 
+test("local-tmux relancer defers without send-keys when a human was just active", () => {
+  const now = Date.parse("2026-06-26T12:00:00.000Z");
+  const { calls, runtime } = fakeRuntime({ clientActivityEpochSec: Math.floor(now / 1000) - 1 });
+  const previousNow = Date.now;
+  Date.now = () => now;
+  try {
+    const r = localTmuxRelauncher({ runtime });
+    const ok = r.relance(
+      finding({
+        launchContext: {
+          cwd: "/work",
+          command: "claude",
+          resumeCommand: "claude --resume abc",
+          tmux: { session: "main", window: "2", pane: "1" }
+        }
+      })
+    );
+    assert.equal(ok, false);
+    assert.equal(calls.run.length, 0);
+    assert.equal(calls.spawnDetached.length, 0);
+  } finally {
+    Date.now = previousNow;
+  }
+});
+
 test("headless relancer respawns the captured command detached + notifies", () => {
   const { calls, runtime } = fakeRuntime();
   const r = headlessRelauncher({ runtime });
@@ -97,6 +129,27 @@ test("chain falls back from local-tmux to headless when there is no pane", async
   assert.equal(ok, true);
   assert.equal(calls.run.length, 0);
   assert.deepEqual(calls.spawnDetached[0], { command: "gemini", cwd: "/w" });
+});
+
+test("chain stops at a local-tmux human-activity deferral without falling back to headless", async () => {
+  const now = Date.parse("2026-06-26T12:00:00.000Z");
+  const { calls, runtime } = fakeRuntime({ clientActivityEpochSec: Math.floor(now / 1000) - 1 });
+  const previousNow = Date.now;
+  Date.now = () => now;
+  try {
+    const chain = chainRelauncher(
+      localTmuxRelauncher({ runtime }),
+      headlessRelauncher({ runtime })
+    );
+    const ok = await chain.relance(
+      finding({ launchContext: { cwd: "/w", command: "claude", tmux: { session: "s", pane: "%1" } } })
+    );
+    assert.equal(ok, false, "deferred means not relanced, so drumbeat retries later");
+    assert.equal(calls.run.length, 0);
+    assert.equal(calls.spawnDetached.length, 0);
+  } finally {
+    Date.now = previousNow;
+  }
 });
 
 test("chain stops at the first adapter that issues a relance", async () => {
