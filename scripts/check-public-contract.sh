@@ -6,10 +6,12 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GOLD="$ROOT/docs/contracts/golden"
 rc=0
+# binaire h2a: préfère le dist local (CI), sinon le global
+H2A="h2a"; [ -f "$ROOT/packages/h2a-cli/dist/cli.js" ] && H2A="node $ROOT/packages/h2a-cli/dist/cli.js"
 
 # 1) surface MCP du bus
-if command -v h2a >/dev/null 2>&1; then
-  live_mcp="$(h2a mcp-tools 2>/dev/null | python3 -c 'import sys,json;print(json.dumps(sorted(json.load(sys.stdin)),indent=2))' 2>/dev/null)"
+if $H2A mcp-tools >/dev/null 2>&1; then
+  live_mcp="$($H2A mcp-tools 2>/dev/null | python3 -c 'import sys,json;print(json.dumps(sorted(json.load(sys.stdin)),indent=2))' 2>/dev/null)"
   if ! diff <(printf '%s\n' "$live_mcp") "$GOLD/mcp-tools.json" >/tmp/_mcp.diff 2>&1; then
     echo "✗ DRIFT surface MCP (bus) vs golden :"; cat /tmp/_mcp.diff; rc=1
   else echo "✓ surface MCP inchangée ($(python3 -c "import json;print(len(json.load(open('$GOLD/mcp-tools.json'))))") outils)"; fi

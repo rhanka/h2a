@@ -32,3 +32,6 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # migration P2: le contrat public (surface MCP/CLI + anti-cycle core) ne doit pas dériver sans bump
+      - run: bash scripts/check-public-contract.sh
+        if: runner.os == 'Linux'
