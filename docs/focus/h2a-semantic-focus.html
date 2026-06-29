@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Sémantique h2a v0 — focus de validation</title>
+<style>
+:root{
+  --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#2b3240;
+  --txt:#e6edf3; --mut:#9aa7b4; --acc:#58a6ff;
+  --ok:#3fb950; --okbg:#10231a; --warn:#d29922; --warnbg:#231c0e;
+  --bad:#f85149; --badbg:#2a1414; --chip:#21304a;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--txt);
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+a{color:var(--acc);text-decoration:none}
+.wrap{max-width:1100px;margin:0 auto;padding:28px 22px 80px}
+header.top{display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--line);
+  padding-bottom:18px;margin-bottom:22px}
+.kick{color:var(--mut);font-size:12px;letter-spacing:.12em;text-transform:uppercase}
+h1{margin:2px 0 0;font-size:26px;font-weight:700}
+.sub{color:var(--mut);font-size:14px}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.badge{font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);color:var(--mut)}
+.badge.coi{color:var(--warn);border-color:#3a2f12;background:var(--warnbg)}
+.badge.ok{color:var(--ok);border-color:#163a26;background:var(--okbg)}
+h2{font-size:19px;margin:34px 0 12px;display:flex;align-items:center;gap:10px}
+h2 .dot{width:10px;height:10px;border-radius:50%}
+.grid{display:grid;gap:14px}
+.cards{grid-template-columns:repeat(auto-fill,minmax(330px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 16px 14px}
+.card.val{border-left:3px solid var(--warn)}
+.card h3{margin:0 0 8px;font-size:15px;display:flex;gap:8px;align-items:baseline}
+.card h3 .n{color:var(--warn);font-weight:700;font-variant-numeric:tabular-nums}
+.q{color:var(--txt);font-size:14px;margin:0 0 10px}
+.reco{font-size:13px;color:var(--mut);background:var(--panel2);border:1px solid var(--line);
+  border-radius:8px;padding:8px 10px}
+.reco b{color:var(--ok)}
+.model{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+.model ul{margin:0;padding-left:18px} .model li{margin:6px 0}
+.checklist{list-style:none;margin:0;padding:0;columns:2;column-gap:22px}
+.checklist li{break-inside:avoid;margin:0 0 8px;padding-left:24px;position:relative;color:var(--txt);font-size:14px}
+.checklist li:before{content:"✓";position:absolute;left:0;color:var(--ok);font-weight:700}
+table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);font-size:13.5px;vertical-align:top}
+th{background:var(--panel2);color:var(--mut);font-weight:600}
+tr:last-child td{border-bottom:none}
+code{background:#0b1020;border:1px solid var(--line);border-radius:5px;padding:1px 6px;font:12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#cdd9e5}
+.pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;font-weight:600}
+.pill.abs{background:#2a1320;color:#ff9ec7} .pill.add{background:#10231a;color:var(--ok)} .pill.dep{background:#231c0e;color:var(--warn)}
+.tensions li{margin:7px 0}
+.tensions{background:var(--badbg);border:1px solid #3a1b1b;border-radius:12px;padding:14px 14px 14px 30px;color:#f0c8c4}
+.foot{margin-top:40px;color:var(--mut);font-size:12px;border-top:1px solid var(--line);padding-top:16px}
+.note{color:var(--mut);font-size:13px;margin:6px 0 0}
+.toc{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin-top:12px}
+.toc a{color:var(--mut)} .toc a:hover{color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <span class="kick">Écran focus de décision · h2a-org (proto canevas EVO-4)</span>
+    <h1>Sémantique h2a v0 — pour validation</h1>
+    <div class="sub">Consolidation de 8 specs · Décideur : <b>Fabien (PRINCIPAL)</b> · h2a = signataire <b>non décisif</b> (COI déclaré)</div>
+    <div class="badges">
+      <span class="badge ok">ADR BR-42 signé (Fabien + architecte)</span>
+      <span class="badge">stp déprécié (0 caller)</span>
+      <span class="badge coi">COI h2a déclaré</span>
+      <span class="badge">Rien n'est figé tant que tu n'as pas validé</span>
+    </div>
+    <nav class="toc">
+      <a href="#modele">Modèle</a><a href="#decide">Décidé</a><a href="#verbes">Verbes</a>
+      <a href="#entree">Ce qui entre</a><a href="#valider">À valider (7)</a><a href="#tensions">Tensions</a>
+    </nav>
+  </header>
+
+  <section id="modele">
+    <h2><span class="dot" style="background:var(--acc)"></span>Le modèle en une page</h2>
+    <div class="model">
+      <ul>
+        <li><b>h2a = LA CLI de sentropic</b> — cadre d'organisation <b>centré humain</b> pour agents conversationnels <b>et</b> de code. Axe : CLI/ORG vs LIBS (décision B, repoint <code>stp → h2a</code>).</li>
+        <li><b>sentropic = les libs</b> (<code>@sentropic/*</code>) : gateway, LLM-mesh, MCP/auth, transport, identité/crypto/NHI, k8s, design-system. <b>N'importent jamais h2a</b> (anti-cycle CI).</li>
+        <li><b>Un seul plugin déployé = h2a.</b> Les libs restent versionnées à part.</li>
+        <li><b>h2a offre UN agent</b> : code (≈ Claude Code) + tâches tout-type (≈ délégation « Hermes »). MVP <code>h2a agent run|attach|delegate|logs|wake</code>.</li>
+        <li><b>Frontière = 3 protocoles neutres owned-architecte</b> : <code>session-protocol</code>, <code>governance-protocol</code>, <code>scope-gate</code>.</li>
+        <li><b>Rien ne fusionne</b> : track reste <b>record-only</b>, remote reste <b>plateforme autonome</b>.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="decide">
+    <h2><span class="dot" style="background:var(--ok)"></span>✅ Déjà décidé <span style="color:var(--mut);font-weight:400;font-size:14px">— acté, ne pas rouvrir sans raison</span></h2>
+    <ul class="checklist">
+      <li><b>Décision B</b> — h2a = CLI/org unique ; sentropic = libs.</li>
+      <li><b>ADR BR-42</b> — approuvé Fabien + co-signé architecte (quorum O1).</li>
+      <li><b>Dépréciation <code>stp</code></b> immédiate — 0 caller réel prouvé.</li>
+      <li><b>Taxonomie <code>agent</code> stricte</b> — agent = instances que je lance.</li>
+      <li><b>design / knowledge / agent-stats = additifs</b> — gardent leur CLI.</li>
+      <li><b>Anti-COI G1–G5</b> — protocoles owned-architecte, quorum ≥2 non-h2a.</li>
+      <li><b>Invariants durs</b> — anti-cycle CI, track record-only, remote autonome.</li>
+      <li><b>Pas de flip <code>--json</code></b> — DEC-034 machine-first préservé.</li>
+    </ul>
+  </section>
+
+  <section id="verbes">
+    <h2><span class="dot" style="background:var(--acc)"></span>Carte des verbes (grammaire 2 tiers, stabilisée double consensus)</h2>
+    <p class="note">Un verbe = un sens ; le namespace change l'objet, pas l'acte. ~13 verbes × ~13 namespaces au lieu de ~160 noms.</p>
+    <table>
+      <tr><th>Verbe bare (Tier 1)</th><th>Sens par défaut</th><th>Statut</th></tr>
+      <tr><td><code>ls</code> / <code>status</code> / <code>report</code></td><td>pairs vivants / inventaire agents / état travail</td><td>bare OK</td></tr>
+      <tr><td><code>find</code></td><td>résout un pair (présence-aware)</td><td>bare OK</td></tr>
+      <tr><td><code>send</code></td><td>livre une enveloppe</td><td>bare OK — <b>resolve-before-send + liveness-gate</b></td></tr>
+      <tr><td><code>run</code>/<code>attach</code>/<code>stop</code>/<code>logs</code>/<code>wake</code></td><td>lifecycle d'instance</td><td>bare OK</td></tr>
+      <tr><td><code>delegate</code></td><td>confie une tâche → job (alias de <code>agent delegate</code>)</td><td>bare OK</td></tr>
+      <tr><td><code>decide</code></td><td><b>scindé</b> : bare = décision track ; <code>job decide</code> = réponse job</td><td>bare = track-only</td></tr>
+      <tr><td><code>verify</code> · <code>block</code> · <code>check</code></td><td>modèles distincts (faux-pass / blocage / gate)</td><td><b>namespace-obligatoire</b></td></tr>
+    </table>
+    <p class="note" style="margin-top:10px"><b>Taxonomie <code>agent</code> stricte</b> : <code>agent</code> = instances que je lance · <code>find</code> = pairs du bus · <code>nhi</code> = NHI · <code>sub</code> = registre subagents.</p>
+  </section>
+
+  <section id="entree">
+    <h2><span class="dot" style="background:var(--acc)"></span>Ce qui entre, et comment</h2>
+    <table>
+      <tr><th>Brique</th><th>Mode</th><th>Surface h2a</th></tr>
+      <tr><td><b>track</b> · <b>remote</b></td><td><span class="pill abs">ABSORBÉS</span> lib-sans-cli</td><td>gouvernance/UX · agent lifecycle (importe les libs, one-way)</td></tr>
+      <tr><td><b>design-system</b></td><td><span class="pill add">ADDITIF</span> garde sa CLI</td><td><code>h2a design</code> (check/build/align/polish/init ; fidelity=audit:parity)</td></tr>
+      <tr><td><b>graphify</b></td><td><span class="pill add">ADDITIF</span></td><td><code>h2a knowledge</code> (ingest/query/graph/export)</td></tr>
+      <tr><td><b>agent-stats</b></td><td><span class="pill add">ADDITIF</span> (caller réel: graphify)</td><td><code>h2a agent stats &lt;id&gt;</code> (consomme agent-stats-core)</td></tr>
+      <tr><td><b>stp</b></td><td><span class="pill dep">DÉPRÉCIÉ</span> 0 caller</td><td>remplacé par h2a front-door (alias optionnel)</td></tr>
+      <tr><td><b>harness</b></td><td>méthode</td><td><code>h2a dev</code> (brainstorm/plan/review/test/verify)</td></tr>
+    </table>
+  </section>
+
+  <section id="valider">
+    <h2><span class="dot" style="background:var(--warn)"></span>❓ À valider PAR TOI <span style="color:var(--mut);font-weight:400;font-size:14px">— la grammaire CLI n'est PAS figée (l'ADR le dit)</span></h2>
+    <div class="grid cards">
+      <div class="card val"><h3><span class="n">1</span> Grammaire de verbes fine</h3>
+        <p class="q">Roster bare exact, <code>verify</code>/<code>block</code>/<code>check</code> namespace-only, <code>decide</code> scindé.</p>
+        <div class="reco"><b>Reco consensus :</b> garder l'adjugé (les 2 pairs convergent). Tu valides ou tu rouvres un verbe précis.</div></div>
+      <div class="card val"><h3><span class="n">2</span> Nom du bus HTTP</h3>
+        <p class="q"><code>h2a bus</code> vs garder <code>h2a remote</code> — prérequis avant de libérer le mot <code>remote</code> pour le déport k8s.</p>
+        <div class="reco"><b>Reco :</b> <code>h2a bus</code> + alias legacy <code>h2a remote</code> (dépréciation douce).</div></div>
+      <div class="card val"><h3><span class="n">3</span> agent-stats estate-wide ORPHELIN</h3>
+        <p class="q"><code>h2a agent stats &lt;id&gt;</code> ne couvre que <i>mes</i> instances ; la vue cross-vendor était <code>stp agent-stats</code> — mais stp est déprécié. Où va l'estate-wide ?</p>
+        <div class="reco"><b>Reco :</b> nouveau toit <code>h2a agent stats --all</code> (ou <code>h2a stats</code> — conflit segmentation à arbitrer).</div></div>
+      <div class="card val"><h3><span class="n">4</span> Frontière de namespaces</h3>
+        <p class="q">Déport sous <code>host</code> vs <code>deploy</code> ; <code>cond</code>/<code>drum</code> séparés vs <code>gov</code> ; <code>canevas</code> top-level vs <code>nego canevas</code>.</p>
+        <div class="reco"><b>Reco :</b> <code>mcp→host</code>, <code>cond</code>/<code>drum</code> séparés, déport→<code>host</code>, <code>canevas</code> top-level assumé.</div></div>
+      <div class="card val"><h3><span class="n">5</span> Scope de <code>init</code></h3>
+        <p class="q"><code>h2a init</code> = h2a-core par défaut + <code>--all</code> opt-in pour <code>.track</code>+profil dev ?</p>
+        <div class="reco"><b>Reco :</b> oui — pas de seed multi-store silencieux.</div></div>
+      <div class="card val"><h3><span class="n">6</span> MVP de l'agent offert</h3>
+        <p class="q">Code + tâches tout-type : réutilise la délégation remote (façon Hermes) ou nouveau runtime ?</p>
+        <div class="reco"><b>Reco :</b> réutiliser remote, pas de nouveau runtime, pas d'auto-conductor au départ.</div></div>
+      <div class="card val"><h3><span class="n">7</span> Le nom <code>knowledge</code></h3>
+        <p class="q"><code>knowledge</code> vs <code>graph</code> vs garder <code>graphify</code> (à trancher avec l'owner).</p>
+        <div class="reco"><b>Reco :</b> <code>knowledge</code> (générique, tool-agnostic) — owner graphify OK sous conditions.</div></div>
+    </div>
+  </section>
+
+  <section id="tensions">
+    <h2><span class="dot" style="background:var(--bad)"></span>⚠️ Tensions résiduelles (honnêtes)</h2>
+    <ul class="tensions">
+      <li><b>COI structurel</b> (dissidence stp, la plus forte) : faire de h2a le portail de tous crée une incitation long-terme à ses idiomes ; le fallback <b>A (scinder/différer)</b> reste ouvert si un owner non-h2a bloque.</li>
+      <li><b>agent-stats orphelin</b> par la dépréciation de stp (cf. point 3).</li>
+      <li><b>Double source de vérité protocolaire</b> : skeletons dérivés vs réel → golden-fixtures + statut <code>experimental</code> jusqu'à ratification owner.</li>
+      <li><b>Re-key du bus = non purement additif</b> → dual-key transitionnel obligatoire (gated).</li>
+      <li><b>Vélocité vs design-first</b> : B plus lent que le statu quo fédéré, mais gaté par contract-tests + receipts verts.</li>
+      <li><b><code>canevas</code> = +1 namespace</b> (~13→14) alors que la pression est « minimal ».</li>
+    </ul>
+  </section>
+
+  <div class="foot">
+    Source : <code>docs/specs/2026-06-27-h2a-semantic-v0-FOR-REVIEW.md</code> (+ 7 specs consolidées).
+    Rien n'est figé tant que tu n'as pas validé. h2a reste non-décisif. · Généré 2026-06-27.
+  </div>
+</div>
+</body>
+</html>
