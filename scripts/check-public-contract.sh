@@ -24,5 +24,13 @@ if [ -f "$DIST" ]; then
   else echo "✓ verbes CLI inchangés ($(python3 -c "import json;print(len(json.load(open('$GOLD/cli-verbs.json'))))") verbes)"; fi
 else echo "… dist absent (npm run build), skip verbes CLI"; fi
 
+# 3) ANTI-CYCLE (piège n°1): le core @sentropic/h2a doit rester une FEUILLE
+CORE="$ROOT/packages/h2a/package.json"
+if [ -f "$CORE" ]; then
+  bad="$(python3 -c "import json;d=json.load(open('$CORE'));dd={**d.get('dependencies',{}),**d.get('devDependencies',{})};print(','.join(k for k in dd if any(s in k for s in ('h2a-cli','runtime','remote'))))" 2>/dev/null)"
+  if [ -n "$bad" ]; then echo "✗ CYCLE: le core @sentropic/h2a dépend de [$bad] (doit être feuille)"; rc=1
+  else echo "✓ core @sentropic/h2a = feuille (anti-cycle)"; fi
+else echo "… core package.json absent, skip anti-cycle"; fi
+
 [ $rc -eq 0 ] && echo "CONTRAT PUBLIC OK" || echo "CONTRAT PUBLIC: DRIFT — revue + bump golden requis"
 exit $rc
