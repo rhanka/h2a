@@ -23,6 +23,17 @@ Artefact lié : **mapping HTML** committé `docs/focus/h2a-mapping.html` (jumeau
 8. **design (Extend) incomplet** : exposer TOUTE la surface design (`design check`/audit/tokens/fidelity/theme-clone…) **en plugin** — c'est un raté si `design check` n'est pas dans le plugin.
 9. **agent-stats** : enlever « agents » → **`h2a stats`** (voire `h2a analyze`).
 
+## 🆕 Round 2 (2026-06-29) — amendements lancement + statut (double consensus Opus-4-8max + Codex-5.5xhigh, AMEND convergent)
+10. **COLONNE STATUT ligne à ligne** (✅ validé · 🔧 corrigé-ce-round · 🔴 à-trancher · ⚪ sans-retour) — manque corrigé. Compteurs courants : 58 ✅ / 106 🔧 / 1 🔴 / 93 ⚪.
+11. **`sub` DISSOUS** (comme host) : `sub ls`→`h2a ls --subagents` ; `sub inbox`→`h2a inbox --subagent <id>` ; `sub route`→`h2a route --target <subagent>` ; `sub audit/revoke`→`h2a audit/revoke --target <subagent>`. Flags figés (consensus) : `--subagents` = filtre liste ; `--target <id>`/`--parent <id>` = ciblage action.
+12. **LANCEMENT = `h2a run <cli> [--options]`** (syntaxe hermes/remote, canonique). **Sucre `h2a <cli>` SUPPRIMÉ** (consensus : pollue l'espace des verbes). Options : `--gw/--no-gw`, `--profile`, `--sandbox`, `--remote`, `--parent <instance>`.
+13. **Créer un subagent** = `h2a run <cli> --parent <instance>` (relation de mandat, pas un namespace).
+14. **Agent h2a natif** = **`h2a`** (bare) sur le cwd, **interactif seulement** (non-TTY → help/status, pas de spawn surprise — consensus). `h2a --resume` reprend.
+15. **Hermes lançable** = `h2a run hermes` (host de plein droit ; capacités à formaliser : headless/resume/sandbox/remote/gateway).
+16. **CYCLE DE VIE** (défaut majeur relevé par les 2 pairs) : `h2a ls` (vivants+statut) · `h2a attach` · `h2a stop` · `h2a inspect` · **`h2a logs <instance>`** (ajouté). « lancer » sans « arrêter/suivre » = orphelins.
+17. **Identité/autorité** (Codex) : `run/resume/--parent/revoke` = « qui agit au nom de qui » → contrat d'instance + anti-collision-slug + preuve de mandat + audit. Porté par le module identité de `@sentropic/h2a`.
+
 ## ⏳ Encore ouvert
 - Labels : **#4 Admin vs Govern** · **#5 Extend vs Develop**.
-- OPEN : `remote check`/`smoke` → `h2a host check`(✗ host) ⇒ `h2a check --host` ou `h2a <profil> check` ?
+- OPEN (1) : `remote check`/`smoke` → **`h2a check --host`** vs `h2a <profil> check` ? *(`remote agents ls` → résolu : `h2a ls` + `h2a find`.)*
+- À spécifier : sémantique exacte `--target` vs `--parent` vs `--subagents` ; statut de ligne à lier à un hash de version (anti-pourrissement, reco consensus).

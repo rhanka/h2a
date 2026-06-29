@@ -38,28 +38,53 @@ def is_migration(today_key, tom_key):
     # migration = le LABEL de package change (aujourd'hui != demain)
     return TODAY.get(today_key, today_key) != TOM.get(tom_key, tom_key)
 
-# Row: (old_cli, plumb, plugin, new_cli, today_key, tom_key, hermes, open, desc)
-def R(old, plumb, plugin, new, tkey, nkey, herm=DASH, opn=False, desc=""):
+# Row: (old_cli, plumb, plugin, new_cli, today_key, tom_key, hermes, open, desc, val)
+def R(old, plumb, plugin, new, tkey, nkey, herm=DASH, opn=False, desc="", val=""):
     # nouveau (plugin): forme MCP/skill cible alignée sur le nouveau verbe.
     # Règle Fabien: tout user-facing NON-plumbing et NON-lancement-de-process a une forme plugin.
     new_no_args = " ".join(w for w in new.split() if w and not w.startswith("<") and not w.startswith("--"))
-    is_launch = (" run" in new) or (" resume" in new) or new.endswith(" run")
+    is_launch = new.startswith("h2a run") or new.startswith("h2a resume") or new == "h2a"
     if plumb or is_launch or not new_no_args:
         nplug = DASH
     else:
         nplug = "h2a_" + "_".join(new_no_args.replace("h2a", "", 1).split())
     return dict(old=old, plumb=plumb, plugin=plugin, new=new, nplug=nplug,
-                tkey=tkey, nkey=nkey, herm=herm, opn=opn, desc=desc)
+                tkey=tkey, nkey=nkey, herm=herm, opn=opn, desc=desc, val=val)
+
+# Statut de validation Fabien, ligne à ligne (lecture de ses retours ; override possible via val=)
+def row_status(r, name):
+    if r.get("val"):
+        return r["val"]
+    if r["opn"]:
+        return "open"            # à trancher
+    o = r["old"].lower(); n = r["new"].lower()
+    # corrigé ce round (touché par un retour explicite de Fabien)
+    if (("host" in o) or o.startswith("h2a subagent") or ("agent stats" in o) or ("mesh" in o)
+            or ("--subagent" in n) or ("--target" in n) or ("--parent" in n) or (n=="h2a") or ("hermes" in n)
+            or o.startswith("remote run") or o.startswith("remote resume")
+            or o.startswith("h2a loop") or ("drumbeat" in o) or o.startswith("h2a drive")
+            or o.startswith("h2a org") or o.startswith("h2a coach")
+            or n.startswith("h2a run") or n.startswith("h2a resume") or n.startswith("h2a stats")
+            or n.startswith("h2a auth") or n.startswith("h2a config") or n.startswith("h2a plugin")
+            or n.startswith("h2a workspace") or n.startswith("h2a sync") or n.startswith("h2a migrate")
+            or n.startswith("h2a connect") or n.startswith("h2a disconnect") or n.startswith("h2a setup")):
+        return "fix"
+    # validé explicitement (ok pour track / dev / knowledge / design)
+    if name == "Track" or n.startswith("h2a dev") or n.startswith("h2a knowledge") or n.startswith("h2a design"):
+        return "ok"
+    return "none"                # sans retour à date
+
+STATUS_LABEL = {"ok": "✅ validé", "fix": "🔧 corrigé", "open": "🔴 à trancher", "none": "⚪ sans retour"}
 
 # ---------------- COORDINATE (81) ----------------
 coordinate = [
     R("h2a discover", False, "h2a_discover_instances · /h2a discover", "h2a find", "hcli","core", desc="résout/localise un pair sur le bus"),
-    R("h2a subagent register", False, DASH, "h2a sub register", "hcli","core", desc="enregistre un sous-agent délégué"),
-    R("h2a subagent list", False, DASH, "h2a sub ls", "hcli","core", desc="liste les sous-agents"),
-    R("h2a subagent route", False, DASH, "h2a sub route", "hcli","core", desc="route un message vers un sous-agent"),
-    R("h2a subagent inbox", False, DASH, "h2a sub inbox", "hcli","core", desc="lit l'inbox d'un sous-agent"),
-    R("h2a subagent audit", False, DASH, "h2a sub audit", "hcli","core", desc="audite l'activité d'un sous-agent"),
-    R("h2a subagent revoke", False, DASH, "h2a sub revoke", "hcli","core", desc="révoque un sous-agent"),
+    R("h2a subagent register", False, DASH, "h2a run <cli> --parent <instance>", "hcli","core", desc="enregistre un sous-agent délégué"),
+    R("h2a subagent list", False, DASH, "h2a ls --subagents", "hcli","core", desc="liste les sous-agents"),
+    R("h2a subagent route", False, DASH, "h2a route --target <subagent>", "hcli","core", desc="route un message vers un sous-agent"),
+    R("h2a subagent inbox", False, DASH, "h2a inbox --subagent <id>", "hcli","core", desc="lit l'inbox d'un sous-agent"),
+    R("h2a subagent audit", False, DASH, "h2a audit --target <subagent>", "hcli","core", desc="audite l'activité d'un sous-agent"),
+    R("h2a subagent revoke", False, DASH, "h2a revoke --target <subagent>", "hcli","core", desc="révoque un sous-agent"),
     R("h2a negotiate open", False, "h2a_open_negotiation", "h2a nego open", "hcli","core", desc="ouvre une négociation signée"),
     R("h2a negotiate status", False, DASH, "h2a nego status", "hcli","core", desc="état d'une négociation"),
     R("h2a negotiate event", False, "h2a_append_journal", "h2a nego event", "hcli","core", desc="journalise un événement de négociation"),
@@ -101,7 +126,7 @@ coordinate = [
     R("h2a conductor-launch-check", True, "h2a_conductor_launch_check", "h2a cond launch --check", "hcli","core", desc="vérifie avant lancement conducteur"),
     R("h2a conductor-launch", False, "h2a_conductor_launch", "h2a cond launch --confirm", "hcli","core", desc="lance un agent via le conducteur"),
     R("remote ls [url]", False, DASH, "h2a ls", "rcli","core", desc="liste les agents distants"),
-    R("remote agents ls", False, DASH, "h2a ls / h2a find", "rcli","core", opn=True, desc="liste et résout les agents"),
+    R("remote agents ls", False, DASH, "h2a ls / h2a find", "rcli","core", desc="liste et résout les agents", val="ok"),
     R("remote agents inspect", False, DASH, "h2a inspect", "rcli","core", desc="inspecte un agent distant"),
     R("remote conductor-launch", False, DASH, "h2a cond launch", "rcli","core", desc="lance un agent à distance"),
     R("remote status", False, DASH, "h2a status", "rcli","core", desc="état du host distant"),
@@ -138,14 +163,17 @@ coordinate = [
 
 # ---------------- RUN (46) ----------------
 run = [
-    R("remote run <profile> [path]", False, DASH, "h2a <profile> run", "rcli","agent", "hermes run --agent <profile>", desc="lance un profil (run implicite) ; pin --gw/--no-gw"),
+    R("remote run <profile> [path]", False, DASH, "h2a run <profile> [path]", "rcli","agent", "hermes run --agent <profile>", desc="lance un profil (run implicite) ; pin --gw/--no-gw"),
     R("remote resume [slug]", False, DASH, "h2a resume", "rcli","agent", "hermes run --resume", desc="reprend la dernière session ; gestion de profil"),
-    R("remote codex", False, DASH, "h2a codex run", "rcli","agent", "hermes run --agent codex", desc="lance un agent Codex"),
-    R("remote claude (claude-code)", False, DASH, "h2a claude run", "rcli","agent", "hermes run --agent claude", desc="lance un agent Claude Code"),
-    R("remote agy (antigravity)", False, DASH, "h2a agy run", "rcli","agent", "hermes run --agent agy", desc="lance un agent Antigravity"),
-    R("remote gemini (gemini-cli)", False, DASH, "h2a gemini run", "rcli","agent", "hermes run --agent gemini", desc="lance un agent Gemini"),
-    R("remote mistral (mistralcli)", False, DASH, "h2a mistral run", "rcli","agent", "hermes run --agent mistral", desc="lance un agent Mistral"),
-    R("remote opencode", False, DASH, "h2a opencode run", "rcli","agent", "hermes run --agent opencode", desc="lance un agent OpenCode"),
+    R("remote codex", False, DASH, "h2a run codex", "rcli","agent", "hermes run --agent codex", desc="lance un agent Codex"),
+    R("remote claude (claude-code)", False, DASH, "h2a run claude", "rcli","agent", "hermes run --agent claude", desc="lance un agent Claude Code"),
+    R("remote agy (antigravity)", False, DASH, "h2a run agy", "rcli","agent", "hermes run --agent agy", desc="lance un agent Antigravity"),
+    R("remote gemini (gemini-cli)", False, DASH, "h2a run gemini", "rcli","agent", "hermes run --agent gemini", desc="lance un agent Gemini"),
+    R("remote mistral (mistralcli)", False, DASH, "h2a run mistral", "rcli","agent", "hermes run --agent mistral", desc="lance un agent Mistral"),
+    R("remote opencode", False, DASH, "h2a run opencode", "rcli","agent", "hermes run --agent opencode", desc="lance un agent OpenCode"),
+    R("(nouveau) agent h2a natif", False, "h2a (skill)", "h2a", "hcli","agent", DASH, desc="ouvre une session de l'agent h2a natif sur le cwd (interactif)", val="fix"),
+    R("(nouveau) agent Hermes", False, DASH, "h2a run hermes", "rcli","agent", "hermes run", desc="lance un agent Hermes headless (NousResearch)", val="fix"),
+    R("(nouveau) logs agent", False, DASH, "h2a logs <instance>", "rcli","agent", "hermes logs", desc="journaux d'un agent lancé (cycle de vie)", val="fix"),
     R("remote rename <id> <name>", False, DASH, "h2a rename", "rcli","agent", desc="renomme un agent"),
     R("remote shell", False, DASH, "h2a shell run", "rcli","agent", desc="ouvre un shell sur le host"),
     R("remote attach <url|id>", False, DASH, "h2a attach", "rcli","agent", desc="attache à une session agent"),
@@ -449,8 +477,8 @@ def md():
         o.append(f"**KPI section :** {len(rows)} cmds · user-facing **{u}** / plumbing ⚙ **{p}** · "
                  f"migrations module **{mig}** · plugin ancien **{pl}** · hermes **{herm}** · OPEN **{opn}**.")
         o.append("")
-        o.append("| ancien (cli) | description | ancien (plugin) | nouveau (cli) | nouveau (plugin) | module aujourd'hui | module demain | hermes | finalité |")
-        o.append("|---|---|---|---|---|---|---|---|---|")
+        o.append("| statut | ancien (cli) | description | ancien (plugin) | nouveau (cli) | nouveau (plugin) | module aujourd'hui | module demain | hermes | finalité |")
+        o.append("|---|---|---|---|---|---|---|---|---|---|")
         for r in rows:
             old = ("⚙ " if r["plumb"] else "") + r["old"]
             if r["opn"]:
@@ -462,7 +490,8 @@ def md():
             tom_cell = f"**{tom}**" if is_migration(r["tkey"], r["nkey"]) else tom
             herm = r["herm"] if r["herm"] != DASH else "—"
             desc = r.get("desc") or "—"
-            o.append(f"| `{old}` | {desc} | {plug} | `{r['new']}` | {('`'+nplug+'`') if nplug!='—' else '—'} | `{today}` | {tom_cell} | {herm} | {name} |")
+            st = STATUS_LABEL[row_status(r, name)]
+            o.append(f"| {st} | `{old}` | {desc} | {plug} | `{r['new']}` | {('`'+nplug+'`') if nplug!='—' else '—'} | `{today}` | {tom_cell} | {herm} | {name} |")
         o.append("")
 
     o.append("---")
@@ -577,6 +606,12 @@ td.modnext.move code{color:var(--move);border-color:#1f3a26;background:#0e1a12}
 td.modnext.stay code{color:var(--mut)}
 td.herm{color:#7ee787;font-size:11.5px;white-space:normal}
 td.fin{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+.st{white-space:nowrap}
+.stbadge{display:inline-block;font-size:10px;font-weight:700;border-radius:999px;padding:2px 7px;letter-spacing:.02em}
+.st-ok{color:#3fb950;border:1px solid #1c3a23;background:#0f2316}
+.st-fix{color:#d29922;border:1px solid #3a2f12;background:#231c0e}
+.st-open{color:#f85149;border:1px solid #4a2222;background:#2a1414}
+.st-none{color:#8b949e;border:1px solid #262b33;background:#13161c}
 .dash{color:#52606d}
 .foot{margin-top:44px;color:var(--mut);font-size:12px;border-top:1px solid var(--line);padding-top:16px}
 .foot table{margin-top:10px;border-collapse:collapse}
@@ -654,7 +689,7 @@ td.fin{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.
                  f'<span class="sk">hermes <b>{herm}</b></span>'
                  f'<span class="sk open">OPEN <b>{opn}</b></span></div>')
         o.append('<div class="tblwrap"><table class="map">')
-        o.append('<thead><tr><th>ancien (cli)</th><th class="desc">description</th><th class="plug">ancien (plugin)</th><th>nouveau (cli)</th><th class="plug">nouveau (plugin)</th>'
+        o.append('<thead><tr><th class="st">statut</th><th>ancien (cli)</th><th class="desc">description</th><th class="plug">ancien (plugin)</th><th>nouveau (cli)</th><th class="plug">nouveau (plugin)</th>'
                  '<th class="mod">module aujourd\'hui</th><th class="mod">module demain</th>'
                  '<th class="herm">hermes</th><th class="fin">finalité</th></tr></thead><tbody>')
         for r in rows:
@@ -688,7 +723,9 @@ td.fin{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.
             # hermes
             herm_cell = esc(r["herm"]) if r["herm"] != DASH else '<span class="dash">—</span>'
             desc_cell = esc(r.get("desc") or "") or '<span class="dash">—</span>'
-            o.append(f'<tr{trcls}><td>{oldcell}</td><td class="desc">{desc_cell}</td><td class="plug">{plug}</td>'
+            stv = row_status(r, name)
+            st_cell = f'<span class="stbadge st-{stv}">{STATUS_LABEL[stv]}</span>'
+            o.append(f'<tr{trcls}><td class="st">{st_cell}</td><td>{oldcell}</td><td class="desc">{desc_cell}</td><td class="plug">{plug}</td>'
                      f'<td><code>{esc(r["new"])}</code></td>'
                      f'<td class="plug">{nplug_cell}</td>'
                      f'<td class="mod modnow">{modnow}</td>'
