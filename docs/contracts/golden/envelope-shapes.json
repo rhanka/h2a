@@ -1,0 +1,86 @@
+{
+  "_doc": "Golden de FORME des enveloppes du bus (clés+types, valeurs redactées). Contrat structurel; diff de forme = échec. P1 migration.",
+  "capturedAt": "2026-06-29",
+  "shapes": {
+    "inbox-envelope": {
+      "actor": {
+        "instance": "<string>",
+        "role": "<string>",
+        "scope": "<string>"
+      },
+      "body": {
+        "kind": "<string>",
+        "text": "<string>",
+        "topic": "<string>"
+      },
+      "createdAt": "<string>",
+      "id": "<string>",
+      "protocol": "<string>",
+      "target": {
+        "instance": "<string>"
+      },
+      "to": "<string>",
+      "type": "<string>",
+      "version": "<string>"
+    },
+    "presence": {
+      "heartbeatAt": "<string>",
+      "host": "<string>",
+      "instance": "<string>",
+      "interests": {
+        "negotiations": [],
+        "scopes": [
+          "<string>"
+        ]
+      },
+      "lastMcpActivityAt": "<string>",
+      "launchContext": {
+        "command": "<string>",
+        "cwd": "<string>",
+        "tmux": {
+          "pane": "<string>",
+          "session": "<string>"
+        }
+      },
+      "name": "<string>",
+      "pid": "<number>",
+      "sessionId": "<string>",
+      "startedAt": "<string>",
+      "state": "<string>",
+      "subscribedTopics": [
+        "<string>"
+      ],
+      "version": {
+        "cli": "<string>",
+        "skill": "<string>"
+      },
+      "workspace": {
+        "host": "<string>",
+        "id": "<string>",
+        "label": "<string>",
+        "path": "<string>"
+      }
+    },
+    "negotiation": {
+      "createdAt": "<string>",
+      "id": "<string>",
+      "parties": [
+        {
+          "instance": "<string>",
+          "repo": "<string>",
+          "role": "<string>"
+        }
+      ],
+      "requiredSigners": [
+        "<string>"
+      ],
+      "scope": "<string>",
+      "status": "<string>",
+      "subject": {
+        "artifactPath": "<string>",
+        "kind": "<string>",
+        "title": "<string>"
+      }
+    }
+  }
+}
