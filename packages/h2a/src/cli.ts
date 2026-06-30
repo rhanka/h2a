@@ -358,6 +358,10 @@ export function renderCliHelp(): string {
     "  h2a loop attach <loopId> --agent <selector> [--root <path>]",
     "  h2a loop logs <loopId> [--agent <selector>] [--root <path>]",
     "",
+    "Track (délégué à @sentropic/track — le suivi/record du travail):",
+    `  h2a ${[...TRACK_FACADE_VERBS].join(" · h2a ")}`,
+    "    (ex: h2a decision new …, h2a report, h2a item ls — voir `track <verbe> --help`)",
+    "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
     `MCP tools: ${H2A_CLI_MCP_TOOL_NAMES.join(", ")}`
   ].join("\n");
