@@ -9,7 +9,7 @@
  * Two image modes:
  *
  * - `npm-runtime` (default) — uses a generic `node:22-alpine` image and
- *   `npm i -g @sentropic/h2a-cli@<version>` at Pod start. No custom image
+ *   `npm i -g @sentropic/h2a@<version>` at Pod start. No custom image
  *   to build. Trade-off: ~10s install latency on Pod start. Suitable for
  *   PoC and demos.
  *
@@ -97,7 +97,7 @@ function buildCommand(
       args: [
         [
           "set -euo pipefail",
-          `npm i -g @sentropic/h2a-cli@${cliVersion}`,
+          `npm i -g @sentropic/h2a@${cliVersion}`,
           `mkdir -p ${root}`,
           `h2a init --root ${root} || true`,
           `exec h2a mcp-serve --root ${root}`

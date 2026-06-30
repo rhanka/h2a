@@ -12,7 +12,7 @@ import {
   H2A_GEMINI_HOST
 } from "../dist/index.js";
 
-const BIN_PATH = join(process.cwd(), "packages/h2a-cli/dist/bin.js");
+const BIN_PATH = join(process.cwd(), "packages/h2a/dist/bin.js");
 
 function registration(host) {
   return {
@@ -162,7 +162,7 @@ for (const descriptor of [H2A_CODEX_HOST, H2A_CLAUDE_HOST, H2A_GEMINI_HOST, H2A_
       ]);
 
       assert.equal(responses.length, 7);
-      assert.equal(responses[0].result.serverInfo.name, "@sentropic/h2a-cli");
+      assert.equal(responses[0].result.serverInfo.name, "@sentropic/h2a");
       const toolNames = responses[1].result.tools.map((tool) => tool.name);
       assert.equal(toolNames.includes("h2a_offer"), true);
       assert.equal(toolNames.includes("h2a_inbox"), true);

@@ -49,7 +49,7 @@ export function renderMcpConfig(
 }
 
 export const H2A_CLAUDE_HOST: H2AConfigurableHostDescriptor = {
-  packageName: "@sentropic/h2a-cli",
+  packageName: "@sentropic/h2a",
   corePackageName: "@sentropic/h2a",
   host: "claude",
   protocol: "sentropic.h2a",

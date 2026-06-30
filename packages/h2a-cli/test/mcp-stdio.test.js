@@ -66,7 +66,7 @@ test("runMcpStdio: initialize returns the expected serverInfo", async () => {
     assert.equal(res.jsonrpc, "2.0");
     assert.equal(res.id, 1);
     assert.equal(res.result.protocolVersion, "2025-06-18");
-    assert.equal(res.result.serverInfo.name, "@sentropic/h2a-cli");
+    assert.equal(res.result.serverInfo.name, "@sentropic/h2a");
     assert.equal(res.result.serverInfo.version, "0.1.1");
     assert.deepEqual(res.result.capabilities, { tools: {} });
   } finally {

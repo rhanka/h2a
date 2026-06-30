@@ -43,7 +43,7 @@ test("defaults: namespace h2a, 2 replicas, 1Gi, npm-runtime base", () => {
   assert.equal(pvc.spec.resources.requests.storage, "1Gi");
   assert.equal(dep.spec.template.spec.containers[0].image, "node:22-alpine");
   // npm-runtime base installs the CLI at Pod start
-  assert.match(m.yaml, /npm i -g @sentropic\/h2a-cli@latest/);
+  assert.match(m.yaml, /npm i -g @sentropic\/h2a@latest/);
 });
 
 test("explicit image opts out of the npm runtime install", () => {

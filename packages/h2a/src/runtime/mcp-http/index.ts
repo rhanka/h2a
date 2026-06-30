@@ -1,7 +1,7 @@
 /**
  * EVO-12 hosted MCP over HTTP + self-AS OAuth (mcp-wave pattern), exposing the
  * h2a read-only tool surface for claude.ai enrollment. Core is dep-free; this
- * lives in @sentropic/h2a-cli.
+ * lives in @sentropic/h2a.
  */
 export {
   H2A_HOSTED_READONLY_TOOLS,

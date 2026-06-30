@@ -44,7 +44,7 @@ export function renderMcpConfig(
 }
 
 export const H2A_AGY_HOST: H2AConfigurableHostDescriptor = {
-  packageName: "@sentropic/h2a-cli",
+  packageName: "@sentropic/h2a",
   corePackageName: "@sentropic/h2a",
   host: "agy",
   protocol: "sentropic.h2a",

@@ -38,7 +38,7 @@
  *   refused by the filesystem.
  *
  * DEC-034 freezes this contract. Future breaking changes require a new DEC
- * and a major version bump on `@sentropic/h2a-cli`.
+ * and a major version bump on `@sentropic/h2a`.
  */
 
 export type H2ACliOutputShape = "resource" | "list" | "action" | "text" | "stream";
@@ -437,7 +437,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: [],
     optionalFlags: ["check"],
     description:
-      "Self-upgrade the global `@sentropic/h2a-cli` (EVO-8, DEC-107). `--check` reports `{current, latest, upgradeAvailable}` without installing; bare runs `npm i -g @sentropic/h2a-cli@latest`. Exit 1 if the install fails."
+      "Self-upgrade the global `@sentropic/h2a` (EVO-8, DEC-107). `--check` reports `{current, latest, upgradeAvailable}` without installing; bare runs `npm i -g @sentropic/h2a@latest`. Exit 1 if the install fails."
   },
 
   // --- remote transport (DEC-076/077, signed-bearer) ---
@@ -867,7 +867,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: [],
     optionalFlags: ["instance", "host", "root", "image", "cli-version", "write"],
     description:
-      "Render a Kubernetes sidecar fragment suitable for merging into a `remote` session Pod (Scenario A of DEC-056). Default `image` strategy is `npm-runtime` (uses `node:22-alpine` + `npm i -g @sentropic/h2a-cli` at Pod start). Pass an OCI reference to opt out of the runtime install. `--write <file>` switches to an `action` envelope and writes the fragment to disk; otherwise the YAML fragment is printed on stdout. DEC-058."
+      "Render a Kubernetes sidecar fragment suitable for merging into a `remote` session Pod (Scenario A of DEC-056). Default `image` strategy is `npm-runtime` (uses `node:22-alpine` + `npm i -g @sentropic/h2a` at Pod start). Pass an OCI reference to opt out of the runtime install. `--write <file>` switches to an `action` envelope and writes the fragment to disk; otherwise the YAML fragment is printed on stdout. DEC-058."
   },
   {
     verb: "deploy k8s-tenant",

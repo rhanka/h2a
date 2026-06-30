@@ -105,7 +105,7 @@ export interface H2AConfigurableHostDescriptor extends H2AHostDescriptor {
 }
 
 export const H2A_CODEX_HOST: H2AConfigurableHostDescriptor = {
-  packageName: "@sentropic/h2a-cli",
+  packageName: "@sentropic/h2a",
   corePackageName: "@sentropic/h2a",
   host: "codex",
   protocol: "sentropic.h2a",

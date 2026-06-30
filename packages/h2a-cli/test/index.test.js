@@ -14,7 +14,7 @@ test("h2a-cli aggregates the supported hosts", () => {
     H2A_CLI_HOSTS.map((host) => host.host),
     ["codex", "claude", "gemini", "agy"]
   );
-  assert.equal(H2A_CLI_ADAPTER.packageName, "@sentropic/h2a-cli");
+  assert.equal(H2A_CLI_ADAPTER.packageName, "@sentropic/h2a");
 });
 
 test("h2a-cli exposes the canonical MCP tool names", () => {

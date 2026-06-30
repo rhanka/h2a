@@ -83,7 +83,7 @@ function defaultResources(): NonNullable<K8sTenantOptions["resources"]> {
 function buildArgs(imageStrategy: string, cliVersion: string, root: string): string {
   const install =
     imageStrategy === "npm-runtime"
-      ? [`npm i -g @sentropic/h2a-cli@${cliVersion}`]
+      ? [`npm i -g @sentropic/h2a@${cliVersion}`]
       : [];
   return [
     "set -euo pipefail",

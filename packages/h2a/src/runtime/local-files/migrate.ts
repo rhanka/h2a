@@ -46,7 +46,7 @@ function sanitizeFileName(name: string): string {
 /**
  * DEC-064: rename pre-DEC-062 store entries whose names contain `:` (or other
  * Windows-forbidden characters) to their `safePathSegment` form. This makes a
- * store created by `@sentropic/h2a-cli@<=0.1.23` usable on Windows and
+ * store created by `@sentropic/h2a@<=0.1.23` usable on Windows and
  * consistent with the current layout on every OS.
  *
  * The pass is conservative:

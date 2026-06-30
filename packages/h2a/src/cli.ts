@@ -304,7 +304,7 @@ export function renderCliHelp(): string {
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
     "  h2a mcp-serve [--root <path>] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--wake <native|logging>] [--upgrade-check | --auto-upgrade [--no-restart]]   (--auto-open joins the bus at startup; --wake injects a signed h2a-tagged wake into the host on inbox arrival, EVO-1, needs --auto-open; --auto-upgrade self-updates + restarts in place; --upgrade-check = notice only; both opt-in/no network by default; /h2a disconnect to leave)",
-    "  h2a upgrade [--check]   (--check: report current vs latest; bare: npm i -g @sentropic/h2a-cli@latest)",
+    "  h2a upgrade [--check]   (--check: report current vs latest; bare: npm i -g @sentropic/h2a@latest)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a remote mirror-serve [--port <n>] [--host <h>] [--path </h2a/mirror>] [--enrolled-keys-file <json>] [--root <path>]   (EVO-13 instance-mirror ingester; enrolled keys also via H2A_MIRROR_ENROLLED_KEYS base64)",
@@ -1488,11 +1488,11 @@ export function cmdUpgrade(
   }
   const ok = performUpgrade(runtime);
   streams.stdout.write(
-    `${JSON.stringify({ ok, current, latest: result.latest, upgraded: ok, package: "@sentropic/h2a-cli" }, null, 2)}\n`
+    `${JSON.stringify({ ok, current, latest: result.latest, upgraded: ok, package: "@sentropic/h2a" }, null, 2)}\n`
   );
   if (!ok) {
     streams.stderr.write(
-      "h2a upgrade: global install failed — run `npm i -g @sentropic/h2a-cli@latest` manually (or check your install method).\n"
+      "h2a upgrade: global install failed — run `npm i -g @sentropic/h2a@latest` manually (or check your install method).\n"
     );
     return 1;
   }

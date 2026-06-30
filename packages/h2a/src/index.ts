@@ -447,7 +447,7 @@ export type {
   H2ASignature
 } from "./types.js";
 
-// ---- fusionné depuis @sentropic/h2a-cli (A1) ----
+// ---- fusionné depuis l ex-@sentropic/h2a-cli (A1) ----
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import {
   renderCliHelp,
@@ -837,7 +837,7 @@ export const H2A_CLI_HOSTS = [
 ] as const;
 
 export const H2A_CLI_ADAPTER = {
-  packageName: "@sentropic/h2a-cli",
+  packageName: "@sentropic/h2a",
   corePackageName: "@sentropic/h2a",
   protocol: "sentropic.h2a",
   hosts: H2A_CLI_HOSTS,
