@@ -52,6 +52,7 @@ import {
 } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -5417,6 +5418,49 @@ export async function cmdKeepalive(
   });
 }
 
+// P3 (façade track) — les verbes track sont délégués à la CLI `@sentropic/track`
+// par shell-out (le store `.track` est append-only single-writer : pas de 2ᵉ writer).
+// Verbes spécifiques, sans namespace `track` (dissous comme host/sub).
+const TRACK_FACADE_VERBS = new Set([
+  "decision", "report", "accept", "blocker", "item", "query",
+  "consolidate", "priority", "branch", "focus", "ingest", "restructure"
+]);
+
+function resolveTrackBin(): string {
+  // Le champ `exports` de @sentropic/track bloque l'accès à ./package.json,
+  // donc on résout l'entrée puis on remonte jusqu'au package.json du package.
+  const req = createRequire(import.meta.url);
+  let dir = dirname(req.resolve("@sentropic/track"));
+  for (let depth = 0; depth < 8 && dir !== dirname(dir); depth++) {
+    const pj = join(dir, "package.json");
+    if (existsSync(pj)) {
+      const pkg = JSON.parse(readFileSync(pj, "utf8")) as {
+        name?: string;
+        bin?: { track?: string };
+      };
+      if (pkg.name === "@sentropic/track" && pkg.bin?.track) {
+        return join(dir, pkg.bin.track);
+      }
+    }
+    dir = dirname(dir);
+  }
+  throw new Error("@sentropic/track: bin `track` introuvable");
+}
+
+function delegateToTrack(argv: readonly string[], streams: H2ACliStreams): number {
+  try {
+    const trackBin = resolveTrackBin();
+    const res = spawnSync(process.execPath, [trackBin, ...argv], { stdio: "inherit" });
+    return res.status ?? 1;
+  } catch (err) {
+    streams.stderr.write(
+      `h2a ${argv[0]}: délégation à @sentropic/track échouée (${(err as Error).message}). ` +
+        `Vérifie que @sentropic/track est installé.\n`
+    );
+    return 1;
+  }
+}
+
 export function runCli(
   argv: readonly string[] = process.argv.slice(2),
   streams: H2ACliStreams = {
@@ -5425,6 +5469,10 @@ export function runCli(
   }
 ): number {
   const { command, flags } = parseFlags(argv);
+
+  if (command && TRACK_FACADE_VERBS.has(command)) {
+    return delegateToTrack(argv, streams);
+  }
 
   if (!command || command === "--help" || command === "-h" || command === "help") {
     streams.stdout.write(`${renderCliHelp()}\n`);
