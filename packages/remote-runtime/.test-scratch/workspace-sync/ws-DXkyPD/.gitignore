@@ -1,0 +1,6 @@
+# build artifacts
+big/
+/anchored-dir
+*.log
+.claude/
+.remote/

@@ -1,0 +1,44 @@
+{
+  "name": "@sentropic/remote-runtime",
+  "version": "0.0.10",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1075.0",
+    "@hono/node-server": "^1.19.14",
+    "@hono/node-ws": "^1.3.1",
+    "@sentropic/llm-gateway": "^0.2.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "commander": "^15.0.0",
+    "hono": "^4.12.18",
+    "node-pty": "^1.1.0",
+    "ws": "^8.20.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.18",
+    "@types/ws": "^8.18.1",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rhanka/remote",
+    "directory": "packages/remote-cli"
+  },
+  "description": "Runtime d'exécution remote (sessions/k8s/tunnel) — câblé en lazy par @sentropic/h2a. Lourd (node-pty/aws-sdk).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts"
+}
