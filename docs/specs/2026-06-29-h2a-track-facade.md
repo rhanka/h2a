@@ -41,5 +41,15 @@ Le mapping reste **1:1 pass-through** ; la façade ne réinterprète rien. `even
 3. **Pont bus** : le seul enrichissement = `add-artifact --kind h2a-decision-dossier` reliant une décision track à une négociation h2a (`--negotiation-ref`) — déjà supporté par track, donc zéro nouvelle sémantique de stockage.
 4. **Module** : la façade vit dans `@sentropic/h2a-cli` (UX/routing) ; la logique reste dans `@sentropic/track` (lib consommée). Pas de cycle (track ne dépend pas de h2a-cli).
 
+## Mécanisme de délégation — FIGÉ (2026-06-29)
+Décidé d'après le contrat track (skill track-operation) : **`.track` = append-only single-writer ; les écritures DOIVENT passer par la CLI `track`** (jamais un 2ᵉ writer concurrent). Donc :
+- **Délégation = shell-out vers le bin `track`** (spawn `track <verbe> <args…>`, passthrough stdout/stderr/exit-code). Pas d'import de la lib pour les écritures (préserve le single-writer + les codes de sortie/format JSON = contrat inchangé).
+- **Dépendance** : `@sentropic/h2a` déclare **`@sentropic/track@^0.24.0`** (publié sur npm ✓) → le bin `track` est dispo via `node_modules/.bin` à l'install. Pas de cycle (track ne dépend pas de h2a).
+- **Verbes spécifiques** (pas de namespace `track`, dissous comme host/sub) : `h2a decision|report|accept|blocker|item|query|consolidate|priority|branch|focus|ingest|restructure` → `track <même verbe>`.
+- **Reads** : mêmes verbes via la CLI track (uniforme) ; le MCP track read-only reste pour les agents.
+- **Install story** : `npm i -g @sentropic/h2a` tire `@sentropic/track` → `h2a decision` marche sans install séparée.
+
+Implémentation (prochain cycle) : helper `delegateToTrack(argv)` dans la CLI + câblage des verbes + un test passthrough (`h2a report` ⇒ `track report`). Réversible, testable, pas de republish track (track est déjà publié et re-owné — P3 « republish » est donc DÉJÀ satisfait côté npm).
+
 ## Réversibilité
 Pur design + routing. Le **republish `@sentropic/track` re-owné** et le **shim binaire `track`** sont P3 exécution = décisions irréversibles-produit (réservées Fabien). Ici on ne fait que figer le contrat de façade.
