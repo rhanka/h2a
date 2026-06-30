@@ -54,9 +54,12 @@ const REMOTE_RUNTIME_VERBS = new Set([
 ]);
 
 async function dispatchRemote(): Promise<number> {
+  // Spécifieur via variable typée `string` : tsc ne résout PAS statiquement ce
+  // package optionnel (sinon TS2307 car h2a n'en dépend pas — règle d'or).
+  const REMOTE_RUNTIME_PKG: string = "@sentropic/remote-runtime";
   let rt: { dispatch?: (argv: readonly string[]) => Promise<number> };
   try {
-    rt = (await import("@sentropic/remote-runtime")) as {
+    rt = (await import(REMOTE_RUNTIME_PKG)) as {
       dispatch?: (argv: readonly string[]) => Promise<number>;
     };
   } catch (err) {
