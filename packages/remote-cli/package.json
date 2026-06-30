@@ -1,6 +1,6 @@
 {
   "name": "@sentropic/remote-cli",
-  "version": "0.0.10",
+  "version": "0.81.0",
   "type": "module",
   "exports": {
     ".": {
