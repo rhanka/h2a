@@ -46,6 +46,37 @@ function runAsync(label: string, promise: Promise<number>): void {
   );
 }
 
+// P5: verbes remote délégués au runtime LOURD, chargé en LAZY (import dynamique).
+// @sentropic/h2a ne dépend JAMAIS de @sentropic/remote-runtime (ni node-pty/aws-sdk) :
+// le runtime est un package séparé, installé à part. Petit lot d'abord (consensus).
+const REMOTE_RUNTIME_VERBS = new Set([
+  "run", "attach", "stop", "logs", "workspace", "resume"
+]);
+
+async function dispatchRemote(): Promise<number> {
+  let rt: { dispatch?: (argv: readonly string[]) => Promise<number> };
+  try {
+    rt = (await import("@sentropic/remote-runtime")) as {
+      dispatch?: (argv: readonly string[]) => Promise<number>;
+    };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === "ERR_MODULE_NOT_FOUND") {
+      process.stderr.write(
+        `h2a ${argv[0]}: ce verbe requiert le runtime remote (sessions / k8s / tunnel).\n` +
+          "  Installe-le : npm i -g @sentropic/remote-runtime\n"
+      );
+      return 127;
+    }
+    throw err;
+  }
+  if (typeof rt.dispatch !== "function") {
+    process.stderr.write("h2a: @sentropic/remote-runtime n'expose pas dispatch().\n");
+    return 1;
+  }
+  // dispatch = main(argv) : commander attend le style process.argv ([node, script, …]).
+  return rt.dispatch(process.argv);
+}
+
 // `mcp-serve` and `remote serve/send` are async (long-running loop or network);
 // the synchronous `runCli` cannot represent them, so we dispatch directly here.
 if (argv[0] === "mcp-serve") {
@@ -89,6 +120,8 @@ if (argv[0] === "mcp-serve") {
   runAsync("sysml verify", runSysmlVerify(parseFlagsFrom(2)));
 } else if (argv[0] === "keepalive") {
   runAsync("keepalive", cmdKeepalive(parseFlagsFrom(1), { stdout: process.stdout, stderr: process.stderr }));
+} else if (argv[0] !== undefined && REMOTE_RUNTIME_VERBS.has(argv[0])) {
+  runAsync(`remote:${argv[0]}`, dispatchRemote());
 } else {
   process.exitCode = runCli(argv);
 }

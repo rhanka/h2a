@@ -48,5 +48,13 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@sentropic/track": "^0.24.0",
     "hono": "^4.12.23"
+  },
+  "peerDependencies": {
+    "@sentropic/remote-runtime": "*"
+  },
+  "peerDependenciesMeta": {
+    "@sentropic/remote-runtime": {
+      "optional": true
+    }
   }
 }
