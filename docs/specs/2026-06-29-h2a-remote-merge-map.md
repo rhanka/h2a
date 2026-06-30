@@ -21,5 +21,17 @@ Principe (consensus + P5.a vérifié) : h2a-cli **possède le VERBE + l'UX** ; l
 3. **Délégation** : h2a-cli construit une `RunSpec`/intention ; la lib runtime exécute (h2a n'importe jamais kubectl).
 4. **Compat** : binaire `remote` = shim → `h2a …` (P6), alias maintenus, warn doux après stabilité.
 
+## Delta re-sync 2026-06-29 (remote a évolué depuis le snapshot ; remote-cli @0.0.10)
+Nouvelles commandes remote à intégrer à la carte (commits récents : `layout`, `restore --gw/--no-gw`, surface conductor/decision) :
+| Nouveau groupe remote | Surface h2a (cible) | Lib / note |
+|---|---|---|
+| `layout` (multiSessionDefault, cap resume/projet) | `h2a layout` (option de `ls`/run) | h2a-cli (UX session) |
+| `decide` · `decisions` · `conduct` · `conductor-launch` | `h2a cond` · `h2a decision` | `@sentropic/h2a` (core conductor) — **chevauche la surface coordination existante : router, pas dupliquer** |
+| `restore --gw/--no-gw` (force fleet gateway posture, relaunch live) | `h2a restore --gw/--no-gw` | runtime + `@sentropic/llm-gateway` (pinning gw, déjà acté) |
+| `gc` | `h2a gc` | ⚠️ **garde-fou C9** : GC potentiellement destructeur → jamais sans aval Fabien |
+| `link` · `lineage` | `h2a link` · `h2a lineage` | runtime (provenance/rattachement de sessions) |
+
+Action : ces lignes affinent la carte ; **aucune mutation de code P5 tant que remote n'est pas stabilisé** (re-sync only). Le pinning gw `--gw/--no-gw` est confirmé côté remote → cohérent avec le mapping figé.
+
 ## Réversibilité
 Pure cartographie + routing. L'**intégration effective des handlers**, le **shim `remote`**, le **canary** et l'**IAM bridge Pod** = P5/P6/P7 exécution → décisions irréversibles-produit (réservées Fabien) ou infra. Ici on fige la carte.
