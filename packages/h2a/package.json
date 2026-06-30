@@ -50,10 +50,10 @@
     "hono": "^4.12.23"
   },
   "peerDependencies": {
-    "@sentropic/remote-runtime": "*"
+    "@sentropic/remote-cli": "*"
   },
   "peerDependenciesMeta": {
-    "@sentropic/remote-runtime": {
+    "@sentropic/remote-cli": {
       "optional": true
     }
   }

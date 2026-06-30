@@ -8,28 +8,7 @@
       "path": "./packages/h2a-cli"
     },
     {
-      "path": "./packages/remote-protocol"
-    },
-    {
-      "path": "./packages/remote-approval-core"
-    },
-    {
-      "path": "./packages/remote-terminal-transport"
-    },
-    {
-      "path": "./packages/remote-secret-broker"
-    },
-    {
-      "path": "./packages/remote-browser-bridge"
-    },
-    {
-      "path": "./packages/remote-k8s-orchestrator"
-    },
-    {
-      "path": "./packages/remote-session-agent"
-    },
-    {
-      "path": "./packages/remote-runtime"
+      "path": "./packages/remote-cli"
     }
   ]
 }

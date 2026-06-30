@@ -47,7 +47,7 @@ function runAsync(label: string, promise: Promise<number>): void {
 }
 
 // P5: verbes remote délégués au runtime LOURD, chargé en LAZY (import dynamique).
-// @sentropic/h2a ne dépend JAMAIS de @sentropic/remote-runtime (ni node-pty/aws-sdk) :
+// @sentropic/h2a ne dépend JAMAIS de @sentropic/remote-cli (ni node-pty/aws-sdk) :
 // le runtime est un package séparé, installé à part. Petit lot d'abord (consensus).
 const REMOTE_RUNTIME_VERBS = new Set([
   "run", "attach", "stop", "logs", "workspace", "resume"
@@ -56,7 +56,7 @@ const REMOTE_RUNTIME_VERBS = new Set([
 async function dispatchRemote(): Promise<number> {
   // Spécifieur via variable typée `string` : tsc ne résout PAS statiquement ce
   // package optionnel (sinon TS2307 car h2a n'en dépend pas — règle d'or).
-  const REMOTE_RUNTIME_PKG: string = "@sentropic/remote-runtime";
+  const REMOTE_RUNTIME_PKG: string = "@sentropic/remote-cli";
   let rt: { dispatch?: (argv: readonly string[]) => Promise<number> };
   try {
     rt = (await import(REMOTE_RUNTIME_PKG)) as {
@@ -66,14 +66,14 @@ async function dispatchRemote(): Promise<number> {
     if ((err as NodeJS.ErrnoException)?.code === "ERR_MODULE_NOT_FOUND") {
       process.stderr.write(
         `h2a ${argv[0]}: ce verbe requiert le runtime remote (sessions / k8s / tunnel).\n` +
-          "  Installe-le : npm i -g @sentropic/remote-runtime\n"
+          "  Installe-le : npm i -g @sentropic/remote-cli\n"
       );
       return 127;
     }
     throw err;
   }
   if (typeof rt.dispatch !== "function") {
-    process.stderr.write("h2a: @sentropic/remote-runtime n'expose pas dispatch().\n");
+    process.stderr.write("h2a: @sentropic/remote-cli n'expose pas dispatch().\n");
     return 1;
   }
   // dispatch = main(argv) : commander attend le style process.argv ([node, script, …]).

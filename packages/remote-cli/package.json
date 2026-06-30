@@ -1,5 +1,5 @@
 {
-  "name": "@sentropic/remote-runtime",
+  "name": "@sentropic/remote-cli",
   "version": "0.0.10",
   "type": "module",
   "exports": {
@@ -38,7 +38,10 @@
     "url": "https://github.com/rhanka/remote",
     "directory": "packages/remote-cli"
   },
-  "description": "Runtime d'exécution remote (sessions/k8s/tunnel) — câblé en lazy par @sentropic/h2a. Lourd (node-pty/aws-sdk).",
+  "description": "Remote runtime + CLI (sessions/k8s/tunnel). Expose dispatch() (importé en lazy par @sentropic/h2a) ET le bin `remote` (déprécié, → h2a).",
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts"
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "remote": "dist/index.js"
+  }
 }
