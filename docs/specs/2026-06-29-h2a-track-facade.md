@@ -20,6 +20,21 @@ Principe (consensus) : la façade h2a est une **délégation THIN** vers la lib 
 | `h2a priority` | `track priority assess` | |
 | `h2a activity` | `track workspace-activity` | |
 
+## Delta re-sync 2026-06-29 (track 0.24.0 — Lot A/B LOCKED ; évol finalisée)
+Nouvelles commandes track à ajouter à la façade (pass-through) :
+| Surface h2a (cible) | Délègue à (track 0.24.0) | Note |
+|---|---|---|
+| `h2a item assign-code` | `track item assign-code` | codes WP stables (A1 track) |
+| `h2a report --active-roster` | `track report --active-roster` | exclusion WP terminaux (A3) |
+| `h2a branch` | `track branch` | provenance de branche |
+| `h2a focus` | `track focus` | curseur/focus |
+| `h2a ingest` | `track ingest` | ingestion graphe |
+| `h2a restructure` | `track restructure` | restructuration WP |
+| `h2a scope` · `h2a validate` · `h2a audit` | `track scope` · `validate` · `audit` | |
+| *(interne)* | `track events-contains` | ⚙ gate anti-perte de merge (plumbing, pas façade user) |
+
+Le mapping reste **1:1 pass-through** ; la façade ne réinterprète rien. `events-contains` = plumbing (cf skill branch-lifecycle), hors surface user. Le contrat de façade est re-synchronisé sur track 0.24.0.
+
 ## Invariants (vérifiables, P4)
 1. **Pass-through strict** : la façade ne réinterprète pas les arguments métier ; elle route. Exit codes/format JSON de track = inchangés (contrat).
 2. **record-only** : aucune commande façade n'écrit en dehors de l'API track ; pas de shadow-store h2a (cf piège « merge track record-only »).
