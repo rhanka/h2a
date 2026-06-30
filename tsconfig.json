@@ -6,6 +6,9 @@
     },
     {
       "path": "./packages/h2a-cli"
+    },
+    {
+      "path": "./packages/remote-protocol"
     }
   ]
 }
