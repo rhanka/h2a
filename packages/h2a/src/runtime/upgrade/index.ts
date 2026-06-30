@@ -15,7 +15,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const H2A_CLI_PACKAGE = "@sentropic/h2a-cli";
+export const H2A_CLI_PACKAGE = "@sentropic/h2a";
 /** Re-check at most once per this window for the passive `--upgrade-check` notice. */
 export const H2A_UPGRADE_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
 /**
@@ -47,7 +47,7 @@ export function isNewerVersion(latest: string, current: string): boolean {
   return a.patch > b.patch;
 }
 
-/** The version of the running `@sentropic/h2a-cli` (from its package.json). */
+/** The version of the running `@sentropic/h2a` (from its package.json). */
 export function currentCliVersion(): string {
   try {
     const here = dirname(fileURLToPath(import.meta.url)); // dist/runtime/upgrade

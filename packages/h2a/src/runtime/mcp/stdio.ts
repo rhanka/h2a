@@ -104,7 +104,7 @@ function envInt(name: string): number | undefined {
 }
 
 const PROTOCOL_VERSION = "2025-06-18";
-const SERVER_NAME = "@sentropic/h2a-cli";
+const SERVER_NAME = "@sentropic/h2a";
 const SERVER_VERSION = "0.1.1";
 
 function writeResponse(stdout: Writable, response: JsonRpcResponse): void {

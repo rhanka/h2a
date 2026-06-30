@@ -9,7 +9,7 @@
  * Pure core: the type, an `isActiveBlockage` predicate, and a builder for a
  * signed-able envelope (parity with the NHI attestation, DEC-088) so a blockage
  * can be signed/journalled. The durable registry, notification and per-host
- * delivery live in `@sentropic/h2a-cli`.
+ * delivery live in `@sentropic/h2a`.
  */
 
 import { computeHash } from "./canonical.js";

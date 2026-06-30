@@ -9,7 +9,7 @@
  *
  * V1 ships this as a declarative vocabulary + presence guard. The actual
  * heartbeat producer, presence-file format on disk, and MCP notification
- * dispatch are implemented in `@sentropic/h2a-cli` (DEC-051 / DEC-052).
+ * dispatch are implemented in `@sentropic/h2a` (DEC-051 / DEC-052).
  */
 
 import { isH2AWorkspaceRef } from "./identity.js";
@@ -118,7 +118,7 @@ export interface H2ASession {
   /**
    * Deployed-version stamp captured at session open, so drift is visible in
    * `/h2a discover` / `h2a doctor` without polling each host: `cli` = the running
-   * `@sentropic/h2a-cli`, `skill` = the installed h2a skill for this host (the
+   * `@sentropic/h2a`, `skill` = the installed h2a skill for this host (the
    * binary auto-upgrades but the skill does not). Additive; absent on old records.
    */
   readonly version?: H2AAgentVersion;
@@ -140,7 +140,7 @@ export interface H2ASession {
 
 /** Deployed-version stamp for an agent session (see {@link H2ASession.version}). */
 export interface H2AAgentVersion {
-  /** Running `@sentropic/h2a-cli` version (its package.json). */
+  /** Running `@sentropic/h2a` version (its package.json). */
   readonly cli?: string;
   /** Installed h2a skill version for the host (frontmatter `version:`), if resolvable. */
   readonly skill?: string;

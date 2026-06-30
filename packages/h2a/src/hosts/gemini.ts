@@ -16,12 +16,12 @@ function buildArgs(
 }
 
 /**
- * Renders the JSON snippet a user must add to their Claude Code MCP config
+ * Renders the JSON snippet a user must add to their Gemini CLI MCP config
  * to expose the `h2a mcp-serve` JSON-RPC 2.0 server as an MCP backend.
  *
- * Claude Code reads MCP servers from either `~/.config/claude/mcp.json`
- * (user-global) or a project-local `.mcp.json` at the workspace root.
- * Both are documented in the path hint.
+ * Gemini CLI reads MCP servers from either `~/.gemini/settings.json`
+ * (user-global) or a project-local `.gemini/settings.json` at the workspace
+ * root. Both are documented in the path hint.
  */
 export function renderMcpConfig(
   options: RenderMcpConfigOptions = {}
@@ -39,19 +39,19 @@ export function renderMcpConfig(
     },
     path: {
       hint:
-        "Claude Code reads its MCP config from either ~/.config/claude/mcp.json " +
-        "(user-global) or a project-local .mcp.json at the workspace root. " +
-        "Merge the snippet under the top-level `mcpServers` key in whichever " +
-        "file your setup uses.",
-      example: "~/.config/claude/mcp.json"
+        "Gemini CLI reads its MCP config from either ~/.gemini/settings.json " +
+        "(user-global) or a project-local .gemini/settings.json at the " +
+        "workspace root. Merge the snippet under the top-level `mcpServers` " +
+        "key in whichever file your setup uses.",
+      example: "~/.gemini/settings.json"
     }
   };
 }
 
-export const H2A_CLAUDE_HOST: H2AConfigurableHostDescriptor = {
-  packageName: "@sentropic/h2a-cli",
+export const H2A_GEMINI_HOST: H2AConfigurableHostDescriptor = {
+  packageName: "@sentropic/h2a",
   corePackageName: "@sentropic/h2a",
-  host: "claude",
+  host: "gemini",
   protocol: "sentropic.h2a",
   wave: 1,
   hostScenarioShipped: true,

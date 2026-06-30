@@ -1,7 +1,7 @@
 {
   "name": "@sentropic/h2a",
   "version": "0.75.0",
-  "description": "Core contracts and runtime primitives for human-to-agent coordination.",
+  "description": "h2a — the unified CLI + core for human-to-agent coordination.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,9 +30,22 @@
   },
   "files": [
     "dist",
-    "fixtures"
+    "fixtures",
+    "skills"
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "bin": {
+    "h2a": "dist/bin.js"
+  },
+  "scripts": {
+    "prepack": "chmod +x dist/bin.js"
+  },
+  "dependencies": {
+    "@hono/mcp": "^0.3.0",
+    "@hono/node-server": "^2.0.4",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "hono": "^4.12.23"
   }
 }

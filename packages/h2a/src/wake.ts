@@ -4,7 +4,7 @@
  * format an **h2a-tagged, human-visible wake line** to inject into an idle host.
  *
  * Pure + dep-free (no store, no clock — `nowIso` is injected). The process /
- * driver wiring (mcp-serve --wake hook, watch-inbox loop) lives in @sentropic/h2a-cli
+ * driver wiring (mcp-serve --wake hook, watch-inbox loop) lives in @sentropic/h2a
  * and reuses nativeBackchannelDriver + formatSignedDriveInstruction.
  */
 import type { H2AEnvelope } from "./types.js";

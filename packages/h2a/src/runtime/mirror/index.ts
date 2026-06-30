@@ -1,7 +1,7 @@
 /**
  * EVO-13 — remote presence mirror (DEC-125). Local agents push signed snapshots
  * of their state to a remote h2a so its read-only surface reflects reality.
- * P1: instances only. Core stays dep-free; this lives in @sentropic/h2a-cli.
+ * P1: instances only. Core stays dep-free; this lives in @sentropic/h2a.
  */
 export {
   buildInstanceMirror,

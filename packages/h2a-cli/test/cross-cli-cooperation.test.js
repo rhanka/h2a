@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { platform } from "node:process";
 import test from "node:test";
 
-const BIN_PATH = join(process.cwd(), "packages/h2a-cli/dist/bin.js");
+const BIN_PATH = join(process.cwd(), "packages/h2a/dist/bin.js");
 
 // DEC-061/062: the first time we tried this matrix on Windows the cross-CLI
 // tests both ENOENT'd (path `:`-segments, fixed by DEC-062's safePathSegment)

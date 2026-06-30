@@ -7,7 +7,7 @@
  * {
  *   "version": "1",
  *   "createdAt": "2026-05-20T08:12:34.567Z",
- *   "createdBy": "@sentropic/h2a-cli@0.1.1"
+ *   "createdBy": "@sentropic/h2a@0.1.1"
  * }
  * ```
  *
@@ -53,7 +53,7 @@ export class StoreSchemaMismatchError extends Error {
 }
 
 /**
- * Best-effort lookup of `@sentropic/h2a-cli`'s own package version. We walk
+ * Best-effort lookup of `@sentropic/h2a`'s own package version. We walk
  * up from the current module file (`dist/runtime/local-files/schema.js` at
  * runtime, or the TS source under tests) until we find a `package.json`
  * whose `name` matches. Falls back to `0.0.0-unknown` if the search fails,
@@ -70,8 +70,8 @@ export function readCliPackageVersion(): string {
       try {
         const raw = readFileSync(`${dir}/package.json`, "utf8");
         const parsed = JSON.parse(raw) as { name?: string; version?: string };
-        if (parsed.name === "@sentropic/h2a-cli" && typeof parsed.version === "string") {
-          return `@sentropic/h2a-cli@${parsed.version}`;
+        if (parsed.name === "@sentropic/h2a" && typeof parsed.version === "string") {
+          return `@sentropic/h2a@${parsed.version}`;
         }
       } catch {
         /* keep walking */
@@ -83,5 +83,5 @@ export function readCliPackageVersion(): string {
   } catch {
     /* fall through */
   }
-  return "@sentropic/h2a-cli@0.0.0-unknown";
+  return "@sentropic/h2a@0.0.0-unknown";
 }

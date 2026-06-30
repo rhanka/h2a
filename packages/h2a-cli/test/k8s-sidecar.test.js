@@ -34,7 +34,7 @@ test("renderK8sSidecar defaults to node:22-alpine + npm-runtime strategy (DEC-05
   // The npm-runtime command must install the latest h2a-cli at Pod start.
   const args = fragment.container.args;
   assert.equal(args.length, 1);
-  assert.match(args[0], /npm i -g @sentropic\/h2a-cli@latest/);
+  assert.match(args[0], /npm i -g @sentropic\/h2a@latest/);
   assert.match(args[0], /h2a mcp-serve --root \/workspace\/\.h2a/);
   assert.deepEqual(fragment.container.volumeMounts, [
     { name: "h2a-workspace", mountPath: "/workspace/.h2a" }
@@ -114,7 +114,7 @@ test("h2a deploy k8s-sidecar emits a JSON resource envelope", () => {
   assert.equal(parsed.container.name, "h2a-mcp");
   assert.equal(parsed.volume.name, "h2a-workspace");
   assert.match(parsed.yaml, /name: h2a-mcp/);
-  assert.match(parsed.yaml, /npm i -g @sentropic\/h2a-cli@0\.1\.20/);
+  assert.match(parsed.yaml, /npm i -g @sentropic\/h2a@0\.1\.20/);
 });
 
 test("h2a deploy k8s-sidecar --write emits an action envelope and writes the YAML", () => {

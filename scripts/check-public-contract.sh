@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GOLD="$ROOT/docs/contracts/golden"
 rc=0
 # binaire h2a: préfère le dist local (CI), sinon le global
-H2A="h2a"; [ -f "$ROOT/packages/h2a-cli/dist/bin.js" ] && H2A="node $ROOT/packages/h2a-cli/dist/bin.js"
+H2A="h2a"; [ -f "$ROOT/packages/h2a/dist/bin.js" ] && H2A="node $ROOT/packages/h2a/dist/bin.js"
 
 # 1) surface MCP du bus
 if $H2A mcp-tools >/dev/null 2>&1; then

@@ -49,7 +49,7 @@ test("createLocalStore writes .h2a-schema.json on first call with version 1", ()
     const sentinel = JSON.parse(readFileSync(sentinelPath, "utf8"));
     assert.equal(sentinel.version, H2A_STORE_SCHEMA_VERSION);
     assert.equal(sentinel.version, "1");
-    assert.match(sentinel.createdBy, /@sentropic\/h2a-cli@/);
+    assert.match(sentinel.createdBy, /@sentropic\/h2a@/);
     assert.match(sentinel.createdAt, /^\d{4}-\d{2}-\d{2}T/);
   } finally {
     rmSync(root, { recursive: true, force: true });
