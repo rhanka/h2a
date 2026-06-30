@@ -41,7 +41,8 @@ const PACKAGE_FILES = [
   "package.json",
   "package-lock.json",
   "packages/h2a/package.json",
-  "packages/h2a-cli/package.json"
+  "packages/h2a-cli/package.json",
+  "packages/remote-cli/package.json"
 ];
 
 const CORE_PACKAGE_NAME = "@sentropic/h2a";
@@ -124,7 +125,7 @@ export function bumpPackageLockContent(jsonContent, newVersion) {
       ? parsed.packages
       : undefined;
   if (packages) {
-    for (const key of ["", "packages/h2a", "packages/h2a-cli"]) {
+    for (const key of ["", "packages/h2a", "packages/h2a-cli", "packages/remote-cli"]) {
       if (packages[key] && typeof packages[key] === "object") {
         packages[key].version = newVersion;
       }
