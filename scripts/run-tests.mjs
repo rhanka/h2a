@@ -22,7 +22,8 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..");
 
-const TEST_DIRS = ["packages/h2a/test", "packages/h2a-cli/test"];
+// A1: la suite vit dans packages/h2a/test (h2a-cli est un stub deprecie, sans tests).
+const TEST_DIRS = ["packages/h2a/test"];
 
 const files = [];
 for (const rel of TEST_DIRS) {
@@ -31,6 +32,10 @@ for (const rel of TEST_DIRS) {
   try {
     entries = readdirSync(abs);
   } catch (err) {
+    // Un dossier de test absent (ex: package sans tests) est ignore, pas fatal.
+    if (err && err.code === "ENOENT") {
+      continue;
+    }
     process.stderr.write(
       `run-tests: cannot read ${abs} (${(err && err.message) || err})\n`
     );
