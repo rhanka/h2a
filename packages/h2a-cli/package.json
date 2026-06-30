@@ -1,17 +1,11 @@
 {
   "name": "@sentropic/h2a-cli",
   "version": "0.75.0",
-  "description": "Unified CLI surface for h2a hosts and MCP-oriented coordination flows.",
+  "description": "DEPRECATED — fusionné dans @sentropic/h2a. Installez @sentropic/h2a.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "scripts": {
-    "prepack": "chmod +x dist/bin.js"
-  },
-  "bin": {
-    "h2a": "dist/bin.js"
-  },
   "keywords": [
     "h2a",
     "cli",
@@ -36,15 +30,10 @@
     }
   },
   "files": [
-    "dist",
-    "skills"
+    "dist"
   ],
   "dependencies": {
-    "@hono/mcp": "^0.3.0",
-    "@hono/node-server": "^2.0.4",
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "@sentropic/h2a": "^0.75.0",
-    "hono": "^4.12.23"
+    "@sentropic/h2a": "^0.75.0"
   },
   "publishConfig": {
     "access": "public"
