@@ -21,6 +21,12 @@
     },
     {
       "path": "./packages/remote-browser-bridge"
+    },
+    {
+      "path": "./packages/remote-k8s-orchestrator"
+    },
+    {
+      "path": "./packages/remote-session-agent"
     }
   ]
 }
