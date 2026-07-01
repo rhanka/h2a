@@ -8,7 +8,7 @@
       "path": "./packages/h2a-cli"
     },
     {
-      "path": "./packages/remote-cli"
+      "path": "./packages/h2a-runtime"
     }
   ]
 }

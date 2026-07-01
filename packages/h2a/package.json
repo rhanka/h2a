@@ -50,10 +50,10 @@
     "hono": "^4.12.23"
   },
   "peerDependencies": {
-    "@sentropic/remote-cli": "*"
+    "@sentropic/h2a-runtime": "*"
   },
   "peerDependenciesMeta": {
-    "@sentropic/remote-cli": {
+    "@sentropic/h2a-runtime": {
       "optional": true
     }
   }
