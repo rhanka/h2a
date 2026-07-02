@@ -74,15 +74,21 @@ jobs:
           fi
           h2a_version="$(node -p "require('./packages/h2a/package.json').version")"
           cli_version="$(node -p "require('./packages/h2a-cli/package.json').version")"
-          echo "Tag version       : $tag_version"
-          echo "@sentropic/h2a    : $h2a_version"
-          echo "@sentropic/h2a-cli: $cli_version"
+          runtime_version="$(node -p "require('./packages/h2a-runtime/package.json').version")"
+          echo "Tag version           : $tag_version"
+          echo "@sentropic/h2a        : $h2a_version"
+          echo "@sentropic/h2a-cli    : $cli_version"
+          echo "@sentropic/h2a-runtime: $runtime_version"
           if [[ "$h2a_version" != "$tag_version" ]]; then
             echo "::error::packages/h2a/package.json version ($h2a_version) does not match tag ($tag_version). Run 'npm run release -- --version $tag_version' before tagging." >&2
             exit 1
           fi
           if [[ "$cli_version" != "$tag_version" ]]; then
             echo "::error::packages/h2a-cli/package.json version ($cli_version) does not match tag ($tag_version). Run 'npm run release -- --version $tag_version' before tagging." >&2
+            exit 1
+          fi
+          if [[ "$runtime_version" != "$tag_version" ]]; then
+            echo "::error::packages/h2a-runtime/package.json version ($runtime_version) does not match tag ($tag_version). Run 'npm run release -- --version $tag_version' before tagging." >&2
             exit 1
           fi
           echo "RELEASE_VERSION=$tag_version" >> "$GITHUB_ENV"
@@ -93,6 +99,9 @@ jobs:
 
       - name: Publish @sentropic/h2a-cli (trusted publishing, public)
         run: npm publish --workspace @sentropic/h2a-cli --access public
+
+      - name: Publish @sentropic/h2a-runtime (trusted publishing, public)
+        run: npm publish --workspace @sentropic/h2a-runtime --access public
 
       - name: Create GitHub Release (idempotent)
         env:

@@ -12,6 +12,7 @@
  *        - `packages/h2a/package.json`
  *        - `packages/h2a-cli/package.json` (also aligns the
  *          `@sentropic/h2a` dependency caret to `^X.Y.Z`)
+ *        - `packages/h2a-runtime/package.json` (heavy runtime, lockstep)
  *   3. Stage and commit those four files with `release: vX.Y.Z`.
  *   4. Create an annotated tag `vX.Y.Z` (signed only if
  *      `git config commit.gpgsign` is true, mirroring the user's setup).
@@ -41,7 +42,8 @@ const PACKAGE_FILES = [
   "package.json",
   "package-lock.json",
   "packages/h2a/package.json",
-  "packages/h2a-cli/package.json"
+  "packages/h2a-cli/package.json",
+  "packages/h2a-runtime/package.json"
 ];
 
 const CORE_PACKAGE_NAME = "@sentropic/h2a";
@@ -124,7 +126,7 @@ export function bumpPackageLockContent(jsonContent, newVersion) {
       ? parsed.packages
       : undefined;
   if (packages) {
-    for (const key of ["", "packages/h2a", "packages/h2a-cli"]) {
+    for (const key of ["", "packages/h2a", "packages/h2a-cli", "packages/h2a-runtime"]) {
       if (packages[key] && typeof packages[key] === "object") {
         packages[key].version = newVersion;
       }
@@ -332,7 +334,7 @@ async function main(argv) {
       "On tag push, .github/workflows/release.yml runs:",
       "  - typecheck + tests",
       "  - version sanity gate (tag vs package.json)",
-      "  - npm publish --access public via npm Trusted Publishing (h2a + h2a-cli)",
+      "  - npm publish --access public via npm Trusted Publishing (h2a + h2a-cli + h2a-runtime)",
       "  - gh release create --generate-notes",
       ""
     ].join("\n")
