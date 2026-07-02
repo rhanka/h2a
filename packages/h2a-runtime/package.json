@@ -35,10 +35,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/rhanka/remote",
-    "directory": "packages/remote-cli"
+    "url": "git+https://github.com/rhanka/h2a.git",
+    "directory": "packages/h2a-runtime"
   },
-  "description": "Runtime d'exécution h2a (sessions/k8s/tunnel, node-pty/aws-sdk). Importé en LAZY par @sentropic/h2a. Lourd, installé à part.",
+  "homepage": "https://github.com/rhanka/h2a#readme",
+  "bugs": {
+    "url": "https://github.com/rhanka/h2a/issues"
+  },
+  "license": "MIT",
+  "description": "h2a heavy runtime (sessions / k8s / tunnel, node-pty + aws-sdk). Lazily imported by @sentropic/h2a; installed separately.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts"
 }
