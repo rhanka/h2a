@@ -25,7 +25,7 @@ export async function runTick(
   const loop = readObjectiveLoop(root, loopId); // throws if missing → shell maps to exit code
   const agents = await readAgents();
   const refs = readRefsRollup(loop);
-  const inbox = readInbox(loop);
+  const inbox = readInbox(loop, root);
   const plan = planLoopTick({ loop, agents, refs, inbox, now });
 
   appendLoopEvent(root, {

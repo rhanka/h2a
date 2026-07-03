@@ -7,8 +7,9 @@
 
 import { spawnSync } from "node:child_process";
 
+import { createLocalStore } from "../../local-files/store.js";
 import type { H2AObjectiveLoop } from "../index.js";
-import { loopRefLocator, type AgentsSnapshot, type InboxSnapshot, type ProjectedAgent, type RefsRollup, type RefStatus } from "./decision.js";
+import { loopRefLocator, type AgentsSnapshot, type InboxSnapshot, type PendingDecision, type ProjectedAgent, type RefsRollup, type RefStatus } from "./decision.js";
 
 // --- Agents adapter (lazy runtime; degraded-clean on absence/failure) ---------
 export async function readAgents(): Promise<AgentsSnapshot> {
@@ -105,9 +106,51 @@ export function readRefsRollup(loop: H2AObjectiveLoop): RefsRollup {
   };
 }
 
-// --- Inbox adapter ------------------------------------------------------------
-// SLICE-1 STUB: no pending decisions surfaced yet. TODO(slice-2): read the h2a
-// inbox for decisions awaiting a human/agent answer.
-export function readInbox(_loop: H2AObjectiveLoop): InboxSnapshot {
-  return { pendingDecisions: [] };
+// --- Inbox adapter (READ-ONLY) ------------------------------------------------
+// The h2a bus is a negotiation protocol (register/propose/accept/reject/counter/
+// withdraw/event/escalate). The clearest "needs a human/agent decision" signal is
+// an `escalate` envelope sitting in an enrolled agent's inbox. We surface those as
+// pending decisions so the loop reports `waiting-human` and routes them.
+// TODO(next): also correlate unresolved `propose` (no matching accept/reject).
+
+/** PURE: escalations in an inbox → pending decisions for `agentId`. */
+export function pendingDecisionsFromInbox(
+  envelopes: readonly { readonly id: string; readonly type: string }[],
+  agentId: string,
+): PendingDecision[] {
+  return envelopes
+    .filter((e) => e.type === "escalate")
+    .map((e) => ({ id: e.id, forAgent: agentId }));
+}
+
+export function readInbox(loop: H2AObjectiveLoop, root: string): InboxSnapshot {
+  const enrolled = loop.agents
+    .map((a) => ({ agentId: a.id, instance: a.h2aInstance }))
+    .filter((x): x is { agentId: string; instance: string } => typeof x.instance === "string");
+  if (enrolled.length === 0) return { pendingDecisions: [] };
+
+  let store: ReturnType<typeof createLocalStore>;
+  try {
+    store = createLocalStore({ root });
+  } catch {
+    return { pendingDecisions: [] };
+  }
+
+  const pending: PendingDecision[] = [];
+  const seen = new Set<string>();
+  for (const { agentId, instance } of enrolled) {
+    let envelopes: Array<{ id: string; type: string }>;
+    try {
+      envelopes = store.readInbox(instance) as Array<{ id: string; type: string }>;
+    } catch {
+      continue;
+    }
+    for (const d of pendingDecisionsFromInbox(envelopes, agentId)) {
+      if (!seen.has(d.id)) {
+        seen.add(d.id);
+        pending.push(d);
+      }
+    }
+  }
+  return { pendingDecisions: pending };
 }
