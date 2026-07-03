@@ -565,5 +565,29 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         }
       }
     }
+  },
+  {
+    name: "h2a_loop_list",
+    description:
+      "List objective loops in the local store (id, name, goal, status, ref/agent counts, updatedAt). Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  {
+    name: "h2a_loop_status",
+    description:
+      "Read one objective loop's full state + its LAST recorded tick observation + recent journal events. Read-only. For a fresh live plan (agents/refs/inbox), run the `h2a loop tick` CLI.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        loopId: {
+          type: "string",
+          description: "The objective loop id (from h2a_loop_list / `h2a loop list`)."
+        }
+      },
+      required: ["loopId"]
+    }
   }
 ];

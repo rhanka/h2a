@@ -62,6 +62,7 @@ import { lastSpawnRequestAt, recordSpawnRequest, spawnAllowed } from "../governa
 import { gatherNhiSnapshot } from "../nhi.js";
 import { agentVersion } from "../version/agent-version.js";
 import type { SessionRegistry } from "./sessions.js";
+import { listLoopEvents, listObjectiveLoops, readObjectiveLoop } from "../loop/index.js";
 
 export interface McpToolResult {
   [key: string]: unknown;
@@ -1308,4 +1309,49 @@ export function handleConductorLaunch(
 
 export function notImplemented(toolName: string): McpErrorResult {
   return { error: `${toolName}: not implemented in this slice` };
+}
+
+/**
+ * h2a_loop_list — read-only projection of the objective loops in the local store.
+ */
+export function handleLoopList(root: string): McpToolResult {
+  const loops = listObjectiveLoops(root).map((l) => ({
+    id: l.id,
+    name: l.name,
+    goal: l.goal,
+    status: l.status,
+    refs: l.refs.length,
+    agents: l.agents.length,
+    updatedAt: l.updatedAt
+  }));
+  return { kind: "loop-list", version: 1, loops };
+}
+
+/**
+ * h2a_loop_status — one loop's full state + its LAST recorded tick observation
+ * (from the journal) + recent events. Read-only; a fresh live plan needs the
+ * async `h2a loop tick` CLI (agents/refs/inbox gathering).
+ */
+export function handleLoopStatus(
+  root: string,
+  args: { loopId?: string } | undefined
+): McpToolResult | McpErrorResult {
+  if (typeof args?.loopId !== "string" || args.loopId.length === 0) {
+    return { error: "h2a_loop_status: loopId is required" };
+  }
+  let loop;
+  try {
+    loop = readObjectiveLoop(root, args.loopId);
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+  const events = listLoopEvents(root, args.loopId);
+  const lastTick = [...events].reverse().find((e) => e.type === "loop.tick");
+  return {
+    kind: "loop-status",
+    version: 1,
+    loop,
+    ...(lastTick ? { lastTick: lastTick.payload } : {}),
+    recentEvents: events.slice(-10)
+  };
 }

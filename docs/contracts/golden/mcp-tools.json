@@ -16,6 +16,8 @@
   "h2a_discover_sessions",
   "h2a_escalate",
   "h2a_inbox",
+  "h2a_loop_list",
+  "h2a_loop_status",
   "h2a_nhi_attest",
   "h2a_nhi_export",
   "h2a_nhi_inventory",
