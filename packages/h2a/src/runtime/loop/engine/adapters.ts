@@ -7,8 +7,11 @@
 
 import { spawnSync } from "node:child_process";
 
+import type { H2ALaunchContext } from "../../../session.js";
+import { localTmuxDriver } from "../../drive/index.js";
 import { createLocalStore } from "../../local-files/store.js";
-import { updateObjectiveLoopStatus, type H2AObjectiveLoop } from "../index.js";
+import { listPresence } from "../../local-files/presence.js";
+import { listLoopEvents, readObjectiveLoop, updateObjectiveLoopStatus, type H2AObjectiveLoop } from "../index.js";
 import { loopRefLocator, type AgentsSnapshot, type InboxSnapshot, type PendingDecision, type ProjectedAgent, type RefsRollup, type RefStatus } from "./decision.js";
 import type { ActionSink } from "./execute.js";
 
@@ -156,11 +159,77 @@ export function readInbox(loop: H2AObjectiveLoop, root: string): InboxSnapshot {
   return { pendingDecisions: pending };
 }
 
+// --- Wake targeting (PURE decision; the tmux send is delegated to the driver) --
+export type WakePlan =
+  | {
+      readonly kind: "wake";
+      readonly instance: string;
+      readonly host?: string;
+      readonly launchContext: H2ALaunchContext;
+      readonly instructionLine: string;
+    }
+  | { readonly kind: "skip"; readonly reason: string };
+
+const WAKE_COOLDOWN_FLOOR_MS = 300_000; // 5 min
+
+/**
+ * PURE: given the loop, a target agent id, the FRESH sessions (already
+ * expiry-filtered by listPresence) and prior wake timestamps, decide whether to
+ * wake (and with what launchContext/line) or skip (and why). No IO. Freshness +
+ * cooldown are the safety gates BEFORE the driver's own human-typing guard.
+ */
+export function planWakeTarget(input: {
+  readonly loop: H2AObjectiveLoop;
+  readonly agentId: string;
+  readonly freshSessions: readonly { readonly instance: string; readonly launchContext?: H2ALaunchContext }[];
+  readonly priorWakeAtByAgent: ReadonlyMap<string, number>;
+  readonly now: number;
+}): WakePlan {
+  const agent = input.loop.agents.find((a) => a.id === input.agentId);
+  if (!agent || agent.h2aInstance === undefined) return { kind: "skip", reason: "no-h2a-instance" };
+  const cooldownMs = Math.max(input.loop.policy.tickMs, WAKE_COOLDOWN_FLOOR_MS);
+  const last = input.priorWakeAtByAgent.get(input.agentId);
+  if (last !== undefined && input.now - last < cooldownMs) return { kind: "skip", reason: "cooldown" };
+  const session = input.freshSessions.find((s) => s.instance === agent.h2aInstance);
+  if (!session || !session.launchContext || !session.launchContext.tmux) {
+    return { kind: "skip", reason: "no-fresh-tmux-session" };
+  }
+  const instructionLine =
+    `[h2a-wake reason=loop loopId=${input.loop.id} at=${new Date(input.now).toISOString()}] ` +
+    `reprends l'objectif: ${input.loop.goal}`;
+  return {
+    kind: "wake",
+    instance: agent.h2aInstance,
+    ...(agent.host !== undefined ? { host: agent.host } : {}),
+    launchContext: session.launchContext,
+    instructionLine
+  };
+}
+
+/** PURE: latest applied-wake epoch ms per agent, from the loop event journal. */
+export function priorWakeAtByAgent(
+  events: readonly { readonly type: string; readonly at: string; readonly payload?: unknown }[]
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const e of events) {
+    if (e.type !== "loop.action.applied") continue;
+    const p = e.payload as { action?: string; key?: string } | undefined;
+    if (!p || p.action !== "wake" || typeof p.key !== "string" || !p.key.startsWith("wake:")) continue;
+    const agentId = p.key.slice("wake:".length);
+    const at = Date.parse(e.at);
+    if (Number.isNaN(at)) continue;
+    const prev = out.get(agentId);
+    if (prev === undefined || at > prev) out.set(agentId, at);
+  }
+  return out;
+}
+
 // --- Action sink (effects for `--execute`) ------------------------------------
-// TRANCHE 1: only `close` acts (idempotent store status flip, ZERO injection).
-// wake / request-launch / route-decision are wired but return `skipped`
-// ("not-enabled") until their guarded slices land — a defer must NEVER fall back
-// to a headless/auto injection (double-consensus RISK #1).
+// `close` = idempotent store status flip (ZERO injection). `wake` = fresh-session
+// + cooldown gated localTmuxDriver (which re-checks the human-typing guard at the
+// last moment; defer → "deferred", stays pending). request-launch / route-decision
+// still `skipped` (their guarded slices land next). NEVER chain/headless/auto — a
+// defer must not fall back to a headless injection (double-consensus RISK #1).
 export function buildActionSink(): ActionSink {
   return {
     async close(_action, ctx) {
@@ -173,8 +242,30 @@ export function buildActionSink(): ActionSink {
     async requestLaunch() {
       return "skipped";
     },
-    async wake() {
-      return "skipped";
+    async wake(action, ctx) {
+      const loop = readObjectiveLoop(ctx.root, ctx.loopId);
+      const freshSessions = listPresence(ctx.root, { now: ctx.now }).map((s) => ({
+        instance: s.instance,
+        ...(s.launchContext !== undefined ? { launchContext: s.launchContext } : {})
+      }));
+      const plan = planWakeTarget({
+        loop,
+        agentId: action.agentId ?? "",
+        freshSessions,
+        priorWakeAtByAgent: priorWakeAtByAgent(listLoopEvents(ctx.root, ctx.loopId)),
+        now: ctx.now
+      });
+      if (plan.kind === "skip") return "skipped";
+      // localTmuxDriver ONLY — never chain/headless/auto (RISK #1). It applies the
+      // human-typing guard at the last moment and DEFERS (false) if a human is
+      // active in the pane; a defer stays pending and re-fires next tick.
+      const ok = await localTmuxDriver().drive({
+        to: plan.instance,
+        ...(plan.host !== undefined ? { host: plan.host } : {}),
+        instructionLine: plan.instructionLine,
+        launchContext: plan.launchContext
+      });
+      return ok ? "done" : "deferred";
     },
     async routeDecision() {
       return "skipped";
