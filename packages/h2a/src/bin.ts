@@ -50,7 +50,7 @@ function runAsync(label: string, promise: Promise<number>): void {
 // @sentropic/h2a ne dépend JAMAIS de @sentropic/h2a-runtime (ni node-pty/aws-sdk) :
 // le runtime est un package séparé, installé à part. Petit lot d'abord (consensus).
 const REMOTE_RUNTIME_VERBS = new Set([
-  "run", "attach", "stop", "logs", "workspace", "resume"
+  "run", "attach", "stop", "logs", "workspace", "resume", "agents"
 ]);
 
 async function dispatchRemote(): Promise<number> {

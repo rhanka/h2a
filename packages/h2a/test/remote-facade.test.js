@@ -31,3 +31,16 @@ test("les verbes remote délèguent à @sentropic/h2a-runtime (lazy, monorepo)",
   assert.match(out, /remote workspace/, "h2a workspace doit déléguer au runtime remote");
   assert.doesNotMatch(out, /Unknown command|Run `h2a --help`/);
 });
+
+// ①-fondation loop : le registre read-only `agents` (projectRemoteAgents) est exposé
+// via h2a en LAZY. On teste par --help (aucun IO tmux/jobs) pour rester CI-robuste.
+test("h2a agents délègue au registre read-only du runtime", () => {
+  const res = spawnSync(process.execPath, [BIN, "agents", "--help"], { encoding: "utf8" });
+  const out = (res.stdout || "") + (res.stderr || "");
+  assert.match(
+    out,
+    /Project remote-visible agents|read-only/,
+    "h2a agents doit déléguer au registre agents du runtime"
+  );
+  assert.doesNotMatch(out, /Unknown command|Run `h2a --help`/);
+});
