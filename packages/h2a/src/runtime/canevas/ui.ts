@@ -1,7 +1,8 @@
 // Canevas ③ — self-hosted UI (served at GET / by the local Hono server, NOT a
 // claude.ai Artifact: an Artifact cannot reach localhost/api). Self-contained:
-// inline CSS + vanilla JS, no CDN. READ-ONLY tranche-3a — the answer buttons are
-// placeholders until the guarded reply-bridge (tranche-3b) lands.
+// inline CSS + vanilla JS, no CDN. tranche-3b — the answer buttons are LIVE: they
+// POST the human decision through the guarded reply-bridge, carrying the per-run
+// write token injected same-origin at GET / (`__CANEVAS_TOKEN__`).
 
 export const CANEVAS_HTML = `<!doctype html>
 <html lang="fr">
@@ -31,6 +32,9 @@ export const CANEVAS_HTML = `<!doctype html>
   button:disabled{opacity:.5;cursor:not-allowed}
   .answers{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
   .answers button{border-color:var(--accent)}
+  .answerStatus{margin-top:10px;font-size:13px;min-height:18px}
+  .answerStatus.ok{color:var(--advise)}
+  .answerStatus.err{color:var(--alert)}
   .pane{background:#010409;border:1px solid var(--border);border-radius:10px;padding:12px;overflow:auto;flex:1;display:flex;flex-direction:column}
   .pane .label{color:var(--muted);font-size:11px;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em}
   .pane pre{margin:0;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word;color:#c9d1d9}
@@ -51,6 +55,7 @@ export const CANEVAS_HTML = `<!doctype html>
       <button id="next">Suivant →</button>
       <span class="count" id="pos"></span>
     </div>
+    <div class="answerStatus" id="answerStatus" role="status" aria-live="polite"></div>
   </section>
   <section class="col">
     <div class="pane"><div class="label" id="paneLabel">Session CLI</div><pre id="pane">—</pre></div>
@@ -58,8 +63,23 @@ export const CANEVAS_HTML = `<!doctype html>
 </main>
 <script>
 (function(){
+  // Per-run write token, injected same-origin at GET /. A cross-origin page can
+  // neither read it nor (CORS-closed) reach /api — so only this page can POST.
+  var TOKEN="__CANEVAS_TOKEN__";
   var decisions=[],idx=0,paneTimer=null;
   function esc(s){return String(s==null?"":s).replace(/[&<>]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;"}[c]})}
+  function setStatus(msg,ok){var s=document.getElementById("answerStatus");s.textContent=msg;s.className="answerStatus"+(msg?(ok?" ok":" err"):"")}
+  async function answer(decisionId,answerId,btn){
+    setStatus("Envoi de la réponse…",true);
+    if(btn){btn.disabled=true}
+    try{
+      var r=await fetch("/api/decisions/"+encodeURIComponent(decisionId)+"/answer",{method:"POST",headers:{"content-type":"application/json","x-canevas-token":TOKEN},body:JSON.stringify({answerId:answerId})});
+      var j={};try{j=await r.json()}catch(e){}
+      if(r.ok){setStatus("✓ Réponse « "+answerId+" » transmise à l'agent.",true)}
+      else{setStatus("✗ "+(j&&j.error?j.error:("échec ("+r.status+")")),false)}
+    }catch(e){setStatus("✗ erreur réseau — réessayez.",false)}
+    load();
+  }
   async function load(){
     try{var r=await fetch("/api/decisions");var j=await r.json();decisions=(j.decisions||[])}catch(e){decisions=[]}
     if(idx>=decisions.length)idx=Math.max(0,decisions.length-1);
@@ -75,7 +95,10 @@ export const CANEVAS_HTML = `<!doctype html>
       '<span class="chan '+esc(d.channel||"")+'">'+esc(d.channel||"décision")+'</span>'+
       '<div class="q">'+esc(d.question)+'</div>'+
       '<div class="meta"><span>agent: '+esc(d.instance)+'</span>'+(d.workspace?'<span>ws: '+esc(d.workspace)+'</span>':'')+(d.createdAt?'<span>'+esc(d.createdAt)+'</span>':'')+'</div>'+
-      '<div class="answers">'+opts.map(function(o){return '<button disabled title="pont-réponse: tranche suivante" data-a="'+esc(o.id)+'">'+esc(o.label)+'</button>'}).join("")+'</div>';
+      '<div class="answers">'+opts.map(function(o){return '<button class="ans" data-a="'+esc(o.id)+'">'+esc(o.label)+'</button>'}).join("")+'</div>';
+    Array.prototype.forEach.call(card.querySelectorAll(".ans"),function(btn){
+      btn.onclick=function(){answer(d.id,btn.getAttribute("data-a"),btn)};
+    });
     document.getElementById("pos").textContent=(idx+1)+" / "+decisions.length;
     setPane(d.sessionRef&&d.sessionRef.tmuxName?d.sessionRef.tmuxName:null);
   }

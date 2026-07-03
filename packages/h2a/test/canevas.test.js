@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,6 +10,9 @@ import {
   escalateToPendingDecision
 } from "../dist/runtime/canevas/aggregate.js";
 import { createCanevasApp } from "../dist/runtime/canevas/app.js";
+import { buildDecisionReplyEnvelope } from "../dist/runtime/canevas/reply.js";
+import { postDecisionAnswer, hasAlreadyAnswered } from "../dist/runtime/canevas/answer.js";
+import { validateH2AEnvelope } from "../dist/envelope.js";
 
 const ROOT = process.cwd();
 const BIN = join(ROOT, "packages/h2a/dist/bin.js");
@@ -102,6 +105,147 @@ test("createCanevasApp: /pane degraded quand le runtime est absent", async () =>
   const body = await (await app.request("/api/sessions/x/pane")).json();
   assert.equal(body.degraded, true);
   assert.equal(body.lines, 200);
+});
+
+// ── tranche-3b : pont-réponse (write bridge) ────────────────────────────────
+
+test("buildDecisionReplyEnvelope: enveloppe h2a valide + marqueur local-human", () => {
+  const env = buildDecisionReplyEnvelope({
+    decisionId: "e1",
+    answerId: "go",
+    note: "ok pour moi",
+    targetInstance: "claude:proj:abc123def456",
+    envelopeId: "env-reply-1",
+    createdAt: "2026-07-03T10:00:00.000Z"
+  });
+  const v = validateH2AEnvelope(env);
+  assert.equal(v.ok, true, `enveloppe invalide: ${JSON.stringify(v.errors || [])}`);
+  assert.equal(env.type, "event");
+  assert.equal(env.target.instance, "claude:proj:abc123def456");
+  assert.equal(env.body.kind, "message");
+  assert.equal(env.body.topic, "decision-reply");
+  assert.equal(env.body.replyTo, "e1");
+  assert.equal(env.body.answerId, "go");
+  assert.equal(env.body.answeredBy, "local-human");
+  assert.equal(env.body.note, "ok pour moi");
+});
+
+test("buildDecisionReplyEnvelope: note omise → pas de champ note", () => {
+  const env = buildDecisionReplyEnvelope({
+    decisionId: "e2",
+    answerId: "veto",
+    targetInstance: "codex:x:0011aabbccdd",
+    envelopeId: "env-reply-2",
+    createdAt: "2026-07-03T11:00:00.000Z"
+  });
+  assert.equal(validateH2AEnvelope(env).ok, true);
+  assert.equal("note" in env.body, false, "note absente quand non fournie");
+});
+
+test("POST /answer: pas de postAnswer(dep) → 501", async () => {
+  const app = createCanevasApp({ listDecisions: () => [], capturePane: async () => ({ degraded: true, text: "" }) });
+  const res = await app.request("/api/decisions/d1/answer", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ answerId: "go" })
+  });
+  assert.equal(res.status, 501);
+});
+
+test("POST /answer: token requis — absent → 403, mauvais → 403", async () => {
+  let called = 0;
+  const app = createCanevasApp({
+    listDecisions: () => [],
+    capturePane: async () => ({ degraded: true, text: "" }),
+    writeToken: "SECRET",
+    postAnswer: () => { called += 1; return { status: "answered", decisionId: "d1" }; }
+  });
+  const noTok = await app.request("/api/decisions/d1/answer", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ answerId: "go" })
+  });
+  assert.equal(noTok.status, 403);
+  const badTok = await app.request("/api/decisions/d1/answer", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-canevas-token": "WRONG" },
+    body: JSON.stringify({ answerId: "go" })
+  });
+  assert.equal(badTok.status, 403);
+  assert.equal(called, 0, "postAnswer jamais appelé sans bon token");
+});
+
+test("POST /answer: bon token mais answerId manquant → 400", async () => {
+  const app = createCanevasApp({
+    listDecisions: () => [],
+    capturePane: async () => ({ degraded: true, text: "" }),
+    writeToken: "SECRET",
+    postAnswer: () => ({ status: "answered", decisionId: "d1" })
+  });
+  const res = await app.request("/api/decisions/d1/answer", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-canevas-token": "SECRET" },
+    body: JSON.stringify({})
+  });
+  assert.equal(res.status, 400);
+});
+
+test("POST /answer: bon token → délègue + mappe status (answered=200, already=409)", async () => {
+  const mk = (status) => createCanevasApp({
+    listDecisions: () => [],
+    capturePane: async () => ({ degraded: true, text: "" }),
+    writeToken: "SECRET",
+    postAnswer: (id, body) => ({ status, decisionId: id, answerId: body.answerId })
+  });
+  const ok = await mk("answered").request("/api/decisions/d1/answer", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-canevas-token": "SECRET" },
+    body: JSON.stringify({ answerId: "go" })
+  });
+  assert.equal(ok.status, 200);
+  assert.equal((await ok.json()).answerId, "go");
+  const dup = await mk("already").request("/api/decisions/d1/answer", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-canevas-token": "SECRET" },
+    body: JSON.stringify({ answerId: "go" })
+  });
+  assert.equal(dup.status, 409);
+});
+
+test("postDecisionAnswer: décision inexistante (root vide) → not-found", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-canevas-answer-"));
+  try {
+    const r = postDecisionAnswer(dir, { decisionId: "nope", answerId: "go" }, { now: 0, envelopeId: "env-x" });
+    assert.equal(r.status, "not-found");
+    assert.equal(r.decisionId, "nope");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("postDecisionAnswer: decisionId/answerId requis → invalid", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-canevas-answer-"));
+  try {
+    const r = postDecisionAnswer(dir, { decisionId: "d1", answerId: "" }, { now: 0, envelopeId: "env-x" });
+    assert.equal(r.status, "invalid");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hasAlreadyAnswered: false puis true après écriture du journal reply (idempotence)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-canevas-answer-"));
+  try {
+    assert.equal(hasAlreadyAnswered(dir, "e1"), false);
+    mkdirSync(join(dir, "canevas", "replies"), { recursive: true });
+    writeFileSync(join(dir, "canevas", "replies", "e1.json"), JSON.stringify({ decisionId: "e1" }), "utf8");
+    assert.equal(hasAlreadyAnswered(dir, "e1"), true);
+    // idempotence bout-à-bout : une décision déjà répondue → status "already"
+    const r = postDecisionAnswer(dir, { decisionId: "e1", answerId: "go" }, { now: 0, envelopeId: "env-x" });
+    assert.equal(r.status, "already");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("h2a canevas list --json : enveloppe stable (root vide → aucune décision)", () => {

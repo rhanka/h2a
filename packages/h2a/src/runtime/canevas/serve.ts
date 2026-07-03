@@ -1,9 +1,12 @@
 // Canevas ③ — server bootstrap. Binds the read-only Hono app to 127.0.0.1 and
 // runs until an abort signal. Wires the real IO (gather + lazy capturePane).
 
+import { randomUUID } from "node:crypto";
+
 import { serve } from "@hono/node-server";
 
 import { capturePaneSnapshot } from "./adapter.js";
+import { postDecisionAnswer } from "./answer.js";
 import { createCanevasApp } from "./app.js";
 import { gatherPendingDecisions } from "./gather.js";
 
@@ -22,16 +25,28 @@ export async function runCanevasServe(opts: RunCanevasServeOptions): Promise<num
       ? opts.port
       : CANEVAS_DEFAULT_PORT;
 
+  // Per-run write token: gates POST /answer (the human copies it, or the
+  // same-origin page carries it). Read stays open on localhost.
+  const writeToken = randomUUID();
+
   const app = createCanevasApp({
     listDecisions: () => gatherPendingDecisions(opts.root),
-    capturePane: capturePaneSnapshot
+    capturePane: capturePaneSnapshot,
+    writeToken,
+    postAnswer: (decisionId, body) =>
+      postDecisionAnswer(
+        opts.root,
+        { decisionId, ...body },
+        { now: Date.now(), envelopeId: `env-canevas-reply-${randomUUID()}` }
+      )
   });
 
   // 127.0.0.1 STRICT — never bind a public interface (local human↔agents surface).
   const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
   opts.stderr.write(
-    `h2a canevas serve: read-only on http://127.0.0.1:${port} (root=${opts.root})\n`
+    `h2a canevas serve: on http://127.0.0.1:${port} (root=${opts.root})\n`
   );
+  opts.stderr.write(`h2a canevas serve: write token = ${writeToken}\n`);
 
   return await new Promise<number>((resolve) => {
     const shutdown = (): void => {
