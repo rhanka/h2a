@@ -62,3 +62,12 @@ test("h2a agents délègue au registre read-only du runtime", () => {
   );
   assert.doesNotMatch(out, /Unknown command|Run `h2a --help`/);
 });
+
+// Parité ② : un verbe remote NON explicitement listé (`jobs`) délègue maintenant
+// au runtime via le FALLBACK (avant : "Unknown command: jobs").
+test("parité: h2a <verbe remote non-natif> délègue au runtime (fallback)", () => {
+  const res = spawnSync(process.execPath, [BIN, "jobs", "--help"], { encoding: "utf8" });
+  const out = (res.stdout || "") + (res.stderr || "");
+  assert.doesNotMatch(out, /Unknown command: jobs/, "jobs ne doit plus être 'Unknown command'");
+  assert.match(out, /jobs|delegated|Usage|remote/i, "h2a jobs doit déléguer au runtime");
+});

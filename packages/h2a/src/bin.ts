@@ -14,6 +14,7 @@ import {
   runLoopEngineCli,
   runSysmlVerify
 } from "./cli.js";
+import { shouldDispatchRemote } from "./bin-routing.js";
 
 const argv = process.argv.slice(2);
 
@@ -47,12 +48,10 @@ function runAsync(label: string, promise: Promise<number>): void {
   );
 }
 
-// P5: verbes remote délégués au runtime LOURD, chargé en LAZY (import dynamique).
-// @sentropic/h2a ne dépend JAMAIS de @sentropic/h2a-runtime (ni node-pty/aws-sdk) :
-// le runtime est un package séparé, installé à part. Petit lot d'abord (consensus).
-const REMOTE_RUNTIME_VERBS = new Set([
-  "run", "attach", "stop", "logs", "workspace", "resume", "agents"
-]);
+// Parité ② (double-consensus 2026-07-03) : `h2a` = LE driver global. Tout
+// premier-mot NON h2a-natif (cf. bin-routing.ts) est un verbe runtime (ex-remote)
+// et part en LAZY vers @sentropic/h2a-runtime. @sentropic/h2a ne dépend JAMAIS du
+// runtime (règle d'or) : import dynamique à spécifieur-string, seule frontière.
 
 async function dispatchRemote(): Promise<number> {
   // Spécifieur via variable typée `string` : tsc ne résout PAS statiquement ce
@@ -143,7 +142,7 @@ if (argv[0] === "mcp-serve") {
     `loop ${argv[1]}`,
     runLoopEngineCli(argv, { stdout: process.stdout, stderr: process.stderr }, ac.signal)
   );
-} else if (argv[0] !== undefined && REMOTE_RUNTIME_VERBS.has(argv[0])) {
+} else if (shouldDispatchRemote(argv)) {
   runAsync(`remote:${argv[0]}`, dispatchRemote());
 } else {
   process.exitCode = runCli(argv);

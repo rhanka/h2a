@@ -5463,7 +5463,7 @@ export async function cmdKeepalive(
 // P3 (façade track) — les verbes track sont délégués à la CLI `@sentropic/track`
 // par shell-out (le store `.track` est append-only single-writer : pas de 2ᵉ writer).
 // Verbes spécifiques, sans namespace `track` (dissous comme host/sub).
-const TRACK_FACADE_VERBS = new Set([
+export const TRACK_FACADE_VERBS = new Set([
   "decision", "report", "accept", "blocker", "item", "query",
   "consolidate", "priority", "branch", "focus", "ingest", "restructure"
 ]);
