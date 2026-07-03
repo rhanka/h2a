@@ -167,19 +167,19 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
   },
   {
     verb: "loop tick",
-    outputShape: "action",
+    outputShape: "resource",
     exitCodes: [0, 1, 2],
     requiredFlags: ["loopId"],
     optionalFlags: ["root"],
-    description: "Validate the loop exists and return a not-yet-supported orchestration action envelope for the MVP."
+    description: "Run one DRY-RUN objective-loop tick: gather agents (lazy runtime) + track refs + inbox, return the decision plan (degraded/eligible-for-close/launch/wake/route). Executes nothing."
   },
   {
     verb: "loop watch",
-    outputShape: "action",
+    outputShape: "stream",
     exitCodes: [0, 1, 2],
     requiredFlags: ["loopId"],
-    optionalFlags: ["root", "interval-ms"],
-    description: "Validate the loop exists and return a not-yet-supported watch action envelope for the MVP."
+    optionalFlags: ["root", "interval-ms", "max"],
+    description: "Periodically dry-run tick the loop, emitting one decision plan per interval (JSONL) until a terminal outcome, --max, or a stop signal."
   },
 
   // --- subagents (DEC-068 / V2) ---

@@ -11,6 +11,7 @@ import {
   runMirrorPush,
   runDrumbeatRelanceInbox,
   runDrumbeatWatch,
+  runLoopEngineCli,
   runSysmlVerify
 } from "./cli.js";
 
@@ -123,6 +124,25 @@ if (argv[0] === "mcp-serve") {
   runAsync("sysml verify", runSysmlVerify(parseFlagsFrom(2)));
 } else if (argv[0] === "keepalive") {
   runAsync("keepalive", cmdKeepalive(parseFlagsFrom(1), { stdout: process.stdout, stderr: process.stderr }));
+} else if (argv[0] === "loop" && (argv[1] === "tick" || argv[1] === "watch")) {
+  // Objective-loop tick/watch are async (lazy runtime import + periodic loop).
+  // `watch` is long-running → wire graceful shutdown like mcp-serve so an abort
+  // stops the loop cleanly (no orphaned timer).
+  const ac = new AbortController();
+  if (argv[1] === "watch") {
+    const onSignal = (sig: NodeJS.Signals): void => {
+      process.stderr.write(`h2a loop watch: received ${sig}, stopping\n`);
+      ac.abort();
+      setTimeout(() => process.exit(process.exitCode ?? 0), 500).unref();
+    };
+    for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+      process.once(sig, () => onSignal(sig));
+    }
+  }
+  runAsync(
+    `loop ${argv[1]}`,
+    runLoopEngineCli(argv, { stdout: process.stdout, stderr: process.stderr }, ac.signal)
+  );
 } else if (argv[0] !== undefined && REMOTE_RUNTIME_VERBS.has(argv[0])) {
   runAsync(`remote:${argv[0]}`, dispatchRemote());
 } else {

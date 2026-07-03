@@ -8438,3 +8438,14 @@ if (isEntryPoint()) {
 }
 
 export { main as dispatch };
+
+/**
+ * h2a-facing surface: the read-only remote-agents projection consumed by the
+ * objective-loop tick's *agents adapter* in `@sentropic/h2a` (via lazy
+ * `import()`). Returns the same stable `remote-agents-list` v1 envelope as
+ * `agents ls --json`. Kept as an explicit minimal export so h2a NEVER parses CLI
+ * stdout (double-consensus 2026-07-02: consume the typed projection, not text).
+ */
+export function projectAgentsForH2a(): ReturnType<typeof projectRemoteAgents> {
+  return projectRemoteAgents({ jobs: listJobs(), localRows: listLocalForLs() });
+}

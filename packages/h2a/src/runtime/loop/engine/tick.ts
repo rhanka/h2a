@@ -1,0 +1,83 @@
+// Objective-loop tick — IMPERATIVE SHELL.
+//
+// Gathers inputs via adapters, calls the PURE core `planLoopTick`, and (SLICE-1)
+// only OBSERVES: it records a `loop.tick` event and returns the plan. It executes
+// NO injection/relaunch/close yet — those land in the next slice behind the
+// human-typing guard. This file must NOT import `@sentropic/h2a-runtime`
+// (only `adapters.ts` may); `remote-facade.test.js` enforces it.
+
+import { appendLoopEvent, readObjectiveLoop } from "../index.js";
+import { planLoopTick, type TickPlan } from "./decision.js";
+import { readAgents, readInbox, readRefsRollup } from "./adapters.js";
+
+export interface RunTickResult {
+  readonly plan: TickPlan;
+}
+
+const TERMINAL_OUTCOMES = new Set(["failed", "eligible-for-close"]);
+
+/** One dry-run tick: gather → decide → record observation → return the plan. */
+export async function runTick(
+  root: string,
+  loopId: string,
+  now: number = Date.now(),
+): Promise<RunTickResult> {
+  const loop = readObjectiveLoop(root, loopId); // throws if missing → shell maps to exit code
+  const agents = await readAgents();
+  const refs = readRefsRollup(loop);
+  const inbox = readInbox(loop);
+  const plan = planLoopTick({ loop, agents, refs, inbox, now });
+
+  appendLoopEvent(root, {
+    type: "loop.tick",
+    loopId,
+    at: new Date(now).toISOString(),
+    payload: {
+      outcome: plan.outcome,
+      degraded: plan.degraded,
+      actions: plan.actions.map((a) => a.type),
+      dryRun: true,
+    },
+  });
+
+  return { plan };
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((res) => {
+    if (signal?.aborted) return res();
+    const t = setTimeout(res, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(t);
+      res();
+    }, { once: true });
+  });
+}
+
+export interface WatchOptions {
+  readonly intervalMs?: number;
+  readonly max?: number;
+  readonly signal?: AbortSignal;
+  readonly stdout: { write(s: string): void };
+}
+
+/** Periodic dry-run watch: tick, emit the plan (JSONL), repeat until a terminal
+ *  outcome, the `--max` cap, or an abort signal. Executes nothing. */
+export async function runLoopWatch(
+  root: string,
+  loopId: string,
+  opts: WatchOptions,
+): Promise<number> {
+  const interval = opts.intervalMs && opts.intervalMs > 0 ? opts.intervalMs : 60_000;
+  let n = 0;
+  for (;;) {
+    const { plan } = await runTick(root, loopId);
+    opts.stdout.write(`${JSON.stringify(plan)}\n`);
+    n += 1;
+    if (TERMINAL_OUTCOMES.has(plan.outcome)) return 0;
+    if (opts.max !== undefined && n >= opts.max) return 0;
+    if (opts.signal?.aborted) return 0;
+    await delay(interval, opts.signal);
+    if (opts.signal?.aborted) return 0;
+  }
+}

@@ -206,6 +206,7 @@ import {
   type H2ALoopRepoRef,
   type H2ALoopTrackRef
 } from "./runtime/loop/index.js";
+import { runLoopWatch, runTick } from "./runtime/loop/engine/tick.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -2087,16 +2088,8 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
       return 0;
     }
 
-    if (sub === "tick" || sub === "watch") {
-      const loopId = argv[1];
-      if (!loopId || loopId.startsWith("--")) {
-        streams.stderr.write(`h2a loop ${sub}: <loopId> is required\n`);
-        return 1;
-      }
-      readObjectiveLoop(root, loopId);
-      streams.stdout.write(`${JSON.stringify({ ok: true, loopId, action: sub, supported: false, reason: "loop orchestration is not implemented in h2a loop MVP" }, null, 2)}\n`);
-      return 0;
-    }
+    // `tick` / `watch` are ASYNC (lazy runtime + periodic loop) → dispatched in
+    // bin.ts via `runLoopEngineCli`, not here (cmdLoop is synchronous).
   } catch (error) {
     streams.stderr.write(`h2a loop ${sub ?? ""}: ${(error as Error).message}\n`);
     return classifyStoreError((error as Error).message);
@@ -2104,6 +2097,49 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
 
   streams.stderr.write("h2a loop: subcommand required (create, list, status, agents, attach, logs, tick, watch)\n");
   return 1;
+}
+
+/**
+ * Async dispatcher for `h2a loop tick|watch` (SLICE-1: dry-run only — produces a
+ * plan via the pure core + lazy adapters, executes nothing). Called from bin.ts
+ * because these are async (lazy runtime import + periodic loop). `argv` is the
+ * full bin argv: `["loop", "tick"|"watch", "<loopId>", ...flags]`.
+ */
+export async function runLoopEngineCli(
+  argv: readonly string[],
+  streams: H2ACliStreams,
+  signal?: AbortSignal
+): Promise<number> {
+  const sub = argv[1];
+  const loopId = argv[2];
+  const { flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+
+  if (!loopId || loopId.startsWith("--")) {
+    streams.stderr.write(`h2a loop ${sub}: <loopId> is required\n`);
+    return 1;
+  }
+
+  try {
+    if (sub === "watch") {
+      const intervalMs = flags["interval-ms"] ? Number(flags["interval-ms"]) : undefined;
+      const max = flags.max ? Number(flags.max) : undefined;
+      return await runLoopWatch(root, loopId, {
+        ...(intervalMs !== undefined && Number.isFinite(intervalMs) ? { intervalMs } : {}),
+        ...(max !== undefined && Number.isFinite(max) ? { max } : {}),
+        ...(signal ? { signal } : {}),
+        stdout: streams.stdout
+      });
+    }
+    // tick — one dry-run evaluation.
+    const { plan } = await runTick(root, loopId);
+    streams.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+    return plan.outcome === "failed" ? 1 : 0;
+  } catch (error) {
+    streams.stderr.write(`h2a loop ${sub}: ${(error as Error).message}\n`);
+    return classifyStoreError((error as Error).message);
+  }
 }
 
 function cmdDrumbeat(argv: readonly string[], streams: H2ACliStreams): number {

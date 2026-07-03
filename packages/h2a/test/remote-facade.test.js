@@ -32,6 +32,24 @@ test("les verbes remote délèguent à @sentropic/h2a-runtime (lazy, monorepo)",
   assert.doesNotMatch(out, /Unknown command|Run `h2a --help`/);
 });
 
+// ①-fondation loop : RISQUE n°1 du double-consensus = leak d'import runtime hors
+// de l'adapter. Le noyau pur (decision.ts) et le shell (tick.ts) ne DOIVENT jamais
+// référencer @sentropic/h2a-runtime ; seul adapters.ts y touche, en lazy.
+test("RÈGLE D'OR loop: decision.ts/tick.ts sans import runtime ; seul adapters.ts (lazy)", () => {
+  const engineDir = join(ROOT, "packages/h2a/src/runtime/loop/engine");
+  // Vrais imports (pas les mentions en commentaire) : `from "…"` ou `import("…")`.
+  const staticImport = /import[^;]*from\s*["']@sentropic\/h2a-runtime["']/;
+  const dynamicLiteral = /import\s*\(\s*["']@sentropic\/h2a-runtime["']\s*\)/;
+  for (const f of ["decision.ts", "tick.ts"]) {
+    const src = readFileSync(join(engineDir, f), "utf8");
+    assert.doesNotMatch(src, staticImport, `${f}: aucun import statique du runtime (functional core / imperative shell)`);
+    assert.doesNotMatch(src, dynamicLiteral, `${f}: aucun import dynamique littéral du runtime`);
+  }
+  const adapters = readFileSync(join(engineDir, "adapters.ts"), "utf8");
+  assert.match(adapters, /@sentropic\/h2a-runtime/, "adapters.ts est le seul point de contact runtime");
+  assert.match(adapters, /await import\(RUNTIME_PKG\)/, "adapters.ts charge le runtime en LAZY (specifier variable)");
+});
+
 // ①-fondation loop : le registre read-only `agents` (projectRemoteAgents) est exposé
 // via h2a en LAZY. On teste par --help (aucun IO tmux/jobs) pour rester CI-robuste.
 test("h2a agents délègue au registre read-only du runtime", () => {

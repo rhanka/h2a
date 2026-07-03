@@ -339,11 +339,10 @@ function buildHappyArgv(verb, ctx) {
       ensureContractLoop(root);
       return ["loop", "logs", "loop-contract", "--root", root];
     case "loop tick":
-      ensureContractLoop(root);
-      return ["loop", "tick", "loop-contract", "--root", root];
     case "loop watch":
-      ensureContractLoop(root);
-      return ["loop", "watch", "loop-contract", "--root", root];
+      // async (lazy runtime import + periodic loop) → not runnable via the sync
+      // runCli happy-path harness; covered by loop-tick-cli.test.js (spawns bin).
+      return null;
     case "negotiate open":
       return [
         "negotiate",
