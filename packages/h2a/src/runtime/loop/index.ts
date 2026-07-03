@@ -214,3 +214,31 @@ export function listLoopEvents(root: string, loopId: string): H2ALoopEvent[] {
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as H2ALoopEvent);
 }
+
+/**
+ * Transition a loop to a new status. IDEMPOTENT: if the loop is already at
+ * `status`, nothing is written and `changed:false` is returned. On a real
+ * change, rewrites `state.json` (status + updatedAt) and appends `loop.closed`
+ * (for "done") or `loop.status-changed`. This is the ONLY store write the
+ * objective-loop tick executor performs for the `close` action — no injection.
+ */
+export function updateObjectiveLoopStatus(
+  root: string,
+  loopId: string,
+  status: H2ALoopStatus,
+  opts: { now?: number; reason?: string } = {}
+): { changed: boolean; loop: H2AObjectiveLoop } {
+  const loop = readObjectiveLoop(root, loopId);
+  if (loop.status === status) return { changed: false, loop };
+  const now = opts.now ?? Date.now();
+  const at = new Date(now).toISOString();
+  const next: H2AObjectiveLoop = { ...loop, status, updatedAt: at };
+  writeFileSync(stateFile(root, loopId), `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  appendLoopEvent(root, {
+    type: status === "done" ? "loop.closed" : "loop.status-changed",
+    loopId,
+    at,
+    payload: { status, ...(opts.reason !== undefined ? { reason: opts.reason } : {}) }
+  });
+  return { changed: true, loop: next };
+}

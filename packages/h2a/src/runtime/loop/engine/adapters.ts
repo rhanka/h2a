@@ -8,8 +8,9 @@
 import { spawnSync } from "node:child_process";
 
 import { createLocalStore } from "../../local-files/store.js";
-import type { H2AObjectiveLoop } from "../index.js";
+import { updateObjectiveLoopStatus, type H2AObjectiveLoop } from "../index.js";
 import { loopRefLocator, type AgentsSnapshot, type InboxSnapshot, type PendingDecision, type ProjectedAgent, type RefsRollup, type RefStatus } from "./decision.js";
+import type { ActionSink } from "./execute.js";
 
 // --- Agents adapter (lazy runtime; degraded-clean on absence/failure) ---------
 export async function readAgents(): Promise<AgentsSnapshot> {
@@ -153,4 +154,30 @@ export function readInbox(loop: H2AObjectiveLoop, root: string): InboxSnapshot {
     }
   }
   return { pendingDecisions: pending };
+}
+
+// --- Action sink (effects for `--execute`) ------------------------------------
+// TRANCHE 1: only `close` acts (idempotent store status flip, ZERO injection).
+// wake / request-launch / route-decision are wired but return `skipped`
+// ("not-enabled") until their guarded slices land — a defer must NEVER fall back
+// to a headless/auto injection (double-consensus RISK #1).
+export function buildActionSink(): ActionSink {
+  return {
+    async close(_action, ctx) {
+      const { changed } = updateObjectiveLoopStatus(ctx.root, ctx.loopId, "done", {
+        now: ctx.now,
+        reason: "objective-loop tick: all primary/target refs satisfied"
+      });
+      return changed ? "done" : "skipped";
+    },
+    async requestLaunch() {
+      return "skipped";
+    },
+    async wake() {
+      return "skipped";
+    },
+    async routeDecision() {
+      return "skipped";
+    }
+  };
 }

@@ -8,20 +8,27 @@
 
 import { appendLoopEvent, readObjectiveLoop } from "../index.js";
 import { planLoopTick, type TickPlan } from "./decision.js";
-import { readAgents, readInbox, readRefsRollup } from "./adapters.js";
+import { buildActionSink, readAgents, readInbox, readRefsRollup } from "./adapters.js";
+import { executePlan, type ExecReport } from "./execute.js";
 
 export interface RunTickResult {
   readonly plan: TickPlan;
+  readonly exec?: ExecReport;
 }
 
 const TERMINAL_OUTCOMES = new Set(["failed", "eligible-for-close"]);
 
-/** One dry-run tick: gather → decide → record observation → return the plan. */
+/**
+ * One tick: gather → decide → record observation → return the plan. DRY-RUN by
+ * default (executes nothing). With `execute:true`, runs the plan through the
+ * action sink (tranche 1: only `close` acts; a `degraded` plan executes nothing).
+ */
 export async function runTick(
   root: string,
   loopId: string,
-  now: number = Date.now(),
+  opts: { now?: number; execute?: boolean } = {},
 ): Promise<RunTickResult> {
+  const now = opts.now ?? Date.now();
   const loop = readObjectiveLoop(root, loopId); // throws if missing → shell maps to exit code
   const agents = await readAgents();
   const refs = readRefsRollup(loop);
@@ -36,11 +43,13 @@ export async function runTick(
       outcome: plan.outcome,
       degraded: plan.degraded,
       actions: plan.actions.map((a) => a.type),
-      dryRun: true,
+      dryRun: !opts.execute,
     },
   });
 
-  return { plan };
+  if (!opts.execute) return { plan };
+  const exec = await executePlan(root, loopId, plan, buildActionSink(), now);
+  return { plan, exec };
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {

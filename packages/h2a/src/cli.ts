@@ -2132,9 +2132,11 @@ export async function runLoopEngineCli(
         stdout: streams.stdout
       });
     }
-    // tick — one dry-run evaluation.
-    const { plan } = await runTick(root, loopId);
-    streams.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+    // tick — DRY-RUN by default; `--execute` runs the plan (tranche 1: close only).
+    const execute = argv.includes("--execute");
+    const { plan, exec } = await runTick(root, loopId, { execute });
+    const out = exec ? { ...plan, exec } : plan;
+    streams.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
     return plan.outcome === "failed" ? 1 : 0;
   } catch (error) {
     streams.stderr.write(`h2a loop ${sub}: ${(error as Error).message}\n`);

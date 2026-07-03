@@ -40,7 +40,7 @@ test("RÈGLE D'OR loop: decision.ts/tick.ts sans import runtime ; seul adapters.
   // Vrais imports (pas les mentions en commentaire) : `from "…"` ou `import("…")`.
   const staticImport = /import[^;]*from\s*["']@sentropic\/h2a-runtime["']/;
   const dynamicLiteral = /import\s*\(\s*["']@sentropic\/h2a-runtime["']\s*\)/;
-  for (const f of ["decision.ts", "tick.ts"]) {
+  for (const f of ["decision.ts", "tick.ts", "execute.ts"]) {
     const src = readFileSync(join(engineDir, f), "utf8");
     assert.doesNotMatch(src, staticImport, `${f}: aucun import statique du runtime (functional core / imperative shell)`);
     assert.doesNotMatch(src, dynamicLiteral, `${f}: aucun import dynamique littéral du runtime`);

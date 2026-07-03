@@ -52,6 +52,23 @@ test("h2a loop watch --max 1 émet un plan JSONL puis s'arrête", () => {
   }
 });
 
+test("h2a loop tick --execute (loop sans ref) → sûr : exec présent, statut inchangé", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-loop-"));
+  try {
+    const created = run(["loop", "create", "--name", "t", "--goal", "g", "--root", dir]);
+    const loopId = JSON.parse(created.stdout).id;
+    const ticked = run(["loop", "tick", loopId, "--root", dir, "--execute"]);
+    assert.equal(ticked.status, 0, `tick --execute stderr: ${ticked.stderr}`);
+    const out = JSON.parse(ticked.stdout);
+    assert.ok(out.exec, "le rapport exec doit être présent avec --execute");
+    // Aucune ref → pas d'action close → statut reste 'created'.
+    const status = run(["loop", "status", loopId, "--root", dir]);
+    assert.equal(JSON.parse(status.stdout).status, "created");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("h2a loop tick sur un loop inexistant → code non-zero + stderr", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-loop-"));
   try {

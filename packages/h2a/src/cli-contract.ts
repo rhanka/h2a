@@ -170,8 +170,8 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "resource",
     exitCodes: [0, 1, 2],
     requiredFlags: ["loopId"],
-    optionalFlags: ["root"],
-    description: "Run one DRY-RUN objective-loop tick: gather agents (lazy runtime) + track refs + inbox, return the decision plan (degraded/eligible-for-close/launch/wake/route). Executes nothing."
+    optionalFlags: ["root", "execute"],
+    description: "Objective-loop tick: gather agents (lazy runtime) + track refs + inbox, return the decision plan. DRY-RUN by default; `--execute` runs the plan (currently only the safe `close` action; wake/launch are still skipped)."
   },
   {
     verb: "loop watch",
