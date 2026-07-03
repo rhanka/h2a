@@ -207,7 +207,8 @@ import {
   type H2ALoopTrackRef
 } from "./runtime/loop/index.js";
 import { runLoopWatch, runTick } from "./runtime/loop/engine/tick.js";
-import { aggregatePendingDecisions, type AggregateEntry } from "./runtime/canevas/aggregate.js";
+import { gatherPendingDecisions } from "./runtime/canevas/gather.js";
+import { runCanevasServe } from "./runtime/canevas/serve.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -2156,31 +2157,7 @@ function cmdCanevas(argv: readonly string[], streams: H2ACliStreams): number {
 
   if (sub === "list") {
     try {
-      const store = createLocalStore({ root });
-      const sessions = listPresence(root);
-      const byInstance = new Map<string, (typeof sessions)[number]>();
-      for (const s of sessions) {
-        if (s.instance && !byInstance.has(s.instance)) byInstance.set(s.instance, s);
-      }
-      const entries: AggregateEntry[] = [];
-      const seen = new Set<string>();
-      for (const s of sessions) {
-        if (!s.instance) continue;
-        let envelopes;
-        try {
-          envelopes = store.readInbox(s.instance);
-        } catch {
-          continue;
-        }
-        for (const env of envelopes) {
-          if (env.type !== "escalate" || seen.has(env.id)) continue;
-          seen.add(env.id);
-          const actorInstance = env.actor?.instance;
-          const session = actorInstance ? byInstance.get(actorInstance) : undefined;
-          entries.push({ env, ...(session ? { session } : {}) });
-        }
-      }
-      const decisions = aggregatePendingDecisions(entries);
+      const decisions = gatherPendingDecisions(root);
       streams.stdout.write(
         `${JSON.stringify({ kind: "canevas-decisions", version: 1, decisions }, null, 2)}\n`
       );
@@ -2191,8 +2168,29 @@ function cmdCanevas(argv: readonly string[], streams: H2ACliStreams): number {
     }
   }
 
-  streams.stderr.write("h2a canevas: subcommand required (list)\n");
+  streams.stderr.write("h2a canevas: subcommand required (list, serve)\n");
   return 1;
+}
+
+/**
+ * Async dispatcher for `h2a canevas serve` (read-only Hono server on 127.0.0.1).
+ * Called from bin.ts (async + long-running). `argv` = full bin argv.
+ */
+export async function runCanevasServeCli(
+  argv: readonly string[],
+  streams: H2ACliStreams,
+  signal?: AbortSignal
+): Promise<number> {
+  const { flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  const port = flags.port ? Number(flags.port) : undefined;
+  return runCanevasServe({
+    root,
+    ...(port !== undefined && Number.isFinite(port) ? { port } : {}),
+    stderr: streams.stderr,
+    ...(signal ? { signal } : {})
+  });
 }
 
 function cmdDrumbeat(argv: readonly string[], streams: H2ACliStreams): number {

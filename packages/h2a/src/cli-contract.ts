@@ -189,6 +189,14 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     optionalFlags: ["root", "json"],
     description: "Aggregate pending human decisions (escalate envelopes across live instances' inboxes) into a stable JSON envelope. Read-only. UI/server + reply-bridge land in later slices."
   },
+  {
+    verb: "canevas serve",
+    outputShape: "stream",
+    exitCodes: [0, 1, 2],
+    requiredFlags: [],
+    optionalFlags: ["root", "port"],
+    description: "Serve the read-only canevas ③ decision surface on 127.0.0.1 (default :8788): GET /api/decisions (aggregate) + GET /api/sessions/:tmuxName/pane (lazy capturePane). No write routes yet."
+  },
 
   // --- subagents (DEC-068 / V2) ---
   {

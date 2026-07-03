@@ -50,6 +50,19 @@ test("RÈGLE D'OR loop: decision.ts/tick.ts sans import runtime ; seul adapters.
   assert.match(adapters, /await import\(RUNTIME_PKG\)/, "adapters.ts charge le runtime en LAZY (specifier variable)");
 });
 
+test("RÈGLE D'OR canevas ③: seul canevas/adapter.ts touche le runtime (lazy)", () => {
+  const canevasDir = join(ROOT, "packages/h2a/src/runtime/canevas");
+  const staticImport = /import[^;]*from\s*["']@sentropic\/h2a-runtime["']/;
+  const dynamicLiteral = /import\s*\(\s*["']@sentropic\/h2a-runtime["']\s*\)/;
+  for (const f of ["aggregate.ts", "gather.ts", "app.ts", "serve.ts"]) {
+    const src = readFileSync(join(canevasDir, f), "utf8");
+    assert.doesNotMatch(src, staticImport, `canevas/${f}: aucun import statique du runtime`);
+    assert.doesNotMatch(src, dynamicLiteral, `canevas/${f}: aucun import dynamique littéral du runtime`);
+  }
+  const adapter = readFileSync(join(canevasDir, "adapter.ts"), "utf8");
+  assert.match(adapter, /await import\(RUNTIME_PKG\)/, "canevas/adapter.ts charge le runtime en LAZY");
+});
+
 // ①-fondation loop : le registre read-only `agents` (projectRemoteAgents) est exposé
 // via h2a en LAZY. On teste par --help (aucun IO tmux/jobs) pour rester CI-robuste.
 test("h2a agents délègue au registre read-only du runtime", () => {

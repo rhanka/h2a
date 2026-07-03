@@ -9,6 +9,7 @@ import {
   aggregatePendingDecisions,
   escalateToPendingDecision
 } from "../dist/runtime/canevas/aggregate.js";
+import { createCanevasApp } from "../dist/runtime/canevas/app.js";
 
 const ROOT = process.cwd();
 const BIN = join(ROOT, "packages/h2a/dist/bin.js");
@@ -57,6 +58,38 @@ test("aggregate: dédup par id + tri (alert > decide > advise, puis createdAt as
   const out = aggregatePendingDecisions(entries);
   assert.equal(out.length, 3, "dédup par id");
   assert.deepEqual(out.map((d) => d.id), ["a1", "d1", "v1"]); // alert, decide, advise
+});
+
+test("createCanevasApp: GET /api/decisions renvoie l'agrégat injecté", async () => {
+  const decisions = [{ id: "e1", source: "escalate", channel: "decide", instance: "a", question: "q", createdAt: "t" }];
+  const app = createCanevasApp({ listDecisions: () => decisions, capturePane: async () => ({ degraded: true, text: "" }) });
+  const res = await app.request("/api/decisions");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.kind, "canevas-decisions");
+  assert.deepEqual(body.decisions, decisions);
+});
+
+test("createCanevasApp: GET /pane délègue capturePane (lines parsé, texte propagé)", async () => {
+  let called = null;
+  const app = createCanevasApp({
+    listDecisions: () => [],
+    capturePane: async (name, lines) => { called = { name, lines }; return { degraded: false, text: "pane-text" }; }
+  });
+  const res = await app.request("/api/sessions/remote-x/pane?lines=50");
+  const body = await res.json();
+  assert.equal(body.kind, "canevas-pane");
+  assert.equal(body.tmuxName, "remote-x");
+  assert.equal(body.text, "pane-text");
+  assert.equal(body.degraded, false);
+  assert.deepEqual(called, { name: "remote-x", lines: 50 });
+});
+
+test("createCanevasApp: /pane degraded quand le runtime est absent", async () => {
+  const app = createCanevasApp({ listDecisions: () => [], capturePane: async () => ({ degraded: true, text: "" }) });
+  const body = await (await app.request("/api/sessions/x/pane")).json();
+  assert.equal(body.degraded, true);
+  assert.equal(body.lines, 200);
 });
 
 test("h2a canevas list --json : enveloppe stable (root vide → aucune décision)", () => {

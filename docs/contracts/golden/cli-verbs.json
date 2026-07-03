@@ -5,6 +5,7 @@
   "blockage raise",
   "blockage resolve",
   "canevas list",
+  "canevas serve",
   "coach propose",
   "coach ratify",
   "comprehension list",

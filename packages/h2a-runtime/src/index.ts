@@ -8449,3 +8449,11 @@ export { main as dispatch };
 export function projectAgentsForH2a(): ReturnType<typeof projectRemoteAgents> {
   return projectRemoteAgents({ jobs: listJobs(), localRows: listLocalForLs() });
 }
+
+/**
+ * h2a-facing surface: read-only tmux pane snapshot for the canevas ③ session
+ * view, consumed by `@sentropic/h2a`'s canevas adapter via lazy `import()`.
+ */
+export function capturePaneForH2a(name: string, lines = 200): string {
+  return capturePane(name, lines);
+}
