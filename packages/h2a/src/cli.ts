@@ -5524,15 +5524,41 @@ export const TRACK_FACADE_VERBS = new Set([
   "consolidate", "priority", "branch", "focus", "ingest", "restructure"
 ]);
 
-// ④ tranche-1 (de-spawn) — a strict SUBSET of the facade verbs routed IN-PROCESS
-// via `@sentropic/track`'s `runCli`, no child process. Read-only first: `query`
-// and `report` are synchronous single-write reads in the pinned track, so they
-// map cleanly onto the sync `runCli` contract. A verb only earns native routing
-// when it is proven sync; anything that turns out async (returns a Promise) or
-// throws falls back to the spawn facade (see `delegateToTrackNative`). Both paths
-// resolve the SAME `.track` (native uses `process.cwd()`, the spawn inherits it)
-// and share track's single O_EXCL lock — no split-brain, no second writer.
-export const TRACK_NATIVE_VERBS = new Set(["query", "report"]);
+// ④ de-spawn — a strict SUBSET of the facade verbs routed IN-PROCESS via
+// `@sentropic/track`'s `runCli`, no child process. Every native verb is proven
+// SYNC in the pinned track (dispatches through runCli's synchronous switch and
+// returns a `number`); the ONLY async verb, `focus` (dynamic
+// `import('@sentropic/focus')` → Promise), is deliberately excluded and keeps
+// shelling out. All paths resolve the SAME `.track` (native uses
+// `process.cwd()`, the spawn inherits it) and share track's single O_EXCL lock —
+// no split-brain, no second writer.
+//
+// The native set is split READ-ONLY vs WRITE because the throw-fallback rule
+// differs (RISK: double-write, see `delegateToTrackNative`):
+//   • READ-ONLY (`query`/`report`) — a native throw wrote nothing, so falling
+//     back to the spawn facade is safe.
+//   • WRITE (the rest) — track's `appendCommand` is ATOMIC under the O_EXCL lock
+//     (read→validate→append→writeHead→verify): it throws either BEFORE the
+//     append (validation → nothing written) or AFTER a landed write (the
+//     verify receipt). A spawn fallback on that throw could DOUBLE-WRITE, so a
+//     write NEVER falls back on throw — it propagates the error (rc≠0 + stderr).
+export const TRACK_NATIVE_READONLY_VERBS = new Set(["query", "report"]);
+
+// ④ tranche-2 — the SYNC write verbs, de-spawned in-process. Each dispatches
+// through runCli's mutating switch as a plain sync `cmd…` returning a `number`.
+// `focus` is absent (async); `restructure`/`ingest` are sync file-plan applies.
+export const TRACK_NATIVE_WRITE_VERBS = new Set([
+  "decision", "item", "accept", "blocker",
+  "consolidate", "priority", "branch", "ingest", "restructure"
+]);
+
+// Union of the in-process verbs (read-only + sync writes). `focus` (async) is
+// NOT here and keeps the spawn facade. Kept exported as the single "is this verb
+// native?" predicate used by the dispatcher and the contract tests.
+export const TRACK_NATIVE_VERBS = new Set([
+  ...TRACK_NATIVE_READONLY_VERBS,
+  ...TRACK_NATIVE_WRITE_VERBS
+]);
 
 function resolveTrackBin(): string {
   // Le champ `exports` de @sentropic/track bloque l'accès à ./package.json,
@@ -5570,8 +5596,7 @@ function delegateToTrack(argv: readonly string[], streams: H2ACliStreams): numbe
 }
 
 /**
- * ④ tranche-1 — run a track verb IN-PROCESS via `@sentropic/track`'s `runCli`,
- * with a guaranteed fall back to the spawn facade.
+ * ④ — run a track verb IN-PROCESS via `@sentropic/track`'s `runCli`.
  *
  * Split-brain mitigation (RISK #1): the native call resolves `.track` from
  * `process.cwd()` — the SAME cwd the spawn facade inherits (`spawnSync` with no
@@ -5579,12 +5604,25 @@ function delegateToTrack(argv: readonly string[], streams: H2ACliStreams): numbe
  * O_EXCL lock still serialises them. We deliberately do NOT wrap the call in any
  * h2a file-lock: track's lock is not re-entrant, and the facade never took one.
  *
- * Output is BUFFERED, then flushed only on a synchronous numeric result. If
- * `runCli` returns a Promise (an async verb such as `focus`) or throws, we
- * DISCARD the buffer and delegate to the spawn facade — so the verb still runs,
- * with no duplicated or half-written output, and h2a never crashes.
+ * Output is BUFFERED, then flushed only on a synchronous result.
+ *
+ * Two escape hatches, and the DOUBLE-WRITE rule (RISK #2) that separates them:
+ *   • `runCli` returns a Promise — an async verb (e.g. `focus`) that has NOT yet
+ *     written synchronously. The buffer is discarded and we fall back to the
+ *     spawn facade. Safe for reads AND writes; unreachable for the shipped set
+ *     (only sync verbs are routed here), so it is a defensive belt.
+ *   • `runCli` throws — an UNEXPECTED escape from track's own try/catch. For a
+ *     `readOnly` verb nothing was written, so we fall back to the spawn facade.
+ *     For a WRITE verb we MUST NOT re-run: track's `appendCommand` is atomic
+ *     (throws BEFORE the append on validation, or AFTER a landed write on the
+ *     verify receipt), so a spawn retry could double-write. We flush the buffered
+ *     native output and propagate a non-zero rc + stderr instead.
  */
-function delegateToTrackNative(argv: readonly string[], streams: H2ACliStreams): number {
+function delegateToTrackNative(
+  argv: readonly string[],
+  streams: H2ACliStreams,
+  readOnly: boolean
+): number {
   const outBuf: string[] = [];
   const errBuf: string[] = [];
   const io: CliIO = {
@@ -5600,16 +5638,29 @@ function delegateToTrackNative(argv: readonly string[], streams: H2ACliStreams):
   };
   try {
     const rc = runTrackCli([...argv], io);
-    // Async verb (Promise) — not representable on this sync tranche-1 path.
+    // Async verb (Promise) — nothing written synchronously yet, so a spawn
+    // fallback cannot double-write. Not representable for the shipped sync set.
     if (rc !== null && typeof rc === "object" && typeof (rc as { then?: unknown }).then === "function") {
       return delegateToTrack(argv, streams);
     }
     for (const s of outBuf) streams.stdout.write(s);
     for (const s of errBuf) streams.stderr.write(s);
     return rc as number;
-  } catch {
-    // Unexpected throw from the native path — never crash h2a; fall back verbatim.
-    return delegateToTrack(argv, streams);
+  } catch (err) {
+    // READ-ONLY throw: nothing persisted → the spawn facade may safely re-run.
+    if (readOnly) {
+      return delegateToTrack(argv, streams);
+    }
+    // WRITE throw (anti-double-write): DO NOT re-run. `appendCommand` is atomic,
+    // so either nothing landed or the write already landed — a spawn retry could
+    // append a second event. Flush what the native path emitted and fail loud.
+    for (const s of outBuf) streams.stdout.write(s);
+    for (const s of errBuf) streams.stderr.write(s);
+    streams.stderr.write(
+      `h2a ${argv[0]}: track write failed in-process (${(err as Error).message}). ` +
+        `No spawn retry — the store append is atomic; a retry could double-write.\n`
+    );
+    return 1;
   }
 }
 
@@ -5623,10 +5674,11 @@ export function runCli(
   const { command, flags } = parseFlags(argv);
 
   if (command && TRACK_FACADE_VERBS.has(command)) {
-    // ④ tranche-1: read-only verbs run in-process (with a spawn-facade fallback);
-    // every other facade verb keeps shelling out. Same `.track`, same lock.
+    // ④: read-only + sync-write verbs run in-process; `focus` (async) keeps
+    // shelling out. Same `.track`, same lock. A native WRITE never falls back to
+    // spawn on throw (anti-double-write) — hence the read-only flag below.
     if (TRACK_NATIVE_VERBS.has(command)) {
-      return delegateToTrackNative(argv, streams);
+      return delegateToTrackNative(argv, streams, TRACK_NATIVE_READONLY_VERBS.has(command));
     }
     return delegateToTrack(argv, streams);
   }
