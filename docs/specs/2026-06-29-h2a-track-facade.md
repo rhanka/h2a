@@ -53,3 +53,19 @@ Implémentation (prochain cycle) : helper `delegateToTrack(argv)` dans la CLI + 
 
 ## Réversibilité
 Pur design + routing. Le **republish `@sentropic/track` re-owné** et le **shim binaire `track`** sont P3 exécution = décisions irréversibles-produit (réservées Fabien). Ici on ne fait que figer le contrat de façade.
+
+## Native track integration (④) — de-spawn, tranche 1
+
+Status: SHIPPED (tranche 1, reversible). Design validated by unanimous double-consensus (opus-4-8 + codex xhigh, 2026-07-03).
+
+The facade above shells out for every track verb (`spawnSync(process.execPath, [trackBin, ...argv])`). `@sentropic/track` already exports its CLI as a library — `runCli(rawArgv: string[], io: CliIO): number | Promise<number>` with `CliIO = { cwd, out(s), err(s) }` — so a verb can run **in-process, without a child process**. Tranche 1 de-spawns the two **read-only** verbs `query` and `report`.
+
+- **Scope.** `TRACK_NATIVE_VERBS = { query, report }` — a strict, read-only subset of the facade verbs. All the others (`decision`, `item`, `accept`, `blocker`, `consolidate`, `priority`, `branch`, `focus`, `ingest`, `restructure`) stay on the spawn facade. Verb-by-verb cohabitation on the **same `.track` under the same lock**.
+- **Why these first / sync-only.** In the pinned track, `query`/`report` are **synchronous** single-write reads (`cmdQuery`/`cmdReport` return a `number`). The only async track verb, `focus`, returns a `Promise` (dynamic `import('@sentropic/focus')`) and is deliberately kept OUT of the native set. A verb only earns native routing once proven sync.
+- **Fallback (never crash).** `delegateToTrackNative` buffers `out`/`err`, then flushes only on a synchronous numeric result. If `runCli` returns a `Promise` (an async verb) **or throws**, the buffer is discarded and the call falls back to `delegateToTrack` (spawn) — so the verb still runs, with no duplicated or half-written output.
+- **Split-brain mitigation (RISK #1).** The native path resolves `.track` from `process.cwd()` — the exact cwd the spawn facade inherits (`spawnSync` with no `cwd` option) — and both honour `TRACK_DIR`/`--track-dir` identically. Both bind the **same** store, and track's own O_EXCL lock still serialises them. The native call is **NOT** wrapped in any h2a file-lock: track's lock is not re-entrant, so wrapping it would deadlock; the facade never took one, and neither does the native path.
+- **Store compat: TOTAL, zero migration.** Same events log, same head, same schema. Reads via native and via spawn are byte-for-byte identical (covered by `test/track-native.test.js`: parity + a facade-written item read back natively).
+- **CLI `track` preserved.** The `track` binary stays for external callers (skills, humans, `track-mcp`). De-spawning is an internal h2a optimisation, not a removal of the CLI.
+- **Contractual pin.** With ④, `@sentropic/track` becomes a **code dependency** (static `import { runCli }`), not merely a bin-locator target. The import is safe under the golden rule: track is a light reader/model library (no pty/aws/runtime), unlike `@sentropic/h2a-runtime`.
+
+**Sequencing.** (1) read-only de-spawn (`query`/`report`, this tranche) → (2) writes (`item`/`decision`/…) once their in-process contract is validated → (3) `ingest`/Track surfaces → (D) monorepo fusion. Each step is verb-by-verb reversible: drop a verb from `TRACK_NATIVE_VERBS` and it reverts to the spawn facade with no store change.

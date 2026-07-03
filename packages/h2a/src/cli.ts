@@ -55,6 +55,13 @@ import { dirname, join, resolve as resolvePath } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
+// Static import — `@sentropic/track` is a LIGHT library (pure reader/model, no
+// pty/aws/runtime). The golden rule (lazy-only) is scoped to
+// `@sentropic/h2a-runtime`/node-pty/aws-sdk, which track is NOT. Importing its
+// public `runCli` lets ④ run read-only track verbs IN-PROCESS (no spawn), on the
+// same `.track` under the same lock as the surviving spawn facade.
+import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
+
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
   H2A_COMPREHENSION_ATTESTATION_BODY_KIND,
@@ -5517,6 +5524,16 @@ export const TRACK_FACADE_VERBS = new Set([
   "consolidate", "priority", "branch", "focus", "ingest", "restructure"
 ]);
 
+// ④ tranche-1 (de-spawn) — a strict SUBSET of the facade verbs routed IN-PROCESS
+// via `@sentropic/track`'s `runCli`, no child process. Read-only first: `query`
+// and `report` are synchronous single-write reads in the pinned track, so they
+// map cleanly onto the sync `runCli` contract. A verb only earns native routing
+// when it is proven sync; anything that turns out async (returns a Promise) or
+// throws falls back to the spawn facade (see `delegateToTrackNative`). Both paths
+// resolve the SAME `.track` (native uses `process.cwd()`, the spawn inherits it)
+// and share track's single O_EXCL lock — no split-brain, no second writer.
+export const TRACK_NATIVE_VERBS = new Set(["query", "report"]);
+
 function resolveTrackBin(): string {
   // Le champ `exports` de @sentropic/track bloque l'accès à ./package.json,
   // donc on résout l'entrée puis on remonte jusqu'au package.json du package.
@@ -5552,6 +5569,50 @@ function delegateToTrack(argv: readonly string[], streams: H2ACliStreams): numbe
   }
 }
 
+/**
+ * ④ tranche-1 — run a track verb IN-PROCESS via `@sentropic/track`'s `runCli`,
+ * with a guaranteed fall back to the spawn facade.
+ *
+ * Split-brain mitigation (RISK #1): the native call resolves `.track` from
+ * `process.cwd()` — the SAME cwd the spawn facade inherits (`spawnSync` with no
+ * `cwd` option) — so both paths bind the identical store, and track's own
+ * O_EXCL lock still serialises them. We deliberately do NOT wrap the call in any
+ * h2a file-lock: track's lock is not re-entrant, and the facade never took one.
+ *
+ * Output is BUFFERED, then flushed only on a synchronous numeric result. If
+ * `runCli` returns a Promise (an async verb such as `focus`) or throws, we
+ * DISCARD the buffer and delegate to the spawn facade — so the verb still runs,
+ * with no duplicated or half-written output, and h2a never crashes.
+ */
+function delegateToTrackNative(argv: readonly string[], streams: H2ACliStreams): number {
+  const outBuf: string[] = [];
+  const errBuf: string[] = [];
+  const io: CliIO = {
+    // CRITICAL: same root as the spawn facade inherits. Do NOT swap in
+    // `streams.cwd` here — divergence would split-brain the two paths.
+    cwd: process.cwd(),
+    out: (s) => {
+      outBuf.push(s);
+    },
+    err: (s) => {
+      errBuf.push(s);
+    }
+  };
+  try {
+    const rc = runTrackCli([...argv], io);
+    // Async verb (Promise) — not representable on this sync tranche-1 path.
+    if (rc !== null && typeof rc === "object" && typeof (rc as { then?: unknown }).then === "function") {
+      return delegateToTrack(argv, streams);
+    }
+    for (const s of outBuf) streams.stdout.write(s);
+    for (const s of errBuf) streams.stderr.write(s);
+    return rc as number;
+  } catch {
+    // Unexpected throw from the native path — never crash h2a; fall back verbatim.
+    return delegateToTrack(argv, streams);
+  }
+}
+
 export function runCli(
   argv: readonly string[] = process.argv.slice(2),
   streams: H2ACliStreams = {
@@ -5562,6 +5623,11 @@ export function runCli(
   const { command, flags } = parseFlags(argv);
 
   if (command && TRACK_FACADE_VERBS.has(command)) {
+    // ④ tranche-1: read-only verbs run in-process (with a spawn-facade fallback);
+    // every other facade verb keeps shelling out. Same `.track`, same lock.
+    if (TRACK_NATIVE_VERBS.has(command)) {
+      return delegateToTrackNative(argv, streams);
+    }
     return delegateToTrack(argv, streams);
   }
 
