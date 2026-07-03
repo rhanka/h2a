@@ -224,6 +224,59 @@ export function priorWakeAtByAgent(
   return out;
 }
 
+// --- Launch request targeting (PURE; ASK not spawn) ---------------------------
+export type LaunchPlan =
+  | { readonly kind: "emit"; readonly host?: string; readonly reason: string }
+  | { readonly kind: "skip"; readonly reason: string };
+
+/**
+ * PURE: decide whether to ASK for a launch of a missing enrolled agent. Bounded
+ * by `policy.maxRelaunches` (stop asking after N) + a per-agent cooldown. h2a
+ * ASKS (records in the loop journal / — later — an envelope to a remote); it
+ * NEVER spawns arbitrary agents itself (spec objective-loop §Non-goals).
+ */
+export function planLaunchTarget(input: {
+  readonly loop: H2AObjectiveLoop;
+  readonly agentId: string;
+  readonly priorCount: number;
+  readonly priorLatestAt?: number;
+  readonly now: number;
+}): LaunchPlan {
+  const agent = input.loop.agents.find((a) => a.id === input.agentId);
+  if (!agent) return { kind: "skip", reason: "unknown-agent" };
+  if (input.priorCount >= input.loop.policy.maxRelaunches) return { kind: "skip", reason: "max-relaunches" };
+  const cooldownMs = Math.max(input.loop.policy.tickMs, WAKE_COOLDOWN_FLOOR_MS);
+  if (input.priorLatestAt !== undefined && input.now - input.priorLatestAt < cooldownMs) {
+    return { kind: "skip", reason: "cooldown" };
+  }
+  return {
+    kind: "emit",
+    ...(agent.host !== undefined ? { host: agent.host } : {}),
+    reason: "enrolled agent missing while work pending"
+  };
+}
+
+/** PURE: prior launch-request count + latest epoch ms per agent, from the journal. */
+export function priorLaunchByAgent(
+  events: readonly { readonly type: string; readonly at: string; readonly payload?: unknown }[]
+): Map<string, { count: number; latestAt?: number }> {
+  const out = new Map<string, { count: number; latestAt?: number }>();
+  for (const e of events) {
+    if (e.type !== "loop.action.applied") continue;
+    const p = e.payload as { action?: string; key?: string } | undefined;
+    if (!p || p.action !== "request-launch" || typeof p.key !== "string" || !p.key.startsWith("request-launch:")) {
+      continue;
+    }
+    const agentId = p.key.slice("request-launch:".length);
+    const at = Date.parse(e.at);
+    const cur = out.get(agentId) ?? { count: 0 };
+    cur.count += 1;
+    if (!Number.isNaN(at) && (cur.latestAt === undefined || at > cur.latestAt)) cur.latestAt = at;
+    out.set(agentId, cur);
+  }
+  return out;
+}
+
 // --- Action sink (effects for `--execute`) ------------------------------------
 // `close` = idempotent store status flip (ZERO injection). `wake` = fresh-session
 // + cooldown gated localTmuxDriver (which re-checks the human-typing guard at the
@@ -239,8 +292,22 @@ export function buildActionSink(): ActionSink {
       });
       return changed ? "done" : "skipped";
     },
-    async requestLaunch() {
-      return "skipped";
+    async requestLaunch(action, ctx) {
+      const loop = readObjectiveLoop(ctx.root, ctx.loopId);
+      const prior = priorLaunchByAgent(listLoopEvents(ctx.root, ctx.loopId)).get(action.agentId ?? "") ?? { count: 0 };
+      const plan = planLaunchTarget({
+        loop,
+        agentId: action.agentId ?? "",
+        priorCount: prior.count,
+        ...(prior.latestAt !== undefined ? { priorLatestAt: prior.latestAt } : {}),
+        now: ctx.now
+      });
+      // ASK, never spawn (spec §Non-goals: "h2a asks remote/runtime to spawn").
+      // MVP: record the request in the loop journal (loop.action.applied
+      // {request-launch}) — a conductor/remote consumes it. TODO: also emit a
+      // conductor-launch-request envelope to a live remote (createEnvelope +
+      // putInboxMessage) once actor-instance + workspace resolution is settled.
+      return plan.kind === "emit" ? "done" : "skipped";
     },
     async wake(action, ctx) {
       const loop = readObjectiveLoop(ctx.root, ctx.loopId);
