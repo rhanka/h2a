@@ -54,7 +54,7 @@ test("RÈGLE D'OR canevas ③: seul canevas/adapter.ts touche le runtime (lazy)"
   const canevasDir = join(ROOT, "packages/h2a/src/runtime/canevas");
   const staticImport = /import[^;]*from\s*["']@sentropic\/h2a-runtime["']/;
   const dynamicLiteral = /import\s*\(\s*["']@sentropic\/h2a-runtime["']\s*\)/;
-  for (const f of ["aggregate.ts", "gather.ts", "app.ts", "serve.ts"]) {
+  for (const f of ["aggregate.ts", "gather.ts", "app.ts", "serve.ts", "ui.ts"]) {
     const src = readFileSync(join(canevasDir, f), "utf8");
     assert.doesNotMatch(src, staticImport, `canevas/${f}: aucun import statique du runtime`);
     assert.doesNotMatch(src, dynamicLiteral, `canevas/${f}: aucun import dynamique littéral du runtime`);

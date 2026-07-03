@@ -6,6 +6,7 @@ import { Hono } from "hono";
 
 import type { PendingDecision } from "./aggregate.js";
 import type { PaneSnapshot } from "./adapter.js";
+import { CANEVAS_HTML } from "./ui.js";
 
 export interface CanevasDeps {
   /** IO: current pending human decisions (read-only aggregate). */
@@ -17,9 +18,9 @@ export interface CanevasDeps {
 export function createCanevasApp(deps: CanevasDeps): Hono {
   const app = new Hono();
 
-  app.get("/", (c) =>
-    c.text("h2a canevas ③ (read-only). GET /api/decisions · GET /api/sessions/:tmuxName/pane")
-  );
+  // Self-hosted read-only UI (tranche-3a). Answer buttons are placeholders until
+  // the guarded reply-bridge (tranche-3b).
+  app.get("/", (c) => c.html(CANEVAS_HTML));
 
   app.get("/api/decisions", (c) =>
     c.json({ kind: "canevas-decisions", version: 1, decisions: deps.listDecisions() })

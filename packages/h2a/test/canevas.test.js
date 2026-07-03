@@ -60,6 +60,18 @@ test("aggregate: dédup par id + tri (alert > decide > advise, puis createdAt as
   assert.deepEqual(out.map((d) => d.id), ["a1", "d1", "v1"]); // alert, decide, advise
 });
 
+test("createCanevasApp: GET / sert l'UI HTML self-contained (hooks présents)", async () => {
+  const app = createCanevasApp({ listDecisions: () => [], capturePane: async () => ({ degraded: true, text: "" }) });
+  const res = await app.request("/");
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type") || "", /text\/html/);
+  const html = await res.text();
+  assert.match(html, /h2a canevas/);
+  assert.match(html, /\/api\/decisions/, "l'UI doit fetch /api/decisions");
+  assert.match(html, /api\/sessions\//, "l'UI doit fetch la vue session");
+  assert.doesNotMatch(html, /https?:\/\/(?!127\.0\.0\.1)/, "self-contained: aucun CDN externe");
+});
+
 test("createCanevasApp: GET /api/decisions renvoie l'agrégat injecté", async () => {
   const decisions = [{ id: "e1", source: "escalate", channel: "decide", instance: "a", question: "q", createdAt: "t" }];
   const app = createCanevasApp({ listDecisions: () => decisions, capturePane: async () => ({ degraded: true, text: "" }) });
