@@ -822,6 +822,9 @@ function buildHappyArgv(verb, ctx) {
     case "conductor-launch":
       // Without --confirm → DRY-RUN preview (recommendation="none" since track absent, action="none").
       return ["conductor-launch", "--root", root];
+    case "canevas list":
+      // Read-only aggregate; empty on a fresh root → resource envelope.
+      return ["canevas", "list", "--root", root];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -845,6 +848,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "loop logs",
     "loop tick",
     "loop watch",
+    "canevas list",
     "negotiate open",
     "negotiate status",
     "negotiate event",

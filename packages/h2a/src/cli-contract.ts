@@ -181,6 +181,14 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     optionalFlags: ["root", "interval-ms", "max"],
     description: "Periodically dry-run tick the loop, emitting one decision plan per interval (JSONL) until a terminal outcome, --max, or a stop signal."
   },
+  {
+    verb: "canevas list",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2],
+    requiredFlags: [],
+    optionalFlags: ["root", "json"],
+    description: "Aggregate pending human decisions (escalate envelopes across live instances' inboxes) into a stable JSON envelope. Read-only. UI/server + reply-bridge land in later slices."
+  },
 
   // --- subagents (DEC-068 / V2) ---
   {

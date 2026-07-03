@@ -207,6 +207,7 @@ import {
   type H2ALoopTrackRef
 } from "./runtime/loop/index.js";
 import { runLoopWatch, runTick } from "./runtime/loop/engine/tick.js";
+import { aggregatePendingDecisions, type AggregateEntry } from "./runtime/canevas/aggregate.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -2142,6 +2143,56 @@ export async function runLoopEngineCli(
     streams.stderr.write(`h2a loop ${sub}: ${(error as Error).message}\n`);
     return classifyStoreError((error as Error).message);
   }
+}
+
+// Canevas ③ — read-only tranche-1 : agrège les décisions humaines en attente
+// (enveloppes `escalate` des inbox des instances live) en un JSON stable. La vue
+// session (capturePane runtime lazy), le serveur Hono et le pont-réponse
+// (reply-envelope gardé) sont des tranches ultérieures.
+function cmdCanevas(argv: readonly string[], streams: H2ACliStreams): number {
+  const { command: sub, flags } = parseFlags(argv);
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+
+  if (sub === "list") {
+    try {
+      const store = createLocalStore({ root });
+      const sessions = listPresence(root);
+      const byInstance = new Map<string, (typeof sessions)[number]>();
+      for (const s of sessions) {
+        if (s.instance && !byInstance.has(s.instance)) byInstance.set(s.instance, s);
+      }
+      const entries: AggregateEntry[] = [];
+      const seen = new Set<string>();
+      for (const s of sessions) {
+        if (!s.instance) continue;
+        let envelopes;
+        try {
+          envelopes = store.readInbox(s.instance);
+        } catch {
+          continue;
+        }
+        for (const env of envelopes) {
+          if (env.type !== "escalate" || seen.has(env.id)) continue;
+          seen.add(env.id);
+          const actorInstance = env.actor?.instance;
+          const session = actorInstance ? byInstance.get(actorInstance) : undefined;
+          entries.push({ env, ...(session ? { session } : {}) });
+        }
+      }
+      const decisions = aggregatePendingDecisions(entries);
+      streams.stdout.write(
+        `${JSON.stringify({ kind: "canevas-decisions", version: 1, decisions }, null, 2)}\n`
+      );
+      return 0;
+    } catch (error) {
+      streams.stderr.write(`h2a canevas list: ${(error as Error).message}\n`);
+      return classifyStoreError((error as Error).message);
+    }
+  }
+
+  streams.stderr.write("h2a canevas: subcommand required (list)\n");
+  return 1;
 }
 
 function cmdDrumbeat(argv: readonly string[], streams: H2ACliStreams): number {
@@ -5536,6 +5587,7 @@ export function runCli(
   if (command === "discover") return cmdDiscover(flags, streams);
   if (command === "subagent") return cmdSubagent(argv.slice(1), streams);
   if (command === "loop") return cmdLoop(argv.slice(1), streams);
+  if (command === "canevas") return cmdCanevas(argv.slice(1), streams);
   if (command === "drumbeat") {
     const sub = argv[1];
     if (sub === "watch") {
