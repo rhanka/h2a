@@ -4,10 +4,12 @@
 
 ## Release Flow
 
-V1 releases are lockstep across the two public packages:
+V1 releases are lockstep across the public packages:
 
 - `@sentropic/h2a`
 - `@sentropic/h2a-cli`
+- `@sentropic/h2a-runtime`
+- `@sentropic/track` (record-only system of record; folded into the monorepo, published in lockstep)
 
 From a clean `main` checkout aligned with `origin/main`:
 
@@ -23,8 +25,8 @@ git push origin v0.2.0
 1. Refuses to start unless `git status --porcelain` is clean.
 2. Runs `npm run typecheck` and `npm test`.
 3. Verifies those commands did not dirty the worktree.
-4. Bumps `package.json`, `package-lock.json`, `packages/h2a/package.json`, and `packages/h2a-cli/package.json`.
-5. Aligns `@sentropic/h2a-cli`'s dependency on `@sentropic/h2a` to `^X.Y.Z`.
+4. Bumps `package.json`, `package-lock.json`, and every workspace manifest (`packages/h2a`, `packages/h2a-cli`, `packages/h2a-runtime`, `packages/track`).
+5. Aligns the lockstep dependency carets to `^X.Y.Z`: `@sentropic/h2a-cli` → `@sentropic/h2a`, and `@sentropic/h2a` → `@sentropic/track`.
 6. Commits the version bump as `release: vX.Y.Z`.
 7. Creates an annotated tag `vX.Y.Z` (signed when `git config commit.gpgsign` is `true`).
 
@@ -39,18 +41,28 @@ The version must be a strict `X.Y.Z` SemVer triple with no leading `v`, no pre-r
 1. Bootstraps Node 20 and upgrades npm to `^11.15.0` for Trusted Publishing.
 2. Installs with `npm ci`.
 3. Runs `npm run typecheck` and `npm test`.
-4. Verifies the tag version matches both workspace package versions.
-5. Publishes both packages with npm Trusted Publishing (`npm publish --access public`).
+4. Verifies the tag version matches every workspace package version (h2a, h2a-cli, h2a-runtime, track).
+5. Publishes the packages with npm Trusted Publishing (`npm publish --access public`), `@sentropic/track` first (it is a dependency of `@sentropic/h2a`).
 6. Creates a GitHub Release with generated notes.
 
 The release job intentionally uses Node 20 for the publish bootstrap. The Node 22.22.2 hosted-toolcache npm has been observed failing during `npm install -g npm@^11.15.0` with a missing `promise-retry` module, while the separate CI matrix still verifies Node 20 and 22 compatibility.
 
-Trusted Publishing must be configured on npm for both packages before a tag publish can succeed:
+Trusted Publishing must be configured on npm for every package before a tag publish can succeed:
 
 ```sh
 npm exec --package npm@^11.15.0 -- npm trust github @sentropic/h2a --repo rhanka/h2a --file release.yml --allow-publish --yes
 npm exec --package npm@^11.15.0 -- npm trust github @sentropic/h2a-cli --repo rhanka/h2a --file release.yml --allow-publish --yes
+npm exec --package npm@^11.15.0 -- npm trust github @sentropic/h2a-runtime --repo rhanka/h2a --file release.yml --allow-publish --yes
+npm exec --package npm@^11.15.0 -- npm trust github @sentropic/track --repo rhanka/h2a --file release.yml --allow-publish --yes
 ```
+
+> ⚠️ **OIDC wall for `@sentropic/track`.** Trusted Publishing for `@sentropic/track`
+> is currently bound to the **old** repo `rhanka/track`, not `rhanka/h2a`. Until the
+> trust above is re-pointed at `rhanka/h2a` + `release.yml`, the track publish step
+> in `release.yml` fails with an OIDC-mismatch error. Fallback: publish
+> `@sentropic/track` with an npm automation token (`NODE_AUTH_TOKEN`) instead of
+> trusted publishing for that one package. This is a creds gesture (Fabien) — the
+> workflow is already wired to publish track once the trust is in place.
 
 `npm@11.15.0` or newer is required because npm configurations created after 2026-05-20 must explicitly allow at least one action (`npm publish` here). Older `npm trust github` clients omit that permission and the registry rejects the request.
 
