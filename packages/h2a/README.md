@@ -19,4 +19,9 @@ Current bootstrap surface:
 - authority matrix for role/artifact signing rights
 - canonical protocol constants
 
+## Migration / Transition
+
+Moving from the `remote` or `track` CLIs to `h2a`? See the transition guide:
+[`docs/TRANSITION.md`](../../docs/TRANSITION.md).
+
 Repository: <https://github.com/rhanka/h2a>
