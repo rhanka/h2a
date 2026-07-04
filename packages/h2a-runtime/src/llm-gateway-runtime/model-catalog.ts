@@ -59,6 +59,20 @@ const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
     capabilities: [...CODEX_CAPABILITIES],
     defaultPolicy: "round-robin",
   },
+  {
+    // Local kog / Laneformer-2B — OpenAI-compatible upstream (GPU sidecar).
+    // Routes through the openai proxy path; the per-account baseUrl (see proposal) selects
+    // the local kog upstream instead of the global OpenAI one.
+    id: "laneformer-2b",
+    provider: "codex",
+    upstreamModel: "kogai/laneformer-2b-it",
+    accountPool: "codex",
+    inputProtocol: "anthropic.messages",
+    outputProtocol: "anthropic.messages",
+    capabilities: ["streaming"],
+    defaultPolicy: "round-robin",
+    aliases: ["laneformer", "kog"],
+  },
 ];
 
 let _catalog: ModelCatalogEntry[] | null = null;

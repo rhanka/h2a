@@ -1,6 +1,22 @@
 # Proposal: expose a local OpenAI-compatible model (kog / Laneformer-2B) in the LLM mesh
 
-**Status:** DRAFT — routed for architect + h2a review (provider/gateway change, not to be merged solo).
+**Status:** DRAFT + IMPLEMENTED (catalog entry) + **VERIFIED E2E** — routed for architect + h2a review
+(provider/gateway change, not to be merged solo). The per-account `baseUrl` seam is still open for review.
+
+## ✅ Verified end-to-end (on-device, against a live kog sidecar)
+Using the **actual built gateway translation code** (`toOpenAIRequest` + `toAnthropicResponse` from
+`h2a-runtime/dist/llm-gateway-runtime/proxy-openai.js`) with the new `laneformer-2b` catalog entry:
+```
+Anthropic Messages {model:"laneformer-2b", "The capital of France is"}
+  → gateway toOpenAIRequest → {"model":"kogai/laneformer-2b-it", ..., "max_completion_tokens":32}
+  → POST kog /v1/chat/completions → "The capital of France is Paris."
+  → gateway toAnthropicResponse → [{"type":"text","text":"The capital of France is Paris."}]
+round-trip OK ✅
+```
+So: the catalog entry makes `laneformer-2b` routable (→ `upstreamModel: kogai/laneformer-2b-it`), and the
+gateway's real Anthropic↔OpenAI translation round-trips through kog coherently. What remains for per-model
+upstream selection (kog vs the global OpenAI/codex upstream) is the `AccountDescriptor.baseUrl` change below.
+
 **Branch:** `feat/laneformer-local-model`. **Requested by:** kog owner. **Backend:** GPU sidecar.
 
 ## Goal
