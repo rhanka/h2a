@@ -68,6 +68,27 @@ test("bumpPackageJsonContent rewrites the @sentropic/h2a dep to ^X.Y.Z", () => {
   assert.equal(parsed.dependencies["@sentropic/h2a"], "^0.2.0");
 });
 
+test("bumpPackageJsonContent rewrites the @sentropic/track dep to ^X.Y.Z (lockstep)", () => {
+  const input = JSON.stringify(
+    {
+      name: "@sentropic/h2a",
+      version: "0.82.0",
+      dependencies: {
+        "@sentropic/track": "^0.26.0",
+        hono: "^4.12.23"
+      }
+    },
+    null,
+    2
+  );
+  const out = bumpPackageJsonContent(input, "0.83.0");
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.version, "0.83.0");
+  assert.equal(parsed.dependencies["@sentropic/track"], "^0.83.0");
+  // Non-lockstep deps are left untouched.
+  assert.equal(parsed.dependencies.hono, "^4.12.23");
+});
+
 test("bumpPackageJsonContent leaves the @sentropic/h2a dep alone when absent", () => {
   const input = JSON.stringify(
     { name: "@sentropic/h2a", version: "0.1.0", dependencies: { typescript: "^5" } },
@@ -123,6 +144,48 @@ test("bumpPackageLockContent updates root and workspace package versions", () =>
     "^0.2.0"
   );
   assert.ok(out.endsWith("\n"));
+});
+
+test("bumpPackageLockContent bumps packages/track and rewrites its caret in packages/h2a", () => {
+  const input = `${JSON.stringify(
+    {
+      name: "h2a",
+      version: "0.82.0",
+      lockfileVersion: 3,
+      packages: {
+        "": { name: "h2a", version: "0.82.0" },
+        "packages/h2a": {
+          name: "@sentropic/h2a",
+          version: "0.82.0",
+          dependencies: { "@sentropic/track": "^0.26.0", hono: "^4.12.23" }
+        },
+        "packages/track": { name: "@sentropic/track", version: "0.26.0" },
+        // A transitive registry copy of track (nested under another dep) must
+        // NOT be touched — only workspace `packages/*` entries are lockstep.
+        "node_modules/@sentropic/focus/node_modules/@sentropic/track": {
+          version: "0.17.0"
+        }
+      }
+    },
+    null,
+    2
+  )}\n`;
+  const out = bumpPackageLockContent(input, "0.83.0");
+  const parsed = JSON.parse(out);
+  assert.equal(parsed.packages["packages/track"].version, "0.83.0");
+  assert.equal(parsed.packages["packages/h2a"].version, "0.83.0");
+  assert.equal(
+    parsed.packages["packages/h2a"].dependencies["@sentropic/track"],
+    "^0.83.0"
+  );
+  assert.equal(parsed.packages["packages/h2a"].dependencies.hono, "^4.12.23");
+  // The nested registry copy keeps its own version.
+  assert.equal(
+    parsed.packages[
+      "node_modules/@sentropic/focus/node_modules/@sentropic/track"
+    ].version,
+    "0.17.0"
+  );
 });
 
 test("bumpPackageLockContent validates the new version through parseVersion", () => {
