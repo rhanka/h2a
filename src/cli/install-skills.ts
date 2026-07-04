@@ -98,7 +98,7 @@ interface InstallResult {
 }
 
 const TRACK_SLASH_COMMAND_MD = `---
-description: Run Track commands from the repo root; use /track report for the human status table.
+description: Run Track commands from the repo root; use for a track report/status/advancement (e.g. "fais-moi un track report") — runs the CLI and pastes the FAIT/À-FAIRE/DÉCISIONS table verbatim, never the track_report MCP JSON.
 argument-hint: report [--commit <ref>] | <track args...>
 ---
 
@@ -117,7 +117,7 @@ When returning a report/status, paste the raw command output verbatim inside a f
 Do not summarize it, do not convert it to bullets, and do not drop the table layout.
 `
 
-const TRACK_SLASH_COMMAND_TOML = `description = "Run Track commands; /track report shows the status table"
+const TRACK_SLASH_COMMAND_TOML = `description = "Run Track commands from the repo root; use for a track report/status/advancement (e.g. 'fais-moi un track report') — runs the CLI and pastes the FAIT/À-FAIRE/DÉCISIONS table verbatim, never the track_report MCP JSON"
 prompt = '''
 You are the Track custom command.
 

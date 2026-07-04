@@ -1,6 +1,6 @@
 ---
 name: track-operation
-description: "Use when an agent needs to read, update, import, or verify track state in a repo; when a BRANCH.md or plan/NN-BRANCH_*.md file changed; when a session reports that track write/import is not exposed; or when deciding whether to use track MCP versus the track CLI. The skill enforces the contract: MCP is read-only, writes/imports use the track CLI from the target repo root, and .track is append-only/single-writer."
+description: "Use when the user asks for a track report, a status, an advancement/progress report, or says 'fais-moi un track report' / 'un track report' — run the CLI `track report` (default table) from the repo root and paste its FAIT/À-FAIRE/DÉCISIONS-ACTIONS table verbatim; NEVER use the `track_report` MCP tool to render a human report (it returns machine JSON). Also use when an agent needs to read, update, import, or verify track state in a repo; when a BRANCH.md or plan/NN-BRANCH_*.md file changed; when a session reports that track write/import is not exposed; or when deciding whether to use track MCP versus the track CLI. The skill enforces the contract: MCP is read-only, writes/imports use the track CLI from the target repo root, and .track is append-only/single-writer."
 ---
 
 # Track Operation
@@ -8,6 +8,18 @@ description: "Use when an agent needs to read, update, import, or verify track s
 Use this for ordinary track hygiene: reading status, importing BRANCH files, recording item or decision
 updates, and verifying that the sidecar is current. This is the general operational skill; use
 `present-decision` for human decision dossiers and `propose-workpackages` for backlog restructuring.
+
+## Human report/status — DO THIS FIRST
+
+For ANY human-facing track report or status (including "fais-moi un track report", "un track report",
+"a status", "an advancement/progress report"): run the CLI `track report` (default table, or
+`track report --format md`) from the repo root and PASTE THE OUTPUT VERBATIM in a fenced code block.
+
+- NEVER call the `track_report` MCP tool to render a human report — it returns machine JSON, and hand
+  reformatting that JSON is exactly what produces the verbose bullet lists this rule exists to prevent.
+- NEVER reformat the report into bullets or numbered lists, and never drop the table layout.
+- `track report --flat` is DEPRECATED for human reporting (flat buckets only); the default table is the
+  FAIT / À-FAIRE (%·WP) / DÉCISIONS-ACTIONS conductor view.
 
 ## Contract
 
