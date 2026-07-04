@@ -1,0 +1,68 @@
+{
+  "name": "@sentropic/track",
+  "version": "0.26.0",
+  "description": "Typed product-backlog and spec/plan/UAT system of record for the sentropic ecosystem (record-only MVP).",
+  "license": "MIT",
+  "author": "Fabien Antoine",
+  "homepage": "https://github.com/rhanka/track#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rhanka/track.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rhanka/track/issues"
+  },
+  "keywords": [
+    "backlog",
+    "spec",
+    "acceptance",
+    "event-sourcing",
+    "system-of-record",
+    "wsjf",
+    "cli"
+  ],
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "track": "dist/cli/bin.js",
+    "track-mcp": "dist/mcp/cli.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./read": "./dist/read/index.js",
+    "./ingest": "./dist/ingest/index.js",
+    "./seam": "./dist/ingest/seam-schema.js"
+  },
+  "files": [
+    "dist",
+    "skills"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx src/cli/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "ulid": "^3.0.2"
+  },
+  "devDependencies": {
+    "@sentropic/focus": "^0.3.0",
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "optionalDependencies": {
+    "@sentropic/focus": "^0.3.0"
+  }
+}

@@ -1,0 +1,96 @@
+// Domain model: Item, Decision, Blocker, AcceptanceCriterion, PriorityAssessment (SPEC §2).
+export {
+  DomainError,
+  assertRealizationTransition,
+  assertRoleNesting,
+  assertScopeDecl,
+  assertSpecTransition,
+  isRoleContainer,
+  type BlockerId,
+  type Disposition,
+  type Gate,
+  type ItemCreatedPayload,
+  type ItemId,
+  type ItemKind,
+  type ItemRole,
+  type ItemState,
+  type Link,
+  type Realization,
+  type RealizationCause,
+  type ScopeDecl,
+  type SpecStatus,
+} from './item.js'
+export {
+  assertManualResolve,
+  type BlockerKind,
+  type BlockerOpenedPayload,
+  type BlockerScope,
+  type BlockerState,
+  type ResolutionRule,
+} from './blocker.js'
+export {
+  assertDossierArtifact,
+  assertOutcomeTransition,
+  isSettled,
+  type AddArtifactPayload,
+  type ComprehensionEvidence,
+  type DecisionCreatedPayload,
+  type DecisionKind,
+  type DecisionState,
+  type Dossier,
+  type DossierArtifact,
+  type Option,
+  type Outcome,
+  type QAEntry,
+} from './decision.js'
+export {
+  type AcceptanceStatus,
+  type CriterionState,
+  type CriterionStatus,
+  type EvidenceKind,
+  type EvidenceState,
+  type RunResult,
+  type TestRun,
+  type Waiver,
+} from './acceptance.js'
+export {
+  WSJF_SCHEME_VERSION,
+  wsjfScore,
+  type PriorityAssessment,
+  type SchemeId,
+  type WsjfInputs,
+} from './priority.js'
+// Scope §B(c) — path-scope verification evidence (the sibling of TestRun).
+export {
+  assertVerificationRun,
+  VERDICTS,
+  type VerificationRecordedPayload,
+  type VerificationRun,
+  type Verdict,
+} from './verification.js'
+// M5 (canevas) — the live spec-amendment write kind (item.spec-amend → spec.amended).
+export {
+  assertSpecAmend,
+  type JsonPatch,
+  type JsonPatchOp,
+  type SpecAmendment,
+  type SpecAmendPayload,
+} from './spec-amend.js'
+// Demand lifecycle (Mode A) — the `demand` aggregate model + its lifecycle machine.
+export {
+  assertDemandRaised,
+  assertDemandTransition,
+  assertDispositionOutcome,
+  DEMAND_TRANSITIONS,
+  isDemandTerminal,
+  type DemandId,
+  type DemandRaisedPayload,
+  type DemandRaw,
+  type DemandRef,
+  type DemandSource,
+  type DemandState,
+  type DemandStatus,
+  type DemandType,
+  type DispositionOutcome,
+} from './demand.js'
+export { type TransitionHandlerFields } from './item.js'
