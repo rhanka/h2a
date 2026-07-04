@@ -4,13 +4,14 @@
   "description": "Typed product-backlog and spec/plan/UAT system of record for the sentropic ecosystem (record-only MVP).",
   "license": "MIT",
   "author": "Fabien Antoine",
-  "homepage": "https://github.com/rhanka/track#readme",
+  "homepage": "https://github.com/rhanka/h2a/tree/main/packages/track#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rhanka/track.git"
+    "url": "git+https://github.com/rhanka/h2a.git",
+    "directory": "packages/track"
   },
   "bugs": {
-    "url": "https://github.com/rhanka/track/issues"
+    "url": "https://github.com/rhanka/h2a/issues"
   },
   "keywords": [
     "backlog",
