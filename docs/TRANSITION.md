@@ -120,7 +120,7 @@ What is deprecated is the **standalone role**, not the CLIs themselves.
 | Item | State |
 |---|---|
 | `remote` bin | Works. Compat shim direction; no removal scheduled. |
-| `track` bin | Works. Kept for skills/humans/`track-mcp`. |
+| `track` / `track-mcp` bins | Works. **Standalone role deprecated (axis ④-D)** — `h2a` is the single entry. Bins stay callable for skills, humans, `track-mcp`, and external `.track` repos; no removal scheduled. |
 | `.track` store format | Unchanged. Append-only, single-writer, no migration. |
 | `~/.config/sentropic/remote-cli/` | Unchanged, shared by both CLIs. |
 | `track_report` MCP tool for human reports | Discouraged (machine JSON). Use `track report` / `h2a report`. |
@@ -142,6 +142,28 @@ ready to execute on the go.
 - **Migration plan:** keep both bins through a green compat matrix; publish `track`
   as a shim first; announce a deprecation window; retire only after the window. The
   `.track` store format does not change, so **no store migration** is involved.
+
+**Kicked off (axis ④-D, doc-level, reversible).** The *standalone role* of the
+`track` / `track-mcp` bins is now formally deprecated in favour of `h2a` as the
+single entry (see §6). This is the same posture as `remote → h2a-runtime` and
+`h2a-cli → @sentropic/h2a`: only the standalone role is deprecated — **the bins
+stay callable** for skills, `track-mcp`, humans, and every external repo with a
+`.track/`. The functional absorption is already shipped (11/12 verbs run native
+in-process via `@sentropic/track`'s `runCli`, axis ④).
+
+**Recommended fusion mechanism (reserved — needs Fabien).** The actual repo move
+should be a **history-preserving `git subtree`** of `rhanka/track` into
+`packages/track/` on a dedicated branch, with the toolchain reconciled
+incrementally (track pins TS 6 / `@types/node` 25 / vitest; the monorepo uses
+TS 5.9 / `@types/node` 22 / `node:test`) and gated by a green build/test +
+contract smoke. `@sentropic/track` ships light runtime deps only
+(`@modelcontextprotocol/sdk`, `ulid`), so nothing heavy crosses the boundary.
+
+**Reserved / irreversible (Fabien only, explicit go):** republishing
+`@sentropic/track` from the new monorepo path; `npm deprecate` / archive of the
+standalone `rhanka/track` repo; re-homing or retiring the Claude Code
+`sentropic` marketplace/plugin (it currently lives in the track repo); and
+closing the bin deprecation window. None of these is done here.
 
 ### 7b. Rename config path `remote-cli` → `h2a` + auto-migrate live sessions
 - **Changes for you:** the shared local state moves from
