@@ -7,7 +7,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -b",
+    "build": "npm run build -w @sentropic/track && tsc -b",
+    "build:h2a": "tsc -b",
     "clean": "tsc -b --clean",
     "pack:h2a": "npm pack --dry-run --workspace @sentropic/h2a",
     "pack:h2a-cli": "npm pack --dry-run --workspace @sentropic/h2a-cli",
