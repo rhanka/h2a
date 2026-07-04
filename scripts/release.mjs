@@ -9,11 +9,13 @@
  *   2. Bump the version in
  *        - `package.json` (root, private)
  *        - `package-lock.json`
- *        - `packages/h2a/package.json`
+ *        - `packages/h2a/package.json` (also aligns the
+ *          `@sentropic/track` dependency caret to `^X.Y.Z`)
  *        - `packages/h2a-cli/package.json` (also aligns the
  *          `@sentropic/h2a` dependency caret to `^X.Y.Z`)
  *        - `packages/h2a-runtime/package.json` (heavy runtime, lockstep)
- *   3. Stage and commit those four files with `release: vX.Y.Z`.
+ *        - `packages/track/package.json` (record-only system of record, lockstep)
+ *   3. Stage and commit those package files with `release: vX.Y.Z`.
  *   4. Create an annotated tag `vX.Y.Z` (signed only if
  *      `git config commit.gpgsign` is true, mirroring the user's setup).
  *   5. Print the manual next steps (`git push origin HEAD`, then tag).
@@ -43,10 +45,32 @@ const PACKAGE_FILES = [
   "package-lock.json",
   "packages/h2a/package.json",
   "packages/h2a-cli/package.json",
-  "packages/h2a-runtime/package.json"
+  "packages/h2a-runtime/package.json",
+  "packages/track/package.json"
 ];
 
 const CORE_PACKAGE_NAME = "@sentropic/h2a";
+
+/**
+ * Workspace package names whose inter-package dependency carets are kept in
+ * lockstep with the release version. When any workspace manifest depends on one
+ * of these, its `"^X.Y.Z"` range is rewritten to the new version so a published
+ * `@sentropic/h2a@X.Y.Z` pulls `@sentropic/track@^X.Y.Z` (and `@sentropic/h2a-cli`
+ * pulls `@sentropic/h2a@^X.Y.Z`), never a stale minor.
+ */
+const LOCKSTEP_DEP_NAMES = [CORE_PACKAGE_NAME, "@sentropic/track"];
+
+/**
+ * Workspace lockfile keys (under `.packages`) whose `version` mirrors a
+ * published manifest and must be bumped in lockstep. `""` is the private root.
+ */
+const LOCKSTEP_LOCK_KEYS = [
+  "",
+  "packages/h2a",
+  "packages/h2a-cli",
+  "packages/h2a-runtime",
+  "packages/track"
+];
 
 /**
  * Parse a strict SemVer "X.Y.Z" into its numeric components. Throws on any
@@ -82,8 +106,9 @@ export function parseVersion(value) {
  *
  * Side-effects on the parsed object:
  * - Sets `.version` to `newVersion`.
- * - If `.dependencies["@sentropic/h2a"]` exists, rewrites it to
- *   `"^X.Y.Z"` of the same version (cli↔core release in lockstep).
+ * - For every lockstep sibling in `.dependencies` (see `LOCKSTEP_DEP_NAMES`,
+ *   currently `@sentropic/h2a` and `@sentropic/track`), rewrites the range to
+ *   `"^X.Y.Z"` of the same version so the workspace ships in lockstep.
  *
  * @param {string} jsonContent - Raw JSON content of a `package.json` file.
  * @param {string} newVersion - Target version, validated by `parseVersion`.
@@ -94,12 +119,12 @@ export function bumpPackageJsonContent(jsonContent, newVersion) {
   const trailingNewline = jsonContent.endsWith("\n");
   const parsed = JSON.parse(jsonContent);
   parsed.version = newVersion;
-  if (
-    parsed.dependencies &&
-    typeof parsed.dependencies === "object" &&
-    Object.prototype.hasOwnProperty.call(parsed.dependencies, CORE_PACKAGE_NAME)
-  ) {
-    parsed.dependencies[CORE_PACKAGE_NAME] = `^${newVersion}`;
+  if (parsed.dependencies && typeof parsed.dependencies === "object") {
+    for (const dep of LOCKSTEP_DEP_NAMES) {
+      if (Object.prototype.hasOwnProperty.call(parsed.dependencies, dep)) {
+        parsed.dependencies[dep] = `^${newVersion}`;
+      }
+    }
   }
   const out = JSON.stringify(parsed, null, 2);
   return trailingNewline ? `${out}\n` : out;
@@ -126,20 +151,24 @@ export function bumpPackageLockContent(jsonContent, newVersion) {
       ? parsed.packages
       : undefined;
   if (packages) {
-    for (const key of ["", "packages/h2a", "packages/h2a-cli", "packages/h2a-runtime"]) {
+    for (const key of LOCKSTEP_LOCK_KEYS) {
       if (packages[key] && typeof packages[key] === "object") {
         packages[key].version = newVersion;
       }
     }
-    const cli = packages["packages/h2a-cli"];
-    if (
-      cli &&
-      typeof cli === "object" &&
-      cli.dependencies &&
-      typeof cli.dependencies === "object" &&
-      Object.prototype.hasOwnProperty.call(cli.dependencies, CORE_PACKAGE_NAME)
-    ) {
-      cli.dependencies[CORE_PACKAGE_NAME] = `^${newVersion}`;
+    // Rewrite lockstep dependency carets wherever a workspace manifest declares
+    // one (e.g. packages/h2a → @sentropic/track, packages/h2a-cli →
+    // @sentropic/h2a). The private root ("") has no such deps; skip it.
+    for (const key of LOCKSTEP_LOCK_KEYS) {
+      if (key === "") continue;
+      const pkg = packages[key];
+      if (!pkg || typeof pkg !== "object") continue;
+      if (!pkg.dependencies || typeof pkg.dependencies !== "object") continue;
+      for (const dep of LOCKSTEP_DEP_NAMES) {
+        if (Object.prototype.hasOwnProperty.call(pkg.dependencies, dep)) {
+          pkg.dependencies[dep] = `^${newVersion}`;
+        }
+      }
     }
   }
 
@@ -334,7 +363,7 @@ async function main(argv) {
       "On tag push, .github/workflows/release.yml runs:",
       "  - typecheck + tests",
       "  - version sanity gate (tag vs package.json)",
-      "  - npm publish --access public via npm Trusted Publishing (h2a + h2a-cli + h2a-runtime)",
+      "  - npm publish --access public via npm Trusted Publishing (track + h2a + h2a-cli + h2a-runtime)",
       "  - gh release create --generate-notes",
       ""
     ].join("\n")

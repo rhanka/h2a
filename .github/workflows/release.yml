@@ -75,10 +75,12 @@ jobs:
           h2a_version="$(node -p "require('./packages/h2a/package.json').version")"
           cli_version="$(node -p "require('./packages/h2a-cli/package.json').version")"
           runtime_version="$(node -p "require('./packages/h2a-runtime/package.json').version")"
+          track_version="$(node -p "require('./packages/track/package.json').version")"
           echo "Tag version           : $tag_version"
           echo "@sentropic/h2a        : $h2a_version"
           echo "@sentropic/h2a-cli    : $cli_version"
           echo "@sentropic/h2a-runtime: $runtime_version"
+          echo "@sentropic/track      : $track_version"
           if [[ "$h2a_version" != "$tag_version" ]]; then
             echo "::error::packages/h2a/package.json version ($h2a_version) does not match tag ($tag_version). Run 'npm run release -- --version $tag_version' before tagging." >&2
             exit 1
@@ -91,8 +93,26 @@ jobs:
             echo "::error::packages/h2a-runtime/package.json version ($runtime_version) does not match tag ($tag_version). Run 'npm run release -- --version $tag_version' before tagging." >&2
             exit 1
           fi
+          if [[ "$track_version" != "$tag_version" ]]; then
+            echo "::error::packages/track/package.json version ($track_version) does not match tag ($tag_version). Run 'npm run release -- --version $tag_version' before tagging." >&2
+            exit 1
+          fi
           echo "RELEASE_VERSION=$tag_version" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+
+      # Published first: @sentropic/track is a runtime dependency of
+      # @sentropic/h2a, so its lockstep version must exist on the registry
+      # before h2a@X.Y.Z (which now pins @sentropic/track@^X.Y.Z) is installed.
+      #
+      # ⚠️ OIDC WALL: npm Trusted Publishing for @sentropic/track is still
+      # configured against the OLD repo (rhanka/track), NOT rhanka/h2a. Until
+      # the trusted publisher is re-pointed at rhanka/h2a + release.yml (a
+      # creds gesture on npmjs.com — see docs/release.md), this step will fail
+      # with an OIDC-mismatch error. Fallback: set NODE_AUTH_TOKEN from an npm
+      # automation token with publish rights and drop the trusted-publishing
+      # reliance for this package only.
+      - name: Publish @sentropic/track (trusted publishing, public)
+        run: npm publish --workspace @sentropic/track --access public
 
       - name: Publish @sentropic/h2a (trusted publishing, public)
         run: npm publish --workspace @sentropic/h2a --access public
