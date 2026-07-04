@@ -12,8 +12,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // reproduce that exact shape — invoke the bin THROUGH a symlink — and assert it actually writes.
 const binSrc = join(dirname(fileURLToPath(import.meta.url)), 'bin.ts')
 // The repo's LOCAL tsx binary — invoking it directly avoids `npx`'s registry-resolution overhead
-// (~25s cold) that made this test exceed its timeout as the import graph grew.
-const tsx = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'node_modules', '.bin', 'tsx')
+// (~25s cold) that made this test exceed its timeout as the import graph grew. Resolve it across
+// BOTH layouts: package-local `node_modules/.bin` (standalone track repo) and the hoisted monorepo
+// root `node_modules/.bin` (when track is a workspace of h2a and npm dedupes tsx to the root).
+const tsxHere = dirname(fileURLToPath(import.meta.url))
+const tsx =
+  [
+    join(tsxHere, '..', '..', 'node_modules', '.bin', 'tsx'), // packages/track/node_modules/.bin/tsx
+    join(tsxHere, '..', '..', '..', '..', 'node_modules', '.bin', 'tsx'), // <monorepo-root>/node_modules/.bin/tsx
+  ].find(existsSync) ?? join(tsxHere, '..', '..', 'node_modules', '.bin', 'tsx')
 
 let dir: string
 
