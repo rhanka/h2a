@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "track",
-      "source": "./",
+      "source": "./packages/track",
       "description": "Record-only spec/realization/acceptance system of record — read-only track-mcp tools over your .track/ event log; writes via the `track` CLI."
     }
   ]
