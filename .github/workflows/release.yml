@@ -111,8 +111,19 @@ jobs:
       # with an OIDC-mismatch error. Fallback: set NODE_AUTH_TOKEN from an npm
       # automation token with publish rights and drop the trusted-publishing
       # reliance for this package only.
-      - name: Publish @sentropic/track (trusted publishing, public)
-        run: npm publish --workspace @sentropic/track --access public
+      # @sentropic/track is currently published out-of-band with an npm automation
+      # token (OIDC Trusted Publishing for this package is still pinned to the old
+      # rhanka/track repo and re-pointing it requires a 2FA gesture on npmjs.com).
+      # Idempotent: if the lockstep version is already on the registry (token
+      # publish), skip; otherwise publish via OIDC (works once trust is re-pointed).
+      - name: Publish @sentropic/track (public; token-published out-of-band for now)
+        run: |
+          v="$(node -p "require('./packages/track/package.json').version")"
+          if npm view "@sentropic/track@$v" version >/dev/null 2>&1; then
+            echo "@sentropic/track@$v already on registry; skipping."
+          else
+            npm publish --workspace @sentropic/track --access public
+          fi
 
       - name: Publish @sentropic/h2a (trusted publishing, public)
         run: npm publish --workspace @sentropic/h2a --access public
