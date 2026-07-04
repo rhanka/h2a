@@ -151,19 +151,49 @@ stay callable** for skills, `track-mcp`, humans, and every external repo with a
 `.track/`. The functional absorption is already shipped (11/12 verbs run native
 in-process via `@sentropic/track`'s `runCli`, axis ④).
 
-**Recommended fusion mechanism (reserved — needs Fabien).** The actual repo move
-should be a **history-preserving `git subtree`** of `rhanka/track` into
-`packages/track/` on a dedicated branch, with the toolchain reconciled
-incrementally (track pins TS 6 / `@types/node` 25 / vitest; the monorepo uses
-TS 5.9 / `@types/node` 22 / `node:test`) and gated by a green build/test +
-contract smoke. `@sentropic/track` ships light runtime deps only
+**Repo move — DONE (in-repo, reversible).** `rhanka/track` was folded into the
+monorepo as a **history-preserving `git subtree`** at `packages/track/` and wired
+as an npm workspace (`@sentropic/track`). The toolchain difference is tolerated in
+place (track keeps its own `tsconfig.build.json` + vitest, pinned TS 6 /
+`@types/node` 25; the monorepo core stays on TS 5.9 / `@types/node` 22 /
+`node:test`), and the root `build` compiles track first (`npm run build -w
+@sentropic/track && tsc -b`). `@sentropic/track` ships light runtime deps only
 (`@modelcontextprotocol/sdk`, `ulid`), so nothing heavy crosses the boundary.
+Build + both test suites are green (h2a `node:test`; track `vitest`).
 
-**Reserved / irreversible (Fabien only, explicit go):** republishing
-`@sentropic/track` from the new monorepo path; `npm deprecate` / archive of the
-standalone `rhanka/track` repo; re-homing or retiring the Claude Code
-`sentropic` marketplace/plugin (it currently lives in the track repo); and
-closing the bin deprecation window. None of these is done here.
+**Marketplace — RELOCATED to the monorepo (in-repo, reversible).** The Claude Code
+`sentropic` marketplace manifest moved from `packages/track/.claude-plugin/
+marketplace.json` to the **monorepo root** `.claude-plugin/marketplace.json`, and
+the `track` plugin's `source` now points at `./packages/track` (its
+`.claude-plugin/plugin.json` + `skills/` stay in place). A `claude plugin
+marketplace add rhanka/h2a` therefore exposes the full catalogue with no dependency
+on `rhanka/track`. The `track-mcp` server is still resolved from npm
+(`npx -y -p @sentropic/track track-mcp`), unchanged. Plugin/package `homepage`,
+`repository`, and `bugs` URLs were re-homed to `rhanka/h2a` (directory
+`packages/track`). **Impact on existing installs:** anyone who did `claude plugin
+marketplace add rhanka/track` keeps working while that repo exists; once it is
+archived/deleted they re-run `… add rhanka/h2a` (new installs should use
+`rhanka/h2a` directly). The installed `track` plugin's MCP tools keep working
+regardless, since they pull `@sentropic/track` from npm.
+
+**Release — WIRED for lockstep (in-repo, ready-to-publish).** `@sentropic/track`
+is now part of the monorepo lockstep release: `packages/track/package.json` is in
+`scripts/release.mjs`'s `PACKAGE_FILES`, the `@sentropic/track` caret in
+`@sentropic/h2a` is bumped with the version, and `.github/workflows/release.yml`
+gates track's version against the tag and publishes it (first, before `h2a`).
+The first lockstep tag brings track from its standalone line up to the monorepo
+version.
+
+**Reserved / irreversible (Fabien only, explicit go):**
+- **Re-point npm Trusted Publishing** for `@sentropic/track` from `rhanka/track`
+  to `rhanka/h2a` + `release.yml` (a creds gesture on npmjs.com). Until then the
+  track publish step in `release.yml` fails on OIDC mismatch; a fallback npm
+  automation token is the alternative. See `docs/release.md`.
+- **Republish** `@sentropic/track` from the monorepo path (happens on the first
+  lockstep tag once OIDC is re-pointed).
+- **`npm deprecate` / archive** of the standalone `rhanka/track` repo, and
+  closing the `track` bin deprecation window.
+None of these is done here.
 
 ### 7b. Rename config path `remote-cli` → `h2a` + auto-migrate live sessions
 - **Changes for you:** the shared local state moves from
