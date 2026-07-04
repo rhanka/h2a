@@ -24,18 +24,25 @@ const BUCKETS = ['AWAITED', 'DROPPED', 'DONE', 'TO-DO'] as const
 const REALIZATIONS = ['to-do', 'in-progress', 'done', 'cancelled', 'rejected'] as const
 const ACCEPTANCES = ['pass', 'fail', 'unknown', 'stale', 'waived'] as const
 const LEVELS = ['spec', 'plan', 'wp', 'lot', 'task'] as const // Scope §A/§B — status(level) tiers
+const REPORT_FORMATS = ['json', 'text', 'md'] as const // track_report render format (json = machine default)
 
 /** Read-only tools, declared as plain JSON Schema (no zod) — the curated read contract over MCP. */
 export const READ_TOOLS = [
   {
     name: 'track_report',
-    description: 'Bucketed backlog report (AWAITED/DROPPED/DONE/TO-DO) as JSON. AWAITED is relative to baselineCommit.',
+    description:
+      'Machine-readable backlog report (buckets AWAITED/DROPPED/DONE/TO-DO + the %-by-WP rollup) as JSON by default; AWAITED is relative to baselineCommit. NEVER render this to a human as a status report — for a human-facing track report, run the CLI `track report` (the FAIT/À-FAIRE/DÉCISIONS-ACTIONS table) from the repo root and paste its output verbatim, or pass format:"text"|"md" here to get that exact rendered table instead of JSON.',
     inputSchema: {
       type: 'object',
       properties: {
         baselineCommit: { type: 'string', description: 'Commit the report is evaluated against (acceptance/staleness).' },
         requireAccepted: { type: 'boolean', description: 'A done item counts as DONE only if acceptance=pass.' },
-        decisions: { type: 'boolean', description: 'Include the decisions view.' },
+        decisions: { type: 'boolean', description: 'Include the decisions view (defaults on for text/md, off for json).' },
+        format: {
+          type: 'string',
+          enum: REPORT_FORMATS,
+          description: 'Render format. Default "json" (machine — do NOT paste to a human). "text"/"md" render the human FAIT/À-FAIRE/DÉCISIONS table, identical to the CLI `track report`.',
+        },
       },
       required: ['baselineCommit'],
     },
@@ -223,12 +230,16 @@ export function dispatchReadTool(
 ): string {
   switch (name) {
     case 'track_report': {
+      const format = optEnum(args, 'format', REPORT_FORMATS) ?? 'json'
       const options: ReportOptions = {
         baselineCommit: reqStr(args, 'baselineCommit'),
         requireAccepted: optBool(args, 'requireAccepted') ?? false,
-        decisions: optBool(args, 'decisions') ?? false,
+        // Human text/md carries the DÉCISIONS-ACTIONS table by default (CLI parity); json stays lean unless asked.
+        decisions: optBool(args, 'decisions') ?? (format !== 'json'),
+        // Always compute the WP forest so even the JSON payload carries the %-by-WP conductor view.
+        wpTree: true,
       }
-      return reportText(reader, options, 'json')
+      return reportText(reader, options, format)
     }
     case 'track_query': {
       const filter: QueryFilter = {}

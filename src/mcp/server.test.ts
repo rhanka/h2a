@@ -70,10 +70,34 @@ describe('MCP read server — tool surface', () => {
 })
 
 describe('MCP read server — CLI≡MCP parity (same shared command layer)', () => {
-  it('track_report output is byte-identical to `report --format json --commit`', () => {
+  it('track_report (default json) is byte-identical to `report --format json --wp --commit` (carries the WP view)', () => {
+    // The MCP tool always sets wpTree:true so even the machine JSON carries the %-by-WP conductor view.
     expect(dispatchReadTool(reader, 'track_report', { baselineCommit: 'c1' })).toBe(
-      cliOut(['report', '--format', 'json', '--commit', 'c1']),
+      cliOut(['report', '--format', 'json', '--wp', '--commit', 'c1']),
     )
+  })
+
+  it('track_report format:"text" is byte-identical to the human CLI `report --format text --commit`', () => {
+    // A human report requested over MCP must render the SAME FAIT/À-FAIRE/DÉCISIONS table as the CLI.
+    expect(dispatchReadTool(reader, 'track_report', { baselineCommit: 'c1', format: 'text' })).toBe(
+      cliOut(['report', '--format', 'text', '--commit', 'c1']),
+    )
+  })
+
+  it('track_report format:"md" is byte-identical to the human CLI `report --format md --commit`', () => {
+    expect(dispatchReadTool(reader, 'track_report', { baselineCommit: 'c1', format: 'md' })).toBe(
+      cliOut(['report', '--format', 'md', '--commit', 'c1']),
+    )
+  })
+
+  it('track_report rejects an invalid format (parity strictness with the CLI oneOf)', () => {
+    expect(() => dispatchReadTool(reader, 'track_report', { baselineCommit: 'c1', format: 'bullets' })).toThrow(/format/)
+  })
+
+  it('track_report tool description redirects humans to the CLI (never renders JSON as a status report)', () => {
+    const tool = READ_TOOLS.find((t) => t.name === 'track_report')!
+    expect(tool.description).toMatch(/CLI `track report`/)
+    expect(tool.description).toMatch(/NEVER render this to a human/)
   })
 
   it('track_query output is byte-identical to `query --format json --commit`', () => {
