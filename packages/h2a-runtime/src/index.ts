@@ -41,6 +41,7 @@ import {
   resolveConfigPath,
   setDefaultRemote,
   setDefaultTarget,
+  migrateConfigHomeIfNeeded,
   setDefaultTools,
   setLlmMeshRuntimeConfig,
   setTmuxProfileConfig,
@@ -1902,6 +1903,16 @@ function setAndReportDefaultRemote(url: string): void {
 }
 
 export async function main(argv: ReadonlyArray<string>): Promise<number> {
+  // ②b — auto-migrate the config home remote-cli/ -> h2a/ on first run (backup +
+  // compat symlink). Best-effort: never let it break a command. Runs once
+  // (idempotent) before any config/registry read.
+  try {
+    const m = migrateConfigHomeIfNeeded(Date.now());
+    if (m.migrated) process.stderr.write(`[h2a] config home ${m.reason}\n`);
+  } catch {
+    /* legacy fallback keeps everything working */
+  }
+
   if (
     shouldShowProfileMenu(
       argv,

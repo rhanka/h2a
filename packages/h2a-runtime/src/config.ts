@@ -1,4 +1,13 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
@@ -266,14 +275,91 @@ function configHome(): string {
   return process.env.REMOTE_CLI_CONFIG_HOME ?? homedir();
 }
 
+function sentropicHome(): string {
+  return join(configHome(), ".config", "sentropic");
+}
+
+// ②b — the config home is migrating remote-cli/ -> h2a/. `h2a/` is canonical
+// once migrated; `remote-cli/` stays as a compat SYMLINK so the still-deployed
+// legacy `remote` bin reads the SAME state (no split-brain).
+const LEGACY_CONFIG_DIR = "remote-cli";
+const CANONICAL_CONFIG_DIR = "h2a";
+
+/** Directory h2a reads/writes: canonical `h2a/` if present, else legacy. */
+export function resolveConfigDir(): string {
+  const canonical = join(sentropicHome(), CANONICAL_CONFIG_DIR);
+  if (existsSync(canonical)) return canonical;
+  return join(sentropicHome(), LEGACY_CONFIG_DIR);
+}
+
 export function resolveConfigPath(): string {
-  return join(
-    configHome(),
-    ".config",
-    "sentropic",
-    "remote-cli",
-    "config.json",
-  );
+  return join(resolveConfigDir(), "config.json");
+}
+
+export interface ConfigHomeMigration {
+  readonly migrated: boolean;
+  readonly reason: string;
+  readonly backup?: string;
+}
+
+/**
+ * ②b — one-time, idempotent, reversible migration of the config home from the
+ * legacy `remote-cli/` to the canonical `h2a/`. Backs up first, moves, then
+ * leaves a compat symlink `remote-cli -> h2a` so the legacy `remote` bin keeps
+ * reading the exact same state (zero split-brain during coexistence). Any doubt
+ * (already migrated, legacy is a symlink/file, backup or move fails) → no-op and
+ * the legacy fallback keeps everything working. Reverse: `rm remote-cli && mv
+ * h2a remote-cli`. `now` is injected (epoch ms) for a deterministic backup name.
+ */
+export function migrateConfigHomeIfNeeded(now: number): ConfigHomeMigration {
+  const home = sentropicHome();
+  const legacy = join(home, LEGACY_CONFIG_DIR);
+  const canonical = join(home, CANONICAL_CONFIG_DIR);
+
+  if (existsSync(canonical)) return { migrated: false, reason: "canonical already exists" };
+  if (!existsSync(legacy)) return { migrated: false, reason: "no legacy config dir" };
+
+  let st;
+  try {
+    st = lstatSync(legacy);
+  } catch (e) {
+    return { migrated: false, reason: `legacy stat failed: ${(e as Error).message}` };
+  }
+  if (st.isSymbolicLink()) return { migrated: false, reason: "legacy already a symlink" };
+  if (!st.isDirectory()) return { migrated: false, reason: "legacy is not a directory" };
+
+  // Backup BEFORE any move — must succeed first.
+  const backup = join(home, `${LEGACY_CONFIG_DIR}.bak.${now}`);
+  try {
+    cpSync(legacy, backup, { recursive: true });
+  } catch (e) {
+    return { migrated: false, reason: `backup failed: ${(e as Error).message}` };
+  }
+
+  try {
+    renameSync(legacy, canonical);
+  } catch (e) {
+    return { migrated: false, reason: `rename failed: ${(e as Error).message}`, backup };
+  }
+
+  try {
+    symlinkSync(canonical, legacy, "dir");
+  } catch (e) {
+    // Data is safe at canonical; without the symlink the legacy `remote` bin
+    // would miss it. Roll back the rename so both bins stay on the legacy path.
+    try {
+      renameSync(canonical, legacy);
+    } catch {
+      /* leave data at canonical (still readable by h2a) */
+    }
+    return { migrated: false, reason: `compat symlink failed: ${(e as Error).message}`, backup };
+  }
+
+  return {
+    migrated: true,
+    reason: `migrated ${legacy} -> ${canonical} (+compat symlink, backup ${backup})`,
+    backup,
+  };
 }
 
 export function normalizeRemoteUrl(rawUrl: string): string {
