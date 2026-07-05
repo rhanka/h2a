@@ -67,7 +67,10 @@ import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 // is NOT on the golden-rule lazy-only list (that is scoped to
 // `@sentropic/h2a-runtime`/node-pty/aws-sdk). Its public `runHarnessCli` lets
 // `h2a harness <verb>` run the harness method CLI IN-PROCESS (Slice A).
-import { runHarnessCli } from "@sentropic/harness";
+// `HARNESS_SKILLS` is the harness pack's canonical, programmatic inventory —
+// `install-skills` renders `harness-<name>` from it (no hard-coded list, no
+// skill copies committed here; SOURCE UNIQUE = the installed npm package).
+import { runHarnessCli, HARNESS_SKILLS } from "@sentropic/harness";
 
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
@@ -5215,6 +5218,195 @@ function pruneLegacy(
   return pruned;
 }
 
+/**
+ * The provenance of a skill collected for rendering by `install-skills`.
+ * `h2a`   — this package's own bundled skill(s) (`packages/h2a/skills/`).
+ * `track` — the `@sentropic/track` package's shipped `skills/` (in-repo source
+ *           `packages/track/skills/`).
+ * `harness` — the `@sentropic/harness` npm package's shipped `skills/`, rendered
+ *           under the `harness-<name>` prefix.
+ */
+type SkillProvenance = "h2a" | "track" | "harness";
+
+interface CollectedSkill {
+  /** Final skill id — the target dir/file name AND the rewritten frontmatter name. */
+  readonly installName: string;
+  readonly parsed: ParsedSkill;
+  /** SKILL.md content whose frontmatter `name:` matches `installName`. */
+  readonly raw: string;
+  readonly source: SkillProvenance;
+}
+
+type ReadSkillOutcome =
+  | { kind: "skill"; skill: CollectedSkill }
+  | { kind: "skip" }
+  | { kind: "error"; message: string; exit: number };
+
+/**
+ * Read one `<srcDir>/<dirName>/SKILL.md`, parse it, and (optionally) rewrite its
+ * frontmatter `name:` to `renameTo` so the rendered skill id, its target
+ * directory/file and its own frontmatter all agree on the host (Claude/Codex
+ * reject a skill whose directory name does not match its `name`). A missing
+ * SKILL.md is a soft `skip`; a read/parse failure is a hard error carrying the
+ * exit code the caller should return (3 = I/O, 2 = malformed frontmatter).
+ */
+function readSkillFrom(
+  srcDir: string,
+  dirName: string,
+  source: SkillProvenance,
+  renameTo?: string
+): ReadSkillOutcome {
+  const src = join(srcDir, dirName, "SKILL.md");
+  if (!existsSync(src)) return { kind: "skip" };
+  let raw: string;
+  try {
+    raw = readFileSync(src, "utf8");
+  } catch (error) {
+    return {
+      kind: "error",
+      message: `cannot read ${src} (${(error as Error).message})`,
+      exit: 3
+    };
+  }
+  let parsed: ParsedSkill;
+  try {
+    parsed = parseSkill(raw);
+  } catch (error) {
+    return { kind: "error", message: `${dirName}: ${(error as Error).message}`, exit: 2 };
+  }
+  const installName = renameTo ?? parsed.name;
+  if (installName !== parsed.name) {
+    // Rewrite ONLY the first `name:` line (the frontmatter one lives in the
+    // leading `---` block) so the on-host directory == frontmatter name.
+    raw = raw.replace(/^(name:[ \t]*).*$/m, `$1${installName}`);
+    parsed = { ...parsed, name: installName };
+  }
+  return { kind: "skill", skill: { installName, parsed, raw, source } };
+}
+
+/**
+ * Resolve the on-disk `skills/` directory of an installed dependency package
+ * (`@sentropic/track`, `@sentropic/harness`) from h2a's own runtime location.
+ *
+ * SOURCE UNIQUE: the skills are rendered on demand from each package's shipped
+ * `skills/` tree — never copied into this repo/plugin. Resolution honours the
+ * packages' (possibly `import`-only) `exports` via `import.meta.resolve`, with a
+ * `createRequire` fallback, then walks up to the package root that declares the
+ * matching `name` and returns its `skills/` dir (or undefined if absent).
+ */
+function resolvePackageSkillsDir(pkgName: string): string | undefined {
+  const resolver = (import.meta as unknown as {
+    resolve?: (specifier: string) => string;
+  }).resolve;
+  let mainFile: string | undefined;
+  if (typeof resolver === "function") {
+    try {
+      mainFile = fileURLToPath(resolver(pkgName));
+    } catch {
+      mainFile = undefined;
+    }
+  }
+  if (!mainFile) {
+    try {
+      mainFile = createRequire(import.meta.url).resolve(pkgName);
+    } catch {
+      return undefined;
+    }
+  }
+  let dir = dirname(mainFile);
+  for (let depth = 0; depth < 8; depth++) {
+    const pkgJsonPath = join(dir, "package.json");
+    if (existsSync(pkgJsonPath)) {
+      try {
+        const name = JSON.parse(readFileSync(pkgJsonPath, "utf8")).name as string;
+        if (name === pkgName) {
+          const skillsDir = join(dir, "skills");
+          return existsSync(skillsDir) ? skillsDir : undefined;
+        }
+      } catch {
+        // malformed package.json — keep walking up
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+interface SkillCollection {
+  readonly skills: CollectedSkill[];
+  readonly sources: Array<{ source: SkillProvenance; dir: string | null; count: number }>;
+  readonly error?: { message: string; exit: number };
+}
+
+/**
+ * Collect every installable skill from its SINGLE SOURCE, rendered on demand:
+ *  1. `h2a`     — this package's `skills/` bundle (`SKILLS_DIR`).
+ *  2. `track`   — `@sentropic/track`'s shipped `skills/` (native names).
+ *  3. `harness` — `@sentropic/harness`'s shipped `skills/`, enumerated from the
+ *                 package's programmatic `HARNESS_SKILLS` manifest and rendered
+ *                 under the `harness-<name>` prefix (anti-collision, tool-neutral).
+ *
+ * Nothing is copied into this repo/plugin. A dependency whose `skills/` cannot
+ * be resolved is recorded as a source with `dir: null` / `count: 0` rather than
+ * failing the whole install (the surviving sources still render).
+ */
+function collectInstallableSkills(): SkillCollection {
+  const skills: CollectedSkill[] = [];
+  const sources: SkillCollection["sources"] = [];
+
+  const collectFromDir = (
+    dir: string | undefined,
+    source: SkillProvenance,
+    names: readonly string[] | undefined,
+    renameTo?: (name: string) => string
+  ): { count: number; error?: { message: string; exit: number } } => {
+    if (!dir || !existsSync(dir)) return { count: 0 };
+    const dirNames =
+      names ??
+      readdirSync(dir, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name);
+    let count = 0;
+    for (const name of dirNames) {
+      const outcome = readSkillFrom(dir, name, source, renameTo?.(name));
+      if (outcome.kind === "skip") continue;
+      if (outcome.kind === "error") {
+        return { count, error: { message: outcome.message, exit: outcome.exit } };
+      }
+      skills.push(outcome.skill);
+      count++;
+    }
+    return { count };
+  };
+
+  // 1) h2a — this plugin's own bundled skill(s).
+  const h2aRes = collectFromDir(SKILLS_DIR, "h2a", undefined);
+  sources.push({ source: "h2a", dir: existsSync(SKILLS_DIR) ? SKILLS_DIR : null, count: h2aRes.count });
+  if (h2aRes.error) return { skills, sources, error: h2aRes.error };
+
+  // 2) track — rendered from the installed @sentropic/track package (native names).
+  const trackDir = resolvePackageSkillsDir("@sentropic/track");
+  const trackRes = collectFromDir(trackDir, "track", undefined);
+  sources.push({ source: "track", dir: trackDir ?? null, count: trackRes.count });
+  if (trackRes.error) return { skills, sources, error: trackRes.error };
+
+  // 3) harness — rendered from the @sentropic/harness package, prefixed
+  //    `harness-<name>`, enumerated via the package's programmatic manifest.
+  const harnessDir = resolvePackageSkillsDir("@sentropic/harness");
+  const harnessRes = collectFromDir(
+    harnessDir,
+    "harness",
+    HARNESS_SKILLS.map((s) => s.name),
+    (name) => `harness-${name}`
+  );
+  sources.push({ source: "harness", dir: harnessDir ?? null, count: harnessRes.count });
+  if (harnessRes.error) return { skills, sources, error: harnessRes.error };
+
+  return { skills, sources };
+}
+
 function cmdInstallSkills(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -5250,37 +5442,23 @@ function cmdInstallSkills(
     return 1;
   }
 
+  // Collect the full skill set from its single sources (h2a + track + harness),
+  // rendered on demand — nothing is copied into the repo/plugin.
+  const collection = collectInstallableSkills();
+  if (collection.error) {
+    streams.stderr.write(`h2a install-skills: ${collection.error.message}\n`);
+    return collection.error.exit;
+  }
+
   const targetBase = scope === "user" ? spec.userBase : spec.projectBase;
   // DEC-057: prune the pre-consolidation skill names if they linger on disk.
   const prunedLegacy = pruneLegacy(spec, targetBase);
 
-  const entries = readdirSync(SKILLS_DIR, { withFileTypes: true });
   const installed: string[] = [];
   const skipped: Array<{ name: string; reason: string }> = [];
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const skillName = entry.name;
-    const src = join(SKILLS_DIR, skillName, "SKILL.md");
-    if (!existsSync(src)) continue;
-    let raw: string;
-    try {
-      raw = readFileSync(src, "utf8");
-    } catch (error) {
-      streams.stderr.write(
-        `h2a install-skills: cannot read ${src} (${(error as Error).message})\n`
-      );
-      return 3;
-    }
-    let parsed: ParsedSkill;
-    try {
-      parsed = parseSkill(raw);
-    } catch (error) {
-      streams.stderr.write(
-        `h2a install-skills: ${skillName}: ${(error as Error).message}\n`
-      );
-      return 2;
-    }
+  for (const skill of collection.skills) {
+    const skillName = skill.installName;
     // Probe the would-be target file before writing so existing files are
     // surfaced as skipped (mirrors the previous Claude-only behavior).
     const probeTarget =
@@ -5295,7 +5473,7 @@ function cmdInstallSkills(
       continue;
     }
     try {
-      const targetPath = spec.write(targetBase, skillName, parsed, raw);
+      const targetPath = spec.write(targetBase, skillName, skill.parsed, skill.raw);
       installed.push(targetPath);
     } catch (error) {
       streams.stderr.write(
@@ -5315,6 +5493,9 @@ function cmdInstallSkills(
         installed,
         skipped,
         prunedLegacy,
+        // Provenance of the rendered set — one entry per single source
+        // (h2a + track + harness), with the resolved dir and rendered count.
+        sources: collection.sources,
         // DEC-101: agy has no own skill store — it imports from gemini/claude.
         // The TOML above is written to the shared ~/.gemini location; the user
         // then pulls it into agy with `agy plugin import gemini`.
