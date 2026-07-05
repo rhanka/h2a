@@ -6,9 +6,9 @@
   "owner": { "name": "Sentropic", "email": "fabien.antoine.trash@gmail.com" },
   "plugins": [
     {
-      "name": "track",
-      "source": "./packages/track",
-      "description": "Record-only spec/realization/acceptance system of record — read-only track-mcp tools over your .track/ event log; writes via the `track` CLI."
+      "name": "h2a",
+      "source": "./packages/h2a",
+      "description": "The single sentropic plugin — h2a coordination bus (MCP) + read-only track-mcp system of record; skills (h2a + track + harness) rendered on demand by `h2a install-skills`."
     }
   ]
 }
