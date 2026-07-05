@@ -62,6 +62,13 @@ import { fileURLToPath } from "node:url";
 // same `.track` under the same lock as the surviving spawn facade.
 import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 
+// Static import — `@sentropic/harness` is a LIGHT, zero-runtime-dep method
+// library (host-agnostic code-work / PR-workflow layer, BR-42h). Like track it
+// is NOT on the golden-rule lazy-only list (that is scoped to
+// `@sentropic/h2a-runtime`/node-pty/aws-sdk). Its public `runHarnessCli` lets
+// `h2a harness <verb>` run the harness method CLI IN-PROCESS (Slice A).
+import { runHarnessCli } from "@sentropic/harness";
+
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
   H2A_COMPREHENSION_ATTESTATION_BODY_KIND,
@@ -371,6 +378,10 @@ export function renderCliHelp(): string {
     "Track (délégué à @sentropic/track — le suivi/record du travail):",
     `  h2a ${[...TRACK_FACADE_VERBS].join(" · h2a ")}`,
     "    (ex: h2a decision new …, h2a report, h2a item ls — voir `track <verbe> --help`)",
+    "",
+    "Harness (délégué à @sentropic/harness — la méthode code-work / PR-workflow):",
+    "  h2a harness <check|verify|init|audit|brainstorm|test|debug|review|plan|branch|skills> …",
+    "    (namespacé pour éviter les collisions init/branch — voir `h2a harness --help`)",
     "",
     `Hosts: ${CLI_HOSTS.map((host) => host.host).join(", ")}`,
     `MCP tools: ${H2A_CLI_MCP_TOOL_NAMES.join(", ")}`
@@ -2177,6 +2188,43 @@ function cmdCanevas(argv: readonly string[], streams: H2ACliStreams): number {
 
   streams.stderr.write("h2a canevas: subcommand required (list, serve)\n");
   return 1;
+}
+
+// Façade harness (Slice A — the "one-CLI" endgame). `@sentropic/harness` stays a
+// LIB (never absorbed): a pure, zero-runtime-dep driver (no git, no fs writes, no
+// process.exit) whose single `out` sink carries usage, JSON artifacts AND errors.
+// We run it IN-PROCESS via the package's public `runHarnessCli` (same shape as
+// track's `runCli`), but under the `harness` NAMESPACE (`h2a harness <verb>`)
+// because the harness verbs `init` and `branch` collide with existing h2a/track
+// first-words — a flat merge (like track's) would clobber them. `runHarnessCli`
+// is SYNCHRONOUS (returns a `number`), so this dispatches like `cmdLoop`/
+// `cmdCanevas`, not async via bin.ts. `argv` here is everything AFTER `harness`.
+function cmdHarness(argv: readonly string[], streams: H2ACliStreams): number {
+  // harness emits lines WITHOUT a trailing newline (its own bin appends "\n"); we
+  // do the same so `h2a harness …` is byte-identical to the standalone `harness`.
+  const out = (s: string): void => {
+    streams.stdout.write(`${s}\n`);
+  };
+  try {
+    const rc = runHarnessCli([...argv], out);
+    // Defensive: the pinned harness is synchronous (`runHarnessCli(...): number`).
+    // A Promise cannot be awaited on this sync path, so surface it rather than
+    // leak a thenable as an exit code (unreachable for the shipped 0.3.0).
+    if (
+      rc !== null &&
+      typeof rc === "object" &&
+      typeof (rc as { then?: unknown }).then === "function"
+    ) {
+      streams.stderr.write(
+        "h2a harness: @sentropic/harness returned a Promise (async) — unsupported in the sync facade.\n"
+      );
+      return 1;
+    }
+    return rc as number;
+  } catch (err) {
+    streams.stderr.write(`h2a harness: ${(err as Error).message}\n`);
+    return 1;
+  }
 }
 
 /**
@@ -5704,6 +5752,7 @@ export function runCli(
   if (command === "subagent") return cmdSubagent(argv.slice(1), streams);
   if (command === "loop") return cmdLoop(argv.slice(1), streams);
   if (command === "canevas") return cmdCanevas(argv.slice(1), streams);
+  if (command === "harness") return cmdHarness(argv.slice(1), streams);
   if (command === "drumbeat") {
     const sub = argv[1];
     if (sub === "watch") {
