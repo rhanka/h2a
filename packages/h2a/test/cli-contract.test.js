@@ -825,6 +825,11 @@ function buildHappyArgv(verb, ctx) {
     case "canevas list":
       // Read-only aggregate; empty on a fresh root → resource envelope.
       return ["canevas", "list", "--root", root];
+    case "harness":
+      // Namespaced passthrough to @sentropic/harness. `harness --help` prints
+      // its usage (text) and exits 0 (help is not an error); deeper parity vs
+      // the standalone `harness` bin is covered by harness-facade.test.js.
+      return ["harness", "--help"];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -910,6 +915,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "blockage raise",
     "blockage list",
     "blockage resolve",
+    "harness",
     "install-skills",
     "deploy k8s-sidecar",
     "deploy k8s-tenant",
