@@ -4,7 +4,8 @@
   "version": "0.83.0",
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "build": "npm run build -w @sentropic/track && tsc -b",
