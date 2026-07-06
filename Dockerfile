@@ -15,12 +15,19 @@
 
 FROM node:22-alpine AS builder
 WORKDIR /src
+# h2a-runtime pulls node-pty; Alpine needs a native build toolchain when no
+# matching prebuild is available. Kept in the builder stage only.
+RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json tsconfig.base.json tsconfig.json ./
 COPY packages/h2a/package.json packages/h2a/
 COPY packages/h2a-cli/package.json packages/h2a-cli/
+COPY packages/h2a-runtime/package.json packages/h2a-runtime/
+COPY packages/track/package.json packages/track/
 RUN npm ci --no-audit --no-fund
 COPY packages/h2a packages/h2a
 COPY packages/h2a-cli packages/h2a-cli
+COPY packages/h2a-runtime packages/h2a-runtime
+COPY packages/track packages/track
 RUN npm run build
 
 # ---
@@ -34,8 +41,8 @@ COPY --from=builder /src/node_modules /opt/h2a/node_modules
 COPY --from=builder /src/packages /opt/h2a/packages
 
 # Make `h2a` resolvable on PATH. The shipped bin already carries the shebang.
-RUN ln -s /opt/h2a/packages/h2a-cli/dist/bin.js /usr/local/bin/h2a \
-    && chmod +x /opt/h2a/packages/h2a-cli/dist/bin.js
+RUN ln -s /opt/h2a/packages/h2a/dist/bin.js /usr/local/bin/h2a \
+    && chmod +x /opt/h2a/packages/h2a/dist/bin.js
 
 # Non-root user keeps the image safe to use as a sidecar in restricted
 # Pod Security Standards namespaces.
