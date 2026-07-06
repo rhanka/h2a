@@ -803,7 +803,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: ["host"],
     optionalFlags: ["scope", "force"],
     description:
-      "Render the sentropic skill set into the host's skill directory, on demand from each SINGLE SOURCE (no copies committed): h2a's own bundle, the `@sentropic/track` skills (native names), and the `@sentropic/harness` skills (enumerated from the package's programmatic manifest, rendered under the `harness-<name>` prefix to avoid collisions). Claude/Codex receive SKILL.md files under `~/.<host>/skills/<name>/`; Gemini and agy receive TOML custom commands under `~/.gemini/commands/<name>.toml` (DEC-055) — agy shares the gemini location and the summary emits an `importHint` (`agy plugin import gemini`) since agy imports plugins from gemini/claude (DEC-101). `--scope user` (default) targets the home directory; `--scope project` targets `<cwd>/.<host>/`. Pre-existing files are skipped unless `--force` is set. The `sources` field reports the resolved dir + count per source. DEC-054/055/096/101."
+      "Render the sentropic skill set into the host's skill directory, on demand from each SINGLE SOURCE (no copies committed): h2a's own bundle, the `@sentropic/track` skills (native names), and the `h2a vendored harness` skills (enumerated from the package's programmatic manifest, rendered under the `harness-<name>` prefix to avoid collisions). Claude/Codex receive SKILL.md files under `~/.<host>/skills/<name>/`; Gemini and agy receive TOML custom commands under `~/.gemini/commands/<name>.toml` (DEC-055) — agy shares the gemini location and the summary emits an `importHint` (`agy plugin import gemini`) since agy imports plugins from gemini/claude (DEC-101). `--scope user` (default) targets the home directory; `--scope project` targets `<cwd>/.<host>/`. Pre-existing files are skipped unless `--force` is set. The `sources` field reports the resolved dir + count per source. DEC-054/055/096/101."
   },
 
   // --- harness method facade (Slice A: the "one-CLI" endgame) ---
@@ -814,7 +814,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: [],
     optionalFlags: [],
     description:
-      "Namespaced in-process passthrough to the `@sentropic/harness` method CLI (host-agnostic code-work / PR-workflow layer): `h2a harness <check|verify|init|audit|brainstorm|test|debug|review|plan|branch|skills> …`. Runs via the package's `runHarnessCli` — harness owns its own sub-usage, flags and exit semantics (advisory Layer A: a failing check returns 0; only a usage error returns non-zero → 2). Namespaced under `harness` to avoid the `init`/`branch` first-word collisions with h2a/track (a flat merge like track's would clobber them). Slice A of the single-CLI endgame."
+      "Namespaced in-process passthrough to the `h2a vendored harness` method CLI (host-agnostic code-work / PR-workflow layer): `h2a harness <check|verify|init|audit|brainstorm|test|debug|review|plan|branch|skills> …`. Runs via the package's `runHarnessCli` — harness owns its own sub-usage, flags and exit semantics (advisory Layer A: a failing check returns 0; only a usage error returns non-zero → 2). Namespaced under `harness` to avoid the `init`/`branch` first-word collisions with h2a/track (a flat merge like track's would clobber them). Slice A of the single-CLI endgame."
   },
 
   // --- keepalive (WP-5) ---

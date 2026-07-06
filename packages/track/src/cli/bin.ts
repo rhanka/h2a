@@ -7,7 +7,7 @@
 import { runCli } from './index.js'
 
 // `runCli` returns `number | Promise<number>` — the `focus` command is async (it dynamically imports the
-// optional `@sentropic/focus`); every other command stays sync and returns a plain number. `Promise.resolve`
+// integrated focus); every other command stays sync and returns a plain number. `Promise.resolve`
 // normalizes both into one exit path, so a sync command still exits with no added microtask churn beyond a
 // resolved-promise tick.
 Promise.resolve(
