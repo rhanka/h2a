@@ -886,7 +886,7 @@ export function conductorAdvisory(
   ).length;
   if (pending === 0) return undefined;
   return (
-    `[remote] ${pending} pending job(s) and no active conductor — they will NOT start on their own. ` +
+    `[h2a] ${pending} pending job(s) and no active conductor — they will NOT start on their own. ` +
     `Run: remote jobs conduct   (or  remote jobs conduct --watch <min>  to keep draining)`
   );
 }

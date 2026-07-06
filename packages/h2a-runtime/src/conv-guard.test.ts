@@ -67,7 +67,7 @@ describe("convOwners", () => {
     });
     expect(owners).toHaveLength(1);
     expect(owners[0]).toMatchObject({ where: "local-tmux", label: "projA" });
-    expect(owners[0]!.detail).toContain("remote stop projA");
+    expect(owners[0]!.detail).toContain("h2a stop projA");
     expect(owners[0]!.suspect).toBeUndefined();
   });
 
@@ -144,7 +144,7 @@ describe("convOwners", () => {
     });
     expect(owners).toHaveLength(1);
     expect(owners[0]).toMatchObject({ where: "remote", label: "projA" });
-    expect(owners[0]!.detail).toContain("remote stop sess-b");
+    expect(owners[0]!.detail).toContain("h2a stop sess-b");
     expect(owners[0]!.suspect).toBeUndefined();
   });
 
@@ -199,7 +199,7 @@ describe("guardConvWriters", () => {
     });
     expect(ok).toBe(false);
     expect(stderrText()).toContain("conversation conv-1 already has a live writer");
-    expect(stderrText()).toContain("remote stop projA");
+    expect(stderrText()).toContain("h2a stop projA");
     expect(stderrText()).toContain("--force");
   });
 
@@ -214,7 +214,7 @@ describe("guardConvWriters", () => {
       ],
     });
     expect(ok).toBe(false);
-    expect(stderrText()).toContain("[remote] conversation conv-1");
+    expect(stderrText()).toContain("[h2a] conversation conv-1");
     expect(stderrText()).toContain("sess-b");
   });
 

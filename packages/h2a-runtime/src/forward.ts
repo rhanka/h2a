@@ -109,7 +109,7 @@ export async function forwardSessionPort(opts: ForwardOptions): Promise<number> 
   const tunnel = getTunnel();
   if (!tunnel) {
     stderr.write(
-      "[remote] forward needs a tunnel configured (remote config tunnel …)\n",
+      "[h2a] forward needs a tunnel configured (h2a config tunnel …)\n",
     );
     return 1;
   }
@@ -121,7 +121,7 @@ export async function forwardSessionPort(opts: ForwardOptions): Promise<number> 
     listSessions,
   });
   if (missing) {
-    stderr.write(`[remote] ${missing}\n`);
+    stderr.write(`[h2a] ${missing}\n`);
     return 1;
   }
 
@@ -135,8 +135,8 @@ export async function forwardSessionPort(opts: ForwardOptions): Promise<number> 
 
   const url = localForwardUrl(opts.podPort, opts.localPort);
   stderr.write(
-    `[remote] forwarding ${sessionPodName(opts.sessionId)} :${opts.podPort} → ${url}\n` +
-      `[remote] open ${url} — Ctrl-C to stop\n`,
+    `[h2a] forwarding ${sessionPodName(opts.sessionId)} :${opts.podPort} → ${url}\n` +
+      `[h2a] open ${url} — Ctrl-C to stop\n`,
   );
 
   return runPortForward(tunnel, args, stdout, stderr);
@@ -177,7 +177,7 @@ function runPortForward(
 
     child.on("error", (err) => {
       cleanup();
-      stderr.write(`[remote] kubectl port-forward failed: ${err.message}\n`);
+      stderr.write(`[h2a] kubectl port-forward failed: ${err.message}\n`);
       resolve(1);
     });
     child.on("close", (code) => {

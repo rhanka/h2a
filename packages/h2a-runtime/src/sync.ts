@@ -209,7 +209,7 @@ export function syncConversation(args: {
   const { sessionId, workspacePath, direction, force } = args;
   const tunnel = getTunnel();
   if (!tunnel) {
-    throw new Error("sync needs a tunnel configured (remote config tunnel …)");
+    throw new Error("sync needs a tunnel configured (h2a config tunnel …)");
   }
   const pod = `session-${sessionId}`;
   const epoch = Math.floor(Date.now() / 1000);

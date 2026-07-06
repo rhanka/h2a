@@ -88,12 +88,12 @@ export function buildBrowserOpenPlan(
   });
 
   const instructions =
-    `[remote] headful browser for ${opts.sessionId} (noVNC, ${policy})\n` +
-    `[remote] 1. open the port-forward (foreground, Ctrl-C to stop):\n` +
+    `[h2a] headful browser for ${opts.sessionId} (noVNC, ${policy})\n` +
+    `[h2a] 1. open the port-forward (foreground, Ctrl-C to stop):\n` +
     `           ${forwardCommand}\n` +
-    `[remote] 2. then open this URL in your browser:\n` +
+    `[h2a] 2. then open this URL in your browser:\n` +
     `           ${url}\n` +
-    `[remote] complete the 2FA/login in the desktop, then stop the forward.\n`;
+    `[h2a] complete the 2FA/login in the desktop, then stop the forward.\n`;
 
   return {
     ok: true,

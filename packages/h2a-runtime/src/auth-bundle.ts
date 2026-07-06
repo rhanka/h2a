@@ -48,7 +48,7 @@ export class AuthBundleMissingError extends Error {
     readonly refreshHint: string,
   ) {
     super(
-      `[remote] No local auth files found for ${profile}. ` +
+      `[h2a] No local auth files found for ${profile}. ` +
         `Expected at least one of: ${knownPaths.join(", ")}. ` +
         `Run \`${refreshHint}\` locally, then retry; or use --no-auth to start without bundled credentials.`,
     );
