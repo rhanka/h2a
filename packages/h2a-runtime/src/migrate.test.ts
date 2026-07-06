@@ -352,7 +352,7 @@ describe("migrateForward", () => {
       (c) => c[0]?.sessionId === SESSION_ID,
     );
     expect(mainAttach).toBeUndefined();
-    expect(stderr.lines.join("")).toContain(`remote attach ${REMOTE_URL} ${SESSION_ID}`);
+    expect(stderr.lines.join("")).toContain(`h2a attach ${REMOTE_URL} ${SESSION_ID}`);
   });
 
   it("passes --resume args to createRemoteSession when resume is given", async () => {
@@ -519,7 +519,7 @@ describe("migrateBack", () => {
     });
 
     // The resume command is the ACTUAL CLI shape: remote run <profile> [-r id].
-    expect(result.resumeCommand).toMatch(/^remote run claude/);
+    expect(result.resumeCommand).toMatch(/^h2a run claude/);
 
     // The printed output should also contain it.
     const printed = stdout.lines.join("");

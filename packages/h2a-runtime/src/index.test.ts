@@ -297,7 +297,7 @@ describe("main", () => {
     );
   });
 
-  it("local `remote run <profile>` attaches immediately by default", async () => {
+  it("local `h2a run <profile>` attaches immediately by default", async () => {
     const exitCode = await main(["node", "remote", "run", "claude", "/tmp/proj"]);
 
     expect(exitCode).toBe(0);
@@ -310,11 +310,11 @@ describe("main", () => {
     );
     expect(attachLocalSession).toHaveBeenCalledWith("remote-proj");
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).not.toContain(
-      "attach with: remote attach proj",
+      "attach with: h2a attach proj",
     );
   });
 
-  it("local `remote run --no-attach` keeps the old detached scripting mode", async () => {
+  it("local `h2a run --no-attach` keeps the old detached scripting mode", async () => {
     const exitCode = await main([
       "node",
       "remote",
@@ -328,7 +328,7 @@ describe("main", () => {
     expect(startLocalSession).toHaveBeenCalledTimes(1);
     expect(attachLocalSession).not.toHaveBeenCalled();
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).toContain(
-      "attach with: remote attach proj",
+      "attach with: h2a attach proj",
     );
   });
 
@@ -607,7 +607,7 @@ describe("main", () => {
     expect(setToken).toHaveBeenCalledWith("tok-123");
   });
 
-  it("aliases remote install to set default remote", async () => {
+  it("aliases h2a install to set default remote", async () => {
     setDefaultRemote.mockReturnValue("http://localhost:8080");
     const exitCode = await main([
       "node",
@@ -635,7 +635,7 @@ describe("main", () => {
     expect(exitCode).toBe(0);
     expect(clearDefaultRemote).toHaveBeenCalled();
     expect(stderrWrite).toHaveBeenCalledWith(
-      "[remote] cleared default remote\n",
+      "[h2a] cleared default remote\n",
     );
   });
 
@@ -690,7 +690,7 @@ describe("main", () => {
     });
   });
 
-  it("attach routes a `remote run` session to LOCAL via the registry when a live tmux miss would otherwise hit a Pod", async () => {
+  it("attach routes a `h2a run` session to LOCAL via the registry when a live tmux miss would otherwise hit a Pod", async () => {
     // Repro of the reported bug: `run --name h2a` enrolls a kind:"local-tmux"
     // registry record, but a transient `tmux list-sessions` miss (findLocalSession
     // → undefined) made attach fall through to the remote/Pod branch → kubectl exec

@@ -239,7 +239,7 @@ export function planInteractiveResume(
     if (attached) {
       // HARD guard — a human is on this pane. Detect + advise, NEVER touch.
       advisories.push(
-        `[remote] ${s.name} (${s.type}) throttled (${sig}) — ATTACHED, not touching it (resume it yourself, or detach to let auto-resume nudge it)`,
+        `[h2a] ${s.name} (${s.type}) throttled (${sig}) — ATTACHED, not touching it (resume it yourself, or detach to let auto-resume nudge it)`,
       );
       continue;
     }
@@ -247,21 +247,21 @@ export function planInteractiveResume(
       // Signature present but the pane is still moving (or stall unknown) — the
       // agent likely recovered on its own. Advise only; do NOT interrupt.
       advisories.push(
-        `[remote] ${s.name} (${s.type}) saw a rate-limit (${sig}) but is still active — leaving it alone`,
+        `[h2a] ${s.name} (${s.type}) saw a rate-limit (${sig}) but is still active — leaving it alone`,
       );
       continue;
     }
     const prior = throttleState[s.name];
     if (!isInteractiveResumeDue(prior, now)) {
       advisories.push(
-        `[remote] ${s.name} (${s.type}) throttled (${sig}) — backing off, ${interactiveRetryLabel(prior, now)}`,
+        `[h2a] ${s.name} (${s.type}) throttled (${sig}) — backing off, ${interactiveRetryLabel(prior, now)}`,
       );
       continue;
     }
     const priorAttempts = prior?.attempts ?? 0;
     if (priorAttempts >= maxAttempts) {
       advisories.push(
-        `[remote] ${s.name} (${s.type}) throttled (${sig}) — gave up after ${priorAttempts} resume attempt(s); resume it manually`,
+        `[h2a] ${s.name} (${s.type}) throttled (${sig}) — gave up after ${priorAttempts} resume attempt(s); resume it manually`,
       );
       continue;
     }
@@ -289,7 +289,7 @@ export function planInteractiveResume(
   for (const c of candidates) {
     if (toResume.length >= limit) {
       advisories.push(
-        `[remote] ${c.session.name} (${c.session.type}) throttled — deferred (AIMD cap ${limit} reached this pass)`,
+        `[h2a] ${c.session.name} (${c.session.type}) throttled — deferred (AIMD cap ${limit} reached this pass)`,
       );
       continue;
     }
@@ -311,7 +311,7 @@ export function planInteractiveResume(
       next,
     });
     advisories.push(
-      `[remote] ${c.session.name} (${c.session.type}) throttled (${c.signature ?? "rate-limited"}) — resuming (detached, attempt ${priorAttempts + 1}/${maxAttempts})`,
+      `[h2a] ${c.session.name} (${c.session.type}) throttled (${c.signature ?? "rate-limited"}) — resuming (detached, attempt ${priorAttempts + 1}/${maxAttempts})`,
     );
   }
 

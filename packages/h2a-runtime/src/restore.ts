@@ -361,7 +361,7 @@ export function tabCommand(
   const q = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
   if (tab.remoteId) {
     // SCW: attach straight into the Pod's tmux (live, copy-friendly).
-    return `remote attach ${q(tab.remoteId)} --exec`;
+    return `h2a attach ${q(tab.remoteId)} --exec`;
   }
   const slug = slugify(tab.label);
   // Effective gateway posture: an explicit `restore --gw/--no-gw` OVERRIDES the
@@ -370,7 +370,7 @@ export function tabCommand(
   const gwFlag =
     posture === "gateway" ? " --gw" : posture === "direct" ? " --no-gw" : "";
   const runCmd = (extra: string) =>
-    `remote run ${q(tab.tool ?? "shell")} ${q(tab.cwd)} ` +
+    `h2a run ${q(tab.tool ?? "shell")} ${q(tab.cwd)} ` +
     (tab.sid ? `--resume ${q(tab.sid)} ` : "") +
     `--name ${q(tab.label)}${gwFlag}${extra}`;
   if (liveSlugs.has(slug)) {
@@ -381,8 +381,8 @@ export function tabCommand(
     // relaunch via `remote resume --replace`: it kills the running tmux session,
     // resumes the conversation in the forced posture (--no-gw scrubs the gateway
     // env), and --attach reopens the terminal onto it.
-    if (!opts.forceGateway) return `remote attach ${q(slug)}`;
-    return `remote resume ${q(slug)} --replace --attach${gwFlag}`;
+    if (!opts.forceGateway) return `h2a attach ${q(slug)}`;
+    return `h2a resume ${q(slug)} --replace --attach${gwFlag}`;
   }
   return runCmd("");
 }
@@ -400,7 +400,7 @@ if [ -n "$line" ]; then
 fi
 flock -u 9
 cmd=$(printf '%s' "$line" | cut -f2-)
-if [ -n "$cmd" ]; then eval "$cmd"; else echo "[remote] rien a reprendre pour $PWD" >&2; fi
+if [ -n "$cmd" ]; then eval "$cmd"; else echo "[h2a] rien a reprendre pour $PWD" >&2; fi
 exec bash -l`;
 
 let mapCounter = 0;
@@ -480,7 +480,7 @@ export function launchLayout(
     args.push("--", "bash", "-lc", DISPATCHER, "remote-restore", mapPath);
 
     stderr.write(
-      `[remote] fenêtre "${win.title}" (${activeTabs.length} onglet(s))\n`,
+      `[h2a] fenêtre "${win.title}" (${activeTabs.length} onglet(s))\n`,
     );
     // Surface gnome-terminal errors (e.g. "Failed to get screen…") instead of
     // silently claiming the window opened.
@@ -490,7 +490,7 @@ export function launchLayout(
       env: process.env,
     });
     child.stderr?.on("data", (chunk: Buffer) => {
-      stderr.write(`[remote] gnome-terminal: ${chunk.toString().trim()}\n`);
+      stderr.write(`[h2a] gnome-terminal: ${chunk.toString().trim()}\n`);
     });
     child.unref();
     opened += activeTabs.length;
@@ -498,7 +498,7 @@ export function launchLayout(
 
   if (skippedLive.length > 0) {
     stderr.write(
-      `[remote] ${skippedLive.length} session(s) déjà actives ignorées` +
+      `[h2a] ${skippedLive.length} session(s) déjà actives ignorées` +
       ` (--reattach pour les rouvrir quand même): ${skippedLive.join(", ")}\n`,
     );
   }
@@ -555,7 +555,7 @@ export function restore(
   );
   if (remoteBacked.length > 0) {
     stderr.write(
-      `[remote] ${remoteBacked.length} session(s) déjà sur le contrôle distant — pas de relance locale: ${[
+      `[h2a] ${remoteBacked.length} session(s) déjà sur le contrôle distant — pas de relance locale: ${[
         ...new Set(remoteBacked.map((s) => s.label ?? s.project)),
       ].join(", ")}\n`,
     );

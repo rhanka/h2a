@@ -53,7 +53,7 @@ export class AuthRefreshError extends Error {
       ? "status check timed out"
       : `status check failed with exit ${result.status}`;
     super(
-      `[remote] ${profile} auth is not ready to bundle (${detail}). ` +
+      `[h2a] ${profile} auth is not ready to bundle (${detail}). ` +
         `Run \`${refreshHint}\` locally, then retry; or use --no-auth-refresh to bypass this preflight.`,
     );
     this.name = "AuthRefreshError";

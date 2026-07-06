@@ -26,10 +26,10 @@ export function shouldShowProfileMenu(
 
 export function renderProfileMenu(cwd: string): string {
   const lines = [
-    `[remote] ${cwd}`,
-    "[remote] choose a CLI profile:",
+    `[h2a] ${cwd}`,
+    "[h2a] choose a CLI profile:",
     ...MENU_PROFILES.map((profile, i) => `  ${i + 1}. ${profile}`),
-    "[remote] profile number/name: ",
+    "[h2a] profile number/name: ",
   ];
   return lines.join("\n");
 }

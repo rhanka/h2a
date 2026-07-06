@@ -307,7 +307,7 @@ export async function bridgeSession(
   const tunnel = getTunnel();
   if (!tunnel) {
     throw new Error(
-      "h2a bridge needs a tunnel configured (remote config tunnel …)",
+      "h2a bridge needs a tunnel configured (h2a config tunnel …)",
     );
   }
   const pod = `session-${sessionId}`;
@@ -365,7 +365,7 @@ export async function bridgeSession(
   });
   if (plan.ignored > 0) {
     stderr.write(
-      `[remote] h2a bridge ${sessionId}: ignored ${plan.ignored} unsafe inbox entry name(s)\n`,
+      `[h2a] h2a bridge ${sessionId}: ignored ${plan.ignored} unsafe inbox entry name(s)\n`,
     );
   }
 
@@ -393,7 +393,7 @@ export async function bridgeSession(
     } catch (error) {
       failed += 1;
       stderr.write(
-        `[remote] h2a bridge ${sessionId}: pull ${f.dir}/${f.file} failed: ${String(
+        `[h2a] h2a bridge ${sessionId}: pull ${f.dir}/${f.file} failed: ${String(
           error instanceof Error ? error.message : error,
         ).slice(0, 160)}\n`,
       );
@@ -421,7 +421,7 @@ export async function bridgeSession(
     } catch (error) {
       failed += 1;
       stderr.write(
-        `[remote] h2a bridge ${sessionId}: push ${f.dir}/${f.file} failed: ${String(
+        `[h2a] h2a bridge ${sessionId}: push ${f.dir}/${f.file} failed: ${String(
           error instanceof Error ? error.message : error,
         ).slice(0, 160)}\n`,
       );

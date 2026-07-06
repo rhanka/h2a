@@ -187,7 +187,7 @@ async function resolveOrCreateWorkspace(
     };
     writeWorkspaceMarker(cwd, marker);
     stderr.write(
-      `[remote] using workspace ${workspaceIdOverride} (from --workspace flag)\n`,
+      `[h2a] using workspace ${workspaceIdOverride} (from --workspace flag)\n`,
     );
     return marker;
   }
@@ -195,7 +195,7 @@ async function resolveOrCreateWorkspace(
   const existing = readWorkspaceMarker(cwd);
   if (existing) {
     stderr.write(
-      `[remote] cwd mapped to ${existing.workspaceId} (reusing workspace)\n`,
+      `[h2a] cwd mapped to ${existing.workspaceId} (reusing workspace)\n`,
     );
     return existing;
   }
@@ -204,7 +204,7 @@ async function resolveOrCreateWorkspace(
   const ws = await createWorkspace(remoteUrl, {}, fetchImpl);
   const marker: WorkspaceMarker = { remote: remoteUrl, workspaceId: ws.id };
   writeWorkspaceMarker(cwd, marker);
-  stderr.write(`[remote] created workspace ${ws.id} and linked to ${cwd}\n`);
+  stderr.write(`[h2a] created workspace ${ws.id} and linked to ${cwd}\n`);
   return marker;
 }
 
@@ -297,7 +297,7 @@ function captureLiveConversation(
   cpSync(join(src, newest.name), join(dstDir, newest.name));
   const convId = newest.name.replace(/\.jsonl$/, "");
   stderr.write(
-    `[remote] captured live ${profile} conversation ${convId} for resume\n`,
+    `[h2a] captured live ${profile} conversation ${convId} for resume\n`,
   );
   return convId;
 }
@@ -326,7 +326,7 @@ function writeGitMetadata(cwd: string, stderr: NodeJS.WriteStream): void {
       "utf8",
     );
     stderr.write(
-      `[remote] recorded git origin for clone-on-start: ${origin} (${branch || "HEAD"})\n`,
+      `[h2a] recorded git origin for clone-on-start: ${origin} (${branch || "HEAD"})\n`,
     );
   } catch {
     // best-effort
@@ -369,10 +369,10 @@ async function pushWorkspace(
     fetchImpl,
   );
   try {
-    stderr.write(`[remote] packing ${cwd} (respecting .gitignore)\n`);
+    stderr.write(`[h2a] packing ${cwd} (respecting .gitignore)\n`);
     const archive = await buildWorkspaceArchive(cwd);
     stderr.write(
-      `[remote] archive: ${(archive.byteLength / 1024).toFixed(0)} KiB -> ${workspaceId}\n`,
+      `[h2a] archive: ${(archive.byteLength / 1024).toFixed(0)} KiB -> ${workspaceId}\n`,
     );
     // Use a throwaway shell session to seed the PVC.
     const session = await createRemoteSession(
@@ -393,7 +393,7 @@ async function pushWorkspace(
     });
     await attached.finished;
     writeBaseSnapshot(cwd, archive);
-    stderr.write(`[remote] pushed ${cwd} to ${workspaceId}\n`);
+    stderr.write(`[h2a] pushed ${cwd} to ${workspaceId}\n`);
     return archive;
   } finally {
     await releaseWorkspaceLock(remoteUrl, workspaceId, fetchImpl);
@@ -453,7 +453,7 @@ async function pullWorkspace(
 
     if (!remoteArchive) {
       stderr.write(
-        `[remote] nothing to pull (workspace ${workspaceId} produced no export)\n`,
+        `[h2a] nothing to pull (workspace ${workspaceId} produced no export)\n`,
       );
       return { remoteArchive: null, hasConflicts: false };
     }
@@ -464,19 +464,19 @@ async function pullWorkspace(
       baseArchive: readBaseSnapshot(cwd),
     });
     stderr.write(
-      `[remote] pull: ${mergeResult.tookRemote.length} from remote, ${mergeResult.keptLocal.length} kept local, ${mergeResult.merged.length} merged\n`,
+      `[h2a] pull: ${mergeResult.tookRemote.length} from remote, ${mergeResult.keptLocal.length} kept local, ${mergeResult.merged.length} merged\n`,
     );
 
     let hasConflicts = false;
     if (mergeResult.conflicts.length > 0) {
       stderr.write(
-        `[remote] ${mergeResult.conflicts.length} conflict(s) (left with markers, resolve then re-run):\n`,
+        `[h2a] ${mergeResult.conflicts.length} conflict(s) (left with markers, resolve then re-run):\n`,
       );
       for (const f of mergeResult.conflicts) stderr.write(`  ${f}\n`);
       hasConflicts = true;
     } else {
       writeBaseSnapshot(cwd, remoteArchive);
-      stderr.write(`[remote] pulled ${workspaceId} into ${cwd}\n`);
+      stderr.write(`[h2a] pulled ${workspaceId} into ${cwd}\n`);
     }
 
     // Restore conversation state.
@@ -492,7 +492,7 @@ async function pullWorkspace(
         r.restored.length + r.backedUp.length + r.conflicts.length;
       if (touched === 0 && r.keptLocal.length === 0) continue;
       stderr.write(
-        `[remote] sessions(${profile}): ${r.restored.length} restored, ${r.backedUp.length} backed-up, ${r.keptLocal.length} kept, ${r.conflicts.length} conflict\n`,
+        `[h2a] sessions(${profile}): ${r.restored.length} restored, ${r.backedUp.length} backed-up, ${r.keptLocal.length} kept, ${r.conflicts.length} conflict\n`,
       );
       for (const b of r.backedUp) stderr.write(`    backup ${b}\n`);
       if (r.conflicts.length > 0) {
@@ -502,7 +502,7 @@ async function pullWorkspace(
     }
     if (anySessionConflict) {
       stderr.write(
-        `[remote] diverged conversations left untouched. Re-run with --on-conflict backup or keep-local.\n`,
+        `[h2a] diverged conversations left untouched. Re-run with --on-conflict backup or keep-local.\n`,
       );
       hasConflicts = true;
     }
@@ -579,7 +579,7 @@ export async function migrateForward(
     // Revive on the existing PVC: no capture, no push — the conversation and any
     // work done remotely are already on the retained workspace volume.
     stderr.write(
-      `[remote] reconnect: reusing workspace ${marker.workspaceId} as-is (no push)\n`,
+      `[h2a] reconnect: reusing workspace ${marker.workspaceId} as-is (no push)\n`,
     );
   } else {
     // Record git origin so the Pod can clone-on-start when .git is too big to
@@ -613,7 +613,7 @@ export async function migrateForward(
       );
       if ("error" in result) {
         throw new Error(
-          `[remote] workspace is already being migrated (concurrent push detected).\n` +
+          `[h2a] workspace is already being migrated (concurrent push detected).\n` +
           `  Current holder: ${result.current.holder}\n` +
           `  Wait for the other migration to complete, or release the lease manually.`,
         );
@@ -624,7 +624,7 @@ export async function migrateForward(
       // Graceful fallback: if the CP doesn't have the lineage-leases route yet
       // (404) or is unreachable, skip enforcement (backward compat).
       if (msg.includes("acquireLineageLease: 404") || msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND")) {
-        stderr.write(`[remote] lineage lease skipped (CP missing route or unreachable)\n`);
+        stderr.write(`[h2a] lineage lease skipped (CP missing route or unreachable)\n`);
       } else {
         throw err;
       }
@@ -690,15 +690,15 @@ export async function migrateForward(
   );
   stderr.write(
     credentials
-      ? `[remote] bundled ${profile} creds: ${Object.keys(credentials).join(", ")}\n`
-      : `[remote] no ${profile} creds found locally — session starts unauthenticated\n`,
+      ? `[h2a] bundled ${profile} creds: ${Object.keys(credentials).join(", ")}\n`
+      : `[h2a] no ${profile} creds found locally — session starts unauthenticated\n`,
   );
   if (bundledTools.length > 0) {
-    stderr.write(`[remote] bundled tool auth: ${bundledTools.join(", ")}\n`);
+    stderr.write(`[h2a] bundled tool auth: ${bundledTools.join(", ")}\n`);
   }
 
   stderr.write(
-    `[remote] migrated to remote session ${session.id} on ${remoteUrl} (workspace ${marker.workspaceId})\n`,
+    `[h2a] migrated to remote session ${session.id} on ${remoteUrl} (workspace ${marker.workspaceId})\n`,
   );
 
   // Phase A: record the active remote session so migrateBack can target it
@@ -718,14 +718,14 @@ export async function migrateForward(
   // Step 5: hand off terminal — unless --no-attach (bulk / reconnect-yourself).
   if (options.noAttach) {
     stderr.write(
-      `[remote] session ready (not attached). Reconnect your terminal with:\n` +
-        `    remote attach ${remoteUrl} ${session.id}\n`,
+      `[h2a] session ready (not attached). Reconnect your terminal with:\n` +
+        `    h2a attach ${remoteUrl} ${session.id}\n`,
     );
     return { workspaceId: marker.workspaceId, sessionId: session.id };
   }
 
   stderr.write(
-    `[remote] terminal is now REMOTE — press Ctrl+P Ctrl+Q to detach without stopping the session\n`,
+    `[h2a] terminal is now REMOTE — press Ctrl+P Ctrl+Q to detach without stopping the session\n`,
   );
   const attached = await attach({
     baseUrl: remoteUrl,
@@ -764,7 +764,7 @@ export async function migrateBack(
   const workspaceId = options.workspaceId ?? existing?.workspaceId;
   if (!workspaceId) {
     throw new Error(
-      "No workspace mapped for this directory and no --workspace given. Run `remote workspace link` first or pass --workspace <id>.",
+      "No workspace mapped for this directory and no --workspace given. Run `h2a workspace link` first or pass --workspace <id>.",
     );
   }
 
@@ -794,7 +794,7 @@ export async function migrateBack(
     } else if (lineageRec?.remoteSessionId) {
       target = { id: lineageRec.remoteSessionId };
       stderr.write(
-        `[remote] targeting session ${target.id} from lineage record\n`,
+        `[h2a] targeting session ${target.id} from lineage record\n`,
       );
     } else {
       const sessions = await listRemoteSessions(remoteUrl, fetchImpl);
@@ -809,7 +809,7 @@ export async function migrateBack(
     if (target !== undefined) {
       await stopRemoteSession(remoteUrl, target.id, "migrate-back", fetchImpl);
       stoppedSessionId = target.id;
-      stderr.write(`[remote] stopped remote session ${target.id}\n`);
+      stderr.write(`[h2a] stopped remote session ${target.id}\n`);
       // Clear the active session from the lineage record — the migration is done.
       if (lineageRec) {
         writeLineageRecord(cwd, workspaceId, { lineageId: lineageRec.lineageId });
@@ -817,7 +817,7 @@ export async function migrateBack(
     }
   } catch (err) {
     stderr.write(
-      `[remote] warning: could not stop remote session: ${String(err)}\n`,
+      `[h2a] warning: could not stop remote session: ${String(err)}\n`,
     );
   }
 
@@ -852,13 +852,13 @@ export async function migrateBack(
   // Advice string: the ACTUAL CLI command shape (remote run … -r <id>), not a
   // raw profile flag — codex's resume is a subcommand, claude's differs by id.
   const resumeCommand = resumeConvId
-    ? `remote run ${finalProfile} -r ${resumeConvId}`
-    : `remote run ${finalProfile}`;
+    ? `h2a run ${finalProfile} -r ${resumeConvId}`
+    : `h2a run ${finalProfile}`;
 
   stdout.write(
-    `\n[remote] local state restored from workspace ${workspaceId}\n`,
+    `\n[h2a] local state restored from workspace ${workspaceId}\n`,
   );
-  stdout.write(`[remote] resume your session with:\n\n  ${resumeCommand}\n\n`);
+  stdout.write(`[h2a] resume your session with:\n\n  ${resumeCommand}\n\n`);
 
   return {
     workspaceId,

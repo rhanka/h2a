@@ -340,7 +340,7 @@ export async function startGateway(
     } catch (err) {
       if (opts.verbose) {
         process.stderr.write(
-          `[remote] llm-mesh: token refresh failed for ${acc.id}: ${String(err)}\n`,
+          `[h2a] llm-mesh: token refresh failed for ${acc.id}: ${String(err)}\n`,
         );
       }
       refreshedAccounts.push(acc);

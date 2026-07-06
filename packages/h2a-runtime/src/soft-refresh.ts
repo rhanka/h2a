@@ -196,7 +196,7 @@ export async function softRefreshSession(
   const tunnel = getTunnel();
   if (!tunnel) {
     throw new Error(
-      "soft refresh needs a tunnel configured (remote config tunnel …)",
+      "soft refresh needs a tunnel configured (h2a config tunnel …)",
     );
   }
   const pod = `session-${sessionId}`;
@@ -270,14 +270,14 @@ export async function softRefreshSession(
         };
       }
       stderr.write(
-        `[remote] ${pod}: creds unchanged but the CLI is down (pane at ${paneCmd || "?"}) — respawning\n`,
+        `[h2a] ${pod}: creds unchanged but the CLI is down (pane at ${paneCmd || "?"}) — respawning\n`,
       );
       const convId = detectNewestConversation(tunnel, pod);
       const respawned = convId
         ? respawnPane(tunnel, pod, profile, convId, stderr)
         : false;
       if (!convId) {
-        stderr.write(`[remote] no conversation found to resume in ${pod}\n`);
+        stderr.write(`[h2a] no conversation found to resume in ${pod}\n`);
       }
       return {
         changed: false,
@@ -304,7 +304,7 @@ export async function softRefreshSession(
     filesPushed.push(rel);
   }
   stderr.write(
-    `[remote] pushed ${filesPushed.length} cred file(s) into ${pod}\n`,
+    `[h2a] pushed ${filesPushed.length} cred file(s) into ${pod}\n`,
   );
 
   // Record the pushed bundle's hash in the Pod so future --all/--watch passes
@@ -313,7 +313,7 @@ export async function softRefreshSession(
     execPod(tunnel, pod, `printf %s '${hash}' > "$HOME/${CREDS_HASH_FILE}"`);
   } catch (error) {
     stderr.write(
-      `[remote] warn: could not record creds hash in Pod: ${String(error).slice(0, 120)}\n`,
+      `[h2a] warn: could not record creds hash in Pod: ${String(error).slice(0, 120)}\n`,
     );
   }
 
@@ -352,14 +352,14 @@ export async function softRefreshSession(
       secretKeysPatched.push(key);
     } catch (error) {
       stderr.write(
-        `[remote] warn: could not patch Secret key ${key}: ${String(error).slice(0, 120)}\n`,
+        `[h2a] warn: could not patch Secret key ${key}: ${String(error).slice(0, 120)}\n`,
       );
     } finally {
       rmSync(patchFile, { force: true });
     }
   }
   stderr.write(
-    `[remote] patched ${secretKeysPatched.length} Secret key(s) (durable across restart)\n`,
+    `[h2a] patched ${secretKeysPatched.length} Secret key(s) (durable across restart)\n`,
   );
 
   // 3. detect the newest conversation in the Pod and respawn the CLI in tmux.
@@ -369,7 +369,7 @@ export async function softRefreshSession(
   if (convId) {
     respawned = respawnPane(tunnel, pod, profile, convId, stderr);
   } else {
-    stderr.write(`[remote] creds pushed; no conversation found to resume\n`);
+    stderr.write(`[h2a] creds pushed; no conversation found to resume\n`);
   }
 
   return {
@@ -411,7 +411,7 @@ function respawnPane(
   const resume = resumeCommand(profile, convId);
   if (!resume) {
     stderr.write(
-      `[remote] creds pushed but ${profile} has no verified resume command for ${convId}; restart the CLI in the Pod manually\n`,
+      `[h2a] creds pushed but ${profile} has no verified resume command for ${convId}; restart the CLI in the Pod manually\n`,
     );
     return false;
   }
@@ -421,7 +421,7 @@ function respawnPane(
     `export LANG=C.UTF-8 LC_ALL=C.UTF-8`,
     `cd "$WORKSPACE_PATH" 2>/dev/null || true`,
     resume,
-    `printf '\\n[remote] %s exited — shell.\\n' "$0"`,
+    `printf '\\n[h2a] %s exited — shell.\\n' "$0"`,
     `exec bash -l`,
     `RL`,
     `chmod +x "$HOME/.remote-relaunch.sh"`,
@@ -431,8 +431,8 @@ function respawnPane(
   const respawned = out.endsWith("respawned");
   stderr.write(
     respawned
-      ? `[remote] relaunched ${profile} (--resume ${convId}) in the Pod's tmux\n`
-      : `[remote] creds pushed but no tmux 'main' to respawn — restart the CLI in the Pod manually\n`,
+      ? `[h2a] relaunched ${profile} (--resume ${convId}) in the Pod's tmux\n`
+      : `[h2a] creds pushed but no tmux 'main' to respawn — restart the CLI in the Pod manually\n`,
   );
   return respawned;
 }
@@ -506,7 +506,7 @@ export async function probeAndPushToolHealth(
   // ok:false → re-bundle + push this tool's LOCAL creds (same path as today).
   // Tool/status only — NEVER a secret value.
   stderr.write(
-    `[remote] pod 401: ${health.reason} — pushing fresh ${tool} creds\n`,
+    `[h2a] pod 401: ${health.reason} — pushing fresh ${tool} creds\n`,
   );
   const { bundle } = await deps.collect([tool]);
   const rels = Object.keys(bundle);
@@ -521,7 +521,7 @@ export async function probeAndPushToolHealth(
   }
   if (filesPushed.length === 0) {
     stderr.write(
-      `[remote] no local ${tool} creds to push — run \`${tool} login\` locally\n`,
+      `[h2a] no local ${tool} creds to push — run \`${tool} login\` locally\n`,
     );
   }
   return {
@@ -608,7 +608,7 @@ export async function probePodCredHealth(
       actions.push(await probeAndPushToolHealth(tool, deps));
     } catch (error) {
       stderr.write(
-        `[remote] ${pod}: ${tool} health probe/push errored: ${String(error).slice(0, 120)}\n`,
+        `[h2a] ${pod}: ${tool} health probe/push errored: ${String(error).slice(0, 120)}\n`,
       );
     }
   }

@@ -39,7 +39,7 @@ export function evaluateExposure(req: ExposureRequest): ExposureDecision {
 
 export function buildForwardCommand(sessionId: string, localPort?: number): string {
   const tail = localPort === undefined ? "" : ` ${localPort}`;
-  return `remote forward ${sessionId} ${NOVNC_POD_PORT}${tail}`;
+  return `h2a forward ${sessionId} ${NOVNC_POD_PORT}${tail}`;
 }
 
 export function buildNoVncUrl(opts: { readonly localPort?: number; readonly token: string; readonly interactive?: boolean; readonly autoconnect?: boolean; readonly host?: string }): string {

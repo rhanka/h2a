@@ -90,7 +90,7 @@ async function waitForTerminalOpened(options: {
     );
     if (!response.ok || !response.body) {
       throw new Error(
-        `[remote] smoke event stream returned ${response.status} ${response.statusText}`,
+        `[h2a] smoke event stream returned ${response.status} ${response.statusText}`,
       );
     }
 
@@ -120,19 +120,19 @@ async function waitForTerminalOpened(options: {
         if (envelope.type === "terminal.exited") {
           const payload = envelope.payload as { exitCode?: number };
           throw new Error(
-            `[remote] smoke session ${options.sessionId} exited before terminal.opened (exitCode=${payload.exitCode ?? "unknown"})`,
+            `[h2a] smoke session ${options.sessionId} exited before terminal.opened (exitCode=${payload.exitCode ?? "unknown"})`,
           );
         }
       }
     }
 
     throw new Error(
-      `[remote] smoke event stream ended before terminal.opened for ${options.sessionId}`,
+      `[h2a] smoke event stream ended before terminal.opened for ${options.sessionId}`,
     );
   } catch (error) {
     if (timedOut) {
       throw new Error(
-        `[remote] smoke timed out waiting for terminal.opened for ${options.sessionId}`,
+        `[h2a] smoke timed out waiting for terminal.opened for ${options.sessionId}`,
       );
     }
     throw error;
