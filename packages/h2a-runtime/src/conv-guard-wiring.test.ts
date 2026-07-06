@@ -267,7 +267,7 @@ function registrySession(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("remote resume <slug>", () => {
+describe("h2a resume <slug>", () => {
   it("opens Claude's native resume selector when --claude has no id", async () => {
     const cwd = process.cwd();
     const expectedSlug = cwd.split("/").filter(Boolean).pop() ?? "session";
@@ -360,7 +360,7 @@ describe("remote resume <slug>", () => {
     expect(attachLocalSession).toHaveBeenCalledWith("remote-remote-cli");
     expect(stderrText()).toContain("no new claude was started");
     expect(stderrText()).toContain("switching to existing session remote-cli");
-    expect(stderrText()).not.toContain("attach: remote attach remote-cli");
+    expect(stderrText()).not.toContain("attach: h2a attach remote-cli");
   });
 
   it("runs the CLI in-place when explicit resume is invoked from inside the target tmux session", async () => {
@@ -441,7 +441,7 @@ describe("remote resume <slug>", () => {
     expect(stderrText()).toContain(
       "not restarting an active session automatically",
     );
-    expect(stderrText()).toContain("remote resume remote-cli --replace");
+    expect(stderrText()).toContain("h2a resume remote-cli --replace");
   });
 
   it("resumes Codex's native last session with --codex --last", async () => {
@@ -501,7 +501,7 @@ describe("remote resume <slug>", () => {
       expectedSlug,
     );
     expect(stderrText()).toContain(`resumed local session ${expectedSlug}`);
-    expect(stderrText()).toContain(`remote attach ${expectedSlug}`);
+    expect(stderrText()).toContain(`h2a attach ${expectedSlug}`);
   });
 
   it("uses the optional resume slug as the local name with --claude", async () => {
@@ -540,7 +540,7 @@ describe("remote resume <slug>", () => {
       "projA",
     );
     expect(stderrText()).toContain("resumed local session projA");
-    expect(stderrText()).toContain("remote attach projA");
+    expect(stderrText()).toContain("h2a attach projA");
   });
 
   it("uses Anthropic gateway auth token with claude --bare", async () => {
@@ -757,7 +757,7 @@ describe("remote resume <slug>", () => {
     expect(killLocalSession).not.toHaveBeenCalled();
     expect(startLocalSession).not.toHaveBeenCalled();
     expect(stderrText()).toContain("does not look idle");
-    expect(stderrText()).toContain("remote attach projA");
+    expect(stderrText()).toContain("h2a attach projA");
   });
 
   it("accepts a full tmux session name and canonicalizes to its slug", async () => {
@@ -805,7 +805,7 @@ describe("remote resume <slug>", () => {
     expect(exitCode).toBe(2);
     expect(startLocalSession).not.toHaveBeenCalled();
     expect(stderrText()).toContain("local session projA already exists");
-    expect(stderrText()).toContain("remote attach projA");
+    expect(stderrText()).toContain("h2a attach projA");
   });
 
   it("replaces an existing idle session with --replace after rechecking", async () => {
@@ -868,7 +868,7 @@ describe("remote resume <slug>", () => {
   });
 });
 
-describe("remote run -r <conv> single-writer guard", () => {
+describe("h2a run -r <conv> single-writer guard", () => {
   it("refuses an existing local target before guard, gateway, registry, or spawn", async () => {
     findLocalSession.mockReturnValue({
       name: "remote-projA",
@@ -897,8 +897,8 @@ describe("remote run -r <conv> single-writer guard", () => {
     expect(listRemoteSessions).not.toHaveBeenCalled();
     expect(stderrText()).toContain("local session projA already exists");
     expect(stderrText()).toContain("no new claude was started");
-    expect(stderrText()).toContain("remote attach projA");
-    expect(stderrText()).toContain("remote stop projA --reason restart");
+    expect(stderrText()).toContain("h2a attach projA");
+    expect(stderrText()).toContain("h2a stop projA --reason restart");
     expect(stderrText()).not.toContain("llm-mesh");
   });
 
@@ -976,7 +976,7 @@ describe("remote run -r <conv> single-writer guard", () => {
   });
 });
 
-describe("remote migrate forward -r <conv> single-writer guard", () => {
+describe("h2a migrate forward -r <conv> single-writer guard", () => {
   it("WARNS but PROCEEDS on an unverifiable no-pid local writer", async () => {
     getDefaultRemote.mockReturnValue("http://localhost:8080");
     writeRegistry([unverifiableLocalWriter("conv-dup")]);
@@ -1012,7 +1012,7 @@ describe("remote migrate forward -r <conv> single-writer guard", () => {
 
     expect(exitCode).toBe(1);
     expect(migrateForward).not.toHaveBeenCalled();
-    expect(stderrText()).toContain("remote stop sess-b");
+    expect(stderrText()).toContain("h2a stop sess-b");
   });
 
   it("--force overrides a hard (remote) block and proceeds with the migration", async () => {
@@ -1060,7 +1060,7 @@ describe("remote migrate forward -r <conv> single-writer guard", () => {
     expect(exitCode).toBe(1);
     expect(migrateForward).not.toHaveBeenCalled();
     expect(localConvStat).toHaveBeenCalledWith(process.cwd());
-    expect(stderrText()).toContain("remote stop sess-b");
+    expect(stderrText()).toContain("h2a stop sess-b");
   });
 
   it("bare --resume --force overrides the resolved-conversation guard", async () => {

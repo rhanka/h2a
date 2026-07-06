@@ -279,12 +279,12 @@ export async function syncSkills(
   const tunnel = getTunnel();
   if (!tunnel) {
     throw new Error(
-      "plugin sync-skills needs a tunnel configured (remote config tunnel …)",
+      "plugin sync-skills needs a tunnel configured (h2a config tunnel …)",
     );
   }
   const sessions = await listRemoteSessions(url);
   if (sessions.length === 0) {
-    stderr.write("[remote] no live remote sessions to sync\n");
+    stderr.write("[h2a] no live remote sessions to sync\n");
     return;
   }
   const pods = selectSyncPods(sessions, opts);
@@ -292,12 +292,12 @@ export async function syncSkills(
 
   if (opts.dryRun) {
     stderr.write(
-      `[remote] sync-skills DRY-RUN — whitelist (relative to $HOME): ${skillsSyncWhitelist().join(", ")}\n`,
+      `[h2a] sync-skills DRY-RUN — whitelist (relative to $HOME): ${skillsSyncWhitelist().join(", ")}\n`,
     );
     for (const pod of pods) {
       stderr.write(`    ${buildSkillsSyncPlan({ home, pod }).dryRun}\n`);
     }
-    stderr.write("[remote] dry-run: nothing transferred\n");
+    stderr.write("[h2a] dry-run: nothing transferred\n");
     return;
   }
 
@@ -309,7 +309,7 @@ export async function syncSkills(
   let failures = 0;
   for (const pod of pods) {
     const plan = buildSkillsSyncPlan({ home, pod });
-    stderr.write(`[remote] ${plan.sessionId} (${plan.profile}): sync-skills…\n`);
+    stderr.write(`[h2a] ${plan.sessionId} (${plan.profile}): sync-skills…\n`);
     try {
       await run(plan, tunnel);
       stderr.write(
@@ -321,7 +321,7 @@ export async function syncSkills(
     }
   }
   stderr.write(
-    `[remote] sync-skills done: ${pods.length} pod(s)${failures > 0 ? `, ${failures} failure(s)` : ""}\n`,
+    `[h2a] sync-skills done: ${pods.length} pod(s)${failures > 0 ? `, ${failures} failure(s)` : ""}\n`,
   );
   if (failures > 0) process.exitCode = 1;
 }

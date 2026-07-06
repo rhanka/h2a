@@ -75,8 +75,8 @@ export const REMOTE_TMUX_PROFILE = {
  */
 export const LOCAL_WRAPPER = `relaunch="$0"; cli="$1"; shift
 "$cli" "$@"; code=$?
-printf '\\n[remote] %s exited (code %s) — shell on %s.\\n' "$cli" "$code" "$PWD"
-printf '[remote] relaunch: %s   (or Ctrl-D to end this session)\\n' "$relaunch"
+printf '\\n[h2a] %s exited (code %s) — shell on %s.\\n' "$cli" "$code" "$PWD"
+printf '[h2a] relaunch: %s   (or Ctrl-D to end this session)\\n' "$relaunch"
 if [ -t 0 ]; then exec /bin/bash -l; else exit "$code"; fi`;
 
 /**
@@ -106,7 +106,7 @@ export function localRelaunchCommand(
   // ["resume", id]); the conversation id is its last token, surfaced as `-r`.
   const convId =
     resumeArgs.length > 0 ? resumeArgs[resumeArgs.length - 1] : undefined;
-  let cmd = `remote run ${profile} ${cwd}`;
+  let cmd = `h2a run ${profile} ${cwd}`;
   if (label) cmd += ` --name ${label}`;
   if (convId && convId !== resumeArgs[0]) cmd += ` -r ${convId}`;
   return cmd;
@@ -134,7 +134,7 @@ export function fanoutLabels(base: string, count: number): string[] {
 const WINDOW_WRAPPER = `agent_pane="$1"; cmd="$2"
 if [ -n "$agent_pane" ]; then export TMUX_PANE="$agent_pane"; fi
 eval "$cmd"; code=$?
-printf '\\n[remote] %s exited (code %s) — shell on %s. Re-run it or Ctrl-D to end this window.\\n' "$cmd" "$code" "$PWD"
+printf '\\n[h2a] %s exited (code %s) — shell on %s. Re-run it or Ctrl-D to end this window.\\n' "$cmd" "$code" "$PWD"
 if [ -t 0 ]; then exec /bin/bash -l; else exit "$code"; fi`;
 
 /**
@@ -852,7 +852,7 @@ export function startH2aWindow(
   const bin = commandLine.trim().split(/\s+/)[0] ?? "";
   if (!bin || !commandAvailable(bin)) {
     stderr.write(
-      `[remote] h2a window skipped: \`${bin || commandLine}\` not found in PATH — install h2a (or fix the h2a.command config) and re-run with --h2a.\n`,
+      `[h2a] h2a window skipped: \`${bin || commandLine}\` not found in PATH — install h2a (or fix the h2a.command config) and re-run with --h2a.\n`,
     );
     return false;
   }
@@ -860,7 +860,7 @@ export function startH2aWindow(
   if (sessionWindowNames(session).includes(H2A_WINDOW_NAME)) {
     if (needsLocalTmuxWake) {
       stderr.write(
-        `[remote] h2a window already exists in ${session}; wake target may be stale/wrong. Restart that window/session to pick up the agent pane target.\n`,
+        `[h2a] h2a window already exists in ${session}; wake target may be stale/wrong. Restart that window/session to pick up the agent pane target.\n`,
       );
     }
     return true;
@@ -868,7 +868,7 @@ export function startH2aWindow(
   const agentPane = resolveAgentPane(session);
   if (needsLocalTmuxWake && !agentPane) {
     stderr.write(
-      `[remote] h2a window skipped: agent pane could not be resolved for ${session}; refusing to publish a false --wake local-tmux target.\n`,
+      `[h2a] h2a window skipped: agent pane could not be resolved for ${session}; refusing to publish a false --wake local-tmux target.\n`,
     );
     return false;
   }
@@ -876,7 +876,7 @@ export function startH2aWindow(
     !addSessionWindow(session, H2A_WINDOW_NAME, cwd, commandLine, agentPane)
   ) {
     stderr.write(
-      `[remote] h2a window failed to start (tmux new-window error on ${session})\n`,
+      `[h2a] h2a window failed to start (tmux new-window error on ${session})\n`,
     );
     return false;
   }
@@ -1141,7 +1141,7 @@ export function attachPodTmux(tunnel: TunnelConfig, sessionId: string): number {
       // Clean detach (Ctrl-b d) or exit: the Pod session keeps running — tell
       // the user how to get back in.
       process.stderr.write(
-        `[remote] detached from ${sessionId} — re-attach: remote attach ${sessionId} --exec\n`,
+        `[h2a] detached from ${sessionId} — re-attach: h2a attach ${sessionId} --exec\n`,
       );
       return 0;
     }
@@ -1150,8 +1150,8 @@ export function attachPodTmux(tunnel: TunnelConfig, sessionId: string): number {
       quickFailures += 1;
       if (quickFailures >= 5) {
         process.stderr.write(
-          `[remote] exec attach keeps failing immediately (status ${status}) — the Pod may be gone. ` +
-            `Re-run \`remote attach ${sessionId} --exec\` once it's back.\n`,
+          `[h2a] exec attach keeps failing immediately (status ${status}) — the Pod may be gone. ` +
+            `Re-run \`h2a attach ${sessionId} --exec\` once it's back.\n`,
         );
         return status;
       }
@@ -1159,7 +1159,7 @@ export function attachPodTmux(tunnel: TunnelConfig, sessionId: string): number {
       quickFailures = 0; // a real session that ran a while then dropped
     }
     process.stderr.write(
-      `[remote] exec stream dropped (status ${status} — e.g. "tls: bad record MAC" on a long kubectl exec). ` +
+      `[h2a] exec stream dropped (status ${status} — e.g. "tls: bad record MAC" on a long kubectl exec). ` +
         `Your Pod session is intact; reconnecting to its tmux… (Ctrl-C to stop)\n`,
     );
     spawnSync("sleep", ["1"], { stdio: "ignore" });

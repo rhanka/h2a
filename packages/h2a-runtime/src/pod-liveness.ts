@@ -75,7 +75,7 @@ export function podPhase(tunnel: TunnelConfig, pod: string): string {
  */
 export function deadPodAdvisory(sessionId: string, phase: string): string {
   const shown = phase || "gone";
-  return `[remote] session ${sessionId}: pod ${shown} — skipping (evicted/dead)`;
+  return `[h2a] session ${sessionId}: pod ${shown} — skipping (evicted/dead)`;
 }
 
 /**

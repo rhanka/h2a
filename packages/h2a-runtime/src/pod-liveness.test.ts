@@ -44,7 +44,7 @@ describe("isExecutablePhase — only Running is execable", () => {
 describe("deadPodAdvisory — one concise, secret-free line", () => {
   it("names the session + the phase", () => {
     expect(deadPodAdvisory("sess-944o2ybf", "Failed")).toBe(
-      "[remote] session sess-944o2ybf: pod Failed — skipping (evicted/dead)",
+      "[h2a] session sess-944o2ybf: pod Failed — skipping (evicted/dead)",
     );
   });
 
