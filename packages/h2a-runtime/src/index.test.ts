@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 
 const SCRATCH_ROOT = join(
@@ -682,6 +688,44 @@ describe("main", () => {
       baseUrl: "http://localhost:8080",
       sessionId: "sess-attach",
     });
+  });
+
+  it("attach routes a `remote run` session to LOCAL via the registry when a live tmux miss would otherwise hit a Pod", async () => {
+    // Repro of the reported bug: `run --name h2a` enrolls a kind:"local-tmux"
+    // registry record, but a transient `tmux list-sessions` miss (findLocalSession
+    // → undefined) made attach fall through to the remote/Pod branch → kubectl exec
+    // session-h2a (NotFound). The registry record must keep attach LOCAL.
+    getDefaultRemote.mockReturnValue("http://localhost:8080");
+    findLocalSession.mockReturnValue(undefined); // tmux transiently doesn't list it
+    const regPath = "/tmp/registry.json"; // dirname(resolveConfigPath()) + registry.json
+    writeFileSync(
+      regPath,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            id: "h2a",
+            tool: "claude",
+            kind: "local-tmux",
+            cwd: "/home/u/src/a2a-cli",
+            label: "h2a",
+            tmuxSession: "remote-h2a",
+            enrolledAt: new Date().toISOString(),
+            lastSeenAt: new Date().toISOString(),
+            source: "run",
+          },
+        ],
+      }),
+      "utf8",
+    );
+    try {
+      const exitCode = await main(["node", "remote", "attach", "h2a"]);
+      expect(exitCode).toBe(0);
+      expect(attachLocalSession).toHaveBeenCalledWith("remote-h2a");
+      expect(attach).not.toHaveBeenCalled();
+    } finally {
+      rmSync(regPath, { force: true });
+    }
   });
 
   it("auth status --all reports every profile", async () => {

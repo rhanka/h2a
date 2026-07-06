@@ -764,3 +764,41 @@ export function listLocalForLs(opts: RegistryOpts = {}): LocalLsRow[] {
   }
   return rows;
 }
+
+/**
+ * The tmux session name of a LOCAL session (kind:"local-tmux") recorded in the
+ * registry that matches `target` (by slug/id, custom label, or full tmux
+ * session name) — regardless of current tmux liveness. Returns undefined when
+ * there is no match, when the sole match has already ended, or when the match
+ * is ambiguous (more than one distinct id).
+ *
+ * Why not tmux-only: `attach` used to decide local-vs-remote purely from a live
+ * `tmux list-sessions` (findLocalSession). A transient tmux miss right after
+ * `remote run` then mis-routed a purely LOCAL session to a k8s Pod
+ * (`kubectl exec … session-<name>` → NotFound → reconnect loop) whenever a
+ * tunnel is configured. `remote ls` already trusts the durable registry record;
+ * this lets `attach` be just as reliable. Pure over the passed entries — the
+ * caller supplies `loadRegistry()`, so it stays trivially testable.
+ */
+export function localTmuxSessionForName(
+  target: string,
+  entries: readonly RegistryEntry[],
+): string | undefined {
+  const canonical = target.startsWith("remote-") ? target : `remote-${target}`;
+  const matches = entries.filter(
+    (e) =>
+      e.role === undefined &&
+      e.kind === "local-tmux" &&
+      !e.endedAt &&
+      (e.id === target ||
+        e.label === target ||
+        e.tmuxSession === target ||
+        (e.tmuxSession ?? `remote-${e.id}`) === canonical),
+  );
+  const ids = new Set(matches.map((e) => e.id));
+  if (ids.size !== 1) return undefined;
+  const chosen = matches
+    .slice()
+    .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))[0]!;
+  return chosen.tmuxSession ?? `remote-${chosen.id}`;
+}
