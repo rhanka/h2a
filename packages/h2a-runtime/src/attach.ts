@@ -97,7 +97,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
 
   if (stdin.isTTY) {
     stderr.write(
-      "[remote] press Ctrl+P Ctrl+Q to detach (session keeps running)\n",
+      "[h2a] press Ctrl+P Ctrl+Q to detach (session keeps running)\n",
     );
   }
 
@@ -124,7 +124,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
         if (response.ok) return;
         if (response.status < 500) {
           stderr.write(
-            `[remote] input rejected (${response.status} ${response.statusText}); not retried\n`,
+            `[h2a] input rejected (${response.status} ${response.statusText}); not retried\n`,
           );
           return;
         }
@@ -132,7 +132,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
         if (aborted) return;
         if (attempt === retry.maxAttempts) {
           stderr.write(
-            `[remote] input abandoned after ${retry.maxAttempts} attempts: ${String(error)}\n`,
+            `[h2a] input abandoned after ${retry.maxAttempts} attempts: ${String(error)}\n`,
           );
           return;
         }
@@ -146,7 +146,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
       }
     }
     stderr.write(
-      `[remote] input abandoned after ${retry.maxAttempts} attempts\n`,
+      `[h2a] input abandoned after ${retry.maxAttempts} attempts\n`,
     );
   };
 
@@ -171,7 +171,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
         },
       );
     } catch (error) {
-      stderr.write(`[remote] resize failed: ${String(error)}\n`);
+      stderr.write(`[h2a] resize failed: ${String(error)}\n`);
     }
   };
 
@@ -200,7 +200,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
             detachTimer = null;
           }
           flushPassthrough();
-          if (stdin.isTTY) stderr.write("\n[remote] detached\n");
+          if (stdin.isTTY) stderr.write("\n[h2a] detached\n");
           void close();
           return;
         }
@@ -296,7 +296,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
       if (closed) return;
 
       // Reconnect: heal the tunnel and reopen the events stream.
-      stderr.write("\r\n[remote] connection lost — reconnecting…\r\n");
+      stderr.write("\r\n[h2a] connection lost — reconnecting…\r\n");
       buffer = "";
       let reopened = false;
       for (let attempt = 0; attempt < 120 && !closed; attempt++) {
@@ -310,14 +310,14 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
             },
           );
           if (resp.status === 404) {
-            stderr.write("[remote] session ended\r\n");
+            stderr.write("[h2a] session ended\r\n");
             await close();
             return;
           }
           if (resp.ok && resp.body) {
             reader = resp.body.getReader();
             reopened = true;
-            stderr.write("[remote] reconnected\r\n");
+            stderr.write("[h2a] reconnected\r\n");
             break;
           }
         } catch {

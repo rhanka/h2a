@@ -124,7 +124,7 @@ export function alignment(
   if (remote.bytes > local.bytes) {
     return {
       state: "remote-ahead",
-      detail: `remote +${remote.lines - local.lines} lines — pull: 'remote migrate back' (do NOT re-deport, it would overwrite remote)`,
+      detail: `remote +${remote.lines - local.lines} lines — pull: 'h2a migrate back' (do NOT re-deport, it would overwrite remote)`,
     };
   }
   return { state: "diverged", detail: "same conversation, content differs (both edited)" };

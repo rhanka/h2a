@@ -397,7 +397,7 @@ export function buildPodSyncScript(
     assertSafeName(mcp.name);
     if (!mcp.scriptRel) {
       lines.push(
-        `echo "mcp ${mcp.name}: no scriptRel recorded — re-run: remote plugin add ${plugin.pkg}"`,
+        `echo "mcp ${mcp.name}: no scriptRel recorded — re-run: h2a plugin add ${plugin.pkg}"`,
       );
       continue;
     }
@@ -472,7 +472,7 @@ function installGlobally(spec: string, stderr: NodeJS.WriteStream): void {
       .map((line) => line.trim())
       .find((line) => /^(added|changed|removed|up to date)/.test(line)) ??
     "installed";
-  stderr.write(`[remote] npm i -g ${spec}: ${summary}\n`);
+  stderr.write(`[h2a] npm i -g ${spec}: ${summary}\n`);
 }
 
 function readFileIfExists(path: string): string {
@@ -509,7 +509,7 @@ function registerClaudeLocal(
       );
     }
     stderr.write(
-      `[remote] claude: MCP ${name} -> node ${scriptPath} (scope user)\n`,
+      `[h2a] claude: MCP ${name} -> node ${scriptPath} (scope user)\n`,
     );
     return;
   }
@@ -520,7 +520,7 @@ function registerClaudeLocal(
     "utf8",
   );
   stderr.write(
-    `[remote] claude: MCP ${name} merged into ~/.claude.json (claude CLI not found)\n`,
+    `[h2a] claude: MCP ${name} merged into ~/.claude.json (claude CLI not found)\n`,
   );
 }
 
@@ -546,17 +546,17 @@ function registerAgyLocal(
     [scriptPath],
   );
   if (!changed) {
-    stderr.write(`[remote] agy: MCP ${name} already in ${path} (unchanged)\n`);
+    stderr.write(`[h2a] agy: MCP ${name} already in ${path} (unchanged)\n`);
     return;
   }
   if (needsBackup) {
     const backup = `${path}.bak.${Date.now()}`;
     writeFileSync(backup, before, "utf8");
-    stderr.write(`[remote] agy: backed up ${path} -> ${backup}\n`);
+    stderr.write(`[h2a] agy: backed up ${path} -> ${backup}\n`);
   }
   writeFileSync(path, next, "utf8");
   stderr.write(
-    `[remote] agy: MCP ${name} -> node ${scriptPath} in ~/.gemini/config/mcp_config.json\n`,
+    `[h2a] agy: MCP ${name} -> node ${scriptPath} in ~/.gemini/config/mcp_config.json\n`,
   );
 }
 
@@ -575,7 +575,7 @@ function registerCodexLocal(
     "utf8",
   );
   stderr.write(
-    `[remote] codex: [mcp_servers.${name}] -> node ${scriptPath} in ~/.codex/config.toml\n`,
+    `[h2a] codex: [mcp_servers.${name}] -> node ${scriptPath} in ~/.codex/config.toml\n`,
   );
 }
 
@@ -891,7 +891,7 @@ export function reconcilePodManifestVia(
   }
   // Drift detected (hash only — never a secret). Re-run the EXISTING sync script.
   stderr.write(
-    `[remote] ${pod}: plugin/MCP drift (manifest ${podHash ? "mismatch" : "absent"}) — reconciling via plugin sync\n`,
+    `[h2a] ${pod}: plugin/MCP drift (manifest ${podHash ? "mismatch" : "absent"}) — reconciling via plugin sync\n`,
   );
   let failures = 0;
   for (const plugin of plugins) {
@@ -982,7 +982,7 @@ export function pluginAdd(
     mcpSpecs.length > 0 ? parseMcpSpecs(mcpSpecs) : detectMcpBins(bins);
   if (requests.length === 0) {
     stderr.write(
-      `[remote] no MCP bin detected for ${pkg} (none ends in -mcp; bins: ${Object.keys(bins).join(", ") || "none"}) — pass --mcp <name>=<bin>\n`,
+      `[h2a] no MCP bin detected for ${pkg} (none ends in -mcp; bins: ${Object.keys(bins).join(", ") || "none"}) — pass --mcp <name>=<bin>\n`,
     );
   }
 
@@ -1007,10 +1007,10 @@ export function pluginAdd(
   const entry: PluginEntry = { pkg, version, mcp };
   setPlugins([...getPlugins().filter((p) => p.pkg !== pkg), entry]);
   stderr.write(
-    `[remote] plugin ${pkg}@${version} installed — ${mcp.length} MCP server(s) registered; persisted in remote config\n`,
+    `[h2a] plugin ${pkg}@${version} installed — ${mcp.length} MCP server(s) registered; persisted in remote config\n`,
   );
   stderr.write(
-    `[remote] propagate to live remote sessions with: remote plugin sync\n`,
+    `[h2a] propagate to live remote sessions with: h2a plugin sync\n`,
   );
   return entry;
 }
@@ -1037,7 +1037,7 @@ export function pluginAddInstaller(
   buildInstallCommand(entry); // throws on a bad curl url / empty script
   setPlugins([...getPlugins().filter((p) => p.pkg !== name), entry]);
   stderr.write(
-    `[remote] plugin ${name} (${install.method}) persisted — installs in Pods on \`remote plugin sync\`\n`,
+    `[h2a] plugin ${name} (${install.method}) persisted — installs in Pods on \`h2a plugin sync\`\n`,
   );
   return entry;
 }
@@ -1060,7 +1060,7 @@ export async function pluginLs(
   const plugins = getPlugins();
   if (plugins.length === 0) {
     stdout.write(
-      "[remote] no plugins configured (remote plugin add <npmPkg>)\n",
+      "[h2a] no plugins configured (h2a plugin add <npmPkg>)\n",
     );
     return;
   }
@@ -1114,8 +1114,8 @@ export async function pluginLs(
   }
   stdout.write(
     remoteByPkg
-      ? "\n(REMOTE: real per-Pod status, worst across live sessions — `remote plugin sync --check` for the full per-Pod table.)\n"
-      : '\n(REMOTE "?": not connected to the control-plane — `remote plugin sync --check` (with the tunnel up) shows real per-Pod status.)\n',
+      ? "\n(REMOTE: real per-Pod status, worst across live sessions — `h2a plugin sync --check` for the full per-Pod table.)\n"
+      : '\n(REMOTE "?": not connected to the control-plane — `h2a plugin sync --check` (with the tunnel up) shows real per-Pod status.)\n',
   );
 }
 
@@ -1143,26 +1143,26 @@ export async function pluginSync(
   const plugins = getPlugins();
   if (plugins.length === 0) {
     stderr.write(
-      "[remote] no plugins configured (remote plugin add <npmPkg>)\n",
+      "[h2a] no plugins configured (h2a plugin add <npmPkg>)\n",
     );
     return;
   }
   const tunnel = getTunnel();
   if (!tunnel) {
     throw new Error(
-      "plugin sync needs a tunnel configured (remote config tunnel …)",
+      "plugin sync needs a tunnel configured (h2a config tunnel …)",
     );
   }
   const sessions = await listRemoteSessions(url);
   if (sessions.length === 0) {
-    stderr.write("[remote] no live remote sessions to sync\n");
+    stderr.write("[h2a] no live remote sessions to sync\n");
     return;
   }
   const manifest = renderManifest(plugins);
   let failures = 0;
   for (const session of sessions) {
     const pod = `session-${session.id}`;
-    stderr.write(`[remote] ${session.id} (${session.profile}):\n`);
+    stderr.write(`[h2a] ${session.id} (${session.profile}):\n`);
     for (const plugin of plugins) {
       try {
         const out = execPod(
@@ -1192,7 +1192,7 @@ export async function pluginSync(
     }
   }
   stderr.write(
-    `[remote] plugin sync done: ${sessions.length} session(s), ${plugins.length} plugin(s)${failures > 0 ? `, ${failures} failure(s)` : ""}\n`,
+    `[h2a] plugin sync done: ${sessions.length} session(s), ${plugins.length} plugin(s)${failures > 0 ? `, ${failures} failure(s)` : ""}\n`,
   );
   if (failures > 0) process.exitCode = 1;
 }
@@ -1215,19 +1215,19 @@ export async function pluginSyncCheck(
   const plugins = getPlugins();
   if (plugins.length === 0) {
     stderr.write(
-      "[remote] no plugins configured (remote plugin add <npmPkg>)\n",
+      "[h2a] no plugins configured (h2a plugin add <npmPkg>)\n",
     );
     return [];
   }
   const tunnel = getTunnel();
   if (!tunnel) {
     throw new Error(
-      "plugin sync --check needs a tunnel configured (remote config tunnel …)",
+      "plugin sync --check needs a tunnel configured (h2a config tunnel …)",
     );
   }
   const sessions = await listRemoteSessions(url);
   if (sessions.length === 0) {
-    stderr.write("[remote] no live remote sessions to check\n");
+    stderr.write("[h2a] no live remote sessions to check\n");
     return [];
   }
   const manifest = renderManifest(plugins);
@@ -1240,7 +1240,7 @@ export async function pluginSyncCheck(
       allRows.push(...diffManifest(manifest, pod, state));
     } catch (error) {
       stderr.write(
-        `[remote] ${pod}: drift probe failed: ${String(error).slice(0, 200)}\n`,
+        `[h2a] ${pod}: drift probe failed: ${String(error).slice(0, 200)}\n`,
       );
       // A probe failure is itself drift we can't clear — surface every desired
       // item as a probe-failure row (status missing/unregistered conservatively).
@@ -1275,7 +1275,7 @@ function printDriftTable(
   const drifted = rows.filter(isDrift).length;
   stdout.write(
     drifted === 0
-      ? `\n[remote] no drift — every live Pod matches the desired manifest.\n`
-      : `\n[remote] ${drifted} drift row(s) — run \`remote plugin sync\` to converge (exit 1).\n`,
+      ? `\n[h2a] no drift — every live Pod matches the desired manifest.\n`
+      : `\n[h2a] ${drifted} drift row(s) — run \`h2a plugin sync\` to converge (exit 1).\n`,
   );
 }

@@ -516,16 +516,16 @@ async function startRemoteFanout(
     `NAME\tSESSION\tWORKSPACE\tSTATUS\n${rows.join("\n")}\n`,
   );
   process.stderr.write(
-    `[remote] ${ok.length}/${members.length} remote ${profileName} sessions created on ${remote} (shared RWX, subPath per session)\n`,
+    `[h2a] ${ok.length}/${members.length} remote ${profileName} sessions created on ${remote} (shared RWX, subPath per session)\n`,
   );
   if (ok.length > 0) {
     process.stderr.write(
-      `[remote] attach one with: remote attach <session>   (list: remote ls)\n`,
+      `[h2a] attach one with: h2a attach <session>   (list: h2a ls)\n`,
     );
   }
   if (failed.length > 0) {
     process.stderr.write(
-      `[remote] ${failed.length} session(s) failed to create — re-run --count for the shortfall, or check the control-plane\n`,
+      `[h2a] ${failed.length} session(s) failed to create — re-run --count for the shortfall, or check the control-plane\n`,
     );
     process.exitCode = 1;
   }
@@ -544,7 +544,7 @@ async function runProfile(
     }
     if (opts.count > 1 && !opts.remote) {
       throw new Error(
-        "--count > 1 is a REMOTE fan-out — it needs a configured remote (use `remote run --count` for LOCAL tmux fan-out)",
+        "--count > 1 is a REMOTE fan-out — it needs a configured remote (use `h2a run --count` for LOCAL tmux fan-out)",
       );
     }
   }
@@ -555,7 +555,7 @@ async function runProfile(
       if (opts.authRefresh !== false) {
         const result = await ensureProfileAuthFresh(profileName);
         if (result.checked) {
-          process.stderr.write(`[remote] auth status ok: ${result.command}\n`);
+          process.stderr.write(`[h2a] auth status ok: ${result.command}\n`);
         }
       }
       const bundle = await collectProfileAuth(profileName);
@@ -614,11 +614,11 @@ async function runProfile(
     let archive: Buffer | undefined;
     if (opts.sync) {
       process.stderr.write(
-        `[remote] packing ${process.cwd()} (respecting .gitignore)\n`,
+        `[h2a] packing ${process.cwd()} (respecting .gitignore)\n`,
       );
       archive = await buildWorkspaceArchive(process.cwd());
       process.stderr.write(
-        `[remote] workspace archive: ${(archive.byteLength / 1024).toFixed(0)} KiB\n`,
+        `[h2a] workspace archive: ${(archive.byteLength / 1024).toFixed(0)} KiB\n`,
       );
     }
     const session = await createRemoteSession(opts.remote, {
@@ -634,19 +634,19 @@ async function runProfile(
     if (archive) {
       await uploadWorkspaceArchive(opts.remote, session.id, archive);
       process.stderr.write(
-        `[remote] uploaded workspace to ${opts.remote}/sessions/${session.id}/workspace\n`,
+        `[h2a] uploaded workspace to ${opts.remote}/sessions/${session.id}/workspace\n`,
       );
     }
     if (credentials) {
       process.stderr.write(
-        `[remote] sending ${profileName} creds to ${opts.remote}: ${Object.keys(credentials).join(", ")}\n`,
+        `[h2a] sending ${profileName} creds to ${opts.remote}: ${Object.keys(credentials).join(", ")}\n`,
       );
       process.stderr.write(
-        `[remote] (use --no-auth to start without credentials)\n`,
+        `[h2a] (use --no-auth to start without credentials)\n`,
       );
     }
     process.stderr.write(
-      `[remote] attached to ${opts.remote}/sessions/${session.id}\n`,
+      `[h2a] attached to ${opts.remote}/sessions/${session.id}\n`,
     );
     const attachSession = await attach({
       baseUrl: opts.remote,
@@ -663,7 +663,7 @@ async function runProfile(
   };
   const result = await run(runOptions);
   process.stderr.write(
-    `[remote] session ${result.sessionId} attach at http://127.0.0.1:${result.port}\n`,
+    `[h2a] session ${result.sessionId} attach at http://127.0.0.1:${result.port}\n`,
   );
   const { exitCode } = await result.exit;
   process.exitCode = exitCode;
@@ -682,7 +682,7 @@ async function refreshProfileSession(
     coerceCliProfileName(opts.profile) !== coerceCliProfileName(remoteProfile)
   ) {
     process.stderr.write(
-      `[remote] warning: --profile ${opts.profile} does not match the session profile ${remoteProfile}; bundling ${opts.profile} credentials anyway\n`,
+      `[h2a] warning: --profile ${opts.profile} does not match the session profile ${remoteProfile}; bundling ${opts.profile} credentials anyway\n`,
     );
   }
   const profileName = coerceCliProfileName(requestedProfile);
@@ -697,7 +697,7 @@ async function refreshProfileSession(
     if (opts.authRefresh !== false) {
       const result = await ensureProfileAuthFresh(profileName);
       if (result.checked) {
-        process.stderr.write(`[remote] auth status ok: ${result.command}\n`);
+        process.stderr.write(`[h2a] auth status ok: ${result.command}\n`);
       }
     }
     const bundle = await collectProfileAuth(profileName);
@@ -707,7 +707,7 @@ async function refreshProfileSession(
 
   if (!credentials || Object.keys(credentials).length === 0) {
     process.stderr.write(
-      `[remote] no credentials to refresh for session ${sessionId} (${profileName})\n`,
+      `[h2a] no credentials to refresh for session ${sessionId} (${profileName})\n`,
     );
     return;
   }
@@ -720,7 +720,7 @@ async function refreshProfileSession(
     opts.name,
   );
   process.stderr.write(
-    `[remote] refresh ${response.accepted ? "accepted" : "rejected"} for ${response.sessionId}` +
+    `[h2a] refresh ${response.accepted ? "accepted" : "rejected"} for ${response.sessionId}` +
       (opts.name ? ` (renamed → ${opts.name})` : "") +
       "\n",
   );
@@ -749,16 +749,16 @@ async function pushAllProfiles(
   }
   if (sent.length === 0) {
     process.stderr.write(
-      `[remote] no local credentials found for any profile; nothing to push\n`,
+      `[h2a] no local credentials found for any profile; nothing to push\n`,
     );
     return;
   }
   process.stderr.write(
-    `[remote] sending creds for ${sent.join(", ")} to ${baseUrl}/sessions/${sessionId}: ${Object.keys(merged).join(", ")}\n`,
+    `[h2a] sending creds for ${sent.join(", ")} to ${baseUrl}/sessions/${sessionId}: ${Object.keys(merged).join(", ")}\n`,
   );
   const response = await refreshRemoteSession(baseUrl, sessionId, merged);
   process.stderr.write(
-    `[remote] push ${response.accepted ? "accepted" : "rejected"} for ${response.sessionId}\n`,
+    `[h2a] push ${response.accepted ? "accepted" : "rejected"} for ${response.sessionId}\n`,
   );
 }
 
@@ -885,12 +885,12 @@ async function preflightOrWarn(profile: CliProfile): Promise<void> {
   try {
     const fresh = await ensureProfileAuthFresh(profile);
     if (fresh.checked) {
-      process.stderr.write(`[remote] auth status ok: ${fresh.command}\n`);
+      process.stderr.write(`[h2a] auth status ok: ${fresh.command}\n`);
     }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     process.stderr.write(
-      `[remote] auth preflight failed (${detail.slice(0, 120)}) — pushing current creds anyway\n`,
+      `[h2a] auth preflight failed (${detail.slice(0, 120)}) — pushing current creds anyway\n`,
     );
   }
 }
@@ -916,7 +916,7 @@ export async function softRefreshAllSessions(
 
   const sessions = await listRemoteSessions(url);
   if (sessions.length === 0) {
-    process.stderr.write("[remote] no live remote sessions to refresh\n");
+    process.stderr.write("[h2a] no live remote sessions to refresh\n");
     return { failed: 0 };
   }
   const preflighted = new Set<string>();
@@ -969,13 +969,13 @@ export async function softRefreshAllSessions(
         for (const a of actions) {
           if (!a.health.ok) {
             process.stderr.write(
-              `[remote]   ${s.id}: ${a.health.reason}${a.pushed ? " — pushed" : ""}\n`,
+              `[h2a]   ${s.id}: ${a.health.reason}${a.pushed ? " — pushed" : ""}\n`,
             );
           }
         }
       } catch (probeError) {
         process.stderr.write(
-          `[remote]   ${s.id}: tool health probe skipped: ${String(probeError).slice(0, 120)}\n`,
+          `[h2a]   ${s.id}: tool health probe skipped: ${String(probeError).slice(0, 120)}\n`,
         );
       }
       // Slice 3: ADDITIONAL trigger — compare the local desired-state manifest
@@ -985,7 +985,7 @@ export async function softRefreshAllSessions(
         reconcileSessionPlugins(s.id, profile);
       } catch (driftError) {
         process.stderr.write(
-          `[remote]   ${s.id}: plugin drift reconcile skipped: ${String(driftError).slice(0, 120)}\n`,
+          `[h2a]   ${s.id}: plugin drift reconcile skipped: ${String(driftError).slice(0, 120)}\n`,
         );
       }
       outcomes.push({
@@ -1007,7 +1007,7 @@ export async function softRefreshAllSessions(
   }
   const failed = outcomes.filter((o) => o.status === "failed").length;
   process.stderr.write(
-    `[remote] soft refresh recap — ${outcomes.length} session(s), ${failed} failed:\n`,
+    `[h2a] soft refresh recap — ${outcomes.length} session(s), ${failed} failed:\n`,
   );
   for (const o of outcomes) {
     process.stderr.write(
@@ -1058,13 +1058,13 @@ async function softRefreshOneGated(
       for (const a of actions) {
         if (!a.health.ok) {
           process.stderr.write(
-            `[remote]   ${sessionId}: ${a.health.reason}${a.pushed ? " — pushed" : ""}\n`,
+            `[h2a]   ${sessionId}: ${a.health.reason}${a.pushed ? " — pushed" : ""}\n`,
           );
         }
       }
     } catch (probeError) {
       process.stderr.write(
-        `[remote]   ${sessionId}: tool health probe skipped: ${String(probeError).slice(0, 120)}\n`,
+        `[h2a]   ${sessionId}: tool health probe skipped: ${String(probeError).slice(0, 120)}\n`,
       );
     }
     // Slice 3: ADDITIONAL trigger — plugin/MCP drift reconcile (manifest hash
@@ -1073,16 +1073,16 @@ async function softRefreshOneGated(
       reconcileSessionPlugins(sessionId, profile);
     } catch (driftError) {
       process.stderr.write(
-        `[remote]   ${sessionId}: plugin drift reconcile skipped: ${String(driftError).slice(0, 120)}\n`,
+        `[h2a]   ${sessionId}: plugin drift reconcile skipped: ${String(driftError).slice(0, 120)}\n`,
       );
     }
     process.stderr.write(
-      `[remote] ${sessionId} (${profile}) ${result.changed ? "refreshed" : "unchanged"}\n`,
+      `[h2a] ${sessionId} (${profile}) ${result.changed ? "refreshed" : "unchanged"}\n`,
     );
     return { failed: 0 };
   } catch (error) {
     process.stderr.write(
-      `[remote] ${sessionId} refresh failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
+      `[h2a] ${sessionId} refresh failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
     );
     return { failed: 1 };
   }
@@ -1113,18 +1113,18 @@ export async function watchRefreshLoop(
   try {
     while (!stopped) {
       process.stderr.write(
-        `[remote] refresh pass — ${new Date().toISOString()}\n`,
+        `[h2a] refresh pass — ${new Date().toISOString()}\n`,
       );
       try {
         await pass();
       } catch (error) {
         process.stderr.write(
-          `[remote] refresh pass failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
+          `[h2a] refresh pass failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
         );
       }
       if (stopped) break;
       process.stderr.write(
-        `[remote] next pass in ${minutes} min (Ctrl-C to stop)\n`,
+        `[h2a] next pass in ${minutes} min (Ctrl-C to stop)\n`,
       );
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, minutes * 60_000);
@@ -1138,7 +1138,7 @@ export async function watchRefreshLoop(
   } finally {
     signals.removeListener("SIGINT", onSigint);
   }
-  process.stderr.write("[remote] watch stopped (SIGINT)\n");
+  process.stderr.write("[h2a] watch stopped (SIGINT)\n");
   return 0;
 }
 
@@ -1168,21 +1168,21 @@ export async function conductLoop(
   try {
     while (!stopped) {
       process.stderr.write(
-        `[remote] conduct pass — ${new Date().toISOString()}\n`,
+        `[h2a] conduct pass — ${new Date().toISOString()}\n`,
       );
       try {
         const { started, finished } = await pass();
         process.stderr.write(
-          `[remote] conduct: ${started} started, ${finished} finished this pass\n`,
+          `[h2a] conduct: ${started} started, ${finished} finished this pass\n`,
         );
       } catch (error) {
         process.stderr.write(
-          `[remote] conduct pass failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
+          `[h2a] conduct pass failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
         );
       }
       if (stopped) break;
       process.stderr.write(
-        `[remote] next conduct pass in ${minutes} min (Ctrl-C to stop)\n`,
+        `[h2a] next conduct pass in ${minutes} min (Ctrl-C to stop)\n`,
       );
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, minutes * 60_000);
@@ -1196,7 +1196,7 @@ export async function conductLoop(
   } finally {
     signals.removeListener("SIGINT", onSigint);
   }
-  process.stderr.write("[remote] conduct stopped (SIGINT)\n");
+  process.stderr.write("[h2a] conduct stopped (SIGINT)\n");
   return 0;
 }
 
@@ -1352,7 +1352,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
     if (!("allExhausted" in sel) && sel.candidate !== undefined) {
       if (sel.crossProvider) {
         const msg =
-          `[remote] account-pool: all ${preferredProvider} accounts exhausted — ` +
+          `[h2a] account-pool: all ${preferredProvider} accounts exhausted — ` +
           `falling back to ${sel.candidate.provider} (${sel.candidate.label})`;
         process.stderr.write(msg + "\n");
         // Notify the current tmux pane (non-blocking, best-effort).
@@ -1515,11 +1515,11 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
   const accountEnvOverrides: Record<string, string> = {};
   if ("allExhausted" in sel) {
     process.stderr.write(
-      `[remote] account-pool: all accounts exhausted for job ${job.id} — resuming without account override (may throttle again)\n`,
+      `[h2a] account-pool: all accounts exhausted for job ${job.id} — resuming without account override (may throttle again)\n`,
     );
   } else if (sel.candidate !== undefined) {
     if (sel.crossProvider) {
-      const msg = `[remote] account-pool: all ${preferredProvider} accounts exhausted — falling back to ${sel.candidate.provider} (${sel.candidate.label}) for resume`;
+      const msg = `[h2a] account-pool: all ${preferredProvider} accounts exhausted — falling back to ${sel.candidate.provider} (${sel.candidate.label}) for resume`;
       process.stderr.write(msg + "\n");
       if (process.env.TMUX)
         spawnSync("tmux", ["display-message", msg], { stdio: "ignore" });
@@ -1609,7 +1609,7 @@ function getConfiguredRemote(overrideUrl?: string): string {
   const remote = overrideUrl ?? getConfiguredRemoteOptional();
   if (!remote) {
     throw new Error(
-      "No remote URL configured. Set one with `remote config set <url>` (or `remote install <url>`) or pass --remote/URL explicitly.",
+      "No remote URL configured. Set one with `h2a config set <url>` (or `h2a install <url>`) or pass --remote/URL explicitly.",
     );
   }
   return remote;
@@ -1641,7 +1641,7 @@ function resolveTools(withOpt?: string): string[] {
   const { known, unknown } = partitionTools(raw);
   if (unknown.length > 0) {
     process.stderr.write(
-      `[remote] ignoring unknown tools: ${unknown.join(", ")} (known: ${KNOWN_TOOLS.join(", ")})\n`,
+      `[h2a] ignoring unknown tools: ${unknown.join(", ")} (known: ${KNOWN_TOOLS.join(", ")})\n`,
     );
   }
   return known;
@@ -1778,11 +1778,11 @@ async function injectLlmMeshGatewayEnv(
           ANTHROPIC_API_KEY: result.gatewayToken,
         };
         process.stderr.write(
-          `[remote] llm-mesh: gateway was stopped; started on ${meshEnv.ANTHROPIC_BASE_URL}\n`,
+          `[h2a] llm-mesh: gateway was stopped; started on ${meshEnv.ANTHROPIC_BASE_URL}\n`,
         );
       } catch (err) {
         process.stderr.write(
-          `[remote] llm-mesh: gateway env unavailable (${String(err)}); Claude may ask for login.\n`,
+          `[h2a] llm-mesh: gateway env unavailable (${String(err)}); Claude may ask for login.\n`,
         );
       }
     }
@@ -1790,7 +1790,7 @@ async function injectLlmMeshGatewayEnv(
   if (!meshEnv) {
     if (mode === "gateway") {
       process.stderr.write(
-        "[remote] llm-mesh: --gw requested but no gateway env is available; continuing direct. Run `remote llm-mesh start` or enroll an account first.\n",
+        "[h2a] llm-mesh: --gw requested but no gateway env is available; continuing direct. Run `h2a llm-mesh start` or enroll an account first.\n",
       );
     }
     return undefined;
@@ -1802,7 +1802,7 @@ async function injectLlmMeshGatewayEnv(
   for (const [k, v] of Object.entries(meshEnv)) process.env[k] = v;
   if (!alreadyCurrent) {
     process.stderr.write(
-      `[remote] llm-mesh: injecting gateway env (${meshEnv.ANTHROPIC_BASE_URL})\n`,
+      `[h2a] llm-mesh: injecting gateway env (${meshEnv.ANTHROPIC_BASE_URL})\n`,
     );
   }
   return meshEnv.ANTHROPIC_BASE_URL;
@@ -1817,7 +1817,7 @@ async function prepareLlmMeshForRestore(
   const config = readLlmMeshConfig();
   if (!config?.accounts.length) {
     process.stderr.write(
-      "[remote] llm-mesh: restore config enabled, but no llm-mesh account is enrolled; Claude may ask for login.\n",
+      "[h2a] llm-mesh: restore config enabled, but no llm-mesh account is enrolled; Claude may ask for login.\n",
     );
     return;
   }
@@ -1826,15 +1826,15 @@ async function prepareLlmMeshForRestore(
   if (opts.dryRun) {
     process.stderr.write(
       pid
-        ? `[remote] llm-mesh: restore config enabled; gateway running (pid ${pid}, port ${port})\n`
-        : `[remote] llm-mesh: restore config enabled; gateway would be started on port ${port}\n`,
+        ? `[h2a] llm-mesh: restore config enabled; gateway running (pid ${pid}, port ${port})\n`
+        : `[h2a] llm-mesh: restore config enabled; gateway would be started on port ${port}\n`,
     );
     return;
   }
   const gateway = await injectLlmMeshGatewayEnv();
   if (gateway) {
     process.stderr.write(
-      `[remote] llm-mesh: restore context active (${gateway})\n`,
+      `[h2a] llm-mesh: restore context active (${gateway})\n`,
     );
   }
 }
@@ -1900,7 +1900,7 @@ function resolveUrlAndSessionId(
 function setAndReportDefaultRemote(url: string): void {
   const configured = setDefaultRemote(url);
   ensureManagedTmuxProfile(getTmuxProfileConfig().profile);
-  process.stderr.write(`[remote] default remote set to ${configured}\n`);
+  process.stderr.write(`[h2a] default remote set to ${configured}\n`);
 }
 
 export async function main(argv: ReadonlyArray<string>): Promise<number> {
@@ -1926,7 +1926,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       process.cwd(),
     );
     if (!profile) {
-      process.stderr.write("[remote] no profile selected\n");
+      process.stderr.write("[h2a] no profile selected\n");
       return 1;
     }
     return main([
@@ -1942,7 +1942,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   program
     .name("remote")
     .description(
-      "Wrap a local agent CLI (codex/claude/agy/gemini/mistral) and expose its session for remote attach.",
+      "Wrap a local agent CLI (codex/claude/agy/gemini/mistral) and expose its session for h2a attach.",
     )
     .version("0.0.0");
 
@@ -2018,7 +2018,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             try {
               await runProfile(profileName, { ...rest }, commandArgs ?? []);
             } catch (err) {
-              process.stderr.write(`[remote] ${(err as Error).message}\n`);
+              process.stderr.write(`[h2a] ${(err as Error).message}\n`);
               process.exitCode = 1;
             }
             return;
@@ -2034,7 +2034,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const remote = getConfiguredRemote(remoteOverride ?? marker?.remote);
           if (marker) {
             process.stderr.write(
-              `[remote] cwd mapped to ${marker.workspaceId} (reusing workspace)\n`,
+              `[h2a] cwd mapped to ${marker.workspaceId} (reusing workspace)\n`,
             );
           }
           try {
@@ -2048,7 +2048,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               commandArgs ?? [],
             );
           } catch (err) {
-            process.stderr.write(`[remote] ${(err as Error).message}\n`);
+            process.stderr.write(`[h2a] ${(err as Error).message}\n`);
             process.exitCode = 1;
           }
         },
@@ -2086,7 +2086,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const existing = readWorkspaceMarker(cwd);
       if (existing) {
         process.stderr.write(
-          `[remote] ${cwd} already mapped to ${existing.workspaceId} (${existing.remote})\n`,
+          `[h2a] ${cwd} already mapped to ${existing.workspaceId} (${existing.remote})\n`,
         );
         return;
       }
@@ -2097,7 +2097,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       );
       writeWorkspaceMarker(cwd, { remote, workspaceId: ws.id });
       process.stderr.write(
-        `[remote] linked ${cwd} -> ${ws.id} (wrote .remote/workspace.json)\n`,
+        `[h2a] linked ${cwd} -> ${ws.id} (wrote .remote/workspace.json)\n`,
       );
     });
 
@@ -2108,7 +2108,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const remote = getConfiguredRemote(url);
       const workspaces = await listWorkspaces(remote);
       if (workspaces.length === 0) {
-        process.stderr.write("[remote] no workspaces\n");
+        process.stderr.write("[h2a] no workspaces\n");
         return;
       }
       const rows = workspaces.map((w) =>
@@ -2124,7 +2124,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const marker = readWorkspaceMarker(process.cwd());
       if (!marker) {
         process.stdout.write(
-          "[remote] no workspace mapped for this directory (run `remote workspace link`)\n",
+          "[h2a] no workspace mapped for this directory (run `h2a workspace link`)\n",
         );
         return;
       }
@@ -2136,7 +2136,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     const marker = readWorkspaceMarker(cwd);
     if (!marker) {
       throw new Error(
-        "No workspace mapped for this directory. Run `remote workspace link` first.",
+        "No workspace mapped for this directory. Run `h2a workspace link` first.",
       );
     }
     return marker;
@@ -2160,7 +2160,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         );
       }
       process.stderr.write(
-        `[remote] warning: overriding soft lock held by ${lock.holder} (--force)\n`,
+        `[h2a] warning: overriding soft lock held by ${lock.holder} (--force)\n`,
       );
     }
   };
@@ -2177,11 +2177,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       await guardLock(marker.remote, marker.workspaceId, opts.force ?? false);
       try {
         process.stderr.write(
-          `[remote] packing ${cwd} (respecting .gitignore)\n`,
+          `[h2a] packing ${cwd} (respecting .gitignore)\n`,
         );
         const archive = await buildWorkspaceArchive(cwd);
         process.stderr.write(
-          `[remote] archive: ${(archive.byteLength / 1024).toFixed(0)} KiB -> ${marker.workspaceId}\n`,
+          `[h2a] archive: ${(archive.byteLength / 1024).toFixed(0)} KiB -> ${marker.workspaceId}\n`,
         );
         // Reuse the --sync path via a throwaway session bound to the workspace:
         // the session-agent extracts the archive into the retained PVC, then the
@@ -2201,7 +2201,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // The pushed tree is now the shared sync base.
         writeBaseSnapshot(cwd, archive);
         process.stderr.write(
-          `[remote] pushed ${cwd} to ${marker.workspaceId}\n`,
+          `[h2a] pushed ${cwd} to ${marker.workspaceId}\n`,
         );
       } finally {
         await releaseWorkspaceLock(marker.remote, marker.workspaceId);
@@ -2258,7 +2258,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           if (!remoteArchive) {
             process.stderr.write(
-              `[remote] nothing to pull (workspace ${marker.workspaceId} produced no export)\n`,
+              `[h2a] nothing to pull (workspace ${marker.workspaceId} produced no export)\n`,
             );
             return;
           }
@@ -2268,11 +2268,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             baseArchive: readBaseSnapshot(cwd),
           });
           process.stderr.write(
-            `[remote] pull: ${result.tookRemote.length} from remote, ${result.keptLocal.length} kept local, ${result.merged.length} merged\n`,
+            `[h2a] pull: ${result.tookRemote.length} from remote, ${result.keptLocal.length} kept local, ${result.merged.length} merged\n`,
           );
           if (result.conflicts.length > 0) {
             process.stderr.write(
-              `[remote] ${result.conflicts.length} conflict(s) (left with markers, resolve then re-run):\n`,
+              `[h2a] ${result.conflicts.length} conflict(s) (left with markers, resolve then re-run):\n`,
             );
             for (const f of result.conflicts) process.stderr.write(`  ${f}\n`);
             process.exitCode = 1;
@@ -2281,7 +2281,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // Clean merge → the remote tree is the new shared base.
           writeBaseSnapshot(cwd, remoteArchive);
           process.stderr.write(
-            `[remote] pulled ${marker.workspaceId} into ${cwd}\n`,
+            `[h2a] pulled ${marker.workspaceId} into ${cwd}\n`,
           );
 
           if (opts.restoreSessions) {
@@ -2304,7 +2304,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 r.restored.length + r.backedUp.length + r.conflicts.length;
               if (touched === 0 && r.keptLocal.length === 0) continue;
               process.stderr.write(
-                `[remote] sessions(${profile}): ${r.restored.length} restored, ${r.backedUp.length} backed-up, ${r.keptLocal.length} kept, ${r.conflicts.length} conflict\n`,
+                `[h2a] sessions(${profile}): ${r.restored.length} restored, ${r.backedUp.length} backed-up, ${r.keptLocal.length} kept, ${r.conflicts.length} conflict\n`,
               );
               for (const b of r.backedUp)
                 process.stderr.write(`    backup ${b}\n`);
@@ -2316,7 +2316,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             }
             if (anyConflict) {
               process.stderr.write(
-                `[remote] diverged conversations left untouched. Re-run with --on-conflict backup (keep both) or keep-local.\n`,
+                `[h2a] diverged conversations left untouched. Re-run with --on-conflict backup (keep both) or keep-local.\n`,
               );
               process.exitCode = 1;
             }
@@ -2349,8 +2349,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const deleted = await deleteWorkspace(remote, id);
         process.stderr.write(
           deleted
-            ? `[remote] deleted workspace ${id}\n`
-            : `[remote] workspace ${id} not found\n`,
+            ? `[h2a] deleted workspace ${id}\n`
+            : `[h2a] workspace ${id} not found\n`,
         );
       },
     );
@@ -2398,12 +2398,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const dryRun = await requestWorkspaceGc(remote, { olderThanDays });
         if (dryRun.candidates.length === 0) {
           process.stderr.write(
-            `[remote] workspace gc: no candidates older than ${olderThanDays} day(s) — nothing to do\n`,
+            `[h2a] workspace gc: no candidates older than ${olderThanDays} day(s) — nothing to do\n`,
           );
           return;
         }
         process.stderr.write(
-          `[remote] workspace gc: ${dryRun.candidates.length} candidate(s) older than ${olderThanDays} day(s) (workspaces of known sessions are always kept):\n`,
+          `[h2a] workspace gc: ${dryRun.candidates.length} candidate(s) older than ${olderThanDays} day(s) (workspaces of known sessions are always kept):\n`,
         );
         process.stdout.write(
           [
@@ -2415,7 +2415,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         );
         if (!opts.apply) {
           process.stderr.write(
-            "[remote] dry-run only — nothing was deleted. Re-run with --apply to archive these to the volume's .trash/ and remove them.\n",
+            "[h2a] dry-run only — nothing was deleted. Re-run with --apply to archive these to the volume's .trash/ and remove them.\n",
           );
           return;
         }
@@ -2428,14 +2428,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           });
           const answer = (
             await rl.question(
-              `[remote] archive ${dryRun.candidates.length} director(y/ies) to on-volume .trash/ and DELETE them? [y/N] `,
+              `[h2a] archive ${dryRun.candidates.length} director(y/ies) to on-volume .trash/ and DELETE them? [y/N] `,
             )
           )
             .trim()
             .toLowerCase();
           rl.close();
           if (answer !== "y" && answer !== "yes") {
-            process.stderr.write("[remote] aborted — nothing was deleted\n");
+            process.stderr.write("[h2a] aborted — nothing was deleted\n");
             return;
           }
         }
@@ -2448,22 +2448,22 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // set can legitimately be smaller than the dry-run shown above.
         for (const c of report.candidates) {
           process.stderr.write(
-            `[remote] archived ${c.id} (${c.sizeH}) -> ${c.archivedTo ?? ".trash/"} then removed\n`,
+            `[h2a] archived ${c.id} (${c.sizeH}) -> ${c.archivedTo ?? ".trash/"} then removed\n`,
           );
         }
         for (const f of report.failed ?? []) {
           process.stderr.write(
-            `[remote] FAILED ${f.id}: ${f.reason} — directory left untouched\n`,
+            `[h2a] FAILED ${f.id}: ${f.reason} — directory left untouched\n`,
           );
         }
         if ((report.failed ?? []).length > 0) process.exitCode = 1;
         if (report.candidates.length === 0) {
           process.stderr.write(
-            "[remote] nothing collected (candidates became active or protected since the dry-run)\n",
+            "[h2a] nothing collected (candidates became active or protected since the dry-run)\n",
           );
         } else {
           process.stderr.write(
-            `[remote] workspace gc done: ${report.candidates.length} archived+removed (recoverable from the volume's .trash/)\n`,
+            `[h2a] workspace gc done: ${report.candidates.length} archived+removed (recoverable from the volume's .trash/)\n`,
           );
         }
       },
@@ -2518,7 +2518,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         if (!profileName) {
           throw new Error(
-            "Specify a profile (e.g. `remote auth status codex`) or pass --all.",
+            "Specify a profile (e.g. `h2a auth status codex`) or pass --all.",
           );
         }
         const profile = coerceCliProfileName(profileName);
@@ -2546,17 +2546,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const loginCommand = getLoginCommand(profile);
       if (!loginCommand) {
         process.stderr.write(
-          `[remote] ${profile} has no scripted login. Run \`${profile}\` directly and complete its sign-in flow (browser / SSH-mode URL), then \`remote auth status ${profile}\`.\n`,
+          `[h2a] ${profile} has no scripted login. Run \`${profile}\` directly and complete its sign-in flow (browser / SSH-mode URL), then \`h2a auth status ${profile}\`.\n`,
         );
         return;
       }
       process.stderr.write(
-        `[remote] running ${loginCommand.command} ${loginCommand.args.join(" ")}\n`,
+        `[h2a] running ${loginCommand.command} ${loginCommand.args.join(" ")}\n`,
       );
       const code = await runInteractiveLogin(loginCommand);
       if (code !== 0) {
         process.stderr.write(
-          `[remote] login exited with code ${code}; check the output above.\n`,
+          `[h2a] login exited with code ${code}; check the output above.\n`,
         );
         process.exitCode = code;
         return;
@@ -2600,7 +2600,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             const fresh = await ensureProfileAuthFresh(resolved);
             if (fresh.checked)
               process.stderr.write(
-                `[remote] auth status ok: ${fresh.command}\n`,
+                `[h2a] auth status ok: ${fresh.command}\n`,
               );
           }
           await softRefreshSession(sessionId, resolved);
@@ -2686,7 +2686,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .action((value: string) => {
       setToken(value);
-      process.stderr.write("[remote] stored bearer token\n");
+      process.stderr.write("[h2a] stored bearer token\n");
     });
 
   configCommand
@@ -2696,7 +2696,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .action((target: string) => {
       setDefaultTarget(target);
-      process.stderr.write(`[remote] default target set to ${target}\n`);
+      process.stderr.write(`[h2a] default target set to ${target}\n`);
     });
 
   configCommand
@@ -2715,12 +2715,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const { known, unknown } = partitionTools(requested);
       if (unknown.length > 0) {
         process.stderr.write(
-          `[remote] unknown tools ignored: ${unknown.join(", ")}\n`,
+          `[h2a] unknown tools ignored: ${unknown.join(", ")}\n`,
         );
       }
       setDefaultTools(known);
       process.stderr.write(
-        `[remote] default tools: ${known.length > 0 ? known.join(", ") : "(none)"}\n`,
+        `[h2a] default tools: ${known.length > 0 ? known.join(", ") : "(none)"}\n`,
       );
     });
 
@@ -2733,7 +2733,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       setTmuxProfileConfig({ profile: name });
       const profile = getTmuxProfileConfig().profile;
       ensureManagedTmuxProfile(profile);
-      process.stderr.write(`[remote] tmux profile set to ${profile}\n`);
+      process.stderr.write(`[h2a] tmux profile set to ${profile}\n`);
     });
 
   configCommand
@@ -2741,7 +2741,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .description("Clear default remote URL")
     .action(() => {
       clearDefaultRemote();
-      process.stderr.write("[remote] cleared default remote\n");
+      process.stderr.write("[h2a] cleared default remote\n");
     });
 
   configCommand
@@ -2752,7 +2752,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action(() => {
       const remote = getDefaultRemote();
       process.stdout.write(
-        remote ? `${remote}\n` : "[remote] no default remote configured\n",
+        remote ? `${remote}\n` : "[h2a] no default remote configured\n",
       );
       process.stdout.write(`target: ${getDefaultTarget()}\n`);
       const tools = getDefaultTools();
@@ -2811,7 +2811,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         };
         setTunnel(tunnel);
         process.stderr.write(
-          `[remote] tunnel configured: kubectl -n ${tunnel.namespace} port-forward svc/${tunnel.service} ${tunnel.localPort}:${tunnel.remotePort}\n`,
+          `[h2a] tunnel configured: kubectl -n ${tunnel.namespace} port-forward svc/${tunnel.service} ${tunnel.localPort}:${tunnel.remotePort}\n`,
         );
       },
     );
@@ -2832,7 +2832,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action(async (opts: { remote?: string }) => {
       const url = getConfiguredRemote(opts.remote);
       await ensureConnected(url);
-      process.stderr.write(`[remote] connected: ${url}\n`);
+      process.stderr.write(`[h2a] connected: ${url}\n`);
     });
 
   program
@@ -2842,8 +2842,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const stopped = stopTunnel();
       process.stderr.write(
         stopped
-          ? "[remote] tunnel closed\n"
-          : "[remote] no managed tunnel was running\n",
+          ? "[h2a] tunnel closed\n"
+          : "[h2a] no managed tunnel was running\n",
       );
     });
 
@@ -2942,7 +2942,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const entries = transmittedSecrets(sessionId);
           if (entries === undefined) {
             process.stdout.write(
-              `[remote] cannot read secrets for ${sessionId} (no tunnel configured, or no auth Secret)\n`,
+              `[h2a] cannot read secrets for ${sessionId} (no tunnel configured, or no auth Secret)\n`,
             );
             return;
           }
@@ -2979,7 +2979,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
         }
         process.stdout.write(
-          "\n(⚠ = account-wide cloud cred. Detail: remote secrets status <sessionId>.)\n",
+          "\n(⚠ = account-wide cloud cred. Detail: h2a secrets status <sessionId>.)\n",
         );
       },
     );
@@ -3009,7 +3009,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         if (opts.session && opts.files) {
           process.stderr.write(
-            "[remote] --session and --files are mutually exclusive\n",
+            "[h2a] --session and --files are mutually exclusive\n",
           );
           process.exitCode = 1;
           return;
@@ -3021,7 +3021,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           ? all.filter((s) => s.id === sessionId)
           : all;
         if (sessions.length === 0) {
-          process.stdout.write("[remote] no matching session\n");
+          process.stdout.write("[h2a] no matching session\n");
           return;
         }
         const icon: Record<string, string> = {
@@ -3098,14 +3098,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         if (opts.files) {
           process.stderr.write(
-            "[remote] files: utilise git (commit/push des deux côtés) — non automatisé\n",
+            "[h2a] files: utilise git (commit/push des deux côtés) — non automatisé\n",
           );
           process.exitCode = 1;
           return;
         }
         if (opts.session !== "push" && opts.session !== "pull") {
           process.stderr.write(
-            "[remote] usage: remote sync <sessionId> --session <push|pull>\n",
+            "[h2a] usage: h2a sync <sessionId> --session <push|pull>\n",
           );
           process.exitCode = 1;
           return;
@@ -3118,7 +3118,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         );
         if (!session?.workspacePath) {
           process.stderr.write(
-            `[remote] no session ${sessionId} with a workspace path\n`,
+            `[h2a] no session ${sessionId} with a workspace path\n`,
           );
           process.exitCode = 1;
           return;
@@ -3133,21 +3133,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             force: opts.force ?? false,
           });
           if (!result.ok) {
-            process.stderr.write(`[remote] refused: ${result.reason}\n`);
+            process.stderr.write(`[h2a] refused: ${result.reason}\n`);
             return false;
           }
           if (result.backup) {
-            process.stderr.write(`[remote] backup: ${result.backup}\n`);
+            process.stderr.write(`[h2a] backup: ${result.backup}\n`);
           }
           const lines =
             direction === "pull" ? result.lines.remote : result.lines.local;
           const mode = result.incremental ? " [incremental]" : "";
           process.stderr.write(
-            `[remote] ${direction === "pull" ? "pulled" : "pushed"} ${result.convId} (${lines} lines) → ${result.written}${mode}\n`,
+            `[h2a] ${direction === "pull" ? "pulled" : "pushed"} ${result.convId} (${lines} lines) → ${result.written}${mode}\n`,
           );
           if (direction === "push") {
             process.stderr.write(
-              `[remote] not relaunching the Pod CLI — relance la session pour charger : remote refresh ${sessionId} --soft\n`,
+              `[h2a] not relaunching the Pod CLI — relance la session pour charger : h2a refresh ${sessionId} --soft\n`,
             );
           }
           return true;
@@ -3156,7 +3156,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (opts.watch) {
           const intervalSec = opts.interval ?? 30;
           process.stderr.write(
-            `[remote] sync --watch: syncing every ${intervalSec}s (Ctrl-C to stop)\n`,
+            `[h2a] sync --watch: syncing every ${intervalSec}s (Ctrl-C to stop)\n`,
           );
           let stopped = false;
           let wake: (() => void) | undefined;
@@ -3168,13 +3168,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           try {
             while (!stopped) {
               process.stderr.write(
-                `[remote] sync pass — ${new Date().toISOString()}\n`,
+                `[h2a] sync pass — ${new Date().toISOString()}\n`,
               );
               try {
                 runOnce();
               } catch (err) {
                 process.stderr.write(
-                  `[remote] sync pass error: ${(err as Error).message}\n`,
+                  `[h2a] sync pass error: ${(err as Error).message}\n`,
                 );
               }
               if (stopped) break;
@@ -3190,7 +3190,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           } finally {
             process.removeListener("SIGINT", onSigint);
           }
-          process.stderr.write("[remote] sync --watch stopped\n");
+          process.stderr.write("[h2a] sync --watch stopped\n");
           return;
         }
 
@@ -3280,7 +3280,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .command("sync-files")
     .description(
       "Push the current git workspace to the session pod incrementally (git bundle on first push, diff on subsequent). " +
-        "Distinct from `remote sync` which syncs conversations.",
+        "Distinct from `h2a sync` which syncs conversations.",
     )
     .option(
       "--remote <url>",
@@ -3304,7 +3304,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
         if (!checkGit(cwd)) {
           process.stderr.write(
-            "[remote] sync-files: current directory is not a git repo\n",
+            "[h2a] sync-files: current directory is not a git repo\n",
           );
           process.exitCode = 1;
           return;
@@ -3313,7 +3313,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const headSha = getHeadSha(cwd);
         if (!headSha) {
           process.stderr.write(
-            "[remote] sync-files: cannot resolve HEAD — make at least one commit\n",
+            "[h2a] sync-files: cannot resolve HEAD — make at least one commit\n",
           );
           process.exitCode = 1;
           return;
@@ -3325,7 +3325,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const sessionId = opts.session ?? marker?.workspaceId;
         if (!sessionId) {
           process.stderr.write(
-            "[remote] sync-files: no session id — pass --session or run `remote workspace link` first\n",
+            "[h2a] sync-files: no session id — pass --session or run `h2a workspace link` first\n",
           );
           process.exitCode = 1;
           return;
@@ -3349,11 +3349,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (opts.dryRun) {
           if (baseSha) {
             process.stderr.write(
-              `[remote] sync-files (dry-run): incremental push HEAD=${headSha} base=${baseSha}\n`,
+              `[h2a] sync-files (dry-run): incremental push HEAD=${headSha} base=${baseSha}\n`,
             );
           } else {
             process.stderr.write(
-              `[remote] sync-files (dry-run): bootstrap push HEAD=${headSha} (no base on CP)\n`,
+              `[h2a] sync-files (dry-run): bootstrap push HEAD=${headSha} (no base on CP)\n`,
             );
           }
           return;
@@ -3362,11 +3362,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (!baseSha) {
           // Bootstrap: upload full git bundle.
           process.stderr.write(
-            `[remote] sync-files: bootstrap — building git bundle (HEAD=${headSha})\n`,
+            `[h2a] sync-files: bootstrap — building git bundle (HEAD=${headSha})\n`,
           );
           const bundle = buildGitBundle(cwd);
           process.stderr.write(
-            `[remote] sync-files: bundle ${(bundle.byteLength / 1024).toFixed(0)} KiB → ${sessionId}\n`,
+            `[h2a] sync-files: bundle ${(bundle.byteLength / 1024).toFixed(0)} KiB → ${sessionId}\n`,
           );
           const uploadRes = await fetch(
             `${remote.replace(/\/$/, "")}/sessions/${sessionId}/workspace/incremental/bundle`,
@@ -3409,7 +3409,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             );
           }
           process.stderr.write(
-            `[remote] sync-files: bootstrap complete, base=${headSha}\n`,
+            `[h2a] sync-files: bootstrap complete, base=${headSha}\n`,
           );
           const { writeSyncStatus, emptyMetrics: em } =
             await import("./sync-status.js");
@@ -3424,7 +3424,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         } else {
           // Incremental push.
           process.stderr.write(
-            `[remote] sync-files: incremental push base=${baseSha} → HEAD=${headSha}\n`,
+            `[h2a] sync-files: incremental push base=${baseSha} → HEAD=${headSha}\n`,
           );
           const manifest = buildIncrementalManifest(cwd, baseSha);
           const untrackedPaths = manifest.untrackedManifest.map((e) => e.path);
@@ -3433,7 +3433,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             "base64",
           ).byteLength;
           process.stderr.write(
-            `[remote] sync-files: tracked diff ${(trackedBytes / 1024).toFixed(1)} KiB, ${untrackedPaths.length} untracked file(s)\n`,
+            `[h2a] sync-files: tracked diff ${(trackedBytes / 1024).toFixed(1)} KiB, ${untrackedPaths.length} untracked file(s)\n`,
           );
 
           // Upload manifest.
@@ -3476,7 +3476,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
 
           process.stderr.write(
-            `[remote] sync-files: incremental complete, base=${headSha}\n`,
+            `[h2a] sync-files: incremental complete, base=${headSha}\n`,
           );
           const { writeSyncStatus: wss, emptyMetrics: em2 } =
             await import("./sync-status.js");
@@ -3515,7 +3515,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         const port = Number(podPort);
         if (!Number.isInteger(port) || port < 1 || port > 65535) {
-          process.stderr.write(`[remote] invalid pod port "${podPort}"\n`);
+          process.stderr.write(`[h2a] invalid pod port "${podPort}"\n`);
           process.exitCode = 1;
           return;
         }
@@ -3524,7 +3524,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           local = Number(localPort);
           if (!Number.isInteger(local) || local < 1 || local > 65535) {
             process.stderr.write(
-              `[remote] invalid local port "${localPort}"\n`,
+              `[h2a] invalid local port "${localPort}"\n`,
             );
             process.exitCode = 1;
             return;
@@ -3556,7 +3556,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .command("open <sessionId>")
     .description(
       "Print the steps to open the headful browser view for a session: the " +
-        "`remote forward` command to run and the token-gated noVNC URL to open. " +
+        "`h2a forward` command to run and the token-gated noVNC URL to open. " +
         "Default exposure is session-private (owner only, token-gated) and interactive (you drive the 2FA).",
     )
     .option("--local-port <port>", "local port to bind the forward to")
@@ -3588,7 +3588,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             localPort > 65535
           ) {
             process.stderr.write(
-              `[remote] invalid local port "${opts.localPort}"\n`,
+              `[h2a] invalid local port "${opts.localPort}"\n`,
             );
             process.exitCode = 1;
             return;
@@ -3602,7 +3602,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           policy !== "public-expiring"
         ) {
           process.stderr.write(
-            `[remote] invalid --policy "${policy}" (operator-only | session-private | public-expiring)\n`,
+            `[h2a] invalid --policy "${policy}" (operator-only | session-private | public-expiring)\n`,
           );
           process.exitCode = 1;
           return;
@@ -3611,7 +3611,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (opts.ttl !== undefined) {
           ttlMs = Number(opts.ttl);
           if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
-            process.stderr.write(`[remote] invalid --ttl "${opts.ttl}"\n`);
+            process.stderr.write(`[h2a] invalid --ttl "${opts.ttl}"\n`);
             process.exitCode = 1;
             return;
           }
@@ -3624,7 +3624,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           ...(opts.viewOnly ? { interactive: false } : {}),
         });
         if (!plan.ok) {
-          process.stderr.write(`[remote] ${plan.reason}\n`);
+          process.stderr.write(`[h2a] ${plan.reason}\n`);
           process.exitCode = 1;
           return;
         }
@@ -3672,7 +3672,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .option(
       "--with <tools>",
-      `comma-separated tool CLIs whose local auth to also bundle into the Pod (known: ${KNOWN_TOOLS.join(", ")}); defaults to 'remote config tools'`,
+      `comma-separated tool CLIs whose local auth to also bundle into the Pod (known: ${KNOWN_TOOLS.join(", ")}); defaults to 'h2a config tools'`,
     )
     .option(
       "--force",
@@ -3743,7 +3743,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const candidates = listMigrationCandidates();
       if (candidates.length === 0) {
         process.stdout.write(
-          "[remote] no local claude sessions found under ~/.claude/projects\n",
+          "[h2a] no local claude sessions found under ~/.claude/projects\n",
         );
         return;
       }
@@ -3761,8 +3761,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         );
       });
       process.stdout.write(
-        "\nMigrate one: cd <path> && remote migrate forward claude --resume\n" +
-          "Pick interactively: remote migrate pick\n",
+        "\nMigrate one: cd <path> && h2a migrate forward claude --resume\n" +
+          "Pick interactively: h2a migrate pick\n",
       );
     });
 
@@ -3779,7 +3779,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("--no-resume", "do not resume the conversation on the remote CLI")
     .option(
       "--with <tools>",
-      `comma-separated tool CLIs whose auth to bundle (known: ${KNOWN_TOOLS.join(", ")}); defaults to 'remote config tools'`,
+      `comma-separated tool CLIs whose auth to bundle (known: ${KNOWN_TOOLS.join(", ")}); defaults to 'h2a config tools'`,
     )
     .action(
       async (opts: {
@@ -3798,7 +3798,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         );
         if (candidates.length === 0) {
           process.stdout.write(
-            "[remote] no migratable git-backed sessions found\n",
+            "[h2a] no migratable git-backed sessions found\n",
           );
           return;
         }
@@ -3830,7 +3830,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           )
           .map((n) => candidates[n - 1]!);
         if (chosen.length === 0) {
-          process.stdout.write("[remote] nothing selected — cancelled\n");
+          process.stdout.write("[h2a] nothing selected — cancelled\n");
           return;
         }
         for (const c of chosen) {
@@ -3846,7 +3846,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             });
           } catch (err) {
             process.stderr.write(
-              `[remote] failed to migrate ${c.path}: ${String(err)}\n`,
+              `[h2a] failed to migrate ${c.path}: ${String(err)}\n`,
             );
           }
         }
@@ -3900,18 +3900,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             const lastWs = match.wsHistory[match.wsHistory.length - 1];
             if (lastWs && !workspaceId) {
               process.stderr.write(
-                `[remote] --lineage ${lineageId} → workspace history includes ${lastWs}\n`,
+                `[h2a] --lineage ${lineageId} → workspace history includes ${lastWs}\n`,
               );
             }
             if (match.incarnation.remote?.sessionId) {
               knownSessionId = match.incarnation.remote.sessionId;
               process.stderr.write(
-                `[remote] targeting session ${knownSessionId} (from lineage)\n`,
+                `[h2a] targeting session ${knownSessionId} (from lineage)\n`,
               );
             }
           } else {
             process.stderr.write(
-              `[remote] warning: lineage ${lineageId} not found locally; proceeding without lineage filter\n`,
+              `[h2a] warning: lineage ${lineageId} not found locally; proceeding without lineage filter\n`,
             );
           }
         }
@@ -3964,18 +3964,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const readiness = checkReadiness({ cwd, profile: resolvedProfile });
         if (readiness.blockers.length > 0) {
           process.stderr.write(
-            `[remote] migration blocked:\n${readiness.blockers.map((b) => `  • ${b}`).join("\n")}\n`,
+            `[h2a] migration blocked:\n${readiness.blockers.map((b) => `  • ${b}`).join("\n")}\n`,
           );
           process.exitCode = 1;
           return;
         }
         if (readiness.warnings.length > 0) {
           process.stderr.write(
-            `[remote] readiness warnings:\n${readiness.warnings.map((w) => `  ⚠ ${w}`).join("\n")}\n`,
+            `[h2a] readiness warnings:\n${readiness.warnings.map((w) => `  ⚠ ${w}`).join("\n")}\n`,
           );
         }
         process.stderr.write(
-          `[remote] readiness ok (mode: ${readiness.mode}, pending: ${readiness.pending.files} files / ${(readiness.pending.bytes / 1024).toFixed(0)} KiB)\n`,
+          `[h2a] readiness ok (mode: ${readiness.mode}, pending: ${readiness.pending.files} files / ${(readiness.pending.bytes / 1024).toFixed(0)} KiB)\n`,
         );
 
         // Step 2: compute durable workspace id (best-effort)
@@ -4036,23 +4036,23 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         );
         if ("error" in leaseResult) {
           process.stderr.write(
-            `[remote] lease conflict: lineage ${lineageId} is held by ${leaseResult.current.holder} (${leaseResult.current.location}) until ${leaseResult.current.expiresAt}\n` +
-              `[remote] wait for the lease to expire or use \`remote migrate to-remote --force\` (not yet implemented)\n`,
+            `[h2a] lease conflict: lineage ${lineageId} is held by ${leaseResult.current.holder} (${leaseResult.current.location}) until ${leaseResult.current.expiresAt}\n` +
+              `[h2a] wait for the lease to expire or use \`h2a migrate to-remote --force\` (not yet implemented)\n`,
           );
           process.exitCode = 1;
           return;
         }
 
         process.stderr.write(
-          `[remote] lineage: ${lineageId} (epoch ${leaseResult.epoch}, holder ${thisInstance})\n`,
+          `[h2a] lineage: ${lineageId} (epoch ${leaseResult.epoch}, holder ${thisInstance})\n`,
         );
 
         if (opts.dryRun) {
           process.stderr.write(
-            `[remote] --dry-run: would call migrate forward ${resolvedProfile} (mode: ${readiness.mode})\n`,
+            `[h2a] --dry-run: would call migrate forward ${resolvedProfile} (mode: ${readiness.mode})\n`,
           );
           process.stderr.write(
-            `[remote] dry-run complete — no session created, lease NOT handed off\n`,
+            `[h2a] dry-run complete — no session created, lease NOT handed off\n`,
           );
           // Release the lease on dry-run (we only acquired it to check)
           return;
@@ -4061,7 +4061,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // Step 5: suspend local incarnation BEFORE handoff
         suspendLocalIncarnation(lineageId, cwd);
         process.stderr.write(
-          `[remote] local incarnation suspended (sentinel written)\n`,
+          `[h2a] local incarnation suspended (sentinel written)\n`,
         );
 
         // Step 6: call existing migrate forward
@@ -4082,8 +4082,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // On error: resume local incarnation (undo suspend)
           resumeLocalIncarnation(lineageId, cwd);
           process.stderr.write(
-            `[remote] migrate forward failed: ${(err as Error).message}\n` +
-              `[remote] local incarnation resumed\n`,
+            `[h2a] migrate forward failed: ${(err as Error).message}\n` +
+              `[h2a] local incarnation resumed\n`,
           );
           process.exitCode = 1;
           return;
@@ -4103,11 +4103,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         );
         if ("error" in handoffResult) {
           process.stderr.write(
-            `[remote] warning: lease handoff failed (${handoffResult.error}) — lease may be stale\n`,
+            `[h2a] warning: lease handoff failed (${handoffResult.error}) — lease may be stale\n`,
           );
         } else {
           process.stderr.write(
-            `[remote] lease handed off to remote (epoch ${handoffResult.epoch})\n`,
+            `[h2a] lease handed off to remote (epoch ${handoffResult.epoch})\n`,
           );
         }
         // Persist remote session id in the lineage record so `migrate back
@@ -4131,7 +4131,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
         // Step 8: summary
         process.stderr.write(
-          `[remote] migration complete:\n` +
+          `[h2a] migration complete:\n` +
             `  lineage:  ${lineageId}\n` +
             `  session:  ${sessionId ?? "unknown"}\n` +
             `  remote:   ${remoteUrl}\n`,
@@ -4184,7 +4184,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         );
         if (toLocalBlockers.length > 0) {
           process.stderr.write(
-            `[remote] migration blocked:\n${toLocalBlockers.map((b) => `  • ${b}`).join("\n")}\n`,
+            `[h2a] migration blocked:\n${toLocalBlockers.map((b) => `  • ${b}`).join("\n")}\n`,
           );
           process.exitCode = 1;
           return;
@@ -4197,15 +4197,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         );
         if (!remoteLineage) {
           process.stderr.write(
-            `[remote] no active remote lineage found in ${cwd}/.remote/lineages/\n` +
-              `[remote] run \`remote migrate to-remote\` first, or check \`ls .remote/lineages/\`\n`,
+            `[h2a] no active remote lineage found in ${cwd}/.remote/lineages/\n` +
+              `[h2a] run \`h2a migrate to-remote\` first, or check \`ls .remote/lineages/\`\n`,
           );
           process.exitCode = 1;
           return;
         }
         const lineageId = remoteLineage.lineage;
         process.stderr.write(
-          `[remote] found remote lineage ${lineageId} (session ${remoteLineage.incarnation.remote?.sessionId ?? "unknown"})\n`,
+          `[h2a] found remote lineage ${lineageId} (session ${remoteLineage.incarnation.remote?.sessionId ?? "unknown"})\n`,
         );
 
         // Step 3: try to acquire the local lease
@@ -4224,11 +4224,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const current = leaseResult.current;
           if (current.location === "remote") {
             process.stderr.write(
-              `[remote] un agent remote tient le lease ; attendez l'expiry (${current.expiresAt}) ou utilisez \`remote migrate to-local --force\` pour forcer\n`,
+              `[h2a] un agent remote tient le lease ; attendez l'expiry (${current.expiresAt}) ou utilisez \`h2a migrate to-local --force\` pour forcer\n`,
             );
           } else {
             process.stderr.write(
-              `[remote] lease conflict: held by ${current.holder} until ${current.expiresAt}\n`,
+              `[h2a] lease conflict: held by ${current.holder} until ${current.expiresAt}\n`,
             );
           }
           process.exitCode = 1;
@@ -4236,15 +4236,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
 
         process.stderr.write(
-          `[remote] lease acquired (epoch ${leaseResult.epoch}, holder ${thisInstance})\n`,
+          `[h2a] lease acquired (epoch ${leaseResult.epoch}, holder ${thisInstance})\n`,
         );
 
         if (opts.dryRun) {
           process.stderr.write(
-            `[remote] --dry-run: would call migrate back (lineage ${lineageId})\n`,
+            `[h2a] --dry-run: would call migrate back (lineage ${lineageId})\n`,
           );
           process.stderr.write(
-            `[remote] dry-run complete — no session stopped, lease NOT committed\n`,
+            `[h2a] dry-run complete — no session stopped, lease NOT committed\n`,
           );
           return;
         }
@@ -4252,7 +4252,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // Step 4: reset suspend sentinel (local incarnation resumes)
         resumeLocalIncarnation(lineageId, cwd);
         process.stderr.write(
-          `[remote] local incarnation resumed (sentinel cleared)\n`,
+          `[h2a] local incarnation resumed (sentinel cleared)\n`,
         );
 
         // Step 5: call existing migrate back
@@ -4270,7 +4270,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           });
         } catch (err) {
           process.stderr.write(
-            `[remote] migrate back failed: ${(err as Error).message}\n`,
+            `[h2a] migrate back failed: ${(err as Error).message}\n`,
           );
           process.exitCode = 1;
           return;
@@ -4278,7 +4278,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
         // Step 6: summary
         process.stderr.write(
-          `[remote] to-local complete (lineage ${lineageId})\n`,
+          `[h2a] to-local complete (lineage ${lineageId})\n`,
         );
       },
     );
@@ -4321,7 +4321,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         if (opts.curl !== undefined && opts.install !== undefined) {
           process.stderr.write(
-            "[remote] pass only one of --curl / --install\n",
+            "[h2a] pass only one of --curl / --install\n",
           );
           process.exitCode = 1;
           return;
@@ -4473,7 +4473,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         if (!tmuxAvailable()) {
           process.stderr.write(
-            "[remote] tmux is not installed locally — `remote resume` needs it (e.g. `sudo apt install tmux`).\n",
+            "[h2a] tmux is not installed locally — `h2a resume` needs it (e.g. `sudo apt install tmux`).\n",
           );
           process.exitCode = 1;
           return;
@@ -4486,7 +4486,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               : undefined;
         if (opts.claude !== undefined && opts.codex !== undefined) {
           process.stderr.write(
-            "[remote] pass only one of --claude or --codex.\n",
+            "[h2a] pass only one of --claude or --codex.\n",
           );
           process.exitCode = 1;
           return;
@@ -4499,21 +4499,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               : undefined;
         if (opts.last && !explicitProfile) {
           process.stderr.write(
-            "[remote] --last is only valid with --claude or --codex.\n",
+            "[h2a] --last is only valid with --claude or --codex.\n",
           );
           process.exitCode = 1;
           return;
         }
         if (opts.last && explicitConvId) {
           process.stderr.write(
-            "[remote] pass either a conversation id or --last, not both.\n",
+            "[h2a] pass either a conversation id or --last, not both.\n",
           );
           process.exitCode = 1;
           return;
         }
         if (slug === undefined && !explicitProfile) {
           process.stderr.write(
-            "[remote] resume needs a known session name, or `remote resume --claude [conversation-id]` / `remote resume --codex [conversation-id]` from the repo directory.\n",
+            "[h2a] resume needs a known session name, or `h2a resume --claude [conversation-id]` / `h2a resume --codex [conversation-id]` from the repo directory.\n",
           );
           process.exitCode = 1;
           return;
@@ -4528,7 +4528,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             : explicitConvId;
         if (explicitProfile === "claude" && opts.last && !resolvedConvId) {
           process.stderr.write(
-            `[remote] cannot resume last Claude conversation: no local Claude conversation found for ${process.cwd()}.\n`,
+            `[h2a] cannot resume last Claude conversation: no local Claude conversation found for ${process.cwd()}.\n`,
           );
           process.exitCode = 1;
           return;
@@ -4550,35 +4550,35 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const localIdle = local ? localSessionIdle(local.name) : false;
         if (!entry && local && !localIdle && !opts.replace) {
           process.stderr.write(
-            `[remote] local session ${displaySlug} already exists and does not look idle; no new CLI was started.\n`,
+            `[h2a] local session ${displaySlug} already exists and does not look idle; no new CLI was started.\n`,
           );
           if (opts.attach || explicitProfile) {
             process.stderr.write(
-              `[remote] switching to existing session ${displaySlug}\n`,
+              `[h2a] switching to existing session ${displaySlug}\n`,
             );
             process.exitCode = attachLocalSession(local.name);
             return;
           }
           process.stderr.write(
-            `[remote] attach: remote attach ${displaySlug}\n`,
+            `[h2a] attach: h2a attach ${displaySlug}\n`,
           );
           process.exitCode = 2;
           return;
         }
         if (!entry) {
           process.stderr.write(
-            `[remote] cannot resume ${displaySlug}: registry has no single local-tmux entry with profile, cwd and convId.\n`,
+            `[h2a] cannot resume ${displaySlug}: registry has no single local-tmux entry with profile, cwd and convId.\n`,
           );
           if (local) {
             process.stderr.write(
-              `[remote] local session ${displaySlug} exists but cannot be relaunched without a recorded convId.\n`,
+              `[h2a] local session ${displaySlug} exists but cannot be relaunched without a recorded convId.\n`,
             );
             process.stderr.write(
-              `[remote] attach: remote attach ${displaySlug}\n`,
+              `[h2a] attach: h2a attach ${displaySlug}\n`,
             );
           } else {
             process.stderr.write(
-              `[remote] start explicitly: remote resume ${displaySlug} --claude [convId]\n`,
+              `[h2a] start explicitly: h2a resume ${displaySlug} --claude [convId]\n`,
             );
           }
           process.exitCode = 1;
@@ -4587,7 +4587,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const resumeSlug = entry.id;
         if (!entry.cwd || !entry.tool || (!entry.convId && !explicitProfile)) {
           process.stderr.write(
-            `[remote] cannot resume ${displaySlug}: registry entry is incomplete (need profile, cwd and convId).\n`,
+            `[h2a] cannot resume ${displaySlug}: registry entry is incomplete (need profile, cwd and convId).\n`,
           );
           process.exitCode = 1;
           return;
@@ -4597,7 +4597,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         try {
           gatewayMode = gatewayModeFromOptions(opts);
         } catch (error) {
-          process.stderr.write(`[remote] ${(error as Error).message}.\n`);
+          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
           process.exitCode = 1;
           return;
         }
@@ -4610,7 +4610,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         });
         if (args.length === 0) {
           process.stderr.write(
-            `[remote] cannot resume ${displaySlug}: profile "${profile}" has no verified local resume argv.\n`,
+            `[h2a] cannot resume ${displaySlug}: profile "${profile}" has no verified local resume argv.\n`,
           );
           process.exitCode = 1;
           return;
@@ -4628,31 +4628,31 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               : "unknown";
           if (gatewayEnvStatus === "missing" || gatewayEnvStatus === "stale") {
             process.stderr.write(
-              `[remote] local session ${displaySlug} is running without current llm-mesh env (${gatewayEnvStatus}); not restarting an active session automatically.\n`,
+              `[h2a] local session ${displaySlug} is running without current llm-mesh env (${gatewayEnvStatus}); not restarting an active session automatically.\n`,
             );
             process.stderr.write(
-              `[remote] to relaunch with gateway env, confirm explicitly: remote resume ${displaySlug} --replace\n`,
+              `[h2a] to relaunch with gateway env, confirm explicitly: h2a resume ${displaySlug} --replace\n`,
             );
           }
           process.stderr.write(
-            `[remote] local session ${displaySlug} already exists and does not look idle; no new ${profile} was started.\n`,
+            `[h2a] local session ${displaySlug} already exists and does not look idle; no new ${profile} was started.\n`,
           );
           if (opts.attach || explicitProfile) {
             if (explicitProfile && currentTmuxSessionIs(local.name)) {
               process.stderr.write(
-                `[remote] already inside ${displaySlug}; running ${profile} resume in this pane\n`,
+                `[h2a] already inside ${displaySlug}; running ${profile} resume in this pane\n`,
               );
               process.exitCode = runLocalCliForeground(command, args);
               return;
             }
             process.stderr.write(
-              `[remote] switching to existing session ${displaySlug}\n`,
+              `[h2a] switching to existing session ${displaySlug}\n`,
             );
             process.exitCode = attachLocalSession(local.name);
             return;
           }
           process.stderr.write(
-            `[remote] attach: remote attach ${displaySlug}\n`,
+            `[h2a] attach: h2a attach ${displaySlug}\n`,
           );
           process.exitCode = 2;
           return;
@@ -4660,31 +4660,31 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (local) {
           if (!localIdle && opts.replace) {
             process.stderr.write(
-              `[remote] local session ${displaySlug} does not look idle; --replace will kill tmux session ${local.name} before resuming${entry.convId ? ` ${entry.convId}` : ""}.\n`,
+              `[h2a] local session ${displaySlug} does not look idle; --replace will kill tmux session ${local.name} before resuming${entry.convId ? ` ${entry.convId}` : ""}.\n`,
             );
           }
           if (!opts.replace) {
             process.stderr.write(
-              `[remote] local session ${displaySlug} already exists.\n`,
+              `[h2a] local session ${displaySlug} already exists.\n`,
             );
             process.stderr.write(
-              `[remote] pane appears idle; replacing it will kill tmux session ${local.name} and resume${entry.convId ? ` conversation ${entry.convId}` : ""} in ${entry.cwd}.\n`,
+              `[h2a] pane appears idle; replacing it will kill tmux session ${local.name} and resume${entry.convId ? ` conversation ${entry.convId}` : ""} in ${entry.cwd}.\n`,
             );
             process.stderr.write(
-              `[remote] If another CLI is still writing this conversation, replacing can corrupt the .jsonl.\n`,
+              `[h2a] If another CLI is still writing this conversation, replacing can corrupt the .jsonl.\n`,
             );
             if (!(await confirmReplace(displaySlug))) {
               process.stderr.write(
-                `[remote] takeover requires confirmation.\n`,
+                `[h2a] takeover requires confirmation.\n`,
               );
               process.stderr.write(
-                `[remote] interactive: remote resume ${displaySlug}\n`,
+                `[h2a] interactive: h2a resume ${displaySlug}\n`,
               );
               process.stderr.write(
-                `[remote] explicit replace: remote resume ${displaySlug} --replace\n`,
+                `[h2a] explicit replace: h2a resume ${displaySlug} --replace\n`,
               );
               process.stderr.write(
-                `[remote] manual path: remote stop ${displaySlug} --reason restart && remote resume ${displaySlug}\n`,
+                `[h2a] manual path: h2a stop ${displaySlug} --reason restart && h2a resume ${displaySlug}\n`,
               );
               process.exitCode = 1;
               return;
@@ -4693,14 +4693,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const rechecked = findLocalSession(displaySlug);
           if (!rechecked) {
             process.stderr.write(
-              `[remote] local session ${displaySlug} changed state before replace; aborting.\n`,
+              `[h2a] local session ${displaySlug} changed state before replace; aborting.\n`,
             );
             process.exitCode = 1;
             return;
           }
           if (!opts.replace && !localSessionIdle(rechecked.name)) {
             process.stderr.write(
-              `[remote] local session ${displaySlug} is no longer idle; aborting.\n`,
+              `[h2a] local session ${displaySlug} is no longer idle; aborting.\n`,
             );
             process.exitCode = 1;
             return;
@@ -4722,13 +4722,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           if (!killLocalSession(rechecked.name)) {
             process.stderr.write(
-              `[remote] local session ${displaySlug} could not be killed; no new ${profile} was started.\n`,
+              `[h2a] local session ${displaySlug} could not be killed; no new ${profile} was started.\n`,
             );
             process.exitCode = 1;
             return;
           }
           process.stderr.write(
-            `[remote] replaced local session ${displaySlug} (${rechecked.name})\n`,
+            `[h2a] replaced local session ${displaySlug} (${rechecked.name})\n`,
           );
         } else {
           if (entry.convId) {
@@ -4763,23 +4763,23 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           ...(gatewayMode !== "auto" ? { gatewayMode } : {}),
         });
         process.stderr.write(
-          `[remote] resumed local session ${resumeSlug} (${profile} resume${entry.convId ? ` ${entry.convId}` : ""} in ${entry.cwd})\n`,
+          `[h2a] resumed local session ${resumeSlug} (${profile} resume${entry.convId ? ` ${entry.convId}` : ""} in ${entry.cwd})\n`,
         );
         if (gateway) {
-          process.stderr.write(`[remote] gateway active: ${gateway}\n`);
+          process.stderr.write(`[h2a] gateway active: ${gateway}\n`);
         }
         if (opts.attach) {
           process.exitCode = attachLocalSession(name);
           return;
         }
-        process.stderr.write(`[remote] attach: remote attach ${resumeSlug}\n`);
+        process.stderr.write(`[h2a] attach: h2a attach ${resumeSlug}\n`);
       },
     );
 
   program
     .command("run <profile> [path]")
     .description(
-      "Start a LOCAL session in tmux (claude/codex/…) in <path> (default: cwd), then attach this terminal by default. Remote applies its embedded scroll-safe tmux profile at launch; no ~/.tmux.conf is required. Manage it like a remote one: `remote ls`, `remote attach <slug>`, `remote stop <slug>`. Detach with Ctrl-b d; the session keeps running.",
+      "Start a LOCAL session in tmux (claude/codex/…) in <path> (default: cwd), then attach this terminal by default. Remote applies its embedded scroll-safe tmux profile at launch; no ~/.tmux.conf is required. Manage it like a remote one: `h2a ls`, `h2a attach <slug>`, `h2a stop <slug>`. Detach with Ctrl-b d; the session keeps running.",
     )
     .option(
       "--no-attach",
@@ -4831,7 +4831,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         if (!tmuxAvailable()) {
           process.stderr.write(
-            "[remote] tmux is not installed locally — `remote run` needs it (e.g. `sudo apt install tmux`).\n",
+            "[h2a] tmux is not installed locally — `h2a run` needs it (e.g. `sudo apt install tmux`).\n",
           );
           process.exitCode = 1;
           return;
@@ -4841,7 +4841,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           count = Number(opts.count);
           if (!Number.isInteger(count) || count < 1) {
             process.stderr.write(
-              `[remote] --count must be a whole number ≥ 1\n`,
+              `[h2a] --count must be a whole number ≥ 1\n`,
             );
             process.exitCode = 1;
             return;
@@ -4850,7 +4850,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // .jsonl (corruption). A fan-out is N FRESH conversations.
           if (count > 1 && opts.resume) {
             process.stderr.write(
-              `[remote] --count > 1 cannot combine with -r/--resume (each fanned agent is a fresh conversation; resuming one into N would corrupt it)\n`,
+              `[h2a] --count > 1 cannot combine with -r/--resume (each fanned agent is a fresh conversation; resuming one into N would corrupt it)\n`,
             );
             process.exitCode = 1;
             return;
@@ -4873,11 +4873,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (existingLocalSessions.length > 0) {
           for (const slug of existingLocalSessions) {
             process.stderr.write(
-              `[remote] local session ${slug} already exists; no new ${profile} was started.\n`,
+              `[h2a] local session ${slug} already exists; no new ${profile} was started.\n`,
             );
-            process.stderr.write(`[remote] attach: remote attach ${slug}\n`);
+            process.stderr.write(`[h2a] attach: h2a attach ${slug}\n`);
             process.stderr.write(
-              `[remote] stop first: remote stop ${slug} --reason restart\n`,
+              `[h2a] stop first: h2a stop ${slug} --reason restart\n`,
             );
           }
           process.exitCode = 1;
@@ -4906,7 +4906,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         try {
           gatewayMode = gatewayModeFromOptions(opts);
         } catch (error) {
-          process.stderr.write(`[remote] ${(error as Error).message}.\n`);
+          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
           process.exitCode = 1;
           return;
         }
@@ -4918,7 +4918,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           : localStartArgs(profile, { bare: useBare });
         if (opts.resume && args.length === 0) {
           process.stderr.write(
-            `[remote] profile "${profile}" has no verified local resume argv; start it without -r/--resume\n`,
+            `[h2a] profile "${profile}" has no verified local resume argv; start it without -r/--resume\n`,
           );
           process.exitCode = 1;
           return;
@@ -4950,28 +4950,28 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           if (opts.h2a || h2a.enabled) {
             if (startH2aWindow(name, cwd, h2a.command)) {
               process.stderr.write(
-                `[remote] h2a window started in ${slug} (${h2a.command})\n`,
+                `[h2a] h2a window started in ${slug} (${h2a.command})\n`,
               );
             }
           }
         }
         if (count > 1) {
           process.stderr.write(
-            `[remote] ${started.length} ${profile} agents started in ${cwd}: ${started.map((s) => s.slug).join(", ")}\n` +
-              `[remote] attach one with: remote attach <slug>\n`,
+            `[h2a] ${started.length} ${profile} agents started in ${cwd}: ${started.map((s) => s.slug).join(", ")}\n` +
+              `[h2a] attach one with: h2a attach <slug>\n`,
           );
           return; // never auto-attach a fleet
         }
         const only = started[0]!;
         process.stderr.write(
-          `[remote] local session ${only.slug} started (${profile}${opts.resume ? ` --resume ${opts.resume}` : ""} in ${cwd})\n`,
+          `[h2a] local session ${only.slug} started (${profile}${opts.resume ? ` --resume ${opts.resume}` : ""} in ${cwd})\n`,
         );
         // Single local runs hand off the terminal by default: there is no value
         // in making users type a second `remote attach <slug>` command. Commander
         // sets opts.attach=false only for --no-attach.
         if (opts.attach === false) {
           process.stderr.write(
-            `[remote] attach with: remote attach ${only.slug}\n`,
+            `[h2a] attach with: h2a attach ${only.slug}\n`,
           );
           return;
         }
@@ -5058,7 +5058,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         if (!isDelegateType(type)) {
           process.stderr.write(
-            `[remote] unknown agent type "${type}" (use: claude | codex | agy)\n`,
+            `[h2a] unknown agent type "${type}" (use: claude | codex | agy)\n`,
           );
           process.exitCode = 1;
           return;
@@ -5071,7 +5071,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         try {
           assertSafeName(jobId);
         } catch (err) {
-          process.stderr.write(`[remote] ${(err as Error).message}\n`);
+          process.stderr.write(`[h2a] ${(err as Error).message}\n`);
           process.exitCode = 1;
           return;
         }
@@ -5087,7 +5087,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const depthBudget = inheritedDepthBudget(requestedDepth, process.env);
         if (!canDelegateAtDepth(depthBudget)) {
           process.stderr.write(
-            "[remote] spawn-depth budget exhausted (REMOTE_DELEGATE_DEPTH=0) — this job has reached its --max-depth and may not delegate further.\n",
+            "[h2a] spawn-depth budget exhausted (REMOTE_DELEGATE_DEPTH=0) — this job has reached its --max-depth and may not delegate further.\n",
           );
           process.exitCode = 1;
           return;
@@ -5118,13 +5118,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               typeof opts.remote === "string" ? opts.remote : undefined,
             );
           } catch (err) {
-            process.stderr.write(`[remote] ${(err as Error).message}\n`);
+            process.stderr.write(`[h2a] ${(err as Error).message}\n`);
             process.exitCode = 1;
             return;
           }
         } else if (!tmuxAvailable()) {
           process.stderr.write(
-            "[remote] tmux is not installed locally — local `remote delegate` needs it (use --remote for a Pod).\n",
+            "[h2a] tmux is not installed locally — local `h2a delegate` needs it (use --remote for a Pod).\n",
           );
           process.exitCode = 1;
           return;
@@ -5195,7 +5195,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (!claimed && listJobs().some((e) => e.id === jobId)) {
           // The entry exists but the cap is full → stay queued.
           process.stderr.write(
-            `[remote] queued job ${jobId} (${jobType}${opts.headless ? " headless" : ""}${isRemote ? " remote" : ""}) — ` +
+            `[h2a] queued job ${jobId} (${jobType}${opts.headless ? " headless" : ""}${isRemote ? " remote" : ""}) — ` +
               `${effectiveCap} concurrent slot(s) busy. Start it with: remote jobs conduct\n`,
           );
           process.stdout.write(`${jobId}\n`);
@@ -5205,7 +5205,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // Registry write failed entirely (no entry at all) — fall back to a
           // throwaway in-memory entry so the launch still happens.
           process.stderr.write(
-            `[remote] job ${jobId} not in registry after enroll — launching from an in-memory spec\n`,
+            `[h2a] job ${jobId} not in registry after enroll — launching from an in-memory spec\n`,
           );
         }
         const launchEntry: RegistryEntry =
@@ -5240,14 +5240,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // only reclaim it on a later reconcile pass).
           if (claimed) advanceJob(jobId, "failed");
           process.stderr.write(
-            `[remote] failed to start job ${jobId}: ${result.error}\n`,
+            `[h2a] failed to start job ${jobId}: ${result.error}\n`,
           );
           process.exitCode = 1;
           return;
         }
         process.stderr.write(
-          `[remote] delegated ${result.target === "remote" ? "REMOTE " : ""}job ${jobId} (${jobType}${opts.headless ? " headless" : ""}) ${result.target === "remote" ? "→ " : "in "}${result.detail}\n` +
-            `[remote] supervise: remote jobs status ${jobId}` +
+          `[h2a] delegated ${result.target === "remote" ? "REMOTE " : ""}job ${jobId} (${jobType}${opts.headless ? " headless" : ""}) ${result.target === "remote" ? "→ " : "in "}${result.detail}\n` +
+            `[h2a] supervise: remote jobs status ${jobId}` +
             (opts.headless ? "" : `   attach: remote jobs attach ${jobId}`) +
             "\n",
         );
@@ -5291,7 +5291,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const agent = findProjectedAgent(projection.agents, id);
       if (!agent) {
         process.stderr.write(
-          `[remote] no projected agent \"${id}\" (see: remote agents ls --json)\n`,
+          `[h2a] no projected agent \"${id}\" (see: h2a agents ls --json)\n`,
         );
         process.exitCode = 1;
         return;
@@ -5307,7 +5307,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   const jobsCommand = program
     .command("jobs")
-    .description("Supervise delegated agent jobs (see `remote delegate`).");
+    .description("Supervise delegated agent jobs (see `h2a delegate`).");
 
   const jobLive = (e: ReturnType<typeof listJobs>[number]): boolean =>
     isLive(e);
@@ -5418,7 +5418,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const advanced = advanceJob(job.id, "failed");
       if (advanced) {
         process.stderr.write(
-          `[remote] job ${job.id} (${job.tool}) failed: rate-limited ` +
+          `[h2a] job ${job.id} (${job.tool}) failed: rate-limited ` +
             `(gave up after ${job.throttle?.attempts ?? THROTTLE_MAX_ATTEMPTS} resume attempts)\n`,
         );
         emitJobDone(advanced, { state: "failed" });
@@ -5448,7 +5448,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     });
     if (ok) {
       process.stderr.write(
-        `[remote] job ${job.id} (${job.tool}) throttled (${verdict.signature ?? "rate-limited"}) — ` +
+        `[h2a] job ${job.id} (${job.tool}) throttled (${verdict.signature ?? "rate-limited"}) — ` +
           `attempt ${step.attempts}/${THROTTLE_MAX_ATTEMPTS}, resume at ${step.nextRetryAt}\n`,
       );
     }
@@ -5612,7 +5612,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       await reconcileJobs();
       const job = listJobs().find((e) => e.id === id);
       if (!job) {
-        process.stderr.write(`[remote] no job "${id}" (see: remote jobs ls)\n`);
+        process.stderr.write(`[h2a] no job "${id}" (see: remote jobs ls)\n`);
         process.exitCode = 1;
         return;
       }
@@ -5661,7 +5661,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   jobsCommand
     .command("attach <id>")
     .description(
-      "Attach into the job's tmux session (Ctrl-b d to detach). Remote jobs exec into the Pod's tmux, like `remote attach <id> --exec`.",
+      "Attach into the job's tmux session (Ctrl-b d to detach). Remote jobs exec into the Pod's tmux, like `h2a attach <id> --exec`.",
     )
     .action(async (id: string) => {
       const job = listJobs().find((e) => e.id === id);
@@ -5671,7 +5671,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const remoteId = job.remoteId;
         if (!remoteId) {
           process.stderr.write(
-            `[remote] remote job "${id}" has no session id recorded (see: remote jobs status ${id})\n`,
+            `[h2a] remote job "${id}" has no session id recorded (see: remote jobs status ${id})\n`,
           );
           process.exitCode = 1;
           return;
@@ -5679,7 +5679,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const tunnel = getTunnel();
         if (!tunnel) {
           process.stderr.write(
-            "[remote] attaching a remote job needs a tunnel configured (remote config tunnel …)\n",
+            "[h2a] attaching a remote job needs a tunnel configured (h2a config tunnel …)\n",
           );
           process.exitCode = 1;
           return;
@@ -5690,7 +5690,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // best-effort: the kubectl exec below works off the tunnel regardless
         }
         process.stderr.write(
-          `[remote] exec-attaching into Pod tmux for job ${id} (${remoteId}) (Ctrl-b d to detach)\n`,
+          `[h2a] exec-attaching into Pod tmux for job ${id} (${remoteId}) (Ctrl-b d to detach)\n`,
         );
         process.exitCode = attachPodTmux(tunnel, remoteId);
         return;
@@ -5699,7 +5699,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const name = job?.tmuxSession ?? localSessionName(id);
       if (!findLocalSession(name)) {
         process.stderr.write(
-          `[remote] no live tmux session for job "${id}" (it may have ended; see: remote jobs status ${id})\n`,
+          `[h2a] no live tmux session for job "${id}" (it may have ended; see: remote jobs status ${id})\n`,
         );
         process.exitCode = 1;
         return;
@@ -5715,7 +5715,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action((id: string) => {
       const job = listJobs().find((e) => e.id === id);
       if (!job) {
-        process.stderr.write(`[remote] no job "${id}" (see: remote jobs ls)\n`);
+        process.stderr.write(`[h2a] no job "${id}" (see: remote jobs ls)\n`);
         process.exitCode = 1;
         return;
       }
@@ -5731,7 +5731,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       // REMOTE job: the output lives in the Pod's tmux, not a local pane.
       if (job.kind === "remote") {
         process.stderr.write(
-          `[remote] remote job "${id}" runs in a Pod — view it live with: remote jobs attach ${id}\n`,
+          `[h2a] remote job "${id}" runs in a Pod — view it live with: remote jobs attach ${id}\n`,
         );
         process.exitCode = 1;
         return;
@@ -5743,7 +5743,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         return;
       }
       process.stderr.write(
-        `[remote] no logs for job "${id}" (no output.log and the tmux pane is gone)\n`,
+        `[h2a] no logs for job "${id}" (no output.log and the tmux pane is gone)\n`,
       );
       process.exitCode = 1;
     });
@@ -5768,7 +5768,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         );
       } catch (error) {
         process.stderr.write(
-          `[remote] cannot read the h2a inbox: ${(error instanceof Error ? error.message : String(error)).slice(0, 160)}\n`,
+          `[h2a] cannot read the h2a inbox: ${(error instanceof Error ? error.message : String(error)).slice(0, 160)}\n`,
         );
         process.exitCode = 1;
         return;
@@ -5791,14 +5791,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       try {
         assertSafeName(jobId);
       } catch (err) {
-        process.stderr.write(`[remote] ${(err as Error).message}\n`);
+        process.stderr.write(`[h2a] ${(err as Error).message}\n`);
         process.exitCode = 1;
         return;
       }
       const job = listJobs().find((e) => e.id === jobId);
       if (!job) {
         process.stderr.write(
-          `[remote] no job "${jobId}" (see: remote jobs ls)\n`,
+          `[h2a] no job "${jobId}" (see: remote jobs ls)\n`,
         );
         process.exitCode = 1;
         return;
@@ -5815,14 +5815,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           envelopeFileName("decision.reply", jobId, Date.now()),
         );
         process.stderr.write(
-          `[remote] decision.reply for ${jobId} → ${envelope.to}` +
+          `[h2a] decision.reply for ${jobId} → ${envelope.to}` +
             `${written ? "" : " (already present, not overwritten)"}\n` +
-            `[remote] envelope: ${path}\n` +
-            `[remote] delivered to the job's Pod on the next: remote h2a bridge\n`,
+            `[h2a] envelope: ${path}\n` +
+            `[h2a] delivered to the job's Pod on the next: remote h2a bridge\n`,
         );
       } catch (error) {
         process.stderr.write(
-          `[remote] failed to write decision.reply: ${(error instanceof Error ? error.message : String(error)).slice(0, 160)}\n`,
+          `[h2a] failed to write decision.reply: ${(error instanceof Error ? error.message : String(error)).slice(0, 160)}\n`,
         );
         process.exitCode = 1;
       }
@@ -5891,11 +5891,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       if (r.started) {
         resumed += 1;
         process.stderr.write(
-          `[remote] conduct: resumed throttled ${job.id} (${job.tool}) in ${r.detail}\n`,
+          `[h2a] conduct: resumed throttled ${job.id} (${job.tool}) in ${r.detail}\n`,
         );
       } else {
         process.stderr.write(
-          `[remote] conduct: could not resume throttled ${job.id}: ${r.error}\n`,
+          `[h2a] conduct: could not resume throttled ${job.id}: ${r.error}\n`,
         );
       }
     }
@@ -5913,7 +5913,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     aimdLastCap = effectiveCap;
     if (effectiveCap < cap) {
       process.stderr.write(
-        `[remote] conduct: AIMD breaker — admitting up to ${effectiveCap}/${cap} (rate-limit pressure)\n`,
+        `[h2a] conduct: AIMD breaker — admitting up to ${effectiveCap}/${cap} (rate-limit pressure)\n`,
       );
     }
 
@@ -5926,14 +5926,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       if (result.started) {
         started += 1;
         process.stderr.write(
-          `[remote] conduct: started ${id} (${job.tool}) ${result.target === "remote" ? "→ " : "in "}${result.detail}\n`,
+          `[h2a] conduct: started ${id} (${job.tool}) ${result.target === "remote" ? "→ " : "in "}${result.detail}\n`,
         );
       } else {
         // A launch failure fails the job (frees nothing it didn't hold) so the
         // queue keeps moving; the error is recorded on stderr.
         advanceJob(id, "failed");
         process.stderr.write(
-          `[remote] conduct: failed to start ${id}: ${result.error}\n`,
+          `[h2a] conduct: failed to start ${id}: ${result.error}\n`,
         );
       }
     }
@@ -5944,7 +5944,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   jobsCommand
     .command("conduct")
     .description(
-      "Conductor: reconcile job state, consume finished jobs, and START queued (pending) jobs while running < cap — the SAME launch path as `remote delegate`. One pass by default; `--watch <min>` loops in the FOREGROUND (run in a dedicated tmux window, no daemon; Ctrl-C to stop).",
+      "Conductor: reconcile job state, consume finished jobs, and START queued (pending) jobs while running < cap — the SAME launch path as `h2a delegate`. One pass by default; `--watch <min>` loops in the FOREGROUND (run in a dedicated tmux window, no daemon; Ctrl-C to stop).",
     )
     .option(
       "--watch <minutes>",
@@ -5983,12 +5983,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (minutes === undefined) {
           const { started, finished } = await conductPass(cap);
           process.stderr.write(
-            `[remote] conduct: cap ${cap} — ${started} started, ${finished} finished\n`,
+            `[h2a] conduct: cap ${cap} — ${started} started, ${finished} finished\n`,
           );
           return;
         }
         process.stderr.write(
-          `[remote] conducting (cap ${cap}, every ${minutes} min) — Ctrl-C to stop\n`,
+          `[h2a] conducting (cap ${cap}, every ${minutes} min) — Ctrl-C to stop\n`,
         );
         process.exitCode = await conductLoop(minutes, () => conductPass(cap));
       },
@@ -6085,7 +6085,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     const localId = localDurableWorkspaceId();
     if (localId && localId !== request.workspaceId) {
       process.stderr.write(
-        `[remote] conductor-launch: workspace id mismatch — envelope ${request.workspaceId} vs local ${localId} ` +
+        `[h2a] conductor-launch: workspace id mismatch — envelope ${request.workspaceId} vs local ${localId} ` +
           `(proceeding with the envelope's id; align canonicalization with a2a-cli)\n`,
       );
     }
@@ -6103,7 +6103,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       if (confirm)
         markLaunchEnvelopeProcessed(env.path, `skip: ${gate.reason}`);
       process.stderr.write(
-        `[remote] conductor-launch: SKIP — ${gate.reason}\n`,
+        `[h2a] conductor-launch: SKIP — ${gate.reason}\n`,
       );
       return { launched: false, detail: gate.reason };
     }
@@ -6113,14 +6113,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     if (!host) {
       const detail = `no preferred host available on PATH (wanted ${request.hostPref.join("/")}, found ${[...available].join("/") || "none"})`;
       if (confirm) markLaunchEnvelopeProcessed(env.path, `skip: ${detail}`);
-      process.stderr.write(`[remote] conductor-launch: SKIP — ${detail}\n`);
+      process.stderr.write(`[h2a] conductor-launch: SKIP — ${detail}\n`);
       return { launched: false, detail };
     }
 
     const task = buildConductorTask(request);
     if (!confirm) {
       process.stderr.write(
-        `[remote] conductor-launch DRY-RUN — would launch a ${host} conductor "${slug}" ` +
+        `[h2a] conductor-launch DRY-RUN — would launch a ${host} conductor "${slug}" ` +
           `for ${request.workspaceId} (${request.stalled.length} stalled item(s)). ` +
           `Re-run with --confirm to launch.\n`,
       );
@@ -6171,13 +6171,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     if (!result.started) {
       advanceJob(slug, "failed");
       process.stderr.write(
-        `[remote] conductor-launch: FAILED to launch ${slug}: ${result.error}\n`,
+        `[h2a] conductor-launch: FAILED to launch ${slug}: ${result.error}\n`,
       );
       return { launched: false, detail: result.error };
     }
     process.stderr.write(
-      `[remote] conductor-launch: launched ${host} conductor ${slug} for ${request.workspaceId} in ${result.detail}\n` +
-        `[remote] supervise: remote jobs status ${slug}   attach: remote jobs attach ${slug}\n`,
+      `[h2a] conductor-launch: launched ${host} conductor ${slug} for ${request.workspaceId} in ${result.detail}\n` +
+        `[h2a] supervise: remote jobs status ${slug}   attach: remote jobs attach ${slug}\n`,
     );
     return { launched: true, detail: `${host} ${slug}` };
   };
@@ -6190,7 +6190,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     const fresh = freshestLaunchEnvelope(readLaunchEnvelopes());
     if (!fresh) {
       process.stderr.write(
-        "[remote] conductor-launch: no unprocessed conductor-launch-request in the h2a inbox\n",
+        "[h2a] conductor-launch: no unprocessed conductor-launch-request in the h2a inbox\n",
       );
       return { started: 0, finished: 0 };
     }
@@ -6201,7 +6201,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   program
     .command("conductor-launch")
     .description(
-      "Handle an h2a `conductor-launch-request` envelope: when h2a reports stalled work and no live conductor, launch one (claude/codex/agy, first available on PATH) via the same delegation path as `remote delegate`, instructed to claim the conductor role at boot. DRY-RUN unless --confirm. Idempotent (skips when a conductor is already alive) and rate-limited per workspace (cooldown). One pass by default; --watch loops in the FOREGROUND (no daemon; Ctrl-C to stop).",
+      "Handle an h2a `conductor-launch-request` envelope: when h2a reports stalled work and no live conductor, launch one (claude/codex/agy, first available on PATH) via the same delegation path as `h2a delegate`, instructed to claim the conductor role at boot. DRY-RUN unless --confirm. Idempotent (skips when a conductor is already alive) and rate-limited per workspace (cooldown). One pass by default; --watch loops in the FOREGROUND (no daemon; Ctrl-C to stop).",
     )
     .option(
       "--confirm",
@@ -6234,7 +6234,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           opts.watch === undefined ? undefined : parseWatchMinutes(opts.watch);
         if (!confirm) {
           process.stderr.write(
-            "[remote] conductor-launch: DRY-RUN (no --confirm) — nothing will be launched\n",
+            "[h2a] conductor-launch: DRY-RUN (no --confirm) — nothing will be launched\n",
           );
         }
         if (minutes === undefined) {
@@ -6242,7 +6242,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           return;
         }
         process.stderr.write(
-          `[remote] conductor-launch watching (every ${minutes} min, cooldown ${cooldownMin} min${confirm ? "" : ", DRY-RUN"}) — Ctrl-C to stop\n`,
+          `[h2a] conductor-launch watching (every ${minutes} min, cooldown ${cooldownMin} min${confirm ? "" : ", DRY-RUN"}) — Ctrl-C to stop\n`,
         );
         process.exitCode = await conductLoop(minutes, () =>
           launchPass(confirm, cooldownMs),
@@ -6378,14 +6378,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         now - lastWake < WAKE_REQUEST_IDEMPOTENCE_MS
       ) {
         process.stderr.write(
-          `[remote] wake-request: skipping ${target} (already woken ${Math.round((now - lastWake) / 1000)}s ago)\n`,
+          `[h2a] wake-request: skipping ${target} (already woken ${Math.round((now - lastWake) / 1000)}s ago)\n`,
         );
         continue;
       }
       const pane = resolveAgentPaneForInstance(target);
       if (!pane) {
         process.stderr.write(
-          `[remote] wake-request: no agent pane for ${target} — not launched by remote, skipping (reason: ${reason || "none"})\n`,
+          `[h2a] wake-request: no agent pane for ${target} — not launched by remote, skipping (reason: ${reason || "none"})\n`,
         );
         continue;
       }
@@ -6416,7 +6416,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             );
             if (maxActivity > now - 4000) {
               process.stderr.write(
-                `[remote] wake-request: deferring ${target} — human active ${Math.round((now - maxActivity) / 1000)}s ago, retrying next pass\n`,
+                `[h2a] wake-request: deferring ${target} — human active ${Math.round((now - maxActivity) / 1000)}s ago, retrying next pass\n`,
               );
               continue;
             }
@@ -6444,7 +6444,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       writeWakeStampMs(localRoot, target, now);
       woken += 1;
       process.stderr.write(
-        `[remote] wake-request: woke ${target} → pane ${pane} (reason: ${reason || "none"})\n`,
+        `[h2a] wake-request: woke ${target} → pane ${pane} (reason: ${reason || "none"})\n`,
       );
     }
     return woken;
@@ -6469,7 +6469,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action(
       async (opts: { root?: string; watch?: boolean; interval?: string }) => {
         if (!tmuxAvailable()) {
-          process.stderr.write("[remote] tmux is not installed locally\n");
+          process.stderr.write("[h2a] tmux is not installed locally\n");
           process.exitCode = 1;
           return;
         }
@@ -6479,12 +6479,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (!opts.watch) {
           const woken = wakeRequestPass(localRoot);
           process.stderr.write(
-            `[remote] wake-request: ${woken} pane(s) woken this pass\n`,
+            `[h2a] wake-request: ${woken} pane(s) woken this pass\n`,
           );
           return;
         }
         process.stderr.write(
-          `[remote] wake-request watching (every ${Math.round(intervalMs / 1000)}s) — Ctrl-C to stop\n`,
+          `[h2a] wake-request watching (every ${Math.round(intervalMs / 1000)}s) — Ctrl-C to stop\n`,
         );
         let stopped = false;
         const onSigint = () => {
@@ -6495,7 +6495,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           while (!stopped) {
             const woken = wakeRequestPass(localRoot);
             process.stderr.write(
-              `[remote] wake-request: ${woken} pane(s) woken — ${new Date().toISOString()}\n`,
+              `[h2a] wake-request: ${woken} pane(s) woken — ${new Date().toISOString()}\n`,
             );
             if (stopped) break;
             await new Promise<void>((resolve) => {
@@ -6509,7 +6509,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         } finally {
           process.removeListener("SIGINT", onSigint);
         }
-        process.stderr.write("[remote] wake-request watch stopped\n");
+        process.stderr.write("[h2a] wake-request watch stopped\n");
       },
     );
 
@@ -6528,7 +6528,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .action((filter: string | undefined, opts: { apply?: boolean }) => {
       if (!tmuxAvailable()) {
-        process.stderr.write("[remote] tmux is not installed locally\n");
+        process.stderr.write("[h2a] tmux is not installed locally\n");
         process.exitCode = 1;
         return;
       }
@@ -6553,7 +6553,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       );
       if (plan.actions.length === 0) {
         process.stderr.write(
-          `[remote] nothing to relaunch${filter ? ` matching "${filter}"` : ""} (${plan.skipped.length} skipped)\n`,
+          `[h2a] nothing to relaunch${filter ? ` matching "${filter}"` : ""} (${plan.skipped.length} skipped)\n`,
         );
         for (const s of plan.skipped) {
           process.stderr.write(`  - ${s.slug}: ${s.reason}\n`);
@@ -6562,7 +6562,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       }
       if (!opts.apply) {
         process.stderr.write(
-          `[remote] would relaunch ${plan.actions.length} session(s) — dry-run, pass --apply:\n`,
+          `[h2a] would relaunch ${plan.actions.length} session(s) — dry-run, pass --apply:\n`,
         );
         for (const a of plan.actions) {
           process.stderr.write(`  ${a.slug}: ${a.cmd}\n`);
@@ -6576,13 +6576,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       for (const a of plan.actions) {
         if (relaunchInSession(a.name, a.cmd)) {
           ok += 1;
-          process.stderr.write(`[remote] relaunched ${a.slug}: ${a.cmd}\n`);
+          process.stderr.write(`[h2a] relaunched ${a.slug}: ${a.cmd}\n`);
         } else {
-          process.stderr.write(`[remote] FAILED to relaunch ${a.slug}\n`);
+          process.stderr.write(`[h2a] FAILED to relaunch ${a.slug}\n`);
         }
       }
       process.stderr.write(
-        `[remote] relaunched ${ok}/${plan.actions.length}${plan.skipped.length ? `, ${plan.skipped.length} skipped` : ""}\n`,
+        `[h2a] relaunched ${ok}/${plan.actions.length}${plan.skipped.length ? `, ${plan.skipped.length} skipped` : ""}\n`,
       );
     });
 
@@ -6697,7 +6697,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // attached between capture and nudge — belt and braces on a live pane).
         if (!isDetachedNow(r.name)) {
           process.stderr.write(
-            `[remote] ${r.name} (${r.type}) just got attached — skipping the nudge\n`,
+            `[h2a] ${r.name} (${r.type}) just got attached — skipping the nudge\n`,
           );
           continue;
         }
@@ -6706,10 +6706,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           nudged += 1;
           throttleState.set(r.name, r.next);
           process.stderr.write(
-            `[remote] nudged ${r.name} (${r.type}) — continue (attempt ${r.next.attempts})\n`,
+            `[h2a] nudged ${r.name} (${r.type}) — continue (attempt ${r.next.attempts})\n`,
           );
         } else {
-          process.stderr.write(`[remote] FAILED to nudge ${r.name}\n`);
+          process.stderr.write(`[h2a] FAILED to nudge ${r.name}\n`);
         }
       }
     }
@@ -6739,7 +6739,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         opts: { apply?: boolean; watch?: string; maxConcurrent?: string },
       ) => {
         if (!tmuxAvailable()) {
-          process.stderr.write("[remote] tmux is not installed locally\n");
+          process.stderr.write("[h2a] tmux is not installed locally\n");
           process.exitCode = 1;
           return;
         }
@@ -6769,12 +6769,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           for (const line of plan.advisories) process.stderr.write(`${line}\n`);
           if (!apply) {
             process.stderr.write(
-              `[remote] DRY-RUN — would resume ${plan.toResume.length} session(s) ` +
+              `[h2a] DRY-RUN — would resume ${plan.toResume.length} session(s) ` +
                 `(${plan.throttled.length} throttled, cap ${cap}). Pass --apply to nudge them.\n`,
             );
           } else {
             process.stderr.write(
-              `[remote] resume-throttled: nudged ${nudged}/${plan.toResume.length} ` +
+              `[h2a] resume-throttled: nudged ${nudged}/${plan.toResume.length} ` +
                 `(${plan.throttled.length} throttled, cap ${cap})\n`,
             );
           }
@@ -6786,7 +6786,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           return;
         }
         process.stderr.write(
-          `[remote] resume-throttled watching (cap ${cap}, every ${minutes} min) — Ctrl-C to stop\n`,
+          `[h2a] resume-throttled watching (cap ${cap}, every ${minutes} min) — Ctrl-C to stop\n`,
         );
         process.exitCode = await watchRefreshLoop(minutes, async () =>
           runOnce(),
@@ -6833,7 +6833,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           ...(opts.root !== undefined ? { localRoot: opts.root } : {}),
         });
         process.stderr.write(
-          `[remote] h2a ping ${ping.written ? "queued" : "already queued"} for ${instance}: ${ping.path}\n`,
+          `[h2a] h2a ping ${ping.written ? "queued" : "already queued"} for ${instance}: ${ping.path}\n`,
         );
         if (opts.bridge === undefined) return;
 
@@ -6843,7 +6843,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             : remoteSessionIdFromInstance(instance);
         if (!sessionId) {
           process.stderr.write(
-            "[remote] --bridge needs a session id, or an instance shaped like <tool>:remote:<sessionId>\n",
+            "[h2a] --bridge needs a session id, or an instance shaped like <tool>:remote:<sessionId>\n",
           );
           process.exitCode = 1;
           return;
@@ -6856,13 +6856,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         try {
           const r = await bridgeSession(sessionId, { profile });
           process.stderr.write(
-            `[remote] h2a bridge ${sessionId} (${profile}) pulled=${r.pulled} pushed=${r.pushed} skipped=${r.skipped}` +
+            `[h2a] h2a bridge ${sessionId} (${profile}) pulled=${r.pulled} pushed=${r.pushed} skipped=${r.skipped}` +
               `${r.failed > 0 ? ` failed=${r.failed}` : ""}\n`,
           );
           if (r.failed > 0) process.exitCode = 1;
         } catch (error) {
           process.stderr.write(
-            `[remote] h2a bridge ${sessionId} failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
+            `[h2a] h2a bridge ${sessionId} failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
           );
           process.exitCode = 1;
         }
@@ -6915,7 +6915,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               profile: s.profile,
             }));
         if (sessions.length === 0) {
-          process.stderr.write("[remote] no live remote sessions to bridge\n");
+          process.stderr.write("[h2a] no live remote sessions to bridge\n");
           return { failed: 0 };
         }
         let failed = 0;
@@ -6937,14 +6937,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             const r = await bridgeSession(s.id, { profile: s.profile });
             if (r.failed > 0) failed += 1;
             process.stderr.write(
-              `[remote] h2a bridge ${s.id} (${s.profile}) pulled=${r.pulled} pushed=${r.pushed} skipped=${r.skipped}` +
+              `[h2a] h2a bridge ${s.id} (${s.profile}) pulled=${r.pulled} pushed=${r.pushed} skipped=${r.skipped}` +
                 `${r.failed > 0 ? ` failed=${r.failed}` : ""}` +
                 `${r.scaffolded ? " (pod .h2a scaffolded)" : ""}\n`,
             );
           } catch (error) {
             failed += 1;
             process.stderr.write(
-              `[remote] h2a bridge ${s.id} failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
+              `[h2a] h2a bridge ${s.id} failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
             );
           }
         }
@@ -6961,7 +6961,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   program
     .command("restore [group]")
     .description(
-      'Relance les sessions dev dans leur layout (fenêtre par groupe, onglet par session). Sans argument: tous les groupes. Avec [group]: ce lot seulement (ex: `remote restore "full remote"`). Groupes LOCAUX = claude/codex sous ~/src/* (tmux via `remote run`); groupes REMOTE = sessions SCW (`remote attach <id> --exec`). Layout: champ `layout` de la config.',
+      'Relance les sessions dev dans leur layout (fenêtre par groupe, onglet par session). Sans argument: tous les groupes. Avec [group]: ce lot seulement (ex: `h2a restore "full remote"`). Groupes LOCAUX = claude/codex sous ~/src/* (tmux via `h2a run`); groupes REMOTE = sessions SCW (`h2a attach <id> --exec`). Layout: champ `layout` de la config.',
     )
     .option("--dry-run", "affiche le layout calculé sans ouvrir de terminaux")
     .option(
@@ -6992,7 +6992,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         if (!tmuxAvailable()) {
           process.stderr.write(
-            "[remote] tmux requis pour restore (sudo apt install tmux)\n",
+            "[h2a] tmux requis pour restore (sudo apt install tmux)\n",
           );
           process.exitCode = 1;
           return;
@@ -7019,7 +7019,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const mode = gatewayModeFromOptions(opts);
           if (mode !== "auto") forceGateway = mode;
         } catch (error) {
-          process.stderr.write(`[remote] ${(error as Error).message}.\n`);
+          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
           process.exitCode = 1;
           return;
         }
@@ -7036,7 +7036,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           });
           if (restoreOpts.remoteTabs.length === 0) {
             process.stderr.write(
-              "[remote] aucune session SCW (remote ls vide) pour le groupe remote\n",
+              "[h2a] aucune session SCW (h2a ls vide) pour le groupe remote\n",
             );
           }
         }
@@ -7050,11 +7050,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const { total } = restoreLayout(restoreOpts);
         if (total === 0) {
           process.stderr.write(
-            `[remote] rien à relancer${group ? ` pour le groupe "${group}"` : ""}\n`,
+            `[h2a] rien à relancer${group ? ` pour le groupe "${group}"` : ""}\n`,
           );
         } else {
           process.stderr.write(
-            `[remote] ${total} onglet(s)${opts.dryRun ? " (dry-run, rien ouvert)" : " relancé(s)"}\n`,
+            `[h2a] ${total} onglet(s)${opts.dryRun ? " (dry-run, rien ouvert)" : " relancé(s)"}\n`,
           );
         }
       },
@@ -7067,11 +7067,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   program
     .command("enroll")
     .description(
-      "Plumbing for the live-session registry (feeds `remote ls`/`remote restore`). " +
+      "Plumbing for the live-session registry (feeds `h2a ls`/`h2a restore`). " +
         "Hook mode (--hook claude-start|claude-end) is wired by --install-hooks into " +
         "~/.claude/settings.json (idempotent; backs up settings.json.bak.<epoch>) and " +
         "always exits 0 so it can never break the host claude session. " +
-        "codex has no reliable session hook: codex sessions are enrolled by `remote run` " +
+        "codex has no reliable session hook: codex sessions are enrolled by `h2a run` " +
         "and by the restore filesystem-scan fallback. Manual mode: --tool/--cwd/--conv/--pid/--label.",
     )
     .option(
@@ -7112,15 +7112,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const result = installClaudeHooks(opts.settings);
           if (!result.changed) {
             process.stderr.write(
-              `[remote] enroll hooks already installed in ${result.settingsPath}\n`,
+              `[h2a] enroll hooks already installed in ${result.settingsPath}\n`,
             );
             return;
           }
           if (result.backupPath) {
-            process.stderr.write(`[remote] backup: ${result.backupPath}\n`);
+            process.stderr.write(`[h2a] backup: ${result.backupPath}\n`);
           }
           process.stderr.write(
-            `[remote] installed ${result.installed.join(" + ")} enroll hooks in ${result.settingsPath}\n`,
+            `[h2a] installed ${result.installed.join(" + ")} enroll hooks in ${result.settingsPath}\n`,
           );
           return;
         }
@@ -7131,12 +7131,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             const result = handleClaudeHook(opts.hook, raw);
             if (!result.ok) {
               process.stderr.write(
-                `[remote] enroll hook ignored: ${result.error}\n`,
+                `[h2a] enroll hook ignored: ${result.error}\n`,
               );
             }
           } catch (error) {
             process.stderr.write(
-              `[remote] enroll hook ignored: ${String(error)}\n`,
+              `[h2a] enroll hook ignored: ${String(error)}\n`,
             );
           }
           return;
@@ -7150,11 +7150,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(opts.label !== undefined ? { label: opts.label } : {}),
           });
           if (!result.ok) throw new Error(result.error ?? "enroll failed");
-          process.stderr.write(`[remote] enrolled (${opts.tool})\n`);
+          process.stderr.write(`[h2a] enrolled (${opts.tool})\n`);
           return;
         }
         process.stderr.write(
-          "[remote] enroll: pass --hook <name>, --install-hooks, or --tool <tool> (see --help)\n",
+          "[h2a] enroll: pass --hook <name>, --install-hooks, or --tool <tool> (see --help)\n",
         );
       },
     );
@@ -7162,7 +7162,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   const layoutCommand = program
     .command("layout")
     .description(
-      "Layout auto-enregistré par `remote restore` (layout-last.json)",
+      "Layout auto-enregistré par `h2a restore` (layout-last.json)",
     );
 
   layoutCommand
@@ -7174,7 +7174,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const last = readLastLayout();
       if (!last) {
         process.stderr.write(
-          "[remote] aucun layout enregistré (lance `remote restore` d'abord)\n",
+          "[h2a] aucun layout enregistré (lance `h2a restore` d'abord)\n",
         );
         return;
       }
@@ -7224,7 +7224,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           if (opts.local || localName) {
             if (!localName) {
               process.stderr.write(
-                `[remote] no local session "${first}" (see: remote ls)\n`,
+                `[h2a] no local session "${first}" (see: h2a ls)\n`,
               );
               process.exitCode = 1;
               return;
@@ -7254,19 +7254,19 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (!opts.ws && (opts.exec || tunnel)) {
           if (!tunnel) {
             process.stderr.write(
-              "[remote] --exec needs a tunnel configured (remote config tunnel …)\n",
+              "[h2a] --exec needs a tunnel configured (h2a config tunnel …)\n",
             );
             process.exitCode = 1;
             return;
           }
           process.stderr.write(
-            `[remote] exec-attaching into Pod tmux for ${sessionId} (Ctrl-b d to detach)\n`,
+            `[h2a] exec-attaching into Pod tmux for ${sessionId} (Ctrl-b d to detach)\n`,
           );
           process.exitCode = attachPodTmux(tunnel, sessionId);
           return;
         }
         process.stderr.write(
-          `[remote] attaching to ${url}/sessions/${sessionId} (WS)\n`,
+          `[h2a] attaching to ${url}/sessions/${sessionId} (WS)\n`,
         );
         const session = await attach({ baseUrl: url, sessionId });
         await session.finished;
@@ -7284,7 +7284,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .option(
       "--name <name>",
-      "set the session's display name (shown as PROJECT in `remote ls`); applied on the hard refresh (Pod recreate), ignored with --soft",
+      "set the session's display name (shown as PROJECT in `h2a ls`); applied on the hard refresh (Pod recreate), ignored with --soft",
     )
     .option("--no-auth", "skip bundling local credentials")
     .option(
@@ -7308,12 +7308,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       [
         "",
         "Examples:",
-        "  $ remote refresh sess-abc --soft     refresh one session's creds in place",
-        "  $ remote refresh --soft --all        refresh every live session once",
-        "  $ remote refresh --all --watch 30    foreground loop: every 30 min, all sessions;",
+        "  $ h2a refresh sess-abc --soft     refresh one session's creds in place",
+        "  $ h2a refresh --soft --all        refresh every live session once",
+        "  $ h2a refresh --all --watch 30    foreground loop: every 30 min, all sessions;",
         "                                       unchanged creds = no-op (no CLI respawn)",
         "  Run the watch in a dedicated tmux window, e.g.:",
-        "    tmux new-window -n creds 'remote refresh --all --watch 30'",
+        "    tmux new-window -n creds 'h2a refresh --all --watch 30'",
         "",
       ].join("\n"),
     )
@@ -7363,7 +7363,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
         if (first === undefined) {
           throw new Error(
-            "Missing session id. Usage: remote refresh [url] <sessionId> [--soft] (or --soft --all).",
+            "Missing session id. Usage: h2a refresh [url] <sessionId> [--soft] (or --soft --all).",
           );
         }
         const { url, sessionId } = resolveUrlAndSessionId(first, second);
@@ -7390,7 +7390,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             const fresh = await ensureProfileAuthFresh(resolved);
             if (fresh.checked)
               process.stderr.write(
-                `[remote] auth status ok: ${fresh.command}\n`,
+                `[h2a] auth status ok: ${fresh.command}\n`,
               );
           }
           await softRefreshSession(sessionId, resolved);
@@ -7428,7 +7428,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
       if (opts.local) {
         if (local.length === 0)
-          process.stderr.write("[remote] no local sessions\n");
+          process.stderr.write("[h2a] no local sessions\n");
         return;
       }
 
@@ -7436,7 +7436,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       if (!remote) {
         if (local.length === 0) {
           process.stderr.write(
-            "[remote] no local sessions and no remote configured\n",
+            "[h2a] no local sessions and no remote configured\n",
           );
         }
         return;
@@ -7444,7 +7444,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       await ensureConnected(remote);
       const sessions = await listRemoteSessions(remote);
       if (sessions.length === 0) {
-        if (local.length === 0) process.stderr.write("[remote] no sessions\n");
+        if (local.length === 0) process.stderr.write("[h2a] no sessions\n");
         return;
       }
       if (local.length > 0) process.stdout.write("\n");
@@ -7484,7 +7484,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           if (local) {
             const ok = killLocalSession(local.name);
             process.stderr.write(
-              `[remote] local session ${local.slug} ${ok ? "killed" : "could not be killed"}\n`,
+              `[h2a] local session ${local.slug} ${ok ? "killed" : "could not be killed"}\n`,
             );
             if (!ok) process.exitCode = 1;
             return;
@@ -7493,7 +7493,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const { url, sessionId } = resolveUrlAndSessionId(first, second);
         const result = await stopRemoteSession(url, sessionId, opts.reason);
         process.stderr.write(
-          `[remote] stop ${result.accepted ? "accepted" : "rejected"} for ${sessionId}\n`,
+          `[h2a] stop ${result.accepted ? "accepted" : "rejected"} for ${sessionId}\n`,
         );
       },
     );
@@ -7513,7 +7513,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (local) {
           setLocalSessionDisplayName(local.name, newName);
           process.stderr.write(
-            `[remote] local session display name set to "${newName}"\n`,
+            `[h2a] local session display name set to "${newName}"\n`,
           );
         }
         // Rename on the control-plane.
@@ -7538,7 +7538,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         const result = await renameRemoteSession(url, sessionId, newName);
         process.stderr.write(
-          `[remote] session ${result.sessionId} renamed to "${result.displayName}" (accepted: ${String(result.accepted)})\n`,
+          `[h2a] session ${result.sessionId} renamed to "${result.displayName}" (accepted: ${String(result.accepted)})\n`,
         );
       },
     );
@@ -7586,7 +7586,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const provider = opts.provider as AccountProvider;
         if (provider !== "claude-code" && provider !== "codex") {
           process.stderr.write(
-            `[remote] account enroll: unknown provider "${opts.provider}" (known: claude-code, codex)\n`,
+            `[h2a] account enroll: unknown provider "${opts.provider}" (known: claude-code, codex)\n`,
           );
           process.exitCode = 1;
           return;
@@ -7598,20 +7598,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               ? readClaudeCredential(opts.configDir)
               : readCodexCredential(opts.configDir);
           if (!result.ok) {
-            process.stderr.write(`[remote] account enroll: ${result.error}\n`);
+            process.stderr.write(`[h2a] account enroll: ${result.error}\n`);
             process.exitCode = 1;
             return;
           }
           accessToken = result.accessToken;
           process.stderr.write(
-            `[remote] account enroll: read token from ${provider === "claude-code" ? "~/.claude/.credentials.json" : "~/.codex/auth.json"}\n`,
+            `[h2a] account enroll: read token from ${provider === "claude-code" ? "~/.claude/.credentials.json" : "~/.codex/auth.json"}\n`,
           );
         } else {
           accessToken = process.env.REMOTE_ACCOUNT_TOKEN ?? "";
           if (!accessToken.trim()) {
             process.stderr.write(
-              "[remote] account enroll: REMOTE_ACCOUNT_TOKEN env var is not set or empty\n" +
-                "[remote] (tip: use --from-credentials to read from the CLI's local config)\n",
+              "[h2a] account enroll: REMOTE_ACCOUNT_TOKEN env var is not set or empty\n" +
+                "[h2a] (tip: use --from-credentials to read from the CLI's local config)\n",
             );
             process.exitCode = 1;
             return;
@@ -7628,12 +7628,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             : {}),
         });
         if (!result.ok) {
-          process.stderr.write(`[remote] account enroll: ${result.error}\n`);
+          process.stderr.write(`[h2a] account enroll: ${result.error}\n`);
           process.exitCode = 1;
           return;
         }
         process.stderr.write(
-          `[remote] account enrolled: ${result.descriptor.id} (${result.descriptor.provider}) "${result.descriptor.label}"\n`,
+          `[h2a] account enrolled: ${result.descriptor.id} (${result.descriptor.provider}) "${result.descriptor.label}"\n`,
         );
       },
     );
@@ -7651,7 +7651,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         return;
       }
       if (accounts.length === 0) {
-        process.stderr.write("[remote] no accounts enrolled\n");
+        process.stderr.write("[h2a] no accounts enrolled\n");
         return;
       }
       const hasConfigDir = accounts.some((a) => a.configDir !== undefined);
@@ -7687,11 +7687,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action((id: string) => {
       const result = removeAccount(id);
       if (!result.ok) {
-        process.stderr.write(`[remote] account rm: ${result.error}\n`);
+        process.stderr.write(`[h2a] account rm: ${result.error}\n`);
         process.exitCode = 1;
         return;
       }
-      process.stderr.write(`[remote] account removed: ${result.id}\n`);
+      process.stderr.write(`[h2a] account removed: ${result.id}\n`);
     });
 
   accountCommand
@@ -7724,7 +7724,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         new Date(rec.exhaustedAt).getTime() + windowMs,
       ).toISOString();
       process.stderr.write(
-        `[remote] account ${id} marked exhausted — resets at ${resetsAt}` +
+        `[h2a] account ${id} marked exhausted — resets at ${resetsAt}` +
           (opts.reason ? ` (reason: ${opts.reason})` : "") +
           "\n",
       );
@@ -7739,7 +7739,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action((id: string) => {
       clearExhaustion(id);
       process.stderr.write(
-        `[remote] account ${id} quota cleared — available for selection\n`,
+        `[h2a] account ${id} quota cleared — available for selection\n`,
       );
     });
 
@@ -7778,7 +7778,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             (opts.provider !== "claude-code" && opts.provider !== "codex")
           ) {
             process.stderr.write(
-              "[remote] account select --fallback requires --provider claude-code|codex\n",
+              "[h2a] account select --fallback requires --provider claude-code|codex\n",
             );
             process.exitCode = 1;
             return;
@@ -7787,7 +7787,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const sel = selectAccountWithFallback(provider, opts.affinityKey);
           if (!sel.candidate) {
             process.stderr.write(
-              "[remote] account select: all accounts exhausted — no usable account available\n",
+              "[h2a] account select: all accounts exhausted — no usable account available\n",
             );
             process.exitCode = 1;
             return;
@@ -7817,7 +7817,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const pick = selectAccount(candidates, opts.lastUsed);
         if (!pick) {
           process.stderr.write(
-            "[remote] account select: no candidates available\n",
+            "[h2a] account select: no candidates available\n",
           );
           return;
         }
@@ -7858,16 +7858,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               : process.env.REMOTE_ACCOUNT_LOG_S3;
           if (!uri) {
             process.stderr.write(
-              "[remote] account log --export-s3: no S3 URI provided and REMOTE_ACCOUNT_LOG_S3 is not set\n",
+              "[h2a] account log --export-s3: no S3 URI provided and REMOTE_ACCOUNT_LOG_S3 is not set\n",
             );
             process.exit(1);
           }
           try {
             await exportSessionLogToS3(uri);
-            process.stdout.write(`[remote] session log exported to ${uri}\n`);
+            process.stdout.write(`[h2a] session log exported to ${uri}\n`);
           } catch (err) {
             process.stderr.write(
-              `[remote] account log --export-s3: ${err instanceof Error ? err.message : String(err)}\n`,
+              `[h2a] account log --export-s3: ${err instanceof Error ? err.message : String(err)}\n`,
             );
             process.exit(1);
           }
@@ -7879,7 +7879,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           raw = readFileSync(logFile, "utf8");
         } catch {
           process.stderr.write(
-            "[remote] account log: no session log yet (no jobs launched with accounts enrolled)\n",
+            "[h2a] account log: no session log yet (no jobs launched with accounts enrolled)\n",
           );
           return;
         }
@@ -7891,7 +7891,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           return;
         }
         if (tail.length === 0) {
-          process.stderr.write("[remote] account log: empty\n");
+          process.stderr.write("[h2a] account log: empty\n");
           return;
         }
         process.stdout.write(
@@ -7946,7 +7946,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action((affinityKey: string) => {
       const existing = lookupBinding(affinityKey);
       if (!existing) {
-        process.stderr.write(`[remote] no binding for "${affinityKey}"\n`);
+        process.stderr.write(`[h2a] no binding for "${affinityKey}"\n`);
         process.exitCode = 1;
         return;
       }
@@ -7956,7 +7956,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         accounts.find((a) => a.id === existing.accountId)?.label ??
         existing.accountId.slice(0, 8);
       process.stderr.write(
-        `[remote] binding removed: ${affinityKey} → ${label} (${existing.provider})\n`,
+        `[h2a] binding removed: ${affinityKey} → ${label} (${existing.provider})\n`,
       );
     });
 
@@ -7975,7 +7975,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       }
       if (bindings.length === 0) {
         process.stderr.write(
-          "[remote] no active bindings (no jobs launched with accounts enrolled)\n",
+          "[h2a] no active bindings (no jobs launched with accounts enrolled)\n",
         );
         return;
       }
@@ -8039,7 +8039,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const accounts = listAccountsWithTokens();
         if (accounts.length === 0) {
           process.stderr.write(
-            "[remote] no enrolled accounts with tokens found — run `remote account enroll` first\n",
+            "[h2a] no enrolled accounts with tokens found — run `h2a account enroll` first\n",
           );
           process.exit(1);
         }
@@ -8082,12 +8082,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         });
         if (result.status !== 0) {
           process.stderr.write(
-            `[remote] kubectl apply failed (exit ${result.status ?? "?"}) — try --dry-run to inspect the YAML\n`,
+            `[h2a] kubectl apply failed (exit ${result.status ?? "?"}) — try --dry-run to inspect the YAML\n`,
           );
           process.exit(result.status ?? 1);
         }
         process.stdout.write(
-          `[remote] pushed ${accounts.length} account(s) to ${opts.namespace}/${opts.secretName}\n`,
+          `[h2a] pushed ${accounts.length} account(s) to ${opts.namespace}/${opts.secretName}\n`,
         );
       },
     );
@@ -8132,10 +8132,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         let account;
         if (provider === "claude") {
           process.stderr.write(
-            `[remote] llm-mesh: Claude Code OAuth is not a supported upstream transport yet.\n` +
+            `[h2a] llm-mesh: Claude Code OAuth is not a supported upstream transport yet.\n` +
               `  Do not import ~/.claude/.credentials.json as an Anthropic API credential.\n` +
               `  Use the existing gateway token with codex/openai, or enroll a real Anthropic API key via:\n` +
-              `  remote llm-mesh enroll anthropic --token sk-ant-api...\n`,
+              `  h2a llm-mesh enroll anthropic --token sk-ant-api...\n`,
           );
           process.exitCode = 1;
           return;
@@ -8148,8 +8148,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         } else if (provider === "openai") {
           if (!opts.token) {
             process.stderr.write(
-              `[remote] llm-mesh: --token <sk-...> is required for provider "openai"\n` +
-                `  Example: remote llm-mesh enroll openai --token sk-proj-...\n`,
+              `[h2a] llm-mesh: --token <sk-...> is required for provider "openai"\n` +
+                `  Example: h2a llm-mesh enroll openai --token sk-proj-...\n`,
             );
             process.exitCode = 1;
             return;
@@ -8163,14 +8163,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         } else if (provider === "anthropic") {
           if (!opts.token) {
             process.stderr.write(
-              `[remote] llm-mesh: --token <sk-ant-api...> is required for provider "anthropic"\n`,
+              `[h2a] llm-mesh: --token <sk-ant-api...> is required for provider "anthropic"\n`,
             );
             process.exitCode = 1;
             return;
           }
           if (opts.token.startsWith("sk-ant-oat")) {
             process.stderr.write(
-              `[remote] llm-mesh: refused Claude Code OAuth token for provider "anthropic".\n` +
+              `[h2a] llm-mesh: refused Claude Code OAuth token for provider "anthropic".\n` +
                 `  Claude Code OAuth uses a separate Claude Code transport, not Anthropic /v1/messages.\n`,
             );
             process.exitCode = 1;
@@ -8184,7 +8184,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           };
         } else {
           process.stderr.write(
-            `[remote] llm-mesh: unsupported provider "${provider}".\n` +
+            `[h2a] llm-mesh: unsupported provider "${provider}".\n` +
               `  Supported: codex (OAuth), openai (API key), anthropic (API key)\n`,
           );
           process.exitCode = 1;
@@ -8195,24 +8195,24 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         accounts.push(account);
         writeLlmMeshConfig({ ...existing, accounts });
         process.stdout.write(
-          `[remote] llm-mesh: enrolled ${account.label} (id: ${account.id}, provider: ${account.provider})\n`,
+          `[h2a] llm-mesh: enrolled ${account.label} (id: ${account.id}, provider: ${account.provider})\n`,
         );
         if ("expiresAt" in account && account.expiresAt) {
           const exp = new Date(account.expiresAt as string);
           const minsLeft = Math.round((exp.getTime() - Date.now()) / 60_000);
           process.stdout.write(
-            `[remote] llm-mesh: token expires ${account.expiresAt} (${minsLeft > 0 ? `in ${minsLeft}min` : "EXPIRED"})\n`,
+            `[h2a] llm-mesh: token expires ${account.expiresAt} (${minsLeft > 0 ? `in ${minsLeft}min` : "EXPIRED"})\n`,
           );
         }
         if (provider === "codex") {
           process.stdout.write(
-            `[remote] NOTE: Codex OAuth token works locally via codex app-server,\n` +
+            `[h2a] NOTE: Codex OAuth token works locally via codex app-server,\n` +
               `  but NOT with api.openai.com (missing model.request scope).\n` +
-              `  For a fully working gateway, use: remote llm-mesh enroll openai --token sk-...\n`,
+              `  For a fully working gateway, use: h2a llm-mesh enroll openai --token sk-...\n`,
           );
         }
         process.stdout.write(
-          `[remote] Run \`remote llm-mesh start\` to launch the gateway.\n`,
+          `[h2a] Run \`h2a llm-mesh start\` to launch the gateway.\n`,
         );
       },
     );
@@ -8225,7 +8225,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const config = readLlmMeshConfig();
       if (!config || config.accounts.length === 0) {
         process.stderr.write(
-          `[remote] llm-mesh: no accounts configured. Run \`remote llm-mesh enroll codex\` first.\n`,
+          `[h2a] llm-mesh: no accounts configured. Run \`h2a llm-mesh enroll codex\` first.\n`,
         );
         process.exitCode = 1;
         return;
@@ -8234,19 +8234,19 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       if (existing) {
         setLlmMeshRuntimeConfig({ enabled: true });
         process.stdout.write(
-          `[remote] llm-mesh: already running (pid ${existing})\n`,
+          `[h2a] llm-mesh: already running (pid ${existing})\n`,
         );
-        process.stdout.write(`[remote] llm-mesh: restore config enabled\n`);
+        process.stdout.write(`[h2a] llm-mesh: restore config enabled\n`);
         return;
       }
-      process.stdout.write(`[remote] llm-mesh: starting gateway…\n`);
+      process.stdout.write(`[h2a] llm-mesh: starting gateway…\n`);
       const result = await startGateway(config, { verbose: opts.verbose });
       setLlmMeshRuntimeConfig({ enabled: true });
       const port = result.port;
       process.stdout.write(
-        `[remote] llm-mesh: gateway started (pid ${result.pid}, port ${port})\n`,
+        `[h2a] llm-mesh: gateway started (pid ${result.pid}, port ${port})\n`,
       );
-      process.stdout.write(`[remote] llm-mesh: restore config enabled\n`);
+      process.stdout.write(`[h2a] llm-mesh: restore config enabled\n`);
       process.stdout.write(`\nTo use with Claude Code:\n`);
       process.stdout.write(
         `  export ANTHROPIC_BASE_URL=http://localhost:${port}\n`,
@@ -8264,7 +8264,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action(() => {
       setLlmMeshRuntimeConfig({ enabled: true });
       process.stdout.write(
-        `[remote] llm-mesh: restore/local auto-reactivation enabled\n`,
+        `[h2a] llm-mesh: restore/local auto-reactivation enabled\n`,
       );
     });
 
@@ -8276,7 +8276,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action(() => {
       setLlmMeshRuntimeConfig({ enabled: false });
       process.stdout.write(
-        `[remote] llm-mesh: restore/local auto-reactivation disabled\n`,
+        `[h2a] llm-mesh: restore/local auto-reactivation disabled\n`,
       );
     });
 
@@ -8286,9 +8286,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action(() => {
       const res = stopGateway();
       if (res.stopped) {
-        process.stdout.write(`[remote] llm-mesh: stopped (pid ${res.pid})\n`);
+        process.stdout.write(`[h2a] llm-mesh: stopped (pid ${res.pid})\n`);
       } else {
-        process.stdout.write(`[remote] llm-mesh: not running\n`);
+        process.stdout.write(`[h2a] llm-mesh: not running\n`);
       }
     });
 
@@ -8302,7 +8302,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const config = readLlmMeshConfig();
       if (!config || config.accounts.length === 0) {
         process.stderr.write(
-          `[remote] llm-mesh: no accounts configured. Run \`remote llm-mesh enroll codex\` first.\n`,
+          `[h2a] llm-mesh: no accounts configured. Run \`h2a llm-mesh enroll codex\` first.\n`,
         );
         process.exitCode = 1;
         return;
@@ -8310,20 +8310,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const stopped = stopGateway();
       if (stopped.stopped) {
         process.stdout.write(
-          `[remote] llm-mesh: stopped gateway (pid ${stopped.pid})\n`,
+          `[h2a] llm-mesh: stopped gateway (pid ${stopped.pid})\n`,
         );
       } else {
-        process.stdout.write(`[remote] llm-mesh: gateway was not running\n`);
+        process.stdout.write(`[h2a] llm-mesh: gateway was not running\n`);
       }
-      process.stdout.write(`[remote] llm-mesh: starting gateway…\n`);
+      process.stdout.write(`[h2a] llm-mesh: starting gateway…\n`);
       const result = await startGateway(config, { verbose: opts.verbose });
       setLlmMeshRuntimeConfig({ enabled: true });
       process.stdout.write(
-        `[remote] llm-mesh: gateway restarted (pid ${result.pid}, port ${result.port})\n`,
+        `[h2a] llm-mesh: gateway restarted (pid ${result.pid}, port ${result.port})\n`,
       );
-      process.stdout.write(`[remote] llm-mesh: restore config enabled\n`);
+      process.stdout.write(`[h2a] llm-mesh: restore config enabled\n`);
       process.stdout.write(
-        `[remote] llm-mesh: no tmux/Claude session was restarted; active sessions may keep their old gateway token until explicitly relaunched.\n`,
+        `[h2a] llm-mesh: no tmux/Claude session was restarted; active sessions may keep their old gateway token until explicitly relaunched.\n`,
       );
       process.stdout.write(`\nTo use with new Claude Code processes:\n`);
       process.stdout.write(
@@ -8347,10 +8347,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const port = config?.port ?? 3002;
       if (pid) {
         process.stdout.write(
-          `[remote] llm-mesh: running (pid ${pid}, port ${port})\n`,
+          `[h2a] llm-mesh: running (pid ${pid}, port ${port})\n`,
         );
       } else {
-        process.stdout.write(`[remote] llm-mesh: stopped\n`);
+        process.stdout.write(`[h2a] llm-mesh: stopped\n`);
       }
       process.stdout.write(
         `  restore/local auto-reactivation: ${runtime.enabled ? "enabled" : "disabled"}\n`,
@@ -8372,7 +8372,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
       } else {
         process.stdout.write(
-          `  no config. Run \`remote llm-mesh enroll codex\` first.\n`,
+          `  no config. Run \`h2a llm-mesh enroll codex\` first.\n`,
         );
       }
     });
@@ -8389,7 +8389,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       });
       if (tail.error) {
         process.stderr.write(
-          `[remote] llm-mesh: log tail failed: ${String(tail.error)}\n`,
+          `[h2a] llm-mesh: log tail failed: ${String(tail.error)}\n`,
         );
         process.exitCode = 1;
       }
@@ -8412,7 +8412,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .action((id: string) => {
       suspendLocalIncarnation(id as LineageId);
-      process.stderr.write(`[remote] lineage ${id} suspended\n`);
+      process.stderr.write(`[h2a] lineage ${id} suspended\n`);
     });
 
   lineageCommand
@@ -8425,8 +8425,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       resumeLocalIncarnation(id as LineageId);
       process.stderr.write(
         wasSuspended
-          ? `[remote] lineage ${id} resumed\n`
-          : `[remote] lineage ${id} was not suspended (no-op)\n`,
+          ? `[h2a] lineage ${id} resumed\n`
+          : `[h2a] lineage ${id} was not suspended (no-op)\n`,
       );
     });
 
@@ -8453,7 +8453,7 @@ if (isEntryPoint()) {
     ) {
       console.error(error.message);
     } else {
-      console.error("[remote] fatal:", error);
+      console.error("[h2a] fatal:", error);
     }
     process.exitCode = 1;
   });

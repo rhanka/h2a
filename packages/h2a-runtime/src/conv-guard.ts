@@ -56,7 +56,7 @@ function ownerFromEntry(e: RegistryEntry): ConvOwner {
     return {
       where: "local-tmux",
       label: slug,
-      detail: `local tmux session ${e.tmuxSession ?? `remote-${e.id}`} (${e.tool}, cwd ${e.cwd}) — stop it first: remote stop ${slug}`,
+      detail: `local tmux session ${e.tmuxSession ?? `remote-${e.id}`} (${e.tool}, cwd ${e.cwd}) — stop it first: h2a stop ${slug}`,
     };
   }
   return {
@@ -100,7 +100,7 @@ export function convOwners(
       owners.push({
         where: "remote",
         label: s.displayName ?? s.id,
-        detail: `remote session ${s.id}${s.workspacePath ? ` (${s.workspacePath})` : ""} is on this conversation — stop it first: remote stop ${s.id}`,
+        detail: `remote session ${s.id}${s.workspacePath ? ` (${s.workspacePath})` : ""} is on this conversation — stop it first: h2a stop ${s.id}`,
       });
     } else if (
       s.cliSessionId === undefined &&
@@ -125,9 +125,9 @@ export function formatConvConflict(
 ): string {
   const lines = owners.map((o) => `  - [${o.where}] ${o.label}: ${o.detail}`);
   return (
-    `[remote] conversation ${convId} already has a live writer:\n` +
+    `[h2a] conversation ${convId} already has a live writer:\n` +
     `${lines.join("\n")}\n` +
-    `[remote] two CLIs appending to the same conversation .jsonl corrupt it — ` +
+    `[h2a] two CLIs appending to the same conversation .jsonl corrupt it — ` +
     `stop the other writer first, or pass --force to take over anyway.\n`
   );
 }
@@ -178,13 +178,13 @@ export async function guardConvWriters(
   const hard = owners.filter((o) => !o.suspect);
   for (const s of owners.filter((o) => o.suspect)) {
     process.stderr.write(
-      `[remote] warning: ${s.detail} — make sure it is not resuming conversation ${args.convId}.\n`,
+      `[h2a] warning: ${s.detail} — make sure it is not resuming conversation ${args.convId}.\n`,
     );
   }
   if (hard.length === 0) return true;
   if (args.force) {
     process.stderr.write(
-      `[remote] warning: --force — taking over conversation ${args.convId} despite ${hard.length} live writer(s); concurrent writes WILL corrupt the .jsonl.\n`,
+      `[h2a] warning: --force — taking over conversation ${args.convId} despite ${hard.length} live writer(s); concurrent writes WILL corrupt the .jsonl.\n`,
     );
     return true;
   }
