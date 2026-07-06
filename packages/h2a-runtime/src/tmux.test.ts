@@ -303,7 +303,7 @@ describe("startH2aWindow", () => {
     );
 
     expect(ok).toBe(false);
-    expect(err.text()).toContain("[remote]");
+    expect(err.text()).toContain("[h2a]");
     expect(err.text()).toContain("h2a");
     expect(err.text()).toContain("not found");
     // only the command -v probe ran; no tmux call at all
@@ -532,7 +532,7 @@ describe("buildCodexImagePasteBinding", () => {
 describe("localRelaunchCommand", () => {
   it("includes profile, cwd and --name", () => {
     expect(localRelaunchCommand("claude", "/home/u/src/surch", "surch")).toBe(
-      "remote run claude /home/u/src/surch --name surch",
+      "h2a run claude /home/u/src/surch --name surch",
     );
   });
 
@@ -542,18 +542,18 @@ describe("localRelaunchCommand", () => {
         "--resume",
         "conv-123",
       ]),
-    ).toBe("remote run claude /home/u/src/surch --name surch -r conv-123");
+    ).toBe("h2a run claude /home/u/src/surch --name surch -r conv-123");
   });
 
   it("surfaces the conversation id as -r (codex resume subcommand argv)", () => {
     expect(
       localRelaunchCommand("codex", "/home/u/src/x", "x", ["resume", "abc"]),
-    ).toBe("remote run codex /home/u/src/x --name x -r abc");
+    ).toBe("h2a run codex /home/u/src/x --name x -r abc");
   });
 
   it("omits -r when there is no resume arg, and --name when unlabelled", () => {
     expect(localRelaunchCommand("codex", "/home/u/src/x", undefined)).toBe(
-      "remote run codex /home/u/src/x",
+      "h2a run codex /home/u/src/x",
     );
   });
 });
@@ -587,20 +587,20 @@ describe("LOCAL_WRAPPER (real bash) — regression: cli runs with its args", () 
   }
 
   it("runs `echo --resume CONV` (the resume shape that broke) with both args", () => {
-    const r = runWrapper("remote run claude /x --name remote -r CONV", "echo", [
+    const r = runWrapper("h2a run claude /x --name remote -r CONV", "echo", [
       "--resume",
       "CONV-abc",
     ]);
     expect(r.stdout).toContain("--resume CONV-abc"); // echo got BOTH args
     expect(r.stdout).toContain("echo exited (code 0)");
     expect(r.stdout).toContain(
-      "relaunch: remote run claude /x --name remote -r CONV",
+      "relaunch: h2a run claude /x --name remote -r CONV",
     );
     expect(r.stdout).not.toContain("command not found");
   });
 
   it("runs a no-arg CLI cleanly", () => {
-    const r = runWrapper("remote run codex /x", "true", []);
+    const r = runWrapper("h2a run codex /x", "true", []);
     expect(r.stdout).toContain("true exited (code 0)");
     expect(r.stdout).not.toContain("command not found");
   });

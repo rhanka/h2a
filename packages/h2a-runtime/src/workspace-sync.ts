@@ -142,7 +142,7 @@ export async function buildWorkspaceArchive(cwd: string): Promise<Buffer> {
         gitDir = Buffer.from(".git\0", "utf8");
       } else {
         process.stderr.write(
-          `[remote] .git is ${(gitBytes / 1024 / 1024).toFixed(0)} MiB (> ${MAX_GIT_BYTES / 1024 / 1024} MiB) — not shipped; ` +
+          `[h2a] .git is ${(gitBytes / 1024 / 1024).toFixed(0)} MiB (> ${MAX_GIT_BYTES / 1024 / 1024} MiB) — not shipped; ` +
             `restore git in the Pod with 'git fetch'/'git clone' (gh auth is bundled if you pass --with gh)\n`,
         );
       }

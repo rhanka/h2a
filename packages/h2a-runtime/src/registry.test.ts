@@ -534,7 +534,7 @@ describe("localTmuxSessionForName (attach local-vs-remote routing)", () => {
     ...over,
   });
 
-  it("resolves a `remote run` session by its slug even if tmux can't list it", () => {
+  it("resolves a `h2a run` session by its slug even if tmux can't list it", () => {
     // The core fix: the registry record alone (no live tmux) is enough to know
     // the name is LOCAL, so attach never falls through to a k8s Pod.
     expect(localTmuxSessionForName("h2a", [localTmux({})])).toBe("remote-h2a");

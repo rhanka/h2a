@@ -356,7 +356,7 @@ describe("buildPodSyncScript", () => {
       mcp: [{ name: "track", command: "node", args: ["/local/x.js"] }],
     };
     const script = buildPodSyncScript(legacy, "claude");
-    expect(script).toContain("re-run: remote plugin add @sentropic/track");
+    expect(script).toContain("re-run: h2a plugin add @sentropic/track");
   });
 
   it("rejects unsafe package names / versions (shell injection guard)", () => {

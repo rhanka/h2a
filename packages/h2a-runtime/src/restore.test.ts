@@ -249,9 +249,9 @@ describe("layout-last.json", () => {
     expect(last!.group).toBe("groupe un");
     expect(last!.windows).toHaveLength(1);
     expect(last!.windows[0]!.tabs[0]).toMatchObject({ cwd: "/w/a", label: "a" });
-    expect(last!.windows[0]!.tabs[0]!.cmd).toContain("remote run 'claude' '/w/a'");
+    expect(last!.windows[0]!.tabs[0]!.cmd).toContain("h2a run 'claude' '/w/a'");
     expect(last!.windows[0]!.tabs[0]!.cmd).toContain("--resume 'conv-A'");
-    expect(last!.windows[0]!.tabs[1]!.cmd).toBe("remote attach 'scw-9' --exec");
+    expect(last!.windows[0]!.tabs[1]!.cmd).toBe("h2a attach 'scw-9' --exec");
   });
 
   it("omits --resume for tabs without a conversation id", () => {
@@ -268,14 +268,14 @@ describe("layout-last.json", () => {
 describe("tabCommand", () => {
   it("attaches a SCW session via --exec", () => {
     expect(tabCommand({ cwd: "/x", label: "surch", remoteId: "sess-1" })).toBe(
-      "remote attach 'sess-1' --exec",
+      "h2a attach 'sess-1' --exec",
     );
   });
 
   it("runs a local session that is NOT live (create + resume + attach)", () => {
     expect(
       tabCommand({ cwd: "/home/u/src/dataviz", label: "dataviz", tool: "codex", sid: "r1" }),
-    ).toBe("remote run 'codex' '/home/u/src/dataviz' --resume 'r1' --name 'dataviz'");
+    ).toBe("h2a run 'codex' '/home/u/src/dataviz' --resume 'r1' --name 'dataviz'");
   });
 
   it("ATTACHES (not run -r) a local session that is already live — avoids the guard", () => {
@@ -285,7 +285,7 @@ describe("tabCommand", () => {
         { cwd: "/home/u/src/dataviz", label: "dataviz", tool: "codex", sid: "r1" },
         live,
       ),
-    ).toBe("remote attach 'dataviz'");
+    ).toBe("h2a attach 'dataviz'");
   });
 
   it("re-emits a pinned --no-gw so a direct instance is NOT restored onto the gateway", () => {
@@ -297,7 +297,7 @@ describe("tabCommand", () => {
         sid: "c1",
         gatewayMode: "direct",
       }),
-    ).toBe("remote run 'claude' '/home/u/src/impots' --resume 'c1' --name 'impots' --no-gw");
+    ).toBe("h2a run 'claude' '/home/u/src/impots' --resume 'c1' --name 'impots' --no-gw");
   });
 
   it("re-emits a pinned --gw for a gateway instance", () => {
@@ -309,13 +309,13 @@ describe("tabCommand", () => {
         sid: "c2",
         gatewayMode: "gateway",
       }),
-    ).toBe("remote run 'claude' '/home/u/src/geo' --resume 'c2' --name 'geo' --gw");
+    ).toBe("h2a run 'claude' '/home/u/src/geo' --resume 'c2' --name 'geo' --gw");
   });
 
   it("omits any gw flag when the instance was launched in auto mode (unpinned)", () => {
     expect(
       tabCommand({ cwd: "/home/u/src/geo", label: "geo", tool: "claude", sid: "c3" }),
-    ).toBe("remote run 'claude' '/home/u/src/geo' --resume 'c3' --name 'geo'");
+    ).toBe("h2a run 'claude' '/home/u/src/geo' --resume 'c3' --name 'geo'");
   });
 
   it("forceGateway 'direct' RELAUNCHES a live session via resume --replace --attach --no-gw", () => {
@@ -326,7 +326,7 @@ describe("tabCommand", () => {
         live,
         { forceGateway: "direct" },
       ),
-    ).toBe("remote resume 'surch' --replace --attach --no-gw");
+    ).toBe("h2a resume 'surch' --replace --attach --no-gw");
   });
 
   it("forceGateway 'gateway' RELAUNCHES a live session via resume --replace --attach --gw", () => {
@@ -337,7 +337,7 @@ describe("tabCommand", () => {
         live,
         { forceGateway: "gateway" },
       ),
-    ).toBe("remote resume 'geo' --replace --attach --gw");
+    ).toBe("h2a resume 'geo' --replace --attach --gw");
   });
 
   it("forceGateway OVERRIDES the per-instance pin (pinned gateway, forced direct)", () => {
@@ -353,7 +353,7 @@ describe("tabCommand", () => {
         new Set(),
         { forceGateway: "direct" },
       ),
-    ).toBe("remote run 'claude' '/home/u/src/geo' --resume 'c4' --name 'geo' --no-gw");
+    ).toBe("h2a run 'claude' '/home/u/src/geo' --resume 'c4' --name 'geo' --no-gw");
   });
 
   it("forceGateway on a DEAD session emits the flag WITHOUT --replace (nothing to kill)", () => {
@@ -363,6 +363,6 @@ describe("tabCommand", () => {
         new Set(),
         { forceGateway: "direct" },
       ),
-    ).toBe("remote run 'claude' '/home/u/src/kog' --resume 'c5' --name 'kog' --no-gw");
+    ).toBe("h2a run 'claude' '/home/u/src/kog' --resume 'c5' --name 'kog' --no-gw");
   });
 });

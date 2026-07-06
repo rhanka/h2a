@@ -11,13 +11,13 @@ describe("buildBrowserOpenPlan", () => {
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
     expect(plan.podPort).toBe(6080);
-    expect(plan.forwardCommand).toBe("remote forward sess-1 6080");
+    expect(plan.forwardCommand).toBe("h2a forward sess-1 6080");
     expect(new URL(plan.url).searchParams.get("path")).toBe(
       `websockify?token=${TOKEN}`,
     );
     // interactive default → no view_only.
     expect(new URL(plan.url).searchParams.get("view_only")).toBeNull();
-    expect(plan.instructions).toContain("remote forward sess-1 6080");
+    expect(plan.instructions).toContain("h2a forward sess-1 6080");
     expect(plan.instructions).toContain(plan.url);
   });
 
@@ -29,7 +29,7 @@ describe("buildBrowserOpenPlan", () => {
     });
     expect(plan.ok).toBe(true);
     if (!plan.ok) return;
-    expect(plan.forwardCommand).toBe("remote forward sess-1 6080 7090");
+    expect(plan.forwardCommand).toBe("h2a forward sess-1 6080 7090");
     expect(Number(new URL(plan.url).port)).toBe(7090);
   });
 

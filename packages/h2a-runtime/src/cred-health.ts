@@ -118,9 +118,9 @@ export function supervisorAdvisory(
 ): string | undefined {
   if (heartbeatMtimeMs === undefined) {
     return (
-      "[remote] creds supervisor heartbeat MISSING — `remote refresh --all --watch <min>` " +
+      "[h2a] creds supervisor heartbeat MISSING — `h2a refresh --all --watch <min>` " +
       "is not running; remote Pods will drift to 401 with no fresh creds pushed. " +
-      "Start it: tmux new-window -n creds 'remote refresh --all --watch 30'"
+      "Start it: tmux new-window -n creds 'h2a refresh --all --watch 30'"
     );
   }
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) return undefined;
@@ -128,10 +128,10 @@ export function supervisorAdvisory(
   if (ageMs <= 2 * intervalMs) return undefined;
   const ageMin = Math.round(ageMs / 60_000);
   return (
-    `[remote] creds supervisor heartbeat STALE (${ageMin}m old, > 2× the ${Math.round(
+    `[h2a] creds supervisor heartbeat STALE (${ageMin}m old, > 2× the ${Math.round(
       intervalMs / 60_000,
     )}m interval) — the watcher likely stopped; remote Pods may be drifting to 401. ` +
-    "Restart it: tmux new-window -n creds 'remote refresh --all --watch 30'"
+    "Restart it: tmux new-window -n creds 'h2a refresh --all --watch 30'"
   );
 }
 
@@ -218,13 +218,13 @@ export function claudeExpiryAdvisory(expiry: ClaudeExpiry): string | undefined {
   if (!expiry.expiringSoon) return undefined;
   if (expiry.expired) {
     return (
-      "[remote] LOCAL claude OAuth token has EXPIRED — run `claude` locally to refresh it, " +
+      "[h2a] LOCAL claude OAuth token has EXPIRED — run `claude` locally to refresh it, " +
       "then the next supervisor pass will push the fresh token to your Pods."
     );
   }
   const mins = Math.max(0, Math.ceil((expiry.msUntilExpiry ?? 0) / 60_000));
   return (
-    `[remote] LOCAL claude OAuth token expires in ${mins}m — run \`claude\` locally to refresh it ` +
+    `[h2a] LOCAL claude OAuth token expires in ${mins}m — run \`claude\` locally to refresh it ` +
     "so the supervisor can push the fresh token before your Pods 401."
   );
 }
