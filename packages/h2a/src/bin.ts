@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import {
   cmdKeepalive,
   runCli,
@@ -18,6 +22,16 @@ import {
 import { shouldDispatchRemote } from "./bin-routing.js";
 
 const argv = process.argv.slice(2);
+
+function readOwnVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8")) as { version?: string };
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 
 function parseFlagsFrom(start: number): Record<string, string> {
   const flags: Record<string, string> = {};
@@ -83,7 +97,10 @@ async function dispatchRemote(): Promise<number> {
 
 // `mcp-serve` and `remote serve/send` are async (long-running loop or network);
 // the synchronous `runCli` cannot represent them, so we dispatch directly here.
-if (argv[0] === "mcp-serve") {
+if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
+  process.stdout.write(`${readOwnVersion()}\n`);
+  process.exitCode = 0;
+} else if (argv[0] === "mcp-serve") {
   // Graceful shutdown: a host kill (or orderly stop) cleans presence
   // immediately (sessions → `closed`) rather than leaving it to expire as
   // false-live. We override the default signal terminate, so we MUST guarantee

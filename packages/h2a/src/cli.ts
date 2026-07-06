@@ -62,7 +62,7 @@ import { fileURLToPath } from "node:url";
 // same `.track` under the same lock as the surviving spawn facade.
 import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 
-// Static import — `@sentropic/harness` is a LIGHT, zero-runtime-dep method
+// Static import — `h2a` is a LIGHT, zero-runtime-dep method
 // library (host-agnostic code-work / PR-workflow layer, BR-42h). Like track it
 // is NOT on the golden-rule lazy-only list (that is scoped to
 // `@sentropic/h2a-runtime`/node-pty/aws-sdk). Its public `runHarnessCli` lets
@@ -70,7 +70,7 @@ import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 // `HARNESS_SKILLS` is the harness pack's canonical, programmatic inventory —
 // `install-skills` renders `harness-<name>` from it (no hard-coded list, no
 // skill copies committed here; SOURCE UNIQUE = the installed npm package).
-import { runHarnessCli, HARNESS_SKILLS } from "@sentropic/harness";
+import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
@@ -382,7 +382,7 @@ export function renderCliHelp(): string {
     `  h2a ${[...TRACK_FACADE_VERBS].join(" · h2a ")}`,
     "    (ex: h2a decision new …, h2a report, h2a item ls — voir `track <verbe> --help`)",
     "",
-    "Harness (délégué à @sentropic/harness — la méthode code-work / PR-workflow):",
+    "Harness (délégué à h2a vendored harness — la méthode code-work / PR-workflow):",
     "  h2a harness <check|verify|init|audit|brainstorm|test|debug|review|plan|branch|skills> …",
     "    (namespacé pour éviter les collisions init/branch — voir `h2a harness --help`)",
     "",
@@ -2193,7 +2193,7 @@ function cmdCanevas(argv: readonly string[], streams: H2ACliStreams): number {
   return 1;
 }
 
-// Façade harness (Slice A — the "one-CLI" endgame). `@sentropic/harness` stays a
+// Façade harness (Slice A — the "one-CLI" endgame). `h2a` stays a
 // LIB (never absorbed): a pure, zero-runtime-dep driver (no git, no fs writes, no
 // process.exit) whose single `out` sink carries usage, JSON artifacts AND errors.
 // We run it IN-PROCESS via the package's public `runHarnessCli` (same shape as
@@ -2219,7 +2219,7 @@ function cmdHarness(argv: readonly string[], streams: H2ACliStreams): number {
       typeof (rc as { then?: unknown }).then === "function"
     ) {
       streams.stderr.write(
-        "h2a harness: @sentropic/harness returned a Promise (async) — unsupported in the sync facade.\n"
+        "h2a harness: h2a vendored harness returned a Promise (async) — unsupported in the sync facade.\n"
       );
       return 1;
     }
@@ -5223,7 +5223,7 @@ function pruneLegacy(
  * `h2a`   — this package's own bundled skill(s) (`packages/h2a/skills/`).
  * `track` — the `@sentropic/track` package's shipped `skills/` (in-repo source
  *           `packages/track/skills/`).
- * `harness` — the `@sentropic/harness` npm package's shipped `skills/`, rendered
+ * `harness` — the `h2a` npm package's shipped `skills/`, rendered
  *           under the `harness-<name>` prefix.
  */
 type SkillProvenance = "h2a" | "track" | "harness";
@@ -5286,7 +5286,7 @@ function readSkillFrom(
 
 /**
  * Resolve the on-disk `skills/` directory of an installed dependency package
- * (`@sentropic/track`, `@sentropic/harness`) from h2a's own runtime location.
+ * (`@sentropic/track`, `h2a`) from h2a's own runtime location.
  *
  * SOURCE UNIQUE: the skills are rendered on demand from each package's shipped
  * `skills/` tree — never copied into this repo/plugin. Resolution honours the
@@ -5344,7 +5344,7 @@ interface SkillCollection {
  * Collect every installable skill from its SINGLE SOURCE, rendered on demand:
  *  1. `h2a`     — this package's `skills/` bundle (`SKILLS_DIR`).
  *  2. `track`   — `@sentropic/track`'s shipped `skills/` (native names).
- *  3. `harness` — `@sentropic/harness`'s shipped `skills/`, enumerated from the
+ *  3. `harness` — `h2a`'s shipped `skills/`, enumerated from the
  *                 package's programmatic `HARNESS_SKILLS` manifest and rendered
  *                 under the `harness-<name>` prefix (anti-collision, tool-neutral).
  *
@@ -5392,9 +5392,9 @@ function collectInstallableSkills(): SkillCollection {
   sources.push({ source: "track", dir: trackDir ?? null, count: trackRes.count });
   if (trackRes.error) return { skills, sources, error: trackRes.error };
 
-  // 3) harness — rendered from the @sentropic/harness package, prefixed
+  // 3) harness — rendered from the h2a vendored harness package, prefixed
   //    `harness-<name>`, enumerated via the package's programmatic manifest.
-  const harnessDir = resolvePackageSkillsDir("@sentropic/harness");
+  const harnessDir = join(SKILLS_DIR, "harness");
   const harnessRes = collectFromDir(
     harnessDir,
     "harness",
