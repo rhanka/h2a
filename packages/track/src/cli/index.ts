@@ -383,7 +383,7 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
           case 'scope':
             return cmdScope(rest, ctx)
           case 'focus':
-            // The ONLY async command (dynamic `import('@sentropic/focus')`); it returns a Promise<number>
+            // The ONLY async command (dynamic `import('../focus-vendor/index.js')`); it returns a Promise<number>
             // and OWNS its full error→rc map internally (the outer sync try/catch can't see async
             // rejections). `runCli` returns `number | Promise<number>`; `bin.ts` awaits it.
             return cmdFocus(rest, ctx, trackDir === null)
@@ -1037,7 +1037,7 @@ const HTML_HOOKS = {
  * then calls focus's `readDecisionDossier(eventsPath, {workspace, baselineCommit, decisionId}, readAt)` and
  * dispatches the render-core (terminal/md/html). It is the HOME of Focus (`stp focus` is a shortcut alias).
  *
- * ASYNC (the only such command): `@sentropic/focus` is an `optionalDependency` consumed via dynamic
+ * ASYNC (the only such command): `../focus-vendor/index.js` is an `integrated dependency` consumed via dynamic
  * `import()`, so track's CORE stays publishable with ZERO knowledge of focus and `track focus` is an
  * additive, opt-in capability. A MODULE_NOT_FOUND (focus not installed) maps to rc=1 + an install hint.
  *
@@ -1067,17 +1067,17 @@ async function cmdFocus(args: string[], ctx: Ctx, _noStore: boolean): Promise<nu
     return 2
   }
 
-  // Load the focus render binding + core. focus is an optionalDependency → a MODULE_NOT_FOUND means the
-  // consumer never ran `npm i @sentropic/focus`: map it to rc=1 + a helpful hint (NOT a stack trace).
-  let focusTrack: typeof import('@sentropic/focus/track')
-  let core: typeof import('@sentropic/focus')
+  // Load the focus render binding + core. focus is an integrated dependency → a MODULE_NOT_FOUND means the
+  // integrated focus renderer is unavailable: map it to rc=1 + a helpful hint (NOT a stack trace).
+  let focusTrack: typeof import('../focus-vendor/track/index.js')
+  let core: typeof import('../focus-vendor/index.js')
   try {
-    focusTrack = await import('@sentropic/focus/track')
-    core = await import('@sentropic/focus')
+    focusTrack = await import('../focus-vendor/track/index.js')
+    core = await import('../focus-vendor/index.js')
   } catch (error) {
     const code = (error as { code?: string }).code
     if (code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND') {
-      io.err('error: rendering requires @sentropic/focus — run `npm i @sentropic/focus`\n')
+      io.err('error: rendering requires ../focus-vendor/index.js — run `npm i ../focus-vendor/index.js`\n')
       return 1
     }
     io.err(`error: ${error instanceof Error ? error.message : String(error)}\n`)

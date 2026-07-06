@@ -12,7 +12,7 @@ import { join, sep } from "node:path";
 import test from "node:test";
 
 import { runCli } from "../dist/index.js";
-import { HARNESS_SKILLS } from "@sentropic/harness";
+import { HARNESS_SKILLS } from "../dist/vendor/harness/index.js";
 
 // The four track skills @sentropic/track ships in `packages/track/skills/`.
 const TRACK_SKILLS = [
@@ -188,7 +188,7 @@ test("install-skills --host agy renders the .toml commands + emits an importHint
   }
 });
 
-test("install-skills renders harness-* from the @sentropic/harness package (SOURCE UNIQUE, no repo copies)", () => {
+test("install-skills renders harness-* from h2a-owned vendored harness skills (SOURCE UNIQUE, no external package)", () => {
   const cwd = freshCwd();
   try {
     const streams = captureStreams(cwd);
@@ -199,13 +199,13 @@ test("install-skills renders harness-* from the @sentropic/harness package (SOUR
     assert.equal(rc, 0, streams.stderrText);
     const parsed = JSON.parse(streams.stdoutText);
 
-    // The harness source resolves to the INSTALLED npm package, never a copy
-    // committed inside this repo's packages/ tree.
+    // The harness source is now h2a-owned: no external @sentropic/harness
+    // package, no standalone harness CLI lifecycle.
     const harnessSource = parsed.sources.find((s) => s.source === "harness");
     assert.ok(harnessSource, "sources must include a harness entry");
     assert.ok(
-      harnessSource.dir.includes(`@sentropic${sep}harness${sep}skills`),
-      `harness must render from the package, got ${harnessSource.dir}`
+      harnessSource.dir.endsWith(`${sep}skills${sep}harness`),
+      `harness must render from h2a-owned skills, got ${harnessSource.dir}`
     );
     assert.equal(harnessSource.count, HARNESS_SKILLS.length);
 
