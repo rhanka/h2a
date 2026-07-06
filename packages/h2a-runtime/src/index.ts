@@ -104,6 +104,7 @@ import {
   listJobs,
   listLocalForLs,
   loadRegistry,
+  localTmuxSessionForName,
   tryClaimSlot,
   withRegistryLock,
   resolveRegistryPath,
@@ -7210,15 +7211,25 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // Local tmux session? (unless an explicit URL/sessionId pair is given).
         if (second === undefined && !looksLikeUrl(first)) {
           const local = findLocalSession(first);
-          if (opts.local || local) {
-            if (!local) {
+          // A session started by `remote run` is enrolled in the registry as
+          // kind:"local-tmux". Trust that durable record even when a transient
+          // `tmux list-sessions` miss hides the live session — otherwise a purely
+          // LOCAL session is mis-routed to a k8s Pod (kubectl exec session-<name>
+          // → NotFound → reconnect loop) as soon as a tunnel is configured.
+          // `remote ls` already merges registry + tmux; attach must not be less
+          // reliable. When the registry says local but tmux can't reach it,
+          // attachLocalSession fails with a clear LOCAL error (never a Pod).
+          const localName =
+            local?.name ?? localTmuxSessionForName(first, loadRegistry());
+          if (opts.local || localName) {
+            if (!localName) {
               process.stderr.write(
                 `[remote] no local session "${first}" (see: remote ls)\n`,
               );
               process.exitCode = 1;
               return;
             }
-            process.exitCode = attachLocalSession(local.name);
+            process.exitCode = attachLocalSession(localName);
             return;
           }
         }
