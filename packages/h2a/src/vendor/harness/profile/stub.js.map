@@ -1,0 +1,1 @@
+{"version":3,"file":"stub.js","sourceRoot":"","sources":["../../src/profile/stub.ts"],"names":[],"mappings":"AAEA,kFAAkF;AAClF,+EAA+E;AAC/E,oFAAoF;AACpF,wFAAwF;AACxF,mFAAmF;AACnF,MAAM,CAAC,MAAM,WAAW,GAAmB;IACzC,EAAE,EAAE,MAAM;IACV,qBAAqB,EAAE,CAAC,WAAW,CAAC;IACpC,kBAAkB,EAAE,WAAW;IAC/B,4BAA4B,EAAE,KAAK;IACnC,WAAW,EAAE,QAAQ;CACtB,CAAC"}
