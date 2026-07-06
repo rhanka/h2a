@@ -10,6 +10,7 @@ import {
   listJobs,
   listLive,
   loadRegistry,
+  localTmuxSessionForName,
   markEnded,
   occupiesSlot,
   prune,
@@ -515,5 +516,62 @@ describe("registry concurrency (S2/S3)", () => {
   it("cap <= 0 admits nothing", () => {
     expect(tryClaimSlot(jobInput("z"), 0, regPath)).toBeUndefined();
     expect(existsSync(regPath)).toBe(false);
+  });
+});
+
+describe("localTmuxSessionForName (attach local-vs-remote routing)", () => {
+  const now = new Date().toISOString();
+  const localTmux = (over: Partial<RegistryEntry>): RegistryEntry => ({
+    id: "h2a",
+    tool: "claude",
+    kind: "local-tmux",
+    cwd: "/home/u/src/a2a-cli",
+    label: "h2a",
+    tmuxSession: "remote-h2a",
+    enrolledAt: now,
+    lastSeenAt: now,
+    source: "run",
+    ...over,
+  });
+
+  it("resolves a `remote run` session by its slug even if tmux can't list it", () => {
+    // The core fix: the registry record alone (no live tmux) is enough to know
+    // the name is LOCAL, so attach never falls through to a k8s Pod.
+    expect(localTmuxSessionForName("h2a", [localTmux({})])).toBe("remote-h2a");
+  });
+
+  it("matches by custom label and by full tmux session name too", () => {
+    const e = localTmux({ id: "sess-x", label: "myname" });
+    expect(localTmuxSessionForName("myname", [e])).toBe("remote-h2a");
+    expect(localTmuxSessionForName("remote-h2a", [e])).toBe("remote-h2a");
+  });
+
+  it("falls back to remote-<id> when no explicit tmuxSession is recorded", () => {
+    const { tmuxSession: _drop, ...noTmux } = localTmux({ id: "proj" });
+    expect(localTmuxSessionForName("proj", [noTmux as RegistryEntry])).toBe(
+      "remote-proj",
+    );
+  });
+
+  it("ignores ended, remote, and delegated-job records", () => {
+    expect(localTmuxSessionForName("h2a", [localTmux({ endedAt: now })])).toBeUndefined();
+    expect(
+      localTmuxSessionForName("h2a", [
+        localTmux({ kind: "remote", tmuxSession: undefined, remoteId: "r" }),
+      ]),
+    ).toBeUndefined();
+    expect(
+      localTmuxSessionForName("h2a", [localTmux({ role: "job" })]),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for no match or an ambiguous (multi-id) match", () => {
+    expect(localTmuxSessionForName("nope", [localTmux({})])).toBeUndefined();
+    expect(
+      localTmuxSessionForName("dup", [
+        localTmux({ id: "a", label: "dup", tmuxSession: "remote-a" }),
+        localTmux({ id: "b", label: "dup", tmuxSession: "remote-b" }),
+      ]),
+    ).toBeUndefined();
   });
 });
