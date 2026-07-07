@@ -1,0 +1,105 @@
+# x8 commit coverage report
+
+Historical commit imputation is a **calculated view**, not a rewrite of `.track`. The current heuristic combines the versioned `scope-to-theme.map.json` with subject/path-style keyword fallback for legacy commits.
+
+- Total commits considered: **747**
+- Imputed to exactly one bucket/theme: **747/747**
+- Manual-review bucket: **128**
+
+## Counts
+
+- distribution-cli-packaging: 214
+- tracking-record: 145
+- manual-review: 128
+- method-harness: 57
+- coordination-loop: 42
+- identity-auth-nhi: 36
+- infra-deploy-mcp: 35
+- governance-raci: 28
+- execution-runtime: 27
+- addressing-presence: 21
+- memory-context: 10
+- protocol-envelopes: 4
+
+## Manual-review sample
+
+- `31a530c2` chore(h2a-runtime): rebrand [remote] -> [h2a] + migrate command examples to h2a
+- `9d0bb4a7` fix(h2a-runtime): attach resolves a `run` session as LOCAL via the registry, never a Pod
+- `48cf5eee` feat(harness): wrap harness as native h2a subcommand (h2a harness <verb>, in-process)
+- `526ee06d` feat(⑤b): lock deps for absorbed control-plane packages + app
+- `14212d67` feat(⑤b): absorb control-plane app + prune Dockerfile to h2a monorepo
+- `856a9119` proposal: expose local OpenAI model (kog/Laneformer-2B) in the LLM mesh — DRAFT for architect review
+- `56ac29b3` feat(canevas ③): tranche-3b — pont-reponse ecriture garde (token + idempotent + answeredBy:local-human)
+- `4a766da1` feat(canevas ③): tranche-2 — serveur Hono read-only 127.0.0.1 + vue session (capturePane lazy)
+- `0b291280` feat(parite ②): h2a = driver global — fallback routing des verbes runtime
+- `0829688c` fix(P5): metadata h2a-runtime -> rhanka/h2a (repo/homepage/bugs/license) + desc EN
+- `47d1628c` feat(P5.5): wire LAZY des verbes remote dans h2a (run/attach/stop/logs/workspace/resume)
+- `9deb3b53` feat(migration-P5prep): garde anti-cycle (core @sentropic/h2a doit rester feuille)
+- `a986a6dd` feat(report): actionable, delegable conductor directives (state-driven préconisation)
+- `82507c86` fix(report): close Codex review blockers — json contract, no silent truncation, md escaping, optional pendingItems
+- `59d1e0e9` feat(report): make WP conductor report directive
+- `7ced2012` Merge pull request #2 from rhanka/wp6-graph-export
+- `b7ed7ec2` merge WP-4/5/6: shared-bus default + keepalive + host-native names
+- `8f620898` feat(bus+keepalive+naming): shared-bus default, 90s keepalive + pane prober, host-native session names
+- `37065e7d` feat(events): M3 signed write channel (library-import, owner-ratified ①)
+- `97c1232b` chore(plugin): Claude Code plugin + marketplace manifest
+- `585342c9` fix(root): honor H2A_ROOT + warn on cwd-fallback + doctor split-brain/hygiene (WP-1)
+- `9b4452a1` merge WP-1: h2a root unification (honor H2A_ROOT + warn + doctor)
+- `089d9a8b` feat(ingest): M2b write seam — neutral WorkEvent ingest (channel ①)
+- `370cb354` feat(threading): lightweight conversation threading (threadId/replyTo + h2a thread)
+- `c95fc553` fix(events): serialize appendCommand across processes — integrity-DoS fix
+- `38b22d97` fix(tmux): commit the Enter — relauncher used combined 'cmd Enter' (never submits in a TUI)
+- `9aa0d227` feat(discover): resolve peers by name (not just scope) + skill rule never-grep-registry
+- `d539f6eb` fix: 7 correctness/security fixes from the Opus 4.8 + Codex 5.5 double review
+- `577e4e97` feat(status): h2a status — inventory direct vs indirect (mirrored) sessions
+- `eebb2697` feat(blockers): Lot v2.2 — linked-accepted via commit-relative projection (hybrid-A, M2a)
+- `da4bb03a` feat(read): Lot v2.0 — curated, versioned, fail-closed read contract (M2a)
+- `95a9340c` docs(v2): PLAN-v2 proposal + round-1 double review (Codex 5.5 + Opus 4.8)
+- `dd78c1b2` chore: prepare npm publish — MIT license, public package, v0.1.0
+- `c8e16f65` docs(evo12-p2): correct runbook step 1 — 39-auth needs no new code, only a seed-script entry
+- `7ff1a057` Lot 7 — apply final review (Codex round-2 + Opus SHIP)
+- `ce0da4c0` Lot 7 — apply review (Codex gpt-5.5 xhigh)
+- `319b5251` Lot 6 — apply review (Codex gpt-5.5 xhigh + Opus 4.8)
+- `9ca727fa` feat(evo12-p2): wire broker into createHostedApp (brokerMode → 39-auth login → claude.ai code)
+- `d1e8a67a` Lot 5 — apply review (Codex gpt-5.5 xhigh + Opus 4.8)
+- `cdc7a353` feat(evo12-p2): broker upstream config-from-env (H2A_BROKER_MODE + H2A_UPSTREAM_*)
+- `4b4e0669` Lot 5 — report + query
+- `1f5eb141` Lot 4 — apply review (Codex gpt-5.5 xhigh + Opus 4.8)
+- `4498c8e4` Lot 4a + 4b — acceptance cascade + WSJF prioritization
+- `1b9fbaf4` feat(evo12-p2): broker hono routes (/authorize → 39-auth, /oidc/callback → user/root → claude.ai code)
+- `89a62463` Lot 3 — apply review (Codex gpt-5.5 xhigh + Opus 4.8)
+- `1e2c56f2` feat(evo12-p2): broker-login state machine (start→39-auth redirect, complete→sub→per-user root)
+- `09d3aaa6` Lot 2 — apply review (Codex gpt-5.5 xhigh + Opus 4.8)
+- `104afb4d` Lot 2 — item axes + blockers + command facade
+- `5d4d5504` Lot 1 — event core + fold + integrity (FROZEN contract)
+- `0853cbda` docs: add Mermaid diagrams to INTENTION/SPEC/PLAN (double-reviewed)
+- `e4f5804c` fix(hosted): disable remote enrollment by default
+- `6a564f42` chore: ignore local h2a workspace
+- `7c0993d6` Merge branch 'codex/evo1-self-drive'
+- `8099c304` Merge branch 'codex/evo9-complete-chain'
+- `31e07da3` docs(evaluations): finalize review backlog cleanup
+- `3f5b05c9` docs(evaluations): keep consolidated reviews only
+- `78e6ea51` feat: add conflit interet posture gate
+- `2a2b294c` Add signed drive driver
+- `9a764ae0` docs(plan): active delegation board — WP owners + status (orchestration model)
+- `844a94b6` fix(host-plugin): Windows-correct codex trust command (DEC-062)
+- `89ca2e37` merge(d6): codex stop-hook marketplace scaffold (host plugin --scaffold, DEC-113) from worktree
+- `e503dbc8` fix(d6): scaffold codex as a local marketplace (verified codex install path)
+- `ad2670ff` docs(d6): mark D6 done + DEC-113 (codex plugin scaffold + trust findings)
+- `85cb3b6f` feat(d6): scaffold the full codex stop-hook plugin (host plugin --scaffold)
+- `d95bb2b1` Revert "docs(lang): add CONTRIBUTING.md language policy + README pointer"
+- `6ce3123a` docs(lang): translate 'Séance' status labels to 'Session' in docs/evolution-intentions.md
+- `538a7466` docs(lang): translate French fragments in PLAN.md DEC notes to English
+- `6a77f8bc` docs(lang): translate French prose in RUNTIME_PROPOSAL.md to English
+- `5b6e0475` docs(lang): add CONTRIBUTING.md language policy + README pointer
+- `4e18c34a` docs: framings for EVO-9 (trust concepts), D4 (remote relance), EVO-10 (availability worker)
+- `92ccc6bb` docs(backlog): capture EVO-9 (trust concepts) + EVO-10 (availability worker) from inbound h2a requests
+- `96cba8b0` docs(d5): harden reflexive-watchdog spec + plan after independent review
+- `1de1c2fb` docs(d5): TDD implementation plan for the reflexive watchdog
+- `dae3626c` docs(d5): refine reflexive-watchdog spec from risk review (advisory reroute, K-gate, advisory-first)
+- `8a0ccdb2` feat(evo8): in-place re-exec on auto-upgrade + opt-in boot check (DEC-108)
+- `80d40247` docs(evo): capture EVO-6 (startup auto-connect) + EVO-7 (coach mode) intentions
+- `83826c11` feat(evo0): install-skills --host agy via gemini import (DEC-101)
+- `01cdc01c` docs(skills): refresh SKILL.md for shipped surface + agy host (Backlog A7 review)
+- `a39995aa` docs(evaluations): author soc2.md — Backlog B complete (B3 draft)
+- `414690d4` docs(evaluations): author iso-9001.md (Backlog B1 draft)
