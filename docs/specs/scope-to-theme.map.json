@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "title": "Frozen scope -> theme imputation map (x8)",
+  "ratifiedBy": "Fabien (double-consensus opus+codex), 2026-07-06",
+  "note": "VIEW ONLY. This table imputes each historical git commit to exactly one perennial theme for a computed coverage view. It is NEVER written into .track — the event log is not rewritten for history. Only track ITEMS were physically reparented (see 2026-07-06-wp-restructuring-REPARENT-PLAN.md). Consumers: docs/specs/wp-coverage-report.md.",
+  "themeFinalites": {
+    "protocol-envelopes": "Coordonner",
+    "addressing-presence": "Coordonner",
+    "coordination-loop": "Coordonner",
+    "governance-raci": "Coordonner",
+    "execution-runtime": "Exécuter",
+    "identity-auth-nhi": "Administrer",
+    "infra-deploy-mcp": "Administrer",
+    "tracking-record": "Suivre",
+    "method-harness": "Étendre",
+    "distribution-cli-packaging": "Étendre",
+    "memory-context": "Étendre"
+  },
+  "algorithm": [
+    "1. Parse conventional type + scope from the subject.",
+    "2. type=release OR scope is a bare version (v?N.N.N) -> distribution-cli-packaging (releases -> distribution).",
+    "3. type=review -> method-harness.",
+    "4. type=ci -> subject matches /publish/ ? distribution-cli-packaging : method-harness (CI -> method/infra).",
+    "5. scope begins with 'track' -> if the commit touches packages/track/** then tracking-record (tool dev), else fall through to scopePatterns on the subject (track used as a record verb in another theme).",
+    "6. scopePatterns matched against the FULL lowercased subject, FIRST match wins.",
+    "7. no match -> manual-review (imputed-but-to-review; listed by SHA in the coverage report)."
+  ],
+  "typeRules": {
+    "release": "distribution-cli-packaging",
+    "review": "method-harness",
+    "ci": { "publish": "distribution-cli-packaging", "default": "method-harness" },
+    "versionScope": "distribution-cli-packaging"
+  },
+  "trackScopeRule": {
+    "scopePrefix": "track",
+    "trackSourceTouches": ["packages/track/", "src/"],
+    "ifTrackSource": "tracking-record",
+    "elseRecordKeeping": "patternMatch(subject) else tracking-record",
+    "rationale": "Historically the track tool lived under src/ (monorepo), later packages/track/. A track-scoped commit editing track SOURCE = tool-dev = tracking-record. A track-scoped commit touching only .track/ (+docs) = record-keeping: impute to the recorded theme if the subject names one, else tracking-record (record activity)."
+  },
+  "scopePatterns": [
+    { "re": "centralis\\w* .{0,14}m[ée]moire|agent memory|centralized .{0,14}memory|m[ée]moire centralis|\\bx7\\b|context.{0,14}m[ée]moire", "theme": "memory-context", "note": "centralized perennial agent memory/context" },
+
+    { "re": "\\bidentit|\\bnhi\\b|39-auth|\\boidc\\b|\\bdcr\\b|proof-of-possession|proof of possession|workspace-?id|re-?anchor|rootforsub|per-user root|\\boffboard|git-derived|keyring|key management|keys? (add|list|revoke)|capability token|transport-auth|signed-bearer|dec-116|dec-089|dec-113|host, workspaceid|self-as|owasp nhi|\\bnist\\b|evo-?5|nhi control", "theme": "identity-auth-nhi", "note": "identity, auth, NHI, keys, workspace-id" },
+
+    { "re": "governance|\\braci\\b|\\bcoi\\b|conflit|conflict of interest|\\bmandate\\b|disclosure|recourse|jurisdiction|obligation|\\bposture\\b|trust concept|confiance|int[ée]r[êe]t|coach mode|org model|org profile|d_safe|octo model|evo-?7\\b|evo-?9\\b|dec-0(39|4[0-8])|dec-112|dec-124|policy.?precedence|advisory reroute|coi advisory|core org model|role/authority", "theme": "governance-raci", "note": "governance, RACI, CoI, mandate, trust, org model, authority" },
+
+    { "re": "objective-loop|\\bloop\\b|drumbeat|\\bwake\\b|relance|anti-stall|conductor (drumbeat|launch|async|mailbox|claim|release|poll)|inbox-wake|reroute|\\bd5\\b|drumbeat d5|\\bd6\\b|d6-b|d6\\+p3|evo-?1\\b|evo-?2\\b|evo-?3\\b|evo-?4\\b|bilateral discussion|situation presentation|decision support|deposit-for-conductor|relance/finish/escalate|no spawn|drift visibility|cooldown \\+ maxrelaunches|remote relance", "theme": "coordination-loop", "note": "objective-loop, drumbeat/wake/relance, conductor mechanics, anti-stall" },
+
+    { "re": "\\baddress|presence|heartbeat|keepalive|liveness|\\bdormant\\b|discover|threading|thread(id|-id)|\\binbox\\b|\\boutbox\\b|reach-guard|\\breach\\b|routab|host-qualified|\\balias\\b|availability|connectionconfidence|dec-051|slug-stable|resolve-before-send|busy-on-user|fraicheur presence|envelope\\+liveness|remote-derived heartbeat|widen window|evo-?10", "theme": "addressing-presence", "note": "reachability, presence, heartbeat/keepalive, discover, routing, inbox/threading" },
+
+    { "re": "envelope|enveloppe|negotiat|n[ée]gociation|offer/counter|counter-offer|\\bsign\\b|signature|signing matrix|ed25519|quorum|\\bescalat|session[- ]protocol|session artifact|artifact schema|core artifact|canonical fixtures|append-only journal|typed negotiate|signed (posture|terminal|drive)|manifest \\+ validate|ratification envelope|channel ①", "theme": "protocol-envelopes", "note": "wire contract: envelopes, signatures, negotiation, escalation, session-protocol, artifact schemas" },
+
+    { "re": "host(-| )(setup|plugin|adapter|mcp)|hosts/upgrade|\\bremote\\b|remote-cli|remote-protocol|remote transport|remote-runtime|remote-derived|remote rename|h2a-runtime|\\battach|\\bresume\\b|run/attach|run/sub|\\blogs\\b|sandbox|greywall|node-pty|\\bhermes\\b|opencode|\\bagy\\b|session-agent|\\bdispatch|delegat|\\bjobs\\b|evo-?0\\b|\\bp5\\b|p5[.:]|p5prep|shim|canary runtime|\\bruntime\\b|k8s-orchestrator|parite ②|parite remote|remote to h2a|codex,gemini,agy|claude/codex/gemini|agy/codex/claude|host plugin", "theme": "execution-runtime", "note": "host adapters, remote runtime, run/attach/stop/logs/resume, sandbox/greywall" },
+
+    { "re": "\\bdeploy|\\bk8s\\b|kubernetes|\\bscw\\b|\\boci\\b|ghcr|sidecar|\\bmcp connector|mcp wiring|mcp redirect|register.*mcp|mcp-sessions|host-mcp|\\bgateway\\b|llm-gateway|\\bmesh\\b|ingester|\\bbroker\\b|\\brwo\\b|\\brwx\\b|\\bpvc\\b|\\bprune\\b|\\.h2a|bus cleanup|evo-?12|evo-?13|oci image|multi-attach|brokermode|h2a_broker_mode|h2a_upstream|estate view|\\bhosted\\b", "theme": "infra-deploy-mcp", "note": "deploy substrate: k8s/OCI/GHCR, MCP wiring/connectors, gateway/mesh, .h2a root hygiene" },
+
+    { "re": "\\breport\\b|decision (dossier|record|screen|support)|\\bacceptance\\b|provenance|canevas|\\bcanvas\\b|backlog|\\bingest\\b|events-contains|export-graph|restructure|record-only|fa[çc]ade track|facade|focus cli|read contract|\\.track store|\\bcursor\\b|amendment|freshness|scope-declare|store migrate|\\(events\\)|\\(read\\)|\\(status\\)|\\(validate\\)|\\(blockers?\\)|\\(priority\\)|\\(consolidate\\)|\\(accept\\)|\\(audit\\)|\\(focus\\)|\\(ingest\\)|record-only backlog|demand-lifecycle|demand-management|verificationrun|workspaceactivity|workpackage foundation|item axes|event core|role:'stream'|wp codes|record .* self-contained lot", "theme": "tracking-record", "note": "the record: report/decision/acceptance/provenance/canevas/backlog/ingest + track subsystems (events/read/status/validate/blockers)" },
+
+    { "re": "\\brelease\\b|\\bpublish|\\bnpm\\b|\\bcli\\b|\\bplugin\\b|marketplace|install-skills|mapping|\\b255\\b|h2a-cli|\\bupgrade\\b|\\bpackage\\b|lock deps|control-plane packages|multi-bin|keystone|bin h2a|\\bskills?\\b|mcp server|mcp sdk|mcp-serve|bus mcp|mcp \\+ cli|serve \\+ main|entrypoint|\\bstub\\b|repo/homepage|readme|record v\\d|v0\\.\\d+\\.\\d+ publi|\\bpublication\\b|first pass.*cli|no skill copies|h2a ping|scaffold|core bootstrap|bootstrap|initialize .*repo|evo-?8", "theme": "distribution-cli-packaging", "note": "front-door & shipping: CLI/verbs, plugin/marketplace, install-skills, npm publish/publication records, MCP server, scaffold/bootstrap" },
+
+    { "re": "harness|\\breview\\b|evaluation|\\bspec\\b|\\bplan\\b|scope-gate|brainstorm|\\bverify\\b|double-review|triple-review|double consensus|consensus|adversarial|\\buat\\b|opus|codex|xhigh|reviewed|de-flake|golden|contract-test|contract public|garde du contrat|contrat public|version-matrix|\\bsmoke\\b|test-bus|isolation|cross-platform|windows ci|test runner|run-tests|typecheck|\\(ci\\)|\\bci\\b|1043 tests|142 tests|sysml|model reference|portable path", "theme": "method-harness", "note": "dev method: harness kernels, spec/plan/review, evaluations, CI/test guards, cross-platform, sysml modeling" }
+  ],
+  "fallback": "manual-review"
+}
