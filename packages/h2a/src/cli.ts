@@ -2226,6 +2226,7 @@ export async function runLoopEngineCli(
       return await runLoopWatch(root, loopId, {
         ...(intervalMs !== undefined && Number.isFinite(intervalMs) ? { intervalMs } : {}),
         ...(max !== undefined && Number.isFinite(max) ? { max } : {}),
+        execute: !argv.includes("--dry-run"),
         ...(signal ? { signal } : {}),
         stdout: streams.stdout
       });

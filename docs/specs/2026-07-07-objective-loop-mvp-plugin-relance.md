@@ -30,6 +30,7 @@ The MVP is not an agent launcher. It wakes existing live agents. If no live wake
 - Pure core / imperative shell: decision logic stays deterministic and IO-free; tmux/presence/inbox effects live in the shell.
 - Human guard: wake injection MUST re-check human typing/activity at the last possible shell boundary. A deferred wake does not consume relance budget or cooldown.
 - Progress is not presence: liveness proves an agent can receive a wake; it does not prove the objective is progressing.
+- Track remains the work/status source of truth: the loop MUST NOT create a divergent backlog, item state machine, acceptance model, or shadow tracker. A loop is an orchestration aggregate over explicit `track` refs, potentially spanning several workspaces and repositories; h2a stores the objective id, enrolled agents, policy and journal, while work realization/acceptance/blockers stay in track projections.
 
 ## 3. Minimal data model
 

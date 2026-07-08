@@ -32,6 +32,9 @@ export type H2ALoopAgentStatus =
   | "failed"
   | "cancelled";
 
+// Canonical objective binding: h2a loops orchestrate explicit track refs rather
+// than creating a parallel backlog/status store. A single objective may span
+// several workspaces and repositories via multiple refs.
 export interface H2ALoopTrackRef {
   readonly system: "track";
   readonly repoKey: string;
