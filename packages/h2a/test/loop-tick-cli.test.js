@@ -36,17 +36,39 @@ test("h2a loop tick produit un plan dry-run (resource) + code 0", () => {
   }
 });
 
-test("h2a loop watch --max 1 émet un plan JSONL puis s'arrête", () => {
+test("h2a loop watch --max 1 exécute une relance gardée par défaut", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-loop-"));
   try {
     const created = run(["loop", "create", "--name", "t", "--goal", "g", "--root", dir]);
     const loopId = JSON.parse(created.stdout).id;
+    const joined = run(["loop", "join", loopId, "--instance", "claude:test", "--agent-id", "a1", "--root", dir]);
+    assert.equal(joined.status, 0, `join stderr: ${joined.stderr}`);
     const watched = run(["loop", "watch", loopId, "--root", dir, "--max", "1"]);
     assert.equal(watched.status, 0, `watch stderr: ${watched.stderr}`);
     const lines = watched.stdout.trim().split("\n").filter(Boolean);
     assert.equal(lines.length, 1, "watch --max 1 doit émettre exactement 1 plan");
     const plan = JSON.parse(lines[0]);
     assert.equal(plan.loopId, loopId);
+    assert.ok(plan.exec, "watch/run MVP doit exécuter par défaut les actions de relance gardées");
+    assert.ok(plan.exec.results.some((r) => r.type === "request-launch" && r.agentId === "a1"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("h2a loop watch --dry-run reste observation-only", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-loop-"));
+  try {
+    const created = run(["loop", "create", "--name", "t", "--goal", "g", "--root", dir]);
+    const loopId = JSON.parse(created.stdout).id;
+    const joined = run(["loop", "join", loopId, "--instance", "claude:test", "--agent-id", "a1", "--root", dir]);
+    assert.equal(joined.status, 0, `join stderr: ${joined.stderr}`);
+    const watched = run(["loop", "watch", loopId, "--root", dir, "--max", "1", "--dry-run"]);
+    assert.equal(watched.status, 0, `watch stderr: ${watched.stderr}`);
+    const plan = JSON.parse(watched.stdout.trim());
+    assert.equal(plan.loopId, loopId);
+    assert.equal(plan.exec, undefined);
+    assert.ok(plan.actions.some((a) => a.type === "request-launch" && a.agentId === "a1"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -171,15 +171,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     exitCodes: [0, 1, 2],
     requiredFlags: ["loopId"],
     optionalFlags: ["root", "execute"],
-    description: "Objective-loop tick: gather agents (lazy runtime) + track refs + inbox, return the decision plan. DRY-RUN by default; `--execute` runs the plan (currently only the safe `close` action; wake/launch are still skipped)."
+    description: "Objective-loop tick: gather agents (lazy runtime) + track refs + inbox, return the decision plan. DRY-RUN by default; `--execute` runs the guarded plan once."
   },
   {
     verb: "loop watch",
     outputShape: "stream",
     exitCodes: [0, 1, 2],
     requiredFlags: ["loopId"],
-    optionalFlags: ["root", "interval-ms", "max"],
-    description: "Periodically dry-run tick the loop, emitting one decision plan per interval (JSONL) until a terminal outcome, --max, or a stop signal."
+    optionalFlags: ["root", "interval-ms", "max", "dry-run"],
+    description: "Run the objective loop periodically: by default each beat executes guarded relance actions until the loop status is terminal/done. `--dry-run` emits observation-only plans."
   },
   {
     verb: "canevas list",

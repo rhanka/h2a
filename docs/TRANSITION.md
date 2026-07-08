@@ -106,10 +106,11 @@ A durable, host-independent loop that drives one or more agents toward an object
 - `h2a loop list` · `loop status <loopId>` · `loop agents <loopId>` — inspect the
   loop and the agents enrolled in it.
 - `h2a loop tick <loopId>` — gather agents + track refs + inbox and return the
-  decision plan. **DRY-RUN by default**; `--execute` runs it (currently only the
-  safe `close` action; wake/launch are still skipped).
-- `h2a loop watch <loopId>` — periodic dry-run tick until a terminal outcome,
-  `--max`, or a stop signal.
+  decision plan. **DRY-RUN by default**; `--execute` runs one guarded plan.
+- `h2a loop watch <loopId>` / `h2a loop run <loopId>` — foreground controller:
+  executes guarded relance ticks at `policy.tickMs` (or `--interval-ms`) until the
+  loop status is terminal/done, `--max`, or a stop signal. Use `--dry-run` for
+  observation-only JSONL.
 
 Reference: `docs/specs/2026-06-26-objective-loop-h2a-track-remote.md`.
 
