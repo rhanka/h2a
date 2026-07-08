@@ -1,18 +1,18 @@
 ---
 name: using-harness
-description: Load FIRST in any sentropic repo — establishes the harness method (branch/scope/test/debug/review/brainstorm/plan) and supersedes superpowers for those acts.
+description: Load FIRST in any sentropic repo — establishes the harness method (branch/scope/test/debug/review/brainstorm/plan) and replaces legacy superpowers for those acts.
 ---
 
 # Using harness
 
 `@sentropic/harness` is the native dev-discipline layer for sentropic repos. Its verbs and `harness/*`
 skills are the SINGLE front door for code-work and PR-workflow. This skill is the index — load it
-before any other so the supersede directive below is in effect.
+before any other so the replacement directive below is in effect.
 
-## Supersede directive (MANDATORY)
+## Replacement Directive (MANDATORY)
 
-When superpowers (or any other discipline pack) is installed, **`harness/*` takes precedence** for the
-acts it covers. Do NOT invoke the superpowers skill for these — use the harness equivalent:
+`harness/*` is the native sentropic method surface. Treat any installed superpowers skills as legacy
+compatibility only. Do NOT invoke superpowers for acts covered here — use the harness equivalent:
 
 | Act | Use | NOT |
 |---|---|---|
@@ -25,8 +25,12 @@ acts it covers. Do NOT invoke the superpowers skill for these — use the harnes
 | scope / verification | `harness verify` · `harness check scope|branch` | superpowers:verification-before-completion |
 | repo onboarding | `harness/adopt` | — |
 
-The user may opt to keep superpowers per repo (a profile policy) — absent that opt-out, harness wins.
-superpowers is never a dependency or backend of harness.
+Do not install, refresh, or route through superpowers for sentropic code-work. If a repo still has a
+`.superpowers/` directory, it is ignored local residue; harness is never a dependency or backend of it.
+
+Create human/dev worktrees only under repo-local ignored paths, normally `tmp/worktrees/<slug>`.
+Never create branch worktrees under OS-global `/tmp`; delegated runtime jobs use their own
+repo-local `.remote/jobs/<id>/wt` workspace.
 
 ## The CLI
 

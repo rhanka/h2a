@@ -47,3 +47,19 @@ test("h2a harness check --help is served by the vendored h2a harness code", () =
   assert.match(viaH2a.stdout, /harness check <scope\|branch>/);
   assert.doesNotMatch(viaH2a.out, /Cannot find package '@sentropic\/harness'|ERR_MODULE_NOT_FOUND/);
 });
+
+test("h2a harness branch init prints a repo-local ignored tmp worktree recipe", () => {
+  const { status, out } = runH2a(["harness", "branch", "init", "feature-x"]);
+  assert.equal(status, 0);
+  assert.match(out, /tmp\/worktrees\/<slug>/);
+  assert.match(out, /repo-local ignored tmp\//);
+  assert.doesNotMatch(out, /git worktree add -b feat\/<slug> \/tmp\//);
+});
+
+test("h2a harness skills install presents harness as the legacy superpowers replacement", () => {
+  const { status, out } = runH2a(["harness", "skills", "install", "--host", "codex"]);
+  assert.equal(status, 0);
+  assert.match(out, /harness\/using-harness replaces legacy superpowers/);
+  assert.match(out, /legacy superpowers:using-superpowers/);
+  assert.doesNotMatch(out, /supersedes superpowers/);
+});

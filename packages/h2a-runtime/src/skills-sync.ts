@@ -1,7 +1,7 @@
 /**
  * `remote plugin sync-skills` — propagate the LOCAL user's Claude Code skills
  * and plugin state into each live session Pod's `$HOME/.claude/`, so delegated /
- * remote claude sessions get the same capabilities (superpowers, track, h2a,
+ * remote claude sessions get the same capabilities (harness, track, h2a,
  * graphify, sent-tech-design, …) the operator has locally.
  *
  * APPROACH — "copy the resolved cache" (the chosen DEFAULT). We tar a short,
