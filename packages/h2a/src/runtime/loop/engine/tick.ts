@@ -16,7 +16,15 @@ export interface RunTickResult {
   readonly exec?: ExecReport;
 }
 
-const TERMINAL_OUTCOMES = new Set(["failed", "eligible-for-close", "stopped"]);
+const TERMINAL_LOOP_STATUSES = new Set(["done", "failed", "cancelled", "stopped"]);
+
+function loopIsTerminal(root: string, loopId: string): boolean {
+  try {
+    return TERMINAL_LOOP_STATUSES.has(readObjectiveLoop(root, loopId).status);
+  } catch {
+    return true;
+  }
+}
 
 /**
  * One tick: gather → decide → record observation → return the plan. DRY-RUN by
@@ -78,24 +86,30 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 export interface WatchOptions {
   readonly intervalMs?: number;
   readonly max?: number;
+  readonly execute?: boolean;
   readonly signal?: AbortSignal;
   readonly stdout: { write(s: string): void };
 }
 
-/** Periodic dry-run watch: tick, emit the plan (JSONL), repeat until a terminal
- *  outcome, the `--max` cap, or an abort signal. Executes nothing. */
+/** Periodic objective-loop runner. MVP requirement: while the loop is not
+ * terminal/done, each beat must execute guarded relance actions by default so
+ * agents do not silently stall. `--dry-run` is the opt-in observation mode. The
+ * cadence defaults to the loop policy (`policy.tickMs`) and can be overridden by
+ * `--interval-ms` for operators adapting the loop to the enjeu. */
 export async function runLoopWatch(
   root: string,
   loopId: string,
   opts: WatchOptions,
 ): Promise<number> {
-  const interval = opts.intervalMs && opts.intervalMs > 0 ? opts.intervalMs : 60_000;
   let n = 0;
   for (;;) {
-    const { plan } = await runTick(root, loopId);
-    opts.stdout.write(`${JSON.stringify(plan)}\n`);
+    const loop = readObjectiveLoop(root, loopId);
+    const interval = opts.intervalMs && opts.intervalMs > 0 ? opts.intervalMs : loop.policy.tickMs;
+    const execute = opts.execute !== false;
+    const result = await runTick(root, loopId, { execute });
+    opts.stdout.write(`${JSON.stringify(result.exec ? { ...result.plan, exec: result.exec } : result.plan)}\n`);
     n += 1;
-    if (TERMINAL_OUTCOMES.has(plan.outcome)) return 0;
+    if (loopIsTerminal(root, loopId)) return 0;
     if (opts.max !== undefined && n >= opts.max) return 0;
     if (opts.signal?.aborted) return 0;
     await delay(interval, opts.signal);
