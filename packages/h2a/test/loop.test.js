@@ -128,3 +128,62 @@ test("h2a loop create/status/agents/logs expose stable JSON shapes", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("h2a loop join/report/done/stop append durable MVP events", () => {
+  const dir = freshRoot();
+  const root = join(dir, ".h2a");
+  try {
+    const mk = captureStreams(dir);
+    assert.equal(runCli(["loop", "create", "--root", root, "--id", "loop-pr1", "--goal", "Ship PR1"], mk), 0, mk.stderrText);
+
+    const joinStreams = captureStreams(dir);
+    assert.equal(runCli(["loop", "join", "loop-pr1", "--root", root, "--instance", "codex:h2a:abc", "--agent-id", "agent-a", "--role", "implementer"], joinStreams), 0, joinStreams.stderrText);
+    assert.equal(JSON.parse(joinStreams.stdoutText).agents[0].id, "agent-a");
+
+    const reportStreams = captureStreams(dir);
+    assert.equal(runCli(["loop", "report", "loop-pr1", "--root", root, "--agent-id", "agent-a", "--note", "progress"], reportStreams), 0, reportStreams.stderrText);
+
+    const doneStreams = captureStreams(dir);
+    assert.equal(runCli(["loop", "done", "loop-pr1", "--root", root, "--agent-id", "agent-a", "--note", "done"], doneStreams), 0, doneStreams.stderrText);
+    assert.equal(JSON.parse(doneStreams.stdoutText).status, "done");
+
+    assert.deepEqual(
+      listLoopEvents(root, "loop-pr1").map((e) => e.type),
+      ["loop.created", "loop.agent-joined", "loop.agent-report", "loop.done-declared", "loop.closed"]
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("h2a loop done --override-refs requires human confirmation", () => {
+  const dir = freshRoot();
+  const root = join(dir, ".h2a");
+  try {
+    const mk = captureStreams(dir);
+    assert.equal(runCli(["loop", "create", "--root", root, "--id", "loop-override", "--goal", "Ship", "--track", JSON.stringify({ system: "track", repoKey: "h2a", workspace: "ws:test", aggregateKind: "wp", aggregateId: "WP-1", role: "target" })], mk), 0, mk.stderrText);
+    const denied = captureStreams(dir);
+    assert.equal(runCli(["loop", "done", "loop-override", "--root", root, "--override-refs"], denied), 1);
+    assert.match(denied.stderrText, /confirm-human-override/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("h2a loop join fills a predeclared planned agent slot", () => {
+  const dir = freshRoot();
+  const root = join(dir, ".h2a");
+  try {
+    const mk = captureStreams(dir);
+    assert.equal(runCli(["loop", "create", "--root", root, "--id", "loop-planned", "--goal", "Ship", "--agent", "claude:reviewer:local"], mk), 0, mk.stderrText);
+    const joined = captureStreams(dir);
+    assert.equal(runCli(["loop", "join", "loop-planned", "--root", root, "--instance", "claude:h2a:live", "--agent-id", "agent-1", "--role", "reviewer"], joined), 0, joined.stderrText);
+    const loop = JSON.parse(joined.stdoutText);
+    assert.equal(loop.agents.length, 1);
+    assert.equal(loop.agents[0].id, "agent-1");
+    assert.equal(loop.agents[0].h2aInstance, "claude:h2a:live");
+    assert.equal(loop.agents[0].status, "running");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
