@@ -16,8 +16,13 @@ import {
   handleDeclareConflitInteret,
   handleDiscoverInstances,
   handleDiscoverSessions,
+  handleLoopCreate,
+  handleLoopDone,
+  handleLoopJoin,
   handleLoopList,
+  handleLoopReport,
   handleLoopStatus,
+  handleLoopStop,
   handleEscalate,
   handleInbox,
   handleNhiAttest,
@@ -170,6 +175,16 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleConductorLaunchCheck(store.paths.root, args as never);
       case "h2a_conductor_launch":
         return handleConductorLaunch(store.paths.root, args as never);
+      case "h2a_loop_create":
+        return handleLoopCreate(store.paths.root, args as never);
+      case "h2a_loop_join":
+        return handleLoopJoin(store.paths.root, args as never);
+      case "h2a_loop_report":
+        return handleLoopReport(store.paths.root, args as never);
+      case "h2a_loop_done":
+        return handleLoopDone(store.paths.root, args as never);
+      case "h2a_loop_stop":
+        return handleLoopStop(store.paths.root, args as never);
       case "h2a_loop_list":
         return handleLoopList(store.paths.root);
       case "h2a_loop_status":
