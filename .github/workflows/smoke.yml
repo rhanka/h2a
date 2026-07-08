@@ -25,11 +25,11 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install published @sentropic/h2a-cli@0.1.26 globally
+      - name: Install published @sentropic/h2a globally
         shell: bash
         run: |
           set -euo pipefail
-          npm i -g @sentropic/h2a-cli@0.1.26
+          npm i -g @sentropic/h2a@latest
           which h2a
           h2a --help
 
