@@ -567,6 +567,31 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
     }
   },
   {
+    name: "h2a_loop_create",
+    description: "Create an objective loop with a goal. MVP write tool; no agents are spawned.",
+    inputSchema: { type: "object", properties: { id: { type: "string" }, name: { type: "string" }, goal: { type: "string" } }, required: ["goal"] }
+  },
+  {
+    name: "h2a_loop_join",
+    description: "Enroll an existing/live h2a instance as an objective-loop participant. Does not spawn agents.",
+    inputSchema: { type: "object", properties: { loopId: { type: "string" }, instance: { type: "string" }, agentId: { type: "string" }, role: { type: "string" }, required: { type: "boolean" } }, required: ["loopId", "instance"] }
+  },
+  {
+    name: "h2a_loop_report",
+    description: "Record useful progress from an enrolled objective-loop agent.",
+    inputSchema: { type: "object", properties: { loopId: { type: "string" }, instance: { type: "string" }, agentId: { type: "string" }, note: { type: "string" } }, required: ["loopId", "note"] }
+  },
+  {
+    name: "h2a_loop_done",
+    description: "Declare an objective loop done. With target refs, agent done records intent but cannot override refs.",
+    inputSchema: { type: "object", properties: { loopId: { type: "string" }, instance: { type: "string" }, agentId: { type: "string" }, note: { type: "string" }, overrideRefs: { type: "boolean" } }, required: ["loopId"] }
+  },
+  {
+    name: "h2a_loop_stop",
+    description: "Stop an objective loop explicitly. No wake/relance occurs after stop.",
+    inputSchema: { type: "object", properties: { loopId: { type: "string" }, reason: { type: "string" } }, required: ["loopId"] }
+  },
+  {
     name: "h2a_loop_list",
     description:
       "List objective loops in the local store (id, name, goal, status, ref/agent counts, updatedAt). Read-only.",

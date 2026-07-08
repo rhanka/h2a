@@ -79,3 +79,23 @@ test("h2a loop tick sur un loop inexistant → code non-zero + stderr", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("h2a loop stop is honored by subsequent tick --execute", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-loop-"));
+  try {
+    const created = run(["loop", "create", "--name", "t", "--goal", "g", "--root", dir]);
+    assert.equal(created.status, 0, `create stderr: ${created.stderr}`);
+    const loopId = JSON.parse(created.stdout).id;
+    const stopped = run(["loop", "stop", loopId, "--root", dir, "--reason", "operator stop"]);
+    assert.equal(stopped.status, 0, `stop stderr: ${stopped.stderr}`);
+
+    const ticked = run(["loop", "tick", loopId, "--root", dir, "--execute"]);
+    assert.equal(ticked.status, 0, `tick --execute stderr: ${ticked.stderr}`);
+    const out = JSON.parse(ticked.stdout);
+    assert.equal(out.outcome, "stopped");
+    assert.deepEqual(out.actions, []);
+    assert.deepEqual(out.exec.results, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

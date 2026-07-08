@@ -28,6 +28,11 @@ export const H2A_CLI_MCP_TOOL_NAMES = [
   "h2a_conductor_release",
   "h2a_conductor_launch_check",
   "h2a_conductor_launch",
+  "h2a_loop_create",
+  "h2a_loop_join",
+  "h2a_loop_report",
+  "h2a_loop_done",
+  "h2a_loop_stop",
   "h2a_loop_list",
   "h2a_loop_status"
 ] as const;

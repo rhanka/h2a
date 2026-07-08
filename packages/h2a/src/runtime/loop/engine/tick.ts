@@ -16,7 +16,7 @@ export interface RunTickResult {
   readonly exec?: ExecReport;
 }
 
-const TERMINAL_OUTCOMES = new Set(["failed", "eligible-for-close"]);
+const TERMINAL_OUTCOMES = new Set(["failed", "eligible-for-close", "stopped"]);
 
 /**
  * One tick: gather → decide → record observation → return the plan. DRY-RUN by
@@ -30,10 +30,22 @@ export async function runTick(
 ): Promise<RunTickResult> {
   const now = opts.now ?? Date.now();
   const loop = readObjectiveLoop(root, loopId); // throws if missing → shell maps to exit code
-  const agents = await readAgents();
-  const refs = readRefsRollup(loop);
-  const inbox = readInbox(loop, root);
-  const plan = planLoopTick({ loop, agents, refs, inbox, now });
+  const plan: TickPlan = loop.status === "stopped"
+    ? {
+        loopId,
+        degraded: false,
+        outcome: "stopped",
+        close: false,
+        actions: [],
+        reasons: ["loop is stopped"]
+      }
+    : planLoopTick({
+        loop,
+        agents: await readAgents(),
+        refs: readRefsRollup(loop),
+        inbox: readInbox(loop, root),
+        now
+      });
 
   appendLoopEvent(root, {
     type: "loop.tick",
