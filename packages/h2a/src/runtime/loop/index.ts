@@ -12,7 +12,10 @@ export type H2ALoopStatus =
   | "degraded"
   | "done"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "active"
+  | "stopped"
+  | "blocked";
 
 export type H2ALoopAgentStatus =
   | "planned"
@@ -60,6 +63,8 @@ export interface H2ALoopAgent {
     | "interactive-remote";
   readonly status: H2ALoopAgentStatus;
   readonly h2aInstance?: string;
+  readonly required?: boolean;
+  readonly joinedAt?: string;
   readonly remoteAgentId?: string;
   readonly remoteJobId?: string;
   readonly trackRefs?: H2ALoopTrackRef[];
@@ -71,7 +76,7 @@ export interface H2ALoopPolicy {
   readonly maxRelaunches: number;
   readonly requireHumanTypingGuard: true;
   readonly closeWhenRefsSatisfied: boolean;
-  readonly successCriteria: "all-targets-accepted" | "all-targets-done-or-waived" | "policy-expression";
+  readonly successCriteria: "explicit-done" | "all-targets-accepted" | "all-targets-done-or-waived" | "policy-expression";
   readonly decisionGatePolicy: "all-go-or-waived" | "advisory-only";
 }
 
@@ -98,12 +103,38 @@ export interface H2ALoopEvent {
 
 export interface CreateObjectiveLoopInput {
   readonly id?: string;
-  readonly name: string;
+  readonly name?: string;
   readonly goal: string;
   readonly repos?: H2ALoopRepoRef[];
   readonly refs?: H2ALoopTrackRef[];
   readonly agents?: H2ALoopAgent[];
   readonly policy?: Partial<H2ALoopPolicy>;
+}
+
+export interface LoopJoinInput {
+  readonly instance: string;
+  readonly agentId?: string;
+  readonly role?: string;
+  readonly required?: boolean;
+}
+
+export interface LoopReportInput {
+  readonly instance?: string;
+  readonly agentId?: string;
+  readonly note: string;
+  readonly artifacts?: unknown[];
+}
+
+export interface LoopDoneInput {
+  readonly instance?: string;
+  readonly agentId?: string;
+  readonly note?: string;
+  readonly overrideRefs?: boolean;
+  readonly human?: boolean;
+}
+
+export interface LoopStopInput {
+  readonly reason?: string;
 }
 
 export const H2A_DEFAULT_LOOP_POLICY: H2ALoopPolicy = {
@@ -151,7 +182,6 @@ export function createObjectiveLoop(
   input: CreateObjectiveLoopInput,
   now: number = Date.now()
 ): H2AObjectiveLoop {
-  if (!input.name) throw new Error("loop create requires --name");
   if (!input.goal) throw new Error("loop create requires --goal");
   const id = input.id ?? createLoopId(now);
   const dir = loopDir(root, id);
@@ -161,19 +191,29 @@ export function createObjectiveLoop(
   const loop: H2AObjectiveLoop = {
     id,
     ownerSystem: "h2a",
-    name: input.name,
+    name: input.name ?? input.goal.slice(0, 80),
     goal: input.goal,
     status: "created",
     repos: [...(input.repos ?? [])],
     refs: [...(input.refs ?? [])],
     agents: [...(input.agents ?? [])],
-    policy: { ...H2A_DEFAULT_LOOP_POLICY, ...(input.policy ?? {}), requireHumanTypingGuard: true },
+    policy: {
+      ...H2A_DEFAULT_LOOP_POLICY,
+      successCriteria: (input.refs ?? []).length === 0 ? "explicit-done" : H2A_DEFAULT_LOOP_POLICY.successCriteria,
+      ...(input.policy ?? {}),
+      requireHumanTypingGuard: true
+    },
     createdAt: at,
     updatedAt: at
   };
   writeFileSync(stateFile(root, id), `${JSON.stringify(loop, null, 2)}\n`, "utf8");
-  writeFileSync(objectiveFile(root, id), `# ${input.name}\n\n${input.goal}\n`, "utf8");
-  appendLoopEvent(root, { type: "loop.created", loopId: id, at, payload: { name: input.name, goal: input.goal } });
+  writeFileSync(objectiveFile(root, id), `# ${loop.name}\n\n${input.goal}\n`, "utf8");
+  appendLoopEvent(root, {
+    type: "loop.created",
+    loopId: id,
+    at,
+    payload: { name: loop.name, goal: input.goal, mode: loop.agents.length > 1 ? "collective" : "mono", refs: loop.refs, policy: loop.policy }
+  });
   for (const ref of loop.refs) appendLoopEvent(root, { type: "loop.track-linked", loopId: id, at, payload: ref });
   for (const agent of loop.agents) appendLoopEvent(root, { type: "loop.agent-added", loopId: id, at, payload: agent });
   return loop;
@@ -241,4 +281,118 @@ export function updateObjectiveLoopStatus(
     payload: { status, ...(opts.reason !== undefined ? { reason: opts.reason } : {}) }
   });
   return { changed: true, loop: next };
+}
+
+
+function writeLoopState(root: string, loop: H2AObjectiveLoop): H2AObjectiveLoop {
+  writeFileSync(stateFile(root, loop.id), `${JSON.stringify(loop, null, 2)}\n`, "utf8");
+  return loop;
+}
+
+function resolveAgent(loop: H2AObjectiveLoop, input: { readonly instance?: string; readonly agentId?: string }): H2ALoopAgent | undefined {
+  if (input.agentId) return loop.agents.find((a) => a.id === input.agentId);
+  if (!input.instance) return undefined;
+  const matches = loop.agents.filter((a) => a.h2aInstance === input.instance || a.id === input.instance);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+export function joinObjectiveLoop(
+  root: string,
+  loopId: string,
+  input: LoopJoinInput,
+  now: number = Date.now()
+): H2AObjectiveLoop {
+  if (!input.instance) throw new Error("loop join requires instance");
+  const loop = readObjectiveLoop(root, loopId);
+  if (loop.status === "done" || loop.status === "stopped") throw new Error(`loop is terminal: ${loop.status}`);
+  const at = new Date(now).toISOString();
+  const id = input.agentId ?? input.instance;
+  const agent: H2ALoopAgent = {
+    id,
+    host: "shell",
+    role: input.role ?? "participant",
+    placement: "local",
+    status: "running",
+    h2aInstance: input.instance,
+    required: input.required ?? loop.agents.length === 0,
+    joinedAt: at
+  };
+  const existing = loop.agents.find((a) => a.id === id);
+  if (existing) {
+    if (existing.h2aInstance === agent.h2aInstance) {
+      const same = (input.role === undefined || existing.role === input.role) && (input.required === undefined || existing.required === input.required);
+      if (!same) throw new Error(`agent already joined with different payload: ${id}`);
+      return loop;
+    }
+    const canFillPlannedSlot = existing.h2aInstance === undefined && (input.role === undefined || existing.role === input.role);
+    if (!canFillPlannedSlot) throw new Error(`agent already joined with different payload: ${id}`);
+    const filled: H2ALoopAgent = {
+      ...existing,
+      status: "running",
+      h2aInstance: input.instance,
+      required: input.required ?? existing.required ?? loop.agents.length === 0,
+      joinedAt: at
+    };
+    const next: H2AObjectiveLoop = { ...loop, agents: loop.agents.map((a) => a.id === id ? filled : a), updatedAt: at };
+    writeLoopState(root, next);
+    appendLoopEvent(root, { type: "loop.agent-joined", loopId, at, payload: { loopId, agentId: id, instance: input.instance, role: filled.role, required: filled.required, filledPlannedSlot: true, at } });
+    return next;
+  }
+  const next: H2AObjectiveLoop = { ...loop, agents: [...loop.agents, agent], updatedAt: at };
+  writeLoopState(root, next);
+  appendLoopEvent(root, { type: "loop.agent-joined", loopId, at, payload: { loopId, agentId: id, instance: input.instance, role: agent.role, required: agent.required, at } });
+  return next;
+}
+
+export function reportObjectiveLoop(
+  root: string,
+  loopId: string,
+  input: LoopReportInput,
+  now: number = Date.now()
+): H2AObjectiveLoop {
+  if (!input.note) throw new Error("loop report requires note");
+  const loop = readObjectiveLoop(root, loopId);
+  if (loop.status === "done" || loop.status === "stopped" || loop.status === "blocked") throw new Error(`loop is terminal: ${loop.status}`);
+  const agent = resolveAgent(loop, input);
+  if (!agent) throw new Error("loop report requires an unambiguous enrolled agent");
+  const at = new Date(now).toISOString();
+  const next: H2AObjectiveLoop = { ...loop, updatedAt: at };
+  writeLoopState(root, next);
+  appendLoopEvent(root, { type: "loop.agent-report", loopId, at, payload: { loopId, agentId: agent.id, instance: agent.h2aInstance, note: input.note, at, ...(input.artifacts ? { artifacts: input.artifacts } : {}) } });
+  return next;
+}
+
+export function declareObjectiveLoopDone(
+  root: string,
+  loopId: string,
+  input: LoopDoneInput = {},
+  now: number = Date.now()
+): H2AObjectiveLoop {
+  const loop = readObjectiveLoop(root, loopId);
+  if (loop.status === "done" || loop.status === "stopped") return loop;
+  if (input.overrideRefs && !input.human) throw new Error("overrideRefs is CLI-only and requires human confirmation");
+  const agent = input.human ? undefined : resolveAgent(loop, input);
+  if (!input.human && !agent && loop.agents.length > 0) throw new Error("loop done requires an unambiguous enrolled agent");
+  const at = new Date(now).toISOString();
+  const canClose = loop.refs.length === 0 || input.overrideRefs === true;
+  const next: H2AObjectiveLoop = { ...loop, status: canClose ? "done" : loop.status, updatedAt: at };
+  writeLoopState(root, next);
+  appendLoopEvent(root, { type: "loop.done-declared", loopId, at, payload: { loopId, by: input.human ? "human" : agent?.h2aInstance ?? input.instance ?? agent?.id, agentId: agent?.id, note: input.note, overrideRefs: input.overrideRefs === true, at } });
+  if (canClose) appendLoopEvent(root, { type: "loop.closed", loopId, at, payload: { status: "done", reason: input.overrideRefs ? "human override" : "explicit done" } });
+  return next;
+}
+
+export function stopObjectiveLoop(
+  root: string,
+  loopId: string,
+  input: LoopStopInput = {},
+  now: number = Date.now()
+): H2AObjectiveLoop {
+  const loop = readObjectiveLoop(root, loopId);
+  if (loop.status === "done" || loop.status === "stopped") return loop;
+  const at = new Date(now).toISOString();
+  const next: H2AObjectiveLoop = { ...loop, status: "stopped", updatedAt: at };
+  writeLoopState(root, next);
+  appendLoopEvent(root, { type: "loop.stopped", loopId, at, payload: { loopId, reason: input.reason, at } });
+  return next;
 }

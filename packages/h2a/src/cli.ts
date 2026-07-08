@@ -216,9 +216,13 @@ import {
 } from "./runtime/governance/spawns.js";
 import {
   createObjectiveLoop,
+  declareObjectiveLoopDone,
+  joinObjectiveLoop,
   listLoopEvents,
   listObjectiveLoops,
   readObjectiveLoop,
+  reportObjectiveLoop,
+  stopObjectiveLoop,
   type H2ALoopAgent,
   type H2ALoopRepoRef,
   type H2ALoopTrackRef
@@ -372,6 +376,10 @@ export function renderCliHelp(): string {
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a loop create --name <n> --goal <text> [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement>] [--root <path>]",
+    "  h2a loop join <loopId> --instance <id> [--agent-id <id>] [--role <role>] [--root <path>]",
+    "  h2a loop report <loopId> --note <text> [--instance <id>] [--agent-id <id>] [--root <path>]",
+    "  h2a loop done <loopId> [--note <text>] [--instance <id>] [--agent-id <id>] [--root <path>]",
+    "  h2a loop stop <loopId> [--reason <text>] [--root <path>]",
     "  h2a loop list [--root <path>]",
     "  h2a loop status <loopId> [--root <path>]",
     "  h2a loop agents <loopId> [--root <path>]",
@@ -2066,6 +2074,69 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
       return 0;
     }
 
+    if (sub === "join") {
+      const loopId = argv[1];
+      if (!loopId || loopId.startsWith("--") || !flags.instance) {
+        streams.stderr.write("h2a loop join: <loopId> and --instance <id> are required\n");
+        return 1;
+      }
+      const loop = joinObjectiveLoop(root, loopId, {
+        instance: flags.instance,
+        ...(flags["agent-id"] ? { agentId: flags["agent-id"] } : {}),
+        ...(flags.role ? { role: flags.role } : {}),
+        ...(flags.required ? { required: flags.required !== "false" } : {})
+      });
+      streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);
+      return 0;
+    }
+
+    if (sub === "report") {
+      const loopId = argv[1];
+      if (!loopId || loopId.startsWith("--") || !flags.note) {
+        streams.stderr.write("h2a loop report: <loopId> and --note <text> are required\n");
+        return 1;
+      }
+      const loop = reportObjectiveLoop(root, loopId, {
+        ...(flags.instance ? { instance: flags.instance } : {}),
+        ...(flags["agent-id"] ? { agentId: flags["agent-id"] } : {}),
+        note: flags.note
+      });
+      streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);
+      return 0;
+    }
+
+    if (sub === "done") {
+      const loopId = argv[1];
+      if (!loopId || loopId.startsWith("--")) {
+        streams.stderr.write("h2a loop done: <loopId> is required\n");
+        return 1;
+      }
+      const overrideRefs = flags["override-refs"] === "true";
+      if (overrideRefs && flags["confirm-human-override"] !== "true") {
+        streams.stderr.write("h2a loop done: --override-refs requires --confirm-human-override\n");
+        return 1;
+      }
+      const loop = declareObjectiveLoopDone(root, loopId, {
+        ...(flags.instance ? { instance: flags.instance } : {}),
+        ...(flags["agent-id"] ? { agentId: flags["agent-id"] } : {}),
+        ...(flags.note ? { note: flags.note } : {}),
+        ...(overrideRefs ? { overrideRefs: true, human: true } : {})
+      });
+      streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);
+      return 0;
+    }
+
+    if (sub === "stop") {
+      const loopId = argv[1];
+      if (!loopId || loopId.startsWith("--")) {
+        streams.stderr.write("h2a loop stop: <loopId> is required\n");
+        return 1;
+      }
+      const loop = stopObjectiveLoop(root, loopId, { ...(flags.reason ? { reason: flags.reason } : {}) });
+      streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);
+      return 0;
+    }
+
     if (sub === "status") {
       const loopId = argv[1];
       if (!loopId || loopId.startsWith("--")) {
@@ -2118,7 +2189,7 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
     return classifyStoreError((error as Error).message);
   }
 
-  streams.stderr.write("h2a loop: subcommand required (create, list, status, agents, attach, logs, tick, watch)\n");
+  streams.stderr.write("h2a loop: subcommand required (create, join, report, done, stop, list, status, agents, attach, logs, tick, watch/run)\n");
   return 1;
 }
 
@@ -2145,7 +2216,7 @@ export async function runLoopEngineCli(
   }
 
   try {
-    if (sub === "watch") {
+    if (sub === "watch" || sub === "run") {
       const intervalMs = flags["interval-ms"] ? Number(flags["interval-ms"]) : undefined;
       const max = flags.max ? Number(flags.max) : undefined;
       return await runLoopWatch(root, loopId, {

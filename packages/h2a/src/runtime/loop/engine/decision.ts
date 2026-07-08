@@ -94,6 +94,7 @@ export type TickOutcome =
   | "stalled"
   | "degraded"
   | "eligible-for-close"
+  | "stopped"
   | "failed";
 
 export interface TickPlan {
