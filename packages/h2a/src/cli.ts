@@ -117,6 +117,8 @@ import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
 import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_AGY_HOST } from "./hosts/agy.js";
+import { H2A_HERMES_HOST } from "./hosts/hermes.js";
+import { H2A_OPENCODE_HOST } from "./hosts/opencode.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 import {
   renderStopHook,
@@ -280,7 +282,9 @@ const CLI_HOSTS = [
   H2A_CODEX_HOST,
   H2A_CLAUDE_HOST,
   H2A_GEMINI_HOST,
-  H2A_AGY_HOST
+  H2A_AGY_HOST,
+  H2A_HERMES_HOST,
+  H2A_OPENCODE_HOST
 ] as const;
 
 export function renderCliHelp(): string {
@@ -345,7 +349,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini|agy> [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (renders mcp-serve --auto-open --auto-upgrade --wake local-tmux by default; --no-wake drops wake)",
     "  h2a host status [--host <name>]",
-    "  h2a host plugin --host <codex|claude|gemini|agy> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex; --scaffold writes codex's full local marketplace + trust step; agy is poll-only)",
+    "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; agy is poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "",
     "High-level coordination (DEC-054):",
@@ -3452,9 +3456,13 @@ function cmdHostSetup(
     snippet = H2A_GEMINI_HOST.renderMcpConfig(renderOpts);
   } else if (host === "agy") {
     snippet = H2A_AGY_HOST.renderMcpConfig(renderOpts);
+  } else if (host === "hermes") {
+    snippet = H2A_HERMES_HOST.renderMcpConfig(renderOpts);
+  } else if (host === "opencode") {
+    snippet = H2A_OPENCODE_HOST.renderMcpConfig(renderOpts);
   } else {
     streams.stderr.write(
-      `h2a host setup: unknown --host "${host}". Supported: codex, claude, gemini, agy.\n`
+      `h2a host setup: unknown --host "${host}". Supported: ${CLI_HOSTS.map((h) => h.host).join(", ")}.\n`
     );
     return 1;
   }
@@ -3843,7 +3851,7 @@ function cmdHost(argv: readonly string[], streams: H2ACliStreams): number {
   streams.stderr.write(
     "Use: h2a host setup --host <codex|claude|gemini|agy> ...\n" +
       "     h2a host status [--host <name>]\n" +
-      "     h2a host plugin --host <codex|claude|gemini|agy> --instance <id>\n"
+      "     h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode> --instance <id>\n"
   );
   return 1;
 }
@@ -5200,11 +5208,18 @@ function targetSpecFor(
       }
     };
   }
-  if (host === "codex") {
+  if (host === "codex" || host === "hermes" || host === "opencode") {
+    const homeDir =
+      host === "codex"
+        ? ".codex"
+        : host === "hermes"
+          ? ".hermes"
+          : join(".config", "opencode");
+    const projectDir = host === "codex" ? ".codex" : host === "hermes" ? ".hermes" : ".opencode";
     return {
-      host: "codex",
-      userBase: join(homedir(), ".codex", "skills"),
-      projectBase: join(cwd, ".codex", "skills"),
+      host,
+      userBase: join(homedir(), homeDir, "skills"),
+      projectBase: join(cwd, projectDir, "skills"),
       extension: "SKILL.md",
       write: (base, skillName, _parsed, raw) => {
         const dir = join(base, skillName);
@@ -5485,7 +5500,7 @@ function cmdInstallSkills(
   const host = flags.host;
   if (!host) {
     streams.stderr.write(
-      "h2a install-skills: --host <claude|codex|gemini|agy> is required\n"
+      "h2a install-skills: --host <claude|codex|gemini|agy|hermes|opencode> is required\n"
     );
     return 1;
   }
@@ -5493,7 +5508,7 @@ function cmdInstallSkills(
   const spec = targetSpecFor(host, cwd());
   if (!spec) {
     streams.stderr.write(
-      `h2a install-skills: unknown --host "${host}". Supported: claude, codex, gemini, agy.\n`
+      `h2a install-skills: unknown --host "${host}". Supported: claude, codex, gemini, agy, hermes, opencode.\n`
     );
     return 1;
   }

@@ -8,6 +8,8 @@ import {
   H2A_CLAUDE_HOST,
   H2A_CODEX_HOST,
   H2A_GEMINI_HOST,
+  H2A_HERMES_HOST,
+  H2A_OPENCODE_HOST,
   runCli
 } from "../dist/index.js";
 
@@ -114,6 +116,30 @@ test("h2a host setup --host gemini --print emits a gemini-shaped snippet (DEC-04
     "local-tmux"
   ]);
   assert.match(streams.stderrText, /gemini/);
+});
+
+test("Hermes/OpenCode render h2a MCP setup snippets", () => {
+  for (const descriptor of [H2A_HERMES_HOST, H2A_OPENCODE_HOST]) {
+    const { config, path } = descriptor.renderMcpConfig({ root: "/foo/.h2a" });
+    assert.equal(config.mcpServers.h2a.command, "h2a");
+    assert.deepEqual(config.mcpServers.h2a.args, ["mcp-serve", "--root", "/foo/.h2a"]);
+    assert.match(path.hint, new RegExp(descriptor.host, "i"));
+
+    const streams = captureStreams("/tmp");
+    const rc = runCli(["host", "setup", "--host", descriptor.host, "--print"], streams);
+    assert.equal(rc, 0, streams.stderrText);
+    const parsed = JSON.parse(streams.stdoutText);
+    assert.equal(parsed.mcpServers.h2a.command, "h2a");
+    assert.deepEqual(parsed.mcpServers.h2a.args, [
+      "mcp-serve",
+      "--auto-open",
+      "--host",
+      descriptor.host,
+      "--auto-upgrade",
+      "--wake",
+      "local-tmux"
+    ]);
+  }
 });
 
 test("h2a host setup requires --host", () => {
