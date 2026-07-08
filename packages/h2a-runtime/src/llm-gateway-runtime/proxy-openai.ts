@@ -10,18 +10,16 @@
  *   claude-sonnet-4-6 / claude-sonnet-4-5 → gpt-5.5
  *   claude-haiku-*                        → gpt-5.5
  *
- * Thinking budget_tokens → reasoning_effort:
- *   ≥ 25 000 (xhigh) → "high"
- *   ≥  8 000 (high)  → "medium"
+ * Thinking budget_tokens → reasoning effort:
+ *   ≥ 50 000 (xhigh) → "xhigh"
+ *   ≥ 25 000 (high)  → "high"
+ *   ≥  8 000 (med)   → "medium"
  *   < 8 000 / none   → "low"
  */
 
 import type { Context } from "hono";
 import {
   CODEX_RESPONSES_URL,
-  mapCodexReasoningEffort,
-  prepareCodexResponsesRequest,
-  type CodexResponsesRequestInput,
 } from "@sentropic/llm-gateway";
 import { refreshOAuthToken } from "./accounts.js";
 import { updateSessionToken } from "./sticky.js";
@@ -85,6 +83,46 @@ function anthropicGatewayError(message: string): {
   error: { type: "api_error"; message: string };
 } {
   return { type: "error", error: { type: "api_error", message } };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function prepareCodexResponsesRequest(request: Record<string, unknown>): {
+  url: string;
+  body: Record<string, unknown>;
+} {
+  const { max_output_tokens: _maxOutputTokens, ...rest } = request;
+  return {
+    url: CODEX_RESPONSES_URL,
+    body: {
+      ...rest,
+      store: false,
+    },
+  };
+}
+
+function codexRequestEffort(body: Record<string, unknown>): string | undefined {
+  const reasoning = asRecord(body.reasoning);
+  const effort = reasoning?.effort;
+  return typeof effort === "string" ? effort : undefined;
+}
+
+async function refreshOAuthTokenForRetry(
+  accountId: string,
+): Promise<string | null> {
+  try {
+    return await refreshOAuthToken(accountId);
+  } catch (err) {
+    console.error(
+      `[llm-gateway] OAuth refresh failed for ${accountId}:`,
+      err,
+    );
+    return null;
+  }
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -346,7 +384,7 @@ function toCodexInput(messages: AntMessage[]): unknown[] {
 }
 
 function codexEffort(budgetTokens: number): string {
-  return mapCodexReasoningEffort(budgetToEffort(budgetTokens)) ?? "low";
+  return budgetToEffort(budgetTokens);
 }
 
 export function toCodexRequest(body: AntRequest): Record<string, unknown> {
@@ -1333,9 +1371,13 @@ export async function handleMessagesViaOpenAI(
 
   const doFetch = (token: string) => {
     if (isCodex) {
-      const codexRequest = prepareCodexResponsesRequest(
-        upstreamReq as CodexResponsesRequestInput,
-      );
+      const codexRequest = prepareCodexResponsesRequest(upstreamReq);
+      const effort = codexRequestEffort(codexRequest.body);
+      if (effort) {
+        console.info(
+          `[llm-gateway] Codex request: model=${String(codexRequest.body.model ?? "")} reasoning.effort=${effort}`,
+        );
+      }
       return fetch(codexRequest.url, {
         method: "POST",
         headers: {
@@ -1379,9 +1421,9 @@ export async function handleMessagesViaOpenAI(
 
   // 401 → attempt OAuth token refresh + retry once
   if (upstream.status === 401 && session.accountId) {
-    await upstream.body?.cancel().catch(() => {});
-    const newToken = await refreshOAuthToken(session.accountId);
+    const newToken = await refreshOAuthTokenForRetry(session.accountId);
     if (newToken) {
+      await upstream.body?.cancel().catch(() => {});
       if (session.gatewayToken)
         updateSessionToken(session.gatewayToken, newToken);
       try {
@@ -1395,6 +1437,14 @@ export async function handleMessagesViaOpenAI(
           502,
         );
       }
+    } else {
+      await upstream.body?.cancel().catch(() => {});
+      return c.json(
+        anthropicGatewayError(
+          "Upstream Codex OAuth returned 401 and token refresh failed; re-enroll the Codex account with `h2a llm-mesh enroll codex`.",
+        ),
+        502,
+      );
     }
   }
 
