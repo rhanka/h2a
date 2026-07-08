@@ -5168,6 +5168,38 @@ function renderSkillAsGeminiToml(skill: ParsedSkill): string {
   ].join("\n");
 }
 
+/**
+ * Render Codex's native slash-command prompt (`~/.codex/prompts/<name>.md`).
+ *
+ * Codex skills (`~/.codex/skills/<name>/SKILL.md`) are discoverable guidance,
+ * not slash commands. The slash surface lives in `prompts/`; without this file
+ * the h2a skill's documented `/h2a ...` entrypoint is false on Codex.
+ */
+function renderSkillAsCodexPrompt(skill: ParsedSkill): string {
+  const escapedDescription = skill.description.replace(/"/g, '\\"');
+  const argumentHint =
+    '[status|connect|discover|send <peer> "<text>"|receive|negotiate ...]';
+  return [
+    "---",
+    `description: "${escapedDescription}"`,
+    `argument-hint: "${argumentHint.replace(/"/g, '\\"')}"`,
+    "---",
+    "",
+    "You are the h2a slash command for Codex CLI.",
+    "",
+    "The user's raw arguments after `/h2a` are:",
+    "",
+    "```text",
+    "$ARGUMENTS",
+    "```",
+    "",
+    "Treat empty arguments as `status`. Follow the h2a skill instructions below. When those instructions mention `/h2a ...`, that refers to this Codex slash-command invocation. Prefer available h2a MCP tools; otherwise use the `h2a` CLI with the same semantics.",
+    "",
+    skill.body,
+    ""
+  ].join("\n");
+}
+
 interface HostSkillTargetSpec {
   readonly host: string;
   readonly userBase: string;
@@ -5490,7 +5522,8 @@ function cmdInstallSkills(
     return 1;
   }
   const cwd = streams.cwd ?? (() => process.cwd());
-  const spec = targetSpecFor(host, cwd());
+  const currentCwd = cwd();
+  const spec = targetSpecFor(host, currentCwd);
   if (!spec) {
     streams.stderr.write(
       `h2a install-skills: unknown --host "${host}". Supported: claude, codex, gemini, agy.\n`
@@ -5551,6 +5584,36 @@ function cmdInstallSkills(
         `h2a install-skills: failed to write ${probeTarget} (${(error as Error).message})\n`
       );
       return 3;
+    }
+  }
+
+  if (host === "codex") {
+    const h2aSkill = collection.skills.find(
+      (skill) => skill.source === "h2a" && skill.installName === "h2a"
+    );
+    if (h2aSkill) {
+      const promptBase =
+        scope === "user"
+          ? join(homedir(), ".codex", "prompts")
+          : join(currentCwd, ".codex", "prompts");
+      const promptTarget = join(promptBase, "h2a.md");
+      if (existsSync(promptTarget) && flags.force !== "true") {
+        skipped.push({
+          name: "h2a prompt",
+          reason: `${promptTarget} already exists (use --force to overwrite)`
+        });
+      } else {
+        try {
+          mkdirSync(promptBase, { recursive: true });
+          writeFileSync(promptTarget, renderSkillAsCodexPrompt(h2aSkill.parsed), "utf8");
+          installed.push(promptTarget);
+        } catch (error) {
+          streams.stderr.write(
+            `h2a install-skills: failed to write ${promptTarget} (${(error as Error).message})\n`
+          );
+          return 3;
+        }
+      }
     }
   }
 
