@@ -29,7 +29,7 @@ The real need is a **typed product backlog** (feature/bug/chore requests) whose 
 ```mermaid
 flowchart TB
   subgraph Process["Process — skills (workflow)"]
-    BS["superpowers: brainstorming, writing-plans"]
+    BS["harness: brainstorm, plan"]
     BR["sentropic BR-25: branch-init, scope-check, lot-gate, branch-close"]
   end
   subgraph Record["track — system of record"]
@@ -124,12 +124,12 @@ WSJF = one **provided** scheme: `score = (userBusinessValue + timeCriticality + 
 
 ## Study & orientation decision (pre-spec — quasi-systematic, skippable)
 
-Before a request becomes `specified`, it usually needs a **study/brainstorm**: a structured **Q&A exploration of options** leading to an **orientation decision** ("which direction?"). This reclaims the strength of the superpowers `brainstorming` skill and **formalizes** it.
+Before a request becomes `specified`, it usually needs a **study/brainstorm**: a structured **Q&A exploration of options** leading to an **orientation decision** ("which direction?"). This uses the harness `brainstorm` workflow and **formalizes** it.
 
 - Modeled as an **orientation `Decision`** (`decisionKind: orientation`) targeting the request. Its **prep work (the Q&A/study) is its realization**; its **dossier** records context / options / questions / answers / recommendation / rationale / outcome.
 - While `pending`, it raises a `decision` blocker on the request → **AWAITED**. Resolved → the request may proceed to `specified`, shaped by the chosen orientation.
 - **Skippable** when the intention is very clear (skip study → straight to spec).
-- **Separation:** the superpowers `brainstorming` skill **drives** the Q&A (process); track **records** the dossier (record). A `decide` skill similarly drives `commitment` decisions. A `commitment` (go/no-go) Decision typically sits **after** spec, before realization.
+- **Separation:** the harness `brainstorm` skill **drives** the Q&A (process); track **records** the dossier (record). A `decide` skill similarly drives `commitment` decisions. A `commitment` (go/no-go) Decision typically sits **after** spec, before realization.
 
 ## `report` view (read-only, computed) — explicit precedence
 

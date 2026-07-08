@@ -114,7 +114,7 @@ function build(verb, positionals, flags) {
             const slug = positionals[2];
             const status = sub === 'init' ? 'opened' : 'closed';
             const recipe = sub === 'init'
-                ? '  recipe: git worktree add -b feat/<slug> tmp/<slug> origin/main; scaffold BRANCH.md from plan/BRANCH_TEMPLATE.md.'
+                ? '  recipe: git worktree add -b feat/<slug> tmp/worktrees/<slug> origin/main; scaffold BRANCH.md. Use repo-local ignored tmp/, never OS-global /tmp.'
                 : '  recipe: run the lot-gate roll-up, scope-check staged files, then open/refresh the PR from BRANCH.md.';
             return {
                 input: { verb, status, subject: slug, detail: { sub } },
@@ -131,8 +131,8 @@ function build(verb, positionals, flags) {
             const dir = HOST_SKILL_DIR[host];
             const lines = [
                 header('skills install', 'requested', 'harness/using-harness'),
-                `  install plan → ${dir} (host: ${host}); harness/using-harness supersedes superpowers:`,
-                ...HARNESS_SKILLS.map((s) => `    ${dir}/harness-${s.name}/SKILL.md${s.supersedes ? ` (supersedes superpowers:${s.supersedes})` : ''}`),
+                `  install plan → ${dir} (host: ${host}); harness/using-harness replaces legacy superpowers:`,
+                ...HARNESS_SKILLS.map((s) => `    ${dir}/harness-${s.name}/SKILL.md${s.legacySuperpowers ? ` (legacy superpowers:${s.legacySuperpowers})` : ''}`),
             ];
             return {
                 input: {
