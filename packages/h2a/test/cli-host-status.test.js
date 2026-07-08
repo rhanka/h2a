@@ -31,25 +31,16 @@ test("h2a host status (no filter) lists every known host with wave info", () => 
   const parsed = JSON.parse(streams.stdoutText);
   assert.equal(parsed.ok, true);
   assert.ok(Array.isArray(parsed.hosts));
-  assert.equal(parsed.hosts.length, 4);
+  assert.equal(parsed.hosts.length, 6);
 
   const byHost = Object.fromEntries(parsed.hosts.map((h) => [h.host, h]));
-  assert.ok(byHost.codex, "codex entry must be present");
-  assert.ok(byHost.claude, "claude entry must be present");
-  assert.ok(byHost.gemini, "gemini entry must be present");
-  // EVO-0: agy is a first-class host (MCP config parity); scenario test pending.
-  assert.ok(byHost.agy, "agy entry must be present");
-  assert.equal(byHost.agy.wave, 1);
-  assert.equal(byHost.agy.hostSetupShipped, true);
-  assert.equal(byHost.agy.hostScenarioShipped, true);
+  for (const host of ["codex", "claude", "gemini", "agy", "hermes", "opencode"]) {
+    assert.ok(byHost[host], `${host} entry must be present`);
+    assert.equal(byHost[host].wave, 1);
+  }
 
-  // Wave assignments per DEC-037 / DEC-049 (Gemini promoted to wave 1).
-  assert.equal(byHost.codex.wave, 1);
-  assert.equal(byHost.claude.wave, 1);
-  assert.equal(byHost.gemini.wave, 1);
-
-  // MCP adapter is wired in-process + stdio for all three hosts.
-  for (const host of ["codex", "claude", "gemini"]) {
+  // MCP adapter is wired in-process + stdio for all supported hosts.
+  for (const host of ["codex", "claude", "gemini", "agy", "hermes", "opencode"]) {
     assert.equal(byHost[host].mcpAdapterShipped, true);
     assert.equal(byHost[host].hostSetupShipped, true);
     assert.equal(byHost[host].hostScenarioShipped, true);
