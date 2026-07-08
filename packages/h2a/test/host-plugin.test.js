@@ -16,8 +16,8 @@ function plugin(host, instance = "claude:p1") {
   return { rc, stdout, stderr };
 }
 
-test("host plugin renders a push-capable stop hook for claude/codex/gemini", () => {
-  for (const host of ["claude", "codex", "gemini"]) {
+test("host plugin renders a push-capable stop hook for claude/codex/gemini/hermes/opencode", () => {
+  for (const host of ["claude", "codex", "gemini", "hermes", "opencode"]) {
     const { rc, stdout } = plugin(host);
     assert.equal(rc, 0, `${host} should render`);
     const r = JSON.parse(stdout);
@@ -76,26 +76,32 @@ test("host plugin --write claude merges an idempotent Stop hook into settings.js
   }
 });
 
-test("host plugin --write gemini merges the Claude-format Stop hook into settings.json (DEC-103)", () => {
-  const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
-  const settings = join(dir, "settings.json");
-  try {
-    writeFileSync(settings, JSON.stringify({ security: { auth: {} } }), "utf8");
-    let stdout = "", stderr = "";
-    const rc = runCli(["host", "plugin", "--host", "gemini", "--instance", "gemini:p1", "--write", settings], {
-      stdout: { write: (c) => void (stdout += c) }, stderr: { write: (c) => void (stderr += c) }
-    });
-    assert.equal(rc, 0, stderr);
-    assert.equal(JSON.parse(stdout).host, "gemini");
-    const cfg = JSON.parse(readFileSync(settings, "utf8"));
-    assert.ok(cfg.security); // unrelated keys preserved
-    const ours = cfg.hooks.Stop.find((e) => e.hooks[0].command.includes("h2a drumbeat record"));
-    assert.match(ours.hooks[0].command, /--instance gemini:p1/);
-    assert.match(ours.hooks[0].command, /gemini -r/); // gemini's resume command
-    const receive = cfg.hooks.UserPromptSubmit.find((e) => e.hooks[0].command.includes("h2a drive receive"));
-    assert.match(receive.hooks[0].command, /--to gemini:p1/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+test("host plugin --write merges Claude-format Stop hooks for gemini/hermes/opencode (DEC-103)", () => {
+  for (const [host, resumePattern] of [
+    ["gemini", /gemini -r/],
+    ["hermes", /hermes --continue/],
+    ["opencode", /opencode/]
+  ]) {
+    const dir = mkdtempSync(join(tmpdir(), "h2a-hook-"));
+    const settings = join(dir, "settings.json");
+    try {
+      writeFileSync(settings, JSON.stringify({ security: { auth: {} } }), "utf8");
+      let stdout = "", stderr = "";
+      const rc = runCli(["host", "plugin", "--host", host, "--instance", `${host}:p1`, "--write", settings], {
+        stdout: { write: (c) => void (stdout += c) }, stderr: { write: (c) => void (stderr += c) }
+      });
+      assert.equal(rc, 0, stderr);
+      assert.equal(JSON.parse(stdout).host, host);
+      const cfg = JSON.parse(readFileSync(settings, "utf8"));
+      assert.ok(cfg.security); // unrelated keys preserved
+      const ours = cfg.hooks.Stop.find((e) => e.hooks[0].command.includes("h2a drumbeat record"));
+      assert.match(ours.hooks[0].command, new RegExp(`--instance ${host}:p1`));
+      assert.match(ours.hooks[0].command, resumePattern); // host's resume command
+      const receive = cfg.hooks.UserPromptSubmit.find((e) => e.hooks[0].command.includes("h2a drive receive"));
+      assert.match(receive.hooks[0].command, new RegExp(`--to ${host}:p1`));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 
@@ -195,7 +201,7 @@ test("host plugin --scaffold codex writes the full local marketplace + emits the
 test("host plugin --scaffold is refused for non-codex hosts (manifest is codex-specific)", () => {
   const root = mkdtempSync(join(tmpdir(), "h2a-codex-"));
   try {
-    for (const host of ["claude", "gemini", "agy"]) {
+    for (const host of ["claude", "gemini", "agy", "hermes", "opencode"]) {
       let stderr = "";
       const rc = runCli(["host", "plugin", "--host", host, "--instance", `${host}:p1`, "--scaffold", join(root, host)], {
         stdout: { write: () => {} }, stderr: { write: (c) => void (stderr += c) }

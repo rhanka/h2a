@@ -9,7 +9,9 @@ import {
   H2A_AGY_HOST,
   H2A_CLAUDE_HOST,
   H2A_CODEX_HOST,
-  H2A_GEMINI_HOST
+  H2A_GEMINI_HOST,
+  H2A_HERMES_HOST,
+  H2A_OPENCODE_HOST
 } from "../dist/index.js";
 
 const BIN_PATH = join(process.cwd(), "packages/h2a/dist/bin.js");
@@ -119,7 +121,14 @@ function toolPayload(response) {
   return JSON.parse(response.result.content[0].text);
 }
 
-for (const descriptor of [H2A_CODEX_HOST, H2A_CLAUDE_HOST, H2A_GEMINI_HOST, H2A_AGY_HOST]) {
+for (const descriptor of [
+  H2A_CODEX_HOST,
+  H2A_CLAUDE_HOST,
+  H2A_GEMINI_HOST,
+  H2A_AGY_HOST,
+  H2A_HERMES_HOST,
+  H2A_OPENCODE_HOST
+]) {
   test(`${descriptor.host} host setup snippet drives MCP registration, negotiation, and inbox`, async () => {
     const root = mkdtempSync(join(tmpdir(), `h2a-${descriptor.host}-host-scenario-`));
     try {

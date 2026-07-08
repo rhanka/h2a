@@ -464,6 +464,8 @@ import {
 import { H2A_CODEX_HOST } from "./hosts/codex.js";
 import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_AGY_HOST } from "./hosts/agy.js";
+import { H2A_HERMES_HOST } from "./hosts/hermes.js";
+import { H2A_OPENCODE_HOST } from "./hosts/opencode.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 
 export type {
@@ -479,6 +481,8 @@ export {
   H2A_CODEX_HOST,
   H2A_GEMINI_HOST,
   H2A_AGY_HOST,
+  H2A_HERMES_HOST,
+  H2A_OPENCODE_HOST,
   H2A_CLI_MCP_TOOL_NAMES,
   renderCliHelp,
   resolveAutoOpen,
@@ -837,7 +841,9 @@ export const H2A_CLI_HOSTS = [
   H2A_CODEX_HOST,
   H2A_CLAUDE_HOST,
   H2A_GEMINI_HOST,
-  H2A_AGY_HOST
+  H2A_AGY_HOST,
+  H2A_HERMES_HOST,
+  H2A_OPENCODE_HOST
 ] as const;
 
 export const H2A_CLI_ADAPTER = {

@@ -17,7 +17,9 @@ export type H2AHostPluginMechanism =
   | "claude-settings-hook"
   | "gemini-hooks"
   | "codex-app-server"
-  | "agy-plugin-poll";
+  | "agy-plugin-poll"
+  | "hermes-hooks"
+  | "opencode-plugin";
 
 export interface H2AHostPluginTarget {
   readonly host: string;
@@ -59,6 +61,20 @@ export const H2A_HOST_PLUGIN_TARGETS: Readonly<Record<string, H2AHostPluginTarge
     mechanism: "agy-plugin-poll",
     push: false,
     hint: "agy has no background daemon: import the h2a plugin and poll `h2a drumbeat scan` / `h2a blockage list`. Run the record command on clean quit where a hook exists."
+  },
+  hermes: {
+    host: "hermes",
+    resumeCommand: "hermes --continue",
+    mechanism: "hermes-hooks",
+    push: true,
+    hint: "Register the record command with Hermes hooks/plugins (`hermes hooks` / `hermes plugins`) so session stops are recorded."
+  },
+  opencode: {
+    host: "opencode",
+    resumeCommand: "opencode",
+    mechanism: "opencode-plugin",
+    push: true,
+    hint: "Register the record command with an OpenCode plugin/hook so session stops are recorded."
   }
 };
 
