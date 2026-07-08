@@ -100,33 +100,39 @@ test("install-skills --host claude renders h2a + track + harness from a single s
   }
 });
 
-test("install-skills --host codex renders the same three sources under .codex", () => {
-  const cwd = freshCwd();
-  try {
-    const streams = captureStreams(cwd);
-    const rc = runCli(
-      ["install-skills", "--host", "codex", "--scope", "project"],
-      streams
-    );
-    assert.equal(rc, 0, streams.stderrText);
-    const parsed = JSON.parse(streams.stdoutText);
-    assert.equal(parsed.ok, true);
-    assert.equal(parsed.host, "codex");
-    assert.equal(parsed.targetBase, join(cwd, ".codex", "skills"));
-    for (const name of ["h2a", "track-operation", "harness-brainstorm"]) {
-      assert.ok(
-        parsed.installed.some(
-          (f) =>
-            f.includes(`${sep}.codex${sep}skills${sep}`) &&
-            f.endsWith(`${sep}${name}${sep}SKILL.md`)
-        ),
-        `expected ${name} under .codex/skills`
+for (const [host, projectDir] of [
+  ["codex", ".codex"],
+  ["hermes", ".hermes"],
+  ["opencode", ".opencode"]
+]) {
+  test(`install-skills --host ${host} renders the same three sources under ${projectDir}`, () => {
+    const cwd = freshCwd();
+    try {
+      const streams = captureStreams(cwd);
+      const rc = runCli(
+        ["install-skills", "--host", host, "--scope", "project"],
+        streams
       );
+      assert.equal(rc, 0, streams.stderrText);
+      const parsed = JSON.parse(streams.stdoutText);
+      assert.equal(parsed.ok, true);
+      assert.equal(parsed.host, host);
+      assert.equal(parsed.targetBase, join(cwd, projectDir, "skills"));
+      for (const name of ["h2a", "track-operation", "harness-brainstorm"]) {
+        assert.ok(
+          parsed.installed.some(
+            (f) =>
+              f.includes(`${sep}${projectDir}${sep}skills${sep}`) &&
+              f.endsWith(`${sep}${name}${sep}SKILL.md`)
+          ),
+          `expected ${name} under ${projectDir}/skills`
+        );
+      }
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
     }
-  } finally {
-    rmSync(cwd, { recursive: true, force: true });
-  }
-});
+  });
+}
 
 test("install-skills --host gemini renders every source as a .toml custom command", () => {
   const cwd = freshCwd();
