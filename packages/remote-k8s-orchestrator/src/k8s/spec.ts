@@ -702,13 +702,14 @@ export function buildSessionPodSpec(
             { name: "npm_config_cache", value: `${SCRATCH_MOUNT}/cache/npm` },
             { name: "CARGO_HOME", value: `${SCRATCH_MOUNT}/cargo` },
             { name: "PIP_CACHE_DIR", value: `${SCRATCH_MOUNT}/cache/pip` },
-            // superpowers `using-git-worktrees` does NOT honor an env var for
-            // the worktree base (it picks `.worktrees/<branch>` repo-relative,
-            // else a legacy global `~/.config/superpowers/worktrees/<project>`),
-            // so this var is advisory: the DURABLE guarantee is the startup
-            // symlink in the session-agent that points the legacy global path
-            // onto the RWX. We still publish the base so any future env-aware
-            // tooling lands worktrees on the RWX too.
+            // Harness-driven worktrees must stay on the persistent RWX
+            // workspace, not on node-local /tmp or bounded scratch. Publish a
+            // neutral var for h2a/harness-aware tools and keep the legacy
+            // superpowers var as a one-release alias for older pod scripts.
+            {
+              name: "H2A_WORKTREE_BASE",
+              value: `${descriptor.workspacePath}/.worktrees`,
+            },
             {
               name: "SUPERPOWERS_WORKTREE_BASE",
               value: `${descriptor.workspacePath}/.worktrees`,
