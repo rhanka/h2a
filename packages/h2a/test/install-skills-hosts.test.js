@@ -123,6 +123,46 @@ test("install-skills --host codex renders the same three sources under .codex", 
         `expected ${name} under .codex/skills`
       );
     }
+    const h2aPrompt = parsed.installed.find((f) =>
+      f.endsWith(`${sep}.codex${sep}prompts${sep}h2a.md`)
+    );
+    assert.ok(h2aPrompt, `expected /h2a Codex prompt among ${parsed.installed}`);
+    const promptBody = readFileSync(h2aPrompt, "utf8");
+    assert.match(promptBody, /^description: "/m);
+    assert.match(promptBody, /^argument-hint: /m);
+    assert.match(promptBody, /\$ARGUMENTS/);
+    assert.match(promptBody, /\/h2a send <peer>/);
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("install-skills --host codex installs /h2a prompt even when the h2a skill already exists", () => {
+  const cwd = freshCwd();
+  try {
+    const h2aSkillDir = join(cwd, ".codex", "skills", "h2a");
+    mkdirSync(h2aSkillDir, { recursive: true });
+    writeFileSync(
+      join(h2aSkillDir, "SKILL.md"),
+      "---\nname: h2a\ndescription: existing\n---\nold\n",
+      "utf8"
+    );
+
+    const streams = captureStreams(cwd);
+    const rc = runCli(
+      ["install-skills", "--host", "codex", "--scope", "project"],
+      streams
+    );
+    assert.equal(rc, 2, "existing skill should still be reported as skipped");
+    const parsed = JSON.parse(streams.stdoutText);
+    assert.equal(parsed.host, "codex");
+    assert.ok(
+      parsed.skipped.some((s) => s.name === "h2a"),
+      "pre-existing skill must be reported as skipped"
+    );
+    const h2aPrompt = join(cwd, ".codex", "prompts", "h2a.md");
+    assert.ok(existsSync(h2aPrompt), "missing prompt should still be installed");
+    assert.match(readFileSync(h2aPrompt, "utf8"), /You are the h2a slash command for Codex CLI/);
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
