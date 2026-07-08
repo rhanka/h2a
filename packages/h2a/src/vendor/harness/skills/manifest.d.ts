@@ -4,8 +4,8 @@ export interface SkillEntry {
     name: string;
     /** One-line purpose. */
     summary: string;
-    /** The superpowers skill this supersedes (drives the supersede directive), if any. */
-    supersedes?: string;
+    /** Legacy superpowers skill replaced by this harness skill, if any. */
+    legacySuperpowers?: string;
 }
 export declare const HARNESS_SKILLS: SkillEntry[];
 /** Host → the skills directory `skills install` copies the pack into. */

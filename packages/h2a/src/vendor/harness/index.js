@@ -16,7 +16,7 @@ export { classifyPath, matchGlob, globToRegExp } from './scope/scope-boundary.js
 export { checkBranch } from './checks/branch-check.js';
 export { checkScope } from './checks/scope-check.js';
 export { toVerificationRun } from './run/emit.js';
-// Harness skill-pack inventory — the native superpowers-surface replacement.
+// Harness skill-pack inventory — native replacement for the legacy superpowers method surface.
 export { HARNESS_SKILLS, HOST_SKILL_DIR, isHostId } from './skills/manifest.js';
 // Pure, arg-based CLI driver (the `harness` bin is a thin wrapper over this).
 export { runHarnessCli } from './cli/run.js';
