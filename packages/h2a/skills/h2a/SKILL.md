@@ -1,7 +1,7 @@
 ---
 name: h2a
-version: 0.66.0
-description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation. Use when the user wants the current CLI to interact with another agent through a shared workspace.
+version: 0.85.6
+description: Coordinate with other CLI agents (Claude Code, Codex, Gemini) via the h2a protocol — open a live session, list peers, exchange messages, drive a signed negotiation or objective loop. Use when the user wants the current CLI to interact with another agent through a shared workspace.
 ---
 
 # /h2a
@@ -21,6 +21,7 @@ When invoked, parse the arguments and dispatch to the matching subcommand below.
 /h2a send <peer> "<text>"      → put a message envelope in a peer's inbox
 /h2a receive                   → read this agent's inbox and react to new envelopes
 /h2a negotiate <verb> ...      → drive a negotiation lifecycle (open|offer|sign|stabilize)
+/h2a loop <verb> ...           → create/join/report/done/stop an objective loop (multi-agent relay)
 /h2a model "<situation>"       → propose a tailored h2a model for an org/situation
 /h2a disconnect                → cleanly close the current session
 /h2a help                      → print this command map
@@ -220,6 +221,28 @@ Drive a step of the h2a negotiation lifecycle. The subverb is one of:
 - `/h2a negotiate journal <id>` — print the journal entries.
 
 For each verb, validate the required arguments, surface any tool error verbatim, and print a one-line confirmation with the latest journal entry id.
+
+### `/h2a loop <verb> ...`
+
+Drive an objective loop: a durable, shared relay state where several CLI agents can join, report progress, mark references done, or stop the loop.
+
+**Supported verbs:**
+
+- `/h2a loop create --goal "<goal>" [--name <name>] [--id <loop-id>] [--agent <host:role:local>] [--ref <ref>]` — create the loop. CLI: `h2a loop create`. MCP: `h2a_loop_create`.
+- `/h2a loop join <loop-id> --instance <self> [--agent-id <id>] [--role <role>] [--required=false]` — join an existing loop or fill a predeclared agent slot. CLI: `h2a loop join`. MCP: `h2a_loop_join`.
+- `/h2a loop report <loop-id> --agent-id <id> --status <running|blocked|done> [--note "..."]` — append an agent status report. CLI: `h2a loop report`. MCP: `h2a_loop_report`.
+- `/h2a loop done <loop-id> --ref <ref> [--agent-id <id>] [--note "..."]` — mark one loop reference done. CLI: `h2a loop done`. MCP: `h2a_loop_done`.
+- `/h2a loop stop <loop-id> [--reason "..."]` — stop the loop; later `tick/run --execute` must not perform close actions. CLI: `h2a loop stop`. MCP: `h2a_loop_stop`.
+- `/h2a loop list` / `/h2a loop status <loop-id>` — read-only projections. CLI or MCP: `h2a_loop_list`, `h2a_loop_status`.
+- `/h2a loop run <loop-id>` — alias of `h2a loop watch`: continuously emits JSONL tick plans. Use `h2a loop tick <loop-id> --execute` for a single execution tick.
+
+**Routing guidance:**
+
+1. Prefer MCP tools when the host exposes them; otherwise call the CLI with `--root <root>`.
+2. Always use the current resolved perennial `instance` from `/h2a connect`; do not invent agent ids except as local slot ids (`agent-1`, `reviewer`, etc.).
+3. If the user asks for a Codex/Claude relay, create the loop with predeclared `--agent` slots, ask each live peer to `join`, then use `report`/`done` to converge.
+4. Treat `stopped` as terminal. Do not restart or close a stopped loop unless the user explicitly creates a new loop.
+5. Print the loop id and the next concrete command/tool call for the peer.
 
 ### `/h2a model "<situation>"`
 
