@@ -138,7 +138,9 @@ describe("k8s spec builders", () => {
     expect(envOf("npm_config_cache")).toBe(`${SCRATCH_MOUNT}/cache/npm`);
     expect(envOf("CARGO_HOME")).toBe(`${SCRATCH_MOUNT}/cargo`);
     expect(envOf("PIP_CACHE_DIR")).toBe(`${SCRATCH_MOUNT}/cache/pip`);
-    // worktrees stay on the persistent RWX workspace.
+    // worktrees stay on the persistent RWX workspace. H2A_WORKTREE_BASE is the
+    // neutral harness/h2a var; SUPERPOWERS_WORKTREE_BASE is a legacy alias.
+    expect(envOf("H2A_WORKTREE_BASE")).toBe(`${ws}/.worktrees`);
     expect(envOf("SUPERPOWERS_WORKTREE_BASE")).toBe(`${ws}/.worktrees`);
     // ADDITIVE: existing env (HOME, WORKSPACE_PATH, SESSION_ID) is untouched.
     expect(envOf("WORKSPACE_PATH")).toBe(ws);
@@ -163,6 +165,7 @@ describe("k8s spec builders", () => {
     const envOf = (name: string) =>
       container.env.find((e) => e.name === name)?.value;
     // worktree base follows the actual RWX mount, not a hardcoded default.
+    expect(envOf("H2A_WORKTREE_BASE")).toBe(`${ws}/.worktrees`);
     expect(envOf("SUPERPOWERS_WORKTREE_BASE")).toBe(`${ws}/.worktrees`);
     // caches stay on the fixed node-local scratch mount regardless of ws.
     expect(envOf("TMPDIR")).toBe(`${SCRATCH_MOUNT}/tmp`);

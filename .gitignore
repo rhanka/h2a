@@ -4,6 +4,9 @@
 .git.empty-broken/
 .playwright-mcp/
 .claude/
+tmp/
+.remote/
+.worktrees/
 node_modules/
 packages/*/dist/
 packages/*/*.tsbuildinfo
