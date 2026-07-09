@@ -275,15 +275,27 @@ Mono vs collective:
 
 ### 7.4 Presence-aware wake amendment (2026-07-09)
 
-The pure tick core MUST receive h2a presence as a first-class plain-data input, independently from the runtime `remote-agents` projection. Interactive Claude/Codex sessions may be live on the h2a bus, with a fresh `launchContext.tmux`, without appearing in `@sentropic/h2a-runtime` projection. In that case the loop MUST plan a `wake`, not a `request-launch`.
+The pure tick core MUST receive h2a presence as a first-class plain-data input, independently from the runtime `remote-agents` projection. Interactive Claude/Codex sessions may be live on the h2a bus, with a fresh `launchContext.tmux`, without appearing in `@sentropic/h2a-runtime` projection. In that case the loop MAY plan a `wake`, not a `request-launch` — but only once the R3 idle gate below is satisfied.
+
+#### R3 idle gate (2026-07-09, double-consensus Fable5 + Codex-5.5-xhigh)
+
+A live, tmux-wakeable presence proves the agent is REACHABLE; it does NOT prove the agent is IDLE. Waking an agent that is actively mid-tool-call is a real (bounded) hazard the last-moment human-typing guard does not cover — the guard watches the pane for a human, not the agent's own in-flight work. Presence-liveness is therefore necessary but NOT sufficient for a presence-driven wake. Before planning a `wake` off presence, the core MUST have independent idle/stall evidence from the presence record itself:
+
+- `workStatus ∈ {working, blocked, done}` → never wake (busy, or not a relance target);
+- `workStatus ∈ {paused, out-of-tokens}` → wake (explicit relance candidate), regardless of last activity;
+- otherwise (no self-declared status) → wake only if MCP activity has been silent longer than `policy.idleMs`, i.e. `now - lastMcpActivityAt > idleMs`;
+- unknown status with no parseable `lastMcpActivityAt` and no stale-activity proof → do NOT wake (never over-wake on absent evidence).
+
+The presence view carries `workStatus` (drumbeat DEC-084) and `lastActivityAtMs` (from `lastMcpActivityAt`) as plain data; the gate is pure (`now` and `idleMs` are passed in). The core does not track a `connectionConfidence` field — presence-connection confidence is a heartbeat-honesty concern of the presence layer, not an input to the wake decision.
 
 Decision precedence while work is pending:
 
-1. If the enrolled agent has fresh h2a presence with `launchContext.tmux`, and the runtime projection is missing, degraded, dead, or idle/detached, plan `wake`.
+1. If the enrolled agent has fresh h2a presence with `launchContext.tmux` that PASSES the R3 idle gate, and the runtime projection is missing, degraded, dead, or idle/detached, plan `wake`.
 2. If the enrolled agent has fresh h2a presence with `launchContext.tmux` but the runtime projection says the agent is actively running, do not wake.
-3. If no wakeable presence exists but the runtime projection shows the agent idle/detached, plan `wake`.
-4. If no wakeable presence exists and the non-degraded runtime projection is missing/dead, plan `request-launch`.
-5. If the runtime projection is degraded and no wakeable presence exists, do not invent a launch request from incomplete data.
+3. If the enrolled agent has fresh h2a presence with `launchContext.tmux` but the R3 idle gate FAILS (agent is live-but-busy), do nothing for that agent this tick — neither `wake` nor `request-launch` (the agent is live, so it is not missing/dead; emitting a launch would falsely burn the relance budget).
+4. If no wakeable presence exists but the runtime projection shows the agent idle/detached, plan `wake`.
+5. If no wakeable presence exists and the non-degraded runtime projection is missing/dead, plan `request-launch`.
+6. If the runtime projection is degraded and no wakeable presence exists, do not invent a launch request from incomplete data.
 
 `request-launch` remains ASK-only: it records a visible request/escalation path and MUST NOT spawn an agent. The MVP implementation continues to execute local wakes through the existing guarded local tmux shell driver. Inbox/self-wake delivery may replace or augment that shell path later, but it is not required by this amendment.
 
