@@ -40,7 +40,11 @@ export interface PresenceView {
   readonly instance: string;
   readonly liveSession: boolean;
   readonly hasTmuxLaunchContext: boolean;
-  readonly connectionConfidence?: string;
+  /** Drumbeat self-declared work status (DEC-084): working | paused | done |
+   *  blocked | out-of-tokens. Optional (only set when the agent records it). */
+  readonly workStatus?: string;
+  /** Epoch ms of the last MCP activity (from `lastMcpActivityAt`). Proxy for
+   *  "the agent is doing work via tool calls" vs "silent/waiting". */
   readonly lastActivityAtMs?: number;
 }
 
@@ -150,15 +154,44 @@ function findProjected(
 const DEAD_STATES = new Set(["dead", "failed", "done"]);
 const IDLE_STATES = new Set(["idle", "detached"]);
 
+/** h2a addressing is case-insensitive/slug-stable (0.40.0) — fold the key so an
+ *  enrolment whose casing differs from the presence record still matches. The
+ *  adapter keys `byInstance` with the same fold. */
+function foldInstance(instance: string): string {
+  return instance.toLowerCase();
+}
+
 function findPresence(
   loopAgent: H2AObjectiveLoop["agents"][number],
   presence: PresenceSnapshot,
 ): PresenceView | undefined {
-  return loopAgent.h2aInstance === undefined ? undefined : presence.byInstance.get(loopAgent.h2aInstance);
+  return loopAgent.h2aInstance === undefined
+    ? undefined
+    : presence.byInstance.get(foldInstance(loopAgent.h2aInstance));
 }
 
 function presenceCanWake(presence: PresenceView | undefined): boolean {
   return presence?.liveSession === true && presence.hasTmuxLaunchContext === true;
+}
+
+/**
+ * R3 gate (double-consensus Fable5 + Codex-5.5-xhigh, 2026-07-09): a live,
+ * tmux-wakeable presence is NOT sufficient to wake — presence proves liveness,
+ * not idleness. Waking an agent that is actively mid-tool-call is a real (bounded)
+ * hazard the human-typing guard does not cover. Require independent idle/stall
+ * evidence before a presence-driven wake:
+ *  - `workStatus === working|blocked|done` → never wake (busy / not a relance target);
+ *  - `workStatus === paused|out-of-tokens`  → wake (explicit relance candidate);
+ *  - otherwise → wake only if MCP activity has been silent longer than `idleMs`.
+ * Unknown status + recent activity ⇒ noop (do not over-wake). Pure: uses `now` +
+ * `idleMs` passed as data (both already in TickInput / loop.policy).
+ */
+function presenceIdleEnoughToWake(presence: PresenceView, now: number, idleMs: number): boolean {
+  const ws = presence.workStatus;
+  if (ws === "working" || ws === "blocked" || ws === "done") return false;
+  if (ws === "paused" || ws === "out-of-tokens") return true;
+  if (presence.lastActivityAtMs === undefined) return false; // can't prove idle → do not over-wake
+  return now - presence.lastActivityAtMs > idleMs;
 }
 
 /**
@@ -285,13 +318,21 @@ export function planLoopTick(input: TickInput): TickPlan {
       const projected = agents.degraded ? undefined : findProjected(a, agents.agents);
       const livePresence = findPresence(a, presence);
       if (presenceCanWake(livePresence)) {
+        // Presence proves the agent is reachable; the R3 gate proves it is
+        // idle/stalled (not mid-work) BEFORE we inject. A present-but-busy agent
+        // is left alone (noop) — no wake, no launch.
         if (
-          !projected ||
-          DEAD_STATES.has(projected.state) ||
-          IDLE_STATES.has(projected.state)
+          (!projected || DEAD_STATES.has(projected.state) || IDLE_STATES.has(projected.state)) &&
+          presenceIdleEnoughToWake(livePresence as PresenceView, input.now, loop.policy.idleMs)
         ) {
-          actions.push(action({ type: "wake", agentId: a.id, reason: "agent live in h2a presence while work pending" }));
+          actions.push(action({ type: "wake", agentId: a.id, reason: "agent idle/stalled in h2a presence while work pending" }));
         }
+        continue;
+      }
+      // Live on the bus but NOT tmux-wakeable (no launchContext.tmux): it is not
+      // "missing/dead" — do not emit a false request-launch (which would burn the
+      // relance budget for a live agent). Leave it as a noop.
+      if (livePresence?.liveSession === true) {
         continue;
       }
       if (!projected || DEAD_STATES.has(projected.state)) {

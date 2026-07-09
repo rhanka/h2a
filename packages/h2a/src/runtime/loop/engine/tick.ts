@@ -16,7 +16,13 @@ export interface RunTickResult {
   readonly exec?: ExecReport;
 }
 
-const TERMINAL_LOOP_STATUSES = new Set(["done", "failed", "cancelled", "stopped"]);
+// `blocked` is terminal for AUTOMATIC wake (§7.3): a blocked loop must not be
+// woken by a tick; recovery is explicit + CLI-only (`h2a loop resume … --confirm
+// -human-resume`). So `watch` stops on it and a direct tick plans no actions.
+const TERMINAL_LOOP_STATUSES = new Set(["done", "failed", "cancelled", "stopped", "blocked"]);
+
+// Statuses that short-circuit a tick to a NO-ACTION plan (never wake/launch).
+const NO_ACTION_LOOP_STATUSES = new Set(["stopped", "blocked", "done", "failed", "cancelled"]);
 
 function loopIsTerminal(root: string, loopId: string): boolean {
   try {
@@ -38,14 +44,14 @@ export async function runTick(
 ): Promise<RunTickResult> {
   const now = opts.now ?? Date.now();
   const loop = readObjectiveLoop(root, loopId); // throws if missing → shell maps to exit code
-  const plan: TickPlan = loop.status === "stopped"
+  const plan: TickPlan = NO_ACTION_LOOP_STATUSES.has(loop.status)
     ? {
         loopId,
         degraded: false,
-        outcome: "stopped",
+        outcome: loop.status === "stopped" ? "stopped" : loop.status === "failed" ? "failed" : "stalled",
         close: false,
         actions: [],
-        reasons: ["loop is stopped"]
+        reasons: [`loop is ${loop.status}`]
       }
     : planLoopTick({
         loop,
