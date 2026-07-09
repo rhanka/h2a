@@ -53,9 +53,15 @@ export function readPresenceSnapshot(root: string, now: number): PresenceSnapsho
       instance: session.instance,
       liveSession: true,
       hasTmuxLaunchContext: session.launchContext?.tmux !== undefined,
+      // Drumbeat self-declared status (DEC-084) feeds the R3 idle gate in the core.
+      ...(session.workStatus !== undefined ? { workStatus: session.workStatus } : {}),
       ...(lastActivityAtMs !== undefined && !Number.isNaN(lastActivityAtMs) ? { lastActivityAtMs } : {})
     };
-    const existing = byInstance.get(session.instance);
+    // Key by folded instance: h2a addressing is case-insensitive/slug-stable
+    // (0.40.0), so an enrolment whose casing differs from the presence record
+    // must still resolve. The decision core folds the lookup identically.
+    const key = session.instance.toLowerCase();
+    const existing = byInstance.get(key);
     if (existing?.hasTmuxLaunchContext === true && !view.hasTmuxLaunchContext) continue;
     if (
       existing?.hasTmuxLaunchContext === view.hasTmuxLaunchContext &&
@@ -64,7 +70,7 @@ export function readPresenceSnapshot(root: string, now: number): PresenceSnapsho
     ) {
       continue;
     }
-    byInstance.set(session.instance, view);
+    byInstance.set(key, view);
   }
   return { byInstance };
 }
