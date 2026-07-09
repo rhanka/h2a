@@ -80,6 +80,62 @@ test("executePlan: plan degraded → n'exécute RIEN (sécurité)", async () => 
   }
 });
 
+test("executePlan: runtime agents degraded seul → exécute les wakes presence-proven", async () => {
+  const root = freshRoot();
+  try {
+    const loop = createObjectiveLoop(root, { name: "t", goal: "g" });
+    const calls = [];
+    const fakeSink = {
+      close: async () => "skipped",
+      requestLaunch: async () => "skipped",
+      wake: async () => { calls.push("wake"); return "done"; },
+      routeDecision: async () => "skipped"
+    };
+    const plan = {
+      loopId: loop.id,
+      degraded: true,
+      degradedSources: { agents: true, refs: false },
+      outcome: "waiting-agent",
+      close: false,
+      actions: [{ type: "wake", agentId: "a1", reason: "presence live" }],
+      reasons: []
+    };
+    const report = await executePlan(root, loop.id, plan, fakeSink, 5);
+    assert.deepEqual(calls, ["wake"]);
+    assert.equal(report.counts.done, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("executePlan: track refs degraded → n'exécute RIEN", async () => {
+  const root = freshRoot();
+  try {
+    const loop = createObjectiveLoop(root, { name: "t", goal: "g" });
+    let touched = false;
+    const fakeSink = {
+      close: async () => { touched = true; return "done"; },
+      requestLaunch: async () => { touched = true; return "done"; },
+      wake: async () => { touched = true; return "done"; },
+      routeDecision: async () => { touched = true; return "done"; }
+    };
+    const plan = {
+      loopId: loop.id,
+      degraded: true,
+      degradedSources: { agents: false, refs: true },
+      outcome: "degraded",
+      close: false,
+      actions: [{ type: "wake", agentId: "a1", reason: "x" }],
+      reasons: []
+    };
+    const report = await executePlan(root, loop.id, plan, fakeSink, 5);
+    assert.equal(touched, false);
+    assert.equal(report.results.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("buildActionSink.close ferme le loop puis skip ; wake/launch = skipped (not-enabled)", async () => {
   const root = freshRoot();
   try {
