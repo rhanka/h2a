@@ -227,7 +227,12 @@ test("agent présent & running + travail → aucune relance/wake (noop)", () => 
   assert.ok(!types(plan).includes("wake") && !types(plan).includes("request-launch"));
 });
 
-test("agent présent live+tmux mais absent de la projection runtime → wake, pas request-launch", () => {
+// R3 gate: a presence-driven wake now requires idle/stall evidence (stale MCP
+// activity beyond idleMs, or an explicit paused/out-of-tokens workStatus). A
+// STALE presence stands in for "idle enough to wake".
+const STALE = NOW - POLICY.idleMs - 1;
+
+test("agent présent live+tmux idle + absent de la projection runtime → wake, pas request-launch", () => {
   const t = ref("target", "WP-1");
   const loop = makeLoop({
     refs: [t],
@@ -238,7 +243,7 @@ test("agent présent live+tmux mais absent de la projection runtime → wake, pa
     agents: { degraded: false, agents: [] },
     presence: {
       byInstance: new Map([
-        ["claude:a2a-cli:d36d7390005e", { instance: "claude:a2a-cli:d36d7390005e", liveSession: true, hasTmuxLaunchContext: true }]
+        ["claude:a2a-cli:d36d7390005e", { instance: "claude:a2a-cli:d36d7390005e", liveSession: true, hasTmuxLaunchContext: true, lastActivityAtMs: STALE }]
       ])
     },
     refs: rolled([{ ref: t, status: "pending" }]),
@@ -249,7 +254,7 @@ test("agent présent live+tmux mais absent de la projection runtime → wake, pa
   assert.ok(!types(plan).includes("request-launch"));
 });
 
-test("runtime dégradé mais présence live+tmux → wake exécutable", () => {
+test("runtime dégradé mais présence live+tmux idle → wake exécutable", () => {
   const t = ref("target", "WP-1");
   const loop = makeLoop({
     refs: [t],
@@ -260,7 +265,7 @@ test("runtime dégradé mais présence live+tmux → wake exécutable", () => {
     agents: { degraded: true, agents: [] },
     presence: {
       byInstance: new Map([
-        ["claude:a2a-cli:d36d7390005e", { instance: "claude:a2a-cli:d36d7390005e", liveSession: true, hasTmuxLaunchContext: true }]
+        ["claude:a2a-cli:d36d7390005e", { instance: "claude:a2a-cli:d36d7390005e", liveSession: true, hasTmuxLaunchContext: true, lastActivityAtMs: STALE }]
       ])
     },
     refs: rolled([{ ref: t, status: "pending" }]),
@@ -271,6 +276,115 @@ test("runtime dégradé mais présence live+tmux → wake exécutable", () => {
   assert.deepEqual(plan.degradedSources, { agents: true, refs: false });
   assert.ok(types(plan).includes("wake"));
   assert.ok(!types(plan).includes("request-launch"));
+});
+
+test("R3 GATE: présence live+tmux mais ACTIVITÉ RÉCENTE (mid-work) → PAS de wake (noop)", () => {
+  const t = ref("target", "WP-1");
+  const loop = makeLoop({
+    refs: [t],
+    agents: [{ id: "a1", host: "claude", role: "impl", placement: "local", status: "running", h2aInstance: "claude:a2a-cli:d36d7390005e" }],
+  });
+  const plan = planLoopTick({
+    loop,
+    agents: { degraded: false, agents: [] },
+    presence: {
+      byInstance: new Map([
+        // recent MCP activity → agent is busy → must NOT be woken
+        ["claude:a2a-cli:d36d7390005e", { instance: "claude:a2a-cli:d36d7390005e", liveSession: true, hasTmuxLaunchContext: true, lastActivityAtMs: NOW - 1000 }]
+      ])
+    },
+    refs: rolled([{ ref: t, status: "pending" }]),
+    inbox: EMPTY_INBOX,
+    now: NOW,
+  });
+  assert.ok(!types(plan).includes("wake"), "un agent actif ne doit pas être réveillé");
+  assert.ok(!types(plan).includes("request-launch"), "un agent live ne doit pas être relancé comme missing");
+});
+
+test("R3 GATE: présence live+tmux + workStatus=working → PAS de wake même si activité inconnue", () => {
+  const t = ref("target", "WP-1");
+  const loop = makeLoop({
+    refs: [t],
+    agents: [{ id: "a1", host: "claude", role: "impl", placement: "local", status: "running", h2aInstance: "claude:a2a-cli:d36d7390005e" }],
+  });
+  const plan = planLoopTick({
+    loop,
+    agents: { degraded: false, agents: [] },
+    presence: {
+      byInstance: new Map([
+        ["claude:a2a-cli:d36d7390005e", { instance: "claude:a2a-cli:d36d7390005e", liveSession: true, hasTmuxLaunchContext: true, workStatus: "working" }]
+      ])
+    },
+    refs: rolled([{ ref: t, status: "pending" }]),
+    inbox: EMPTY_INBOX,
+    now: NOW,
+  });
+  assert.ok(!types(plan).includes("wake"));
+});
+
+test("R3 GATE: workStatus=paused → wake immédiat (relance candidate) même si activité récente", () => {
+  const t = ref("target", "WP-1");
+  const loop = makeLoop({
+    refs: [t],
+    agents: [{ id: "a1", host: "claude", role: "impl", placement: "local", status: "running", h2aInstance: "claude:a2a-cli:d36d7390005e" }],
+  });
+  const plan = planLoopTick({
+    loop,
+    agents: { degraded: false, agents: [] },
+    presence: {
+      byInstance: new Map([
+        ["claude:a2a-cli:d36d7390005e", { instance: "claude:a2a-cli:d36d7390005e", liveSession: true, hasTmuxLaunchContext: true, workStatus: "paused", lastActivityAtMs: NOW - 1000 }]
+      ])
+    },
+    refs: rolled([{ ref: t, status: "pending" }]),
+    inbox: EMPTY_INBOX,
+    now: NOW,
+  });
+  assert.ok(types(plan).includes("wake"));
+});
+
+test("live-but-unwakeable: présence live SANS tmux → ni wake ni request-launch (budget préservé)", () => {
+  const t = ref("target", "WP-1");
+  const loop = makeLoop({
+    refs: [t],
+    agents: [{ id: "a1", host: "claude", role: "impl", placement: "local", status: "running", h2aInstance: "claude:a2a-cli:d36d7390005e" }],
+  });
+  const plan = planLoopTick({
+    loop,
+    agents: { degraded: false, agents: [] },
+    presence: {
+      byInstance: new Map([
+        ["claude:a2a-cli:d36d7390005e", { instance: "claude:a2a-cli:d36d7390005e", liveSession: true, hasTmuxLaunchContext: false, lastActivityAtMs: STALE }]
+      ])
+    },
+    refs: rolled([{ ref: t, status: "pending" }]),
+    inbox: EMPTY_INBOX,
+    now: NOW,
+  });
+  assert.ok(!types(plan).includes("wake"));
+  assert.ok(!types(plan).includes("request-launch"), "un agent live non-tmux ne doit pas fausser un missing/dead");
+});
+
+test("case-fold: enrôlement en casse différente de la présence → wake quand même", () => {
+  const t = ref("target", "WP-1");
+  const loop = makeLoop({
+    refs: [t],
+    // enrolment upper/mixed case; presence keyed folded (lowercase)
+    agents: [{ id: "a1", host: "claude", role: "impl", placement: "local", status: "running", h2aInstance: "Claude:A2A-CLI:D36D7390005E" }],
+  });
+  const plan = planLoopTick({
+    loop,
+    agents: { degraded: false, agents: [] },
+    presence: {
+      byInstance: new Map([
+        ["claude:a2a-cli:d36d7390005e", { instance: "claude:a2a-cli:d36d7390005e", liveSession: true, hasTmuxLaunchContext: true, lastActivityAtMs: STALE }]
+      ])
+    },
+    refs: rolled([{ ref: t, status: "pending" }]),
+    inbox: EMPTY_INBOX,
+    now: NOW,
+  });
+  assert.ok(types(plan).includes("wake"), "la présence doit résoudre malgré la casse (0.40.0)");
 });
 
 test("présence live+tmux mais projection runtime running → pas de wake", () => {
