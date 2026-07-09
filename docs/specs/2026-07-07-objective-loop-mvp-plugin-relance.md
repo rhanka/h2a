@@ -273,6 +273,26 @@ Mono vs collective:
 
 `blocked` is terminal for automatic wake: ticks MUST NOT wake agents while blocked. Recovery is explicit and CLI-only: a human/operator may run `h2a loop resume <loopId> --confirm-human-resume` after fixing enrollment/session state. Resume writes `loop.resumed`, starts a new relance epoch, resets relance counters/stalled flags for still-enrolled agents, and does not erase prior history.
 
+### 7.4 Presence-aware wake amendment (2026-07-09)
+
+The pure tick core MUST receive h2a presence as a first-class plain-data input, independently from the runtime `remote-agents` projection. Interactive Claude/Codex sessions may be live on the h2a bus, with a fresh `launchContext.tmux`, without appearing in `@sentropic/h2a-runtime` projection. In that case the loop MUST plan a `wake`, not a `request-launch`.
+
+Decision precedence while work is pending:
+
+1. If the enrolled agent has fresh h2a presence with `launchContext.tmux`, and the runtime projection is missing, degraded, dead, or idle/detached, plan `wake`.
+2. If the enrolled agent has fresh h2a presence with `launchContext.tmux` but the runtime projection says the agent is actively running, do not wake.
+3. If no wakeable presence exists but the runtime projection shows the agent idle/detached, plan `wake`.
+4. If no wakeable presence exists and the non-degraded runtime projection is missing/dead, plan `request-launch`.
+5. If the runtime projection is degraded and no wakeable presence exists, do not invent a launch request from incomplete data.
+
+`request-launch` remains ASK-only: it records a visible request/escalation path and MUST NOT spawn an agent. The MVP implementation continues to execute local wakes through the existing guarded local tmux shell driver. Inbox/self-wake delivery may replace or augment that shell path later, but it is not required by this amendment.
+
+Degradation semantics are source-specific:
+
+- degraded track/ref rollup is closure-critical and remains a hard no-execute guard;
+- degraded runtime agent projection is not a global no-execute guard when fresh h2a presence proves a local tmux wake path;
+- degraded runtime projection MUST be surfaced in the tick plan so operators can distinguish presence-only wake from fully healthy runtime planning.
+
 ## 8. Completion semantics
 
 A loop becomes `done` when:

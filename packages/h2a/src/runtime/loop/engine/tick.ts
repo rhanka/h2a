@@ -8,7 +8,7 @@
 
 import { appendLoopEvent, readObjectiveLoop } from "../index.js";
 import { planLoopTick, type TickPlan } from "./decision.js";
-import { buildActionSink, readAgents, readInbox, readRefsRollup } from "./adapters.js";
+import { buildActionSink, readAgents, readInbox, readPresenceSnapshot, readRefsRollup } from "./adapters.js";
 import { executePlan, type ExecReport } from "./execute.js";
 
 export interface RunTickResult {
@@ -50,6 +50,7 @@ export async function runTick(
     : planLoopTick({
         loop,
         agents: await readAgents(),
+        presence: readPresenceSnapshot(root, now),
         refs: readRefsRollup(loop),
         inbox: readInbox(loop, root),
         now

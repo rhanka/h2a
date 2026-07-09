@@ -12,7 +12,7 @@ import { localTmuxDriver } from "../../drive/index.js";
 import { createLocalStore } from "../../local-files/store.js";
 import { listPresence } from "../../local-files/presence.js";
 import { listLoopEvents, readObjectiveLoop, updateObjectiveLoopStatus, type H2AObjectiveLoop } from "../index.js";
-import { loopRefLocator, type AgentsSnapshot, type InboxSnapshot, type PendingDecision, type ProjectedAgent, type RefsRollup, type RefStatus } from "./decision.js";
+import { loopRefLocator, type AgentsSnapshot, type InboxSnapshot, type PendingDecision, type PresenceSnapshot, type PresenceView, type ProjectedAgent, type RefsRollup, type RefStatus } from "./decision.js";
 import type { ActionSink } from "./execute.js";
 
 // --- Agents adapter (lazy runtime; degraded-clean on absence/failure) ---------
@@ -38,6 +38,35 @@ export async function readAgents(): Promise<AgentsSnapshot> {
     // Runtime not installed or failed → degraded; NEVER invent agent state.
     return { degraded: true, agents: [] };
   }
+}
+
+// --- Presence adapter (independent of runtime agents projection) --------------
+// Interactive Claude/Codex sessions are often present on the h2a bus without
+// being runtime-launched agents. The pure core needs that presence as plain data
+// so it can plan a wake instead of an ask-only launch request.
+export function readPresenceSnapshot(root: string, now: number): PresenceSnapshot {
+  const byInstance = new Map<string, PresenceView>();
+  for (const session of listPresence(root, { now })) {
+    const lastActivityAtMs =
+      session.lastMcpActivityAt === undefined ? undefined : Date.parse(session.lastMcpActivityAt);
+    const view: PresenceView = {
+      instance: session.instance,
+      liveSession: true,
+      hasTmuxLaunchContext: session.launchContext?.tmux !== undefined,
+      ...(lastActivityAtMs !== undefined && !Number.isNaN(lastActivityAtMs) ? { lastActivityAtMs } : {})
+    };
+    const existing = byInstance.get(session.instance);
+    if (existing?.hasTmuxLaunchContext === true && !view.hasTmuxLaunchContext) continue;
+    if (
+      existing?.hasTmuxLaunchContext === view.hasTmuxLaunchContext &&
+      existing.lastActivityAtMs !== undefined &&
+      (view.lastActivityAtMs === undefined || existing.lastActivityAtMs > view.lastActivityAtMs)
+    ) {
+      continue;
+    }
+    byInstance.set(session.instance, view);
+  }
+  return { byInstance };
 }
 
 // --- Track refs rollup adapter (READ-ONLY; single-writer preserved) -----------
@@ -190,7 +219,9 @@ export function planWakeTarget(input: {
   const cooldownMs = Math.max(input.loop.policy.tickMs, WAKE_COOLDOWN_FLOOR_MS);
   const last = input.priorWakeAtByAgent.get(input.agentId);
   if (last !== undefined && input.now - last < cooldownMs) return { kind: "skip", reason: "cooldown" };
-  const session = input.freshSessions.find((s) => s.instance === agent.h2aInstance);
+  const session = input.freshSessions.find(
+    (s) => s.instance === agent.h2aInstance && s.launchContext?.tmux !== undefined
+  );
   if (!session || !session.launchContext || !session.launchContext.tmux) {
     return { kind: "skip", reason: "no-fresh-tmux-session" };
   }
