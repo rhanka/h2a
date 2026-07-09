@@ -60,6 +60,21 @@ test("agent + session fraîche tmux + hors cooldown → wake avec launchContext 
   assert.match(p.instructionLine, /\[h2a-wake reason=loop loopId=loop-x /);
 });
 
+test("plusieurs sessions même instance → préfère celle qui a launchContext.tmux", () => {
+  const p = planWakeTarget({
+    loop: loopWith([AGENT]),
+    agentId: "a1",
+    freshSessions: [
+      { instance: "inst-1", launchContext: { cwd: "/x", command: "claude" } },
+      { instance: "inst-1", launchContext: { cwd: "/x", command: "claude", tmux: { session: "s", pane: "%2" } } }
+    ],
+    priorWakeAtByAgent: NONE,
+    now: NOW
+  });
+  assert.equal(p.kind, "wake");
+  assert.equal(p.launchContext.tmux.pane, "%2");
+});
+
 test("priorWakeAtByAgent: garde le dernier wake appliqué par agent, ignore le reste", () => {
   const m = priorWakeAtByAgent([
     { type: "loop.action.applied", at: "2026-07-03T10:00:00.000Z", payload: { action: "wake", key: "wake:a1" } },

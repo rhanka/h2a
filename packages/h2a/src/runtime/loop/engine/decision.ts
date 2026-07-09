@@ -36,6 +36,18 @@ export interface AgentsSnapshot {
   readonly agents: readonly ProjectedAgent[];
 }
 
+export interface PresenceView {
+  readonly instance: string;
+  readonly liveSession: boolean;
+  readonly hasTmuxLaunchContext: boolean;
+  readonly connectionConfidence?: string;
+  readonly lastActivityAtMs?: number;
+}
+
+export interface PresenceSnapshot {
+  readonly byInstance: ReadonlyMap<string, PresenceView>;
+}
+
 export type RefStatus =
   | "accepted"
   | "done"
@@ -67,6 +79,7 @@ export interface InboxSnapshot {
 export interface TickInput {
   readonly loop: H2AObjectiveLoop;
   readonly agents: AgentsSnapshot;
+  readonly presence: PresenceSnapshot;
   readonly refs: RefsRollup;
   readonly inbox: InboxSnapshot;
   readonly now: number;
@@ -100,6 +113,10 @@ export type TickOutcome =
 export interface TickPlan {
   readonly loopId: string;
   readonly degraded: boolean;
+  readonly degradedSources?: {
+    readonly agents: boolean;
+    readonly refs: boolean;
+  };
   readonly outcome: TickOutcome;
   readonly close: boolean; // shell may write loop.status=done only if this is true
   readonly actions: readonly TickAction[];
@@ -133,6 +150,17 @@ function findProjected(
 const DEAD_STATES = new Set(["dead", "failed", "done"]);
 const IDLE_STATES = new Set(["idle", "detached"]);
 
+function findPresence(
+  loopAgent: H2AObjectiveLoop["agents"][number],
+  presence: PresenceSnapshot,
+): PresenceView | undefined {
+  return loopAgent.h2aInstance === undefined ? undefined : presence.byInstance.get(loopAgent.h2aInstance);
+}
+
+function presenceCanWake(presence: PresenceView | undefined): boolean {
+  return presence?.liveSession === true && presence.hasTmuxLaunchContext === true;
+}
+
 /**
  * Pure objective-loop tick decision. Deterministic; no IO. Implements the spec
  * (2026-06-26 §Relaunch + §C completion) at MVP scope: degraded short-circuit,
@@ -141,13 +169,15 @@ const IDLE_STATES = new Set(["idle", "detached"]);
  * The shell never auto-closes unless `close===true` (policy.closeWhenRefsSatisfied).
  */
 export function planLoopTick(input: TickInput): TickPlan {
-  const { loop, agents, refs, inbox } = input;
+  const { loop, agents, presence, refs, inbox } = input;
   const reasons: string[] = [];
   const actions: TickAction[] = [];
 
-  // 1) DEGRADED — runtime or track source unreachable. Never invent state, never
-  //    inject, never close. Only surface pending human decisions (no injection).
-  if (agents.degraded || refs.degraded) {
+  // 1) DEGRADED — track refs are closure-critical, so a degraded track source
+  //    remains a hard safety stop. A degraded runtime projection is softer:
+  //    presence is an independent source and may still prove a live tmux-wakeable
+  //    session. The shell uses `degradedSources.refs` as the no-execute guard.
+  if (refs.degraded) {
     if (agents.degraded) reasons.push("agents source unreachable (runtime absent/degraded)");
     if (refs.degraded) reasons.push("track refs source unreachable");
     for (const d of inbox.pendingDecisions) {
@@ -160,7 +190,19 @@ export function planLoopTick(input: TickInput): TickPlan {
         }),
       );
     }
-    return { loopId: loop.id, degraded: true, outcome: "degraded", close: false, actions, reasons };
+    return {
+      loopId: loop.id,
+      degraded: true,
+      degradedSources: { agents: agents.degraded, refs: true },
+      outcome: "degraded",
+      close: false,
+      actions,
+      reasons
+    };
+  }
+
+  if (agents.degraded) {
+    reasons.push("agents source unreachable (runtime absent/degraded); evaluating presence-only wake path");
   }
 
   // 2) REF ROLLUP — join declared loop.refs with the rollup statuses.
@@ -240,14 +282,26 @@ export function planLoopTick(input: TickInput): TickPlan {
   if (workPending && outcome !== "failed" && !close) {
     for (const a of loop.agents) {
       if (a.status === "done" || a.status === "cancelled" || a.status === "failed") continue;
-      const projected = findProjected(a, agents.agents);
+      const projected = agents.degraded ? undefined : findProjected(a, agents.agents);
+      const livePresence = findPresence(a, presence);
+      if (presenceCanWake(livePresence)) {
+        if (
+          !projected ||
+          DEAD_STATES.has(projected.state) ||
+          IDLE_STATES.has(projected.state)
+        ) {
+          actions.push(action({ type: "wake", agentId: a.id, reason: "agent live in h2a presence while work pending" }));
+        }
+        continue;
+      }
       if (!projected || DEAD_STATES.has(projected.state)) {
+        if (agents.degraded) continue;
         actions.push(
           action({ type: "request-launch", agentId: a.id, reason: "enrolled agent missing/dead while work pending" }),
         );
         continue;
       }
-      if (IDLE_STATES.has(projected.state) || a.status === "idle") {
+      if (IDLE_STATES.has(projected.state)) {
         actions.push(action({ type: "wake", agentId: a.id, reason: "agent idle while work pending" }));
       }
     }
@@ -255,5 +309,13 @@ export function planLoopTick(input: TickInput): TickPlan {
 
   if (actions.length === 0) actions.push(action({ type: "noop", reason: "nothing to do this tick" }));
 
-  return { loopId: loop.id, degraded: false, outcome, close, actions, reasons };
+  return {
+    loopId: loop.id,
+    degraded: agents.degraded,
+    ...(agents.degraded ? { degradedSources: { agents: true, refs: false } } : {}),
+    outcome,
+    close,
+    actions,
+    reasons
+  };
 }
