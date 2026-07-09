@@ -48,32 +48,35 @@ function rolled(refs) {
 }
 
 const EMPTY_AGENTS = { degraded: false, version: 1, agents: [] };
+const EMPTY_PRESENCE = { byInstance: new Map() };
 const EMPTY_INBOX = { pendingDecisions: [] };
 const NO_REFS = { degraded: false, refs: [] };
 const NOW = 1_000_000;
 
 const types = (plan) => plan.actions.map((a) => a.type);
 
-test("degraded (runtime absent) → outcome degraded, aucune injection, close=false", () => {
+test("degraded runtime absent sans présence → aucune wake/launch, close=false", () => {
   const loop = makeLoop({ agents: [{ id: "a1", host: "codex", role: "impl", placement: "local", status: "idle", h2aInstance: "x" }] });
   const plan = planLoopTick({
     loop,
     agents: { degraded: true, agents: [] },
+    presence: EMPTY_PRESENCE,
     refs: NO_REFS,
     inbox: EMPTY_INBOX,
     now: NOW,
   });
   assert.equal(plan.degraded, true);
-  assert.equal(plan.outcome, "degraded");
+  assert.deepEqual(plan.degradedSources, { agents: true, refs: false });
   assert.equal(plan.close, false);
-  assert.ok(!types(plan).includes("wake"), "pas de wake en degraded");
-  assert.ok(!types(plan).includes("request-launch"), "pas de launch en degraded");
+  assert.ok(!types(plan).includes("wake"), "pas de wake sans présence");
+  assert.ok(!types(plan).includes("request-launch"), "pas de launch quand la projection runtime est dégradée");
 });
 
 test("degraded (track injoignable) → surface les décisions en attente sans injection", () => {
   const plan = planLoopTick({
     loop: makeLoop(),
     agents: EMPTY_AGENTS,
+    presence: EMPTY_PRESENCE,
     refs: { degraded: true, refs: [] },
     inbox: { pendingDecisions: [{ id: "d1" }] },
     now: NOW,
@@ -89,6 +92,7 @@ test("tous les refs target accepted/done + policy.closeWhenRefsSatisfied=false �
   const plan = planLoopTick({
     loop,
     agents: EMPTY_AGENTS,
+    presence: EMPTY_PRESENCE,
     refs: rolled([{ ref: r1, status: "accepted" }, { ref: r2, status: "done" }]),
     inbox: EMPTY_INBOX,
     now: NOW,
@@ -104,6 +108,7 @@ test("tous les refs target satisfaits + closeWhenRefsSatisfied=true → close=tr
   const plan = planLoopTick({
     loop,
     agents: EMPTY_AGENTS,
+    presence: EMPTY_PRESENCE,
     refs: rolled([{ ref: r1, status: "accepted" }]),
     inbox: EMPTY_INBOX,
     now: NOW,
@@ -122,6 +127,7 @@ test("un ref target rejected → failed, aucune action agent", () => {
   const plan = planLoopTick({
     loop,
     agents: EMPTY_AGENTS,
+    presence: EMPTY_PRESENCE,
     refs: rolled([{ ref: r1, status: "rejected" }]),
     inbox: EMPTY_INBOX,
     now: NOW,
@@ -138,6 +144,7 @@ test("blocker ref ouvert → stalled", () => {
   const plan = planLoopTick({
     loop,
     agents: EMPTY_AGENTS,
+    presence: EMPTY_PRESENCE,
     refs: rolled([{ ref: t, status: "pending" }, { ref: b, status: "pending" }]),
     inbox: EMPTY_INBOX,
     now: NOW,
@@ -151,6 +158,7 @@ test("décision en attente (inbox) → waiting-human + route-decision", () => {
   const plan = planLoopTick({
     loop,
     agents: EMPTY_AGENTS,
+    presence: EMPTY_PRESENCE,
     refs: rolled([{ ref: t, status: "pending" }]),
     inbox: { pendingDecisions: [{ id: "d9", forAgent: "a1" }] },
     now: NOW,
@@ -169,6 +177,7 @@ test("agent enrôlé manquant + travail en cours → request-launch", () => {
   const plan = planLoopTick({
     loop,
     agents: { degraded: false, agents: [] }, // job-x absent de la projection
+    presence: EMPTY_PRESENCE,
     refs: rolled([{ ref: t, status: "pending" }]),
     inbox: EMPTY_INBOX,
     now: NOW,
@@ -189,6 +198,7 @@ test("agent enrôlé idle + travail en cours → wake", () => {
       degraded: false,
       agents: [{ id: "j", tool: "codex", state: "idle", cwd: "/x", h2aInstance: "inst-1", capabilities: { attach: true, logs: true, remote: false } }],
     },
+    presence: EMPTY_PRESENCE,
     refs: rolled([{ ref: t, status: "pending" }]),
     inbox: EMPTY_INBOX,
     now: NOW,
@@ -209,9 +219,111 @@ test("agent présent & running + travail → aucune relance/wake (noop)", () => 
       degraded: false,
       agents: [{ id: "j", tool: "codex", state: "running", cwd: "/x", h2aInstance: "inst-1", capabilities: { attach: true, logs: true, remote: false } }],
     },
+    presence: EMPTY_PRESENCE,
     refs: rolled([{ ref: t, status: "pending" }]),
     inbox: EMPTY_INBOX,
     now: NOW,
   });
   assert.ok(!types(plan).includes("wake") && !types(plan).includes("request-launch"));
+});
+
+test("agent présent live+tmux mais absent de la projection runtime → wake, pas request-launch", () => {
+  const t = ref("target", "WP-1");
+  const loop = makeLoop({
+    refs: [t],
+    agents: [{ id: "a1", host: "claude", role: "impl", placement: "local", status: "running", h2aInstance: "claude:a2a-cli:d36d7390005e" }],
+  });
+  const plan = planLoopTick({
+    loop,
+    agents: { degraded: false, agents: [] },
+    presence: {
+      byInstance: new Map([
+        ["claude:a2a-cli:d36d7390005e", { instance: "claude:a2a-cli:d36d7390005e", liveSession: true, hasTmuxLaunchContext: true }]
+      ])
+    },
+    refs: rolled([{ ref: t, status: "pending" }]),
+    inbox: EMPTY_INBOX,
+    now: NOW,
+  });
+  assert.ok(types(plan).includes("wake"));
+  assert.ok(!types(plan).includes("request-launch"));
+});
+
+test("runtime dégradé mais présence live+tmux → wake exécutable", () => {
+  const t = ref("target", "WP-1");
+  const loop = makeLoop({
+    refs: [t],
+    agents: [{ id: "a1", host: "claude", role: "impl", placement: "local", status: "running", h2aInstance: "claude:a2a-cli:d36d7390005e" }],
+  });
+  const plan = planLoopTick({
+    loop,
+    agents: { degraded: true, agents: [] },
+    presence: {
+      byInstance: new Map([
+        ["claude:a2a-cli:d36d7390005e", { instance: "claude:a2a-cli:d36d7390005e", liveSession: true, hasTmuxLaunchContext: true }]
+      ])
+    },
+    refs: rolled([{ ref: t, status: "pending" }]),
+    inbox: EMPTY_INBOX,
+    now: NOW,
+  });
+  assert.equal(plan.degraded, true);
+  assert.deepEqual(plan.degradedSources, { agents: true, refs: false });
+  assert.ok(types(plan).includes("wake"));
+  assert.ok(!types(plan).includes("request-launch"));
+});
+
+test("présence live+tmux mais projection runtime running → pas de wake", () => {
+  const t = ref("target", "WP-1");
+  const loop = makeLoop({
+    refs: [t],
+    agents: [{ id: "a1", host: "claude", role: "impl", placement: "local", status: "idle", h2aInstance: "claude:a2a-cli:d36d7390005e" }],
+  });
+  const plan = planLoopTick({
+    loop,
+    agents: {
+      degraded: false,
+      agents: [
+        {
+          id: "j",
+          tool: "claude",
+          state: "running",
+          cwd: "/x",
+          h2aInstance: "claude:a2a-cli:d36d7390005e",
+          capabilities: { attach: true, logs: true, remote: false }
+        }
+      ]
+    },
+    presence: {
+      byInstance: new Map([
+        ["claude:a2a-cli:d36d7390005e", { instance: "claude:a2a-cli:d36d7390005e", liveSession: true, hasTmuxLaunchContext: true }]
+      ])
+    },
+    refs: rolled([{ ref: t, status: "pending" }]),
+    inbox: EMPTY_INBOX,
+    now: NOW,
+  });
+  assert.ok(!types(plan).includes("wake"));
+  assert.ok(!types(plan).includes("request-launch"));
+});
+
+test("projection runtime running gagne sur statut loop idle sans présence", () => {
+  const t = ref("target", "WP-1");
+  const loop = makeLoop({
+    refs: [t],
+    agents: [{ id: "a1", host: "claude", role: "impl", placement: "local", status: "idle", h2aInstance: "inst-1" }],
+  });
+  const plan = planLoopTick({
+    loop,
+    agents: {
+      degraded: false,
+      agents: [{ id: "j", tool: "claude", state: "running", cwd: "/x", h2aInstance: "inst-1", capabilities: { attach: true, logs: true, remote: false } }],
+    },
+    presence: EMPTY_PRESENCE,
+    refs: rolled([{ ref: t, status: "pending" }]),
+    inbox: EMPTY_INBOX,
+    now: NOW,
+  });
+  assert.ok(!types(plan).includes("wake"));
+  assert.ok(!types(plan).includes("request-launch"));
 });

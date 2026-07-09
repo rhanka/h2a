@@ -57,7 +57,8 @@ const EVENT_FOR: Record<ActionOutcome, string> = {
 };
 
 /**
- * Execute a plan through the sink. A `degraded` plan runs NOTHING (safety). Each
+ * Execute a plan through the sink. A track-degraded plan runs NOTHING (safety).
+ * Runtime-agent degradation alone can still execute presence-proven wakes. Each
  * executed action appends a `loop.action.*` event. Returns a typed report.
  */
 export async function executePlan(
@@ -72,7 +73,9 @@ export async function executePlan(
   const counts: Record<ActionOutcome, number> = { done: 0, deferred: 0, skipped: 0, failed: 0 };
   const at = new Date(now).toISOString();
 
-  const actions = plan.degraded ? [] : plan.actions;
+  const refsDegraded = plan.degradedSources?.refs === true;
+  const legacyDegradedWithoutSources = plan.degraded && plan.degradedSources === undefined;
+  const actions = refsDegraded || legacyDegradedWithoutSources ? [] : plan.actions;
   for (const a of actions) {
     let outcome: ActionOutcome;
     switch (a.type) {

@@ -5,6 +5,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { writePresence } from "../dist/index.js";
+
 // Integration: `h2a loop tick|watch` are ASYNC (lazy runtime + periodic) and are
 // dispatched in bin.ts, so we exercise them through the real binary.
 const ROOT = process.cwd();
@@ -51,6 +53,41 @@ test("h2a loop watch --max 1 exécute une relance gardée par défaut", () => {
     assert.equal(plan.loopId, loopId);
     assert.ok(plan.exec, "watch/run MVP doit exécuter par défaut les actions de relance gardées");
     assert.ok(plan.exec.results.some((r) => r.type === "request-launch" && r.agentId === "a1"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("h2a loop tick préfère wake quand une présence h2a live+tmux existe", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-loop-"));
+  const instance = "claude:test:aaaaaaaaaaaa";
+  try {
+    const created = run(["loop", "create", "--name", "t", "--goal", "g", "--root", dir]);
+    const loopId = JSON.parse(created.stdout).id;
+    const joined = run(["loop", "join", loopId, "--instance", instance, "--agent-id", "a1", "--root", dir]);
+    assert.equal(joined.status, 0, `join stderr: ${joined.stderr}`);
+    const now = new Date().toISOString();
+    writePresence(dir, {
+      sessionId: "sess-live-tmux",
+      instance,
+      host: "claude",
+      startedAt: now,
+      heartbeatAt: now,
+      state: "live",
+      interests: { scopes: ["scope:default"], negotiations: [] },
+      subscribedTopics: [],
+      launchContext: {
+        cwd: dir,
+        command: "claude",
+        tmux: { session: "h2a-test", pane: "%1" }
+      }
+    });
+
+    const ticked = run(["loop", "tick", loopId, "--root", dir]);
+    assert.equal(ticked.status, 0, `tick stderr: ${ticked.stderr}`);
+    const plan = JSON.parse(ticked.stdout);
+    assert.ok(plan.actions.some((a) => a.type === "wake" && a.agentId === "a1"));
+    assert.ok(!plan.actions.some((a) => a.type === "request-launch" && a.agentId === "a1"));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
