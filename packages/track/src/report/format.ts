@@ -1,12 +1,14 @@
 import { BUCKETS } from './buckets.js'
 import type { DecisionRow, Report, ReportRow } from './build.js'
-import type { WpNode } from './rollup.js'
+import type { WpLeaf, WpNode } from './rollup.js'
 import {
   buildDirectives,
   decisionNeedsFocus,
   dispatchQueueOf,
+  keystoneOf,
   type Directive,
   type DirectiveStepCode,
+  type Keystone,
 } from './directive.js'
 
 export type Format = 'json' | 'text' | 'md'
@@ -311,6 +313,51 @@ function droppedLeaves(node: WpNode): WpNode['leaves'] {
 }
 
 /**
+ * §A3 — a short human STATUS tag for one open leaf. It is the COHORT KEY for the render-only collapse:
+ * two leaves in the SAME WP with the same tag are one cohort. RENDER-ONLY — never touches `directives[]`.
+ */
+function leafStatusTag(l: WpLeaf): string {
+  if (l.acceptance === 'fail') return 'acceptance fail'
+  if (l.acceptance === 'stale') return 'acceptance stale'
+  if (l.realization === 'in-progress') return 'en cours'
+  if (l.bucket === 'AWAITED') return 'en attente'
+  if (l.openBlockers.length > 0) return 'bloqué'
+  if (l.specStatus === 'to-specify') return 'à spécifier'
+  return 'à démarrer'
+}
+
+export interface LeafCohort {
+  tag: string
+  count: number
+  /** Member leaf titles (CLEAN, deterministic by leaf id). */
+  titles: string[]
+}
+
+/**
+ * §A3 — cohort-collapse: fold a WP's open leaves into `{tag, count, titles}` groups by `leafStatusTag`.
+ * RENDER-ONLY and STRICTLY INTRA-WP (the caller passes ONE WP's leaves, so a cohort never spans WPs). The
+ * machine `directives[]` / `dispatchQueue` are NEVER collapsed — this is a pure presentation fold. Cohorts
+ * are ordered by first appearance in id-sorted leaf order (deterministic, no flicker).
+ */
+export function collapseLeafCohorts(leaves: readonly WpLeaf[]): LeafCohort[] {
+  const byId = [...leaves].sort((a, b) => a.id.localeCompare(b.id))
+  const order: string[] = []
+  const groups = new Map<string, LeafCohort>()
+  for (const l of byId) {
+    const tag = leafStatusTag(l)
+    let g = groups.get(tag)
+    if (g === undefined) {
+      g = { tag, count: 0, titles: [] }
+      groups.set(tag, g)
+      order.push(tag)
+    }
+    g.count++
+    g.titles.push(clean(l.title))
+  }
+  return order.map((tag) => groups.get(tag)!)
+}
+
+/**
  * Report-revamp — the 3-table CONDUCTOR view over the WP forest (the owner reports THROUGH this):
  *   FAIT             — WPs at 100% + a global done/total, pct%.
  *   À-FAIRE (%·WP)   — one row per non-100% WP `WPn · title — done/active pct%`, then its OPEN leaves
@@ -339,6 +386,11 @@ export interface ReportView {
    */
   directives: readonly Directive[]
   dispatchQueue: readonly string[]
+  /**
+   * ADDITIVE (report-revamp §A5) — the keystone item (max 1-hop fan-in, tie-break ULID): the single item
+   * whose completion unblocks the most others. Present iff ≥1 open dependency exists. Drop-when-absent.
+   */
+  keystone?: Keystone
 }
 
 /**
@@ -347,26 +399,37 @@ export interface ReportView {
  * entry this renderer predates) degrades to the `inspect-fallback` phrasing — forward-compat (DESIGN §7).
  */
 export function directivePhrase(d: Directive): string {
+  // §A6 — a directive renders a CONCRETE next move + the actor, and NAMES what blocks (the info the
+  // `sujet` column does NOT already carry). All interpolated titles/refs are RAW here — the render layer
+  // (table `esc`, inline `clean`, html `escapeHtml`) escapes them (§A4). A decision surfaces as a "décision"
+  // line ONLY when it genuinely blocks (mode `human-decision`); otherwise the phrase préconise a step.
+  const on = (): string => {
+    const t = d.gate?.blockedByTitle
+    if (t !== undefined && t.trim() !== '') return ` sur « ${t} »`
+    const r = d.gate?.ref
+    return r !== undefined && r.trim() !== '' ? ` (réf ${r})` : ''
+  }
   if (d.mode === 'human-decision') {
     const who = d.facts.accountable ?? 'owner'
     return d.step.code === 'focus-decision'
-      ? `décision (${who}): focus dossier (questions/options) puis trancher outcome`
+      ? `décision (${who}): instruire le dossier (questions/options) puis trancher outcome`
       : `décision (${who}): trancher outcome`
   }
   if (d.mode === 'h2a-engagement') {
-    return 'engagement (h2a): relancer engagement puis intégrer le retour'
+    const ref = d.gate?.ref
+    return `engagement (h2a): relancer l'engagement${ref !== undefined && ref.trim() !== '' ? ` ${ref}` : ''} puis intégrer le retour`
   }
   const mode = d.mode === 'local' ? 'local' : 'subagent'
   const phrase: Record<DirectiveStepCode, string> = {
-    'focus-decision': `action (${mode}): focus dossier puis trancher outcome`,
+    'focus-decision': `action (${mode}): instruire le dossier puis trancher outcome`,
     'settle-decision': `action (${mode}): trancher outcome`,
-    'resume-engagement': `action (${mode}): relancer engagement puis intégrer le retour`,
-    'resolve-external-blocker': `action (${mode}): lever le blocage puis reprendre`,
-    'amend-spec': `action (${mode}): spécifier avant de démarrer`,
-    'fix-acceptance': `action (${mode}): corriger puis revalider acceptance (fail)`,
-    'rerun-acceptance': `action (${mode}): relancer acceptance (stale) sur le commit courant`,
-    'finish-increment': `action (${mode}): terminer l'incrément en cours`,
-    'start-increment': `action (${mode}): continuer le premier item ouvert puis enregistrer preuve/acceptance`,
+    'resume-engagement': `action (${mode}): relancer l'engagement puis intégrer le retour`,
+    'resolve-external-blocker': `action (${mode}): lever le blocage${on()} puis reprendre`,
+    'amend-spec': `action (${mode}): spécifier avant de démarrer l'incrément`,
+    'fix-acceptance': `action (${mode}): corriger puis revalider l'acceptance (fail)`,
+    'rerun-acceptance': `action (${mode}): relancer l'acceptance (stale) sur le commit courant`,
+    'finish-increment': `action (${mode}): terminer l'incrément en cours${on()}`,
+    'start-increment': `action (${mode}): démarrer l'incrément puis enregistrer preuve/acceptance`,
     'prioritize-backlog': `action (${mode}): prioriser le backlog (WSJF absent) puis reprendre`,
     'inspect-fallback': `action (${mode}): inspecter l'état puis décider la suite`,
   }
@@ -389,6 +452,7 @@ export function buildWpConductorView(tree: readonly WpNode[], decisions: readonl
   // stay the same rollup-driven tables (unchanged back-compat).
   const directives = buildDirectives(tree, decisions)
   const dispatchQueue = dispatchQueueOf(directives)
+  const keystone = keystoneOf(tree)
   const humanDecisions = directives.filter((d) => d.mode === 'human-decision')
   const focusNeeded = humanDecisions.filter((d) => d.step.code === 'focus-decision').length
   const generalRecommendation = focusNeeded >= 2 || humanDecisions.length >= 4
@@ -436,6 +500,7 @@ export function buildWpConductorView(tree: readonly WpNode[], decisions: readonl
     generalRecommendation,
     directives,
     dispatchQueue,
+    ...(keystone !== undefined ? { keystone } : {}),
   }
 }
 
@@ -459,6 +524,78 @@ function renderReportView(view: ReportView, format: Format): string {
 
 export function formatWpConductor(tree: readonly WpNode[], format: Format, decisions: readonly DecisionRow[] = []): string {
   return renderReportView(buildWpConductorView(tree, decisions), format)
+}
+
+// ---- INLINE mode (report-revamp §B) ----------------------------------------------------------------
+// A COMPACT, width-calibrated render of the SAME conductor view, meant to fit one terminal screen: the 3
+// blocks FAIT / À-FAIRE / PRÉCO, tight columns, clean truncation with an ellipsis, cohort-collapsed open
+// leaves, and the keystone highlighted. It reuses the SAME directive set + phrases as the table render (no
+// second engine) — collapse lives ONLY here (render), never in `directives[]`.
+
+export interface InlineOptions {
+  /** Target line width (terminal columns). Clamped to [48, 200]; defaults to 80. */
+  width?: number
+  /** Max PRÉCO lines before an omission count is surfaced (never a silent cut). Defaults to 10. */
+  maxDirectives?: number
+}
+
+/** Clean + hard-truncate a line to `width` with a trailing ellipsis (never a silent cut mid-report). */
+function truncateLine(s: string, width: number): string {
+  const c = clean(s)
+  return c.length <= width ? c : `${c.slice(0, Math.max(1, width - 1))}…`
+}
+
+export function formatWpConductorInline(
+  tree: readonly WpNode[],
+  decisions: readonly DecisionRow[] = [],
+  opts: InlineOptions = {},
+): string {
+  const width = Math.min(200, Math.max(48, opts.width ?? 80))
+  const maxDir = Math.max(1, opts.maxDirectives ?? 10)
+  const view = buildWpConductorView(tree, decisions)
+  const totals = wpTotals(tree)
+  const wpName = (n: WpNode): string => `${n.label} · ${clean(stripWpPrefix(n.title))}`
+  const lines: string[] = []
+
+  // FAIT — one line: global progress + the closed WPs (by label).
+  const closed = tree.filter((n) => n.pct === 100).map((n) => n.label)
+  lines.push(
+    truncateLine(
+      `FAIT  ${totals.done}/${totals.active} (${pctStr(totals.pct)})${closed.length > 0 ? `  ·  clos: ${closed.join(', ')}` : ''}`,
+      width,
+    ),
+  )
+
+  // À-FAIRE — one line per open WP; open leaves cohort-collapsed (N× tag) so it stays on screen.
+  lines.push('À-FAIRE')
+  const openWps = tree.filter((n) => n.pct !== 100)
+  if (openWps.length === 0) lines.push(truncateLine('  (aucun WP ouvert)', width))
+  for (const n of openWps) {
+    const cohorts = collapseLeafCohorts(openLeaves(n))
+    const parts = cohorts.map((c) => (c.count > 1 ? `${c.count}× ${c.tag}` : (c.titles[0] ?? c.tag)))
+    const body = parts.length > 0 ? parts.join(' · ') : 'aucun item ouvert direct'
+    lines.push(truncateLine(`  ${wpName(n)}  ${n.done}/${n.active} ${pctStr(n.pct)}  —  ${body}`, width))
+  }
+
+  // PRÉCO — one compact line per directive (concrete action + actor); keystone bottleneck flagged.
+  lines.push(
+    truncateLine(
+      view.keystone !== undefined ? `PRÉCO  (goulot: ${clean(view.keystone.title)} bloque ${view.keystone.blocks})` : 'PRÉCO',
+      width,
+    ),
+  )
+  const dirs = view.directives
+  if (dirs.length === 0) lines.push(truncateLine('  (aucune action ouverte)', width))
+  for (const d of dirs.slice(0, maxDir)) {
+    const rank = d.rank.split('_')[0] // P1..P5
+    lines.push(
+      truncateLine(`  ‣ [${rank}] ${directiveScopeLabel(d)} · ${clean(d.target.title ?? d.target.id)} — ${directivePhrase(d)}`, width),
+    )
+  }
+  if (dirs.length > maxDir) {
+    lines.push(truncateLine(`  (+${dirs.length - maxDir} autres — track report --format json)`, width))
+  }
+  return lines.join('\n') + '\n'
 }
 
 export function formatRows(rows: ReportRow[], format: Format): string {
