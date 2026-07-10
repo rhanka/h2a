@@ -129,6 +129,24 @@ test("h2a loop create/status/agents/logs expose stable JSON shapes", () => {
   }
 });
 
+test("h2a loop create --agent accepts every host adapter incl. hermes/opencode", () => {
+  for (const host of ["hermes", "opencode", "agy"]) {
+    const dir = freshRoot();
+    const root = join(dir, ".h2a");
+    try {
+      const streams = captureStreams(dir);
+      const rc = runCli(
+        ["loop", "create", "--root", root, "--id", `loop-${host}`, "--goal", "x", "--agent", `${host}:implementer:local`],
+        streams
+      );
+      assert.equal(rc, 0, streams.stderrText);
+      assert.equal(JSON.parse(streams.stdoutText).agents[0].host, host);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
 test("h2a loop join/report/done/stop append durable MVP events", () => {
   const dir = freshRoot();
   const root = join(dir, ".h2a");
