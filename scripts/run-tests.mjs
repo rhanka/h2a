@@ -23,7 +23,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..");
 
 // A1: la suite vit dans packages/h2a/test (h2a-cli est un stub deprecie, sans tests).
-const TEST_DIRS = ["packages/h2a/test"];
+const TEST_DIRS = ["packages/h2a/test", "packages/focus-interactive/test"];
 
 const files = [];
 for (const rel of TEST_DIRS) {

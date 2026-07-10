@@ -1,0 +1,48 @@
+{
+  "name": "@sentropic/focus-interactive",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Focus L-B — the framework-agnostic interactive core (deck / observable store / swipe FSM / feedback-intent / sync contract / multi-focus). Pure TS, headless. MUST NOT import @sentropic/h2a and MUST NOT import any UI framework, so it stays reusable by Svelte/React/Vue and by the design system.",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./contract": {
+      "types": "./dist/contract.d.ts",
+      "import": "./dist/contract.js"
+    },
+    "./decision-key": {
+      "types": "./dist/decision-key.d.ts",
+      "import": "./dist/decision-key.js"
+    },
+    "./feedback": {
+      "types": "./dist/feedback.d.ts",
+      "import": "./dist/feedback.js"
+    },
+    "./swipe": {
+      "types": "./dist/swipe.d.ts",
+      "import": "./dist/swipe.js"
+    },
+    "./sync": {
+      "types": "./dist/sync.d.ts",
+      "import": "./dist/sync.js"
+    },
+    "./store": {
+      "types": "./dist/store.d.ts",
+      "import": "./dist/store.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean"
+  }
+}
