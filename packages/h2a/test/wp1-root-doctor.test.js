@@ -7,7 +7,7 @@
 //  4. doctor inboxHygiene warnings (case dup, host-less, phantom 3-seg)
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -242,6 +242,53 @@ test("doctor: inboxHygiene warns on case-dup, host-less, and phantom 3-seg dirs"
     } else {
       process.env.H2A_ROOT = savedEnv;
     }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("doctor: agy/hermes/opencode are known host prefixes (not classified host-less)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "wp1-known-hosts-"));
+  const savedEnv = process.env.H2A_ROOT;
+  try {
+    delete process.env.H2A_ROOT;
+    const root = join(dir, ".h2a");
+    runCli(["init", "--root", root], captureStreams(dir));
+    const inboxDir = join(root, "inbox");
+    mkdirSync(inboxDir, { recursive: true });
+
+    // Inbox dirs for the newer host adapters: <host>__<label>__<12hex>. Before the
+    // fix, agy/hermes/opencode were absent from doctor's KNOWN_HOSTS, so their
+    // dirs were flagged host-less (and would be pruned by --prune). A genuinely
+    // unknown prefix must STILL be flagged, proving the check itself still works.
+    const known = [
+      "agy__proj__abc123def456",
+      "hermes__proj__abc123def456",
+      "opencode__proj__abc123def456"
+    ];
+    for (const name of [...known, "react__proj__abc123def456"]) {
+      mkdirSync(join(inboxDir, name), { recursive: true });
+    }
+
+    const streams = captureStreams(dir);
+    assert.equal(runCli(["doctor", "--root", root], streams), 0, streams.stderrText);
+    const report = JSON.parse(streams.stdoutText);
+
+    const hostless = report.warnings
+      .filter((w) => w.check === "inboxHygiene" && w.kind === "hostlessDirs")
+      .flatMap((w) => w.examples ?? []);
+    for (const name of known) {
+      assert.ok(!hostless.includes(name), `${name} must NOT be flagged host-less`);
+    }
+    // Control: an unknown host prefix is still detected as host-less.
+    assert.ok(
+      hostless.includes("react__proj__abc123def456"),
+      `unknown prefix must still be host-less; hostless=${JSON.stringify(hostless)}`
+    );
+    // The dirs remain present after a read-only doctor run.
+    for (const name of known) assert.ok(existsSync(join(inboxDir, name)));
+  } finally {
+    if (savedEnv === undefined) delete process.env.H2A_ROOT;
+    else process.env.H2A_ROOT = savedEnv;
     rmSync(dir, { recursive: true, force: true });
   }
 });
