@@ -32,7 +32,7 @@ export interface H2AHostPluginTarget {
   readonly push: boolean;
 }
 
-/** The four supported hosts, at parity (codex/claude/gemini/agy). */
+/** The supported hosts, at parity (codex/claude/gemini/agy/hermes/opencode). */
 export const H2A_HOST_PLUGIN_TARGETS: Readonly<Record<string, H2AHostPluginTarget>> = {
   claude: {
     host: "claude",
