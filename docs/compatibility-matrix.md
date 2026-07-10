@@ -1,6 +1,6 @@
 # H2A Compatibility Matrix
 
-> Last update: 2026-05-25. Source of truth for host wave state: `h2a host status` (DEC-037 / DEC-049).
+> Last update: 2026-07-09. Source of truth for host wave state: `h2a host status` (DEC-037 / DEC-049). For the deeper skill/plugin integration matrix (native skill install, stop-hook/plugin scaffold, live-E2E gaps), see [`host-integration-matrix.md`](./host-integration-matrix.md).
 
 This matrix tracks what is shipped for each host adapter in V1. It is intentionally operational: if a cell says "shipped", there is code, a CLI surface, and test coverage behind it.
 
@@ -9,6 +9,9 @@ This matrix tracks what is shipped for each host adapter in V1. It is intentiona
 | Codex | 1 | Shipped | Shipped | Shipped | Shipped | `host setup --host codex` merges `mcpServers.h2a` into Codex config; host scenario launches `mcp-serve` from the rendered snippet and drives register/open/offer/inbox over JSON-RPC (DEC-044). |
 | Claude Code | 1 | Shipped | Shipped | Shipped | Shipped | `host setup --host claude` covers global and project-local MCP config paths; host scenario launches `mcp-serve` from the rendered snippet and drives register/open/offer/inbox over JSON-RPC (DEC-044). |
 | Gemini | 1 | Shipped | Shipped | Shipped | Shipped | `host setup --host gemini` emits a snippet for `~/.gemini/settings.json` or project-local `.gemini/settings.json`; host scenario launches `mcp-serve` from the rendered snippet and drives register/open/offer/inbox over JSON-RPC (DEC-049). |
+| agy (Antigravity) | 1 | Shipped | Shipped | Shipped | Shipped | `host setup --host agy` targets the embedded-runtime MCP slot `~/.gemini/config/mcp_config.json` (EVO-0); host scenario drives register/open/offer/inbox over JSON-RPC. Native lifecycle is poll-only (no push daemon). |
+| Hermes | 1 | Shipped | Shipped | Shipped | Shipped | `host setup --host hermes` renders the stdio `mcpServers.h2a` entry for `hermes mcp` / `~/.hermes`; host scenario drives register/open/offer/inbox over JSON-RPC. Live Hermes hook/plugin E2E still pending a real binary. |
+| OpenCode | 1 | Shipped | Shipped | Shipped | Shipped | `host setup --host opencode` renders the stdio `mcpServers.h2a` entry for the opencode config; host scenario drives register/open/offer/inbox over JSON-RPC. Live OpenCode binary/plugin E2E still pending a real binary. |
 
 ## Machine-Readable Status
 
@@ -44,7 +47,7 @@ Unknown hosts return exit code `1` with a stderr message listing supported names
 - **Descriptor in `h2a hosts`** means `@sentropic/h2a-cli` exports a host descriptor and the CLI lists it.
 - **MCP adapter** means the host can point at the same shipped local MCP server surface: JSON-RPC 2.0 over stdio and in-process handlers backed by the local-files runtime.
 - **`host setup` snippet** means the CLI can render or merge a ready `mcpServers.h2a` config entry for that host.
-- **End-to-end host scenario** means a host-specific automation test has driven inbox / negotiation / MCP operations through that host. Codex, Claude Code, and Gemini are all covered by `packages/h2a-cli/test/host-mcp-scenario.test.js` (DEC-044, DEC-049).
+- **End-to-end host scenario** means a host-specific automation test has driven inbox / negotiation / MCP operations through that host. All six hosts (Codex, Claude Code, Gemini, agy, Hermes, OpenCode) are covered by `packages/h2a/test/host-mcp-scenario.test.js` (DEC-044, DEC-049). Live-binary hook/plugin E2E for Hermes and OpenCode is tracked separately in `host-integration-matrix.md`.
 
 ## Runtime host bridge: `@sentropic/remote` (DEC-059 / DEC-063)
 
