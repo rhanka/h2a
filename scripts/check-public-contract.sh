@@ -17,8 +17,9 @@ if $H2A mcp-tools >/dev/null 2>&1; then
   else echo "✓ surface MCP inchangée ($(python3 -c "import json;print(len(json.load(open('$GOLD/mcp-tools.json'))))") outils)"; fi
 else echo "… h2a absent du PATH, skip MCP"; fi
 
-# 2) verbes CLI
-DIST="$ROOT/packages/h2a-cli/dist/cli-contract.js"
+# 2) verbes CLI (source de vérité: le core @sentropic/h2a ; h2a-cli n'est qu'un
+# ré-export déprécié sans cli-contract.js propre)
+DIST="$ROOT/packages/h2a/dist/cli-contract.js"
 if [ -f "$DIST" ]; then
   live_cli="$(node -e "const m=require('$DIST');console.log(JSON.stringify((m.H2A_CLI_VERB_CONTRACTS||[]).map(x=>x.verb).sort(),null,2))" 2>/dev/null)"
   if ! diff <(printf '%s\n' "$live_cli") "$GOLD/cli-verbs.json" >/tmp/_cli.diff 2>&1; then
