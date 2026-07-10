@@ -109,3 +109,44 @@ intacts) · aucun `commandHint` write/pass · `inspect-fallback` sur code inconn
 Un seul lot additif: rollup (WpLeaf+openBlockers) → sélecteur → directive/dispatchQueue → renderers (tables
 dérivées + renderer FR mince) → READ 1.14.0 → tests. Build en TDD, gate Codex+Opus sur l'implémentation
 AVANT tag/publish.
+
+## 11. report-revamp — contenu additif + 2 modes de sortie (READ 1.19.0)
+
+Owner-validé. Le contrat machine `directives[]`/`dispatchQueue` reste **ADDITIF-only** (aucune mutation ;
+tests byte-identical/déterminisme/parité CLI≡MCP verts). Réconcilie 6 contraintes de contenu + 2 rendus.
+
+### A. Contenu (6 points, tous additifs)
+1. **`gate.blockedBy` / `gate.blockedByTitle`** (NOUVEAUX champs) — nomment l'item-cible qui bloque, SANS
+   toucher `gate.ref` (qui reste le handle actionnable de `blocker.resolve`). Pour un blocage `dependency`,
+   `ref` = `blockerId`, `blockedBy` = l'item dépendu (distincts). Drop-when-absent.
+2. **`Directive.adviceKind`** (NOUVEAU, `derivable-next-step | judgment-required`) — axe ORTHOGONAL au
+   `mode` (routage). DÉRIVÉ: `human-decision ⇒ judgment-required`, sinon `derivable-next-step`. Jamais une 5ᵉ
+   valeur de `mode`.
+3. **Cohort-collapse** (`collapseLeafCohorts`, clé = `leafStatusTag`, stricte intra-WP) — UNIQUEMENT au rendu
+   (inline/tree). `directives[]`/`dispatchQueue` ne sont JAMAIS repliés.
+4. **Échappement au rendu** — chaque titre/réf interpolé passe par `esc` (table md), `clean` (inline texte) ou
+   `escapeHtml` (html) ; un titre forgé ne peut pas injecter de markup.
+5. **Fan-in 1-hop** (`fanInIndex`/`keystoneOf`, tie-break ULID) — `facts.fanIn` (par directive) + `view.keystone`
+   (le goulot: l'item qui bloque le plus d'autres). Pur, déterministe. N'altère PAS l'ordre du ladder.
+6. **Faits + coup légal** — `directivePhrase` réécrit : action concrète + acteur + nomme le blocage ; fini le
+   « conduire le prochain item » générique. Une décision n'apparaît en ligne `décision` que si elle bloque.
+
+### B. Mode INLINE (`track report --inline` / `--width <n>`)
+`formatWpConductorInline(tree, decisions, {width,maxDirectives})` — rendu compact calibré écran : 3 blocs
+FAIT / À-FAIRE / PRÉCO, colonnes serrées, troncature propre (`…`), cohortes repliées, goulot en tête de PRÉCO.
+Réutilise le MÊME jeu de directives + phrases que la table (pas de 2ᵉ moteur). Golden FR + asserts largeur.
+
+### C. Mode HTML / DESIGN-SYSTEM (`track report --format html`)
+report et focus = LE MÊME présentateur. Contrat partagé **spécifié une fois** dans `report/present.ts` :
+`DsFragmentPresenter<Model> = (model, DsFragmentHooks) => string` — fragment `<article>` DS-stylé (classes
+namespacées + `data-*`, zéro style inline), markdown/sanitize INJECTÉS par l'hôte. Deux implémentations
+conformes : focus `renderHtml(DecisionDossierDocument, hooks)` (vendored) et report
+`renderReportHtml(ReportView, hooks)` (`report/html.ts`). `DsFragmentHooks` est un SUR-ENSEMBLE de
+`HtmlRenderHooks` de focus (`renderMarkdown` optionnel car le report n'a pas de prose). L'app Svelte complète
+(design-system-svelte, focus L-D) consomme ce contrat — pièce cross-repo DS, hors périmètre de ce lot ; ce
+lot livre le FRAGMENT DS-compatible que cette app embarque.
+
+### Contrat & version
+READ minor bump **1.18.0 → 1.19.0** (surface additive : `adviceKind`, `gate.blockedBy(+Title)`, `facts.fanIn`,
+`view.keystone`). Aucun event nouveau, INGEST inchangé, `view` toujours optionnel. MCP `track_report` reste
+json/text/md (html/inline = surface CLI/DS humaine). Tous les enums additifs (jamais de rename).

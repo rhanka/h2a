@@ -37,7 +37,7 @@ import {
 import { ingest, type IngestContext } from '../ingest/ingest.js'
 import { applyRestructurePlan, type RestructurePlan } from './restructure-apply.js'
 import { TrackReader } from '../read/contract.js'
-import { queryText, reportText, statusText } from '../read/commands.js'
+import { queryText, reportHtml, reportInline, reportText, statusText } from '../read/commands.js'
 import { STATUS_LEVELS } from '../report/status-by-level.js'
 import { VERSION } from '../version.js'
 import { durableWorkspaceId } from '../workspace-id.js'
@@ -90,7 +90,7 @@ const USAGE = `usage: track <command>
   accept waive <criterionId> --reason <r>
   consolidate --items <id,id> --commit <mergeCommit> [--client-token <t>]
   priority assess <itemId> --ubv <n> --tc <n> --rr <n> --js <n>
-  report [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--level <spec|plan|wp|lot|task>] [--format json|text|md] [--commit <sha>]
+  report [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--format json|text|md|html] [--commit <sha>]
   export-graph [--repo-key <repo:key>] [--source-id <id>] [--observed-at <iso>]
   query [--kind <k>] [--role <workpackage|spec-phase|stream>] [--workspace <w>] [--bucket <AWAITED|DROPPED|DONE|TO-DO>] [--realization <r>] [--acceptance <a>] [--format json|text|md] [--commit <sha>]
   workspace-activity --workspace <id> [--baseline-commit <sha>] [--now <iso>] [--idle-ms <ms>] [--format json|text]
@@ -904,6 +904,28 @@ function cmdReport(args: string[], ctx: Ctx): number {
         fmt(flags),
       ),
     )
+    return 0
+  }
+  // report-revamp §B/§C — the compact INLINE render (`--inline`/`--width`) and the DS HTML FRAGMENT render
+  // (`--format html`). Both reuse the SAME conductor view/directives; only the presentation differs. Routed
+  // BEFORE `fmt()` (which admits only json|text|md), so `html` never trips the strict format check.
+  const rawFormat = opt(flags, 'format')
+  const widthArg = opt(flags, 'width')
+  const inline = flags['inline'] === true || widthArg !== undefined
+  if (rawFormat === 'html' || inline) {
+    const options = {
+      baselineCommit: resolveCommit(io.cwd, opt(flags, 'commit')),
+      requireAccepted: flags['require-accepted'] === true,
+      decisions: true,
+      wpTree: true,
+      activeRoster: flags['active-roster'] === true,
+    }
+    if (rawFormat === 'html') {
+      io.out(reportHtml(reader, options))
+      return 0
+    }
+    const width = widthArg !== undefined ? Number.parseInt(widthArg, 10) : undefined
+    io.out(reportInline(reader, options, width !== undefined && Number.isFinite(width) ? { width } : {}))
     return 0
   }
   io.out(
