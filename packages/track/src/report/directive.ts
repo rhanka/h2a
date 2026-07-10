@@ -19,6 +19,16 @@ import type { WorkEventKind } from '../ingest/contract.js'
 
 export type DirectiveMode = 'human-decision' | 'h2a-engagement' | 'subagent' | 'local'
 
+/**
+ * ADDITIVE (report-revamp §A2) — the NATURE of the advice, ORTHOGONAL to `mode` (which is the
+ * ROUTAGE/exécuteur). `mode` must NOT grow a 5th value to carry this axis: `adviceKind` is its own
+ * governed enum. `judgment-required` = a genuine owner decision (a `human-decision` gate); every other
+ * directive is a `derivable-next-step` (the next legal move is mechanically derivable from state — fix
+ * acceptance, finish the increment, prioritize, …). NEVER a naked "à toi de juger": even the residual
+ * `inspect-fallback` carries a concrete legal move, so it stays `derivable-next-step`.
+ */
+export type DirectiveAdviceKind = 'derivable-next-step' | 'judgment-required'
+
 export type DirectiveGateCode =
   | 'decision-pending'
   | 'engagement-pending'
@@ -61,6 +71,15 @@ export interface DirectiveGate {
   code: DirectiveGateCode
   /** ref = decisionId / engagementRef / blockerId — what makes the gate DELEGABLE (not just a boolean). */
   ref?: string
+  /**
+   * ADDITIVE (report-revamp §A1) — the id of the ITEM-CIBLE that blocks this gate, NAMED separately from
+   * `ref` (the actionable handle). For a dependency gate `ref` is the `blockerId` (the handle for
+   * `blocker.resolve`) while `blockedBy` is the depended-on item's id — the two are DISTINCT, so a renderer
+   * can say "bloqué par X" WITHOUT mutating the still-actionable `ref`. Drop-when-absent.
+   */
+  blockedBy?: string
+  /** ADDITIVE — the human title of `blockedBy` when resolvable (render-ready; ESCAPED at render, §A4). */
+  blockedByTitle?: string
 }
 
 export interface DirectiveStep {
@@ -75,6 +94,12 @@ export interface DirectiveFacts {
   specStatus: SpecStatus | 'n/a'
   accountable?: ActorId
   blockerRefs?: string[]
+  /**
+   * ADDITIVE (report-revamp §A5) — 1-hop fan-in: how many OTHER open items declare a direct dependency on
+   * THIS directive's target item. A pure, deterministic keystone signal ("cet item en bloque N autres");
+   * the report highlights the max-fan-in item (tie-break ULID). Drop-when-absent (0 ⇒ omitted).
+   */
+  fanIn?: number
 }
 
 /**
@@ -87,6 +112,11 @@ export interface Directive {
   target: DirectiveTarget
   scope: DirectiveScope
   mode: DirectiveMode
+  /**
+   * ADDITIVE (report-revamp §A2) — the advice NATURE, orthogonal to `mode`. DERIVED (never a 5th `mode`):
+   * `human-decision` ⇒ `judgment-required`, every other mode ⇒ `derivable-next-step`.
+   */
+  adviceKind: DirectiveAdviceKind
   gate?: DirectiveGate
   step: DirectiveStep
   rank: DirectiveRank
@@ -156,6 +186,8 @@ interface Tier {
   step: DirectiveStepCode
   gateCode?: DirectiveGateCode
   gateRef?: string
+  /** §A1 — the depended-on ITEM id (distinct from `gateRef` = the blocker handle). */
+  blockedBy?: ItemId
   blockerRefs: string[]
 }
 
@@ -170,7 +202,7 @@ function tierOf(l: WpLeaf): Tier {
   const blockerRefs = l.openBlockers.map((b) => b.blockerId)
   // 1. real blocking gate (dependency/manual blocker open) on a NON-in-progress leaf — P1_GATE.
   if (depBlocker !== undefined && l.realization !== 'in-progress') {
-    return { order: 10, rank: 'P1_GATE', step: 'resolve-external-blocker', gateCode: gateCodeOfDep(depBlocker), gateRef: depBlocker.blockerId, blockerRefs }
+    return { order: 10, rank: 'P1_GATE', step: 'resolve-external-blocker', gateCode: gateCodeOfDep(depBlocker), gateRef: depBlocker.blockerId, ...(depBlocker.ref !== undefined ? { blockedBy: depBlocker.ref } : {}), blockerRefs }
   }
   // 2. acceptance == 'fail' — P2_ACCEPTANCE (fail sub-rank, primes in-progress).
   if (l.acceptance === 'fail') {
@@ -178,7 +210,7 @@ function tierOf(l: WpLeaf): Tier {
   }
   // 3. in-progress + open dependency blocker (WIP coincé) — P3_IN_PROGRESS.
   if (depBlocker !== undefined && l.realization === 'in-progress') {
-    return { order: 30, rank: 'P3_IN_PROGRESS', step: 'finish-increment', gateCode: gateCodeOfDep(depBlocker), gateRef: depBlocker.blockerId, blockerRefs }
+    return { order: 30, rank: 'P3_IN_PROGRESS', step: 'finish-increment', gateCode: gateCodeOfDep(depBlocker), gateRef: depBlocker.blockerId, ...(depBlocker.ref !== undefined ? { blockedBy: depBlocker.ref } : {}), blockerRefs }
   }
   // 4. in-progress (flux — finish before starting new).
   if (l.realization === 'in-progress') {
@@ -200,7 +232,7 @@ function tierOf(l: WpLeaf): Tier {
   return { order: 90, rank: 'P5_FALLBACK', step: 'inspect-fallback', blockerRefs: [] }
 }
 
-function factsOf(l: WpLeaf, blockerRefs: string[]): DirectiveFacts {
+function factsOf(l: WpLeaf, blockerRefs: string[], fanIn = 0): DirectiveFacts {
   return {
     bucket: l.bucket,
     realization: l.realization,
@@ -209,6 +241,7 @@ function factsOf(l: WpLeaf, blockerRefs: string[]): DirectiveFacts {
     ...(l.priority !== undefined ? { wsjf: l.priority } : {}),
     ...(l.accountable !== undefined ? { accountable: l.accountable } : {}),
     ...(blockerRefs.length > 0 ? { blockerRefs } : {}),
+    ...(fanIn > 0 ? { fanIn } : {}),
   }
 }
 
@@ -217,10 +250,13 @@ function directiveId(target: DirectiveTarget): string {
   return `${target.kind}:${target.id}`
 }
 
-function makeDirective(d: Omit<Directive, 'id' | 'affordances'> & { affordances?: WorkEventKind[] }): Directive {
+function makeDirective(d: Omit<Directive, 'id' | 'affordances' | 'adviceKind'> & { affordances?: WorkEventKind[] }): Directive {
   assertSafeCommandHint(d.commandHint)
   return {
     id: directiveId(d.target),
+    // §A2 — adviceKind is DERIVED from mode (never a 5th mode value): a human-decision gate needs judgment,
+    // everything else is a derivable next step.
+    adviceKind: d.mode === 'human-decision' ? 'judgment-required' : 'derivable-next-step',
     affordances: d.affordances ?? AFFORDANCES[d.step.code],
     ...d,
   }
@@ -275,6 +311,43 @@ function inDelegableScope(l: WpLeaf): boolean {
  * WP node (its most-urgent delegable leaf), PLUS one directive per decision-wait / engagement-wait /
  * pending decision. The returned array is GLOBALLY sorted (deterministic).
  */
+/**
+ * §A5 — the pure 1-hop fan-in index over the whole forest. Every non-WP leaf is attached to exactly ONE
+ * node (`directLeaves` stops at sub-WP boundaries), so a flat walk over `node.leaves` never double-counts.
+ * `fanIn.get(x)` = the number of open items that declare a direct `dependency` blocker on item `x`.
+ */
+function fanInIndex(nodes: readonly WpNode[]): { leafById: Map<ItemId, WpLeaf>; fanIn: Map<ItemId, number> } {
+  const leafById = new Map<ItemId, WpLeaf>()
+  const fanIn = new Map<ItemId, number>()
+  const walk = (n: WpNode): void => {
+    for (const l of n.leaves) {
+      leafById.set(l.id, l)
+      for (const b of l.openBlockers) {
+        if (b.kind === 'dependency' && b.ref !== undefined) fanIn.set(b.ref, (fanIn.get(b.ref) ?? 0) + 1)
+      }
+    }
+    for (const c of n.children) walk(c)
+  }
+  for (const n of nodes) walk(n)
+  return { leafById, fanIn }
+}
+
+/** §A5 — the keystone item: the one that blocks the MOST others (max fan-in), tie-break ULID asc. Pure. */
+export interface Keystone {
+  id: ItemId
+  title: string
+  /** How many OTHER open items directly depend on this item (its 1-hop fan-in). */
+  blocks: number
+}
+
+export function keystoneOf(tree: readonly WpNode[]): Keystone | undefined {
+  const { leafById, fanIn } = fanInIndex(tree)
+  const ranked = [...fanIn.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  const top = ranked[0]
+  if (top === undefined || top[1] === 0) return undefined
+  return { id: top[0], title: leafById.get(top[0])?.title ?? top[0], blocks: top[1] }
+}
+
 export function buildDirectives(tree: readonly WpNode[], decisions: readonly DecisionRow[] = []): Directive[] {
   const decisionById = new Map(decisions.map((d) => [d.id, d]))
   const flat: WpNode[] = []
@@ -283,6 +356,12 @@ export function buildDirectives(tree: readonly WpNode[], decisions: readonly Dec
     for (const c of n.children) collect(c)
   }
   for (const n of tree) collect(n)
+
+  // §A1/§A5 — the pure 1-hop index (shared with `keystoneOf`): `leafById` resolves a `blockedBy` target's
+  // human title, `fanIn` counts how many OTHER open items declare a direct `dependency` on a given item.
+  const { leafById, fanIn } = fanInIndex(tree)
+  const titleOf = (id: string): string | undefined => leafById.get(id)?.title
+  const fanInOf = (id: string): number => fanIn.get(id) ?? 0
 
   const entries: { directive: Directive; order: number }[] = []
   const seenDecisionRef = new Set<string>() // decisionIds already surfaced via a decision-wait leaf
@@ -305,10 +384,12 @@ export function buildDirectives(tree: readonly WpNode[], decisions: readonly Dec
             target: { kind: 'item', id: l.id, title: l.title, workspace: l.workspace },
             scope,
             mode: 'human-decision',
-            ...(decisionId !== '' ? { gate: { code: 'decision-pending', ref: decisionId } } : { gate: { code: 'decision-pending' } }),
+            ...(decisionId !== ''
+              ? { gate: { code: 'decision-pending', ref: decisionId, blockedBy: decisionId, ...(d?.title !== undefined ? { blockedByTitle: d.title } : {}) } }
+              : { gate: { code: 'decision-pending' } }),
             step: { code: focus ? 'focus-decision' : 'settle-decision' },
             rank: 'P1_GATE',
-            facts: factsOf(l, decisionId !== '' ? [decisionId] : []),
+            facts: factsOf(l, decisionId !== '' ? [decisionId] : [], fanInOf(l.id)),
             ...(decisionId !== '' ? { commandHint: `track focus ${decisionId}` } : {}),
           }),
         })
@@ -324,10 +405,10 @@ export function buildDirectives(tree: readonly WpNode[], decisions: readonly Dec
             target: { kind: 'engagement', id: engRef, title: l.title, workspace: l.workspace },
             scope,
             mode: 'h2a-engagement',
-            gate: { code: 'engagement-pending', ref: engRef },
+            gate: { code: 'engagement-pending', ref: engRef, blockedBy: engRef },
             step: { code: 'resume-engagement' },
             rank: 'P1_GATE',
-            facts: factsOf(l, extraEng !== undefined ? [extraEng.blockerId] : []),
+            facts: factsOf(l, extraEng !== undefined ? [extraEng.blockerId] : [], fanInOf(l.id)),
           }),
         })
         continue
@@ -359,7 +440,7 @@ export function buildDirectives(tree: readonly WpNode[], decisions: readonly Dec
           gate: { code: 'priority-missing' },
           step: { code: 'prioritize-backlog' },
           rank: 'P4_TODO_WSJF',
-          facts: factsOf(rep, []),
+          facts: factsOf(rep, [], fanInOf(rep.id)),
           commandHint: `track priority assess ${rep.id}`,
         }),
       })
@@ -377,11 +458,19 @@ export function buildDirectives(tree: readonly WpNode[], decisions: readonly Dec
         scope,
         mode: 'subagent',
         ...(top.gateCode !== undefined
-          ? { gate: { code: top.gateCode, ...(top.gateRef !== undefined ? { ref: top.gateRef } : {}) } }
+          ? {
+              gate: {
+                code: top.gateCode,
+                ...(top.gateRef !== undefined ? { ref: top.gateRef } : {}),
+                ...(top.blockedBy !== undefined
+                  ? { blockedBy: top.blockedBy, ...(titleOf(top.blockedBy) !== undefined ? { blockedByTitle: titleOf(top.blockedBy)! } : {}) }
+                  : {}),
+              },
+            }
           : {}),
         step: { code: top.step },
         rank: top.rank,
-        facts: factsOf(top.l, top.blockerRefs),
+        facts: factsOf(top.l, top.blockerRefs, fanInOf(top.l.id)),
       }),
     })
   }
@@ -398,7 +487,7 @@ export function buildDirectives(tree: readonly WpNode[], decisions: readonly Dec
         target: { kind: 'decision', id: d.id, title: d.title, workspace: d.workspace },
         scope: {},
         mode: 'human-decision',
-        gate: { code: 'decision-pending', ref: d.id },
+        gate: { code: 'decision-pending', ref: d.id, blockedBy: d.id, blockedByTitle: d.title },
         step: { code: focus ? 'focus-decision' : 'settle-decision' },
         rank: 'P1_GATE',
         facts: {

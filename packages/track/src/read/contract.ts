@@ -56,7 +56,7 @@ import { graphExportFromState, type TrackGraphFragment } from '../graph-export.j
  * shapes it returns may only GROW (new methods / new optional fields); nothing is removed or
  * repurposed without a major bump. Consumers gate on `reader.contractVersion`.
  */
-export const READ_CONTRACT_VERSION = '1.18.0' // +A2 role:'stream': WpNode.label may be `S<n>` + WpNode.role?='stream' classifier (additif)
+export const READ_CONTRACT_VERSION = '1.19.0' // +report-revamp: Directive.adviceKind, gate.blockedBy/blockedByTitle, facts.fanIn, view.keystone (all additif)
 
 /** Provenance of the last `branch.imported` for a locator (drawn from the raw event log). */
 export interface BranchProvenance {
