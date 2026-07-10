@@ -1,9 +1,11 @@
 // `track focus <decision-id> --workspace <w> [--format terminal|md|html] [--baseline-commit <sha>]` —
 // a READ-ONLY render verb that projects a track decision into a focus DecisionDossierDocument and renders
-// it via the real `@sentropic/focus` (devDep here). track resolves the store THE TRACK WAY (ctx.eventsPath,
-// no `--events-path`), then calls focus's `readDecisionDossier` + dispatches renderTerminal/Md/Html. v1 is
-// read-only: no write, no `.track` creation. These tests use the REAL published `@sentropic/focus@^0.3.0`
-// against a fixture log built by the local Track facade (npm dedupes to one major-compatible track read).
+// it via the VENDORED render-core snapshot in `../focus-vendor/` (a compiled `@sentropic/focus@0.3.0` copy,
+// consumed by `cmdFocus` through dynamic `import('../focus-vendor/index.js')` + `.../track/index.js` — there
+// is NO `@sentropic/focus` devDep). track resolves the store THE TRACK WAY (ctx.eventsPath, no `--events-path`),
+// then calls the vendored `readDecisionDossier` + dispatches renderTerminal/Md/Html. v1 is read-only: no write,
+// no `.track` creation. These tests exercise the vendored copy against a fixture log built by the local Track
+// facade; its `/read` binding gates on the major-compatible `reader.contractVersion`.
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
