@@ -78,8 +78,6 @@
   "outbox put",
   "outbox read",
   "register",
-  "remote send",
-  "remote serve",
   "sessions",
   "status",
   "store migrate",

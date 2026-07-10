@@ -456,25 +456,6 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Self-upgrade the global `@sentropic/h2a` (EVO-8, DEC-107). `--check` reports `{current, latest, upgradeAvailable}` without installing; bare runs `npm i -g @sentropic/h2a@latest`. Exit 1 if the install fails."
   },
 
-  // --- remote transport (DEC-076/077, signed-bearer) ---
-  {
-    verb: "remote serve",
-    outputShape: "stream",
-    exitCodes: [0, 1],
-    requiredFlags: [],
-    optionalFlags: ["root", "port", "host", "path"],
-    description:
-      "Run the HTTP listener that authenticates POSTed signed envelopes against the store registry and delivers them to local inboxes (long-running). Binds 127.0.0.1 by default; pass `--host 0.0.0.0` to expose. DEC-077."
-  },
-  {
-    verb: "remote send",
-    outputShape: "action",
-    exitCodes: [0, 1],
-    requiredFlags: ["url", "instance", "private-key", "json"],
-    optionalFlags: [],
-    description:
-      "Sign an envelope (`--json`) with `--private-key` as `--instance` and POST it to `--url`. Prints `{ status, body }`; exit 0 on a 2xx response, 1 otherwise. DEC-077."
-  },
   {
     verb: "drive",
     outputShape: "action",
