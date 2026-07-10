@@ -3,7 +3,8 @@
 // the adapter supplying `baselineCommit` (CLI from git HEAD, MCP from a tool argument). This is what
 // makes CLI≡MCP parity STRUCTURAL (one layer), not coincidental.
 
-import { buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, wpTotals, type Format } from '../report/format.js'
+import { buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, wpTotals, type Format, type InlineOptions } from '../report/format.js'
+import { formatWpConductorHtml } from '../report/html.js'
 import type { QueryFilter, ReportOptions } from '../report/build.js'
 import type { StatusLevel } from '../report/status-by-level.js'
 import type { TrackReader } from './contract.js'
@@ -41,6 +42,35 @@ export function reportText(reader: TrackReader, options: ReportOptions, format: 
   }
 
   return formatReport(report, format)
+}
+
+/**
+ * report-revamp §B — the INLINE (compact, one-screen) conductor render. Same read path + directive set as
+ * `reportText`; only the presentation differs (cohort-collapse + width truncation live in the renderer). A
+ * WP-less repo falls back to the concise action report (never a flat dump).
+ */
+export function reportInline(reader: TrackReader, options: ReportOptions, inline: InlineOptions = {}): string {
+  const report = reader.report(options)
+  if (report.wpTree !== undefined && report.wpTree.length > 0) {
+    const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
+    if (roster.length > 0) return formatWpConductorInline(roster, report.decisions ?? [], inline)
+  }
+  return formatActionReport(report, 'text')
+}
+
+/**
+ * report-revamp §C — the DS-compatible HTML FRAGMENT render (`--format html`). Reuses the SHARED presenter
+ * contract (the same path focus's `renderHtml` uses) over the SAME `ReportView` the JSON path exposes. A
+ * WP-less repo still yields a valid (empty-state) fragment via the same presenter.
+ */
+export function reportHtml(reader: TrackReader, options: ReportOptions): string {
+  const report = reader.report(options)
+  const decisions = report.decisions ?? []
+  if (report.wpTree !== undefined && report.wpTree.length > 0) {
+    const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
+    if (roster.length > 0) return `${formatWpConductorHtml(roster, decisions)}\n`
+  }
+  return `${formatWpConductorHtml([], decisions)}\n`
 }
 
 /**
