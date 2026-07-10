@@ -53,7 +53,15 @@ export interface H2ALoopRepoRef {
 
 export interface H2ALoopAgent {
   readonly id: string;
-  readonly host: "claude" | "codex" | "agy" | "gemini" | "mistral" | "opencode" | "shell";
+  readonly host:
+    | "claude"
+    | "codex"
+    | "agy"
+    | "gemini"
+    | "mistral"
+    | "hermes"
+    | "opencode"
+    | "shell";
   readonly driver?: string;
   readonly role: string;
   readonly placement:
