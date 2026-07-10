@@ -18,9 +18,7 @@
  */
 
 import type { Context } from "hono";
-import {
-  CODEX_RESPONSES_URL,
-} from "@sentropic/llm-gateway";
+import { CODEX_RESPONSES_URL } from "@sentropic/llm-gateway";
 import { refreshOAuthToken } from "./accounts.js";
 import { updateSessionToken } from "./sticky.js";
 import { routeModelOrThrow } from "./model-catalog.js";
@@ -117,10 +115,7 @@ async function refreshOAuthTokenForRetry(
   try {
     return await refreshOAuthToken(accountId);
   } catch (err) {
-    console.error(
-      `[llm-gateway] OAuth refresh failed for ${accountId}:`,
-      err,
-    );
+    console.error(`[llm-gateway] OAuth refresh failed for ${accountId}:`, err);
     return null;
   }
 }
@@ -188,7 +183,7 @@ type AntToolUseBlock = {
 type AntToolResultBlock = {
   type: "tool_result";
   tool_use_id: string;
-  content: string | AntTextBlock[];
+  content: string | AntContentBlock[];
 };
 type AntThinkingBlock = {
   type: "thinking";
@@ -221,6 +216,85 @@ type AntRequest = {
   stream?: boolean;
   thinking?: { type: "enabled"; budget_tokens: number } | { type: "disabled" };
 };
+
+const EMPTY_TOOL_RESULT_PLACEHOLDER =
+  "[llm-gateway: empty tool result omitted.]";
+
+function unsupportedContentPlaceholder(block: { type: string }): string {
+  const record = block as Record<string, unknown>;
+  const source = asRecord(record.source);
+  const mediaType =
+    typeof source?.media_type === "string"
+      ? source.media_type
+      : typeof record.media_type === "string"
+        ? record.media_type
+        : undefined;
+  const label = mediaType ? `${block.type} ${mediaType}` : block.type;
+  return `[llm-gateway: unsupported ${label} content omitted.]`;
+}
+
+function normalizeUnsupportedContentBlocks(
+  content: string | AntContentBlock[],
+): string | AntContentBlock[] {
+  if (typeof content === "string") return content;
+  return content.map((block) => {
+    if (
+      block.type === "text" ||
+      block.type === "tool_use" ||
+      block.type === "thinking"
+    ) {
+      return block;
+    }
+    if (block.type === "tool_result") {
+      const tr = block as AntToolResultBlock;
+      return {
+        ...tr,
+        content:
+          typeof tr.content === "string"
+            ? tr.content
+            : normalizeUnsupportedContentBlocks(tr.content),
+      } as AntToolResultBlock;
+    }
+    return {
+      type: "text",
+      text: unsupportedContentPlaceholder(block),
+    } as AntTextBlock;
+  });
+}
+
+function normalizeUnsupportedRequestContent(body: AntRequest): AntRequest {
+  const normalized: AntRequest = {
+    ...body,
+    messages: body.messages.map((message) => ({
+      ...message,
+      content: normalizeUnsupportedContentBlocks(message.content),
+    })),
+  };
+  if (Array.isArray(body.system)) {
+    normalized.system = normalizeUnsupportedContentBlocks(
+      body.system,
+    ) as AntContentBlock[];
+  } else if (body.system !== undefined) {
+    normalized.system = body.system;
+  }
+  return normalized;
+}
+
+function toolResultContentToText(
+  content: AntToolResultBlock["content"],
+): string {
+  const text =
+    typeof content === "string"
+      ? content
+      : (normalizeUnsupportedContentBlocks(content) as AntContentBlock[])
+          .map((block) =>
+            block.type === "text"
+              ? (block as AntTextBlock).text
+              : unsupportedContentPlaceholder(block),
+          )
+          .join("");
+  return text.length > 0 ? text : EMPTY_TOOL_RESULT_PLACEHOLDER;
+}
 
 // ---------------------------------------------------------------------------
 // Request translation: Anthropic → OpenAI
@@ -277,14 +351,10 @@ function toOAIMessages(messages: AntMessage[]): OAIMessage[] {
         for (const item of msg.content) {
           if (item.type === "tool_result") {
             const tr = item as AntToolResultBlock;
-            const c =
-              typeof tr.content === "string"
-                ? tr.content
-                : (tr.content as AntTextBlock[]).map((b) => b.text).join("");
             result.push({
               role: "tool",
               tool_call_id: tr.tool_use_id,
-              content: c,
+              content: toolResultContentToText(tr.content),
             });
           }
         }
@@ -366,14 +436,10 @@ function toCodexInput(messages: AntMessage[]): unknown[] {
         }
       }
       for (const tr of toolResults) {
-        const output =
-          typeof tr.content === "string"
-            ? tr.content
-            : (tr.content as AntTextBlock[]).map((b) => b.text).join("");
         items.push({
           type: "function_call_output",
           call_id: tr.tool_use_id,
-          output,
+          output: toolResultContentToText(tr.content),
         });
       }
       const text = texts.join("");
@@ -388,6 +454,7 @@ function codexEffort(budgetTokens: number): string {
 }
 
 export function toCodexRequest(body: AntRequest): Record<string, unknown> {
+  body = normalizeUnsupportedRequestContent(body);
   const req: Record<string, unknown> = {
     model: mapModel(body.model),
     input: toCodexInput(body.messages),
@@ -493,6 +560,7 @@ export function trimCodexBodyForContext(
   beforeChars: number;
   afterChars: number;
 } {
+  body = normalizeUnsupportedRequestContent(body);
   const beforeChars = anthropicInputChars(body);
   if (beforeChars <= maxChars) {
     return { body, trimmed: false, beforeChars, afterChars: beforeChars };
@@ -538,6 +606,7 @@ export function trimCodexBodyForContext(
 // ---------------------------------------------------------------------------
 
 export function toOpenAIRequest(body: AntRequest): Record<string, unknown> {
+  body = normalizeUnsupportedRequestContent(body);
   const messages: OAIMessage[] = [];
   const system = systemToText(body.system);
   if (system) messages.push({ role: "system", content: system });
@@ -1057,11 +1126,9 @@ export function translateCodexStreamToAnthropic(
 
               case "response.completed": {
                 const response = data.response as
-                  | Record<string, unknown>
-                  | undefined;
+                  Record<string, unknown> | undefined;
                 const usage = response?.usage as
-                  | Record<string, unknown>
-                  | undefined;
+                  Record<string, unknown> | undefined;
                 if (typeof usage?.output_tokens === "number")
                   outputTokens = usage.output_tokens;
                 // Close any unclosed blocks (shouldn't happen but be safe)
@@ -1272,11 +1339,9 @@ export async function codexStreamToAnthropicResponse(
 
           case "response.completed": {
             const response = data.response as
-              | Record<string, unknown>
-              | undefined;
+              Record<string, unknown> | undefined;
             const usage = response?.usage as
-              | Record<string, unknown>
-              | undefined;
+              Record<string, unknown> | undefined;
             if (typeof usage?.output_tokens === "number")
               outputTokens = usage.output_tokens;
             break;
