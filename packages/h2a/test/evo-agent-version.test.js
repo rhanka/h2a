@@ -17,7 +17,11 @@ function homeWithSkill(host, content) {
       ? join(home, ".claude", "skills", "h2a")
       : host === "codex"
         ? join(home, ".codex", "skills", "h2a")
-        : join(home, ".gemini", "commands");
+        : host === "hermes"
+          ? join(home, ".hermes", "skills", "h2a")
+          : host === "opencode"
+            ? join(home, ".config", "opencode", "skills", "h2a")
+            : join(home, ".gemini", "commands");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, host === "gemini" ? "h2a.toml" : "SKILL.md"), content, "utf8");
   return home;
@@ -32,6 +36,16 @@ test("readInstalledSkillVersion: reads the version stamp from the installed host
   const gemHome = homeWithSkill("gemini", 'name = "h2a"\nversion = "8.8.8"\n');
   assert.equal(readInstalledSkillVersion("gemini", gemHome), "8.8.8");
   rmSync(gemHome, { recursive: true, force: true });
+
+  // hermes/opencode ship a SKILL.md at their own install-skills location, so
+  // their deployed-skill drift is visible too (parity with claude/codex).
+  const hermesHome = homeWithSkill("hermes", "---\nname: h2a\nversion: 6.6.6\ndescription: x\n---\nb");
+  assert.equal(readInstalledSkillVersion("hermes", hermesHome), "6.6.6");
+  rmSync(hermesHome, { recursive: true, force: true });
+
+  const openHome = homeWithSkill("opencode", "---\nname: h2a\nversion: 5.5.5\ndescription: x\n---\nb");
+  assert.equal(readInstalledSkillVersion("opencode", openHome), "5.5.5");
+  rmSync(openHome, { recursive: true, force: true });
 
   // best-effort: unknown host, missing file, and unstamped skill → undefined
   assert.equal(readInstalledSkillVersion("nope", "/tmp"), undefined);
