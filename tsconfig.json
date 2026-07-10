@@ -5,6 +5,9 @@
       "path": "./packages/focus"
     },
     {
+      "path": "./packages/focus-interactive"
+    },
+    {
       "path": "./packages/h2a"
     },
     {
