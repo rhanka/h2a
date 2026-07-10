@@ -347,13 +347,13 @@ export function renderCliHelp(): string {
     "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat relance-inbox [--instance <id>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
-    "  h2a host setup --host <codex|claude|gemini|agy> [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (renders mcp-serve --auto-open --auto-upgrade --wake local-tmux by default; --no-wake drops wake)",
+    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode> [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (renders mcp-serve --auto-open --auto-upgrade --wake local-tmux by default; --no-wake drops wake)",
     "  h2a host status [--host <name>]",
     "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; agy is poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "",
     "High-level coordination (DEC-054):",
-    "  h2a connect --host <codex|claude|gemini|agy|remote> [--root <path>] [--instance <id>] [--name <display>]",
+    "  h2a connect --host <codex|claude|gemini|agy|hermes|opencode|remote> [--root <path>] [--instance <id>] [--name <display>]",
     "  h2a conductor [--workspace <id|path>] [--root <path>]   (who is the live conductor/owner of a workspace — derived from presence; conductor=role CONDUCTOR if set, else null; candidates=in-workspace live agents)",
     "  h2a conductor-launch-check [--workspace <id|path>] [--root <path>] [--idle-ms <ms>]   (DRY-RUN: polls track workspace-activity; recommends launching a conductor if work is stalled and none is live — h2a does NOT spawn; launch parked pending spawn policy + remote)",
     "  h2a conductor-launch --workspace <id|path> [--root <path>] [--idle-ms <ms>] [--confirm] [--remote <instance>] [--instance <self>]   (D3 EMIT: if stalled+no conductor, emits a launch-REQUEST envelope to a live remote agent — gated by --confirm + 1/30min/workspace cap; h2a NEVER spawns; remote does the actual spawn)",
@@ -2017,7 +2017,7 @@ function parseLoopTrack(value: string): H2ALoopTrackRef {
 function parseLoopAgent(value: string, index: number): H2ALoopAgent {
   const [host, role, placement] = value.split(":");
   if (!host || !role || !placement) throw new Error("--agent must be <host:role:placement>");
-  if (!["claude", "codex", "agy", "gemini", "mistral", "opencode", "shell"].includes(host)) {
+  if (!["claude", "codex", "agy", "gemini", "mistral", "hermes", "opencode", "shell"].includes(host)) {
     throw new Error(`--agent host is unsupported: ${host}`);
   }
   if (!["local", "remote", "auto", "headless-local", "headless-remote", "interactive-local", "interactive-remote"].includes(placement)) {
@@ -3421,7 +3421,7 @@ function cmdHostSetup(
   const host = flags.host;
   if (!host) {
     streams.stderr.write(
-      "h2a host setup: --host <codex|claude|gemini|agy> is required\n"
+      "h2a host setup: --host <codex|claude|gemini|agy|hermes|opencode> is required\n"
     );
     return 1;
   }
@@ -3850,7 +3850,7 @@ function cmdHost(argv: readonly string[], streams: H2ACliStreams): number {
   if (sub === "plugin") return cmdHostPlugin(flags, streams);
   streams.stderr.write(`Unknown host subcommand: ${sub ?? "<none>"}\n`);
   streams.stderr.write(
-    "Use: h2a host setup --host <codex|claude|gemini|agy> ...\n" +
+    "Use: h2a host setup --host <codex|claude|gemini|agy|hermes|opencode> ...\n" +
       "     h2a host status [--host <name>]\n" +
       "     h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode> --instance <id>\n"
   );
@@ -4682,7 +4682,15 @@ function cmdDoctor(
       // not readable — skip hygiene check
     }
     if (inboxEntries.length > 0) {
-      const KNOWN_HOSTS = new Set(["claude", "codex", "gemini", "remote"]);
+      const KNOWN_HOSTS = new Set([
+        "claude",
+        "codex",
+        "gemini",
+        "agy",
+        "hermes",
+        "opencode",
+        "remote"
+      ]);
 
       // Reconstruct an address from a dir name: double-underscore → colon.
       function dirToAddress(name: string): string {
@@ -4727,7 +4735,7 @@ function cmdDoctor(
           count: hostless.length,
           examples,
           message:
-            `${hostless.length} host-less inbox dir(s) (first segment is not claude/codex/gemini/remote). ` +
+            `${hostless.length} host-less inbox dir(s) (first segment is not ${[...KNOWN_HOSTS].join("/")}). ` +
             `Examples: ${examples.join(", ")}`
         });
         if (flags.prune !== undefined) {
@@ -5020,13 +5028,17 @@ function cmdConnect(
 ): number {
   if (!flags.host) {
     streams.stderr.write(
-      "h2a connect: --host <codex|claude|gemini|agy|remote> is required\n"
+      "h2a connect: --host <codex|claude|gemini|agy|hermes|opencode|remote> is required\n"
     );
     return 1;
   }
-  if (!["codex", "claude", "gemini", "agy", "remote"].includes(flags.host)) {
+  if (
+    !["codex", "claude", "gemini", "agy", "hermes", "opencode", "remote"].includes(
+      flags.host
+    )
+  ) {
     streams.stderr.write(
-      `h2a connect: unknown --host "${flags.host}". Supported: codex, claude, gemini, agy, remote.\n`
+      `h2a connect: unknown --host "${flags.host}". Supported: codex, claude, gemini, agy, hermes, opencode, remote.\n`
     );
     return 1;
   }
@@ -5075,14 +5087,16 @@ function cmdConnect(
       }
     });
   } else {
-    const hostDescriptor =
-      flags.host === "codex"
-        ? H2A_CODEX_HOST
-        : flags.host === "claude"
-          ? H2A_CLAUDE_HOST
-          : flags.host === "gemini"
-            ? H2A_GEMINI_HOST
-            : H2A_AGY_HOST;
+    // Resolve the descriptor from the host registry (not a ternary fall-through)
+    // so every supported host renders ITS OWN snippet — a missing branch must
+    // fail loudly, never silently render another host's config.
+    const hostDescriptor = CLI_HOSTS.find((h) => h.host === flags.host);
+    if (!hostDescriptor) {
+      streams.stderr.write(
+        `h2a connect: no host descriptor for "${flags.host}"\n`
+      );
+      return 1;
+    }
     const snippet = hostDescriptor.renderMcpConfig({ root });
     steps.push({
       step: "host-setup",
