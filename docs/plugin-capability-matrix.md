@@ -3,6 +3,8 @@
 > Output of **Spec session 1** (EVO-0/EVO-1/EVO-3 framing). Factual audit of the four agent CLIs installed on the dev machine (2026-05-26): claude 2.1.152, codex-cli 0.133.0, gemini 0.43.0, agy 1.0.2. Source: each CLI's `--help` / subcommand help + config inspection.
 >
 > **agy = Antigravity (Google)** — a Gemini-ecosystem agent CLI (`com.google.geminicoder.agentexecutor`), config under `~/.gemini/antigravity-cli/`, default model "Gemini 3.5 Flash (High)". It **embeds MCP** (Go `mcp.ServerSession`/`McpServerToolConfig`/jsonrpc2) and **Playwright natively** (Go bindings — it does not use a playwright-MCP server).
+>
+> **Hermes and OpenCode** are newer host adapters (added 2026-07-08). h2a ships their MCP-setup snippet, host scenario, native skill install, and Claude-format stop-hook (all rendered + automated-tested — see [`host-integration-matrix.md`](./host-integration-matrix.md)). This capability grid is **not yet updated for them**: it is a live probe of specific CLI versions, and their binaries were not audited on this machine. Do not infer a Hermes/OpenCode capability cell from silence here — the tracked, current status is in `host-integration-matrix.md`.
 
 ## Matrix
 
