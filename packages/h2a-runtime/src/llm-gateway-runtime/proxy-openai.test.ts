@@ -1,7 +1,11 @@
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { handleMessagesViaOpenAI, toCodexRequest } from "./proxy-openai.js";
+import {
+  handleMessagesViaOpenAI,
+  toCodexRequest,
+  trimCodexBodyForContext,
+} from "./proxy-openai.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -48,18 +52,20 @@ describe("h2a runtime Codex gateway", () => {
 
   it("sends xhigh to the Codex Responses upstream request", async () => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        streamFrom(
-          [
-            "event: response.completed",
-            'data: {"type":"response.completed","response":{"usage":{"output_tokens":0}}}',
-            "",
-          ].join("\n"),
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          streamFrom(
+            [
+              "event: response.completed",
+              'data: {"type":"response.completed","response":{"usage":{"output_tokens":0}}}',
+              "",
+            ].join("\n"),
+          ),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
         ),
-        { status: 200, headers: { "content-type": "text/event-stream" } },
-      ),
-    );
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const res = await codexApp().fetch(
@@ -81,6 +87,92 @@ describe("h2a runtime Codex gateway", () => {
       model: "gpt-5.5",
       reasoning: { effort: "xhigh" },
     });
+  });
+
+  it("replaces unsupported image tool results before Codex trimming and preserves final text", () => {
+    const largeImageData = "a".repeat(180_000);
+    const req = {
+      model: "claude-opus-4-8",
+      max_tokens: 1024,
+      messages: [
+        {
+          role: "assistant" as const,
+          content: [
+            {
+              type: "tool_use" as const,
+              id: "toolu_image_transcript",
+              name: "Read",
+              input: { file_path: "/tmp/transcript.png" },
+            },
+          ],
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "tool_result" as const,
+              tool_use_id: "toolu_image_transcript",
+              content: [
+                {
+                  type: "image",
+                  source: {
+                    type: "base64",
+                    media_type: "image/png",
+                    data: largeImageData,
+                  },
+                },
+              ],
+            },
+            {
+              type: "text" as const,
+              text: "Instruction finale: réponds malgré le transcrit omis.",
+            },
+          ],
+        },
+      ],
+      stream: true,
+      thinking: { type: "enabled" as const, budget_tokens: 50_000 },
+    };
+
+    const trimmed = trimCodexBodyForContext(req, 4_096);
+    const upstream = toCodexRequest(trimmed.body);
+    const input = upstream.input as Array<Record<string, unknown>>;
+
+    expect(JSON.stringify(trimmed.body)).not.toContain(largeImageData);
+    expect(JSON.stringify(input)).not.toContain(largeImageData);
+    expect(input).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "function_call",
+          call_id: "toolu_image_transcript",
+          name: "Read",
+        }),
+        expect.objectContaining({
+          type: "function_call_output",
+          call_id: "toolu_image_transcript",
+          output: expect.stringContaining("unsupported image image/png"),
+        }),
+        expect.objectContaining({
+          type: "message",
+          role: "user",
+          content: expect.stringContaining("transcrit omis"),
+        }),
+      ]),
+    );
+    expect(
+      input.some(
+        (item) => item.type === "function_call_output" && item.output === "",
+      ),
+    ).toBe(false);
+    expect(input.length).toBeGreaterThan(1);
+    expect(input).not.toEqual([
+      expect.objectContaining({
+        type: "message",
+        content: expect.stringContaining(
+          "older Claude Code transcript omitted",
+        ),
+      }),
+    ]);
   });
 
   it("returns a gateway error instead of 500 when Codex OAuth refresh cannot retry", async () => {
