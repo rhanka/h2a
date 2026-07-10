@@ -8,7 +8,8 @@
 import { spawnSync } from "node:child_process";
 
 import type { H2ALaunchContext } from "../../../session.js";
-import { localTmuxDriver } from "../../drive/index.js";
+import { localTmuxDriver, type H2ADriver } from "../../drive/index.js";
+import { listDrumbeat, type H2ADrumbeatEntry } from "../../drumbeat/registry.js";
 import { createLocalStore } from "../../local-files/store.js";
 import { listPresence } from "../../local-files/presence.js";
 import { listLoopEvents, readObjectiveLoop, updateObjectiveLoopStatus, type H2AObjectiveLoop } from "../index.js";
@@ -44,18 +45,61 @@ export async function readAgents(): Promise<AgentsSnapshot> {
 // Interactive Claude/Codex sessions are often present on the h2a bus without
 // being runtime-launched agents. The pure core needs that presence as plain data
 // so it can plan a wake instead of an ask-only launch request.
+
+/**
+ * Resolve the self-declared work status the pure R3 idle gate consumes. The
+ * presence FILE never carries `workStatus`: the host stop hook records it in the
+ * durable drumbeat REGISTRY (`h2a drumbeat record --status …` → `recordStop`),
+ * NOT in presence (see drumbeat/registry.ts). Without folding the registry back
+ * in, the R3 gate's `paused`/`out-of-tokens` fast-path is permanently dead and a
+ * just-stopped agent is never relanced until 15 min of MCP silence — the bug
+ * behind "the objective-loop does not relance like /loop".
+ *
+ * A durable stop entry is honored ONLY when it is not terminal (an
+ * escalated/rerouted stop is resolved) AND has NOT been superseded by fresher MCP
+ * activity: if the agent has made a tool call since it declared the stop
+ * (`lastMcpActivityAt > stoppedAt`) it has resumed, so the sticky `paused` entry
+ * must NOT re-wake it — that is exactly the over-wake the R3 gate guards against.
+ * A live presence `workStatus` (should the presence layer ever set one) always
+ * wins over the registry. PURE: timestamps in, status out.
+ */
+export function resolveDeclaredWorkStatus(
+  entry: H2ADrumbeatEntry | undefined,
+  lastActivityAtMs: number | undefined
+): string | undefined {
+  if (!entry || entry.terminal !== undefined) return undefined;
+  const stoppedAtMs = Date.parse(entry.stoppedAt);
+  if (Number.isNaN(stoppedAtMs)) return undefined;
+  if (lastActivityAtMs !== undefined && lastActivityAtMs > stoppedAtMs) return undefined;
+  return entry.workStatus;
+}
+
 export function readPresenceSnapshot(root: string, now: number): PresenceSnapshot {
   const byInstance = new Map<string, PresenceView>();
+  // Fold the durable drumbeat stop registry (keyed case-insensitively, like h2a
+  // addressing) so the pure core sees self-declared stop status as plain data.
+  const stopByInstance = new Map<string, H2ADrumbeatEntry>();
+  try {
+    for (const entry of listDrumbeat(root)) stopByInstance.set(entry.instance.toLowerCase(), entry);
+  } catch {
+    // registry unreadable → no self-declared status; the activity gate still applies.
+  }
   for (const session of listPresence(root, { now })) {
     const lastActivityAtMs =
       session.lastMcpActivityAt === undefined ? undefined : Date.parse(session.lastMcpActivityAt);
+    const safeLastActivityAtMs =
+      lastActivityAtMs !== undefined && !Number.isNaN(lastActivityAtMs) ? lastActivityAtMs : undefined;
+    // Presence's own workStatus wins; otherwise fold in the durable stop registry.
+    const workStatus =
+      session.workStatus ??
+      resolveDeclaredWorkStatus(stopByInstance.get(session.instance.toLowerCase()), safeLastActivityAtMs);
     const view: PresenceView = {
       instance: session.instance,
       liveSession: true,
       hasTmuxLaunchContext: session.launchContext?.tmux !== undefined,
       // Drumbeat self-declared status (DEC-084) feeds the R3 idle gate in the core.
-      ...(session.workStatus !== undefined ? { workStatus: session.workStatus } : {}),
-      ...(lastActivityAtMs !== undefined && !Number.isNaN(lastActivityAtMs) ? { lastActivityAtMs } : {})
+      ...(workStatus !== undefined ? { workStatus } : {}),
+      ...(safeLastActivityAtMs !== undefined ? { lastActivityAtMs: safeLastActivityAtMs } : {})
     };
     // Key by folded instance: h2a addressing is case-insensitive/slug-stable
     // (0.40.0), so an enrolment whose casing differs from the presence record
@@ -320,7 +364,12 @@ export function priorLaunchByAgent(
 // last moment; defer → "deferred", stays pending). request-launch / route-decision
 // still `skipped` (their guarded slices land next). NEVER chain/headless/auto — a
 // defer must not fall back to a headless injection (double-consensus RISK #1).
-export function buildActionSink(): ActionSink {
+export function buildActionSink(opts: { driver?: H2ADriver } = {}): ActionSink {
+  // Injectable driver seam: production defaults to the guarded local-tmux driver
+  // (which re-checks the human-typing guard at the last moment). Tests pass a fake
+  // driver so the wake glue (planWakeTarget → drive) is covered WITHOUT any real
+  // `tmux send-keys` into a live pane.
+  const driver = opts.driver ?? localTmuxDriver();
   return {
     async close(_action, ctx) {
       const { changed } = updateObjectiveLoopStatus(ctx.root, ctx.loopId, "done", {
@@ -363,7 +412,7 @@ export function buildActionSink(): ActionSink {
       // localTmuxDriver ONLY — never chain/headless/auto (RISK #1). It applies the
       // human-typing guard at the last moment and DEFERS (false) if a human is
       // active in the pane; a defer stays pending and re-fires next tick.
-      const ok = await localTmuxDriver().drive({
+      const ok = await driver.drive({
         to: plan.instance,
         ...(plan.host !== undefined ? { host: plan.host } : {}),
         instructionLine: plan.instructionLine,
