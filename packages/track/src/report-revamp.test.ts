@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { EventStore } from './events/store.js'
 import type { DecisionRow } from './report/build.js'
-import { formatWpConductor, formatWpTree } from './report/format.js'
+import { buildWpConductorView, formatWpConductor, formatWpTree } from './report/format.js'
 import { computeWpTree } from './report/rollup.js'
 import { reportText } from './read/commands.js'
 import { TrackReader } from './read/contract.js'
@@ -256,5 +256,68 @@ describe('report-revamp — CLI `track report --wp` end-to-end', () => {
     expect(r.out).not.toContain('WP1 · WP1')
     expect(r.out).not.toContain('\\') // text render: no backslash escapes
     expect(r.out).not.toMatch(/^TO-DO \(/m) // flat buckets suppressed
+  })
+})
+
+// ---- 5. focus-wp-enrichment — per-row WP attribution (ALL buckets) + detail block ----------------
+// The additive `wpId`/`wpLabel`/`detail` fields let the focus app display/sort/filter by workpackage
+// and show per-item detail. Proven here for a DONE leaf (not only open items), an orphan (no WP), and
+// parity with the directive's `scope` for the same item.
+
+describe('focus-wp-enrichment — every bucket row carries WP + detail', () => {
+  // FR gloss the row's machine acceptance is glossed to (mirrors ACCEPTANCE_FR in build.ts).
+  const FR: Record<string, string> = {
+    pass: 'recette OK',
+    fail: 'recette en échec',
+    stale: 'recette obsolète (à rejouer)',
+    waived: 'recette dérogée',
+    unknown: 'recette non évaluée',
+    'n/a': 'sans recette',
+  }
+
+  it('attaches wpId/wpLabel to a DONE leaf (not only open items), matching the directive scope', () => {
+    const wp = t.createItem({ kind: 'chore', title: 'WP1 — Theme', workspace: 'ws', role: 'workpackage' })
+    const doneLeaf = t.createItem({ kind: 'feature', title: 'done-leaf', workspace: 'ws', parentId: wp, body: '  Ship the\n  thing  ' })
+    done(doneLeaf)
+    const todoLeaf = t.createItem({ kind: 'feature', title: 'todo-leaf', workspace: 'ws', parentId: wp })
+    const orphan = t.createItem({ kind: 'feature', title: 'orphan', workspace: 'ws' }) // no WP ancestor
+
+    const reader = new TrackReader(eventsPath)
+    const report = reader.report({ ...base, wpTree: true })
+    const rowById = new Map(
+      [
+        ...report.buckets.DONE,
+        ...report.buckets['TO-DO'],
+        ...report.buckets.AWAITED,
+        ...report.buckets.DROPPED,
+      ].map((r) => [r.id, r]),
+    )
+
+    // DONE leaf is enriched too — the whole point (WP derivable for EVERY bucket, not only open ones).
+    const d = rowById.get(doneLeaf)!
+    expect(d.bucket).toBe('DONE')
+    expect(d.wpId).toBe(wp)
+    expect(d.wpLabel).toBe('WP1')
+    expect(d.detail.summary).toBe('Ship the thing') // cleaned to one line, whitespace collapsed
+    expect(d.detail.acceptanceLabel).toBe(FR[d.acceptance]) // recette state 'en clair'
+
+    // TO-DO leaf: same WP; no body ⇒ summary drop-when-absent; detail still present.
+    const td = rowById.get(todoLeaf)!
+    expect(td.wpId).toBe(wp)
+    expect(td.wpLabel).toBe('WP1')
+    expect(td.detail.summary).toBeUndefined()
+    expect(td.detail.acceptanceLabel).toBe(FR[td.acceptance])
+
+    // Orphan (no WP ancestor) ⇒ wpId/wpLabel drop-when-absent; detail block still present.
+    const o = rowById.get(orphan)!
+    expect(o.wpId).toBeUndefined()
+    expect(o.wpLabel).toBeUndefined()
+    expect(o.detail.acceptanceLabel).toBe(FR[o.acceptance])
+
+    // Parity: a row's wpId/wpLabel == the matching directive's scope for the SAME item (one source of truth).
+    const view = buildWpConductorView(report.wpTree!, report.decisions ?? [])
+    const dir = view.directives.find((x) => x.target.id === todoLeaf)
+    expect(dir?.scope.wpId).toBe(td.wpId)
+    expect(dir?.scope.wpLabel).toBe(td.wpLabel)
   })
 })

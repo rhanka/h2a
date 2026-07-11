@@ -158,9 +158,13 @@ describe('read contract — version + curated surface (snapshot gate)', () => {
   it('pins the report-row shape so a breaking field change fails CI', () => {
     track.importBranch(FIXTURE, { locator: L })
     const row = reader.query({}, OPTS)[0]!
+    // `detail` is the ADDITIVE focus-wp-enrichment block — always present (body excerpt + recette en clair).
+    // `wpId`/`wpLabel` are additive too but drop-when-absent, so they only appear on a row inside a WP forest
+    // (this fixture's first row is outside one). Existing keys are UNCHANGED (additive, never mutated).
     expect(Object.keys(row).sort()).toEqual([
       'acceptance',
       'bucket',
+      'detail',
       'id',
       'kind',
       'realization',
