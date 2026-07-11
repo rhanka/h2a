@@ -11,6 +11,7 @@
     ButtonGroup,
     Checkbox,
     Alert,
+    ContentSwitcher,
     EmptyState
   } from '@sentropic/design-system-svelte';
   import type { Tone, TodoRow } from '$lib/track-model';
@@ -35,6 +36,16 @@
   const repo = focus.ok ? focus.repo : '';
 
   const launchableIds = todos.filter((t) => t.launchable).map((t) => t.id);
+
+  // ---- FAIT period filter (jour / semaine / mois / tout) ----
+  let period = $state<'jour' | 'semaine' | 'mois' | 'tout'>('mois');
+  function withinPeriod(iso: string | undefined): boolean {
+    if (period === 'tout') return true;
+    if (!iso) return false;
+    const days = (Date.now() - Date.parse(iso)) / 86_400_000;
+    return period === 'jour' ? days < 1 : period === 'semaine' ? days < 7 : days < 31;
+  }
+  const doneShown = $derived(done.filter((d) => withinPeriod(d.doneAt)));
 
   // ---- selection + bulk-launch state ----
   let selected = $state<string[]>([]);
@@ -164,15 +175,28 @@
             <Card><div class="stat"><div class="stat-n">{counts.decisions}</div><div class="stat-l">Décisions</div></div></Card>
           </Flex>
 
-          <!-- ========== 1. FAIT (en haut, visible, compact) ========== -->
+          <!-- ========== 1. FAIT (en haut, visible, filtrable par période) ========== -->
           <section>
-            <h2 class="sec">Fait <span class="sec-n">({counts.done})</span></h2>
-            {#if done.length}
+            <Flex align="center" justify="between" wrap gap={3}>
+              <h2 class="sec" style="margin:0">Fait <span class="sec-n">({doneShown.length})</span></h2>
+              <ContentSwitcher
+                items={[
+                  { value: 'jour', label: 'Jour' },
+                  { value: 'semaine', label: 'Semaine' },
+                  { value: 'mois', label: 'Mois' },
+                  { value: 'tout', label: 'Tout' }
+                ]}
+                bind:value={period}
+                label="Période des faits"
+              />
+            </Flex>
+            <div class="sp"></div>
+            {#if doneShown.length}
               <div class="tscroll">
-                <DataTable columns={doneColumns} rows={done} pageSize={5} emptyLabel="Rien de terminé" />
+                <DataTable columns={doneColumns} rows={doneShown} pageSize={8} emptyLabel="Rien sur cette période" />
               </div>
             {:else}
-              <EmptyState title="Rien de terminé" message="Les tâches livrées apparaîtront ici." />
+              <EmptyState title="Rien de terminé sur cette période" message="Élargis la période (Semaine / Mois / Tout)." />
             {/if}
           </section>
 

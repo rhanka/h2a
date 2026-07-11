@@ -69,20 +69,23 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const root = repoRoot();
   const project = report.repo;
-  const targets = liveAgentsForProject(root, project);
 
   const question = d.gate?.blockedByTitle?.trim() || subjectOf(d);
   const action = stepAction(d.step.code);
 
-  if (targets.length === 0) {
+  // The decision goes back to WHOEVER EMITTED THIS FOCUS: when h2a serves the app it passes its own instance
+  // as FOCUS_EMITTER_INSTANCE, and that's the recipient — straightforward, no guessing. We only fall back to
+  // discovering a live agent of the project when the emitter isn't declared (e.g. a bare `node build` run).
+  const emitter = process.env.FOCUS_EMITTER_INSTANCE?.trim();
+  const target = emitter || liveAgentsForProject(root, project)[0];
+
+  if (!target) {
     return json({
       ok: true,
       delivered: false,
-      note: `Aucune CLI live détectée sur « ${project} » — la décision reste en attente dans track. Ouvre une session h2a sur ce projet puis réessaie.`
+      note: `Aucune CLI cible : ni émetteur du focus (FOCUS_EMITTER_INSTANCE) ni session h2a live sur « ${project} ». Sers le focus via h2a ou ouvre une session sur ce projet.`
     });
   }
-
-  const target = targets[0];
   const envelope = {
     protocol: 'sentropic.h2a',
     version: '0.1',
