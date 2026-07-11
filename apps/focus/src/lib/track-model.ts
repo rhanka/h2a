@@ -103,6 +103,7 @@ export interface Buckets {
 
 export interface ReportPayload {
   ok: true;
+  repo: string;
   baselineCommit: string;
   generatedAt: string;
   buckets: Buckets;
@@ -295,19 +296,41 @@ export interface DecisionCard {
   concerns: string;
   action: string;
   actor: string;
+  /** The project the decision belongs to (repo + workspace) so a multi-project focus stays legible. */
+  project: string;
+  workspace?: string;
+  wp?: string;
+  /** A one-line French summary of what the decision is about. */
+  summary: string;
 }
 
-/** The "Focus décision" cards: the genuine owner decisions, phrased as the actual question to settle. */
-export function decisionCards(view: ConductorView): DecisionCard[] {
+/** A workspace id (`ws:89c4…`) → a short, human-glanceable form. */
+function shortWorkspace(ws?: string): string | undefined {
+  if (!ws) return undefined;
+  const body = ws.startsWith('ws:') ? ws.slice(3) : ws;
+  return body.length > 10 ? `ws:${body.slice(0, 8)}…` : ws;
+}
+
+/** The decision cards: the genuine owner decisions, with the project they concern + a short summary. */
+export function decisionCards(view: ConductorView, repo: string): DecisionCard[] {
   return view.directives
     .filter((d) => d.mode === 'human-decision')
-    .map((d) => ({
-      id: d.id,
-      question: d.gate?.blockedByTitle ? clean(d.gate.blockedByTitle) : subjectOf(d),
-      concerns: subjectOf(d),
-      action: stepAction(d.step.code),
-      actor: modeActor(d.mode)
-    }));
+    .map((d) => {
+      const concerns = subjectOf(d);
+      const wp = d.scope.wpLabel;
+      const why = gatePhrase(d.gate) ?? 'Décision d’orientation à trancher';
+      return {
+        id: d.id,
+        question: d.gate?.blockedByTitle ? clean(d.gate.blockedByTitle) : concerns,
+        concerns,
+        action: stepAction(d.step.code),
+        actor: modeActor(d.mode),
+        project: repo,
+        workspace: shortWorkspace(d.target.workspace),
+        wp,
+        summary: `Concerne « ${concerns} »${wp ? ` · ${wp}` : ''} — ${why}.`
+      };
+    });
 }
 
 export interface DoneItem {
@@ -335,6 +358,7 @@ export interface KeystoneView {
  */
 export interface FocusData {
   ok: true;
+  repo: string;
   baselineCommit: string;
   generatedAt: string;
   counts: { done: number; todo: number; decisions: number };
@@ -352,6 +376,7 @@ export function buildFocusData(payload: ReportPayload | ReportError): FocusResul
   const todo = payload.buckets['TO-DO'].length + payload.buckets.AWAITED.length;
   return {
     ok: true,
+    repo: payload.repo,
     baselineCommit: payload.baselineCommit,
     generatedAt: payload.generatedAt,
     counts: {
@@ -361,7 +386,7 @@ export function buildFocusData(payload: ReportPayload | ReportError): FocusResul
     },
     todos: todoRows(v),
     precos: precoRows(v, 5),
-    decisions: decisionCards(v),
+    decisions: decisionCards(v, payload.repo),
     done: doneList(payload.buckets),
     ...(v.keystone ? { keystone: { title: clean(v.keystone.title), blocks: v.keystone.blocks } } : {})
   };
