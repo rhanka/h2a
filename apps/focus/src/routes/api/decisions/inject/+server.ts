@@ -27,23 +27,34 @@ function h2aBin(root: string): string {
   return path.join(root, 'packages', 'h2a', 'dist', 'bin.js');
 }
 
-/** Live h2a instances on the bus whose id belongs to the given project label (e.g. "…:a2a-cli:…"). */
-function liveAgentsForProject(root: string, project: string): string[] {
+/**
+ * LIVE h2a sessions of the given project, freshest first. We use `h2a sessions` (not `h2a discover`):
+ * `discover` lists every registered instance including long-dead ones, so it would hand us a stale inbox
+ * nobody reads. `sessions` returns only sessions with a current presence (`state:"live"` + heartbeat), which
+ * is exactly what we need — a decision must land where someone is actually working.
+ */
+function liveSessionsForProject(root: string, project: string): string[] {
   const bin = h2aBin(root);
   if (!existsSync(bin)) return [];
   try {
-    // discover can return thousands of registered instances → lift the 1 MB default so it isn't truncated.
-    const out = execFileSync('node', [bin, 'discover'], {
+    const out = execFileSync('node', [bin, 'sessions'], {
       cwd: root,
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024
     });
-    const list = JSON.parse(out) as { id?: string; instance?: string }[];
-    return list
-      .map((x) => x.instance ?? x.id ?? '')
-      .filter((id) => id.includes(`:${project}:`))
+    const parsed = JSON.parse(out) as unknown;
+    const arr = (Array.isArray(parsed) ? parsed : ((parsed as { sessions?: unknown[] }).sessions ?? [])) as {
+      instance?: string;
+      state?: string;
+      heartbeatAt?: string;
+    }[];
+    return arr
+      .filter((x) => x.state === 'live')
+      .filter((x) => (x.instance ?? '').includes(`:${project}:`))
       // a real CLI host, not another agent/service
-      .filter((id) => /^(claude|codex|gemini|agy|hermes|opencode):/.test(id));
+      .filter((x) => /^(claude|codex|gemini|agy|hermes|opencode):/.test(x.instance ?? ''))
+      .sort((a, b) => (b.heartbeatAt ?? '').localeCompare(a.heartbeatAt ?? ''))
+      .map((x) => x.instance as string);
   } catch {
     return [];
   }
@@ -74,16 +85,18 @@ export const POST: RequestHandler = async ({ request }) => {
   const action = stepAction(d.step.code);
 
   // The decision goes back to WHOEVER EMITTED THIS FOCUS: when h2a serves the app it passes its own instance
-  // as FOCUS_EMITTER_INSTANCE, and that's the recipient — straightforward, no guessing. We only fall back to
-  // discovering a live agent of the project when the emitter isn't declared (e.g. a bare `node build` run).
+  // as FOCUS_EMITTER_INSTANCE, and that's the recipient — straightforward, no guessing. But we only honour the
+  // emitter if it is STILL LIVE: a decision must land where someone is actually working, never in a dead inbox.
+  // When the emitter is absent or has gone stale we target the freshest live session of the project instead.
+  const live = liveSessionsForProject(root, project);
   const emitter = process.env.FOCUS_EMITTER_INSTANCE?.trim();
-  const target = emitter || liveAgentsForProject(root, project)[0];
+  const target = emitter && live.includes(emitter) ? emitter : live[0];
 
   if (!target) {
     return json({
       ok: true,
       delivered: false,
-      note: `Aucune CLI cible : ni émetteur du focus (FOCUS_EMITTER_INSTANCE) ni session h2a live sur « ${project} ». Sers le focus via h2a ou ouvre une session sur ce projet.`
+      note: `Aucune session h2a live sur « ${project} » : rien à qui remettre la décision. Ouvrez/relancez une CLI sur ce projet (ou servez le focus via h2a) puis réessayez.`
     });
   }
   const envelope = {
@@ -106,19 +119,27 @@ export const POST: RequestHandler = async ({ request }) => {
     }
   };
 
+  let recipientLive = false;
   try {
-    execFileSync('node', [h2aBin(root), 'inbox', 'put', '--instance', target, '--json', JSON.stringify(envelope)], {
-      cwd: root,
-      encoding: 'utf8'
-    });
+    const out = execFileSync(
+      'node',
+      [h2aBin(root), 'inbox', 'put', '--instance', target, '--json', JSON.stringify(envelope)],
+      { cwd: root, encoding: 'utf8' }
+    );
+    // `inbox put` reports whether the recipient is live at deposit time — surface it so the human knows
+    // whether the decision hit an active session (picked up now) or just sits in an inbox for later.
+    try {
+      recipientLive = Boolean((JSON.parse(out) as { recipientLive?: boolean }).recipientLive);
+    } catch {
+      /* older CLI without the field — leave recipientLive=false */
+    }
   } catch (e) {
     return json({ ok: false, error: `Dépôt h2a échoué : ${e instanceof Error ? e.message : String(e)}` });
   }
 
-  return json({
-    ok: true,
-    delivered: true,
-    target,
-    note: `Décision « ${question} » déposée dans l’inbox de ${target}. L’agent la verra à sa prochaine relève.`
-  });
+  const note = recipientLive
+    ? `Décision « ${question} » remise à la session live ${target} — elle la verra à sa prochaine relève d’inbox.`
+    : `Décision « ${question} » déposée dans l’inbox de ${target}, mais la session ne répond plus (présence périmée). Elle sera lue si la session reprend.`;
+
+  return json({ ok: true, delivered: true, target, recipientLive, note });
 };
