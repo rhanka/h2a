@@ -37,7 +37,11 @@
     ".": "./dist/index.js",
     "./read": "./dist/read/index.js",
     "./ingest": "./dist/ingest/index.js",
-    "./seam": "./dist/ingest/seam-schema.js"
+    "./seam": "./dist/ingest/seam-schema.js",
+    "./report/friendly": {
+      "types": "./dist/report/friendly.d.ts",
+      "import": "./dist/report/friendly.js"
+    }
   },
   "files": [
     "dist",
