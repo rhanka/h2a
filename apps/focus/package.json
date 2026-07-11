@@ -1,0 +1,28 @@
+{
+  "name": "@sentropic/focus-app",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Focus / Suivi — human-facing decision-support app for the track backlog, built on the sentropic design system.",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "svelte-kit sync && vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-node": "^5.2.12",
+    "@sveltejs/kit": "^2.53.3",
+    "@sveltejs/vite-plugin-svelte": "6.2.4",
+    "@tsconfig/svelte": "^5.0.0",
+    "@types/node": "^20.14.2",
+    "svelte": "^5.0.0",
+    "svelte-check": "^4.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.3"
+  },
+  "dependencies": {
+    "@sentropic/design-system-svelte": "^0.34.40",
+    "@sentropic/design-system-themes": "^0.11.0"
+  }
+}
