@@ -34,6 +34,7 @@
   const counts = focus.ok ? focus.counts : { done: 0, todo: 0, decisions: 0 };
   const keystone = focus.ok ? focus.keystone : undefined;
   const repo = focus.ok ? focus.repo : '';
+  const lastReleaseAt = focus.ok ? focus.lastReleaseAt : undefined;
 
   // ---- WP filter (spans BOTH Fait and À-faire) ----
   // Distinct workpackages present anywhere, sorted naturally (WP1 < WP2 < WP2.1 < WP10).
@@ -46,14 +47,24 @@
   const todosShown = $derived(todos.filter((t) => matchWp(t.wp)));
   const launchableIds = $derived(todosShown.filter((t) => t.launchable).map((t) => t.id));
 
-  // ---- FAIT period filter (jour / semaine / mois / tout) ----
-  let period = $state<'jour' | 'semaine' | 'mois' | 'tout'>('mois');
+  // ---- FAIT period filter (jour / semaine / mois / depuis dev / tout) ----
+  // "dev" = the current dev period, i.e. everything delivered SINCE the last release (lastReleaseAt).
+  let period = $state<'jour' | 'semaine' | 'mois' | 'dev' | 'tout'>('mois');
   function withinPeriod(iso: string | undefined): boolean {
     if (period === 'tout') return true;
     if (!iso) return false;
+    if (period === 'dev') return lastReleaseAt ? Date.parse(iso) >= Date.parse(lastReleaseAt) : false;
     const days = (Date.now() - Date.parse(iso)) / 86_400_000;
     return period === 'jour' ? days < 1 : period === 'semaine' ? days < 7 : days < 31;
   }
+  // "Depuis dev" only makes sense when we know when the last release was cut.
+  const periodItems = [
+    { value: 'jour', label: 'Jour' },
+    { value: 'semaine', label: 'Semaine' },
+    { value: 'mois', label: 'Mois' },
+    ...(lastReleaseAt ? [{ value: 'dev', label: 'Depuis dev' }] : []),
+    { value: 'tout', label: 'Tout' }
+  ];
   const doneShown = $derived(done.filter((d) => withinPeriod(d.doneAt) && matchWp(d.wp)));
 
   // ---- selection + bulk-launch state ----
@@ -95,8 +106,8 @@
   ]);
   const doneColumns = [
     { key: 'title', label: 'Sujet', cell: doneTitleCell },
-    { key: 'wp', label: 'WP', width: '6rem' },
-    { key: 'kind', label: 'Type', width: '7.5rem' },
+    { key: 'wp', label: 'WP', width: '6rem', sortable: true },
+    { key: 'kind', label: 'Type', width: '7.5rem', sortable: true },
     { key: 'ago', label: 'Réalisé', width: '8rem' }
   ];
 
@@ -161,6 +172,7 @@
 {#snippet doneTitleCell(row: DoneItem)}
   <div>
     <div style="line-height:1.35">{row.title}</div>
+    {#if row.summary}<div style="font-size:.8em; opacity:.72; margin-top:3px; line-height:1.35">{row.summary}</div>{/if}
     {#if row.acceptance}
       <div
         style="font-size:.76em; margin-top:3px; opacity:.7; color:{row.acceptance.includes('échec')
@@ -223,16 +235,7 @@
           <section>
             <Flex align="center" justify="between" wrap gap={3}>
               <h2 class="sec" style="margin:0">Fait <span class="sec-n">({doneShown.length})</span></h2>
-              <ContentSwitcher
-                items={[
-                  { value: 'jour', label: 'Jour' },
-                  { value: 'semaine', label: 'Semaine' },
-                  { value: 'mois', label: 'Mois' },
-                  { value: 'tout', label: 'Tout' }
-                ]}
-                bind:value={period}
-                label="Période des faits"
-              />
+              <ContentSwitcher items={periodItems} bind:value={period} label="Période des faits" />
             </Flex>
             <div class="sp"></div>
             {#if doneShown.length}
