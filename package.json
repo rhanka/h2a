@@ -5,7 +5,8 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "!apps/focus"
   ],
   "scripts": {
     "build": "npm run build -w @sentropic/track && tsc -b",
