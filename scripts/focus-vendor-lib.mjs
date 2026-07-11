@@ -133,8 +133,11 @@ export function compareTrees(distRoot, vendorRoot) {
   const differ = []
   for (const f of expected) {
     if (!actual.has(f)) continue
+    // Normalize BOTH sides through the same vendor-shape transform (strips sourceMappingURL
+    // + CRLF→LF). The committed vendor is LF, but Windows CI checks it out via git autocrlf
+    // as CRLF, so the raw `have` bytes carry CRLF there — normalize it too, else false drift.
     const want = expectedVendorBytes(f, readFileSync(join(distRoot, f)))
-    const have = readFileSync(join(vendorRoot, f))
+    const have = expectedVendorBytes(f, readFileSync(join(vendorRoot, f)))
     if (!want.equals(have)) differ.push(f)
   }
   const equal = missing.length === 0 && extra.length === 0 && differ.length === 0
