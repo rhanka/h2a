@@ -108,6 +108,8 @@ export interface ReportPayload {
   generatedAt: string;
   buckets: Buckets;
   view: ConductorView;
+  /** itemId → ISO date it was last marked done (for the "réalisé le" / recency of the FAIT list). */
+  dates: Record<string, string>;
 }
 export interface ReportError {
   ok: false;
@@ -337,14 +339,44 @@ export interface DoneItem {
   id: string;
   title: string;
   kind: string;
+  doneAt?: string;
+  /** A short French relative date ("aujourd'hui", "il y a 3 j", "il y a 2 ans"). */
+  ago?: string;
 }
 
-/** The FAIT list: delivered items, French-labelled and length-clamped. */
-export function doneList(buckets: Buckets): DoneItem[] {
+/** ISO date → a short French relative-time string, at day/month/year granularity (never a raw timestamp). */
+export function frenchAgo(iso: string | undefined, now: number = Date.now()): string | undefined {
+  if (!iso) return undefined;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return undefined;
+  const days = Math.floor((now - t) / 86_400_000);
+  if (days <= 0) return "aujourd'hui";
+  if (days === 1) return 'hier';
+  if (days < 7) return `il y a ${days} j`;
+  if (days < 31) return `il y a ${Math.floor(days / 7)} sem.`;
+  if (days < 365) return `il y a ${Math.floor(days / 30)} mois`;
+  const years = Math.floor(days / 365);
+  return `il y a ${years} an${years > 1 ? 's' : ''}`;
+}
+
+/**
+ * The FAIT list: delivered items, French-labelled, length-clamped, DATED, and ordered MOST-RECENT FIRST so
+ * the report reads as "what was done lately" (dated items float to the top; undated ones fall to the bottom).
+ * Capped to keep the fold light — the full history stays in track.
+ */
+export function doneList(buckets: Buckets, dates: Record<string, string>, limit = 30): DoneItem[] {
   return buckets.DONE.map((d) => {
     const t = clean(d.title);
-    return { id: d.id, title: t.length > 100 ? t.slice(0, 98) + '…' : t, kind: kindFr(d.kind) };
-  });
+    const doneAt = dates[d.id];
+    return {
+      id: d.id,
+      title: t.length > 100 ? t.slice(0, 98) + '…' : t,
+      kind: kindFr(d.kind),
+      ...(doneAt ? { doneAt, ago: frenchAgo(doneAt) } : {})
+    };
+  })
+    .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''))
+    .slice(0, limit);
 }
 
 export interface KeystoneView {
@@ -387,7 +419,7 @@ export function buildFocusData(payload: ReportPayload | ReportError): FocusResul
     todos: todoRows(v),
     precos: precoRows(v, 5),
     decisions: decisionCards(v, payload.repo),
-    done: doneList(payload.buckets),
+    done: doneList(payload.buckets, payload.dates),
     ...(v.keystone ? { keystone: { title: clean(v.keystone.title), blocks: v.keystone.blocks } } : {})
   };
 }
