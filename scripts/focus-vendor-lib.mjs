@@ -95,7 +95,11 @@ export function buildFocusDist() {
  */
 export function expectedVendorBytes(relPath, distBytes) {
   if (!(relPath.endsWith('.js') || relPath.endsWith('.d.ts'))) return distBytes
-  const text = distBytes.toString('utf8')
+  // Normalize CRLF→LF: tsc emits the platform's newline (CRLF on Windows CI), so a
+  // fresh Windows build otherwise "drifts" from the LF vendor byte-for-byte. Applied to
+  // BOTH the compare path and the re-vendor path (this is the single vendor-shape def),
+  // so the snapshot is deterministic on every OS. Vendor stays LF (no-op on Linux).
+  const text = distBytes.toString('utf8').replace(/\r\n/g, '\n')
   // tsc appends the map comment as the final line (no trailing newline). Remove
   // it and the newline that separated it from the last real line.
   const stripped = text.replace(/\n\/\/# sourceMappingURL=[^\n]*\n?$/, '\n')
