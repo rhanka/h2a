@@ -11,7 +11,6 @@
     ButtonGroup,
     Checkbox,
     Alert,
-    ContentSwitcher,
     EmptyState
   } from '@sentropic/design-system-svelte';
   import type { Tone, TodoRow } from '$lib/track-model';
@@ -20,7 +19,6 @@
   let { data }: { data: PageData } = $props();
   const focus = data.focus;
 
-  // Map a semantic tone (from the FR reading layer) onto a DS Badge tone (exact union).
   function badgeTone(t: Tone): 'neutral' | 'success' | 'warning' | 'error' | 'info' {
     return { critical: 'error', warning: 'warning', info: 'info', neutral: 'neutral', positive: 'success' }[
       t
@@ -34,11 +32,11 @@
   const done = focus.ok ? focus.done : [];
   const counts = focus.ok ? focus.counts : { done: 0, todo: 0, decisions: 0 };
   const keystone = focus.ok ? focus.keystone : undefined;
+  const repo = focus.ok ? focus.repo : '';
 
   const launchableIds = todos.filter((t) => t.launchable).map((t) => t.id);
 
   // ---- selection + bulk-launch state ----
-  let tab = $state('suivi');
   let selected = $state<string[]>([]);
   let launching = $state(false);
   let launchResult = $state<any>(null);
@@ -68,15 +66,12 @@
     }
   }
 
-  // ---- DataTable column defs (cells are markup snippets defined below) ----
-  // Built lazily via $derived.by so the snippet references resolve at render time (after the markup
-  // snippets exist), never during the initial script pass.
   const todoColumns = $derived.by(() => [
-    { key: 'sel', label: '', width: '3.5rem', sortable: false, cell: selCell },
+    { key: 'sel', label: '', width: '3.25rem', sortable: false, cell: selCell },
     { key: 'subject', label: 'Sujet', cell: subjectCell },
     { key: 'action', label: 'Action concrète', cell: actionCell },
-    { key: 'actor', label: 'Acteur', width: '12rem', cell: actorCell },
-    { key: 'badge', label: 'Priorité', width: '9rem', sortable: false, cell: prioCell }
+    { key: 'actor', label: 'Acteur', width: '11rem', cell: actorCell },
+    { key: 'badge', label: 'Priorité', width: '8.5rem', sortable: false, cell: prioCell }
   ]);
   const doneColumns = [
     { key: 'title', label: 'Sujet' },
@@ -92,9 +87,7 @@
       onchange={(e: Event) => toggle(row.id, (e.currentTarget as HTMLInputElement).checked)}
     />
   {:else}
-    <span title="Non lançable par un sous-agent (requiert un humain ou un partenaire)" style="opacity:.4"
-      >—</span
-    >
+    <span title="Non lançable par un sous-agent (requiert un humain ou un partenaire)" style="opacity:.4">—</span>
   {/if}
 {/snippet}
 
@@ -109,9 +102,7 @@
 {#snippet actionCell(row: TodoRow)}
   <div>
     <div>{row.action}</div>
-    {#if row.fanIn}<div style="font-size:.78em; opacity:.7; margin-top:3px">
-        Débloque {row.fanIn} autre(s)
-      </div>{/if}
+    {#if row.fanIn}<div style="font-size:.78em; opacity:.7; margin-top:3px">Débloque {row.fanIn} autre(s)</div>{/if}
   </div>
 {/snippet}
 
@@ -131,7 +122,10 @@
     <AppHeader brandName="Focus" productName="Suivi & décision" brandMode="full">
       {#snippet actions()}
         {#if focus.ok}
-          <span style="font-size:.8em; opacity:.65">commit {focus.baselineCommit.slice(0, 7)}</span>
+          <Flex gap={2} align="center" wrap>
+            <Badge tone="neutral" size="sm">Projet : {repo}</Badge>
+            <span style="font-size:.78em; opacity:.6">commit {focus.baselineCommit.slice(0, 7)}</span>
+          </Flex>
         {/if}
       {/snippet}
     </AppHeader>
@@ -139,167 +133,151 @@
 
   {#snippet main()}
     <Container size="xl" padding>
-      <div style="padding: 1.5rem 0 3rem">
-        <ContentSwitcher
-          items={[
-            { value: 'suivi', label: 'Suivi' },
-            { value: 'focus', label: 'Focus décision' }
-          ]}
-          bind:value={tab}
-          label="Choisir la vue"
-        />
-        <div style="height:1.25rem"></div>
-
+      <div class="page">
         {#if !focus.ok}
           <Alert tone="error" title="Impossible de charger le suivi" message={focus.error} />
-        {:else if tab === 'suivi'}
-          <!-- résumé -->
-          <Flex gap={4} wrap>
-            <Card>
-              <div style="padding:1rem 1.25rem; min-width:8rem">
-                <div style="font-size:1.9em; font-weight:700">{counts.done}</div>
-                <div style="opacity:.7">Faits</div>
-              </div>
-            </Card>
-            <Card>
-              <div style="padding:1rem 1.25rem; min-width:8rem">
-                <div style="font-size:1.9em; font-weight:700">{counts.todo}</div>
-                <div style="opacity:.7">À faire</div>
-              </div>
-            </Card>
-            <Card>
-              <div style="padding:1rem 1.25rem; min-width:8rem">
-                <div style="font-size:1.9em; font-weight:700">{counts.decisions}</div>
-                <div style="opacity:.7">Décisions en attente</div>
-              </div>
-            </Card>
+        {:else}
+          <!-- résumé chiffré (toujours visible) -->
+          <Flex gap={3} wrap>
+            <Card><div class="stat"><div class="stat-n">{counts.done}</div><div class="stat-l">Faits</div></div></Card>
+            <Card><div class="stat"><div class="stat-n">{counts.todo}</div><div class="stat-l">À faire</div></div></Card>
+            <Card><div class="stat"><div class="stat-n">{counts.decisions}</div><div class="stat-l">Décisions</div></div></Card>
           </Flex>
 
-          <div style="height:1.25rem"></div>
+          <!-- ========== 1. FAIT (en haut, visible, compact) ========== -->
+          <section>
+            <h2 class="sec">Fait <span class="sec-n">({counts.done})</span></h2>
+            {#if done.length}
+              <div class="tscroll">
+                <DataTable columns={doneColumns} rows={done} pageSize={5} emptyLabel="Rien de terminé" />
+              </div>
+            {:else}
+              <EmptyState title="Rien de terminé" message="Les tâches livrées apparaîtront ici." />
+            {/if}
+          </section>
 
-          <!-- PRÉCO : les vrais coups à plus fort levier -->
-          <Card>
-            <div style="padding:1.25rem 1.5rem">
-              <h2 style="margin:0 0 .2rem; font-size:1.15rem">Préconisations — coups à plus fort levier</h2>
-              <p style="margin:0 0 1rem; opacity:.7">
-                Dérivées de l'état réel du backlog, pas d'un simple « prendre le premier item ».
-              </p>
-              {#if keystone}
+          <!-- ========== 2. À FAIRE (avec lancement en masse) ========== -->
+          <section>
+            <h2 class="sec">À faire <span class="sec-n">({counts.todo})</span></h2>
+
+            {#if launchResult}
+              {#if launchResult.ok}
                 <Alert
-                  tone="warning"
-                  title={`Point de passage : ${keystone.title}`}
-                  message={`Cet élément bloque ${keystone.blocks} autre(s) tâche(s) — le traiter débloque le plus de travail.`}
-                />
-                <div style="height:.85rem"></div>
+                  tone={launchResult.rejected?.length ? 'warning' : 'success'}
+                  title={`${launchResult.accepted.length} action(s) acceptée(s)${launchResult.rejected?.length ? `, ${launchResult.rejected.length} refusée(s)` : ''}`}
+                  message={launchResult.note}
+                >
+                  {#snippet actions()}
+                    <Button size="sm" variant="ghost" onclick={() => (launchResult = null)}>Fermer</Button>
+                  {/snippet}
+                </Alert>
+                <div class="sp"></div>
+              {:else}
+                <Alert tone="error" title="Échec du lancement" message={launchResult.error} />
+                <div class="sp"></div>
               {/if}
-              <Flex direction="column" gap={3}>
-                {#each precos as p (p.id)}
-                  <div>
-                    <Flex gap={2} align="center" wrap>
-                      <Badge tone={badgeTone(p.badge.tone)}>{p.badge.label}</Badge>
-                      <strong>{p.title}</strong>
-                    </Flex>
-                    <div style="opacity:.75; font-size:.9em; margin-top:3px">
-                      {p.why} · {p.action} · {p.actor}
+            {/if}
+
+            <Flex align="center" justify="between" wrap gap={3}>
+              <div style="opacity:.8; font-size:.9em">
+                {selected.length} sélectionnée(s) sur {launchableIds.length} lançable(s)
+              </div>
+              <ButtonGroup label="Actions groupées">
+                <Button variant="secondary" onclick={selectAll} disabled={launchableIds.length === 0}>Tout sélectionner</Button>
+                <Button variant="ghost" onclick={clearSel} disabled={selected.length === 0}>Vider</Button>
+                <Button variant="primary" onclick={launch} disabled={selected.length === 0 || launching}>
+                  {launching ? 'Lancement…' : `Lancer la sélection (${selected.length})`}
+                </Button>
+              </ButtonGroup>
+            </Flex>
+
+            <div class="sp"></div>
+
+            <div class="tscroll">
+              <DataTable columns={todoColumns} rows={todos} caption="Actions à faire" emptyLabel="Aucune action ouverte" />
+            </div>
+          </section>
+
+          <!-- ========== 3. LEVIERS (avant les décisions) ========== -->
+          <section>
+            <h2 class="sec">Leviers — les coups à plus fort effet</h2>
+            {#if keystone}
+              <Alert
+                tone="warning"
+                title={`Point de passage : ${keystone.title}`}
+                message={`Bloque ${keystone.blocks} autre(s) tâche(s) — le traiter débloque le plus de travail.`}
+              />
+              <div class="sp"></div>
+            {/if}
+            <Card>
+              <div style="padding:1rem 1.25rem">
+                <Flex direction="column" gap={3}>
+                  {#each precos as p (p.id)}
+                    <div>
+                      <Flex gap={2} align="center" wrap>
+                        <Badge tone={badgeTone(p.badge.tone)}>{p.badge.label}</Badge>
+                        <strong>{p.title}</strong>
+                      </Flex>
+                      <div style="opacity:.75; font-size:.9em; margin-top:3px">{p.why} · {p.action} · {p.actor}</div>
                     </div>
-                  </div>
+                  {/each}
+                </Flex>
+              </div>
+            </Card>
+          </section>
+
+          <!-- ========== 4. DÉCISIONS (projet + résumé) ========== -->
+          <section>
+            <h2 class="sec">Décisions <span class="sec-n">({counts.decisions})</span></h2>
+            {#if decisions.length === 0}
+              <EmptyState title="Aucune décision en attente" message="Rien à trancher pour le moment." />
+            {:else}
+              <Flex direction="column" gap={3}>
+                {#each decisions as d (d.id)}
+                  <Card>
+                    <div style="padding:1.1rem 1.35rem">
+                      <Flex gap={2} align="center" wrap>
+                        <Badge tone="info">Décision</Badge>
+                        <Badge tone="neutral" size="sm">{d.project}</Badge>
+                        {#if d.workspace}<Badge tone="neutral" size="sm">{d.workspace}</Badge>{/if}
+                        {#if d.wp}<Badge tone="neutral" size="sm">{d.wp}</Badge>{/if}
+                      </Flex>
+                      <h3 style="margin:.55rem 0 .3rem; font-size:1.05rem; line-height:1.3">{d.question}</h3>
+                      <p style="margin:0 0 .5rem; opacity:.72; font-size:.92em">{d.summary}</p>
+                      <div style="opacity:.85; font-size:.92em">{d.action} — {d.actor}</div>
+                    </div>
+                  </Card>
                 {/each}
               </Flex>
-            </div>
-          </Card>
-
-          <div style="height:1.5rem"></div>
-
-          <!-- accusé de lancement -->
-          {#if launchResult}
-            {#if launchResult.ok}
-              <Alert
-                tone={launchResult.rejected?.length ? 'warning' : 'success'}
-                title={`${launchResult.accepted.length} action(s) acceptée(s)${launchResult.rejected?.length ? `, ${launchResult.rejected.length} refusée(s)` : ''}`}
-                message={launchResult.note}
-              >
-                {#snippet actions()}
-                  <Button size="sm" variant="ghost" onclick={() => (launchResult = null)}>Fermer</Button>
-                {/snippet}
-              </Alert>
-              <div style="height:1rem"></div>
-            {:else}
-              <Alert tone="error" title="Échec du lancement" message={launchResult.error} />
-              <div style="height:1rem"></div>
             {/if}
-          {/if}
+          </section>
 
-          <!-- barre d'actions groupées -->
-          <Flex align="center" justify="between" wrap gap={3}>
-            <div style="opacity:.8">
-              {selected.length} action(s) sélectionnée(s) sur {launchableIds.length} lançable(s)
-            </div>
-            <ButtonGroup label="Actions groupées">
-              <Button variant="secondary" onclick={selectAll} disabled={launchableIds.length === 0}>
-                Tout sélectionner
-              </Button>
-              <Button variant="ghost" onclick={clearSel} disabled={selected.length === 0}>Vider</Button>
-              <Button
-                variant="primary"
-                onclick={launch}
-                disabled={selected.length === 0 || launching}
-              >
-                {launching ? 'Lancement…' : `Lancer les actions sélectionnées (${selected.length})`}
-              </Button>
-            </ButtonGroup>
-          </Flex>
-
-          <div style="height:.85rem"></div>
-
-          <!-- À-FAIRE -->
-          <DataTable
-            columns={todoColumns}
-            rows={todos}
-            caption="Actions à faire"
-            emptyLabel="Aucune action ouverte"
-          />
-
-          <div style="height:1.75rem"></div>
-
-          <!-- FAIT -->
-          <h2 style="font-size:1.15rem; margin:0 0 .6rem">Fait</h2>
-          {#if done.length}
-            <DataTable columns={doneColumns} rows={done} pageSize={8} emptyLabel="Rien de terminé" />
-          {:else}
-            <EmptyState title="Rien de terminé pour l'instant" message="Les tâches livrées apparaîtront ici." />
-          {/if}
-        {:else}
-          <!-- Focus décision -->
-          {#if decisions.length === 0}
-            <EmptyState
-              title="Aucune décision en attente"
-              message="Rien à trancher pour le moment — revenez à l'onglet Suivi."
-            />
-          {:else}
-            <p style="opacity:.7; margin:0 0 1rem">
-              Les décisions à trancher, formulées en clair. La décision se règle dans track (cette vue est en
-              lecture).
-            </p>
-            <Flex direction="column" gap={4}>
-              {#each decisions as d (d.id)}
-                <Card>
-                  <div style="padding:1.25rem 1.5rem">
-                    <Badge tone="info">Décision</Badge>
-                    <h3 style="margin:.5rem 0 .3rem; font-size:1.05rem">{d.question}</h3>
-                    <p style="margin:0; opacity:.72">Concerne : {d.concerns}</p>
-                    <div style="margin-top:.6rem; opacity:.85">{d.action} — {d.actor}</div>
-                  </div>
-                </Card>
-              {/each}
-            </Flex>
-          {/if}
+          <div class="foot">
+            Généré le {focus.ok ? focus.generatedAt : ''} · source : track (système de référence, lecture seule)
+          </div>
         {/if}
-
-        <div style="height:1.5rem"></div>
-        <div style="opacity:.45; font-size:.75em">
-          Généré le {focus.ok ? focus.generatedAt : ''} · source : track (système de référence, lecture seule)
-        </div>
       </div>
     </Container>
   {/snippet}
 </AppShell>
+
+<style>
+  .page { padding: 1.25rem 0 3rem; }
+  section { margin-top: 1.9rem; }
+  .sec { font-size: 1.15rem; margin: 0 0 .7rem; }
+  .sec-n { opacity: .5; font-weight: 400; font-size: .9rem; }
+  .stat { padding: .9rem 1.15rem; min-width: 6.5rem; }
+  .stat-n { font-size: 1.8em; font-weight: 700; }
+  .stat-l { opacity: .7; font-size: .9em; }
+  .sp { height: .9rem; }
+  .foot { opacity: .45; font-size: .75em; margin-top: 2rem; }
+  /* responsive: tables never break the layout on a phone — they scroll on their own */
+  .tscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  @media (max-width: 640px) {
+    .page { padding: .75rem 0 2rem; }
+    section { margin-top: 1.4rem; }
+    .sec { font-size: 1.05rem; }
+    .stat { min-width: 5rem; padding: .7rem .85rem; }
+    .stat-n { font-size: 1.45em; }
+  }
+</style>
