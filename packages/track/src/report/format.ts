@@ -7,9 +7,12 @@ import {
   dispatchQueueOf,
   keystoneOf,
   type Directive,
-  type DirectiveStepCode,
   type Keystone,
 } from './directive.js'
+// Unified report presentation (spec 2026-07-11) — the SINGLE enum→French lexicon the cockpit shares, so
+// the two surfaces can never re-word apart. The terminal composes its own `<nature> (<actor>): <clause>`
+// sentence but sources the canonical action clause + scope label from here.
+import { directiveScopeLabelFr as directiveScopeLabel, stepActionFr } from './friendly.js'
 
 export type Format = 'json' | 'text' | 'md'
 
@@ -403,6 +406,10 @@ export function directivePhrase(d: Directive): string {
   // `sujet` column does NOT already carry). All interpolated titles/refs are RAW here — the render layer
   // (table `esc`, inline `clean`, html `escapeHtml`) escapes them (§A4). A decision surfaces as a "décision"
   // line ONLY when it genuinely blocks (mode `human-decision`); otherwise the phrase préconise a step.
+  //
+  // Unified presentation (spec 2026-07-11) — the action CLAUSE is the shared canonical `stepActionFr`, so
+  // the terminal and the cockpit can never re-word apart. The terminal keeps its OWN compact sentence frame
+  // (`<nature> (<actor>): <clause>`) and its blocked-by suffix: those are renderer-owned, not shared.
   const on = (): string => {
     const t = d.gate?.blockedByTitle
     if (t !== undefined && t.trim() !== '') return ` sur « ${t} »`
@@ -411,36 +418,17 @@ export function directivePhrase(d: Directive): string {
   }
   if (d.mode === 'human-decision') {
     const who = d.facts.accountable ?? 'owner'
-    return d.step.code === 'focus-decision'
-      ? `décision (${who}): instruire le dossier (questions/options) puis trancher outcome`
-      : `décision (${who}): trancher outcome`
+    return `décision (${who}): ${stepActionFr(d.step.code)}`
   }
   if (d.mode === 'h2a-engagement') {
     const ref = d.gate?.ref
-    return `engagement (h2a): relancer l'engagement${ref !== undefined && ref.trim() !== '' ? ` ${ref}` : ''} puis intégrer le retour`
+    return `engagement (h2a): ${stepActionFr(d.step.code)}${ref !== undefined && ref.trim() !== '' ? ` ${ref}` : ''}`
   }
   const mode = d.mode === 'local' ? 'local' : 'subagent'
-  const phrase: Record<DirectiveStepCode, string> = {
-    'focus-decision': `action (${mode}): instruire le dossier puis trancher outcome`,
-    'settle-decision': `action (${mode}): trancher outcome`,
-    'resume-engagement': `action (${mode}): relancer l'engagement puis intégrer le retour`,
-    'resolve-external-blocker': `action (${mode}): lever le blocage${on()} puis reprendre`,
-    'amend-spec': `action (${mode}): spécifier avant de démarrer l'incrément`,
-    'fix-acceptance': `action (${mode}): corriger puis revalider l'acceptance (fail)`,
-    'rerun-acceptance': `action (${mode}): relancer l'acceptance (stale) sur le commit courant`,
-    'finish-increment': `action (${mode}): terminer l'incrément en cours${on()}`,
-    'start-increment': `action (${mode}): démarrer l'incrément puis enregistrer preuve/acceptance`,
-    'prioritize-backlog': `action (${mode}): prioriser le backlog (WSJF absent) puis reprendre`,
-    'inspect-fallback': `action (${mode}): inspecter l'état puis décider la suite`,
-  }
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition — `step.code` may be an UNKNOWN
-  // future vocabulary entry (governed/additive enums): fall back rather than render `undefined`.
-  return phrase[d.step.code] ?? `action (${mode}): inspecter l'état puis décider la suite`
-}
-
-/** The `scope/gate` cell for a directive row: its gate code if any, else the WP label, else `-`. */
-function directiveScopeLabel(d: Directive): string {
-  return d.gate?.code ?? d.scope.wpLabel ?? '-'
+  // The blocked-by detail (`sur « … »` / `(réf …)`) is info the single `préconisation` column adds beyond
+  // the shared clause; the two steps that name a blocking target keep it.
+  const suffix = d.step.code === 'resolve-external-blocker' || d.step.code === 'finish-increment' ? on() : ''
+  return `action (${mode}): ${stepActionFr(d.step.code)}${suffix}`
 }
 
 export function buildWpConductorView(tree: readonly WpNode[], decisions: readonly DecisionRow[] = []): ReportView {
