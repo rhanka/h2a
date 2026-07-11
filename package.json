@@ -17,6 +17,8 @@
     "publish:h2a": "npm publish --workspace @sentropic/h2a",
     "publish:h2a-cli": "npm publish --workspace @sentropic/h2a-cli",
     "release": "node scripts/release.mjs",
+    "consensus": "node scripts/consensus-review.mjs",
+    "trace": "node scripts/track-trace.mjs",
     "vendor:focus": "node scripts/vendor-focus.mjs",
     "check:focus-vendor": "node scripts/check-focus-vendor.mjs",
     "typecheck": "npm run build -w @sentropic/track && tsc -b --pretty false",
