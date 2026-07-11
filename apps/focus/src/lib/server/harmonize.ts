@@ -244,7 +244,10 @@ export async function harmonizeFocus(data: FocusData, lang = 'fr'): Promise<Focu
     push(d.concerns);
     push(d.summary);
   }
-  for (const d of data.done) push(d.title);
+  for (const d of data.done) {
+    push(d.title);
+    push(d.summary);
+  }
   if (data.keystone) push(data.keystone.title);
 
   const map = await harmonize(texts, lang);
@@ -261,7 +264,7 @@ export async function harmonizeFocus(data: FocusData, lang = 'fr'): Promise<Focu
       concerns: tr(d.concerns),
       summary: tr(d.summary)
     })),
-    done: data.done.map((d) => ({ ...d, title: tr(d.title) })),
+    done: data.done.map((d) => ({ ...d, title: tr(d.title), summary: trOpt(d.summary) })),
     ...(data.keystone ? { keystone: { ...data.keystone, title: tr(data.keystone.title) } } : {})
   };
 }
