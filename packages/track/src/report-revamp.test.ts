@@ -127,7 +127,8 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
     const text = reportText(new TrackReader(eventsPath), { ...base, wpTree: true }, 'text')
     expect(text).toContain('DÉCISIONS/ACTIONS')
     expect(text).toMatch(/(action|décision) \(/)
-    expect(text).toMatch(/continuer|trancher|relancer/)
+    // Unified lexicon (spec 2026-07-11): the préconisation clause is the shared canonical action wording.
+    expect(text).toMatch(/trancher|rédiger|relancer|corriger|démarrer|inspecter/i)
   })
 
   it('report --flat keeps the legacy flat-bucket behavior (deprecated back-compat)', () => {
@@ -163,7 +164,9 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
     expect(text).toContain('awaited-leaf')
     // AWAITED-on-a-decision ⇒ decision recommendation, not a passive blocker line
     expect(text).toContain('décision')
-    expect(text).toContain('trancher outcome')
+    // Unified lexicon (spec 2026-07-11): settle-decision now reads "Trancher la décision" (was
+    // "trancher outcome") — the shared canonical wording the cockpit uses.
+    expect(text).toContain('Trancher la décision')
   })
 
   it('an open OPEN (TO-DO) leaf appears under its WP in À-FAIRE', () => {
