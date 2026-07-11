@@ -115,6 +115,8 @@ export interface ReportPayload {
   view: ConductorView;
   /** itemId → ISO date it was last marked done (for the "réalisé le" / recency of the FAIT list). */
   dates: Record<string, string>;
+  /** ISO date of the last release commit — anchors the "dernière période de dev" filter. */
+  lastReleaseAt?: string;
 }
 export interface ReportError {
   ok: false;
@@ -351,6 +353,8 @@ export interface DoneItem {
   wp?: string;
   /** French acceptance label ("recette OK", "recette non évaluée", …) — the verification outcome. */
   acceptance?: string;
+  /** A one-line detail/summary of what was delivered (translated at render). */
+  summary?: string;
 }
 
 /** ISO date → a short French relative-time string, at day/month/year granularity (never a raw timestamp). */
@@ -383,6 +387,9 @@ export function doneList(buckets: Buckets, dates: Record<string, string>, limit 
       kind: kindFr(d.kind),
       ...(d.wpLabel ? { wp: d.wpLabel } : {}),
       ...(d.detail?.acceptanceLabel ? { acceptance: d.detail.acceptanceLabel } : {}),
+      ...(d.detail?.summary && clean(d.detail.summary) !== clean(d.title)
+        ? { summary: clean(d.detail.summary) }
+        : {}),
       ...(doneAt ? { doneAt, ago: frenchAgo(doneAt) } : {})
     };
   })
@@ -410,6 +417,8 @@ export interface FocusData {
   decisions: DecisionCard[];
   done: DoneItem[];
   keystone?: KeystoneView;
+  /** ISO date of the last release — powers the "depuis dev" period option in the UI. */
+  lastReleaseAt?: string;
 }
 export type FocusResult = FocusData | { ok: false; error: string };
 
@@ -431,6 +440,7 @@ export function buildFocusData(payload: ReportPayload | ReportError): FocusResul
     precos: precoRows(v, 5),
     decisions: decisionCards(v, payload.repo),
     done: doneList(payload.buckets, payload.dates),
+    ...(payload.lastReleaseAt ? { lastReleaseAt: payload.lastReleaseAt } : {}),
     ...(v.keystone ? { keystone: { title: clean(v.keystone.title), blocks: v.keystone.blocks } } : {})
   };
 }
