@@ -14,7 +14,7 @@
     ContentSwitcher,
     EmptyState
   } from '@sentropic/design-system-svelte';
-  import type { Tone, TodoRow } from '$lib/track-model';
+  import type { Tone, TodoRow, DoneItem } from '$lib/track-model';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -35,7 +35,16 @@
   const keystone = focus.ok ? focus.keystone : undefined;
   const repo = focus.ok ? focus.repo : '';
 
-  const launchableIds = todos.filter((t) => t.launchable).map((t) => t.id);
+  // ---- WP filter (spans BOTH Fait and À-faire) ----
+  // Distinct workpackages present anywhere, sorted naturally (WP1 < WP2 < WP2.1 < WP10).
+  const allWps: string[] = [...new Set([...todos, ...done].map((r) => r.wp).filter((w): w is string => !!w))].sort(
+    (a, b) => a.localeCompare(b, undefined, { numeric: true })
+  );
+  let wpFilter = $state<string>('tous');
+  const matchWp = (w: string | undefined): boolean => wpFilter === 'tous' || w === wpFilter;
+
+  const todosShown = $derived(todos.filter((t) => matchWp(t.wp)));
+  const launchableIds = $derived(todosShown.filter((t) => t.launchable).map((t) => t.id));
 
   // ---- FAIT period filter (jour / semaine / mois / tout) ----
   let period = $state<'jour' | 'semaine' | 'mois' | 'tout'>('mois');
@@ -45,7 +54,7 @@
     const days = (Date.now() - Date.parse(iso)) / 86_400_000;
     return period === 'jour' ? days < 1 : period === 'semaine' ? days < 7 : days < 31;
   }
-  const doneShown = $derived(done.filter((d) => withinPeriod(d.doneAt)));
+  const doneShown = $derived(done.filter((d) => withinPeriod(d.doneAt) && matchWp(d.wp)));
 
   // ---- selection + bulk-launch state ----
   let selected = $state<string[]>([]);
@@ -85,8 +94,9 @@
     { key: 'badge', label: 'Priorité', width: '8.5rem', sortable: false, cell: prioCell }
   ]);
   const doneColumns = [
-    { key: 'title', label: 'Sujet' },
-    { key: 'kind', label: 'Type', width: '8rem' },
+    { key: 'title', label: 'Sujet', cell: doneTitleCell },
+    { key: 'wp', label: 'WP', width: '6rem' },
+    { key: 'kind', label: 'Type', width: '7.5rem' },
     { key: 'ago', label: 'Réalisé', width: '8rem' }
   ];
 
@@ -148,6 +158,21 @@
   <Badge tone={badgeTone(row.badge.tone)}>{row.badge.label}</Badge>
 {/snippet}
 
+{#snippet doneTitleCell(row: DoneItem)}
+  <div>
+    <div style="line-height:1.35">{row.title}</div>
+    {#if row.acceptance}
+      <div
+        style="font-size:.76em; margin-top:3px; opacity:.7; color:{row.acceptance.includes('échec')
+          ? 'var(--st-color-danger-fg, #c0392b)'
+          : 'inherit'}"
+      >
+        {row.acceptance}
+      </div>
+    {/if}
+  </div>
+{/snippet}
+
 <AppShell variant="workspace">
   {#snippet topChrome()}
     <AppHeader brandName="Focus" productName="Suivi & décision" brandMode="full">
@@ -175,6 +200,25 @@
             <Card><div class="stat"><div class="stat-n">{counts.decisions}</div><div class="stat-l">Décisions</div></div></Card>
           </Flex>
 
+          <!-- filtre par workpackage : s'applique au Fait ET à l'À-faire -->
+          {#if allWps.length}
+            <div class="wpbar">
+              <span class="wplbl">Workpackage :</span>
+              <Button
+                size="sm"
+                variant={wpFilter === 'tous' ? 'primary' : 'ghost'}
+                onclick={() => (wpFilter = 'tous')}>Tous</Button
+              >
+              {#each allWps as wp (wp)}
+                <Button
+                  size="sm"
+                  variant={wpFilter === wp ? 'primary' : 'ghost'}
+                  onclick={() => (wpFilter = wp)}>{wp}</Button
+                >
+              {/each}
+            </div>
+          {/if}
+
           <!-- ========== 1. FAIT (en haut, visible, filtrable par période) ========== -->
           <section>
             <Flex align="center" justify="between" wrap gap={3}>
@@ -193,7 +237,9 @@
             <div class="sp"></div>
             {#if doneShown.length}
               <div class="tscroll">
-                <DataTable columns={doneColumns} rows={doneShown} pageSize={8} emptyLabel="Rien sur cette période" />
+                <!-- DS DataTable types rows as its base DataTableRow; our typed view DTOs are structurally
+                     richer, so we cast (the columns' cell snippets are typed against the concrete row). -->
+                <DataTable columns={doneColumns as any} rows={doneShown as any} pageSize={8} emptyLabel="Rien sur cette période" />
               </div>
             {:else}
               <EmptyState title="Rien de terminé sur cette période" message="Élargis la période (Semaine / Mois / Tout)." />
@@ -202,7 +248,10 @@
 
           <!-- ========== 2. À FAIRE (avec lancement en masse) ========== -->
           <section>
-            <h2 class="sec">À faire <span class="sec-n">({counts.todo})</span></h2>
+            <h2 class="sec">
+              À faire <span class="sec-n">({wpFilter === 'tous' ? counts.todo : todosShown.length})</span>
+              {#if wpFilter !== 'tous'}<span class="sec-n">· {wpFilter}</span>{/if}
+            </h2>
 
             {#if launchResult}
               {#if launchResult.ok}
@@ -238,7 +287,7 @@
             <div class="sp"></div>
 
             <div class="tscroll">
-              <DataTable columns={todoColumns} rows={todos} caption="Actions à faire" emptyLabel="Aucune action ouverte" />
+              <DataTable columns={todoColumns as any} rows={todosShown as any} caption="Actions à faire" emptyLabel="Aucune action ouverte" />
             </div>
           </section>
 
@@ -335,6 +384,8 @@
   .stat-n { font-size: 1.8em; font-weight: 700; }
   .stat-l { opacity: .7; font-size: .9em; }
   .sp { height: .9rem; }
+  .wpbar { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: 1.1rem; }
+  .wplbl { opacity: .6; font-size: .85em; margin-right: .25rem; }
   .foot { opacity: .45; font-size: .75em; margin-top: 2rem; }
   /* responsive: tables never break the layout on a phone — they scroll on their own */
   .tscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
