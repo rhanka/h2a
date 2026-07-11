@@ -545,6 +545,18 @@ function truncateLine(s: string, width: number): string {
   return c.length <= width ? c : `${c.slice(0, Math.max(1, width - 1))}…`
 }
 
+/**
+ * Fit `head + mid + tail` to `width` by truncating ONLY the middle (the long title), keeping the head
+ * (rank/scope) and the tail (the concrete ACTION) intact — so the most useful part is never the part cut.
+ * Falls back to a whole-line truncation only when head+tail alone already overflow (a very long phrase).
+ */
+function fitMiddle(head: string, mid: string, tail: string, width: number): string {
+  const budget = width - head.length - tail.length
+  if (budget < 8) return truncateLine(head + mid + tail, width)
+  const m = mid.length <= budget ? mid : `${mid.slice(0, Math.max(1, budget - 1))}…`
+  return head + m + tail
+}
+
 export function formatWpConductorInline(
   tree: readonly WpNode[],
   decisions: readonly DecisionRow[] = [],
@@ -566,16 +578,20 @@ export function formatWpConductorInline(
     ),
   )
 
-  // À-FAIRE — one line per open WP; open leaves cohort-collapsed (N× tag) so it stays on screen.
+  // À-FAIRE — one line per open WP that actually HAS open direct work; open leaves cohort-collapsed
+  // (N× tag) so it stays on screen. WPs/streams with no open direct item ("0/0 — aucun item ouvert")
+  // are pure noise (their remaining work, if any, shows under a child WP) and are dropped.
   lines.push('À-FAIRE')
   const openWps = tree.filter((n) => n.pct !== 100)
-  if (openWps.length === 0) lines.push(truncateLine('  (aucun WP ouvert)', width))
+  let shown = 0
   for (const n of openWps) {
     const cohorts = collapseLeafCohorts(openLeaves(n))
     const parts = cohorts.map((c) => (c.count > 1 ? `${c.count}× ${c.tag}` : (c.titles[0] ?? c.tag)))
-    const body = parts.length > 0 ? parts.join(' · ') : 'aucun item ouvert direct'
-    lines.push(truncateLine(`  ${wpName(n)}  ${n.done}/${n.active} ${pctStr(n.pct)}  —  ${body}`, width))
+    if (parts.length === 0) continue // no open direct item — skip, don't print an empty row
+    lines.push(truncateLine(`  ${wpName(n)}  ${n.done}/${n.active} ${pctStr(n.pct)}  —  ${parts.join(' · ')}`, width))
+    shown++
   }
+  if (shown === 0) lines.push(truncateLine('  (aucun item ouvert au niveau WP)', width))
 
   // PRÉCO — one compact line per directive (concrete action + actor); keystone bottleneck flagged.
   lines.push(
@@ -588,8 +604,10 @@ export function formatWpConductorInline(
   if (dirs.length === 0) lines.push(truncateLine('  (aucune action ouverte)', width))
   for (const d of dirs.slice(0, maxDir)) {
     const rank = d.rank.split('_')[0] // P1..P5
+    // Keep the rank/scope head AND the concrete action tail intact; truncate the (long) title in the
+    // middle — so the action a human is meant to take is never the thing that gets cut off.
     lines.push(
-      truncateLine(`  ‣ [${rank}] ${directiveScopeLabel(d)} · ${clean(d.target.title ?? d.target.id)} — ${directivePhrase(d)}`, width),
+      fitMiddle(`  ‣ [${rank}] ${directiveScopeLabel(d)} · `, clean(d.target.title ?? d.target.id), ` — ${clean(directivePhrase(d))}`, width),
     )
   }
   if (dirs.length > maxDir) {
