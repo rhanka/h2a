@@ -75,8 +75,28 @@
   ]);
   const doneColumns = [
     { key: 'title', label: 'Sujet' },
-    { key: 'kind', label: 'Type', width: '9rem' }
+    { key: 'kind', label: 'Type', width: '8rem' },
+    { key: 'ago', label: 'Réalisé', width: '8rem' }
   ];
+
+  // ---- decision → inject into the concerned CLI (h2a agent of that workspace) ----
+  let injecting = $state<string | null>(null);
+  let injectResult = $state<Record<string, any>>({});
+  async function injectDecision(id: string) {
+    injecting = id;
+    try {
+      const res = await fetch('/api/decisions/inject', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      injectResult = { ...injectResult, [id]: await res.json() };
+    } catch (e) {
+      injectResult = { ...injectResult, [id]: { ok: false, error: String(e) } };
+    } finally {
+      injecting = null;
+    }
+  }
 </script>
 
 {#snippet selCell(row: TodoRow)}
@@ -244,7 +264,28 @@
                       </Flex>
                       <h3 style="margin:.55rem 0 .3rem; font-size:1.05rem; line-height:1.3">{d.question}</h3>
                       <p style="margin:0 0 .5rem; opacity:.72; font-size:.92em">{d.summary}</p>
-                      <div style="opacity:.85; font-size:.92em">{d.action} — {d.actor}</div>
+                      <Flex align="center" justify="between" wrap gap={2}>
+                        <div style="opacity:.85; font-size:.92em">{d.action} — {d.actor}</div>
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onclick={() => injectDecision(d.id)}
+                          disabled={injecting === d.id}
+                        >
+                          {injecting === d.id ? 'Injection…' : 'Injecter dans la CLI'}
+                        </Button>
+                      </Flex>
+                      {#if injectResult[d.id]}
+                        <div style="margin-top:.6rem">
+                          {#if injectResult[d.id].ok && injectResult[d.id].delivered}
+                            <Alert tone="success" title={`Injectée à ${injectResult[d.id].target}`} message={injectResult[d.id].note} />
+                          {:else if injectResult[d.id].ok}
+                            <Alert tone="warning" title="Aucune CLI live sur ce projet" message={injectResult[d.id].note} />
+                          {:else}
+                            <Alert tone="error" title="Échec de l'injection" message={injectResult[d.id].error} />
+                          {/if}
+                        </div>
+                      {/if}
                     </div>
                   </Card>
                 {/each}

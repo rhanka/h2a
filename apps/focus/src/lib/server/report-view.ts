@@ -10,11 +10,44 @@
 // `track report --format html` render is built from). We parse it and hand the app a typed payload.
 
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type { Buckets, ConductorView, ReportError, ReportPayload } from '$lib/track-model';
+
+/**
+ * Read the append-only track log and record, per item, the date of its most recent `realization.transition`
+ * to `done`. That is the item's "réalisé le" date — used to show WHEN a fact happened and to order the FAIT
+ * list by recency (the report itself carries no timestamp).
+ */
+function doneDates(eventsPath: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  let raw: string;
+  try {
+    raw = readFileSync(eventsPath, 'utf8');
+  } catch {
+    return out;
+  }
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const e = JSON.parse(line) as {
+        type?: string;
+        at?: string;
+        aggregateId?: string;
+        payload?: { to?: string };
+      };
+      if (e.type === 'realization.transition' && e.payload?.to === 'done' && e.aggregateId && e.at) {
+        // keep the LATEST 'to done' per item
+        if (!out[e.aggregateId] || e.at > out[e.aggregateId]) out[e.aggregateId] = e.at;
+      }
+    } catch {
+      /* skip malformed line */
+    }
+  }
+  return out;
+}
 
 /**
  * The repo whose track log we read. Defaults to two levels up from the app cwd (apps/focus → repo root),
@@ -80,7 +113,8 @@ export async function loadReport(): Promise<ReportPayload | ReportError> {
       baselineCommit: commit,
       generatedAt: new Date().toISOString(),
       buckets: report.buckets,
-      view
+      view,
+      dates: doneDates(eventsPath)
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
