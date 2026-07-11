@@ -76,6 +76,7 @@ export async function loadReport(): Promise<ReportPayload | ReportError> {
     const view = JSON.parse(viewJson) as ConductorView;
     return {
       ok: true,
+      repo: path.basename(root),
       baselineCommit: commit,
       generatedAt: new Date().toISOString(),
       buckets: report.buckets,
