@@ -93,6 +93,25 @@ function baselineCommit(root: string): string {
   }
 }
 
+/**
+ * ISO date of the LAST release, for the "dernière période de dev" filter (what was delivered since we last
+ * cut a version). Releases are tagged as `release: vX.Y.Z` commits — we read the committer date of the most
+ * recent one. Undefined if the repo has no such commit (e.g. a fresh checkout).
+ */
+function lastReleaseAt(root: string): string | undefined {
+  try {
+    const out = execSync("git log -1 --format=%cI --grep='^release: v'", {
+      cwd: root,
+      stdio: ['ignore', 'pipe', 'ignore']
+    })
+      .toString()
+      .trim();
+    return out || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Build the full report payload from the live track log, or a structured error the UI can render. */
 export async function loadReport(): Promise<ReportPayload | ReportError> {
   try {
@@ -114,7 +133,8 @@ export async function loadReport(): Promise<ReportPayload | ReportError> {
       generatedAt: new Date().toISOString(),
       buckets: report.buckets,
       view,
-      dates: doneDates(eventsPath)
+      dates: doneDates(eventsPath),
+      lastReleaseAt: lastReleaseAt(root)
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
