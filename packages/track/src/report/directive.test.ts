@@ -234,7 +234,8 @@ describe('directive renderer — forward-compat on an unknown step code', () => 
     const known = directivePhrase({ mode: 'subagent', step: { code: 'inspect-fallback' }, facts: {} } as unknown as Directive)
     const unknown = directivePhrase({ mode: 'subagent', step: { code: 'some-future-step' }, facts: {} } as unknown as Directive)
     expect(unknown).toBe(known) // an unseen vocabulary entry renders as inspect-fallback, never `undefined`
-    expect(unknown).toContain('inspecter')
+    // Unified lexicon (spec 2026-07-11): the canonical fallback clause is "Inspecter l’état puis décider…".
+    expect(unknown).toContain('Inspecter')
   })
 })
 
