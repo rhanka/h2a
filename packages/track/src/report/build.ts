@@ -7,6 +7,19 @@ import type { State } from '../state/fold.js'
 import { BUCKETS, bucketOf, type Bucket, type ReportConfig } from './buckets.js'
 import { computeWpTree, type WpNode } from './rollup.js'
 
+/**
+ * focus-wp-enrichment (additive) — a short per-item DETAIL block for the focus card. It carries what a
+ * consumer needs to show "more detail per item" WITHOUT re-reading the raw event log: a cleaned body
+ * excerpt + the item's recette/acceptance state rendered `en clair`. The machine acceptance stays on
+ * `ReportRow.acceptance` (unchanged) — this block is the render-ready human view of the same fact.
+ */
+export interface ReportRowDetail {
+  /** A cleaned, one-line, capped excerpt of the item `body`/summary (present iff a non-empty body exists). */
+  summary?: string
+  /** The item's acceptance/recette state rendered `en clair` in FR (the report locale) — render-ready. */
+  acceptanceLabel: string
+}
+
 export interface ReportRow {
   id: ItemId
   title: string
@@ -19,6 +32,21 @@ export interface ReportRow {
   accountable?: ActorId // RACI-A (Lot A) — surfaced for "who is answerable for this item"
   engagementRef?: string // present ⇒ an h2a contract backs this item
   role?: ItemRole // present ⇒ a workpackage (Workpackages §2) — excluded from the flat buckets
+  /**
+   * focus-wp-enrichment (additive) — the item's OWNING workpackage: the id of the NEAREST role-container
+   * ancestor (workpackage / spec-phase / stream), IDENTICAL to the matching directive's `scope.wpId`. It is
+   * derived by walking the item's OWN ancestry, so it is available for EVERY bucket (DONE/DROPPED included),
+   * not only the open items the directive set covers. Drop-when-absent (an item outside any WP forest).
+   */
+  wpId?: ItemId
+  /**
+   * focus-wp-enrichment (additive) — the OWNING workpackage's derived DISPLAY label (positional `WP<n>` /
+   * dotted `WP1.2` / `S<n>` / an assigned `code`), byte-identical to the directive's `scope.wpLabel` and the
+   * rendered WP tree (it is READ from `computeWpTree`, never re-derived here). Drop-when-absent (no WP).
+   */
+  wpLabel?: string
+  /** focus-wp-enrichment (additive) — the per-item detail block (body excerpt + recette state en clair). */
+  detail: ReportRowDetail
 }
 
 export interface DecisionRow {
@@ -60,7 +88,86 @@ export interface ReportOptions {
   activeRoster?: boolean
 }
 
-function toRow(state: State, item: ItemState, config: ReportConfig): ReportRow {
+// focus-wp-enrichment — FR gloss of every acceptance/recette state (the report locale). A Record over the
+// full `AcceptanceStatus` union so a new enum value is a compile error here (never a silent `undefined`).
+const ACCEPTANCE_FR: Record<AcceptanceStatus, string> = {
+  pass: 'recette OK',
+  fail: 'recette en échec',
+  stale: 'recette obsolète (à rejouer)',
+  waived: 'recette dérogée',
+  unknown: 'recette non évaluée',
+  'n/a': 'sans recette',
+}
+
+const BODY_EXCERPT_MAX = 200
+
+/**
+ * focus-wp-enrichment — a cleaned, one-line, capped excerpt of an item body: collapse every control char /
+ * whitespace run to a single space, trim, then cap at `BODY_EXCERPT_MAX` with a trailing ellipsis. Returns
+ * `undefined` for an absent/blank body (drop-when-absent on `detail.summary`). Local (no render-layer import).
+ */
+function bodyExcerpt(body: string | undefined): string | undefined {
+  if (body === undefined) return undefined
+  let out = ''
+  let prevSpace = false
+  for (const ch of body) {
+    const code = ch.codePointAt(0) ?? 0
+    const isSpace = code < 0x20 || code === 0x7f || code === 0x2028 || code === 0x2029 || ch === ' '
+    if (isSpace) {
+      if (!prevSpace) {
+        out += ' '
+        prevSpace = true
+      }
+    } else {
+      out += ch
+      prevSpace = false
+    }
+  }
+  const trimmed = out.trim()
+  if (trimmed.length === 0) return undefined
+  return trimmed.length <= BODY_EXCERPT_MAX ? trimmed : `${trimmed.slice(0, BODY_EXCERPT_MAX - 1)}…`
+}
+
+/**
+ * focus-wp-enrichment — the container-id → derived-label map READ from a computed WP forest. Every
+ * role-container (root OR nested sub-node) is a `WpNode`, so this covers the whole forest. Reusing the
+ * tree's labels (never re-deriving) keeps a row's `wpLabel` byte-identical to the directive/tree label.
+ */
+function containerLabels(tree: readonly WpNode[]): Map<ItemId, string> {
+  const map = new Map<ItemId, string>()
+  const walk = (n: WpNode): void => {
+    map.set(n.id, n.label)
+    for (const c of n.children) walk(c)
+  }
+  for (const n of tree) walk(n)
+  return map
+}
+
+/**
+ * focus-wp-enrichment — the item's OWNING workpackage: the NEAREST role-container ancestor id, walking
+ * `parentId` (the row's item is never itself a container — `buildReport` excludes those). This is exactly
+ * the node `directLeaves`/`buildDirectives` attach the leaf to, so `wpId` matches the directive `scope.wpId`.
+ * Available for EVERY item (any bucket) since it reads the item's own ancestry. O(depth), cycle-guarded.
+ * Returns `undefined` for an item with no role-container ancestor (outside any WP forest).
+ */
+function owningWpId(items: Map<ItemId, ItemState>, itemId: ItemId): ItemId | undefined {
+  const seen = new Set<ItemId>()
+  let cursor = items.get(itemId)?.parentId
+  while (cursor !== undefined && !seen.has(cursor)) {
+    seen.add(cursor)
+    const it = items.get(cursor)
+    if (it === undefined) break
+    if (isRoleContainer(it)) return cursor
+    cursor = it.parentId
+  }
+  return undefined
+}
+
+function toRow(state: State, item: ItemState, config: ReportConfig, labels: Map<ItemId, string>): ReportRow {
+  const acceptance = acceptanceStatus(state, item.id, config.baselineCommit)
+  const wpId = owningWpId(state.items, item.id)
+  const wpLabel = wpId !== undefined ? labels.get(wpId) : undefined
+  const summary = bodyExcerpt(item.body)
   return {
     id: item.id,
     title: item.title,
@@ -68,11 +175,18 @@ function toRow(state: State, item: ItemState, config: ReportConfig): ReportRow {
     workspace: item.workspace,
     bucket: bucketOf(state, item, config),
     realization: item.realization,
-    acceptance: acceptanceStatus(state, item.id, config.baselineCommit),
+    acceptance,
     ...(item.priority !== undefined ? { priority: item.priority.score } : {}),
     ...(item.accountable !== undefined ? { accountable: item.accountable } : {}),
     ...(item.engagementRef !== undefined ? { engagementRef: item.engagementRef } : {}),
     ...(item.role !== undefined ? { role: item.role } : {}),
+    // focus-wp-enrichment (additive) — WP attribution for EVERY bucket + a render-ready detail block.
+    ...(wpId !== undefined ? { wpId } : {}),
+    ...(wpLabel !== undefined ? { wpLabel } : {}),
+    detail: {
+      ...(summary !== undefined ? { summary } : {}),
+      acceptanceLabel: ACCEPTANCE_FR[acceptance],
+    },
   }
 }
 
@@ -92,19 +206,25 @@ export function buildReport(state: State, options: ReportOptions): Report {
     baselineCommit: options.baselineCommit,
     requireAccepted: options.requireAccepted ?? false,
   }
+  // focus-wp-enrichment — compute the WP forest ONCE: it supplies both the additive per-row WP labels
+  // (via `toRow` below) and the optional `report.wpTree`. The derived labels (positional `WP<n>`/dotted/
+  // codes/streams) live ONLY in `computeWpTree`, so reading them here keeps a row's `wpLabel` byte-identical
+  // to the directive's `scope.wpLabel` and the rendered tree — no second, drift-prone derivation.
+  const tree = computeWpTree(state, config)
+  const labels = containerLabels(tree)
   const buckets: Record<Bucket, ReportRow[]> = { AWAITED: [], DROPPED: [], DONE: [], 'TO-DO': [] }
   for (const item of state.items.values()) {
     // Workpackages §2 / Scope §B(a) — a WP or spec-phase is a container, not a leaf: keep it out of the
     // flat buckets entirely so it can never be mis-counted as a TO-DO leaf (the false-% bug the design
     // warns about). The container forest is surfaced separately on `report.wpTree`.
     if (isRoleContainer(item)) continue
-    const row = toRow(state, item, config)
+    const row = toRow(state, item, config, labels)
     buckets[row.bucket].push(row)
   }
   for (const bucket of BUCKETS) buckets[bucket].sort(byPriority)
 
   const report: Report = { buckets }
-  if (options.wpTree) report.wpTree = computeWpTree(state, config)
+  if (options.wpTree) report.wpTree = tree
   if (options.decisions) {
     report.decisions = [...state.decisions.values()].map((d) => ({
       id: d.id,
@@ -147,9 +267,13 @@ export function query(state: State, filter: QueryFilter, options: ReportOptions)
       baselineCommit: options.baselineCommit,
       requireAccepted: options.requireAccepted ?? false,
     }
+    // focus-wp-enrichment — a container row is enriched via its OWN owning ancestor (its parent WP), so it
+    // needs the same forest label map. Computed here for the (rare) role-filter branch; the bucket rows above
+    // already came enriched from `buildReport`.
+    const labels = containerLabels(computeWpTree(state, config))
     const wpRows = [...state.items.values()]
       .filter((i) => i.role !== undefined)
-      .map((i) => toRow(state, i, config))
+      .map((i) => toRow(state, i, config, labels))
       .sort(byPriority)
     rows = [...rows, ...wpRows]
   }
