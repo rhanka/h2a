@@ -17,3 +17,7 @@ apps/*/*.tsbuildinfo
 
 # local secrets (EVO-12 gateway broker)
 .env
+
+# h2a runtime store artifacts (created when running h2a from the repo root)
+/registry/
+/.h2a-schema.json
