@@ -1,0 +1,2 @@
+# focus-vendor is a byte-for-byte tsc snapshot — never let git EOL-convert it (breaks Windows CI drift check)
+packages/track/src/focus-vendor/** -text
