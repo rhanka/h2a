@@ -1,0 +1,27 @@
+/* Structural only — ZERO hardcoded colors beyond a light-neutral fallback. All surfaces/typography come
+   from the design-system tokens (`--st-*`) that ThemeProvider injects, and from DS components themselves. */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--st-typography-font-family-base, system-ui, -apple-system, 'Segoe UI', sans-serif);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* The ThemeProvider root div (`[data-st-theme]`) is where the `--st-*` tokens resolve. Make it fill the
+   viewport and take its surface/text from DS tokens (fallbacks are theme-neutral light, never black). */
+[data-st-theme] {
+  min-height: 100vh;
+  background: var(--st-color-surface-sunken, var(--st-color-surface-base, #f4f5f7));
+  color: var(--st-color-text-primary, var(--st-color-text, #1c2024));
+}
