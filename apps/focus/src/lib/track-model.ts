@@ -93,6 +93,11 @@ export interface BucketRow {
   bucket: string;
   realization: string;
   acceptance: string;
+  /** nearest owning WP container (byte-identical to the directive scope) — added by track report/build. */
+  wpId?: string;
+  wpLabel?: string;
+  /** per-row detail block — one-line summary + a French acceptance label. */
+  detail?: { summary?: string; acceptanceLabel?: string };
 }
 export interface Buckets {
   AWAITED: BucketRow[];
@@ -342,6 +347,10 @@ export interface DoneItem {
   doneAt?: string;
   /** A short French relative date ("aujourd'hui", "il y a 3 j", "il y a 2 ans"). */
   ago?: string;
+  /** The owning workpackage label ("WP2.1") — for the WP filter and a glanceable column. */
+  wp?: string;
+  /** French acceptance label ("recette OK", "recette non évaluée", …) — the verification outcome. */
+  acceptance?: string;
 }
 
 /** ISO date → a short French relative-time string, at day/month/year granularity (never a raw timestamp). */
@@ -372,6 +381,8 @@ export function doneList(buckets: Buckets, dates: Record<string, string>, limit 
       id: d.id,
       title: t.length > 100 ? t.slice(0, 98) + '…' : t,
       kind: kindFr(d.kind),
+      ...(d.wpLabel ? { wp: d.wpLabel } : {}),
+      ...(d.detail?.acceptanceLabel ? { acceptance: d.detail.acceptanceLabel } : {}),
       ...(doneAt ? { doneAt, ago: frenchAgo(doneAt) } : {})
     };
   })

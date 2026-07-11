@@ -224,27 +224,42 @@ export async function harmonize(
  * FRENCH already and are left untouched. One batched call for the whole page. Never throws.
  */
 export async function harmonizeFocus(data: FocusData, lang = 'fr'): Promise<FocusData> {
+  // Collect EVERY free-text-bearing field. The composed strings (gate / why / summary) embed the raw item
+  // title, so they too can carry untranslated English — translate the whole string (machine-French parts are
+  // no-ops, the embedded title gets translated). `undefined`/empty are skipped; all cached, so cost is once.
   const texts: string[] = [];
-  for (const t of data.todos) texts.push(t.subject);
-  for (const p of data.precos) texts.push(p.title);
-  for (const d of data.decisions) {
-    texts.push(d.question);
-    texts.push(d.concerns);
+  const push = (s?: string): void => {
+    if (s && s.trim() !== '') texts.push(s);
+  };
+  for (const t of data.todos) {
+    push(t.subject);
+    push(t.gate);
   }
-  for (const d of data.done) texts.push(d.title);
-  if (data.keystone) texts.push(data.keystone.title);
+  for (const p of data.precos) {
+    push(p.title);
+    push(p.why);
+  }
+  for (const d of data.decisions) {
+    push(d.question);
+    push(d.concerns);
+    push(d.summary);
+  }
+  for (const d of data.done) push(d.title);
+  if (data.keystone) push(data.keystone.title);
 
   const map = await harmonize(texts, lang);
   const tr = (s: string): string => map[s] ?? s;
+  const trOpt = (s?: string): string | undefined => (s ? (map[s] ?? s) : s);
 
   return {
     ...data,
-    todos: data.todos.map((t) => ({ ...t, subject: tr(t.subject) })),
-    precos: data.precos.map((p) => ({ ...p, title: tr(p.title) })),
+    todos: data.todos.map((t) => ({ ...t, subject: tr(t.subject), gate: trOpt(t.gate) })),
+    precos: data.precos.map((p) => ({ ...p, title: tr(p.title), why: tr(p.why) })),
     decisions: data.decisions.map((d) => ({
       ...d,
       question: tr(d.question),
-      concerns: tr(d.concerns)
+      concerns: tr(d.concerns),
+      summary: tr(d.summary)
     })),
     done: data.done.map((d) => ({ ...d, title: tr(d.title) })),
     ...(data.keystone ? { keystone: { ...data.keystone, title: tr(data.keystone.title) } } : {})
