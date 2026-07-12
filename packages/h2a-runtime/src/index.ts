@@ -74,6 +74,7 @@ import {
   listLocalSessions,
   localSessionIdle,
   localSessionName,
+  readLaunchContext,
   relaunchInSession,
   resolveAgentPaneForInstance,
   runLocalCliForeground,
@@ -5296,9 +5297,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         process.exitCode = 1;
         return;
       }
-      process.stdout.write(
-        `${JSON.stringify(projectRemoteAgentInspect(agent), null, 2)}\n`,
-      );
+      const inspect = projectRemoteAgentInspect(agent);
+      // Enrich with the tmux LAUNCH CONTEXT (gateway on/off, model-map, h2a command, resume)
+      // recorded on the session — so `h2a agents inspect` shows WHICH options started it.
+      const ctx = agent.tmuxSession
+        ? readLaunchContext(agent.tmuxSession)
+        : undefined;
+      const out = ctx ? { ...inspect, launchContext: ctx } : inspect;
+      process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
     });
 
   // ---------------------------------------------------------------------------
