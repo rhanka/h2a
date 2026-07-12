@@ -185,3 +185,29 @@ nor owner **keys** (signing OR encryption) — only ciphertext + relayed signed 
 
 **Next:** final double-consensus confirmation on v3; on GO, promote to `docs/specs/` with the decision
 dossier. Design-only until then.
+
+---
+
+## 11. Session remote-control via sentropic (owner-directed addition, 2026-07-11)
+
+**Owner requirement (Fabien).** Beyond hosting dossiers/reports (§5) and capitalizing sessions
+(§6), sentropic MUST provide **remote-control over the user's h2a sessions — exactly like the
+Claude Code remote-control** (the mobile "Code" surface: a per-repo list of every session with its
+`Connecté` status + last activity/prompt, tap to drive it). Two session classes:
+
+- **Local sessions** already running on the computer as managed tmux sessions — reuse the existing
+  runtime (`packages/h2a-runtime/src/tmux.ts`: `startLocalSession`/`listLocalSessions`/`attach`/
+  `capturePane`/local-tmux wake) exposed through sentropic.
+- **Remote sessions on k8s** — reuse the existing k8s exec/attach path (Pod tmux `main`, `remote
+  attach --exec`) exposed through sentropic.
+
+This **reuses** the existing session-control surface; the new work is exposing it **through the
+sentropic MCP gateway + a per-tenant control API**, over the same enrollment auth (§3), and a hosted
+render of the session list (the "Code"-app UX). It lands as a lot **alongside** the MCP-via-sentropic
+lot. It is subject to the same invariants: per-user tenancy, no server-side minting of a human
+action, presence/liveness honesty (a session shown `Connecté` must be verified live, not a stale
+heartbeat — cf. the mcp-disconnect false-live hazard).
+
+**Consensus note:** this section is an **owner-directed additive requirement** on the double-GO
+design; its lot design (control API surface, liveness verification, k8s auth pass-through) will go
+through the normal review before that lot is built — it does not re-open §1–§10.
