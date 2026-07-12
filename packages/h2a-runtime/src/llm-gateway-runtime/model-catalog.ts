@@ -32,6 +32,28 @@ const CODEX_CAPABILITIES = ["streaming", "tools", "reasoning_effort"] as const;
 
 const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
   {
+    id: "gpt-5.6-luna",
+    provider: "codex",
+    upstreamModel: "gpt-5.6-luna",
+    accountPool: "codex",
+    inputProtocol: "anthropic.messages",
+    outputProtocol: "anthropic.messages",
+    capabilities: [...CODEX_CAPABILITIES],
+    defaultPolicy: "round-robin",
+    aliases: ["claude-opus-4-8"],
+  },
+  {
+    id: "gpt-5.6-sol",
+    provider: "codex",
+    upstreamModel: "gpt-5.6-sol",
+    accountPool: "codex",
+    inputProtocol: "anthropic.messages",
+    outputProtocol: "anthropic.messages",
+    capabilities: [...CODEX_CAPABILITIES],
+    defaultPolicy: "round-robin",
+    aliases: ["claude-fable-5", "fable-5"],
+  },
+  {
     id: "gpt-5.5",
     provider: "codex",
     upstreamModel: "gpt-5.5",
@@ -41,7 +63,6 @@ const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
     capabilities: [...CODEX_CAPABILITIES],
     defaultPolicy: "round-robin",
     aliases: [
-      "claude-opus-4-8",
       "claude-opus-4-7",
       "claude-opus-4-6",
       "claude-sonnet-4-6",
