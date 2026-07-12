@@ -18,6 +18,14 @@ import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
 
+import {
+  LAUNCH_OPTION_PREFIX,
+  buildLaunchContext,
+  launchContextOptions,
+  parseLaunchContext,
+  redactSecrets,
+  type LaunchContext,
+} from "./launch-context.js";
 import type { TunnelConfig } from "./config.js";
 
 const TMUX = "tmux";
@@ -537,6 +545,7 @@ export function startLocalSession(
   ensureScrollConfig(tmuxProfile);
   if (findLocalSession(name)) {
     persistAgentPaneMetadata(name, profile, cwd);
+    persistLaunchContext(name, buildLaunchContext({ profile, cwd, label, resumeArgs: args }));
     return { name, slug };
   }
 
@@ -573,6 +582,7 @@ export function startLocalSession(
     stdio: "ignore",
   });
   persistAgentPaneMetadata(name, profile, cwd);
+  persistLaunchContext(name, buildLaunchContext({ profile, cwd, label, resumeArgs: args }));
   return { name, slug };
 }
 
@@ -833,6 +843,23 @@ function persistAgentPaneMetadata(
   return pane;
 }
 
+/**
+ * Record the diagnostic launch context (gateway on/off, model-map source, resume id, …) as
+ * `@remote_launch_*` tmux options so `h2a` can show WHICH options produced the session without
+ * the user reading raw tmux state. Applied on every create AND reuse so a reused session refreshes
+ * a stale context. Best-effort + secret-free (see launch-context.ts). Spec 2026-07-11.
+ */
+function persistLaunchContext(session: string, ctx: LaunchContext): void {
+  for (const [key, value] of launchContextOptions(ctx)) {
+    setSessionOption(session, key, value);
+  }
+}
+
+/** Read the launch context recorded on a managed session, or undefined if none. */
+export function readLaunchContext(session: string): LaunchContext | undefined {
+  return parseLaunchContext((key) => readSessionOption(session, key));
+}
+
 function commandNeedsLocalTmuxWake(commandLine: string): boolean {
   return /(?:^|\s)--wake(?:=|\s+)local-tmux(?:\s|$)/.test(commandLine);
 }
@@ -880,6 +907,8 @@ export function startH2aWindow(
     );
     return false;
   }
+  // Record the requested h2a side-window command in the session's launch context (redacted).
+  setSessionOption(session, `${LAUNCH_OPTION_PREFIX}h2a`, redactSecrets(commandLine));
   return true;
 }
 
