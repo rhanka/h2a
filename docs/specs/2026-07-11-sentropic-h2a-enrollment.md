@@ -165,12 +165,17 @@ nor owner **keys** (signing OR encryption) — only ciphertext + relayed signed 
 
 ## 10. Open questions (deferred to PLAN — mechanisms behind now-normative properties)
 
-- **Key custody / rotation** mechanism (passphrase vs recovery-code vs opt-in escrow) — the *property*
-  (human-held, no-key⇒no-recovery) is fixed in §6; the mechanism is plan-time. **Includes the TEAM
-  key** (§6 team-view store): who holds/rotates it, and what happens to the team-readable copy when a
-  member leaves (the owner-ciphertext leave-behavior is fixed in §6; the team-key copy is not).
-- **Host-continuable resume** — per-host (Claude vs Codex) **verification matrices** proving a restored
-  blob yields a session the host CLI actually continues; Codex weakest. (Now explicitly open.)
+- **Key custody / rotation — RESOLVED (owner, 2026-07-12): recovery-code + opt-in escrow.** A strong
+  generated **recovery-code** (shown once, owner-stored) is the default key material (human-held,
+  no-code⇒no-recovery); an **opt-in, per-workspace escrow** (owner key wrapped, held sentropic-side)
+  is available for convenience-recovery, explicitly trading server-blindness on those workspaces only.
+  Default (no escrow) stays fully blind. Still plan-time: the exact KDF/wrap format, rotation, and the
+  **TEAM key** (§6 team-view store) custody + member-leave behavior for the team-readable copy.
+- **Host-continuable resume — RESOLVED (owner, 2026-07-12): blob-first + per-host matrix.** Ship
+  **recovery-of-data** (byte-faithful blob) as the guaranteed promise; prove **host-CONTINUABLE**
+  resume where feasible (**Claude first**) via a per-host verification matrix, and label **Codex**
+  honestly as "blob-restore, continuation best-effort/unproven" until its matrix passes. "Recovery"
+  ≠ "resume" for Codex initially, by design. Plan-time: the actual verification matrices per host.
 - **Generation retention/selection** — which generation a resume defaults to, and whether stale
   generations (§7 forks) are retained or purged (interacts with transitive purge §6 + volume below).
 - **Per-workspace first-upload consent firing** — the §6 pre-first-upload disclosure MUST fire on each
