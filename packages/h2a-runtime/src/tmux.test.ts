@@ -209,6 +209,38 @@ describe("startLocalSession agent pane metadata", () => {
     expect(newSession[1]).toContain("ANTHROPIC_API_KEY=gw-test");
   });
 
+  it("records the launch context (@remote_launch_*) with the gateway state, never a secret", () => {
+    process.env.ANTHROPIC_BASE_URL = "http://localhost:3002";
+    process.env.ANTHROPIC_AUTH_TOKEN = "sk-should-never-be-stored";
+    delete process.env.ANTHROPIC_API_KEY;
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions")
+        return { status: 1, stdout: "" };
+      if (cmd === "tmux" && args[0] === "new-session") return { status: 0 };
+      return { status: 0, stdout: "" };
+    });
+
+    startLocalSession("claude", "claude", "/home/u/src/remote", [], "remote");
+
+    const setOpt = spawnSyncMock.mock.calls
+      .filter(
+        (c) => c[0] === "tmux" && Array.isArray(c[1]) && c[1][0] === "set-option",
+      )
+      .map((c) => (c[1] as string[]).join(" "));
+    expect(setOpt).toContain(
+      "set-option -t =remote-remote @remote_launch_profile claude",
+    );
+    expect(setOpt).toContain(
+      "set-option -t =remote-remote @remote_launch_gateway on",
+    );
+    expect(setOpt).toContain(
+      "set-option -t =remote-remote @remote_launch_gateway_base_url http://localhost:3002",
+    );
+    // the auth token is never read, so it can never land in a stored option
+    expect(setOpt.join("\n")).not.toContain("sk-should-never-be-stored");
+  });
+
   it("scrubs stale Anthropic env inherited from the tmux server when launching direct", () => {
     delete process.env.ANTHROPIC_BASE_URL;
     delete process.env.ANTHROPIC_AUTH_TOKEN;
