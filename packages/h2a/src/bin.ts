@@ -14,6 +14,7 @@ import {
   runMirrorServe,
   runMirrorPush,
   runCanevasServeCli,
+  runTrackMcpServe,
   runDrumbeatRelanceInbox,
   runDrumbeatWatch,
   runLoopEngineCli,
@@ -122,6 +123,23 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
       stderr: process.stderr,
       signal: ac.signal
     })
+  );
+} else if (argv[0] === "track-mcp") {
+  // Consolidation ④-S2 — native track MCP server (long-running stdio) served
+  // IN-PROCESS via @sentropic/track. Graceful shutdown like mcp-serve so a host
+  // kill stops it cleanly; the unref'd fallback timer guarantees the exit.
+  const ac = new AbortController();
+  const onSignal = (sig: NodeJS.Signals): void => {
+    process.stderr.write(`h2a track-mcp: received ${sig}, shutting down gracefully\n`);
+    ac.abort();
+    setTimeout(() => process.exit(process.exitCode ?? 0), 500).unref();
+  };
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => onSignal(sig));
+  }
+  runAsync(
+    "track-mcp",
+    runTrackMcpServe(parseFlagsFrom(1), { stderr: process.stderr, signal: ac.signal })
   );
 } else if (argv[0] === "remote" && argv[1] === "serve") {
   runAsync("remote serve", runRemoteServe(parseFlagsFrom(2)));

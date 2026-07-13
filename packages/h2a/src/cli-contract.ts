@@ -447,6 +447,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Run the built-in MCP server speaking JSON-RPC 2.0 over stdio (long-running). `--auto-open` opens a presence session at boot (EVO-6, DEC-105). Version handling is **opt-in** (no network on a default boot): `--auto-upgrade` self-installs @latest and re-execs in place (process.execve, same PID/stdio so the host stays connected; `--no-restart` keeps next-launch); `--upgrade-check` prints a cached availability notice only — EVO-8/DEC-107/108."
   },
   {
+    verb: "track-mcp",
+    outputShape: "stream",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["track-dir"],
+    description:
+      "Serve the read-only track MCP over stdio (JSON-RPC 2.0, long-running), IN-PROCESS via @sentropic/track's shared server — the native equivalent of `npx -p @sentropic/track track-mcp`, without a doubled node. The store is resolved lazily (`--track-dir`→`TRACK_DIR`→nearest-ancestor `.track`); read-only, never creates a store. Consolidation ④-S2."
+  },
+  {
     verb: "upgrade",
     outputShape: "action",
     exitCodes: [0, 1],
