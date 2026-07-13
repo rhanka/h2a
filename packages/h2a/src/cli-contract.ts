@@ -604,7 +604,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: [],
     optionalFlags: ["root", "scan", "prune"],
     description:
-      "Diagnose the h2a store: root provenance, split-brain repo-local bus, inbox hygiene (case-dup / host-less / phantom dirs), and (--scan <dir>) stray repo-local buses. Hard checks (rootExists, schemaSentinel, liveSessions, cliBinary) drive exit 2; soft checks surface as `warnings[]` without flipping ok. --prune (opt-in) DELETES the clearly-dead artifacts the report identifies: host-less inbox dirs, phantom 3-segment dirs, orphan-uuid inbox dirs, and (with --scan) stray buses — report.pruned lists what was removed. caseDuplicates and registered-offline dirs are NOT pruned (too risky). Default is dry-run. DEC-054."
+      "Diagnose the h2a store: root provenance, split-brain repo-local bus, inbox hygiene (case-dup / host-less / phantom dirs), and (--scan <dir>) stray repo-local buses. Hard checks (rootExists, schemaSentinel, liveSessions, cliBinary) drive exit 2; soft checks surface as `warnings[]` without flipping ok. --prune (opt-in) DELETES the clearly-dead artifacts the report identifies: host-less inbox dirs, phantom 3-segment dirs, orphan-uuid inbox dirs, and (with --scan) stray buses — report.pruned lists what was removed. Each --scan bus is liveness-checked via listPresence(): a bus with ANY fresh presence heartbeat is `live` and is NEVER pruned, --prune or not; only `orphan` (no live presence) buses are deletion candidates. caseDuplicates and registered-offline dirs are NOT pruned (too risky). Default is dry-run — the report always lists what --prune would remove before anything is deleted. DEC-054."
   },
   {
     verb: "status",
