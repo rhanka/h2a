@@ -49,6 +49,29 @@ h2a query · report · decision · item · accept · blocker
 - **The `track` CLI stays** for direct use, skills, and `track-mcp`. De-spawning is
   an internal h2a optimisation, not a removal of the CLI.
 
+**Track MCP — now served natively (`h2a track-mcp`).** The read-only track MCP is
+bundled into the single `h2a` plugin and, from **0.85.15**, is served IN-PROCESS by
+the new `h2a track-mcp` verb — the native equivalent of `npx -p @sentropic/track
+track-mcp`, with no runtime npm fetch and no doubled resident node (it reuses
+`@sentropic/track`'s server via the additive `@sentropic/track/mcp` export). The
+`sentropic` marketplace ships **one** plugin (`h2a`) carrying both MCP servers
+(`h2a` + `track`); the standalone `track` plugin manifest
+(`packages/track/.claude-plugin/plugin.json`) was **removed** — it was orphaned
+(never in the marketplace, never published: track's npm `files` excludes
+`.claude-plugin`).
+
+- **Plugin cutover.** In **0.85.16** the `h2a` plugin's `track` mcpServer repoints
+  from `npx -y -p @sentropic/track track-mcp` to `{ "command": "h2a", "args":
+  ["track-mcp"] }`. This is sequenced ONE release AFTER the verb shipped (0.85.15),
+  so a global `h2a` already updated to ≥0.85.15 carries the verb. **Minimum `h2a`
+  for the native serve: 0.85.15.**
+- **If you added a standalone track MCP** to your host config, you can drop it — the
+  `h2a` plugin already serves it. Remove the `track` entry from your host's
+  `mcpServers` (Claude: `~/.claude.json` or the plugin's config; Codex:
+  `~/.codex/config.toml`; Gemini: its MCP settings), and uninstall any standalone
+  `track` plugin (`claude plugin uninstall track`). Skills are rendered by
+  `h2a install-skills`.
+
 ⚠️ **For a human status report** use `track report` (or `h2a report`) → renders the
 FAIT / À-FAIRE / DÉCISIONS table. Do **not** use:
 - the MCP tool `track_report` — it returns machine JSON, not a human table;
@@ -165,11 +188,13 @@ Build + both test suites are green (h2a `node:test`; track `vitest`).
 **Marketplace — RELOCATED to the monorepo (in-repo, reversible).** The Claude Code
 `sentropic` marketplace manifest moved from `packages/track/.claude-plugin/
 marketplace.json` to the **monorepo root** `.claude-plugin/marketplace.json`, and
-the `track` plugin's `source` now points at `./packages/track` (its
-`.claude-plugin/plugin.json` + `skills/` stay in place). A `claude plugin
-marketplace add rhanka/h2a` therefore exposes the full catalogue with no dependency
-on `rhanka/track`. The `track-mcp` server is still resolved from npm
-(`npx -y -p @sentropic/track track-mcp`), unchanged. Plugin/package `homepage`,
+the catalogue was since consolidated to a **single `h2a` plugin** that bundles both
+MCP servers (see §2); the standalone `track` plugin manifest
+(`packages/track/.claude-plugin/plugin.json`) was removed as an orphan. A `claude
+plugin marketplace add rhanka/h2a` exposes the full catalogue with no dependency on
+`rhanka/track`. The `track-mcp` server is now served **natively** by the `h2a`
+plugin (`h2a track-mcp`, 0.85.15+ — see §2), replacing the earlier
+`npx -y -p @sentropic/track track-mcp`. Plugin/package `homepage`,
 `repository`, and `bugs` URLs were re-homed to `rhanka/h2a` (directory
 `packages/track`). **Impact on existing installs:** anyone who did `claude plugin
 marketplace add rhanka/track` keeps working while that repo exists; once it is
