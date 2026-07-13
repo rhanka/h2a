@@ -314,6 +314,7 @@ import {
 import { CLI_PROFILES, type CliProfile } from "./protocol-local.js";
 import {
   enrollCodexAccount,
+  enrollClaudeAccount,
   readLlmMeshConfig,
   startGateway,
   stopGateway,
@@ -8137,14 +8138,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         let account;
         if (provider === "claude") {
-          process.stderr.write(
-            `[h2a] llm-mesh: Claude Code OAuth is not a supported upstream transport yet.\n` +
-              `  Do not import ~/.claude/.credentials.json as an Anthropic API credential.\n` +
-              `  Use the existing gateway token with codex/openai, or enroll a real Anthropic API key via:\n` +
-              `  h2a llm-mesh enroll anthropic --token sk-ant-api...\n`,
-          );
-          process.exitCode = 1;
-          return;
+          // Import the local Claude Code OAuth login (~/.claude/.credentials.json) as a pooled
+          // claude-code account: provider "anthropic" + authType "bearer" so the anthropic proxy
+          // upstreams via Authorization: Bearer + anthropic-beta: oauth-2025-04-20 (not x-api-key).
+          account = enrollClaudeAccount();
         } else if (provider === "codex") {
           // Reads ~/.codex/auth.json: OAuth JWT (chatgpt_plan_type: pro).
           // NOTE: this token works with the Codex CLI app-server (local) but NOT with
