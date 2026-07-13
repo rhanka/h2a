@@ -89,20 +89,13 @@ async function handleMessagesViaAnthropic(
     const v = c.req.header(h);
     if (v !== undefined) requestHeaders[h] = v;
   }
-  // A pooled Claude Code OAuth account (sk-ant-oat… access token) upstreams via
-  // Authorization: Bearer + the oauth beta — NOT x-api-key (that's for sk-ant-api keys).
-  if (session.token.startsWith("sk-ant-oat")) {
-    requestHeaders["authorization"] = `Bearer ${session.token}`;
-    const beta = requestHeaders["anthropic-beta"];
-    requestHeaders["anthropic-beta"] =
-      beta && beta.length > 0
-        ? beta.includes("oauth-2025-04-20")
-          ? beta
-          : `${beta},oauth-2025-04-20`
-        : "oauth-2025-04-20";
-  } else {
-    requestHeaders["x-api-key"] = session.token;
-  }
+  // SECURITY (architect review 2026-07-13): a Claude Code OAuth token (sk-ant-oat…) must NEVER be
+  // relayed here as a raw Anthropic Bearer. It is stored as a pooled claude-code account (WP16) but
+  // is meant to be served via the personal-passthrough EXECUTION path (the account executes the
+  // request), not by replaying the subscription token to api.anthropic.com (ToS/ban risk on the
+  // user's Claude Max). The claude-code serve mechanism is pending the gateway (claude:mesh) lane;
+  // do NOT re-add a raw Bearer relay without that sign-off. Keep the API-key path here.
+  requestHeaders["x-api-key"] = session.token;
 
   let upstream: Response;
   try {
