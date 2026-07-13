@@ -41,6 +41,10 @@
     "./report/friendly": {
       "types": "./dist/report/friendly.d.ts",
       "import": "./dist/report/friendly.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/serve.d.ts",
+      "import": "./dist/mcp/serve.js"
     }
   },
   "files": [
