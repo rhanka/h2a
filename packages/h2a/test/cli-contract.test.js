@@ -873,6 +873,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "outbox put",
     "outbox read",
     "mcp-serve",
+    "track-mcp",
     "upgrade",
     "drive",
     "drive receive",
