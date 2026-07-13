@@ -86,9 +86,18 @@ minimum h2a version; how to find + remove a standalone `track` MCP entry from th
 config (Claude `~/.claude.json` / settings mcpServers, Codex, Gemini); how to drop the
 standalone track plugin; `h2a install-skills` for skills; command examples.
 
-**S6 — `install-skills` audit (SEPARATE design, out of scope here).** Its own doc must
-specify skill source/target paths, overwrite/idempotency, collision policy, ownership
-markers, and a render-all test. NOT part of the MCP-native cutover; does not block S1–S5.
+**S6 — `install-skills` audit — VERIFIED COMPLETE (2026-07-13, no change needed).**
+The audit found `h2a install-skills` already renders all three single sources on
+demand: h2a's own `skills/`, `@sentropic/track`'s shipped `skills/` (present-decision,
+propose-workpackages, branch-lifecycle, track-operation — native names, resolved via
+`resolvePackageSkillsDir`), and the harness pack under the `harness-<name>` prefix
+(`collectInstallableSkills` in cli.ts). All review concerns are already handled:
+per-host target paths (`targetSpecFor`, user/project scope); idempotency + collision
+policy (probe target → **skip unless `--force`**, so user-edited files are never
+clobbered); legacy prune (DEC-057); provenance in the JSON output. Coverage exists:
+`packages/h2a/test/install-skills-hosts.test.js` asserts the h2a+track+harness render
+across claude/codex/gemini + project scope. A live smoke confirmed 12 skills rendered
+(1 h2a + 4 track + 7 harness, `ok:true`). No new design or code required.
 
 ## Disposition of the closure (NO-GO) review
 
