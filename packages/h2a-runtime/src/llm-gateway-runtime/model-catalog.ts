@@ -54,6 +54,16 @@ const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
     aliases: ["claude-fable-5", "fable-5"],
   },
   {
+    id: "gpt-5.6-terra",
+    provider: "codex",
+    upstreamModel: "gpt-5.6-terra",
+    accountPool: "codex",
+    inputProtocol: "anthropic.messages",
+    outputProtocol: "anthropic.messages",
+    capabilities: [...CODEX_CAPABILITIES],
+    defaultPolicy: "round-robin",
+  },
+  {
     id: "gpt-5.5",
     provider: "codex",
     upstreamModel: "gpt-5.5",

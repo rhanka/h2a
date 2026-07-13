@@ -46,6 +46,12 @@ describe("model catalog routing", () => {
   });
 
   it("keeps explicit GPT model ids as catalog or passthrough routes", () => {
+    expect(resolveModelRoute("gpt-5.6-terra")).toMatchObject({
+      catalogModelId: "gpt-5.6-terra",
+      upstreamModel: "gpt-5.6-terra",
+      accountPool: "codex",
+      routeReason: "catalog-id",
+    });
     expect(resolveModelRoute("gpt-5.3-codex-spark")).toMatchObject({
       catalogModelId: "gpt-5.3-codex-spark",
       upstreamModel: "gpt-5.3-codex-spark",
