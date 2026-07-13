@@ -227,6 +227,48 @@ export function enrollCodexAccount(codexDir?: string): LlmMeshAccount {
   return account;
 }
 
+/**
+ * Read the local Claude Code OAuth login from ~/.claude/.credentials.json and produce a gateway
+ * account that upstreams via the Claude-code transport (Anthropic /v1/messages with a Bearer OAuth
+ * token + the oauth beta, NOT an sk-ant-api key). Mirrors enrollCodexAccount. The proxy uses the
+ * `sk-ant-oat` token prefix (and authType:"bearer") to pick the Bearer + anthropic-beta path.
+ */
+export function enrollClaudeAccount(claudeDir?: string): LlmMeshAccount {
+  const path = join(claudeDir ?? join(homedir(), ".claude"), ".credentials.json");
+  const raw = readJson<{
+    claudeAiOauth?: {
+      accessToken?: string;
+      refreshToken?: string;
+      expiresAt?: number;
+      subscriptionType?: string;
+      rateLimitTier?: string;
+    };
+  }>(path);
+  const oauth = raw?.claudeAiOauth;
+  const accessToken = oauth?.accessToken;
+  if (!accessToken || !accessToken.trim()) {
+    throw new Error(
+      `No usable Claude Code OAuth in ${path}: claudeAiOauth.accessToken is missing. ` +
+        `Log in with the Claude Code CLI first.`,
+    );
+  }
+  const label = oauth?.subscriptionType
+    ? `Claude Code (${oauth.subscriptionType} OAuth)`
+    : "Claude Code (OAuth)";
+  const account: LlmMeshAccount = {
+    id: "claude-code",
+    provider: "anthropic",
+    authType: "bearer",
+    label,
+    token: accessToken.trim(),
+  };
+  if (oauth?.refreshToken) account.refreshToken = oauth.refreshToken;
+  if (typeof oauth?.expiresAt === "number") {
+    account.expiresAt = new Date(oauth.expiresAt).toISOString();
+  }
+  return account;
+}
+
 // ---------------------------------------------------------------------------
 // Token refresh (OAuth — only applicable when refreshToken is present)
 // ---------------------------------------------------------------------------
