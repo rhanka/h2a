@@ -4826,7 +4826,12 @@ function cmdDoctor(
     }
   }
 
-  // (d) --scan <dir>: find immediate child buses (ONE level deep)
+  // (d) --scan <dir>: find immediate child buses (ONE level deep).
+  // Safety model: a stray bus is ORPHAN only if it has zero live (fresh
+  // heartbeat) presence — checked via the same listPresence() used for the
+  // liveSessions hard check above. A bus with ANY live presence is reported
+  // but NEVER pruned, --prune or not. This is a dry-run-by-default sweep:
+  // the report always lists what --prune WOULD remove; only --prune deletes.
   const strayBuses: Array<Record<string, unknown>> = [];
   if (flags.scan) {
     try {
@@ -4842,23 +4847,38 @@ function cmdDoctor(
           } catch {
             instances = 0;
           }
-          strayBuses.push({ path: candidateBus, instances });
+          // Liveness gate: any fresh presence heartbeat in this bus makes it
+          // ACTIVE, not orphan — never a deletion candidate.
+          let live = false;
+          try {
+            live = listPresence(candidateBus).length > 0;
+          } catch {
+            // Unreadable presence dir — treat conservatively as NOT orphan.
+            live = true;
+          }
+          strayBuses.push({ path: candidateBus, instances, live, orphan: !live });
         }
       }
     } catch (error) {
       streams.stderr.write(`h2a doctor: --scan ${flags.scan}: ${(error as Error).message}\n`);
     }
     if (strayBuses.length > 0) {
+      const orphanBuses = strayBuses.filter((b) => b.orphan === true);
+      const liveBuses = strayBuses.filter((b) => b.orphan !== true);
       warnings.push({
         check: "strayBuses",
         count: strayBuses.length,
+        orphanCount: orphanBuses.length,
+        liveCount: liveBuses.length,
         buses: strayBuses,
         message:
           `${strayBuses.length} stray repo-local .h2a bus(es) found under ${flags.scan} — ` +
-          `candidate split-brain forks. Each may have agents on a different root.`
+          `candidate split-brain forks. ${orphanBuses.length} orphan (no live presence — ` +
+          `${flags.prune !== undefined ? "removed by" : "would be removed by"} --prune), ` +
+          `${liveBuses.length} live (has active presence — never pruned).`
       });
       if (flags.prune !== undefined) {
-        for (const bus of strayBuses) {
+        for (const bus of orphanBuses) {
           const busPath = bus.path as string;
           try {
             rmSync(busPath, { recursive: true, force: true });
@@ -4866,6 +4886,12 @@ function cmdDoctor(
           } catch (error) {
             streams.stderr.write(`h2a doctor --prune: cannot remove ${busPath}: ${(error as Error).message}\n`);
           }
+        }
+        if (liveBuses.length > 0) {
+          streams.stderr.write(
+            `h2a doctor --prune: skipped ${liveBuses.length} stray bus(es) with live presence (never pruned): ` +
+              `${liveBuses.map((b) => b.path as string).join(", ")}\n`
+          );
         }
       }
     }
