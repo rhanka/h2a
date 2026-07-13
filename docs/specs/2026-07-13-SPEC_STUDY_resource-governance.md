@@ -190,3 +190,23 @@ DECIDES the whole WP: enforce a hard 36 GB cap, or fall back to graceful-only + 
   provenance + process-boundary proof.
 
 Next: Lot 0 probe (buildable, cheap — delegate to 5.6-luna) → its result gates EVOL. No commitment yet.
+
+## Lot 0 PROBE RESULT — 2026-07-13 (feasibility RESOLVED: GREEN)
+
+Ran `scripts/cgroup-probe.sh` on this host (Linux 7.0, user 1000, no root). All gates PASS:
+- cgroup v2 unified; **memory controller DELEGATED** to `user@1000.service`
+  (`cgroup.subtree_control: cpu memory pids`) → child scopes can enforce a hard cap without root.
+- `systemd --user` reachable; `systemd-run --user --scope -p MemoryMax=64M` → the child scope's
+  `memory.max` is genuinely **enforced** (= 67108864).
+- `memory.current` / `memory.events` readable (accounting); **`cgroup.freeze` writable + freezes**
+  (standby feasible); **`memory.oom.group` present** (anti-partial-kill, closes leg-2's corruption
+  concern); **PSI `/proc/pressure/memory` present** (system-wide pressure signal for the manager).
+
+**Verdict: the hard-cap + freeze path is FEASIBLE without root — the STUDY's single highest-risk
+assumption and honest blocker are resolved POSITIVELY.** Proceed on the real cgroup design (parent
+`--user` slice at the configurable 36 GB cap + per-session child scopes + `cgroup.freeze` + PSI-driven
+policy), NOT the graceful-only fallback. Residual EVOL work is the ~12 policy items above (system
+pressure, hysteresis, manager survivability/leader-lock, oom.group config, frozen-tmux external wake,
+explicit-not-heuristic idle, reclaimability victim-selection, deport fencing, adoption) + the dedicated
+tmux-server-per-scope containment detail. LIVE at probe time: MemAvailable ≈ 816 MB of 60 GB, PSI
+avg10 ≈ 46 — the machine was actively memory-starved, so this is urgent as well as feasible.
