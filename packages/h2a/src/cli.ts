@@ -5890,6 +5890,38 @@ export const TRACK_NATIVE_VERBS = new Set([
   ...TRACK_NATIVE_WRITE_VERBS
 ]);
 
+/**
+ * Consolidation ④-S2 — serve the read-only track MCP IN-PROCESS (native `h2a
+ * track-mcp` verb). Reuses `@sentropic/track`'s shared `serveTrackMcpStdio`,
+ * lazy-imported so the MCP stdio transport loads ONLY for this verb (not on every
+ * h2a invocation). The store is resolved lazily by track per read call
+ * (`--track-dir`→`TRACK_DIR`→nearest-ancestor `.track`). stdout stays pure
+ * JSON-RPC (track logs to stderr); a real connect/transport failure → rc=1.
+ */
+export async function runTrackMcpServe(
+  flags: Record<string, string>,
+  io: { stderr: NodeJS.WritableStream; cwd?: () => string; signal?: AbortSignal } = {
+    stderr: process.stderr
+  }
+): Promise<number> {
+  const cwd = (io.cwd ?? (() => process.cwd()))();
+  const flag = flags["track-dir"];
+  const env = process.env["TRACK_DIR"];
+  const source = {
+    cwd,
+    ...(flag !== undefined ? { flag } : {}),
+    ...(env !== undefined ? { env } : {})
+  };
+  try {
+    const { serveTrackMcpStdio } = await import("@sentropic/track/mcp");
+    await serveTrackMcpStdio(source, io.signal !== undefined ? { signal: io.signal } : {});
+    return 0;
+  } catch (err) {
+    io.stderr.write(`h2a track-mcp: ${(err as Error).message}\n`);
+    return 1;
+  }
+}
+
 function resolveTrackBin(): string {
   // Le champ `exports` de @sentropic/track bloque l'accès à ./package.json,
   // donc on résout l'entrée puis on remonte jusqu'au package.json du package.

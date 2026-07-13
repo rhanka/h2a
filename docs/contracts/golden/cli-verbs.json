@@ -89,5 +89,6 @@
   "subagent route",
   "sysml verify",
   "thread",
+  "track-mcp",
   "upgrade"
 ]
