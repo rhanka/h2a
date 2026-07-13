@@ -89,7 +89,20 @@ async function handleMessagesViaAnthropic(
     const v = c.req.header(h);
     if (v !== undefined) requestHeaders[h] = v;
   }
-  requestHeaders["x-api-key"] = session.token;
+  // A pooled Claude Code OAuth account (sk-ant-oat… access token) upstreams via
+  // Authorization: Bearer + the oauth beta — NOT x-api-key (that's for sk-ant-api keys).
+  if (session.token.startsWith("sk-ant-oat")) {
+    requestHeaders["authorization"] = `Bearer ${session.token}`;
+    const beta = requestHeaders["anthropic-beta"];
+    requestHeaders["anthropic-beta"] =
+      beta && beta.length > 0
+        ? beta.includes("oauth-2025-04-20")
+          ? beta
+          : `${beta},oauth-2025-04-20`
+        : "oauth-2025-04-20";
+  } else {
+    requestHeaders["x-api-key"] = session.token;
+  }
 
   let upstream: Response;
   try {
