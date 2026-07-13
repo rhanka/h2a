@@ -59,6 +59,27 @@ owns which half BEFORE building (mirrors how the enrollment/bind seam was routed
 3. Durable sentropic-hosted conductor tick + relaunch handoff (D1) — the "make it loop" payload.
 4. (Optional/later) thin native agent loop over the gateway (D3-B).
 
+## Owner clarification (2026-07-13) — "la boucle" = the LLM/tool loop ONLY
+
+The owner scoped it: in this WP, **"la boucle principale" is the agent's LLM/tool loop INSIDE a
+session** (loop #2 below) — i.e. the native agent itself. It is NOT the conductor/objective loop
+(#1 → that is WP3, the "relance" concern) nor process/session supervision (#3). This resolves most of
+the Codex critique:
+
+- **D3 is settled → OWN the loop (option B).** "Managed by sentropic + potentially rebuilt" is only
+  possible for a loop we own; you cannot rebuild claude/codex's opaque inner loop. So the native agent =
+  a **sentropic-owned agent-loop runtime** (LLM↔tools) that calls the **existing gateway**. Option C
+  (wrap opaque vendors) is NOT this WP.
+- **D4 contradiction disappears.** An owned loop calls the LLM via the gateway → governance/audit hold.
+- **D2 "move is impossible" disappears.** A session = the runtime + its checkpointed context; placing/
+  moving it across local/k8s/sentropic = re-instantiate the runtime with the context (well-defined),
+  NOT PTY/process migration.
+- **Out of WP13 scope:** the conductor/relance loop (#1 = WP3) and local process supervision (#3).
+
+Re-scoped WP13 in one line: **the native h2a agent = a sentropic-owned LLM/tool-loop runtime (reusable,
+possibly rebuilt) over the existing gateway, that h2a places as a session in local / k8s / sentropic**
+(≈ the finalité-model's `@sentropic/agent`). D1/D2/D4/D5 below are re-read through this lens.
+
 ## Codex 5.5-xhigh pass — corrections folded (2026-07-13, one cost-aware leg)
 
 The review found the framing NOT yet EVOL-ready. Key corrections (folded):
