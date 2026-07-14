@@ -29,6 +29,12 @@ test("les verbes h2a-natifs (dont collisions) → PAS de délégation", () => {
   }
 });
 
+test("focus reste natif pour permettre l'interception exacte serve/web avant la façade track", () => {
+  assert.equal(shouldDispatchRemote(["focus", "serve"]), false);
+  assert.equal(shouldDispatchRemote(["focus", "web"]), false);
+  assert.ok(TRACK_FACADE_VERBS.has("focus"), "le focus Track historique reste dans la façade");
+});
+
 test("anti-drift: façade track ⊆ verbes natifs (ne partent jamais au runtime)", () => {
   for (const v of TRACK_FACADE_VERBS) {
     assert.ok(H2A_NATIVE_VERBS.has(v), `verbe façade track "${v}" doit être natif`);

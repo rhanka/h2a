@@ -21,6 +21,7 @@ import {
   runSysmlVerify
 } from "./cli.js";
 import { shouldDispatchRemote } from "./bin-routing.js";
+import { runFocusServeCli } from "./runtime/focus/serve.js";
 
 const argv = process.argv.slice(2);
 
@@ -159,6 +160,23 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
   runAsync("sysml verify", runSysmlVerify(parseFlagsFrom(2)));
 } else if (argv[0] === "keepalive") {
   runAsync("keepalive", cmdKeepalive(parseFlagsFrom(1), { stdout: process.stdout, stderr: process.stderr }));
+} else if (argv[0] === "focus" && (argv[1] === "serve" || argv[1] === "web")) {
+  // Intercept the production web server before the bare `focus` facade can delegate to `track focus`.
+  // Every other `h2a focus ...` invocation keeps the existing Track behavior unchanged.
+  const ac = new AbortController();
+  const onSignal = (sig: NodeJS.Signals): void => {
+    process.stderr.write(`h2a focus ${argv[1]}: received ${sig}, stopping\n`);
+    ac.abort(sig);
+    const exitCode = sig === "SIGINT" ? 130 : sig === "SIGHUP" ? 129 : 143;
+    setTimeout(() => process.exit(process.exitCode ?? exitCode), 2500).unref();
+  };
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => onSignal(sig));
+  }
+  runAsync(
+    `focus ${argv[1]}`,
+    runFocusServeCli(argv, { stdout: process.stdout, stderr: process.stderr }, ac.signal)
+  );
 } else if (argv[0] === "canevas" && argv[1] === "serve") {
   // Canevas ③ read-only server (long-running) → graceful shutdown like mcp-serve.
   const ac = new AbortController();

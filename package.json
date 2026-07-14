@@ -21,9 +21,11 @@
     "trace": "node scripts/track-trace.mjs",
     "vendor:focus": "node scripts/vendor-focus.mjs",
     "check:focus-vendor": "node scripts/check-focus-vendor.mjs",
+    "build:focus-app": "node scripts/build-focus-app.mjs",
+    "check:focus-app": "node scripts/check-focus-app.mjs",
     "typecheck": "npm run build -w @sentropic/track && tsc -b --pretty false",
     "lint:focus-imports": "node apps/focus/scripts/check-imports.mjs",
-    "test": "npm run build && node scripts/check-focus-vendor.mjs && node apps/focus/scripts/check-imports.mjs && node scripts/run-tests.mjs"
+    "test": "npm run build && node scripts/check-focus-vendor.mjs && node scripts/check-focus-app.mjs && node apps/focus/scripts/check-imports.mjs && node scripts/run-tests.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
