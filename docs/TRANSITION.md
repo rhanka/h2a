@@ -39,9 +39,11 @@ h2a query · report · decision · item · accept · blocker
   `runCli`: the two read-only verbs (`query`, `report`) and the nine sync writes
   (`decision`, `item`, `accept`, `blocker`, `consolidate`, `priority`, `branch`,
   `ingest`, `restructure`).
-- **`focus` still shells out** to the `track` CLI — it is the only async track verb
+- **Bare `focus` still shells out** to the `track` CLI — it is the only async track verb
   (`import('@sentropic/focus')` → Promise), so it is deliberately kept off the sync
-  native path.
+  native path. The reserved `h2a focus serve` and exact `h2a focus web` alias are
+  intercepted first and serve the packaged Focus Web production app; they are not
+  delegated to Track.
 - **Store `.track` is UNCHANGED** — total compat, **zero migration**. Same event
   log, same head, same schema. Native and CLI writes both bind the same store under
   track's single **O_EXCL** lock (single-writer preserved), so they cannot corrupt
