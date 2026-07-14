@@ -9,7 +9,7 @@
  * + the atomic write are reused as-is.
  *
  * Isolation: by default, if the cwd is a git repo, each job runs in its OWN git
- * worktree under `<cwd>/.remote/jobs/<jobId>/wt` — the single-writer guard only
+ * worktree under `<cwd>/.h2a/jobs/<jobId>/wt` — the single-writer guard only
  * protects the conversation `.jsonl`, not the file tree, so concurrent jobs in
  * the shared cwd would clobber each other. `--cwd` overrides; a non-repo cwd is
  * used as-is.
@@ -604,9 +604,19 @@ export function runTrackMirror(
   }
 }
 
-/** Per-job directory under the ORIGIN cwd (where worktree + logs live). */
+/** Per-job directory under the ORIGIN cwd (where worktree + logs live).
+ *
+ * Worktrees are intentionally kept in the workspace-local .h2a tree (gitignored),
+ * never in the system /tmp tmpfs. /tmp is RAM on common developer hosts and large
+ * worktrees there can starve the machine; keeping them under .h2a preserves the
+ * existing hidden workspace scratch convention while making it h2a-owned.
+ */
 export function jobDir(originCwd: string, jobId: string): string {
-  return join(originCwd, ".remote", "jobs", jobId);
+  return join(originCwd, ".h2a", "jobs", jobId);
+}
+
+function isUnderSystemTmp(path: string): boolean {
+  return path === "/tmp" || path.startsWith("/tmp/");
 }
 
 export type JobResult = { state: "done" | "failed"; exitCode: number };
@@ -682,8 +692,9 @@ export type ResolvedCwd = {
  * Decide WHERE the job runs and create isolation if warranted:
  *  - `--cwd <path>` → that path, as-is (caller owns isolation).
  *  - else if the origin cwd is a git repo → a dedicated worktree at
- *    `<originCwd>/.remote/jobs/<jobId>/wt` (so concurrent jobs never clobber the
- *    working tree; the single-writer guard only protects the `.jsonl`).
+ *    `<originCwd>/.h2a/jobs/<jobId>/wt` (workspace-local, gitignored; never /tmp),
+ *    so concurrent jobs never clobber the working tree; the single-writer guard
+ *    only protects the `.jsonl`.
  *  - else → the origin cwd, as-is (non-repo: nothing to isolate cheaply).
  *
  * Throws if the worktree creation fails (we must NOT silently run in the shared
@@ -699,6 +710,12 @@ export function resolveJobCwd(
   }
   const isRepo = (opts.isGitRepo ?? defaultIsGitRepo)(originCwd);
   if (!isRepo) return { runCwd: originCwd, isolated: false };
+  if (isUnderSystemTmp(originCwd)) {
+    throw new Error(
+      `refusing to create an automatic h2a worktree under /tmp for job ${jobId} — ` +
+        `run h2a from a real workspace/repo so isolation can live under .h2a, or pass --cwd explicitly`,
+    );
+  }
 
   const dir = jobDir(originCwd, jobId);
   const wt = join(dir, "wt");

@@ -122,7 +122,7 @@ describe("resolveJobCwd (file-tree isolation, git mocked)", () => {
     expect(runGit).not.toHaveBeenCalled();
   });
 
-  it("a repo cwd gets a dedicated worktree under .remote/jobs/<id>/wt", () => {
+  it("a repo cwd gets a dedicated worktree under workspace-local .h2a/jobs/<id>/wt", () => {
     const mkdir = vi.fn();
     const runGit = vi.fn().mockReturnValue({ status: 0 });
     const r = resolveJobCwd("/repo", "job1", {
@@ -131,6 +131,7 @@ describe("resolveJobCwd (file-tree isolation, git mocked)", () => {
       mkdir,
     });
     const wt = jobDir("/repo", "job1") + "/wt";
+    expect(wt).toBe("/repo/.h2a/jobs/job1/wt");
     expect(r).toEqual({ runCwd: wt, isolated: true });
     expect(mkdir).toHaveBeenCalledWith(jobDir("/repo", "job1"));
     expect(runGit).toHaveBeenCalledWith(
@@ -138,6 +139,16 @@ describe("resolveJobCwd (file-tree isolation, git mocked)", () => {
       ["worktree", "add", "--detach", wt, "HEAD"],
       "/repo",
     );
+  });
+
+  it("refuses to create automatic worktrees under system /tmp", () => {
+    expect(() =>
+      resolveJobCwd("/tmp/bad-repo", "job1", {
+        isGitRepo: () => true,
+        runGit: () => ({ status: 0 }),
+        mkdir: () => {},
+      }),
+    ).toThrow("refusing to create an automatic h2a worktree under /tmp");
   });
 
   it("a failed worktree add throws (never silently shares the cwd)", () => {
