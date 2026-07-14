@@ -33,6 +33,8 @@
   "drumbeat relance-inbox",
   "drumbeat scan",
   "drumbeat watch",
+  "focus serve",
+  "focus web",
   "harness",
   "host plugin",
   "host setup",
