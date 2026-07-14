@@ -4997,7 +4997,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .option(
       "--cwd <path>",
-      "run the agent in this directory as-is (default: a dedicated git worktree under .remote/jobs/<id>/wt when cwd is a repo, else cwd). Local only.",
+      "run the agent in this directory as-is (default: a dedicated git worktree under .h2a/jobs/<id>/wt when cwd is a repo, else cwd). Local only.",
     )
     .option(
       "--name <label>",
