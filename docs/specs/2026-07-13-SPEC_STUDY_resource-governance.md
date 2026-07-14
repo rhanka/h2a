@@ -202,6 +202,24 @@ Ran `scripts/cgroup-probe.sh` on this host (Linux 7.0, user 1000, no root). All 
   (standby feasible); **`memory.oom.group` present** (anti-partial-kill, closes leg-2's corruption
   concern); **PSI `/proc/pressure/memory` present** (system-wide pressure signal for the manager).
 
+### Docker-associated containers (design gap the consensus missed, 2026-07-13)
+
+A governed session's memory footprint is TWO cgroup trees, not one: (1) the process tree in the user
+slice (the `--user` scope we proved governable), AND (2) any **Docker containers** it spawned, which
+live in `system.slice/docker-<id>.scope` — **daemon/root-owned, NOT under user@1000**. On this host:
+6 `radar-test-*` compose stacks (minio+postgres) totalling only ~0.40 GB (not the OOM cause — the
+~40-session claude fleet at 20.8 GB is), and they carry ONLY `com.docker.compose.*` labels, no h2a tag.
+So the quota manager needs a **Docker-aware branch**:
+- **Account:** read per-container memory via `docker stats` / the `docker-*.scope` cgroup — easy.
+- **Associate** container → owning h2a session: needs a CONVENTION — h2a should stamp
+  `h2a.session=<id>` (label/compose `x-` field) on containers it launches; else fall back to a
+  heuristic (compose project / launch cwd / process-tree of the `docker`/`compose` invocation). Today
+  there is no such tag.
+- **Govern:** a container is limited/evicted via the **docker daemon** (`mem_limit` at compose/run,
+  `docker update --memory`, `docker stop`) — NOT via a user `--user` scope. Freeze = `docker pause`;
+  deport = re-`compose up` on the pod backend. This is a distinct governance mechanism from the
+  process-tree scopes, and the aggregate quota + eviction policy must span both.
+
 **Verdict: the hard-cap + freeze path is FEASIBLE without root — the STUDY's single highest-risk
 assumption and honest blocker are resolved POSITIVELY.** Proceed on the real cgroup design (parent
 `--user` slice at the configurable 36 GB cap + per-session child scopes + `cgroup.freeze` + PSI-driven
