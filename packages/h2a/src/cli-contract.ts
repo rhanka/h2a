@@ -197,6 +197,22 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     optionalFlags: ["root", "port"],
     description: "Serve the read-only canevas ③ decision surface on 127.0.0.1 (default :8788): GET /api/decisions (aggregate) + GET /api/sessions/:tmuxName/pane (lazy capturePane). No write routes yet."
   },
+  {
+    verb: "focus serve",
+    outputShape: "stream",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["repo", "track-events", "host", "port"],
+    description: "Serve the packaged production Focus Web app for the target tracked repository. Binds 127.0.0.1:5178 by default; port 0 selects an available port."
+  },
+  {
+    verb: "focus web",
+    outputShape: "stream",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["repo", "track-events", "host", "port"],
+    description: "Exact alias of `h2a focus serve`."
+  },
 
   // --- subagents (DEC-068 / V2) ---
   {

@@ -852,6 +852,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "loop watch",
     "canevas list",
     "canevas serve",
+    "focus serve",
+    "focus web",
     "negotiate open",
     "negotiate status",
     "negotiate event",
