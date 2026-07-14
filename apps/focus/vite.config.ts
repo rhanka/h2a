@@ -8,6 +8,11 @@ export default defineConfig({
   resolve: {
     dedupe: ['svelte', '@sentropic/design-system-svelte', '@sentropic/design-system-themes']
   },
+  // Focus is shipped inside @sentropic/h2a. Bundle UI-only dependencies so the installed CLI needs only
+  // its declared @sentropic/track runtime dependency, not the app's private build toolchain.
+  ssr: {
+    noExternal: ['@sentropic/design-system-svelte', '@sentropic/design-system-themes']
+  },
   server: {
     port: 5178,
     host: true

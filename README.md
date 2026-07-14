@@ -185,12 +185,17 @@ h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]
 # MCP server (JSON-RPC 2.0 over stdio, DEC-026 + DEC-051/052)
 h2a mcp-serve [--root <path>]
 
+# Focus Web (packaged production app; `focus web` is an exact alias)
+h2a focus serve [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]
+
 # Host wiring (MCP snippets for each host)
 h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]
 h2a host status [--host <name>]
 ```
 
 Every JSON-emitting verb follows one of three canonical envelopes (`resource` / `list` / `action`) with an exit-code table `0 / 1 / 2 / 3`. Machine-readable contract: `H2A_CLI_VERB_CONTRACTS` (`packages/h2a-cli/src/cli-contract.ts`). Human-readable reference: [`docs/cli-contract.md`](./docs/cli-contract.md).
+
+Focus Web is served directly by h2a from the production artifact included in `@sentropic/h2a`; no monorepo checkout or `npm run dev` is needed. See [`docs/focus-web.md`](./docs/focus-web.md).
 
 ---
 
