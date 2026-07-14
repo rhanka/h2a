@@ -44,6 +44,16 @@ repo-local `.remote/jobs/<id>/wt` workspace.
 A recorder verb does NOT do the thinking — it scaffolds + records, and the `harness/<verb>` skill carries
 the reasoning. Run the verb to open the act, then follow its skill.
 
+
+## Strict scope / minimal diff
+
+Solve only the explicit request and directly blocking defect. Before editing, identify the smallest
+necessary file/line set. Preserve existing work: do not rewrite, reformat, move, rename, delete, refactor,
+add dependencies, add abstractions, or clean up opportunistically unless required by the task. Prefer a
+local compatible fix over a broader redesign. If a useful improvement is outside scope, mention it as an
+optional follow-up instead of implementing it. Before finishing, check every hunk: if it does not directly
+serve the objective, remove it.
+
 ## Discipline first
 
 Process skills (`harness/brainstorm`, `harness/debug`) decide HOW to approach the task — invoke them
