@@ -22,6 +22,8 @@ app.post("/v1/session", async (c) => {
     workspaceId?: unknown;
     profile?: unknown;
     clientSessionId?: unknown;
+    reasoningEffort?: unknown;
+    requiredTransport?: unknown;
   };
   try {
     body = await c.req.json<typeof body>();
@@ -38,6 +40,12 @@ app.post("/v1/session", async (c) => {
       ...(typeof body.workspaceId === "string" ? { workspaceId: body.workspaceId } : {}),
       ...(typeof body.profile === "string" ? { profile: body.profile } : {}),
       ...(typeof body.clientSessionId === "string" ? { clientSessionId: body.clientSessionId } : {}),
+      ...(typeof body.reasoningEffort === "string"
+        ? { reasoningEffort: body.reasoningEffort }
+        : {}),
+      ...(typeof body.requiredTransport === "string"
+        ? { requiredTransport: body.requiredTransport }
+        : {}),
     });
     return c.json(result, 201);
   } catch (err) {

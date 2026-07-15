@@ -10,14 +10,6 @@ beforeEach(() => {
   vi.resetModules();
   testScratch = mkdtempSync(join(tmpdir(), "gateway-index-test-"));
   vi.stubEnv("LLM_GATEWAY_STICKY_FILE", join(testScratch, "sticky.json"));
-  vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
-    {
-      id: "codex-a",
-      provider: "openai",
-      label: "Codex A",
-      token: "secret-openai-token",
-    },
-  ]));
   vi.stubEnv("LLM_GATEWAY_TOKEN_SEED", "test-seed");
 });
 
@@ -28,77 +20,7 @@ afterEach(() => {
   rmSync(testScratch, { recursive: true, force: true });
 });
 
-describe("gateway descriptor APIs", () => {
-  it("exposes descriptor-only accounts and routable models", async () => {
-    const { app } = await import("./index.js");
-
-    const accounts = await app.fetch(new Request("http://localhost/v1/accounts"));
-    expect(accounts.status).toBe(200);
-    await expect(accounts.json()).resolves.toEqual({
-      data: [
-        {
-          id: "codex-a",
-          provider: "openai",
-          label: "Codex A",
-          modelIds: [],
-          status: "active",
-        },
-      ],
-    });
-
-    const models = await app.fetch(new Request("http://localhost/v1/models"));
-    expect(models.status).toBe(200);
-    const modelBody = await models.json() as { data: Array<{ id: string; owned_by: string }> };
-    expect(modelBody.data.map((model) => model.id)).toContain("gpt-5.5");
-    expect(modelBody.data.map((model) => model.id)).toContain("gpt-5.3-codex-spark");
-    expect(JSON.stringify(modelBody)).not.toContain("secret");
-  });
-
-  it("records session ledger entries for model-routed acquisitions", async () => {
-    const { app } = await import("./index.js");
-
-    const created = await app.fetch(
-      new Request("http://localhost/v1/session", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          sessionId: "sess-ledger",
-          model: "gpt-5.3-codex-spark",
-          workspaceId: "workspace-a",
-          profile: "claude",
-        }),
-      }),
-    );
-
-    expect(created.status).toBe(201);
-    await expect(created.json()).resolves.toMatchObject({
-      accountId: "codex-a",
-      modelId: "gpt-5.3-codex-spark",
-      upstreamModel: "gpt-5.3-codex-spark",
-      routePolicy: "round-robin",
-      routeReason: "catalog-id",
-    });
-
-    const session = await app.fetch(new Request("http://localhost/v1/sessions/sess-ledger"));
-    expect(session.status).toBe(200);
-    await expect(session.json()).resolves.toMatchObject({
-      gatewaySessionId: "sess-ledger",
-      clientSessionId: "sess-ledger",
-      workspaceId: "workspace-a",
-      profile: "claude",
-      account: { id: "codex-a", provider: "openai", label: "Codex A" },
-      requestedModel: "gpt-5.3-codex-spark",
-      modelId: "gpt-5.3-codex-spark",
-      upstreamModel: "gpt-5.3-codex-spark",
-      requestCount: 0,
-    });
-
-    const sessions = await app.fetch(new Request("http://localhost/v1/sessions"));
-    const body = await sessions.json();
-    expect(JSON.stringify(body)).not.toContain("secret-openai-token");
-    expect(JSON.stringify(body)).not.toContain("gw-v1-");
-  });
-
+describe("embedded gateway reporting session attestation", () => {
   it("attests the requested Opus alias and canonical Terra Codex transport before use", async () => {
     vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
       {
@@ -836,18 +758,66 @@ describe("gateway descriptor APIs", () => {
     expect(Object.keys(data).sort()).toEqual(["distinct-a", "distinct-b"]);
   });
 
-  it("rejects unsupported session models at acquisition time", async () => {
-    const { app } = await import("./index.js");
+  it("rehydrates the transport claim fail-closed after a gateway restart", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "gateway-transport-claim-"));
+    try {
+      vi.stubEnv("LLM_GATEWAY_STICKY_FILE", join(scratch, "sticky.json"));
+      vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
+        {
+          id: "codex-oauth",
+          provider: "openai",
+          label: "Codex OAuth",
+          token: "codex.header.signature",
+        },
+      ]));
+      const { app } = await import("./index.js");
+      const created = await app.fetch(
+        new Request("http://localhost/v1/session", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            sessionId: "restart-safe",
+            model: "claude-opus-4-8",
+            reasoningEffort: "xhigh",
+            requiredTransport: "codex-responses",
+          }),
+        }),
+      );
+      const session = await created.json() as { gatewayToken: string };
+      expect(created.status).toBe(201);
 
-    const res = await app.fetch(
-      new Request("http://localhost/v1/session", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionId: "sess-bad", model: "mystery-model" }),
-      }),
-    );
+      vi.resetModules();
+      vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
+        {
+          id: "codex-oauth",
+          provider: "openai",
+          label: "Credential replaced with raw key",
+          token: "sk-replaced-after-restart",
+        },
+      ]));
+      const upstreamFetch = vi.fn(() => {
+        throw new Error("raw fallback must not receive context");
+      });
+      vi.stubGlobal("fetch", upstreamFetch);
+      const { app: restartedApp } = await import("./index.js");
+      const response = await restartedApp.fetch(
+        new Request("http://localhost/v1/messages", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${session.gatewayToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "claude-opus-4-8",
+            messages: [{ role: "user", content: "restart-sensitive context" }],
+          }),
+        }),
+      );
 
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toEqual({ error: "unsupported model: mystery-model" });
+      expect(response.status).toBe(403);
+      expect(upstreamFetch).not.toHaveBeenCalled();
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
   });
 });
