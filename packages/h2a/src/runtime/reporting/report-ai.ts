@@ -273,6 +273,8 @@ export async function runH2AReportAi(
       body: JSON.stringify({
         sessionId,
         model: options.model,
+        reasoningEffort: effort,
+        requiredTransport: "codex-responses",
         profile: "track-report-ai",
         clientSessionId: sessionId
       })
@@ -282,10 +284,18 @@ export async function runH2AReportAi(
     if (
       !isRecord(session) ||
       typeof session.gatewayToken !== "string" ||
-      session.modelId !== options.model ||
-      session.upstreamModel !== H2A_REPORT_AI_TERRA_MODEL
+      session.gatewayToken.length === 0 ||
+      session.requestedModel !== options.model ||
+      session.modelId !== H2A_REPORT_AI_TERRA_MODEL ||
+      session.upstreamModel !== H2A_REPORT_AI_TERRA_MODEL ||
+      session.reasoningEffort !== effort ||
+      (session.provider !== "openai" && session.provider !== "codex") ||
+      session.authType !== "bearer" ||
+      session.transport !== "codex-responses"
     ) {
-      throw new Error("gateway route attestation did not resolve requested Opus to Terra");
+      throw new Error(
+        "gateway route attestation did not bind requested Opus to Terra over Codex Responses bearer transport"
+      );
     }
 
     const messagesResponse = await fetchImpl(`${base}/v1/messages`, {
