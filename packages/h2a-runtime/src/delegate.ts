@@ -1,9 +1,9 @@
 /**
- * `remote delegate <type> "<task>"` — P1 of cross-type agent delegation.
+ * `h2a delegate <type> "<task>"` — P1 of cross-type agent delegation.
  *
  * Spawns a LIVE, INTERACTIVE agent (claude / codex / agy) in a DETACHED tmux
  * session, PRIMED with the task, with the h2a MCP server in a side window (the
- * existing `remote run --h2a` path) so the parent/master feedback loop works.
+ * existing `h2a run --h2a` path) so the parent/master feedback loop works.
  * Returns a job id (slug). The job is enrolled in the SAME registry as sessions
  * with `role: "job"` (no second jobs.json), so `listLive` + the liveness guards
  * + the atomic write are reused as-is.
@@ -733,7 +733,7 @@ export function resolveJobCwd(
 }
 
 // ---------------------------------------------------------------------------
-// Supervision — `remote jobs ls` (pure rendering)
+// Supervision — `h2a jobs ls` (pure rendering)
 // ---------------------------------------------------------------------------
 
 export type JobRow = {
@@ -750,7 +750,7 @@ export type JobRow = {
   note: string;
   /** Account label bound to this job via the pool (omitted when no pool binding). */
   account?: string;
-  /** Remote session UUID (kind "remote" only) — use with `remote attach <session>`. */
+  /** Remote session UUID (kind "remote" only) — use with `h2a attach <session>`. */
   session?: string;
 };
 
@@ -904,7 +904,7 @@ export function conductorAdvisory(
   if (pending === 0) return undefined;
   return (
     `[h2a] ${pending} pending job(s) and no active conductor — they will NOT start on their own. ` +
-    `Run: remote jobs conduct   (or  remote jobs conduct --watch <min>  to keep draining)`
+    `Run: h2a jobs conduct   (or  h2a jobs conduct --watch <min>  to keep draining)`
   );
 }
 
@@ -918,7 +918,7 @@ export function renderJobsTable(rows: ReadonlyArray<JobRow>): string {
     ["age", "AGE"],
     ["cwd", "CWD"],
   ];
-  // Show SESSION for remote jobs so `remote attach <session>` is copy-paste-ready.
+  // Show SESSION for remote jobs so `h2a attach <session>` is copy-paste-ready.
   if (rows.some((r) => r.session !== undefined)) cols.push(["session", "SESSION"]);
   // Show ACCOUNT when any row has a pool binding.
   if (rows.some((r) => r.account !== undefined)) cols.push(["account", "ACCOUNT"]);

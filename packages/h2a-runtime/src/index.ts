@@ -328,7 +328,8 @@ import {
 
 const KNOWN_PROFILE_HELP = `${CLI_PROFILES.join(", ")} (aliases: claude-code, antigravity, gemini-cli, mistralcli)`;
 
-export const packageName = "@sentropic/remote-cli";
+export const packageName = "@sentropic/h2a-runtime";
+export const H2A_RUNTIME_CLI_API_VERSION = 1;
 
 export { run } from "./run.js";
 export type { RunOptions, RunResult } from "./run.js";
@@ -452,8 +453,8 @@ function resumeStartupArgs(
  * fleet (one auth). Creation is bounded-concurrent (cap = the fleet size,
  * itself <= DEFAULT_FANOUT_MAX). NEVER auto-attaches — a fleet has no single
  * terminal to take over; prints a summary table and the per-session attach
- * hints, mirroring the LOCAL `remote run --count` contract. Reconcile/cleanup
- * of dead members reuses the existing `remote ls`/`jobs` reconciliation against
+ * hints, mirroring the LOCAL `h2a run --count` contract. Reconcile/cleanup
+ * of dead members reuses the existing `h2a ls`/`jobs` reconciliation against
  * `listRemoteSessions` (a dead Pod simply drops off the live list). Returns the
  * created (id,name) pairs; throws only on a setup error before fan-out.
  */
@@ -1265,7 +1266,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
       // Bundle local CLI credentials (e.g. ~/.claude/.credentials.json for
       // "claude", ~/.codex/auth.json for "codex") so the pod has them at start.
       // Best-effort: a missing bundle is not fatal — the session starts without
-      // credentials (user can `remote refresh` the job later if needed).
+      // credentials (user can `h2a refresh` the job later if needed).
       let jobCredentials: Readonly<Record<string, string>> | undefined;
       if (isCliProfile(remoteArgs.profile)) {
         try {
@@ -1385,7 +1386,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
   }
 
   // Propagate the child's remaining spawn-depth budget through the env so a job
-  // that itself runs `remote delegate` inherits a DECREMENTED budget (depth=0 →
+  // that itself runs `h2a delegate` inherits a DECREMENTED budget (depth=0 →
   // refuse). tmux inherits the spawning process's env, so set it around spawn.
   // ALSO stamp REMOTE_JOB_ID (H1): the spawned agent's claude SessionStart/End
   // hooks read it to resolve THIS job (they only get claude's conversation uuid,
@@ -1631,7 +1632,7 @@ function looksLikeUrl(value: string): boolean {
 
 /**
  * Resolve the tool list to bundle: `--with a,b` overrides the configured
- * default (`remote config tools …`). Unknown tools are dropped with a warning.
+ * default (`h2a config tools …`). Unknown tools are dropped with a warning.
  */
 function resolveTools(withOpt?: string): string[] {
   const raw = withOpt
@@ -1664,7 +1665,7 @@ function projectName(s: {
   return s.id;
 }
 
-/** Local CLI binary for a profile (used by `remote run`). */
+/** Local CLI binary for a profile (used by `h2a run`). */
 const LOCAL_CLI: Readonly<Record<string, string>> = {
   claude: "claude",
   "claude-code": "claude",
@@ -1893,7 +1894,7 @@ function resolveUrlAndSessionId(
   }
   if (looksLikeUrl(first)) {
     throw new Error(
-      `Missing session id. Usage: remote <command> [url] <sessionId> (received URL "${first}" without session id).`,
+      `Missing session id. Usage: h2a <command> [url] <sessionId> (received URL "${first}" without session id).`,
     );
   }
   return { url: getConfiguredRemote(), sessionId: first };
@@ -1933,7 +1934,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     }
     return main([
       argv[0] ?? "node",
-      argv[1] ?? "remote",
+      argv[1] ?? "h2a",
       "run",
       profile,
       process.cwd(),
@@ -1942,7 +1943,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   const program = new Command();
   program
-    .name("remote")
+    .name("h2a")
     .description(
       "Wrap a local agent CLI (codex/claude/agy/gemini/mistral) and expose its session for h2a attach.",
     )
@@ -1959,7 +1960,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   ] as const) {
     const cmd = program
       .command(profileName)
-      .description(`Run ${profileName} via remote-cli`)
+      .description(`Run ${profileName} via h2a`)
       .argument("[commandArgs...]", "Arguments passed to the wrapped CLI")
       .option(
         "-r, --resume [convId]",
@@ -1972,7 +1973,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       )
       .option(
         "--remote <url>",
-        "override the control-plane URL (defaults to the configured remote; `remote` is remote-first)",
+        "override the control-plane URL (h2a defaults to the configured remote)",
       )
       .option(
         "--local",
@@ -2061,7 +2062,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   program
     .command("install <url>")
     .description(
-      "Set default remote URL and apply remote's managed local tmux profile",
+      "Set default remote URL and apply h2a's managed local tmux profile",
     )
     .action((url: string) => {
       setAndReportDefaultRemote(url);
@@ -2474,7 +2475,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   const authCommand = program
     .command("auth")
     .description(
-      "Inspect and manage the local CLI credentials remote sends to sessions",
+      "Inspect and manage the local CLI credentials h2a sends to sessions",
     );
 
   const printAuthStatus = async (
@@ -2729,7 +2730,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   configCommand
     .command("tmux-profile <name>")
     .description(
-      "Set the marker name for remote's embedded tmux profile applied to local sessions",
+      "Set the marker name for h2a's embedded tmux profile applied to local sessions",
     )
     .action((name: string) => {
       setTmuxProfileConfig({ profile: name });
@@ -3697,7 +3698,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         await ensureConnected(remoteUrl);
         // Single-writer guard: the conversation must not stay open locally (or
         // in another pod) while we deport it — stop the local session first
-        // (`remote stop <slug>`), or --force to take over anyway. A BARE -r
+        // (`h2a stop <slug>`), or --force to take over anyway. A BARE -r
         // resumes "the most recent conversation", resolved inside
         // migrateForward AFTER this point — so resolve the same newest local
         // conversation HERE (localConvStat on the cwd; claude-family only,
@@ -4781,7 +4782,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   program
     .command("run <profile> [path]")
     .description(
-      "Start a LOCAL session in tmux (claude/codex/…) in <path> (default: cwd), then attach this terminal by default. Remote applies its embedded scroll-safe tmux profile at launch; no ~/.tmux.conf is required. Manage it like a remote one: `h2a ls`, `h2a attach <slug>`, `h2a stop <slug>`. Detach with Ctrl-b d; the session keeps running.",
+      "Start a LOCAL session in tmux (claude/codex/…) in <path> (default: cwd), then attach this terminal by default. h2a applies its embedded scroll-safe tmux profile at launch; no ~/.tmux.conf is required. Manage it with `h2a ls`, `h2a attach <slug>`, and `h2a stop <slug>`. Detach with Ctrl-b d; the session keeps running.",
     )
     .option(
       "--no-attach",
@@ -4935,7 +4936,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             args,
             label,
           );
-          // Auto-enroll in the live-session registry (feeds `remote ls`/`restore`).
+          // Auto-enroll in the live-session registry (feeds `h2a ls`/`restore`).
           // Pin the gateway posture ONLY when the user was explicit (--gw/--no-gw);
           // an "auto" launch stays unpinned so restore follows the live default.
           enrollFromRun({
@@ -4969,7 +4970,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           `[h2a] local session ${only.slug} started (${profile}${opts.resume ? ` --resume ${opts.resume}` : ""} in ${cwd})\n`,
         );
         // Single local runs hand off the terminal by default: there is no value
-        // in making users type a second `remote attach <slug>` command. Commander
+        // in making users type a second `h2a attach <slug>` command. Commander
         // sets opts.attach=false only for --no-attach.
         if (opts.attach === false) {
           process.stderr.write(
@@ -4989,7 +4990,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   program
     .command("delegate <type> <task>")
     .description(
-      "Delegate a task to a LIVE agent (claude/codex/agy) in a detached tmux session, primed with <task> (passed as a single argv — never shell-concatenated) and with the h2a side-window so the parent/master dialogue works. Returns a job id. Supervise with `remote jobs`; drain the queue with `remote jobs conduct`. `--remote` runs the job CONCURRENTLY in a SCW Pod on the shared RWX volume (subPath per job). Beyond the concurrency cap (default 16) the job is QUEUED (pending) and started by the conductor as slots free.",
+      "Delegate a task to a LIVE agent (claude/codex/agy) in a detached tmux session, primed with <task> (passed as a single argv — never shell-concatenated) and with the h2a side-window so the parent/master dialogue works. Returns a job id. Supervise with `h2a jobs`; drain the queue with `h2a jobs conduct`. `--remote` runs the job CONCURRENTLY in a SCW Pod on the shared RWX volume (subPath per job). Beyond the concurrency cap (default 16) the job is QUEUED (pending) and started by the conductor as slots free.",
     )
     .option(
       "--remote [url]",
@@ -5098,7 +5099,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // --- Concurrency cap (P4). The cap applies to BOTH local and remote
         // (shared RWX is multi-node; no CSI packing limit). Beyond `running`
         // jobs at the cap, ENQUEUE the job (jobState:"pending") instead of
-        // launching it; the conductor (`remote jobs conduct`) starts it later.
+        // launching it; the conductor (`h2a jobs conduct`) starts it later.
         const cap =
           opts.maxConcurrent !== undefined
             ? Number.parseInt(opts.maxConcurrent, 10)
@@ -5198,7 +5199,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // The entry exists but the cap is full → stay queued.
           process.stderr.write(
             `[h2a] queued job ${jobId} (${jobType}${opts.headless ? " headless" : ""}${isRemote ? " remote" : ""}) — ` +
-              `${effectiveCap} concurrent slot(s) busy. Start it with: remote jobs conduct\n`,
+              `${effectiveCap} concurrent slot(s) busy. Start it with: h2a jobs conduct\n`,
           );
           process.stdout.write(`${jobId}\n`);
           return;
@@ -5249,8 +5250,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         process.stderr.write(
           `[h2a] delegated ${result.target === "remote" ? "REMOTE " : ""}job ${jobId} (${jobType}${opts.headless ? " headless" : ""}) ${result.target === "remote" ? "→ " : "in "}${result.detail}\n` +
-            `[h2a] supervise: remote jobs status ${jobId}` +
-            (opts.headless ? "" : `   attach: remote jobs attach ${jobId}`) +
+            `[h2a] supervise: h2a jobs status ${jobId}` +
+            (opts.headless ? "" : `   attach: h2a jobs attach ${jobId}`) +
             "\n",
         );
         process.stdout.write(`${jobId}\n`);
@@ -5619,7 +5620,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       await reconcileJobs();
       const job = listJobs().find((e) => e.id === id);
       if (!job) {
-        process.stderr.write(`[h2a] no job "${id}" (see: remote jobs ls)\n`);
+        process.stderr.write(`[h2a] no job "${id}" (see: h2a jobs ls)\n`);
         process.exitCode = 1;
         return;
       }
@@ -5673,12 +5674,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action(async (id: string) => {
       const job = listJobs().find((e) => e.id === id);
       // REMOTE job (P2): exec into the Pod's tmux over the configured tunnel,
-      // reusing the same path as `remote attach <id> --exec`.
+      // reusing the same path as `h2a attach <id> --exec`.
       if (job?.kind === "remote") {
         const remoteId = job.remoteId;
         if (!remoteId) {
           process.stderr.write(
-            `[h2a] remote job "${id}" has no session id recorded (see: remote jobs status ${id})\n`,
+            `[h2a] remote job "${id}" has no session id recorded (see: h2a jobs status ${id})\n`,
           );
           process.exitCode = 1;
           return;
@@ -5706,7 +5707,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const name = job?.tmuxSession ?? localSessionName(id);
       if (!findLocalSession(name)) {
         process.stderr.write(
-          `[h2a] no live tmux session for job "${id}" (it may have ended; see: remote jobs status ${id})\n`,
+          `[h2a] no live tmux session for job "${id}" (it may have ended; see: h2a jobs status ${id})\n`,
         );
         process.exitCode = 1;
         return;
@@ -5722,7 +5723,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action((id: string) => {
       const job = listJobs().find((e) => e.id === id);
       if (!job) {
-        process.stderr.write(`[h2a] no job "${id}" (see: remote jobs ls)\n`);
+        process.stderr.write(`[h2a] no job "${id}" (see: h2a jobs ls)\n`);
         process.exitCode = 1;
         return;
       }
@@ -5738,7 +5739,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       // REMOTE job: the output lives in the Pod's tmux, not a local pane.
       if (job.kind === "remote") {
         process.stderr.write(
-          `[h2a] remote job "${id}" runs in a Pod — view it live with: remote jobs attach ${id}\n`,
+          `[h2a] remote job "${id}" runs in a Pod — view it live with: h2a jobs attach ${id}\n`,
         );
         process.exitCode = 1;
         return;
@@ -5757,7 +5758,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   // P3 — the decision channel (h2a). A delegated INTERACTIVE job can emit a
   // `decision.requested` envelope; the parent lists them here and answers with
-  // `decide`. Both ride the local h2a inbox + `remote h2a bridge` to the Pod.
+  // `decide`. Both ride the local h2a inbox + `h2a relay bridge` to the Pod.
   jobsCommand
     .command("decisions")
     .description(
@@ -5788,7 +5789,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   jobsCommand
     .command("decide <jobId> <answer>")
     .description(
-      "Answer a job's `decision.requested`: write a `decision.reply` envelope into the job's h2a inbox (carried to its Pod by `remote h2a bridge`). <answer> is a single argv — never shell-concatenated.",
+      "Answer a job's `decision.requested`: write a `decision.reply` envelope into the job's h2a inbox (carried to its Pod by `h2a relay bridge`). <answer> is a single argv — never shell-concatenated.",
     )
     .option(
       "--from <h2a-instance>",
@@ -5805,7 +5806,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const job = listJobs().find((e) => e.id === jobId);
       if (!job) {
         process.stderr.write(
-          `[h2a] no job "${jobId}" (see: remote jobs ls)\n`,
+          `[h2a] no job "${jobId}" (see: h2a jobs ls)\n`,
         );
         process.exitCode = 1;
         return;
@@ -5825,7 +5826,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           `[h2a] decision.reply for ${jobId} → ${envelope.to}` +
             `${written ? "" : " (already present, not overwritten)"}\n` +
             `[h2a] envelope: ${path}\n` +
-            `[h2a] delivered to the job's Pod on the next: remote h2a bridge\n`,
+            `[h2a] delivered to the job's Pod on the next: h2a relay bridge\n`,
         );
       } catch (error) {
         process.stderr.write(
@@ -6184,7 +6185,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     }
     process.stderr.write(
       `[h2a] conductor-launch: launched ${host} conductor ${slug} for ${request.workspaceId} in ${result.detail}\n` +
-        `[h2a] supervise: remote jobs status ${slug}   attach: remote jobs attach ${slug}\n`,
+        `[h2a] supervise: h2a jobs status ${slug}   attach: h2a jobs attach ${slug}\n`,
     );
     return { launched: true, detail: `${host} ${slug}` };
   };
@@ -6392,7 +6393,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const pane = resolveAgentPaneForInstance(target);
       if (!pane) {
         process.stderr.write(
-          `[h2a] wake-request: no agent pane for ${target} — not launched by remote, skipping (reason: ${reason || "none"})\n`,
+          `[h2a] wake-request: no agent pane for ${target} — not launched by h2a, skipping (reason: ${reason || "none"})\n`,
         );
         continue;
       }
@@ -6462,7 +6463,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .description(
       "Handle an h2a `wake-request` envelope: read the local h2a inbox for a wake-request, " +
         "resolve the target agent pane from launch records, and send tmux send-keys to wake it. " +
-        "No-op if no pane is known for the target (agent not launched by remote). " +
+        "No-op if no pane is known for the target (agent not launched by h2a). " +
         "Idempotent: ignores duplicate wake-requests received within 60s. " +
         "--watch loops in the foreground.",
     )
@@ -6597,7 +6598,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   // Reliability slice 2 (throttle phase 2) — auto-resume RATE-LIMITED INTERACTIVE
   // local tmux sessions, staggered + hands-off.
   //
-  // INTERACTIVE `remote run` sessions (claude/codex/agy in a live pane) do NOT
+  // INTERACTIVE `h2a run` sessions (claude/codex/agy in a live pane) do NOT
   // exit on a transient provider rate-limit — they STALL until a human pokes them.
   // This passes the pure `planInteractiveResume` the per-session pane tail
   // (detectThrottle source), `#{session_attached}` (the HARD detached-only guard),
@@ -6802,15 +6803,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     );
 
   // ---------------------------------------------------------------------------
-  // h2a — bridge the local agent network (~/h2a-workspace/.h2a) with session Pods
+  // relay — bridge the local agent network (~/h2a-workspace/.h2a) with session Pods
   // ---------------------------------------------------------------------------
 
-  const h2aCommand = program
-    .command("h2a")
+  const relayCommand = program
+    .command("relay")
+    .alias("h2a")
     .description(
       "h2a agent-network helpers (local file store: ~/h2a-workspace/.h2a)",
     );
-  h2aCommand
+  relayCommand
     .command("ping <instance>")
     .description(
       "Drop an `h2a.ping` envelope into the local h2a inbox for <instance> (e.g. codex:remote:sess-1). Use --bridge to push it to a remote session immediately.",
@@ -6820,7 +6822,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("--root <path>", "local h2a root (default: ~/h2a-workspace/.h2a)")
     .option(
       "--bridge [sessionId]",
-      "after queuing the ping, run one h2a bridge pass for this remote session (defaults from <instance> when it is <tool>:remote:<sessionId>)",
+      "after queuing the ping, run one relay bridge pass for this remote session (defaults from <instance> when it is <tool>:remote:<sessionId>)",
     )
     .action(
       async (
@@ -6840,7 +6842,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           ...(opts.root !== undefined ? { localRoot: opts.root } : {}),
         });
         process.stderr.write(
-          `[h2a] h2a ping ${ping.written ? "queued" : "already queued"} for ${instance}: ${ping.path}\n`,
+          `[h2a] relay ping ${ping.written ? "queued" : "already queued"} for ${instance}: ${ping.path}\n`,
         );
         if (opts.bridge === undefined) return;
 
@@ -6863,20 +6865,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         try {
           const r = await bridgeSession(sessionId, { profile });
           process.stderr.write(
-            `[h2a] h2a bridge ${sessionId} (${profile}) pulled=${r.pulled} pushed=${r.pushed} skipped=${r.skipped}` +
+            `[h2a] relay bridge ${sessionId} (${profile}) pulled=${r.pulled} pushed=${r.pushed} skipped=${r.skipped}` +
               `${r.failed > 0 ? ` failed=${r.failed}` : ""}\n`,
           );
           if (r.failed > 0) process.exitCode = 1;
         } catch (error) {
           process.stderr.write(
-            `[h2a] h2a bridge ${sessionId} failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
+            `[h2a] relay bridge ${sessionId} failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
           );
           process.exitCode = 1;
         }
       },
     );
 
-  h2aCommand
+  relayCommand
     .command("bridge [sessionId]")
     .description(
       "Bridge h2a envelopes with session Pod(s) over kubectl exec: PULL envelopes the Pod's agent emitted (Pod inbox/* minus the Pod's own instances) into the local inboxes, PUSH local envelopes addressed to the Pod's instances (<tool>:remote:<sessionId> + the Pod's registry) into the Pod. Idempotent by file name (existing files are skipped, never overwritten), NEVER deletes (acks/cleanup belong to h2a). A Pod without ~/h2a-workspace/.h2a gets the skeleton + README. Without sessionId: every live session.",
@@ -6890,11 +6892,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       [
         "",
         "Examples:",
-        "  $ remote h2a bridge sess-abc         one pass for one session",
-        "  $ remote h2a bridge                  one pass for every live session",
-        "  $ remote h2a bridge --watch 5        foreground loop, every 5 min",
+        "  $ h2a relay bridge sess-abc           one pass for one session",
+        "  $ h2a relay bridge                    one pass for every live session",
+        "  $ h2a relay bridge --watch 5          foreground loop, every 5 min",
         "  Run the watch in a dedicated tmux window, e.g.:",
-        "    tmux new-window -n h2a-bridge 'remote h2a bridge --watch 5'",
+        "    tmux new-window -n h2a-bridge 'h2a relay bridge --watch 5'",
         "",
       ].join("\n"),
     )
@@ -6944,14 +6946,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             const r = await bridgeSession(s.id, { profile: s.profile });
             if (r.failed > 0) failed += 1;
             process.stderr.write(
-              `[h2a] h2a bridge ${s.id} (${s.profile}) pulled=${r.pulled} pushed=${r.pushed} skipped=${r.skipped}` +
+              `[h2a] relay bridge ${s.id} (${s.profile}) pulled=${r.pulled} pushed=${r.pushed} skipped=${r.skipped}` +
                 `${r.failed > 0 ? ` failed=${r.failed}` : ""}` +
                 `${r.scaffolded ? " (pod .h2a scaffolded)" : ""}\n`,
             );
           } catch (error) {
             failed += 1;
             process.stderr.write(
-              `[h2a] h2a bridge ${s.id} failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
+              `[h2a] relay bridge ${s.id} failed: ${(error instanceof Error ? error.message : String(error)).slice(0, 200)}\n`,
             );
           }
         }
@@ -7127,7 +7129,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.stderr.write(`[h2a] backup: ${result.backupPath}\n`);
           }
           process.stderr.write(
-            `[h2a] installed ${result.installed.join(" + ")} enroll hooks in ${result.settingsPath}\n`,
+            `[h2a] ${[
+              result.installed.length > 0
+                ? `installed ${result.installed.join(" + ")}`
+                : undefined,
+              result.migrated.length > 0
+                ? `migrated ${result.migrated.join(" + ")}`
+                : undefined,
+            ]
+              .filter((part): part is string => part !== undefined)
+              .join("; ")} enroll hooks in ${result.settingsPath}\n`,
           );
           return;
         }
@@ -7218,12 +7229,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // Local tmux session? (unless an explicit URL/sessionId pair is given).
         if (second === undefined && !looksLikeUrl(first)) {
           const local = findLocalSession(first);
-          // A session started by `remote run` is enrolled in the registry as
+          // A session started by `h2a run` is enrolled in the registry as
           // kind:"local-tmux". Trust that durable record even when a transient
           // `tmux list-sessions` miss hides the live session — otherwise a purely
           // LOCAL session is mis-routed to a k8s Pod (kubectl exec session-<name>
           // → NotFound → reconnect loop) as soon as a tunnel is configured.
-          // `remote ls` already merges registry + tmux; attach must not be less
+          // `h2a ls` already merges registry + tmux; attach must not be less
           // reliable. When the registry says local but tmux can't reach it,
           // attachLocalSession fails with a clear LOCAL error (never a Pod).
           const localName =
@@ -8462,6 +8473,8 @@ if (isEntryPoint()) {
   });
 }
 
+export { main as dispatchH2a };
+/** @deprecated Compatibility for older h2a cores; new cores require dispatchH2a. */
 export { main as dispatch };
 
 /**

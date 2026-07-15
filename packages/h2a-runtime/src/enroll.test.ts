@@ -34,8 +34,10 @@ afterEach(() => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
-const START_CMD = "remote enroll --hook claude-start";
-const END_CMD = "remote enroll --hook claude-end";
+const START_CMD = "h2a enroll --hook claude-start";
+const END_CMD = "h2a enroll --hook claude-end";
+const LEGACY_START_CMD = "remote enroll --hook claude-start";
+const LEGACY_END_CMD = "remote enroll --hook claude-end";
 
 type Settings = {
   hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>;
@@ -89,6 +91,7 @@ describe("installClaudeHooks", () => {
     const second = installClaudeHooks(settingsPath);
     expect(second.changed).toBe(false);
     expect(second.installed).toEqual([]);
+    expect(second.migrated).toEqual([]);
     expect(second.backupPath).toBeUndefined();
 
     const settings = readSettings();
@@ -98,6 +101,56 @@ describe("installClaudeHooks", () => {
     expect(countCommand(settings, "SessionEnd", END_CMD)).toBe(1);
     expect(settings.model).toBe("opus");
     // exactly one backup was created across the two runs
+    const backups = readdirSync(scratch).filter((f) => f.includes(".bak."));
+    expect(backups).toHaveLength(1);
+  });
+
+  it("migrates legacy hooks to one canonical command and remains idempotent", () => {
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        model: "opus",
+        hooks: {
+          SessionStart: [
+            { hooks: [{ type: "command", command: LEGACY_START_CMD }] },
+            { hooks: [{ type: "command", command: START_CMD }] },
+            { hooks: [{ type: "command", command: "echo user-hook" }] },
+          ],
+          SessionEnd: [
+            {
+              matcher: "startup",
+              hooks: [
+                { type: "command", command: LEGACY_END_CMD, timeout: 10 },
+                { type: "command", command: LEGACY_END_CMD },
+              ],
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+
+    const first = installClaudeHooks(settingsPath);
+    expect(first.changed).toBe(true);
+    expect(first.installed).toEqual([]);
+    expect(first.migrated.sort()).toEqual(["SessionEnd", "SessionStart"]);
+    expect(first.backupPath).toBeTruthy();
+
+    const settings = readSettings();
+    expect(countCommand(settings, "SessionStart", START_CMD)).toBe(1);
+    expect(countCommand(settings, "SessionEnd", END_CMD)).toBe(1);
+    expect(countCommand(settings, "SessionStart", LEGACY_START_CMD)).toBe(0);
+    expect(countCommand(settings, "SessionEnd", LEGACY_END_CMD)).toBe(0);
+    expect(countCommand(settings, "SessionStart", "echo user-hook")).toBe(1);
+    expect(settings.model).toBe("opus");
+
+    const second = installClaudeHooks(settingsPath);
+    expect(second).toEqual({
+      settingsPath,
+      changed: false,
+      installed: [],
+      migrated: [],
+    });
     const backups = readdirSync(scratch).filter((f) => f.includes(".bak."));
     expect(backups).toHaveLength(1);
   });
