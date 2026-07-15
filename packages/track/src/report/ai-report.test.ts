@@ -16,6 +16,10 @@ import {
   normalizeAiText,
   renderAiReport,
   reporterEnvironment,
+  REPORTER_TIMEOUT_DEFAULT_MS,
+  REPORTER_TIMEOUT_MAX_MS,
+  REPORTER_TIMEOUT_MIN_MS,
+  resolveReporterConfig,
   resolveReporterArgv,
   type AiReportRequest,
   type AiReportResultV1,
@@ -59,6 +63,11 @@ function spawnResult(stdout: string, status = 0, stderr = '') {
   return { pid: 1, output: [null, stdout, stderr], stdout, stderr, status, signal: null } as never
 }
 
+function spawnError(code: string) {
+  const error = Object.assign(new Error(code), { code })
+  return { ...spawnResult('', 0), error } as never
+}
+
 function adapterResult(ref: string, text = 'Useful <script>alert(1)</script>'): AiReportResultV1 {
   const sections = {
     summary: [{ id: 's1', text, citations: [{ ref }] }],
@@ -78,12 +87,16 @@ function fakeSpawn(
   },
   adapterSuffix = '',
   adapterStderr = '',
+  observeAdapter?: (options: { input?: string; timeout?: number }) => void,
+  adapterErrorCode?: string,
 ) {
-  return ((command: string, args: string[], options: { input?: string }) => {
+  return ((command: string, args: string[], options: { input?: string; timeout?: number }) => {
     if (command === 'git' && args.includes('--show-toplevel')) return spawnResult(`${dir}\n`)
     if (command === 'git' && args[0] === 'log') return spawnResult('abc123\tinitial commit')
     if (command === 'git') return spawnResult('')
     if (command === 'h2a') return spawnResult(h2aReply.stdout, 0, h2aReply.stderr ?? '')
+    observeAdapter?.(options)
+    if (adapterErrorCode !== undefined) return spawnError(adapterErrorCode)
     const input = JSON.parse(options.input ?? '{}') as ReportContextEnvelopeV1
     return spawnResult(`${JSON.stringify(adapter(input))}${adapterSuffix}`, 0, adapterStderr)
   }) as never
@@ -273,6 +286,51 @@ describe('AI report context and adapter boundary', () => {
     expect(resolveReporterArgv({ XDG_CONFIG_HOME: xdg, TRACK_REPORT_AI_ARGV: '["from-env"]' })).toEqual(['from-env'])
     expect(() => resolveReporterArgv({ TRACK_REPORT_AI_ARGV: '{"argv":["not-allowed"]}' })).toThrow(/env-shape/)
     expect(() => resolveReporterArgv({ TRACK_REPORT_AI_DEPTH: '1' })).toThrow(AiReportError)
+  })
+
+  it('should parse an exact bounded file timeout and preserve the legacy 90 s fallback', () => {
+    const xdg = join(dir, 'xdg-timeout')
+    mkdirSync(join(xdg, 'track'), { recursive: true })
+    const path = join(xdg, 'track', 'report-ai.json')
+
+    writeFileSync(path, JSON.stringify({ argv: ['legacy-adapter'] }))
+    expect(resolveReporterConfig({ XDG_CONFIG_HOME: xdg })).toEqual({
+      argv: ['legacy-adapter'], timeoutMs: REPORTER_TIMEOUT_DEFAULT_MS,
+    })
+
+    writeFileSync(path, JSON.stringify({ argv: ['slow-adapter'], timeoutMs: 600_000 }))
+    expect(resolveReporterConfig({ XDG_CONFIG_HOME: xdg })).toEqual({ argv: ['slow-adapter'], timeoutMs: 600_000 })
+    for (const timeoutMs of [REPORTER_TIMEOUT_MIN_MS, REPORTER_TIMEOUT_MAX_MS]) {
+      writeFileSync(path, JSON.stringify({ argv: ['bounded-adapter'], timeoutMs }))
+      expect(resolveReporterConfig({ XDG_CONFIG_HOME: xdg })).toEqual({ argv: ['bounded-adapter'], timeoutMs })
+    }
+    expect(resolveReporterConfig({ XDG_CONFIG_HOME: xdg, TRACK_REPORT_AI_ARGV: '["env-adapter"]' })).toEqual({
+      argv: ['env-adapter'], timeoutMs: REPORTER_TIMEOUT_DEFAULT_MS,
+    })
+
+    for (const timeoutMs of [REPORTER_TIMEOUT_MIN_MS - 1, 1.5, REPORTER_TIMEOUT_MAX_MS + 1, '600000']) {
+      writeFileSync(path, JSON.stringify({ argv: ['bad-adapter'], timeoutMs }))
+      expect(() => resolveReporterConfig({ XDG_CONFIG_HOME: xdg })).toThrow(/invalid-configuration-timeout/)
+    }
+    writeFileSync(path, JSON.stringify({ argv: ['bad-adapter'], timeoutMs: 600_000, extra: true }))
+    expect(() => resolveReporterConfig({ XDG_CONFIG_HOME: xdg })).toThrow(/invalid-configuration-file-shape/)
+  })
+
+  it('should pass the configured deadline to spawn and diagnose ETIMEDOUT without waiting', () => {
+    const xdg = join(dir, 'xdg-spawn-timeout')
+    mkdirSync(join(xdg, 'track'), { recursive: true })
+    writeFileSync(join(xdg, 'track', 'report-ai.json'), JSON.stringify({ argv: ['fake'], timeoutMs: 600_000 }))
+    let timeout: number | undefined
+    generateAiReport(
+      { reader, cwd: dir, request: request(), env: { PATH: '/bin', H2A_ROOT: dir, XDG_CONFIG_HOME: xdg } },
+      { spawn: fakeSpawn(undefined, undefined, '', '', (options) => { timeout = options.timeout }) },
+    )
+    expect(timeout).toBe(600_000)
+
+    expect(() => generateAiReport(
+      { reader, cwd: dir, request: request(), env: { PATH: '/bin', H2A_ROOT: dir, TRACK_REPORT_AI_ARGV: '["fake"]' } },
+      { spawn: fakeSpawn(undefined, undefined, '', '', undefined, 'ETIMEDOUT') },
+    )).toThrow(/adapter-timeout/)
   })
 
   it('should never resolve an empty or relative XDG config path against the repository', () => {
