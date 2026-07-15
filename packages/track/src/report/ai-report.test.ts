@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -77,6 +77,7 @@ function fakeSpawn(
     stdout: JSON.stringify({ schema: 'h2a.report-context/v1', storeRoot: dir, workspaceRoot: dir, entries: [], omitted: 0 }),
   },
   adapterSuffix = '',
+  adapterStderr = '',
 ) {
   return ((command: string, args: string[], options: { input?: string }) => {
     if (command === 'git' && args.includes('--show-toplevel')) return spawnResult(`${dir}\n`)
@@ -84,7 +85,7 @@ function fakeSpawn(
     if (command === 'git') return spawnResult('')
     if (command === 'h2a') return spawnResult(h2aReply.stdout, 0, h2aReply.stderr ?? '')
     const input = JSON.parse(options.input ?? '{}') as ReportContextEnvelopeV1
-    return spawnResult(`${JSON.stringify(adapter(input))}${adapterSuffix}`)
+    return spawnResult(`${JSON.stringify(adapter(input))}${adapterSuffix}`, 0, adapterStderr)
   }) as never
 }
 
@@ -148,6 +149,64 @@ describe('AI report context and adapter boundary', () => {
       { reader, cwd: dir, request: request(), env: { PATH: '/bin', H2A_ROOT: dir, TRACK_REPORT_AI_ARGV: '["fake"]' } },
       { spawn: fakeSpawn(undefined, undefined, 'unexpected stdout') },
     )).toThrow(/invalid-result-json/)
+  })
+
+  it('should fail closed when adapter stderr exceeds 16 KiB', () => {
+    expect(() => generateAiReport(
+      { reader, cwd: dir, request: request(), env: { PATH: '/bin', H2A_ROOT: dir, TRACK_REPORT_AI_ARGV: '["fake"]' } },
+      { spawn: fakeSpawn(undefined, undefined, '', 'x'.repeat(16 * 1024 + 1)) },
+    )).toThrow(/adapter-stderr-cap/)
+  })
+
+  it('should cap git at 50 commits and 500 total paths with honest partial failures', () => {
+    const commits = Array.from({ length: 51 }, (_, index) => `sha${index}\tcommit ${index}`).join('\n')
+    const statuses = Array.from({ length: 300 }, (_, index) => ` M status-${index}.txt`).join('\0') + '\0'
+    const changed = Array.from({ length: 300 }, (_, index) => `changed-${index}.txt`).join('\0') + '\0'
+    const spawn = ((command: string, args: string[]) => {
+      if (command === 'git' && args.includes('--show-toplevel')) return spawnResult(`${dir}\n`)
+      if (command === 'git' && args[0] === 'log') return spawnResult(commits)
+      if (command === 'git' && args[0] === 'rev-list') return spawnResult('51\n')
+      if (command === 'git' && args[0] === 'status') {
+        expect(args).toContain('--no-renames')
+        return spawnResult(statuses)
+      }
+      if (command === 'git' && args.includes('--name-only')) return spawnResult(changed)
+      if (command === 'git' && args.includes('--stat')) return spawnResult('', 1, 'not replayed')
+      if (command === 'h2a') return spawnResult(JSON.stringify({
+        schema: 'h2a.report-context/v1', storeRoot: dir, workspaceRoot: dir, entries: [], omitted: 0,
+      }))
+      return spawnResult('')
+    }) as never
+    const envelope = buildReportContext(
+      { reader, cwd: dir, request: request(), env: { PATH: '/bin', H2A_ROOT: dir } },
+      { spawn },
+    )
+    const git = envelope.context.git
+    expect(git.entries.filter((entry) => entry.kind === 'commit')).toHaveLength(50)
+    expect(git.entries.filter((entry) => entry.path !== undefined)).toHaveLength(500)
+    expect(git).toMatchObject({ status: 'unavailable', detail: 'git-diff-stat-unavailable', omitted: 101 })
+    expect(canonicalize(git)).not.toContain('not replayed')
+  })
+
+  it('should expose a failed name diff as degraded instead of silently successful', () => {
+    const spawn = ((command: string, args: string[]) => {
+      if (command === 'git' && args.includes('--show-toplevel')) return spawnResult(`${dir}\n`)
+      if (command === 'git' && args[0] === 'log') return spawnResult('sha\tone')
+      if (command === 'git' && args[0] === 'rev-list') return spawnResult('1\n')
+      if (command === 'git' && args[0] === 'status') return spawnResult('')
+      if (command === 'git' && args.includes('--name-only')) return spawnResult('', 1, 'secret diff error')
+      if (command === 'git' && args.includes('--stat')) return spawnResult('')
+      if (command === 'h2a') return spawnResult(JSON.stringify({
+        schema: 'h2a.report-context/v1', storeRoot: dir, workspaceRoot: dir, entries: [], omitted: 0,
+      }))
+      return spawnResult('')
+    }) as never
+    const git = buildReportContext(
+      { reader, cwd: dir, request: request(), env: { PATH: '/bin', H2A_ROOT: dir } },
+      { spawn },
+    ).context.git
+    expect(git).toMatchObject({ status: 'unavailable', detail: 'git-diff-unavailable', omitted: 0 })
+    expect(canonicalize(git)).not.toContain('secret diff error')
   })
 
   it('should validate h2a tenant/workspace roots and propagate producer omission', () => {
@@ -214,6 +273,20 @@ describe('AI report context and adapter boundary', () => {
     expect(resolveReporterArgv({ XDG_CONFIG_HOME: xdg, TRACK_REPORT_AI_ARGV: '["from-env"]' })).toEqual(['from-env'])
     expect(() => resolveReporterArgv({ TRACK_REPORT_AI_ARGV: '{"argv":["not-allowed"]}' })).toThrow(/env-shape/)
     expect(() => resolveReporterArgv({ TRACK_REPORT_AI_DEPTH: '1' })).toThrow(AiReportError)
+  })
+
+  it('should never resolve an empty or relative XDG config path against the repository', () => {
+    const home = join(dir, 'home')
+    const homeConfig = join(home, '.config', 'track')
+    const repoLocalXdg = join(dir, 'repo-local-xdg')
+    mkdirSync(homeConfig, { recursive: true })
+    mkdirSync(join(repoLocalXdg, 'track'), { recursive: true })
+    writeFileSync(join(homeConfig, 'report-ai.json'), JSON.stringify({ argv: ['from-home'] }))
+    writeFileSync(join(repoLocalXdg, 'track', 'report-ai.json'), JSON.stringify({ argv: ['repo-local-must-not-win'] }))
+    const relativeXdg = relative(process.cwd(), repoLocalXdg)
+    expect(relativeXdg.startsWith('/')).toBe(false)
+    expect(resolveReporterArgv({ XDG_CONFIG_HOME: '', HOME: home })).toEqual(['from-home'])
+    expect(resolveReporterArgv({ XDG_CONFIG_HOME: relativeXdg, HOME: home })).toEqual(['from-home'])
   })
 
   it('should forward only the explicit environment allowlist', () => {

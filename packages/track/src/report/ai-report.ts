@@ -26,6 +26,9 @@ const DOCUMENT_LIMIT = 64 * 1024
 const DOCUMENT_FILE_LIMIT = 32 * 1024
 const RESULT_LIMIT = 128 * 1024
 const ADAPTER_STDOUT_LIMIT = 256 * 1024
+const ADAPTER_STDERR_LIMIT = 16 * 1024
+const GIT_COMMIT_LIMIT = 50
+const GIT_PATH_LIMIT = 500
 
 const SOURCE_STATUSES = ['ok', 'timeout', 'unavailable', 'invalid', 'truncated'] as const
 type SourceStatus = (typeof SOURCE_STATUSES)[number]
@@ -244,38 +247,71 @@ function collectGit(spawn: Spawn, root: string, env: NodeJS.ProcessEnv): Source<
   let omitted = 0
   let used = 0
   let truncated = false
+  let pathCount = 0
+  let unavailableDetail: string | undefined
   const add = (entry: GitContextEntry): void => {
-    if (entries.length >= 550) { omitted++; truncated = true; return }
     const clean = redactValue(entry)
     const bytes = byteLength(canonicalize(clean))
     if (used + bytes > GIT_LIMIT) { omitted++; truncated = true; return }
     entries.push(clean)
     used += bytes
   }
-  const log = gitRun(spawn, root, env, ['log', '-n', '50', '--pretty=format:%H%x09%s'])
+  const addPath = (entry: GitContextEntry): void => {
+    if (pathCount >= GIT_PATH_LIMIT) { omitted++; truncated = true; return }
+    pathCount++
+    add(entry)
+  }
+  const markUnavailable = (detail: string): void => {
+    unavailableDetail ??= detail
+  }
+  const log = gitRun(spawn, root, env, ['log', '-n', String(GIT_COMMIT_LIMIT), '--pretty=format:%H%x09%s'])
   if (log.status !== 0) return sourceFailure('unavailable', 'git-log-unavailable')
-  for (const line of log.stdout.split('\n').filter(Boolean)) {
+  const commits = log.stdout.split('\n').filter(Boolean)
+  const overReturnedCommits = Math.max(0, commits.length - GIT_COMMIT_LIMIT)
+  for (const [index, line] of commits.entries()) {
+    if (index >= GIT_COMMIT_LIMIT) { truncated = true; continue }
     const tab = line.indexOf('\t')
     const sha = tab >= 0 ? line.slice(0, tab) : line
     const text = tab >= 0 ? line.slice(tab + 1) : ''
     add({ ref: `git:commit:${sha}`, kind: 'commit', sha, text })
   }
-  const status = gitRun(spawn, root, env, ['status', '--porcelain=v1', '-z', '--untracked-files=normal'])
-  if (status.status !== 0) return sourceFailure('unavailable', 'git-status-unavailable')
-  for (const record of status.stdout.split('\0').filter(Boolean).slice(0, 500)) {
-    const path = record.length > 3 ? record.slice(3) : record
-    add({ ref: pathRef(path), kind: 'status', path, text: record.slice(0, 2) })
+  // `git log -n 50` is the exact content cap; count separately so `omitted` remains an exact number,
+  // rather than a sentinel that could conceal a history with thousands of omitted commits.
+  const commitCount = gitRun(spawn, root, env, ['rev-list', '--count', 'HEAD'])
+  if (commitCount.status !== 0 || !/^\d+\s*$/u.test(commitCount.stdout)) {
+    omitted += overReturnedCommits
+    markUnavailable('git-count-unavailable')
+  } else {
+    const omittedCommits = Math.max(overReturnedCommits, Number(commitCount.stdout.trim()) - GIT_COMMIT_LIMIT)
+    omitted += omittedCommits
+    if (omittedCommits > 0) truncated = true
+  }
+  // Disable rename pairing so porcelain -z remains exactly one NUL-delimited record per path; otherwise
+  // the second rename path is a bare record and can be miscounted as an independent status entry.
+  const status = gitRun(spawn, root, env, ['status', '--porcelain=v1', '-z', '--untracked-files=normal', '--no-renames'])
+  if (status.status !== 0) {
+    markUnavailable('git-status-unavailable')
+  } else {
+    for (const record of status.stdout.split('\0').filter(Boolean)) {
+      const path = record.length > 3 ? record.slice(3) : record
+      addPath({ ref: pathRef(path), kind: 'status', path, text: record.slice(0, 2) })
+    }
   }
   const changed = gitRun(spawn, root, env, ['diff', '--name-only', '-z', '--no-ext-diff', 'HEAD'])
   if (changed.status === 0) {
-    for (const path of changed.stdout.split('\0').filter(Boolean).slice(0, 500)) {
-      add({ ref: pathRef(path), kind: 'changed-path', path, text: 'worktree-change' })
+    for (const path of changed.stdout.split('\0').filter(Boolean)) {
+      addPath({ ref: pathRef(path), kind: 'changed-path', path, text: 'worktree-change' })
     }
+  } else {
+    markUnavailable('git-diff-unavailable')
   }
   const stat = gitRun(spawn, root, env, ['diff', '--stat', '--no-ext-diff', 'HEAD'])
   if (stat.status === 0 && stat.stdout.trim() !== '') {
     add({ ref: 'git:diff-stat:worktree', kind: 'diff-stat', text: stat.stdout.trim() })
+  } else if (stat.status !== 0) {
+    markUnavailable('git-diff-stat-unavailable')
   }
+  if (unavailableDetail !== undefined) return { status: 'unavailable', entries, omitted, detail: unavailableDetail }
   return { status: truncated ? 'truncated' : 'ok', entries, omitted, ...(truncated ? { detail: 'git-cap' } : {}) }
 }
 
@@ -465,7 +501,11 @@ export function buildReportContext(
 }
 
 function configPath(env: NodeJS.ProcessEnv): string {
-  const base = env['XDG_CONFIG_HOME'] ?? join(env['HOME'] ?? homedir(), '.config')
+  const xdg = env['XDG_CONFIG_HOME']
+  const home = env['HOME']
+  const base = xdg !== undefined && xdg.length > 0 && isAbsolute(xdg)
+    ? xdg
+    : join(home !== undefined && home.length > 0 && isAbsolute(home) ? home : homedir(), '.config')
   return join(base, 'track', 'report-ai.json')
 }
 
@@ -701,6 +741,7 @@ export function generateAiReport(
     maxBuffer: ADAPTER_STDOUT_LIMIT,
     input,
   }))
+  if (byteLength(result.stderr) > ADAPTER_STDERR_LIMIT) throw new AiReportError('adapter-stderr-cap')
   if (result.error !== undefined) {
     const code = (result.error as NodeJS.ErrnoException).code
     throw new AiReportError(code === 'ETIMEDOUT' ? 'adapter-timeout' : code === 'ENOBUFS' ? 'adapter-output-cap' : 'adapter-spawn')
