@@ -29,6 +29,40 @@ export interface PublicAccountDescriptor {
   status: "active" | "disabled";
 }
 
+export type EffectiveAccountAuthType = "api-key" | "bearer";
+export type GatewayUpstreamTransport =
+  | "anthropic-messages"
+  | "codex-responses"
+  | "openai-chat-completions"
+  | "unknown";
+
+/** True when the credential has the shape used by the Codex OAuth transport. */
+export function isCodexOAuthToken(token: string): boolean {
+  return !token.startsWith("sk-") && token.split(".").length === 3;
+}
+
+export function effectiveAccountAuthType(
+  account: AccountDescriptor,
+): EffectiveAccountAuthType {
+  return account.authType ?? (account.token.startsWith("sk-") ? "api-key" : "bearer");
+}
+
+/** Keep preflight attestation coupled to the transport chosen by the proxy. */
+export function upstreamTransportForAccount(
+  account: AccountDescriptor,
+): GatewayUpstreamTransport {
+  switch (providerFamily(account.provider)) {
+    case "openai":
+      return isCodexOAuthToken(account.token)
+        ? "codex-responses"
+        : "openai-chat-completions";
+    case "anthropic":
+      return "anthropic-messages";
+    default:
+      return "unknown";
+  }
+}
+
 function isUnsupportedClaudeOAuthAccount(account: AccountDescriptor): boolean {
   return (
     account.provider === "anthropic" &&
@@ -181,10 +215,14 @@ export function accountSupportsRoute(
 
 export function eligibleAccountsForRoute(
   route?: RoutingTarget,
+  options: { requiredTransport?: GatewayUpstreamTransport } = {},
 ): AccountDescriptor[] {
   const accounts = getAccounts().filter(
     (account) =>
-      accountStatus(account) === "active" && !isAccountExhausted(account.id),
+      accountStatus(account) === "active" &&
+      !isAccountExhausted(account.id) &&
+      (!options.requiredTransport ||
+        upstreamTransportForAccount(account) === options.requiredTransport),
   );
   if (!route) return accounts;
   return accounts.filter((account) => accountSupportsRoute(account, route));
@@ -199,11 +237,17 @@ export function selectAccount(): AccountDescriptor {
   return acct;
 }
 
-export function selectAccountForRoute(route: RoutingTarget): AccountDescriptor {
-  const accounts = eligibleAccountsForRoute(route);
+export function selectAccountForRoute(
+  route: RoutingTarget,
+  options: { requiredTransport?: GatewayUpstreamTransport } = {},
+): AccountDescriptor {
+  const accounts = eligibleAccountsForRoute(route, options);
   if (accounts.length === 0) {
     throw new Error(
-      `no eligible ${route.accountPool} account for ${route.requestedModel ?? route.upstreamModel ?? "route"}`,
+      `no eligible ${route.accountPool} account for ${route.requestedModel ?? route.upstreamModel ?? "route"}` +
+        (options.requiredTransport
+          ? ` using ${options.requiredTransport} transport`
+          : ""),
     );
   }
   const key = `${route.accountPool}:${route.upstreamModel ?? route.catalogModelId ?? ""}`;
@@ -231,6 +275,10 @@ export function listRoutableModels(): ModelCatalogEntry[] {
 export function selectFallbackAccount(
   exhaustedAccountId: string,
   nowMs: number = Date.now(),
+  options: {
+    requiredTransport?: GatewayUpstreamTransport;
+    route?: RoutingTarget;
+  } = {},
 ): AccountDescriptor | undefined {
   let accounts: AccountDescriptor[];
   try {
@@ -243,7 +291,10 @@ export function selectFallbackAccount(
     (a) =>
       a.id !== exhaustedAccountId &&
       accountStatus(a) === "active" &&
-      !isAccountExhausted(a.id, nowMs),
+      !isAccountExhausted(a.id, nowMs) &&
+      (!options.requiredTransport ||
+        upstreamTransportForAccount(a) === options.requiredTransport) &&
+      (!options.route || accountSupportsRoute(a, options.route)),
   );
   if (candidates.length === 0) return undefined;
 
@@ -334,6 +385,17 @@ export async function refreshOAuthToken(
   if (!data.access_token) {
     console.error(
       `[llm-gateway] OAuth refresh: no access_token in response for ${accountId}`,
+    );
+    return null;
+  }
+
+  const refreshedTransport = upstreamTransportForAccount({
+    ...acc,
+    token: data.access_token,
+  });
+  if (refreshedTransport !== upstreamTransportForAccount(acc)) {
+    console.error(
+      `[llm-gateway] OAuth refresh rejected for ${accountId}: credential transport changed`,
     );
     return null;
   }

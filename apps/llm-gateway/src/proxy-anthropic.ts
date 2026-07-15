@@ -53,7 +53,12 @@ async function rebindAfterQuotaResponse(
   route?: RoutingTarget,
 ): Promise<SessionEntry | undefined> {
   markAccountExhausted(session.accountId, quotaReason(response));
-  const fallback = selectFallbackAccount(session.accountId);
+  const fallback = selectFallbackAccount(session.accountId, Date.now(), {
+    ...(session.requiredTransport
+      ? { requiredTransport: session.requiredTransport }
+      : {}),
+    ...(route ? { route } : {}),
+  });
   if (!fallback) return undefined;
 
   let rebound: SessionEntry | undefined;
@@ -132,6 +137,15 @@ async function dispatchToSessionAccount(
   session: SessionEntry,
   body: ArrayBuffer,
 ): Promise<Response> {
+  if (
+    session.requiredTransport &&
+    session.transport !== session.requiredTransport
+  ) {
+    return c.json(
+      { error: "gateway session transport constraint is no longer satisfied" },
+      503,
+    );
+  }
   if (usesOpenAIProvider(session.provider)) {
     return handleMessagesViaOpenAI(
       c,
@@ -140,6 +154,9 @@ async function dispatchToSessionAccount(
         gatewayToken: session.gatewayToken,
         accountId: session.accountId,
         sessionId: session.sessionId,
+        ...(session.requiredTransport
+          ? { requiredTransport: session.requiredTransport }
+          : {}),
       },
       body,
     );
