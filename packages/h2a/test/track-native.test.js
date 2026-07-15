@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 
 // ④ — track verbs are de-spawned: h2a runs them IN-PROCESS via `@sentropic/track`'s
 // `runCli`, no child process, on the SAME `.track` under the same O_EXCL lock.
-//   • tranche-1: the read-only verbs `query`/`report`.
+//   • tranche-1: the read-only verbs `query`/`report`/`snapshot`.
 //   • tranche-2: the SYNC write verbs (`item`/`decision`/`accept`/`blocker`/
 //     `consolidate`/`priority`/`branch`/`ingest`/`restructure`).
 // These tests pin the safety properties:
@@ -84,11 +84,11 @@ function queryRows(store) {
   return JSON.parse(res.stdout);
 }
 
-test("native set = {query,report} ∪ sync-writes; focus (async) stays on the facade", async () => {
+test("native set = {query,report,snapshot} ∪ sync-writes; focus (async) stays on the facade", async () => {
   const { TRACK_NATIVE_VERBS, TRACK_NATIVE_READONLY_VERBS, TRACK_NATIVE_WRITE_VERBS, TRACK_FACADE_VERBS } =
     await import("../dist/cli.js");
 
-  assert.deepEqual([...TRACK_NATIVE_READONLY_VERBS].sort(), ["query", "report"]);
+  assert.deepEqual([...TRACK_NATIVE_READONLY_VERBS].sort(), ["query", "report", "snapshot"]);
   assert.deepEqual(
     [...TRACK_NATIVE_WRITE_VERBS].sort(),
     ["accept", "blocker", "branch", "consolidate", "decision", "ingest", "item", "priority", "restructure"]
