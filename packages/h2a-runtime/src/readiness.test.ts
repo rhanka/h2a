@@ -57,8 +57,8 @@ function makeSpawn(responses: {
 }): typeof import("node:child_process").spawnSync {
   return vi.fn(
     (cmd: string, args: readonly string[]): SpawnSyncReturns<string> => {
-      // auth check: remote auth status
-      if (cmd === "remote" && args[0] === "auth" && args[1] === "status") {
+      // auth check: h2a auth status
+      if (cmd === "h2a" && args[0] === "auth" && args[1] === "status") {
         const r = responses.auth ?? { status: 0 };
         return {
           pid: 1,
@@ -148,6 +148,11 @@ describe("checkReadiness", () => {
     });
 
     const result = checkReadiness({ cwd: testRoot, spawnImpl: spawn });
+    expect(spawn).toHaveBeenCalledWith(
+      "h2a",
+      ["auth", "status"],
+      expect.objectContaining({ cwd: testRoot }),
+    );
 
     expect(result.ready).toBe(true);
     expect(result.blockers).toEqual([]);

@@ -1,5 +1,5 @@
 /**
- * h2a bridge (`remote h2a bridge`): connect the LOCAL h2a agent network — a
+ * h2a relay bridge (`h2a relay bridge`): connect the LOCAL h2a agent network — a
  * file store under ~/h2a-workspace/.h2a where agents exchange JSON envelopes
  * by dropping them into inbox/<instance-dir>/ — with a remote session Pod, so
  * the Pod's agent is reachable/wakeable from the local bus and vice versa.
@@ -235,7 +235,7 @@ function podReadme(podInboxDir: string): string {
     "# h2a store (bridged)",
     "",
     "This directory is an h2a file store kept in sync with the operator's",
-    "local ~/h2a-workspace/.h2a by `remote h2a bridge` (no h2a binary needed",
+    "local ~/h2a-workspace/.h2a by `h2a relay bridge` (no h2a binary needed",
     "in this Pod).",
     "",
     "To MESSAGE another agent, write a JSON envelope",

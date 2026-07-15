@@ -653,7 +653,8 @@ describe("conductorAdvisory (M3 — warn, never self-heal)", () => {
     const msg = conductorAdvisory([j("pending"), j("pending"), j("running")], false);
     expect(msg).toContain("2 pending");
     expect(msg).toContain("no active conductor");
-    expect(msg).toContain("remote jobs conduct");
+    expect(msg).toContain("h2a jobs conduct");
+    expect(msg).not.toContain("remote jobs conduct");
   });
 
   it("silent when a conductor is running", () => {
