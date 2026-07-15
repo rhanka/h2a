@@ -145,6 +145,7 @@ export function registrySessions(
   const out: DiscoveredSession[] = [];
   for (const e of entries) {
     if (e.kind === "remote") continue; // remote groups are filled from SCW
+    if (e.sessionClass === "background") continue;
     if (!e.cwd.startsWith(`${src}/`)) continue;
     const project = e.cwd.slice(src.length + 1).split("/")[0];
     if (!project) continue;

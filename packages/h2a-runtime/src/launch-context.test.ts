@@ -53,6 +53,14 @@ describe("buildLaunchContext", () => {
     );
     expect(ctx.resume).toBe("019f4f2c-abc");
   });
+
+  it("takes an explicit resume id without inspecting launch argv", () => {
+    const ctx = buildLaunchContext(
+      { profile: "codex", cwd: "/x", resumeId: "conv-safe" },
+      {} as NodeJS.ProcessEnv,
+    );
+    expect(ctx.resume).toBe("conv-safe");
+  });
 });
 
 describe("secret safety", () => {

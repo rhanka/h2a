@@ -31,6 +31,7 @@
   "h2a_offer",
   "h2a_open_negotiation",
   "h2a_register_instance",
+  "h2a_run",
   "h2a_session_close",
   "h2a_session_open",
   "h2a_sign",
