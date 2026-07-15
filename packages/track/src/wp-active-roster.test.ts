@@ -33,7 +33,10 @@ const base = { baselineCommit: 'c1' as const }
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'track-a3-'))
   eventsPath = join(dir, '.track', 'events.jsonl')
-  t = new Track(new EventStore(eventsPath), { by: 'human:x', now })
+  let sequence = 0
+  t = new Track(new EventStore(eventsPath), {
+    by: 'human:x', now, newId: () => `id-${String(++sequence).padStart(4, '0')}`,
+  })
 })
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
@@ -106,12 +109,13 @@ describe('A3 — GATE: default (no --active-roster) is unchanged, terminal root 
     expect(dflt).toContain('WP3 · Gamma')
   })
 
-  it('CLI `track report` (no flag) shows the cancelled root', () => {
+  it('legacy CLI JSON with --wp carries the cancelled root', () => {
     buildForest()
     const out: string[] = []
     const io = { cwd: dir, out: (s: string) => out.push(s), err: () => {} }
-    expect(runCli(['report', '--commit', 'c1'], io)).toBe(0)
-    expect(out.join('')).toContain('WP2 · Beta')
+    expect(runCli(['report', '--format', 'json', '--wp', '--commit', 'c1'], io)).toBe(0)
+    const report = JSON.parse(out.join()) as { wpTree: Array<{ title: string; terminal?: boolean }> }
+    expect(report.wpTree.find((node) => node.title === 'Beta')).toMatchObject({ terminal: true })
   })
 })
 
@@ -129,15 +133,15 @@ describe('A3 — --active-roster: omit terminal roots WITHOUT renumbering surviv
     expect(text).toContain('WP3 · Gamma') // DONE root kept AND still WP3 — NOT renumbered to WP2
   })
 
-  it('CLI `track report --active-roster` omits the cancelled root but keeps the gap', () => {
+  it('legacy CLI JSON --active-roster keeps the full machine forest', () => {
     buildForest()
     const out: string[] = []
     const io = { cwd: dir, out: (s: string) => out.push(s), err: () => {} }
-    expect(runCli(['report', '--active-roster', '--commit', 'c1'], io)).toBe(0)
-    const text = out.join('')
-    expect(text).not.toContain('Beta')
-    expect(text).toContain('WP1 · Alpha')
-    expect(text).toContain('WP3 · Gamma')
+    expect(runCli(['report', '--format', 'json', '--wp', '--active-roster', '--commit', 'c1'], io)).toBe(0)
+    const report = JSON.parse(out.join()) as { wpTree: Array<{ title: string; label: string }> }
+    expect(report.wpTree.map((node) => [node.label, node.title])).toEqual([
+      ['WP1', 'Alpha'], ['WP2', 'Beta'], ['WP3', 'Gamma'],
+    ])
   })
 })
 

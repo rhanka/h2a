@@ -51,7 +51,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { dirname, join, resolve as resolvePath } from "node:path";
+import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -146,7 +146,11 @@ import {
   sanitizeStorePaths,
   writePresence
 } from "./runtime/local-files/index.js";
-import { runMcpStdio } from "./runtime/mcp/index.js";
+import {
+  H2A_MCP_READY_FILE_ENV,
+  H2A_MCP_READY_NONCE_ENV,
+  runMcpStdio
+} from "./runtime/mcp/index.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
@@ -225,13 +229,20 @@ import {
   readObjectiveLoop,
   reportObjectiveLoop,
   stopObjectiveLoop,
+  validateLoopLaunchSpec,
   type H2ALoopAgent,
+  type H2ALoopLaunchSpec,
   type H2ALoopRepoRef,
   type H2ALoopTrackRef
 } from "./runtime/loop/index.js";
 import { runLoopWatch, runTick } from "./runtime/loop/engine/tick.js";
 import { gatherPendingDecisions } from "./runtime/canevas/gather.js";
 import { runCanevasServe } from "./runtime/canevas/serve.js";
+import {
+  installTrackReportAiConfig,
+  readH2AReportContext,
+  TrackReportAiConfigConflictError
+} from "./runtime/reporting/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -379,9 +390,9 @@ export function renderCliHelp(): string {
     "  h2a install-skills --host <claude|codex|gemini|agy> [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
-    "  h2a loop create --name <n> --goal <text> [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement>] [--root <path>]",
-    "  h2a loop join <loopId> --instance <id> [--agent-id <id>] [--role <role>] [--root <path>]",
-    "  h2a loop report <loopId> --note <text> [--instance <id>] [--agent-id <id>] [--root <path>]",
+    "  h2a loop create --name <n> --goal <text> [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement> [--launch-stdin]] [--root <path>]",
+    "  h2a loop join <loopId> --instance <id> [--agent-id <id>] [--role <role>] [--launch-stdin] [--root <path>]",
+    "  h2a loop report <loopId> --note <text> [--instance <id>] [--agent-id <id>] [--auto-join] [--root <path>]",
     "  h2a loop done <loopId> [--note <text>] [--instance <id>] [--agent-id <id>] [--root <path>]",
     "  h2a loop stop <loopId> [--reason <text>] [--root <path>]",
     "  h2a loop list [--root <path>]",
@@ -390,9 +401,19 @@ export function renderCliHelp(): string {
     "  h2a loop attach <loopId> --agent <selector> [--root <path>]",
     "  h2a loop logs <loopId> [--agent <selector>] [--root <path>]",
     "",
+    "Track AI adapters (leaf commands; never call Track report/snapshot):",
+    "  h2a report-context --workspace-root <absolute-path> [--root <h2a-store>]",
+    "  h2a report-ai --model <model> --effort <low|medium|high|xhigh> --gateway required   (Track context envelope on stdin; one no-tools local-gateway request)",
+    "  h2a report-ai install-track-config [--force]   (atomic user XDG config, mode 0600; preserves overrides by default)",
+    "",
+    "Focus Web (packaged production app):",
+    "  h2a focus serve [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]",
+    "  h2a focus web   [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]   (exact alias)",
+    "    (defaults to the nearest tracked repo and 127.0.0.1:5178; bare `h2a focus …` remains the Track facade)",
+    "",
     "Track (délégué à @sentropic/track — le suivi/record du travail):",
     `  h2a ${[...TRACK_FACADE_VERBS].join(" · h2a ")}`,
-    "    (ex: h2a decision new …, h2a report, h2a item ls — voir `track <verbe> --help`)",
+    "    (ex: h2a decision new …, h2a report, h2a snapshot, h2a item ls — voir `track <verbe> --help`)",
     "",
     "Harness (délégué à h2a vendored harness — la méthode code-work / PR-workflow):",
     "  h2a harness <check|verify|init|audit|brainstorm|test|debug|review|plan|branch|skills> …",
@@ -1581,6 +1602,10 @@ export async function runMcpServe(
     stdout: NodeJS.WritableStream;
     stderr: NodeJS.WritableStream;
     cwd?: () => string;
+    /** Test seam for the internal structured-readiness environment. */
+    env?: NodeJS.ProcessEnv;
+    /** Test seam for boot upgrade ordering; production uses the default runtime. */
+    upgradeRuntime?: UpgradeRuntime;
     /** Graceful-shutdown signal; bin.ts wires SIGTERM/SIGINT/SIGHUP to it. */
     signal?: AbortSignal;
   } = {
@@ -1593,6 +1618,25 @@ export async function runMcpServe(
   warnIfCwdRootFallback(flags, cwd, { stderr: io.stderr, stdout: io.stdout, cwd });
   const root = resolveRoot(flags, cwd);
   const autoOpen = resolveAutoOpen(flags, cwd);
+  const readinessEnv = io.env ?? process.env;
+  const readyFile = readinessEnv[H2A_MCP_READY_FILE_ENV];
+  const readyNonce = readinessEnv[H2A_MCP_READY_NONCE_ENV];
+  let readiness: { file: string; nonce: string } | undefined;
+  if (readyFile !== undefined || readyNonce !== undefined) {
+    if (
+      !readyFile ||
+      !isAbsolute(readyFile) ||
+      readyFile.includes("\0") ||
+      !readyNonce ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        readyNonce
+      )
+    ) {
+      io.stderr.write("h2a mcp-serve: invalid internal readiness challenge\n");
+      return 1;
+    }
+    readiness = { file: readyFile, nonce: readyNonce };
+  }
 
   // DEC-107/108 (EVO-8 levels 2/3): version handling at boot. **Opt-in** — no
   // network on a default boot. `--auto-upgrade` self-installs @latest then
@@ -1612,10 +1656,14 @@ export async function runMcpServe(
       // same-day release isn't masked by the 24h notice cache; the passive
       // `--upgrade-check` notice keeps the 24h throttle.
       const ttlMs = wantAutoUpgrade ? H2A_AUTO_UPGRADE_CHECK_TTL_MS : H2A_UPGRADE_CHECK_TTL_MS;
-      const result = checkUpgrade(current, { cachePath: upgradeCachePath(root), ttlMs });
+      const result = checkUpgrade(current, {
+        cachePath: upgradeCachePath(root),
+        ttlMs,
+        ...(io.upgradeRuntime ? { runtime: io.upgradeRuntime } : {})
+      });
       if (result.upgradeAvailable) {
         if (wantAutoUpgrade) {
-          const ok = performUpgrade();
+          const ok = performUpgrade(io.upgradeRuntime);
           if (ok && flags["no-restart"] === undefined && canReexec()) {
             io.stderr.write(
               `h2a mcp-serve: auto-upgraded ${current} → ${result.latest}; restarting into the new version…\n`
@@ -1675,10 +1723,12 @@ export async function runMcpServe(
     }
     await runMcpStdio({
       root,
+      workspaceRoot: process.cwd(),
       stdin: io.stdin as never,
       stdout: io.stdout as never,
       stderr: io.stderr as never,
       ...(autoOpen ? { autoOpen } : {}),
+      ...(readiness ? { readiness } : {}),
       ...(wake ? { wake } : {}),
       ...(io.signal ? { signal: io.signal } : {})
     });
@@ -2044,6 +2094,16 @@ function collectRepeatedFlag(argv: readonly string[], flag: string): string[] {
   return out;
 }
 
+function parseLoopLaunch(raw: string): H2ALoopLaunchSpec {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("--launch-stdin must contain valid JSON");
+  }
+  return validateLoopLaunchSpec(value);
+}
+
 function selectLoopAgent(loop: { agents: readonly H2ALoopAgent[] }, selector: string | undefined): H2ALoopAgent | undefined {
   if (!selector) return undefined;
   return loop.agents.find(
@@ -2060,7 +2120,14 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
     if (sub === "create") {
       const repos = collectRepeatedFlag(argv, "--repo").map(parseLoopRepo);
       const refs = collectRepeatedFlag(argv, "--track").map(parseLoopTrack);
-      const agents = collectRepeatedFlag(argv, "--agent").map(parseLoopAgent);
+      let agents = collectRepeatedFlag(argv, "--agent").map(parseLoopAgent);
+      if (flags.launch) throw new Error("--launch is unsafe because prompts must not be passed in argv; use --launch-stdin");
+      if (flags["launch-stdin"] === "true") {
+        if (agents.length !== 1) throw new Error("--launch-stdin requires exactly one --agent on loop create");
+        const launch = parseLoopLaunch(stdinText(streams) ?? "");
+        if (agents[0].host !== launch.profile) throw new Error("--agent host must match --launch-stdin profile");
+        agents = [{ ...agents[0], launch }];
+      }
       const loop = createObjectiveLoop(root, {
         ...(flags.id ? { id: flags.id } : {}),
         name: flags.name,
@@ -2084,11 +2151,14 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
         streams.stderr.write("h2a loop join: <loopId> and --instance <id> are required\n");
         return 1;
       }
+      if (flags.launch) throw new Error("--launch is unsafe because prompts must not be passed in argv; use --launch-stdin");
+      const launch = flags["launch-stdin"] === "true" ? parseLoopLaunch(stdinText(streams) ?? "") : undefined;
       const loop = joinObjectiveLoop(root, loopId, {
         instance: flags.instance,
         ...(flags["agent-id"] ? { agentId: flags["agent-id"] } : {}),
         ...(flags.role ? { role: flags.role } : {}),
-        ...(flags.required ? { required: flags.required !== "false" } : {})
+        ...(flags.required ? { required: flags.required !== "false" } : {}),
+        ...(launch !== undefined ? { launch } : {})
       });
       streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);
       return 0;
@@ -2103,6 +2173,7 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
       const loop = reportObjectiveLoop(root, loopId, {
         ...(flags.instance ? { instance: flags.instance } : {}),
         ...(flags["agent-id"] ? { agentId: flags["agent-id"] } : {}),
+        ...(flags["auto-join"] === "true" ? { autoJoin: true } : {}),
         note: flags.note
       });
       streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);
@@ -5877,7 +5948,7 @@ export async function cmdKeepalive(
 // Verbes spécifiques, sans namespace `track` (dissous comme host/sub).
 export const TRACK_FACADE_VERBS = new Set([
   "decision", "report", "accept", "blocker", "item", "query",
-  "consolidate", "priority", "branch", "focus", "ingest", "restructure"
+  "consolidate", "priority", "branch", "focus", "ingest", "restructure", "snapshot"
 ]);
 
 // ④ de-spawn — a strict SUBSET of the facade verbs routed IN-PROCESS via
@@ -5891,14 +5962,14 @@ export const TRACK_FACADE_VERBS = new Set([
 //
 // The native set is split READ-ONLY vs WRITE because the throw-fallback rule
 // differs (RISK: double-write, see `delegateToTrackNative`):
-//   • READ-ONLY (`query`/`report`) — a native throw wrote nothing, so falling
+//   • READ-ONLY (`query`/`report`/`snapshot`) — a native throw wrote nothing, so falling
 //     back to the spawn facade is safe.
 //   • WRITE (the rest) — track's `appendCommand` is ATOMIC under the O_EXCL lock
 //     (read→validate→append→writeHead→verify): it throws either BEFORE the
 //     append (validation → nothing written) or AFTER a landed write (the
 //     verify receipt). A spawn fallback on that throw could DOUBLE-WRITE, so a
 //     write NEVER falls back on throw — it propagates the error (rc≠0 + stderr).
-export const TRACK_NATIVE_READONLY_VERBS = new Set(["query", "report"]);
+export const TRACK_NATIVE_READONLY_VERBS = new Set(["query", "report", "snapshot"]);
 
 // ④ tranche-2 — the SYNC write verbs, de-spawned in-process. Each dispatches
 // through runCli's mutating switch as a plain sync `cmd…` returning a `number`.
@@ -5945,6 +6016,50 @@ export async function runTrackMcpServe(
   } catch (err) {
     io.stderr.write(`h2a track-mcp: ${(err as Error).message}\n`);
     return 1;
+  }
+}
+
+function cmdReportContext(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  const workspaceRoot = flags["workspace-root"];
+  if (!workspaceRoot || workspaceRoot === "true") {
+    streams.stderr.write("h2a report-context: --workspace-root <absolute-path> is required\n");
+    return 1;
+  }
+  if (!isAbsolute(workspaceRoot)) {
+    streams.stderr.write("h2a report-context: --workspace-root must be an absolute path\n");
+    return 1;
+  }
+  try {
+    const context = readH2AReportContext({
+      storeRoot: resolveRoot(flags, streams.cwd ?? (() => process.cwd())),
+      workspaceRoot
+    });
+    streams.stdout.write(`${JSON.stringify(context)}\n`);
+    return 0;
+  } catch (err) {
+    streams.stderr.write(`h2a report-context: ${(err as Error).message}\n`);
+    return 3;
+  }
+}
+
+function cmdInstallTrackReportAiConfig(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  try {
+    const result = installTrackReportAiConfig({ force: flags.force === "true" });
+    streams.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);
+    return 0;
+  } catch (err) {
+    if (err instanceof TrackReportAiConfigConflictError) {
+      streams.stderr.write(`h2a report-ai install-track-config: ${err.message}\n`);
+      return 2;
+    }
+    streams.stderr.write(`h2a report-ai install-track-config: ${(err as Error).message}\n`);
+    return 3;
   }
 }
 
@@ -6084,6 +6199,13 @@ export function runCli(
   if (command === "mcp-tools") {
     streams.stdout.write(`${JSON.stringify(H2A_CLI_MCP_TOOL_NAMES, null, 2)}\n`);
     return 0;
+  }
+
+  if (command === "report-context") return cmdReportContext(flags, streams);
+  if (command === "report-ai") {
+    if (argv[1] === "install-track-config") return cmdInstallTrackReportAiConfig(flags, streams);
+    streams.stderr.write("h2a report-ai: async adapter command — run via the h2a binary\n");
+    return 1;
   }
 
   if (command === "init") return cmdInit(flags, streams);

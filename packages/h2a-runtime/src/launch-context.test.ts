@@ -39,11 +39,11 @@ describe("buildLaunchContext", () => {
   it("summarizes the env model map as a flag, never its content", () => {
     const ctx = buildLaunchContext(
       { profile: "claude", cwd: "/x" },
-      { OPENAI_MODEL_MAP: '{"claude-opus-4-8":"gpt-5.6-luna"}' } as NodeJS.ProcessEnv,
+      { OPENAI_MODEL_MAP: '{"claude-opus-4-8":"gpt-5.6-terra"}' } as NodeJS.ProcessEnv,
     );
     expect(ctx.modelMap).toBe("env:OPENAI_MODEL_MAP");
     // the mapping content must not leak into any stored value
-    for (const [, v] of launchContextOptions(ctx)) expect(v).not.toContain("gpt-5.6-luna");
+    for (const [, v] of launchContextOptions(ctx)) expect(v).not.toContain("gpt-5.6-terra");
   });
 
   it("keeps the resume conversation id but never the whole argv", () => {
@@ -52,6 +52,14 @@ describe("buildLaunchContext", () => {
       {} as NodeJS.ProcessEnv,
     );
     expect(ctx.resume).toBe("019f4f2c-abc");
+  });
+
+  it("takes an explicit resume id without inspecting launch argv", () => {
+    const ctx = buildLaunchContext(
+      { profile: "codex", cwd: "/x", resumeId: "conv-safe" },
+      {} as NodeJS.ProcessEnv,
+    );
+    expect(ctx.resume).toBe("conv-safe");
   });
 });
 

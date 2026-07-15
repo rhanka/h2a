@@ -48,6 +48,7 @@ import {
   type ScopeValidateResult,
 } from './scope-validate.js'
 import { graphExportFromState, type TrackGraphFragment } from '../graph-export.js'
+import { buildSnapshot, type SnapshotOptions, type SnapshotV1 } from '../report/snapshot.js'
 
 /**
  * Semver of the skill-facing READ contract.
@@ -619,6 +620,11 @@ export class TrackReader {
   /** Bucketed backlog report (SPEC §7). */
   report(options: ReportOptions): Report {
     return buildReport(fold(this.events()), options)
+  }
+
+  /** Canonical provider-free factual snapshot. Pure replay over the append log and caller baseline. */
+  snapshot(options: SnapshotOptions): SnapshotV1 {
+    return buildSnapshot(this.events(), options)
   }
 
   /** Flat, filtered query over report rows (SPEC §6). */

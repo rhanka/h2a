@@ -11,6 +11,8 @@
  *        - `package-lock.json`
  *        - `packages/h2a/package.json` (also aligns the
  *          `@sentropic/track` dependency caret to `^X.Y.Z`)
+ *        - `packages/h2a/.claude-plugin/plugin.json` and
+ *          `packages/h2a/.codex-plugin/plugin.json`
  *        - `packages/h2a-cli/package.json` (also aligns the
  *          `@sentropic/h2a` dependency caret to `^X.Y.Z`)
  *        - `packages/h2a-runtime/package.json` (heavy runtime, lockstep)
@@ -44,6 +46,8 @@ const PACKAGE_FILES = [
   "package.json",
   "package-lock.json",
   "packages/h2a/package.json",
+  "packages/h2a/.claude-plugin/plugin.json",
+  "packages/h2a/.codex-plugin/plugin.json",
   "packages/h2a-cli/package.json",
   "packages/h2a-runtime/package.json",
   "packages/track/package.json"

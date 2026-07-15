@@ -114,6 +114,17 @@ describe("registry-first discovery", () => {
     expect(registrySessions(home, entries)).toEqual([]);
   });
 
+  it("excludes MCP background sessions from human restore discovery", () => {
+    const entries = [
+      registryEntry("worker", { sessionClass: "background" }),
+      registryEntry("human", { sessionClass: "human" }),
+    ];
+
+    expect(registrySessions(home, entries).map((entry) => entry.project)).toEqual([
+      "human",
+    ]);
+  });
+
   it("carries the pinned gatewayMode from the registry entry onto the session", () => {
     const entries = [registryEntry("impots", { gatewayMode: "direct" })];
     const [session] = registrySessions(home, entries);

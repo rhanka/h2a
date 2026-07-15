@@ -29,10 +29,14 @@
     }
   },
   "files": [
+    ".claude-plugin",
+    ".codex-plugin",
+    ".mcp.json",
     "dist",
     "fixtures",
     "skills",
-    "schema"
+    "schema",
+    "focus-app"
   ],
   "publishConfig": {
     "access": "public"
@@ -41,7 +45,7 @@
     "h2a": "dist/bin.js"
   },
   "scripts": {
-    "prepack": "chmod +x dist/bin.js"
+    "prepack": "node ../../scripts/check-focus-app.mjs && chmod +x dist/bin.js"
   },
   "dependencies": {
     "@hono/mcp": "^0.3.0",

@@ -73,10 +73,10 @@ export function checkReadiness(
   let mode: "full" | "lazy" = "full";
 
   // ------------------------------------------------------------------
-  // auth_ok — `remote auth status` rc=0
+  // auth_ok — `h2a auth status` rc=0
   // ------------------------------------------------------------------
   try {
-    const authResult = spawn("remote", ["auth", "status"], {
+    const authResult = spawn("h2a", ["auth", "status"], {
       cwd,
       encoding: "utf8",
       timeout: 10_000,

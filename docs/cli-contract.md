@@ -14,7 +14,7 @@ Every JSON-emitting verb writes ONE of three canonical envelopes on **stdout**, 
 | `list`      | Bare JSON array                       | Verb returns an unordered/ordered list of entities.                                                                           |
 | `action`    | `{ "ok": true, ... }`                 | Verb performs a side effect with no natural entity to return (init, register, mailbox put, stabilize, host setup --write).    |
 | `text`      | Human text, not JSON                  | `--help` only.                                                                                                                |
-| `stream`    | JSON-RPC 2.0 framed transport         | `mcp-serve` only.                                                                                                             |
+| `stream`    | Long-running foreground transport     | MCP stdio and local HTTP servers such as `focus serve`.                                                                       |
 
 Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can grep them deterministically.
 
@@ -28,6 +28,38 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 | `3`  | I/O / OS error: file unreadable, permission denied, write refused by the filesystem.                                                                                                                                                               |
 
 ## Verbs
+
+### Track AI leaf adapters
+
+#### `h2a report-context --workspace-root <absolute-path> [--root <h2a-store>]`
+
+- **Envelope**: `resource`, schema `h2a.report-context/v1`.
+- **Exit codes**: `0`, `1`, `3`.
+- **Description**: Read-only projection of the same h2a tenant into Track context. `storeRoot` and `workspaceRoot` are realpaths; entries are ordinal-sorted, restricted to the requested workspace, capped at 100 entries / 128 KiB, and report an `omitted` count. Inbox bodies are never emitted. This leaf command never calls Track.
+
+#### `h2a report-ai --model <model> --effort <low|medium|high|xhigh> --gateway required`
+
+- **Envelope**: `resource`, schema `track.ai-report.result/v1`.
+- **Exit codes**: `0`, `1`.
+- **Description**: Read one `track.ai-report.context-envelope/v1` object from stdin, acquire the requested local gateway route, and make exactly one Anthropic Messages request without a `tools` field. It launches no Claude/Codex CLI and fails closed unless the gateway attests the effective resolved model and upstream reasoning effort.
+
+#### `h2a report-ai install-track-config [--force]`
+
+- **Envelope**: `action`.
+- **Exit codes**: `0`, `2`, `3`.
+- **Description**: Atomically install `{"argv":["h2a","report-ai","--model","claude-opus-4-8","--effort","xhigh","--gateway","required"],"timeoutMs":600000}` at `${XDG_CONFIG_HOME:-$HOME/.config}/track/report-ai.json` with mode `0600`. Identical content is a content no-op; differing user config is preserved unless `--force` is explicit. Older configs without `timeoutMs` remain valid with Track's legacy 90-second fallback and require an explicit `--force` rollout to adopt the first-party 600-second deadline.
+
+### Focus Web
+
+#### `h2a focus serve [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]`
+
+- **Envelope**: `stream`.
+- **Exit codes**: `0`, `1`; signal termination follows conventional process exit status.
+- **Description**: Serve the packaged adapter-node production app. The repository is resolved from `--repo`, `FOCUS_REPO_ROOT`, or the nearest ancestor containing `.track/events.jsonl`. The events file is resolved from `--track-events`, `FOCUS_TRACK_EVENTS`, or `<repo>/.track/events.jsonl`.
+- **Network**: binds `127.0.0.1:5178` by default. `--host` is an explicit opt-out from loopback; `--port 0` selects an available port. The exact URL is printed only after the listener is ready.
+- **Packaging**: startup fails closed if the versioned Focus artifact, handler, client assets, server assets, or declared runtime dependencies are absent or incompatible. It never starts a Vite development server.
+
+`h2a focus web` is the exact alias. Other `h2a focus ...` invocations retain the existing `track focus` facade behavior.
 
 ### Setup
 

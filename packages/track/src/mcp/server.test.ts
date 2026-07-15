@@ -11,6 +11,7 @@ import { runCli, type CliIO } from '../cli/index.js'
 import { EventStore } from '../events/store.js'
 import { TrackReader } from '../read/contract.js'
 import { Track } from '../track.js'
+import { reportText } from '../read/commands.js'
 import { READ_TOOLS, createTrackMcpServer, dispatchReadTool } from './server.js'
 
 let dir: string
@@ -57,6 +58,7 @@ describe('MCP read server — tool surface', () => {
       'track_query',
       'track_report',
       'track_scope_validate',
+      'track_snapshot',
       'track_status',
       'track_validate',
       'track_verification_runs',
@@ -77,27 +79,33 @@ describe('MCP read server — CLI≡MCP parity (same shared command layer)', () 
     )
   })
 
-  it('track_report format:"text" is byte-identical to the human CLI `report --format text --commit`', () => {
-    // A human report requested over MCP must render the SAME FAIT/À-FAIRE/DÉCISIONS table as the CLI.
+  it('track_report format:"text" keeps the frozen deterministic legacy renderer', () => {
     expect(dispatchReadTool(reader, 'track_report', { baselineCommit: 'c1', format: 'text' })).toBe(
-      cliOut(['report', '--format', 'text', '--commit', 'c1']),
+      reportText(reader, { baselineCommit: 'c1', decisions: true, wpTree: true }, 'text'),
     )
   })
 
-  it('track_report format:"md" is byte-identical to the human CLI `report --format md --commit`', () => {
+  it('track_report format:"md" keeps the frozen deterministic legacy renderer', () => {
     expect(dispatchReadTool(reader, 'track_report', { baselineCommit: 'c1', format: 'md' })).toBe(
-      cliOut(['report', '--format', 'md', '--commit', 'c1']),
+      reportText(reader, { baselineCommit: 'c1', decisions: true, wpTree: true }, 'md'),
     )
+  })
+
+  it('track_snapshot is byte-identical to the canonical CLI snapshot', () => {
+    expect(dispatchReadTool(reader, 'track_snapshot', { baselineCommit: 'c1' })).toBe(
+      cliOut(['snapshot', '--commit', 'c1']),
+    )
+    expect(() => dispatchReadTool(reader, 'track_snapshot', { baselineCommit: 'c1', nope: true })).toThrow(/unknown/)
   })
 
   it('track_report rejects an invalid format (parity strictness with the CLI oneOf)', () => {
     expect(() => dispatchReadTool(reader, 'track_report', { baselineCommit: 'c1', format: 'bullets' })).toThrow(/format/)
   })
 
-  it('track_report tool description redirects humans to the CLI (never renders JSON as a status report)', () => {
+  it('track_report tool description distinguishes legacy facts from the AI CLI', () => {
     const tool = READ_TOOLS.find((t) => t.name === 'track_report')!
     expect(tool.description).toMatch(/CLI `track report`/)
-    expect(tool.description).toMatch(/NEVER render this to a human/)
+    expect(tool.description).toMatch(/never invoke AI/)
   })
 
   it('track_query output is byte-identical to `query --format json --commit`', () => {

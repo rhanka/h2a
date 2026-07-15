@@ -1,5 +1,5 @@
 /**
- * `remote enroll` plumbing — feeds the live-session registry.
+ * `h2a enroll` plumbing — feeds the live-session registry.
  *
  *  - Hook mode (`--hook claude-start|claude-end`): called by Claude Code's
  *    SessionStart/SessionEnd hooks with the hook JSON on stdin. This path MUST
@@ -8,7 +8,8 @@
  *  - `--install-hooks`: idempotent merge of those two hooks into
  *    ~/.claude/settings.json (path injectable for tests), with a
  *    settings.json.bak.<epoch> backup before the first modification. Existing
- *    hooks are NEVER overwritten; our entry is detected by its command string.
+ *    unrelated hooks are NEVER overwritten; legacy `remote enroll` entries are
+ *    migrated in place and deduplicated against the canonical command.
  *  - Manual mode (`--tool …`): direct enrolment for scripts.
  *
  * codex has no reliable session hook: codex sessions enter the registry via
@@ -249,9 +250,14 @@ export function manualEnroll(
 // ---------------------------------------------------------------------------
 
 const HOOK_COMMANDS: ReadonlyArray<readonly [event: string, command: string]> = [
-  ["SessionStart", "remote enroll --hook claude-start"],
-  ["SessionEnd", "remote enroll --hook claude-end"],
+  ["SessionStart", "h2a enroll --hook claude-start"],
+  ["SessionEnd", "h2a enroll --hook claude-end"],
 ];
+
+const LEGACY_HOOK_COMMANDS: Readonly<Record<string, string>> = {
+  SessionStart: "remote enroll --hook claude-start",
+  SessionEnd: "remote enroll --hook claude-end",
+};
 
 export function defaultClaudeSettingsPath(): string {
   return join(homedir(), ".claude", "settings.json");
@@ -262,14 +268,25 @@ export type InstallHooksResult = {
   changed: boolean;
   /** Hook events newly added by this run (empty when already installed). */
   installed: string[];
+  /** Hook events whose legacy/de-duplicated command was normalised. */
+  migrated: string[];
   backupPath?: string;
 };
 
-type HookMatcher = { hooks?: Array<{ type?: string; command?: string }> };
+type HookCommand = {
+  type?: string;
+  command?: string;
+  [key: string]: unknown;
+};
+type HookMatcher = {
+  hooks?: HookCommand[];
+  [key: string]: unknown;
+};
 
 /**
  * Idempotently merge the enroll hooks into Claude Code's settings.json.
- * Duplicate detection is by command string; existing hooks are kept verbatim.
+ * Duplicate detection is by command string. Unrelated hooks are kept verbatim;
+ * legacy `remote enroll` hooks are replaced by one canonical `h2a enroll` hook.
  * The pre-existing file is backed up to settings.json.bak.<epoch> before the
  * first modification. A corrupt settings file ABORTS (never overwritten).
  */
@@ -313,22 +330,67 @@ export function installClaudeHooks(
   const hooks = hooksRaw as Record<string, unknown>;
 
   const installed: string[] = [];
+  const migrated: string[] = [];
   for (const [event, command] of HOOK_COMMANDS) {
     const matchers: HookMatcher[] = Array.isArray(hooks[event])
       ? (hooks[event] as HookMatcher[])
       : [];
-    const already = matchers.some(
+    const legacyCommand = LEGACY_HOOK_COMMANDS[event];
+    const hasCanonical = matchers.some(
       (m) =>
         Array.isArray(m?.hooks) &&
         m.hooks.some((h) => h?.command === command),
     );
-    if (already) continue;
-    matchers.push({ hooks: [{ type: "command", command }] });
-    hooks[event] = matchers;
-    installed.push(event);
+    let canonicalKept = false;
+    let normalised = false;
+    const nextMatchers: HookMatcher[] = [];
+    for (const matcher of matchers) {
+      if (!Array.isArray(matcher?.hooks)) {
+        nextMatchers.push(matcher);
+        continue;
+      }
+      const nextHooks: HookCommand[] = [];
+      for (const hook of matcher.hooks) {
+        if (hook?.command === command) {
+          if (canonicalKept) {
+            normalised = true;
+            continue;
+          }
+          canonicalKept = true;
+          nextHooks.push(hook);
+          continue;
+        }
+        if (legacyCommand !== undefined && hook?.command === legacyCommand) {
+          normalised = true;
+          if (hasCanonical || canonicalKept) continue;
+          canonicalKept = true;
+          nextHooks.push({ ...hook, command });
+          continue;
+        }
+        nextHooks.push(hook);
+      }
+      if (nextHooks.length > 0) {
+        const matcherChanged =
+          nextHooks.length !== matcher.hooks.length ||
+          nextHooks.some((hook, index) => hook !== matcher.hooks?.[index]);
+        nextMatchers.push(
+          matcherChanged ? { ...matcher, hooks: nextHooks } : matcher,
+        );
+      } else if (matcher.hooks.length === 0) {
+        nextMatchers.push(matcher);
+      } else {
+        normalised = true;
+      }
+    }
+    if (!canonicalKept) {
+      nextMatchers.push({ hooks: [{ type: "command", command }] });
+      installed.push(event);
+    }
+    if (normalised) migrated.push(event);
+    hooks[event] = nextMatchers;
   }
-  if (installed.length === 0) {
-    return { settingsPath, changed: false, installed };
+  if (installed.length === 0 && migrated.length === 0) {
+    return { settingsPath, changed: false, installed, migrated };
   }
   settings.hooks = hooks;
 
@@ -345,6 +407,7 @@ export function installClaudeHooks(
     settingsPath,
     changed: true,
     installed,
+    migrated,
     ...(backupPath !== undefined ? { backupPath } : {}),
   };
 }

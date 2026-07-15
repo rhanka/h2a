@@ -556,11 +556,20 @@ export {
 
 export {
   H2A_CLI_MCP_TOOL_DESCRIPTORS,
+  H2A_RUN_API_VERSION,
   NotificationDispatcher,
   SessionRegistry,
+  buildH2aRunInvocation,
   createMcpServer,
+  executeH2aRun,
+  executeH2aRunWithSpawn,
+  handleH2aRun,
   runMcpStdio,
+  validateH2aRunRequest,
   type CreateMcpServerOptions,
+  type H2aRunExecutor,
+  type H2aRunInvocation,
+  type H2aRunRequest,
   type McpErrorResult,
   type McpPushNotification,
   type McpServer,
@@ -597,10 +606,12 @@ export {
   readObjectiveLoop,
   reportObjectiveLoop,
   stopObjectiveLoop,
+  validateLoopLaunchSpec,
   type CreateObjectiveLoopInput,
   type H2ALoopAgent,
   type H2ALoopAgentStatus,
   type H2ALoopEvent,
+  type H2ALoopLaunchSpec,
   type H2ALoopPolicy,
   type H2ALoopRepoRef,
   type H2ALoopStatus,
@@ -836,6 +847,8 @@ export {
 export * from "./runtime/mcp-http/index.js";
 
 export * from "./runtime/mirror/index.js";
+
+export * from "./runtime/reporting/index.js";
 
 export const H2A_CLI_HOSTS = [
   H2A_CODEX_HOST,

@@ -91,6 +91,20 @@ vi.mock("./tmux.js", () => ({
   attachLocalSession,
   attachPodTmux: vi.fn(),
   currentTmuxSessionIs,
+  existingLocalSessionSlugs: (
+    labels: ReadonlyArray<string | undefined>,
+    cwd: string,
+  ) =>
+    labels
+      .map((label) => {
+        const raw = label ?? cwd;
+        const parts = raw.split("/").filter(Boolean);
+        const slug = (parts[parts.length - 1] ?? "session")
+          .replace(/[^a-zA-Z0-9_.-]/g, "-")
+          .replace(/^-+|-+$/g, "");
+        return findLocalSession(slug) ? slug : undefined;
+      })
+      .filter((slug): slug is string => slug !== undefined),
   findLocalSession,
   killLocalSession,
   listLocalSessions: () => [],

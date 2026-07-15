@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createObjectiveLoop, listLoopEvents, listObjectiveLoops, readObjectiveLoop, runCli } from "../dist/index.js";
+import { createObjectiveLoop, joinObjectiveLoop, listLoopEvents, listObjectiveLoops, readObjectiveLoop, runCli } from "../dist/index.js";
+import { durableTestDir } from "./durable-test-dir.js";
 
 function freshRoot() {
   return mkdtempSync(join(tmpdir(), "h2a-loop-"));
@@ -203,5 +204,92 @@ test("h2a loop join fills a predeclared planned agent slot", () => {
     assert.equal(loop.agents[0].status, "running");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("h2a loop create/join expose strict launch specs through stdin JSON", () => {
+  const dir = freshRoot();
+  const root = join(dir, ".h2a");
+  const launchWorkspace = durableTestDir("h2a-loop-cli-launch-");
+  const launch = {
+    profile: "claude",
+    workspace: launchWorkspace,
+    prompt: "Join and resume the objective loop",
+    model: "claude-opus-4-8",
+    effort: "xhigh",
+    name: "objective-builder",
+    gateway: "required"
+  };
+  try {
+    const created = captureStreams(dir);
+    created.stdinText = JSON.stringify(launch);
+    assert.equal(runCli([
+      "loop", "create", "--root", root, "--id", "loop-launch", "--goal", "Ship",
+      "--agent", "claude:builder:local", "--launch-stdin"
+    ], created), 0, created.stderrText);
+    assert.deepEqual(JSON.parse(created.stdoutText).agents[0].launch, launch);
+
+    const joined = captureStreams(dir);
+    joined.stdinText = JSON.stringify(launch);
+    assert.equal(runCli([
+      "loop", "join", "loop-launch", "--root", root,
+      "--instance", "claude:h2a:live", "--agent-id", "agent-1",
+      "--role", "builder", "--launch-stdin"
+    ], joined), 0, joined.stderrText);
+    assert.deepEqual(JSON.parse(joined.stdoutText).agents[0].launch, launch);
+
+    const unsafe = captureStreams(dir);
+    unsafe.stdinText = JSON.stringify({ ...launch, name: "unsafe/name" });
+    assert.notEqual(runCli([
+      "loop", "join", "loop-launch", "--root", root,
+      "--instance", "claude:h2a:other", "--agent-id", "other",
+      "--launch-stdin"
+    ], unsafe), 0);
+    assert.match(unsafe.stderrText, /launch name/);
+
+    const argvPrompt = captureStreams(dir);
+    assert.notEqual(runCli([
+      "loop", "join", "loop-launch", "--root", root,
+      "--instance", "claude:h2a:nope", "--agent-id", "nope",
+      "--launch", "{}"
+    ], argvPrompt), 0);
+    assert.match(argvPrompt.stderrText, /prompts must not be passed in argv/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(launchWorkspace, { recursive: true, force: true });
+  }
+});
+
+test("re-join refuses a launch profile incompatible with the enrolled host", () => {
+  const dir = freshRoot();
+  const root = join(dir, ".h2a");
+  const launchWorkspace = durableTestDir("h2a-loop-profile-launch-");
+  try {
+    createObjectiveLoop(root, {
+      id: "profile-mismatch",
+      goal: "Ship",
+      agents: [{
+        id: "agent-1",
+        host: "claude",
+        role: "builder",
+        placement: "local",
+        status: "running",
+        h2aInstance: "claude:h2a:live"
+      }]
+    });
+    assert.throws(() => joinObjectiveLoop(root, "profile-mismatch", {
+      instance: "claude:h2a:live",
+      agentId: "agent-1",
+      launch: {
+        profile: "codex",
+        workspace: launchWorkspace,
+        prompt: "resume",
+        model: "gpt-5.6-terra",
+        name: "mismatch"
+      }
+    }), /host differs from launch profile/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(launchWorkspace, { recursive: true, force: true });
   }
 });
