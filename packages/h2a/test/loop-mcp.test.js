@@ -22,11 +22,22 @@ function freshRoot() {
 test("h2a_loop_list projette les loops (read-only)", () => {
   const root = freshRoot();
   try {
-    createObjectiveLoop(root, { name: "one", goal: "g1" });
-    createObjectiveLoop(root, { name: "two", goal: "g2" });
+    const one = createObjectiveLoop(root, { name: "one", goal: "g1" }, 123);
+    const two = createObjectiveLoop(root, { name: "two", goal: "g2" }, 123);
+    const three = createObjectiveLoop(root, { name: "three", goal: "g3" }, 123);
+    assert.deepEqual(
+      [one.id, two.id, three.id],
+      ["loop-3f", "loop-3f-1", "loop-3f-2"],
+      "same-millisecond automatic ids are reserved uniquely"
+    );
+    createObjectiveLoop(root, { id: "fixed", goal: "g4" }, 123);
+    assert.throws(
+      () => createObjectiveLoop(root, { id: "fixed", goal: "duplicate" }, 123),
+      /loop already exists: fixed/
+    );
     const res = handleLoopList(root);
     assert.equal(res.kind, "loop-list");
-    assert.equal(res.loops.length, 2);
+    assert.equal(res.loops.length, 4);
     assert.ok(res.loops.every((l) => typeof l.id === "string" && typeof l.status === "string"));
   } finally {
     rmSync(root, { recursive: true, force: true });
