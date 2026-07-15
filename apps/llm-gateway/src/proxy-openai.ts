@@ -29,7 +29,6 @@ import {
 } from "./accounts.js";
 import { updateSessionToken } from "./sticky.js";
 import { routeModelOrThrow } from "./model-catalog.js";
-import { recordSessionRequest } from "./session-ledger.js";
 
 const OPENAI_BASE = process.env.OPENAI_UPSTREAM_URL ?? "https://api.openai.com";
 
@@ -1351,8 +1350,6 @@ export async function handleMessagesViaOpenAI(
       400,
     );
   }
-  recordSessionRequest(session.sessionId, route);
-
   const tokenTransport = isCodexOAuthToken(session.token)
     ? "codex-responses"
     : "openai-chat-completions";
