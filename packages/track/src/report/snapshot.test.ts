@@ -1,7 +1,9 @@
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -24,10 +26,19 @@ beforeEach(() => {
     newId: () => `id-${String(++n).padStart(4, '0')}`,
   })
   const wp = track.createItem({ kind: 'chore', title: 'WP', workspace: 'ws', role: 'workpackage' })
-  const item = track.createItem({ kind: 'feature', title: 'Deliver', workspace: 'ws', parentId: wp })
-  track.createDecision({
+  const item = track.createItem({
+    kind: 'feature', title: 'Deliver', workspace: 'ws', parentId: wp,
+    body: 'BODY_PAYLOAD_MUST_NOT_LEAK',
+  })
+  const decision = track.createDecision({
     decisionKind: 'commitment', title: 'Choose', workspace: 'ws', targets: [item],
     dossier: { context: 'not copied verbatim', options: [], qa: [] },
+  })
+  track.addDecisionArtifact(decision, {
+    kind: 'h2a-decision-dossier',
+    negotiationRef: 'NEGOTIATION_PAYLOAD_MUST_NOT_LEAK',
+    dossierHash: 'DOSSIER_HASH_MUST_NOT_LEAK',
+    comprehension: [{ subject: 'COMPREHENSION_PAYLOAD_MUST_NOT_LEAK', dossierHash: 'ATTESTED_HASH_MUST_NOT_LEAK' }],
   })
 })
 
@@ -41,9 +52,15 @@ describe('SnapshotV1', () => {
     expect(snapshot.report.decisions).toHaveLength(1)
     expect(snapshot.report.wpTree).toHaveLength(1)
     expect('view' in snapshot.report).toBe(false)
-    expect(snapshot.recentEvents.map((event) => event.position)).toEqual([1, 2, 3, 4])
+    expect(snapshot.recentEvents.map((event) => event.position)).toEqual([1, 2, 3, 4, 5])
     expect(snapshot.recentEvents.every((event) => event.summary === undefined)).toBe(true)
     expect(snapshot.directives.every((directive) => directive.source === 'rule-derived')).toBe(true)
+    const bytes = snapshotJson(snapshot)
+    for (const forbidden of [
+      'BODY_PAYLOAD_MUST_NOT_LEAK', 'NEGOTIATION_PAYLOAD_MUST_NOT_LEAK', 'DOSSIER_HASH_MUST_NOT_LEAK',
+      'COMPREHENSION_PAYLOAD_MUST_NOT_LEAK', 'ATTESTED_HASH_MUST_NOT_LEAK', 'artifacts', 'comprehension',
+    ]) expect(bytes).not.toContain(forbidden)
+    for (const row of Object.values(snapshot.report.buckets).flat()) expect(row.detail).not.toHaveProperty('summary')
   })
 
   it('should produce identical bytes for the same log and baseline', () => {
@@ -60,6 +77,29 @@ describe('SnapshotV1', () => {
     }
     expect(b).toBe(a)
     expect(createHash('sha256').update(b).digest('hex')).toBe(createHash('sha256').update(a).digest('hex'))
+  })
+
+  it('should produce identical real CLI bytes across cwd, TZ, and locale', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const bin = join(here, '..', 'cli', 'bin.ts')
+    let cursor = here
+    let tsx = ''
+    for (;;) {
+      const candidate = join(cursor, 'node_modules', '.bin', 'tsx')
+      if (existsSync(candidate)) { tsx = candidate; break }
+      const parent = dirname(cursor)
+      if (parent === cursor) break
+      cursor = parent
+    }
+    expect(tsx).not.toBe('')
+    const nested = join(dir, 'nested', 'cwd')
+    mkdirSync(nested, { recursive: true })
+    const invoke = (cwd: string, tz: string, lang: string): string => {
+      const env: NodeJS.ProcessEnv = { ...process.env, TZ: tz, LANG: lang, LC_ALL: lang }
+      delete env['TRACK_DIR']
+      return execFileSync(tsx, [bin, 'snapshot', '--commit', 'c1'], { cwd, env, encoding: 'utf8' })
+    }
+    expect(invoke(nested, 'Pacific/Auckland', 'C')).toBe(invoke(dir, 'America/Toronto', 'C.UTF-8'))
   })
 
   it('should label diagnostics as factual and rule-derived, never AI advice', () => {
