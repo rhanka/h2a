@@ -30,9 +30,10 @@ More broadly, `remote` orchestrates AI coding sessions for developers. It should
 - CLI config: `remote llm-mesh start` → local proxy at `http://localhost:3002`
 - `remote llm-mesh stop|status|logs`
 - CLIs configured via `ANTHROPIC_BASE_URL=http://localhost:3002`
-- Model map: `claude-opus-4-8/4-7 → gpt-5.5`, `claude-sonnet-4-6/4-5 → gpt-5.5`
-- Thinking budget → reasoning_effort: `xhigh (≥50k) → high` on Codex OAuth,
-  `xhigh (≥50k) → xhigh` on standard OpenAI API, `high (≥25k) → high`,
+- Model map: `claude-opus-4-8 → gpt-5.6-terra`, `claude-opus-4-7 → gpt-5.5`,
+  `claude-sonnet-4-6/4-5 → gpt-5.5`; explicit `gpt-5.6-luna` remains supported.
+- Thinking budget → reasoning_effort: `xhigh (≥50k) → xhigh` on Codex OAuth
+  and standard OpenAI API, `high (≥25k) → high`,
   `med (≥8k) → medium`, `low (<8k) → low`
 
 **Enrollment** (solo): plain local config file, CLI asks for keys on first run.
@@ -122,7 +123,7 @@ See `apps/llm-gateway/src/proxy-openai.ts` for the implementation.
 
 | Anthropic            | OpenAI         | Notes              |
 |----------------------|----------------|--------------------|
-| claude-opus-4-8      | gpt-5.5        | most capable       |
+| claude-opus-4-8      | gpt-5.6-terra  | default Opus alias |
 | claude-opus-4-7      | gpt-5.5        |                    |
 | claude-sonnet-4-6    | gpt-5.5        | Codex OAuth default |
 | claude-sonnet-4-5    | gpt-5.5        |                    |
@@ -132,7 +133,7 @@ See `apps/llm-gateway/src/proxy-openai.ts` for the implementation.
 
 | budget_tokens | OpenAI API | Codex OAuth | Claude tier |
 |---------------|------------|-------------|-------------|
-| ≥ 50 000      | xhigh      | high        | xhigh       |
+| ≥ 50 000      | xhigh      | xhigh       | xhigh       |
 | ≥ 25 000      | high       | high        | high        |
 | ≥  8 000      | medium     | medium      | medium      |
 | < 8 000       | low        | low         | low         |
@@ -150,9 +151,9 @@ See `apps/llm-gateway/src/proxy-openai.ts` for the implementation.
 3. **`remote llm-mesh start`**: which process manager? systemd user unit, or just
    a background process managed by remote's PID file?
 
-4. **Codex OAuth support for `reasoning.effort: "xhigh"`**: unconfirmed. The proxy
-   currently sends the maximum known-compatible Codex OAuth effort, `"high"`, while
-   the standard OpenAI API path still passes `reasoning_effort: "xhigh"`.
+4. **Codex OAuth `reasoning.effort: "xhigh"`**: the proxy now preserves the
+   caller's xhigh tier. Provider rejection remains a loud upstream error; the
+   gateway does not silently downgrade requested reasoning effort.
 
 5. **Codex tool filtering**: codex config already disables `web_search` and
    `image_generation` when proxying through Claude (`web_search = "disabled"`).

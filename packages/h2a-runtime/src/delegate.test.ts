@@ -4,6 +4,7 @@ import {
   aimdEffectiveCap,
   AIMD_TRIP_THRESHOLD,
   AIMD_WINDOW_MS,
+  assertDelegateEffort,
   assertSafeName,
   backoffCeilingMs,
   buildDelegateArgs,
@@ -67,6 +68,49 @@ describe("buildDelegateArgs (pure, task is a single argv token)", () => {
       command: "codex",
       args: ["exec", "ship it"],
     });
+  });
+
+  it("propagates model and xhigh effort to Claude and Codex", () => {
+    expect(
+      buildDelegateArgs(
+        "claude",
+        "do X",
+        false,
+        "claude-opus-4-8",
+        "xhigh",
+      ),
+    ).toEqual({
+      command: "claude",
+      args: ["--model", "claude-opus-4-8", "--effort", "xhigh", "do X"],
+    });
+    expect(
+      buildDelegateArgs(
+        "codex",
+        "do X",
+        false,
+        "gpt-5.6-terra",
+        "xhigh",
+      ),
+    ).toEqual({
+      command: "codex",
+      args: [
+        "-m",
+        "gpt-5.6-terra",
+        "-c",
+        'model_reasoning_effort="xhigh"',
+        "do X",
+      ],
+    });
+  });
+
+  it("rejects effort levels unsupported by the selected CLI", () => {
+    expect(() =>
+      buildDelegateArgs("codex", "do X", false, undefined, "max"),
+    ).toThrow(/invalid Codex effort/);
+    expect(() =>
+      buildDelegateArgs("claude", "do X", false, undefined, "extreme"),
+    ).toThrow(/invalid Claude effort/);
+    expect(() => assertDelegateEffort("codex", "xhigh")).not.toThrow();
   });
 
   it("a task with shell metacharacters stays ONE argv element (no injection)", () => {
@@ -304,6 +348,27 @@ describe("buildRemoteDelegate (task via the safe startupArgs argv channel)", () 
     expect(buildRemoteDelegate("codex", "ship it", true)).toEqual({
       profile: "codex",
       startupArgs: ["exec", "ship it"],
+    });
+  });
+
+  it("carries Terra/xhigh through the remote startupArgs JSON channel", () => {
+    expect(
+      buildRemoteDelegate(
+        "codex",
+        "ship it",
+        false,
+        "gpt-5.6-terra",
+        "xhigh",
+      ),
+    ).toEqual({
+      profile: "codex",
+      startupArgs: [
+        "-m",
+        "gpt-5.6-terra",
+        "-c",
+        'model_reasoning_effort="xhigh"',
+        "ship it",
+      ],
     });
   });
 
@@ -691,6 +756,48 @@ describe("buildThrottleResumeArgs (per-type continue command, safe argv)", () =>
     expect(buildThrottleResumeArgs("codex", "ship it")).toEqual({
       command: "codex",
       args: ["exec", "resume", "--last", "ship it"],
+    });
+  });
+
+  it("keeps Terra/xhigh overrides across throttled resumes", () => {
+    expect(
+      buildThrottleResumeArgs(
+        "codex",
+        "ship it",
+        "gpt-5.6-terra",
+        "xhigh",
+      ),
+    ).toEqual({
+      command: "codex",
+      args: [
+        "-m",
+        "gpt-5.6-terra",
+        "-c",
+        'model_reasoning_effort="xhigh"',
+        "exec",
+        "resume",
+        "--last",
+        "ship it",
+      ],
+    });
+    expect(
+      buildThrottleResumeArgs(
+        "claude",
+        "ship it",
+        "claude-opus-4-8",
+        "xhigh",
+      ),
+    ).toEqual({
+      command: "claude",
+      args: [
+        "--model",
+        "claude-opus-4-8",
+        "--effort",
+        "xhigh",
+        "-p",
+        "--continue",
+        "ship it",
+      ],
     });
   });
 
