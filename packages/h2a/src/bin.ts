@@ -20,7 +20,10 @@ import {
   runLoopEngineCli,
   runSysmlVerify
 } from "./cli.js";
-import { shouldDispatchRemote } from "./bin-routing.js";
+import {
+  resolveH2aRuntimeDispatch,
+  shouldDispatchRuntime
+} from "./bin-routing.js";
 import { runFocusServeCli } from "./runtime/focus/serve.js";
 
 const argv = process.argv.slice(2);
@@ -66,38 +69,42 @@ function runAsync(label: string, promise: Promise<number>): void {
 }
 
 // Parité ② (double-consensus 2026-07-03) : `h2a` = LE driver global. Tout
-// premier-mot NON h2a-natif (cf. bin-routing.ts) est un verbe runtime (ex-remote)
+// premier-mot NON h2a-natif (cf. bin-routing.ts) est un verbe du runtime lourd
 // et part en LAZY vers @sentropic/h2a-runtime. @sentropic/h2a ne dépend JAMAIS du
 // runtime (règle d'or) : import dynamique à spécifieur-string, seule frontière.
 
-async function dispatchRemote(): Promise<number> {
+async function dispatchRuntime(): Promise<number> {
   // Spécifieur via variable typée `string` : tsc ne résout PAS statiquement ce
   // package optionnel (sinon TS2307 car h2a n'en dépend pas — règle d'or).
-  const REMOTE_RUNTIME_PKG: string = "@sentropic/h2a-runtime";
-  let rt: { dispatch?: (argv: readonly string[]) => Promise<number> };
+  const H2A_RUNTIME_PKG: string = "@sentropic/h2a-runtime";
+  let rt: unknown;
   try {
-    rt = (await import(REMOTE_RUNTIME_PKG)) as {
-      dispatch?: (argv: readonly string[]) => Promise<number>;
-    };
+    rt = await import(H2A_RUNTIME_PKG);
   } catch (err) {
     if ((err as NodeJS.ErrnoException)?.code === "ERR_MODULE_NOT_FOUND") {
       process.stderr.write(
-        `h2a ${argv[0]}: ce verbe requiert le runtime remote (sessions / k8s / tunnel).\n` +
+        `h2a ${argv[0]}: ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n` +
           "  Installe-le : npm i -g @sentropic/h2a-runtime\n"
       );
       return 127;
     }
     throw err;
   }
-  if (typeof rt.dispatch !== "function") {
-    process.stderr.write("h2a: @sentropic/h2a-runtime n'expose pas dispatch().\n");
-    return 1;
+  let dispatch;
+  try {
+    dispatch = resolveH2aRuntimeDispatch(rt);
+  } catch (err) {
+    process.stderr.write(
+      `h2a ${argv[0]}: runtime incompatible — ${(err as Error).message}.\n` +
+        "  Mets à jour ensemble : npm i -g @sentropic/h2a@latest @sentropic/h2a-runtime@latest\n"
+    );
+    return 64;
   }
-  // dispatch = main(argv) : commander attend le style process.argv ([node, script, …]).
-  return rt.dispatch(process.argv);
+  // dispatchH2a = main(argv) : commander attend process.argv ([node, script, …]).
+  return dispatch(process.argv);
 }
 
-// `mcp-serve` and `remote serve/send` are async (long-running loop or network);
+// `mcp-serve` and `h2a remote serve/send` are async (long-running loop or network);
 // the synchronous `runCli` cannot represent them, so we dispatch directly here.
 if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
   process.stdout.write(`${readOwnVersion()}\n`);
@@ -211,8 +218,8 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
     `loop ${argv[1]}`,
     runLoopEngineCli(argv, { stdout: process.stdout, stderr: process.stderr }, ac.signal)
   );
-} else if (shouldDispatchRemote(argv)) {
-  runAsync(`remote:${argv[0]}`, dispatchRemote());
+} else if (shouldDispatchRuntime(argv)) {
+  runAsync(`runtime:${argv[0]}`, dispatchRuntime());
 } else {
   process.exitCode = runCli(argv);
 }
