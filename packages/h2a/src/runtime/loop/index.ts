@@ -278,10 +278,22 @@ export function createObjectiveLoop(
     }
     return { ...agent, launch };
   });
-  const id = input.id ?? createLoopId(now);
+  const baseId = input.id ?? createLoopId(now);
+  let id = baseId;
+  mkdirSync(loopsDir(root), { recursive: true });
+  let suffix = 0;
+  for (;;) {
+    try {
+      mkdirSync(loopDir(root, id), { recursive: false });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (input.id !== undefined) throw new Error(`loop already exists: ${id}`);
+      suffix += 1;
+      id = `${baseId}-${suffix}`;
+    }
+  }
   const dir = loopDir(root, id);
-  if (existsSync(stateFile(root, id))) throw new Error(`loop already exists: ${id}`);
-  mkdirSync(dir, { recursive: true });
   const at = new Date(now).toISOString();
   const loop: H2AObjectiveLoop = {
     id,
