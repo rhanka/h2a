@@ -386,14 +386,14 @@ describe('WP foundation — CLI ≡ ingest parity (item reparent / item new --ro
     expect(state.items.get(child)!.parentId).toBe(wp)
   })
 
-  it('report --wp renders the rollup and keeps the WP out of the flat buckets', () => {
+  it('legacy JSON report --wp carries the rollup and keeps the WP out of flat buckets', () => {
     cli('init')
     const wp = cli('item', 'new', '--kind', 'chore', '--title', 'WP1', '--workspace', 'ws', '--role', 'workpackage').out.trim()
     cli('item', 'new', '--kind', 'chore', '--title', 'leaf', '--workspace', 'ws', '--parent', wp)
-    const r = cli('report', '--wp', '--format', 'md', '--commit', 'c1')
+    const r = cli('report', '--wp', '--format', 'json', '--commit', 'c1')
     expect(r.code).toBe(0)
-    expect(r.out).toContain('WP1') // the rollup section
-    // the WP container itself is not listed as a TO-DO leaf row
-    expect(r.out).not.toMatch(/- \*\*WP1\*\* — to-do/)
+    const report = JSON.parse(r.out) as { wpTree: Array<{ title: string }>; buckets: Record<string, Array<{ title: string }>> }
+    expect(report.wpTree[0]?.title).toBe('WP1')
+    expect(Object.values(report.buckets).flat().some((row) => row.title === 'WP1')).toBe(false)
   })
 })

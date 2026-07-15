@@ -99,3 +99,4 @@ export { type ActorId, type EventType, type Provenance, type Sha256 } from '../e
 //   the legal next-action WorkEvent kinds), so a versioned consumer names the affordances element type
 //   against `/read` ALONE without reaching into the unversioned ingest contract.
 export { type WorkEventKind } from '../ingest/contract.js'
+export { type SnapshotOptions, type SnapshotV1 } from '../report/snapshot.js'
