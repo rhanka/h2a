@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "h2a": {
+      "command": "h2a",
+      "args": [
+        "mcp-serve",
+        "--host",
+        "codex",
+        "--wake",
+        "local-tmux",
+        "--auto-open"
+      ]
+    },
+    "track": {
+      "command": "h2a",
+      "args": ["track-mcp"]
+    }
+  }
+}

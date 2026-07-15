@@ -19,6 +19,8 @@ export interface LaunchContextInput {
   label?: string | undefined;
   /** CLI-native resume argv (e.g. ["--resume", id] / ["resume", id]); only the id is kept. */
   resumeArgs?: ReadonlyArray<string> | undefined;
+  /** Explicit resume id. Prefer this over deriving metadata from arbitrary CLI argv. */
+  resumeId?: string | undefined;
   /** h2a side-window command line, if one was requested. */
   h2aCommand?: string | undefined;
 }
@@ -67,10 +69,14 @@ export function buildLaunchContext(
   };
   if (input.label && input.label.trim()) ctx.label = input.label.trim();
   if (base && isLocalUrl(base)) ctx.gatewayBaseUrl = base;
-  const resumeArgs = input.resumeArgs ?? [];
-  if (resumeArgs.length > 0) {
-    const id = resumeArgs[resumeArgs.length - 1];
-    if (id && id !== resumeArgs[0]) ctx.resume = redactSecrets(id);
+  if (input.resumeId) {
+    ctx.resume = redactSecrets(input.resumeId);
+  } else {
+    const resumeArgs = input.resumeArgs ?? [];
+    if (resumeArgs.length > 0) {
+      const id = resumeArgs[resumeArgs.length - 1];
+      if (id && id !== resumeArgs[0]) ctx.resume = redactSecrets(id);
+    }
   }
   if (input.h2aCommand && input.h2aCommand.trim()) {
     ctx.h2a = redactSecrets(input.h2aCommand.trim());
