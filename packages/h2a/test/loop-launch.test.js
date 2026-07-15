@@ -20,9 +20,10 @@ import {
   validateLoopLaunchSpec
 } from "../dist/runtime/loop/index.js";
 import { executePlan } from "../dist/runtime/loop/engine/execute.js";
+import { durableTestDir } from "./durable-test-dir.js";
 
 function workspace() {
-  return mkdtempSync(join(process.cwd(), ".h2a-loop-launch-"));
+  return durableTestDir("h2a-loop-launch-");
 }
 
 function launchSpec(dir, overrides = {}) {

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 import {
   handleLoopCreate,
@@ -14,6 +14,7 @@ import {
   handleLoopStop
 } from "../dist/runtime/mcp/handlers.js";
 import { createObjectiveLoop, listLoopEvents, listObjectiveLoops } from "../dist/runtime/loop/index.js";
+import { durableTestDir } from "./durable-test-dir.js";
 
 function freshRoot() {
   return join(mkdtempSync(join(tmpdir(), "h2a-loopmcp-")), ".h2a");
@@ -158,7 +159,7 @@ test("h2a_loop_report recovers an empty loop only with explicit autoJoin and ins
 
 test("h2a_loop_create/join persist only complete, supported launch specs", () => {
   const root = freshRoot();
-  const workspace = dirname(root);
+  const workspace = durableTestDir("h2a-loop-mcp-launch-");
   const launch = {
     profile: "codex",
     workspace,
@@ -216,5 +217,6 @@ test("h2a_loop_create/join persist only complete, supported launch specs", () =>
     assert.match(changed.error, /different launch spec/);
   } finally {
     rmSync(root, { recursive: true, force: true });
+    rmSync(workspace, { recursive: true, force: true });
   }
 });
