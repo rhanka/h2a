@@ -304,6 +304,10 @@ function assertOnlyFlags(flags: Flags, allowed: readonly string[]): void {
   if (unknown.length > 0) throw new DomainError(`unsupported flag(s): ${unknown.map((key) => `--${key}`).join(', ')}`)
 }
 
+function assertValueFlag(flags: Flags, name: string): void {
+  if (flags[name] === true) throw new DomainError(`--${name} requires a value`)
+}
+
 /**
  * Pull a global `--track-dir <path>` out of argv BEFORE per-command parsing, so it works regardless
  * of where the user places it. Returns the value (if any) and the argv with that flag removed.
@@ -910,6 +914,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   const { io } = ctx
   const { positional, flags } = parseFlags(args)
   if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
+  for (const name of ['commit', 'format', 'level', 'width']) assertValueFlag(flags, name)
   const raw = assertBooleanFlag(flags, 'raw')
   if (raw) {
     assertOnlyFlags(flags, ['raw', 'commit', 'require-accepted', 'format'])
@@ -1032,6 +1037,7 @@ function emitSnapshot(flags: Flags, ctx: Ctx, allowRaw: boolean): number {
 function cmdSnapshot(args: string[], ctx: Ctx): number {
   const { positional, flags } = parseFlags(args)
   if (positional.length > 0) throw new DomainError(`unexpected snapshot argument(s): ${positional.join(' ')}`)
+  for (const name of ['commit', 'format']) assertValueFlag(flags, name)
   return emitSnapshot(flags, ctx, false)
 }
 
