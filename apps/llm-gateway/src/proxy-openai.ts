@@ -1365,18 +1365,39 @@ export async function handleMessagesViaOpenAI(
   const upstreamReq = isCodex
     ? toCodexRequest(upstreamBody)
     : toOpenAIRequest(upstreamBody);
+  // Build the Codex request ONCE. The attestation below is derived from this
+  // exact payload, after all Anthropic→Codex mapping, and is therefore proof
+  // of what the gateway actually sends rather than an echo of caller intent.
+  const codexRequest = isCodex
+    ? prepareCodexResponsesRequest(upstreamReq)
+    : undefined;
+  const attestedModel = codexRequest?.body.model;
+  const attestedEffort = codexRequest
+    ? codexRequestEffort(codexRequest.body)
+    : undefined;
+  const withCodexAttestation = (response: Response): Response => {
+    if (!codexRequest) return response;
+    const headers = new Headers(response.headers);
+    if (typeof attestedModel === "string")
+      headers.set("x-h2a-resolved-model", attestedModel);
+    if (attestedEffort)
+      headers.set("x-h2a-reasoning-effort", attestedEffort);
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  };
   const messageId = `msg_${Date.now().toString(36)}`;
   const estimatedInputTokens = Math.ceil(
     JSON.stringify(upstreamBody.messages).length / 4,
   );
 
   const doFetch = (token: string) => {
-    if (isCodex) {
-      const codexRequest = prepareCodexResponsesRequest(upstreamReq);
-      const effort = codexRequestEffort(codexRequest.body);
-      if (effort) {
+    if (codexRequest) {
+      if (attestedEffort) {
         console.info(
-          `[llm-gateway] Codex request: model=${String(codexRequest.body.model ?? "")} reasoning.effort=${effort}`,
+          `[llm-gateway] Codex request: model=${String(codexRequest.body.model ?? "")} reasoning.effort=${attestedEffort}`,
         );
       }
       return fetch(codexRequest.url, {
@@ -1467,14 +1488,14 @@ export async function handleMessagesViaOpenAI(
       messageId,
       estimatedInputTokens,
     );
-    return new Response(stream, {
+    return withCodexAttestation(new Response(stream, {
       status: 200,
       headers: {
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-cache",
         "x-accel-buffering": "no",
       },
-    });
+    }));
   }
 
   // Codex OAuth Responses API streams even for requests where the Anthropic
@@ -1482,14 +1503,14 @@ export async function handleMessagesViaOpenAI(
   // upstream and return a normal Anthropic Messages JSON response.
   if (isCodex && upstream.body) {
     try {
-      return c.json(
+      return withCodexAttestation(c.json(
         await codexStreamToAnthropicResponse(
           upstream.body,
           originalModel,
           messageId,
           estimatedInputTokens,
         ),
-      );
+      ));
     } catch (err) {
       return c.json(
         anthropicGatewayError(err instanceof Error ? err.message : String(err)),

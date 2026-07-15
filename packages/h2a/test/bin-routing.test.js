@@ -25,18 +25,18 @@ test("parité: les verbes runtime (non-natifs) → dispatch runtime", () => {
 
 test("les verbes h2a-natifs (dont collisions) → PAS de délégation", () => {
   for (const v of [
-    "status", "connect", "conductor-launch", "loop", "negotiate", "discover",
+    "status", "connect", "conductor-launch", "loop", "negotiate", "discover", "report-context", "report-ai",
     "inbox", "sessions", "drumbeat", "mcp-serve", "keepalive", "remote", "drive", "sysml",
     // façade track (déléguée par runCli à la CLI track, PAS au runtime)
-    "item", "decision", "report", "query", "blocker", "focus"
+    "item", "decision", "report", "snapshot", "query", "blocker", "focus"
   ]) {
     assert.equal(shouldDispatchRuntime([v]), false, `${v} doit rester natif`);
   }
 });
 
 test("focus reste natif pour permettre l'interception exacte serve/web avant la façade track", () => {
-  assert.equal(shouldDispatchRemote(["focus", "serve"]), false);
-  assert.equal(shouldDispatchRemote(["focus", "web"]), false);
+  assert.equal(shouldDispatchRuntime(["focus", "serve"]), false);
+  assert.equal(shouldDispatchRuntime(["focus", "web"]), false);
   assert.ok(TRACK_FACADE_VERBS.has("focus"), "le focus Track historique reste dans la façade");
 });
 
@@ -91,7 +91,7 @@ test("anti-drift: le set natif couvre TOUS les 1ers mots du contrat CLI + routes
     const first = c.verb.split(" ")[0];
     assert.ok(H2A_NATIVE_VERBS.has(first), `1er mot du contrat "${first}" doit être natif`);
   }
-  for (const w of ["mcp-serve", "remote", "drive", "drumbeat", "sysml", "keepalive", "loop"]) {
+  for (const w of ["mcp-serve", "remote", "drive", "drumbeat", "sysml", "keepalive", "loop", "report-ai"]) {
     assert.ok(H2A_NATIVE_VERBS.has(w), `route bin.ts "${w}" doit être native`);
   }
 });
