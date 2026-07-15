@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -30,7 +31,7 @@ import {
 } from "../dist/index.js";
 
 function fixture() {
-  const dir = mkdtempSync(join(tmpdir(), "h2a-reporting-"));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "h2a-reporting-")));
   const workspace = join(dir, "repo");
   const outside = join(dir, "outside");
   const store = join(dir, "bus", ".h2a");
@@ -278,7 +279,7 @@ test("report-context excludes mixed-workspace loops and never launders external 
 });
 
 test("Track adapter config installer honors XDG, 0600, no-op, preserve and force", () => {
-  const dir = mkdtempSync(join(tmpdir(), "h2a-report-config-"));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "h2a-report-config-")));
   const env = { XDG_CONFIG_HOME: join(dir, "xdg"), HOME: join(dir, "home") };
   try {
     const path = trackReportAiConfigPath({ env });

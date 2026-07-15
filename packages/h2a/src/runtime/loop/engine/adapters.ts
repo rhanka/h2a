@@ -22,6 +22,7 @@ import {
 } from "../../drumbeat/relaunchers.js";
 import { createLocalStore } from "../../local-files/store.js";
 import { listPresence } from "../../local-files/presence.js";
+import { isOsTemporaryPath } from "../../path-safety.js";
 import {
   listLoopEvents,
   readObjectiveLoop,
@@ -461,7 +462,11 @@ export function loopLaunchWorkspaceAllowed(
   spec: H2ALoopLaunchSpec,
   controllerRoot = process.cwd()
 ): boolean {
-  if (spec.workspace === "/tmp" || spec.workspace.startsWith("/tmp/")) return false;
+  try {
+    if (isOsTemporaryPath(spec.workspace)) return false;
+  } catch {
+    return false;
+  }
   const roots = [controllerRoot, ...loop.repos.map((repo) => repo.path)];
   for (const candidateRoot of roots) {
     try {
