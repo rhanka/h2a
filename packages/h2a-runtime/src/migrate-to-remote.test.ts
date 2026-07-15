@@ -60,7 +60,7 @@ describe("checkReadiness — Phase A gate", () => {
   it("returns ready:false + auth blocker when auth fails", () => {
     const spawn = vi.fn().mockImplementation(
       (cmd: string, args: readonly string[]) => {
-        if (cmd === "remote" && args[0] === "auth") {
+        if (cmd === "h2a" && args[0] === "auth") {
           return { pid: 1, output: [], stdout: "", stderr: "", status: 1, signal: null };
         }
         if (cmd === "git" && args[0] === "rev-parse") {

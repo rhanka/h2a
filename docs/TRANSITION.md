@@ -2,8 +2,8 @@
 
 Status: LIVE (transition in progress). Audience: humans **and** agents who used the
 `remote` and `track` CLIs and are moving to `h2a`. Docs only — describes what ships
-today; the irreversible steps are listed as **Pending** at the bottom and are **not**
-done.
+today and identifies the external publication step that this repository cannot
+perform.
 
 ## 1. TL;DR — what changed
 
@@ -11,12 +11,14 @@ done.
 surfaces that used to live in the `remote` and `track` CLIs, plus two new ones
 (canevas, objective-loop).
 
-- **Nothing breaks.** `remote` and `track` remain installed and usable exactly as
-  before. `h2a` is additive.
+- **Use `h2a` for every runtime command.** Runtime help, examples, diagnostics and
+  executable advice now expose only the `h2a` entry point.
+- **`track` remains callable.** Its standalone role is deprecated, but its binary
+  and `.track` compatibility contract are unchanged.
 - **No data migration today.** The `.track` store and the remote local state are
-  untouched and shared.
-- **No action required** from you right now. Prefer `h2a …` for new muscle memory;
-  keep using `remote`/`track` where you already do.
+  untouched.
+- Replace saved `remote …` invocations with `h2a …`. Do not rely on the old
+  binary to load the runtime.
 
 | Axis | Surface | Today |
 |---|---|---|
@@ -83,10 +85,11 @@ Reference: `docs/specs/2026-06-29-h2a-track-facade.md` (§ "Native track integra
 
 ## 3. Remote (axis ②)
 
-Every remote verb is reachable under `h2a` by **fallback routing**: any first word
-that is not an h2a-native verb is dispatched to the runtime (ex-`remote`) via
-`dispatchRemote()`. There is no allowlist to keep in sync — new remote verbs work
-automatically.
+Every remote-transport verb is reachable under `h2a` by **fallback routing**: any
+first word that is not an h2a-native verb is dispatched to the heavy runtime via
+the versioned `dispatchH2a` capability. There is no verb allowlist to keep in sync.
+An old or skewed runtime that lacks the compatible capability is rejected before
+dispatch, with exit 64 and update guidance.
 
 ```
 h2a run <cli> · ls · attach · logs · stop · resume · jobs · delegate
@@ -94,13 +97,15 @@ h2a run <cli> · ls · attach · logs · stop · resume · jobs · delegate
     gateway · wake · ping · status · layout · restore · link · lineage
 ```
 
-- **Local state is SHARED** at `~/.config/sentropic/remote-cli/`. `remote …` and
-  `h2a …` read/write the same sessions and config, so **no reprise / no data move**
-  is needed as long as that path is not renamed (see Pending 7b).
-- **The `remote` bin stays deployed** for compat. Live Pod sessions are untouched —
-  only the CLI front changes; both CLIs list/attach/resume the same sessions.
+- **Persisted compatibility is unchanged.** Historical `.remote/`, `REMOTE_*`,
+  `remote-*` tmux/session identifiers and remote endpoint vocabulary remain data
+  and transport contracts; this CLI rename does not rewrite them.
+- **Live Pod sessions are untouched.** Only the local command front changes;
+  `h2a` continues to list, attach and resume the same sessions.
+- **`h2a remote …` remains native.** That namespace is the explicit low-level
+  transport command, not the retired standalone program.
 
-Reference: `packages/h2a/src/bin-routing.ts` (`shouldDispatchRemote`),
+Reference: `packages/h2a/src/bin-routing.ts` (`shouldDispatchRuntime`),
 `docs/specs/2026-06-29-h2a-remote-merge-map.md`.
 
 ## 4. Canevas (axis ③) — new
@@ -141,18 +146,24 @@ Reference: `docs/specs/2026-06-26-objective-loop-h2a-track-remote.md`.
 
 ## 6. Deprecations & compat
 
-What is deprecated is the **standalone role**, not the CLIs themselves.
+The runtime has one supported user-facing entry point: `h2a`.
 
 | Item | State |
 |---|---|
-| `remote` bin | Works. Compat shim direction; no removal scheduled. |
+| `remote` bin | Legacy external package; must become a non-loading migration shim (see below). |
 | `track` / `track-mcp` bins | Works. **Standalone role deprecated (axis ④-D)** — `h2a` is the single entry. Bins stay callable for skills, humans, `track-mcp`, and external `.track` repos; no removal scheduled. |
 | `.track` store format | Unchanged. Append-only, single-writer, no migration. |
-| `~/.config/sentropic/remote-cli/` | Unchanged, shared by both CLIs. |
+| `~/.config/sentropic/remote-cli/` | Unchanged as a legacy compatibility input/symlink; this CLI cutover does not rewrite persisted state. |
 | `track_report` MCP tool for human reports | Discouraged (machine JSON). Use `track report` / `h2a report`. |
 | `track report --flat` | Deprecated (bullets). Use the default table or `--wp`. |
 
-**No action is required from users today.** Everything above continues to work as-is.
+The global `remote` binary is published by the external
+`@sentropic/remote-cli` package. That package is not a workspace and is not part
+of this repository's release pipeline, so this change cannot honestly publish or
+replace it. Its publisher must release a dependency-free shim that prints a
+migration message (`use h2a …`), does not import the runtime or execute side
+effects, and exits 64. Until that release reaches installed machines, uninstall
+the legacy package where appropriate and invoke `h2a` directly.
 
 ## 7. Pending — needs Fabien's go (irreversible)
 
@@ -231,14 +242,17 @@ None of these is done here.
   path (copy-then-switch, keep a back-compat read of the old path during the
   window). Reprise policy for existing remote sessions is a reserved decision.
 
-### 7c. Decommission local `remote` + switch the k8s control-plane
-- **Changes for you:** the local `remote` execution path is retired and the
-  control-plane bascule happens behind `h2a`; live Pod sessions must survive the
-  switch.
-- **Migration plan:** canary first — old `remote` and new `h2a` list/attach/resume
-  the **same** sessions; the Pod bridge is versioned separately and rolled out
-  progressively; the IAM/security model of the bridge is a reserved decision. No
-  decom before the canary is green **and** Fabien gives the go. Any destructive
-  GC / canonical-root step stays gated (never without Fabien).
+### 7c. Publish the external `remote` migration shim + switch the k8s control-plane
+- **Done in this repository:** the runtime program identity, help and actionable
+  advice are canonical `h2a`; core-to-runtime dispatch is capability-gated and
+  fails closed on legacy/skewed runtimes. Live Pod sessions and persisted remote
+  state are unchanged.
+- **External publisher action:** replace `@sentropic/remote-cli` with the
+  dependency-free exit-64 migration shim specified in §6. This repository cannot
+  publish that package.
+- **Control-plane migration:** the Pod bridge remains versioned separately and is
+  rolled out progressively; its IAM/security model and any destructive GC or
+  canonical-root step stay explicitly human-gated.
 
-> None of 7a–7c has shipped. This guide documents the transition state only.
+> Repository-local CLI canonicalisation has shipped in source. The external shim
+> and all irreversible infrastructure operations remain pending.
