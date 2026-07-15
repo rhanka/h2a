@@ -24,11 +24,11 @@ describe("model catalog routing", () => {
     });
   });
 
-  it("routes Opus 4.8 to GPT-5.6 Luna and Fable 5 to GPT-5.6 Sol", () => {
+  it("routes Opus 4.8 to GPT-5.6 Terra and Fable 5 to GPT-5.6 Sol", () => {
     expect(resolveModelRoute("claude-opus-4-8")).toMatchObject({
       requestedModel: "claude-opus-4-8",
-      catalogModelId: "gpt-5.6-luna",
-      upstreamModel: "gpt-5.6-luna",
+      catalogModelId: "gpt-5.6-terra",
+      upstreamModel: "gpt-5.6-terra",
       accountPool: "codex",
       routeReason: "catalog-alias",
     });
@@ -45,13 +45,22 @@ describe("model catalog routing", () => {
     });
   });
 
-  it("keeps explicit GPT model ids as catalog or passthrough routes", () => {
+  it("keeps Terra and Luna as explicit catalog routes", () => {
     expect(resolveModelRoute("gpt-5.6-terra")).toMatchObject({
       catalogModelId: "gpt-5.6-terra",
       upstreamModel: "gpt-5.6-terra",
       accountPool: "codex",
       routeReason: "catalog-id",
     });
+    expect(resolveModelRoute("gpt-5.6-luna")).toMatchObject({
+      catalogModelId: "gpt-5.6-luna",
+      upstreamModel: "gpt-5.6-luna",
+      accountPool: "codex",
+      routeReason: "catalog-id",
+    });
+  });
+
+  it("keeps other explicit GPT model ids as catalog or passthrough routes", () => {
     expect(resolveModelRoute("gpt-5.3-codex-spark")).toMatchObject({
       catalogModelId: "gpt-5.3-codex-spark",
       upstreamModel: "gpt-5.3-codex-spark",
@@ -87,7 +96,7 @@ describe("model catalog routing", () => {
     expect(response.object).toBe("list");
     expect(response.data[0]).toMatchObject({
       object: "model",
-      id: "gpt-5.6-luna",
+      id: "gpt-5.6-terra",
       owned_by: "codex",
     });
     expect(JSON.stringify(response)).not.toContain("token");

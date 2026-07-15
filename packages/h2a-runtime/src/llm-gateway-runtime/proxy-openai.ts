@@ -6,7 +6,8 @@
  * Anthropic) can transparently use OpenAI/Codex models.
  *
  * Model mapping (overridable via OPENAI_MODEL_MAP env JSON):
- *   claude-opus-4-8  / claude-opus-4-7  → gpt-5.5
+ *   claude-opus-4-8                       → gpt-5.6-terra
+ *   claude-opus-4-7                       → gpt-5.5
  *   claude-sonnet-4-6 / claude-sonnet-4-5 → gpt-5.5
  *   claude-haiku-*                        → gpt-5.5
  *
@@ -155,7 +156,7 @@ export function mapModel(anthropicModel: string): string {
 /**
  * Anthropic thinking budget_tokens → OpenAI reasoning_effort.
  * Covers all 4 Claude effort tiers:
- *   xhigh (≥ 50 k) → "xhigh" (pass-through; drop to "high" if model rejects)
+ *   xhigh (≥ 50 k) → "xhigh" (pass-through; upstream rejection stays explicit)
  *   high  (≥ 25 k) → "high"
  *   med   (≥  8 k) → "medium"
  *   low   (<  8 k) → "low"

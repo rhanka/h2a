@@ -115,6 +115,7 @@ import {
 } from "./registry.js";
 import {
   aimdEffectiveCap,
+  assertDelegateEffort,
   assertSafeName,
   buildDelegateArgs,
   buildJobRows,
@@ -1506,7 +1507,7 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
   const runCwd = job.cwd;
   let argv: { command: string; args: string[] };
   try {
-    argv = buildThrottleResumeArgs(job.tool, task);
+    argv = buildThrottleResumeArgs(job.tool, task, job.model, job.effort);
   } catch (err) {
     return { started: false, error: (err as Error).message };
   }
@@ -5034,7 +5035,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .option(
       "--effort <level>",
-      "reasoning-effort override (claude only: --effort low|medium|high|xhigh|max). Silently ignored for non-claude types.",
+      "reasoning-effort override (claude: --effort low|medium|high|xhigh|max; codex: model_reasoning_effort low|medium|high|xhigh).",
     )
     .option(
       "--account <id>",
@@ -5067,6 +5068,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           return;
         }
         const jobType: DelegateType = type;
+        try {
+          assertDelegateEffort(jobType, opts.effort);
+        } catch (err) {
+          process.stderr.write(`[h2a] ${(err as Error).message}\n`);
+          process.exitCode = 1;
+          return;
+        }
         const jobId =
           opts.name ?? `${jobType}-${Math.random().toString(36).slice(2, 8)}`;
         // Parent h2a instance to notify on done + answer decisions (best-effort).

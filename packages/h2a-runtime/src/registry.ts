@@ -116,7 +116,7 @@ export type RegistryEntry = {
   throttle?: ThrottleInfo;
   /** Model override passed to the CLI binary (--model for claude, -m for codex). */
   model?: string;
-  /** Effort/reasoning override (claude --effort; not supported by codex). */
+  /** Effort/reasoning override (claude --effort; codex model_reasoning_effort). */
   effort?: string;
   /** Force a specific account from the pool (bypass selectAccountWithFallback). */
   accountId?: string;
