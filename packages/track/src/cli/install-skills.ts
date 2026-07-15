@@ -98,7 +98,7 @@ interface InstallResult {
 }
 
 const TRACK_SLASH_COMMAND_MD = `---
-description: Run Track commands from the repo root; use for a track report/status/advancement (e.g. "fais-moi un track report") — runs the CLI and pastes the FAIT/À-FAIRE/DÉCISIONS table verbatim, never the track_report MCP JSON.
+description: Run Track commands from the repo root; a human report uses the AI-prepared CLI path, never the deterministic track_report MCP compatibility projection.
 argument-hint: report [--commit <ref>] | <track args...>
 ---
 
@@ -113,11 +113,12 @@ track report --format text --commit HEAD
 If the user supplied \`report --commit <ref>\`, use that commit/ref instead of \`HEAD\`. For any other
 arguments, run \`track $ARGUMENTS\` from the repository root.
 
-When returning a report/status, paste the raw command output verbatim inside a fenced \`text\` code block.
-Do not summarize it, do not convert it to bullets, and do not drop the table layout.
+When returning a report/status, paste the raw, cited AI output verbatim inside a fenced \`text\` code block.
+If the adapter is unavailable, preserve the honest error. You may run \`track snapshot --format text\`, but
+label it **factual snapshot (not an AI report)** and never turn its rule-derived facts into AI advice.
 `
 
-const TRACK_SLASH_COMMAND_TOML = `description = "Run Track commands from the repo root; use for a track report/status/advancement (e.g. 'fais-moi un track report') — runs the CLI and pastes the FAIT/À-FAIRE/DÉCISIONS table verbatim, never the track_report MCP JSON"
+const TRACK_SLASH_COMMAND_TOML = `description = "Run Track commands from the repo root; a human report uses the AI-prepared CLI path, never the deterministic track_report MCP compatibility projection"
 prompt = '''
 You are the Track custom command.
 
@@ -128,8 +129,9 @@ If the argument is empty or starts with \`report\`, run from the repository root
 If the user supplied \`report --commit <ref>\`, use that commit/ref instead of \`HEAD\`. For any other
 arguments, run \`track <arguments>\` from the repository root.
 
-When returning a report/status, paste the raw command output verbatim inside a fenced \`text\` code block.
-Do not summarize it, do not convert it to bullets, and do not drop the table layout.
+When returning a report/status, paste the raw, cited AI output verbatim inside a fenced \`text\` code block.
+If the adapter is unavailable, preserve the honest error. You may run \`track snapshot --format text\`, but
+label it **factual snapshot (not an AI report)** and never turn its rule-derived facts into AI advice.
 '''
 `
 

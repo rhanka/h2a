@@ -15,6 +15,7 @@ import { resolveTrackDirOrNull, type ResolveOptions } from '../cli/resolve.js'
 import { queryText, reportText, statusText } from '../read/commands.js'
 import { TrackReader } from '../read/contract.js'
 import type { QueryFilter, ReportOptions } from '../report/build.js'
+import { renderSnapshot } from '../report/snapshot.js'
 import { VERSION } from '../version.js'
 
 // Allowed enum values — the single source for BOTH the advertised schema and runtime validation.
@@ -31,7 +32,7 @@ export const READ_TOOLS = [
   {
     name: 'track_report',
     description:
-      'Machine-readable backlog report (buckets AWAITED/DROPPED/DONE/TO-DO + the %-by-WP rollup) as JSON by default; AWAITED is relative to baselineCommit. NEVER render this to a human as a status report — for a human-facing track report, run the CLI `track report` (the FAIT/À-FAIRE/DÉCISIONS-ACTIONS table) from the repo root and paste its output verbatim, or pass format:"text"|"md" here to get that exact rendered table instead of JSON.',
+      'Legacy deterministic backlog projection. JSON/text/Markdown outputs are compatibility reads and never invoke AI; use track_snapshot for the canonical factual contract and CLI `track report` for a cited human AI interpretation.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -41,8 +42,23 @@ export const READ_TOOLS = [
         format: {
           type: 'string',
           enum: REPORT_FORMATS,
-          description: 'Render format. Default "json" (machine — do NOT paste to a human). "text"/"md" render the human FAIT/À-FAIRE/DÉCISIONS table, identical to the CLI `track report`.',
+          description: 'Legacy deterministic render format. Default json; text/md remain frozen compatibility diagnostics.',
         },
+      },
+      required: ['baselineCommit'],
+    },
+  },
+  {
+    name: 'track_snapshot',
+    description:
+      'Canonical deterministic Track snapshot. Provider-free factual state only; never invokes AI and never represents a human interpretation.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        baselineCommit: { type: 'string', description: 'Resolved commit used for acceptance/staleness.' },
+        requireAccepted: { type: 'boolean', description: 'A done item counts as DONE only if acceptance=pass.' },
+        format: { type: 'string', enum: REPORT_FORMATS, description: 'Default json; text/md are diagnostics.' },
       },
       required: ['baselineCommit'],
     },
@@ -240,6 +256,21 @@ export function dispatchReadTool(
         wpTree: true,
       }
       return reportText(reader, options, format)
+    }
+    case 'track_snapshot': {
+      const allowed = new Set(['baselineCommit', 'requireAccepted', 'format'])
+      const unknown = Object.keys(args).filter((key) => !allowed.has(key))
+      if (unknown.length > 0) throw new Error(`track_snapshot unknown argument(s): ${unknown.sort().join(', ')}`)
+      const baselineCommit = reqStr(args, 'baselineCommit')
+      const format = optEnum(args, 'format', REPORT_FORMATS) ?? 'json'
+      return renderSnapshot(
+        reader.snapshot({
+          baselineInput: baselineCommit,
+          resolvedCommit: baselineCommit,
+          requireAccepted: optBool(args, 'requireAccepted') ?? false,
+        }),
+        format,
+      )
     }
     case 'track_query': {
       const filter: QueryFilter = {}
