@@ -19,11 +19,15 @@ WORKDIR /src
 # matching prebuild is available. Kept in the builder stage only.
 RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json tsconfig.base.json tsconfig.json ./
+COPY packages/focus/package.json packages/focus/
+COPY packages/focus-interactive/package.json packages/focus-interactive/
 COPY packages/h2a/package.json packages/h2a/
 COPY packages/h2a-cli/package.json packages/h2a-cli/
 COPY packages/h2a-runtime/package.json packages/h2a-runtime/
 COPY packages/track/package.json packages/track/
 RUN npm ci --no-audit --no-fund
+COPY packages/focus packages/focus
+COPY packages/focus-interactive packages/focus-interactive
 COPY packages/h2a packages/h2a
 COPY packages/h2a-cli packages/h2a-cli
 COPY packages/h2a-runtime packages/h2a-runtime
