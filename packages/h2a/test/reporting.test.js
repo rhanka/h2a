@@ -41,6 +41,14 @@ function fixture() {
   return { dir, workspace, outside, store };
 }
 
+function assertPrivateFile(path) {
+  assert.equal(existsSync(path), true);
+  assert.doesNotThrow(() => readFileSync(path, "utf8"));
+  if (process.platform !== "win32") {
+    assert.equal(lstatSync(path).mode & 0o777, 0o600);
+  }
+}
+
 function session(id, instance, workspacePath) {
   return {
     sessionId: id,
@@ -278,7 +286,7 @@ test("report-context excludes mixed-workspace loops and never launders external 
   }
 });
 
-test("Track adapter config installer honors XDG, 0600, no-op, preserve and force", () => {
+test("Track adapter config installer honors XDG, private-file semantics, no-op, preserve and force", () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), "h2a-report-config-")));
   const env = { XDG_CONFIG_HOME: join(dir, "xdg"), HOME: join(dir, "home") };
   try {
@@ -288,7 +296,7 @@ test("Track adapter config installer honors XDG, 0600, no-op, preserve and force
     assert.equal(installed.status, "installed");
     assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), TRACK_REPORT_AI_CONFIG);
     assert.equal(TRACK_REPORT_AI_CONFIG.timeoutMs, 600_000);
-    assert.equal(lstatSync(path).mode & 0o777, 0o600);
+    assertPrivateFile(path);
     const mtime = statSync(path).mtimeMs;
     const unchanged = installTrackReportAiConfig({ env });
     assert.equal(unchanged.status, "unchanged");
@@ -304,7 +312,7 @@ test("Track adapter config installer honors XDG, 0600, no-op, preserve and force
     const replaced = installTrackReportAiConfig({ env, force: true });
     assert.equal(replaced.status, "replaced");
     assert.equal(readFileSync(path, "utf8"), TRACK_REPORT_AI_CONFIG_TEXT);
-    assert.equal(lstatSync(path).mode & 0o777, 0o600);
+    assertPrivateFile(path);
 
     assert.equal(
       trackReportAiConfigPath({ env: { HOME: env.HOME } }),
@@ -312,7 +320,7 @@ test("Track adapter config installer honors XDG, 0600, no-op, preserve and force
     );
     const defaultInstall = installTrackReportAiConfig({ env: { HOME: env.HOME } });
     assert.equal(defaultInstall.path, join(env.HOME, ".config", "track", "report-ai.json"));
-    assert.equal(lstatSync(defaultInstall.path).mode & 0o777, 0o600);
+    assertPrivateFile(defaultInstall.path);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

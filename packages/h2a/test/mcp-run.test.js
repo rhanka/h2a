@@ -26,6 +26,16 @@ function withWorkspace(fn) {
   }
 }
 
+function withUnsafeTemporaryWorkspace(fn) {
+  const workspaceRoot = realpathSync(tmpdir());
+  const workspace = realpathSync(mkdtempSync(join(workspaceRoot, "h2a-run-unsafe-")));
+  try {
+    return fn({ workspaceRoot, workspace });
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+}
+
 async function withWorkspaceAsync(fn) {
   const workspaceRoot = realpathSync(process.cwd());
   const workspace = mkdtempSync(join(workspaceRoot, ".h2a-run-test-"));
@@ -181,10 +191,12 @@ test("h2a_run rejects unknown fields, unsafe workspaces and invalid combinations
       () => validateH2aRunRequest(request("relative/path"), workspaceRoot),
       /must be absolute/i
     );
-    assert.throws(
-      () => validateH2aRunRequest(request("/tmp"), workspaceRoot),
-      /within the MCP startup workspace|may not be under the OS temporary directory/i
-    );
+    withUnsafeTemporaryWorkspace(({ workspaceRoot: unsafeRoot, workspace: unsafeWorkspace }) => {
+      assert.throws(
+        () => validateH2aRunRequest(request(unsafeWorkspace), unsafeRoot),
+        /may not be under the OS temporary directory/i
+      );
+    });
     assert.throws(
       () =>
         validateH2aRunRequest(
