@@ -12,11 +12,19 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 
 import { getTmuxProfileConfig } from "./config.js";
-import { readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 
 import {
   LAUNCH_OPTION_PREFIX,
@@ -88,15 +96,32 @@ printf '[h2a] relaunch: %s   (or Ctrl-D to end this session)\\n' "$relaunch"
 if [ -t 0 ]; then exec /bin/bash -l; else exit "$code"; fi`;
 
 /**
+ * Interactive structured-launch wrapper. Unlike LOCAL_WRAPPER it NEVER falls
+ * back to a login shell: if the agent executable is absent or exits before it
+ * consumes the injected prompt, the tmux pane terminates and the prompt cannot
+ * become shell input.
+ */
+export const STRUCTURED_LOCAL_WRAPPER = `cli="$0"
+exec "$cli" "$@"`;
+
+/**
  * Run-once-exit wrapper for HEADLESS delegated jobs — the OPPOSITE of
  * LOCAL_WRAPPER's drop-to-shell. Redirects the CLI's stdout+stderr to an output
  * log, writes a result.json with the final state + exit code, then lets the
  * tmux session END (no `exec bash`). Invoked as
- * `bash -lc HEADLESS_WRAPPER <resultJson> <outputLog> <cli> <args…>`:
- * `$0`=result.json path, `$1`=output.log path, `$2`=cli, `$3…`=cli args.
+ * `bash -lc HEADLESS_WRAPPER <resultJson> <outputLog> <promptFile> <cli> <args…>`:
+ * `$0`=result.json path, `$1`=output.log path, `$2`=transient prompt path,
+ * `$3`=cli, `$4…`=cli args. The prompt file is opened and unlinked before
+ * the CLI starts, so prompt content never appears in process argv.
  */
-export const HEADLESS_WRAPPER = `result="$0"; log="$1"; cli="$2"; shift 2
-"$cli" "$@" >"$log" 2>&1; code=$?
+export const HEADLESS_WRAPPER = `result="$0"; log="$1"; prompt="$2"; cli="$3"; shift 3
+if [ -n "$prompt" ]; then
+  exec 3<"$prompt"
+  rm -f -- "$prompt"
+  "$cli" "$@" <&3 >"$log" 2>&1; code=$?
+else
+  "$cli" "$@" >"$log" 2>&1; code=$?
+fi
 if [ "$code" -eq 0 ]; then state=done; else state=failed; fi
 printf '{"state":"%s","exitCode":%s}\\n' "$state" "$code" >"$result"`;
 
@@ -145,6 +170,11 @@ eval "$cmd"; code=$?
 printf '\\n[h2a] %s exited (code %s) — shell on %s. Re-run it or Ctrl-D to end this window.\\n' "$cmd" "$code" "$PWD"
 if [ -t 0 ]; then exec /bin/bash -l; else exit "$code"; fi`;
 
+/** Structured sidecar wrapper: publish the agent pane, then replace the shell. */
+export const STRUCTURED_WINDOW_WRAPPER = `agent_pane="$1"; cmd="$2"
+if [ -n "$agent_pane" ]; then export TMUX_PANE="$agent_pane"; fi
+eval "exec $cmd"`;
+
 /**
  * Window name for the h2a MCP server side window — the a2a launcher contract:
  * agents live in NAMED tmux windows, with `h2a mcp-serve` running next to them
@@ -154,6 +184,9 @@ export const H2A_WINDOW_NAME = "h2a";
 const AGENT_PANE_OPTION = "@remote_agent_pane";
 const AGENT_HOST_OPTION = "@remote_agent_host";
 const AGENT_CWD_OPTION = "@remote_agent_cwd";
+const H2A_MCP_READY_FILE_ENV = "H2A_MCP_READY_FILE";
+const H2A_MCP_READY_NONCE_ENV = "H2A_MCP_READY_NONCE";
+const H2A_MCP_READY_KIND = "h2a.mcp.ready";
 
 export type LocalSession = {
   /** full tmux session name, e.g. `remote-surch` */
@@ -261,6 +294,19 @@ export function findLocalSession(target: string): LocalSession | undefined {
   return sessions.find((s) => s.name === target || s.slug === target);
 }
 
+/** Resolve all requested labels that already name a managed tmux session. */
+export function existingLocalSessionSlugs(
+  labels: ReadonlyArray<string | undefined>,
+  cwd: string,
+): string[] {
+  return labels
+    .map((label) => {
+      const slug = slugify(label ?? cwd);
+      return findLocalSession(slug) ? slug : undefined;
+    })
+    .filter((slug): slug is string => slug !== undefined);
+}
+
 /**
  * Store a custom display name on a local tmux session WITHOUT calling
  * `rename-window`. This avoids tmux's per-window `allow-rename off` side-effect
@@ -305,7 +351,25 @@ export function getLocalSessionDisplayName(
   return v || undefined;
 }
 
-export type StartLocalResult = { name: string; slug: string };
+export type StartLocalResult = {
+  name: string;
+  slug: string;
+  /** Exact agent pane captured from tmux `-P -F`, e.g. `%7`. */
+  agentPane?: string;
+  /** Transient headless prompt path; never surfaced in public JSON. */
+  promptFile?: string;
+};
+
+export type ManagedLaunchMetadata = {
+  /** Conversation id only; never pass arbitrary CLI argv as resume metadata. */
+  resumeId?: string;
+  /** Sidecar command selected for this launch, if any. */
+  h2aCommand?: string;
+  /** End the pane with the agent; never expose a fallback shell to prompt input. */
+  terminateOnAgentExit?: boolean;
+  /** Refuse an existing name instead of reusing it (structured launch contract). */
+  refuseExisting?: boolean;
+};
 
 /**
  * First clipboard CLI found on PATH, or undefined. With `mouse on`, a mouse
@@ -539,14 +603,23 @@ export function startLocalSession(
   args: ReadonlyArray<string> = [],
   label?: string,
   tmuxProfile = getTmuxProfileConfig().profile,
+  metadata: ManagedLaunchMetadata = {},
 ): StartLocalResult {
   const slug = slugify(label ?? cwd);
   const name = localSessionName(slug);
+  const {
+    terminateOnAgentExit = false,
+    refuseExisting = false,
+    ...launchMetadata
+  } = metadata;
   ensureScrollConfig(tmuxProfile);
   if (findLocalSession(name)) {
-    persistAgentPaneMetadata(name, profile, cwd);
-    persistLaunchContext(name, buildLaunchContext({ profile, cwd, label, resumeArgs: args }));
-    return { name, slug };
+    if (refuseExisting) {
+      throw new Error(`local session ${slug} already exists; no agent was started`);
+    }
+    const agentPane = persistAgentPaneMetadata(name, profile, cwd);
+    persistLaunchContext(name, buildLaunchContext({ profile, cwd, label, ...launchMetadata }));
+    return { name, slug, ...(agentPane ? { agentPane } : {}) };
   }
 
   const r = spawnSync(
@@ -554,6 +627,9 @@ export function startLocalSession(
     [
       "new-session",
       "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
       ...tmuxEnvironmentArgs(),
       "-s",
       name,
@@ -567,23 +643,53 @@ export function startLocalSession(
       ...anthopicEnvUnsetCommandPrefix(),
       "/bin/bash",
       "-lc",
-      LOCAL_WRAPPER,
-      localRelaunchCommand(profile, cwd, label, args),
-      command,
+      terminateOnAgentExit ? STRUCTURED_LOCAL_WRAPPER : LOCAL_WRAPPER,
+      ...(terminateOnAgentExit
+        ? [command]
+        : [
+            localRelaunchCommand(
+              profile,
+              cwd,
+              label,
+              metadata.resumeId ? ["--resume", metadata.resumeId] : [],
+            ),
+            command,
+          ]),
       ...args,
     ],
-    { stdio: "inherit" },
+    {
+      encoding: "utf8",
+      stdio: ["inherit", "pipe", "inherit"],
+    },
   );
   if (r.status !== 0) {
     throw new Error(`tmux new-session failed (exit ${r.status ?? "?"})`);
+  }
+  const printedPane = r.stdout?.trim();
+  const capturedPane = validTmuxPaneId(printedPane) ? printedPane : undefined;
+  const agentPane = persistAgentPaneMetadata(name, profile, cwd, capturedPane);
+  if ((terminateOnAgentExit || refuseExisting) && !agentPane) {
+    killLocalSession(name);
+    throw new Error(`tmux did not return a live agent pane for ${slug}`);
   }
   // Record the profile as a session option so `remote ls` can show it.
   spawnSync(TMUX, ["set-option", "-t", name, "@profile", profile], {
     stdio: "ignore",
   });
-  persistAgentPaneMetadata(name, profile, cwd);
-  persistLaunchContext(name, buildLaunchContext({ profile, cwd, label, resumeArgs: args }));
-  return { name, slug };
+  persistLaunchContext(name, buildLaunchContext({ profile, cwd, label, ...launchMetadata }));
+  return { name, slug, ...(agentPane ? { agentPane } : {}) };
+}
+
+/** PID for one exact tmux pane. Session/window targets are deliberately refused. */
+export function localSessionPanePid(agentPane: string): number | undefined {
+  if (!validTmuxPaneId(agentPane)) return undefined;
+  const r = spawnSync(TMUX, ["display", "-p", "-t", agentPane, "#{pane_pid}"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (r.status !== 0 || !r.stdout) return undefined;
+  const pid = Number.parseInt(r.stdout.trim(), 10);
+  return Number.isInteger(pid) && pid > 0 ? pid : undefined;
 }
 
 /**
@@ -591,7 +697,8 @@ export function startLocalSession(
  * run-once-exit wrapper: the CLI runs, its output is captured to `outputLog`,
  * a `resultJson` is written, then the session ENDS. The task lands as a single
  * argv token inside `args` (no shell concat). Idempotent on slug like
- * startLocalSession. Returns the session name + slug.
+ * startLocalSession unless `refuseExisting` is set for structured launches.
+ * Returns the session name + slug.
  */
 export function startHeadlessSession(
   profile: string,
@@ -602,17 +709,36 @@ export function startHeadlessSession(
   outputLog: string,
   label: string,
   tmuxProfile = getTmuxProfileConfig().profile,
+  promptInput?: string,
+  refuseExisting = false,
 ): StartLocalResult {
   const slug = slugify(label);
   const name = localSessionName(slug);
   ensureScrollConfig(tmuxProfile);
-  if (findLocalSession(name)) return { name, slug };
+  if (findLocalSession(name)) {
+    if (refuseExisting) {
+      throw new Error(`local session ${slug} already exists; no agent was started`);
+    }
+    return { name, slug };
+  }
+
+  const promptFile = promptInput === undefined ? "" : `${resultJson}.prompt`;
+  if (promptInput !== undefined) {
+    writeFileSync(promptFile, promptInput, {
+      encoding: "utf8",
+      mode: 0o600,
+      flag: "wx",
+    });
+  }
 
   const r = spawnSync(
     TMUX,
     [
       "new-session",
       "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
       ...tmuxEnvironmentArgs(),
       "-s",
       name,
@@ -620,23 +746,52 @@ export function startHeadlessSession(
       profile,
       "-c",
       cwd,
+      ...anthopicEnvUnsetCommandPrefix(),
       "/bin/bash",
       "-lc",
       HEADLESS_WRAPPER,
       resultJson,
       outputLog,
+      promptFile,
       command,
       ...args,
     ],
-    { stdio: "ignore" },
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "inherit"],
+    },
   );
   if (r.status !== 0) {
+    cleanupHeadlessPromptFile(promptFile);
     throw new Error(`tmux new-session failed (exit ${r.status ?? "?"})`);
+  }
+  const printedPane = r.stdout?.trim();
+  const capturedPane = validTmuxPaneId(printedPane) ? printedPane : undefined;
+  const agentPane = persistAgentPaneMetadata(name, profile, cwd, capturedPane);
+  if (refuseExisting && !agentPane) {
+    cleanupHeadlessPromptFile(promptFile);
+    killLocalSession(name);
+    throw new Error(`tmux did not return a live agent pane for ${slug}`);
   }
   spawnSync(TMUX, ["set-option", "-t", name, "@profile", profile], {
     stdio: "ignore",
   });
-  return { name, slug };
+  return {
+    name,
+    slug,
+    ...(agentPane ? { agentPane } : {}),
+    ...(promptFile ? { promptFile } : {}),
+  };
+}
+
+/** Best-effort cleanup for a headless prompt that the wrapper did not consume. */
+export function cleanupHeadlessPromptFile(promptFile?: string): void {
+  if (!promptFile) return;
+  try {
+    unlinkSync(promptFile);
+  } catch {
+    // The wrapper normally unlinks it itself; absence is already success.
+  }
 }
 
 /**
@@ -694,6 +849,43 @@ export function buildSessionWindowArgs(
     WINDOW_WRAPPER,
     "remote-window",
     agentPane ?? "",
+    commandLine,
+  ];
+}
+
+/**
+ * Structured sidecar window: capture the exact pane and terminate it with the
+ * command. There is deliberately no fallback shell that could hide a dead MCP.
+ */
+export function buildStructuredSessionWindowArgs(
+  session: string,
+  windowName: string,
+  cwd: string,
+  commandLine: string,
+  agentPane: string,
+  readiness: { readonly file: string; readonly nonce: string },
+): string[] {
+  return [
+    "new-window",
+    "-d",
+    "-P",
+    "-F",
+    "#{pane_id}",
+    "-e",
+    `${H2A_MCP_READY_FILE_ENV}=${readiness.file}`,
+    "-e",
+    `${H2A_MCP_READY_NONCE_ENV}=${readiness.nonce}`,
+    "-t",
+    session,
+    "-n",
+    windowName,
+    "-c",
+    cwd,
+    "/bin/bash",
+    "-lc",
+    STRUCTURED_WINDOW_WRAPPER,
+    "structured-window",
+    agentPane,
     commandLine,
   ];
 }
@@ -835,9 +1027,13 @@ function persistAgentPaneMetadata(
   session: string,
   profile: string,
   cwd: string,
+  capturedPane?: string,
 ): string | undefined {
-  const pane = resolveAgentPane(session);
+  const pane = validTmuxPaneId(capturedPane)
+    ? capturedPane
+    : resolveAgentPane(session);
   if (!pane) return undefined;
+  setSessionOption(session, AGENT_PANE_OPTION, pane);
   setSessionOption(session, AGENT_HOST_OPTION, profile);
   setSessionOption(session, AGENT_CWD_OPTION, cwd);
   return pane;
@@ -910,6 +1106,197 @@ export function startH2aWindow(
   // Record the requested h2a side-window command in the session's launch context (redacted).
   setSessionOption(session, `${LAUNCH_OPTION_PREFIX}h2a`, redactSecrets(commandLine));
   return true;
+}
+
+export type StructuredSidecarVerificationOptions = {
+  /** Maximum correlated-readiness probes before timeout. */
+  attempts?: number;
+  /** Settle time before each observation. */
+  intervalMs?: number;
+  /** Test seam; production defaults to a real timer. */
+  delay?: (ms: number) => Promise<void>;
+};
+
+export type StructuredH2aWindow = {
+  pane: string;
+  pid: number;
+};
+
+type StructuredReadinessChallenge = {
+  directory: string;
+  file: string;
+  nonce: string;
+};
+
+function createStructuredReadinessChallenge(): StructuredReadinessChallenge {
+  const directory = mkdtempSync(join(tmpdir(), "h2a-mcp-ready-"));
+  return {
+    directory,
+    file: join(directory, "ready.json"),
+    nonce: randomUUID(),
+  };
+}
+
+function cleanupStructuredReadinessChallenge(
+  challenge: StructuredReadinessChallenge,
+): void {
+  try {
+    rmSync(challenge.directory, { recursive: true, force: true });
+  } catch {
+    // Best effort; never mask the launch result.
+  }
+}
+
+type ReadinessProbe =
+  | { state: "missing" }
+  | { state: "invalid" }
+  | { state: "ready"; pid: number };
+
+function probeStructuredReadiness(
+  challenge: StructuredReadinessChallenge,
+  expectedPanePid: number,
+): ReadinessProbe {
+  let raw: string;
+  try {
+    const stat = statSync(challenge.file);
+    if (!stat.isFile() || (stat.mode & 0o777) !== 0o600) {
+      return { state: "invalid" };
+    }
+    raw = readFileSync(challenge.file, "utf8");
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT"
+      ? { state: "missing" }
+      : { state: "invalid" };
+  }
+  try {
+    const ack = JSON.parse(raw) as Record<string, unknown>;
+    if (
+      ack.kind !== H2A_MCP_READY_KIND ||
+      ack.version !== 1 ||
+      ack.nonce !== challenge.nonce ||
+      !Number.isInteger(ack.pid) ||
+      ack.pid !== expectedPanePid ||
+      typeof ack.sessionId !== "string" ||
+      ack.sessionId.length === 0
+    ) {
+      return { state: "invalid" };
+    }
+    return { state: "ready", pid: ack.pid as number };
+  } catch {
+    return { state: "invalid" };
+  }
+}
+
+function stopStructuredSidecar(pane: string): void {
+  spawnSync(TMUX, ["kill-pane", "-t", pane], { stdio: "ignore" });
+}
+
+/**
+ * Fail-closed structured sidecar launch. Success means the exact agent pane is
+ * still live and the captured sidecar pane produced a nonce- and PID-correlated
+ * ACK after auto-open. A successful `new-window` or matching argv is never enough.
+ */
+export async function startH2aWindowVerified(
+  session: string,
+  cwd: string,
+  commandLine: string,
+  agentPane: string,
+  stderr: { write(chunk: string): unknown } = process.stderr,
+  options: StructuredSidecarVerificationOptions = {},
+): Promise<StructuredH2aWindow | undefined> {
+  const bin = commandLine.trim().split(/\s+/)[0] ?? "";
+  if (!bin || !commandAvailable(bin)) {
+    stderr.write(
+      `[h2a] required h2a sidecar unavailable: \`${bin || commandLine}\` not found in PATH.\n`,
+    );
+    return undefined;
+  }
+  if (!validTmuxPaneId(agentPane) || localSessionPanePid(agentPane) === undefined) {
+    stderr.write(
+      `[h2a] required h2a sidecar refused: agent pane ${agentPane || "<missing>"} is not live.\n`,
+    );
+    return undefined;
+  }
+  if (sessionWindowNames(session).includes(H2A_WINDOW_NAME)) {
+    stderr.write(
+      `[h2a] required h2a sidecar refused: ${H2A_WINDOW_NAME} window already exists in ${session}.\n`,
+    );
+    return undefined;
+  }
+  const challenge = createStructuredReadinessChallenge();
+  let sidecarPane: string | undefined;
+  try {
+    const r = spawnSync(
+      TMUX,
+      buildStructuredSessionWindowArgs(
+        session,
+        H2A_WINDOW_NAME,
+        cwd,
+        commandLine,
+        agentPane,
+        challenge,
+      ),
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+    sidecarPane = r.stdout?.trim();
+    if (r.status !== 0 || !validTmuxPaneId(sidecarPane)) {
+      stderr.write(
+        `[h2a] required h2a sidecar failed to capture a pane in ${session}.\n`,
+      );
+      return undefined;
+    }
+
+    const attempts = Math.max(2, options.attempts ?? 200);
+    const intervalMs = Math.max(1, options.intervalMs ?? 100);
+    const delay =
+      options.delay ??
+      ((ms: number) =>
+        new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    let stablePid: number | undefined;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      await delay(intervalMs);
+      const agentPid = localSessionPanePid(agentPane);
+      const sidecarPid = localSessionPanePid(sidecarPane);
+      if (
+        agentPid === undefined ||
+        sidecarPid === undefined ||
+        (stablePid !== undefined && sidecarPid !== stablePid)
+      ) {
+        stopStructuredSidecar(sidecarPane);
+        stderr.write(
+          `[h2a] required h2a sidecar failed pane/PID guard in ${session}.\n`,
+        );
+        return undefined;
+      }
+      stablePid = sidecarPid;
+      const readiness = probeStructuredReadiness(challenge, sidecarPid);
+      if (readiness.state === "invalid") {
+        stopStructuredSidecar(sidecarPane);
+        stderr.write(
+          `[h2a] required h2a sidecar returned an invalid readiness ACK in ${session}.\n`,
+        );
+        return undefined;
+      }
+      if (readiness.state === "ready") {
+        setSessionOption(
+          session,
+          `${LAUNCH_OPTION_PREFIX}h2a`,
+          redactSecrets(commandLine),
+        );
+        return { pane: sidecarPane, pid: readiness.pid };
+      }
+    }
+    stopStructuredSidecar(sidecarPane);
+    stderr.write(
+      `[h2a] required h2a sidecar timed out waiting for correlated readiness ACK in ${session}.\n`,
+    );
+    return undefined;
+  } finally {
+    cleanupStructuredReadinessChallenge(challenge);
+  }
 }
 
 /**
@@ -1100,19 +1487,29 @@ export function sessionAttached(name: string): boolean {
 }
 
 /**
- * Send a LITERAL line into a session's main pane, then submit it with a real
- * Enter key event. The keys ride `send-keys -l <keys>` as a SINGLE literal
- * argument — tmux does NOT interpret it (no key-name lookup, no shell), so an
- * arbitrary nudge string is safe. Enter is sent as a separate, NON-literal
- * key-name so it is a real carriage return rather than the word "Enter". Used by
- * the interactive throttle auto-resume to un-stick a rate-limited pane. Returns
- * whether tmux accepted both sends.
+ * Paste a LITERAL line into a session's main pane, then submit it with a real
+ * Enter key event. Content reaches `tmux load-buffer -` on stdin, then a named
+ * buffer is pasted: arbitrary text is never interpreted by a shell and never
+ * appears in a process argv. Enter is a separate key-name event. Used both for
+ * initial prompts and interactive throttle nudges.
  */
 export function sendKeysLiteral(name: string, keys: string): boolean {
-  const typed = spawnSync(TMUX, ["send-keys", "-t", name, "-l", keys], {
-    stdio: "ignore",
+  const buffer = `h2a-${process.pid}-${randomUUID()}`;
+  const loaded = spawnSync(TMUX, ["load-buffer", "-b", buffer, "-"], {
+    input: keys,
+    encoding: "utf8",
+    stdio: ["pipe", "ignore", "ignore"],
   });
-  if (typed.status !== 0) return false;
+  if (loaded.status !== 0) return false;
+  const pasted = spawnSync(
+    TMUX,
+    ["paste-buffer", "-b", buffer, "-d", "-t", name],
+    { stdio: "ignore" },
+  );
+  if (pasted.status !== 0) {
+    spawnSync(TMUX, ["delete-buffer", "-b", buffer], { stdio: "ignore" });
+    return false;
+  }
   const enter = spawnSync(TMUX, ["send-keys", "-t", name, "Enter"], {
     stdio: "ignore",
   });

@@ -55,10 +55,19 @@ import {
 } from "./tools.js";
 
 import { H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS } from "@sentropic/h2a";
+import {
+  executeH2aRun,
+  handleH2aRun,
+  type H2aRunExecutor
+} from "./agent-launch.js";
 
 export interface CreateMcpServerOptions {
   /** Filesystem root for the backing local-files store. */
   root: string;
+  /** Workspace boundary captured when the local MCP server starts. */
+  workspaceRoot?: string;
+  /** Test seam for the canonical h2a run subprocess bridge. */
+  runExecutor?: H2aRunExecutor;
   /**
    * Optional pre-built store. If omitted, the server creates one with
    * `createLocalStore({ root })`. Useful for tests that want to share state
@@ -189,6 +198,12 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         return handleLoopList(store.paths.root);
       case "h2a_loop_status":
         return handleLoopStatus(store.paths.root, args as never);
+      case "h2a_run":
+        return handleH2aRun(
+          args,
+          options.workspaceRoot ?? process.cwd(),
+          options.runExecutor ?? executeH2aRun
+        );
       default:
         return { error: `unknown tool: ${name}` };
     }

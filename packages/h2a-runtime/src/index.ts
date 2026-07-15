@@ -11,7 +11,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { Command } from "commander";
@@ -67,12 +67,14 @@ import {
   conductorRunning,
   currentTmuxSessionIs,
   ensureManagedTmuxProfile,
+  existingLocalSessionSlugs,
   fanoutLabels,
   findLocalSession,
   killLocalSession,
   localSessionGatewayEnvStatus,
   listLocalSessions,
   localSessionIdle,
+  localSessionPanePid,
   localSessionName,
   readLaunchContext,
   relaunchInSession,
@@ -83,12 +85,20 @@ import {
   sessionAttachedCount,
   setLocalSessionDisplayName,
   slugify,
+  cleanupHeadlessPromptFile,
   startH2aWindow,
+  startH2aWindowVerified,
   startHeadlessSession,
   startLocalSession,
   tmuxAvailable,
   type LocalSession,
 } from "./tmux.js";
+import {
+  buildAgentLaunchArgs,
+  isAgentLaunchEffort,
+  isAgentLaunchProfile,
+  type AgentLaunchEffort,
+} from "./agent-launch-args.js";
 import { planRelaunch } from "./relaunch.js";
 import {
   readLastLayout,
@@ -312,6 +322,13 @@ import {
   type AccountProvider,
 } from "./account-pool.js";
 
+const H2A_RUN_API_VERSION = "h2a.run/v1";
+const H2A_RUNTIME_VERSION = (
+  JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { version: string }
+).version;
+
 import { CLI_PROFILES, type CliProfile } from "./protocol-local.js";
 import {
   enrollCodexAccount,
@@ -334,6 +351,21 @@ export const H2A_RUNTIME_CLI_API_VERSION = 1;
 
 export { run } from "./run.js";
 export type { RunOptions, RunResult } from "./run.js";
+export {
+  AGENT_LAUNCH_EFFORTS,
+  AGENT_LAUNCH_PROFILES,
+  AGENT_LAUNCH_PROMPT_MAX_BYTES,
+  assertAgentLaunchModel,
+  assertAgentLaunchPrompt,
+  buildAgentLaunchArgs,
+  isAgentLaunchEffort,
+  isAgentLaunchProfile,
+} from "./agent-launch-args.js";
+export type {
+  AgentLaunchArgsOptions,
+  AgentLaunchEffort,
+  AgentLaunchProfile,
+} from "./agent-launch-args.js";
 export {
   attach,
   createRemoteSession,
@@ -1757,6 +1789,7 @@ function shouldUseClaudeBare(profile: string): boolean {
 
 async function injectLlmMeshGatewayEnv(
   mode: "auto" | "gateway" | "direct" = "auto",
+  allowDirectFallback = true,
 ): Promise<string | undefined> {
   if (mode === "direct") {
     delete process.env.ANTHROPIC_BASE_URL;
@@ -1785,14 +1818,16 @@ async function injectLlmMeshGatewayEnv(
           `[h2a] llm-mesh: gateway was stopped; started on ${meshEnv.ANTHROPIC_BASE_URL}\n`,
         );
       } catch (err) {
-        process.stderr.write(
-          `[h2a] llm-mesh: gateway env unavailable (${String(err)}); Claude may ask for login.\n`,
-        );
+        if (allowDirectFallback) {
+          process.stderr.write(
+            `[h2a] llm-mesh: gateway env unavailable (${String(err)}); Claude may ask for login.\n`,
+          );
+        }
       }
     }
   }
   if (!meshEnv) {
-    if (mode === "gateway") {
+    if (mode === "gateway" && allowDirectFallback) {
       process.stderr.write(
         "[h2a] llm-mesh: --gw requested but no gateway env is available; continuing direct. Run `h2a llm-mesh start` or enroll an account first.\n",
       );
@@ -1810,6 +1845,22 @@ async function injectLlmMeshGatewayEnv(
     );
   }
   return meshEnv.ANTHROPIC_BASE_URL;
+}
+
+export async function prepareStructuredGateway(
+  mode: "auto" | "gateway" | "direct",
+  inject: (
+    mode: "auto" | "gateway" | "direct",
+  ) => Promise<string | undefined> = (selectedMode) =>
+    injectLlmMeshGatewayEnv(selectedMode, selectedMode !== "gateway"),
+): Promise<string | undefined> {
+  const gateway = await inject(mode);
+  if (mode === "gateway" && !gateway) {
+    throw new Error(
+      "llm-mesh gateway is required but unavailable; no agent was started",
+    );
+  }
+  return gateway;
 }
 
 async function prepareLlmMeshForRestore(
@@ -4809,6 +4860,25 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "--h2a",
       'also start the h2a MCP server in a side tmux window "h2a" (launcher contract: agent reachable/wakeable via ~/h2a-workspace/.h2a); config key `h2a: {enabled, command}` makes it the default',
     )
+    .option("--no-h2a", "do not start the h2a MCP side window, overriding config")
+    .option(
+      "--prompt-stdin",
+      "read the initial Claude/Codex prompt from stdin (keeps it out of process argv)",
+    )
+    .option("--model <model>", "Claude/Codex model override")
+    .option(
+      "--effort <level>",
+      "reasoning effort: low|medium|high|xhigh (Claude and Codex)",
+    )
+    .option(
+      "--headless",
+      "run once and exit (Claude -p / Codex exec), recording output under .h2a/runs/<name>",
+    )
+    .option(
+      "--background",
+      "classify this detached session as a background worker excluded from human restore",
+    )
+    .option("--json", "emit one machine-readable h2a.run.result object")
     .option(
       "--llm-gateway",
       "launch the CLI through the local llm-mesh gateway",
@@ -4827,12 +4897,65 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           name?: string;
           count?: string;
           h2a?: boolean;
+          promptStdin?: boolean;
+          model?: string;
+          effort?: string;
+          headless?: boolean;
+          background?: boolean;
+          json?: boolean;
           llmGateway?: boolean;
           gw?: boolean;
           noLlmGateway?: boolean;
           noGw?: boolean;
         },
       ) => {
+        const structuredLaunch =
+          opts.promptStdin === true ||
+          opts.model !== undefined ||
+          opts.effort !== undefined ||
+          opts.headless === true ||
+          opts.background === true ||
+          opts.json === true;
+        if (structuredLaunch && !isAgentLaunchProfile(profile)) {
+          process.stderr.write(
+            `[h2a] structured run supports only claude|codex (got "${profile}")\n`,
+          );
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.effort !== undefined && !isAgentLaunchEffort(opts.effort)) {
+          process.stderr.write(
+            `[h2a] --effort must be low|medium|high|xhigh\n`,
+          );
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.json && !opts.background) {
+          process.stderr.write(
+            "[h2a] --json launch requires --background (MCP launches are detached)\n",
+          );
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.background && opts.attach !== false) {
+          process.stderr.write(
+            "[h2a] --background requires --no-attach\n",
+          );
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.headless && opts.h2a === true) {
+          process.stderr.write(
+            "[h2a] --headless cannot combine with --h2a (the sidecar would keep a run-once session alive)\n",
+          );
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.promptStdin && process.stdin.isTTY) {
+          process.stderr.write("[h2a] --prompt-stdin requires piped stdin\n");
+          process.exitCode = 2;
+          return;
+        }
         if (!tmuxAvailable()) {
           process.stderr.write(
             "[h2a] tmux is not installed locally — `h2a run` needs it (e.g. `sudo apt install tmux`).\n",
@@ -4860,6 +4983,42 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
         }
+        if (structuredLaunch && count !== 1) {
+          process.stderr.write(
+            "[h2a] structured prompt/model launch supports exactly one session\n",
+          );
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.json && !opts.promptStdin) {
+          process.stderr.write("[h2a] --json launch requires --prompt-stdin\n");
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.json && (!path || !isAbsolute(path))) {
+          process.stderr.write(
+            "[h2a] --json launch requires an explicit absolute workspace path\n",
+          );
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.json && !opts.name) {
+          process.stderr.write("[h2a] --json launch requires --name\n");
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.name) {
+          try {
+            assertSafeName(opts.name);
+            if (opts.name.length > 64) {
+              throw new Error("job/session name must be at most 64 characters");
+            }
+          } catch (error) {
+            process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+            process.exitCode = 2;
+            return;
+          }
+        }
         const cwd = path ? resolve(path) : process.cwd();
         // count==1 keeps the exact prior behaviour (label = opts.name, which may
         // be undefined -> slug derives from cwd). count>1 fans out distinct
@@ -4868,12 +5027,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           count > 1
             ? fanoutLabels(opts.name ?? basename(cwd), count)
             : [opts.name];
-        const existingLocalSessions = labels
-          .map((label) => {
-            const slug = slugify(label ?? cwd);
-            return findLocalSession(slug) ? slug : undefined;
-          })
-          .filter((slug): slug is string => slug !== undefined);
+        const existingLocalSessions = existingLocalSessionSlugs(labels, cwd);
         if (existingLocalSessions.length > 0) {
           for (const slug of existingLocalSessions) {
             process.stderr.write(
@@ -4886,6 +5040,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           process.exitCode = 1;
           return;
+        }
+        if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
+          process.stderr.write(`[h2a] workspace is not an existing directory: ${cwd}\n`);
+          process.exitCode = 2;
+          return;
+        }
+        let initialPrompt: string | undefined;
+        if (opts.promptStdin) {
+          initialPrompt = readFileSync(0, "utf8");
         }
         // Single-writer guard: refuse to resume a conversation another live
         // session (local registry / remote pod) is already writing.
@@ -4914,12 +5077,60 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
-        await injectLlmMeshGatewayEnv(gatewayMode);
+        if (
+          structuredLaunch &&
+          profile === "codex" &&
+          gatewayMode === "gateway"
+        ) {
+          process.stderr.write(
+            "[h2a] --gw is unsupported for structured codex launches (llm-mesh is Anthropic-compatible)\n",
+          );
+          process.exitCode = 2;
+          return;
+        }
+        const launchGatewayMode =
+          structuredLaunch && profile === "codex" ? "direct" : gatewayMode;
+        let activeGateway: string | undefined;
+        try {
+          if (structuredLaunch) {
+            activeGateway = await prepareStructuredGateway(launchGatewayMode);
+          } else {
+            activeGateway = await injectLlmMeshGatewayEnv(gatewayMode);
+          }
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+          process.exitCode = 1;
+          return;
+        }
         const useBare = shouldUseClaudeBare(profile);
         const command = localCliCommand(profile);
-        const args = opts.resume
-          ? localResumeArgs(profile, opts.resume, { bare: useBare })
-          : localStartArgs(profile, { bare: useBare });
+        let args: string[];
+        try {
+          args =
+            structuredLaunch && isAgentLaunchProfile(profile)
+              ? buildAgentLaunchArgs({
+                  profile,
+                  ...(initialPrompt !== undefined
+                    ? { prompt: initialPrompt }
+                    : {}),
+                  ...(opts.model !== undefined ? { model: opts.model } : {}),
+                  ...(opts.effort !== undefined
+                    ? { effort: opts.effort as AgentLaunchEffort }
+                    : {}),
+                  ...(opts.resume !== undefined
+                    ? { resumeId: opts.resume }
+                    : {}),
+                  ...(opts.headless ? { headless: true } : {}),
+                  ...(useBare ? { bare: true } : {}),
+                })
+              : opts.resume
+                ? localResumeArgs(profile, opts.resume, { bare: useBare })
+                : localStartArgs(profile, { bare: useBare });
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+          process.exitCode = 2;
+          return;
+        }
         if (opts.resume && args.length === 0) {
           process.stderr.write(
             `[h2a] profile "${profile}" has no verified local resume argv; start it without -r/--resume\n`,
@@ -4928,15 +5139,142 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           return;
         }
         const h2a = getH2aConfig();
-        const started: Array<{ name: string; slug: string }> = [];
-        for (const label of labels) {
-          const { name, slug } = startLocalSession(
-            profile,
-            command,
-            cwd,
-            args,
-            label,
+        const h2aSidecar = opts.h2a ?? h2a.enabled;
+        if (opts.headless && h2aSidecar) {
+          process.stderr.write(
+            "[h2a] --headless requires --no-h2a (a sidecar would keep the run-once session alive)\n",
           );
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.headless && !opts.name) {
+          process.stderr.write("[h2a] --headless requires --name\n");
+          process.exitCode = 2;
+          return;
+        }
+        const started: Array<{
+          name: string;
+          slug: string;
+          pane?: string;
+          pid?: number;
+          h2aSidecar: boolean;
+          outputLog?: string;
+          resultJson?: string;
+        }> = [];
+        for (const label of labels) {
+          let name: string;
+          let slug: string;
+          let outputLog: string | undefined;
+          let resultJson: string | undefined;
+          let agentPane: string | undefined;
+          let promptFile: string | undefined;
+          if (opts.headless) {
+            const runDir = join(cwd, ".h2a", "runs", label!);
+            mkdirSync(runDir, { recursive: true });
+            outputLog = join(runDir, "output.log");
+            resultJson = join(runDir, "result.json");
+            ({ name, slug, agentPane, promptFile } = startHeadlessSession(
+              profile,
+              command,
+              cwd,
+              args,
+              resultJson,
+              outputLog,
+              label!,
+              getTmuxProfileConfig().profile,
+              initialPrompt,
+              structuredLaunch,
+            ));
+          } else {
+            ({ name, slug, agentPane } = startLocalSession(
+              profile,
+              command,
+              cwd,
+              args,
+              label,
+              getTmuxProfileConfig().profile,
+              {
+                ...(opts.resume !== undefined
+                  ? { resumeId: opts.resume }
+                  : {}),
+                ...(h2aSidecar ? { h2aCommand: h2a.command } : {}),
+                ...(initialPrompt !== undefined
+                  ? { terminateOnAgentExit: true }
+                  : {}),
+                ...(structuredLaunch ? { refuseExisting: true } : {}),
+              },
+            ));
+          }
+          if (structuredLaunch && !agentPane) {
+            cleanupHeadlessPromptFile(promptFile);
+            killLocalSession(name);
+            process.stderr.write(
+              `[h2a] could not capture the exact agent pane for ${slug}; the partial session was stopped\n`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+          let h2aSidecarStarted = false;
+          if (h2aSidecar) {
+            if (structuredLaunch) {
+              try {
+                h2aSidecarStarted = Boolean(
+                  await startH2aWindowVerified(
+                    name,
+                    cwd,
+                    h2a.command,
+                    agentPane!,
+                  ),
+                );
+              } catch (error) {
+                process.stderr.write(
+                  `[h2a] required h2a sidecar verification failed: ${(error as Error).message}\n`,
+                );
+                h2aSidecarStarted = false;
+              }
+            } else {
+              h2aSidecarStarted = startH2aWindow(name, cwd, h2a.command);
+            }
+            if (!h2aSidecarStarted && structuredLaunch) {
+              cleanupHeadlessPromptFile(promptFile);
+              killLocalSession(name);
+              process.stderr.write(
+                `[h2a] required h2a sidecar failed for ${slug}; the partial session was stopped\n`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            if (h2aSidecarStarted) {
+              process.stderr.write(
+                `[h2a] h2a window started in ${slug} (${h2a.command})\n`,
+              );
+            }
+          }
+          if (
+            !opts.headless &&
+            initialPrompt !== undefined &&
+            !sendKeysLiteral(agentPane!, initialPrompt)
+          ) {
+            cleanupHeadlessPromptFile(promptFile);
+            killLocalSession(name);
+            process.stderr.write(
+              `[h2a] failed to deliver the initial prompt to ${slug}; the partial session was stopped\n`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+          const pid = agentPane
+            ? localSessionPanePid(agentPane)
+            : undefined;
+          if (structuredLaunch && pid === undefined) {
+            cleanupHeadlessPromptFile(promptFile);
+            killLocalSession(name);
+            process.stderr.write(
+              `[h2a] could not verify the agent pane pid for ${slug}; the partial session was stopped\n`,
+            );
+            process.exitCode = 1;
+            return;
+          }
           // Auto-enroll in the live-session registry (feeds `h2a ls`/`restore`).
           // Pin the gateway posture ONLY when the user was explicit (--gw/--no-gw);
           // an "auto" launch stays unpinned so restore follows the live default.
@@ -4947,17 +5285,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             cwd,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
             ...(gatewayMode !== "auto" ? { gatewayMode } : {}),
+            ...(opts.background ? { sessionClass: "background" } : {}),
           });
-          started.push({ name, slug });
-          // h2a launcher contract (opt-in): --h2a forces it; `h2a.enabled` makes
-          // it the default. Never fails the run.
-          if (opts.h2a || h2a.enabled) {
-            if (startH2aWindow(name, cwd, h2a.command)) {
-              process.stderr.write(
-                `[h2a] h2a window started in ${slug} (${h2a.command})\n`,
-              );
-            }
-          }
+          started.push({
+            name,
+            slug,
+            ...(agentPane !== undefined ? { pane: agentPane } : {}),
+            h2aSidecar: h2aSidecarStarted,
+            ...(pid !== undefined ? { pid } : {}),
+            ...(outputLog !== undefined ? { outputLog } : {}),
+            ...(resultJson !== undefined ? { resultJson } : {}),
+          });
         }
         if (count > 1) {
           process.stderr.write(
@@ -4967,6 +5305,40 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           return; // never auto-attach a fleet
         }
         const only = started[0]!;
+        if (opts.json) {
+          process.stdout.write(
+            `${JSON.stringify({
+              kind: "h2a.run.result",
+              version: 1,
+              apiVersion: H2A_RUN_API_VERSION,
+              runtimeVersion: H2A_RUNTIME_VERSION,
+              ok: true,
+              state: "started",
+              session: {
+                id: only.slug,
+                tmuxSession: only.name,
+                profile,
+                workspace: cwd,
+                mode: opts.headless ? "headless" : "interactive",
+                background: opts.background === true,
+                gateway: activeGateway ? "gateway" : "direct",
+                h2aSidecar: only.h2aSidecar,
+                ...(only.pane !== undefined ? { pane: only.pane } : {}),
+                ...(only.pid !== undefined ? { pid: only.pid } : {}),
+              },
+              attach: opts.headless
+                ? null
+                : { command: "h2a", args: ["attach", only.slug] },
+              ...(only.outputLog !== undefined
+                ? {
+                    logs: { path: only.outputLog },
+                    result: { path: only.resultJson },
+                  }
+                : {}),
+            })}\n`,
+          );
+          return;
+        }
         process.stderr.write(
           `[h2a] local session ${only.slug} started (${profile}${opts.resume ? ` --resume ${opts.resume}` : ""} in ${cwd})\n`,
         );

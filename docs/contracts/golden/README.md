@@ -3,7 +3,7 @@
 Baseline du **contrat public** capturée le 2026-06-29 (P1 de la migration track+remote, cf `../../specs/2026-06-29-h2a-migration-track-remote.md`).
 
 ## Fichiers
-- **`mcp-tools.json`** — les 29 outils MCP `h2a_*` exposés sur le bus (surface du bus). Source : `h2a mcp-tools` (trié).
+- **`mcp-tools.json`** — les 37 outils MCP `h2a_*` exposés sur le bus local (surface du bus, dont le mutateur local-only `h2a_run`). Source : `h2a mcp-tools` (trié).
 - **`cli-verbs.json`** — les 90 verbes dispatchables de la CLI. Source : `H2A_CLI_VERB_CONTRACTS` (`packages/h2a-cli/src/cli-contract.ts`, trié).
 
 ## Usage (P2 — à câbler en CI)

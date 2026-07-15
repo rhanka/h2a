@@ -51,7 +51,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { dirname, join, resolve as resolvePath } from "node:path";
+import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -146,7 +146,11 @@ import {
   sanitizeStorePaths,
   writePresence
 } from "./runtime/local-files/index.js";
-import { runMcpStdio } from "./runtime/mcp/index.js";
+import {
+  H2A_MCP_READY_FILE_ENV,
+  H2A_MCP_READY_NONCE_ENV,
+  runMcpStdio
+} from "./runtime/mcp/index.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
@@ -1586,6 +1590,10 @@ export async function runMcpServe(
     stdout: NodeJS.WritableStream;
     stderr: NodeJS.WritableStream;
     cwd?: () => string;
+    /** Test seam for the internal structured-readiness environment. */
+    env?: NodeJS.ProcessEnv;
+    /** Test seam for boot upgrade ordering; production uses the default runtime. */
+    upgradeRuntime?: UpgradeRuntime;
     /** Graceful-shutdown signal; bin.ts wires SIGTERM/SIGINT/SIGHUP to it. */
     signal?: AbortSignal;
   } = {
@@ -1598,6 +1606,25 @@ export async function runMcpServe(
   warnIfCwdRootFallback(flags, cwd, { stderr: io.stderr, stdout: io.stdout, cwd });
   const root = resolveRoot(flags, cwd);
   const autoOpen = resolveAutoOpen(flags, cwd);
+  const readinessEnv = io.env ?? process.env;
+  const readyFile = readinessEnv[H2A_MCP_READY_FILE_ENV];
+  const readyNonce = readinessEnv[H2A_MCP_READY_NONCE_ENV];
+  let readiness: { file: string; nonce: string } | undefined;
+  if (readyFile !== undefined || readyNonce !== undefined) {
+    if (
+      !readyFile ||
+      !isAbsolute(readyFile) ||
+      readyFile.includes("\0") ||
+      !readyNonce ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        readyNonce
+      )
+    ) {
+      io.stderr.write("h2a mcp-serve: invalid internal readiness challenge\n");
+      return 1;
+    }
+    readiness = { file: readyFile, nonce: readyNonce };
+  }
 
   // DEC-107/108 (EVO-8 levels 2/3): version handling at boot. **Opt-in** — no
   // network on a default boot. `--auto-upgrade` self-installs @latest then
@@ -1617,10 +1644,14 @@ export async function runMcpServe(
       // same-day release isn't masked by the 24h notice cache; the passive
       // `--upgrade-check` notice keeps the 24h throttle.
       const ttlMs = wantAutoUpgrade ? H2A_AUTO_UPGRADE_CHECK_TTL_MS : H2A_UPGRADE_CHECK_TTL_MS;
-      const result = checkUpgrade(current, { cachePath: upgradeCachePath(root), ttlMs });
+      const result = checkUpgrade(current, {
+        cachePath: upgradeCachePath(root),
+        ttlMs,
+        ...(io.upgradeRuntime ? { runtime: io.upgradeRuntime } : {})
+      });
       if (result.upgradeAvailable) {
         if (wantAutoUpgrade) {
-          const ok = performUpgrade();
+          const ok = performUpgrade(io.upgradeRuntime);
           if (ok && flags["no-restart"] === undefined && canReexec()) {
             io.stderr.write(
               `h2a mcp-serve: auto-upgraded ${current} → ${result.latest}; restarting into the new version…\n`
@@ -1680,10 +1711,12 @@ export async function runMcpServe(
     }
     await runMcpStdio({
       root,
+      workspaceRoot: process.cwd(),
       stdin: io.stdin as never,
       stdout: io.stdout as never,
       stderr: io.stderr as never,
       ...(autoOpen ? { autoOpen } : {}),
+      ...(readiness ? { readiness } : {}),
       ...(wake ? { wake } : {}),
       ...(io.signal ? { signal: io.signal } : {})
     });

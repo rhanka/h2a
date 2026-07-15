@@ -1,4 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 // Mock child_process at the module boundary so NOTHING here ever talks to the
 // user's real tmux server (or shells out at all).
@@ -13,23 +22,33 @@ vi.mock("./config.js", () => ({
 
 import {
   H2A_WINDOW_NAME,
+  HEADLESS_WRAPPER,
   LOCAL_WRAPPER,
   REMOTE_TMUX_PROFILE,
   REMOTE_TMUX_PROFILE_NAME,
+  STRUCTURED_LOCAL_WRAPPER,
+  STRUCTURED_WINDOW_WRAPPER,
   attachLocalSession,
   buildCodexImagePasteBinding,
   buildSessionWindowArgs,
+  buildStructuredSessionWindowArgs,
   buildTmuxGlobalOptions,
+  cleanupHeadlessPromptFile,
   ensureManagedTmuxProfile,
+  existingLocalSessionSlugs,
   fanoutLabels,
   getLocalSessionDisplayName,
   listLocalSessions,
   localRelaunchCommand,
+  localSessionPanePid,
   resolveAgentPaneForInstance,
+  sendKeysLiteral,
   sessionAttachedCount,
   setLocalSessionDisplayName,
   startLocalSession,
+  startHeadlessSession,
   startH2aWindow,
+  startH2aWindowVerified,
   validateManagedTmuxProfile,
 } from "./tmux.js";
 
@@ -172,6 +191,36 @@ describe("buildSessionWindowArgs (pure)", () => {
   });
 });
 
+describe("buildStructuredSessionWindowArgs (pure)", () => {
+  it("captures the exact pane and has no shell fallback", () => {
+    const readiness = {
+      file: "/tmp/h2a-ready-test/ready.json",
+      nonce: "11111111-1111-4111-8111-111111111111",
+    };
+    const args = buildStructuredSessionWindowArgs(
+      "remote-worker",
+      H2A_WINDOW_NAME,
+      "/home/u/src/repo",
+      H2A_CMD,
+      "%7",
+      readiness,
+    );
+    expect(args.slice(0, 5)).toEqual([
+      "new-window",
+      "-d",
+      "-P",
+      "-F",
+      "#{pane_id}",
+    ]);
+    expect(args).toContain(STRUCTURED_WINDOW_WRAPPER);
+    expect(STRUCTURED_WINDOW_WRAPPER).toContain('eval "exec $cmd"');
+    expect(STRUCTURED_WINDOW_WRAPPER).not.toContain("exec /bin/bash -l");
+    expect(args).toContain(`H2A_MCP_READY_FILE=${readiness.file}`);
+    expect(args).toContain(`H2A_MCP_READY_NONCE=${readiness.nonce}`);
+    expect(args.slice(-2)).toEqual(["%7", H2A_CMD]);
+  });
+});
+
 describe("startLocalSession agent pane metadata", () => {
   it("applies the configured managed tmux profile by default before creating a session", () => {
     tmuxProfileConfigMock.mockReturnValue({ profile: "old-pc" });
@@ -241,6 +290,139 @@ describe("startLocalSession agent pane metadata", () => {
     expect(setOpt.join("\n")).not.toContain("sk-should-never-be-stored");
   });
 
+  it("keeps ordinary CLI args out of resume metadata and relaunch hints", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions")
+        return { status: 1, stdout: "" };
+      if (cmd === "tmux" && args[0] === "new-session") return { status: 0 };
+      return { status: 0, stdout: "" };
+    });
+
+    startLocalSession(
+      "codex",
+      "codex",
+      "/home/u/src/remote",
+      ["--verbose"],
+      "worker",
+      "remote",
+      { resumeId: "conv-123", h2aCommand: H2A_CMD },
+    );
+
+    const newSession = tmuxCalls("new-session")[0]![1] as string[];
+    expect(newSession).toContain("--verbose");
+    expect(newSession).toContain("h2a run codex /home/u/src/remote --name worker -r conv-123");
+    expect(
+      spawnSyncMock.mock.calls.some(
+        (call) =>
+          call[0] === "tmux" &&
+          Array.isArray(call[1]) &&
+          call[1].includes("@remote_launch_resume") &&
+          call[1].includes("conv-123"),
+      ),
+    ).toBe(true);
+    expect(
+      spawnSyncMock.mock.calls.some(
+        (call) =>
+          call[0] === "tmux" &&
+          Array.isArray(call[1]) &&
+          call[1].includes("@remote_launch_resume") &&
+          call[1].includes("--verbose"),
+      ),
+    ).toBe(false);
+  });
+
+  it("uses the no-shell-fallback wrapper for structured prompt sessions", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions") {
+        return { status: 1, stdout: "" };
+      }
+      if (cmd === "tmux" && args[0] === "new-session") {
+        return { status: 0, stdout: "%7\n" };
+      }
+      return { status: 0, stdout: "" };
+    });
+
+    startLocalSession(
+      "claude",
+      "claude",
+      "/home/u/src/remote",
+      ["--model", "opus"],
+      "worker",
+      "remote",
+      { terminateOnAgentExit: true },
+    );
+
+    const argv = tmuxCalls("new-session")[0]![1] as string[];
+    expect(argv).toContain(STRUCTURED_LOCAL_WRAPPER);
+    expect(argv).not.toContain(LOCAL_WRAPPER);
+    expect(argv).not.toContain("h2a run claude /home/u/src/remote --name worker");
+    expect(argv.slice(-4)).toEqual([
+      STRUCTURED_LOCAL_WRAPPER,
+      "claude",
+      "--model",
+      "opus",
+    ]);
+  });
+
+  it("refuses a structured duplicate inside startLocalSession without effects", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions") {
+        return {
+          status: 0,
+          stdout:
+            "remote-worker\t0\t/home/u/src/remote\tclaude\tworker\n",
+        };
+      }
+      return { status: 0, stdout: "" };
+    });
+
+    expect(() =>
+      startLocalSession(
+        "claude",
+        "claude",
+        "/home/u/src/remote",
+        [],
+        "worker",
+        "remote",
+        { refuseExisting: true },
+      ),
+    ).toThrow(/already exists.*no agent was started/i);
+    expect(tmuxCalls("new-session")).toHaveLength(0);
+  });
+
+  it("refuses a structured headless duplicate before writing prompt input", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions") {
+        return {
+          status: 0,
+          stdout:
+            "remote-worker\t0\t/home/u/src/remote\tcodex\tworker\n",
+        };
+      }
+      return { status: 0, stdout: "" };
+    });
+
+    expect(() =>
+      startHeadlessSession(
+        "codex",
+        "codex",
+        "/home/u/src/remote",
+        ["exec", "-"],
+        "/must/not/be/written/result.json",
+        "/must/not/be/written/output.log",
+        "worker",
+        "remote",
+        "prompt",
+        true,
+      ),
+    ).toThrow(/already exists.*no agent was started/i);
+    expect(tmuxCalls("new-session")).toHaveLength(0);
+  });
+
   it("scrubs stale Anthropic env inherited from the tmux server when launching direct", () => {
     delete process.env.ANTHROPIC_BASE_URL;
     delete process.env.ANTHROPIC_AUTH_TOKEN;
@@ -296,7 +478,11 @@ describe("startLocalSession agent pane metadata", () => {
       "h2a-target",
     );
 
-    expect(result).toEqual({ name: "remote-h2a-target", slug: "h2a-target" });
+    expect(result).toEqual({
+      name: "remote-h2a-target",
+      slug: "h2a-target",
+      agentPane: "%7",
+    });
     expect(spawnSyncMock.mock.calls).toContainEqual([
       "tmux",
       ["set-option", "-t", "=remote-h2a-target", "@remote_agent_pane", "%7"],
@@ -318,6 +504,198 @@ describe("startLocalSession agent pane metadata", () => {
       ],
       { stdio: "ignore" },
     ]);
+  });
+});
+
+describe("localSessionPanePid", () => {
+  it("returns only a positive tmux pane pid", () => {
+    spawnSyncMock.mockReturnValueOnce({ status: 0, stdout: "4242\n" });
+    expect(localSessionPanePid("%1")).toBe(4242);
+
+    spawnSyncMock.mockReturnValueOnce({ status: 1, stdout: "" });
+    expect(localSessionPanePid("%2")).toBeUndefined();
+
+    expect(localSessionPanePid("remote-worker")).toBeUndefined();
+  });
+});
+
+describe("existingLocalSessionSlugs", () => {
+  it("detects a duplicate name before any new-session effect", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions") {
+        return {
+          status: 0,
+          stdout:
+            "remote-existing\t0\t/home/u/src/repo\tcodex\texisting\n",
+        };
+      }
+      return { status: 0, stdout: "" };
+    });
+
+    expect(
+      existingLocalSessionSlugs(
+        ["new-worker", "existing"],
+        "/home/u/src/repo",
+      ),
+    ).toEqual(["existing"]);
+    expect(tmuxCalls("new-session")).toHaveLength(0);
+  });
+});
+
+describe("sendKeysLiteral", () => {
+  it("feeds literal content through tmux stdin and never process argv", () => {
+    const prompt = "--dangerously-skip-permissions; $(touch /tmp/nope)";
+    spawnSyncMock.mockReturnValue({ status: 0 });
+
+    expect(sendKeysLiteral("%1", prompt)).toBe(true);
+
+    const load = tmuxCalls("load-buffer")[0]!;
+    expect(load[2]).toMatchObject({ input: prompt, encoding: "utf8" });
+    expect(tmuxCalls("paste-buffer")).toHaveLength(1);
+    expect(tmuxCalls("send-keys")[0]?.[1]).toEqual([
+      "send-keys",
+      "-t",
+      "%1",
+      "Enter",
+    ]);
+    const allArgv = spawnSyncMock.mock.calls
+      .map((call) => (Array.isArray(call[1]) ? call[1].join(" ") : ""))
+      .join("\n");
+    expect(allArgv).not.toContain(prompt);
+  });
+
+  it("does not paste or submit when loading the private buffer fails", () => {
+    spawnSyncMock.mockReturnValueOnce({ status: 1 });
+
+    expect(sendKeysLiteral("%1", "prompt")).toBe(false);
+    expect(tmuxCalls("paste-buffer")).toHaveLength(0);
+    expect(tmuxCalls("send-keys")).toHaveLength(0);
+  });
+});
+
+describe("HEADLESS_WRAPPER", () => {
+  it("opens and unlinks a 0600 prompt file before feeding CLI stdin", () => {
+    const dir = mkdtempSync(join(tmpdir(), "h2a-headless-wrapper-"));
+    const result = join(dir, "result.json");
+    const log = join(dir, "output.log");
+    const promptFile = join(dir, "prompt");
+    const prompt = "--flag-like; $(touch /tmp/must-not-run)";
+    writeFileSync(promptFile, `${prompt}\n`, { mode: 0o600 });
+    try {
+      const run = realSpawnSync(
+        "/bin/bash",
+        [
+          "-lc",
+          HEADLESS_WRAPPER,
+          result,
+          log,
+          promptFile,
+          "/bin/sh",
+          "-c",
+          'IFS= read -r line; printf "%s" "$line"',
+        ],
+        { encoding: "utf8" },
+      );
+
+      expect(run.status).toBe(0);
+      expect(readFileSync(log, "utf8")).toBe(prompt);
+      expect(JSON.parse(readFileSync(result, "utf8"))).toEqual({
+        state: "done",
+        exitCode: 0,
+      });
+      expect(existsSync(promptFile)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("scrubs stale Anthropic variables for a direct headless launch", () => {
+    delete process.env.ANTHROPIC_BASE_URL;
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
+    delete process.env.ANTHROPIC_API_KEY;
+    const dir = mkdtempSync(join(tmpdir(), "h2a-headless-direct-"));
+    const resultJson = join(dir, "result.json");
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions") {
+        return { status: 1, stdout: "" };
+      }
+      if (cmd === "tmux" && args[0] === "new-session") {
+        return { status: 0, stdout: "%3\n" };
+      }
+      return { status: 0, stdout: "" };
+    });
+    try {
+      const started = startHeadlessSession(
+        "codex",
+        "codex",
+        dir,
+        ["exec", "-"],
+        resultJson,
+        join(dir, "output.log"),
+        "direct-worker",
+        "remote",
+        "prompt",
+        true,
+      );
+      expect(started.agentPane).toBe("%3");
+      const argv = tmuxCalls("new-session")[0]![1] as string[];
+      const envIndex = argv.indexOf("env");
+      expect(argv.slice(envIndex, envIndex + 7)).toEqual([
+        "env",
+        "-u",
+        "ANTHROPIC_BASE_URL",
+        "-u",
+        "ANTHROPIC_AUTH_TOKEN",
+        "-u",
+        "ANTHROPIC_API_KEY",
+      ]);
+      cleanupHeadlessPromptFile(started.promptFile);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("removes the transient prompt when pane capture verification fails", () => {
+    const dir = mkdtempSync(join(tmpdir(), "h2a-headless-pane-fail-"));
+    const promptFile = join(dir, "result.json.prompt");
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions") {
+        return { status: 1, stdout: "" };
+      }
+      if (cmd === "tmux" && args[0] === "new-session") {
+        return { status: 0, stdout: "not-a-pane\n" };
+      }
+      if (cmd === "tmux" && args[0] === "show-options") {
+        return { status: 1, stdout: "" };
+      }
+      if (cmd === "tmux" && args[0] === "list-panes") {
+        return { status: 1, stdout: "" };
+      }
+      return { status: 0, stdout: "" };
+    });
+    try {
+      expect(() =>
+        startHeadlessSession(
+          "codex",
+          "codex",
+          dir,
+          ["exec", "-"],
+          join(dir, "result.json"),
+          join(dir, "output.log"),
+          "failed-worker",
+          "remote",
+          "sensitive prompt",
+          true,
+        ),
+      ).toThrow(/did not return a live agent pane/i);
+      expect(existsSync(promptFile)).toBe(false);
+      expect(tmuxCalls("kill-session")).toHaveLength(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -444,6 +822,303 @@ describe("startH2aWindow", () => {
     expect(ok).toBe(false);
     expect(err.text()).toContain("agent pane could not be resolved");
     expect(tmuxCalls("new-window")).toHaveLength(0);
+  });
+});
+
+describe("startH2aWindowVerified", () => {
+  const verificationOptions = {
+    attempts: 3,
+    intervalMs: 1,
+    delay: async () => {},
+  };
+
+  it("returns only after the captured sidecar pane stays live", async () => {
+    let ackFile: string | undefined;
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "bash") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-windows") {
+        return { status: 0, stdout: "claude\n" };
+      }
+      if (cmd === "tmux" && args[0] === "new-window") {
+        return { status: 0, stdout: "%2\n" };
+      }
+      if (cmd === "tmux" && args[0] === "display") {
+        return {
+          status: 0,
+          stdout: args.includes("%1") ? "111\n" : "222\n",
+        };
+      }
+      return { status: 0, stdout: "" };
+    });
+    const options = {
+      ...verificationOptions,
+      delay: async () => {
+        if (ackFile) return;
+        const argv = tmuxCalls("new-window")[0]![1] as string[];
+        const fileEnv = argv.find((arg) =>
+          arg.startsWith("H2A_MCP_READY_FILE="),
+        )!;
+        const nonceEnv = argv.find((arg) =>
+          arg.startsWith("H2A_MCP_READY_NONCE="),
+        )!;
+        ackFile = fileEnv.slice("H2A_MCP_READY_FILE=".length);
+        const nonce = nonceEnv.slice("H2A_MCP_READY_NONCE=".length);
+        writeFileSync(
+          ackFile,
+          `${JSON.stringify({
+            kind: "h2a.mcp.ready",
+            version: 1,
+            nonce,
+            pid: 222,
+            sessionId: "sess:ready",
+          })}\n`,
+          { mode: 0o600, flag: "wx" },
+        );
+      },
+    };
+
+    const result = await startH2aWindowVerified(
+      "remote-worker",
+      "/home/u/src/repo",
+      H2A_CMD,
+      "%1",
+      fakeStderr(),
+      options,
+    );
+
+    expect(result).toEqual({ pane: "%2", pid: 222 });
+    expect(ackFile).toBeDefined();
+    expect(existsSync(ackFile!)).toBe(false);
+    expect(existsSync(dirname(ackFile!))).toBe(false);
+    expect(tmuxCalls("kill-pane")).toHaveLength(0);
+    expect(tmuxCalls("new-window")[0]?.[1]).toContain("%1");
+  });
+
+  it("fails when the sidecar exits immediately after new-window", async () => {
+    let readyFile: string | undefined;
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "bash") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-windows") {
+        return { status: 0, stdout: "codex\n" };
+      }
+      if (cmd === "tmux" && args[0] === "new-window") {
+        const fileEnv = args.find((arg) =>
+          arg.startsWith("H2A_MCP_READY_FILE="),
+        );
+        readyFile = fileEnv?.slice("H2A_MCP_READY_FILE=".length);
+        return { status: 0, stdout: "%2\n" };
+      }
+      if (cmd === "tmux" && args[0] === "display") {
+        return args.includes("%1")
+          ? { status: 0, stdout: "111\n" }
+          : { status: 1, stdout: "" };
+      }
+      return { status: 0, stdout: "" };
+    });
+    const err = fakeStderr();
+
+    const result = await startH2aWindowVerified(
+      "remote-worker",
+      "/home/u/src/repo",
+      H2A_CMD,
+      "%1",
+      err,
+      verificationOptions,
+    );
+
+    expect(result).toBeUndefined();
+    expect(err.text()).toContain("pane/PID guard");
+    expect(readyFile).toBeDefined();
+    expect(existsSync(dirname(readyFile!))).toBe(false);
+    expect(tmuxCalls("kill-pane")[0]?.[1]).toEqual([
+      "kill-pane",
+      "-t",
+      "%2",
+    ]);
+  });
+
+  it("fails if the agent pane disappears while the sidecar becomes current", async () => {
+    let agentProbes = 0;
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "bash") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-windows") {
+        return { status: 0, stdout: "claude\n" };
+      }
+      if (cmd === "tmux" && args[0] === "new-window") {
+        return { status: 0, stdout: "%2\n" };
+      }
+      if (cmd === "tmux" && args[0] === "display") {
+        if (args.includes("%1")) {
+          agentProbes += 1;
+          return agentProbes < 3
+            ? { status: 0, stdout: "111\n" }
+            : { status: 1, stdout: "" };
+        }
+        return { status: 0, stdout: "222\n" };
+      }
+      return { status: 0, stdout: "" };
+    });
+
+    const result = await startH2aWindowVerified(
+      "remote-worker",
+      "/home/u/src/repo",
+      H2A_CMD,
+      "%1",
+      fakeStderr(),
+      verificationOptions,
+    );
+
+    expect(result).toBeUndefined();
+    const displayTargets = tmuxCalls("display").map(
+      (call) => (call[1] as string[])[3],
+    );
+    expect(displayTargets.every((target) => target === "%1" || target === "%2")).toBe(true);
+    expect(displayTargets).not.toContain("remote-worker");
+  });
+
+  it("rejects a live fake mcp-serve process that never writes the correlated ACK", async () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "bash") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-windows") {
+        return { status: 0, stdout: "claude\n" };
+      }
+      if (cmd === "tmux" && args[0] === "new-window") {
+        return { status: 0, stdout: "%2\n" };
+      }
+      if (cmd === "tmux" && args[0] === "display") {
+        return {
+          status: 0,
+          stdout: args.includes("%1") ? "111\n" : "222\n",
+        };
+      }
+      if (cmd === "ps") {
+        return { status: 0, stdout: "h2a mcp-serve --wake local-tmux\n" };
+      }
+      return { status: 0, stdout: "" };
+    });
+    const err = fakeStderr();
+
+    const result = await startH2aWindowVerified(
+      "remote-worker",
+      "/home/u/src/repo",
+      H2A_CMD,
+      "%1",
+      err,
+      verificationOptions,
+    );
+
+    expect(result).toBeUndefined();
+    expect(err.text()).toContain("correlated readiness ACK");
+    expect(spawnSyncMock.mock.calls.some((call) => call[0] === "ps")).toBe(
+      false,
+    );
+    expect(tmuxCalls("kill-pane")).toHaveLength(1);
+  });
+
+  it("fails closed when auto-open never ACKs even if the sidecar pane stays alive", async () => {
+    let readyFile: string | undefined;
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "bash") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-windows") {
+        return { status: 0, stdout: "claude\n" };
+      }
+      if (cmd === "tmux" && args[0] === "new-window") {
+        const fileEnv = args.find((arg) =>
+          arg.startsWith("H2A_MCP_READY_FILE="),
+        );
+        readyFile = fileEnv?.slice("H2A_MCP_READY_FILE=".length);
+        return { status: 0, stdout: "%2\n" };
+      }
+      if (cmd === "tmux" && args[0] === "display") {
+        return {
+          status: 0,
+          stdout: args.includes("%1") ? "111\n" : "222\n",
+        };
+      }
+      return { status: 0, stdout: "" };
+    });
+    const err = fakeStderr();
+
+    const result = await startH2aWindowVerified(
+      "remote-worker",
+      "/home/u/src/repo",
+      H2A_CMD,
+      "%1",
+      err,
+      verificationOptions,
+    );
+
+    expect(result).toBeUndefined();
+    expect(err.text()).toContain("timed out");
+    expect(readyFile).toBeDefined();
+    expect(existsSync(dirname(readyFile!))).toBe(false);
+    expect(tmuxCalls("kill-pane")).toHaveLength(1);
+  });
+
+  it("rejects a nonce-valid ACK whose PID is not the exact sidecar pane PID", async () => {
+    let readyFile: string | undefined;
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "bash") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-windows") {
+        return { status: 0, stdout: "claude\n" };
+      }
+      if (cmd === "tmux" && args[0] === "new-window") {
+        return { status: 0, stdout: "%2\n" };
+      }
+      if (cmd === "tmux" && args[0] === "display") {
+        return {
+          status: 0,
+          stdout: args.includes("%1") ? "111\n" : "222\n",
+        };
+      }
+      return { status: 0, stdout: "" };
+    });
+    const options = {
+      ...verificationOptions,
+      delay: async () => {
+        if (readyFile) return;
+        const argv = tmuxCalls("new-window")[0]![1] as string[];
+        const fileEnv = argv.find((arg) =>
+          arg.startsWith("H2A_MCP_READY_FILE="),
+        )!;
+        const nonceEnv = argv.find((arg) =>
+          arg.startsWith("H2A_MCP_READY_NONCE="),
+        )!;
+        readyFile = fileEnv.slice("H2A_MCP_READY_FILE=".length);
+        const nonce = nonceEnv.slice("H2A_MCP_READY_NONCE=".length);
+        writeFileSync(
+          readyFile,
+          `${JSON.stringify({
+            kind: "h2a.mcp.ready",
+            version: 1,
+            nonce,
+            pid: 999,
+            sessionId: "sess:forged-pid",
+          })}\n`,
+          { mode: 0o600, flag: "wx" },
+        );
+      },
+    };
+    const err = fakeStderr();
+
+    const result = await startH2aWindowVerified(
+      "remote-worker",
+      "/home/u/src/repo",
+      H2A_CMD,
+      "%1",
+      err,
+      options,
+    );
+
+    expect(result).toBeUndefined();
+    expect(err.text()).toContain("invalid readiness ACK");
+    expect(readyFile).toBeDefined();
+    expect(existsSync(dirname(readyFile!))).toBe(false);
+    expect(tmuxCalls("kill-pane")[0]?.[1]).toEqual([
+      "kill-pane",
+      "-t",
+      "%2",
+    ]);
   });
 });
 
@@ -635,6 +1310,28 @@ describe("LOCAL_WRAPPER (real bash) — regression: cli runs with its args", () 
     const r = runWrapper("h2a run codex /x", "true", []);
     expect(r.stdout).toContain("true exited (code 0)");
     expect(r.stdout).not.toContain("command not found");
+  });
+});
+
+describe("STRUCTURED_LOCAL_WRAPPER (real bash)", () => {
+  it("never executes prompt-shaped stdin when the agent fails immediately", () => {
+    const dir = mkdtempSync(join(tmpdir(), "h2a-structured-wrapper-"));
+    const sentinel = join(dir, "prompt-was-executed");
+    try {
+      const r = realSpawnSync(
+        "bash",
+        ["-lc", STRUCTURED_LOCAL_WRAPPER, "/definitely/missing-agent"],
+        {
+          encoding: "utf8",
+          input: `touch ${sentinel}\n`,
+        },
+      );
+
+      expect(r.status).not.toBe(0);
+      expect(existsSync(sentinel)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
