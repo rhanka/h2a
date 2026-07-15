@@ -30,6 +30,10 @@ const ADAPTER_STDERR_LIMIT = 16 * 1024
 const GIT_COMMIT_LIMIT = 50
 const GIT_PATH_LIMIT = 500
 
+export const REPORTER_TIMEOUT_DEFAULT_MS = 90_000
+export const REPORTER_TIMEOUT_MIN_MS = 1_000
+export const REPORTER_TIMEOUT_MAX_MS = 15 * 60_000
+
 const SOURCE_STATUSES = ['ok', 'timeout', 'unavailable', 'invalid', 'truncated'] as const
 type SourceStatus = (typeof SOURCE_STATUSES)[number]
 
@@ -122,6 +126,11 @@ export interface GenerateAiReportOptions {
   request: AiReportRequest
   width?: number
   env?: NodeJS.ProcessEnv
+}
+
+export interface ReporterConfigV1 {
+  argv: string[]
+  timeoutMs: number
 }
 
 type Spawn = typeof spawnSync
@@ -509,7 +518,7 @@ function configPath(env: NodeJS.ProcessEnv): string {
   return join(base, 'track', 'report-ai.json')
 }
 
-export function resolveReporterArgv(env: NodeJS.ProcessEnv = process.env): string[] {
+export function resolveReporterConfig(env: NodeJS.ProcessEnv = process.env): ReporterConfigV1 {
   if (env['TRACK_REPORT_AI_DEPTH'] !== undefined && env['TRACK_REPORT_AI_DEPTH'] !== '0') {
     throw new AiReportError('recursive-adapter')
   }
@@ -527,14 +536,26 @@ export function resolveReporterArgv(env: NodeJS.ProcessEnv = process.env): strin
   let value: unknown
   try { value = JSON.parse(raw) } catch { throw new AiReportError('invalid-configuration-json') }
   if (fromEnvironment && !Array.isArray(value)) throw new AiReportError('invalid-configuration-env-shape')
-  if (!fromEnvironment && (!isRecord(value) || Object.keys(value).length !== 1 || !Object.hasOwn(value, 'argv'))) {
+  if (!fromEnvironment && (!isRecord(value) || !Object.hasOwn(value, 'argv') ||
+      !['argv', 'argv,timeoutMs'].includes(Object.keys(value).sort().join(',')))) {
     throw new AiReportError('invalid-configuration-file-shape')
   }
   const argv = fromEnvironment ? value : (value as Record<string, unknown>)['argv']
   if (!Array.isArray(argv) || argv.length === 0 || argv.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
     throw new AiReportError('invalid-configuration-argv')
   }
-  return argv as string[]
+  const configuredTimeout = !fromEnvironment && isRecord(value) && Object.hasOwn(value, 'timeoutMs')
+    ? value['timeoutMs']
+    : REPORTER_TIMEOUT_DEFAULT_MS
+  if (!Number.isInteger(configuredTimeout) || Number(configuredTimeout) < REPORTER_TIMEOUT_MIN_MS ||
+      Number(configuredTimeout) > REPORTER_TIMEOUT_MAX_MS) {
+    throw new AiReportError('invalid-configuration-timeout')
+  }
+  return { argv: argv as string[], timeoutMs: Number(configuredTimeout) }
+}
+
+export function resolveReporterArgv(env: NodeJS.ProcessEnv = process.env): string[] {
+  return resolveReporterConfig(env).argv
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -730,14 +751,15 @@ export function generateAiReport(
 ): { output: string; envelope: ReportContextEnvelopeV1; result: AiReportResultV1 } {
   const spawn = deps.spawn ?? spawnSync
   const sourceEnv = options.env ?? process.env
-  const argv = resolveReporterArgv(sourceEnv)
+  const reporter = resolveReporterConfig(sourceEnv)
+  const argv = reporter.argv
   const envelope = buildReportContext(options, { spawn })
   const input = canonicalize(envelope)
   const childEnv = reporterEnvironment(sourceEnv)
   const result = privateCwd((cwd) => spawnText(spawn, argv[0]!, argv.slice(1), {
     cwd,
     env: childEnv,
-    timeout: 90_000,
+    timeout: reporter.timeoutMs,
     maxBuffer: ADAPTER_STDOUT_LIMIT,
     input,
   }))

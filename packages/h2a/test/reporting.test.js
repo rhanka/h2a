@@ -286,6 +286,7 @@ test("Track adapter config installer honors XDG, 0600, no-op, preserve and force
     const installed = installTrackReportAiConfig({ env });
     assert.equal(installed.status, "installed");
     assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), TRACK_REPORT_AI_CONFIG);
+    assert.equal(TRACK_REPORT_AI_CONFIG.timeoutMs, 600_000);
     assert.equal(lstatSync(path).mode & 0o777, 0o600);
     const mtime = statSync(path).mtimeMs;
     const unchanged = installTrackReportAiConfig({ env });

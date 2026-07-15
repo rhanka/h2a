@@ -23,7 +23,8 @@ export const TRACK_REPORT_AI_CONFIG = {
     "xhigh",
     "--gateway",
     "required"
-  ]
+  ],
+  timeoutMs: 600_000
 } as const;
 
 export const TRACK_REPORT_AI_CONFIG_TEXT = `${JSON.stringify(TRACK_REPORT_AI_CONFIG)}\n`;
