@@ -47,34 +47,33 @@ describe('CLI smoke (Milestone 1): init -> branch import -> report', () => {
     expect(runCli(['init'], io)).toBe(0)
     // relative path is resolved against io.cwd, not process.cwd
     expect(runCli(['branch', 'import', 'BRANCH.md', '--commit', 'c1'], io)).toBe(0)
-    expect(runCli(['report', '--format', 'text', '--commit', 'c1'], io)).toBe(0)
+    expect(runCli(['report', '--format', 'json', '--wp', '--decisions', '--commit', 'c1'], io)).toBe(0)
 
     const text = out.join('')
     expect(text).toContain('Initialized .track/')
     expect(text).toContain('Imported br-99: 4 created') // feature + 2 lots + 1 UAT criterion
-    expect(text).toContain('SYNTHÈSE')
-    expect(text).toContain('DÉCISIONS/ACTIONS')
+    expect(text).toContain('"buckets"')
+    expect(text).toContain('"wpTree"')
     expect(text).toContain('Scaffold the thing')
 
     out = []
-    expect(runCli(['report', '--flat', '--format', 'text', '--commit', 'c1'], io)).toBe(0)
-    expect(out.join('')).toContain('DONE (1)') // Lot 0 done in legacy full dump
+    expect(runCli(['report', '--flat', '--format', 'json', '--commit', 'c1'], io)).toBe(0)
+    expect(JSON.parse(out.join('')).buckets.DONE).toHaveLength(1)
 
     // BRANCH.md is the source of truth — the importer must never write it.
     expect(sha256File(branchFile)).toBe(hashBefore)
   })
 
-  it('report --format md renders markdown headings', () => {
+  it('snapshot --format md renders explicitly factual diagnostic headings', () => {
     const branchFile = join(dir, 'BRANCH.md')
     writeFileSync(branchFile, FIXTURE)
     runCli(['init'], io)
     runCli(['branch', 'import', branchFile, '--commit', 'c1'], io)
     out = []
-    runCli(['report', '--format', 'md', '--commit', 'c1'], io)
-    expect(out.join('')).toContain('## SYNTHÈSE')
-    expect(out.join('')).toContain('## DÉCISIONS/ACTIONS')
-    expect(out.join('')).toContain('scope/gate')
-    expect(out.join('')).toContain('préconisation')
+    runCli(['snapshot', '--format', 'md', '--commit', 'c1'], io)
+    expect(out.join('')).toContain('# Track factual snapshot')
+    expect(out.join('')).toContain('## RULE-DERIVED FACTS (NOT AI ADVICE)')
+    expect(out.join('')).toContain('track.snapshot/v1')
   })
 
   it('prints usage and returns non-zero on an unknown command', () => {
@@ -128,7 +127,7 @@ describe('CLI full verb surface (Lot 7) end-to-end', () => {
     expect(r(['decision', 'outcome', decId, 'go']).code).toBe(0)
 
     expect(r(['query', '--kind', 'feature', '--format', 'json', '--commit', 'c1']).text).toContain(itemId)
-    expect(r(['report', '--decisions', '--commit', 'c1']).code).toBe(0)
+    expect(r(['report', '--format', 'json', '--decisions', '--commit', 'c1']).code).toBe(0)
 
     const v = r(['validate', '--commit', 'c1'])
     expect(v.code).toBe(0)
@@ -161,7 +160,7 @@ describe('CLI full verb surface (Lot 7) end-to-end', () => {
     r(['item', 'new', '--kind', 'chore', '--title', 'leaf', '--workspace', 'ws', '--parent', wp1])
     // assign a stable code; the report renders it verbatim (decoupled from positional WPn)
     expect(r(['item', 'assign-code', wp1, '--code', 'WP7']).text).toContain('WP7')
-    expect(r(['report', '--commit', 'c1']).text).toContain('WP7')
+    expect(r(['report', '--format', 'json', '--wp', '--commit', 'c1']).text).toContain('WP7')
     // roster-global uniqueness: a 2nd root reusing the code is rejected fail-closed (rc=1)
     expect(r(['item', 'assign-code', wp2, '--code', 'WP7']).code).toBe(1)
     // client-token idempotency: a retried assign is a no-op

@@ -69,18 +69,39 @@ interface TrackModule {
 }
 
 let cached: TrackModule | undefined;
+const INSTALLED_TRACK_PACKAGE: string = '@sentropic/track';
+
+function compatibleTrack(mod: unknown, source: string): TrackModule {
+  const candidate = mod as Partial<TrackModule>;
+  if (typeof candidate.TrackReader !== 'function' || typeof candidate.formatWpConductor !== 'function') {
+    throw new Error(
+      `track runtime incompatible (${source}): TrackReader or formatWpConductor is missing.`
+    );
+  }
+  return candidate as TrackModule;
+}
 
 async function loadTrack(root: string): Promise<TrackModule> {
   if (cached) return cached;
   const dist = path.join(root, 'packages', 'track', 'dist', 'index.js');
-  if (!existsSync(dist)) {
+  if (existsSync(dist)) {
+    cached = compatibleTrack(await import(/* @vite-ignore */ pathToFileURL(dist).href), dist);
+    return cached;
+  }
+  // Packaged h2a Focus Web: no monorepo checkout is required. The h2a package depends on
+  // @sentropic/track, so resolve the installed package before failing. This is the critical
+  // difference between `h2a focus serve` and `cd apps/focus && npm run dev`.
+  try {
+    cached = compatibleTrack(
+      await import(/* @vite-ignore */ INSTALLED_TRACK_PACKAGE),
+      INSTALLED_TRACK_PACKAGE
+    );
+    return cached;
+  } catch (err) {
     throw new Error(
-      `track build introuvable (${dist}). Lancez \`npm run build -w @sentropic/track\` à la racine du dépôt.`
+      `track runtime introuvable: ni build monorepo (${dist}) ni package @sentropic/track installé (${err instanceof Error ? err.message : String(err)}).`
     );
   }
-  const mod = (await import(/* @vite-ignore */ pathToFileURL(dist).href)) as TrackModule;
-  cached = mod;
-  return mod;
 }
 
 function baselineCommit(root: string): string {

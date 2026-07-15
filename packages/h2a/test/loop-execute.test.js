@@ -136,7 +136,7 @@ test("executePlan: track refs degraded → n'exécute RIEN", async () => {
   }
 });
 
-test("buildActionSink.close ferme le loop puis skip ; wake/launch = skipped (not-enabled)", async () => {
+test("buildActionSink.close ferme le loop puis skip ; wake/launch inconnus restent fail-closed", async () => {
   const root = freshRoot();
   try {
     const loop = createObjectiveLoop(root, { name: "t", goal: "g" });
@@ -146,7 +146,10 @@ test("buildActionSink.close ferme le loop puis skip ; wake/launch = skipped (not
     assert.equal(readObjectiveLoop(root, loop.id).status, "done");
     assert.equal(await sink.close({ type: "close", reason: "x" }, ctx), "skipped");
     assert.equal(await sink.wake({ type: "wake", agentId: "a1", reason: "x" }, ctx), "skipped");
-    assert.equal(await sink.requestLaunch({ type: "request-launch", agentId: "a1", reason: "x" }, ctx), "skipped");
+    assert.deepEqual(
+      await sink.requestLaunch({ type: "request-launch", agentId: "a1", reason: "x" }, ctx),
+      { outcome: "skipped", detail: "unknown-agent" }
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

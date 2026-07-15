@@ -6,7 +6,8 @@
  * Anthropic) can transparently use OpenAI/Codex models.
  *
  * Model mapping (overridable via OPENAI_MODEL_MAP env JSON):
- *   claude-opus-4-8  / claude-opus-4-7  → gpt-5.5
+ *   claude-opus-4-8                       → gpt-5.6-terra
+ *   claude-opus-4-7                       → gpt-5.5
  *   claude-sonnet-4-6 / claude-sonnet-4-5 → gpt-5.5
  *   claude-haiku-*                        → gpt-5.5
  *
@@ -19,21 +20,19 @@
 
 import type { Context } from "hono";
 import { CODEX_RESPONSES_URL } from "@sentropic/llm-gateway";
-import { refreshOAuthToken } from "./accounts.js";
+import {
+  isCodexOAuthToken,
+  refreshOAuthToken,
+  type GatewayUpstreamTransport,
+} from "./accounts.js";
 import { updateSessionToken } from "./sticky.js";
 import { routeModelOrThrow } from "./model-catalog.js";
-import { recordSessionRequest } from "./session-ledger.js";
 
 const OPENAI_BASE = process.env.OPENAI_UPSTREAM_URL ?? "https://api.openai.com";
 
 const DEFAULT_CODEX_MAX_INPUT_CHARS = 200_000;
 const CODEX_CONTEXT_TRUNCATION_NOTICE =
   "[llm-gateway: older Claude Code transcript omitted to fit the Codex upstream context window.]";
-
-/** True if token is a ChatGPT Pro OAuth JWT (3-part base64url), not an sk-... API key. */
-function isCodexOAuthToken(token: string): boolean {
-  return !token.startsWith("sk-") && token.split(".").length === 3;
-}
 
 const TRANSIENT_UPSTREAM_ERROR_CODES = new Set([
   "EAI_AGAIN",
@@ -155,7 +154,7 @@ export function mapModel(anthropicModel: string): string {
 /**
  * Anthropic thinking budget_tokens → OpenAI reasoning_effort.
  * Covers all 4 Claude effort tiers:
- *   xhigh (≥ 50 k) → "xhigh" (pass-through; drop to "high" if model rejects)
+ *   xhigh (≥ 50 k) → "xhigh" (pass-through; upstream rejection stays explicit)
  *   high  (≥ 25 k) → "high"
  *   med   (≥  8 k) → "medium"
  *   low   (<  8 k) → "low"
@@ -1394,6 +1393,7 @@ export async function handleMessagesViaOpenAI(
     gatewayToken?: string;
     accountId?: string;
     sessionId?: string;
+    requiredTransport?: GatewayUpstreamTransport;
   },
   requestBody?: ArrayBuffer,
 ): Promise<Response> {
@@ -1415,9 +1415,19 @@ export async function handleMessagesViaOpenAI(
       400,
     );
   }
-  recordSessionRequest(session.sessionId, route);
-
-  const isCodex = isCodexOAuthToken(session.token);
+  const tokenTransport = isCodexOAuthToken(session.token)
+    ? "codex-responses"
+    : "openai-chat-completions";
+  if (
+    session.requiredTransport &&
+    tokenTransport !== session.requiredTransport
+  ) {
+    return c.json(
+      { error: "gateway credential no longer satisfies session transport" },
+      503,
+    );
+  }
+  const isCodex = tokenTransport === "codex-responses";
   const codexContext = isCodex ? trimCodexBodyForContext(body) : null;
   const upstreamBody = codexContext?.body ?? body;
   if (codexContext?.trimmed) {
@@ -1429,18 +1439,38 @@ export async function handleMessagesViaOpenAI(
   const upstreamReq = isCodex
     ? toCodexRequest(upstreamBody)
     : toOpenAIRequest(upstreamBody);
+  // Build the Codex request ONCE. Response attestation is derived from this
+  // exact post-mapping payload, never copied from the Anthropic input.
+  const codexRequest = isCodex
+    ? prepareCodexResponsesRequest(upstreamReq)
+    : undefined;
+  const attestedModel = codexRequest?.body.model;
+  const attestedEffort = codexRequest
+    ? codexRequestEffort(codexRequest.body)
+    : undefined;
+  const withCodexAttestation = (response: Response): Response => {
+    if (!codexRequest) return response;
+    const headers = new Headers(response.headers);
+    if (typeof attestedModel === "string")
+      headers.set("x-h2a-resolved-model", attestedModel);
+    if (attestedEffort)
+      headers.set("x-h2a-reasoning-effort", attestedEffort);
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  };
   const messageId = `msg_${Date.now().toString(36)}`;
   const estimatedInputTokens = Math.ceil(
     JSON.stringify(upstreamBody.messages).length / 4,
   );
 
   const doFetch = (token: string) => {
-    if (isCodex) {
-      const codexRequest = prepareCodexResponsesRequest(upstreamReq);
-      const effort = codexRequestEffort(codexRequest.body);
-      if (effort) {
+    if (codexRequest) {
+      if (attestedEffort) {
         console.info(
-          `[llm-gateway] Codex request: model=${String(codexRequest.body.model ?? "")} reasoning.effort=${effort}`,
+          `[llm-gateway] Codex request: model=${String(codexRequest.body.model ?? "")} reasoning.effort=${attestedEffort}`,
         );
       }
       return fetch(codexRequest.url, {
@@ -1531,14 +1561,14 @@ export async function handleMessagesViaOpenAI(
       messageId,
       estimatedInputTokens,
     );
-    return new Response(stream, {
+    return withCodexAttestation(new Response(stream, {
       status: 200,
       headers: {
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-cache",
         "x-accel-buffering": "no",
       },
-    });
+    }));
   }
 
   // Codex OAuth Responses API streams even for requests where the Anthropic
@@ -1546,14 +1576,14 @@ export async function handleMessagesViaOpenAI(
   // upstream and return a normal Anthropic Messages JSON response.
   if (isCodex && upstream.body) {
     try {
-      return c.json(
+      return withCodexAttestation(c.json(
         await codexStreamToAnthropicResponse(
           upstream.body,
           originalModel,
           messageId,
           estimatedInputTokens,
         ),
-      );
+      ));
     } catch (err) {
       return c.json(
         anthropicGatewayError(err instanceof Error ? err.message : String(err)),

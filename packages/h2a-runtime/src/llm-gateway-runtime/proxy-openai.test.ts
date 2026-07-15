@@ -35,6 +35,34 @@ function codexApp(): Hono {
 }
 
 describe("h2a runtime Codex gateway", () => {
+  it("refuses a refreshed raw credential before constrained context egress", async () => {
+    const upstreamFetch = vi.fn(() => {
+      throw new Error("raw credential must not receive constrained context");
+    });
+    vi.stubGlobal("fetch", upstreamFetch);
+    const app = new Hono();
+    app.post("/v1/messages", (c) =>
+      handleMessagesViaOpenAI(c, {
+        token: "sk-refreshed-raw",
+        requiredTransport: "codex-responses",
+      }),
+    );
+
+    const response = await app.fetch(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-opus-4-8",
+          messages: [{ role: "user", content: "refresh-sensitive context" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(upstreamFetch).not.toHaveBeenCalled();
+  });
+
   it("keeps xhigh Claude requests as Codex xhigh", () => {
     const req = toCodexRequest({
       model: "claude-opus-4-8",
@@ -45,7 +73,7 @@ describe("h2a runtime Codex gateway", () => {
     });
 
     expect(req).toMatchObject({
-      model: "gpt-5.5",
+      model: "gpt-5.6-terra",
       reasoning: { effort: "xhigh" },
     });
   });
@@ -84,9 +112,11 @@ describe("h2a runtime Codex gateway", () => {
     expect(res.status).toBe(200);
     const upstreamInit = fetchMock.mock.calls[0]![1] as RequestInit;
     expect(JSON.parse(String(upstreamInit.body))).toMatchObject({
-      model: "gpt-5.5",
+      model: "gpt-5.6-terra",
       reasoning: { effort: "xhigh" },
     });
+    expect(res.headers.get("x-h2a-resolved-model")).toBe("gpt-5.6-terra");
+    expect(res.headers.get("x-h2a-reasoning-effort")).toBe("xhigh");
   });
 
   it("replaces unsupported image tool results before Codex trimming and preserves final text", () => {

@@ -274,6 +274,12 @@ function buildHappyArgv(verb, ctx) {
       return ["hosts"];
     case "mcp-tools":
       return ["mcp-tools"];
+    case "report-context":
+      return ["report-context", "--workspace-root", join(root, ".."), "--root", root];
+    case "report-ai":
+    case "report-ai install-track-config":
+      // Async gateway adapter and user-XDG installer have hermetic dedicated tests.
+      return null;
     case "init":
       // Fresh sub-root so we don't collide with the bootstrap.
       return ["init", "--root", join(root, "..", "init-sub")];
@@ -839,6 +845,9 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "--help",
     "hosts",
     "mcp-tools",
+    "report-context",
+    "report-ai",
+    "report-ai install-track-config",
     "init",
     "register",
     "discover",
@@ -852,6 +861,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "loop watch",
     "canevas list",
     "canevas serve",
+    "focus serve",
+    "focus web",
     "negotiate open",
     "negotiate status",
     "negotiate event",
