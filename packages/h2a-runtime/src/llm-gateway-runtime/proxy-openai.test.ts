@@ -45,7 +45,7 @@ describe("h2a runtime Codex gateway", () => {
     });
 
     expect(req).toMatchObject({
-      model: "gpt-5.5",
+      model: "gpt-5.6-terra",
       reasoning: { effort: "xhigh" },
     });
   });
@@ -84,7 +84,7 @@ describe("h2a runtime Codex gateway", () => {
     expect(res.status).toBe(200);
     const upstreamInit = fetchMock.mock.calls[0]![1] as RequestInit;
     expect(JSON.parse(String(upstreamInit.body))).toMatchObject({
-      model: "gpt-5.5",
+      model: "gpt-5.6-terra",
       reasoning: { effort: "xhigh" },
     });
   });
