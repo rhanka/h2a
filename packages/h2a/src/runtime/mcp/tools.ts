@@ -568,18 +568,71 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   },
   {
     name: "h2a_loop_create",
-    description: "Create an objective loop with a goal. MVP write tool; no agents are spawned.",
-    inputSchema: { type: "object", properties: { id: { type: "string" }, name: { type: "string" }, goal: { type: "string" } }, required: ["goal"] }
+    description: "Create an objective loop with an explicitly enrolled instance. Use allowEmpty:true only for intentional staged orchestration; no agents are spawned.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        goal: { type: "string" },
+        instance: { type: "string", description: "Explicit h2a instance to enroll as the initial participant." },
+        agentId: { type: "string" },
+        role: { type: "string" },
+        required: { type: "boolean" },
+        allowEmpty: { type: "boolean", description: "Explicitly permit a staged empty loop. Never inferred." },
+        launch: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            profile: { type: "string", enum: ["claude", "codex"] },
+            workspace: { type: "string" },
+            prompt: { type: "string" },
+            model: { type: "string" },
+            name: { type: "string" },
+            effort: { type: "string", enum: ["low", "medium", "high", "xhigh"] },
+            gateway: { type: "string", enum: ["auto", "required", "off"] }
+          },
+          required: ["profile", "workspace", "prompt", "model", "name"]
+        }
+      },
+      required: ["goal"],
+      additionalProperties: false
+    }
   },
   {
     name: "h2a_loop_join",
     description: "Enroll an existing/live h2a instance as an objective-loop participant. Does not spawn agents.",
-    inputSchema: { type: "object", properties: { loopId: { type: "string" }, instance: { type: "string" }, agentId: { type: "string" }, role: { type: "string" }, required: { type: "boolean" } }, required: ["loopId", "instance"] }
+    inputSchema: {
+      type: "object",
+      properties: {
+        loopId: { type: "string" },
+        instance: { type: "string" },
+        agentId: { type: "string" },
+        role: { type: "string" },
+        required: { type: "boolean" },
+        launch: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            profile: { type: "string", enum: ["claude", "codex"] },
+            workspace: { type: "string" },
+            prompt: { type: "string" },
+            model: { type: "string" },
+            name: { type: "string" },
+            effort: { type: "string", enum: ["low", "medium", "high", "xhigh"] },
+            gateway: { type: "string", enum: ["auto", "required", "off"] }
+          },
+          required: ["profile", "workspace", "prompt", "model", "name"]
+        }
+      },
+      required: ["loopId", "instance"],
+      additionalProperties: false
+    }
   },
   {
     name: "h2a_loop_report",
-    description: "Record useful progress from an enrolled objective-loop agent.",
-    inputSchema: { type: "object", properties: { loopId: { type: "string" }, instance: { type: "string" }, agentId: { type: "string" }, note: { type: "string" } }, required: ["loopId", "note"] }
+    description: "Record useful progress from an enrolled objective-loop agent. autoJoin is an explicit recovery limited to an empty loop plus explicit instance.",
+    inputSchema: { type: "object", properties: { loopId: { type: "string" }, instance: { type: "string" }, agentId: { type: "string" }, note: { type: "string" }, autoJoin: { type: "boolean" } }, required: ["loopId", "note"], additionalProperties: false }
   },
   {
     name: "h2a_loop_done",

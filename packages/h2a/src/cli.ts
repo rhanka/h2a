@@ -229,7 +229,9 @@ import {
   readObjectiveLoop,
   reportObjectiveLoop,
   stopObjectiveLoop,
+  validateLoopLaunchSpec,
   type H2ALoopAgent,
+  type H2ALoopLaunchSpec,
   type H2ALoopRepoRef,
   type H2ALoopTrackRef
 } from "./runtime/loop/index.js";
@@ -383,9 +385,9 @@ export function renderCliHelp(): string {
     "  h2a install-skills --host <claude|codex|gemini|agy> [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
-    "  h2a loop create --name <n> --goal <text> [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement>] [--root <path>]",
-    "  h2a loop join <loopId> --instance <id> [--agent-id <id>] [--role <role>] [--root <path>]",
-    "  h2a loop report <loopId> --note <text> [--instance <id>] [--agent-id <id>] [--root <path>]",
+    "  h2a loop create --name <n> --goal <text> [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement> [--launch-stdin]] [--root <path>]",
+    "  h2a loop join <loopId> --instance <id> [--agent-id <id>] [--role <role>] [--launch-stdin] [--root <path>]",
+    "  h2a loop report <loopId> --note <text> [--instance <id>] [--agent-id <id>] [--auto-join] [--root <path>]",
     "  h2a loop done <loopId> [--note <text>] [--instance <id>] [--agent-id <id>] [--root <path>]",
     "  h2a loop stop <loopId> [--reason <text>] [--root <path>]",
     "  h2a loop list [--root <path>]",
@@ -2082,6 +2084,16 @@ function collectRepeatedFlag(argv: readonly string[], flag: string): string[] {
   return out;
 }
 
+function parseLoopLaunch(raw: string): H2ALoopLaunchSpec {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    throw new Error("--launch-stdin must contain valid JSON");
+  }
+  return validateLoopLaunchSpec(value);
+}
+
 function selectLoopAgent(loop: { agents: readonly H2ALoopAgent[] }, selector: string | undefined): H2ALoopAgent | undefined {
   if (!selector) return undefined;
   return loop.agents.find(
@@ -2098,7 +2110,14 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
     if (sub === "create") {
       const repos = collectRepeatedFlag(argv, "--repo").map(parseLoopRepo);
       const refs = collectRepeatedFlag(argv, "--track").map(parseLoopTrack);
-      const agents = collectRepeatedFlag(argv, "--agent").map(parseLoopAgent);
+      let agents = collectRepeatedFlag(argv, "--agent").map(parseLoopAgent);
+      if (flags.launch) throw new Error("--launch is unsafe because prompts must not be passed in argv; use --launch-stdin");
+      if (flags["launch-stdin"] === "true") {
+        if (agents.length !== 1) throw new Error("--launch-stdin requires exactly one --agent on loop create");
+        const launch = parseLoopLaunch(stdinText(streams) ?? "");
+        if (agents[0].host !== launch.profile) throw new Error("--agent host must match --launch-stdin profile");
+        agents = [{ ...agents[0], launch }];
+      }
       const loop = createObjectiveLoop(root, {
         ...(flags.id ? { id: flags.id } : {}),
         name: flags.name,
@@ -2122,11 +2141,14 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
         streams.stderr.write("h2a loop join: <loopId> and --instance <id> are required\n");
         return 1;
       }
+      if (flags.launch) throw new Error("--launch is unsafe because prompts must not be passed in argv; use --launch-stdin");
+      const launch = flags["launch-stdin"] === "true" ? parseLoopLaunch(stdinText(streams) ?? "") : undefined;
       const loop = joinObjectiveLoop(root, loopId, {
         instance: flags.instance,
         ...(flags["agent-id"] ? { agentId: flags["agent-id"] } : {}),
         ...(flags.role ? { role: flags.role } : {}),
-        ...(flags.required ? { required: flags.required !== "false" } : {})
+        ...(flags.required ? { required: flags.required !== "false" } : {}),
+        ...(launch !== undefined ? { launch } : {})
       });
       streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);
       return 0;
@@ -2141,6 +2163,7 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
       const loop = reportObjectiveLoop(root, loopId, {
         ...(flags.instance ? { instance: flags.instance } : {}),
         ...(flags["agent-id"] ? { agentId: flags["agent-id"] } : {}),
+        ...(flags["auto-join"] === "true" ? { autoJoin: true } : {}),
         note: flags.note
       });
       streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);

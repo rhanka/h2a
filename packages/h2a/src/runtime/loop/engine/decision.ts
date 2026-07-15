@@ -295,6 +295,15 @@ export function planLoopTick(input: TickInput): TickPlan {
     outcome = "running";
   }
 
+  // An empty loop is recoverable through join, but it is not healthy progress.
+  // Preserve stronger ref/decision outcomes (failed, blocker-stalled,
+  // waiting-human, eligible-for-close); only replace a progress-waiting/running
+  // projection. Do NOT persist a terminal status: a later join recovers it.
+  if (loop.agents.length === 0 && (outcome === "running" || outcome === "waiting-agent")) {
+    outcome = "stalled";
+    reasons.push("no agents enrolled; call h2a_loop_join (or report with explicit autoJoin:true and instance)");
+  }
+
   // 4) DECISIONS — surface pending human decisions (route only; no injection here).
   if (outcome !== "failed") {
     for (const d of inbox.pendingDecisions) {
@@ -337,6 +346,10 @@ export function planLoopTick(input: TickInput): TickPlan {
       }
       if (!projected || DEAD_STATES.has(projected.state)) {
         if (agents.degraded) continue;
+        if (a.launch === undefined) {
+          reasons.push(`agent ${a.id} is missing/dead but has no complete launch spec`);
+          continue;
+        }
         actions.push(
           action({ type: "request-launch", agentId: a.id, reason: "enrolled agent missing/dead while work pending" }),
         );
@@ -348,7 +361,14 @@ export function planLoopTick(input: TickInput): TickPlan {
     }
   }
 
-  if (actions.length === 0) actions.push(action({ type: "noop", reason: "nothing to do this tick" }));
+  if (actions.length === 0) {
+    actions.push(action({
+      type: "noop",
+      reason: loop.agents.length === 0
+        ? "no agents enrolled; join with h2a_loop_join"
+        : reasons.at(-1) ?? "nothing to do this tick"
+    }));
+  }
 
   return {
     loopId: loop.id,
