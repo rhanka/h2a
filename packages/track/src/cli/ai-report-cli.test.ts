@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -9,6 +9,10 @@ import { runCli, type CliIO } from './index.js'
 let dir: string
 let adapter: string
 let env: NodeJS.ProcessEnv
+let adapterMarker: string
+let collectorMarker: string
+let gitMarker: string
+let capture: string
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'track-ai-cli-'))
@@ -17,10 +21,27 @@ beforeEach(() => {
   mkdirSync(bin, { recursive: true })
   mkdirSync(xdg, { recursive: true })
   const h2a = join(bin, 'h2a')
-  writeFileSync(h2a, `#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({schema:'h2a.report-context/v1',storeRoot:${JSON.stringify(dir)},workspaceRoot:${JSON.stringify(dir)},entries:[],omitted:0}))\n`)
+  adapterMarker = join(dir, 'adapter-called')
+  collectorMarker = join(dir, 'h2a-called')
+  gitMarker = join(dir, 'git-called')
+  capture = join(dir, 'captured-context.json')
+  writeFileSync(h2a, `#!/usr/bin/env node
+require('node:fs').writeFileSync(${JSON.stringify(collectorMarker)}, 'called')
+process.stdout.write(JSON.stringify({schema:'h2a.report-context/v1',storeRoot:${JSON.stringify(dir)},workspaceRoot:${JSON.stringify(dir)},entries:[],omitted:0}))
+`)
   chmodSync(h2a, 0o755)
+  const git = join(bin, 'git')
+  writeFileSync(git, `#!/usr/bin/env node
+const fs = require('node:fs')
+fs.writeFileSync(${JSON.stringify(gitMarker)}, 'called')
+const args = process.argv.slice(2)
+if (args.includes('--show-toplevel')) process.stdout.write(${JSON.stringify(dir)} + '\\n')
+else if (args[0] === 'rev-parse') process.stdout.write('c1\\n')
+`)
+  chmodSync(git, 0o755)
   adapter = join(dir, 'adapter.mjs')
   writeFileSync(adapter, `
+import { writeFileSync } from 'node:fs'
 const empty = () => []
 const result = JSON.stringify({
   schema: 'track.ai-report.result/v1',
@@ -31,8 +52,14 @@ const result = JSON.stringify({
     ownerDecisions: empty(), suggestions: empty(), uncertainty: empty()
   }
 })
-process.stdin.resume()
-process.stdin.on('end', () => process.stdout.write(result))
+let input = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => { input += chunk })
+process.stdin.on('end', () => {
+  writeFileSync(${JSON.stringify(adapterMarker)}, 'called')
+  writeFileSync(${JSON.stringify(capture)}, input)
+  process.stdout.write(result)
+})
 `)
   env = {
     PATH: `${bin}:${process.env['PATH'] ?? ''}`,
@@ -70,6 +97,17 @@ describe('human AI report CLI', () => {
     expect(md.code).toBe(0)
     expect(md.out).toContain('Status \\<b\\>interpreted\\</b\\>')
     expect(md.out).toContain('adapter\\-reported: fake/fake\\-model')
+    const mdContext = JSON.parse(readFileSync(capture, 'utf8')) as {
+      context: { request: { emphasis: string; decisionEmphasis: string; activeRoster: boolean } }
+    }
+    expect(mdContext.context.request).toMatchObject({
+      emphasis: 'workpackages', decisionEmphasis: 'all', activeRoster: true,
+    })
+
+    const flat = run(['report', '--flat', '--commit', 'c1'])
+    expect(flat.code).toBe(0)
+    const flatContext = JSON.parse(readFileSync(capture, 'utf8')) as { context: { request: { emphasis: string } } }
+    expect(flatContext.context.request.emphasis).toBe('flat')
 
     const html = run(['report', '--format', 'html', '--commit', 'c1'])
     expect(html.code).toBe(0)
@@ -83,18 +121,86 @@ describe('human AI report CLI', () => {
 
   it('should enforce the normative incompatible combinations before adapter invocation', () => {
     for (const args of [
+      ['report', '--commit'],
+      ['report', '--format'],
+      ['report', '--width'],
+      ['report', '--level'],
       ['report', '--inline', '--format', 'md'],
+      ['report', '--inline', '--format', 'json'],
+      ['report', '--inline', '--format', 'html'],
       ['report', '--format', 'html', '--width', '80'],
       ['report', '--width', '39'],
+      ['report', '--width', '241'],
+      ['report', '--width', 'wide'],
+      ['report', '--wp', '--flat'],
       ['report', '--level', 'wp', '--wp'],
+      ['report', '--level', 'wp', '--flat'],
+      ['report', '--level', 'wp', '--inline'],
+      ['report', '--level', 'wp', '--width', '80'],
+      ['report', '--level', 'wp', '--decisions'],
+      ['report', '--level', 'wp', '--active-roster'],
+      ['report', '--level', 'wp', '--raw'],
+      ['report', '--level', 'wp', '--format', 'html'],
       ['report', '--raw', '--format', 'html'],
+      ['report', '--raw', '--format'],
+      ['report', '--raw', '--commit'],
+      ['report', '--raw', '--inline'],
+      ['report', '--raw', '--width', '80'],
+      ['report', '--raw', '--wp'],
+      ['report', '--raw', '--flat'],
+      ['report', '--raw', '--decisions'],
+      ['report', '--raw', '--active-roster'],
+      ['snapshot', '--commit'],
+      ['snapshot', '--format'],
+      ['snapshot', '--format', 'html'],
+      ['snapshot', '--raw'],
       ['snapshot', '--inline'],
+      ['snapshot', '--width', '80'],
+      ['snapshot', '--wp'],
+      ['snapshot', '--flat'],
+      ['snapshot', '--decisions'],
+      ['snapshot', '--active-roster'],
+      ['snapshot', '--level', 'wp'],
     ]) {
       const result = run(args)
       expect(result.code, args.join(' ')).toBe(1)
       expect(result.err, args.join(' ')).toContain('error:')
+      expect(existsSync(gitMarker), `git invoked before rejecting ${args.join(' ')}`).toBe(false)
+      expect(existsSync(collectorMarker), `h2a invoked before rejecting ${args.join(' ')}`).toBe(false)
+      expect(existsSync(adapterMarker), `adapter invoked before rejecting ${args.join(' ')}`).toBe(false)
     }
   })
+
+  it('should accept every normative report/snapshot/status format and width boundary', () => {
+    expect(run(['init']).code).toBe(0)
+    for (const args of [
+      ['report'],
+      ['report', '--format', 'text'],
+      ['report', '--format', 'md'],
+      ['report', '--format', 'html'],
+      ['report', '--inline'],
+      ['report', '--inline', '--format', 'text'],
+      ['report', '--width', '40'],
+      ['report', '--width', '240', '--format', 'text'],
+      ['report', '--wp'],
+      ['report', '--flat'],
+      ['report', '--decisions'],
+      ['report', '--active-roster'],
+      ['report', '--format', 'json', '--wp', '--decisions', '--active-roster'],
+      ['report', '--raw'],
+      ['report', '--raw', '--format', 'text'],
+      ['report', '--raw', '--format', 'md'],
+      ['snapshot'],
+      ['snapshot', '--format', 'text'],
+      ['snapshot', '--format', 'md'],
+      ['report', '--level', 'wp', '--format', 'json'],
+      ['report', '--level', 'wp', '--format', 'text'],
+      ['report', '--level', 'wp', '--format', 'md'],
+    ]) {
+      const result = run(args)
+      expect(result.code, `${args.join(' ')}: ${result.err}`).toBe(0)
+    }
+  }, 20_000)
 
   it('should fail honestly without configuration while JSON and raw paths remain provider-free', () => {
     delete env['TRACK_REPORT_AI_ARGV']

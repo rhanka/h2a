@@ -1,10 +1,15 @@
 import { canonicalize } from '../events/canonical.js'
 import type { TrackEvent } from '../events/types.js'
 import { fold } from '../state/fold.js'
-import { buildReport, type Report } from './build.js'
+import {
+  buildReport,
+  type DecisionRow,
+  type Report,
+  type ReportRow,
+} from './build.js'
 import { buildDirectives } from './directive.js'
 import { directivePhrase, wpTotals, type WpTotals } from './format.js'
-import type { WpNode } from './rollup.js'
+import type { WpLeaf, WpLeafBlocker, WpNode } from './rollup.js'
 
 export const SNAPSHOT_SCHEMA = 'track.snapshot/v1' as const
 export const SNAPSHOT_EVENT_LIMIT = 200
@@ -25,10 +30,49 @@ export interface SnapshotRecentEvent {
   summary?: string
 }
 
+export type SnapshotReportRow = Pick<
+  ReportRow,
+  | 'id' | 'title' | 'kind' | 'workspace' | 'bucket' | 'realization' | 'acceptance'
+  | 'priority' | 'accountable' | 'engagementRef' | 'role' | 'wpId' | 'wpLabel'
+> & { detail: { acceptanceLabel: string } }
+
+export type SnapshotDecisionRow = Pick<
+  DecisionRow,
+  | 'id' | 'title' | 'workspace' | 'decisionKind' | 'realization' | 'outcome'
+  | 'accountable' | 'optionCount' | 'openQuestionCount' | 'hasRecommendation'
+>
+
+export type SnapshotWpLeafBlocker = Pick<
+  WpLeafBlocker,
+  'blockerId' | 'kind' | 'ref' | 'scope' | 'resolutionRule' | 'engagementRef' | 'reason'
+>
+
+export type SnapshotWpLeaf = Pick<
+  WpLeaf,
+  | 'id' | 'title' | 'bucket' | 'kind' | 'workspace' | 'realization' | 'acceptance'
+  | 'priority' | 'specStatus' | 'accountable' | 'engagementRef' | 'awaitedOnDecision'
+> & { openBlockers: SnapshotWpLeafBlocker[] }
+
+export type SnapshotWpNode = Pick<
+  WpNode,
+  'id' | 'title' | 'label' | 'code' | 'role' | 'done' | 'active' | 'dropped' | 'pct' | 'terminal' | 'partial'
+> & { leaves: SnapshotWpLeaf[]; children: SnapshotWpNode[] }
+
+export interface SnapshotReport {
+  buckets: {
+    AWAITED: SnapshotReportRow[]
+    DROPPED: SnapshotReportRow[]
+    DONE: SnapshotReportRow[]
+    'TO-DO': SnapshotReportRow[]
+  }
+  decisions: SnapshotDecisionRow[]
+  wpTree: SnapshotWpNode[]
+}
+
 export interface SnapshotV1 {
   schema: typeof SNAPSHOT_SCHEMA
   baseline: { input: string; resolvedCommit: string }
-  report: Report
+  report: SnapshotReport
   wpTotals: WpTotals
   directives: SnapshotDirective[]
   recentEvents: SnapshotRecentEvent[]
@@ -69,6 +113,101 @@ function stableReport(report: Report): Report {
   }
 }
 
+function projectRow(row: ReportRow): SnapshotReportRow {
+  return {
+    id: row.id,
+    title: row.title,
+    kind: row.kind,
+    workspace: row.workspace,
+    bucket: row.bucket,
+    realization: row.realization,
+    acceptance: row.acceptance,
+    ...(row.priority !== undefined ? { priority: row.priority } : {}),
+    ...(row.accountable !== undefined ? { accountable: row.accountable } : {}),
+    ...(row.engagementRef !== undefined ? { engagementRef: row.engagementRef } : {}),
+    ...(row.role !== undefined ? { role: row.role } : {}),
+    ...(row.wpId !== undefined ? { wpId: row.wpId } : {}),
+    ...(row.wpLabel !== undefined ? { wpLabel: row.wpLabel } : {}),
+    detail: { acceptanceLabel: row.detail.acceptanceLabel },
+  }
+}
+
+function projectDecision(decision: DecisionRow): SnapshotDecisionRow {
+  return {
+    id: decision.id,
+    title: decision.title,
+    workspace: decision.workspace,
+    decisionKind: decision.decisionKind,
+    realization: decision.realization,
+    outcome: decision.outcome,
+    ...(decision.accountable !== undefined ? { accountable: decision.accountable } : {}),
+    ...(decision.optionCount !== undefined ? { optionCount: decision.optionCount } : {}),
+    ...(decision.openQuestionCount !== undefined ? { openQuestionCount: decision.openQuestionCount } : {}),
+    ...(decision.hasRecommendation !== undefined ? { hasRecommendation: decision.hasRecommendation } : {}),
+  }
+}
+
+function projectBlocker(blocker: WpLeafBlocker): SnapshotWpLeafBlocker {
+  return {
+    blockerId: blocker.blockerId,
+    kind: blocker.kind,
+    reason: blocker.reason,
+    ...(blocker.ref !== undefined ? { ref: blocker.ref } : {}),
+    ...(blocker.scope !== undefined ? { scope: blocker.scope } : {}),
+    ...(blocker.resolutionRule !== undefined ? { resolutionRule: blocker.resolutionRule } : {}),
+    ...(blocker.engagementRef !== undefined ? { engagementRef: blocker.engagementRef } : {}),
+  }
+}
+
+function projectLeaf(leaf: WpLeaf): SnapshotWpLeaf {
+  return {
+    id: leaf.id,
+    title: leaf.title,
+    bucket: leaf.bucket,
+    kind: leaf.kind,
+    workspace: leaf.workspace,
+    realization: leaf.realization,
+    acceptance: leaf.acceptance,
+    specStatus: leaf.specStatus,
+    openBlockers: leaf.openBlockers.map(projectBlocker),
+    ...(leaf.priority !== undefined ? { priority: leaf.priority } : {}),
+    ...(leaf.accountable !== undefined ? { accountable: leaf.accountable } : {}),
+    ...(leaf.engagementRef !== undefined ? { engagementRef: leaf.engagementRef } : {}),
+    ...(leaf.awaitedOnDecision !== undefined ? { awaitedOnDecision: leaf.awaitedOnDecision } : {}),
+  }
+}
+
+function projectNode(node: WpNode): SnapshotWpNode {
+  return {
+    id: node.id,
+    title: node.title,
+    label: node.label,
+    done: node.done,
+    active: node.active,
+    dropped: node.dropped,
+    pct: node.pct,
+    leaves: node.leaves.map(projectLeaf),
+    children: node.children.map(projectNode),
+    ...(node.code !== undefined ? { code: node.code } : {}),
+    ...(node.role !== undefined ? { role: node.role } : {}),
+    ...(node.terminal !== undefined ? { terminal: node.terminal } : {}),
+    ...(node.partial !== undefined ? { partial: node.partial } : {}),
+  }
+}
+
+function projectReport(report: Report): SnapshotReport {
+  return {
+    buckets: {
+      AWAITED: report.buckets.AWAITED.map(projectRow),
+      DROPPED: report.buckets.DROPPED.map(projectRow),
+      DONE: report.buckets.DONE.map(projectRow),
+      'TO-DO': report.buckets['TO-DO'].map(projectRow),
+    },
+    decisions: (report.decisions ?? []).map(projectDecision),
+    wpTree: (report.wpTree ?? []).map(projectNode),
+  }
+}
+
 /**
  * A deliberately narrow event summary. Never copy arbitrary prose-bearing payload fields: the event kind,
  * aggregate id, and append position already carry the useful change signal for the AI context.
@@ -106,7 +245,7 @@ export function buildSnapshot(events: readonly TrackEvent[], options: SnapshotOp
   return {
     schema: SNAPSHOT_SCHEMA,
     baseline: { input: options.baselineInput, resolvedCommit: options.resolvedCommit },
-    report,
+    report: projectReport(report),
     wpTotals: wpTotals(report.wpTree ?? []),
     directives,
     recentEvents: recentEvents(events),
