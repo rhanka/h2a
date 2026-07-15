@@ -70,7 +70,9 @@ import {
   listObjectiveLoops,
   readObjectiveLoop,
   reportObjectiveLoop,
-  stopObjectiveLoop
+  stopObjectiveLoop,
+  validateLoopLaunchSpec,
+  type H2ALoopLaunchSpec
 } from "../loop/index.js";
 
 export interface McpToolResult {
@@ -1322,11 +1324,39 @@ export function notImplemented(toolName: string): McpErrorResult {
 
 export function handleLoopCreate(
   root: string,
-  args: { id?: string; name?: string; goal?: string } | undefined
+  args: {
+    id?: string;
+    name?: string;
+    goal?: string;
+    instance?: string;
+    agentId?: string;
+    role?: string;
+    required?: boolean;
+    allowEmpty?: boolean;
+    launch?: unknown;
+  } | undefined
 ): McpToolResult | McpErrorResult {
   if (typeof args?.goal !== "string" || args.goal.length === 0) return { error: "h2a_loop_create: goal is required" };
+  if ((typeof args.instance !== "string" || args.instance.length === 0) && args.allowEmpty !== true) {
+    return { error: "h2a_loop_create: explicit instance is required; use allowEmpty:true only for intentional staged orchestration" };
+  }
   try {
-    const loop = createObjectiveLoop(root, { ...(args.id ? { id: args.id } : {}), ...(args.name ? { name: args.name } : {}), goal: args.goal });
+    const launch: H2ALoopLaunchSpec | undefined = args.launch === undefined
+      ? undefined
+      : validateLoopLaunchSpec(args.launch);
+    if (launch !== undefined && (typeof args.instance !== "string" || args.instance.length === 0)) {
+      return { error: "h2a_loop_create: launch requires an explicit initial instance" };
+    }
+    let loop = createObjectiveLoop(root, { ...(args.id ? { id: args.id } : {}), ...(args.name ? { name: args.name } : {}), goal: args.goal });
+    if (typeof args.instance === "string" && args.instance.length > 0) {
+      loop = joinObjectiveLoop(root, loop.id, {
+        instance: args.instance,
+        ...(args.agentId ? { agentId: args.agentId } : {}),
+        role: args.role ?? "conductor",
+        required: args.required ?? true,
+        ...(launch !== undefined ? { launch } : {})
+      });
+    }
     return { kind: "loop-created", version: 1, loop };
   } catch (err) {
     return { error: (err as Error).message };
@@ -1335,12 +1365,19 @@ export function handleLoopCreate(
 
 export function handleLoopJoin(
   root: string,
-  args: { loopId?: string; instance?: string; agentId?: string; role?: string; required?: boolean } | undefined
+  args: { loopId?: string; instance?: string; agentId?: string; role?: string; required?: boolean; launch?: unknown } | undefined
 ): McpToolResult | McpErrorResult {
   if (typeof args?.loopId !== "string" || args.loopId.length === 0) return { error: "h2a_loop_join: loopId is required" };
   if (typeof args.instance !== "string" || args.instance.length === 0) return { error: "h2a_loop_join: instance is required" };
   try {
-    const loop = joinObjectiveLoop(root, args.loopId, { instance: args.instance, ...(args.agentId ? { agentId: args.agentId } : {}), ...(args.role ? { role: args.role } : {}), ...(typeof args.required === "boolean" ? { required: args.required } : {}) });
+    const launch = args.launch === undefined ? undefined : validateLoopLaunchSpec(args.launch);
+    const loop = joinObjectiveLoop(root, args.loopId, {
+      instance: args.instance,
+      ...(args.agentId ? { agentId: args.agentId } : {}),
+      ...(args.role ? { role: args.role } : {}),
+      ...(typeof args.required === "boolean" ? { required: args.required } : {}),
+      ...(launch !== undefined ? { launch } : {})
+    });
     return { kind: "loop-joined", version: 1, loop };
   } catch (err) {
     return { error: (err as Error).message };
@@ -1349,12 +1386,17 @@ export function handleLoopJoin(
 
 export function handleLoopReport(
   root: string,
-  args: { loopId?: string; instance?: string; agentId?: string; note?: string } | undefined
+  args: { loopId?: string; instance?: string; agentId?: string; note?: string; autoJoin?: boolean } | undefined
 ): McpToolResult | McpErrorResult {
   if (typeof args?.loopId !== "string" || args.loopId.length === 0) return { error: "h2a_loop_report: loopId is required" };
   if (typeof args.note !== "string" || args.note.length === 0) return { error: "h2a_loop_report: note is required" };
   try {
-    const loop = reportObjectiveLoop(root, args.loopId, { ...(args.instance ? { instance: args.instance } : {}), ...(args.agentId ? { agentId: args.agentId } : {}), note: args.note });
+    const loop = reportObjectiveLoop(root, args.loopId, {
+      ...(args.instance ? { instance: args.instance } : {}),
+      ...(args.agentId ? { agentId: args.agentId } : {}),
+      ...(args.autoJoin === true ? { autoJoin: true } : {}),
+      note: args.note
+    });
     return { kind: "loop-reported", version: 1, loop };
   } catch (err) {
     return { error: (err as Error).message };

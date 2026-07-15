@@ -35,14 +35,19 @@ test("h2a loop tick produit un plan dry-run (resource) + code 0", () => {
     assert.equal(plan.degraded, false);
     assert.equal(typeof plan.outcome, "string");
     assert.ok(Array.isArray(plan.actions), "plan.actions doit être un tableau");
-    // Aucune ref déclarée → running + noop (le core ne close jamais sans refs).
+    // Une loop vide n'est pas terminale, mais elle doit être explicitement
+    // stalled/actionnable au lieu de paraître saine avec running+noop.
+    assert.equal(plan.outcome, "stalled");
+    assert.ok(plan.reasons.some((reason) => /no agents enrolled/i.test(reason)));
+    assert.ok(plan.actions.some((action) => action.type === "noop" && /join/i.test(action.reason)));
+    // Aucune ref déclarée → le core ne close jamais sans refs.
     assert.equal(plan.close, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("h2a loop watch --max 1 exécute une relance gardée par défaut", () => {
+test("h2a loop watch --max 1 refuse une relance sans launch spec explicite", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-loop-"));
   try {
     const created = run(["loop", "create", "--name", "t", "--goal", "g", "--root", dir]);
@@ -55,8 +60,10 @@ test("h2a loop watch --max 1 exécute une relance gardée par défaut", () => {
     assert.equal(lines.length, 1, "watch --max 1 doit émettre exactement 1 plan");
     const plan = JSON.parse(lines[0]);
     assert.equal(plan.loopId, loopId);
-    assert.ok(plan.exec, "watch/run MVP doit exécuter par défaut les actions de relance gardées");
-    assert.ok(plan.exec.results.some((r) => r.type === "request-launch" && r.agentId === "a1"));
+    assert.ok(plan.exec, "watch/run doit produire un rapport d'exécution");
+    assert.equal(plan.exec.results.length, 0);
+    assert.ok(!plan.actions.some((a) => a.type === "request-launch"));
+    assert.match(plan.actions[0].reason, /no complete launch spec/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -101,7 +108,7 @@ test("h2a loop tick préfère wake quand une présence h2a live+tmux existe", ()
   }
 });
 
-test("h2a loop watch --dry-run reste observation-only", () => {
+test("h2a loop watch --dry-run reste observation-only et ne fabrique pas de launch spec", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-loop-"));
   try {
     const created = run(["loop", "create", "--name", "t", "--goal", "g", "--root", dir]);
@@ -113,7 +120,8 @@ test("h2a loop watch --dry-run reste observation-only", () => {
     const plan = JSON.parse(watched.stdout.trim());
     assert.equal(plan.loopId, loopId);
     assert.equal(plan.exec, undefined);
-    assert.ok(plan.actions.some((a) => a.type === "request-launch" && a.agentId === "a1"));
+    assert.ok(!plan.actions.some((a) => a.type === "request-launch"));
+    assert.match(plan.actions[0].reason, /no complete launch spec/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

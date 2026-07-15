@@ -228,9 +228,9 @@ Drive an objective loop: a durable, shared relay state where several CLI agents 
 
 **Supported verbs:**
 
-- `/h2a loop create --goal "<goal>" [--name <name>] [--id <loop-id>] [--agent <host:role:local>] [--ref <ref>]` — create the loop. CLI: `h2a loop create`. MCP: `h2a_loop_create`.
-- `/h2a loop join <loop-id> --instance <self> [--agent-id <id>] [--role <role>] [--required=false]` — join an existing loop or fill a predeclared agent slot. CLI: `h2a loop join`. MCP: `h2a_loop_join`.
-- `/h2a loop report <loop-id> --agent-id <id> --status <running|blocked|done> [--note "..."]` — append an agent status report. CLI: `h2a loop report`. MCP: `h2a_loop_report`.
+- `/h2a loop create --goal "<goal>" [--name <name>] [--id <loop-id>] [--agent <host:role:local>] [--ref <ref>]` — create the loop. MCP create requires an explicit initial `instance`, unless `allowEmpty:true` explicitly requests a staged empty loop. CLI: `h2a loop create`. MCP: `h2a_loop_create`.
+- `/h2a loop join <loop-id> --instance <self> [--agent-id <id>] [--role <role>] [--required=false]` — join an existing loop or fill a predeclared agent slot. A strict Claude/Codex relaunch spec may be supplied as the MCP `launch` object, or to the CLI only through `--launch-stdin`; never place its prompt in argv. CLI: `h2a loop join`. MCP: `h2a_loop_join`.
+- `/h2a loop report <loop-id> --agent-id <id> [--note "..."]` — append an agent progress report. A legacy/staged empty loop may recover with explicit `autoJoin:true` + `instance`; this shortcut is refused once any participant exists. CLI: `h2a loop report`. MCP: `h2a_loop_report`.
 - `/h2a loop done <loop-id> --ref <ref> [--agent-id <id>] [--note "..."]` — mark one loop reference done. CLI: `h2a loop done`. MCP: `h2a_loop_done`.
 - `/h2a loop stop <loop-id> [--reason "..."]` — stop the loop; later `tick/run --execute` must not perform close actions. CLI: `h2a loop stop`. MCP: `h2a_loop_stop`.
 - `/h2a loop list` / `/h2a loop status <loop-id>` — read-only projections. CLI or MCP: `h2a_loop_list`, `h2a_loop_status`.
@@ -241,8 +241,10 @@ Drive an objective loop: a durable, shared relay state where several CLI agents 
 1. Prefer MCP tools when the host exposes them; otherwise call the CLI with `--root <root>`.
 2. Always use the current resolved perennial `instance` from `/h2a connect`; do not invent agent ids except as local slot ids (`agent-1`, `reviewer`, etc.).
 3. If the user asks for a Codex/Claude relay, create the loop with predeclared `--agent` slots, ask each live peer to `join`, then use `report`/`done` to converge.
-4. Treat `stopped` as terminal. Do not restart or close a stopped loop unless the user explicitly creates a new loop.
-5. Print the loop id and the next concrete command/tool call for the peer.
+4. Treat an empty-loop `stalled` plan as recoverable: call `h2a_loop_join`, or use explicit empty-only `autoJoin:true` on the first report. Never infer the caller identity.
+5. A missing/dead agent is auto-launched only when its persisted `launch` spec is complete. `gateway:"required"` is Claude-only (Codex `auto` is effective `direct`). Wake and launch share one durable cooldown/maxRelaunches budget; human deferrals consume neither.
+6. Treat `stopped` as terminal. Do not restart or close a stopped loop unless the user explicitly creates a new loop.
+7. Print the loop id and the next concrete command/tool call for the peer.
 
 ### `/h2a model "<situation>"`
 

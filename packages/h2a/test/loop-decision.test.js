@@ -172,7 +172,10 @@ test("agent enrôlé manquant + travail en cours → request-launch", () => {
   const t = ref("target", "WP-1");
   const loop = makeLoop({
     refs: [t],
-    agents: [{ id: "a1", host: "codex", role: "impl", placement: "local", status: "running", remoteJobId: "job-x" }],
+    agents: [{
+      id: "a1", host: "codex", role: "impl", placement: "local", status: "running", remoteJobId: "job-x",
+      launch: { profile: "codex", workspace: "/x", prompt: "resume", model: "gpt-5.6-terra", name: "a1" }
+    }],
   });
   const plan = planLoopTick({
     loop,
@@ -184,6 +187,22 @@ test("agent enrôlé manquant + travail en cours → request-launch", () => {
   });
   const launch = plan.actions.find((a) => a.type === "request-launch");
   assert.ok(launch && launch.agentId === "a1");
+});
+
+test("agent missing sans launch spec → noop actionnable, jamais spawn implicite", () => {
+  const loop = makeLoop({
+    agents: [{ id: "a1", host: "codex", role: "impl", placement: "local", status: "running" }]
+  });
+  const plan = planLoopTick({
+    loop,
+    agents: { degraded: false, agents: [] },
+    presence: EMPTY_PRESENCE,
+    refs: NO_REFS,
+    inbox: EMPTY_INBOX,
+    now: NOW
+  });
+  assert.ok(!types(plan).includes("request-launch"));
+  assert.match(plan.actions[0].reason, /no complete launch spec/);
 });
 
 test("agent enrôlé idle + travail en cours → wake", () => {
