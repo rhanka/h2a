@@ -32,9 +32,9 @@ const CODEX_CAPABILITIES = ["streaming", "tools", "reasoning_effort"] as const;
 
 const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
   {
-    id: "gpt-5.6-luna",
+    id: "gpt-5.6-terra",
     provider: "codex",
-    upstreamModel: "gpt-5.6-luna",
+    upstreamModel: "gpt-5.6-terra",
     accountPool: "codex",
     inputProtocol: "anthropic.messages",
     outputProtocol: "anthropic.messages",
@@ -54,9 +54,9 @@ const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
     aliases: ["claude-fable-5", "fable-5"],
   },
   {
-    id: "gpt-5.6-terra",
+    id: "gpt-5.6-luna",
     provider: "codex",
-    upstreamModel: "gpt-5.6-terra",
+    upstreamModel: "gpt-5.6-luna",
     accountPool: "codex",
     inputProtocol: "anthropic.messages",
     outputProtocol: "anthropic.messages",

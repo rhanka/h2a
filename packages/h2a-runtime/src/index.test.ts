@@ -15,6 +15,8 @@ const SCRATCH_ROOT = join(
   "index-test",
 );
 mkdirSync(SCRATCH_ROOT, { recursive: true });
+const LOCAL_PROJECT_DIR = join(SCRATCH_ROOT, "proj");
+mkdirSync(LOCAL_PROJECT_DIR, { recursive: true });
 
 const createRemoteSession = vi.fn();
 const attach = vi.fn();
@@ -157,14 +159,23 @@ const stdoutWrite = vi
   .mockImplementation(() => true);
 
 const {
+  H2A_RUNTIME_CLI_API_VERSION,
   conductLoop,
+  dispatchH2a,
   main,
+  packageName,
   parseWatchMinutes,
   softRefreshAllSessions,
   watchRefreshLoop,
 } = await import("./index.js");
 
 describe("main", () => {
+  it("exports the canonical versioned h2a runtime capability", () => {
+    expect(packageName).toBe("@sentropic/h2a-runtime");
+    expect(H2A_RUNTIME_CLI_API_VERSION).toBe(1);
+    expect(dispatchH2a).toBe(main);
+  });
+
   beforeEach(() => {
     createRemoteSession.mockReset();
     attach.mockReset();
@@ -298,15 +309,23 @@ describe("main", () => {
   });
 
   it("local `h2a run <profile>` attaches immediately by default", async () => {
-    const exitCode = await main(["node", "remote", "run", "claude", "/tmp/proj"]);
+    const exitCode = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      LOCAL_PROJECT_DIR,
+    ]);
 
     expect(exitCode).toBe(0);
     expect(startLocalSession).toHaveBeenCalledWith(
       "claude",
       expect.any(String),
-      "/tmp/proj",
+      LOCAL_PROJECT_DIR,
       expect.any(Array),
       undefined,
+      "remote",
+      {},
     );
     expect(attachLocalSession).toHaveBeenCalledWith("remote-proj");
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).not.toContain(
@@ -320,7 +339,7 @@ describe("main", () => {
       "remote",
       "run",
       "claude",
-      "/tmp/proj",
+      LOCAL_PROJECT_DIR,
       "--no-attach",
     ]);
 
@@ -1081,7 +1100,7 @@ describe("main", () => {
     });
   });
 
-  describe("h2a bridge", () => {
+  describe("relay bridge", () => {
     const bridged = (over: Partial<Record<string, unknown>> = {}) => ({
       sessionId: "sess-1",
       pulled: 0,
@@ -1098,13 +1117,13 @@ describe("main", () => {
       bridgeSession.mockResolvedValue(bridged());
     });
 
-    it("h2a ping queues an h2a.ping envelope in the requested local root", async () => {
+    it("relay ping queues an h2a.ping envelope in the requested local root", async () => {
       const root = mkdtempSync(join(SCRATCH_ROOT, "h2a-ping-"));
       try {
         const exitCode = await main([
           "node",
-          "remote",
           "h2a",
+          "relay",
           "ping",
           "codex:remote:sess-1",
           "--root",
@@ -1113,7 +1132,7 @@ describe("main", () => {
 
         expect(exitCode).toBe(0);
         const out = stderrWrite.mock.calls.map((c) => String(c[0])).join("");
-        expect(out).toContain("h2a ping queued for codex:remote:sess-1");
+        expect(out).toContain("relay ping queued for codex:remote:sess-1");
         expect(out).toContain(root);
         const path = out.match(/: (.*env__.*h2a_ping\.json)/)?.[1];
         expect(path).toBeDefined();
@@ -1123,7 +1142,7 @@ describe("main", () => {
       }
     });
 
-    it("with a sessionId bridges that session with its control-plane profile", async () => {
+    it("keeps the legacy nested h2a namespace as an argv alias", async () => {
       getDefaultRemote.mockReturnValue("http://localhost:8080");
       getRemoteSession.mockResolvedValue({ session: { profile: "claude" } });
       bridgeSession.mockResolvedValue(
@@ -1132,7 +1151,7 @@ describe("main", () => {
 
       const exitCode = await main([
         "node",
-        "remote",
+        "h2a",
         "h2a",
         "bridge",
         "sess-1",
@@ -1158,7 +1177,7 @@ describe("main", () => {
         .mockRejectedValueOnce(new Error("pod gone"))
         .mockResolvedValueOnce(bridged({ sessionId: "sess-b", pushed: 1 }));
 
-      const exitCode = await main(["node", "remote", "h2a", "bridge"]);
+      const exitCode = await main(["node", "h2a", "relay", "bridge"]);
 
       expect(exitCode).toBe(1);
       expect(bridgeSession).toHaveBeenCalledTimes(2);
@@ -1169,15 +1188,15 @@ describe("main", () => {
         profile: "codex",
       });
       const out = stderrWrite.mock.calls.map((c) => String(c[0])).join("");
-      expect(out).toContain("h2a bridge sess-a failed: pod gone");
-      expect(out).toContain("h2a bridge sess-b (codex) pulled=0 pushed=1");
+      expect(out).toContain("relay bridge sess-a failed: pod gone");
+      expect(out).toContain("relay bridge sess-b (codex) pulled=0 pushed=1");
     });
 
     it("no live sessions = clean no-op (exit 0)", async () => {
       getDefaultRemote.mockReturnValue("http://localhost:8080");
       listRemoteSessions.mockResolvedValue([]);
 
-      const exitCode = await main(["node", "remote", "h2a", "bridge"]);
+      const exitCode = await main(["node", "h2a", "relay", "bridge"]);
 
       expect(exitCode).toBe(0);
       expect(bridgeSession).not.toHaveBeenCalled();
@@ -1188,7 +1207,7 @@ describe("main", () => {
     it("rejects an invalid --watch value before touching anything", async () => {
       getDefaultRemote.mockReturnValue("http://localhost:8080");
       await expect(
-        main(["node", "remote", "h2a", "bridge", "--watch", "0.5"]),
+        main(["node", "h2a", "relay", "bridge", "--watch", "0.5"]),
       ).rejects.toThrow(/--watch needs a whole number of minutes >= 1/);
       expect(listRemoteSessions).not.toHaveBeenCalled();
       expect(bridgeSession).not.toHaveBeenCalled();
@@ -1201,8 +1220,8 @@ describe("main", () => {
 
       const exitCode = await main([
         "node",
-        "remote",
         "h2a",
+        "relay",
         "bridge",
         "sess-1",
       ]);

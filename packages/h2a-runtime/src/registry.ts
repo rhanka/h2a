@@ -42,6 +42,7 @@ export type RegistrySource = "run" | "hook" | "scan" | "remote";
  */
 export type RegistryRole = "job";
 export type JobState = "pending" | "running" | "throttled" | "done" | "failed";
+export type RegistrySessionClass = "human" | "background";
 
 /**
  * Rate-limit ("throttled") bookkeeping for a HEADLESS LOCAL job whose agent CLI
@@ -82,6 +83,8 @@ export type RegistryEntry = {
   lastSeenAt: string;
   endedAt?: string;
   source: RegistrySource;
+  /** Human-facing sessions may be restored; background MCP launches may not. */
+  sessionClass?: RegistrySessionClass;
   /** "job" marks a delegated agent (see `delegate.ts`); absent = a session. */
   role?: RegistryRole;
   /** Lifecycle of a delegated job (role "job" only). */
@@ -116,7 +119,7 @@ export type RegistryEntry = {
   throttle?: ThrottleInfo;
   /** Model override passed to the CLI binary (--model for claude, -m for codex). */
   model?: string;
-  /** Effort/reasoning override (claude --effort; not supported by codex). */
+  /** Effort/reasoning override (claude --effort; codex model_reasoning_effort). */
   effort?: string;
   /** Force a specific account from the pool (bypass selectAccountWithFallback). */
   accountId?: string;
@@ -135,6 +138,7 @@ export type EnrollInput = {
   kind: RegistryKind;
   cwd: string;
   source: RegistrySource;
+  sessionClass?: RegistrySessionClass;
   label?: string;
   convId?: string;
   remoteId?: string;
@@ -208,7 +212,10 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
     (e.source === "run" ||
       e.source === "hook" ||
       e.source === "scan" ||
-      e.source === "remote")
+      e.source === "remote") &&
+    (e.sessionClass === undefined ||
+      e.sessionClass === "human" ||
+      e.sessionClass === "background")
   );
 }
 
@@ -376,6 +383,8 @@ function applyEnroll(
   if (tmuxSession !== undefined) entry.tmuxSession = tmuxSession;
   const pid = input.pid ?? prev?.pid;
   if (pid !== undefined) entry.pid = pid;
+  const sessionClass = input.sessionClass ?? prev?.sessionClass;
+  if (sessionClass !== undefined) entry.sessionClass = sessionClass;
   const role = input.role ?? prev?.role;
   if (role !== undefined) entry.role = role;
   const jobState = input.jobState ?? prev?.jobState;
@@ -689,6 +698,7 @@ export function enrollFromRun(args: {
   cwd: string;
   convId?: string;
   gatewayMode?: "gateway" | "direct";
+  sessionClass?: RegistrySessionClass;
 }): void {
   const tool = coerceRegistryTool(args.profile);
   if (!tool) return; // shell/opencode/… sessions stay tmux-only
@@ -701,6 +711,9 @@ export function enrollFromRun(args: {
       source: "run",
       label: args.slug,
       tmuxSession: args.tmuxSession,
+      ...(args.sessionClass !== undefined
+        ? { sessionClass: args.sessionClass }
+        : {}),
       ...(args.convId !== undefined ? { convId: args.convId } : {}),
       ...(args.gatewayMode !== undefined ? { gatewayMode: args.gatewayMode } : {}),
     });

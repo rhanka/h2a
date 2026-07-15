@@ -72,7 +72,8 @@ describe('track install-skills — claude', () => {
     expect(existsSync(skillMd)).toBe(true)
     const trackCommand = join(home, '.claude', 'commands', 'track.md')
     expect(readFileSync(trackCommand, 'utf8')).toContain('track report --format text --commit HEAD')
-    expect(readFileSync(trackCommand, 'utf8')).toContain('paste the raw command output verbatim')
+    expect(readFileSync(trackCommand, 'utf8')).toContain('paste the raw, cited AI output verbatim')
+    expect(readFileSync(trackCommand, 'utf8')).toContain('factual snapshot (not an AI report)')
     // copied verbatim — frontmatter intact
     expect(readFileSync(skillMd, 'utf8')).toContain('name: present-decision')
     // assets tree copied too
@@ -142,6 +143,7 @@ describe('track install-skills — codex', () => {
     expect(text).toContain('MCP server is read-only')
     expect(text).toContain('track branch import plan/<BRANCH_FILE>.md')
     expect(text).toContain('Do not treat missing MCP write/import tools as a blocker')
+    expect(text).toContain('factual snapshot (not an AI report)')
   })
 
   it('--scope project adds an AGENTS.md pointer for each skill ONLY when AGENTS.md exists', () => {

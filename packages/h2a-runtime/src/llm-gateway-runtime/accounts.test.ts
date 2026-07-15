@@ -2,20 +2,47 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_QUOTA_EXHAUSTION_MS,
+  findAccount,
   isAccountExhausted,
   markAccountExhausted,
   providerFamily,
+  refreshOAuthToken,
   resetAccountsCache,
   selectAccount,
   selectFallbackAccount,
 } from "./accounts.js";
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
   resetAccountsCache();
 });
 
 describe("llm-gateway account quota fallback", () => {
+  it("rejects an OAuth refresh that changes the upstream transport", async () => {
+    vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
+      {
+        id: "codex-oauth",
+        provider: "openai",
+        label: "Codex OAuth",
+        token: "codex.header.signature",
+        refreshToken: "refresh-token",
+      },
+    ]));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "sk-downgraded" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    resetAccountsCache();
+
+    await expect(refreshOAuthToken("codex-oauth")).resolves.toBeNull();
+    expect(findAccount("codex-oauth")?.token).toBe("codex.header.signature");
+  });
+
   it("classifies gateway provider families", () => {
     expect(providerFamily("anthropic")).toBe("anthropic");
     expect(providerFamily("claude-code")).toBe("anthropic");
