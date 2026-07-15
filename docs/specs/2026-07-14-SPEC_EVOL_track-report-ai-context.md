@@ -215,15 +215,17 @@ V1 has one configuration mechanism: `TRACK_REPORT_AI_ARGV`, a non-empty JSON
 array of non-empty strings. Shell-like strings and `TRACK_REPORT_AI_COMMAND` are
 not supported. A user-level config at
 `${XDG_CONFIG_HOME:-$HOME/.config}/track/report-ai.json` may contain the same
-`argv` array; Track and the h2a installer use exactly this lookup and an
+`argv` array plus an optional integer `timeoutMs` from 1,000 through 900,000;
+Track and the h2a installer use exactly this lookup and an
 end-to-end test writes then reads it with an injected XDG root. The environment
-value wins. Repository-local configuration is forbidden. If neither exists, the
-AI path fails honestly as D7 requires.
+value wins and retains the legacy 90,000 ms deadline. A user config without
+`timeoutMs` also retains that 90,000 ms fallback. Repository-local configuration
+is forbidden. If neither exists, the AI path fails honestly as D7 requires.
 
 The first-party deployment writes an explicit user config for:
 
 ```json
-{"argv":["h2a","report-ai","--model","claude-opus-4-8","--effort","xhigh","--gateway","required"]}
+{"argv":["h2a","report-ai","--model","claude-opus-4-8","--effort","xhigh","--gateway","required"],"timeoutMs":600000}
 ```
 
 The h2a gateway model catalog resolves `claude-opus-4-8` to Terra; the adapter
@@ -246,10 +248,14 @@ directories and a `0600` file atomically, is a no-op for identical content, and
 refuses a differing file unless `--force` is explicit. Package installation
 never silently runs it. The local deployment lot invokes it without `--force`,
 reports a preserved user override, and may use `TRACK_REPORT_AI_ARGV` only for a
-one-command smoke without changing that override.
+one-command smoke without changing that override. Migrating the previous
+first-party `{argv}` file to the 600,000 ms Terra/xhigh deadline is therefore an
+explicit `h2a report-ai install-track-config --force` rollout; custom and legacy
+files remain readable and are never silently replaced.
 
 Track spawns the adapter with `shell:false`, stdin pipe, a private temporary cwd,
-90 s timeout, 256 KiB stdout, and 16 KiB stderr. Raw stderr is never replayed.
+the validated config deadline (90 s for legacy config, 600 s for the first-party
+Terra/xhigh install), 256 KiB stdout, and 16 KiB stderr. Raw stderr is never replayed.
 The child receives only this environment allowlist when present: `PATH`, `HOME`,
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `TMPDIR`, `LANG`, `LC_ALL`,
 `SSL_CERT_FILE`, `SSL_CERT_DIR`, `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, and
