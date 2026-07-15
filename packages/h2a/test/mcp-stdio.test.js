@@ -59,7 +59,11 @@ test("runMcpStdio: structured readiness ACK is correlated and emitted after auto
     assert.equal(ack.nonce, nonce);
     assert.match(ack.sessionId, /^sess:/);
     assert.ok(Number.isInteger(ack.pid) && ack.pid > 0);
-    assert.equal(statSync(readyFile).mode & 0o777, 0o600);
+    assert.equal(existsSync(readyFile), true);
+    assert.doesNotThrow(() => readFileSync(readyFile, "utf8"));
+    if (process.platform !== "win32") {
+      assert.equal(statSync(readyFile).mode & 0o777, 0o600);
+    }
 
     stdin.end();
     await done;
