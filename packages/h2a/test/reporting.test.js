@@ -187,6 +187,96 @@ test("report-context rejects relative workspace roots", () => {
   }
 });
 
+test("report-context excludes mixed-workspace loops and never launders external blockages", () => {
+  const f = fixture();
+  try {
+    const insideA = join(f.workspace, "repo-a");
+    const insideB = join(f.workspace, "repo-b");
+    mkdirSync(insideA, { recursive: true });
+    mkdirSync(insideB, { recursive: true });
+    writeJson(
+      join(f.store, "presence", "ambiguous-inside.json"),
+      session("ambiguous-inside", "claude:ambiguous:ghi", f.workspace)
+    );
+    writeJson(
+      join(f.store, "presence", "ambiguous-outside.json"),
+      session("ambiguous-outside", "claude:ambiguous:ghi", f.outside)
+    );
+    writeJson(
+      join(f.store, "presence", "multi-inside-a.json"),
+      session("multi-inside-a", "claude:multi-inside:jkl", insideA)
+    );
+    writeJson(
+      join(f.store, "presence", "multi-inside-b.json"),
+      session("multi-inside-b", "claude:multi-inside:jkl", insideB)
+    );
+    writeJson(join(f.store, "loops", "mixed", "state.json"), {
+      id: "mixed",
+      ownerSystem: "h2a",
+      name: "Mixed loop",
+      goal: "OUTSIDE_PROJECT_CONFIDENTIAL",
+      status: "running",
+      repos: [{ path: f.workspace }, { path: f.outside }],
+      refs: [],
+      agents: [
+        {
+          id: "inside",
+          host: "claude",
+          role: "review",
+          placement: "local",
+          status: "working",
+          h2aInstance: "claude:inside:abc",
+          launch: { workspace: f.workspace }
+        },
+        {
+          id: "outside",
+          host: "claude",
+          role: "review",
+          placement: "local",
+          status: "working",
+          h2aInstance: "claude:outside:def",
+          launch: { workspace: f.outside }
+        }
+      ],
+      policy: {},
+      createdAt: "2026-07-14T10:00:00.000Z",
+      updatedAt: "2026-07-14T10:01:00.000Z"
+    });
+    writeJson(join(f.store, "blockage", "claude__outside__def.json"), {
+      instance: "claude:outside:def",
+      scope: "scope:outside",
+      reason: "OUTSIDE_BLOCKAGE_SECRET",
+      needs: "OUTSIDE_OWNER_SECRET",
+      raisedAt: "2026-07-14T10:02:00.000Z"
+    });
+    writeJson(join(f.store, "blockage", "claude__ambiguous__ghi.json"), {
+      instance: "claude:ambiguous:ghi",
+      scope: "scope:ambiguous",
+      reason: "AMBIGUOUS_BLOCKAGE_SECRET",
+      raisedAt: "2026-07-14T10:02:00.000Z"
+    });
+    writeJson(join(f.store, "blockage", "claude__multi-inside__jkl.json"), {
+      instance: "claude:multi-inside:jkl",
+      scope: "scope:multi-inside",
+      reason: "MULTI_INSIDE_BLOCKAGE_SECRET",
+      raisedAt: "2026-07-14T10:02:00.000Z"
+    });
+
+    const serialized = JSON.stringify(
+      readH2AReportContext({ storeRoot: f.store, workspaceRoot: f.workspace })
+    );
+    assert.doesNotMatch(serialized, /OUTSIDE_/);
+    assert.doesNotMatch(serialized, /AMBIGUOUS_BLOCKAGE_SECRET/);
+    assert.doesNotMatch(serialized, /MULTI_INSIDE_BLOCKAGE_SECRET/);
+    assert.doesNotMatch(serialized, /claude:outside:def/);
+    assert.doesNotMatch(serialized, /h2a:loop:mixed/);
+    assert.doesNotMatch(serialized, /h2a:blockage:claude:ambiguous:ghi/);
+    assert.doesNotMatch(serialized, /h2a:blockage:claude:multi-inside:jkl/);
+  } finally {
+    rmSync(f.dir, { recursive: true, force: true });
+  }
+});
+
 test("Track adapter config installer honors XDG, 0600, no-op, preserve and force", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-report-config-"));
   const env = { XDG_CONFIG_HOME: join(dir, "xdg"), HOME: join(dir, "home") };
@@ -263,6 +353,21 @@ function messagesResponse(report = modelReport(), headers = {}) {
   });
 }
 
+function sessionAttestation(overrides = {}) {
+  return {
+    gatewayToken: "gw-test",
+    accountId: "codex-test",
+    requestedModel: "claude-opus-4-8",
+    modelId: H2A_REPORT_AI_TERRA_MODEL,
+    upstreamModel: H2A_REPORT_AI_TERRA_MODEL,
+    reasoningEffort: "xhigh",
+    provider: "openai",
+    authType: "bearer",
+    transport: "codex-responses",
+    ...overrides
+  };
+}
+
 function capture() {
   let stdout = "";
   let stderr = "";
@@ -281,12 +386,10 @@ test("report-ai makes one no-tools Messages call and accepts only attested Terra
   const fakeFetch = async (url, init) => {
     calls.push({ url: String(url), init });
     if (String(url).endsWith("/v1/session")) {
-      return new Response(JSON.stringify({
-        gatewayToken: "gw-test",
-        accountId: "codex-test",
-        modelId: "claude-opus-4-8",
-        upstreamModel: H2A_REPORT_AI_TERRA_MODEL
-      }), { status: 201, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify(sessionAttestation()), {
+        status: 201,
+        headers: { "content-type": "application/json" }
+      });
     }
     return messagesResponse();
   };
@@ -305,6 +408,15 @@ test("report-ai makes one no-tools Messages call and accepts only attested Terra
   assert.equal(rc, 0, output.stderr);
   assert.ok(calls.every((call) => call.init.redirect === "error"));
   assert.equal(calls.filter((call) => call.url.endsWith("/v1/messages")).length, 1);
+  const sessionRequest = JSON.parse(calls.find((call) => call.url.endsWith("/v1/session")).init.body);
+  assert.deepEqual(sessionRequest, {
+    sessionId: "track-report-test",
+    model: "claude-opus-4-8",
+    reasoningEffort: "xhigh",
+    requiredTransport: "codex-responses",
+    profile: "track-report-ai",
+    clientSessionId: "track-report-test"
+  });
   const request = JSON.parse(calls.find((call) => call.url.endsWith("/v1/messages")).init.body);
   assert.equal(Object.hasOwn(request, "tools"), false);
   assert.deepEqual(request.thinking, { type: "enabled", budget_tokens: 50_000 });
@@ -323,11 +435,10 @@ test("report-ai fails closed before Messages on route mismatch or unavailable ga
   let messages = 0;
   const routeMismatchFetch = async (url) => {
     if (String(url).endsWith("/v1/messages")) messages++;
-    return new Response(JSON.stringify({
-      gatewayToken: "gw-test",
-      modelId: "claude-opus-4-8",
+    return new Response(JSON.stringify(sessionAttestation({
+      modelId: "gpt-5.5",
       upstreamModel: "gpt-5.5"
-    }), { status: 201, headers: { "content-type": "application/json" } });
+    })), { status: 201, headers: { "content-type": "application/json" } });
   };
   const first = capture();
   assert.equal(await runH2AReportAi({
@@ -349,6 +460,33 @@ test("report-ai fails closed before Messages on route mismatch or unavailable ga
   }), 1);
   assert.equal(fetches, 0);
   assert.match(second.stderr, /required local gateway is unavailable/);
+});
+
+test("report-ai refuses a raw-key/OpenAI Chat route before sending report context", async () => {
+  const calls = [];
+  const output = capture();
+  const rc = await runH2AReportAi({
+    model: "claude-opus-4-8",
+    effort: "xhigh",
+    gateway: "required",
+    stdinText: JSON.stringify(aiEnvelope())
+  }, output.io, {
+    prepareGateway: async () => "http://127.0.0.1:3002",
+    fetch: async (url, init) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify(sessionAttestation({
+        authType: "api-key",
+        transport: "openai-chat-completions"
+      })), { status: 201, headers: { "content-type": "application/json" } });
+    }
+  });
+
+  assert.equal(rc, 1);
+  assert.equal(output.stdout, "");
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].url.endsWith("/v1/session"));
+  assert.doesNotMatch(String(calls[0].init.body), /accepted fact|track:item:abc/);
+  assert.match(output.stderr, /route attestation/i);
 });
 
 test("report-ai refuses gateway redirects and decorated local URLs", async () => {
@@ -379,11 +517,10 @@ test("report-ai refuses gateway redirects and decorated local URLs", async () =>
       calls++;
       assert.equal(init.redirect, "error");
       if (calls === 1) {
-        return new Response(JSON.stringify({
-          gatewayToken: "gw",
-          modelId: "claude-opus-4-8",
-          upstreamModel: H2A_REPORT_AI_TERRA_MODEL
-        }), { status: 201, headers: { "content-type": "application/json" } });
+        return new Response(JSON.stringify(sessionAttestation({ gatewayToken: "gw" })), {
+          status: 201,
+          headers: { "content-type": "application/json" }
+        });
       }
       return new Response(null, { status: 302, headers: { location: "https://evil.example/context" } });
     }
@@ -435,9 +572,10 @@ test("report-ai rejects absent/contradictory gateway attestation and forged cita
     }, output.io, {
       prepareGateway: async () => "http://127.0.0.1:3002",
       fetch: async () => ++call === 1
-        ? new Response(JSON.stringify({
-            gatewayToken: "gw", modelId: "claude-opus-4-8", upstreamModel: H2A_REPORT_AI_TERRA_MODEL
-          }), { status: 201, headers: { "content-type": "application/json" } })
+        ? new Response(JSON.stringify(sessionAttestation({ gatewayToken: "gw" })), {
+            status: 201,
+            headers: { "content-type": "application/json" }
+          })
         : response
     });
     return { rc, output };
