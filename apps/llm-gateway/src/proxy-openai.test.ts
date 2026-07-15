@@ -100,6 +100,8 @@ describe("OpenAI/Codex model mapping", () => {
       model: "gpt-5.6-terra",
       reasoning: { effort: "xhigh" },
     });
+    expect(res.headers.get("x-h2a-resolved-model")).toBe("gpt-5.6-terra");
+    expect(res.headers.get("x-h2a-reasoning-effort")).toBe("xhigh");
   });
 
   it("returns a gateway error instead of 500 when Codex OAuth refresh cannot retry", async () => {

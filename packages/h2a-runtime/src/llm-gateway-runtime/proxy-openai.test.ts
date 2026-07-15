@@ -87,6 +87,8 @@ describe("h2a runtime Codex gateway", () => {
       model: "gpt-5.6-terra",
       reasoning: { effort: "xhigh" },
     });
+    expect(res.headers.get("x-h2a-resolved-model")).toBe("gpt-5.6-terra");
+    expect(res.headers.get("x-h2a-reasoning-effort")).toBe("xhigh");
   });
 
   it("replaces unsupported image tool results before Codex trimming and preserves final text", () => {
