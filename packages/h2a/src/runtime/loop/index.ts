@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSyn
 import { isAbsolute, join } from "node:path";
 
 import { localStorePaths, safePathSegment } from "../local-files/paths.js";
+import { isOsTemporaryPath } from "../path-safety.js";
 
 export type H2ALoopStatus =
   | "created"
@@ -199,8 +200,8 @@ export function validateLoopLaunchSpec(value: unknown): H2ALoopLaunchSpec {
   } catch {
     throw new Error("loop launch workspace must be an absolute existing directory");
   }
-  if (workspace === "/tmp" || workspace.startsWith("/tmp/")) {
-    throw new Error("loop launch workspace must be durable and may not be under /tmp");
+  if (isOsTemporaryPath(workspace)) {
+    throw new Error("loop launch workspace must be durable and may not be under the OS temporary directory");
   }
   if (typeof raw.prompt !== "string" || raw.prompt.trim().length === 0 || raw.prompt.includes("\0")) {
     throw new Error("loop launch prompt is required");

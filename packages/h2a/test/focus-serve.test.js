@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +16,10 @@ import {
 
 const ROOT = process.cwd();
 const BIN = join(ROOT, "packages", "h2a", "dist", "bin.js");
+
+function temporaryDirectory(prefix) {
+  return realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+}
 
 function trackedRepo(base, name = "repo") {
   const repo = join(base, name);
@@ -95,7 +99,7 @@ function requestStatus(url, host) {
 }
 
 test("resolveFocusServeConfig resolves the nearest tracked ancestor and ignores inherited HOST", () => {
-  const base = mkdtempSync(join(tmpdir(), "h2a-focus-resolve-"));
+  const base = temporaryDirectory("h2a-focus-resolve-");
   try {
     const repo = trackedRepo(base);
     const nested = join(repo, "a", "b");
@@ -115,7 +119,7 @@ test("resolveFocusServeConfig resolves the nearest tracked ancestor and ignores 
 });
 
 test("resolveFocusServeConfig applies CLI-over-env precedence and makes web an exact alias", () => {
-  const base = mkdtempSync(join(tmpdir(), "h2a-focus-precedence-"));
+  const base = temporaryDirectory("h2a-focus-precedence-");
   try {
     const cliRepo = trackedRepo(base, "cli");
     const envRepo = trackedRepo(base, "env");
@@ -145,7 +149,7 @@ test("resolveFocusServeConfig applies CLI-over-env precedence and makes web an e
 });
 
 test("resolveFocusServeConfig rejects unknown flags, invalid ports, and untracked directories", () => {
-  const base = mkdtempSync(join(tmpdir(), "h2a-focus-invalid-"));
+  const base = temporaryDirectory("h2a-focus-invalid-");
   try {
     const assets = fakeAssets(base);
     const deps = configDeps(base, assets);
@@ -158,7 +162,7 @@ test("resolveFocusServeConfig rejects unknown flags, invalid ports, and untracke
 });
 
 test("validateFocusAssets fails closed for absent, incompatible, and incomplete artifacts", () => {
-  const base = mkdtempSync(join(tmpdir(), "h2a-focus-assets-"));
+  const base = temporaryDirectory("h2a-focus-assets-");
   try {
     assert.throws(() => validateFocusAssets(join(base, "absent")), /absent or invalid/);
     const old = fakeAssets(base, { schemaVersion: 0 });
@@ -177,7 +181,7 @@ test("validateFocusAssets fails closed for absent, incompatible, and incomplete 
 });
 
 test("runFocusServeCli serves in-process, injects target env, prints the bound URL, and foregrounds until abort", async () => {
-  const base = mkdtempSync(join(tmpdir(), "h2a-focus-server-"));
+  const base = temporaryDirectory("h2a-focus-server-");
   const ac = new AbortController();
   let run;
   try {
@@ -237,7 +241,7 @@ test("focus serve/web help is production-server help, not track focus delegation
 });
 
 test("packaged Focus smoke serves a repo without monorepo packages/track/dist and exits with its signal status", { skip: process.platform === "win32" }, async () => {
-  const base = mkdtempSync(join(tmpdir(), "h2a-focus-smoke-"));
+  const base = temporaryDirectory("h2a-focus-smoke-");
   const repo = trackedRepo(base);
   const child = spawn(process.execPath, [BIN, "focus", "serve", "--repo", repo, "--port", "0"], {
     cwd: repo,
@@ -277,7 +281,7 @@ test("packaged Focus smoke serves a repo without monorepo packages/track/dist an
 });
 
 test("npm tarball Focus smoke runs from an installed-artifact layout", { skip: process.platform === "win32" }, async () => {
-  const base = mkdtempSync(join(tmpdir(), "h2a-focus-tarball-"));
+  const base = temporaryDirectory("h2a-focus-tarball-");
   let child;
   try {
     const packed = spawnSync(
