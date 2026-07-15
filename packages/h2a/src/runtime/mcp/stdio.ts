@@ -1,4 +1,6 @@
 import { createInterface } from "node:readline";
+import { randomUUID } from "node:crypto";
+import { linkSync, unlinkSync, writeFileSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
 
 import type { H2AWorkspaceRef } from "@sentropic/h2a";
@@ -9,6 +11,7 @@ import { createLocalStore } from "../local-files/index.js";
 import { reapDeadInstancePresence } from "../local-files/presence.js";
 import { agentVersion } from "../version/agent-version.js";
 import { createMcpServer, type McpServer } from "./server.js";
+import type { H2aRunExecutor } from "./agent-launch.js";
 
 /**
  * Minimal subset of the JSON-RPC 2.0 spec we accept on the wire. The spec
@@ -39,6 +42,10 @@ type JsonRpcResponse = JsonRpcSuccessResponse | JsonRpcErrorResponse;
 export interface RunMcpStdioOptions {
   /** Filesystem root for the local-files store. */
   root: string;
+  /** Workspace boundary for h2a_run; defaults to the server startup cwd. */
+  workspaceRoot?: string;
+  /** Test seam for h2a_run; production uses the argv-only subprocess bridge. */
+  runExecutor?: H2aRunExecutor;
   /** Readable stream of newline-delimited JSON-RPC requests. */
   stdin: Readable;
   /** Writable stream for newline-delimited JSON-RPC responses. */
@@ -76,6 +83,15 @@ export interface RunMcpStdioOptions {
     readonly scopes?: readonly string[];
   };
   /**
+   * Internal structured-launch readiness handshake. When present, auto-open is
+   * mandatory and this process atomically publishes the correlated ACK only
+   * after the presence session is open. It is never an MCP/CLI public option.
+   */
+  readiness?: {
+    readonly file: string;
+    readonly nonce: string;
+  };
+  /**
    * EVO-1 inbox wake (bug #3): when set (with `autoOpen`), inject a signed,
    * h2a-tagged wake line into the host via `driver` whenever a new inbox
    * envelope arrives for the auto-opened instance. The host is woken to run
@@ -106,6 +122,39 @@ function envInt(name: string): number | undefined {
 const PROTOCOL_VERSION = "2025-06-18";
 const SERVER_NAME = "@sentropic/h2a";
 const SERVER_VERSION = "0.1.1";
+
+export const H2A_MCP_READY_FILE_ENV = "H2A_MCP_READY_FILE";
+export const H2A_MCP_READY_NONCE_ENV = "H2A_MCP_READY_NONCE";
+export const H2A_MCP_READY_KIND = "h2a.mcp.ready";
+
+function publishReadinessAck(
+  readiness: NonNullable<RunMcpStdioOptions["readiness"]>,
+  sessionId: string
+): void {
+  const temporary = `${readiness.file}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(
+      temporary,
+      `${JSON.stringify({
+        kind: H2A_MCP_READY_KIND,
+        version: 1,
+        nonce: readiness.nonce,
+        pid: process.pid,
+        sessionId
+      })}\n`,
+      { encoding: "utf8", mode: 0o600, flag: "wx" }
+    );
+    // Hard-linking a fully-written file to the final name is atomic and refuses
+    // to overwrite an existing ACK. The launcher owns a private 0700 directory.
+    linkSync(temporary, readiness.file);
+  } finally {
+    try {
+      unlinkSync(temporary);
+    } catch {
+      // The final link is the only readiness signal; temp cleanup is best effort.
+    }
+  }
+}
 
 function writeResponse(stdout: Writable, response: JsonRpcResponse): void {
   stdout.write(`${JSON.stringify(response)}\n`);
@@ -178,6 +227,9 @@ class MethodNotFoundError extends Error {
  */
 export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   const { root, stdin, stdout, stderr } = options;
+  if (options.readiness && !options.autoOpen) {
+    throw new Error("structured readiness requires successful auto-open");
+  }
   const heartbeatIntervalMs =
     options.heartbeatIntervalMs ?? envInt("H2A_HEARTBEAT_INTERVAL_MS");
   const notifyIntervalMs =
@@ -189,6 +241,8 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // the presence file stays fresh while this mcp-serve process is alive.
   const server = createMcpServer({
     root,
+    workspaceRoot: options.workspaceRoot ?? process.cwd(),
+    ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
     sessions: {
       autoHeartbeat: true,
       ...(heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs } : {}),
@@ -205,13 +259,27 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   // pushed presence/inbox/negotiation notifications.
   server.notifications.start();
 
+  let didShutdown = false;
+  function shutdown(): void {
+    if (didShutdown) return;
+    didShutdown = true;
+    try {
+      server.notifications.stop();
+      server.sessions.closeAll("closed");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      stderr.write(`h2a mcp-serve: shutdown error: ${message}\n`);
+    }
+  }
+
   // WP-F: the auto-opened session id, so the line loop can mark MCP activity on
   // it (presence-honesty — proof the host→server channel is carrying traffic).
   let autoOpenedSessionId: string | undefined;
 
   // DEC-105 (EVO-6): auto-open a presence session at boot when requested, so
-  // the host joins the bus at startup. Best-effort: a failure here must not
-  // crash the transport (diagnostics to stderr only — stdout is protocol).
+  // the host joins the bus at startup. Historically this is best-effort; a
+  // structured readiness challenge upgrades failure to fatal because no ACK
+  // may be published for an unreachable sidecar.
   if (options.autoOpen) {
     try {
       const opened = server.sessions.open({
@@ -261,8 +329,11 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       stderr.write(`h2a mcp-serve: auto-open failed: ${message}\n`);
+      if (options.readiness) {
+        shutdown();
+        throw new Error(`structured auto-open failed: ${message}`);
+      }
     }
-
     // EVO-1 wake (bug #3): wake the idle host when a new inbox envelope arrives.
     if (options.wake) {
       const wakeInstance = options.autoOpen.instance;
@@ -292,22 +363,23 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     }
   }
 
+  // Publish only after every synchronous boot step above has completed and
+  // immediately before constructing the stdio loop. Auto-upgrade/re-exec runs
+  // in runMcpServe before this function, so it cannot acknowledge early.
+  if (options.readiness && autoOpenedSessionId) {
+    try {
+      publishReadinessAck(options.readiness, autoOpenedSessionId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      stderr.write(`h2a mcp-serve: readiness ACK failed: ${message}\n`);
+      shutdown();
+      throw new Error(`structured readiness ACK failed: ${message}`);
+    }
+  }
+
   const rl = createInterface({ input: stdin, crlfDelay: Infinity });
   (stdin as Readable & { ref?: () => void }).ref?.();
   stdin.resume();
-
-  let didShutdown = false;
-  function shutdown(): void {
-    if (didShutdown) return;
-    didShutdown = true;
-    try {
-      server.notifications.stop();
-      server.sessions.closeAll("closed");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      stderr.write(`h2a mcp-serve: shutdown error: ${message}\n`);
-    }
-  }
 
   return new Promise<void>((resolve, reject) => {
     // Graceful shutdown on abort (SIGTERM/SIGINT/SIGHUP, wired by bin.ts): close

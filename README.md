@@ -185,6 +185,9 @@ h2a store migrate [--from <v>] [--to <v>] [--dry-run] [--root <path>]
 # MCP server (JSON-RPC 2.0 over stdio, DEC-026 + DEC-051/052)
 h2a mcp-serve [--root <path>]
 
+# Focus Web (packaged production app; `focus web` is an exact alias)
+h2a focus serve [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]
+
 # Host wiring (MCP snippets for each host)
 h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]
 h2a host status [--host <name>]
@@ -192,18 +195,27 @@ h2a host status [--host <name>]
 
 Every JSON-emitting verb follows one of three canonical envelopes (`resource` / `list` / `action`) with an exit-code table `0 / 1 / 2 / 3`. Machine-readable contract: `H2A_CLI_VERB_CONTRACTS` (`packages/h2a-cli/src/cli-contract.ts`). Human-readable reference: [`docs/cli-contract.md`](./docs/cli-contract.md).
 
+Focus Web is served directly by h2a from the production artifact included in `@sentropic/h2a`; no monorepo checkout or `npm run dev` is needed. See [`docs/focus-web.md`](./docs/focus-web.md).
+
 ---
 
 ## MCP tools exposed by `mcp-serve`
 
-13 JSON-RPC 2.0 stdio tools, consumed by host CLIs via their `mcpServers.h2a` config:
+37 JSON-RPC 2.0 stdio tools, consumed by host CLIs via their `mcpServers.h2a` config:
 
 | Family | Tools |
 |---|---|
 | Registry | `h2a_register_instance`, `h2a_discover_instances` |
 | Session (DEC-051) | `h2a_session_open`, `h2a_session_close`, `h2a_discover_sessions` |
-| Negotiation | `h2a_open_negotiation`, `h2a_offer`, `h2a_counteroffer`, `h2a_sign`, `h2a_stabilize`, `h2a_append_journal`, `h2a_escalate` |
+| Negotiation | `h2a_open_negotiation`, `h2a_offer`, `h2a_counteroffer`, `h2a_sign`, `h2a_stabilize`, `h2a_append_journal`, `h2a_escalate`, comprehension/conflict tools |
 | Mailbox | `h2a_inbox` (`read` / `put` / `pop`) |
+| NHI posture | `h2a_nhi_report`, `h2a_nhi_inventory`, `h2a_nhi_attest`, `h2a_nhi_offboard`, `h2a_nhi_export` |
+| Blockage | `h2a_blockage_raise`, `h2a_blockage_list`, `h2a_blockage_resolve` |
+| Conductor | `h2a_conductor`, claim/release and launch recommendation/emission tools |
+| Objective loop | `h2a_loop_create`, `h2a_loop_join`, `h2a_loop_report`, `h2a_loop_done`, `h2a_loop_stop`, `h2a_loop_list`, `h2a_loop_status` |
+| Local agent launch | `h2a_run` — strict background Claude/Codex launch in an existing workspace; prompt is carried on stdin, result includes the real tmux session/pid/attach metadata |
+
+`h2a_run` is intentionally absent from the hosted HTTP read-only MCP allowlist. It never creates a branch/worktree and refuses duplicate names, unknown fields, unsafe workspaces, or incompatible runtime result versions.
 
 Plus a **push notification channel** (`notifications/h2a`) on 4 topics (DEC-052): `presence.peer_joined`, `presence.peer_left`, `inbox.envelope_arrived`, `negotiation.event_appended`. Sessions subscribe to a subset via `h2a_session_open`.
 

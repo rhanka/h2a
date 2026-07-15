@@ -245,7 +245,11 @@ export function tally(leaves: readonly WpLeaf[]): { done: number; active: number
  * Build the WP forest and roll leaf buckets up. A WP's transitive NON-WP descendants are its leaves;
  * a nested WP is a sub-node, not a leaf, so its leaves count once at every ancestor (SUM, not mean).
  */
-export function computeWpTree(state: State, config: ReportConfig): WpNode[] {
+export function computeWpTree(
+  state: State,
+  config: ReportConfig,
+  compareIds: (a: string, b: string) => number = (a, b) => a.localeCompare(b),
+): WpNode[] {
   const items = [...state.items.values()]
   // children index: parentId → its direct children (stable by id for deterministic labels/order).
   const childrenOf = new Map<ItemId | undefined, ItemState[]>()
@@ -255,7 +259,7 @@ export function computeWpTree(state: State, config: ReportConfig): WpNode[] {
     list.push(item)
     childrenOf.set(key, list)
   }
-  for (const list of childrenOf.values()) list.sort((a, b) => a.id.localeCompare(b.id))
+  for (const list of childrenOf.values()) list.sort((a, b) => compareIds(a.id, b.id))
 
   // Collect every NON-WP leaf descendant of `node`, but STOP at a nested sub-WP boundary (those leaves
   // belong to the sub-WP's own node). A non-WP container (e.g. a feature with chore children) is descended
@@ -326,7 +330,7 @@ export function computeWpTree(state: State, config: ReportConfig): WpNode[] {
   // Roots = WPs whose parent is not itself a WP (a top-level WP, or a WP whose parent is a plain item).
   const isWpById = new Map(items.map((i) => [i.id, isWp(i)]))
   const roots = items.filter((i) => isWp(i) && !(i.parentId !== undefined && isWpById.get(i.parentId)))
-  roots.sort((a, b) => a.id.localeCompare(b.id))
+  roots.sort((a, b) => compareIds(a.id, b.id))
   // WP-codes (DESIGN A1, the PRINCIPE PORTEUR) — DECOUPLE stability from numbering. A root with a `code`
   // renders it VERBATIM; a root WITHOUT one takes the next DERIVED `WP<n>` whose ordinal `n` is NOT already
   // claimed by a `^WP\d+$` code on ANY coded container (root OR nested sub-WP — the same display class). The

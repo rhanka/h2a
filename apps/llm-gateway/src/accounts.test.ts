@@ -1,7 +1,9 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe("getAccounts", () => {
@@ -82,6 +84,34 @@ describe("selectAccount", () => {
 });
 
 describe("account descriptors and route selection", () => {
+  it("rejects an OAuth refresh that changes the upstream transport", async () => {
+    vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
+      {
+        id: "codex-oauth",
+        provider: "openai",
+        label: "Codex OAuth",
+        token: "codex.header.signature",
+        refreshToken: "refresh-token",
+      },
+    ]));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "sk-downgraded" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    ));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const {
+      findAccount,
+      refreshOAuthToken,
+      resetAccountsCache,
+    } = await import("./accounts.js");
+    resetAccountsCache();
+
+    await expect(refreshOAuthToken("codex-oauth")).resolves.toBeNull();
+    expect(findAccount("codex-oauth")?.token).toBe("codex.header.signature");
+  });
+
   it("exposes descriptor-only account views without raw tokens", async () => {
     const accounts = [
       {

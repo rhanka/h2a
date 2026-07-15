@@ -6,13 +6,31 @@
 // (not parsed CLI stdout) is a double-consensus ruling (2026-07-02).
 
 import { spawnSync } from "node:child_process";
+import { realpathSync, statSync } from "node:fs";
+import { isAbsolute, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { H2ALaunchContext } from "../../../session.js";
-import { localTmuxDriver, type H2ADriver } from "../../drive/index.js";
+import type { H2ADriveRequest, H2ADriver } from "../../drive/index.js";
 import { listDrumbeat, type H2ADrumbeatEntry } from "../../drumbeat/registry.js";
+import {
+  defaultRelauncherRuntime,
+  paneHasRecentHumanActivity,
+  tmuxSendSubmit,
+  tmuxTarget,
+  type RelauncherRuntime
+} from "../../drumbeat/relaunchers.js";
 import { createLocalStore } from "../../local-files/store.js";
 import { listPresence } from "../../local-files/presence.js";
-import { listLoopEvents, readObjectiveLoop, updateObjectiveLoopStatus, type H2AObjectiveLoop } from "../index.js";
+import { isOsTemporaryPath } from "../../path-safety.js";
+import {
+  listLoopEvents,
+  readObjectiveLoop,
+  updateObjectiveLoopStatus,
+  validateLoopLaunchSpec,
+  type H2ALoopLaunchSpec,
+  type H2AObjectiveLoop
+} from "../index.js";
 import { loopRefLocator, type AgentsSnapshot, type InboxSnapshot, type PendingDecision, type PresenceSnapshot, type PresenceView, type ProjectedAgent, type RefsRollup, type RefStatus } from "./decision.js";
 import type { ActionSink } from "./execute.js";
 
@@ -262,10 +280,15 @@ export function planWakeTarget(input: {
   readonly agentId: string;
   readonly freshSessions: readonly { readonly instance: string; readonly launchContext?: H2ALaunchContext }[];
   readonly priorWakeAtByAgent: ReadonlyMap<string, number>;
+  readonly priorWakeCountByAgent?: ReadonlyMap<string, number>;
   readonly now: number;
 }): WakePlan {
   const agent = input.loop.agents.find((a) => a.id === input.agentId);
   if (!agent || agent.h2aInstance === undefined) return { kind: "skip", reason: "no-h2a-instance" };
+  const maxRelaunches = input.loop.policy.maxRelaunches ?? Number.POSITIVE_INFINITY;
+  if ((input.priorWakeCountByAgent?.get(input.agentId) ?? 0) >= maxRelaunches) {
+    return { kind: "skip", reason: "max-relaunches" };
+  }
   const cooldownMs = Math.max(input.loop.policy.tickMs, WAKE_COOLDOWN_FLOOR_MS);
   const last = input.priorWakeAtByAgent.get(input.agentId);
   if (last !== undefined && input.now - last < cooldownMs) return { kind: "skip", reason: "cooldown" };
@@ -305,7 +328,64 @@ export function priorWakeAtByAgent(
   return out;
 }
 
-// --- Launch request targeting (PURE; ASK not spawn) ---------------------------
+export interface RelaunchHistory {
+  readonly count: number;
+  readonly latestAt?: number;
+  readonly retryForbidden?: boolean;
+}
+
+/** Durable applied+failed attempt fold. Deferred/skipped events consume nothing. */
+export function priorActionAttemptsByAgent(
+  events: readonly { readonly type: string; readonly at: string; readonly payload?: unknown }[],
+  action: "wake" | "request-launch"
+): Map<string, RelaunchHistory> {
+  const out = new Map<string, RelaunchHistory>();
+  for (const event of events) {
+    if (event.type !== "loop.action.applied" && event.type !== "loop.action.failed") continue;
+    const payload = event.payload as { action?: string; key?: string; retrySafe?: boolean } | undefined;
+    if (payload?.action !== action || typeof payload.key !== "string" || !payload.key.startsWith(`${action}:`)) continue;
+    const agentId = payload.key.slice(`${action}:`.length);
+    const prior = out.get(agentId) ?? { count: 0 };
+    const parsedAt = Date.parse(event.at);
+    out.set(agentId, {
+      count: prior.count + 1,
+      ...(!Number.isNaN(parsedAt) && (prior.latestAt === undefined || parsedAt > prior.latestAt)
+        ? { latestAt: parsedAt }
+        : prior.latestAt !== undefined ? { latestAt: prior.latestAt } : {}),
+      ...((prior.retryForbidden === true || payload.retrySafe === false) ? { retryForbidden: true } : {})
+    });
+  }
+  return out;
+}
+
+/** Shared per-agent wake+launch budget required by the loop relaunch policy. */
+export function priorRelaunchAttemptsByAgent(
+  events: readonly { readonly type: string; readonly at: string; readonly payload?: unknown }[]
+): Map<string, RelaunchHistory> {
+  const out = new Map<string, RelaunchHistory>();
+  for (const event of events) {
+    if (event.type !== "loop.action.applied" && event.type !== "loop.action.failed") continue;
+    const payload = event.payload as { action?: string; key?: string; retrySafe?: boolean } | undefined;
+    if (
+      (payload?.action !== "wake" && payload?.action !== "request-launch") ||
+      typeof payload.key !== "string" ||
+      !payload.key.startsWith(`${payload.action}:`)
+    ) continue;
+    const agentId = payload.key.slice(`${payload.action}:`.length);
+    const prior = out.get(agentId) ?? { count: 0 };
+    const parsedAt = Date.parse(event.at);
+    out.set(agentId, {
+      count: prior.count + 1,
+      ...(!Number.isNaN(parsedAt) && (prior.latestAt === undefined || parsedAt > prior.latestAt)
+        ? { latestAt: parsedAt }
+        : prior.latestAt !== undefined ? { latestAt: prior.latestAt } : {}),
+      ...((prior.retryForbidden === true || payload.retrySafe === false) ? { retryForbidden: true } : {})
+    });
+  }
+  return out;
+}
+
+// --- Launch request targeting (PURE intent; guarded spawn stays in the sink) --
 export type LaunchPlan =
   | { readonly kind: "emit"; readonly host?: string; readonly reason: string }
   | { readonly kind: "skip"; readonly reason: string };
@@ -321,10 +401,13 @@ export function planLaunchTarget(input: {
   readonly agentId: string;
   readonly priorCount: number;
   readonly priorLatestAt?: number;
+  readonly retryForbidden?: boolean;
   readonly now: number;
 }): LaunchPlan {
   const agent = input.loop.agents.find((a) => a.id === input.agentId);
   if (!agent) return { kind: "skip", reason: "unknown-agent" };
+  if (input.retryForbidden === true) return { kind: "skip", reason: "prior-launch-state-unknown" };
+  if (agent.launch === undefined) return { kind: "skip", reason: "no-launch-spec" };
   if (input.priorCount >= input.loop.policy.maxRelaunches) return { kind: "skip", reason: "max-relaunches" };
   const cooldownMs = Math.max(input.loop.policy.tickMs, WAKE_COOLDOWN_FLOOR_MS);
   if (input.priorLatestAt !== undefined && input.now - input.priorLatestAt < cooldownMs) {
@@ -340,36 +423,232 @@ export function planLaunchTarget(input: {
 /** PURE: prior launch-request count + latest epoch ms per agent, from the journal. */
 export function priorLaunchByAgent(
   events: readonly { readonly type: string; readonly at: string; readonly payload?: unknown }[]
-): Map<string, { count: number; latestAt?: number }> {
-  const out = new Map<string, { count: number; latestAt?: number }>();
-  for (const e of events) {
-    if (e.type !== "loop.action.applied") continue;
-    const p = e.payload as { action?: string; key?: string } | undefined;
-    if (!p || p.action !== "request-launch" || typeof p.key !== "string" || !p.key.startsWith("request-launch:")) {
-      continue;
-    }
-    const agentId = p.key.slice("request-launch:".length);
-    const at = Date.parse(e.at);
-    const cur = out.get(agentId) ?? { count: 0 };
-    cur.count += 1;
-    if (!Number.isNaN(at) && (cur.latestAt === undefined || at > cur.latestAt)) cur.latestAt = at;
-    out.set(agentId, cur);
+): Map<string, RelaunchHistory> {
+  return priorRelaunchAttemptsByAgent(events);
+}
+
+export const H2A_RUN_API_VERSION = "h2a.run/v1";
+
+export interface LoopLaunchInvocation {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly cwd: string;
+  readonly input: string;
+}
+
+export interface LoopLaunchResult {
+  readonly ok: boolean;
+  readonly detail?: string;
+  readonly retrySafe?: boolean;
+}
+
+export interface LoopLauncher {
+  launch(spec: H2ALoopLaunchSpec): LoopLaunchResult | Promise<LoopLaunchResult>;
+}
+
+function isWithin(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+/**
+ * Last action-boundary guard. A persisted launch may target only the controller
+ * workspace or an explicitly declared loop repository. This mirrors h2a_run's
+ * startup-root boundary and prevents a forged/stale loop state from launching
+ * an agent in an arbitrary readable directory.
+ */
+export function loopLaunchWorkspaceAllowed(
+  loop: H2AObjectiveLoop,
+  spec: H2ALoopLaunchSpec,
+  controllerRoot = process.cwd()
+): boolean {
+  try {
+    if (isOsTemporaryPath(spec.workspace)) return false;
+  } catch {
+    return false;
   }
-  return out;
+  const roots = [controllerRoot, ...loop.repos.map((repo) => repo.path)];
+  for (const candidateRoot of roots) {
+    try {
+      const root = realpathSync(candidateRoot);
+      if (statSync(root).isDirectory() && isWithin(root, spec.workspace)) return true;
+    } catch {
+      // An absent/malformed declared root grants no authority.
+    }
+  }
+  return false;
+}
+
+export function buildLoopLaunchInvocation(
+  value: H2ALoopLaunchSpec,
+  bin = fileURLToPath(new URL("../../../bin.js", import.meta.url))
+): LoopLaunchInvocation {
+  const spec = validateLoopLaunchSpec(value);
+  return {
+    command: process.execPath,
+    args: [
+      bin,
+      "run",
+      spec.profile,
+      spec.workspace,
+      "--no-attach",
+      "--background",
+      "--json",
+      "--name",
+      spec.name,
+      "--prompt-stdin",
+      "--h2a",
+      ...(spec.gateway === "required" ? ["--gw"] : spec.gateway === "off" ? ["--no-gw"] : []),
+      "--model",
+      spec.model,
+      ...(spec.effort !== undefined ? ["--effort", spec.effort] : [])
+    ],
+    cwd: spec.workspace,
+    input: spec.prompt
+  };
+}
+
+function validateLoopLaunchResult(value: unknown, spec: H2ALoopLaunchSpec): void {
+  if (!value || typeof value !== "object") throw new Error("launch output is not an object");
+  const result = value as Record<string, unknown>;
+  const session = result.session as Record<string, unknown> | undefined;
+  const attach = result.attach as Record<string, unknown> | undefined;
+  const attachArgs = attach?.args;
+  const gatewayIsEffective = spec.profile === "codex" || spec.gateway === "off"
+    ? session?.gateway === "direct"
+    : spec.gateway === "required"
+      ? session?.gateway === "gateway"
+      : session?.gateway === "gateway" || session?.gateway === "direct";
+  if (
+    result.kind !== "h2a.run.result" ||
+    result.version !== 1 ||
+    result.apiVersion !== H2A_RUN_API_VERSION ||
+    typeof result.runtimeVersion !== "string" ||
+    !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(result.runtimeVersion) ||
+    result.ok !== true ||
+    result.state !== "started" ||
+    !session ||
+    session.id !== spec.name ||
+    typeof session.tmuxSession !== "string" ||
+    session.tmuxSession.length === 0 ||
+    typeof session.pane !== "string" ||
+    !/^%\d+$/.test(session.pane) ||
+    session.profile !== spec.profile ||
+    session.workspace !== spec.workspace ||
+    session.mode !== "interactive" ||
+    session.background !== true ||
+    session.h2aSidecar !== true ||
+    !Number.isInteger(session.pid) ||
+    (session.pid as number) <= 0 ||
+    !gatewayIsEffective ||
+    !attach ||
+    attach.command !== "h2a" ||
+    !Array.isArray(attachArgs) ||
+    attachArgs.length !== 2 ||
+    attachArgs[0] !== "attach" ||
+    attachArgs[1] !== spec.name
+  ) {
+    throw new Error("invalid h2a.run.result contract");
+  }
+}
+
+export function executeLoopLaunchWithSpawn(
+  value: H2ALoopLaunchSpec,
+  spawn: typeof spawnSync = spawnSync
+): LoopLaunchResult {
+  const spec = validateLoopLaunchSpec(value);
+  const invocation = buildLoopLaunchInvocation(spec);
+  const result = spawn(invocation.command, [...invocation.args], {
+    cwd: invocation.cwd,
+    input: invocation.input,
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+    shell: false,
+    timeout: 30_000,
+    maxBuffer: 1_048_576
+  });
+  if (result.error) {
+    const code = (result.error as NodeJS.ErrnoException).code;
+    return {
+      ok: false,
+      detail: code === "ETIMEDOUT" ? "launch status unknown after runtime timeout" : result.error.message,
+      retrySafe: false
+    };
+  }
+  if (result.status !== 0) {
+    const detail = (result.stderr ?? "").trim().slice(-2_000);
+    return {
+      ok: false,
+      detail: `h2a run failed (exit ${result.status ?? "?"})${detail ? `: ${detail}` : ""}`,
+      retrySafe: !/already exists|duplicate/i.test(detail)
+    };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse((result.stdout ?? "").trim());
+    validateLoopLaunchResult(parsed, spec);
+  } catch (error) {
+    return { ok: false, detail: `incompatible h2a runtime: ${(error as Error).message}`, retrySafe: false };
+  }
+  return { ok: true, detail: `started ${spec.profile} session ${spec.name}` };
+}
+
+const defaultLoopLauncher: LoopLauncher = {
+  launch(spec) {
+    return executeLoopLaunchWithSpawn(spec);
+  }
+};
+
+export type LoopWakeOutcome = "done" | "deferred-human" | "failed";
+
+export interface LoopWakeDriver {
+  drive(request: H2ADriveRequest): LoopWakeOutcome | Promise<LoopWakeOutcome>;
+}
+
+/** Typed local-tmux seam: human deferral and transport failure are distinct. */
+export function localTmuxLoopWakeDriver(options: {
+  runtime?: Pick<RelauncherRuntime, "run" | "capture">;
+  log?: (line: string) => void;
+} = {}): LoopWakeDriver {
+  const runtime = options.runtime ?? defaultRelauncherRuntime;
+  return {
+    drive(request) {
+      const tmux = request.launchContext?.tmux;
+      if (!tmux) return "failed";
+      const target = tmuxTarget(tmux);
+      if (paneHasRecentHumanActivity(runtime, target)) {
+        options.log?.(`loop-wake[local-tmux]: ${request.to} -> ${target} deferred-human`);
+        return "deferred-human";
+      }
+      const ok = tmuxSendSubmit(runtime, target, request.instructionLine);
+      options.log?.(`loop-wake[local-tmux]: ${request.to} -> ${target} ${ok ? "done" : "failed"}`);
+      return ok ? "done" : "failed";
+    }
+  };
 }
 
 // --- Action sink (effects for `--execute`) ------------------------------------
 // `close` = idempotent store status flip (ZERO injection). `wake` = fresh-session
-// + cooldown gated localTmuxDriver (which re-checks the human-typing guard at the
-// last moment; defer → "deferred", stays pending). request-launch / route-decision
-// still `skipped` (their guarded slices land next). NEVER chain/headless/auto — a
-// defer must not fall back to a headless injection (double-consensus RISK #1).
-export function buildActionSink(opts: { driver?: H2ADriver } = {}): ActionSink {
-  // Injectable driver seam: production defaults to the guarded local-tmux driver
-  // (which re-checks the human-typing guard at the last moment). Tests pass a fake
-  // driver so the wake glue (planWakeTarget → drive) is covered WITHOUT any real
-  // `tmux send-keys` into a live pane.
-  const driver = opts.driver ?? localTmuxDriver();
+// + shared-budget typed local-tmux driver, distinguishing human deferral from a
+// failed injection. `request-launch` = complete launch specs only, through the
+// strict h2a.run/v1 stdin+JSON bridge. NEVER chain/headless/auto — a human defer
+// must not fall back to another injection path.
+export function buildActionSink(opts: {
+  /** Back-compat boolean seam: false means human-deferred. Prefer wakeDriver. */
+  driver?: H2ADriver;
+  wakeDriver?: LoopWakeDriver;
+  launcher?: LoopLauncher;
+  /** Workspace boundary captured by the objective-loop controller. */
+  controllerRoot?: string;
+} = {}): ActionSink {
+  const wakeDriver: LoopWakeDriver = opts.wakeDriver ?? (opts.driver
+    ? {
+        async drive(request) {
+          return await opts.driver!.drive(request) ? "done" : "deferred-human";
+        }
+      }
+    : localTmuxLoopWakeDriver());
+  const launcher = opts.launcher ?? defaultLoopLauncher;
   return {
     async close(_action, ctx) {
       const { changed } = updateObjectiveLoopStatus(ctx.root, ctx.loopId, "done", {
@@ -380,23 +659,42 @@ export function buildActionSink(opts: { driver?: H2ADriver } = {}): ActionSink {
     },
     async requestLaunch(action, ctx) {
       const loop = readObjectiveLoop(ctx.root, ctx.loopId);
-      const prior = priorLaunchByAgent(listLoopEvents(ctx.root, ctx.loopId)).get(action.agentId ?? "") ?? { count: 0 };
+      const prior = priorRelaunchAttemptsByAgent(listLoopEvents(ctx.root, ctx.loopId)).get(action.agentId ?? "") ?? { count: 0 };
       const plan = planLaunchTarget({
         loop,
         agentId: action.agentId ?? "",
         priorCount: prior.count,
         ...(prior.latestAt !== undefined ? { priorLatestAt: prior.latestAt } : {}),
+        ...(prior.retryForbidden === true ? { retryForbidden: true } : {}),
         now: ctx.now
       });
-      // ASK, never spawn (spec §Non-goals: "h2a asks remote/runtime to spawn").
-      // MVP: record the request in the loop journal (loop.action.applied
-      // {request-launch}) — a conductor/remote consumes it. TODO: also emit a
-      // conductor-launch-request envelope to a live remote (createEnvelope +
-      // putInboxMessage) once actor-instance + workspace resolution is settled.
-      return plan.kind === "emit" ? "done" : "skipped";
+      if (plan.kind !== "emit") return { outcome: "skipped", detail: plan.reason };
+      const agent = loop.agents.find((candidate) => candidate.id === action.agentId);
+      if (!agent?.launch) return { outcome: "skipped", detail: "no-launch-spec" };
+      let spec: H2ALoopLaunchSpec;
+      try {
+        spec = validateLoopLaunchSpec(agent.launch);
+      } catch (error) {
+        return { outcome: "skipped", detail: `invalid launch spec: ${(error as Error).message}` };
+      }
+      if (agent.host !== spec.profile) {
+        return { outcome: "skipped", detail: "launch profile differs from persisted agent host" };
+      }
+      if (!loopLaunchWorkspaceAllowed(loop, spec, opts.controllerRoot ?? process.cwd())) {
+        return { outcome: "skipped", detail: "launch workspace is outside the controller and declared repo boundaries" };
+      }
+      const launched = await launcher.launch(spec);
+      return launched.ok
+        ? { outcome: "done", ...(launched.detail ? { detail: launched.detail } : {}) }
+        : {
+            outcome: "failed",
+            ...(launched.detail ? { detail: launched.detail } : {}),
+            ...(launched.retrySafe !== undefined ? { retrySafe: launched.retrySafe } : {})
+          };
     },
     async wake(action, ctx) {
       const loop = readObjectiveLoop(ctx.root, ctx.loopId);
+      const wakeHistory = priorRelaunchAttemptsByAgent(listLoopEvents(ctx.root, ctx.loopId));
       const freshSessions = listPresence(ctx.root, { now: ctx.now }).map((s) => ({
         instance: s.instance,
         ...(s.launchContext !== undefined ? { launchContext: s.launchContext } : {})
@@ -405,20 +703,30 @@ export function buildActionSink(opts: { driver?: H2ADriver } = {}): ActionSink {
         loop,
         agentId: action.agentId ?? "",
         freshSessions,
-        priorWakeAtByAgent: priorWakeAtByAgent(listLoopEvents(ctx.root, ctx.loopId)),
+        priorWakeAtByAgent: new Map(
+          [...wakeHistory]
+            .filter((entry): entry is [string, RelaunchHistory & { latestAt: number }] => entry[1].latestAt !== undefined)
+            .map(([agentId, history]) => [agentId, history.latestAt])
+        ),
+        priorWakeCountByAgent: new Map(
+          [...wakeHistory]
+            .map(([agentId, history]) => [agentId, history.count])
+        ),
         now: ctx.now
       });
       if (plan.kind === "skip") return "skipped";
       // localTmuxDriver ONLY — never chain/headless/auto (RISK #1). It applies the
       // human-typing guard at the last moment and DEFERS (false) if a human is
       // active in the pane; a defer stays pending and re-fires next tick.
-      const ok = await driver.drive({
+      const outcome = await wakeDriver.drive({
         to: plan.instance,
         ...(plan.host !== undefined ? { host: plan.host } : {}),
         instructionLine: plan.instructionLine,
         launchContext: plan.launchContext
       });
-      return ok ? "done" : "deferred";
+      if (outcome === "done") return "done";
+      if (outcome === "deferred-human") return "deferred";
+      return "failed";
     },
     async routeDecision() {
       return "skipped";

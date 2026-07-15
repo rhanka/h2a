@@ -20,7 +20,8 @@ test("allowlist EXCLUDES every signing / private-key / mutating tool", () => {
     "h2a_open_negotiation",
     "h2a_session_open",
     "h2a_nhi_offboard",
-    "h2a_inbox"
+    "h2a_inbox",
+    "h2a_run"
   ]) {
     assert.equal(isHostedReadOnlyTool(forbidden), false, `${forbidden} must NOT be hosted`);
   }
