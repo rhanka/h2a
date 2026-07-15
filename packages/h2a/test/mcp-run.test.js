@@ -183,7 +183,7 @@ test("h2a_run rejects unknown fields, unsafe workspaces and invalid combinations
     );
     assert.throws(
       () => validateH2aRunRequest(request("/tmp"), workspaceRoot),
-      /within the MCP startup workspace|may not be under \/tmp/i
+      /within the MCP startup workspace|may not be under the OS temporary directory/i
     );
     assert.throws(
       () =>

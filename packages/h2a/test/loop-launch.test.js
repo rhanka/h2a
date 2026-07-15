@@ -71,7 +71,7 @@ test("launch validation rejects missing context, unsupported profiles and unsafe
     assert.throws(() => validateLoopLaunchSpec({ ...launchSpec(dir), profile: "gemini" }), /claude or codex/);
     assert.throws(() => validateLoopLaunchSpec({ ...launchSpec(dir), name: "unsafe/name" }), /name/);
     assert.throws(() => validateLoopLaunchSpec({ ...launchSpec(dir), workspace: "relative" }), /absolute/);
-    assert.throws(() => validateLoopLaunchSpec({ ...launchSpec(dir), workspace: tmpdir() }), /durable|\/tmp/);
+    assert.throws(() => validateLoopLaunchSpec({ ...launchSpec(dir), workspace: tmpdir() }), /durable|temporary/);
     assert.throws(() => validateLoopLaunchSpec({ ...launchSpec(dir), surprise: true }), /unknown field/);
     assert.throws(() => validateLoopLaunchSpec({ ...launchSpec(dir), gateway: "required" }), /only for claude/);
     assert.equal(

@@ -3,6 +3,8 @@ import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { isOsTemporaryPath } from "../path-safety.js";
+
 export const H2A_RUN_PROFILES = ["claude", "codex"] as const;
 export type H2aRunProfile = (typeof H2A_RUN_PROFILES)[number];
 export const H2A_RUN_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
@@ -107,8 +109,8 @@ export function validateH2aRunRequest(
   if (!isWithin(root, workspace)) {
     throw new Error("h2a_run: workspace must stay within the MCP startup workspace");
   }
-  if (workspace === "/tmp" || workspace.startsWith("/tmp/")) {
-    throw new Error("h2a_run: durable agent workspaces may not be under /tmp");
+  if (isOsTemporaryPath(workspace)) {
+    throw new Error("h2a_run: durable agent workspaces may not be under the OS temporary directory");
   }
 
   const gateway = args.gateway ?? "auto";
