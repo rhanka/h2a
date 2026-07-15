@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createObjectiveLoop, joinObjectiveLoop, listLoopEvents, listObjectiveLoops, readObjectiveLoop, runCli } from "../dist/index.js";
+import { durableTestDir } from "./durable-test-dir.js";
 
 function freshRoot() {
   return mkdtempSync(join(tmpdir(), "h2a-loop-"));
@@ -209,9 +210,10 @@ test("h2a loop join fills a predeclared planned agent slot", () => {
 test("h2a loop create/join expose strict launch specs through stdin JSON", () => {
   const dir = freshRoot();
   const root = join(dir, ".h2a");
+  const launchWorkspace = durableTestDir("h2a-loop-cli-launch-");
   const launch = {
     profile: "claude",
-    workspace: dir,
+    workspace: launchWorkspace,
     prompt: "Join and resume the objective loop",
     model: "claude-opus-4-8",
     effort: "xhigh",
@@ -254,12 +256,14 @@ test("h2a loop create/join expose strict launch specs through stdin JSON", () =>
     assert.match(argvPrompt.stderrText, /prompts must not be passed in argv/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    rmSync(launchWorkspace, { recursive: true, force: true });
   }
 });
 
 test("re-join refuses a launch profile incompatible with the enrolled host", () => {
   const dir = freshRoot();
   const root = join(dir, ".h2a");
+  const launchWorkspace = durableTestDir("h2a-loop-profile-launch-");
   try {
     createObjectiveLoop(root, {
       id: "profile-mismatch",
@@ -278,7 +282,7 @@ test("re-join refuses a launch profile incompatible with the enrolled host", () 
       agentId: "agent-1",
       launch: {
         profile: "codex",
-        workspace: dir,
+        workspace: launchWorkspace,
         prompt: "resume",
         model: "gpt-5.6-terra",
         name: "mismatch"
@@ -286,5 +290,6 @@ test("re-join refuses a launch profile incompatible with the enrolled host", () 
     }), /host differs from launch profile/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    rmSync(launchWorkspace, { recursive: true, force: true });
   }
 });

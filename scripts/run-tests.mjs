@@ -66,12 +66,14 @@ const RUN_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 600000;
 // Tests that pass --root explicitly override this; tests that set H2A_ROOT
 // themselves also override it within their own process.env assignments.
 // Runtime launch workspaces are intentionally rejected under OS-global /tmp.
-// Give the whole suite a repo-local, ignored scratch root so tests that build
-// a launch specification exercise a durable workspace without weakening that
-// production invariant. A single root also makes cleanup deterministic.
+// Keep the process-wide OS temp semantics intact: tests rely on tmpdir() being
+// outside the repository for non-git and /tmp rejection coverage. Tests that
+// need a durable launch workspace opt into the dedicated repo-local root.
 const testScratch = join(REPO_ROOT, "tmp", "test-runtime");
 mkdirSync(testScratch, { recursive: true });
 const testRoot = mkdtempSync(join(testScratch, "h2a-test-root-"));
+const durableRoot = join(testRoot, "durable");
+mkdirSync(durableRoot, { recursive: true });
 
 const result = spawnSync(process.execPath, ["--test", ...files], {
   cwd: REPO_ROOT,
@@ -81,9 +83,7 @@ const result = spawnSync(process.execPath, ["--test", ...files], {
   env: {
     ...process.env,
     H2A_ROOT: join(testRoot, ".h2a"),
-    TMPDIR: testRoot,
-    TMP: testRoot,
-    TEMP: testRoot
+    H2A_TEST_DURABLE_ROOT: durableRoot
   }
 });
 
