@@ -102,24 +102,22 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
 
 
 
-  it('CLI `track report` defaults to conductor view for human text; --flat keeps legacy buckets', () => {
+  it('CLI legacy JSON keeps --wp and --flat as deterministic compatibility projections', () => {
     seed()
     const out: string[] = []
     const err: string[] = []
     const io = { cwd: dir, out: (s: string) => out.push(s), err: (s: string) => err.push(s) }
 
-    expect(runCli(['report', '--commit', 'c1'], io)).toBe(0)
-    const text = out.join('')
-    expect(text).toContain('FAIT')
-    expect(text).toContain('À-FAIRE')
-    expect(text).toContain('DÉCISIONS/ACTIONS')
-    expect(text).toContain('préconisation')
-    expect(text).not.toMatch(/^DONE \(/m)
+    expect(runCli(['report', '--format', 'json', '--wp', '--commit', 'c1'], io)).toBe(0)
+    const structured = JSON.parse(out.join()) as { wpTree?: unknown[] }
+    expect(structured.wpTree?.length).toBeGreaterThan(0)
 
     out.length = 0
-    expect(runCli(['report', '--flat', '--commit', 'c1'], io)).toBe(0)
-    expect(out.join('')).toMatch(/^DONE \(/m)
-    expect(out.join('')).toMatch(/^TO-DO \(/m)
+    expect(runCli(['report', '--format', 'json', '--flat', '--commit', 'c1'], io)).toBe(0)
+    const flat = JSON.parse(out.join()) as { wpTree?: unknown[]; buckets: Record<string, unknown[]> }
+    expect(flat.wpTree).toBeUndefined()
+    expect(flat.buckets).toHaveProperty('DONE')
+    expect(flat.buckets).toHaveProperty('TO-DO')
   })
 
   it('the conductor view recommends next actions with an execution mode', () => {
@@ -240,7 +238,7 @@ describe('report-revamp — the conductor never truncates silently and escapes m
 
 // ---- 5. CLI end-to-end ------------------------------------------------------------------------
 
-describe('report-revamp — CLI `track report --wp` end-to-end', () => {
+describe('report-revamp — legacy CLI JSON `track report --wp` end-to-end', () => {
   const cli = (...argv: string[]): { code: number; out: string; err: string } => {
     const out: string[] = []
     const err: string[] = []
@@ -249,16 +247,14 @@ describe('report-revamp — CLI `track report --wp` end-to-end', () => {
     return { code: runCli(argv, io) as number, out: out.join(''), err: err.join('') }
   }
 
-  it('renders the conductor view, escape-free, with no flat buckets', () => {
+  it('surfaces the WP label in the frozen machine projection', () => {
     cli('init')
     const wp = cli('item', 'new', '--kind', 'chore', '--title', 'WP1 — Record Integrity', '--workspace', 'ws', '--role', 'workpackage').out.trim()
     cli('item', 'new', '--kind', 'chore', '--title', 'record-only (0.1.0)', '--workspace', 'ws', '--parent', wp)
-    const r = cli('report', '--commit', 'c1')
+    const r = cli('report', '--format', 'json', '--wp', '--commit', 'c1')
     expect(r.code).toBe(0)
-    expect(r.out).toContain('WP1 · Record Integrity')
-    expect(r.out).not.toContain('WP1 · WP1')
-    expect(r.out).not.toContain('\\') // text render: no backslash escapes
-    expect(r.out).not.toMatch(/^TO-DO \(/m) // flat buckets suppressed
+    const report = JSON.parse(r.out) as { wpTree: Array<{ label: string; title: string }> }
+    expect(report.wpTree[0]).toMatchObject({ label: 'WP1', title: 'WP1 — Record Integrity' })
   })
 })
 

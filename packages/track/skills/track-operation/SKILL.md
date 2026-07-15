@@ -1,6 +1,6 @@
 ---
 name: track-operation
-description: "Use when the user asks for a track report, a status, an advancement/progress report, or says 'fais-moi un track report' / 'un track report' — run the CLI `track report` (default table) from the repo root and paste its FAIT/À-FAIRE/DÉCISIONS-ACTIONS table verbatim; NEVER use the `track_report` MCP tool to render a human report (it returns machine JSON). Also use when an agent needs to read, update, import, or verify track state in a repo; when a BRANCH.md or plan/NN-BRANCH_*.md file changed; when a session reports that track write/import is not exposed; or when deciding whether to use track MCP versus the track CLI. The skill enforces the contract: MCP is read-only, writes/imports use the track CLI from the target repo root, and .track is append-only/single-writer."
+description: "Use when the user asks for a track report, status, or advancement/progress report — run the CLI `track report` from the repo root and return its AI-prepared, cited output verbatim; never substitute the deterministic `track_report` MCP projection for a human AI report. Also use when an agent needs to read, update, import, or verify track state; when a BRANCH.md or plan/NN-BRANCH_*.md changed; or when deciding between Track MCP and CLI. MCP remains read-only, writes/imports use the CLI, and .track is append-only/single-writer."
 ---
 
 # Track Operation
@@ -9,17 +9,21 @@ Use this for ordinary track hygiene: reading status, importing BRANCH files, rec
 updates, and verifying that the sidecar is current. This is the general operational skill; use
 `present-decision` for human decision dossiers and `propose-workpackages` for backlog restructuring.
 
-## Human report/status — DO THIS FIRST
+## Human AI report/status — DO THIS FIRST
 
 For ANY human-facing track report or status (including "fais-moi un track report", "un track report",
-"a status", "an advancement/progress report"): run the CLI `track report` (default table, or
-`track report --format md`) from the repo root and PASTE THE OUTPUT VERBATIM in a fenced code block.
+"a status", "an advancement/progress report"): run the CLI `track report` (or
+`track report --format md`) from the repo root and paste its AI-prepared, cited output verbatim.
 
-- NEVER call the `track_report` MCP tool to render a human report — it returns machine JSON, and hand
-  reformatting that JSON is exactly what produces the verbose bullet lists this rule exists to prevent.
-- NEVER reformat the report into bullets or numbered lists, and never drop the table layout.
-- `track report --flat` is DEPRECATED for human reporting (flat buckets only); the default table is the
-  FAIT / À-FAIRE (%·WP) / DÉCISIONS-ACTIONS conductor view.
+- NEVER call the `track_report` MCP tool to render a human AI report. It is the frozen legacy,
+  deterministic projection; `track_snapshot` is the canonical factual context projection.
+- NEVER invent a report by interpreting MCP JSON or snapshot facts yourself.
+- If `track report` fails because no adapter is configured, times out, or returns invalid output, say that
+  the AI report is unavailable and preserve the command's honest error. You MAY run
+  `track snapshot --format text`, but label it exactly as a **factual snapshot (not an AI report)**. Do not
+  turn rule-derived snapshot directives into AI advice.
+- `--wp`, `--flat`, `--decisions`, and `--active-roster` are emphasis/context controls for the AI adapter;
+  they no longer select a deterministic human renderer.
 
 ## Contract
 
@@ -54,7 +58,7 @@ When progress is represented by a `BRANCH.md` or `plan/NN-BRANCH_*.md` file:
 3. Verify immediately:
 
    ```bash
-   track report --format text
+   track snapshot --format text
    track validate
    ```
 
@@ -75,13 +79,14 @@ Use direct CLI writes only for the event they actually represent:
 
 Report track results from the verified state, not from memory:
 
-- Use `track report --format text` for human status. Since track 0.19.1 this prefers the WP/table
-  conductor view (FAIT / À-FAIRE %·WP / ATTENDUS) when workpackages exist, and falls back to flat buckets
-  in unstructured repos. **When the user asks for a report/status, paste the raw command output verbatim in
-  a fenced code block; do not summarize it, do not convert it to bullets, and do not drop the table layout.**
-- Use `track report --wp` only to force the conductor table explicitly. Use legacy `track report --flat`
-  only when the user asks for flat buckets or a downstream script still needs them; treat `--flat` as
-  deprecated for human reporting.
+- Use `track report --format text` for a human AI status and paste its raw, cited output verbatim.
+- Use `track report --format md` when Markdown is explicitly useful, and `--wp` or `--flat` only to request
+  a workpackage or flat emphasis from the adapter.
+- Use `track snapshot` or the exact alias `track report --raw` for canonical deterministic facts. Its text
+  and Markdown renderers are diagnostics; always label them **factual snapshot (not an AI report)** when
+  returning them to a human.
+- `track report --format json` and the MCP `track_report` tool remain frozen legacy compatibility surfaces;
+  do not present either as the new human AI report.
 - Mention if `.track/` was intentionally not written because the current checkout is not the designated
   writer.
 

@@ -37,8 +37,10 @@ import {
 import { ingest, type IngestContext } from '../ingest/ingest.js'
 import { applyRestructurePlan, type RestructurePlan } from './restructure-apply.js'
 import { TrackReader } from '../read/contract.js'
-import { queryText, reportHtml, reportInline, reportText, statusText } from '../read/commands.js'
+import { queryText, reportText, statusText } from '../read/commands.js'
 import { STATUS_LEVELS } from '../report/status-by-level.js'
+import { renderSnapshot } from '../report/snapshot.js'
+import { generateAiReport, type AiReportRequest } from '../report/ai-report.js'
 import { VERSION } from '../version.js'
 import { durableWorkspaceId } from '../workspace-id.js'
 import { desyncFindings } from './desync.js'
@@ -47,6 +49,8 @@ export interface CliIO {
   cwd: string
   out: (s: string) => void
   err: (s: string) => void
+  /** Optional process environment injection for adapter/config isolation in embedders and tests. */
+  env?: NodeJS.ProcessEnv
 }
 
 /**
@@ -90,7 +94,8 @@ const USAGE = `usage: track <command>
   accept waive <criterionId> --reason <r>
   consolidate --items <id,id> --commit <mergeCommit> [--client-token <t>]
   priority assess <itemId> --ubv <n> --tc <n> --rr <n> --js <n>
-  report [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--format json|text|md|html] [--commit <sha>]
+  report [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--format json|text|md|html] [--commit <sha>]
+  snapshot [--require-accepted] [--format json|text|md] [--commit <sha>]
   export-graph [--repo-key <repo:key>] [--source-id <id>] [--observed-at <iso>]
   query [--kind <k>] [--role <workpackage|spec-phase|stream>] [--workspace <w>] [--bucket <AWAITED|DROPPED|DONE|TO-DO>] [--realization <r>] [--acceptance <a>] [--format json|text|md] [--commit <sha>]
   workspace-activity --workspace <id> [--baseline-commit <sha>] [--now <iso>] [--idle-ms <ms>] [--format json|text]
@@ -286,6 +291,19 @@ function fmt(flags: Flags): Format {
   return oneOf(opt(flags, 'format') ?? 'text', ['json', 'text', 'md'], '--format')
 }
 
+function assertBooleanFlag(flags: Flags, key: string): boolean {
+  const value = flags[key]
+  if (value === undefined) return false
+  if (value !== true) throw new DomainError(`--${key} does not accept a value`)
+  return true
+}
+
+function assertOnlyFlags(flags: Flags, allowed: readonly string[]): void {
+  const allow = new Set(allowed)
+  const unknown = Object.keys(flags).filter((key) => !allow.has(key)).sort()
+  if (unknown.length > 0) throw new DomainError(`unsupported flag(s): ${unknown.map((key) => `--${key}`).join(', ')}`)
+}
+
 /**
  * Pull a global `--track-dir <path>` out of argv BEFORE per-command parsing, so it works regardless
  * of where the user places it. Returns the value (if any) and the argv with that flag removed.
@@ -351,6 +369,7 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
       // `track init` hint, never a boot crash. NEVER creates. A bad EXPLICIT override still throws
       // (user error → the outer catch → rc=1). The reader over a nonexistent log already reads empty.
       case 'report':
+      case 'snapshot':
       case 'export-graph':
       case 'query':
       case 'validate':
@@ -374,6 +393,8 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
         switch (cmd) {
           case 'report':
             return cmdReport(rest, ctx)
+          case 'snapshot':
+            return cmdSnapshot(rest, ctx)
           case 'export-graph':
             return cmdExportGraph(rest, ctx)
           case 'query':
@@ -887,64 +908,131 @@ function cmdPriority(args: string[], ctx: Ctx): number {
 
 function cmdReport(args: string[], ctx: Ctx): number {
   const { io } = ctx
-  const { flags } = parseFlags(args)
+  const { positional, flags } = parseFlags(args)
+  if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
+  const raw = assertBooleanFlag(flags, 'raw')
+  if (raw) {
+    assertOnlyFlags(flags, ['raw', 'commit', 'require-accepted', 'format'])
+    return emitSnapshot(flags, ctx, true)
+  }
   // Reads go through the shared TrackReader command layer (same path the MCP server uses).
   const reader = new TrackReader(ctx.eventsPath)
   // Scope §A/§B — `--level <spec|plan|wp|lot|task>` switches to the status(level) projection.
   // Otherwise 0.19.1 prefers the WP/table conductor view; `--flat` is the deprecated legacy opt-out.
   if (opt(flags, 'level') !== undefined) {
+    assertOnlyFlags(flags, ['level', 'commit', 'require-accepted', 'format'])
+    assertBooleanFlag(flags, 'require-accepted')
     io.out(
       statusText(
         reader,
         oneOf(req(flags, 'level'), STATUS_LEVELS, '--level'),
         {
           baselineCommit: resolveCommit(io.cwd, opt(flags, 'commit')),
-          requireAccepted: flags['require-accepted'] === true,
+          requireAccepted: assertBooleanFlag(flags, 'require-accepted'),
         },
         fmt(flags),
       ),
     )
     return 0
   }
-  // report-revamp §B/§C — the compact INLINE render (`--inline`/`--width`) and the DS HTML FRAGMENT render
-  // (`--format html`). Both reuse the SAME conductor view/directives; only the presentation differs. Routed
-  // BEFORE `fmt()` (which admits only json|text|md), so `html` never trips the strict format check.
   const rawFormat = opt(flags, 'format')
   const widthArg = opt(flags, 'width')
-  const inline = flags['inline'] === true || widthArg !== undefined
-  if (rawFormat === 'html' || inline) {
-    const options = {
-      baselineCommit: resolveCommit(io.cwd, opt(flags, 'commit')),
-      requireAccepted: flags['require-accepted'] === true,
-      decisions: true,
-      wpTree: true,
-      activeRoster: flags['active-roster'] === true,
-    }
-    if (rawFormat === 'html') {
-      io.out(reportHtml(reader, options))
-      return 0
-    }
-    const width = widthArg !== undefined ? Number.parseInt(widthArg, 10) : undefined
-    io.out(reportInline(reader, options, width !== undefined && Number.isFinite(width) ? { width } : {}))
+  const inlineFlag = assertBooleanFlag(flags, 'inline')
+  const inline = inlineFlag || widthArg !== undefined
+  if (inline && rawFormat !== undefined && rawFormat !== 'text') {
+    throw new DomainError('--inline/--width accepts no --format, or --format text')
+  }
+  if (rawFormat === 'html' && inline) throw new DomainError('--format html rejects --inline/--width')
+
+  // Frozen legacy path. Keep this call and option derivation byte-for-byte equivalent to the former JSON
+  // branch: it never enters context collection or the adapter.
+  if (rawFormat === 'json') {
+    assertOnlyFlags(flags, ['commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'format'])
+    io.out(
+      reportText(
+        reader,
+        {
+          baselineCommit: resolveCommit(io.cwd, opt(flags, 'commit')),
+          requireAccepted: flags['require-accepted'] === true,
+          decisions: flags['decisions'] === true,
+          wpTree: flags['wp'] === true,
+          activeRoster: flags['active-roster'] === true,
+        },
+        'json',
+      ),
+    )
     return 0
   }
+
+  assertOnlyFlags(flags, [
+    'commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'inline', 'width', 'format',
+  ])
+  if (rawFormat !== undefined && !['text', 'md', 'html'].includes(rawFormat)) {
+    throw new DomainError('--format must be one of: json|text|md|html')
+  }
+  const requireAccepted = assertBooleanFlag(flags, 'require-accepted')
+  const decisions = assertBooleanFlag(flags, 'decisions')
+  const activeRoster = assertBooleanFlag(flags, 'active-roster')
+  const wp = assertBooleanFlag(flags, 'wp')
+  const flat = assertBooleanFlag(flags, 'flat')
+  if (wp && flat) throw new DomainError('--wp and --flat are mutually exclusive')
+  let width: number | undefined
+  if (widthArg !== undefined) {
+    if (!/^\d+$/u.test(widthArg)) throw new DomainError('--width must be an integer in [40,240]')
+    width = Number(widthArg)
+    if (width < 40 || width > 240) throw new DomainError('--width must be an integer in [40,240]')
+  }
+  const baselineInput = opt(flags, 'commit') ?? 'HEAD'
+  const baselineCommit = resolveCommit(io.cwd, baselineInput)
+  const format: AiReportRequest['format'] = inline
+    ? 'inline'
+    : rawFormat === 'md' || rawFormat === 'html'
+      ? rawFormat
+      : 'text'
   io.out(
-    reportText(
+    generateAiReport({
       reader,
-      {
-        baselineCommit: resolveCommit(io.cwd, opt(flags, 'commit')),
-        requireAccepted: flags['require-accepted'] === true,
-        decisions: flags['decisions'] === true || (flags['flat'] !== true && fmt(flags) !== 'json'),
-        // Directive default: human text/md reports include decision recommendations and use the WP conductor
-        // view unless --flat is explicit. JSON keeps the legacy structured bucket contract unless requested.
-        wpTree: flags['wp'] === true || (flags['flat'] !== true && fmt(flags) !== 'json'),
-        // WP-codes A3 — `--active-roster` OMITS terminal (DROPPED) roots from the human roster (render-only).
-        activeRoster: flags['active-roster'] === true,
+      cwd: io.cwd,
+      request: {
+        baselineInput,
+        baselineCommit,
+        format,
+        emphasis: wp ? 'workpackages' : flat ? 'flat' : 'default',
+        requireAccepted,
+        decisionEmphasis: decisions ? 'all' : 'open-only',
+        activeRoster,
       },
-      fmt(flags),
+      ...(width !== undefined ? { width } : {}),
+      ...(io.env !== undefined ? { env: io.env } : {}),
+    }).output,
+  )
+  return 0
+}
+
+function emitSnapshot(flags: Flags, ctx: Ctx, allowRaw: boolean): number {
+  const { io } = ctx
+  assertOnlyFlags(flags, allowRaw ? ['raw', 'commit', 'require-accepted', 'format'] : ['commit', 'require-accepted', 'format'])
+  const format = oneOf(opt(flags, 'format') ?? 'json', ['json', 'text', 'md'], '--format')
+  const baselineInput = opt(flags, 'commit') ?? 'HEAD'
+  const resolvedCommit = resolveCommit(io.cwd, baselineInput)
+  const reader = new TrackReader(ctx.eventsPath)
+  io.out(
+    renderSnapshot(
+      reader.snapshot({
+        baselineInput,
+        resolvedCommit,
+        requireAccepted: assertBooleanFlag(flags, 'require-accepted'),
+      }),
+      format,
     ),
   )
   return 0
+}
+
+function cmdSnapshot(args: string[], ctx: Ctx): number {
+  const { positional, flags } = parseFlags(args)
+  if (positional.length > 0) throw new DomainError(`unexpected snapshot argument(s): ${positional.join(' ')}`)
+  return emitSnapshot(flags, ctx, false)
 }
 
 function cmdExportGraph(args: string[], ctx: Ctx): number {
