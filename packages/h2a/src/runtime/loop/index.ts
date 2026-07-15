@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, appendFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync, appendFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 
 import { localStorePaths, safePathSegment } from "../local-files/paths.js";
+import { isOsTemporaryPath } from "../path-safety.js";
 
 export type H2ALoopStatus =
   | "created"
@@ -31,6 +32,16 @@ export type H2ALoopAgentStatus =
   | "done"
   | "failed"
   | "cancelled";
+
+export interface H2ALoopLaunchSpec {
+  readonly profile: "claude" | "codex";
+  readonly workspace: string;
+  readonly prompt: string;
+  readonly model: string;
+  readonly name: string;
+  readonly effort?: "low" | "medium" | "high" | "xhigh";
+  readonly gateway?: "auto" | "required" | "off";
+}
 
 // Canonical objective binding: h2a loops orchestrate explicit track refs rather
 // than creating a parallel backlog/status store. A single objective may span
@@ -79,6 +90,8 @@ export interface H2ALoopAgent {
   readonly remoteAgentId?: string;
   readonly remoteJobId?: string;
   readonly trackRefs?: H2ALoopTrackRef[];
+  /** Complete opt-in specification for a canonical `h2a run` relaunch. */
+  readonly launch?: H2ALoopLaunchSpec;
 }
 
 export interface H2ALoopPolicy {
@@ -127,6 +140,7 @@ export interface LoopJoinInput {
   readonly agentId?: string;
   readonly role?: string;
   readonly required?: boolean;
+  readonly launch?: H2ALoopLaunchSpec;
 }
 
 export interface LoopReportInput {
@@ -134,6 +148,8 @@ export interface LoopReportInput {
   readonly agentId?: string;
   readonly note: string;
   readonly artifacts?: unknown[];
+  /** Explicit recovery for a legacy/staged empty loop. Never inferred. */
+  readonly autoJoin?: boolean;
 }
 
 export interface LoopDoneInput {
@@ -157,6 +173,67 @@ export const H2A_DEFAULT_LOOP_POLICY: H2ALoopPolicy = {
   successCriteria: "all-targets-accepted",
   decisionGatePolicy: "all-go-or-waived"
 };
+
+const SAFE_LAUNCH_NAME = /^[A-Za-z0-9_-]{1,64}$/;
+const SAFE_LAUNCH_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
+const MAX_LAUNCH_PROMPT_BYTES = 65_536;
+const LOOP_LAUNCH_KEYS = new Set(["profile", "workspace", "prompt", "model", "name", "effort", "gateway"]);
+
+/** Strict validation at every persistence/action boundary; returns a plain copy. */
+export function validateLoopLaunchSpec(value: unknown): H2ALoopLaunchSpec {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("loop launch spec must be an object");
+  }
+  const raw = value as Record<string, unknown>;
+  const unknown = Object.keys(raw).filter((key) => !LOOP_LAUNCH_KEYS.has(key));
+  if (unknown.length > 0) throw new Error(`loop launch spec has unknown field(s): ${unknown.join(", ")}`);
+  if (raw.profile !== "claude" && raw.profile !== "codex") {
+    throw new Error("loop launch profile must be claude or codex");
+  }
+  if (typeof raw.workspace !== "string" || !isAbsolute(raw.workspace)) {
+    throw new Error("loop launch workspace must be an absolute existing directory");
+  }
+  let workspace: string;
+  try {
+    workspace = realpathSync(raw.workspace);
+    if (!statSync(workspace).isDirectory()) throw new Error("not-directory");
+  } catch {
+    throw new Error("loop launch workspace must be an absolute existing directory");
+  }
+  if (isOsTemporaryPath(workspace)) {
+    throw new Error("loop launch workspace must be durable and may not be under the OS temporary directory");
+  }
+  if (typeof raw.prompt !== "string" || raw.prompt.trim().length === 0 || raw.prompt.includes("\0")) {
+    throw new Error("loop launch prompt is required");
+  }
+  if (Buffer.byteLength(raw.prompt, "utf8") > MAX_LAUNCH_PROMPT_BYTES) {
+    throw new Error(`loop launch prompt exceeds ${MAX_LAUNCH_PROMPT_BYTES} UTF-8 bytes`);
+  }
+  if (typeof raw.model !== "string" || !SAFE_LAUNCH_MODEL.test(raw.model)) {
+    throw new Error("loop launch model is required and must be a safe model token");
+  }
+  if (typeof raw.name !== "string" || !SAFE_LAUNCH_NAME.test(raw.name)) {
+    throw new Error('loop launch name is required (allowed: letters, digits, "_", "-")');
+  }
+  if (raw.effort !== undefined && !["low", "medium", "high", "xhigh"].includes(raw.effort as string)) {
+    throw new Error("loop launch effort must be low, medium, high, or xhigh");
+  }
+  if (raw.gateway !== undefined && !["auto", "required", "off"].includes(raw.gateway as string)) {
+    throw new Error("loop launch gateway must be auto, required, or off");
+  }
+  if (raw.profile === "codex" && raw.gateway === "required") {
+    throw new Error("loop launch gateway required is supported only for claude");
+  }
+  return {
+    profile: raw.profile,
+    workspace,
+    prompt: raw.prompt,
+    model: raw.model,
+    name: raw.name,
+    ...(raw.effort !== undefined ? { effort: raw.effort as H2ALoopLaunchSpec["effort"] } : {}),
+    ...(raw.gateway !== undefined ? { gateway: raw.gateway as H2ALoopLaunchSpec["gateway"] } : {})
+  };
+}
 
 function loopsDir(root: string): string {
   return join(localStorePaths(root).root, "loops");
@@ -194,10 +271,30 @@ export function createObjectiveLoop(
   now: number = Date.now()
 ): H2AObjectiveLoop {
   if (!input.goal) throw new Error("loop create requires --goal");
-  const id = input.id ?? createLoopId(now);
+  const agents = (input.agents ?? []).map((agent) => {
+    if (agent.launch === undefined) return agent;
+    const launch = validateLoopLaunchSpec(agent.launch);
+    if (agent.host !== launch.profile) {
+      throw new Error(`loop agent host differs from launch profile: ${agent.id}`);
+    }
+    return { ...agent, launch };
+  });
+  const baseId = input.id ?? createLoopId(now);
+  let id = baseId;
+  mkdirSync(loopsDir(root), { recursive: true });
+  let suffix = 0;
+  for (;;) {
+    try {
+      mkdirSync(loopDir(root, id), { recursive: false });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (input.id !== undefined) throw new Error(`loop already exists: ${id}`);
+      suffix += 1;
+      id = `${baseId}-${suffix}`;
+    }
+  }
   const dir = loopDir(root, id);
-  if (existsSync(stateFile(root, id))) throw new Error(`loop already exists: ${id}`);
-  mkdirSync(dir, { recursive: true });
   const at = new Date(now).toISOString();
   const loop: H2AObjectiveLoop = {
     id,
@@ -207,7 +304,7 @@ export function createObjectiveLoop(
     status: "created",
     repos: [...(input.repos ?? [])],
     refs: [...(input.refs ?? [])],
-    agents: [...(input.agents ?? [])],
+    agents,
     policy: {
       ...H2A_DEFAULT_LOOP_POLICY,
       successCriteria: (input.refs ?? []).length === 0 ? "explicit-done" : H2A_DEFAULT_LOOP_POLICY.successCriteria,
@@ -318,27 +415,58 @@ export function joinObjectiveLoop(
   if (loop.status === "done" || loop.status === "stopped") throw new Error(`loop is terminal: ${loop.status}`);
   const at = new Date(now).toISOString();
   const id = input.agentId ?? input.instance;
+  const launch = input.launch === undefined ? undefined : validateLoopLaunchSpec(input.launch);
   const agent: H2ALoopAgent = {
     id,
-    host: "shell",
+    host: launch?.profile ?? "shell",
     role: input.role ?? "participant",
     placement: "local",
     status: "running",
     h2aInstance: input.instance,
     required: input.required ?? loop.agents.length === 0,
-    joinedAt: at
+    joinedAt: at,
+    ...(launch !== undefined ? { launch } : {})
   };
   const existing = loop.agents.find((a) => a.id === id);
   if (existing) {
     if (existing.h2aInstance === agent.h2aInstance) {
       const same = (input.role === undefined || existing.role === input.role) && (input.required === undefined || existing.required === input.required);
       if (!same) throw new Error(`agent already joined with different payload: ${id}`);
+      if (launch !== undefined && existing.launch !== undefined && JSON.stringify(existing.launch) !== JSON.stringify(launch)) {
+        throw new Error(`agent already joined with different launch spec: ${id}`);
+      }
+      if (launch !== undefined && existing.launch === undefined) {
+        if (existing.host !== "shell" && existing.host !== launch.profile) {
+          throw new Error(`agent host differs from launch profile: ${id}`);
+        }
+        const configured: H2ALoopAgent = { ...existing, host: launch.profile, launch };
+        const next: H2AObjectiveLoop = {
+          ...loop,
+          agents: loop.agents.map((a) => a.id === id ? configured : a),
+          updatedAt: at
+        };
+        writeLoopState(root, next);
+        appendLoopEvent(root, {
+          type: "loop.agent-launch-configured",
+          loopId,
+          at,
+          payload: { loopId, agentId: id, profile: launch.profile, workspace: launch.workspace, name: launch.name, at }
+        });
+        return next;
+      }
       return loop;
     }
     const canFillPlannedSlot = existing.h2aInstance === undefined && (input.role === undefined || existing.role === input.role);
     if (!canFillPlannedSlot) throw new Error(`agent already joined with different payload: ${id}`);
+    if (launch !== undefined && existing.host !== "shell" && existing.host !== launch.profile) {
+      throw new Error(`planned agent host differs from launch profile: ${id}`);
+    }
+    if (launch !== undefined && existing.launch !== undefined && JSON.stringify(existing.launch) !== JSON.stringify(launch)) {
+      throw new Error(`planned agent has a different launch spec: ${id}`);
+    }
     const filled: H2ALoopAgent = {
       ...existing,
+      ...(launch !== undefined ? { host: launch.profile, launch } : {}),
       status: "running",
       h2aInstance: input.instance,
       required: input.required ?? existing.required ?? loop.agents.length === 0,
@@ -362,10 +490,27 @@ export function reportObjectiveLoop(
   now: number = Date.now()
 ): H2AObjectiveLoop {
   if (!input.note) throw new Error("loop report requires note");
-  const loop = readObjectiveLoop(root, loopId);
+  let loop = readObjectiveLoop(root, loopId);
   if (loop.status === "done" || loop.status === "stopped" || loop.status === "blocked") throw new Error(`loop is terminal: ${loop.status}`);
-  const agent = resolveAgent(loop, input);
-  if (!agent) throw new Error("loop report requires an unambiguous enrolled agent");
+  let agent = resolveAgent(loop, input);
+  if (!agent && input.autoJoin === true) {
+    if (!input.instance) {
+      throw new Error("loop report --auto-join requires an explicit instance");
+    }
+    if (loop.agents.length !== 0) {
+      throw new Error("loop report auto-join is only valid for an empty loop; call h2a_loop_join explicitly");
+    }
+    loop = joinObjectiveLoop(root, loopId, {
+      instance: input.instance,
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+      role: "conductor",
+      required: true
+    }, now);
+    agent = resolveAgent(loop, input);
+  }
+  if (!agent) {
+    throw new Error("loop report requires an unambiguous enrolled agent; call h2a_loop_join first (or use autoJoin:true with an explicit instance on an empty loop)");
+  }
   const at = new Date(now).toISOString();
   const next: H2AObjectiveLoop = { ...loop, updatedAt: at };
   writeLoopState(root, next);

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 // Pure wake targeting (freshness + cooldown gates). No tmux.
-import { planWakeTarget, priorWakeAtByAgent } from "../dist/runtime/loop/engine/adapters.js";
+import { planWakeTarget, priorActionAttemptsByAgent, priorWakeAtByAgent } from "../dist/runtime/loop/engine/adapters.js";
 
 const NOW = 10_000_000;
 
@@ -48,6 +48,18 @@ test("cooldown récent → skip cooldown", () => {
   assert.deepEqual(p, { kind: "skip", reason: "cooldown" });
 });
 
+test("maxRelaunches borne les wakes appliqués ou échoués", () => {
+  const p = planWakeTarget({
+    loop: { ...loopWith([AGENT]), policy: { tickMs: 60_000, maxRelaunches: 2 } },
+    agentId: "a1",
+    freshSessions: FRESH,
+    priorWakeAtByAgent: new Map([['a1', NOW - 400_000]]),
+    priorWakeCountByAgent: new Map([['a1', 2]]),
+    now: NOW
+  });
+  assert.deepEqual(p, { kind: "skip", reason: "max-relaunches" });
+});
+
 test("agent + session fraîche tmux + hors cooldown → wake avec launchContext + ligne taggée", () => {
   const p = planWakeTarget({
     loop: loopWith([AGENT]), agentId: "a1", freshSessions: FRESH,
@@ -84,4 +96,14 @@ test("priorWakeAtByAgent: garde le dernier wake appliqué par agent, ignore le r
   ]);
   assert.equal(m.get("a1"), Date.parse("2026-07-03T10:05:00.000Z"));
   assert.equal(m.size, 1);
+});
+
+test("priorActionAttemptsByAgent: applied+failed consomment, deferred+skipped ne consomment pas", () => {
+  const history = priorActionAttemptsByAgent([
+    { type: "loop.action.applied", at: "2026-07-03T10:00:00.000Z", payload: { action: "wake", key: "wake:a1" } },
+    { type: "loop.action.failed", at: "2026-07-03T10:05:00.000Z", payload: { action: "wake", key: "wake:a1" } },
+    { type: "loop.action.deferred", at: "2026-07-03T10:06:00.000Z", payload: { action: "wake", key: "wake:a1" } },
+    { type: "loop.action.skipped", at: "2026-07-03T10:07:00.000Z", payload: { action: "wake", key: "wake:a1" } }
+  ], "wake").get("a1");
+  assert.deepEqual(history, { count: 2, latestAt: Date.parse("2026-07-03T10:05:00.000Z") });
 });

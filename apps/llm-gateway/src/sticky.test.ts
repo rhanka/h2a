@@ -15,6 +15,8 @@ vi.mock("./accounts.js", () => ({
     token: "sk-ant-1",
   })),
   accountSupportsRoute: vi.fn(() => true),
+  effectiveAccountAuthType: vi.fn(() => "api-key"),
+  upstreamTransportForAccount: vi.fn(() => "anthropic-messages"),
   publicAccountDescriptor: vi.fn((account) => ({
     id: account.id,
     provider: account.provider,

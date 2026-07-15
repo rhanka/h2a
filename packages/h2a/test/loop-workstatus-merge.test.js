@@ -6,11 +6,13 @@ import { join } from "node:path";
 
 import {
   buildActionSink,
+  priorRelaunchAttemptsByAgent,
   readPresenceSnapshot,
   resolveDeclaredWorkStatus
 } from "../dist/runtime/loop/engine/adapters.js";
 import { planLoopTick } from "../dist/runtime/loop/engine/decision.js";
-import { createObjectiveLoop, updateObjectiveLoopStatus } from "../dist/runtime/loop/index.js";
+import { createObjectiveLoop, listLoopEvents, updateObjectiveLoopStatus } from "../dist/runtime/loop/index.js";
+import { executePlan } from "../dist/runtime/loop/engine/execute.js";
 import { writePresence } from "../dist/runtime/local-files/presence.js";
 import { recordStop, markDrumbeatTerminal } from "../dist/runtime/drumbeat/registry.js";
 
@@ -236,6 +238,58 @@ test("buildActionSink({driver}).wake: driver defers (human active) → deferred,
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("buildActionSink({wakeDriver}).wake: tmux injection failure → failed and consumes budget", async () => {
+  const root = freshRoot();
+  try {
+    const instance = "claude:conv-failed";
+    const loop = activeLoop(root, instance);
+    writeIdleSession(root, instance, { lastActivityMinAgo: 2 });
+    const sink = buildActionSink({ wakeDriver: { drive: () => "failed" } });
+    const report = await executePlan(
+      root,
+      loop.id,
+      {
+        loopId: loop.id,
+        degraded: false,
+        outcome: "waiting-agent",
+        close: false,
+        actions: [{ type: "wake", agentId: instance, reason: "test" }],
+        reasons: []
+      },
+      sink,
+      NOW
+    );
+    assert.equal(report.results[0].outcome, "failed");
+    assert.deepEqual(
+      priorRelaunchAttemptsByAgent(listLoopEvents(root, loop.id)).get(instance),
+      { count: 1, latestAt: NOW }
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("localTmuxLoopWakeDriver distinguishes human defer from tmux send failure", async () => {
+  const { localTmuxLoopWakeDriver } = await import("../dist/runtime/loop/engine/adapters.js");
+  const request = {
+    to: "codex:test",
+    instructionLine: "resume",
+    launchContext: { cwd: "/repo", command: "codex", tmux: { session: "s", pane: "%7" } }
+  };
+  const humanActive = localTmuxLoopWakeDriver({
+    runtime: {
+      capture: (_file, args) => args[0] === "display-message" ? "s\n" : `${Math.floor(Date.now() / 1000)}\n`,
+      run: () => { throw new Error("must not send while human active"); }
+    }
+  });
+  assert.equal(await humanActive.drive(request), "deferred-human");
+
+  const failedSend = localTmuxLoopWakeDriver({
+    runtime: { capture: () => undefined, run: () => false }
+  });
+  assert.equal(await failedSend.drive(request), "failed");
 });
 
 test("buildActionSink({driver}).wake: no fresh tmux session → skipped, driver untouched", async () => {

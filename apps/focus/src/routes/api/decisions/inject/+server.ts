@@ -24,6 +24,8 @@ function repoRoot(): string {
   return process.env.FOCUS_REPO_ROOT ?? path.resolve(process.cwd(), '..', '..');
 }
 function h2aBin(root: string): string {
+  const installed = process.env.FOCUS_H2A_BIN?.trim();
+  if (installed) return installed;
   return path.join(root, 'packages', 'h2a', 'dist', 'bin.js');
 }
 

@@ -44,6 +44,32 @@ repo-local `.remote/jobs/<id>/wt` workspace.
 A recorder verb does NOT do the thinking — it scaffolds + records, and the `harness/<verb>` skill carries
 the reasoning. Run the verb to open the act, then follow its skill.
 
+
+## Strict scope / minimal diff
+
+Solve only the explicit request and directly blocking defect. Before editing, identify the smallest
+necessary file/line set. Preserve existing work: do not rewrite, reformat, move, rename, delete, refactor,
+add dependencies, add abstractions, or clean up opportunistically unless required by the task. Prefer a
+local compatible fix over a broader redesign. If a useful improvement is outside scope, mention it as an
+optional follow-up instead of implementing it. Before finishing, check every hunk: if it does not directly
+serve the objective, remove it.
+
+### No-dead-end diagnosis
+
+Treat a gap, blocker, or missing implementation as actionable only when evidence shows that it prevents
+the explicit objective or a required verification. Do not end with that diagnosis alone. If the smallest
+directly blocking change is both authorized by the request and within the agreed scope, resolve it. A
+diagnosis-only request remains diagnosis-only. Otherwise provide one evidence-backed handoff:
+responsible role (or `owner: to be assigned`), bounded scope, observable acceptance criterion, and
+proportionate verification.
+
+For an evidenced, non-blocking observation outside the scope, do not implement it or create work by
+default. Mention it as an optional follow-up only when useful to the user, and cite the evidence. Record a
+follow-up only when the request explicitly authorizes creating or updating tracked work, using the task's
+established tracking flow; otherwise recommend it without recording it. Never create, assign, or
+duplicate follow-up work from speculation. A handoff closes the diagnosed blocking item; it does not
+satisfy or defer any remaining explicit objective.
+
 ## Discipline first
 
 Process skills (`harness/brainstorm`, `harness/debug`) decide HOW to approach the task — invoke them

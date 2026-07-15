@@ -16,11 +16,18 @@ const binSrc = join(dirname(fileURLToPath(import.meta.url)), 'bin.ts')
 // BOTH layouts: package-local `node_modules/.bin` (standalone track repo) and the hoisted monorepo
 // root `node_modules/.bin` (when track is a workspace of h2a and npm dedupes tsx to the root).
 const tsxHere = dirname(fileURLToPath(import.meta.url))
-const tsx =
-  [
-    join(tsxHere, '..', '..', 'node_modules', '.bin', 'tsx'), // packages/track/node_modules/.bin/tsx
-    join(tsxHere, '..', '..', '..', '..', 'node_modules', '.bin', 'tsx'), // <monorepo-root>/node_modules/.bin/tsx
-  ].find(existsSync) ?? join(tsxHere, '..', '..', 'node_modules', '.bin', 'tsx')
+function nearestTsx(start: string): string {
+  let cursor = start
+  for (;;) {
+    const candidate = join(cursor, 'node_modules', '.bin', 'tsx')
+    if (existsSync(candidate)) return candidate
+    const parent = dirname(cursor)
+    if (parent === cursor) break
+    cursor = parent
+  }
+  return join(tsxHere, '..', '..', 'node_modules', '.bin', 'tsx')
+}
+const tsx = nearestTsx(tsxHere)
 
 let dir: string
 

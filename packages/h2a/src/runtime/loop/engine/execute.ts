@@ -17,6 +17,15 @@ import type { TickAction, TickPlan } from "./decision.js";
 
 export type ActionOutcome = "done" | "deferred" | "skipped" | "failed";
 
+export interface ActionEffect {
+  readonly outcome: ActionOutcome;
+  readonly detail?: string;
+  /** False means the external result is ambiguous/incompatible; never retry blindly. */
+  readonly retrySafe?: boolean;
+}
+
+export type ActionEffectResult = ActionOutcome | ActionEffect;
+
 export interface ActionContext {
   readonly root: string;
   readonly loopId: string;
@@ -24,10 +33,10 @@ export interface ActionContext {
 }
 
 export interface ActionSink {
-  close(action: TickAction, ctx: ActionContext): Promise<ActionOutcome>;
-  requestLaunch(action: TickAction, ctx: ActionContext): Promise<ActionOutcome>;
-  wake(action: TickAction, ctx: ActionContext): Promise<ActionOutcome>;
-  routeDecision(action: TickAction, ctx: ActionContext): Promise<ActionOutcome>;
+  close(action: TickAction, ctx: ActionContext): Promise<ActionEffectResult>;
+  requestLaunch(action: TickAction, ctx: ActionContext): Promise<ActionEffectResult>;
+  wake(action: TickAction, ctx: ActionContext): Promise<ActionEffectResult>;
+  routeDecision(action: TickAction, ctx: ActionContext): Promise<ActionEffectResult>;
 }
 
 export interface ActionResult {
@@ -35,6 +44,8 @@ export interface ActionResult {
   readonly agentId?: string;
   readonly outcome: ActionOutcome;
   readonly reason: string;
+  readonly detail?: string;
+  readonly retrySafe?: boolean;
 }
 
 export interface ExecReport {
@@ -77,35 +88,45 @@ export async function executePlan(
   const legacyDegradedWithoutSources = plan.degraded && plan.degradedSources === undefined;
   const actions = refsDegraded || legacyDegradedWithoutSources ? [] : plan.actions;
   for (const a of actions) {
-    let outcome: ActionOutcome;
+    let effect: ActionEffectResult;
     switch (a.type) {
       case "close":
-        outcome = await sink.close(a, ctx);
+        effect = await sink.close(a, ctx);
         break;
       case "request-launch":
-        outcome = await sink.requestLaunch(a, ctx);
+        effect = await sink.requestLaunch(a, ctx);
         break;
       case "wake":
-        outcome = await sink.wake(a, ctx);
+        effect = await sink.wake(a, ctx);
         break;
       case "route-decision":
-        outcome = await sink.routeDecision(a, ctx);
+        effect = await sink.routeDecision(a, ctx);
         break;
       default:
         continue; // noop
     }
+    const normalized: ActionEffect = typeof effect === "string" ? { outcome: effect } : effect;
+    const outcome = normalized.outcome;
     counts[outcome] += 1;
     results.push({
       type: a.type,
       ...(a.agentId !== undefined ? { agentId: a.agentId } : {}),
       outcome,
-      reason: a.reason
+      reason: a.reason,
+      ...(normalized.detail !== undefined ? { detail: normalized.detail } : {}),
+      ...(normalized.retrySafe !== undefined ? { retrySafe: normalized.retrySafe } : {})
     });
     appendLoopEvent(root, {
       type: EVENT_FOR[outcome],
       loopId,
       at,
-      payload: { action: a.type, key: actionKey(a, loopId), reason: a.reason }
+      payload: {
+        action: a.type,
+        key: actionKey(a, loopId),
+        reason: a.reason,
+        ...(normalized.detail !== undefined ? { detail: normalized.detail } : {}),
+        ...(normalized.retrySafe !== undefined ? { retrySafe: normalized.retrySafe } : {})
+      }
     });
   }
 

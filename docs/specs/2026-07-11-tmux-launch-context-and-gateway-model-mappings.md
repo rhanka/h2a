@@ -5,6 +5,10 @@ Status: specified / build-ready
 Owner: Antoine
 Scope: `packages/h2a-runtime` local tmux launcher + llm-gateway model catalog copies (`apps/llm-gateway`, embedded `packages/h2a-runtime/src/llm-gateway-runtime`)
 
+> The Opus 4.8 alias choice in this historical spec is superseded by
+> `2026-07-14-SPEC_EVOL_terra-xhigh-delegation.md`: Terra is now the alias
+> default; Luna remains available by explicit id.
+
 ## Problem
 
 When a local agent is started through `h2a run` / `remote run`, the tmux session currently records only a small amount of durable metadata (`@profile`, display name, agent pane/host/cwd). From inside tmux, it is not obvious which launch options were applied:
