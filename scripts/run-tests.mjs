@@ -14,8 +14,7 @@
  * Then invokes `node --test <file1> <file2> ...` and forwards the exit code.
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -66,15 +65,29 @@ const RUN_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 600000;
 // H2A_ROOT unset writes to an isolated temp instead of the real shared bus.
 // Tests that pass --root explicitly override this; tests that set H2A_ROOT
 // themselves also override it within their own process.env assignments.
-const testRoot = mkdtempSync(join(tmpdir(), "h2a-test-root-"));
+// Runtime launch workspaces are intentionally rejected under OS-global /tmp.
+// Give the whole suite a repo-local, ignored scratch root so tests that build
+// a launch specification exercise a durable workspace without weakening that
+// production invariant. A single root also makes cleanup deterministic.
+const testScratch = join(REPO_ROOT, "tmp", "test-runtime");
+mkdirSync(testScratch, { recursive: true });
+const testRoot = mkdtempSync(join(testScratch, "h2a-test-root-"));
 
 const result = spawnSync(process.execPath, ["--test", ...files], {
   cwd: REPO_ROOT,
   stdio: "inherit",
   timeout: RUN_TIMEOUT_MS,
   killSignal: "SIGKILL",
-  env: { ...process.env, H2A_ROOT: join(testRoot, ".h2a") }
+  env: {
+    ...process.env,
+    H2A_ROOT: join(testRoot, ".h2a"),
+    TMPDIR: testRoot,
+    TMP: testRoot,
+    TEMP: testRoot
+  }
 });
+
+rmSync(testRoot, { recursive: true, force: true });
 
 if (result.error && result.error.code === "ETIMEDOUT") {
   process.stderr.write(
