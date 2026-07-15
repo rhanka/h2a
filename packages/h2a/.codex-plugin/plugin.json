@@ -1,6 +1,6 @@
 {
   "name": "h2a",
-  "version": "0.85.16",
+  "version": "0.85.17",
   "description": "Coordinate Claude, Codex and other CLI agents through the local h2a bus, objective loops and track system of record.",
   "author": {
     "name": "Fabien Antoine"
@@ -8,7 +8,12 @@
   "homepage": "https://github.com/rhanka/h2a/tree/main/packages/h2a#readme",
   "repository": "https://github.com/rhanka/h2a",
   "license": "MIT",
-  "keywords": ["h2a", "multi-agent", "coordination", "track"],
+  "keywords": [
+    "h2a",
+    "multi-agent",
+    "coordination",
+    "track"
+  ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
@@ -17,7 +22,10 @@
     "longDescription": "Connect Codex to the local h2a coordination bus and read-only track MCP, with packaged h2a and harness workflow skills.",
     "developerName": "Sentropic",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
     "defaultPrompt": [
       "Show the live h2a peers in this workspace.",
       "Delegate a bounded task to a Codex or Claude agent.",
