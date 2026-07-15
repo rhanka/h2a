@@ -188,6 +188,68 @@ describe("embedded gateway reporting session attestation", () => {
     );
   });
 
+  it("counts one logical Messages request when the Codex upstream retries", async () => {
+    vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
+      {
+        id: "codex-oauth",
+        provider: "openai",
+        label: "Codex OAuth",
+        token: "codex.header.signature",
+      },
+    ]));
+    const { app } = await import("./index.js");
+    const created = await app.fetch(
+      new Request("http://localhost/v1/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "logical-request-retry",
+          model: "claude-opus-4-8",
+          requiredTransport: "codex-responses",
+        }),
+      }),
+    );
+    const session = await created.json() as { gatewayToken: string };
+    expect(created.status).toBe(201);
+
+    const upstreamFetch = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new TypeError("fetch failed"), {
+          cause: { code: "EAI_AGAIN", hostname: "chatgpt.com" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "quota exhausted" }), {
+          status: 429,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", upstreamFetch);
+    const response = await app.fetch(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${session.gatewayToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-opus-4-8",
+          max_tokens: 1_024,
+          messages: [{ role: "user", content: "report context" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(upstreamFetch).toHaveBeenCalledTimes(2);
+    const ledger = await app.fetch(
+      new Request("http://localhost/v1/sessions/logical-request-retry"),
+    );
+    expect(ledger.status).toBe(200);
+    await expect(ledger.json()).resolves.toMatchObject({ requestCount: 1 });
+  });
+
   it("keeps a session transport claim immutable across re-acquisition", async () => {
     vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
       {
