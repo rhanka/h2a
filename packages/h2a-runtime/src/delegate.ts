@@ -39,6 +39,51 @@ const DELEGATE_BIN: Readonly<Record<DelegateType, string>> = {
   agy: "agy",
 };
 
+const CLAUDE_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+const CODEX_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
+
+/** Refuse an effort the selected CLI cannot honor instead of dropping it. */
+export function assertDelegateEffort(
+  type: DelegateType,
+  effort: string | undefined,
+): void {
+  if (effort === undefined || type === "agy") return;
+  if (type === "claude" && !CLAUDE_EFFORTS.has(effort)) {
+    throw new Error("invalid Claude effort (use low|medium|high|xhigh|max)");
+  }
+  if (type === "codex" && !CODEX_EFFORTS.has(effort)) {
+    throw new Error("invalid Codex effort (use low|medium|high|xhigh)");
+  }
+}
+
+/** Model/reasoning flags shared by first launch and throttled resume. */
+function delegateModelEffortFlags(
+  type: DelegateType,
+  model?: string,
+  effort?: string,
+): string[] {
+  assertDelegateEffort(type, effort);
+  switch (type) {
+    case "claude": {
+      return [
+        ...(model ? ["--model", model] : []),
+        ...(effort ? ["--effort", effort] : []),
+      ];
+    }
+    case "codex": {
+      return [
+        ...(model ? ["-m", model] : []),
+        ...(effort
+          ? ["-c", `model_reasoning_effort=${JSON.stringify(effort)}`]
+          : []),
+      ];
+    }
+    case "agy":
+      // Compatibility: agy has no verified model/effort flags yet.
+      return [];
+  }
+}
+
 /** Job id / `--name`: becomes a tmux slug, a dir, a filename — keep it tame. */
 const SAFE_NAME = /^[A-Za-z0-9_-]+$/;
 
@@ -72,24 +117,10 @@ export function buildDelegateArgs(
   effort?: string,
 ): { command: string; args: string[] } {
   const command = DELEGATE_BIN[type];
-  // Flags prepended before the task/subcommand. Claude supports both
-  // --model and --effort; Codex exposes model via -m (global flag before
-  // subcommands); agy: ignore unknown flags (passed positional only).
-  const modelFlags = ((): string[] => {
-    if (!model && !effort) return [];
-    switch (type) {
-      case "claude": {
-        const flags: string[] = [];
-        if (model) flags.push("--model", model);
-        if (effort) flags.push("--effort", effort);
-        return flags;
-      }
-      case "codex":
-        return model ? ["-m", model] : [];
-      case "agy":
-        return [];
-    }
-  })();
+  // Global flags stay before the prompt/subcommand. Codex has no dedicated
+  // --effort flag, so its supported config override is passed as a distinct
+  // argv pair (never through a shell string).
+  const modelFlags = delegateModelEffortFlags(type, model, effort);
 
   if (!headless) {
     // Interactive + initial prompt — task is the last argv token.
@@ -143,13 +174,19 @@ export const THROTTLE_BACKOFF_CAP_MS = 30 * 60_000; // 30 min
 export function buildThrottleResumeArgs(
   type: DelegateType,
   task: string,
+  model?: string,
+  effort?: string,
 ): { command: string; args: string[] } {
   const command = DELEGATE_BIN[type];
+  const modelFlags = delegateModelEffortFlags(type, model, effort);
   switch (type) {
     case "claude":
-      return { command, args: ["-p", "--continue", task] };
+      return { command, args: [...modelFlags, "-p", "--continue", task] };
     case "codex":
-      return { command, args: ["exec", "resume", "--last", task] };
+      return {
+        command,
+        args: [...modelFlags, "exec", "resume", "--last", task],
+      };
     case "agy":
       throw new Error(
         "agy has no confirmed headless resume mode — interactive resume is phase 2",
