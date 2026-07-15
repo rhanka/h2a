@@ -15,6 +15,8 @@ const SCRATCH_ROOT = join(
   "index-test",
 );
 mkdirSync(SCRATCH_ROOT, { recursive: true });
+const LOCAL_PROJECT_DIR = join(SCRATCH_ROOT, "proj");
+mkdirSync(LOCAL_PROJECT_DIR, { recursive: true });
 
 const createRemoteSession = vi.fn();
 const attach = vi.fn();
@@ -307,15 +309,23 @@ describe("main", () => {
   });
 
   it("local `h2a run <profile>` attaches immediately by default", async () => {
-    const exitCode = await main(["node", "remote", "run", "claude", "/tmp/proj"]);
+    const exitCode = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      LOCAL_PROJECT_DIR,
+    ]);
 
     expect(exitCode).toBe(0);
     expect(startLocalSession).toHaveBeenCalledWith(
       "claude",
       expect.any(String),
-      "/tmp/proj",
+      LOCAL_PROJECT_DIR,
       expect.any(Array),
       undefined,
+      "remote",
+      {},
     );
     expect(attachLocalSession).toHaveBeenCalledWith("remote-proj");
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).not.toContain(
@@ -329,7 +339,7 @@ describe("main", () => {
       "remote",
       "run",
       "claude",
-      "/tmp/proj",
+      LOCAL_PROJECT_DIR,
       "--no-attach",
     ]);
 

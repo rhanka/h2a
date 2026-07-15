@@ -29,6 +29,9 @@
     }
   },
   "files": [
+    ".claude-plugin",
+    ".codex-plugin",
+    ".mcp.json",
     "dist",
     "fixtures",
     "skills",

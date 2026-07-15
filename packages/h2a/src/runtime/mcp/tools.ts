@@ -614,5 +614,46 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
       },
       required: ["loopId"]
     }
+  },
+  {
+    name: "h2a_run",
+    description:
+      "Launch one background Claude or Codex agent in an existing workspace through the canonical h2a run runtime. Returns verified tmux/session metadata; never creates a branch or worktree.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        profile: { type: "string", enum: ["claude", "codex"] },
+        name: {
+          type: "string",
+          pattern: "^[A-Za-z0-9_-]{1,64}$"
+        },
+        workspace: {
+          type: "string",
+          description:
+            "Absolute existing directory within the MCP server startup workspace; /tmp is refused."
+        },
+        prompt: {
+          type: "string",
+          minLength: 1,
+          maxLength: 65536,
+          description:
+            "Initial prompt. Forwarded on stdin and never serialized into agent argv."
+        },
+        background: { type: "boolean", const: true },
+        gateway: {
+          type: "string",
+          enum: ["auto", "required", "off"]
+        },
+        headless: { type: "boolean" },
+        h2aSidecar: { type: "boolean" },
+        model: { type: "string" },
+        effort: {
+          type: "string",
+          enum: ["low", "medium", "high", "xhigh"]
+        }
+      },
+      required: ["profile", "name", "workspace", "prompt", "background"],
+      additionalProperties: false
+    }
   }
 ];
