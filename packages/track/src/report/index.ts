@@ -51,6 +51,10 @@ export {
   redactText,
   renderAiReport,
   reporterEnvironment,
+  REPORTER_TIMEOUT_DEFAULT_MS,
+  REPORTER_TIMEOUT_MAX_MS,
+  REPORTER_TIMEOUT_MIN_MS,
+  resolveReporterConfig,
   resolveReporterArgv,
   type AiEntry,
   type AiReportRequest,
@@ -63,5 +67,6 @@ export {
   type H2aContextEntry,
   type ReportContextBodyV1,
   type ReportContextEnvelopeV1,
+  type ReporterConfigV1,
   type Source,
 } from './ai-report.js'

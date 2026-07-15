@@ -47,7 +47,7 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 
 - **Envelope**: `action`.
 - **Exit codes**: `0`, `2`, `3`.
-- **Description**: Atomically install `{"argv":["h2a","report-ai","--model","claude-opus-4-8","--effort","xhigh","--gateway","required"]}` at `${XDG_CONFIG_HOME:-$HOME/.config}/track/report-ai.json` with mode `0600`. Identical content is a content no-op; differing user config is preserved unless `--force` is explicit.
+- **Description**: Atomically install `{"argv":["h2a","report-ai","--model","claude-opus-4-8","--effort","xhigh","--gateway","required"],"timeoutMs":600000}` at `${XDG_CONFIG_HOME:-$HOME/.config}/track/report-ai.json` with mode `0600`. Identical content is a content no-op; differing user config is preserved unless `--force` is explicit. Older configs without `timeoutMs` remain valid with Track's legacy 90-second fallback and require an explicit `--force` rollout to adopt the first-party 600-second deadline.
 
 ### Focus Web
 
