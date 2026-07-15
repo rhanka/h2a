@@ -96,16 +96,51 @@ function readSessionsReadOnly(storeRoot: string): H2ASession[] {
   return sessions;
 }
 
-function loopWorkspace(loop: H2AObjectiveLoop, root: string): string | undefined {
+interface ScopedLoopWorkspace {
+  readonly workspace: string;
+  readonly agentWorkspaces: ReadonlyMap<string, string>;
+}
+
+function loopWorkspace(
+  loop: H2AObjectiveLoop,
+  root: string
+): ScopedLoopWorkspace | undefined {
+  const declared: Array<{ instance?: string; path: unknown }> = [];
   for (const repo of Array.isArray(loop.repos) ? loop.repos : []) {
-    const scoped = scopedRealpath(root, repo?.path);
-    if (scoped) return scoped;
+    declared.push({ path: repo?.path });
   }
   for (const agent of Array.isArray(loop.agents) ? loop.agents : []) {
-    const scoped = scopedRealpath(root, agent?.launch?.workspace);
-    if (scoped) return scoped;
+    if (agent?.launch?.workspace !== undefined) {
+      declared.push({
+        ...(typeof agent.h2aInstance === "string"
+          ? { instance: agent.h2aInstance }
+          : {}),
+        path: agent.launch.workspace
+      });
+    }
   }
-  return undefined;
+  if (declared.length === 0) return undefined;
+
+  const resolved = declared.map((item) => ({
+    ...item,
+    workspace: scopedRealpath(root, item.path)
+  }));
+  if (resolved.some((item) => item.workspace === undefined)) return undefined;
+  const workspaces = new Set(resolved.map((item) => item.workspace as string));
+  // A projected entry has one workspace field. Never relabel a multi-workspace
+  // loop as whichever in-scope path happened to be encountered first.
+  if (workspaces.size !== 1) return undefined;
+  const workspace = [...workspaces][0]!;
+  return {
+    workspace,
+    agentWorkspaces: new Map(
+      resolved.flatMap((item) =>
+        item.instance && item.workspace
+          ? [[item.instance, item.workspace] as const]
+          : []
+      )
+    )
+  };
 }
 
 function sessionWorkspace(session: H2ASession, root: string): string | undefined {
@@ -201,10 +236,36 @@ export function readH2AReportContext(
   const storeRoot = canonicalExistingDirectory(resolve(options.storeRoot), "store root");
   const entries: H2AReportContextEntry[] = [];
 
-  const sessions = readSessionsReadOnly(storeRoot)
-    .map((session) => ({ session, workspace: sessionWorkspace(session, workspaceRoot) }))
-    .filter((item): item is { session: H2ASession; workspace: string } => item.workspace !== undefined);
-  const scopedInstances = new Set(sessions.map(({ session }) => session.instance));
+  const instanceScopes = new Map<
+    string,
+    { workspaces: Set<string>; unsafe: boolean }
+  >();
+  const instanceScope = (instance: string) => {
+    const existing = instanceScopes.get(instance);
+    if (existing) return existing;
+    const created = { workspaces: new Set<string>(), unsafe: false };
+    instanceScopes.set(instance, created);
+    return created;
+  };
+  const markUnsafe = (instance: unknown) => {
+    if (typeof instance === "string") instanceScope(instance).unsafe = true;
+  };
+  const recordWorkspace = (instance: unknown, workspace: string) => {
+    if (typeof instance === "string") {
+      instanceScope(instance).workspaces.add(workspace);
+    }
+  };
+
+  const sessions: Array<{ session: H2ASession; workspace: string }> = [];
+  for (const session of readSessionsReadOnly(storeRoot)) {
+    const workspace = sessionWorkspace(session, workspaceRoot);
+    if (!workspace) {
+      markUnsafe(session.instance);
+      continue;
+    }
+    recordWorkspace(session.instance, workspace);
+    sessions.push({ session, workspace });
+  }
 
   for (const { session, workspace } of sessions) {
     entries.push({
@@ -219,16 +280,22 @@ export function readH2AReportContext(
     entries.push(...readInboxMetadata(storeRoot, session, workspace));
   }
 
-  const scopedLoops: Array<{ loop: H2AObjectiveLoop; workspace: string }> = [];
   for (const loop of listObjectiveLoops(storeRoot)) {
     if (!loop || typeof loop.id !== "string") continue;
-    const workspace = loopWorkspace(loop, workspaceRoot);
-    if (!workspace) continue;
-    scopedLoops.push({ loop, workspace });
+    const scoped = loopWorkspace(loop, workspaceRoot);
+    if (!scoped) {
+      for (const agent of Array.isArray(loop.agents) ? loop.agents : []) {
+        markUnsafe(agent?.h2aInstance);
+      }
+      continue;
+    }
+    for (const [instance, workspace] of scoped.agentWorkspaces) {
+      recordWorkspace(instance, workspace);
+    }
     entries.push({
       ref: `h2a:loop:${cleanText(loop.id, 256)}`,
       kind: "loop",
-      workspace,
+      workspace: scoped.workspace,
       text: cleanText(
         `name=${loop.name} status=${loop.status} goal=${loop.goal} ` +
           `agents=${Array.isArray(loop.agents) ? loop.agents.length : 0} ` +
@@ -236,18 +303,16 @@ export function readH2AReportContext(
       )
     });
   }
-  for (const { loop } of scopedLoops) {
-    for (const agent of Array.isArray(loop.agents) ? loop.agents : []) {
-      if (typeof agent.h2aInstance === "string") scopedInstances.add(agent.h2aInstance);
-    }
-  }
 
   for (const blockage of listBlockages(storeRoot)) {
-    if (!blockage || !scopedInstances.has(blockage.instance)) continue;
+    if (!blockage) continue;
+    const scope = instanceScopes.get(blockage.instance);
+    if (!scope || scope.unsafe || scope.workspaces.size !== 1) continue;
+    const workspace = [...scope.workspaces][0]!;
     entries.push({
       ref: `h2a:blockage:${cleanText(blockage.instance, 256)}`,
       kind: "blockage",
-      workspace: workspaceRoot,
+      workspace,
       text: cleanText(
         `instance=${blockage.instance} scope=${blockage.scope} status=${blockage.resolvedAt ? "resolved" : "active"} ` +
           `reason=${blockage.reason}${blockage.needs ? ` needs=${blockage.needs}` : ""}`

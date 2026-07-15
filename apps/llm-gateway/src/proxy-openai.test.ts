@@ -44,6 +44,34 @@ function codexApp(): Hono {
 }
 
 describe("OpenAI/Codex model mapping", () => {
+  it("refuses a refreshed raw credential before constrained context egress", async () => {
+    const upstreamFetch = vi.fn(() => {
+      throw new Error("raw credential must not receive constrained context");
+    });
+    vi.stubGlobal("fetch", upstreamFetch);
+    const app = new Hono();
+    app.post("/v1/messages", (c) =>
+      handleMessagesViaOpenAI(c, {
+        token: "sk-refreshed-raw",
+        requiredTransport: "codex-responses",
+      }),
+    );
+
+    const response = await app.fetch(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-opus-4-8",
+          messages: [{ role: "user", content: "refresh-sensitive context" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(upstreamFetch).not.toHaveBeenCalled();
+  });
+
   it("maps Claude Sonnet/Haiku defaults to gpt-5.5 for Codex OAuth", () => {
     expect(mapModel("claude-sonnet-4-6")).toBe("gpt-5.5");
     expect(mapModel("claude-sonnet-4-5")).toBe("gpt-5.5");

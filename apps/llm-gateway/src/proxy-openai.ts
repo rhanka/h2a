@@ -22,7 +22,11 @@ import type { Context } from "hono";
 import {
   CODEX_RESPONSES_URL,
 } from "@sentropic/llm-gateway";
-import { refreshOAuthToken } from "./accounts.js";
+import {
+  isCodexOAuthToken,
+  refreshOAuthToken,
+  type GatewayUpstreamTransport,
+} from "./accounts.js";
 import { updateSessionToken } from "./sticky.js";
 import { routeModelOrThrow } from "./model-catalog.js";
 import { recordSessionRequest } from "./session-ledger.js";
@@ -32,11 +36,6 @@ const OPENAI_BASE = process.env.OPENAI_UPSTREAM_URL ?? "https://api.openai.com";
 const DEFAULT_CODEX_MAX_INPUT_CHARS = 200_000;
 const CODEX_CONTEXT_TRUNCATION_NOTICE =
   "[llm-gateway: older Claude Code transcript omitted to fit the Codex upstream context window.]";
-
-/** True if token is a ChatGPT Pro OAuth JWT (3-part base64url), not an sk-... API key. */
-function isCodexOAuthToken(token: string): boolean {
-  return !token.startsWith("sk-") && token.split(".").length === 3;
-}
 
 const TRANSIENT_UPSTREAM_ERROR_CODES = new Set([
   "EAI_AGAIN",
@@ -1330,6 +1329,7 @@ export async function handleMessagesViaOpenAI(
     gatewayToken?: string;
     accountId?: string;
     sessionId?: string;
+    requiredTransport?: GatewayUpstreamTransport;
   },
   requestBody?: ArrayBuffer,
 ): Promise<Response> {
@@ -1353,7 +1353,19 @@ export async function handleMessagesViaOpenAI(
   }
   recordSessionRequest(session.sessionId, route);
 
-  const isCodex = isCodexOAuthToken(session.token);
+  const tokenTransport = isCodexOAuthToken(session.token)
+    ? "codex-responses"
+    : "openai-chat-completions";
+  if (
+    session.requiredTransport &&
+    tokenTransport !== session.requiredTransport
+  ) {
+    return c.json(
+      { error: "gateway credential no longer satisfies session transport" },
+      503,
+    );
+  }
+  const isCodex = tokenTransport === "codex-responses";
   const codexContext = isCodex ? trimCodexBodyForContext(body) : null;
   const upstreamBody = codexContext?.body ?? body;
   if (codexContext?.trimmed) {
