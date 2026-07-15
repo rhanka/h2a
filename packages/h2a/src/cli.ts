@@ -238,6 +238,11 @@ import {
 import { runLoopWatch, runTick } from "./runtime/loop/engine/tick.js";
 import { gatherPendingDecisions } from "./runtime/canevas/gather.js";
 import { runCanevasServe } from "./runtime/canevas/serve.js";
+import {
+  installTrackReportAiConfig,
+  readH2AReportContext,
+  TrackReportAiConfigConflictError
+} from "./runtime/reporting/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -396,6 +401,11 @@ export function renderCliHelp(): string {
     "  h2a loop attach <loopId> --agent <selector> [--root <path>]",
     "  h2a loop logs <loopId> [--agent <selector>] [--root <path>]",
     "",
+    "Track AI adapters (leaf commands; never call Track report/snapshot):",
+    "  h2a report-context --workspace-root <absolute-path> [--root <h2a-store>]",
+    "  h2a report-ai --model <model> --effort <low|medium|high|xhigh> --gateway required   (Track context envelope on stdin; one no-tools local-gateway request)",
+    "  h2a report-ai install-track-config [--force]   (atomic user XDG config, mode 0600; preserves overrides by default)",
+    "",
     "Focus Web (packaged production app):",
     "  h2a focus serve [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]",
     "  h2a focus web   [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]   (exact alias)",
@@ -403,7 +413,7 @@ export function renderCliHelp(): string {
     "",
     "Track (délégué à @sentropic/track — le suivi/record du travail):",
     `  h2a ${[...TRACK_FACADE_VERBS].join(" · h2a ")}`,
-    "    (ex: h2a decision new …, h2a report, h2a item ls — voir `track <verbe> --help`)",
+    "    (ex: h2a decision new …, h2a report, h2a snapshot, h2a item ls — voir `track <verbe> --help`)",
     "",
     "Harness (délégué à h2a vendored harness — la méthode code-work / PR-workflow):",
     "  h2a harness <check|verify|init|audit|brainstorm|test|debug|review|plan|branch|skills> …",
@@ -5938,7 +5948,7 @@ export async function cmdKeepalive(
 // Verbes spécifiques, sans namespace `track` (dissous comme host/sub).
 export const TRACK_FACADE_VERBS = new Set([
   "decision", "report", "accept", "blocker", "item", "query",
-  "consolidate", "priority", "branch", "focus", "ingest", "restructure"
+  "consolidate", "priority", "branch", "focus", "ingest", "restructure", "snapshot"
 ]);
 
 // ④ de-spawn — a strict SUBSET of the facade verbs routed IN-PROCESS via
@@ -5952,14 +5962,14 @@ export const TRACK_FACADE_VERBS = new Set([
 //
 // The native set is split READ-ONLY vs WRITE because the throw-fallback rule
 // differs (RISK: double-write, see `delegateToTrackNative`):
-//   • READ-ONLY (`query`/`report`) — a native throw wrote nothing, so falling
+//   • READ-ONLY (`query`/`report`/`snapshot`) — a native throw wrote nothing, so falling
 //     back to the spawn facade is safe.
 //   • WRITE (the rest) — track's `appendCommand` is ATOMIC under the O_EXCL lock
 //     (read→validate→append→writeHead→verify): it throws either BEFORE the
 //     append (validation → nothing written) or AFTER a landed write (the
 //     verify receipt). A spawn fallback on that throw could DOUBLE-WRITE, so a
 //     write NEVER falls back on throw — it propagates the error (rc≠0 + stderr).
-export const TRACK_NATIVE_READONLY_VERBS = new Set(["query", "report"]);
+export const TRACK_NATIVE_READONLY_VERBS = new Set(["query", "report", "snapshot"]);
 
 // ④ tranche-2 — the SYNC write verbs, de-spawned in-process. Each dispatches
 // through runCli's mutating switch as a plain sync `cmd…` returning a `number`.
@@ -6006,6 +6016,50 @@ export async function runTrackMcpServe(
   } catch (err) {
     io.stderr.write(`h2a track-mcp: ${(err as Error).message}\n`);
     return 1;
+  }
+}
+
+function cmdReportContext(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  const workspaceRoot = flags["workspace-root"];
+  if (!workspaceRoot || workspaceRoot === "true") {
+    streams.stderr.write("h2a report-context: --workspace-root <absolute-path> is required\n");
+    return 1;
+  }
+  if (!isAbsolute(workspaceRoot)) {
+    streams.stderr.write("h2a report-context: --workspace-root must be an absolute path\n");
+    return 1;
+  }
+  try {
+    const context = readH2AReportContext({
+      storeRoot: resolveRoot(flags, streams.cwd ?? (() => process.cwd())),
+      workspaceRoot
+    });
+    streams.stdout.write(`${JSON.stringify(context)}\n`);
+    return 0;
+  } catch (err) {
+    streams.stderr.write(`h2a report-context: ${(err as Error).message}\n`);
+    return 3;
+  }
+}
+
+function cmdInstallTrackReportAiConfig(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  try {
+    const result = installTrackReportAiConfig({ force: flags.force === "true" });
+    streams.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);
+    return 0;
+  } catch (err) {
+    if (err instanceof TrackReportAiConfigConflictError) {
+      streams.stderr.write(`h2a report-ai install-track-config: ${err.message}\n`);
+      return 2;
+    }
+    streams.stderr.write(`h2a report-ai install-track-config: ${(err as Error).message}\n`);
+    return 3;
   }
 }
 
@@ -6145,6 +6199,13 @@ export function runCli(
   if (command === "mcp-tools") {
     streams.stdout.write(`${JSON.stringify(H2A_CLI_MCP_TOOL_NAMES, null, 2)}\n`);
     return 0;
+  }
+
+  if (command === "report-context") return cmdReportContext(flags, streams);
+  if (command === "report-ai") {
+    if (argv[1] === "install-track-config") return cmdInstallTrackReportAiConfig(flags, streams);
+    streams.stderr.write("h2a report-ai: async adapter command — run via the h2a binary\n");
+    return 1;
   }
 
   if (command === "init") return cmdInit(flags, streams);
