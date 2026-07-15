@@ -191,17 +191,25 @@ function toRow(state: State, item: ItemState, config: ReportConfig, labels: Map<
 }
 
 // Active prioritization scheme: higher score first; un-prioritized items after; stable by id.
-function byPriority(a: ReportRow, b: ReportRow): number {
+function byPriority(
+  a: ReportRow,
+  b: ReportRow,
+  compareIds: (a: string, b: string) => number = (left, right) => left.localeCompare(right),
+): number {
   if (a.priority !== undefined && b.priority !== undefined) {
-    return b.priority - a.priority || a.id.localeCompare(b.id)
+    return b.priority - a.priority || compareIds(a.id, b.id)
   }
   if (a.priority !== undefined) return -1
   if (b.priority !== undefined) return 1
-  return a.id.localeCompare(b.id)
+  return compareIds(a.id, b.id)
 }
 
 /** Build the bucketed report over non-decision items (SPEC §7). `decisions:true` adds the decision view. */
-export function buildReport(state: State, options: ReportOptions): Report {
+export function buildReport(
+  state: State,
+  options: ReportOptions,
+  compareIds: (a: string, b: string) => number = (a, b) => a.localeCompare(b),
+): Report {
   const config: ReportConfig = {
     baselineCommit: options.baselineCommit,
     requireAccepted: options.requireAccepted ?? false,
@@ -210,7 +218,7 @@ export function buildReport(state: State, options: ReportOptions): Report {
   // (via `toRow` below) and the optional `report.wpTree`. The derived labels (positional `WP<n>`/dotted/
   // codes/streams) live ONLY in `computeWpTree`, so reading them here keeps a row's `wpLabel` byte-identical
   // to the directive's `scope.wpLabel` and the rendered tree — no second, drift-prone derivation.
-  const tree = computeWpTree(state, config)
+  const tree = computeWpTree(state, config, compareIds)
   const labels = containerLabels(tree)
   const buckets: Record<Bucket, ReportRow[]> = { AWAITED: [], DROPPED: [], DONE: [], 'TO-DO': [] }
   for (const item of state.items.values()) {
@@ -221,7 +229,7 @@ export function buildReport(state: State, options: ReportOptions): Report {
     const row = toRow(state, item, config, labels)
     buckets[row.bucket].push(row)
   }
-  for (const bucket of BUCKETS) buckets[bucket].sort(byPriority)
+  for (const bucket of BUCKETS) buckets[bucket].sort((a, b) => byPriority(a, b, compareIds))
 
   const report: Report = { buckets }
   if (options.wpTree) report.wpTree = tree

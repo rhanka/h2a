@@ -28,7 +28,10 @@ let t: Track
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'track-modes-'))
-  t = new Track(new EventStore(join(dir, '.track', 'events.jsonl')), { by: 'human:x', now })
+  let sequence = 0
+  t = new Track(new EventStore(join(dir, '.track', 'events.jsonl')), {
+    by: 'human:x', now, newId: () => `id-${String(++sequence).padStart(4, '0')}`,
+  })
 })
 afterEach(() => rmSync(dir, { recursive: true, force: true }))
 

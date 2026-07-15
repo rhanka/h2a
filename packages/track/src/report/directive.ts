@@ -263,7 +263,11 @@ function makeDirective(d: Omit<Directive, 'id' | 'affordances' | 'adviceKind'> &
 }
 
 // In-WP urgency comparator: order asc, then WSJF desc (undefined LAST), then id (deterministic).
-function leafCompare(a: { l: WpLeaf } & Tier, b: { l: WpLeaf } & Tier): number {
+function leafCompare(
+  a: { l: WpLeaf } & Tier,
+  b: { l: WpLeaf } & Tier,
+  compareIds: (a: string, b: string) => number,
+): number {
   if (a.order !== b.order) return a.order - b.order
   const aw = a.l.priority
   const bw = b.l.priority
@@ -272,12 +276,16 @@ function leafCompare(a: { l: WpLeaf } & Tier, b: { l: WpLeaf } & Tier): number {
     if (bw === undefined) return -1
     return bw - aw
   }
-  return a.l.id.localeCompare(b.l.id)
+  return compareIds(a.l.id, b.l.id)
 }
 
 // Global directive comparator (DESIGN §2.B item 8): urgency `order`, then WSJF desc (undefined LAST),
 // then wp.id, then target.id. STRICT determinism — two identical runs yield identical output.
-function directiveCompare(a: { directive: Directive; order: number }, b: { directive: Directive; order: number }): number {
+function directiveCompare(
+  a: { directive: Directive; order: number },
+  b: { directive: Directive; order: number },
+  compareIds: (a: string, b: string) => number,
+): number {
   if (a.order !== b.order) return a.order - b.order
   const aw = a.directive.facts.wsjf
   const bw = b.directive.facts.wsjf
@@ -288,8 +296,8 @@ function directiveCompare(a: { directive: Directive; order: number }, b: { direc
   }
   const aWp = a.directive.scope.wpId ?? ''
   const bWp = b.directive.scope.wpId ?? ''
-  if (aWp !== bWp) return aWp.localeCompare(bWp)
-  return a.directive.target.id.localeCompare(b.directive.target.id)
+  if (aWp !== bWp) return compareIds(aWp, bWp)
+  return compareIds(a.directive.target.id, b.directive.target.id)
 }
 
 /** Is this leaf in the DELEGABLE scope: open, OR done-but-acceptance∈{fail,stale} (the invisible debt). */
@@ -348,7 +356,11 @@ export function keystoneOf(tree: readonly WpNode[]): Keystone | undefined {
   return { id: top[0], title: leafById.get(top[0])?.title ?? top[0], blocks: top[1] }
 }
 
-export function buildDirectives(tree: readonly WpNode[], decisions: readonly DecisionRow[] = []): Directive[] {
+export function buildDirectives(
+  tree: readonly WpNode[],
+  decisions: readonly DecisionRow[] = [],
+  compareIds: (a: string, b: string) => number = (a, b) => a.localeCompare(b),
+): Directive[] {
   const decisionById = new Map(decisions.map((d) => [d.id, d]))
   const flat: WpNode[] = []
   const collect = (n: WpNode): void => {
@@ -430,7 +442,7 @@ export function buildDirectives(tree: readonly WpNode[], decisions: readonly Dec
         l.priority === undefined,
     )
     if (allPlainTodoNoWsjf) {
-      const rep = [...work].sort((a, b) => a.id.localeCompare(b.id))[0]!
+      const rep = [...work].sort((a, b) => compareIds(a.id, b.id))[0]!
       entries.push({
         order: 70,
         directive: makeDirective({
@@ -449,7 +461,7 @@ export function buildDirectives(tree: readonly WpNode[], decisions: readonly Dec
 
     // Most-urgent delegable leaf of this WP (URGENCE ladder + in-WP tie-break).
     const ranked = work.map((l) => ({ l, ...tierOf(l) }))
-    ranked.sort(leafCompare)
+    ranked.sort((a, b) => leafCompare(a, b, compareIds))
     const top = ranked[0]!
     entries.push({
       order: top.order,
@@ -503,7 +515,7 @@ export function buildDirectives(tree: readonly WpNode[], decisions: readonly Dec
     })
   }
 
-  entries.sort(directiveCompare)
+  entries.sort((a, b) => directiveCompare(a, b, compareIds))
   return entries.map((e) => e.directive)
 }
 
