@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { SpawnSyncReturns } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -59,13 +60,13 @@ const request = (): AiReportRequest => ({
   requireAccepted: false, decisionEmphasis: 'open-only', activeRoster: false,
 })
 
-function spawnResult(stdout: string, status = 0, stderr = '') {
-  return { pid: 1, output: [null, stdout, stderr], stdout, stderr, status, signal: null } as never
+function spawnResult(stdout: string, status = 0, stderr = ''): SpawnSyncReturns<string> {
+  return { pid: 1, output: [null, stdout, stderr], stdout, stderr, status, signal: null }
 }
 
-function spawnError(code: string) {
+function spawnError(code: string): SpawnSyncReturns<string> {
   const error = Object.assign(new Error(code), { code })
-  return { ...spawnResult('', 0), error } as never
+  return { ...spawnResult('', 0), error }
 }
 
 function adapterResult(ref: string, text = 'Useful <script>alert(1)</script>'): AiReportResultV1 {
