@@ -1,42 +1,43 @@
-# Feature: Harness replaces legacy superpowers workflow defaults
+# Feature: consume llm-gateway 0.9.0 and onboard Google/Gemini
 
 ## Scope
 
 **Allowed Paths (implementation scope)**
-  - `.gitignore`
   - `BRANCH.md`
-  - `packages/h2a/skills/harness/using-harness/SKILL.md`
-  - `packages/h2a/src/vendor/harness/cli/method-verbs.js`
-  - `packages/h2a/src/vendor/harness/skills/manifest.js`
-  - `packages/h2a/src/vendor/harness/skills/manifest.d.ts`
-  - `packages/h2a/src/vendor/harness/index.js`
-  - `packages/h2a/test/harness-facade.test.js`
-  - `packages/remote-k8s-orchestrator/src/k8s/spec.ts`
-  - `packages/remote-k8s-orchestrator/src/k8s/spec.test.ts`
-  - `packages/h2a-runtime/src/skills-sync.ts`
-  - `packages/track/INTENTION.md`
+  - `apps/llm-gateway/package.json`
+  - `package-lock.json`
+  - `packages/h2a-runtime/package.json`
+  - `packages/h2a-runtime/src/index.ts`
+  - `packages/h2a-runtime/src/llm-gateway-runtime/model-catalog.ts`
+  - `packages/h2a-runtime/src/llm-gateway-runtime/proxy-anthropic.ts`
+  - `packages/h2a-runtime/src/llm-gateway-runtime/proxy-gemini.ts`
+  - `packages/h2a-runtime/src/llm-gateway-runtime/proxy-gemini.test.ts`
+  - `packages/h2a-runtime/src/llm-mesh.ts`
 
 **Forbidden Paths**
-  - `docs/superpowers/**`
-  - `package.json`
-  - `package-lock.json`
-  - `.github/**`
+  - `packages/h2a-runtime/.test-scratch/**`
+  - `.test-scratch/**`
+  - `.cache/**`
+  - `free-tmpfs-now.sh`
+  - `apps/focus/src/routes/proposal/**`
+  - `packages/h2a-runtime/src/llm-gateway-runtime/flow-bridge.ts`
+  - `apps/llm-gateway/src/app-flow-bridge.ts`
+  - `.track/**`
 
 **Conditional Paths**
   - None.
 
 ## Plan / TODO
 
-- [x] **Lot 1 — Audit active superpowers surfaces**
-  - [x] Use subagent read-only audit to find active superpowers references and worktree/tmp conventions.
-- [x] **Lot 2 — Replace active workflow guidance**
-  - [x] Make harness skill/CLI output the default replacement wording.
-  - [x] Move harness branch recipe to repo-local ignored `tmp/worktrees/<slug>`.
-  - [x] Add gitignore coverage for repo-local generated worktree/runtime dirs.
-- [x] **Lot 3 — Preserve pod compatibility**
-  - [x] Add neutral `H2A_WORKTREE_BASE`.
-  - [x] Keep `SUPERPOWERS_WORKTREE_BASE` as a temporary legacy alias.
-- [ ] **Lot 4 — Verify and publish PR**
-  - [x] Build and run targeted tests.
-  - [x] Run harness verification.
-  - [x] Rebase on `origin/main` before push/PR.
+- [x] **Lot 1 — Upgrade the gateway consumer**
+  - [x] Consume `@sentropic/llm-gateway` `^0.9.0` in the gateway app and runtime.
+  - [x] Refresh the lockfile.
+- [x] **Lot 2 — Onboard Google/Gemini**
+  - [x] Add CLI enrollment from Google Code Assist OAuth credentials.
+  - [x] Add Google/Gemini provider routing and Anthropic-to-Gemini proxying with tests.
+- [x] **Lot 3 — Verify and coordinate**
+  - [x] Run runtime and app typechecks, `npm run build:h2a`, gateway tests, and the complete runtime suite.
+  - [x] Reply to agy via h2a with the gateway 0.9 alignment and deferred-cut status.
+  - [x] Defer the sticky/failover mutualization cut until the gateway ships the transport-claim attestation contract from agy's `feat/gw-session-routing`.
+- [ ] **Lot 4 — Publish**
+  - [ ] Commit the scoped integration, open and merge the pull request, then release the lockstep patch version.
