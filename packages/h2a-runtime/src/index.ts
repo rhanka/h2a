@@ -333,6 +333,7 @@ import { CLI_PROFILES, type CliProfile } from "./protocol-local.js";
 import {
   enrollCodexAccount,
   enrollClaudeAccount,
+  enrollGeminiAccount,
   readLlmMeshConfig,
   startGateway,
   stopGateway,
@@ -8539,6 +8540,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // api.openai.com Chat Completions (missing model.request scope).
           // For a working gateway proxy, use `enroll openai --token sk-...` instead.
           account = enrollCodexAccount();
+        } else if (
+          provider === "google" ||
+          provider === "gemini" ||
+          provider === "gcp" ||
+          provider === "gemini-code-assist"
+        ) {
+          // Reads ~/.gemini/oauth_creds.json: access_token and refresh_token for Google Cloud Code Assist.
+          account = enrollGeminiAccount();
         } else if (provider === "openai") {
           if (!opts.token) {
             process.stderr.write(
@@ -8579,7 +8588,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         } else {
           process.stderr.write(
             `[h2a] llm-mesh: unsupported provider "${provider}".\n` +
-              `  Supported: codex (OAuth), openai (API key), anthropic (API key)\n`,
+              `  Supported: codex (OAuth), google (OAuth), gemini (OAuth), openai (API key), anthropic (API key)\n`,
           );
           process.exitCode = 1;
           return;
