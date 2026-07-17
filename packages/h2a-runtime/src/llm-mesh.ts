@@ -37,8 +37,8 @@ import { randomBytes } from "node:crypto";
 
 export interface LlmMeshAccount {
   id: string;
-  /** "anthropic" = Claude sk-ant-; "openai" = OpenAI API key or OAuth JWT */
-  provider: "anthropic" | "openai";
+  /** "anthropic" = Claude sk-ant-; "openai" = OpenAI API key or OAuth JWT; "google" = Google OAuth */
+  provider: "anthropic" | "openai" | "google" | "gemini" | "gcp" | "gemini-code-assist";
   label: string;
   token: string;
   authType?: "api-key" | "bearer";
@@ -228,6 +228,39 @@ export function enrollCodexAccount(codexDir?: string): LlmMeshAccount {
 }
 
 /**
+ * Read the Google Code Assist OAuth login from ~/.gemini/oauth_creds.json and produce a gateway
+ * account.
+ */
+export function enrollGeminiAccount(geminiDir?: string): LlmMeshAccount {
+  const path = join(geminiDir ?? join(homedir(), ".gemini"), "oauth_creds.json");
+  const oauth = readJson<{
+    access_token?: string;
+    refresh_token?: string;
+    expiry_date?: number;
+    scope?: string;
+  }>(path);
+  const accessToken = oauth?.access_token;
+  if (!accessToken || !accessToken.trim()) {
+    throw new Error(
+      `No usable Google Code Assist OAuth in ${path}: access_token is missing. ` +
+        `Log in with the Antigravity/Google CLI first.`,
+    );
+  }
+  const account: LlmMeshAccount = {
+    id: "gemini-code",
+    provider: "google",
+    authType: "bearer",
+    label: "Gemini Code Assist (OAuth)",
+    token: accessToken.trim(),
+  };
+  if (oauth?.refresh_token) account.refreshToken = oauth.refresh_token;
+  if (typeof oauth?.expiry_date === "number") {
+    account.expiresAt = new Date(oauth.expiry_date).toISOString();
+  }
+  return account;
+}
+
+/**
  * Read the local Claude Code OAuth login from ~/.claude/.credentials.json and produce a gateway
  * account that upstreams via the Claude-code transport (Anthropic /v1/messages with a Bearer OAuth
  * token + the oauth beta, NOT an sk-ant-api key). Mirrors enrollCodexAccount. The proxy uses the
@@ -288,6 +321,33 @@ export async function refreshAccountToken(
 ): Promise<LlmMeshAccount> {
   if (!account.refreshToken) return account;
   if (!isTokenExpired(account.token)) return account;
+
+  if (
+    account.provider === "google" ||
+    account.provider === "gemini" ||
+    account.provider === "gcp" ||
+    account.provider === "gemini-code-assist"
+  ) {
+    const resp = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: account.refreshToken,
+        client_id: "681255809395-oo8ft2oprdrnop9e3aqf6av3hmdib135j.apps.googleusercontent.com",
+      }),
+    });
+    if (!resp.ok) {
+      throw new Error(`Google token refresh failed (${resp.status}): ${await resp.text()}`);
+    }
+    const data = (await resp.json()) as { access_token?: string; expires_in?: number };
+    if (!data.access_token) throw new Error("Google token refresh: no access_token in response");
+    return {
+      ...account,
+      token: data.access_token,
+      ...(data.expires_in ? { expiresAt: new Date(Date.now() + data.expires_in * 1000).toISOString() } : {}),
+    };
+  }
 
   const resp = await fetch("https://auth.openai.com/oauth/token", {
     method: "POST",
@@ -428,7 +488,10 @@ export async function startGateway(
   const sessionResp = await fetch(`${baseUrl}/v1/session`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sessionId: "local-dev" }),
+    body: JSON.stringify({
+      sessionId: "local-dev",
+      workspaceId: process.cwd(),
+    }),
   });
   if (!sessionResp.ok) {
     throw new Error(`Session acquisition failed: ${sessionResp.status}`);
@@ -545,10 +608,14 @@ export async function acquireLlmMeshSessionEnv(dir?: string): Promise<{
     } catch {
       return null;
     }
+    const workspaceId = dir ?? process.cwd();
     const sessionResp = await fetch(`${baseUrl}/v1/session`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sessionId: "local-dev" }),
+      body: JSON.stringify({
+        sessionId: "local-dev",
+        workspaceId,
+      }),
     });
     if (!sessionResp.ok) return null;
     const session = (await sessionResp.json()) as { gatewayToken?: string };

@@ -6,6 +6,7 @@ import {
   type SessionEntry,
 } from "./sticky.js";
 import { handleMessagesViaOpenAI } from "./proxy-openai.js";
+import { handleMessagesViaGemini } from "./proxy-gemini.js";
 import { resolveModelRoute, type RoutingTarget } from "./model-catalog.js";
 import { recordSessionRequest } from "./session-ledger.js";
 
@@ -145,6 +146,14 @@ async function dispatchToSessionAccount(
       { error: "gateway session transport constraint is no longer satisfied" },
       503,
     );
+  }
+  if (
+    session.provider === "google" ||
+    session.provider === "gemini" ||
+    session.provider === "gcp" ||
+    session.provider === "gemini-code-assist"
+  ) {
+    return handleMessagesViaGemini(c, session, body);
   }
   if (usesOpenAIProvider(session.provider)) {
     return handleMessagesViaOpenAI(
