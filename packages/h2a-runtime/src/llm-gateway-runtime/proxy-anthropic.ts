@@ -7,7 +7,11 @@ import {
 } from "./sticky.js";
 import { handleMessagesViaOpenAI } from "./proxy-openai.js";
 import { handleMessagesViaGemini } from "./proxy-gemini.js";
-import { resolveModelRoute, type RoutingTarget } from "./model-catalog.js";
+import {
+  accountPoolForProvider,
+  resolveModelRoute,
+  type RoutingTarget,
+} from "./model-catalog.js";
 import { recordSessionRequest } from "./session-ledger.js";
 
 const ANTHROPIC_BASE =
@@ -196,6 +200,16 @@ export async function handleMessages(c: Context): Promise<Response> {
   const body = await c.req.raw.arrayBuffer();
   const route = routeFromRequestBody(body);
   recordSessionRequest(session.sessionId, route);
+  if (
+    route &&
+    accountPoolForProvider(session.provider) === "google" &&
+    route.accountPool !== "google"
+  ) {
+    return c.json(
+      { error: "gateway session account pool does not satisfy requested model route" },
+      503,
+    );
+  }
   const attempted = new Set<string>();
 
   for (;;) {
