@@ -106,12 +106,28 @@ vi.mock("./tmux.js", () => ({
       })
       .filter((slug): slug is string => slug !== undefined),
   findLocalSession,
+  resolveLocalSession: (target: string) => {
+    const session = findLocalSession(target);
+    return session ? { kind: "found", session } : { kind: "missing" };
+  },
   killLocalSession,
   listLocalSessions: () => [],
   localSessionIdle,
   localSessionGatewayEnvStatus,
-  localSessionName: (slug: string) =>
-    slug.startsWith("remote-") ? slug : `remote-${slug}`,
+  localSessionName: (slug: string) => `h2a-${slug}`,
+  managedSessionCandidates: (slug: string) => [
+    `h2a-${slug}`,
+    `remote-${slug}`,
+  ],
+  parseManagedSessionName: (name: string) => {
+    if (name.startsWith("h2a-")) {
+      return { prefix: "h2a-", slug: name.slice("h2a-".length) };
+    }
+    if (name.startsWith("remote-")) {
+      return { prefix: "remote-", slug: name.slice("remote-".length) };
+    }
+    return undefined;
+  },
   slugify: (p: string) => {
     const parts = p.split("/").filter(Boolean);
     const base = (parts[parts.length - 1] ?? "")

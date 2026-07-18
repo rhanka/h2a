@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  ambiguousLiveSessionNames,
   discoverSessions,
   dropRemoteBackedLocals,
   groupSessions,
@@ -375,5 +376,16 @@ describe("tabCommand", () => {
         { forceGateway: "direct" },
       ),
     ).toBe("h2a run 'claude' '/home/u/src/kog' --resume 'c5' --name 'kog' --no-gw");
+  });
+});
+
+describe("ambiguousLiveSessionNames", () => {
+  it("identifies a dual-prefix session before restore can emit a bare slug", () => {
+    expect(
+      ambiguousLiveSessionNames([
+        { name: "h2a-proj", slug: "proj" },
+        { name: "remote-proj", slug: "proj" },
+      ]).get("proj"),
+    ).toEqual(["h2a-proj", "remote-proj"]);
   });
 });

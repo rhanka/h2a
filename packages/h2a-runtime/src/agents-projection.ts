@@ -96,7 +96,9 @@ export function projectLocalSessionAgent(row: LocalLsRow): RemoteAgentProjection
     state: row.state,
     cwd: row.path,
     ...(row.displayName !== undefined ? { label: row.displayName } : {}),
-    tmuxSession: `remote-${row.slug}`,
+    ...(row.tmuxSession !== undefined
+      ? { tmuxSession: row.tmuxSession }
+      : {}),
     sources: [{ kind: "local-tmux", id: row.slug }],
     conflicts: row.badge === "guess" ? ["not-enrolled-in-registry"] : [],
     capabilities: {
