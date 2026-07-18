@@ -28,7 +28,12 @@ import { uptime } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getLayoutConfig, resolveConfigPath } from "./config.js";
-import { listLocalSessions } from "./tmux.js";
+import {
+  managedSessionCandidates,
+  parseManagedSessionName,
+  listLocalSessions,
+  type LocalSession,
+} from "./tmux.js";
 
 export type RegistryTool = "claude" | "codex" | "agy";
 export type RegistryKind = "local-tmux" | "local" | "remote";
@@ -75,7 +80,7 @@ export type RegistryEntry = {
   convId?: string;
   /** Control-plane session id (kind "remote"). */
   remoteId?: string;
-  /** Full tmux session name (kind "local-tmux"), e.g. `remote-surch`. */
+  /** Full tmux session name (kind "local-tmux"), e.g. `h2a-surch`. */
   tmuxSession?: string;
   /** Local process id (kind "local"); liveness = process.kill(pid, 0). */
   pid?: number;
@@ -619,7 +624,10 @@ export function isLive(e: RegistryEntry, opts: LivenessOpts = {}): boolean {
   if (e.endedAt) return false;
   if (e.kind === "local-tmux") {
     const has = opts.tmuxHasSession ?? defaultTmuxHasSession;
-    return has(e.tmuxSession ?? `remote-${e.id}`);
+    return (e.tmuxSession
+      ? [e.tmuxSession]
+      : managedSessionCandidates(e.id)
+    ).some((name) => has(name));
   }
   if (e.kind === "local") {
     // A process cannot survive a reboot: an entry last seen BEFORE the machine
@@ -724,6 +732,8 @@ export function enrollFromRun(args: {
 
 export type LocalLsRow = {
   slug: string;
+  /** Exact managed tmux name when this row came from a live tmux session. */
+  tmuxSession?: string;
   profile: string;
   state: "attached" | "detached" | "live";
   path: string;
@@ -732,6 +742,66 @@ export type LocalLsRow = {
   /** custom display name set via `remote rename`, shown in PROJECT column */
   displayName?: string;
 };
+
+/** Pure join used by `listLocalForLs` and its compatibility tests. */
+export function localLsRows(
+  sessions: readonly LocalSession[],
+  live: readonly RegistryEntry[],
+): LocalLsRow[] {
+  const rows: LocalLsRow[] = [];
+  const matched = new Set<string>();
+  for (const s of sessions) {
+    const explicit = live.find((e) => e.tmuxSession === s.name);
+    const historical = live.filter(
+      (e) =>
+        e.kind === "local-tmux" &&
+        e.tmuxSession === undefined &&
+        e.id === s.slug,
+    );
+    const entry =
+      explicit ??
+      (historical.length === 1 &&
+      sessions.filter((candidate) => candidate.slug === s.slug).length === 1
+        ? historical[0]
+        : undefined);
+    if (entry) matched.add(entry.id);
+    rows.push({
+      slug: s.slug,
+      tmuxSession: s.name,
+      profile: s.profile,
+      state: s.attached ? "attached" : "detached",
+      path: s.path,
+      badge: entry ? "registry" : "guess",
+      ...(s.displayName !== undefined ? { displayName: s.displayName } : {}),
+    });
+  }
+  // Only surface local-tmux entries that were NOT matched above — these are
+  // orphaned registry records for tmux sessions remote itself created.
+  // kind:"local" entries are Claude Code conversation sessions (UUID ids,
+  // no tmuxSession) — they are internal CC state, not user-facing sessions.
+  for (const e of live) {
+    if (e.kind !== "local-tmux" || matched.has(e.id)) continue;
+    // A historical record without an exact tmux name cannot authoritatively
+    // claim either member of a live h2a-/remote- collision. It already remains
+    // visible as two tmux rows above; adding it here would invent a third,
+    // registry-only session for the same ambiguous slug.
+    if (
+      e.tmuxSession === undefined &&
+      sessions.filter((session) => session.slug === e.id).length > 1
+    ) {
+      continue;
+    }
+    rows.push({
+      slug: e.label ?? e.id.slice(0, 12),
+      ...(e.tmuxSession !== undefined ? { tmuxSession: e.tmuxSession } : {}),
+      profile: e.tool,
+      state: "live",
+      path: e.cwd,
+      badge: "registry",
+    });
+  }
+  return rows;
+}
 
 /**
  * LOCAL rows for `remote ls`: live tmux sessions joined with the registry
@@ -747,43 +817,15 @@ export function listLocalForLs(opts: RegistryOpts = {}): LocalLsRow[] {
     // a config/registry hiccup must not break `remote ls`
   }
   const live = listLive({ ...opts, path });
-  const rows: LocalLsRow[] = [];
-  const matched = new Set<string>();
-  for (const s of listLocalSessions()) {
-    const entry = live.find((e) => e.tmuxSession === s.name || e.id === s.slug);
-    if (entry) matched.add(entry.id);
-    rows.push({
-      slug: s.slug,
-      profile: s.profile,
-      state: s.attached ? "attached" : "detached",
-      path: s.path,
-      badge: entry ? "registry" : "guess",
-      ...(s.displayName !== undefined ? { displayName: s.displayName } : {}),
-    });
-  }
-  // Only surface local-tmux entries that were NOT matched above — these are
-  // orphaned registry records for tmux sessions remote itself created.
-  // kind:"local" entries are Claude Code conversation sessions (UUID ids,
-  // no tmuxSession) — they are internal CC state, not user-facing sessions.
-  for (const e of live) {
-    if (e.kind !== "local-tmux" || matched.has(e.id)) continue;
-    rows.push({
-      slug: e.label ?? e.id.slice(0, 12),
-      profile: e.tool,
-      state: "live",
-      path: e.cwd,
-      badge: "registry",
-    });
-  }
-  return rows;
+  const sessions = listLocalSessions();
+  return localLsRows(sessions, live);
 }
 
 /**
- * The tmux session name of a LOCAL session (kind:"local-tmux") recorded in the
- * registry that matches `target` (by slug/id, custom label, or full tmux
- * session name) — regardless of current tmux liveness. Returns undefined when
- * there is no match, when the sole match has already ended, or when the match
- * is ambiguous (more than one distinct id).
+ * Resolve a LOCAL session (kind:"local-tmux") recorded in the registry by
+ * slug/id, custom label, or full tmux session name, regardless of current tmux
+ * liveness. Historical rows without a persisted tmux name retain both prefix
+ * candidates so callers can refuse an unsafe bare-slug choice.
  *
  * Why not tmux-only: `attach` used to decide local-vs-remote purely from a live
  * `tmux list-sessions` (findLocalSession). A transient tmux miss right after
@@ -793,25 +835,68 @@ export function listLocalForLs(opts: RegistryOpts = {}): LocalLsRow[] {
  * this lets `attach` be just as reliable. Pure over the passed entries — the
  * caller supplies `loadRegistry()`, so it stays trivially testable.
  */
+export type LocalTmuxSessionResolution =
+  | { kind: "found"; name: string }
+  | { kind: "ambiguous"; names: string[] }
+  | { kind: "missing" };
+
+/**
+ * Resolve a registry-backed local tmux target without manufacturing a legacy
+ * name for historical rows that did not persist `tmuxSession`.
+ */
+export function resolveLocalTmuxSessionForName(
+  target: string,
+  entries: readonly RegistryEntry[],
+): LocalTmuxSessionResolution {
+  const requested = parseManagedSessionName(target);
+  const matches = entries.filter(
+    (e) => {
+      if (e.role !== undefined || e.kind !== "local-tmux" || e.endedAt) {
+        return false;
+      }
+      // A full managed name is an exact selector, never a slug/label alias.
+      // In particular an historical id that happens to start with `h2a-`
+      // must not redirect `h2a-x` to some different persisted session.
+      if (requested) {
+        return (
+          e.tmuxSession === target ||
+          (e.tmuxSession === undefined && requested.slug === e.id)
+        );
+      }
+      return e.id === target || e.label === target || e.tmuxSession === target;
+    },
+  );
+  const ids = new Set(matches.map((e) => e.id));
+  if (ids.size !== 1) {
+    if (ids.size === 0) return { kind: "missing" };
+    return {
+      kind: "ambiguous",
+      names: matches
+        .flatMap((entry) =>
+          entry.tmuxSession
+            ? [entry.tmuxSession]
+            : managedSessionCandidates(entry.id),
+        )
+        .sort(),
+    };
+  }
+  const chosen = matches
+    .slice()
+    .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))[0]!;
+  if (chosen.tmuxSession) return { kind: "found", name: chosen.tmuxSession };
+  if (requested) return { kind: "found", name: target };
+  return { kind: "ambiguous", names: managedSessionCandidates(chosen.id) };
+}
+
+/**
+ * Compatibility helper for callers that only need a uniquely known local
+ * target. New command wiring should inspect `resolveLocalTmuxSessionForName`
+ * so it can report prefix collisions instead of falling through remotely.
+ */
 export function localTmuxSessionForName(
   target: string,
   entries: readonly RegistryEntry[],
 ): string | undefined {
-  const canonical = target.startsWith("remote-") ? target : `remote-${target}`;
-  const matches = entries.filter(
-    (e) =>
-      e.role === undefined &&
-      e.kind === "local-tmux" &&
-      !e.endedAt &&
-      (e.id === target ||
-        e.label === target ||
-        e.tmuxSession === target ||
-        (e.tmuxSession ?? `remote-${e.id}`) === canonical),
-  );
-  const ids = new Set(matches.map((e) => e.id));
-  if (ids.size !== 1) return undefined;
-  const chosen = matches
-    .slice()
-    .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))[0]!;
-  return chosen.tmuxSession ?? `remote-${chosen.id}`;
+  const resolution = resolveLocalTmuxSessionForName(target, entries);
+  return resolution.kind === "found" ? resolution.name : undefined;
 }
