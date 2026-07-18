@@ -15,7 +15,7 @@ function job(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
     kind: "local-tmux",
     cwd: "/repo/.remote/jobs/j1/wt",
     originCwd: "/repo",
-    tmuxSession: "remote-job-j1",
+    tmuxSession: "h2a-job-j1",
     enrolledAt: "2026-06-26T00:00:00.000Z",
     lastSeenAt: "2026-06-26T00:00:01.000Z",
     source: "run",
@@ -29,6 +29,7 @@ function job(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
 function local(overrides: Partial<LocalLsRow> = {}): LocalLsRow {
   return {
     slug: "proj",
+    tmuxSession: "h2a-proj",
     profile: "codex",
     state: "detached",
     path: "/repo2",
@@ -65,7 +66,7 @@ describe("projectRemoteAgents", () => {
       capabilities: { attach: true, logs: true, remote: false, objectiveStateAuthority: false },
     });
 
-    const localAgent = findProjectedAgent(envelope.agents, "remote-proj")!;
+    const localAgent = findProjectedAgent(envelope.agents, "h2a-proj")!;
     expect(localAgent).toMatchObject({
       id: "local:proj",
       kind: "local-session",
@@ -85,6 +86,15 @@ describe("projectRemoteAgents", () => {
       remoteSessionId: "sess-1",
       capabilities: { attach: false, logs: true, remote: true, objectiveStateAuthority: false },
     });
+  });
+
+  it("keeps the exact live tmux name instead of synthesizing a prefix", () => {
+    const envelope = projectRemoteAgents({
+      jobs: [],
+      localRows: [local({ tmuxSession: "remote-proj" })],
+    });
+
+    expect(envelope.agents[0]?.tmuxSession).toBe("remote-proj");
   });
 
   it("projects inspect detail envelope with empty related sources", () => {

@@ -60,4 +60,16 @@ describe("planRelaunch", () => {
     expect(plan.actions[0]?.slug).toBe("a");
     expect(plan.skipped[0]?.reason).toMatch(/collide/);
   });
+
+  it("refuses a dual-prefix tmux collision before assigning either conversation", () => {
+    const plan = planRelaunch([
+      { ...idleClaude("proj", "canonical"), name: "h2a-proj" },
+      { ...idleClaude("proj", "legacy"), name: "remote-proj" },
+    ]);
+
+    expect(plan.actions).toEqual([]);
+    expect(plan.skipped).toHaveLength(2);
+    expect(plan.skipped[0]?.reason).toContain("h2a-proj");
+    expect(plan.skipped[0]?.reason).toContain("remote-proj");
+  });
 });

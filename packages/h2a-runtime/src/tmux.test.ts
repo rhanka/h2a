@@ -23,6 +23,8 @@ vi.mock("./config.js", () => ({
 import {
   H2A_WINDOW_NAME,
   HEADLESS_WRAPPER,
+  LEGACY_LOCAL_PREFIX,
+  LOCAL_PREFIX,
   LOCAL_WRAPPER,
   REMOTE_TMUX_PROFILE,
   REMOTE_TMUX_PROFILE_NAME,
@@ -39,9 +41,14 @@ import {
   fanoutLabels,
   getLocalSessionDisplayName,
   listLocalSessions,
+  killLocalSession,
   localRelaunchCommand,
+  localSessionName,
   localSessionPanePid,
   resolveAgentPaneForInstance,
+  resolveLocalSession,
+  managedSessionCandidates,
+  parseManagedSessionName,
   sendKeysLiteral,
   sessionAttachedCount,
   setLocalSessionDisplayName,
@@ -144,6 +151,19 @@ describe("attachLocalSession", () => {
       ["switch-client", "-t", "=remote-projA"],
       { stdio: "inherit" },
     ]);
+  });
+});
+
+describe("killLocalSession", () => {
+  it("uses an exact tmux session target", () => {
+    spawnSyncMock.mockReturnValue({ status: 0 });
+
+    expect(killLocalSession("h2a-proj")).toBe(true);
+    expect(spawnSyncMock).toHaveBeenCalledWith(
+      "tmux",
+      ["kill-session", "-t", "=h2a-proj"],
+      { stdio: "ignore" },
+    );
   });
 });
 
@@ -278,13 +298,13 @@ describe("startLocalSession agent pane metadata", () => {
       )
       .map((c) => (c[1] as string[]).join(" "));
     expect(setOpt).toContain(
-      "set-option -t =remote-remote @remote_launch_profile claude",
+      "set-option -t =h2a-remote @remote_launch_profile claude",
     );
     expect(setOpt).toContain(
-      "set-option -t =remote-remote @remote_launch_gateway on",
+      "set-option -t =h2a-remote @remote_launch_gateway on",
     );
     expect(setOpt).toContain(
-      "set-option -t =remote-remote @remote_launch_gateway_base_url http://localhost:3002",
+      "set-option -t =h2a-remote @remote_launch_gateway_base_url http://localhost:3002",
     );
     // the auth token is never read, so it can never land in a stored option
     expect(setOpt.join("\n")).not.toContain("sk-should-never-be-stored");
@@ -393,6 +413,49 @@ describe("startLocalSession agent pane metadata", () => {
     expect(tmuxCalls("new-session")).toHaveLength(0);
   });
 
+  it("reuses a legacy-only session instead of creating a conflicting canonical name", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions") {
+        return {
+          status: 0,
+          stdout: "remote-worker\t0\t/home/u/src/repo\tclaude\t\n",
+        };
+      }
+      if (cmd === "tmux" && args[0] === "show-options") {
+        return { status: 1, stdout: "" };
+      }
+      if (cmd === "tmux" && args[0] === "list-panes") {
+        return { status: 0, stdout: "claude\t%9\n" };
+      }
+      return { status: 0, stdout: "" };
+    });
+
+    expect(
+      startLocalSession("claude", "claude", "/home/u/src/repo", [], "worker"),
+    ).toMatchObject({ name: "remote-worker", slug: "worker" });
+    expect(tmuxCalls("new-session")).toHaveLength(0);
+  });
+
+  it("refuses a bare slug shared by canonical and legacy sessions", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions") {
+        return {
+          status: 0,
+          stdout:
+            "h2a-worker\t0\t/home/u/src/repo\tclaude\t\nremote-worker\t0\t/home/u/src/repo\tclaude\t\n",
+        };
+      }
+      return { status: 0, stdout: "" };
+    });
+
+    expect(() =>
+      startLocalSession("claude", "claude", "/home/u/src/repo", [], "worker"),
+    ).toThrow(/ambiguous/);
+    expect(tmuxCalls("new-session")).toHaveLength(0);
+  });
+
   it("refuses a structured headless duplicate before writing prompt input", () => {
     spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
@@ -479,18 +542,18 @@ describe("startLocalSession agent pane metadata", () => {
     );
 
     expect(result).toEqual({
-      name: "remote-h2a-target",
+      name: "h2a-h2a-target",
       slug: "h2a-target",
       agentPane: "%7",
     });
     expect(spawnSyncMock.mock.calls).toContainEqual([
       "tmux",
-      ["set-option", "-t", "=remote-h2a-target", "@remote_agent_pane", "%7"],
+      ["set-option", "-t", "=h2a-h2a-target", "@remote_agent_pane", "%7"],
       { stdio: "ignore" },
     ]);
     expect(spawnSyncMock.mock.calls).toContainEqual([
       "tmux",
-      ["set-option", "-t", "=remote-h2a-target", "@remote_agent_host", "codex"],
+      ["set-option", "-t", "=h2a-h2a-target", "@remote_agent_host", "codex"],
       { stdio: "ignore" },
     ]);
     expect(spawnSyncMock.mock.calls).toContainEqual([
@@ -498,7 +561,7 @@ describe("startLocalSession agent pane metadata", () => {
       [
         "set-option",
         "-t",
-        "=remote-h2a-target",
+        "=h2a-h2a-target",
         "@remote_agent_cwd",
         "/home/u/src/remote",
       ],
@@ -1361,6 +1424,78 @@ describe("listLocalSessions", () => {
         attached: true,
         displayName: "Parent session",
       },
+    ]);
+  });
+});
+
+describe("managed tmux name resolution", () => {
+  const canonical = {
+    name: "h2a-proj",
+    slug: "proj",
+    profile: "claude",
+    path: "/repo",
+    attached: false,
+  };
+  const legacy = {
+    ...canonical,
+    name: "remote-proj",
+    profile: "codex",
+  };
+
+  it("writes only canonical h2a names while retaining legacy parsing", () => {
+    expect(LOCAL_PREFIX).toBe("h2a-");
+    expect(LEGACY_LOCAL_PREFIX).toBe("remote-");
+    expect(localSessionName("proj")).toBe("h2a-proj");
+    expect(localSessionName("h2a-target")).toBe("h2a-h2a-target");
+    expect(managedSessionCandidates("proj")).toEqual([
+      "h2a-proj",
+      "remote-proj",
+    ]);
+    expect(parseManagedSessionName("h2a-proj")).toEqual({
+      prefix: "h2a-",
+      slug: "proj",
+    });
+    expect(parseManagedSessionName("remote-proj")).toEqual({
+      prefix: "remote-",
+      slug: "proj",
+    });
+  });
+
+  it("resolves legacy-only and exact names, but refuses a bare dual-prefix slug", () => {
+    expect(resolveLocalSession("proj", [legacy])).toEqual({
+      kind: "found",
+      session: legacy,
+    });
+    expect(resolveLocalSession("h2a-proj", [canonical, legacy])).toEqual({
+      kind: "found",
+      session: canonical,
+    });
+    expect(resolveLocalSession("remote-proj", [canonical, legacy])).toEqual({
+      kind: "found",
+      session: legacy,
+    });
+    expect(resolveLocalSession("proj", [canonical, legacy])).toEqual({
+      kind: "ambiguous",
+      sessions: [canonical, legacy],
+    });
+  });
+
+  it("lists both canonical and legacy managed sessions", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions") {
+        return {
+          status: 0,
+          stdout:
+            "h2a-current\t0\t/repo/current\tclaude\t\nremote-legacy\t0\t/repo/legacy\tcodex\t\n",
+        };
+      }
+      return { status: 1, stdout: "" };
+    });
+
+    expect(listLocalSessions().map((session) => session.name)).toEqual([
+      "h2a-current",
+      "remote-legacy",
     ]);
   });
 });

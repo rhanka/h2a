@@ -10,7 +10,9 @@ import {
   listJobs,
   listLive,
   loadRegistry,
+  localLsRows,
   localTmuxSessionForName,
+  resolveLocalTmuxSessionForName,
   markEnded,
   occupiesSlot,
   prune,
@@ -130,6 +132,17 @@ describe("registry", () => {
         tmuxHasSession: (name) => name === "remote-projA",
       });
       expect(live.map((e) => e.id)).toEqual(["sess-1"]);
+    });
+
+    it("checks both managed prefixes for a historical entry without tmuxSession", () => {
+      enroll({ ...baseInput, id: "historic", tmuxSession: undefined }, regPath);
+
+      const live = listLive({
+        path: regPath,
+        tmuxHasSession: (name) => name === "h2a-historic",
+      });
+
+      expect(live.map((entry) => entry.id)).toEqual(["historic"]);
     });
 
     it("local liveness follows pid (kill(pid, 0)) and endedAt", () => {
@@ -546,11 +559,33 @@ describe("localTmuxSessionForName (attach local-vs-remote routing)", () => {
     expect(localTmuxSessionForName("remote-h2a", [e])).toBe("remote-h2a");
   });
 
-  it("falls back to remote-<id> when no explicit tmuxSession is recorded", () => {
+  it("tries both prefixes when no explicit tmuxSession is recorded", () => {
     const { tmuxSession: _drop, ...noTmux } = localTmux({ id: "proj" });
-    expect(localTmuxSessionForName("proj", [noTmux as RegistryEntry])).toBe(
-      "remote-proj",
-    );
+    expect(
+      resolveLocalTmuxSessionForName("proj", [noTmux as RegistryEntry]),
+    ).toEqual({
+      kind: "ambiguous",
+      names: ["h2a-proj", "remote-proj"],
+    });
+    expect(localTmuxSessionForName("proj", [noTmux as RegistryEntry])).toBeUndefined();
+    expect(
+      resolveLocalTmuxSessionForName("remote-proj", [noTmux as RegistryEntry]),
+    ).toEqual({ kind: "found", name: "remote-proj" });
+  });
+
+  it("treats a full managed name as exact rather than an id or label alias", () => {
+    const historical = localTmux({
+      id: "h2a-proj",
+      label: "h2a-proj",
+      tmuxSession: "remote-h2a-proj",
+    });
+
+    expect(
+      resolveLocalTmuxSessionForName("h2a-proj", [historical]),
+    ).toEqual({ kind: "missing" });
+    expect(
+      resolveLocalTmuxSessionForName("remote-h2a-proj", [historical]),
+    ).toEqual({ kind: "found", name: "remote-h2a-proj" });
   });
 
   it("ignores ended, remote, and delegated-job records", () => {
@@ -573,5 +608,47 @@ describe("localTmuxSessionForName (attach local-vs-remote routing)", () => {
         localTmux({ id: "b", label: "dup", tmuxSession: "remote-b" }),
       ]),
     ).toBeUndefined();
+  });
+});
+
+describe("localLsRows", () => {
+  const now = new Date().toISOString();
+  const historical: RegistryEntry = {
+    id: "proj",
+    tool: "claude",
+    kind: "local-tmux",
+    cwd: "/repo/proj",
+    enrolledAt: now,
+    lastSeenAt: now,
+    source: "run",
+  };
+
+  it("does not add a third registry-only row for a dual-prefix historical collision", () => {
+    const rows = localLsRows(
+      [
+        {
+          name: "h2a-proj",
+          slug: "proj",
+          profile: "claude",
+          path: "/repo/proj",
+          attached: false,
+        },
+        {
+          name: "remote-proj",
+          slug: "proj",
+          profile: "claude",
+          path: "/repo/proj",
+          attached: false,
+        },
+      ],
+      [historical],
+    );
+
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.tmuxSession).sort()).toEqual([
+      "h2a-proj",
+      "remote-proj",
+    ]);
+    expect(rows.every((row) => row.badge === "guess")).toBe(true);
   });
 });

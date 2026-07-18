@@ -67,8 +67,28 @@ describe("convOwners", () => {
     });
     expect(owners).toHaveLength(1);
     expect(owners[0]).toMatchObject({ where: "local-tmux", label: "projA" });
-    expect(owners[0]!.detail).toContain("h2a stop projA");
+    expect(owners[0]!.detail).toContain("h2a stop remote-projA");
     expect(owners[0]!.suspect).toBeUndefined();
+  });
+
+  it("shows both exact prefix candidates for a historical tmux entry", () => {
+    writeRegistry([
+      entry({
+        id: "projA",
+        label: "projA",
+        convId: "conv-1",
+      }),
+    ]);
+
+    const owners = convOwners("conv-1", {
+      registryPath: regPath,
+      tmuxHasSession: (name) => name === "h2a-projA",
+    });
+
+    expect(owners[0]!.detail).toContain("h2a-projA");
+    expect(owners[0]!.detail).toContain("remote-projA");
+    expect(owners[0]!.detail).toContain("h2a stop h2a-projA");
+    expect(owners[0]!.detail).toContain("h2a stop remote-projA");
   });
 
   it("flags a live plain-terminal (hook-enrolled) local session by pid", () => {
@@ -199,7 +219,7 @@ describe("guardConvWriters", () => {
     });
     expect(ok).toBe(false);
     expect(stderrText()).toContain("conversation conv-1 already has a live writer");
-    expect(stderrText()).toContain("h2a stop projA");
+    expect(stderrText()).toContain("h2a stop remote-projA");
     expect(stderrText()).toContain("--force");
   });
 
