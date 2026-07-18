@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  accountPoolForProvider,
   resetModelCatalogCache,
   resolveModelRoute,
 } from "./model-catalog.js";
@@ -11,6 +12,15 @@ afterEach(() => {
 });
 
 describe("embedded h2a runtime model catalog", () => {
+  it("keeps Google accounts outside the Codex account pool", () => {
+    expect(accountPoolForProvider("openai")).toBe("codex");
+    expect(accountPoolForProvider("codex")).toBe("codex");
+    expect(accountPoolForProvider("google")).toBe("google");
+    expect(accountPoolForProvider("gemini")).toBe("google");
+    expect(accountPoolForProvider("gcp")).toBe("google");
+    expect(accountPoolForProvider("gemini-code-assist")).toBe("google");
+  });
+
   it("routes the Opus compatibility alias to Terra", () => {
     expect(resolveModelRoute("claude-opus-4-8")).toMatchObject({
       catalogModelId: "gpt-5.6-terra",
