@@ -341,6 +341,7 @@ import {
   readGatewayPid,
   llmMeshLogPath,
   jwtExpiry,
+  refreshAccountToken,
   readLlmMeshSessionEnv,
   acquireLlmMeshSessionEnv,
 } from "./llm-mesh.js";
@@ -8547,7 +8548,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           provider === "gemini-code-assist"
         ) {
           // Reads ~/.gemini/oauth_creds.json: access_token and refresh_token for Google Cloud Code Assist.
-          account = enrollGeminiAccount();
+          account = await refreshAccountToken(enrollGeminiAccount());
         } else if (provider === "openai") {
           if (!opts.token) {
             process.stderr.write(

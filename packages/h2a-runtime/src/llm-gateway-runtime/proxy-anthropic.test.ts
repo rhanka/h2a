@@ -158,4 +158,34 @@ describe("proxy-anthropic quota fallback", () => {
     expect(res.headers.get("retry-after")).toBe("30");
     await expect(res.json()).resolves.toEqual({ error: "usage limit reached" });
   });
+
+  it("fails closed when a Google session receives a Codex model route", async () => {
+    const { app, gatewayToken } = await appWithSession([
+      {
+        id: "gemini-code",
+        provider: "google",
+        label: "Gemini Code Assist (OAuth)",
+        token: "google-access-token",
+      },
+    ]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await app.fetch(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${gatewayToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(REQUEST_BODY),
+      }),
+    );
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({
+      error: "gateway session account pool does not satisfy requested model route",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
