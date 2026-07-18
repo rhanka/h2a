@@ -26,7 +26,7 @@ import {
   type LayoutConfig,
 } from "./config.js";
 import { listLive, type RegistryEntry } from "./registry.js";
-import { listLocalSessions, slugify } from "./tmux.js";
+import { listLocalSessions, slugify, type LocalSession } from "./tmux.js";
 
 export type DiscoveredSession = {
   project: string;
@@ -388,6 +388,21 @@ export function tabCommand(
   return runCmd("");
 }
 
+/** Group collision candidates before restore emits bare-slug attach/resume commands. */
+export function ambiguousLiveSessionNames(
+  sessions: readonly Pick<LocalSession, "name" | "slug">[],
+): Map<string, string[]> {
+  const namesBySlug = new Map<string, string[]>();
+  for (const session of sessions) {
+    const names = namesBySlug.get(session.slug) ?? [];
+    names.push(session.name);
+    namesBySlug.set(session.slug, names);
+  }
+  return new Map(
+    [...namesBySlug].filter(([, names]) => names.length > 1),
+  );
+}
+
 // gnome-terminal applies ONE trailing `-- command` to EVERY tab of an
 // invocation (you cannot give each tab its own `--`). So all tabs run the same
 // dispatcher; each claims (under flock) the first map line matching its $PWD
@@ -428,7 +443,9 @@ export function launchLayout(
   stderr: NodeJS.WriteStream = process.stderr,
   opts: { reattach?: boolean; forceGateway?: "gateway" | "direct" } = {},
 ): { opened: number; skippedLive: string[] } {
-  const liveSlugs = new Set(listLocalSessions().map((s) => s.slug));
+  const liveSessions = listLocalSessions();
+  const liveSlugs = new Set(liveSessions.map((s) => s.slug));
+  const ambiguousLiveNames = ambiguousLiveSessionNames(liveSessions);
   const skippedLive: string[] = [];
   let opened = 0;
   // A forced posture must reach EVERY session (live ones get relaunched), so it
@@ -439,17 +456,24 @@ export function launchLayout(
   for (const win of windows) {
     // Filter tabs: skip local sessions already in tmux (attach would be redundant).
     // Remote (k8s) tabs are always included — we can't probe pod health here.
-    const activeTabs = includeLive
-      ? win.tabs
-      : win.tabs.filter((t) => {
-          if (t.remoteId) return true;
-          const slug = slugify(t.label);
-          if (liveSlugs.has(slug)) {
-            skippedLive.push(t.label);
-            return false;
-          }
-          return true;
-        });
+    const activeTabs = win.tabs.filter((t) => {
+      if (t.remoteId) return true;
+      const slug = slugify(t.label);
+      const names = ambiguousLiveNames.get(slug);
+      if (names) {
+        skippedLive.push(t.label);
+        stderr.write(
+          `[h2a] restore skipped "${t.label}": local tmux slug is ambiguous (${names.sort().join(", ")}); ` +
+            `attach explicitly with h2a attach ${names.sort()[0]} or h2a attach ${names.sort()[1]}\n`,
+        );
+        return false;
+      }
+      if (!includeLive && liveSlugs.has(slug)) {
+        skippedLive.push(t.label);
+        return false;
+      }
+      return true;
+    });
 
     if (activeTabs.length === 0) {
       // All sessions in this window are already active — no tab needed.
