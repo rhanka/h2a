@@ -2,8 +2,8 @@
  * tmux-backed session management.
  *
  * Two uses, one battle-tested multiplexer:
- *  - LOCAL sessions: `remote run <profile>` starts the CLI inside a local tmux
- *    session (`remote-<slug>`), so `remote ls`/`attach`/`stop` manage local and
+ *  - LOCAL sessions: `h2a run <profile>` starts the CLI inside a local tmux
+ *    session (`h2a-<slug>`), so `h2a ls`/`attach`/`stop` manage local and
  *    remote sessions uniformly, and detach/reattach is native.
  *  - REMOTE attach via exec: `remote attach <id> --exec` runs
  *    `kubectl exec -it … tmux attach` straight into the Pod's tmux session, so
@@ -38,8 +38,10 @@ import type { TunnelConfig } from "./config.js";
 
 const TMUX = "tmux";
 
-/** tmux session-name prefix marking a remote-managed local session. */
-export const LOCAL_PREFIX = "remote-";
+/** Canonical tmux session-name prefix for h2a-managed local sessions. */
+export const LOCAL_PREFIX = "h2a-";
+/** Legacy tmux session-name prefix accepted during the compatibility window. */
+export const LEGACY_LOCAL_PREFIX = "remote-";
 
 /** Pod tmux session the session-agent runs the CLI in (see agent.ts). */
 export const POD_TMUX_SESSION = "main";
@@ -189,7 +191,7 @@ const H2A_MCP_READY_NONCE_ENV = "H2A_MCP_READY_NONCE";
 const H2A_MCP_READY_KIND = "h2a.mcp.ready";
 
 export type LocalSession = {
-  /** full tmux session name, e.g. `remote-surch` */
+  /** full tmux session name, e.g. `h2a-surch` */
   name: string;
   /** short name shown to the user, e.g. `surch` */
   slug: string;
@@ -202,6 +204,16 @@ export type LocalSession = {
   /** custom display name set via `remote rename`, if any */
   displayName?: string;
 };
+
+export type ManagedSessionName = {
+  prefix: typeof LOCAL_PREFIX | typeof LEGACY_LOCAL_PREFIX;
+  slug: string;
+};
+
+export type LocalSessionResolution =
+  | { kind: "found"; session: LocalSession }
+  | { kind: "ambiguous"; sessions: LocalSession[] }
+  | { kind: "missing" };
 
 export function tmuxAvailable(): boolean {
   try {
@@ -218,9 +230,26 @@ export function slugify(p: string): string {
   return base || "session";
 }
 
-/** tmux session name for a workdir slug. */
+/** Parse either canonical or legacy h2a-managed tmux session name. */
+export function parseManagedSessionName(
+  name: string,
+): ManagedSessionName | undefined {
+  for (const prefix of [LOCAL_PREFIX, LEGACY_LOCAL_PREFIX] as const) {
+    if (name.startsWith(prefix) && name.length > prefix.length) {
+      return { prefix, slug: name.slice(prefix.length) };
+    }
+  }
+  return undefined;
+}
+
+/** All managed tmux names that can represent a short slug, canonical first. */
+export function managedSessionCandidates(slug: string): string[] {
+  return [`${LOCAL_PREFIX}${slug}`, `${LEGACY_LOCAL_PREFIX}${slug}`];
+}
+
+/** Canonical tmux session name for a workdir slug. */
 export function localSessionName(slug: string): string {
-  return slug.startsWith(LOCAL_PREFIX) ? slug : `${LOCAL_PREFIX}${slug}`;
+  return `${LOCAL_PREFIX}${slug}`;
 }
 
 const ANTHROPIC_ENV_KEYS = [
@@ -255,7 +284,7 @@ function shellSingleQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-/** List remote-managed local tmux sessions (best-effort; [] if no server). */
+/** List h2a-managed local tmux sessions (best-effort; [] if no server). */
 export function listLocalSessions(): LocalSession[] {
   if (!tmuxAvailable()) return [];
   const r = spawnSync(
@@ -272,10 +301,12 @@ export function listLocalSessions(): LocalSession[] {
   for (const line of r.stdout.split("\n")) {
     if (!line) continue;
     const [name, attached, path, profile, displayName] = line.split("\t");
-    if (!name || !name.startsWith(LOCAL_PREFIX)) continue;
+    if (!name) continue;
+    const managed = parseManagedSessionName(name);
+    if (!managed) continue;
     const session: LocalSession = {
       name,
-      slug: name.slice(LOCAL_PREFIX.length),
+      slug: managed.slug,
       profile: profile || "?",
       path: path || "",
       attached: Number(attached) > 0,
@@ -288,10 +319,39 @@ export function listLocalSessions(): LocalSession[] {
   return out;
 }
 
-/** Find a local session by its full name or its slug. */
+/**
+ * Resolve a local session by exact managed tmux name or by a unique slug.
+ * A bare slug spanning canonical and legacy sessions is deliberately ambiguous.
+ */
+export function resolveLocalSession(
+  target: string,
+  sessions: readonly LocalSession[] = listLocalSessions(),
+): LocalSessionResolution {
+  if (parseManagedSessionName(target)) {
+    const session = sessions.find((candidate) => candidate.name === target);
+    return session ? { kind: "found", session } : { kind: "missing" };
+  }
+  const matches = sessions.filter((candidate) => candidate.slug === target);
+  if (matches.length === 1) return { kind: "found", session: matches[0]! };
+  if (matches.length > 1) return { kind: "ambiguous", sessions: matches };
+  return { kind: "missing" };
+}
+
+/** Resolve a value that is already known to be a slug, never a full name. */
+function resolveLocalSessionSlug(
+  slug: string,
+  sessions: readonly LocalSession[] = listLocalSessions(),
+): LocalSessionResolution {
+  const matches = sessions.filter((candidate) => candidate.slug === slug);
+  if (matches.length === 1) return { kind: "found", session: matches[0]! };
+  if (matches.length > 1) return { kind: "ambiguous", sessions: matches };
+  return { kind: "missing" };
+}
+
+/** Find a local session by its full name or an unambiguous slug. */
 export function findLocalSession(target: string): LocalSession | undefined {
-  const sessions = listLocalSessions();
-  return sessions.find((s) => s.name === target || s.slug === target);
+  const resolution = resolveLocalSession(target);
+  return resolution.kind === "found" ? resolution.session : undefined;
 }
 
 /** Resolve all requested labels that already name a managed tmux session. */
@@ -302,7 +362,7 @@ export function existingLocalSessionSlugs(
   return labels
     .map((label) => {
       const slug = slugify(label ?? cwd);
-      return findLocalSession(slug) ? slug : undefined;
+      return resolveLocalSessionSlug(slug).kind !== "missing" ? slug : undefined;
     })
     .filter((slug): slug is string => slug !== undefined);
 }
@@ -613,13 +673,26 @@ export function startLocalSession(
     ...launchMetadata
   } = metadata;
   ensureScrollConfig(tmuxProfile);
-  if (findLocalSession(name)) {
+  const existing = resolveLocalSessionSlug(slug);
+  if (existing.kind === "ambiguous") {
+    throw new Error(
+      `local session ${slug} is ambiguous; use an exact tmux session name`,
+    );
+  }
+  if (existing.kind === "found") {
     if (refuseExisting) {
       throw new Error(`local session ${slug} already exists; no agent was started`);
     }
-    const agentPane = persistAgentPaneMetadata(name, profile, cwd);
-    persistLaunchContext(name, buildLaunchContext({ profile, cwd, label, ...launchMetadata }));
-    return { name, slug, ...(agentPane ? { agentPane } : {}) };
+    const agentPane = persistAgentPaneMetadata(existing.session.name, profile, cwd);
+    persistLaunchContext(
+      existing.session.name,
+      buildLaunchContext({ profile, cwd, label, ...launchMetadata }),
+    );
+    return {
+      name: existing.session.name,
+      slug: existing.session.slug,
+      ...(agentPane ? { agentPane } : {}),
+    };
   }
 
   const r = spawnSync(
@@ -715,11 +788,17 @@ export function startHeadlessSession(
   const slug = slugify(label);
   const name = localSessionName(slug);
   ensureScrollConfig(tmuxProfile);
-  if (findLocalSession(name)) {
+  const existing = resolveLocalSessionSlug(slug);
+  if (existing.kind === "ambiguous") {
+    throw new Error(
+      `local session ${slug} is ambiguous; use an exact tmux session name`,
+    );
+  }
+  if (existing.kind === "found") {
     if (refuseExisting) {
       throw new Error(`local session ${slug} already exists; no agent was started`);
     }
-    return { name, slug };
+    return { name: existing.session.name, slug: existing.session.slug };
   }
 
   const promptFile = promptInput === undefined ? "" : `${resultJson}.prompt`;
@@ -992,7 +1071,8 @@ function firstNonH2aPane(session: string): string | undefined {
 /**
  * Resolve the durable agent pane for a given h2a instance.
  * Parses host:label[:uuid] → finds the matching managed tmux session
- * (remote-<label>, @remote_agent_host === host) → returns its @remote_agent_pane.
+ * (h2a-<label> or legacy remote-<label>, @remote_agent_host === host) → returns
+ * its @remote_agent_pane.
  * Returns undefined if no pane is known for this instance.
  */
 export function resolveAgentPaneForInstance(
@@ -1003,13 +1083,13 @@ export function resolveAgentPaneForInstance(
   const host = parts[0];
   const label = parts[1];
   if (!host || !label) return undefined;
-  const sessionName = localSessionName(label);
   const sessions = listLocalSessions();
-  const match = sessions.find(
-    (s) =>
-      s.name === sessionName &&
-      readSessionOption(s.name, AGENT_HOST_OPTION) === host,
-  );
+  const resolved = resolveLocalSessionSlug(label, sessions);
+  if (resolved.kind !== "found") return undefined;
+  const match =
+    readSessionOption(resolved.session.name, AGENT_HOST_OPTION) === host
+      ? resolved.session
+      : undefined;
   if (!match) return undefined;
   return resolveAgentPane(match.name);
 }
@@ -1328,7 +1408,9 @@ export function runLocalCliForeground(command: string, args: string[]): number {
 
 /** Kill a local tmux session. */
 export function killLocalSession(name: string): boolean {
-  const r = spawnSync(TMUX, ["kill-session", "-t", name], { stdio: "ignore" });
+  const r = spawnSync(TMUX, ["kill-session", "-t", exactSessionTarget(name)], {
+    stdio: "ignore",
+  });
   return r.status === 0;
 }
 

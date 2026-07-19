@@ -76,9 +76,12 @@ import {
   localSessionIdle,
   localSessionPanePid,
   localSessionName,
+  managedSessionCandidates,
+  parseManagedSessionName,
   readLaunchContext,
   relaunchInSession,
   resolveAgentPaneForInstance,
+  resolveLocalSession,
   runLocalCliForeground,
   sendKeysLiteral,
   sessionAttached,
@@ -115,7 +118,7 @@ import {
   listJobs,
   listLocalForLs,
   loadRegistry,
-  localTmuxSessionForName,
+  resolveLocalTmuxSessionForName,
   tryClaimSlot,
   withRegistryLock,
   resolveRegistryPath,
@@ -1899,25 +1902,83 @@ function registryEntryForResumeTarget(
   target: string,
   local?: LocalSession,
 ): RegistryEntry | undefined {
-  const canonicalSlug = local?.slug ?? target;
-  const tmuxSession = local?.name ?? localSessionName(target);
-  const canonicalTmuxSession = localSessionName(canonicalSlug);
-  const matches = loadRegistry().filter(
-    (e) =>
-      e.role === undefined &&
-      e.kind === "local-tmux" &&
-      (e.id === target ||
-        e.id === canonicalSlug ||
-        e.label === target ||
-        e.label === canonicalSlug ||
+  const parsedTarget = parseManagedSessionName(target);
+  const canonicalSlug = local?.slug ?? parsedTarget?.slug ?? target;
+  const tmuxSession = local?.name ?? target;
+  const candidates = local
+    ? [local.name]
+    : parsedTarget
+      ? [target]
+      : managedSessionCandidates(canonicalSlug);
+  const matches = loadRegistry().filter((e) => {
+    if (e.role !== undefined || e.kind !== "local-tmux") return false;
+    // Full managed names are exact targets; never reinterpret one as an id
+    // or label that happens to share a prefix-shaped string.
+    if (parsedTarget) {
+      return (
         e.tmuxSession === tmuxSession ||
-        e.tmuxSession === canonicalTmuxSession),
-  );
+        (e.tmuxSession === undefined && e.id === canonicalSlug)
+      );
+    }
+    return (
+      e.id === target ||
+      e.id === canonicalSlug ||
+      e.label === target ||
+      e.label === canonicalSlug ||
+      e.tmuxSession === tmuxSession ||
+      (e.tmuxSession !== undefined && candidates.includes(e.tmuxSession))
+    );
+  });
   const ids = new Set(matches.map((e) => e.id));
   if (ids.size !== 1) return undefined;
   return matches
     .slice()
     .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))[0];
+}
+
+type ManagedLocalTargetResolution =
+  | { kind: "found"; name: string; local?: LocalSession }
+  | { kind: "ambiguous"; names: string[] }
+  | { kind: "missing" };
+
+/**
+ * Resolve tmux first, then the durable registry, without allowing a bare slug
+ * that names both prefix generations to fall through to a remote session.
+ */
+function resolveManagedLocalTarget(
+  target: string,
+): ManagedLocalTargetResolution {
+  const live = resolveLocalSession(target);
+  if (live.kind === "found") {
+    return { kind: "found", name: live.session.name, local: live.session };
+  }
+  if (live.kind === "ambiguous") {
+    return {
+      kind: "ambiguous",
+      names: live.sessions.map((session) => session.name).sort(),
+    };
+  }
+  const registered = resolveLocalTmuxSessionForName(target, loadRegistry());
+  if (registered.kind === "found") {
+    return { kind: "found", name: registered.name };
+  }
+  if (registered.kind === "ambiguous") {
+    return { kind: "ambiguous", names: [...registered.names].sort() };
+  }
+  return { kind: "missing" };
+}
+
+function reportAmbiguousLocalTarget(
+  target: string,
+  action: "attach" | "stop" | "resume" | "jobs attach" | "jobs logs",
+  names: readonly string[],
+): void {
+  const choices = [...new Set(names)].sort();
+  process.stderr.write(
+    `[h2a] local session "${target}" is ambiguous; use an exact managed tmux name:\n` +
+      choices.map((name) => `  h2a ${action} ${name}`).join("\n") +
+      "\n",
+  );
 }
 
 async function confirmReplace(slug: string): Promise<boolean> {
@@ -4575,8 +4636,22 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           return;
         }
         const target = slug ?? slugify(process.cwd());
-        const local = findLocalSession(target);
-        const displaySlug = local?.slug ?? target;
+        const localResolution = resolveLocalSession(target);
+        if (localResolution.kind === "ambiguous") {
+          reportAmbiguousLocalTarget(
+            target,
+            "resume",
+            localResolution.sessions.map((session) => session.name),
+          );
+          process.exitCode = 1;
+          return;
+        }
+        const local =
+          localResolution.kind === "found"
+            ? localResolution.session
+            : undefined;
+        const displaySlug =
+          local?.slug ?? parseManagedSessionName(target)?.slug ?? target;
         const registryEntry = registryEntryForResumeTarget(target, local);
         const resolvedConvId =
           explicitProfile === "claude" && opts.last
@@ -6085,15 +6160,24 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         return;
       }
       // LOCAL job (P1): attach into the detached tmux session.
-      const name = job?.tmuxSession ?? localSessionName(id);
-      if (!findLocalSession(name)) {
+      const localTarget = resolveLocalSession(job?.tmuxSession ?? id);
+      if (localTarget.kind === "ambiguous") {
+        reportAmbiguousLocalTarget(
+          id,
+          "jobs attach",
+          localTarget.sessions.map((s) => s.name),
+        );
+        process.exitCode = 1;
+        return;
+      }
+      if (localTarget.kind !== "found") {
         process.stderr.write(
           `[h2a] no live tmux session for job "${id}" (it may have ended; see: h2a jobs status ${id})\n`,
         );
         process.exitCode = 1;
         return;
       }
-      process.exitCode = attachLocalSession(name);
+      process.exitCode = attachLocalSession(localTarget.session.name);
     });
 
   jobsCommand
@@ -6104,6 +6188,30 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action((id: string) => {
       const job = listJobs().find((e) => e.id === id);
       if (!job) {
+        // Match `jobs attach`: an exact local tmux name (or a unique bare slug)
+        // is still useful even when it is not a delegated-job registry id.
+        const localTarget = resolveLocalSession(id);
+        if (localTarget.kind === "ambiguous") {
+          reportAmbiguousLocalTarget(
+            id,
+            "jobs logs",
+            localTarget.sessions.map((s) => s.name),
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if (localTarget.kind === "found") {
+          const pane = capturePane(localTarget.session.name);
+          if (pane) {
+            process.stdout.write(pane);
+            return;
+          }
+          process.stderr.write(
+            `[h2a] no logs for local tmux session "${id}" (the tmux pane is gone)\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
         process.stderr.write(`[h2a] no job "${id}" (see: h2a jobs ls)\n`);
         process.exitCode = 1;
         return;
@@ -6125,8 +6233,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         process.exitCode = 1;
         return;
       }
-      const name = job.tmuxSession ?? localSessionName(id);
-      const pane = capturePane(name);
+      const localTarget = resolveLocalSession(job.tmuxSession ?? id);
+      if (localTarget.kind === "ambiguous") {
+        reportAmbiguousLocalTarget(
+          id,
+          "jobs logs",
+          localTarget.sessions.map((s) => s.name),
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const pane =
+        localTarget.kind === "found"
+          ? capturePane(localTarget.session.name)
+          : "";
       if (pane) {
         process.stdout.write(pane);
         return;
@@ -6921,10 +7041,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         process.exitCode = 1;
         return;
       }
-      // slug -> its own convId (local-tmux registry entries; slug is the id).
+      // Exact tmux session -> its own convId when available. Historical rows
+      // fall back to their slug only after planRelaunch has excluded a dual
+      // h2a-/remote- prefix collision.
+      const convByTmuxSession = new Map<string, string>();
       const convBySlug = new Map<string, string>();
       for (const e of loadRegistry()) {
-        if (e.kind === "local-tmux" && e.convId) convBySlug.set(e.id, e.convId);
+        if (e.kind !== "local-tmux" || !e.convId) continue;
+        convBySlug.set(e.id, e.convId);
+        if (e.tmuxSession) convByTmuxSession.set(e.tmuxSession, e.convId);
       }
       const sessions = listLocalSessions().filter(
         (s) => !filter || s.slug.includes(filter),
@@ -6935,8 +7060,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           name: s.name,
           profile: s.profile,
           idle: localSessionIdle(s.name),
-          ...(convBySlug.has(s.slug)
-            ? { convId: convBySlug.get(s.slug)! }
+          ...(convByTmuxSession.has(s.name)
+            ? { convId: convByTmuxSession.get(s.name)! }
+            : convBySlug.has(s.slug)
+              ? { convId: convBySlug.get(s.slug)! }
             : {}),
         })),
       );
@@ -7609,7 +7736,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         // Local tmux session? (unless an explicit URL/sessionId pair is given).
         if (second === undefined && !looksLikeUrl(first)) {
-          const local = findLocalSession(first);
+          const localTarget = resolveManagedLocalTarget(first);
+          if (localTarget.kind === "ambiguous") {
+            reportAmbiguousLocalTarget(first, "attach", localTarget.names);
+            process.exitCode = 1;
+            return;
+          }
           // A session started by `h2a run` is enrolled in the registry as
           // kind:"local-tmux". Trust that durable record even when a transient
           // `tmux list-sessions` miss hides the live session — otherwise a purely
@@ -7619,7 +7751,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // reliable. When the registry says local but tmux can't reach it,
           // attachLocalSession fails with a clear LOCAL error (never a Pod).
           const localName =
-            local?.name ?? localTmuxSessionForName(first, loadRegistry());
+            localTarget.kind === "found" ? localTarget.name : undefined;
           if (opts.local || localName) {
             if (!localName) {
               process.stderr.write(
@@ -7879,11 +8011,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         // Local tmux session? (unless an explicit URL/sessionId pair is given).
         if (second === undefined && !looksLikeUrl(first)) {
-          const local = findLocalSession(first);
-          if (local) {
-            const ok = killLocalSession(local.name);
+          const localTarget = resolveManagedLocalTarget(first);
+          if (localTarget.kind === "ambiguous") {
+            reportAmbiguousLocalTarget(first, "stop", localTarget.names);
+            process.exitCode = 1;
+            return;
+          }
+          if (localTarget.kind === "found") {
+            const ok = killLocalSession(localTarget.name);
             process.stderr.write(
-              `[h2a] local session ${local.slug} ${ok ? "killed" : "could not be killed"}\n`,
+              `[h2a] local session ${localTarget.local?.slug ?? first} ${ok ? "killed" : "could not be killed"}\n`,
             );
             if (!ok) process.exitCode = 1;
             return;

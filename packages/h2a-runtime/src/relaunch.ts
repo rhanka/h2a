@@ -29,7 +29,7 @@ export function resumeCommandFor(
 export type RelaunchCandidate = {
   /** short name, e.g. `sentropic#2` */
   slug: string;
-  /** full tmux session name, e.g. `remote-sentropic#2` */
+  /** full tmux session name, e.g. `h2a-sentropic#2` */
   name: string;
   profile: string;
   /** true when the pane is an idle shell (CLI gone) — only these are relaunched */
@@ -68,7 +68,23 @@ export function planRelaunch(
   const actions: RelaunchAction[] = [];
   const skipped: RelaunchSkip[] = [];
   const claimed = new Map<string, string>(); // convId -> slug that took it
+  const namesBySlug = new Map<string, string[]>();
+  for (const candidate of candidates) {
+    const names = namesBySlug.get(candidate.slug) ?? [];
+    names.push(candidate.name);
+    namesBySlug.set(candidate.slug, names);
+  }
   for (const c of candidates) {
+    const sameSlug = namesBySlug.get(c.slug) ?? [];
+    if (sameSlug.length > 1) {
+      skipped.push({
+        slug: c.slug,
+        reason:
+          `tmux slug is ambiguous (${sameSlug.sort().join(", ")}) — ` +
+          "relaunch each exact session manually",
+      });
+      continue;
+    }
     if (!c.idle) {
       skipped.push({ slug: c.slug, reason: "CLI is running — left alone" });
       continue;

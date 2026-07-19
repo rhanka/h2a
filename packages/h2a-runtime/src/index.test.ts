@@ -43,6 +43,9 @@ const tmuxAvailable = vi.hoisted(() => vi.fn(() => true));
 const startLocalSession = vi.hoisted(() => vi.fn());
 const attachLocalSession = vi.hoisted(() => vi.fn());
 const findLocalSession = vi.hoisted(() => vi.fn());
+const resolveLocalSession = vi.hoisted(() => vi.fn());
+const killLocalSession = vi.hoisted(() => vi.fn());
+const capturePane = vi.hoisted(() => vi.fn());
 
 vi.mock("./attach.js", () => ({
   attach,
@@ -147,6 +150,9 @@ vi.mock("./tmux.js", async (importOriginal) => {
     startLocalSession,
     attachLocalSession,
     findLocalSession,
+    killLocalSession,
+    resolveLocalSession,
+    capturePane,
   };
 });
 
@@ -201,11 +207,20 @@ describe("main", () => {
     tmuxAvailable.mockReset();
     tmuxAvailable.mockReturnValue(true);
     startLocalSession.mockReset();
-    startLocalSession.mockReturnValue({ name: "remote-proj", slug: "proj" });
+    startLocalSession.mockReturnValue({ name: "h2a-proj", slug: "proj" });
     attachLocalSession.mockReset();
     attachLocalSession.mockReturnValue(0);
+    killLocalSession.mockReset();
+    killLocalSession.mockReturnValue(true);
     findLocalSession.mockReset();
     findLocalSession.mockReturnValue(undefined);
+    resolveLocalSession.mockReset();
+    resolveLocalSession.mockImplementation((target: string) => {
+      const session = findLocalSession(target);
+      return session ? { kind: "found", session } : { kind: "missing" };
+    });
+    capturePane.mockReset();
+    capturePane.mockReturnValue("");
     readWorkspaceMarker.mockReturnValue(undefined);
     createWorkspace.mockResolvedValue({ id: "ws-new", createdAt: "now" });
     listWorkspaces.mockResolvedValue([]);
@@ -327,7 +342,7 @@ describe("main", () => {
       "remote",
       {},
     );
-    expect(attachLocalSession).toHaveBeenCalledWith("remote-proj");
+    expect(attachLocalSession).toHaveBeenCalledWith("h2a-proj");
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).not.toContain(
       "attach with: h2a attach proj",
     );
@@ -745,6 +760,165 @@ describe("main", () => {
     } finally {
       rmSync(regPath, { force: true });
     }
+  });
+
+  it("refuses a bare slug shared by canonical and legacy tmux sessions", async () => {
+    resolveLocalSession.mockReturnValue({
+      kind: "ambiguous",
+      sessions: [
+        { name: "h2a-proj", slug: "proj" },
+        { name: "remote-proj", slug: "proj" },
+      ],
+    });
+
+    const exitCode = await main(["node", "remote", "attach", "proj"]);
+
+    expect(exitCode).toBe(1);
+    expect(attachLocalSession).not.toHaveBeenCalled();
+    expect(attach).not.toHaveBeenCalled();
+    const err = stderrWrite.mock.calls.map((call) => String(call[0])).join("");
+    expect(err).toContain("h2a attach h2a-proj");
+    expect(err).toContain("h2a attach remote-proj");
+  });
+
+  it("normalizes an exact canonical name before starting a non-live resume", async () => {
+    const exitCode = await main([
+      "node",
+      "remote",
+      "resume",
+      "h2a-proj",
+      "--claude",
+      "conv-1",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(startLocalSession).toHaveBeenCalledWith(
+      "claude",
+      expect.any(String),
+      process.cwd(),
+      expect.any(Array),
+      "proj",
+    );
+  });
+
+  it("stops a registry-only local tmux session without falling through remotely", async () => {
+    getDefaultRemote.mockReturnValue("http://localhost:8080");
+    const regPath = "/tmp/registry.json";
+    writeFileSync(
+      regPath,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            id: "registry-only",
+            tool: "claude",
+            kind: "local-tmux",
+            cwd: "/repo",
+            tmuxSession: "h2a-registry-only",
+            enrolledAt: new Date().toISOString(),
+            lastSeenAt: new Date().toISOString(),
+            source: "run",
+          },
+        ],
+      }),
+      "utf8",
+    );
+    try {
+      const exitCode = await main(["node", "remote", "stop", "registry-only"]);
+
+      expect(exitCode).toBe(0);
+      expect(killLocalSession).toHaveBeenCalledWith("h2a-registry-only");
+      expect(stopRemoteSession).not.toHaveBeenCalled();
+    } finally {
+      rmSync(regPath, { force: true });
+    }
+  });
+
+  it("refuses an ambiguous local stop instead of stopping a remote session", async () => {
+    resolveLocalSession.mockReturnValue({
+      kind: "ambiguous",
+      sessions: [
+        { name: "h2a-proj", slug: "proj" },
+        { name: "remote-proj", slug: "proj" },
+      ],
+    });
+
+    const exitCode = await main(["node", "remote", "stop", "proj"]);
+
+    expect(exitCode).toBe(1);
+    expect(stopRemoteSession).not.toHaveBeenCalled();
+    const err = stderrWrite.mock.calls.map((call) => String(call[0])).join("");
+    expect(err).toContain("h2a stop h2a-proj");
+    expect(err).toContain("h2a stop remote-proj");
+  });
+
+  it("jobs attach honors the registry's exact legacy tmux session name", async () => {
+    const regPath = "/tmp/registry.json";
+    writeFileSync(
+      regPath,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            id: "job-1",
+            tool: "claude",
+            kind: "local-tmux",
+            cwd: "/repo",
+            tmuxSession: "remote-job-1",
+            enrolledAt: new Date().toISOString(),
+            lastSeenAt: new Date().toISOString(),
+            source: "run",
+            role: "job",
+            jobState: "running",
+          },
+        ],
+      }),
+      "utf8",
+    );
+    resolveLocalSession.mockReturnValue({
+      kind: "found",
+      session: { name: "remote-job-1", slug: "job-1" },
+    });
+    try {
+      const exitCode = await main(["node", "remote", "jobs", "attach", "job-1"]);
+
+      expect(exitCode).toBe(0);
+      expect(resolveLocalSession).toHaveBeenCalledWith("remote-job-1");
+      expect(attachLocalSession).toHaveBeenCalledWith("remote-job-1");
+    } finally {
+      rmSync(regPath, { force: true });
+    }
+  });
+
+  it("jobs logs accepts an exact managed tmux name without a job registry row", async () => {
+    resolveLocalSession.mockReturnValue({
+      kind: "found",
+      session: { name: "h2a-proj", slug: "proj" },
+    });
+    capturePane.mockReturnValue("pane output\n");
+
+    const exitCode = await main(["node", "remote", "jobs", "logs", "h2a-proj"]);
+
+    expect(exitCode).toBe(0);
+    expect(capturePane).toHaveBeenCalledWith("h2a-proj");
+    expect(stdoutWrite).toHaveBeenCalledWith("pane output\n");
+  });
+
+  it("jobs logs refuses a dual-prefix bare slug with exact retry choices", async () => {
+    resolveLocalSession.mockReturnValue({
+      kind: "ambiguous",
+      sessions: [
+        { name: "h2a-proj", slug: "proj" },
+        { name: "remote-proj", slug: "proj" },
+      ],
+    });
+
+    const exitCode = await main(["node", "remote", "jobs", "logs", "proj"]);
+
+    expect(exitCode).toBe(1);
+    const err = stderrWrite.mock.calls.map((call) => String(call[0])).join("");
+    expect(err).toContain("h2a jobs logs h2a-proj");
+    expect(err).toContain("h2a jobs logs remote-proj");
   });
 
   it("auth status --all reports every profile", async () => {
