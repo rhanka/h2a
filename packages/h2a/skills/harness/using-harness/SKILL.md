@@ -70,6 +70,24 @@ established tracking flow; otherwise recommend it without recording it. Never cr
 duplicate follow-up work from speculation. A handoff closes the diagnosed blocking item; it does not
 satisfy or defer any remaining explicit objective.
 
+## Rebase, never cherry-pick
+
+To move committed work between branches, rebase — never cherry-pick. Cherry-pick copies a commit under a
+new SHA, so the same change now exists twice with different identities: history diverges, a later merge or
+rebase sees "different" commits, and the duplicate resurfaces in diffs, reviews, and merge-loss checks.
+
+- To retarget a branch onto an updated base, `git rebase <base>` (or `git rebase --onto <newbase> <upstream>`
+  to replay only a specific range). The commits keep their logical identity and the branch stays linear.
+- To isolate one feature's commits from an entangled branch, `git rebase --onto origin/main <commit>~1 <branch>`
+  replays exactly that range onto the base — a rebase, not a copy.
+- `git cherry-pick` is reserved for the narrow case of applying a change to a branch that will NEVER share
+  history with the source (e.g. a backport to a frozen release line). It is not a tool for normal
+  branch-to-branch movement, and never a substitute for rebasing a feature onto a fresh base.
+
+Rationale: this is the same non-duplication discipline the branch-lifecycle event-containment gate enforces
+for `.track` — a copied commit is a second identity for one change, and every downstream tool then has to
+reconcile two things that should have been one.
+
 ## Discipline first
 
 Process skills (`harness/brainstorm`, `harness/debug`) decide HOW to approach the task — invoke them
