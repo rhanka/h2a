@@ -18,6 +18,7 @@
  */
 
 import { listLive, type LivenessOpts, type RegistryEntry } from "./registry.js";
+import { managedSessionCandidates } from "./tmux.js";
 
 export type ConvOwnerWhere = "local-tmux" | "local" | "remote";
 
@@ -53,10 +54,15 @@ export type ConvOwnersOpts = LivenessOpts & {
 function ownerFromEntry(e: RegistryEntry): ConvOwner {
   if (e.kind === "local-tmux") {
     const slug = e.label ?? e.id;
+    const candidates = managedSessionCandidates(e.id);
+    const session = e.tmuxSession ?? candidates.join(" or ");
+    const stop = e.tmuxSession
+      ? `h2a stop ${e.tmuxSession}`
+      : candidates.map((name) => `h2a stop ${name}`).join(" or ");
     return {
       where: "local-tmux",
       label: slug,
-      detail: `local tmux session ${e.tmuxSession ?? `remote-${e.id}`} (${e.tool}, cwd ${e.cwd}) — stop it first: h2a stop ${slug}`,
+      detail: `local tmux session ${session} (${e.tool}, cwd ${e.cwd}) — stop it first: ${stop}`,
     };
   }
   return {

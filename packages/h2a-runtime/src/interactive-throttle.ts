@@ -48,7 +48,7 @@ import {
  * tmux.ts (name/slug/profile) plus the bits that make staggering deterministic.
  */
 export type InteractiveSession = {
-  /** Full tmux session name (e.g. `remote-surch`) — the resume target. */
+  /** Full tmux session name (e.g. `h2a-surch`) — the resume target. */
   name: string;
   /** The delegate tool driving the pane (selects the detectThrottle signature table). */
   type: DelegateType;
