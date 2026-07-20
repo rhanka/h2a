@@ -532,6 +532,8 @@ export {
   updatePresence,
   withLease,
   withLeaseSync,
+  tryAcquireLease,
+  releaseLeaseHandle,
   withLock,
   withLockSync,
   writePresence,
@@ -618,6 +620,13 @@ export {
   type H2ALoopTrackRef,
   type H2AObjectiveLoop
 } from "./runtime/loop/index.js";
+
+export {
+  acquireLoopExecutorLease,
+  loopExecutorLockPath,
+  DEFAULT_LOOP_EXECUTOR_LEASE_MS,
+  type LoopExecutorLease
+} from "./runtime/loop/executor-lease.js";
 
 export {
   recordStop,

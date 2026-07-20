@@ -54,6 +54,8 @@ export {
 export {
   withLease,
   withLeaseSync,
+  tryAcquireLease,
+  releaseLeaseHandle,
   type LeaseHandle,
   type LeaseRecord,
   type WithLeaseOptions
