@@ -99,6 +99,16 @@ export interface H2ALoopPolicy {
   readonly idleMs: number;
   readonly maxRelaunches: number;
   readonly requireHumanTypingGuard: true;
+  /**
+   * Per-loop opt-in for durable, server-driven auto-ticking (L1). Default
+   * false: a loop is NEVER auto-ticked unless it explicitly opts in, so
+   * enabling the supervisor does not resurrect every existing loop at once
+   * (the measured blast radius the double-opus review flagged). The global
+   * kill-switch `H2A_LOOP_AUTOTICK_OFF` overrides this to off everywhere.
+   * Optional for backward-compat: loops persisted before this field are read
+   * as not-opted-in.
+   */
+  readonly autoTick?: boolean;
   readonly closeWhenRefsSatisfied: boolean;
   readonly successCriteria: "explicit-done" | "all-targets-accepted" | "all-targets-done-or-waived" | "policy-expression";
   readonly decisionGatePolicy: "all-go-or-waived" | "advisory-only";
@@ -169,6 +179,7 @@ export const H2A_DEFAULT_LOOP_POLICY: H2ALoopPolicy = {
   idleMs: 900_000,
   maxRelaunches: 3,
   requireHumanTypingGuard: true,
+  autoTick: false,
   closeWhenRefsSatisfied: false,
   successCriteria: "all-targets-accepted",
   decisionGatePolicy: "all-go-or-waived"
@@ -351,6 +362,98 @@ export function listObjectiveLoops(root: string): H2AObjectiveLoop[] {
     }
   }
   return loops.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/**
+ * Loop statuses that are terminal for AUTOMATIC wake (§7.3). This is the SINGLE
+ * source of truth: the tick engine (`engine/tick.ts`) imports this constant for
+ * its terminal / no-action gates, so the auto-tick eligibility gate below and
+ * the executor can never disagree about what "terminal" means. `blocked` is
+ * included deliberately — a blocked loop must not be woken by a tick; recovery
+ * is explicit + CLI-only.
+ */
+export const H2A_TERMINAL_LOOP_STATUSES: ReadonlySet<H2ALoopStatus> = new Set([
+  "done",
+  "failed",
+  "cancelled",
+  "stopped",
+  "blocked"
+]);
+
+/**
+ * Fail-closed allow-list: the ONLY statuses a durable executor may auto-tick.
+ * Eligibility is decided by MEMBERSHIP here, not by "not terminal" — so an
+ * unknown / future / on-disk-corrupt status (never enumerated) is NOT eligible
+ * by default. Together with {@link H2A_TERMINAL_LOOP_STATUSES} this partitions
+ * the known `H2ALoopStatus` union (7 live + 5 terminal = 12). `waiting-human` is
+ * live only as a RE-EVALUATION tick (so the loop notices the human acted); the
+ * decision engine + `requireHumanTypingGuard` — not this projection — guarantee
+ * no relaunch is issued while a human is the blocker.
+ */
+export const H2A_AUTOTICK_LIVE_STATUSES: ReadonlySet<H2ALoopStatus> = new Set([
+  "created",
+  "running",
+  "active",
+  "waiting-agent",
+  "waiting-human",
+  "stalled",
+  "degraded"
+]);
+
+/** True once a loop has reached a status terminal for automatic wake. */
+export function isLoopTerminal(loop: Pick<H2AObjectiveLoop, "status">): boolean {
+  return H2A_TERMINAL_LOOP_STATUSES.has(loop.status);
+}
+
+/**
+ * Global kill-switch for durable auto-ticking. When `H2A_LOOP_AUTOTICK_OFF` is
+ * set to any non-empty, non-"0"/"false" value, NO loop is auto-ticked anywhere,
+ * regardless of per-loop opt-in. This is the single lever to freeze the
+ * supervisor without editing any loop.
+ */
+export function autoTickGloballyDisabled(
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  const v = env["H2A_LOOP_AUTOTICK_OFF"];
+  if (v === undefined) return false;
+  const norm = v.trim().toLowerCase();
+  return norm !== "" && norm !== "0" && norm !== "false";
+}
+
+/**
+ * True when this loop is eligible for durable auto-ticking right now. Fail-closed
+ * on every axis: the loop must (1) explicitly opt in — `policy?.autoTick === true`,
+ * so a legacy/missing policy or missing field reads as not-opted-in and a shape-
+ * corrupt on-disk loop never throws here; (2) be in an explicitly LIVE status
+ * (unknown / terminal / corrupt status ⇒ not eligible); and (3) not be globally
+ * frozen by the kill-switch.
+ */
+export function isLoopAutoTickEligible(
+  loop: Pick<H2AObjectiveLoop, "status" | "policy">,
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  return (
+    loop.policy?.autoTick === true &&
+    H2A_AUTOTICK_LIVE_STATUSES.has(loop.status) &&
+    !autoTickGloballyDisabled(env)
+  );
+}
+
+/**
+ * The loops the durable supervisor may auto-tick: opted-in (`policy.autoTick`),
+ * in a LIVE status, and not globally disabled. Empty when the kill-switch is on.
+ * Never throws on a shape-corrupt store: `listObjectiveLoops` skips unparsable
+ * loop dirs, and the eligibility predicate is fail-closed on missing policy /
+ * status (so a partially-written `state.json` is simply excluded, never a crash
+ * that would hide every healthy loop). Read-only projection — acquiring the
+ * per-loop executor lease and ticking is the supervisor's job (a later lot).
+ */
+export function listAutoTickLoops(
+  root: string,
+  env: NodeJS.ProcessEnv = process.env
+): H2AObjectiveLoop[] {
+  if (autoTickGloballyDisabled(env)) return [];
+  return listObjectiveLoops(root).filter((loop) => isLoopAutoTickEligible(loop, env));
 }
 
 export function listLoopEvents(root: string, loopId: string): H2ALoopEvent[] {
