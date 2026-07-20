@@ -236,7 +236,8 @@ import {
   type H2ALoopTrackRef
 } from "./runtime/loop/index.js";
 import { runLoopWatch, runTick } from "./runtime/loop/engine/tick.js";
-import { runLoopSupervisor } from "./runtime/loop/supervisor.js";
+import { runLoopSupervisor, loopAttendance } from "./runtime/loop/supervisor.js";
+import { renderStatusHuman, type StatusHumanInput } from "./runtime/status-human.js";
 import { gatherPendingDecisions } from "./runtime/canevas/gather.js";
 import { runCanevasServe } from "./runtime/canevas/serve.js";
 import {
@@ -372,7 +373,7 @@ export function renderCliHelp(): string {
     "  h2a doctor [--root <path>] [--scan <dir>] [--prune]   (--prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
     "  h2a keepalive [--root <path>] [--interval <ms>] [--once]   (external keepalive prober — refreshes presence for agents whose tmux pane is still alive)",
     "  h2a rename --instance <id> --name <name> [--root <path>]   (set a live session's display name so peers can find it via discover --name)",
-    "  h2a status [--root <path>] [--scope <s>] [--instance <i>]",
+    "  h2a status [--human] [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a sessions [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a thread --id <threadId> --instance <self> [--root <path>]   (the ordered conversation for a thread, from your inbox+outbox)",
     "  h2a keys generate --instance <id> [--out <dir>] [--root <path>]",
@@ -4214,6 +4215,41 @@ function cmdStatus(
     }
     const indirect = sessions.filter((s) => typeof s.mirroredAt === "string");
     const direct = sessions.filter((s) => typeof s.mirroredAt !== "string");
+
+    // Opt-in human view: an ADDITIONAL read-only projection that also surfaces
+    // h2a sub-agents and objective loops with their durable-supervisor
+    // attendance. The bare (JSON) contract below is untouched and frozen.
+    if (flags.human !== undefined) {
+      const store = createLocalStore({ root });
+      const subagents: StatusHumanInput["subagents"] = store.listSubagents().map((b) => ({
+        id: b.id,
+        parentInstance: b.parentInstance,
+        status: store.subagentStatus(b.id)
+      }));
+      const loops: StatusHumanInput["loops"] = listObjectiveLoops(root).map((loop) => ({
+        id: loop.id,
+        name: loop.name,
+        status: loop.status,
+        autoTick: loop.policy?.autoTick === true,
+        attendance: loopAttendance(root, loop)
+      }));
+      const toSession = (s: (typeof sessions)[number]): StatusHumanInput["direct"][number] => ({
+        instance: s.instance,
+        ...(typeof s.name === "string" ? { name: s.name } : {}),
+        ...(typeof s.workStatus === "string" ? { workStatus: s.workStatus } : {})
+      });
+      streams.stdout.write(
+        renderStatusHuman({
+          root,
+          direct: direct.map(toSession),
+          indirect: indirect.map(toSession),
+          subagents,
+          loops
+        })
+      );
+      return 0;
+    }
+
     streams.stdout.write(
       `${JSON.stringify(
         {
