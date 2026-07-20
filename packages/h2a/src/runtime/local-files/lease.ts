@@ -267,6 +267,36 @@ export function withLeaseSync<T>(
   }
 }
 
+/**
+ * Single-shot, HELD lease acquire (no busy-wait). Returns a {@link LeaseHandle}
+ * on success or `null` if a live (non-expired) lease is currently held by
+ * someone else. Unlike {@link withLeaseSync} the lease is NOT auto-released —
+ * the caller owns it until it calls {@link releaseLeaseHandle}. This is the
+ * primitive a durable owner (e.g. the objective-loop executor) needs, where the
+ * critical section outlives a single synchronous function call.
+ *
+ * Stealing an EXPIRED lease still works (same O_EXCL + fencing-token semantics
+ * as `withLeaseSync`), so a crashed holder does not wedge the resource forever.
+ */
+export function tryAcquireLease(
+  lockPath: string,
+  options: { readonly leaseMs?: number; readonly holder?: string } = {}
+): LeaseHandle | null {
+  const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
+  const holder = options.holder ?? defaultHolder();
+  const attempt = attemptAcquire(lockPath, holder, leaseMs);
+  return attempt.ok ? attempt.handle : null;
+}
+
+/**
+ * Release a held lease acquired via {@link tryAcquireLease}. No-op if the
+ * on-disk nonce no longer matches (i.e. our lease was already stolen after we
+ * overran it) — so we never delete a newer holder's lease.
+ */
+export function releaseLeaseHandle(lockPath: string, handle: LeaseHandle): void {
+  releaseLease(lockPath, handle);
+}
+
 /** Async variant of {@link withLeaseSync}. */
 export async function withLease<T>(
   lockPath: string,
