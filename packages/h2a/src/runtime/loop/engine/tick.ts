@@ -6,7 +6,7 @@
 // human-typing guard. This file must NOT import `@sentropic/h2a-runtime`
 // (only `adapters.ts` may); `remote-facade.test.js` enforces it.
 
-import { appendLoopEvent, readObjectiveLoop } from "../index.js";
+import { appendLoopEvent, readObjectiveLoop, H2A_TERMINAL_LOOP_STATUSES } from "../index.js";
 import { planLoopTick, type TickPlan } from "./decision.js";
 import { buildActionSink, readAgents, readInbox, readPresenceSnapshot, readRefsRollup } from "./adapters.js";
 import { executePlan, type ExecReport } from "./execute.js";
@@ -19,14 +19,15 @@ export interface RunTickResult {
 // `blocked` is terminal for AUTOMATIC wake (§7.3): a blocked loop must not be
 // woken by a tick; recovery is explicit + CLI-only (`h2a loop resume … --confirm
 // -human-resume`). So `watch` stops on it and a direct tick plans no actions.
-const TERMINAL_LOOP_STATUSES = new Set(["done", "failed", "cancelled", "stopped", "blocked"]);
-
-// Statuses that short-circuit a tick to a NO-ACTION plan (never wake/launch).
-const NO_ACTION_LOOP_STATUSES = new Set(["stopped", "blocked", "done", "failed", "cancelled"]);
+// Both the terminal-for-wake gate and the NO-ACTION short-circuit derive from
+// the single source of truth `H2A_TERMINAL_LOOP_STATUSES` (../index.ts), so this
+// engine and the auto-tick eligibility gate can never disagree about terminality.
+// The constant is referenced at CALL time (not aliased at module-eval) to avoid a
+// temporal-dead-zone under the loop↔engine import cycle.
 
 function loopIsTerminal(root: string, loopId: string): boolean {
   try {
-    return TERMINAL_LOOP_STATUSES.has(readObjectiveLoop(root, loopId).status);
+    return H2A_TERMINAL_LOOP_STATUSES.has(readObjectiveLoop(root, loopId).status);
   } catch {
     return true;
   }
@@ -44,7 +45,7 @@ export async function runTick(
 ): Promise<RunTickResult> {
   const now = opts.now ?? Date.now();
   const loop = readObjectiveLoop(root, loopId); // throws if missing → shell maps to exit code
-  const plan: TickPlan = NO_ACTION_LOOP_STATUSES.has(loop.status)
+  const plan: TickPlan = H2A_TERMINAL_LOOP_STATUSES.has(loop.status)
     ? {
         loopId,
         degraded: false,
