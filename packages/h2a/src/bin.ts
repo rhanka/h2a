@@ -214,14 +214,14 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
     "canevas serve",
     runCanevasServeCli(argv, { stdout: process.stdout, stderr: process.stderr }, ac.signal)
   );
-} else if (argv[0] === "loop" && (argv[1] === "tick" || argv[1] === "watch" || argv[1] === "run")) {
-  // Objective-loop tick/watch are async (lazy runtime import + periodic loop).
-  // `watch` is long-running → wire graceful shutdown like mcp-serve so an abort
-  // stops the loop cleanly (no orphaned timer).
+} else if (argv[0] === "loop" && (argv[1] === "tick" || argv[1] === "watch" || argv[1] === "run" || argv[1] === "supervise")) {
+  // Objective-loop tick/watch/supervise are async (lazy runtime import + periodic
+  // loop). `watch`/`supervise` are long-running → wire graceful shutdown like
+  // mcp-serve so an abort stops the loop cleanly (no orphaned timer).
   const ac = new AbortController();
-  if ((argv[1] === "watch" || argv[1] === "run")) {
+  if ((argv[1] === "watch" || argv[1] === "run" || argv[1] === "supervise")) {
     const onSignal = (sig: NodeJS.Signals): void => {
-      process.stderr.write(`h2a loop watch: received ${sig}, stopping\n`);
+      process.stderr.write(`h2a loop ${argv[1]}: received ${sig}, stopping\n`);
       ac.abort();
       setTimeout(() => process.exit(process.exitCode ?? 0), 500).unref();
     };
