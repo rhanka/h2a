@@ -26,9 +26,14 @@ cp contrib/systemd/h2a-supervisor.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now h2a-supervisor
 
-# Keep it running after logout (optional)
+# 4. REQUIRED for a terminal-less supervisor: keep it running after you log out.
+#    Without linger, the user manager (and the supervisor) stop at logout.
 loginctl enable-linger "$USER"
 ```
+
+Make sure `Environment=H2A_ROOT=` in the unit points at the SAME root where your
+loops live (`h2a loop list --root <value>` should show them) — otherwise the
+supervisor watches an empty directory and silently ticks nothing.
 
 ## Operate
 
@@ -37,8 +42,14 @@ systemctl --user status h2a-supervisor      # health
 journalctl --user -u h2a-supervisor -f      # per-beat summaries (JSON lines)
 systemctl --user stop h2a-supervisor        # stop (SIGTERM → graceful abort)
 
-# Freeze ticking without stopping the service:
-systemctl --user set-environment H2A_LOOP_AUTOTICK_OFF=1   # (or edit the unit)
+# Freeze ticking. The kill-switch is read from the supervisor process's
+# environment, which is fixed at start — so it takes effect on (re)start, not on
+# a running process. Set it and restart:
+systemctl --user set-environment H2A_LOOP_AUTOTICK_OFF=1
+systemctl --user restart h2a-supervisor
+# (Persist it by adding `Environment=H2A_LOOP_AUTOTICK_OFF=1` to the unit +
+# `systemctl --user daemon-reload && systemctl --user restart h2a-supervisor`.)
+# To fully stop instead: `systemctl --user stop h2a-supervisor`.
 ```
 
 ## Opt a loop in

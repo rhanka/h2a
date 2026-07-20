@@ -12,9 +12,12 @@ Type=simple
 # `command -v h2a`). ExecStart uses `loop supervise`, which reads all loops under
 # the h2a root and ticks the opted-in ones each beat.
 ExecStart=h2a loop supervise
-# The h2a root. Defaults to H2A_ROOT / cwd resolution; set it explicitly so the
-# service does not depend on a working directory. Adjust to your root.
-Environment=H2A_ROOT=%h/.h2a
+# The h2a root. This MUST match the root where your loops actually live, or the
+# supervisor watches an empty directory and silently ticks nothing. The value
+# below is h2a's own default root (used when H2A_ROOT is unset). If you create
+# loops with a different --root or H2A_ROOT, set the SAME value here. Confirm with
+# `h2a loop list --root <value>`.
+Environment=H2A_ROOT=%h/h2a-workspace/.h2a
 # Global kill-switch: uncomment to freeze auto-ticking without disabling the
 # unit. Any non-empty, non-0/false value freezes every beat.
 # Environment=H2A_LOOP_AUTOTICK_OFF=1
