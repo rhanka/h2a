@@ -460,10 +460,20 @@ export function listLoopEvents(root: string, loopId: string): H2ALoopEvent[] {
   readObjectiveLoop(root, loopId);
   const file = eventsFile(root, loopId);
   if (!existsSync(file)) return [];
+  // Fail-closed on a torn line: the event journal is a raw append log, and on a
+  // shared (RWX/cross-pod) store a concurrent append can interleave a partial
+  // line. One unparseable line must NOT throw out of every reader (which would
+  // break the relaunch throttle and attendance); skip it instead.
   return readFileSync(file, "utf8")
     .split("\n")
     .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as H2ALoopEvent);
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line) as H2ALoopEvent];
+      } catch {
+        return [];
+      }
+    });
 }
 
 /**
