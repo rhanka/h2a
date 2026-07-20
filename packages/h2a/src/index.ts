@@ -610,6 +610,7 @@ export {
   isLoopTerminal,
   autoTickGloballyDisabled,
   H2A_TERMINAL_LOOP_STATUSES,
+  H2A_AUTOTICK_LIVE_STATUSES,
   readObjectiveLoop,
   reportObjectiveLoop,
   stopObjectiveLoop,
