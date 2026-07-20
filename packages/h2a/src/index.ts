@@ -650,6 +650,14 @@ export {
 } from "./runtime/loop/supervisor.js";
 
 export {
+  renderStatusHuman,
+  type StatusHumanInput,
+  type StatusHumanSession,
+  type StatusHumanSubagent,
+  type StatusHumanLoop
+} from "./runtime/status-human.js";
+
+export {
   recordStop,
   readDrumbeatEntry,
   listDrumbeat,
