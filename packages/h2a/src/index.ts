@@ -635,6 +635,21 @@ export {
 } from "./runtime/loop/executor-lease.js";
 
 export {
+  runLoopSupervisor,
+  runSupervisorBeat,
+  loopAttendance,
+  stampExecutorHeartbeat,
+  readExecutorHeartbeat,
+  loopExecutorHeartbeatPath,
+  DEFAULT_SUPERVISOR_INTERVAL_MS,
+  DEFAULT_UNATTENDED_TICKS,
+  type LoopAttendance,
+  type LoopSupervisorOptions,
+  type SupervisorBeatSummary,
+  type ExecutorHeartbeat
+} from "./runtime/loop/supervisor.js";
+
+export {
   recordStop,
   readDrumbeatEntry,
   listDrumbeat,

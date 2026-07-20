@@ -236,6 +236,7 @@ import {
   type H2ALoopTrackRef
 } from "./runtime/loop/index.js";
 import { runLoopWatch, runTick } from "./runtime/loop/engine/tick.js";
+import { runLoopSupervisor } from "./runtime/loop/supervisor.js";
 import { gatherPendingDecisions } from "./runtime/canevas/gather.js";
 import { runCanevasServe } from "./runtime/canevas/serve.js";
 import {
@@ -400,6 +401,7 @@ export function renderCliHelp(): string {
     "  h2a loop agents <loopId> [--root <path>]",
     "  h2a loop attach <loopId> --agent <selector> [--root <path>]",
     "  h2a loop logs <loopId> [--agent <selector>] [--root <path>]",
+    "  h2a loop supervise [--interval-ms <n>] [--root <path>]",
     "",
     "Track AI adapters (leaf commands; never call Track report/snapshot):",
     "  h2a report-context --workspace-root <absolute-path> [--root <h2a-store>]",
@@ -2264,7 +2266,7 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
     return classifyStoreError((error as Error).message);
   }
 
-  streams.stderr.write("h2a loop: subcommand required (create, join, report, done, stop, list, status, agents, attach, logs, tick, watch/run)\n");
+  streams.stderr.write("h2a loop: subcommand required (create, join, report, done, stop, list, status, agents, attach, logs, tick, watch/run, supervise)\n");
   return 1;
 }
 
@@ -2284,6 +2286,29 @@ export async function runLoopEngineCli(
   const { flags } = parseFlags(argv);
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
+
+  // `supervise` is root-wide (all opted-in loops) — it takes NO loopId, so it is
+  // handled before the per-loop guard below. This is the durable supervisor the
+  // systemd --user unit runs; it ticks each auto-tick loop under its executor
+  // lease every beat. Opt-in + kill-switch (H2A_LOOP_AUTOTICK_OFF) gate it.
+  if (sub === "supervise") {
+    const intervalMs = flags["interval-ms"] ? Number(flags["interval-ms"]) : undefined;
+    const max = flags.max ? Number(flags.max) : undefined;
+    try {
+      await runLoopSupervisor(root, {
+        ...(intervalMs !== undefined && Number.isFinite(intervalMs) ? { intervalMs } : {}),
+        ...(max !== undefined && Number.isFinite(max) ? { max } : {}),
+        ...(signal ? { signal } : {}),
+        onBeat: (s) => {
+          streams.stdout.write(`${JSON.stringify(s)}\n`);
+        }
+      });
+      return 0;
+    } catch (error) {
+      streams.stderr.write(`h2a loop supervise: ${(error as Error).message}\n`);
+      return classifyStoreError((error as Error).message);
+    }
+  }
 
   if (!loopId || loopId.startsWith("--")) {
     streams.stderr.write(`h2a loop ${sub}: <loopId> is required\n`);
