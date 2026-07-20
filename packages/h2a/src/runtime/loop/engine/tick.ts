@@ -41,7 +41,7 @@ function loopIsTerminal(root: string, loopId: string): boolean {
 export async function runTick(
   root: string,
   loopId: string,
-  opts: { now?: number; execute?: boolean } = {},
+  opts: { now?: number; execute?: boolean; signal?: AbortSignal } = {},
 ): Promise<RunTickResult> {
   const now = opts.now ?? Date.now();
   const loop = readObjectiveLoop(root, loopId); // throws if missing → shell maps to exit code
@@ -76,7 +76,9 @@ export async function runTick(
   });
 
   if (!opts.execute) return { plan };
-  const exec = await executePlan(root, loopId, plan, buildActionSink(), now);
+  const exec = await executePlan(root, loopId, plan, buildActionSink(), now, {
+    ...(opts.signal ? { signal: opts.signal } : {})
+  });
   return { plan, exec };
 }
 

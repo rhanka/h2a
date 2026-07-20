@@ -48,6 +48,12 @@ test("RÈGLE D'OR loop: decision.ts/tick.ts sans import runtime ; seul adapters.
   const adapters = readFileSync(join(engineDir, "adapters.ts"), "utf8");
   assert.match(adapters, /@sentropic\/h2a-runtime/, "adapters.ts est le seul point de contact runtime");
   assert.match(adapters, /await import\(RUNTIME_PKG\)/, "adapters.ts charge le runtime en LAZY (specifier variable)");
+
+  // The durable supervisor is a NEW entry into the engine — it must stay clean of
+  // the heavy runtime too, or the published light @sentropic/h2a package breaks.
+  const supervisor = readFileSync(join(ROOT, "packages/h2a/src/runtime/loop/supervisor.ts"), "utf8");
+  assert.doesNotMatch(supervisor, staticImport, "supervisor.ts: aucun import statique du runtime");
+  assert.doesNotMatch(supervisor, dynamicLiteral, "supervisor.ts: aucun import dynamique littéral du runtime");
 });
 
 test("RÈGLE D'OR canevas ③: seul canevas/adapter.ts touche le runtime (lazy)", () => {

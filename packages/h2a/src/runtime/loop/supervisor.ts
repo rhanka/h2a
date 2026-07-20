@@ -11,15 +11,28 @@
  * Safety, per the double-opus B′ consensus (tmp/L1-decision-reconciled.md):
  *  - OPT-IN ONLY: `listAutoTickLoops` already filters to opted-in, LIVE loops;
  *    a global kill-switch (`H2A_LOOP_AUTOTICK_OFF`) freezes every beat.
- *  - SINGLE-WRITER: a loop is ticked only while its per-loop lease is held, so
- *    the dozen `mcp-serve` processes on a host cannot double-tick a loop.
- *  - FAIL-CLOSED ISOLATION: one loop throwing never aborts the beat or the
- *    supervisor; that loop simply goes un-ticked this beat and its heartbeat
- *    goes stale, which the read-side `loopAttendance` surfaces as `unattended`.
+ *  - SINGLE-WRITER (bounded): a loop is ticked only while its per-loop lease is
+ *    held, AND each tick is bounded by a lease-safety timeout that is a fraction
+ *    of the lease TTL — so a cooperative tick always completes and releases
+ *    BEFORE its lease could become stealable, and the dozen `mcp-serve`
+ *    processes on a host cannot double-tick it. A pathological tick that overruns
+ *    the timeout is ABORTED (fail-closed): the engine stops firing new
+ *    non-idempotent actions and the beat moves on. Residual limits (a single
+ *    in-flight action cannot be un-fired, and the underlying lease-release has a
+ *    known TOCTOU on overrun) are tracked follow-ups — full effect-fencing
+ *    (thread the fencing token into the sink + re-check before each action, and
+ *    make adapters cancellable) is deferred, safe under the opt-in-off default.
+ *  - FAIL-CLOSED ISOLATION: one loop throwing or timing out never aborts the
+ *    beat or the supervisor; that loop simply goes un-ticked this beat and its
+ *    heartbeat goes stale, which `loopAttendance` surfaces as `unattended`.
  *  - HONEST ATTENDANCE: each successful tick stamps an executor heartbeat;
  *    `loopAttendance` is a pure read-side predicate ANY reader (status/doctor)
  *    can evaluate — an opted-in loop with no fresh heartbeat reads `unattended`
- *    (fail-closed: missing/stale ⇒ unattended), so a down supervisor is visible.
+ *    (fail-closed: missing / stale / implausibly-future ⇒ unattended), so a down
+ *    supervisor is visible even under clock skew.
+ *  - DRAINABLE: `signal` is honored BETWEEN loops within a beat and threaded
+ *    into the tick, so a SIGTERM stops launching new work promptly instead of
+ *    draining every remaining eligible loop first.
  *
  * Golden rule: this module must NOT statically import `@sentropic/h2a-runtime`.
  * It imports only the loop store, the executor lease, and the engine tick (which
@@ -28,6 +41,7 @@
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 
 import { localStorePaths, safePathSegment } from "../local-files/paths.js";
@@ -44,6 +58,22 @@ import { runTick } from "./engine/tick.js";
 export const DEFAULT_SUPERVISOR_INTERVAL_MS = 30000;
 
 /**
+ * Executor-lease TTL the supervisor acquires with — deliberately LARGER than the
+ * per-loop-lease default (30s) so a normal tick (which may boot an agent) fits
+ * comfortably inside it. The lease-safety timeout below is a fraction of this, so
+ * a cooperative tick always releases before the lease could be stolen.
+ */
+export const DEFAULT_SUPERVISOR_LEASE_MS = 120000;
+
+/**
+ * Fraction of the executor lease after which an in-flight tick is aborted
+ * (fail-closed). 0.5 leaves a full half-TTL of margin between "we gave up on this
+ * tick and released" and "the lease becomes stealable", so a cooperative tick can
+ * never overlap a successor executor.
+ */
+export const TICK_TIMEOUT_FRACTION = 0.5;
+
+/**
  * How many of a loop's own `tickMs` may elapse with no executor heartbeat before
  * an opted-in loop is judged `unattended`. K=3 tolerates a couple of missed
  * beats (a busy host, a lease held by a slow peer) before raising the flag.
@@ -52,6 +82,11 @@ export const DEFAULT_UNATTENDED_TICKS = 3;
 
 /** Fallback per-loop cadence when a loop's policy carries no `tickMs`. */
 const FALLBACK_TICK_MS = 60000;
+
+/** Default heartbeat/lease holder label — host + pid, so racing writers differ. */
+function defaultHolder(): string {
+  return `${hostname()}:${process.pid}`;
+}
 
 /** Executor heartbeat: proof that SOME live executor ticked this loop, and when. */
 export interface ExecutorHeartbeat {
@@ -138,7 +173,13 @@ export function loopAttendance(
   const at = Date.parse(hb.at);
   if (Number.isNaN(at)) return "unattended";
   const tickMs = loop.policy?.tickMs && loop.policy.tickMs > 0 ? loop.policy.tickMs : FALLBACK_TICK_MS;
-  return now - at > k * tickMs ? "unattended" : "attended";
+  const age = now - at;
+  // Fail-closed on an implausibly FUTURE heartbeat: a beat stamped by a skewed
+  // or lying holder (`at` far ahead of the reader's clock) must NOT read
+  // `attended` forever. One tick of skew tolerance, then unattended.
+  if (age < -tickMs) return "unattended";
+  // Fail-closed on staleness.
+  return age > k * tickMs ? "unattended" : "attended";
 }
 
 /** What one supervisor beat did — for observability / tests, never for control. */
@@ -164,15 +205,21 @@ export interface LoopSupervisorOptions {
   readonly now?: () => number;
   /** Environment for the kill-switch / eligibility. Default `process.env`. */
   readonly env?: NodeJS.ProcessEnv;
-  /** Holder label for the lease + heartbeat. Default host:pid via the lease. */
+  /** Holder label for the lease + heartbeat. Default host:pid. */
   readonly holder?: string;
-  /** Executor lease duration. Default the lease module's own default. */
+  /** Executor lease duration. Default {@link DEFAULT_SUPERVISOR_LEASE_MS}. */
   readonly leaseMs?: number;
+  /**
+   * Per-tick lease-safety timeout. A tick still running after this is aborted
+   * (fail-closed). Default `TICK_TIMEOUT_FRACTION × leaseMs` — always < leaseMs,
+   * so a cooperative tick releases before its lease could be stolen.
+   */
+  readonly tickTimeoutMs?: number;
   /** Injectable tick fn (testing). Default the real engine `runTick`. */
   readonly runTickFn?: (
     root: string,
     loopId: string,
-    opts: { execute?: boolean }
+    opts: { execute?: boolean; signal?: AbortSignal }
   ) => Promise<unknown>;
   /** Called after each beat with its summary. */
   readonly onBeat?: (summary: SupervisorBeatSummary) => void | Promise<void>;
@@ -205,6 +252,9 @@ export async function runSupervisorBeat(
   const env = options.env ?? process.env;
   const nowFn = options.now ?? ((): number => Date.now());
   const tick = options.runTickFn ?? runTick;
+  const holder = options.holder ?? defaultHolder();
+  const leaseMs = options.leaseMs ?? DEFAULT_SUPERVISOR_LEASE_MS;
+  const tickTimeoutMs = options.tickTimeoutMs ?? Math.floor(leaseMs * TICK_TIMEOUT_FRACTION);
 
   const ticked: string[] = [];
   const skippedLocked: string[] = [];
@@ -212,33 +262,63 @@ export async function runSupervisorBeat(
 
   // Kill-switch: freeze the entire beat, tick nothing. Checked here AND inside
   // listAutoTickLoops (redundant-but-safe) so a race that flips the switch
-  // mid-beat still yields an empty set.
+  // BEFORE the list call yields an empty set either way.
   if (autoTickGloballyDisabled(env)) {
     return { ticked, skippedLocked, errored, frozen: true };
   }
 
   for (const loop of listAutoTickLoops(root, env)) {
-    const lease = acquireLoopExecutorLease(root, loop.id, {
-      ...(options.leaseMs !== undefined ? { leaseMs: options.leaseMs } : {}),
-      ...(options.holder !== undefined ? { holder: options.holder } : {})
-    });
+    // DRAIN: honor a shutdown signal BETWEEN loops so SIGTERM stops launching new
+    // work promptly instead of ticking every remaining eligible loop first.
+    if (options.signal?.aborted) break;
+
+    const lease = acquireLoopExecutorLease(root, loop.id, { leaseMs, holder });
     if (!lease) {
       skippedLocked.push(loop.id);
       continue;
     }
+
+    // Bound the tick: abort it once tickTimeoutMs elapses (fail-closed) OR the
+    // supervisor is shutting down. The engine stops firing new actions on abort.
+    const tickAc = new AbortController();
+    const onOuterAbort = (): void => tickAc.abort();
+    options.signal?.addEventListener("abort", onOuterAbort, { once: true });
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      tickAc.abort();
+    }, tickTimeoutMs);
+
     try {
-      await tick(root, loop.id, { execute: true });
-      stampExecutorHeartbeat(root, loop.id, {
-        holder: options.holder ?? "supervisor",
-        fencingToken: lease.token,
-        at: nowFn()
-      });
-      ticked.push(loop.id);
+      // Race the tick against its own abort so a hung tick never wedges the beat:
+      // if it overruns / is cancelled, we stop waiting, mark it errored (no
+      // heartbeat → the loop reads `unattended`), and move on.
+      await Promise.race([
+        tick(root, loop.id, { execute: true, signal: tickAc.signal }),
+        new Promise<void>((resolve) => {
+          tickAc.signal.addEventListener("abort", () => resolve(), { once: true });
+        })
+      ]);
+      if (tickAc.signal.aborted) {
+        errored.push({
+          loopId: loop.id,
+          error: timedOut ? `tick exceeded ${tickTimeoutMs}ms lease-safety timeout` : "aborted"
+        });
+      } else {
+        stampExecutorHeartbeat(root, loop.id, {
+          holder,
+          fencingToken: lease.token,
+          at: nowFn()
+        });
+        ticked.push(loop.id);
+      }
     } catch (err) {
       // FAIL-CLOSED ISOLATION: this loop is simply not attended this beat; its
       // heartbeat stays stale → surfaced as `unattended`. The beat continues.
       errored.push({ loopId: loop.id, error: err instanceof Error ? err.message : String(err) });
     } finally {
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onOuterAbort);
       lease.release();
     }
   }

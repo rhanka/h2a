@@ -77,7 +77,8 @@ export async function executePlan(
   loopId: string,
   plan: TickPlan,
   sink: ActionSink,
-  now: number
+  now: number,
+  opts: { readonly signal?: AbortSignal } = {}
 ): Promise<ExecReport> {
   const ctx: ActionContext = { root, loopId, now };
   const results: ActionResult[] = [];
@@ -88,6 +89,12 @@ export async function executePlan(
   const legacyDegradedWithoutSources = plan.degraded && plan.degradedSources === undefined;
   const actions = refsDegraded || legacyDegradedWithoutSources ? [] : plan.actions;
   for (const a of actions) {
+    // FENCE: stop firing non-idempotent actions once aborted (a supervisor's
+    // per-tick lease-safety timeout, or a shutdown signal). Actions already
+    // dispatched cannot be un-fired, but no NEW launch/wake/close runs after the
+    // abort — so a tick that overran its executor lease stops writing here rather
+    // than racing a successor executor.
+    if (opts.signal?.aborted) break;
     let effect: ActionEffectResult;
     switch (a.type) {
       case "close":
