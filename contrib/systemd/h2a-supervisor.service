@@ -1,0 +1,28 @@
+[Unit]
+Description=h2a durable objective-loop supervisor
+Documentation=https://github.com/rhanka/h2a
+# Ticks every opted-in (policy.autoTick) objective loop under its per-loop
+# executor lease, so loops auto-relaunch server-side the way /loop does on Claude.
+After=default.target
+
+[Service]
+Type=simple
+# `h2a` must resolve on the user service PATH. If your npm global bin is not on
+# it, replace with the absolute path (e.g. %h/.local/bin/h2a or the output of
+# `command -v h2a`). ExecStart uses `loop supervise`, which reads all loops under
+# the h2a root and ticks the opted-in ones each beat.
+ExecStart=h2a loop supervise
+# The h2a root. Defaults to H2A_ROOT / cwd resolution; set it explicitly so the
+# service does not depend on a working directory. Adjust to your root.
+Environment=H2A_ROOT=%h/.h2a
+# Global kill-switch: uncomment to freeze auto-ticking without disabling the
+# unit. Any non-empty, non-0/false value freezes every beat.
+# Environment=H2A_LOOP_AUTOTICK_OFF=1
+Restart=always
+RestartSec=5
+# The supervisor is single-writer-safe (per-loop lease), so a brief overlap
+# across a restart cannot double-tick a loop.
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target
