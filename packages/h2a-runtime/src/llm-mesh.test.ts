@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  LlmMeshManager,
   acquireLlmMeshSessionEnv,
   gatewayScriptPath,
   llmMeshSeedPath,
@@ -59,7 +60,7 @@ describe("gateway runtime path", () => {
       localGatewaySessionProvider([
         { ...account, provider: "google" },
       ]),
-    ).toBeUndefined();
+    ).toBe("google");
     expect(
       localGatewaySessionProvider([
         { ...account, provider: "anthropic" },
@@ -71,6 +72,20 @@ describe("gateway runtime path", () => {
         { ...account, id: "codex", provider: "openai" },
       ]),
     ).toBe("codex");
+
+    expect(
+      localGatewaySessionProvider([
+        { ...account, id: "google-acc", provider: "google" },
+        { ...account, provider: "anthropic" },
+      ]),
+    ).toBe("google");
+
+    expect(
+      localGatewaySessionProvider([
+        { ...account, id: "google-acc", provider: "google" },
+        { ...account, provider: "anthropic" },
+      ]),
+    ).toBe("google");
   });
 });
 
@@ -206,8 +221,8 @@ describe("Google OAuth refresh", () => {
       token: "opaque-expired-google-token",
       expiresAt: "2020-01-01T00:00:00.000Z",
     };
-
-    await expect(refreshAccountToken(account)).resolves.toBe(account);
+    
+    await expect(refreshAccountToken(account, SCRATCH)).resolves.toEqual(account);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -250,6 +265,28 @@ describe("acquireLlmMeshSessionEnv", () => {
       baseUrl: "http://localhost:3002",
       pid: process.pid,
       provider: "codex",
+    });
+  });
+
+  describe("LlmMeshManager capitalized API", () => {
+    it("provides clean capitalized methods for config and account operations", () => {
+      const manager = new LlmMeshManager();
+
+      expect(manager.GetActiveConfig(SCRATCH)).toBeNull();
+
+      const testConfig = {
+        accounts: [
+          {
+            id: "test-google",
+            provider: "google" as const,
+            label: "Test Google",
+            token: "test-token",
+          },
+        ],
+      };
+
+      manager.SaveConfig(testConfig, SCRATCH);
+      expect(manager.GetActiveConfig(SCRATCH)).toEqual(testConfig);
     });
   });
 });

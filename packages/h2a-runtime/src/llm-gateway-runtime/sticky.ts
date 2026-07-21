@@ -460,19 +460,12 @@ export async function rebindGatewaySession(
   ) {
     throw new Error("cached and persisted session transport claims conflict");
   }
+  const targetTransport = upstreamTransportForAccount(account);
   const requiredTransport =
-    persistedBinding?.requiredTransport ?? cached?.requiredTransport;
-  if (cached?.requiredTransport && !persistedBinding) {
-    throw new Error("constrained session binding is missing");
-  }
-  if (
-    requiredTransport &&
-    upstreamTransportForAccount(account) !== requiredTransport
-  ) {
-    throw new Error(
-      `quota fallback account ${account.id} does not satisfy ${requiredTransport} transport`,
-    );
-  }
+    targetTransport !== "unknown"
+      ? targetTransport
+      : (persistedBinding?.requiredTransport ?? cached?.requiredTransport);
+
   await compareAndSetStickyBinding(
     sessionId,
     account.id,
@@ -582,7 +575,7 @@ async function acquireSessionUnlocked(
   const snapshot = await readStickySnapshot();
   const existing = snapshot.data;
   const rawBinding = existing[sessionId];
-  const persistedBinding =
+  let persistedBinding =
     rawBinding === undefined ? undefined : decodeStickyBinding(rawBinding);
   if (rawBinding !== undefined && !persistedBinding) {
     throw new Error("invalid persisted session binding");
@@ -596,6 +589,12 @@ async function acquireSessionUnlocked(
           : {}),
       }
     : undefined;
+  if (persistedBinding?.accountId && route) {
+    const boundAcc = findAccount(persistedBinding.accountId);
+    if (!boundAcc || !accountSupportsRoute(boundAcc, route)) {
+      persistedBinding = undefined;
+    }
+  }
   if (
     persistedBinding &&
     cachedBinding?.requiredTransport &&
@@ -603,13 +602,6 @@ async function acquireSessionUnlocked(
     cachedBinding.requiredTransport !== persistedBinding.requiredTransport
   ) {
     throw new Error("cached and persisted session transport claims conflict");
-  }
-  if (
-    persistedBinding &&
-    cachedBinding?.requiredTransport &&
-    persistedBinding.accountId !== cachedBinding.accountId
-  ) {
-    throw new Error("cached and persisted constrained session bindings conflict");
   }
   const binding: StickyBinding | undefined = persistedBinding
     ? {

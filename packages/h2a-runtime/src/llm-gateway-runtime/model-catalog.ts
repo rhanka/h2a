@@ -4,7 +4,7 @@ export type RoutingPolicy = "round-robin";
 
 export interface ModelCatalogEntry {
   id: string;
-  provider: "anthropic" | "codex";
+  provider: "anthropic" | "codex" | "google";
   upstreamModel: string;
   accountPool: AccountPool;
   inputProtocol: GatewayProtocol;
@@ -29,6 +29,7 @@ export interface RoutingTarget {
 }
 
 const CODEX_CAPABILITIES = ["streaming", "tools", "reasoning_effort"] as const;
+const GOOGLE_CAPABILITIES = ["streaming", "tools"] as const;
 
 const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
   {
@@ -40,7 +41,7 @@ const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
     outputProtocol: "anthropic.messages",
     capabilities: [...CODEX_CAPABILITIES],
     defaultPolicy: "round-robin",
-    aliases: ["claude-opus-4-8"],
+    aliases: [],
   },
   {
     id: "gpt-5.6-sol",
@@ -90,6 +91,40 @@ const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
     capabilities: [...CODEX_CAPABILITIES],
     defaultPolicy: "round-robin",
   },
+  // ── Google / Gemini models ──
+  {
+    id: "gemini-3.5-flash",
+    provider: "google",
+    upstreamModel: "gemini-2.5-flash",
+    accountPool: "google",
+    inputProtocol: "anthropic.messages",
+    outputProtocol: "anthropic.messages",
+    capabilities: [...GOOGLE_CAPABILITIES],
+    defaultPolicy: "round-robin",
+    aliases: ["gemini-3.5-high", "gemini-flash", "claude-sonnet-5", "claude-sonnet-5-high"],
+  },
+  {
+    id: "gemini-3.1-pro",
+    provider: "google",
+    upstreamModel: "gemini-2.5-pro",
+    accountPool: "google",
+    inputProtocol: "anthropic.messages",
+    outputProtocol: "anthropic.messages",
+    capabilities: [...GOOGLE_CAPABILITIES],
+    defaultPolicy: "round-robin",
+    aliases: ["gemini-3.1-pro-high", "gemini-pro-high", "gemini-pro", "claude-opus-4-8", "claude-opus-4-8-xhigh"],
+  },
+  {
+    id: "gemini-2.5-pro",
+    provider: "google",
+    upstreamModel: "gemini-2.5-pro",
+    accountPool: "google",
+    inputProtocol: "anthropic.messages",
+    outputProtocol: "anthropic.messages",
+    capabilities: [...GOOGLE_CAPABILITIES],
+    defaultPolicy: "round-robin",
+    aliases: [],
+  },
 ];
 
 let _catalog: ModelCatalogEntry[] | null = null;
@@ -109,16 +144,21 @@ function parseEnvModelMap(): Record<string, string> {
 }
 
 function envCatalogEntries(): ModelCatalogEntry[] {
-  return Object.entries(parseEnvModelMap()).map(([id, upstreamModel]) => ({
-    id,
-    provider: "codex" as const,
-    upstreamModel,
-    accountPool: "codex" as const,
-    inputProtocol: "anthropic.messages" as const,
-    outputProtocol: "anthropic.messages" as const,
-    capabilities: [...CODEX_CAPABILITIES],
-    defaultPolicy: "round-robin" as const,
-  }));
+  return Object.entries(parseEnvModelMap()).map(([id, upstreamModel]) => {
+    const isGoogle = upstreamModel.toLowerCase().includes("gemini");
+    const isAnthropic = upstreamModel.toLowerCase().includes("claude");
+    
+    return {
+      id,
+      provider: isGoogle ? "google" : (isAnthropic ? "anthropic" : "codex"),
+      upstreamModel,
+      accountPool: isGoogle ? "google" : (isAnthropic ? "anthropic" : "codex"),
+      inputProtocol: "anthropic.messages",
+      outputProtocol: "anthropic.messages",
+      capabilities: isGoogle ? [...GOOGLE_CAPABILITIES] : [...CODEX_CAPABILITIES],
+      defaultPolicy: "round-robin",
+    };
+  });
 }
 
 export function listModelCatalog(): ModelCatalogEntry[] {
@@ -165,11 +205,13 @@ export function resolveModelRoute(model: string): RoutingTarget | undefined {
   const envMap = parseEnvModelMap();
   const envUpstream = envMap[model];
   if (envUpstream) {
+    const isGoogle = envUpstream.toLowerCase().includes("gemini") || envUpstream.toLowerCase().includes("google");
+    const isAnthropic = envUpstream.toLowerCase().includes("claude");
     return {
       requestedModel: model,
       catalogModelId: model,
       upstreamModel: envUpstream,
-      accountPool: "codex",
+      accountPool: isGoogle ? "google" : (isAnthropic ? "anthropic" : "codex"),
       routingPolicy: "round-robin",
       routeReason: "env-model-map",
     };
@@ -220,14 +262,36 @@ export function routeModelOrThrow(model: string): RoutingTarget {
 
 export function modelCatalogResponse(entries = listModelCatalog()): {
   object: "list";
-  data: Array<ModelCatalogEntry & { object: "model"; owned_by: string }>;
+  data: Array<Record<string, unknown> & { id: string; object: "model"; owned_by: string }>;
 } {
-  return {
-    object: "list",
-    data: entries.map((entry) => ({
+  const modelMap = new Map<
+    string,
+    Record<string, unknown> & { id: string; object: "model"; owned_by: string }
+  >();
+
+  for (const entry of entries) {
+    modelMap.set(entry.id, {
       ...entry,
+      id: entry.id,
       object: "model" as const,
       owned_by: entry.provider,
-    })),
+    });
+    if (entry.aliases) {
+      for (const alias of entry.aliases) {
+        if (!modelMap.has(alias)) {
+          modelMap.set(alias, {
+            ...entry,
+            id: alias,
+            object: "model" as const,
+            owned_by: entry.provider,
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    object: "list",
+    data: Array.from(modelMap.values()),
   };
 }
