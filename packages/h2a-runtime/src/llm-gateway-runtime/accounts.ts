@@ -331,9 +331,15 @@ export function selectFallbackAccount(
     return samePoolAnyTransport[0];
   }
 
-  // 3. Cross-pool candidates (any active account)
-  const crossPool = accounts.filter(isActive);
-  return crossPool[0];
+  // 3. Cross-pool fallback disabled when a route is specified — returning
+  //    an account from an incompatible pool would send the wrong model
+  //    name to the upstream (e.g. "gemini-3.1-pro" to Codex → 400).
+  //    When no route is specified (generic fallback), allow cross-pool.
+  if (!options.route) {
+    const crossPool = accounts.filter(isActive);
+    return crossPool[0];
+  }
+  return undefined;
 }
 
 /** Update the in-memory token for an account (after OAuth refresh). */

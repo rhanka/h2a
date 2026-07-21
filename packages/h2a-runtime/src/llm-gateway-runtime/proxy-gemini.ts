@@ -365,7 +365,7 @@ export async function handleMessagesViaGemini(
   // Cross-pool fallback: if the upstream model targets Codex (gpt-*), use the
   // default Gemini model instead. This happens when a Codex 429 triggers a
   // rebind to the Google pool.
-  const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+  const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
   const geminiModel =
     route.accountPool !== "google" ? DEFAULT_GEMINI_MODEL : route.upstreamModel;
 
