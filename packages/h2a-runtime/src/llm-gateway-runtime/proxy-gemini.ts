@@ -1,6 +1,106 @@
 import type { Context } from "hono";
+import { randomUUID } from "node:crypto";
 import { recordSessionRequest } from "./session-ledger.js";
 import { routeModelOrThrow } from "./model-catalog.js";
+import { refreshOAuthToken } from "./accounts.js";
+
+const projectCache = new Map<string, string>();
+async function fetchCodeAssistProject(token: string, accountId?: string): Promise<string> {
+  const cached = projectCache.get(token);
+  if (cached) return cached;
+  let attempts = 0;
+  let currentToken = token;
+  while (attempts < 2) {
+    try {
+      const res = await fetch("https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          metadata: { ideType: "IDE_UNSPECIFIED", platform: "PLATFORM_UNSPECIFIED", pluginType: "GEMINI" },
+        }),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { cloudaicompanionProject?: string };
+        if (data.cloudaicompanionProject) {
+          projectCache.set(token, data.cloudaicompanionProject);
+          return data.cloudaicompanionProject;
+        }
+        break;
+      } else if (res.status === 401 || res.status === 403) {
+        if (attempts === 0 && accountId) {
+          const newToken = await refreshOAuthToken(accountId);
+          if (newToken) {
+            currentToken = newToken;
+            attempts++;
+            continue;
+          }
+        }
+      }
+      break;
+    } catch {
+      break;
+    }
+  }
+  return "";
+}
+
+const GEMINI_ALLOWED_SCHEMA_KEYS = new Set([
+  "type",
+  "format",
+  "description",
+  "nullable",
+  "properties",
+  "required",
+  "items",
+  "enum",
+]);
+
+export function cleanGeminiSchema(obj: unknown): unknown {
+  if (Array.isArray(obj)) {
+    return obj.map(cleanGeminiSchema);
+  }
+  if (obj && typeof obj === "object" && obj !== null) {
+    const src = obj as Record<string, unknown>;
+    const cleaned: Record<string, unknown> = {};
+
+    if ("const" in src && !("enum" in src)) {
+      cleaned.enum = [String(src.const)];
+    }
+
+    for (const [key, value] of Object.entries(src)) {
+      if (key === "const") continue;
+      if (!GEMINI_ALLOWED_SCHEMA_KEYS.has(key)) continue;
+
+      if (key === "enum" && Array.isArray(value)) {
+        cleaned.enum = value.map(String);
+      } else if (key === "properties" && value && typeof value === "object") {
+        const cleanedProps: Record<string, unknown> = {};
+        for (const [propName, propVal] of Object.entries(
+          value as Record<string, unknown>,
+        )) {
+          cleanedProps[propName] = cleanGeminiSchema(propVal);
+        }
+        cleaned.properties = cleanedProps;
+      } else if (key === "items") {
+        cleaned.items = cleanGeminiSchema(value);
+      } else {
+        cleaned[key] = value;
+      }
+    }
+
+    if (!cleaned.type) {
+      if (cleaned.properties) cleaned.type = "object";
+      else if (cleaned.items) cleaned.type = "array";
+      else cleaned.type = "string";
+    }
+
+    return cleaned;
+  }
+  return obj;
+}
 
 // Anthropic types
 type AntTextBlock = { type: "text"; text: string };
@@ -168,7 +268,7 @@ export function translateAnthropicToGemini(
 
   const geminiReq: GeminiRequest = { contents };
   if (upstreamModel) {
-    geminiReq.model = upstreamModel;
+    geminiReq.model = `models/${upstreamModel}`;
   }
 
   const systemText = systemToText(body.system);
@@ -188,13 +288,15 @@ export function translateAnthropicToGemini(
     }
   }
 
+
+
   if (body.tools && body.tools.length > 0) {
     geminiReq.tools = [
       {
         functionDeclarations: body.tools.map((t) => ({
           name: t.name,
           ...(t.description ? { description: t.description } : {}),
-          parameters: t.input_schema,
+          parameters: (cleanGeminiSchema(t.input_schema) as Record<string, unknown>) ?? {},
         })),
       },
     ];
@@ -205,6 +307,32 @@ export function translateAnthropicToGemini(
 
 function sseEvent(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+async function fetchWithRetry(url: string, token: string, accountId: string | undefined, body: any): Promise<Response> {
+  let currentToken = token;
+  let attempts = 0;
+  while (attempts < 2) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${currentToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) return res;
+    if ((res.status === 401 || res.status === 403) && attempts === 0 && accountId) {
+      const newToken = await refreshOAuthToken(accountId);
+      if (newToken) {
+        currentToken = newToken;
+        attempts++;
+        continue;
+      }
+    }
+    return res;
+  }
+  throw new Error("unreachable");
 }
 
 export async function handleMessagesViaGemini(
@@ -234,8 +362,34 @@ export async function handleMessagesViaGemini(
   }
   recordSessionRequest(session.sessionId, route);
 
-  const upstreamReq = translateAnthropicToGemini(body, route.upstreamModel);
-  const upstreamUrl = "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse";
+  // Cross-pool fallback: if the upstream model targets Codex (gpt-*), use the
+  // default Gemini model instead. This happens when a Codex 429 triggers a
+  // rebind to the Google pool.
+  const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+  const geminiModel =
+    route.accountPool !== "google" ? DEFAULT_GEMINI_MODEL : route.upstreamModel;
+
+  const projectId = await fetchCodeAssistProject(session.token, session.accountId);
+
+  const upstreamReq = translateAnthropicToGemini(body, geminiModel);
+  // Cloud Code Assist expects an envelope: { model, project, user_prompt_id, request: { contents, … } }
+  const codeAssistBody = {
+    model: geminiModel,
+    project: projectId,
+    user_prompt_id: randomUUID(),
+    request: {
+      contents: upstreamReq.contents,
+      ...(upstreamReq.systemInstruction
+        ? { systemInstruction: upstreamReq.systemInstruction }
+        : {}),
+      ...(upstreamReq.generationConfig
+        ? { generationConfig: upstreamReq.generationConfig }
+        : {}),
+      ...(upstreamReq.tools ? { tools: upstreamReq.tools } : {}),
+    },
+  };
+  const upstreamUrl =
+    "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse";
 
   const responseHeaders = {
     "content-type": "text/event-stream",
@@ -246,17 +400,11 @@ export async function handleMessagesViaGemini(
   if (!body.stream) {
     // Non-streaming request — we still fetch stream and accumulate it
     try {
-      const resp = await fetch(upstreamUrl, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(upstreamReq),
-      });
+      const resp = await fetchWithRetry(upstreamUrl, session.token, session.accountId, codeAssistBody);
 
       if (!resp.ok) {
-        return c.json({ error: `Upstream error: ${resp.status} ${resp.statusText}` }, resp.status as any);
+        const errBody = await resp.text().catch(() => "");
+        return c.json({ error: `Upstream error: ${resp.status} ${resp.statusText}`, detail: errBody }, resp.status as any);
       }
 
       const reader = resp.body?.getReader();
@@ -287,7 +435,8 @@ export async function handleMessagesViaGemini(
             continue;
           }
 
-          const candidate = chunk.candidates?.[0];
+          const responseObj = chunk.response ?? chunk;
+          const candidate = responseObj.candidates?.[0];
           const parts = candidate?.content?.parts;
           if (Array.isArray(parts)) {
             for (const part of parts) {
@@ -357,15 +506,7 @@ export async function handleMessagesViaGemini(
       emit(sseEvent("ping", { type: "ping" }));
 
       try {
-        const resp = await fetch(upstreamUrl, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(upstreamReq),
-          signal: c.req.raw.signal,
-        });
+        const resp = await fetchWithRetry(upstreamUrl, session.token, session.accountId, codeAssistBody);
 
         if (!resp.ok) {
           emit(sseEvent("error", { type: "error", error: { type: "api_error", message: `Upstream returned status ${resp.status}` } }));
@@ -406,15 +547,16 @@ export async function handleMessagesViaGemini(
               continue;
             }
 
-            const candidate = chunk.candidates?.[0];
+            const responseObj = chunk.response ?? chunk;
+            const candidate = responseObj.candidates?.[0];
             if (candidate?.finishReason) {
               const fr = candidate.finishReason;
               if (fr === "MAX_TOKENS") stopReason = "max_tokens";
               else if (fr === "STOP") stopReason = "end_turn";
             }
 
-            if (chunk.usageMetadata) {
-              const usage = chunk.usageMetadata;
+            if (responseObj.usageMetadata) {
+              const usage = responseObj.usageMetadata;
               if (typeof usage.candidatesTokenCount === "number") {
                 outputTokens = usage.candidatesTokenCount;
               }

@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { markAccountExhausted, selectFallbackAccount } from "./accounts.js";
+import { accountSupportsRoute, findAccount, markAccountExhausted, selectFallbackAccount } from "./accounts.js";
 import {
   lookupToken,
   rebindGatewaySession,
@@ -44,7 +44,7 @@ function usesOpenAIProvider(provider: string): boolean {
 }
 
 function isQuotaFallbackResponse(response: Response): boolean {
-  return response.status === 429;
+  return response.status === 429 || response.status === 404;
 }
 
 function quotaReason(response: Response): string {
@@ -200,16 +200,31 @@ export async function handleMessages(c: Context): Promise<Response> {
   const body = await c.req.raw.arrayBuffer();
   const route = routeFromRequestBody(body);
   recordSessionRequest(session.sessionId, route);
+
+
+  const sessionAccount = findAccount(session.accountId);
   if (
     route &&
-    accountPoolForProvider(session.provider) === "google" &&
-    route.accountPool !== "google"
+    sessionAccount &&
+    !accountSupportsRoute(sessionAccount, route)
   ) {
-    return c.json(
-      { error: "gateway session account pool does not satisfy requested model route" },
-      503,
-    );
+    const correctPoolAccount = selectFallbackAccount(session.accountId, Date.now(), {
+      route,
+    });
+    if (correctPoolAccount) {
+      try {
+        const rebound = await rebindGatewaySession(
+          gatewayToken,
+          correctPoolAccount,
+          route,
+        );
+        if (rebound) session = rebound;
+      } catch {
+        // If rebind fails, continue with the original session
+      }
+    }
   }
+
   const attempted = new Set<string>();
 
   for (;;) {

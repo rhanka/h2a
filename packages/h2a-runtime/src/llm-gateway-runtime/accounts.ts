@@ -57,6 +57,7 @@ export function upstreamTransportForAccount(
         ? "codex-responses"
         : "openai-chat-completions";
     case "anthropic":
+    case "google":
       return "anthropic-messages";
     default:
       return "unknown";
@@ -121,12 +122,19 @@ export function listAccountDescriptors(): PublicAccountDescriptor[] {
   return getAccounts().map(publicAccountDescriptor);
 }
 
-export type AccountProviderFamily = "anthropic" | "openai" | "other";
+export type AccountProviderFamily = "anthropic" | "openai" | "google" | "other";
 
 export function providerFamily(provider: string): AccountProviderFamily {
   if (provider === "openai" || provider === "codex") return "openai";
   if (provider === "anthropic" || provider === "claude-code")
     return "anthropic";
+  if (
+    provider === "google" ||
+    provider === "gemini" ||
+    provider === "gcp" ||
+    provider === "gemini-code-assist"
+  )
+    return "google";
   return "other";
 }
 
@@ -197,8 +205,13 @@ export function accountSupportsRoute(
 ): boolean {
   if (accountStatus(account) !== "active") return false;
   if (isAccountExhausted(account.id)) return false;
-  if (accountPoolForProvider(account.provider) !== route.accountPool)
-    return false;
+  const pool = accountPoolForProvider(account.provider);
+  if (pool !== route.accountPool) {
+    const isClaudeModel = route.requestedModel?.startsWith("claude-");
+    if (!(pool === "anthropic" && isClaudeModel)) {
+      return false;
+    }
+  }
 
   const modelIds = explicitModelIds(account);
   if (modelIds.length === 0) return true;
@@ -287,22 +300,40 @@ export function selectFallbackAccount(
     return undefined;
   }
   const exhausted = accounts.find((a) => a.id === exhaustedAccountId);
-  const candidates = accounts.filter(
+  const isActive = (a: AccountDescriptor) =>
+    a.id !== exhaustedAccountId &&
+    accountStatus(a) === "active" &&
+    !isAccountExhausted(a.id, nowMs);
+
+  // 1. Same-pool candidates matching requiredTransport & route
+  const samePoolTransport = accounts.filter(
     (a) =>
-      a.id !== exhaustedAccountId &&
-      accountStatus(a) === "active" &&
-      !isAccountExhausted(a.id, nowMs) &&
+      isActive(a) &&
       (!options.requiredTransport ||
         upstreamTransportForAccount(a) === options.requiredTransport) &&
       (!options.route || accountSupportsRoute(a, options.route)),
   );
-  if (candidates.length === 0) return undefined;
+  if (samePoolTransport.length > 0) {
+    const family = exhausted ? providerFamily(exhausted.provider) : undefined;
+    const sameFamily = family
+      ? samePoolTransport.filter((a) => providerFamily(a.provider) === family)
+      : [];
+    return sameFamily[0] ?? samePoolTransport[0];
+  }
 
-  const family = exhausted ? providerFamily(exhausted.provider) : undefined;
-  const sameFamily = family
-    ? candidates.filter((a) => providerFamily(a.provider) === family)
-    : [];
-  return sameFamily[0] ?? candidates[0];
+  // 2. Same-pool candidates relaxing requiredTransport
+  const samePoolAnyTransport = accounts.filter(
+    (a) =>
+      isActive(a) &&
+      (!options.route || accountSupportsRoute(a, options.route)),
+  );
+  if (samePoolAnyTransport.length > 0) {
+    return samePoolAnyTransport[0];
+  }
+
+  // 3. Cross-pool candidates (any active account)
+  const crossPool = accounts.filter(isActive);
+  return crossPool[0];
 }
 
 /** Update the in-memory token for an account (after OAuth refresh). */
@@ -352,7 +383,34 @@ export async function refreshOAuthToken(
   accountId: string,
 ): Promise<string | null> {
   const acc = findAccount(accountId);
-  if (!acc?.refreshToken) return null;
+  if (!acc) return null;
+
+  if (
+    !acc.refreshToken &&
+    (acc.provider === "google" ||
+      acc.provider === "gemini" ||
+      acc.provider === "gcp" ||
+      acc.provider === "gemini-code-assist")
+  ) {
+    try {
+      const { homedir } = await import("node:os");
+      const { join } = await import("node:path");
+      const { readFileSync } = await import("node:fs");
+      const agyPath = join(homedir(), ".gemini", "antigravity-cli", "antigravity-oauth-token");
+      const agyRaw = JSON.parse(readFileSync(agyPath, "utf8")) as { token?: { access_token?: string; expiry?: string } };
+      const agyToken = agyRaw?.token?.access_token?.trim();
+      if (agyToken && agyToken !== acc.token) {
+        const agyExpiry = agyRaw?.token?.expiry ? Date.parse(agyRaw.token.expiry) : NaN;
+        updateAccountToken(accountId, agyToken, Number.isFinite(agyExpiry) ? new Date(agyExpiry).toISOString() : undefined);
+        return agyToken;
+      }
+    } catch {
+      // Ignore disk read errors
+    }
+    return null;
+  }
+
+  if (!acc.refreshToken) return null;
 
   let resp: Response;
   try {
