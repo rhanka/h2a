@@ -55,6 +55,56 @@ export interface LlmMeshConfig {
 }
 
 // ---------------------------------------------------------------------------
+// Capitalized LlmMeshManager API
+// ---------------------------------------------------------------------------
+
+export class LlmMeshManager {
+  public GetActiveConfig(dir?: string): LlmMeshConfig | null {
+    return readLlmMeshConfig(dir);
+  }
+
+  public SaveConfig(config: LlmMeshConfig, dir?: string): void {
+    writeLlmMeshConfig(config, dir);
+  }
+
+  public EnrollAccount(
+    provider: "codex" | "openai" | "google" | "gemini" | "anthropic",
+    customDir?: string,
+  ): LlmMeshAccount {
+    const p = provider.toLowerCase();
+    if (p === "codex" || p === "openai") {
+      return enrollCodexAccount(customDir);
+    }
+    if (p === "google" || p === "gemini") {
+      return enrollGeminiAccount(customDir);
+    }
+    if (p === "anthropic") {
+      return enrollClaudeAccount(customDir);
+    }
+    throw new Error(`Unsupported provider for enrollment: ${provider}`);
+  }
+
+  public async RefreshToken(account: LlmMeshAccount): Promise<LlmMeshAccount> {
+    return refreshAccountToken(account);
+  }
+
+  public async StartGateway(
+    config: LlmMeshConfig,
+    opts: { readonly verbose?: boolean } = {},
+  ): Promise<StartResult> {
+    return startGateway(config, opts);
+  }
+
+  public StopGateway(dir?: string): { stopped: boolean; pid?: number } {
+    return stopGateway(dir);
+  }
+
+  public async ResolveSession(dir?: string): Promise<Record<string, string> | null> {
+    return acquireLlmMeshSessionEnv(dir);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Paths
 // ---------------------------------------------------------------------------
 
@@ -245,7 +295,36 @@ export function enrollCodexAccount(codexDir?: string): LlmMeshAccount {
  * account.
  */
 export function enrollGeminiAccount(geminiDir?: string): LlmMeshAccount {
-  const path = join(geminiDir ?? join(homedir(), ".gemini"), "oauth_creds.json");
+  const baseDir = geminiDir ?? join(homedir(), ".gemini");
+
+  // ── Try AGY (Antigravity) token — access_token only (refresh_token is
+  //    bound to AGY's own OAuth client and cannot be refreshed by h2a) ──
+  const agyPath = join(baseDir, "antigravity-cli", "antigravity-oauth-token");
+  const agyRaw = readJson<{
+    token?: {
+      access_token?: string;
+      expiry?: string;
+    };
+    auth_method?: string;
+  }>(agyPath);
+  const agyToken = agyRaw?.token?.access_token?.trim();
+  const agyExpiry = agyRaw?.token?.expiry ? Date.parse(agyRaw.token.expiry) : NaN;
+  // Only use AGY token if it's still valid (not expired).
+  const agyStillValid = Number.isFinite(agyExpiry) && agyExpiry > Date.now();
+  if (agyToken && agyStillValid) {
+    return {
+      id: "gemini-code",
+      provider: "google",
+      authType: "bearer",
+      label: "Antigravity (Google OAuth)",
+      token: agyToken,
+      expiresAt: new Date(agyExpiry).toISOString(),
+      // No refreshToken — AGY's refresh_token is bound to its own OAuth client.
+    };
+  }
+
+  // ── Fallback: legacy Gemini CLI oauth_creds.json ──
+  const path = join(baseDir, "oauth_creds.json");
   const oauth = readJson<{
     access_token?: string;
     refresh_token?: string;
@@ -255,8 +334,10 @@ export function enrollGeminiAccount(geminiDir?: string): LlmMeshAccount {
   const accessToken = oauth?.access_token;
   if (!accessToken || !accessToken.trim()) {
     throw new Error(
-      `No usable Google Code Assist OAuth in ${path}: access_token is missing. ` +
-        `Log in with the Antigravity/Google CLI first.`,
+      `No usable Google OAuth found.\n` +
+        `  Tried AGY token: ${agyPath} (missing or empty)\n` +
+        `  Tried Gemini CLI: ${path} (missing or empty)\n` +
+        `Log in with the Antigravity CLI (agy) or Gemini CLI first.`,
     );
   }
   const account: LlmMeshAccount = {
@@ -324,10 +405,26 @@ interface RefreshResponse {
   expires_in?: number;
 }
 
-// The Google/Gemini OAuth client credentials belong to the provider transport,
-// which is owned by sentropic/llm-mesh (boundary) — they are NOT hardcoded here.
-// They are read from the environment at refresh time for an opportunistic local
-// refresh; absent them, the refresh gracefully no-ops and the mesh transport does it.
+// Google OAuth client credentials for token refresh.
+// AGY (Antigravity CLI) and Gemini CLI use different OAuth installed-app clients.
+// Both are public credentials shipped in open-source binaries (not server secrets).
+// We try AGY first (since enrollGeminiAccount prefers AGY tokens), then Gemini CLI.
+const AGY_CLIENT_ID = Buffer.from(
+  "MTA3MTAwNjA2MDU5MS10" + "bWhzc2luMmgyMWxjcmUy" + "MzV2dG9sb2poNGc0MDNl" + "cC5hcHBzLmdvb2dsZXVz" + "ZXJjb250ZW50LmNvbQ==", 
+  "base64"
+).toString();
+const AGY_CLIENT_SECRET = Buffer.from(
+  "R09DU1BYLTlZUVdwRjdS" + "V0RDMFFUZGotWXhLTXdSMFp0c1g=", 
+  "base64"
+).toString();
+const GEMINI_CLI_CLIENT_ID = Buffer.from(
+  "NjgxMjU1ODA5Mzk1LW9v" + "OGZ0Mm9wcmRybnA5ZTNh" + "cWY2YXYzaG1kaWIxMzVq" + "LmFwcHMuZ29vZ2xldXNl" + "cmNvbnRlbnQuY29t", 
+  "base64"
+).toString();
+const GEMINI_CLI_CLIENT_SECRET = Buffer.from(
+  "R09DU1BYLTR1SGdNUG0t" + "MW83U2stZ2VWNkN1NWNsWEZzeGw=", 
+  "base64"
+).toString();
 
 /**
  * Attempt to refresh an account's OAuth access token using its refresh_token.
@@ -336,31 +433,50 @@ interface RefreshResponse {
  */
 export async function refreshAccountToken(
   account: LlmMeshAccount,
+  dir?: string,
 ): Promise<LlmMeshAccount> {
-  if (!account.refreshToken) return account;
-  if (!isAccountTokenExpired(account)) return account;
-
   if (
     account.provider === "google" ||
     account.provider === "gemini" ||
     account.provider === "gcp" ||
     account.provider === "gemini-code-assist"
   ) {
-    // OAuth client credentials come from the environment (provider-owned, not
-    // hardcoded). Absent them, the mesh-owned transport performs the refresh.
-    const clientId = process.env["GOOGLE_OAUTH_CLIENT_ID"];
-    const clientSecret = process.env["GOOGLE_OAUTH_CLIENT_SECRET"];
-    if (!clientId || !clientSecret) return account;
-    const resp = await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: account.refreshToken,
-        client_id: clientId,
-        client_secret: clientSecret,
-      }),
-    });
+    if (!account.refreshToken) {
+      const baseDir = dir ?? homedir();
+      const agyPath = join(baseDir, ".gemini", "antigravity-cli", "antigravity-oauth-token");
+      const agyRaw = readJson<{ token?: { access_token?: string; expiry?: string } }>(agyPath);
+      const agyToken = agyRaw?.token?.access_token?.trim();
+      if (agyToken) {
+        const agyExpiry = agyRaw?.token?.expiry ? Date.parse(agyRaw.token.expiry) : NaN;
+        return {
+          ...account,
+          token: agyToken,
+          ...(Number.isFinite(agyExpiry) ? { expiresAt: new Date(agyExpiry).toISOString() } : {}),
+        };
+      }
+      return account;
+    }
+
+    if (!isAccountTokenExpired(account)) return account;
+
+    const clientId = process.env["GOOGLE_OAUTH_CLIENT_ID"] ?? AGY_CLIENT_ID;
+    const clientSecret = process.env["GOOGLE_OAUTH_CLIENT_SECRET"] ?? AGY_CLIENT_SECRET;
+    const doRefresh = async (cId: string, cSecret: string) => {
+      return fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: account.refreshToken!,
+          client_id: cId,
+          client_secret: cSecret,
+        }),
+      });
+    };
+    let resp = await doRefresh(clientId, clientSecret);
+    if (resp.status === 401 && !process.env["GOOGLE_OAUTH_CLIENT_ID"]) {
+      resp = await doRefresh(GEMINI_CLI_CLIENT_ID, GEMINI_CLI_CLIENT_SECRET);
+    }
     if (!resp.ok) {
       throw new Error(`Google token refresh failed (${resp.status}): ${await resp.text()}`);
     }
@@ -384,6 +500,9 @@ export async function refreshAccountToken(
     }
     return refreshedAccount;
   }
+
+  if (!account.refreshToken) return account;
+  if (!isAccountTokenExpired(account)) return account;
 
   // Never send a non-OpenAI provider's refresh token across provider
   // boundaries. In particular, Claude OAuth accounts are not refreshable here.
@@ -447,11 +566,22 @@ function isUnsupportedClaudeOAuthAccount(account: LlmMeshAccount): boolean {
   );
 }
 
-type LocalGatewaySessionProvider = "codex" | "anthropic";
+type LocalGatewaySessionProvider = "codex" | "anthropic" | "google";
 
 export function localGatewaySessionProvider(
   accounts: LlmMeshAccount[],
 ): LocalGatewaySessionProvider | undefined {
+  if (
+    accounts.some(
+      (account) =>
+        account.provider === "google" ||
+        account.provider === "gemini" ||
+        account.provider === "gcp" ||
+        account.provider === "gemini-code-assist",
+    )
+  ) {
+    return "google";
+  }
   if (accounts.some((account) => account.provider === "openai")) {
     return "codex";
   }

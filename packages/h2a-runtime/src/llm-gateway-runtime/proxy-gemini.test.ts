@@ -23,7 +23,7 @@ describe("Gemini proxy translator", () => {
     }, "gemini-2.5-code-assist");
 
     expect(req).toEqual({
-      model: "gemini-2.5-code-assist",
+      model: "models/gemini-2.5-code-assist",
       contents: [
         { role: "user", parts: [{ text: "hello" }] },
         { role: "model", parts: [{ text: "hi there" }] },
@@ -110,6 +110,48 @@ describe("Gemini proxy translator", () => {
             functionResponse: {
               name: "get_weather",
               response: { result: "sunny" },
+            },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("strips unsupported JSON schema fields ($schema, propertyNames, exclusiveMinimum, etc.) and converts const to enum", () => {
+    const req = translateAnthropicToGemini({
+      model: "gemini-3.1-pro",
+      messages: [{ role: "user", content: "test" }],
+      tools: [
+        {
+          name: "Bash",
+          description: "Execute bash command",
+          input_schema: {
+            $schema: "http://json-schema.org/draft-07/schema#",
+            type: "object",
+            propertyNames: { pattern: "^[a-z]+$" },
+            properties: {
+              command: { type: "string" },
+              mode: { const: "fast" },
+              timeout: { type: "number", exclusiveMinimum: 0 },
+            },
+          },
+        },
+      ],
+    });
+
+    expect(req.tools).toEqual([
+      {
+        functionDeclarations: [
+          {
+            name: "Bash",
+            description: "Execute bash command",
+            parameters: {
+              type: "object",
+              properties: {
+                command: { type: "string" },
+                mode: { type: "string", enum: ["fast"] },
+                timeout: { type: "number" },
+              },
             },
           },
         ],

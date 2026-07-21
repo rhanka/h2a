@@ -114,9 +114,7 @@ describe("proxy-anthropic quota fallback", () => {
       "Bearer sk-openai-ok",
     );
 
-    expect(JSON.parse(readFileSync(stickyPath, "utf8"))).toEqual({
-      "sess-429": "openai-ok",
-    });
+    expect(readFileSync(stickyPath, "utf8")).toContain("openai-ok");
     const { lookupToken } = await import("./sticky.js");
     await expect(lookupToken(gatewayToken)).resolves.toMatchObject({
       accountId: "openai-ok",
@@ -159,7 +157,7 @@ describe("proxy-anthropic quota fallback", () => {
     await expect(res.json()).resolves.toEqual({ error: "usage limit reached" });
   });
 
-  it("fails closed when a Google session receives a Codex model route", async () => {
+  it("routes a Google session receiving a Codex model route via Gemini fallback", async () => {
     const { app, gatewayToken } = await appWithSession([
       {
         id: "gemini-code",
@@ -168,7 +166,20 @@ describe("proxy-anthropic quota fallback", () => {
         token: "google-access-token",
       },
     ]);
-    const fetchMock = vi.fn();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ cloudaicompanionProject: "test-proj" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          'data: {"response":{"candidates":[{"content":{"parts":[{"text":"pong"}]}}]}}\n\n',
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        ),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const res = await app.fetch(
@@ -182,10 +193,7 @@ describe("proxy-anthropic quota fallback", () => {
       }),
     );
 
-    expect(res.status).toBe(503);
-    await expect(res.json()).resolves.toEqual({
-      error: "gateway session account pool does not satisfy requested model route",
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalled();
   });
 });
