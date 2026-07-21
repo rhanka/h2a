@@ -95,7 +95,7 @@ const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
   {
     id: "gemini-3.5-flash",
     provider: "google",
-    upstreamModel: "gemini-3.5-flash",
+    upstreamModel: "gemini-2.5-flash",
     accountPool: "google",
     inputProtocol: "anthropic.messages",
     outputProtocol: "anthropic.messages",
@@ -106,7 +106,7 @@ const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
   {
     id: "gemini-3.1-pro",
     provider: "google",
-    upstreamModel: "gemini-3.1-pro",
+    upstreamModel: "gemini-2.5-pro",
     accountPool: "google",
     inputProtocol: "anthropic.messages",
     outputProtocol: "anthropic.messages",
