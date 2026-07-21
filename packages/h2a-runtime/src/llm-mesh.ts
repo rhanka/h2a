@@ -167,6 +167,19 @@ export function isTokenExpired(token: string, graceSeconds = 300): boolean {
   return exp.getTime() - graceSeconds * 1000 < Date.now();
 }
 
+function isAccountTokenExpired(
+  account: Pick<LlmMeshAccount, "token" | "expiresAt">,
+  graceSeconds = 300,
+): boolean {
+  if (account.expiresAt) {
+    const expiresAtMs = Date.parse(account.expiresAt);
+    if (Number.isFinite(expiresAtMs)) {
+      return expiresAtMs - graceSeconds * 1000 < Date.now();
+    }
+  }
+  return isTokenExpired(account.token, graceSeconds);
+}
+
 // ---------------------------------------------------------------------------
 // Codex enrollment
 // ---------------------------------------------------------------------------
@@ -311,6 +324,11 @@ interface RefreshResponse {
   expires_in?: number;
 }
 
+// The Google/Gemini OAuth client credentials belong to the provider transport,
+// which is owned by sentropic/llm-mesh (boundary) — they are NOT hardcoded here.
+// They are read from the environment at refresh time for an opportunistic local
+// refresh; absent them, the refresh gracefully no-ops and the mesh transport does it.
+
 /**
  * Attempt to refresh an account's OAuth access token using its refresh_token.
  * Returns the updated account, or the original if refresh is not applicable
@@ -320,7 +338,7 @@ export async function refreshAccountToken(
   account: LlmMeshAccount,
 ): Promise<LlmMeshAccount> {
   if (!account.refreshToken) return account;
-  if (!isTokenExpired(account.token)) return account;
+  if (!isAccountTokenExpired(account)) return account;
 
   if (
     account.provider === "google" ||
@@ -328,26 +346,48 @@ export async function refreshAccountToken(
     account.provider === "gcp" ||
     account.provider === "gemini-code-assist"
   ) {
+    // OAuth client credentials come from the environment (provider-owned, not
+    // hardcoded). Absent them, the mesh-owned transport performs the refresh.
+    const clientId = process.env["GOOGLE_OAUTH_CLIENT_ID"];
+    const clientSecret = process.env["GOOGLE_OAUTH_CLIENT_SECRET"];
+    if (!clientId || !clientSecret) return account;
     const resp = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "refresh_token",
         refresh_token: account.refreshToken,
-        client_id: "681255809395-oo8ft2oprdrnop9e3aqf6av3hmdib135j.apps.googleusercontent.com",
+        client_id: clientId,
+        client_secret: clientSecret,
       }),
     });
     if (!resp.ok) {
       throw new Error(`Google token refresh failed (${resp.status}): ${await resp.text()}`);
     }
-    const data = (await resp.json()) as { access_token?: string; expires_in?: number };
-    if (!data.access_token) throw new Error("Google token refresh: no access_token in response");
-    return {
+    const data = (await resp.json()) as {
+      access_token?: string;
+      expires_in?: number;
+    };
+    if (!data.access_token) {
+      throw new Error("Google token refresh: no access_token in response");
+    }
+    const refreshedAccount: LlmMeshAccount = {
       ...account,
       token: data.access_token,
-      ...(data.expires_in ? { expiresAt: new Date(Date.now() + data.expires_in * 1000).toISOString() } : {}),
     };
+    if (typeof data.expires_in === "number" && data.expires_in > 0) {
+      refreshedAccount.expiresAt = new Date(
+        Date.now() + data.expires_in * 1000,
+      ).toISOString();
+    } else {
+      delete refreshedAccount.expiresAt;
+    }
+    return refreshedAccount;
   }
+
+  // Never send a non-OpenAI provider's refresh token across provider
+  // boundaries. In particular, Claude OAuth accounts are not refreshable here.
+  if (account.provider !== "openai") return account;
 
   const resp = await fetch("https://auth.openai.com/oauth/token", {
     method: "POST",
@@ -407,6 +447,20 @@ function isUnsupportedClaudeOAuthAccount(account: LlmMeshAccount): boolean {
   );
 }
 
+type LocalGatewaySessionProvider = "codex" | "anthropic";
+
+export function localGatewaySessionProvider(
+  accounts: LlmMeshAccount[],
+): LocalGatewaySessionProvider | undefined {
+  if (accounts.some((account) => account.provider === "openai")) {
+    return "codex";
+  }
+  if (accounts.some((account) => account.provider === "anthropic")) {
+    return "anthropic";
+  }
+  return undefined;
+}
+
 export interface StartResult {
   pid: number;
   port: number;
@@ -436,25 +490,43 @@ export async function startGateway(
 
   // Refresh expired tokens before launch
   const refreshedAccounts: LlmMeshAccount[] = [];
+  const unusableAccountIds = new Set<string>();
   for (const acc of config.accounts) {
     try {
-      refreshedAccounts.push(await refreshAccountToken(acc));
-    } catch (err) {
-      if (opts.verbose) {
+      const refreshedAccount = await refreshAccountToken(acc);
+      refreshedAccounts.push(refreshedAccount);
+      if (isAccountTokenExpired(refreshedAccount)) {
+        unusableAccountIds.add(acc.id);
         process.stderr.write(
-          `[h2a] llm-mesh: token refresh failed for ${acc.id}: ${String(err)}\n`,
+          `[h2a] llm-mesh: account ${acc.id} is expired and cannot be refreshed; re-enroll this provider account\n`,
         );
       }
+    } catch (err) {
+      unusableAccountIds.add(acc.id);
+      const detail = opts.verbose ? `: ${String(err)}` : "";
+      process.stderr.write(
+        `[h2a] llm-mesh: token refresh failed for ${acc.id}${detail}; re-enroll this provider account\n`,
+      );
+      // Retain the credential in config for explicit re-enrollment, but never
+      // expose the stale token to the gateway process.
       refreshedAccounts.push(acc);
     }
   }
 
   const gatewayAccounts = refreshedAccounts.filter(
-    (account) => !isUnsupportedClaudeOAuthAccount(account),
+    (account) =>
+      !unusableAccountIds.has(account.id) &&
+      !isUnsupportedClaudeOAuthAccount(account),
   );
   if (gatewayAccounts.length === 0) {
     throw new Error(
-      "llm-mesh has no gateway-supported accounts: Claude Code OAuth cannot be proxied through Anthropic /v1/messages yet",
+      "llm-mesh has no usable gateway-supported accounts: re-enroll expired provider accounts; Claude Code OAuth cannot be proxied through Anthropic /v1/messages yet",
+    );
+  }
+  const sessionProvider = localGatewaySessionProvider(gatewayAccounts);
+  if (!sessionProvider) {
+    throw new Error(
+      "llm-mesh has no local runtime provider: Google Code Assist transport remains delegated to llm-mesh",
     );
   }
 
@@ -491,6 +563,7 @@ export async function startGateway(
     body: JSON.stringify({
       sessionId: "local-dev",
       workspaceId: process.cwd(),
+      provider: sessionProvider,
     }),
   });
   if (!sessionResp.ok) {
@@ -501,7 +574,12 @@ export async function startGateway(
   if (!gatewayToken) throw new Error("No gatewayToken in session response");
 
   // Persist the token (secret)
-  writeSecret(llmMeshTokenPath(), { gatewayToken, baseUrl, pid });
+  writeSecret(llmMeshTokenPath(), {
+    gatewayToken,
+    baseUrl,
+    pid,
+    provider: sessionProvider,
+  });
 
   // Persist refreshed tokens back to config
   writeLlmMeshConfig({ ...config, accounts: refreshedAccounts });
@@ -541,6 +619,7 @@ interface LlmMeshTokenFile {
   gatewayToken: string;
   baseUrl: string;
   pid: number;
+  provider?: LocalGatewaySessionProvider;
 }
 
 function configuredGatewayBaseUrl(dir?: string): string | null {
@@ -593,16 +672,31 @@ export async function acquireLlmMeshSessionEnv(dir?: string): Promise<{
   try {
     let baseUrl: string | undefined;
     let pid: number | undefined;
+    let provider: LocalGatewaySessionProvider | undefined;
     try {
       const raw = readFileSync(llmMeshTokenPath(dir), "utf8");
       const tokenFile = JSON.parse(raw) as LlmMeshTokenFile;
       baseUrl = tokenFile.baseUrl;
       pid = tokenFile.pid;
+      provider = tokenFile.provider;
     } catch {
       baseUrl = configuredGatewayBaseUrl(dir) ?? undefined;
       pid = readGatewayPid(dir) ?? undefined;
     }
     if (!baseUrl || !pid) return null;
+    if (!provider) {
+      const config = readLlmMeshConfig(dir);
+      provider = config
+        ? localGatewaySessionProvider(
+            config.accounts.filter(
+              (account) =>
+                !isUnsupportedClaudeOAuthAccount(account) &&
+                !isAccountTokenExpired(account),
+            ),
+          )
+        : undefined;
+    }
+    if (!provider) return null;
     try {
       process.kill(pid, 0);
     } catch {
@@ -615,6 +709,7 @@ export async function acquireLlmMeshSessionEnv(dir?: string): Promise<{
       body: JSON.stringify({
         sessionId: "local-dev",
         workspaceId,
+        provider,
       }),
     });
     if (!sessionResp.ok) return null;
@@ -624,6 +719,7 @@ export async function acquireLlmMeshSessionEnv(dir?: string): Promise<{
       gatewayToken: session.gatewayToken,
       baseUrl,
       pid,
+      provider,
     });
     return {
       ANTHROPIC_BASE_URL: baseUrl,
