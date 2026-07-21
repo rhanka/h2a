@@ -1,4 +1,4 @@
-export type AccountPool = "anthropic" | "codex";
+export type AccountPool = "anthropic" | "codex" | "google";
 export type GatewayProtocol = "anthropic.messages";
 export type RoutingPolicy = "round-robin";
 
@@ -135,15 +135,16 @@ export function accountPoolForProvider(
   provider: string,
 ): AccountPool | undefined {
   const normalized = provider.toLowerCase();
+  if (normalized === "openai" || normalized === "codex") {
+    return "codex";
+  }
   if (
-    normalized === "openai" ||
-    normalized === "codex" ||
     normalized === "google" ||
     normalized === "gemini" ||
     normalized === "gcp" ||
     normalized === "gemini-code-assist"
   ) {
-    return "codex";
+    return "google";
   }
   if (normalized === "anthropic" || normalized === "claude-code")
     return "anthropic";
