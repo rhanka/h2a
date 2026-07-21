@@ -219,7 +219,8 @@ export async function handleMessages(c: Context): Promise<Response> {
           route,
         );
         if (rebound) session = rebound;
-      } catch {
+      } catch (err) {
+        console.error("rebindGatewaySession failed:", err);
         // If rebind fails, continue with the original session
       }
     }
