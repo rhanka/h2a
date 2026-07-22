@@ -300,14 +300,14 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 
 ### Host wiring
 
-#### `h2a host setup --host <codex|claude> [--root <path>] [--print | --write <file>] [--force]`
+#### `h2a host setup --host <codex|claude|gemini|agy|hermes|opencode> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]`
 
 - **Required**: `--host`.
-- **Optional**: `--root`, `--print`, `--write`, `--force`.
+- **Optional**: `--endpoint`, `--url`, `--root`, `--print`, `--write`, `--force`, `--no-wake`.
 - **Envelope (default / `--print`)**: `resource` — bare JSON of the `mcpServers.h2a` snippet on stdout, target path hint on stderr.
-- **Envelope (`--write <file>`)**: `action` — `{ "ok": true, "host": "<host>", "path": "<file>", "merged": true }` on stdout.
+- **Envelope (`--write <file>`)**: `action` — `{ "ok": true, "host": "<host>", "endpoint": "local|remote", "path": "<file>", "merged": true, "replacedH2a": true|false, "removedH2aMcpServers": [], "removedTrackMcpServers": [] }` on stdout.
 - **Exit codes**: `0`, `1`, `2`, `3`.
-- **Description**: Render or merge the `mcpServers.h2a` snippet for a host. Divergent pre-existing entry refused without `--force` → exit `2`. Filesystem read/write failure → exit `3`.
+- **Description**: Render exactly one selected `mcpServers.h2a` endpoint. `local` (default) is a coordination-ready stdio server; `remote` requires an absolute HTTP(S) `--url` and cannot combine local root/wake flags. The selected endpoint exposes h2a plus read-only Track tools. Reconfiguration replaces canonical or aliased h2a entries and removes standalone Track MCP entries, preserving unrelated servers. `--write` safely merges JSON only; it refuses Hermes YAML and OpenCode JSONC rather than overwriting them. `--force` is reserved for replacing malformed JSON. Filesystem read/write failure → exit `3`.
 
 #### `h2a host status [--host <name>]`
 

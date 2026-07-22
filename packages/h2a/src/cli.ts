@@ -359,7 +359,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat escalations [--root <path>]",
     "  h2a drumbeat relance-inbox [--instance <id>] [--relauncher logging|local-tmux|headless|auto] [--root <path>]",
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
-    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode> [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (renders mcp-serve --auto-open --auto-upgrade --wake local-tmux by default; --no-wake drops wake)",
+    "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects exactly one h2a endpoint; local renders mcp-serve --auto-open --auto-upgrade --wake local-tmux by default)",
     "  h2a host status [--host <name>]",
     "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; agy is poll-only)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
@@ -3470,6 +3470,48 @@ function configsEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/** A host must not keep a second, standalone Track MCP beside its h2a endpoint. */
+function isStandaloneTrackMcpServer(_name: string, config: unknown): boolean {
+  // Names are not identity: `track-metrics`, for example, may be a third-party
+  // server. Remove only a server whose executable/arguments prove it is the
+  // legacy standalone Sentropic Track MCP.
+  if (!isPlainObject(config)) return false;
+  const values = [config.command, ...(Array.isArray(config.args) ? config.args : [])];
+  return values.some(
+    (value) =>
+      typeof value === "string" &&
+      (value === "track-mcp" ||
+        /[\\/]track-mcp(?:\.cmd|\.exe)?$/i.test(value) ||
+        /@sentropic[\\/]track[\\/].*[\\/]mcp[\\/]/i.test(value))
+  );
+}
+
+/** A host config may contain only one h2a MCP, even if an old installer named it differently. */
+function isH2aMcpServer(name: string, config: unknown): boolean {
+  if (/^h2a(?:[-_.]|$)/i.test(name)) return true;
+  if (!isPlainObject(config)) return false;
+  const command = config.command;
+  const args = Array.isArray(config.args) ? config.args : [];
+  return (
+    typeof command === "string" &&
+    (command === "h2a" || /[\\/]h2a(?:\.cmd|\.exe)?$/i.test(command)) &&
+    args.some((arg) => arg === "mcp-serve")
+  );
+}
+
+/** Native YAML/JSONC parsers are intentionally not guessed by the JSON writer. */
+function isUnsupportedHostWritePath(host: string, path: string): boolean {
+  const normalized = path.toLowerCase();
+  // The JSON merger is deliberately format-strict. Never reinterpret a native
+  // TOML/YAML/JSONC file as JSON, even with --force: preserving unrelated MCP
+  // configuration is stronger than a convenient write path.
+  return (
+    (host === "codex" && normalized.endsWith(".toml")) ||
+    (host === "hermes" && (normalized.endsWith(".yaml") || normalized.endsWith(".yml"))) ||
+    (host === "opencode" && normalized.endsWith(".jsonc"))
+  );
+}
+
 function driveLineFromText(text: string): string | undefined {
   const matchingLine = text
     .split(/\r?\n/)
@@ -3521,15 +3563,49 @@ function cmdHostSetup(
     );
     return 1;
   }
-  // Coordination-by-default (EVO-1 #3): the rendered config joins the bus
-  // (--auto-open), stays current (--auto-upgrade), and is WAKEABLE on inbox
-  // arrival (--wake local-tmux: inject the wake into the agent's tmux pane,
-  // which mcp-serve self-detects). Wake is an essential coordination element,
-  // so it is ON by default; opt out with --no-wake (a warning is printed).
-  // local-tmux (NOT auto) is deliberate: in a tmux pane it wakes; OUTSIDE tmux
-  // it cleanly no-ops. `auto` would fall through to the headless driver and
-  // SPAWN a new agent when no pane is found — wrong for a self-wake.
-  const wakeEnabled = flags["no-wake"] !== "true";
+  const requestedEndpoint = flags.endpoint ?? "local";
+  if (requestedEndpoint !== "local" && requestedEndpoint !== "remote") {
+    streams.stderr.write(
+      'h2a host setup: --endpoint must be "local" or "remote".\n'
+    );
+    return 1;
+  }
+  const endpoint: "local" | "remote" = requestedEndpoint;
+  if (endpoint === "remote") {
+    if (!flags.url) {
+      streams.stderr.write(
+        "h2a host setup: --endpoint remote requires --url <http(s)://…>.\n"
+      );
+      return 1;
+    }
+    try {
+      const url = new URL(flags.url);
+      if (url.protocol !== "https:" && url.protocol !== "http:") {
+        throw new Error("protocol");
+      }
+    } catch {
+      streams.stderr.write(
+        "h2a host setup: --url must be an absolute http(s) MCP endpoint.\n"
+      );
+      return 1;
+    }
+    if (flags.root || flags["no-wake"] === "true") {
+      streams.stderr.write(
+        "h2a host setup: --root and --no-wake apply only to --endpoint local.\n"
+      );
+      return 1;
+    }
+  } else if (flags.url) {
+    streams.stderr.write(
+      "h2a host setup: --url requires --endpoint remote.\n"
+    );
+    return 1;
+  }
+
+  // The local stdio endpoint joins the bus, stays current, and is wakeable.
+  // A remote endpoint owns those concerns itself, so the rendered config is a
+  // URL only; local and remote fields are never mixed.
+  const wakeEnabled = endpoint === "local" && flags["no-wake"] !== "true";
   const serveArgs = [
     "mcp-serve",
     "--auto-open",
@@ -3538,12 +3614,19 @@ function cmdHostSetup(
     "--auto-upgrade",
     ...(wakeEnabled ? ["--wake", "local-tmux"] : [])
   ];
-  if (!wakeEnabled) {
+  if (endpoint === "local" && !wakeEnabled) {
     streams.stderr.write(
       "h2a host setup: WARNING --no-wake — this agent will NOT be woken on inbox arrival; coordination is degraded (peers' messages wait until you manually run /h2a receive).\n"
     );
   }
-  const renderOpts = { ...(flags.root ? { root: flags.root } : {}), args: serveArgs };
+  const renderOpts =
+    endpoint === "remote"
+      ? { endpoint, url: flags.url }
+      : {
+          endpoint,
+          ...(flags.root ? { root: flags.root } : {}),
+          args: serveArgs
+        };
   let snippet;
   if (host === "codex") {
     snippet = H2A_CODEX_HOST.renderMcpConfig(renderOpts);
@@ -3570,9 +3653,16 @@ function cmdHostSetup(
   if (printMode && !targetPath) {
     streams.stdout.write(`${JSON.stringify(snippet.config, null, 2)}\n`);
     streams.stderr.write(
-      `# ${host} — paste this snippet under \`mcpServers\` in:\n# ${snippet.path.hint}\n# example path: ${snippet.path.example}\n`
+      `# ${host} — selected ${endpoint} h2a endpoint; paste this snippet under \`mcpServers\` in:\n# ${snippet.path.hint}\n# example path: ${snippet.path.example}\n`
     );
     return 0;
+  }
+
+  if (isUnsupportedHostWritePath(host, targetPath)) {
+    streams.stderr.write(
+      `h2a host setup: --write supports JSON only and will not rewrite ${targetPath.endsWith(".toml") ? "TOML" : targetPath.endsWith(".jsonc") ? "JSONC" : "YAML"} config. Use --print and the host-native editor/CLI.\n`
+    );
+    return 1;
   }
 
   // --write path: merge into the target file.
@@ -3612,28 +3702,38 @@ function cmdHostSetup(
     }
   }
 
+  if (existing.mcpServers !== undefined && !isPlainObject(existing.mcpServers)) {
+    streams.stderr.write(
+      `h2a host setup: ${targetPath} has a non-object mcpServers value; refusing to replace it.\n`
+    );
+    return 2;
+  }
   const existingMcpServers = isPlainObject(existing.mcpServers)
     ? existing.mcpServers
     : {};
-  const previous = existingMcpServers.h2a;
   const incoming = snippet.config.mcpServers.h2a;
-
-  if (
-    previous !== undefined &&
-    !configsEqual(previous, incoming) &&
-    flags.force !== "true"
-  ) {
-    streams.stderr.write(
-      `h2a host setup: ${targetPath} already has a different mcpServers.h2a entry. Re-run with --force to overwrite.\n`
-    );
-    // Divergent pre-existing entry — state conflict (exit 2).
-    return 2;
-  }
+  const existingH2aMcpServers = Object.keys(existingMcpServers).filter((name) =>
+    isH2aMcpServer(name, existingMcpServers[name])
+  );
+  const previous = existingMcpServers.h2a;
+  const replacedH2a =
+    existingH2aMcpServers.length > 0 &&
+    (existingH2aMcpServers.some((name) => name !== "h2a") || !configsEqual(previous, incoming));
+  const removedH2aMcpServers = existingH2aMcpServers.filter((name) => name !== "h2a");
+  const removedTrackMcpServers = Object.keys(existingMcpServers).filter(
+    (name) => !isH2aMcpServer(name, existingMcpServers[name]) && isStandaloneTrackMcpServer(name, existingMcpServers[name])
+  );
+  const retainedMcpServers = Object.fromEntries(
+    Object.entries(existingMcpServers).filter(
+      ([name, config]) =>
+        !isH2aMcpServer(name, config) && !removedTrackMcpServers.includes(name)
+    )
+  );
 
   const merged: Record<string, unknown> = {
     ...existing,
     mcpServers: {
-      ...existingMcpServers,
+      ...retainedMcpServers,
       h2a: incoming
     }
   };
@@ -3654,13 +3754,22 @@ function cmdHostSetup(
 
   streams.stdout.write(
     `${JSON.stringify(
-      { ok: true, host, path: targetPath, merged: true },
+      {
+        ok: true,
+        host,
+        endpoint,
+        path: targetPath,
+        merged: true,
+        replacedH2a,
+        removedH2aMcpServers,
+        removedTrackMcpServers
+      },
       null,
       2
     )}\n`
   );
   streams.stderr.write(
-    `# wrote mcpServers.h2a for host=${host} to ${targetPath}\n# ${snippet.path.hint}\n`
+    `# wrote the selected ${endpoint} mcpServers.h2a endpoint for host=${host} to ${targetPath}\n# disabled duplicate h2a MCP entries: ${removedH2aMcpServers.join(", ") || "none"}\n# disabled standalone Track MCP entries: ${removedTrackMcpServers.join(", ") || "none"}\n# ${snippet.path.hint}\n`
   );
   return 0;
 }

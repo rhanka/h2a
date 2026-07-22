@@ -53,6 +53,31 @@ test("H2A_CODEX_HOST.renderMcpConfig honors custom command/args/root", () => {
   ]);
 });
 
+test("H2A_CODEX_HOST.renderMcpConfig renders exactly one remote endpoint", () => {
+  const { config } = H2A_CODEX_HOST.renderMcpConfig({
+    endpoint: "remote",
+    url: "https://mcp.example.test/h2a"
+  });
+  assert.deepEqual(config.mcpServers.h2a, { url: "https://mcp.example.test/h2a" });
+  assert.throws(
+    () =>
+      H2A_CODEX_HOST.renderMcpConfig({
+        endpoint: "remote",
+        url: "https://mcp.example.test/h2a",
+        root: "/tmp/.h2a"
+      }),
+    /cannot include local/
+  );
+  assert.throws(
+    () => H2A_CODEX_HOST.renderMcpConfig({ endpoint: "remote", url: "not-a-url" }),
+    /absolute http\(s\)/
+  );
+  assert.throws(
+    () => H2A_CODEX_HOST.renderMcpConfig({ endpoint: "remote", url: "ftp://mcp.example.test" }),
+    /absolute http\(s\)/
+  );
+});
+
 test("H2A_CLAUDE_HOST.renderMcpConfig includes --root when provided", () => {
   const { config, path } = H2A_CLAUDE_HOST.renderMcpConfig({ root: "/foo/.h2a" });
   assert.equal(config.mcpServers.h2a.command, "h2a");
@@ -142,6 +167,45 @@ test("Hermes/OpenCode render h2a MCP setup snippets", () => {
   }
 });
 
+for (const host of ["codex", "claude", "gemini", "agy", "hermes", "opencode"]) {
+  test(`h2a host setup --endpoint remote renders one URL endpoint for ${host}`, () => {
+    const streams = captureStreams("/tmp");
+    const rc = runCli(
+      [
+        "host",
+        "setup",
+        "--host",
+        host,
+        "--endpoint",
+        "remote",
+        "--url",
+        "https://mcp.example.test/h2a"
+      ],
+      streams
+    );
+    assert.equal(rc, 0, streams.stderrText);
+    assert.deepEqual(JSON.parse(streams.stdoutText), {
+      mcpServers: { h2a: { url: "https://mcp.example.test/h2a" } }
+    });
+  });
+}
+
+test("h2a host setup rejects ambiguous local/remote endpoint flags", () => {
+  const missingUrl = captureStreams("/tmp");
+  assert.equal(
+    runCli(["host", "setup", "--host", "codex", "--endpoint", "remote"], missingUrl),
+    1
+  );
+  assert.match(missingUrl.stderrText, /requires --url/);
+
+  const localUrl = captureStreams("/tmp");
+  assert.equal(
+    runCli(["host", "setup", "--host", "codex", "--url", "https://mcp.example.test/h2a"], localUrl),
+    1
+  );
+  assert.match(localUrl.stderrText, /requires --endpoint remote/);
+});
+
 test("h2a host setup requires --host", () => {
   const streams = captureStreams("/tmp");
   const rc = runCli(["host", "setup", "--print"], streams);
@@ -207,42 +271,91 @@ test("h2a host setup --write preserves pre-existing mcpServers.other", () => {
   }
 });
 
-test("h2a host setup --write refuses to overwrite a divergent mcpServers.h2a", () => {
+test("h2a host setup --write replaces h2a aliases and disables standalone Track MCP entries", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-host-setup-"));
   const target = join(dir, "mcp.json");
   try {
     writeFileSync(
       target,
       JSON.stringify({
-        mcpServers: { h2a: { command: "old-bin", args: ["old"] } }
+        mcpServers: {
+          h2a: { command: "old-bin", args: ["old"] },
+          "h2a-local": { command: "h2a", args: ["mcp-serve"] },
+          track: { command: "h2a", args: ["track-mcp"] },
+          "legacy-track": {
+            command: "node",
+            args: ["/opt/node_modules/@sentropic/track/dist/mcp/cli.js"]
+          },
+          "track-metrics": { command: "prometheus-mcp", args: ["serve"] },
+          other: { command: "other-bin", args: ["serve"] }
+        }
       })
     );
     const streams = captureStreams(dir);
     const rc = runCli(
-      ["host", "setup", "--host", "codex", "--write", target],
+      [
+        "host",
+        "setup",
+        "--host",
+        "codex",
+        "--endpoint",
+        "remote",
+        "--url",
+        "https://mcp.example.test/h2a",
+        "--write",
+        target
+      ],
       streams
     );
-    // DEC-034: divergent pre-existing mcpServers.h2a entry is a state conflict → exit 2.
-    assert.equal(rc, 2);
-    assert.match(streams.stderrText, /--force/);
-    // The pre-existing entry must remain untouched.
+    assert.equal(rc, 0, streams.stderrText);
+    const result = JSON.parse(streams.stdoutText);
+    assert.equal(result.endpoint, "remote");
+    assert.equal(result.replacedH2a, true);
+    assert.deepEqual(result.removedH2aMcpServers, ["h2a-local"]);
+    assert.deepEqual(result.removedTrackMcpServers, ["track", "legacy-track"]);
     const after = JSON.parse(readFileSync(target, "utf8"));
-    assert.equal(after.mcpServers.h2a.command, "old-bin");
+    assert.deepEqual(after.mcpServers.h2a, { url: "https://mcp.example.test/h2a" });
+    assert.equal(after.mcpServers["h2a-local"], undefined);
+    assert.equal(after.mcpServers.track, undefined);
+    assert.equal(after.mcpServers["legacy-track"], undefined);
+    assert.deepEqual(after.mcpServers["track-metrics"], { command: "prometheus-mcp", args: ["serve"] });
+    assert.deepEqual(after.mcpServers.other, { command: "other-bin", args: ["serve"] });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-test("h2a host setup --write --force overwrites a divergent mcpServers.h2a", () => {
+test("h2a host setup refuses native TOML, YAML, and JSONC writes before it can overwrite them", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-host-setup-"));
+  const codex = join(dir, "config.toml");
+  const hermes = join(dir, "config.yaml");
+  const opencode = join(dir, "opencode.jsonc");
+  try {
+    writeFileSync(codex, "[mcp_servers.other]\ncommand = \"other-mcp\"\n");
+    writeFileSync(hermes, "mcpServers:\n  h2a: {}\n");
+    writeFileSync(opencode, "// comment\n{ \"mcpServers\": {} }\n");
+    for (const [host, target, format] of [
+      ["codex", codex, "TOML"],
+      ["hermes", hermes, "YAML"],
+      ["opencode", opencode, "JSONC"]
+    ]) {
+      const streams = captureStreams(dir);
+      assert.equal(runCli(["host", "setup", "--host", host, "--write", target, "--force"], streams), 1);
+      assert.match(streams.stderrText, new RegExp(format));
+    }
+    assert.equal(readFileSync(codex, "utf8"), "[mcp_servers.other]\ncommand = \"other-mcp\"\n");
+    assert.equal(readFileSync(hermes, "utf8"), "mcpServers:\n  h2a: {}\n");
+    assert.equal(readFileSync(opencode, "utf8"), "// comment\n{ \"mcpServers\": {} }\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("h2a host setup --write --force may intentionally replace malformed JSON", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-host-setup-"));
   const target = join(dir, "mcp.json");
   try {
-    writeFileSync(
-      target,
-      JSON.stringify({
-        mcpServers: { h2a: { command: "old-bin", args: ["old"] } }
-      })
-    );
+    writeFileSync(target, "not json");
     const streams = captureStreams(dir);
     const rc = runCli(
       [

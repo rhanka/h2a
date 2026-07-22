@@ -35,5 +35,22 @@ export const H2A_CLI_MCP_TOOL_NAMES = [
   "h2a_loop_done",
   "h2a_loop_stop",
   "h2a_loop_list",
-  "h2a_loop_status"
+  "h2a_loop_status",
+  // Track's read-only tool surface is composed into the selected h2a endpoint.
+  // Keep this list aligned with @sentropic/track's exported descriptors.
+  "track_report",
+  "track_snapshot",
+  "track_query",
+  "track_validate",
+  "track_audit",
+  "track_branch_provenance",
+  "track_freshness",
+  "track_external_deps",
+  "track_status",
+  "track_verification_runs",
+  "track_scope_validate",
+  "track_cursor",
+  "track_canevas",
+  "track_amendment_trace",
+  "track_workspace_activity"
 ] as const;

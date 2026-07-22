@@ -1,14 +1,15 @@
 import { H2A_CLI_MCP_TOOL_NAMES } from "../../mcp.js";
+import { TRACK_READ_TOOL_DESCRIPTORS } from "@sentropic/track/mcp";
 
 export type McpToolName = (typeof H2A_CLI_MCP_TOOL_NAMES)[number];
 
 export interface McpToolDescriptor {
-  name: McpToolName;
+  name: string;
   description: string;
   inputSchema: {
     type: "object";
-    properties: Record<string, unknown>;
-    required?: string[];
+    properties?: Record<string, unknown>;
+    required?: readonly string[];
     additionalProperties?: boolean;
   };
 }
@@ -18,7 +19,7 @@ export interface McpToolDescriptor {
  * intentionally permissive — wire-level validation lives in the store /
  * @sentropic/h2a invariants, not in the MCP shim.
  */
-export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
+const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
   {
     name: "h2a_register_instance",
     description:
@@ -710,3 +711,24 @@ export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
     }
   }
 ];
+
+/**
+ * The one h2a endpoint serves coordination plus Track's read-only MCP tools.
+ * Track exports its descriptors and dispatcher from the same package surface,
+ * so the two transports cannot drift on schema or argument validation.
+ */
+export const H2A_CLI_MCP_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
+  ...H2A_COORDINATION_TOOL_DESCRIPTORS,
+  ...TRACK_READ_TOOL_DESCRIPTORS.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema as McpToolDescriptor["inputSchema"]
+  }))
+];
+
+const descriptorNames = new Set(H2A_CLI_MCP_TOOL_DESCRIPTORS.map((tool) => tool.name));
+for (const name of H2A_CLI_MCP_TOOL_NAMES) {
+  if (!descriptorNames.has(name)) {
+    throw new Error(`h2a MCP tool descriptor missing for ${name}`);
+  }
+}

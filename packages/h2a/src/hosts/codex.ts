@@ -1,20 +1,39 @@
 export interface RenderMcpConfigOptions {
+  /**
+   * The one active h2a endpoint for this host. Local is a stdio child process;
+   * remote is an HTTP MCP URL. A host config must never contain both forms.
+   */
+  endpoint?: "local" | "remote";
   /** Override the executable. Defaults to `"h2a"` (resolved through `PATH`). */
   command?: string;
   /** Override the args prefix. Defaults to `["mcp-serve"]`. */
   args?: readonly string[];
   /** When set, appends `["--root", root]` to the args. */
   root?: string;
+  /** Required for `endpoint: "remote"`; the host-native HTTP MCP URL. */
+  url?: string;
+}
+
+export type H2AMcpEndpointConfig =
+  | { command: string; args: string[] }
+  | { url: string };
+
+function assertHttpMcpUrl(value: string): void {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" && url.protocol !== "http:") {
+      throw new Error("unsupported protocol");
+    }
+  } catch {
+    throw new Error("remote h2a endpoint requires an absolute http(s) MCP URL");
+  }
 }
 
 export interface McpHostConfigSnippet {
   /** JSON snippet to merge into the host's MCP config file. */
   config: {
     mcpServers: {
-      h2a: {
-        command: string;
-        args: string[];
-      };
+      h2a: H2AMcpEndpointConfig;
     };
   };
   path: {
@@ -36,6 +55,33 @@ function buildArgs(
   return out;
 }
 
+/** Render exactly one selected h2a endpoint, never a local+remote pair. */
+export function renderH2aMcpServer(
+  options: RenderMcpConfigOptions = {}
+): H2AMcpEndpointConfig {
+  const endpoint = options.endpoint ?? "local";
+  if (endpoint !== "local" && endpoint !== "remote") {
+    throw new Error(`unknown h2a endpoint "${endpoint}"`);
+  }
+  if (endpoint === "remote") {
+    if (!options.url) {
+      throw new Error("remote h2a endpoint requires a URL");
+    }
+    assertHttpMcpUrl(options.url);
+    if (options.command || options.args || options.root) {
+      throw new Error("remote h2a endpoint cannot include local command, args, or root");
+    }
+    return { url: options.url };
+  }
+  if (options.url) {
+    throw new Error("local h2a endpoint cannot include a remote URL");
+  }
+  return {
+    command: options.command ?? "h2a",
+    args: buildArgs(options.args ?? ["mcp-serve"], options.root)
+  };
+}
+
 /**
  * Renders the JSON snippet a user must add to their Codex CLI MCP config
  * to expose the `h2a mcp-serve` JSON-RPC 2.0 server as an MCP backend.
@@ -47,15 +93,10 @@ function buildArgs(
 export function renderMcpConfig(
   options: RenderMcpConfigOptions = {}
 ): McpHostConfigSnippet {
-  const command = options.command ?? "h2a";
-  const baseArgs = options.args ?? ["mcp-serve"];
   return {
     config: {
       mcpServers: {
-        h2a: {
-          command,
-          args: buildArgs(baseArgs, options.root)
-        }
+        h2a: renderH2aMcpServer(options)
       }
     },
     path: {

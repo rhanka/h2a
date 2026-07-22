@@ -10,7 +10,11 @@ import { detectTmuxLaunchContext, type H2ADriver } from "../drive/index.js";
 import { createLocalStore } from "../local-files/index.js";
 import { reapDeadInstancePresence } from "../local-files/presence.js";
 import { agentVersion } from "../version/agent-version.js";
-import { createMcpServer, type McpServer } from "./server.js";
+import {
+  createMcpServer,
+  isMcpTransportResult,
+  type McpServer
+} from "./server.js";
 import type { H2aRunExecutor } from "./agent-launch.js";
 
 /**
@@ -198,6 +202,7 @@ function handleMethod(
         ? (p.arguments as Record<string, unknown>)
         : {};
     const result = server.callTool(name, args);
+    if (isMcpTransportResult(result)) return result;
     const isError = Boolean(
       result && typeof result === "object" && "error" in (result as object)
     );

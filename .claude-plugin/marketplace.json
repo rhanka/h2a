@@ -1,14 +1,14 @@
 {
   "name": "sentropic",
   "metadata": {
-    "description": "Sentropic ecosystem plugins for Claude Code (starting with track — the record-only system of record)."
+    "description": "Sentropic ecosystem plugin for Claude Code: h2a coordination with integrated read-only Track views."
   },
   "owner": { "name": "Sentropic", "email": "fabien.antoine.trash@gmail.com" },
   "plugins": [
     {
       "name": "h2a",
       "source": "./packages/h2a",
-      "description": "The single sentropic plugin — h2a coordination bus (MCP) + read-only track-mcp system of record; skills (h2a + track + harness) rendered on demand by `h2a install-skills`."
+      "description": "The single Sentropic plugin: h2a coordination MCP with integrated read-only Track views; skills (h2a + track + harness) rendered on demand by `h2a install-skills`."
     }
   ]
 }

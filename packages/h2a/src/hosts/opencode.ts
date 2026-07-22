@@ -3,12 +3,7 @@ import type {
   McpHostConfigSnippet,
   RenderMcpConfigOptions
 } from "./codex.js";
-
-function buildArgs(baseArgs: readonly string[], root: string | undefined): string[] {
-  const out = [...baseArgs];
-  if (root) out.push("--root", root);
-  return out;
-}
+import { renderH2aMcpServer } from "./codex.js";
 
 /**
  * OpenCode uses JSON/JSONC project/user configuration and supports plugin/MCP
@@ -17,15 +12,10 @@ function buildArgs(baseArgs: readonly string[], root: string | undefined): strin
  * merge/enable operation to the host-specific installer or the user.
  */
 export function renderMcpConfig(options: RenderMcpConfigOptions = {}): McpHostConfigSnippet {
-  const command = options.command ?? "h2a";
-  const baseArgs = options.args ?? ["mcp-serve"];
   return {
     config: {
       mcpServers: {
-        h2a: {
-          command,
-          args: buildArgs(baseArgs, options.root)
-        }
+        h2a: renderH2aMcpServer(options)
       }
     },
     path: {

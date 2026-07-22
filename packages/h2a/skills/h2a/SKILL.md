@@ -338,6 +338,21 @@ Consequences to respect:
 
 - **Auto-connect (recommended)**: register the MCP server with `mcp-serve --auto-open --host <h>` so a session opens at host startup (EVO-6/DEC-105); `/h2a disconnect` leaves early. `/h2a connect` stays available for manual/explicit connect.
 
+### Host MCP singleton
+
+Each supported host has **exactly one active `mcpServers.h2a` endpoint**. Select one transport and
+reconfigure the same entry; never stack a local h2a server, a remote h2a URL, or a separate Track server:
+
+- local stdio: `h2a host setup --host <host> --endpoint local --write <config.json>`;
+- remote HTTP: `h2a host setup --host <host> --endpoint remote --url <https://…/mcp> --write <config.json>`.
+
+Re-running `host setup --write` replaces the existing h2a entry and disables recognized standalone Track
+entries. **Never configure, call, or suggest `track-mcp` / `h2a track-mcp` as a host MCP endpoint.** The
+selected h2a endpoint exposes Track's read-only `track_*` tools; Track writes and imports remain `track` CLI
+operations from the designated repository root. The selected h2a endpoint is the only host MCP endpoint in
+this bundle. Packaged plugin manifests are a fixed **local** bootstrap; before selecting a remote endpoint
+with `host setup`, disable that package-managed local entry rather than enabling both configuration paths.
+
 - **Shared root**: same `<root>/.h2a/` for every cooperating CLI. If the user has not declared one, look for `<cwd>/.h2a/`, then `~/h2a-workspace/.h2a`, ask if neither exists.
 - **Instance id**: the **perennial** `host:slug(label):uuid12` resolved by `h2a connect` (reclaimed per `(host, workspace)`) — do NOT hand-mint `host:workspace-leaf`; that bare form is the channel alias.
 - **Subscriptions**: when opening a session, subscribe to all four canonical notification topics (`presence.peer_joined`, `presence.peer_left`, `inbox.envelope_arrived`, `negotiation.event_appended`) unless the user narrows the scope.
@@ -359,7 +374,7 @@ These can be invoked directly from the shell at any time, outside the slash-comm
 - `h2a sessions [--root <path>]` — same listing as `/h2a discover` but from the shell.
 - `h2a status [--root <path>] [--scope <s>] [--instance <i>]` — inventory of connected sessions split **direct** (local mcp-serve heartbeat) vs **indirect** (mirrored in from a remote/sidecar), with counts.
 - `h2a keys generate --instance <id>` — produce an ed25519 PEM keypair.
-- `h2a install-skills --host <claude|codex|gemini|agy>` — re-install or update this skill on another host. *(For **agy**/Antigravity the skill is written to the shared `~/.gemini/commands/h2a.toml`; the command then prints an `importHint` — run `agy plugin import gemini` (then `agy plugin enable h2a`) to pull it into agy. DEC-096/101.)*
+- `h2a install-skills --host <claude|codex|gemini|agy|hermes|opencode>` — re-install or update this skill on another host. *(For **agy**/Antigravity the skill is written to the shared `~/.gemini/commands/h2a.toml`; the command then prints an `importHint` — run `agy plugin import gemini` (then `agy plugin enable h2a`) to pull it into agy. DEC-096/101.)*
 
 **Operational surfaces** (also shell-invocable; matching `h2a_*` MCP tools where noted):
 
@@ -367,4 +382,4 @@ These can be invoked directly from the shell at any time, outside the slash-comm
 - `h2a blockage raise|list|resolve` — the peer blockage feedback loop, distinct from the drumbeat and from escalation (`h2a_blockage_*`, DEC-092). Subscribed sessions get `peer.blocked`/`peer.unblocked` pushes.
 - `h2a drumbeat record|scan|clear|escalations|watch` — anti-stall relance daemon + escalation-to-PRINCIPAL (DEC-086/091/095). Gov D2/D4 (0.64.0): a claimed conductor owns its workspace's relances — peers defer on fresh stalls (relanceCount=0); a failsafe lets a peer step in if the conductor leaves an agent stuck (relanceCount>=1, preventing workspace freeze). Cross-workspace relances emit a CoI advisory (warn, not blocked). Both behaviors are opt-in and default-allow: pass `--instance <self>` to `h2a drumbeat watch` to activate them.
 - `h2a sysml verify --json <env> --public-key <pem>` — verify a SysML-v2 ref embedded in a signed envelope (commit-trust + content-integrity, DEC-099).
-- `h2a host setup|status|plugin --host <codex|claude|gemini|agy>` — render the per-host MCP config / stop-hook glue (DEC-093/096).
+- `h2a host setup|status|plugin --host <codex|claude|gemini|agy|hermes|opencode>` — render the per-host singleton MCP config / stop-hook glue. `host setup --endpoint local|remote` selects one h2a endpoint and removes standalone Track MCP configuration.

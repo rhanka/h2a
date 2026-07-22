@@ -19,8 +19,8 @@ test("h2a-cli aggregates the supported hosts", () => {
 
 test("h2a-cli exposes the canonical MCP tool names", () => {
   assert.equal(H2A_CLI_MCP_TOOL_NAMES[0], "h2a_register_instance");
-  // ①slice-4a exposed the objective-loop read surface (now last).
-  assert.equal(H2A_CLI_MCP_TOOL_NAMES.at(-1), "h2a_loop_status");
+  // Track's read-only surface is composed into the selected h2a endpoint.
+  assert.equal(H2A_CLI_MCP_TOOL_NAMES.at(-1), "track_workspace_activity");
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_loop_list"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_loop_status"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_conductor_launch"));
@@ -33,6 +33,7 @@ test("h2a-cli exposes the canonical MCP tool names", () => {
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_blockage_raise"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_session_open"));
   assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("h2a_discover_sessions"));
+  assert.ok(H2A_CLI_MCP_TOOL_NAMES.includes("track_validate"));
 });
 
 test("h2a-cli renders help and command output", () => {

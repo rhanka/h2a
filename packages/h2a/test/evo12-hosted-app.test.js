@@ -14,7 +14,7 @@ const REDIRECT = "https://claude.ai/api/mcp/auth_callback";
 
 function h2aServer() {
   const dir = mkdtempSync(join(tmpdir(), "h2a-hosted-"));
-  return { dir, server: createMcpServer({ root: join(dir, ".h2a") }) };
+  return { dir, server: createMcpServer({ root: join(dir, ".h2a"), workspaceRoot: dir }) };
 }
 
 test("dispatchHostedTool: a read-only tool runs; a signing tool is refused (never reachable)", () => {
@@ -27,6 +27,18 @@ test("dispatchHostedTool: a read-only tool runs; a signing tool is refused (neve
     const refused = dispatchHostedTool(server, "h2a_sign", { instance: "x", privateKeyPem: "leak" });
     assert.equal(refused.isError, true);
     assert.match(refused.content[0].text, /not exposed on the hosted read-only surface/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("dispatchHostedTool: Track reads are served by the selected hosted h2a endpoint", () => {
+  const { dir, server } = h2aServer();
+  try {
+    const result = dispatchHostedTool(server, "track_validate", {});
+    assert.notEqual(result.isError, true);
+    assert.equal(JSON.parse(result.content[0].text).ok, true);
+    assert.match(result.content[1].text, /No \.track resolved/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

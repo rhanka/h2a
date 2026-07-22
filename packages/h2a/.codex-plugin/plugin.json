@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "h2a",
     "shortDescription": "Coordinate CLI agents and tracked work.",
-    "longDescription": "Connect Codex to the local h2a coordination bus and read-only track MCP, with packaged h2a and harness workflow skills.",
+    "longDescription": "Connect Codex to one local h2a coordination MCP endpoint, with packaged h2a and harness workflow skills.",
     "developerName": "Sentropic",
     "category": "Productivity",
     "capabilities": [

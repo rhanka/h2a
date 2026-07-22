@@ -6,7 +6,7 @@ function json(relative) {
   return JSON.parse(readFileSync(new URL(relative, import.meta.url), "utf8"));
 }
 
-test("the published h2a package carries a Codex plugin with canonical h2a + track MCPs", () => {
+test("the published h2a package carries a singleton h2a MCP endpoint", () => {
   const pkg = json("../package.json");
   const claudeManifest = json("../.claude-plugin/plugin.json");
   const manifest = json("../.codex-plugin/plugin.json");
@@ -36,10 +36,12 @@ test("the published h2a package carries a Codex plugin with canonical h2a + trac
     false,
     "Codex rmcp stdio must not execve an in-process auto-upgrade"
   );
-  assert.deepEqual(mcp.mcpServers.track, {
-    command: "h2a",
-    args: ["track-mcp"]
-  });
+  assert.deepEqual(Object.keys(mcp.mcpServers), ["h2a"]);
+  assert.equal(mcp.mcpServers.track, undefined);
+  assert.deepEqual(Object.keys(claudeManifest.mcpServers), ["h2a"]);
+  assert.equal(claudeManifest.mcpServers.track, undefined);
+  assert.doesNotMatch(claudeManifest.description, /track-mcp|track MCP/i);
+  assert.doesNotMatch(manifest.interface.longDescription, /track MCP/i);
 
   for (const entry of [".claude-plugin", ".codex-plugin", ".mcp.json"]) {
     assert.ok(pkg.files.includes(entry), `${entry} must ship in npm package`);
