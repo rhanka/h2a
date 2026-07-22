@@ -19,7 +19,24 @@ export const H2A_HOSTED_READONLY_TOOLS: readonly McpToolName[] = [
   "h2a_nhi_inventory",
   "h2a_nhi_report",
   "h2a_conflict_posture",
-  "h2a_blockage_list"
+  "h2a_blockage_list",
+  // Track tools are read-only by contract and are served through this same
+  // h2a endpoint; a hosted remote endpoint must not need a second Track MCP.
+  "track_report",
+  "track_snapshot",
+  "track_query",
+  "track_validate",
+  "track_audit",
+  "track_branch_provenance",
+  "track_freshness",
+  "track_external_deps",
+  "track_status",
+  "track_verification_runs",
+  "track_scope_validate",
+  "track_cursor",
+  "track_canevas",
+  "track_amendment_trace",
+  "track_workspace_activity"
 ];
 
 /** True iff the tool's input schema carries a private key (must never be hosted). */

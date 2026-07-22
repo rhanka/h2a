@@ -53,6 +53,10 @@ import {
   type McpToolDescriptor,
   type McpToolName
 } from "./tools.js";
+import {
+  TRACK_READ_TOOL_DESCRIPTORS,
+  callTrackReadTool
+} from "@sentropic/track/mcp";
 
 import { H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS } from "@sentropic/h2a";
 import {
@@ -91,12 +95,30 @@ export interface CreateMcpServerOptions {
 
 export interface McpServer {
   listTools(): McpToolDescriptor[];
-  callTool(name: string, args: Record<string, unknown> | undefined): McpToolResult | McpErrorResult;
+  callTool(name: string, args: Record<string, unknown> | undefined): McpToolResult | McpErrorResult | McpTransportResult;
   /** Per-server SessionRegistry, exposed for transport-layer shutdown hooks. */
   readonly sessions: SessionRegistry;
   /** Per-server NotificationDispatcher (DEC-052). */
   readonly notifications: NotificationDispatcher;
 }
+
+/** A tool result already formatted for the MCP transport (used by Track reads). */
+export interface McpTransportResult {
+  [key: string]: unknown;
+  content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
+}
+
+export function isMcpTransportResult(value: unknown): value is McpTransportResult {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "content" in value &&
+    Array.isArray((value as { content?: unknown }).content)
+  );
+}
+
+const TRACK_READ_TOOL_NAMES = new Set<string>(TRACK_READ_TOOL_DESCRIPTORS.map((tool) => tool.name));
 
 /**
  * Build an in-process MCP server backed by the local-files runtime.
@@ -123,7 +145,32 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   function callTool(
     name: string,
     args: Record<string, unknown> | undefined
-  ): McpToolResult | McpErrorResult {
+  ): McpToolResult | McpErrorResult | McpTransportResult {
+    if (TRACK_READ_TOOL_NAMES.has(name)) {
+      try {
+        const result = callTrackReadTool(
+          { cwd: options.workspaceRoot ?? process.cwd() },
+          name as (typeof TRACK_READ_TOOL_DESCRIPTORS)[number]["name"],
+          args ?? {}
+        );
+        return {
+          content: [
+            { type: "text", text: result.text },
+            ...(result.hint !== undefined ? [{ type: "text" as const, text: result.hint }] : [])
+          ]
+        };
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: error instanceof Error ? error.message : String(error)
+            }
+          ],
+          isError: true
+        };
+      }
+    }
     const toolName = name as McpToolName;
     switch (toolName) {
       case "h2a_register_instance":

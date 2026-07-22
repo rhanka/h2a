@@ -373,29 +373,45 @@ export function dispatchReadTool(
  * content (NOT embedded in the JSON schema). Resolution is LAZY (per call) so a `.track` created after
  * boot is picked up without a restart. A bad EXPLICIT override throws here → surfaced as `isError`.
  */
-interface ReadBinding {
+export interface TrackReadBinding {
   reader: TrackReader
   hint?: string
 }
 
+/**
+ * Resolve one read binding for an embedding MCP server. This is exported so
+ * h2a can expose Track's read-only tools through its single selected endpoint
+ * without running a second stdio MCP process.
+ */
+export function bindTrackRead(source: string | ResolveOptions): TrackReadBinding {
+  if (typeof source === 'string') return { reader: new TrackReader(source) }
+  const trackDir = resolveTrackDirOrNull(source) // bad explicit override stays loud
+  if (trackDir === null) {
+    return {
+      reader: new TrackReader(join(source.cwd, '.track', 'events.jsonl')),
+      hint: `No .track resolved from ${source.cwd}. Run \`track init\` to create one (the ONLY command that does), or pass --track-dir / TRACK_DIR. Serving an empty view.`,
+    }
+  }
+  return { reader: new TrackReader(join(trackDir, 'events.jsonl')) }
+}
+
+export interface TrackReadToolResult {
+  text: string
+  hint?: string
+}
+
+/** Dispatch one read-only Track MCP tool through the reusable resolver. */
+export function callTrackReadTool(
+  source: string | ResolveOptions,
+  name: string,
+  args: Record<string, unknown>,
+): TrackReadToolResult {
+  const binding = bindTrackRead(source)
+  return { text: dispatchReadTool(binding.reader, name, args), ...(binding.hint !== undefined ? { hint: binding.hint } : {}) }
+}
+
 /** Build a read-only MCP server. Accepts a fixed `eventsPath` (tests) or `ResolveOptions` (lazy serve). */
 export function createTrackMcpServer(source: string | ResolveOptions): Server {
-  // Fixed-path form (existing test API): bind one reader, never a hint.
-  // Lazy form (`track-mcp` boot): resolve the store per call so post-boot `track init` is seen.
-  const bind: () => ReadBinding =
-    typeof source === 'string'
-      ? () => ({ reader: new TrackReader(source) })
-      : () => {
-          const trackDir = resolveTrackDirOrNull(source) // throws on a bad explicit override (stays loud)
-          if (trackDir === null) {
-            return {
-              reader: new TrackReader(join(source.cwd, '.track', 'events.jsonl')), // nonexistent ⇒ empty
-              hint: `No .track resolved from ${source.cwd}. Run \`track init\` to create one (the ONLY command that does), or pass --track-dir / TRACK_DIR. Serving an empty view.`,
-            }
-          }
-          return { reader: new TrackReader(join(trackDir, 'events.jsonl')) }
-        }
-
   const server = new Server(
     { name: '@sentropic/track', version: VERSION },
     { capabilities: { tools: {} } },
@@ -405,13 +421,11 @@ export function createTrackMcpServer(source: string | ResolveOptions): Server {
 
   server.setRequestHandler(CallToolRequestSchema, (request) => {
     const { name, arguments: args } = request.params
-    let binding: ReadBinding
     try {
-      binding = bind() // a bad explicit override throws here → loud isError, not a silent empty-serve
-      const text = dispatchReadTool(binding.reader, name, (args ?? {}) as Record<string, unknown>)
-      const content = [{ type: 'text' as const, text }]
+      const result = callTrackReadTool(source, name, (args ?? {}) as Record<string, unknown>)
+      const content = [{ type: 'text' as const, text: result.text }]
       // Additive transport hint on a serve-empty read — never embedded in the payload JSON.
-      if (binding.hint !== undefined) content.push({ type: 'text' as const, text: binding.hint })
+      if (result.hint !== undefined) content.push({ type: 'text' as const, text: result.hint })
       return { content }
     } catch (error) {
       return {
