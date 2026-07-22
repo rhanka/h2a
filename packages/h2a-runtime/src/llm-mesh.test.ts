@@ -228,7 +228,7 @@ describe("Google OAuth refresh", () => {
 });
 
 describe("acquireLlmMeshSessionEnv", () => {
-  it("reacquires the deterministic gateway token and rewrites runtime metadata", async () => {
+  it("uses the supplied client session id and rewrites runtime metadata", async () => {
     writeFileSync(
       llmMeshTokenPath(SCRATCH),
       JSON.stringify({
@@ -243,29 +243,69 @@ describe("acquireLlmMeshSessionEnv", () => {
       expect(url).toBe("http://localhost:3002/v1/session");
       expect(init?.method).toBe("POST");
       expect(JSON.parse(String(init?.body))).toMatchObject({
-        sessionId: "local-dev",
+        sessionId: "h2a-proj-alpha",
         provider: "codex",
       });
-      return new Response(JSON.stringify({ gatewayToken: "gw-v1-local-dev.fixed" }), {
+      return new Response(JSON.stringify({ gatewayToken: "gw-v1-proj-alpha.fixed" }), {
         status: 201,
         headers: { "content-type": "application/json" },
       });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const env = await acquireLlmMeshSessionEnv(SCRATCH);
+    const env = await acquireLlmMeshSessionEnv(SCRATCH, "h2a-proj-alpha");
 
     expect(env).toEqual({
       ANTHROPIC_BASE_URL: "http://localhost:3002",
-      ANTHROPIC_AUTH_TOKEN: "gw-v1-local-dev.fixed",
-      ANTHROPIC_API_KEY: "gw-v1-local-dev.fixed",
+      ANTHROPIC_AUTH_TOKEN: "gw-v1-proj-alpha.fixed",
+      ANTHROPIC_API_KEY: "gw-v1-proj-alpha.fixed",
     });
     expect(JSON.parse(readFileSync(llmMeshTokenPath(SCRATCH), "utf8"))).toEqual({
-      gatewayToken: "gw-v1-local-dev.fixed",
+      gatewayToken: "gw-v1-proj-alpha.fixed",
       baseUrl: "http://localhost:3002",
       pid: process.pid,
       provider: "codex",
     });
+  });
+
+  it("does not share supplied or fallback session ids across acquisitions", async () => {
+    writeFileSync(
+      llmMeshTokenPath(SCRATCH),
+      JSON.stringify({
+        gatewayToken: "gw-stale",
+        baseUrl: "http://localhost:3002",
+        pid: process.pid,
+        provider: "codex",
+      }),
+      "utf8",
+    );
+    const sessionIds: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const { sessionId } = JSON.parse(String(init?.body)) as {
+          sessionId: string;
+        };
+        sessionIds.push(sessionId);
+        return new Response(JSON.stringify({ gatewayToken: `gw-${sessionId}` }), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    await acquireLlmMeshSessionEnv(SCRATCH, "h2a-proj-one");
+    await acquireLlmMeshSessionEnv(SCRATCH, "conv-two");
+    await acquireLlmMeshSessionEnv(SCRATCH);
+    await acquireLlmMeshSessionEnv(SCRATCH);
+
+    expect(sessionIds.slice(0, 2)).toEqual(["h2a-proj-one", "conv-two"]);
+    expect(sessionIds).not.toContain("local-dev");
+    expect(new Set(sessionIds).size).toBe(4);
+    expect(sessionIds.slice(2)).toEqual([
+      expect.stringMatching(/^local-[a-f0-9]{32}$/),
+      expect.stringMatching(/^local-[a-f0-9]{32}$/),
+    ]);
   });
 
   describe("LlmMeshManager capitalized API", () => {
