@@ -1795,6 +1795,7 @@ function shouldUseClaudeBare(profile: string): boolean {
 async function injectLlmMeshGatewayEnv(
   mode: "auto" | "gateway" | "direct" = "auto",
   allowDirectFallback = true,
+  clientSessionId?: string,
 ): Promise<string | undefined> {
   if (mode === "direct") {
     delete process.env.ANTHROPIC_BASE_URL;
@@ -1808,12 +1809,17 @@ async function injectLlmMeshGatewayEnv(
     delete process.env.ANTHROPIC_API_KEY;
     return undefined;
   }
-  let meshEnv = readLlmMeshSessionEnv() ?? (await acquireLlmMeshSessionEnv());
+  // A new local CLI session needs its own gateway token so account affinity is
+  // keyed by that session's stable identity. The cached token remains useful
+  // for callers that do not have a session identity (for example restore).
+  let meshEnv = clientSessionId
+    ? await acquireLlmMeshSessionEnv(undefined, clientSessionId)
+    : readLlmMeshSessionEnv() ?? (await acquireLlmMeshSessionEnv());
   if (!meshEnv) {
     const config = readLlmMeshConfig();
     if (config?.accounts.length) {
       try {
-        const result = await startGateway(config);
+        const result = await startGateway(config, { clientSessionId });
         meshEnv = {
           ANTHROPIC_BASE_URL: `http://localhost:${result.port}`,
           ANTHROPIC_AUTH_TOKEN: result.gatewayToken,
@@ -4733,7 +4739,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
-        const gateway = await injectLlmMeshGatewayEnv(gatewayMode);
+        const gateway = await injectLlmMeshGatewayEnv(
+          gatewayMode,
+          true,
+          entry.convId ?? localSessionName(resumeSlug),
+        );
         const useBare = shouldUseClaudeBare(profile);
         const command = localCliCommand(profile);
         const args = localResumeArgs(profile, entry.convId, {
@@ -5167,54 +5177,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         const launchGatewayMode =
           structuredLaunch && profile === "codex" ? "direct" : gatewayMode;
-        let activeGateway: string | undefined;
-        try {
-          if (structuredLaunch) {
-            activeGateway = await prepareStructuredGateway(launchGatewayMode);
-          } else {
-            activeGateway = await injectLlmMeshGatewayEnv(gatewayMode);
-          }
-        } catch (error) {
-          process.stderr.write(`[h2a] ${(error as Error).message}\n`);
-          process.exitCode = 1;
-          return;
-        }
-        const useBare = shouldUseClaudeBare(profile);
         const command = localCliCommand(profile);
-        let args: string[];
-        try {
-          args =
-            structuredLaunch && isAgentLaunchProfile(profile)
-              ? buildAgentLaunchArgs({
-                  profile,
-                  ...(initialPrompt !== undefined
-                    ? { prompt: initialPrompt }
-                    : {}),
-                  ...(opts.model !== undefined ? { model: opts.model } : {}),
-                  ...(opts.effort !== undefined
-                    ? { effort: opts.effort as AgentLaunchEffort }
-                    : {}),
-                  ...(opts.resume !== undefined
-                    ? { resumeId: opts.resume }
-                    : {}),
-                  ...(opts.headless ? { headless: true } : {}),
-                  ...(useBare ? { bare: true } : {}),
-                })
-              : opts.resume
-                ? localResumeArgs(profile, opts.resume, { bare: useBare })
-                : localStartArgs(profile, { bare: useBare });
-        } catch (error) {
-          process.stderr.write(`[h2a] ${(error as Error).message}\n`);
-          process.exitCode = 2;
-          return;
-        }
-        if (opts.resume && args.length === 0) {
-          process.stderr.write(
-            `[h2a] profile "${profile}" has no verified local resume argv; start it without -r/--resume\n`,
-          );
-          process.exitCode = 1;
-          return;
-        }
+        let activeGateway: string | undefined;
         const h2a = getH2aConfig();
         const h2aSidecar = opts.h2a ?? h2a.enabled;
         if (opts.headless && h2aSidecar) {
@@ -5239,6 +5203,66 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           resultJson?: string;
         }> = [];
         for (const label of labels) {
+          const clientSessionId =
+            opts.resume ?? localSessionName(slugify(label ?? cwd));
+          try {
+            if (structuredLaunch) {
+              activeGateway = await prepareStructuredGateway(
+                launchGatewayMode,
+                (selectedMode) =>
+                  injectLlmMeshGatewayEnv(
+                    selectedMode,
+                    selectedMode !== "gateway",
+                    clientSessionId,
+                  ),
+              );
+            } else {
+              activeGateway = await injectLlmMeshGatewayEnv(
+                gatewayMode,
+                true,
+                clientSessionId,
+              );
+            }
+          } catch (error) {
+            process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+            process.exitCode = 1;
+            return;
+          }
+          const useBare = shouldUseClaudeBare(profile);
+          let args: string[];
+          try {
+            args =
+              structuredLaunch && isAgentLaunchProfile(profile)
+                ? buildAgentLaunchArgs({
+                    profile,
+                    ...(initialPrompt !== undefined
+                      ? { prompt: initialPrompt }
+                      : {}),
+                    ...(opts.model !== undefined ? { model: opts.model } : {}),
+                    ...(opts.effort !== undefined
+                      ? { effort: opts.effort as AgentLaunchEffort }
+                      : {}),
+                    ...(opts.resume !== undefined
+                      ? { resumeId: opts.resume }
+                      : {}),
+                    ...(opts.headless ? { headless: true } : {}),
+                    ...(useBare ? { bare: true } : {}),
+                  })
+                : opts.resume
+                  ? localResumeArgs(profile, opts.resume, { bare: useBare })
+                  : localStartArgs(profile, { bare: useBare });
+          } catch (error) {
+            process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+            process.exitCode = 2;
+            return;
+          }
+          if (opts.resume && args.length === 0) {
+            process.stderr.write(
+              `[h2a] profile "${profile}" has no verified local resume argv; start it without -r/--resume\n`,
+            );
+            process.exitCode = 1;
+            return;
+          }
           let name: string;
           let slug: string;
           let outputLog: string | undefined;

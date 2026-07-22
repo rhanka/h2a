@@ -594,13 +594,17 @@ describe("h2a resume <slug>", () => {
     expect(process.env.ANTHROPIC_BASE_URL).toBe("http://localhost:3002");
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-test");
     expect(process.env.ANTHROPIC_API_KEY).toBe("gw-test");
+    expect(acquireLlmMeshSessionEnv).toHaveBeenCalledWith(
+      undefined,
+      "conv-dup",
+    );
   });
 
   it("overwrites stale parent Anthropic env with current llm-mesh token", async () => {
     process.env.ANTHROPIC_BASE_URL = "http://localhost:3002";
     process.env.ANTHROPIC_AUTH_TOKEN = "gw-stale";
     delete process.env.ANTHROPIC_API_KEY;
-    readLlmMeshSessionEnv.mockReturnValue({
+    acquireLlmMeshSessionEnv.mockResolvedValue({
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "gw-current",
       ANTHROPIC_API_KEY: "gw-current",
@@ -899,6 +903,31 @@ describe("h2a resume <slug>", () => {
 });
 
 describe("h2a run -r <conv> single-writer guard", () => {
+  it("uses the canonical tmux name as the gateway session id for a new launch", async () => {
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "gw-launch",
+      ANTHROPIC_API_KEY: "gw-launch",
+    });
+
+    const exitCode = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      "--name",
+      "gateway-worker",
+      "--gw",
+      "--no-attach",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(acquireLlmMeshSessionEnv).toHaveBeenCalledWith(
+      undefined,
+      "h2a-gateway-worker",
+    );
+  });
+
   it("refuses an existing local target before guard, gateway, registry, or spawn", async () => {
     findLocalSession.mockReturnValue({
       name: "remote-projA",
