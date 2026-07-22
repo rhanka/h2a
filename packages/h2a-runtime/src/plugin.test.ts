@@ -6,6 +6,7 @@ import {
   buildPodSyncScript,
   codexMcpServerBlock,
   detectMcpBins,
+  isStandaloneTrackMcpRequest,
   mcpTargetForProfile,
   mergeAgyMcpServers,
   mergeClaudeMcpServers,
@@ -69,10 +70,10 @@ describe("parseMcpSpec(s)", () => {
 });
 
 describe("detectMcpBins heuristic", () => {
-  it("picks bins ending in -mcp, named after the prefix", () => {
+  it("does not register Track as a standalone MCP", () => {
     expect(
       detectMcpBins({ track: "dist/cli.js", "track-mcp": "dist/mcp.js" }),
-    ).toEqual([{ name: "track", bin: "track-mcp" }]);
+    ).toEqual([]);
   });
 
   it("returns nothing when no bin matches", () => {
@@ -81,6 +82,14 @@ describe("detectMcpBins heuristic", () => {
 
   it("ignores a bare '-mcp' bin (empty name)", () => {
     expect(detectMcpBins({ "-mcp": "dist/mcp.js" })).toEqual([]);
+  });
+});
+
+describe("Track singleton guard", () => {
+  it("recognizes direct and aliased Track MCP registrations", () => {
+    expect(isStandaloneTrackMcpRequest({ name: "track", bin: "track-mcp" })).toBe(true);
+    expect(isStandaloneTrackMcpRequest({ name: "track-legacy", bin: "node" })).toBe(true);
+    expect(isStandaloneTrackMcpRequest({ name: "other", bin: "other-mcp" })).toBe(false);
   });
 });
 
@@ -288,11 +297,11 @@ describe("mcpTargetForProfile", () => {
 
 describe("buildPodSyncScript", () => {
   const PLUGIN: PluginEntry = {
-    pkg: "@sentropic/track",
+    pkg: "@sentropic/example",
     version: "0.2.0",
     mcp: [
       {
-        name: "track",
+        name: "example",
         command: "node",
         args: ["/local/realpath/dist/mcp.js"],
         scriptRel: "dist/mcp.js",
@@ -302,10 +311,10 @@ describe("buildPodSyncScript", () => {
 
   it("installs the pinned version and recomputes the realpath in the Pod", () => {
     const script = buildPodSyncScript(PLUGIN, "claude");
-    expect(script).toContain("npm install -g '@sentropic/track@0.2.0'");
+    expect(script).toContain("npm install -g '@sentropic/example@0.2.0'");
     expect(script).toContain('ROOT="$(npm root -g)"');
     // The POD-side realpath, not the meaningless local one.
-    expect(script).toContain('"$ROOT/@sentropic/track/dist/mcp.js"');
+    expect(script).toContain('"$ROOT/@sentropic/example/dist/mcp.js"');
     expect(script).not.toContain("/local/realpath");
     expect(script).toContain("realpathSync");
   });
@@ -314,22 +323,22 @@ describe("buildPodSyncScript", () => {
     const script = buildPodSyncScript(PLUGIN, "claude");
     expect(script).toContain(".claude.json");
     expect(script).toContain("node -e '");
-    expect(script).toContain("'track' \"$REAL\"");
+    expect(script).toContain("'example' \"$REAL\"");
   });
 
   it("appends an idempotent TOML section for codex pods", () => {
     const script = buildPodSyncScript(PLUGIN, "codex");
-    expect(script).toContain('grep -q "^\\[mcp_servers\\.track\\]"');
-    expect(script).toContain("[mcp_servers.track]");
+    expect(script).toContain('grep -q "^\\[mcp_servers\\.example\\]"');
+    expect(script).toContain("[mcp_servers.example]");
     expect(script).toContain('.codex/config.toml');
     expect(script).not.toContain(".claude.json");
   });
 
   it("merges agy mcp_config.json for agy pods (Pod-side realpath)", () => {
     const script = buildPodSyncScript(PLUGIN, "agy");
-    expect(script).toContain("npm install -g '@sentropic/track@0.2.0'");
+    expect(script).toContain("npm install -g '@sentropic/example@0.2.0'");
     expect(script).toContain(POD_AGY_MERGE_JS);
-    expect(script).toContain("'track' \"$REAL\"");
+    expect(script).toContain("'example' \"$REAL\"");
     expect(script).toContain("mcp_config.json");
     expect(script).not.toContain(".claude.json");
     expect(script).not.toContain("config.toml");
@@ -344,19 +353,32 @@ describe("buildPodSyncScript", () => {
 
   it("only installs (TODO note) for unwired profiles", () => {
     const script = buildPodSyncScript(PLUGIN, "shell");
-    expect(script).toContain("npm install -g '@sentropic/track@0.2.0'");
+    expect(script).toContain("npm install -g '@sentropic/example@0.2.0'");
     expect(script).toContain("TODO non câblé");
     expect(script).not.toContain("$REAL");
   });
 
   it("asks for a re-add when scriptRel is missing", () => {
     const legacy: PluginEntry = {
-      pkg: "@sentropic/track",
+      pkg: "@sentropic/example",
       version: "0.2.0",
-      mcp: [{ name: "track", command: "node", args: ["/local/x.js"] }],
+      mcp: [{ name: "example", command: "node", args: ["/local/x.js"] }],
     };
     const script = buildPodSyncScript(legacy, "claude");
-    expect(script).toContain("re-run: h2a plugin add @sentropic/track");
+    expect(script).toContain("re-run: h2a plugin add @sentropic/example");
+  });
+
+  it("keeps a persisted Track package install but never recreates its standalone MCP", () => {
+    const track: PluginEntry = {
+      pkg: "@sentropic/track",
+      version: "0.2.0",
+      mcp: [{ name: "track", command: "node", args: ["/local/track-mcp.js"], scriptRel: "dist/mcp.js" }],
+    };
+    const script = buildPodSyncScript(track, "claude");
+    expect(script).toContain("npm install -g '@sentropic/track@0.2.0'");
+    expect(script).toContain("Track is exposed through the selected h2a endpoint");
+    expect(script).not.toContain(".claude.json");
+    expect(script).not.toContain("$REAL");
   });
 
   it("rejects unsafe package names / versions (shell injection guard)", () => {

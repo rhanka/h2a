@@ -1,6 +1,6 @@
 {
   "name": "h2a",
-  "description": "h2a — the single sentropic CLI/plugin for human-centered coordination of conversational and coding agents. Bundles the h2a coordination bus (MCP) plus the read-only track-mcp system of record. Skills (h2a + track + harness) are rendered onto the host on demand by `h2a install-skills` from each package's single source — never copied into the plugin.",
+  "description": "h2a — the single sentropic CLI/plugin for human-centered coordination of conversational and coding agents. Bundles one h2a coordination MCP endpoint. Skills (h2a + track + harness) are rendered onto the host on demand by `h2a install-skills` from each package's single source — never copied into the plugin.",
   "version": "0.85.21",
   "author": {
     "name": "Fabien Antoine"
@@ -17,12 +17,6 @@
         "local-tmux",
         "--auto-open",
         "--auto-upgrade"
-      ]
-    },
-    "track": {
-      "command": "h2a",
-      "args": [
-        "track-mcp"
       ]
     }
   }

@@ -55,6 +55,21 @@ test("createMcpServer.listTools returns all canonical tools with schemas (DEC-05
   }
 });
 
+test("selected h2a endpoint exposes Track read tools without a second Track MCP", () => {
+  const root = freshRoot();
+  try {
+    const server = createMcpServer({ root: join(root, ".h2a"), workspaceRoot: root });
+    assert.ok(server.listTools().some((tool) => tool.name === "track_validate"));
+    const result = server.callTool("track_validate", {});
+    assert.equal(result.isError, undefined);
+    assert.equal(result.content[0].type, "text");
+    assert.equal(JSON.parse(result.content[0].text).ok, true);
+    assert.match(result.content[1].text, /No \.track resolved/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("callTool h2a_register_instance + h2a_discover_instances dispatch to the store", () => {
   const root = freshRoot();
   try {

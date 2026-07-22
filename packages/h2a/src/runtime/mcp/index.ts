@@ -1,6 +1,8 @@
 export {
   createMcpServer,
+  isMcpTransportResult,
   type CreateMcpServerOptions,
+  type McpTransportResult,
   type McpServer
 } from "./server.js";
 

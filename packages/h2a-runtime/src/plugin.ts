@@ -1,7 +1,7 @@
 /**
- * `remote plugin` — install npm "plugin" packages (a CLI + an MCP server, e.g.
- * @sentropic/track shipping bins `track` and `track-mcp`) for every agent CLI
- * (claude, codex, agy), both LOCALLY (npm i -g + MCP registration) and inside
+ * `remote plugin` — install npm plugin packages (a CLI + optional MCP server)
+ * for every agent CLI (claude, codex, agy), both LOCALLY (npm i -g + MCP
+ * registration) and inside
  * live REMOTE session Pods (`remote plugin sync`: kubectl exec → npm i -g +
  * per-profile MCP registration).
  *
@@ -157,6 +157,15 @@ export function splitNpmSpec(spec: string): { pkg: string; version?: string } {
 
 export type McpRequest = { name: string; bin: string };
 
+/** Track is served through h2a's single endpoint, never as a plugin-owned MCP. */
+export function isStandaloneTrackMcpRequest(request: McpRequest): boolean {
+  return (
+    /^track(?:[-_.]|$)/i.test(request.name) ||
+    request.bin === "track-mcp" ||
+    /[\\/]track-mcp(?:\.cmd|\.exe)?$/i.test(request.bin)
+  );
+}
+
 /** Parse one `--mcp <name>=<bin>` spec. */
 export function parseMcpSpec(spec: string): McpRequest {
   const eq = spec.indexOf("=");
@@ -188,6 +197,7 @@ export function detectMcpBins(
     if (!bin.endsWith("-mcp")) continue;
     const name = bin.slice(0, -"-mcp".length);
     if (!name || !SAFE_NAME.test(name)) continue;
+    if (isStandaloneTrackMcpRequest({ name, bin })) continue;
     requests.push({ name, bin });
   }
   return requests;
@@ -394,6 +404,14 @@ export function buildPodSyncScript(
   ];
   const target = mcpTargetForProfile(profile);
   for (const mcp of plugin.mcp) {
+    if (
+      plugin.pkg === "@sentropic/track" ||
+      plugin.pkg === "track" ||
+      isStandaloneTrackMcpRequest({ name: mcp.name, bin: mcp.name === "track" ? "track-mcp" : mcp.name })
+    ) {
+      lines.push(`echo "mcp ${mcp.name}: skipped — Track is exposed through the selected h2a endpoint"`);
+      continue;
+    }
     assertSafeName(mcp.name);
     if (!mcp.scriptRel) {
       lines.push(
@@ -953,8 +971,10 @@ export function reconcileSessionPlugins(
 // ---------------------------------------------------------------------------
 
 /**
- * `remote plugin add <npmPkg> [--mcp name=bin]...` — npm i -g, register the
- * MCP server(s) with claude + codex + agy, persist in the config.
+ * `remote plugin add <npmPkg> [--mcp name=bin]...` — npm i -g, register
+ * non-Track MCP server(s) with claude + codex + agy, persist in the config.
+ * Track remains installable, but its read tools are served through h2a's one
+ * selected endpoint instead of registering `track-mcp` directly.
  */
 export function pluginAdd(
   npmSpec: string,
@@ -978,8 +998,15 @@ export function pluginAdd(
   assertSafeVersion(version);
   const bins = normalizeBins(pkg, pkgJson.bin);
 
-  const requests =
+  const detectedRequests =
     mcpSpecs.length > 0 ? parseMcpSpecs(mcpSpecs) : detectMcpBins(bins);
+  const skippedTrackRequests = detectedRequests.filter(isStandaloneTrackMcpRequest);
+  const requests = detectedRequests.filter((request) => !isStandaloneTrackMcpRequest(request));
+  if (skippedTrackRequests.length > 0) {
+    stderr.write(
+      `[h2a] skipped standalone Track MCP registration (${skippedTrackRequests.map((request) => request.name).join(", ")}) — Track is exposed through the selected h2a endpoint\n`,
+    );
+  }
   if (requests.length === 0) {
     stderr.write(
       `[h2a] no MCP bin detected for ${pkg} (none ends in -mcp; bins: ${Object.keys(bins).join(", ") || "none"}) — pass --mcp <name>=<bin>\n`,
