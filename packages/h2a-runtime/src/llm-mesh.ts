@@ -598,12 +598,26 @@ export interface StartResult {
 }
 
 /**
+ * A gateway session is an account-affinity boundary, so a local CLI session
+ * must never inherit a process-wide static identifier. Callers provide the
+ * stable tmux/conversation identity when they have one; standalone gateway
+ * management gets a fresh ephemeral identity instead.
+ */
+export function gatewayClientSessionId(clientSessionId?: string): string {
+  const supplied = clientSessionId?.trim();
+  return supplied || `local-${randomBytes(16).toString("hex")}`;
+}
+
+/**
  * Start the llm-gateway as a detached background process.
  * Returns the PID, port, and a gw-token for Claude Code.
  */
 export async function startGateway(
   config: LlmMeshConfig,
-  opts: { readonly verbose?: boolean | undefined } = {},
+  opts: {
+    readonly verbose?: boolean | undefined;
+    readonly clientSessionId?: string | undefined;
+  } = {},
 ): Promise<StartResult> {
   const port = config.port ?? 3002;
   const logFile = llmMeshLogPath(config);
@@ -691,7 +705,7 @@ export async function startGateway(
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      sessionId: "local-dev",
+      sessionId: gatewayClientSessionId(opts.clientSessionId),
       workspaceId: process.cwd(),
       provider: sessionProvider,
     }),
@@ -794,7 +808,10 @@ export function readLlmMeshSessionEnv(dir?: string): {
  * Gateway tokens are intentionally not durable; after a gateway restart,
  * llm-mesh-token.json may point at a token the new process does not know.
  */
-export async function acquireLlmMeshSessionEnv(dir?: string): Promise<{
+export async function acquireLlmMeshSessionEnv(
+  dir?: string,
+  clientSessionId?: string,
+): Promise<{
   ANTHROPIC_BASE_URL: string;
   ANTHROPIC_AUTH_TOKEN: string;
   ANTHROPIC_API_KEY: string;
@@ -837,7 +854,7 @@ export async function acquireLlmMeshSessionEnv(dir?: string): Promise<{
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        sessionId: "local-dev",
+        sessionId: gatewayClientSessionId(clientSessionId),
         workspaceId,
         provider,
       }),
