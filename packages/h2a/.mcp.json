@@ -10,10 +10,6 @@
         "local-tmux",
         "--auto-open"
       ]
-    },
-    "track": {
-      "command": "h2a",
-      "args": ["track-mcp"]
     }
   }
 }

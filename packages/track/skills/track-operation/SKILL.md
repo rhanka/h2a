@@ -27,8 +27,14 @@ For ANY human-facing track report or status (including "fais-moi un track report
 
 ## Contract
 
-- The `track` MCP server is read-only by design. MCP tools may report, query, validate, inspect canvas
-  state, or show cursor/status data; they must not append to `.track/`.
+- Track's read surface is read-only by design. It may report, query, validate, inspect canvas state, or show
+  cursor/status data; it must not append to `.track/`.
+- **Host MCP singleton:** a host may configure exactly one active h2a endpoint, selected as local stdio or
+  remote HTTP — never both. Re-running `h2a host setup --write` replaces that endpoint and removes its
+  standalone Track entry rather than stacking servers.
+- **Never configure or call `track-mcp` / `h2a track-mcp` directly as a host MCP endpoint.** Track is not a
+  second host MCP connection: use the selected h2a endpoint for its read-only `track_*` tools. Use the
+  `track` CLI from the repository root for human AI reports, writes, and imports.
 - Do not treat missing MCP write/import tools as a blocker. Writes and imports are CLI operations.
 - Run CLI writes from the target repository root, never from a different checkout. `track branch import
   ../other-repo/plan/X.md` writes to the current repo's `.track/`, not the other repo's store.
@@ -103,7 +109,7 @@ Report track results from the verified state, not from memory:
 | Capability | Claude | Codex | Gemini-agy |
 | --- | --- | --- | --- |
 | skill entrypoint | `~/.claude/skills/track-operation/SKILL.md` | `~/.codex/skills/track-operation/SKILL.md` | `~/.gemini/commands/track-operation.toml` |
-| read tools | track MCP or CLI report/query/validate | track MCP or CLI report/query/validate | track MCP or CLI report/query/validate |
+| read tools | selected h2a `track_*` tools or `track` CLI | selected h2a `track_*` tools or `track` CLI | selected h2a `track_*` tools or `track` CLI |
 | write/import tools | `track` CLI | `track` CLI | `track` CLI |
 
 Existing repo methods win on conflict. If a repo has a harness flow, let harness own the BRANCH artifact and

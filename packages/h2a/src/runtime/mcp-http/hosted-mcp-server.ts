@@ -14,7 +14,7 @@ import {
 
 import { currentCliVersion } from "../upgrade/index.js";
 import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "../mcp/tools.js";
-import type { McpServer } from "../mcp/server.js";
+import { isMcpTransportResult, type McpServer } from "../mcp/server.js";
 import { hostedReadOnlyDescriptors, isHostedReadOnlyTool } from "./readonly-allowlist.js";
 
 export function dispatchHostedTool(
@@ -29,6 +29,7 @@ export function dispatchHostedTool(
     };
   }
   const result = h2a.callTool(name, args);
+  if (isMcpTransportResult(result)) return result;
   if (result && typeof result === "object" && "error" in result && typeof result.error === "string") {
     return { content: [{ type: "text", text: result.error }], isError: true };
   }

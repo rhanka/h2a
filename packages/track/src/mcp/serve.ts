@@ -10,7 +10,13 @@ import { createTrackMcpServer } from './server.js'
 
 // Re-export the factory so `@sentropic/track/mcp` is the single surface an
 // embedding host imports (server + serve helpers together).
-export { createTrackMcpServer } from './server.js'
+export {
+  READ_TOOLS as TRACK_READ_TOOL_DESCRIPTORS,
+  callTrackReadTool,
+  createTrackMcpServer,
+  type TrackReadBinding,
+  type TrackReadToolResult,
+} from './server.js'
 
 export interface ServeTrackMcpStdioOptions {
   /**

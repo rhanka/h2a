@@ -189,7 +189,7 @@ h2a mcp-serve [--root <path>]
 h2a focus serve [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]
 
 # Host wiring (MCP snippets for each host)
-h2a host setup --host <codex|claude|gemini> [--root <path>] [--print | --write <file>] [--force]
+h2a host setup --host <codex|claude|gemini|agy|hermes|opencode> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force]
 h2a host status [--host <name>]
 ```
 
