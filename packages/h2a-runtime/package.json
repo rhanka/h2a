@@ -1,6 +1,6 @@
 {
   "name": "@sentropic/h2a-runtime",
-  "version": "0.85.20",
+  "version": "0.85.21",
   "type": "module",
   "exports": {
     ".": {
