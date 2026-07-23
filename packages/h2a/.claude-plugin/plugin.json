@@ -19,5 +19,6 @@
         "--auto-upgrade"
       ]
     }
-  }
+  },
+  "hooks": "./hooks/hooks.json"
 }
