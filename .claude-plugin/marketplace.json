@@ -1,14 +1,14 @@
 {
   "name": "sentropic",
   "metadata": {
-    "description": "Sentropic ecosystem plugin for Claude Code: h2a coordination with integrated read-only Track views."
+    "description": "The Sentropic H2A plugin marketplace. Install the single `h2a` plugin for H2A coordination, Track read tools, and bundled operating skills."
   },
   "owner": { "name": "Sentropic", "email": "fabien.antoine.trash@gmail.com" },
   "plugins": [
     {
       "name": "h2a",
       "source": "./packages/h2a",
-      "description": "The single Sentropic plugin: h2a coordination MCP with integrated read-only Track views; skills (h2a + track + harness) rendered on demand by `h2a install-skills`."
+      "description": "The one H2A plugin: coordination MCP (including Track read tools) plus H2A, Track, and Harness skills."
     }
   ]
 }

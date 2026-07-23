@@ -86,23 +86,22 @@ The cardinal roles: **PRINCIPAL** (the ultimate human), **EXECUTIF** (overall re
 ## 5-minute getting started
 
 ```bash
-# 1. Install
-npm i -g @sentropic/h2a-cli@latest
+# 1. Add the marketplace once, then install the single H2A plugin.
+# It provides one `h2a` MCP (H2A + Track read tools) and the H2A/Track/Harness skills.
+claude plugin marketplace add rhanka/h2a
+claude plugin install h2a@sentropic
 
-# 2. Bootstrap each host CLI (do this once per machine)
+# 2. Update it later — do not install a Track plugin or a second h2a MCP.
+claude plugin update h2a@sentropic
+
+# 3. Bootstrap each host CLI (do this once per machine)
 h2a connect --host claude --root ~/h2a-workspace/.h2a --instance claude:demo
 h2a connect --host codex  --root ~/h2a-workspace/.h2a --instance codex:demo
 h2a connect --host gemini --root ~/h2a-workspace/.h2a --instance gemini:demo
-# … then merge the printed MCP snippets into each CLI's config
 
-# 3. Generate a signing key per instance
+# 4. Generate a signing key per instance
 h2a keys generate --instance claude:demo --root ~/h2a-workspace/.h2a
 h2a keys generate --instance codex:demo  --root ~/h2a-workspace/.h2a
-
-# 4. Install the `/h2a` skill into each host CLI
-h2a install-skills --host claude --scope user
-h2a install-skills --host codex  --scope user
-h2a install-skills --host gemini --scope user
 ```
 
 Then, inside each CLI:
@@ -116,6 +115,8 @@ Then, inside each CLI:
 /h2a negotiate open ...       ← starts a signed negotiation
 /h2a help                     ← command map
 ```
+
+**Claude Code plugin installation/update**: [`docs/plugin-installation.md`](./docs/plugin-installation.md). It defines the single-plugin, single-MCP contract and legacy migration.
 
 **Full step-by-step guide**: [`docs/tutorial-cross-cli.md`](./docs/tutorial-cross-cli.md). It covers setup, common failure modes, and the V1/V2 mapping.
 
