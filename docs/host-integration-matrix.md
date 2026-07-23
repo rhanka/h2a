@@ -20,6 +20,20 @@ Status vocabulary:
 | Hermes | shipped/rendered (`h2a host setup --host hermes`) | shipped if Hermes loads MCP config | shipped/rendered (`install-skills --host hermes`, `host plugin --host hermes`) | automated render tests; live Hermes hook/plugin E2E pending |
 | OpenCode | shipped/rendered (`h2a host setup --host opencode`) | shipped if OpenCode loads MCP config | shipped/rendered (`install-skills --host opencode`, `host plugin --host opencode`) | automated render tests; live OpenCode binary/plugin E2E pending |
 
+## Security/policy capability disclosure
+
+For a policy such as blocking manual `h2a` CLI use, this matrix is not enough to
+infer parity: see the normative [host operator capability
+contract](specs/2026-07-23-host-operator-capability-contract.md) and the
+[adapter development guide](host-adapter-development.md). Current status is:
+
+| Policy: forbid manual `h2a` shell invocation | State | Evidence |
+|---|---|---|
+| Claude Code | enforced | packaged `PreToolUse(Bash)` guard + policy corpus tests |
+| Codex | gap | marketplace lifecycle hooks do not evidence pre-shell interception |
+| Hermes | gap | MCP/skill integration is not a pre-shell guard |
+| OpenCode | gap | MCP/skill integration is not a pre-shell guard |
+
 ## Publication gate
 
 Do not mark this loop done until:
