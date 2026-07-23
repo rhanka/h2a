@@ -33,6 +33,7 @@ contract](specs/2026-07-23-host-operator-capability-contract.md) and the
 | Codex | gap | marketplace lifecycle hooks do not evidence pre-shell interception |
 | Hermes | gap | MCP/skill integration is not a pre-shell guard |
 | OpenCode | gap | MCP/skill integration is not a pre-shell guard |
+| agy | gap | poll/lifecycle integration is not a pre-shell guard |
 
 ## Publication gate
 
