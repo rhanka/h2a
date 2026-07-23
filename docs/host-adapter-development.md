@@ -1,6 +1,6 @@
 # Developing H2A host adapters
 
-This guide prevents capability gaps between CLI operators from becoming implicit
+This guide prevents capability gaps between CLI operators from becoming implicit. The parity set for the manual H2A CLI guard is Claude, Codex, Hermes, OpenCode, and agy.
 or from being papered over with a shared label.
 
 ## Before coding

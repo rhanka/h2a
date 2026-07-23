@@ -15,7 +15,7 @@ test("host capability contract has a closed, evidence-bearing state vocabulary",
 
 test("manual CLI policy reports Claude enforcement and explicit gaps elsewhere", () => {
   const spec = read("docs/specs/2026-07-23-host-operator-capability-contract.md");
-  for (const [host, state] of [["Claude Code", "enforced"], ["Codex", "gap"], ["Hermes", "gap"], ["OpenCode", "gap"]]) {
+  for (const [host, state] of [["Claude Code", "enforced"], ["Codex", "gap"], ["Hermes", "gap"], ["OpenCode", "gap"], ["agy", "gap"]]) {
     assert.ok(spec.includes(`| ${host} | \`${state}\``), `${host} must be ${state}`);
   }
   const guide = read("docs/host-adapter-development.md");
