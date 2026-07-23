@@ -57,6 +57,7 @@ pre-shell interception.
 | Codex | `gap` | Existing marketplace hooks are lifecycle hooks; probe a Codex pre-shell tool interception API before implementing. |
 | Hermes | `gap` | MCP/skill rendering exists; probe documented hook/plugin pre-shell interception. |
 | OpenCode | `gap` | MCP/skill rendering exists; probe a `tool.execute.before`-equivalent plugin API and its deny semantics. |
+| agy | `gap` | Poll/lifecycle integration is not a pre-shell guard; probe a native pre-tool extension boundary and deny semantics. |
 
 ## 5. Release gate
 
