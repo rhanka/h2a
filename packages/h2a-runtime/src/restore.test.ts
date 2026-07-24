@@ -158,7 +158,37 @@ describe("registry-first discovery", () => {
     expect(tabs.find((t) => t.label === "projB")?.origin).toBe("scan");
   });
 
-  it("multiSessionDefault caps per-project tabs (default 1 keeps newest only)", () => {
+  it("multiSessionDefault caps the SCAN fallback (default 1 keeps newest guess only)", () => {
+    // Filesystem-scan guesses (origin 'scan') can duplicate ONE conversation, so
+    // the cap tames THEM — keep only the newest guess per project by default.
+    const mk = (sid: string, ageMs: number): DiscoveredSession => ({
+      project: "sentropic",
+      mtimeMs: Date.now() - ageMs,
+      tool: "claude",
+      sid,
+      cwd: join(home, "src", "sentropic"),
+      origin: "scan",
+      label: sid,
+    });
+    const sessions = [mk("a", 0), mk("b", 1000), mk("c", 2000)];
+    const oneTab = groupSessions(sessions, DEFAULT_LAYOUT).windows.flatMap(
+      (w) => w.tabs,
+    );
+    expect(oneTab).toHaveLength(1);
+    expect(oneTab[0]!.label).toBe("a"); // newest
+
+    // <= 0 = no limit: every scanned session of the project gets a tab.
+    const allTabs = groupSessions(sessions, {
+      ...DEFAULT_LAYOUT,
+      multiSessionDefault: 0,
+    }).windows.flatMap((w) => w.tabs);
+    expect(allTabs.map((t) => t.label).sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("does NOT cap REGISTRY-backed sessions — each distinct human session survives", () => {
+    // Live registry sessions are each a distinct, verified session (keyed by
+    // identity), so the per-repo cap must never collapse them: a repo like
+    // `sentropic` legitimately runs several concurrent human sessions.
     const mk = (sid: string, ageMs: number): DiscoveredSession => ({
       project: "sentropic",
       mtimeMs: Date.now() - ageMs,
@@ -169,18 +199,10 @@ describe("registry-first discovery", () => {
       label: sid,
     });
     const sessions = [mk("a", 0), mk("b", 1000), mk("c", 2000)];
-    const oneTab = groupSessions(sessions, DEFAULT_LAYOUT).windows.flatMap(
+    const tabs = groupSessions(sessions, DEFAULT_LAYOUT).windows.flatMap(
       (w) => w.tabs,
     );
-    expect(oneTab).toHaveLength(1);
-    expect(oneTab[0]!.label).toBe("a"); // newest
-
-    // <= 0 = no limit: every live session of the project gets a tab.
-    const allTabs = groupSessions(sessions, {
-      ...DEFAULT_LAYOUT,
-      multiSessionDefault: 0,
-    }).windows.flatMap((w) => w.tabs);
-    expect(allTabs.map((t) => t.label).sort()).toEqual(["a", "b", "c"]);
+    expect(tabs.map((t) => t.label).sort()).toEqual(["a", "b", "c"]);
   });
 });
 
