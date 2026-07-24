@@ -133,6 +133,24 @@ export function discoverSessions(
 }
 
 /**
+ * Is a registry entry a HUMAN-FACING session that `remote restore` may resurrect
+ * as a dev tab? No, when it is:
+ *  - a delegated job (`role: "job"`) — a background worker spawned by
+ *    `h2a delegate`/the conductor; no human ever sat in front of it, and
+ *    relaunching it as a dev tab is exactly the "restore relaunches fake/bg
+ *    agents" defect. Delegated jobs are enrolled WITHOUT a sessionClass, so the
+ *    background check below never catches them — the role check must.
+ *  - an explicit background launch (`sessionClass: "background"`) — an MCP /
+ *    `run --background` detached session, likewise not a human dev tab.
+ * Pure, exported for tests.
+ */
+export function isHumanFacingSession(
+  e: Pick<RegistryEntry, "role" | "sessionClass">,
+): boolean {
+  return e.role !== "job" && e.sessionClass !== "background";
+}
+
+/**
  * REGISTRY-FIRST discovery: live registry entries (local kinds) mapped to
  * discovered sessions. label/cwd/convId come straight from enrolment, no
  * mtime guessing. `entries` is injectable for tests (defaults to listLive()).
@@ -145,7 +163,9 @@ export function registrySessions(
   const out: DiscoveredSession[] = [];
   for (const e of entries) {
     if (e.kind === "remote") continue; // remote groups are filled from SCW
-    if (e.sessionClass === "background") continue;
+    // Only human dev sessions are restorable — never delegated jobs or explicit
+    // background launches (they had no human in front of them).
+    if (!isHumanFacingSession(e)) continue;
     if (!e.cwd.startsWith(`${src}/`)) continue;
     const project = e.cwd.slice(src.length + 1).split("/")[0];
     if (!project) continue;
@@ -279,12 +299,23 @@ export function groupSessions(
     // Per-project cap: explicit override, else the global default. <= 0 = no
     // limit (every live session of the project gets a tab) — `remote restore`
     // then sweeps the WHOLE fleet, duplicates included.
+    //
+    // The cap ONLY tames the mtime-guessing SCAN fallback, where several rollout
+    // files can point at ONE conversation, so keeping only the newest guess is
+    // right. REGISTRY-backed sessions are each a DISTINCT, verified-live session
+    // keyed by its own identity (tmux slug / convId), so every one is preserved:
+    // a repo like `sentropic` legitimately runs several concurrent human sessions
+    // and restore must bring back each, not collapse them to one tab.
     const cap = cfg.multiSession[project] ?? cfg.multiSessionDefault;
     const limit = cap <= 0 ? Number.POSITIVE_INFINITY : cap;
-    const arr = (byProject.get(project) ?? [])
+    const all = (byProject.get(project) ?? [])
       .slice()
-      .sort((a, b) => b.mtimeMs - a.mtimeMs)
-      .slice(0, limit);
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    const registryBacked = all.filter((s) => s.origin === "registry");
+    const scanned = all.filter((s) => s.origin !== "registry").slice(0, limit);
+    const arr = [...registryBacked, ...scanned].sort(
+      (a, b) => b.mtimeMs - a.mtimeMs,
+    );
     return arr.map((s, i) => {
       const tab: LayoutTab = {
         cwd: s.cwd,
