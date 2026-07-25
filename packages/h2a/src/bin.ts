@@ -157,7 +157,24 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
 } else if (argv[0] === "remote" && argv[1] === "mirror-serve") {
   runAsync("remote mirror-serve", runMirrorServe(parseFlagsFrom(2)));
 } else if (argv[0] === "remote" && argv[1] === "mirror") {
-  runAsync("remote mirror", runMirrorPush(parseFlagsFrom(2)));
+  // ONE-SHOT unless `--interval-ms` was passed. The daemon form is long-running,
+  // so it gets the same graceful-shutdown wiring as mcp-serve / loop supervise:
+  // SIGTERM stops it between cycles instead of killing a push mid-flight.
+  const ac = new AbortController();
+  if (argv.includes("--interval-ms")) {
+    const onSignal = (sig: NodeJS.Signals): void => {
+      process.stderr.write(`h2a remote mirror: received ${sig}, stopping\n`);
+      ac.abort();
+      setTimeout(() => process.exit(process.exitCode ?? 0), 500).unref();
+    };
+    for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+      process.once(sig, () => onSignal(sig));
+    }
+  }
+  runAsync(
+    "remote mirror",
+    runMirrorPush(parseFlagsFrom(2), { stdout: process.stdout, stderr: process.stderr }, ac.signal)
+  );
 } else if (argv[0] === "drive" && argv[1] === "serve") {
   runAsync("drive serve", runDriveServe(parseFlagsFrom(2)));
 } else if (argv[0] === "drumbeat" && argv[1] === "relance-inbox") {
