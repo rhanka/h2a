@@ -104,6 +104,17 @@ changes. What the daemon adds is only scheduling and failure handling:
 - **An unusable `--url` never starts.** A target that is not a parseable http(s)
   URL — an unfilled placeholder, a typo — is refused before the first cycle. It
   would otherwise look like a network failure and be retried forever.
+- **A root that cannot produce a mirror stops it.** Five consecutive local build
+  failures — overwhelmingly `H2A_ROOT` pointing at a root where the instance
+  never registered — exit 1. Nothing is ever sent in that state, so idling
+  `active (running)` forever would report green while the feed is dead.
+- **The status line says what was pushed**, not just that something was: each
+  cycle logs `seq` plus the number of registrations, presence sessions and
+  subagent bindings. A `presence: 0` line is a *successful push of an empty
+  mirror* — the pipeline is healthy and the UI will still show nothing.
+- **A dead status sink stops it cleanly.** If stdout closes (piping into
+  something that exits, a journald restart), the daemon stops with exit 0 rather
+  than pushing on where nobody can see what it is doing.
 - **Safe logs.** One JSON status line per cycle on stdout: cycle number,
   outcome, HTTP status, a closed-vocabulary rejection reason, duration, and the
   endpoint reduced to scheme+host+path. Never key material, never a token, never
@@ -165,7 +176,29 @@ journal line says which:
 |---|---|
 | `mirror push STOPPED: the endpoint rejected this instance's signing key` | enroll this instance's current public key on the receiving side, then restart |
 | `mirror push STOPPED: the endpoint rejected this mirror on every attempt` | check `--url` points at the ingester's mirror path, and check this host's clock |
+| `mirror push STOPPED: this h2a root does not know the instance being mirrored` | fix `--instance` / `H2A_ROOT` — nothing was ever sent |
 | `mirror push NOT STARTED: the push target is not a usable http(s) URL` | fill in / fix the `--url` in `ExecStart` |
+
+### Why a local misconfiguration terminates instead of retrying
+
+A wrong `H2A_ROOT` — a root where this instance never registered — cannot
+self-heal. If the daemon just kept retrying it, nothing would ever be sent while
+`systemctl status` reported `active (running)` indefinitely. Downstream, the feed
+would behave correctly and start reporting those rows `stale` after ~2× the push
+interval, because `mirroredAt` stopped advancing.
+
+That is the problem: the two layers would **disagree**, and the honest one would
+be the *far* one. `systemctl status` (right next to the fault, on the operator's
+own machine) would say healthy, while a staleness flag in a web UI nobody is
+watching would be the only truthful signal. The signal nearest the fault must be
+at least as honest as the one furthest from it — so a non-self-healing local
+failure exits 1 and says why. Transient network failures are the opposite case:
+they *can* self-heal, so those keep looping.
+
+Between the stop reasons above and the per-cycle counts below, `systemctl status`
+plus `journalctl` are enough to tell "pushing real data", "pushing an empty
+mirror", "being refused", "cannot build", and "stopped on purpose" apart —
+without consulting the feed at all.
 
 The unit carries `RestartPreventExitStatus=1` precisely so those stops are
 respected — **do not remove that line**, or systemd will turn a deliberate stop
@@ -175,7 +208,26 @@ back into an endless retry against an endpoint that is saying no.
 
 The daemon is opt-in at the CLI too: `h2a remote mirror` **with no
 `--interval-ms` is still exactly the one-shot it always was**. Verify a single
-push is accepted before arming any unit:
+push is accepted before arming any unit.
+
+**Why, concretely — two reasons, both about things that look fine for a long
+time.**
+
+*It discloses metadata repeatedly.* Daemon-ising the push means the payload —
+your registrations, your live-session presence, and your subagent NHI bindings —
+leaves this host every 20 seconds instead of once when you asked for it. That
+envelope is **signed, but not encrypted**: the signature proves who wrote it, it
+does not hide what it says. A mistyped `--url` therefore does not merely fail, it
+*keeps disclosing that metadata* to whatever host answers — and if that host
+returns a 2xx, the journal logs a contented `ok` every cycle while it happens.
+
+*A misconfigured root can look healthy at the unit level.* A one-shot tells you
+immediately whether this root can even build a mirror for this instance. Skip it,
+and the failure you get instead is the one described above — a unit that reads
+`active (running)` while the only honest signal is a staleness flag in a web UI
+you are not watching.
+
+One-shot first, and read the response:
 
 ```sh
 h2a remote mirror --url <endpoint> --instance <id> --private-key <pem>   # one-shot

@@ -252,6 +252,70 @@ test("the shipped-unit state (kill-switch + unfilled placeholders) is a clean ex
   }
 });
 
+// The state an operator is ACTUALLY in while editing the shipped unit: some
+// placeholders replaced, and a `--private-key <path>` token pair accidentally
+// dropped. The README promises a disarmed unit is `inactive (dead)`, "not a
+// failure" — so that promise has to hold for a HALF-edited unit too. It used to
+// exit 1 (required-flags check ran before the opt-in gate, hence before the
+// kill-switch), pinning the unit in systemd `failed` with RestartPreventExitStatus.
+test("a PARTIALLY edited unit (kill-switch + a missing required flag) still exits 0", async () => {
+  const stub = stubFetch(() => ({ status: 202, body: { ok: true } }));
+  const previous = process.env[MIRROR_PUSH_OFF_ENV];
+  process.env[MIRROR_PUSH_OFF_ENV] = "1";
+  try {
+    // Each case drops one required flag while the kill-switch is set.
+    const partials = [
+      { url: URL_FAKE, instance: INSTANCE, "interval-ms": "20000" }, // no --private-key
+      { url: URL_FAKE, "private-key": "/nope", "interval-ms": "20000" }, // no --instance
+      { instance: INSTANCE, "private-key": "/nope", "interval-ms": "20000" }, // no --url
+      { "interval-ms": "20000" } // nothing filled in at all
+    ];
+    for (const flags of partials) {
+      const streams = captureStreams(process.cwd());
+      const rc = await runMirrorPush(flags, streams, undefined, FAST);
+      assert.equal(rc, 0, `disarmed + ${JSON.stringify(flags)} must exit 0, not fail`);
+      assert.match(streams.stderrText, /the live push is disabled/);
+      assert.ok(
+        !/required/.test(streams.stderrText),
+        "a disabled daemon does not even judge its arguments"
+      );
+    }
+    assert.equal(stub.calls.length, 0, "nothing sent");
+  } finally {
+    if (previous === undefined) delete process.env[MIRROR_PUSH_OFF_ENV];
+    else process.env[MIRROR_PUSH_OFF_ENV] = previous;
+    stub.restore();
+  }
+});
+
+test("ARMED, the same missing flag is still an error (the contract is unchanged)", async () => {
+  const streams = captureStreams(process.cwd());
+  const rc = await runMirrorPush(
+    { url: URL_FAKE, instance: INSTANCE, "interval-ms": "20000" },
+    streams,
+    undefined,
+    FAST
+  );
+  assert.equal(rc, 1);
+  assert.match(streams.stderrText, /--url, --instance and --private-key are required/);
+});
+
+test("--interval-ms=N (equals form) is refused, never silently downgraded to one-shot", async () => {
+  const stub = stubFetch(() => ({ status: 202, body: { ok: true } }));
+  try {
+    const streams = captureStreams(process.cwd());
+    const rc = await runMirrorPush(
+      { url: URL_FAKE, instance: INSTANCE, "private-key": "/nope", "interval-ms=20000": "true" },
+      streams
+    );
+    assert.equal(rc, 1, "a mistyped opt-in must not quietly run as a one-shot");
+    assert.match(streams.stderrText, /use "--interval-ms 20000"/);
+    assert.equal(stub.calls.length, 0, "and must not push");
+  } finally {
+    stub.restore();
+  }
+});
+
 test("the kill-switch short-circuits BEFORE flag validation too", async () => {
   const previous = process.env[MIRROR_PUSH_OFF_ENV];
   process.env[MIRROR_PUSH_OFF_ENV] = "1";
@@ -294,7 +358,9 @@ test("an unfilled or unusable --url is refused up front, not retried forever", a
         FAST
       );
       assert.equal(rc, 1, `--url ${JSON.stringify(bad)} must fail fast`);
-      assert.match(streams.stderrText, /--url must be an http\(s\) URL/);
+      // The CLI emits the DOCUMENTED message, so the string an operator greps
+      // for in the journal is the one the README's table lists.
+      assert.match(streams.stderrText, /mirror push NOT STARTED: the push target is not a usable http\(s\) URL/);
     }
     assert.equal(stub.calls.length, 0, "an unusable URL pushes nothing, ever");
   } finally {
@@ -323,7 +389,7 @@ test("the ONE-SHOT still accepts any --url (unchanged: the transport reports it)
     assert.equal(rc, 1);
     assert.equal(calls, 1, "the one-shot still attempted exactly once");
     assert.ok(
-      !/--url must be an http/.test(streams.stderrText),
+      !/NOT STARTED/.test(streams.stderrText),
       "the daemon-only pre-flight must not leak into the one-shot"
     );
   } finally {

@@ -55,6 +55,21 @@
  *  - TRANSIENT ERRORS KEEP LOOPING. A network throw, a 5xx or a 429 is the
  *    endpoint's problem, not ours: exponential backoff (capped), then carry on.
  *
+ *  - A STATUS MUST NOT BE WIDER THAN ITS EVIDENCE. The dividing line for every
+ *    stop rule above is "can this self-heal": a network outage can, a refused
+ *    key / a refused request / a root that cannot build this instance's mirror
+ *    cannot. The non-self-healing cases therefore TERMINATE rather than idle,
+ *    because idling would make this process the dishonest layer. Consider a
+ *    wrong `H2A_ROOT`: nothing is ever sent, so the feed downstream correctly
+ *    starts reporting those rows `stale` once `mirroredAt` stops advancing —
+ *    while `systemctl status` would still read `active (running)`. The two
+ *    layers would disagree and the only honest signal would be the one FURTHEST
+ *    from the operator, in a UI nobody is watching. The signal nearest the fault
+ *    has to be at least as honest as the far one, so we exit 1 and say why.
+ *    Correspondingly, the per-cycle line reports what the push CONTAINED (seq +
+ *    counts), so a successful push of an empty mirror is never mistaken for a
+ *    healthy feed.
+ *
  *  - DRAINABLE. `signal` is honored before each cycle and inside every sleep,
  *    so SIGTERM stops promptly instead of finishing the schedule.
  *
@@ -112,6 +127,25 @@ export const DEFAULT_MIRROR_AUTH_FAILURE_LIMIT = 3;
  */
 export const DEFAULT_MIRROR_REJECT_LIMIT = 5;
 
+/**
+ * How many CONSECUTIVE local build failures are tolerated before the daemon
+ * stops. `buildInstanceMirror` throwing means this root does not know this
+ * instance — overwhelmingly because `H2A_ROOT` points somewhere the agent never
+ * registered, the misconfiguration the shipped unit file explicitly warns about.
+ * A wrong root NEVER self-heals, and looping on it forever is the worst possible
+ * failure shape: no request is ever sent, yet `systemctl status` reads
+ * `active (running)` indefinitely, so monitoring keyed on systemd state reads
+ * green while the feed is dead. It must terminate loudly instead. 5 leaves room
+ * for a genuinely transient race (an agent re-registering, a root being created).
+ *
+ * The contract-level argument (from the feed contract's own architect): in this
+ * failure mode the feed WOULD report `stale` correctly, because `mirroredAt` stops
+ * advancing — so the honest signal exists, but only at the layer furthest from the
+ * operator. Idling here would ship a daemon that claims health next to a contract
+ * written specifically to refuse claiming it.
+ */
+export const DEFAULT_MIRROR_BUILD_FAILURE_LIMIT = 5;
+
 /** Name of the global kill-switch env var. */
 export const MIRROR_PUSH_OFF_ENV = "H2A_MIRROR_PUSH_OFF";
 
@@ -147,6 +181,17 @@ export const MIRROR_PUSH_REJECTED_MESSAGE =
  * http(s) endpoint. Returned BEFORE any cycle runs, because a URL `fetch` cannot
  * even parse would otherwise be retried forever as a transient network failure.
  */
+/**
+ * Emitted when the daemon stops because it cannot even BUILD a mirror locally.
+ * Names the likely cause, because this failure never reaches the network and so
+ * leaves no server-side trace for the operator to correlate against.
+ */
+export const MIRROR_PUSH_BUILD_FAILED_MESSAGE =
+  "mirror push STOPPED: this h2a root does not know the instance being mirrored, on every attempt. " +
+  "Nothing was ever sent, and this cannot self-heal by retrying. " +
+  "Check that --instance names an instance registered in THIS root and that H2A_ROOT / --root points at the root where that agent actually registers " +
+  "(h2a discover --root <root> lists them). Nothing further will be pushed until the daemon is restarted.";
+
 export const MIRROR_PUSH_INVALID_URL_MESSAGE =
   "mirror push NOT STARTED: the push target is not a usable http(s) URL, so no request could ever succeed. " +
   "Set --url to the ingester's full mirror endpoint (for example https://host/h2a/mirror). " +
@@ -177,9 +222,12 @@ export type MirrorPushOutcome =
  * Why the daemon returned. Every reason is a clean, intentional stop — the
  * daemon never falls out of its loop by accident.
  *
- * `auth-stop`, `reject-stop` and `config-invalid` are the three that need a
- * human act; they are exactly the reasons that carry a `message`, and the CLI
- * turns any `message` into exit 1 so systemd keeps the unit stopped.
+ * `auth-stop`, `reject-stop`, `build-stop` and `config-invalid` are the four
+ * that need a human act; they are exactly the reasons that carry a `message`,
+ * and the CLI turns any `message` into exit 1 so systemd keeps the unit stopped.
+ * `log-unavailable` is a CLEAN stop (no message, exit 0): the status sink went
+ * away — a piped stdout closed — so the daemon stops rather than keep pushing
+ * with no way to report what it is doing.
  */
 export type MirrorPushStopReason =
   | "max-cycles"
@@ -187,7 +235,9 @@ export type MirrorPushStopReason =
   | "kill-switch"
   | "auth-stop"
   | "reject-stop"
-  | "config-invalid";
+  | "build-stop"
+  | "config-invalid"
+  | "log-unavailable";
 
 export interface MirrorPushCycleResult {
   readonly outcome: MirrorPushOutcome;
@@ -198,6 +248,25 @@ export interface MirrorPushCycleResult {
   /** Sanitized error text for `transient` / `build-failed`. Never secrets. */
   readonly error?: string;
   readonly durationMs: number;
+  /**
+   * What the pushed envelope actually CONTAINED. All non-secret: a monotonic
+   * sequence number and three cardinalities, never a body.
+   *
+   * Without these, a `200` says only "the endpoint accepted something" — a valid
+   * root whose instance has no live sessions pushes `presence: []` every cycle
+   * and logs a perfectly healthy `ok`, while the hosted UI shows nothing. These
+   * make "successfully pushed nothing" distinguishable from "pushed the mirror".
+   */
+  readonly payload?: MirrorPushPayloadShape;
+}
+
+/** Non-secret shape of one pushed mirror: what it carried, never its content. */
+export interface MirrorPushPayloadShape {
+  /** Per-instance monotonic sequence the receiver fences on. */
+  readonly seq?: number;
+  readonly registrations: number;
+  readonly presence: number;
+  readonly subagents: number;
 }
 
 /** The one-line-per-cycle status record. Safe to journal verbatim. */
@@ -218,6 +287,16 @@ export interface MirrorPushCycleLog {
   readonly authFailures?: number;
   /** Consecutive non-auth rejections so far — 0 unless the request is refused. */
   readonly rejections?: number;
+  /** Consecutive local build failures so far — 0 unless the root is wrong. */
+  readonly buildFailures?: number;
+  /** Sequence number of the pushed envelope (fencing anchor). */
+  readonly seq?: number;
+  /** How many registrations the pushed mirror carried. */
+  readonly registrations?: number;
+  /** How many presence sessions it carried — 0 means "pushed an empty mirror". */
+  readonly presence?: number;
+  /** How many subagent bindings it carried. */
+  readonly subagents?: number;
 }
 
 export interface MirrorPushDaemonSummary {
@@ -236,8 +315,26 @@ export interface MirrorPushDaemonSummary {
   readonly authFailures: number;
   /** Consecutive non-auth rejections at stop time. */
   readonly rejections: number;
+  /** Consecutive local build failures at stop time. */
+  readonly buildFailures: number;
+  /**
+   * Times the status sink (`onCycle`) threw. Never affects the push itself —
+   * observability failures are counted, not propagated — but a non-zero value
+   * means the journal is an incomplete record of what this daemon did.
+   */
+  readonly logFailures: number;
   readonly stopReason: MirrorPushStopReason;
-  /** Present only on `auth-stop`: {@link MIRROR_PUSH_REENROLLMENT_MESSAGE}. */
+  /**
+   * The actionable instruction for a stop that needs a human act. Present on
+   * exactly the four such stops — `auth-stop`
+   * ({@link MIRROR_PUSH_REENROLLMENT_MESSAGE}), `reject-stop`
+   * ({@link MIRROR_PUSH_REJECTED_MESSAGE}), `build-stop`
+   * ({@link MIRROR_PUSH_BUILD_FAILED_MESSAGE}) and `config-invalid`
+   * ({@link MIRROR_PUSH_INVALID_URL_MESSAGE}) — and absent on the clean stops
+   * (`max-cycles`, `aborted`, `kill-switch`, `log-unavailable`). Its presence is
+   * what the CLI keys exit 1 on, so systemd's `RestartPreventExitStatus=1` keeps
+   * the unit stopped instead of restarting into the same wall.
+   */
   readonly message?: string;
 }
 
@@ -289,6 +386,12 @@ export function sanitizeForLog(text: string): string {
         /([\w.-]*(?:token|key|secret|password|passwd|signature|credential)s?)=([^&\s]+)/gi,
         "$1=[redacted]"
       )
+      // HEADER form (`X-Api-Key: literal`, `cookie: sid=…`). The `name=value`
+      // rule above cannot see these, because the delimiter is a colon.
+      .replace(
+        /^([ \t]*[\w-]*(?:token|key|secret|password|passwd|auth|authorization|cookie|credential)s?)[ \t]*:[ \t]*\S.*$/gim,
+        "$1: [redacted]"
+      )
       .slice(0, 300)
   );
 }
@@ -299,17 +402,61 @@ export function sanitizeForLog(text: string): string {
  * `Promise.reject()` — and this daemon's whole contract is that a cycle never
  * throws. Reading `.message` off a non-Error would itself throw, escape the
  * classifier, and land in the CLI's unsanitized fatal handler.
+ *
+ * EVERY read is inside the `try`, deliberately. Accessing `.message` is not a
+ * safe operation: it can be a getter that throws (including on a real `Error`
+ * subclass), so a guard that only wraps the `String()` fallback still lets a
+ * hostile object escape. The whole inspection is therefore fallible-by-default.
  */
 function errorText(error: unknown): string {
-  if (error instanceof Error && typeof error.message === "string") return error.message;
-  const message = (error as { message?: unknown } | null | undefined)?.message;
-  if (typeof message === "string") return message;
   try {
+    if (error instanceof Error && typeof error.message === "string") return error.message;
+    const message = (error as { message?: unknown } | null | undefined)?.message;
+    if (typeof message === "string") return message;
     return String(error);
   } catch {
-    // A thrown object with a hostile toString still must not break the cycle.
+    // A hostile `message` getter or `toString` still must not break the cycle.
     return "[unrepresentable error]";
   }
+}
+
+/**
+ * True when a logging failure means the status sink is GONE for good rather than
+ * momentarily unhappy — a closed or destroyed stream. A piped stdout that the
+ * reader closed (`| head -3`, a journald restart) surfaces as EPIPE and never
+ * reopens, so the honest response is to stop, not to keep pushing unobservably.
+ */
+function isClosedStreamError(error: unknown): boolean {
+  let code: unknown;
+  try {
+    code = (error as { code?: unknown } | null | undefined)?.code;
+  } catch {
+    return false;
+  }
+  return code === "EPIPE" || code === "ERR_STREAM_DESTROYED" || code === "ERR_STREAM_WRITE_AFTER_END";
+}
+
+/**
+ * Read the non-secret shape of the envelope about to be pushed: its sequence
+ * number and the cardinality of each collection. Never its contents. Defensive
+ * about shape, because a caller can inject any `buildImpl`.
+ */
+function payloadShapeOf(envelope: H2AEnvelope): MirrorPushPayloadShape {
+  const body = (envelope as { body?: unknown }).body as
+    | {
+        seq?: unknown;
+        registrations?: unknown;
+        presence?: unknown;
+        subagents?: unknown;
+      }
+    | undefined;
+  const count = (v: unknown): number => (Array.isArray(v) ? v.length : 0);
+  return {
+    ...(typeof body?.seq === "number" ? { seq: body.seq } : {}),
+    registrations: count(body?.registrations),
+    presence: count(body?.presence),
+    subagents: count(body?.subagents)
+  };
 }
 
 /**
@@ -424,6 +571,10 @@ export function createMirrorPushRunner(
         };
       }
 
+      // Read once, before the send, so the shape is reported even for a failed
+      // push (the envelope is what WAS attempted).
+      const payload = payloadShapeOf(envelope);
+
       let status: number;
       let body: unknown;
       try {
@@ -438,26 +589,27 @@ export function createMirrorPushRunner(
         return {
           outcome: "transient",
           error: sanitizeForLog(errorText(error)),
-          durationMs: nowFn() - startedAt
+          durationMs: nowFn() - startedAt,
+          payload
         };
       }
 
       const durationMs = nowFn() - startedAt;
       const reason = rejectionReasonOf(body);
       if (status >= 200 && status < 300) {
-        return { outcome: "ok", status, durationMs };
+        return { outcome: "ok", status, durationMs, payload };
       }
       if (isAuthRejection(status)) {
         // The key itself is refused. Counted toward the stop budget.
-        return { outcome: "auth-rejected", status, ...(reason ? { reason } : {}), durationMs };
+        return { outcome: "auth-rejected", status, ...(reason ? { reason } : {}), durationMs, payload };
       }
       if (isTransientStatus(status)) {
-        return { outcome: "transient", status, ...(reason ? { reason } : {}), durationMs };
+        return { outcome: "transient", status, ...(reason ? { reason } : {}), durationMs, payload };
       }
       // Other 4xx: a rejected envelope (stale sequence, replay, clock skew).
       // Some of these self-heal as the sequence advances, so we keep looping —
       // but backed off, so a permanently malformed push is not a hot loop.
-      return { outcome: "rejected", status, ...(reason ? { reason } : {}), durationMs };
+      return { outcome: "rejected", status, ...(reason ? { reason } : {}), durationMs, payload };
     } finally {
       inFlight = false;
     }
@@ -481,6 +633,8 @@ export interface MirrorPushDaemonOptions extends MirrorPushRunnerOptions {
   readonly authFailureLimit?: number;
   /** Consecutive non-auth rejections tolerated. Default {@link DEFAULT_MIRROR_REJECT_LIMIT}. */
   readonly rejectLimit?: number;
+  /** Consecutive local build failures tolerated. Default {@link DEFAULT_MIRROR_BUILD_FAILURE_LIMIT}. */
+  readonly buildFailureLimit?: number;
   readonly backoffBaseMs?: number;
   readonly backoffMaxMs?: number;
   /** Pre-built runner (shares one overlap guard across callers). */
@@ -533,6 +687,10 @@ export async function runMirrorPushDaemon(
     options.rejectLimit && options.rejectLimit > 0
       ? options.rejectLimit
       : DEFAULT_MIRROR_REJECT_LIMIT;
+  const buildLimit =
+    options.buildFailureLimit && options.buildFailureLimit > 0
+      ? options.buildFailureLimit
+      : DEFAULT_MIRROR_BUILD_FAILURE_LIMIT;
   const backoffBase =
     options.backoffBaseMs && options.backoffBaseMs > 0
       ? options.backoffBaseMs
@@ -549,6 +707,8 @@ export async function runMirrorPushDaemon(
   let skippedOverlap = 0;
   let authFailures = 0;
   let rejections = 0;
+  let buildFailures = 0;
+  let logFailures = 0;
   let consecutiveFailures = 0;
 
   const finish = (
@@ -561,6 +721,8 @@ export async function runMirrorPushDaemon(
     skippedOverlap,
     authFailures,
     rejections,
+    buildFailures,
+    logFailures,
     stopReason,
     ...(message ? { message } : {})
   });
@@ -603,28 +765,60 @@ export async function runMirrorPushDaemon(
       // Only a genuinely ACCEPTED push clears either stop budget.
       authFailures = 0;
       rejections = 0;
+      buildFailures = 0;
     } else {
       failures += 1;
       consecutiveFailures += 1;
       if (result.outcome === "auth-rejected") authFailures += 1;
       if (result.outcome === "rejected") rejections += 1;
+      if (result.outcome === "build-failed") buildFailures += 1;
     }
 
-    const emit = async (nextInMs?: number): Promise<void> => {
-      await options.onCycle?.({
-        cycle: cycles,
-        at: new Date(nowFn()).toISOString(),
-        instance: options.instance,
-        endpoint,
-        outcome: result.outcome,
-        ...(result.status !== undefined ? { status: result.status } : {}),
-        ...(result.reason ? { reason: result.reason } : {}),
-        ...(result.error ? { error: result.error } : {}),
-        durationMs: result.durationMs,
-        ...(nextInMs !== undefined ? { nextInMs } : {}),
-        authFailures,
-        rejections
-      });
+    /**
+     * Emit the status line. OBSERVABILITY MUST NOT BREAK THE PIPELINE: `onCycle`
+     * is caller-supplied and writes to a stream the caller owns, so it can throw
+     * — the common case being EPIPE once a piped stdout closes (`| head -3`, a
+     * journald restart). Unguarded, that rejection escaped the daemon into the
+     * CLI's raw fatal handler and pinned the unit `failed` with a message
+     * matching none of the documented stops.
+     *
+     * A dead sink is not a reason to keep pushing blind, though: a closed stream
+     * never reopens, so we stop CLEANLY (exit 0, no message) instead of running
+     * unobservable. Any other logging error is counted and ignored.
+     *
+     * Returns false when the caller should stop.
+     */
+    const emit = async (nextInMs?: number): Promise<boolean> => {
+      if (!options.onCycle) return true;
+      try {
+        await options.onCycle({
+          cycle: cycles,
+          at: new Date(nowFn()).toISOString(),
+          instance: options.instance,
+          endpoint,
+          outcome: result.outcome,
+          ...(result.status !== undefined ? { status: result.status } : {}),
+          ...(result.reason ? { reason: result.reason } : {}),
+          ...(result.error ? { error: result.error } : {}),
+          durationMs: result.durationMs,
+          ...(result.payload?.seq !== undefined ? { seq: result.payload.seq } : {}),
+          ...(result.payload
+            ? {
+                registrations: result.payload.registrations,
+                presence: result.payload.presence,
+                subagents: result.payload.subagents
+              }
+            : {}),
+          ...(nextInMs !== undefined ? { nextInMs } : {}),
+          authFailures,
+          rejections,
+          buildFailures
+        });
+        return true;
+      } catch (error) {
+        logFailures += 1;
+        return !isClosedStreamError(error);
+      }
     };
 
     // AUTH STOP: the budget is spent, so stop instead of hammering a server
@@ -640,6 +834,14 @@ export async function runMirrorPushDaemon(
     if (rejections >= rejectLimit) {
       await emit(undefined);
       return finish("reject-stop", MIRROR_PUSH_REJECTED_MESSAGE);
+    }
+
+    // BUILD STOP: we cannot even assemble a mirror. Nothing was sent and nothing
+    // will be, so idling `active (running)` forever would report green while the
+    // feed is dead. A wrong H2A_ROOT never self-heals — terminate loudly.
+    if (buildFailures >= buildLimit) {
+      await emit(undefined);
+      return finish("build-stop", MIRROR_PUSH_BUILD_FAILED_MESSAGE);
     }
 
     if (options.max !== undefined && cycles >= options.max) {
@@ -673,7 +875,9 @@ export async function runMirrorPushDaemon(
       waitMs = Math.max(0, Math.round(due - nowFn() + jitter));
     }
 
-    await emit(waitMs);
+    // A dead status sink stops the daemon cleanly rather than leaving it to push
+    // where nobody can see what it is doing.
+    if (!(await emit(waitMs))) return finish("log-unavailable");
     await sleep(waitMs, options.signal);
     if (options.signal?.aborted) return finish("aborted");
   }

@@ -43,15 +43,19 @@ Environment=H2A_MIRROR_PUSH_OFF=1
 # set, --max reached, or SIGTERM), so restarting on a clean exit would just spin.
 # In particular, while the kill-switch line above is present the process exits 0
 # on every start, and `Restart=always` would restart it every RestartSec forever
-# — a unit that looks permanently unhealthy while doing nothing. Crashes and
-# non-zero exits other than 1 still restart.
+# — a unit that looks permanently unhealthy while doing nothing. Note that this
+# daemon's own deliberate stops all exit 1 and are therefore pinned by
+# RestartPreventExitStatus below; what still restarts is a signal death or an
+# abnormal exit (OOM kill, SIGSEGV) rather than any considered stop.
 Restart=on-failure
 RestartSec=30
 # CRITICAL, DO NOT REMOVE. The daemon exits 1 when a stop needs a human act: the
 # endpoint refused this instance's signing key on every attempt (re-enrollment
-# required), it refused the request itself on every attempt, or --url is not a
-# usable http(s) endpoint. No amount of restarting fixes any of those. Without
-# this line a deliberate stop becomes an endless retry against a server saying no.
+# required), it refused the request itself on every attempt, this root cannot
+# build a mirror for --instance at all, or --url is not a usable http(s)
+# endpoint. No amount of restarting fixes any of those. Without this line a
+# deliberate stop becomes an endless retry against a wall — and, worse, a unit
+# that reports `activating`/`active` while never successfully pushing anything.
 RestartPreventExitStatus=1
 # SIGTERM stops the daemon between cycles rather than mid-request; if a push is
 # in flight, `h2a` gives it a short grace period and then exits regardless, so
