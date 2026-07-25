@@ -7,7 +7,15 @@
  * (gemini's path layout drifts across versions — we match on `.project_root`).
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  statSync
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -112,12 +120,29 @@ export const defaultProviderSessionReaders: ProviderSessionReaders = {
 // ── WP-6: host-native session name reading ────────────────────────────────
 
 /**
+ * How much of the tail of a Claude transcript to scan for the current title.
+ * A transcript is append-only and stamps `customTitle` on nearly every record,
+ * so the newest records are at the END; 64 KiB is many records deep while
+ * staying cheap enough to re-read on every heartbeat (live transcripts reach
+ * tens of MB — the `auth` transcript that motivated this fix was 46 MB).
+ */
+export const CLAUDE_TITLE_TAIL_BYTES = 64 * 1024;
+
+/**
  * Injectable FS readers for `readHostSessionName` (test-friendly).
  * Only reading is required; real-FS defaults are `defaultHostNameReaders`.
  */
 export interface HostNameReaders {
-  /** Read up to `maxLines` newline-delimited lines from a file. Returns [] on any error. */
-  readLines(path: string, maxLines: number): string[];
+  /**
+   * Read the LAST `maxBytes` of a file as newline-delimited lines, dropping a
+   * leading partial record when the file was truncated. Returns [] on any error.
+   *
+   * Deliberately not `readLines(path, maxLines)` (the pre-fix head reader): a
+   * head read of an append-only transcript returns the title as of session
+   * START and can never observe a later rename. An external implementor of this
+   * interface gets a compile error rather than silently-stale names.
+   */
+  readTailLines(path: string, maxBytes: number): string[];
   /** List newline-delimited JSONL entries from `~/.codex/session_index.jsonl`. */
   readCodexSessionIndex(): string[];
   /** Whether the home dir root is known (for path construction). */
@@ -125,12 +150,35 @@ export interface HostNameReaders {
 }
 
 export const defaultHostNameReaders: HostNameReaders = {
-  readLines(path: string, maxLines: number): string[] {
+  readTailLines(path: string, maxBytes: number): string[] {
+    let fd: number | undefined;
     try {
-      const raw = readFileSync(path, "utf8");
-      return raw.split("\n").slice(0, maxLines);
+      const size = statSync(path).size;
+      const length = Math.min(size, Math.max(0, maxBytes));
+      const start = size - length;
+      const buf = Buffer.allocUnsafe(length);
+      fd = openSync(path, "r");
+      let read = 0;
+      while (read < length) {
+        const n = readSync(fd, buf, read, length - read, start + read);
+        if (n <= 0) break;
+        read += n;
+      }
+      const lines = buf.subarray(0, read).toString("utf8").split("\n");
+      // When we started mid-file the first element is a partial record; drop it
+      // rather than letting JSON.parse fail on a truncated object.
+      if (start > 0) lines.shift();
+      return lines;
     } catch {
       return [];
+    } finally {
+      if (fd !== undefined) {
+        try {
+          closeSync(fd);
+        } catch {
+          // best-effort
+        }
+      }
     }
   },
   readCodexSessionIndex(): string[] {
@@ -151,8 +199,9 @@ export const defaultHostNameReaders: HostNameReaders = {
  * Read the host-native session name for the given session.
  *
  * - **claude**: reads the transcript JSONL (located via the CLAUDE_CODE_SESSION_ID
- *   resolver); scans the first 40 lines for `customTitle` (user rename) first,
- *   then falls back to `agentName`. Never returns `aiTitle`.
+ *   resolver); scans the TAIL for the LAST `customTitle` (the current user
+ *   rename — the transcript is append-only), then falls back to the first
+ *   `agentName` seen. Never returns `aiTitle`.
  * - **codex**: reads `~/.codex/session_index.jsonl`; returns `thread_name` for
  *   the entry whose `id === sessionId` (last-match wins).
  * - Other hosts: returns undefined.
@@ -214,6 +263,52 @@ function findClaudeTranscript(
   }
 }
 
+/** Read one non-empty string field out of a JSONL record. Total (undefined on junk). */
+function jsonField(line: string | undefined, key: string): string | undefined {
+  const trimmed = line?.trim();
+  if (!trimmed) return undefined;
+  try {
+    const obj = JSON.parse(trimmed) as Record<string, unknown>;
+    const value = obj[key];
+    return typeof value === "string" && value.length > 0 ? value : undefined;
+  } catch {
+    return undefined; // skip malformed lines
+  }
+}
+
+/**
+ * Extract the CURRENT display title from a Claude transcript.
+ *
+ * A transcript is **append-only** and stamps `customTitle` on nearly every
+ * record, so a `/rename` appends records carrying the NEW title at the END.
+ * We therefore scan **backwards** and take the LAST `customTitle`.
+ *
+ * The pre-fix reader took the FIRST `customTitle` out of the first 40 lines,
+ * which is the title as of session start — it could never observe a rename, so
+ * `presence.name` stayed pinned to a stale title for the life of the session
+ * (measured live: 1022 records saying `39etc` then 65 saying `auth`; the reader
+ * returned `39etc` while the human saw `auth`). Codex already did last-wins;
+ * Claude was the outlier.
+ *
+ * `agentName` keeps first-seen-wins — it is not user-mutable, so recency is
+ * meaningless for it. `aiTitle` is never read, hence never returned.
+ */
+function titleFromClaudeTranscript(
+  transcriptPath: string,
+  readers: HostNameReaders
+): string | undefined {
+  const lines = readers.readTailLines(transcriptPath, CLAUDE_TITLE_TAIL_BYTES);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const customTitle = jsonField(lines[i], "customTitle");
+    if (customTitle) return customTitle;
+  }
+  for (const line of lines) {
+    const agentName = jsonField(line, "agentName");
+    if (agentName) return agentName;
+  }
+  return undefined;
+}
+
 function readClaudeSessionName(
   cwd: string,
   sessionId: string | undefined,
@@ -222,26 +317,47 @@ function readClaudeSessionName(
   if (!sessionId) return undefined;
   const transcriptPath = findClaudeTranscript(cwd, sessionId, readers.homedir());
   if (!transcriptPath) return undefined;
-  const lines = readers.readLines(transcriptPath, 40);
-  let customTitle: string | undefined;
-  let agentName: string | undefined;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
+  return titleFromClaudeTranscript(transcriptPath, readers);
+}
+
+/**
+ * Build a re-callable resolver for this session's host-native display name, for
+ * the heartbeat refresh path (spec 2026-07-25-h2a-lane-addressing §D1b).
+ *
+ * `readHostSessionName` is a one-shot: it re-scans every project directory to
+ * locate the transcript. This factory memoizes the transcript path (the session
+ * id is fixed for the life of the server process) so a heartbeat costs one
+ * bounded tail read. A path that has not appeared yet is retried on the next
+ * call, so a transcript created after boot is still picked up.
+ *
+ * Returns `undefined` whenever the title cannot be read — the caller must treat
+ * that as "keep the name you have", never as "fall back to the cwd basename".
+ */
+export function createHostSessionNameRefresher(opts: {
+  host: string;
+  cwd: string;
+  sessionId?: string;
+  readers?: HostNameReaders;
+}): () => string | undefined {
+  const readers = opts.readers ?? defaultHostNameReaders;
+  let cachedTranscript: string | undefined;
+  return () => {
     try {
-      const obj = JSON.parse(trimmed) as Record<string, unknown>;
-      if (typeof obj.customTitle === "string" && obj.customTitle.length > 0) {
-        customTitle = obj.customTitle;
-        break; // prefer first customTitle found
+      if (opts.host === "codex") {
+        return readCodexSessionName(opts.sessionId, readers);
       }
-      if (!agentName && typeof obj.agentName === "string" && obj.agentName.length > 0) {
-        agentName = obj.agentName;
-      }
+      if (opts.host !== "claude" || !opts.sessionId) return undefined;
+      cachedTranscript ??= findClaudeTranscript(
+        opts.cwd,
+        opts.sessionId,
+        readers.homedir()
+      );
+      if (!cachedTranscript) return undefined;
+      return titleFromClaudeTranscript(cachedTranscript, readers);
     } catch {
-      // skip malformed lines
+      return undefined; // a naming bug must never break the heartbeat
     }
-  }
-  return customTitle ?? agentName;
+  };
 }
 
 function readCodexSessionName(
