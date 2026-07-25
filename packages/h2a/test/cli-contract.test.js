@@ -270,6 +270,8 @@ function buildHappyArgv(verb, ctx) {
   switch (verb) {
     case "--help":
       return ["--help"];
+    case "explain":
+      return ["explain"];
     case "hosts":
       return ["hosts"];
     case "mcp-tools":
@@ -858,6 +860,11 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
   // Hand-rolled list of verbs we know `runCli` will dispatch.
   const expected = [
     "--help",
+    // 2026-07-25: public-contract addition, 97 -> 98. Kept in exact sync with
+    // docs/contracts/golden/cli-verbs.json (checked by
+    // scripts/check-public-contract.sh, which diffs the golden against the built
+    // H2A_CLI_VERB_CONTRACTS).
+    "explain",
     "hosts",
     "mcp-tools",
     "report-context",
