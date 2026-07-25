@@ -1,6 +1,20 @@
 # CLI help grouping — the vocabulary and its warrant
 
-The intention groups used by `h2a --help` and `h2a explain` are not invented here.
+The intention groups used by the **runtime entrypoint's `--help`** and by `h2a explain`
+are not invented here.
+
+> **Which `--help`?** Precision, because two different surfaces print help and only
+> one of them is grouped. The **runtime entrypoint** (`packages/h2a-runtime`, the
+> 46 session/transport commands) renders the intention headings. The **core**
+> `runCli(["--help"])` deliberately stays a flat usage reference and points the
+> reader at `h2a explain`; it is not regrouped, because it is hand-maintained and
+> already omits 13 of the frozen verbs, so regrouping it would tidy the wrong
+> artifact. Where this file says "`--help`" without qualification, it means the
+> runtime entrypoint's.
+>
+> Two groups are **`explain`-only**: `WORK` and `SPECIALIST` have no runtime
+> commands in them, so they never appear in the runtime help. They exist in the
+> map because the core contract's verbs land there.
 Their vocabulary comes from an **internal design study** that is *not published in
 this repository*: it exists only in the owner's working tree and is on no git ref.
 There is therefore deliberately **no path to it in this file, in any source comment,
@@ -33,14 +47,26 @@ Two honest limits, stated rather than implied:
   source, not something a gate here can fix. If the study is ever committed, a
   drift test over these excerpts becomes possible and should be added.
 
-## Excerpt 1 — The scope of this PR: information architecture only, no behaviour change
+## Excerpt 1 — The scope of this PR: information architecture only
 
 From § "Incremental path", step 1:
 
 > 1. **Information architecture only:** group `--help`, document the work-session versus peer
 >    distinction, publish a command map, and remove stale “remote run” wording. No behavior change.
 
-**What it warrants.** The whole premise of this PR. The study asks for exactly one increment first: group the help, publish a command map, change no behaviour. Every design choice below is bounded by the last four words.
+**What it warrants.** The whole premise of this PR: exactly one increment first — group the help, publish a command map, add no capability.
+
+**And a correction to how this PR restated it.** The PR headline read *"zero behaviour change"*, borrowing the excerpt's last four words. Review was right that this is wider than the evidence, and it is our own enforceability rule applied to our own claim. Three observable things **do** change by design:
+
+1. `h2a explain` goes from an unrecognized word (Commander's `error: unknown command 'explain'`) to a successful core command;
+2. the runtime entrypoint's help layout **and its root description** change;
+3. `h2a explain --json` now takes the new verb's grammar rather than the unknown-command path.
+
+The property that *was* verified, and verified well, is narrower and worth stating exactly:
+
+> **No operational or dispatch change for any pre-existing recognized command. Help output and the new `explain` verb change by design.**
+
+All 46 runtime command terms and their descriptions are byte-identical (now pinned by a committed fixture, not merely measured once), no first word routes differently, and no exit code moved. The study's own "No behavior change" is the study's wording for its increment; this PR should not have reused it as a claim about its own diff.
 
 ## Excerpt 2 — The four operator questions and the top-level/domain rule
 
@@ -161,7 +187,14 @@ From § "Commands deliberately absent":
 > - A second command family for starting a “native agent” that bypasses `h2a run` and produces a
 >   parallel session model.
 
-**What it warrants.** Why `account` and `llm-mesh` get a labelled bucket of their own instead of being filed under an operator intention. The study names these exact areas as ones h2a should not own — yet the two commands ship today. The bucket records the contradiction instead of laundering it. It deprecates nothing.
+**What it warrants.** Why `account` and `llm-mesh` get a labelled bucket of their own instead of being filed under an operator intention — yet both ship today. The bucket records the contradiction instead of laundering it. It deprecates nothing.
+
+**Precision on how far this warrant reaches.** The two commands are covered *differently*, and an earlier version of this note said "the study names these exact areas", which was true of one and stranded for the other:
+
+- `account` is named **directly** by the first bullet (`h2a account`).
+- `llm-mesh` is **not named anywhere in the study**. It is covered by the second bullet, by what it does rather than by its name: the runtime describes it as *"Manage the local LLM gateway (solo-dev mesh: multi-account, cross-provider fallback)"*, which is "lists or selects sentropic account pools" plus failover. The first bullet's `h2a gateway` and `h2a failover` are the nearest named areas.
+
+So the bucket is warranted for both, but only `account` is warranted by name. Nothing here should be read as the study having ruled on a command it never mentions.
 
 ## Excerpt 7 — New spellings are additive, and `explain` is one of them
 
@@ -203,6 +236,22 @@ From § "Decisions still open — sentropic co-validation required":
 > No S1–S6 outcome should be encoded as a public CLI promise before sentropic confirms the seam.
 
 **What it warrants.** The binding constraint on what this PR must NOT do. No group heading, intention line or map entry promises an ownership boundary, a rename, a deprecation or a future command spelling. The grouping is a reading aid over the command set that ships today.
+
+## Excerpt 9 — "not the session front door", from the section that actually says it
+
+From § "Compatibility and migration", the `h2a remote …` row:
+
+> | Existing surface | Target treatment | Compatibility requirement |
+> |---|---|---|
+> | `h2a remote …` | Preserve as native transport compatibility namespace. Do not teach it as the session front door. | Keep transport terms, `.remote`, `REMOTE_*`, and remote session compatibility intact. |
+
+**What it warrants.** The `TRANSPORT` heading's trailing clause, *"not the session front door"*.
+
+**Why this excerpt exists at all.** Both review legs caught the same defect: the source comment attributed that sentence to § "Specialist namespaces and delegation" (excerpt 5), which does **not** contain it. Excerpt 5 warrants the *first* half of the heading — "Quarantined transport/bridge compatibility" and "The primary user journey" — and nothing more. The sentence lives here, one section later.
+
+The quotation was accurate; only its address was wrong. That is still a citation defect: a reader who followed it to excerpt 5 would not find the phrase and could not tell whether the wording was warranted or invented. Both halves of the heading are now vendored, each against the section that carries it.
+
+This is also why the phrase-coverage guard was rebuilt to derive its list **mechanically** from the `>` -marked quotations in the grouping modules, instead of the hand-curated list that let this phrase through: the curated list only checked passages someone remembered to add to it.
 
 ## Where each group's warrant lives
 
