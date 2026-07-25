@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   MIRROR_PUSH_OFF_ENV,
@@ -18,9 +19,12 @@ import {
 // switches back to Restart=always (which would make the disarmed state a
 // perpetual 30s restart loop).
 
-const ROOT = process.cwd();
-const UNIT_PATH = join(ROOT, "contrib/systemd/h2a-mirror-push.service");
-const README_PATH = join(ROOT, "contrib/systemd/README.md");
+// Resolved from THIS FILE, not from process.cwd(): the gate that protects the
+// "nothing auto-pushes" property must not be the one that dies with ENOENT when
+// the suite is run from packages/h2a instead of the repo root.
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const UNIT_PATH = join(REPO_ROOT, "contrib/systemd/h2a-mirror-push.service");
+const README_PATH = join(REPO_ROOT, "contrib/systemd/README.md");
 
 function unit() {
   return readFileSync(UNIT_PATH, "utf8");
