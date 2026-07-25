@@ -31,5 +31,14 @@ export type {
   LegacyAdoptionInput,
   LegacyAdoptionDecision
 } from "./migration.js";
-export { resolveLiveIdentity } from "./live.js";
-export type { ResolveLiveIdentityInput, ResolvedLiveIdentity } from "./live.js";
+export {
+  resolveLiveIdentity,
+  sanitizeDeclaredCapabilities,
+  H2A_CLI_DECLARED_CAPABILITIES,
+  H2A_DECLARED_CAPABILITIES
+} from "./live.js";
+export type {
+  H2ADeclaredCapability,
+  ResolveLiveIdentityInput,
+  ResolvedLiveIdentity
+} from "./live.js";
