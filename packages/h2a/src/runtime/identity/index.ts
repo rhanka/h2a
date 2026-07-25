@@ -7,6 +7,8 @@ export type {
 } from "./resolver.js";
 export {
   CLAUDE_TITLE_TAIL_BYTES,
+  CODEX_INDEX_TAIL_BYTES,
+  MAX_DISPLAY_NAME_CHARS,
   createHostSessionNameRefresher,
   defaultProviderSessionReaders,
   readHostSessionName
