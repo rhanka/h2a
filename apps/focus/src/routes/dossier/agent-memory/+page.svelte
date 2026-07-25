@@ -20,7 +20,15 @@
   let { data }: { data: PageData } = $props();
   const dossier = $derived(data.dossier);
   const matrix = $derived(data.matrix);
-  const total = $derived(dossier.decisions.length);
+  /** Jeu de réponses commité, rejouable. `null` si le fichier n'est pas atteignable. */
+  const answerSet = $derived(data.answerSet);
+  const decisionsTotal = $derived(dossier.decisions.length);
+  /**
+   * L'état de l'art est la PREMIÈRE carte et ne porte aucune décision : on lit le paysage avant de
+   * trancher quoi que ce soit. Le compteur ne doit donc jamais l'appeler « Décision 1 » — il y a
+   * `decisionsTotal` décisions et `slidesTotal` cartes, et ce sont deux nombres différents.
+   */
+  const slidesTotal = $derived(decisionsTotal + 1);
   const storageKey = $derived(`focus:dossier-agent-memory:${dossier.revision}:choix`);
   const notesKey = $derived(`focus:dossier-agent-memory:${dossier.revision}:notes`);
 
@@ -29,14 +37,14 @@
   let notes = $state<Record<string, string>>({});
   let storageReady = $state(false);
   let pointerStart = $state<{ id: number; x: number; y: number } | null>(null);
-  let exportState = $state<'idle' | 'copied' | 'failed'>('idle');
+  let exportState = $state<'idle' | 'copied' | 'copied-json' | 'failed'>('idle');
 
   function previous() {
     current = Math.max(0, current - 1);
   }
 
   function next() {
-    current = Math.min(total - 1, current + 1);
+    current = Math.min(slidesTotal - 1, current + 1);
   }
 
   function selectOption(decisionKey: string, optionKey: string) {
@@ -105,6 +113,49 @@
   });
 
   /**
+   * Les cartes vivent côte à côte dans une même piste flex : sans précaution, le viewport prend la
+   * hauteur de la carte la PLUS HAUTE et toutes les autres affichent la différence en vide mort.
+   * On mesure donc la carte active (ResizeObserver, donc robuste au reflow : redimensionnement de la
+   * fenêtre, note qui s'agrandit, alerte de transmission qui apparaît) et on impose cette hauteur au
+   * viewport. Mesurer plutôt que ne rendre que la carte active : toutes les cartes restent dans le DOM,
+   * donc la transition de glissement, `inert`/`aria-hidden` et le geste de swipe restent intacts.
+   */
+  let trackEl = $state<HTMLElement | null>(null);
+  let activeHeight = $state(0);
+
+  function measureActiveSlide() {
+    const slide = trackEl?.children[current] as HTMLElement | undefined;
+    if (slide) activeHeight = slide.getBoundingClientRect().height;
+  }
+
+  /**
+   * Mesure principale, pilotée par la réactivité Svelte. Elle couvre tout ce qui fait grandir la carte
+   * active par changement d'état : alerte de transmission, rapport de rejeu, note qui s'allonge,
+   * sélection d'une option. Vérifié en navigateur : sans ce chemin, l'alerte de transmission dépassait
+   * la hauteur mesurée et se faisait rogner, car un ResizeObserver seul dépend d'une frame d'animation
+   * (et n'en reçoit aucune dans un onglet en arrière-plan).
+   */
+  $effect(() => {
+    // Lectures volontaires : elles abonnent cet effet aux changements de contenu de la carte active.
+    void current;
+    void includeResult;
+    void notes;
+    void selections;
+    void replayReport;
+    void exportState;
+    measureActiveSlide();
+  });
+
+  /** Filet pour ce qui ne passe pas par l'état : redimensionnement de fenêtre, polices, poignée de resize. */
+  $effect(() => {
+    const slide = trackEl?.children[current] as HTMLElement | undefined;
+    if (!slide) return;
+    const observer = new ResizeObserver(() => measureActiveSlide());
+    observer.observe(slide);
+    return () => observer.disconnect();
+  });
+
+  /**
    * Les notes ne servent à rien si elles restent prisonnières du navigateur : cette
    * synthèse markdown les rend transmissibles (à une CLI, à Track, à un tiers). Elle
    * n'enregistre aucune décision — elle recopie ce que le lecteur a écrit.
@@ -128,6 +179,159 @@
       exportState = 'copied';
     } catch {
       exportState = 'failed';
+    }
+  }
+
+  /**
+   * Même forme que le jeu de réponses commité : ce qui sort peut donc être rejoué tel quel, sans
+   * édition à la main. C'est ce qui fait du dossier un scénario de recette et pas une capture d'écran.
+   */
+  function buildAnswerSetJson(): string {
+    const answers: Record<string, { option: string | null; note: string }> = {};
+    for (const decision of dossier.decisions) {
+      answers[decision.key] = {
+        option: selections[decision.key] ?? null,
+        note: notes[decision.key]?.trim() ?? ''
+      };
+    }
+    return `${JSON.stringify(
+      {
+        dossier: 'agent-memory',
+        revision: dossier.revision,
+        capturedAt: new Date().toISOString().slice(0, 10),
+        capturedFrom: 'focus, dossier /dossier/agent-memory',
+        answers
+      },
+      null,
+      2
+    )}\n`;
+  }
+
+  async function copyAnswerSetJson() {
+    try {
+      await navigator.clipboard.writeText(buildAnswerSetJson());
+      exportState = 'copied-json';
+    } catch {
+      exportState = 'failed';
+    }
+  }
+
+  type ReplayReport = {
+    applied: string[];
+    /** Clés de réponse dont la décision n'existe plus dans cette révision. */
+    missingDecisions: string[];
+    /** Décision toujours là, mais option disparue : la note est rejouée, la sélection non. */
+    staleOptions: string[];
+    revisionMismatch: boolean;
+  };
+
+  let replayReport = $state<ReplayReport | null>(null);
+  let replayPendingConfirm = $state(false);
+
+  const revisionMismatch = $derived(Boolean(answerSet) && answerSet!.revision !== dossier.revision);
+
+  /**
+   * Rejouer est un acte DÉLIBÉRÉ, jamais un effet de bord du chargement de page : des réponses en
+   * cours ne doivent pas disparaître parce qu'on a rafraîchi. S'il y a déjà des réponses locales, on
+   * demande confirmation en nommant ce qui va être remplacé.
+   */
+  function requestReplay() {
+    if (!answerSet) return;
+    replayReport = null;
+    if (answeredCount > 0) {
+      replayPendingConfirm = true;
+      return;
+    }
+    applyReplay();
+  }
+
+  function cancelReplay() {
+    replayPendingConfirm = false;
+  }
+
+  /**
+   * Applique le jeu enregistré. Toute réponse qui ne retombe pas sur cette révision est RAPPORTÉE,
+   * jamais écartée en silence : une absence invisible est un mensonge de plus dans un dossier de
+   * décision. Les réponses sont rejouées telles quelles — y compris une sélection qui contredit sa
+   * propre note : c'est ce que l'humain a écrit, ce n'est pas à l'interface de le réconcilier.
+   */
+  function applyReplay() {
+    const set = answerSet;
+    if (!set) return;
+
+    const nextSelections: Record<string, string> = {};
+    const nextNotes: Record<string, string> = {};
+    const applied: string[] = [];
+    const missingDecisions: string[] = [];
+    const staleOptions: string[] = [];
+
+    for (const [key, entry] of Object.entries(set.answers)) {
+      const decision = dossier.decisions.find((candidate) => candidate.key === key);
+      if (!decision) {
+        missingDecisions.push(key);
+        continue;
+      }
+      if (entry.option) {
+        if (decision.options.some((option) => option.key === entry.option)) {
+          nextSelections[key] = entry.option;
+        } else {
+          staleOptions.push(`${key} → ${entry.option}`);
+        }
+      }
+      if (entry.note.length > 0) nextNotes[key] = entry.note;
+      applied.push(key);
+    }
+
+    selections = nextSelections;
+    notes = nextNotes;
+    replayPendingConfirm = false;
+    exportState = 'idle';
+    replayReport = { applied, missingDecisions, staleOptions, revisionMismatch };
+    // On atterrit sur la première décision : un rejeu qu'on ne voit pas n'est pas un rejeu.
+    current = 1;
+  }
+
+  type IncludeResult = {
+    ok: boolean;
+    delivered?: boolean;
+    target?: string;
+    recipientLive?: boolean;
+    note?: string;
+    error?: string;
+  };
+
+  let including = $state<string | null>(null);
+  let includeResult = $state<Record<string, IncludeResult>>({});
+
+  /** Il n'y a quelque chose à transmettre que si le lecteur a choisi une option OU écrit une note. */
+  function hasSomethingToInclude(decisionKey: string): boolean {
+    return Boolean(selections[decisionKey] || notes[decisionKey]?.trim());
+  }
+
+  /**
+   * Le presse-papier rend le choix transportable ; ceci le fait ARRIVER. La note part avec le choix :
+   * c'est elle qui porte le raisonnement, la transmettre sans elle n'aurait aucun intérêt.
+   */
+  async function includeChoice(decisionKey: string) {
+    including = decisionKey;
+    try {
+      const res = await fetch('/api/dossiers/agent-memory/include', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          decisionKey,
+          optionKey: selections[decisionKey] ?? null,
+          note: notes[decisionKey] ?? ''
+        })
+      });
+      includeResult = { ...includeResult, [decisionKey]: (await res.json()) as IncludeResult };
+    } catch (e) {
+      includeResult = {
+        ...includeResult,
+        [decisionKey]: { ok: false, error: `Appel impossible : ${e instanceof Error ? e.message : String(e)}` }
+      };
+    } finally {
+      including = null;
     }
   }
 
@@ -187,15 +391,19 @@
             <Stack gap={2}>
               <Flex align="center" justify="between" wrap gap={2}>
                 <Badge tone="info">Dossier décisionnel</Badge>
-                <Badge tone="neutral">Décision {current + 1} / {total}</Badge>
+                {#if current === 0}
+                  <Badge tone="neutral">État de l’art — aucune décision</Badge>
+                {:else}
+                  <Badge tone="neutral">Décision {current} / {decisionsTotal}</Badge>
+                {/if}
               </Flex>
               <h1 id="dossier-title">{dossier.title}</h1>
               <p>{dossier.context}</p>
               <ProgressBar
                 label="Progression du dossier"
                 value={current + 1}
-                max={total}
-                valueText={`${current + 1} / ${total}`}
+                max={slidesTotal}
+                valueText={current === 0 ? 'État de l’art' : `Décision ${current} / ${decisionsTotal}`}
                 showValue
               />
             </Stack>
@@ -204,25 +412,75 @@
           <Alert
             tone="info"
             title="Support de décision neutre"
-            message="Ce dossier ne préconise aucune option. Chaque carte présente les alternatives avec leur comportement et leur conséquence ; le champ « critère à trancher » nomme ce qu'il faut peser, jamais un choix. Votre sélection et votre note sont conservées uniquement dans votre navigateur ; utilisez « Copier ma synthèse » pour les transmettre."
+            message="Ce dossier ne préconise aucune option. La première carte présente l'état de l'art et ne demande rien ; viennent ensuite les décisions, chacune avec ses alternatives, leur comportement et leur conséquence. Le champ « critère à trancher » nomme ce qu'il faut peser, jamais un choix. Votre sélection et votre note sont conservées dans votre navigateur : « Copier ma synthèse » les met au presse-papier, « Inclure ce choix dans la CLI » les remet à une CLI live du projet."
           />
 
           <div
             class="swipe-viewport"
             role="group"
-            aria-label="Cartes de décisions : faites glisser horizontalement ou utilisez les boutons"
+            aria-label="Cartes du dossier : l’état de l’art puis les décisions. Faites glisser horizontalement ou utilisez les boutons."
+            style={activeHeight > 0 ? `height: ${activeHeight}px;` : undefined}
             onpointerdown={onPointerDown}
             onpointerup={onPointerUp}
             onpointercancel={onPointerCancel}
           >
-            <div class="swipe-track" style={`transform: translateX(-${current * 100}%);`}>
+            <div
+              class="swipe-track"
+              bind:this={trackEl}
+              style={`transform: translateX(-${current * 100}%);`}
+            >
+              <!-- Carte 1 : l'état de l'art. On lit le paysage AVANT de trancher — la mettre en bas de
+                   page rendait le dossier illisible dans l'ordre où on le parcourt. Elle ne porte
+                   volontairement aucune option, aucune note, aucun choix. -->
+              <section class="swipe-slide" aria-hidden={current !== 0} inert={current !== 0}>
+                <Card>
+                  <Stack gap={4}>
+                    <Flex align="center" justify="between" wrap gap={2}>
+                      <Badge tone="info">État de l’art</Badge>
+                      <span>Carte 1 sur {slidesTotal} — aucune décision ici</span>
+                    </Flex>
+
+                    <Stack gap={2}>
+                      <h2 id="matrix-title">Matrice de comparaison</h2>
+                      <p>
+                        Dix-neuf approches du benchmark, comparées sur le stockage, la récupération, la
+                        réconciliation, le mode d’écriture, le partage multi-CLI, l’auto-hébergement/RAM, la
+                        licence et l’adéquation à la cible (agent persistant, multi-CLI, local-first). Faites
+                        défiler horizontalement pour voir toutes les colonnes.
+                      </p>
+                    </Stack>
+
+                    <!-- La matrice défile horizontalement DANS son conteneur : ce geste ne doit jamais
+                         être confondu avec le swipe de carte, sinon consulter les colonnes changerait de
+                         carte. Même barrière que la note. -->
+                    <div
+                      class="matrix-scroll"
+                      role="presentation"
+                      onpointerdown={(event) => event.stopPropagation()}
+                      onpointerup={(event) => event.stopPropagation()}
+                      onpointercancel={(event) => event.stopPropagation()}
+                    >
+                      <Table caption={matrix.caption} columns={matrix.columns} rows={matrix.rows} />
+                    </div>
+                    <p class="matrix-legend">{matrix.legend}</p>
+
+                    <Alert
+                      tone="info"
+                      title="Rien à trancher sur cette carte"
+                      message="Passez à la carte suivante pour entrer dans les décisions."
+                    />
+                  </Stack>
+                </Card>
+              </section>
+
               {#each dossier.decisions as decision, index (decision.key)}
-                <section class="swipe-slide" aria-hidden={index !== current} inert={index !== current}>
+                {@const slide = index + 1}
+                <section class="swipe-slide" aria-hidden={current !== slide} inert={current !== slide}>
                   <Card>
                     <Stack gap={4}>
                       <Flex align="center" justify="between" wrap gap={2}>
                         <Badge tone="info">{decision.key}</Badge>
-                        <span>Carte {index + 1} sur {total}</span>
+                        <span>Décision {slide} sur {decisionsTotal}</span>
                       </Flex>
 
                       <Stack gap={2}>
@@ -268,8 +526,12 @@
                       <Alert tone="info" title="Critère à trancher (neutre)" message={decision.recommendation} />
 
                       <!-- La saisie ne participe jamais au swipe : sans cette barrière, taper ou
-                           sélectionner du texte ferait défiler la carte. -->
+                           sélectionner du texte ferait défiler la carte.
+                           `--st-component-field-maxWidth` : le champ du DS est plafonné à 28rem par
+                           défaut ; une note de raisonnement doit occuper toute la largeur de la carte.
+                           On surcharge le token depuis le consommateur, sans toucher au composant. -->
                       <div
+                        class="note-field"
                         role="presentation"
                         onpointerdown={(event) => event.stopPropagation()}
                         onpointerup={(event) => event.stopPropagation()}
@@ -285,6 +547,47 @@
                         />
                       </div>
 
+                      <!-- Remettre le choix ET la note à une CLI live du projet : le presse-papier sert
+                           à coller n'importe où, ceci sert à ce que l'agent qui travaille le lise. -->
+                      <Stack gap={2}>
+                        <Flex align="center" justify="between" wrap gap={2}>
+                          <span class="include-hint">
+                            {hasSomethingToInclude(decision.key)
+                              ? 'Votre option et votre note partent ensemble vers la CLI live du projet.'
+                              : 'Sélectionnez une option ou écrivez une note pour pouvoir la transmettre.'}
+                          </span>
+                          <Button
+                            variant="secondary"
+                            onclick={() => includeChoice(decision.key)}
+                            disabled={including === decision.key || !hasSomethingToInclude(decision.key)}
+                          >
+                            {including === decision.key ? 'Transmission…' : 'Inclure ce choix dans la CLI'}
+                          </Button>
+                        </Flex>
+                        {#if includeResult[decision.key]}
+                          {@const result = includeResult[decision.key]}
+                          {#if result.ok && result.delivered}
+                            <Alert
+                              tone="success"
+                              title={`Transmis à ${result.target}`}
+                              message={result.note ?? ''}
+                            />
+                          {:else if result.ok}
+                            <Alert
+                              tone="warning"
+                              title="Aucune CLI live sur ce projet"
+                              message={result.note ?? ''}
+                            />
+                          {:else}
+                            <Alert
+                              tone="error"
+                              title="Échec de la transmission"
+                              message={result.error ?? 'Erreur inconnue.'}
+                            />
+                          {/if}
+                        {/if}
+                      </Stack>
+
                       <Stack gap={2}>
                         <h3>Prochain travail</h3>
                         <p>{decision.nextWork}</p>
@@ -297,17 +600,22 @@
           </div>
 
           <Flex align="center" justify="between" wrap gap={3}>
-            <Button variant="secondary" onclick={previous} disabled={current === 0} aria-label="Décision précédente">
+            <Button variant="secondary" onclick={previous} disabled={current === 0} aria-label="Carte précédente">
               Précédente
             </Button>
             <SlideIndicator
-              count={total}
+              count={slidesTotal}
               current={current}
               onChange={(index) => (current = index)}
-              label="Accéder à une décision"
+              label="Accéder à une carte"
               variant="bars"
             />
-            <Button variant="primary" onclick={next} disabled={current === total - 1} aria-label="Décision suivante">
+            <Button
+              variant="primary"
+              onclick={next}
+              disabled={current === slidesTotal - 1}
+              aria-label="Carte suivante"
+            >
               Suivante
             </Button>
           </Flex>
@@ -317,15 +625,26 @@
               <h2 id="summary-title">Vos notes</h2>
               <Flex align="center" justify="between" wrap gap={2}>
                 <span>
-                  {answeredCount} décision(s) sur {total} annotée(s) ou sélectionnée(s).
+                  {answeredCount} décision(s) sur {decisionsTotal} annotée(s) ou sélectionnée(s).
                 </span>
-                <Button variant="secondary" onclick={copySummary}>Copier ma synthèse</Button>
+                <Flex align="center" wrap gap={2}>
+                  <Button variant="secondary" onclick={copySummary}>Copier ma synthèse</Button>
+                  <Button variant="secondary" onclick={copyAnswerSetJson}>
+                    Copier le jeu de réponses (JSON)
+                  </Button>
+                </Flex>
               </Flex>
               {#if exportState === 'copied'}
                 <Alert
                   tone="success"
                   title="Synthèse copiée"
                   message="Vos sélections et vos notes sont dans le presse-papier, en markdown. Collez-les où vous voulez : une CLI, un ticket, un message."
+                />
+              {:else if exportState === 'copied-json'}
+                <Alert
+                  tone="success"
+                  title="Jeu de réponses copié (JSON)"
+                  message="Même forme que le jeu enregistré : il peut être commité puis rejoué tel quel dans ce dossier, sans retouche à la main."
                 />
               {:else if exportState === 'failed'}
                 <Alert
@@ -337,19 +656,81 @@
             </Stack>
           </section>
 
-          <section aria-labelledby="matrix-title">
+          <!-- Rejeu du jeu de réponses commité : ce dossier sert de scénario de recette, il doit donc
+               pouvoir être re-parcouru avec de vraies réponses. Jamais au chargement, toujours sur
+               action explicite. -->
+          <section aria-labelledby="replay-title">
             <Stack gap={2}>
-              <h2 id="matrix-title">État de l’art — matrice de comparaison</h2>
-              <p>
-                Dix-neuf approches du benchmark, comparées sur le stockage, la récupération, la réconciliation, le
-                mode d’écriture, le partage multi-CLI, l’auto-hébergement/RAM, la licence et l’adéquation à la
-                cible (agent persistant, multi-CLI, local-first). Faites défiler horizontalement pour voir toutes
-                les colonnes.
-              </p>
-              <div class="matrix-scroll">
-                <Table caption={matrix.caption} columns={matrix.columns} rows={matrix.rows} />
-              </div>
-              <p class="matrix-legend">{matrix.legend}</p>
+              <h2 id="replay-title">Rejouer un jeu de réponses</h2>
+              {#if !answerSet}
+                <Alert
+                  tone="warning"
+                  title="Rejeu indisponible"
+                  message="Le jeu de réponses enregistré n'est pas atteignable depuis ce service (docs/decisions/2026-07-25-agent-memory-owner-answers.json). Rien n'a été inventé : vos réponses locales sont intactes."
+                />
+              {:else}
+                <p>
+                  Jeu enregistré : <code>{answerSet.source}</code> — révision
+                  <strong>{answerSet.revision}</strong>{answerSet.capturedAt
+                    ? `, capturé le ${answerSet.capturedAt}`
+                    : ''}{answerSet.status ? ` (${answerSet.status})` : ''}. Le rejeu restaure les
+                  sélections <strong>et</strong> les notes, telles qu'elles ont été écrites.
+                </p>
+                {#if revisionMismatch}
+                  <Alert
+                    tone="warning"
+                    title="Révision différente"
+                    message={`Ces réponses ont été capturées sur « ${answerSet.revision} », or ce dossier est en « ${dossier.revision} ». Le rejeu dira précisément ce qui ne retombe plus sur cette révision.`}
+                  />
+                {/if}
+                <Flex align="center" justify="between" wrap gap={2}>
+                  <span class="include-hint">
+                    {answeredCount > 0
+                      ? 'Vous avez déjà des réponses ici : le rejeu les remplacera, après confirmation.'
+                      : 'Aucune réponse locale : le rejeu peut être appliqué directement.'}
+                  </span>
+                  <Button variant="secondary" onclick={requestReplay} disabled={replayPendingConfirm}>
+                    Rejouer les réponses enregistrées
+                  </Button>
+                </Flex>
+
+                {#if replayPendingConfirm}
+                  <Alert
+                    tone="warning"
+                    title="Remplacer vos réponses actuelles ?"
+                    message={`Le rejeu va remplacer vos réponses locales (${answeredCount} décision(s) annotée(s) ou sélectionnée(s)) par le jeu enregistré. Cette action est volontaire et ne peut pas être annulée.`}
+                  />
+                  <Flex align="center" wrap gap={2}>
+                    <Button variant="primary" onclick={applyReplay}>Remplacer et rejouer</Button>
+                    <Button variant="secondary" onclick={cancelReplay}>Annuler</Button>
+                  </Flex>
+                {/if}
+
+                {#if replayReport}
+                  <Alert
+                    tone={replayReport.missingDecisions.length || replayReport.staleOptions.length
+                      ? 'warning'
+                      : 'success'}
+                    title={`${replayReport.applied.length} réponse(s) rejouée(s)`}
+                    message={`Sélections et notes restaurées pour : ${replayReport.applied.join(', ') || '(aucune)'}.`}
+                  />
+                  <!-- Une réponse qui ne retombe plus sur cette révision est NOMMÉE, jamais escamotée. -->
+                  {#if replayReport.missingDecisions.length}
+                    <Alert
+                      tone="error"
+                      title="Réponses non rejouables : décision disparue"
+                      message={`Ces clés n'existent plus dans la révision « ${dossier.revision} » et n'ont donc pas pu être rejouées : ${replayReport.missingDecisions.join(', ')}. Leurs notes sont toujours dans le jeu enregistré, pas dans cette page.`}
+                    />
+                  {/if}
+                  {#if replayReport.staleOptions.length}
+                    <Alert
+                      tone="warning"
+                      title="Options disparues : note rejouée, sélection non"
+                      message={`Ces options n'existent plus pour leur décision : ${replayReport.staleOptions.join(', ')}. La note a été restaurée, la sélection est restée vide — à vous de la reprendre.`}
+                    />
+                  {/if}
+                {/if}
+              {/if}
             </Stack>
           </section>
         </Stack>
@@ -360,14 +741,38 @@
 
 <style>
   .dossier { padding-block: var(--st-spacing-6, 1.5rem) var(--st-spacing-10, 2.5rem); }
-  .swipe-viewport { overflow: hidden; touch-action: pan-y; }
+  /* La hauteur est imposée en ligne depuis la mesure de la carte active (voir le $effect) : sans elle
+     le viewport prendrait la hauteur de la carte la plus haute et les cartes courtes afficheraient un
+     grand vide mort. `overflow: hidden` masque le débord des cartes plus hautes pendant le glissement. */
+  .swipe-viewport {
+    overflow: hidden;
+    /* `pan-x pan-y` et non `pan-y` : la matrice de l'état de l'art vit désormais DANS le viewport et doit
+       pouvoir défiler horizontalement au doigt. Un ancêtre en `pan-y` l'en empêcherait (le comportement
+       effectif est l'intersection le long de la chaîne d'ancêtres). Le viewport lui-même n'a aucun débord
+       horizontal, donc rien n'y défile : le geste de swipe reste traité par nos handlers pointer. */
+    touch-action: pan-x pan-y;
+    /* PAS de `transition: height` ici. Mesuré en navigateur : animer la hauteur la garde bloquée sur
+       l'ancienne hauteur de contenu (la transition repart à chaque réécriture de l'attribut `style`),
+       et le vide mort réapparaît intégralement. La hauteur doit donc s'appliquer immédiatement — c'est
+       le glissement horizontal qui porte l'animation, pas la hauteur. */
+  }
   .swipe-track {
     display: flex;
+    /* Chaque carte garde sa hauteur de contenu au lieu de s'étirer sur la plus haute : c'est ce qui
+       rend la mesure de la carte active fidèle. */
+    align-items: flex-start;
     transition: transform var(--st-motion-normal, 180ms) var(--st-motion-easing, ease);
   }
   .swipe-slide { flex: 0 0 100%; min-width: 0; }
   @media (prefers-reduced-motion: reduce) {
     .swipe-track { transition: none; }
+  }
+  /* Le champ de note du DS est plafonné à `--st-component-field-maxWidth` (28rem par défaut) : on lève
+     le plafond pour cette zone seulement, par le token, sans forker le composant. */
+  .note-field { --st-component-field-maxWidth: 100%; }
+  .include-hint {
+    color: var(--st-semantic-text-secondary, inherit);
+    font-size: 0.875rem;
   }
   /* La matrice état-de-l'art peut dépasser la largeur du viewport (19 lignes x 9 colonnes) : elle défile
      dans son propre conteneur, jamais le corps de page. */
