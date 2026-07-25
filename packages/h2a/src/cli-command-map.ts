@@ -10,23 +10,27 @@
  *
  * SOURCE OF THE VOCABULARY
  * ------------------------
- * `docs/specs/2026-07-17-STUDY_h2a-cli-coconception.md` (STUDY rung — proposal
- * only), § "Target command map" → "Daily operator surface — top level":
+ * `docs/cli-help-grouping-vocabulary.md` — in this repo, committed alongside this
+ * file. It vendors the load-bearing passages VERBATIM from an unpublished internal
+ * design study (STUDY rung — proposal only) which is on no git ref, so no reader
+ * can fetch it. Excerpt 3 there is the sentence the five daily words come from:
  *
  *   > `h2a --help` should render these as a short "Start / Observe / Coordinate /
  *   > Work / Set up" guide, then link to namespaces.
  *
  * Those five words are `START`, `OBSERVE`, `COORDINATE`, `WORK`, `SET_UP` below.
- * The remaining groups also come from that study, except the catch-all:
+ * The remaining groups trace to the same vendored excerpts, except the two
+ * buckets that are not operator intentions at all:
  *
- * - `SPECIALIST` — § "Specialist namespaces and delegation" ("`h2a <domain>
- *   <verb>` exposes a specialist contract without pretending h2a owns that
- *   domain's internals").
- * - `SESSION_RECOVERY` — § "Advanced session controls" (`session recover`) and
- *   § "Three loop distinction" #3 (process/session supervision).
- * - `TRANSPORT` — § "Specialist namespaces and delegation", last row:
- *   quarantined transport/bridge compatibility.
- * - `UNGROUPED` — **not** from the study. See its comment.
+ * - `SPECIALIST` — excerpts 2 and 5 ("`h2a <domain> <verb>` exposes a specialist
+ *   contract without pretending h2a owns that domain's internals").
+ * - `SESSION_RECOVERY` — excerpt 4 (`session recover`, and the third of the three
+ *   loops: process/session supervision).
+ * - `TRANSPORT` — excerpt 5, last table row: quarantined transport/bridge
+ *   compatibility.
+ * - `LLM_LOCAL` — a labelled bucket, **not** an intention. See excerpt 6 and the
+ *   comment on the group itself.
+ * - `UNCLASSIFIED` — the fallback, carrying no semantics at all. See its comment.
  *
  * WHAT THIS IS NOT
  * ----------------
@@ -41,7 +45,8 @@
  *
  * The study's open decisions S1–S6 require sentropic co-validation and are NOT
  * encoded here: no group promises an ownership boundary, a rename, a
- * deprecation, or a future command spelling.
+ * deprecation, or a future command spelling. They are reproduced in full as
+ * excerpt 8 of the vendored file, so a reader can check that claim.
  */
 
 import { H2A_CLI_VERB_CONTRACTS } from "./cli-contract.js";
@@ -55,8 +60,9 @@ export type H2ACommandGroupId =
   | "SPECIALIST"
   | "SESSION_RECOVERY"
   | "TRANSPORT"
-  | "UNGROUPED"
-  | "HELP";
+  | "LLM_LOCAL"
+  | "HELP"
+  | "UNCLASSIFIED";
 
 export interface H2ACommandGroup {
   readonly id: H2ACommandGroupId;
@@ -109,13 +115,16 @@ export const H2A_COMMAND_GROUPS: readonly H2ACommandGroup[] = [
     intention: "Move bytes to and from a session backend. Not the session front door."
   },
   {
-    id: "UNGROUPED",
-    // NOT a study group. The study's § "Commands deliberately absent" names
-    // exactly these areas as ones h2a should not own: "`h2a gateway`, `h2a
+    // A SEMANTIC bucket, not the fallback — see `UNCLASSIFIED` below for that.
+    // These two commands are named, known, and deliberately parked here.
+    //
+    // Not an operator intention. `docs/cli-help-grouping-vocabulary.md` excerpt 6
+    // names exactly these areas as ones h2a should not own: "`h2a gateway`, `h2a
     // provider`, `h2a account`, `h2a catalogue`, or `h2a failover`". They ship
-    // today anyway. An honest catch-all beats laundering the contradiction into
-    // an operator group, and beats hiding them. Nothing is deprecated: both
+    // today anyway. A labelled bucket beats laundering the contradiction into an
+    // operator group, and beats hiding them. Nothing is deprecated: both
     // commands keep working exactly as before.
+    id: "LLM_LOCAL",
     heading: "Local LLM account & gateway",
     intention: "Outside the study's operator grouping — it places these with sentropic."
   },
@@ -123,6 +132,23 @@ export const H2A_COMMAND_GROUPS: readonly H2ACommandGroup[] = [
     id: "HELP",
     heading: "Help",
     intention: "Find your way around."
+  },
+  {
+    // THE FALLBACK, and nothing else. Deliberately carries no semantics: a verb
+    // lands here only because nobody has grouped it, and the heading says so
+    // rather than borrowing a meaning the verb has not earned.
+    //
+    // Why this is separate from `LLM_LOCAL`: these were one bucket until review.
+    // A single bucket meant a future frozen verb with no entry in
+    // `CORE_GROUP_BY_FIRST_WORD` rendered under "Local LLM account & gateway" —
+    // a confidently wrong answer where an obviously missing one is wanted.
+    //
+    // Empty today, and `buildCommandMap` drops empty sections, so this group
+    // renders nothing at all unless the completeness test below has already been
+    // skipped or removed. It is the second line of defence, not the first.
+    id: "UNCLASSIFIED",
+    heading: "Unclassified — not yet grouped (a gap in the map, not a category)",
+    intention: "These verbs have no intention group yet. Please file them in cli-command-map.ts."
   }
 ];
 
@@ -241,7 +267,7 @@ const RUNTIME_VERBS: readonly {
   { group: "COORDINATE", verb: "jobs", summary: "Supervise delegated agent jobs; drain the queue." },
   { group: "COORDINATE", verb: "relay", summary: "h2a agent-network helpers (alias: `h2a h2a`)." },
   { group: "COORDINATE", verb: "wake-request", summary: "Act on a wake-request envelope by waking the target's pane." },
-  { group: "COORDINATE", verb: "conductor-launch", summary: "Act on a conductor-launch-request envelope (shadowed by the core verb)." },
+  { group: "COORDINATE", verb: "conductor-launch", summary: "Act on a conductor-launch-request envelope." },
 
   { group: "SET_UP", verb: "install", summary: "Set the default remote URL and apply the managed tmux profile." },
   { group: "SET_UP", verb: "connect", summary: "Make the control-plane reachable, opening the tunnel if needed." },
@@ -268,8 +294,8 @@ const RUNTIME_VERBS: readonly {
   { group: "TRANSPORT", verb: "browser", summary: "Open a headful browser inside a session Pod (noVNC)." },
   { group: "TRANSPORT", verb: "migrate", summary: "Round-trip a local session to a remote one and back." },
 
-  { group: "UNGROUPED", verb: "account", summary: "Manage the local LLM account pool." },
-  { group: "UNGROUPED", verb: "llm-mesh", summary: "Manage the local LLM gateway (multi-account, cross-provider)." },
+  { group: "LLM_LOCAL", verb: "account", summary: "Manage the local LLM account pool." },
+  { group: "LLM_LOCAL", verb: "llm-mesh", summary: "Manage the local LLM gateway (multi-account, cross-provider)." },
 
   { group: "HELP", verb: "help", summary: "Commander's per-command help for a runtime verb." }
 ];
@@ -320,8 +346,14 @@ function firstSentence(text: string): string {
  * frozen contract is the single source of truth for them) and the Track façade
  * verb list; runtime entries come from `RUNTIME_VERBS`.
  *
- * A core verb whose first word has no group lands in `UNGROUPED` rather than
- * vanishing — an undocumented verb is a bug to see, not to hide.
+ * A core verb whose first word has no group lands in `UNCLASSIFIED` rather than
+ * vanishing — an undocumented verb is a bug to see, not to hide. That bucket is
+ * deliberately semantics-free: it must never borrow another group's heading, or a
+ * missing entry would render as a confident wrong answer.
+ *
+ * In practice the fallback is unreachable, because "every frozen contract verb is
+ * classified into a group" (`test/cli-command-map.test.js`) fails first. It exists
+ * for the case where that test has been skipped or deleted.
  */
 export function buildCommandMap(
   trackFacadeVerbs: readonly string[]
@@ -334,7 +366,7 @@ export function buildCommandMap(
 
   for (const contract of H2A_CLI_VERB_CONTRACTS) {
     const firstWord = contract.verb.split(" ")[0] ?? contract.verb;
-    push(CORE_GROUP_BY_FIRST_WORD[firstWord] ?? "UNGROUPED", {
+    push(coreGroupForFirstWord(firstWord), {
       verb: contract.verb,
       summary: firstSentence(contract.description),
       origin: "core"
@@ -371,6 +403,19 @@ export const H2A_COMMAND_MAP_CORE_FIRST_WORDS: readonly string[] = Object.keys(
   CORE_GROUP_BY_FIRST_WORD
 );
 
+/**
+ * The intention group for a CORE verb's first word, or the semantics-free
+ * fallback when nobody has grouped it.
+ *
+ * Exported so the fallback TARGET is directly testable. Inlining the `??` made
+ * the choice of fallback unobservable: every frozen verb is classified today, so
+ * a mutation swapping the fallback to a semantic bucket changed nothing any test
+ * could see. Now "an unknown first word lands in UNCLASSIFIED" is an assertion.
+ */
+export function coreGroupForFirstWord(firstWord: string): H2ACommandGroupId {
+  return CORE_GROUP_BY_FIRST_WORD[firstWord] ?? "UNCLASSIFIED";
+}
+
 const VERB_COLUMN = 30;
 
 /**
@@ -383,7 +428,11 @@ export function renderCommandMap(trackFacadeVerbs: readonly string[]): string {
     "",
     "Grouped by what an operator is trying to do. Verbs marked (runtime) are served",
     "by the lazily-loaded @sentropic/h2a-runtime; you still type `h2a <verb>`.",
-    "Grouping vocabulary: docs/specs/2026-07-17-STUDY_h2a-cli-coconception.md.",
+    // This line used to print the path of the design study the grouping comes
+    // from. That study is unpublished — it is on no git ref — so the path was a
+    // pointer no user could open, printed by a shipped command. It now names the
+    // committed file that vendors the study's load-bearing passages verbatim.
+    "Grouping vocabulary and its warrant: docs/cli-help-grouping-vocabulary.md.",
     ""
   ];
 

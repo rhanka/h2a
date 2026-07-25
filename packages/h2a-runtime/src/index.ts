@@ -2074,9 +2074,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     // h2a attach.") described h2a before the consolidation: it named only the
     // session-wrapper role and taught nothing about track, harness, focus or the
     // h2a protocol. See docs/TRANSITION.md § 1. Deliberately NOT claimed here:
-    // that h2a is a native agent (see
-    // docs/specs/2026-07-18-STUDY_h2a-native-agent-and-session-engine.md — an
-    // owner-approved but unshipped change).
+    // that h2a is a native agent — that is the subject of a separate, unpublished
+    // internal study (owner-approved but unshipped, and on no git ref, so no path
+    // to it is printed or cited here).
     .description(
       "The unified sentropic CLI and core: start and return to agent work sessions " +
         "(local tmux or cluster), coordinate agents over the h2a protocol, and read " +
@@ -9016,9 +9016,39 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   // Purely presentational: `helpGroup()` and the `groupItems` override touch
   // nothing but the heading a command is listed under. Dispatch, argv parsing,
   // exit codes and every `--json` payload are untouched.
-  // `visibleCommands` (not `program.commands`) so Commander's lazily-created
-  // built-in `help` command is grouped too — otherwise it is the lone survivor
-  // of the default `Commands:` heading.
+  //
+  // ┌── TWO ORDER-DEPENDENCIES, both recorded because neither is guarded.
+  // │   Keep both calls after the last `program.command(...)` registration.
+  // │
+  // │ (a) `configureHelp` writes `program._helpConfiguration`, which Commander
+  // │     copies to each subcommand in `copyInheritedSettings` — invoked from
+  // │     `.command()` AT REGISTRATION TIME (commander/lib/command.js:104). So
+  // │     placing this after all registration means no subcommand inherits
+  // │     `groupItems`.
+  // │
+  // │     MEASURED, not assumed: hoisting this call to before registration was
+  // │     tried, and `--help`, `run --help`, `account --help`, `jobs --help` and
+  // │     `relay --help` all came back BYTE-IDENTICAL. The inheritance is real
+  // │     but INERT, because `groupRuntimeHelpItems` re-emits any heading it does
+  // │     not own (`Commands:`, `Options:`) unchanged — and a subcommand's own
+  // │     children never carry one of our headings. So placement is currently a
+  // │     preference, NOT a correctness requirement, and no test claims
+  // │     otherwise. What IS pinned is the pass-through property that makes it
+  // │     inert: "the group override passes through headings it does not own"
+  // │     in packages/h2a/test/cli-command-map.test.js. It would stop being inert
+  // │     if a subcommand's child were ever given one of our group headings.
+  // │
+  // │ (b) `visibleCommands()` forces Commander to create its implicit `help`
+  // │     command NOW (`_addImplicitHelpCommand`), so that it gets a group too —
+  // │     otherwise it is the lone survivor of the default `Commands:` heading.
+  // │     Side effect: a command registered AFTER this point would inherit the
+  // │     parent's already-created help-command instance
+  // │     (commander/lib/command.js:103) instead of getting its own. An
+  // │     adversarial A/B confirmed that inheritance does happen. It is inert
+  // │     today only because nothing is registered after this line, it is
+  // │     harmless in the output even then, and NOTHING GUARDS IT — a property
+  // │     of statement order, not an invariant. Recorded, not relied upon.
+  // └──
   applyRuntimeHelpGroups(program.createHelp().visibleCommands(program));
   program.configureHelp({ groupItems: groupRuntimeHelpItems });
   program.addHelpText(
