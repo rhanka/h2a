@@ -84,7 +84,7 @@ export interface H2aRuntimeHelpGroup {
  *    `tsconfig.json` excludes it), so a `.test.ts` here would be inert.
  *
  * 2. EACH COMMAND APPEARS IN AT MOST ONE `commands` LIST — enforced.
- *    `packages/h2a/test/cli-command-map.test.js:375`, "no runtime command is
+ *    `packages/h2a/test/cli-command-map.test.js:456`, "no runtime command is
  *    listed in two intention groups", imports `H2A_RUNTIME_HELP_GROUPS` from the built
  *    runtime and counts names across groups. This property has NO structural
  *    backstop: `HEADING_BY_COMMAND` below is a `Map`, so a name listed in two
@@ -98,11 +98,14 @@ export interface H2aRuntimeHelpGroup {
  */
 export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
   {
-    // Study rows: "Start a work session" (`h2a run <runtime>`), "Return to one"
-    // (`h2a attach <session>`), "End or continue one" (`h2a stop` / `h2a resume`).
+    // Vendored excerpt 3, § "Daily operator surface — top level", these rows:
+    // > | Start a work session | `h2a run <runtime>` |
+    // > | Return to one | `h2a attach <session>` |
+    // > | End or continue one | `h2a stop <session>` / `h2a resume <session>` |
+    //
     // The seven bare host-adapter names are the shortcut spelling of
-    // `h2a run <runtime>`; the study calls `<runtime>` "a host adapter such as
-    // `claude`/`codex`".
+    // `h2a run <runtime>`; the study calls `<runtime>`:
+    // > a host adapter such as `claude`/`codex`
     id: "START",
     heading: "Start — begin, return to, or end a work session:",
     commands: [
@@ -120,26 +123,35 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
     ],
   },
   {
-    // Study rows: "See work sessions" (`h2a ls`), "Read its recent activity"
-    // (`h2a logs <session>`), "See the big picture" (`h2a status --human`).
+    // Vendored excerpt 3, § "Daily operator surface — top level", these rows:
+    // > | See work sessions | `h2a ls` |
+    // > | Read its recent activity | `h2a logs <session>` |
+    // > | See the big picture | `h2a status --human` |
     id: "OBSERVE",
     heading: "Observe — see what is running and what needs attention:",
     commands: ["ls", "status", "agents", "diff", "sync-status"],
   },
   {
-    // Study rows: "Coordinate directly", "Hand work to an agent" (`h2a delegate`),
-    // "Supervise delegated work" (`h2a jobs …`); plus § "Specialist namespaces"
-    // row "`h2a loop …`, `h2a conductor …`, `h2a drumbeat …`, `h2a blockage …` |
-    // Explicit governance and coordination concepts".
+    // Vendored excerpt 3, § "Daily operator surface — top level", these rows:
+    // > | Coordinate directly | `h2a send <peer> <message>` |
+    // > | Hand work to an agent | `h2a delegate <runtime> <task>` |
+    // > | Supervise delegated work | `h2a jobs …` |
+    //
+    // plus vendored excerpt 5, § "Specialist namespaces and delegation":
+    // > Explicit governance and coordination concepts.
     id: "COORDINATE",
     heading: "Coordinate — hand work to agents and talk to peers:",
     commands: ["delegate", "jobs", "relay", "conductor-launch", "wake-request"],
   },
   {
-    // Study rows: "Connect this host" (`h2a connect`), "Enroll with sentropic",
-    // "Diagnose" (`h2a doctor`). Credential and endpoint plumbing lives here
-    // because the study's rule is "It does not configure a provider account" —
-    // these commands set up *this host*, not a provider route.
+    // Vendored excerpt 3, § "Daily operator surface — top level", these rows:
+    // > | Connect this host | `h2a connect` |
+    // > | Enroll with sentropic | `h2a enroll …` |
+    // > | Diagnose | `h2a doctor` |
+    //
+    // Credential and endpoint plumbing lives here because of the `connect` row's
+    // boundary — these commands set up *this host*, not a provider route:
+    // > It does not configure a provider account.
     id: "SET_UP",
     heading: "Set up — connect this host, its credentials, and diagnostics:",
     commands: [
@@ -156,10 +168,11 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
     ],
   },
   {
-    // Study § "Advanced session controls": `session recover <session>` — "Make
-    // recovery semantics explicit … This prevents 'resume' from silently
-    // promising more than a backend can provide." Also § "Three loop
-    // distinction" #3 (process/session supervision).
+    // Vendored excerpt 4, § "Advanced session controls", the `session recover` row:
+    // > Make recovery semantics explicit: byte-faithful restore, host-continuable resume, or best effort.
+    //
+    // and § "Three loop distinction" #3:
+    // > **Process/session supervision loop:** heartbeat, lease, crash/stop detection, and backend recovery.
     //
     // NOTE the runtime's `enroll` is the LIVE-SESSION REGISTRY plumbing that
     // feeds `ls`/`restore`. It is NOT the study's `h2a enroll …` (sentropic
@@ -178,9 +191,20 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
     ],
   },
   {
-    // Study § "Specialist namespaces and delegation", last row: quarantined
-    // transport/bridge compatibility — "Do not teach it as the session front
-    // door." These move bytes between here and a session backend.
+    // TWO sections warrant this heading, and they are not the same section.
+    // The earlier comment here attributed the whole heading to excerpt 5, but
+    // excerpt 5 does not contain "not the session front door" — that sentence is
+    // one section later. Accurate quotation, wrong address; both halves are now
+    // vendored against the section that actually carries them.
+    //
+    // Vendored excerpt 5, § "Specialist namespaces and delegation", last row:
+    // > Quarantined transport/bridge compatibility. `relay` is the taught bridge noun.
+    // > The primary user journey or any new generic remote-control vocabulary.
+    //
+    // Vendored excerpt 9, § "Compatibility and migration", the `h2a remote …` row:
+    // > Preserve as native transport compatibility namespace. Do not teach it as the session front door.
+    //
+    // These commands move bytes between here and a session backend.
     id: "TRANSPORT",
     heading: "Transport & bridges (compatibility — not the session front door):",
     commands: ["sync", "sync-files", "forward", "browser", "migrate"],
@@ -191,11 +215,17 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
     // command keeps Commander's default heading and trips the test.
     //
     // Not a study group. `account` and `llm-mesh` manage the local LLM account
-    // pool and the local gateway/mesh. Vendored excerpt 6 lists exactly these as
-    // areas h2a should NOT own: "`h2a gateway`, `h2a provider`, `h2a account`,
-    // `h2a catalogue`, or `h2a failover`" and "A command that lists or selects
-    // sentropic account pools, raw upstream model identifiers, sticky routing
-    // state, or provider audit records."
+    // pool and the local gateway/mesh. Vendored excerpt 6 lists the areas h2a
+    // should NOT own:
+    // > `h2a gateway`, `h2a provider`, `h2a account`, `h2a catalogue`, or `h2a failover`.
+    // > A command that lists or selects sentropic account pools, raw upstream model identifiers, sticky
+    //
+    // PRECISION the earlier wording lacked. It said the study "lists exactly
+    // these", which was true of one command and stranded for the other:
+    // `account` is named DIRECTLY by the first bullet; `llm-mesh` is named
+    // NOWHERE in the study and is covered by the second bullet only through what
+    // it does (multi-account, cross-provider fallback = account pools + failover).
+    // The bucket is warranted for both; only one is warranted by name.
     //
     // They nevertheless SHIP today. Forcing them into an operator group would
     // launder that contradiction, and hiding them would be dishonest — so they

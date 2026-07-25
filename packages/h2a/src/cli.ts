@@ -6688,7 +6688,37 @@ export function runCli(
   // `explain` — the grouped command map. Added 2026-07-25 as a NEW verb; it
   // repurposes no existing argv and no existing output. DEC-034's no-argv-is-help
   // rule above is untouched: bare `h2a` still renders `renderCliHelp()`.
+  //
+  // GRAMMAR, and why it is strict. Review measured that this verb accepted
+  // ANY trailing argv and returned the map with exit 0 — `explain foo`,
+  // `explain --json`, `explain --root /tmp` all "succeeded". That contradicted
+  // the contract, which declares no flags at all, and it manufactures a
+  // successful-looking result for input nobody implemented: a caller who pipes
+  // `explain --json` into a JSON parser gets prose and exit 0.
+  //
+  // The ambient convention in this file is laxer — `hosts foo` and
+  // `mcp-tools --json` also exit 0, measured. `explain` is deliberately NOT
+  // following it, because it is a NEW verb: no caller can already depend on
+  // junk argv being tolerated, so strictness is free here and impossible to
+  // retrofit later without a breaking change. Tightening the siblings is a
+  // separate change against verbs that DO have callers, and is not in scope.
+  //
+  // Accepted: bare `explain`, plus `--help`/`-h` which print the same map (the
+  // map IS this verb's help; erroring there would be user-hostile). Everything
+  // else — any other flag, any positional — is a usage error: exit 1, nothing
+  // on stdout, the offending token named on stderr. `optionalFlags: ["help"]`
+  // and `exitCodes: [0, 1]` in cli-contract.ts say exactly this.
   if (command === "explain") {
+    const rest = argv.slice(1);
+    const unsupported = rest.filter((token) => token !== "--help" && token !== "-h");
+    if (unsupported.length > 0) {
+      streams.stderr.write(
+        `h2a explain: unsupported argument${unsupported.length > 1 ? "s" : ""}: ${unsupported.join(", ")}\n` +
+          "  usage: h2a explain [--help]\n" +
+          "  `explain` takes no arguments; it always prints the whole grouped map.\n"
+      );
+      return 1;
+    }
     streams.stdout.write(`${renderCommandMap([...TRACK_FACADE_VERBS])}\n`);
     return 0;
   }

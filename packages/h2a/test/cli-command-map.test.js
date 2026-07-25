@@ -275,27 +275,105 @@ test("every doc path cited by the grouping modules and by `h2a explain` resolves
   }
   assert.deepEqual(dangling, [], `cited doc path does not exist: ${dangling.join("; ")}`);
 
-  // And the warrant itself is present, not merely named.
-  const vocab = readFileSync(join(ROOT, "docs/cli-help-grouping-vocabulary.md"), "utf8");
-  for (const passage of [
-    // Excerpt 3 — the sentence the five group words are quoted from.
-    "Start / Observe / Coordinate / Work / Set up",
-    // Excerpt 1 — the scope this PR is bounded by.
-    "Information architecture only:",
-    // Excerpt 6 — why `LLM_LOCAL` is a labelled bucket and not an intention.
-    "`h2a gateway`, `h2a provider`, `h2a account`, `h2a catalogue`, or `h2a failover`",
-    // Excerpt 5 — the two phrases the TRANSPORT heading leans on.
-    "Quarantined transport/bridge compatibility",
-    "The primary user journey",
-    // Excerpt 8 — the constraint that S1-S6 stay unencoded.
-    "No S1–S6 outcome should be encoded as a public CLI promise"
-  ]) {
-    assert.ok(
-      vocab.includes(passage),
-      `docs/cli-help-grouping-vocabulary.md no longer vendors: ${passage}`
-    );
+  // And every warrant is present, not merely named — with the list of passages
+  // DERIVED MECHANICALLY, not hand-curated.
+  //
+  // The previous version of this check ran off a list someone maintained by
+  // hand, and that is exactly why it passed while the modules quoted "Do not
+  // teach it as the session front door." from a section that does not contain
+  // it: nobody had added that phrase to the list. A curated list only checks
+  // what someone remembered. Same argument that took `explain`'s core entries
+  // off a hand-written list and onto the frozen contract.
+  //
+  // The convention: a study quotation in a grouping module is written as a
+  // Markdown blockquote inside a comment (`// > …`). This harvests every one of
+  // them and requires it to appear in the vendored doc. Adding a new quotation
+  // to a comment therefore adds it to this guard automatically; quoting
+  // something that was never vendored fails here.
+  const runs = harvestStudyQuotations();
+  const lineCount = runs.reduce((n, run) => n + run.lines.length, 0);
+  assert.ok(
+    lineCount >= 20,
+    `expected the grouping modules to carry many marked quotations, found ${lineCount} — has the "// >" convention been dropped?`
+  );
+  // Strip the doc's own Markdown blockquote markers BEFORE normalizing: the
+  // vendored passages are quoted line by line as `> …`, so leaving the markers
+  // in would put a stray ">" between every pair of words that a source comment
+  // wrapped across two lines, and a correctly-vendored quotation would look
+  // missing.
+  const vocabNorm = normalizeQuote(
+    readFileSync(join(ROOT, "docs/cli-help-grouping-vocabulary.md"), "utf8")
+      .split("\n")
+      .map((line) => line.replace(/^\s*>\s?/u, ""))
+      .join("\n")
+  );
+
+  // A marked run is accepted if the WHOLE run appears (a quotation the comment
+  // wrapped across lines) or if EVERY line appears on its own (a run of separate
+  // one-line quotations, e.g. consecutive table rows). Only lines that fail both
+  // are reported, so neither authoring style produces a false miss.
+  const unvendored = [];
+  for (const run of runs) {
+    if (vocabNorm.includes(normalizeQuote(run.lines.map((l) => l.text).join(" ")))) continue;
+    for (const line of run.lines) {
+      if (!vocabNorm.includes(normalizeQuote(line.text))) {
+        unvendored.push(`${run.file}:${line.line} -> ${line.text}`);
+      }
+    }
   }
+  assert.deepEqual(
+    unvendored,
+    [],
+    `a grouping module quotes text that docs/cli-help-grouping-vocabulary.md does not vendor:\n  ${unvendored.join("\n  ")}`
+  );
 });
+
+/**
+ * Normalize for comparison: collapse whitespace (so a comment's line wrapping
+ * cannot cause a false miss) and fold typographic quotes to ASCII (the study
+ * uses curly quotes; source comments use straight ones — a difference of
+ * rendering, not of wording).
+ */
+function normalizeQuote(text) {
+  return text
+    .replace(/[“”]/gu, '"')
+    .replace(/[‘’]/gu, "'")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+/**
+ * Harvest `// > …` blockquote lines from the modules that cite the study,
+ * grouped into maximal runs of consecutive marked lines. Lines that are only an
+ * ellipsis, or shorter than 12 characters, are elision markers rather than
+ * quotations and are skipped.
+ */
+function harvestStudyQuotations() {
+  const files = [
+    "packages/h2a-runtime/src/cli-help-groups.ts",
+    "packages/h2a/src/cli-command-map.ts"
+  ];
+  const runs = [];
+  for (const rel of files) {
+    const lines = readFileSync(join(ROOT, rel), "utf8").split("\n");
+    let current = null;
+    lines.forEach((raw, i) => {
+      const m = /^\s*(?:\/\/|\*)\s*>\s?(.*\S)\s*$/u.exec(raw);
+      const text = m?.[1];
+      const usable = text !== undefined && text.length >= 12 && !/^[….\s]+$/u.test(text);
+      if (!usable) {
+        current = null;
+        return;
+      }
+      if (current === null) {
+        current = { file: rel, lines: [] };
+        runs.push(current);
+      }
+      current.lines.push({ line: i + 1, text });
+    });
+  }
+  return runs;
+}
 
 test("the fallback bucket is not a semantic bucket", () => {
   // A fallback that borrows a semantic label produces a confidently wrong answer
@@ -331,11 +409,14 @@ test("the fallback bucket is not a semantic bucket", () => {
 
 test("the announced CLI verb counts match the golden fixture", () => {
   // Two hand-written counts that `scripts/check-public-contract.sh` never reads —
-  // it computes its own count dynamically. So they could go stale silently, and
-  // WILL: PR #30 also takes the contract 97 -> 98 by adding `keys prove-control`,
-  // so whichever of these two PRs merges second makes the true count 99 while
-  // cli-verbs.json self-heals through a clean merge. This test is the forcing
-  // function that makes that reconciliation loud instead of silent.
+  // it computes its own count dynamically. So they could go stale silently.
+  //
+  // They DID. This comment used to predict it in the future tense; it happened.
+  // PR #30 took the contract 97 -> 98 with `keys prove-control` and merged first;
+  // rebasing this branch onto it merged cli-verbs.json, the contract and
+  // `expected[]` cleanly to 99 while these two prose numbers stayed at 98 — a
+  // conflict-free rebase leaving the published contract wrong. This test caught
+  // it on the next run. Kept in the past tense so the worked example survives.
   //
   // Placed at the test rung rather than in the shell gate on purpose: ci.yml's
   // contract job is already red on main for an unrelated reason (16 track_* tools
@@ -467,7 +548,7 @@ test("the file:line citations in cli-help-groups.ts point at the tests they name
   // delete this test.
   const EXPECTED = {
     181: "the runtime help groups every command by intention, none left in the default bucket",
-    375: "no runtime command is listed in two intention groups"
+    456: "no runtime command is listed in two intention groups"
   };
   const groupsSrc = readFileSync(
     join(ROOT, "packages/h2a-runtime/src/cli-help-groups.ts"),
@@ -494,4 +575,207 @@ test("the file:line citations in cli-help-groups.ts point at the tests they name
       `cli-command-map.test.js:${n} no longer declares "${name}" — the citation in cli-help-groups.ts is stale`
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// Round-4 guards. Both exist because a property was MEASURED rather than
+// GUARDED: a one-time measurement says the code was right once, which is not
+// the same as keeping it right. Appended, so the line numbers cited in source
+// comments stay valid.
+// ---------------------------------------------------------------------------
+
+const HELP_FIXTURE = join(ROOT, "packages/h2a/test/fixtures/runtime-help-commands.json");
+
+/**
+ * Parse the runtime entrypoint's `--help` into one record per command row:
+ * the intention group it renders under, its Commander term, and its
+ * description. Option rows are excluded (they live under `Options:`), and a
+ * wrapped description is reported rather than silently truncated.
+ */
+function parseRuntimeHelpRows(output) {
+  const rows = [];
+  let heading = null;
+  let wrapped = false;
+  for (const line of output.split("\n")) {
+    if (/^\S.*:$/u.test(line)) {
+      heading = line;
+      continue;
+    }
+    if (line.trim() === "") continue;
+    if (heading === "Options:") continue;
+    const m = /^ {2}(\S(?:.*?\S)?) {2,}(\S.*)$/u.exec(line);
+    if (m) rows.push({ group: heading, term: m[1], description: m[2] });
+    else if (/^ {3,}\S/u.test(line) && heading !== null) wrapped = true;
+  }
+  return { rows, wrapped };
+}
+
+test(
+  "every runtime command term AND description is pinned by a committed fixture",
+  { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
+  () => {
+    // WHY THIS EXISTS. Review measured all 46 terms byte-identical across the
+    // regrouping — once, by hand. The earlier test pinned SIX terms and no
+    // descriptions, so nothing kept the other 40 (or any description) true
+    // tomorrow. A one-time measurement is not a guard; this is the guard.
+    //
+    // VOCABULARY, deliberately precise. This pins PER-COMMAND ROWS only. The
+    // top-level ROOT DESCRIPTION *did* change in this PR, by design, and is
+    // therefore NOT in the `commands` fixture — it is asserted separately below
+    // against `rootDescriptionContains`. Conflating the two would either
+    // freeze a line we meant to change or let 46 lines drift unnoticed.
+    const fixture = JSON.parse(readFileSync(HELP_FIXTURE, "utf8"));
+    const { output } = runtimeTopLevelCommands();
+    const { rows, wrapped } = parseRuntimeHelpRows(output);
+
+    // If Commander ever wraps a description, the parser above would drop the
+    // continuation and this guard would quietly weaken. Refuse instead.
+    assert.equal(
+      wrapped,
+      false,
+      "a command description wrapped onto a second line; the fixture parser would truncate it"
+    );
+    assert.equal(fixture.descriptionsWrapped, false, "fixture was generated from wrapped output");
+
+    assert.equal(
+      rows.length,
+      fixture.commandCount,
+      `runtime help now renders ${rows.length} command rows, fixture pins ${fixture.commandCount}`
+    );
+    // deepEqual over the whole array: term, description AND group, in order.
+    assert.deepEqual(
+      rows,
+      fixture.commands,
+      "runtime help command rows drifted from packages/h2a/test/fixtures/runtime-help-commands.json"
+    );
+
+    // The root description is top-level prose, pinned separately and loosely:
+    // it is the line this PR intentionally rewrote.
+    const root = output.split("\n").slice(0, 10).join(" ");
+    for (const needle of fixture.rootDescriptionContains) {
+      assert.ok(root.includes(needle), `root description no longer contains: ${needle}`);
+    }
+  }
+);
+
+/**
+ * Extract the hand-maintained `expected` verb array from cli-contract.test.js.
+ * That array is a test-local literal with comments in it, so it is parsed from
+ * source rather than imported. A parse failure is an assertion failure, never a
+ * silently-skipped check.
+ */
+function readExpectedVerbArray() {
+  const src = readFileSync(join(ROOT, "packages/h2a/test/cli-contract.test.js"), "utf8");
+  const start = src.indexOf("const expected = [");
+  assert.notEqual(start, -1, "could not locate `const expected = [` in cli-contract.test.js");
+  const open = src.indexOf("[", start);
+  const close = src.indexOf("\n  ];", open);
+  assert.notEqual(close, -1, "could not locate the end of the `expected` array");
+  const literal = src.slice(open, close + 4).replace(/^\s*\/\/[^\n]*$/gmu, "");
+  let parsed;
+  try {
+    parsed = JSON.parse(literal.replace(/,(\s*\])/u, "$1"));
+  } catch (err) {
+    assert.fail(`could not parse the \`expected\` array literal: ${err.message}`);
+  }
+  assert.ok(Array.isArray(parsed) && parsed.length > 0, "`expected` parsed to something unusable");
+  return parsed;
+}
+
+test("the golden verb SET matches the contract and `expected[]`, not merely its size", () => {
+  // WHY THIS EXISTS, and what the previous guard could not see. The count guard
+  // asserts cardinality: len(golden) === len(contract), plus the two prose
+  // numbers. Cardinality is blind to the mutations that keep it constant —
+  // SWAP one verb for another, or DUPLICATE one while DROPPING another, and 99
+  // stays 99. `expected[]` was not compared against the golden by anything at
+  // all: cli-contract.test.js compares it to the contract, and nothing closed
+  // the third edge of the triangle.
+  //
+  // Review recomputed set equality by hand and got a clean result. That was the
+  // REVIEWER computing, not a test that fires next time. This is the test.
+  //
+  // Not delegated to scripts/check-public-contract.sh on purpose: that job is
+  // already red on main for an unrelated reason (16 track_* tools missing from
+  // the MCP golden), and a gate that is already red cannot newly catch anything.
+  const golden = JSON.parse(
+    readFileSync(join(ROOT, "docs/contracts/golden/cli-verbs.json"), "utf8")
+  );
+  const contract = H2A_CLI_VERB_CONTRACTS.map((c) => c.verb);
+  const expected = readExpectedVerbArray();
+
+  // 1. No duplicates. A duplicate plus a drop preserves length AND, if only
+  //    sorted-set comparison were used, could hide a missing verb.
+  const dupes = golden.filter((v, i) => golden.indexOf(v) !== i);
+  assert.deepEqual([...new Set(dupes)], [], `cli-verbs.json contains duplicate verbs: ${dupes.join(", ")}`);
+
+  // 2. Sorted. The golden is generated sorted and diffed as text by the shell
+  //    gate; an unsorted golden is a spurious-diff generator.
+  assert.deepEqual(golden, [...golden].sort(), "cli-verbs.json is no longer sorted");
+
+  // 3. Set equality on all three edges, as multisets (sorted arrays), so a swap
+  //    is caught even though it preserves the count.
+  assert.deepEqual(
+    [...golden].sort(),
+    [...contract].sort(),
+    "cli-verbs.json and H2A_CLI_VERB_CONTRACTS describe different verb sets"
+  );
+  assert.deepEqual(
+    [...golden].sort(),
+    [...expected].sort(),
+    "cli-verbs.json and the `expected` array in cli-contract.test.js describe different verb sets"
+  );
+
+  // 4. And the two hand-written prose counts, so all five artifacts are covered
+  //    by one directly-executed test rather than by three that each see a part.
+  const readme = readFileSync(join(ROOT, "docs/contracts/golden/README.md"), "utf8");
+  const readmeCount = /\*\*`cli-verbs\.json`\*\*[^\n]*?les (\d+) verbes/u.exec(readme);
+  assert.ok(readmeCount, "could not find the announced verb count in golden/README.md");
+  assert.equal(Number(readmeCount[1]), golden.length, "golden/README.md announces the wrong count");
+
+  const matrix = JSON.parse(
+    readFileSync(join(ROOT, "docs/contracts/golden/version-matrix.json"), "utf8")
+  );
+  assert.equal(
+    Number(/^(\d+)/u.exec(matrix.compat.cliVerbs)?.[1]),
+    golden.length,
+    "version-matrix.json compat.cliVerbs announces the wrong count"
+  );
+});
+
+test("h2a explain rejects argv it does not implement", () => {
+  // Review measured this verb returning the map with exit 0 for `explain foo`,
+  // `explain --json`, `explain --root /tmp` — the contract declaring no flags
+  // while the binary accepted anything. A successful-looking result for
+  // unimplemented input is worse than an error: `explain --json | jq` got prose
+  // and exit 0.
+  for (const argv of [
+    ["explain", "foo"],
+    ["explain", "--json"],
+    ["explain", "--root", "/tmp"],
+    ["explain", "--group", "start"],
+    ["explain", "foo", "bar", "--baz"]
+  ]) {
+    const streams = captureStreams();
+    assert.equal(runCli(argv, streams), 1, `${argv.join(" ")} must be a usage error`);
+    assert.equal(streams.stdoutText, "", `${argv.join(" ")} must print nothing on stdout`);
+    assert.match(streams.stderrText, /unsupported argument/u);
+    assert.match(streams.stderrText, /usage: h2a explain \[--help\]/u);
+  }
+
+  // Accepted spellings, all printing the same map with exit 0.
+  const bare = captureStreams();
+  assert.equal(runCli(["explain"], bare), 0);
+  for (const flag of ["--help", "-h"]) {
+    const streams = captureStreams();
+    assert.equal(runCli(["explain", flag], streams), 0, `explain ${flag} must succeed`);
+    assert.equal(streams.stdoutText, bare.stdoutText, `explain ${flag} must print the same map`);
+    assert.equal(streams.stderrText, "");
+  }
+
+  // The contract and the binary must agree — that was the actual defect.
+  const contract = H2A_CLI_VERB_CONTRACTS.find((c) => c.verb === "explain");
+  assert.ok(contract, "the explain contract entry vanished");
+  assert.deepEqual([...contract.exitCodes].sort(), [0, 1], "contract must declare the usage-error exit");
+  assert.deepEqual([...contract.optionalFlags], ["help"], "contract must declare --help as the only flag");
+  assert.deepEqual([...contract.requiredFlags], []);
 });

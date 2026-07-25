@@ -2074,9 +2074,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     // h2a attach.") described h2a before the consolidation: it named only the
     // session-wrapper role and taught nothing about track, harness, focus or the
     // h2a protocol. See docs/TRANSITION.md § 1. Deliberately NOT claimed here:
-    // that h2a is a native agent — that is the subject of a separate, unpublished
-    // internal study (owner-approved but unshipped, and on no git ref, so no path
-    // to it is printed or cited here).
+    // that h2a is a native agent.
+    //
+    // An earlier version of this comment justified that omission by calling the
+    // change "owner-approved but unshipped", citing an unpublished internal
+    // study. Review was right to strike it: there is no reachable warrant for
+    // the approval — no committed decision record, and the study is on no git
+    // ref — so the claim could not be checked by anyone reading this file. An
+    // uncheckable appeal to the owner's approval is the same defect as an
+    // uncheckable citation to a study. The omission needs no warrant anyway:
+    // h2a is not a native agent today, which is a fact about this binary.
     .description(
       "The unified sentropic CLI and core: start and return to agent work sessions " +
         "(local tmux or cluster), coordinate agents over the h2a protocol, and read " +
@@ -9013,12 +9020,22 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   // Help layout only — assign every top-level command an intention group and
   // render the groups in the declared order instead of registration order.
-  // Purely presentational: `helpGroup()` and the `groupItems` override touch
-  // nothing but the heading a command is listed under. Dispatch, argv parsing,
-  // exit codes and every `--json` payload are untouched.
+  // Presentational for every PRE-EXISTING RECOGNIZED COMMAND: `helpGroup()` and
+  // the `groupItems` override touch nothing but the heading a command is listed
+  // under, so dispatch, argv parsing, exit codes and `--json` payloads are
+  // unchanged for all 46 of them. The top-level help layout and the root
+  // description DO change here — that is the point of the change, not an
+  // exception to it. Stating the narrow property rather than "zero behaviour
+  // change", which was wider than the evidence.
   //
   // ┌── TWO ORDER-DEPENDENCIES, both recorded because neither is guarded.
   // │   Keep both calls after the last `program.command(...)` registration.
+  // │
+  // │   A COMMENT IS NOT A SAFETY MECHANISM. Neither (a) nor (b) below is
+  // │   enforced by any test. If you move these calls, the suite will not tell
+  // │   you — it will stay green, because both dependencies are currently inert
+  // │   for the reasons given. They are written down so the next person can see
+  // │   the latch, not because the latch is held shut.
   // │
   // │ (a) `configureHelp` writes `program._helpConfiguration`, which Commander
   // │     copies to each subcommand in `copyInheritedSettings` — invoked from
