@@ -48,7 +48,17 @@ export interface InstanceDescriptor {
   readonly instanceId: string;
   readonly displayName: string;
   readonly host: string;
-  readonly role: H2ARole;
+  /**
+   * `H2AActorRegistration.roles[0]`, or the literal `'unknown'` when the
+   * instance has no registration or declares no role.
+   *
+   * The union is deliberate (architect ruling, 2026-07-25): a MISSING role must
+   * never be rendered as a real `H2ARole`. Synthesizing e.g. `'AGENTS'` would be
+   * indistinguishable from an asserted claim, so once real roles land
+   * (PRINCIPAL/CONDUCTOR/CONTROL) an absent role would silently read as a
+   * genuine claim of authority and no consumer could tell the two apart.
+   */
+  readonly role: H2ARole | "unknown";
   /** Human label only. NEVER a filesystem path (Part A, opacity boundary). */
   readonly workspaceLabel: string;
   /**
@@ -105,15 +115,16 @@ export interface H2AFeedResponse {
   readonly sessions: readonly SessionDescriptor[];
 }
 
-/** Shown when neither a session nor a registration carries a human label. */
-const UNKNOWN_LABEL = "unknown";
-
 /**
- * Fallback role. `identity/live.ts` `ensureRegistered` writes `roles:
- * ["AGENTS"]` at mint, so this only applies to a session with no registration
- * at all (contract Gaps §3: the field is narrow-range, not missing).
+ * The single "not declared" sentinel for every string field whose source may be
+ * absent. Safe precisely because it can never collide with a real value: no
+ * workspace label, host hint or `H2A_ROLES` member is the literal `unknown`, so
+ * a consumer can always tell an undeclared field from an asserted one, and a
+ * row is NEVER dropped to hide one (a dropped row would be a false negative on
+ * presence, and would collide with the ratified "empty arrays = nothing
+ * enrolled" semantic). Architect ruling, 2026-07-25.
  */
-const DEFAULT_ROLE: H2ARole = "AGENTS";
+const UNKNOWN = "unknown";
 
 /** Input common to every builder. `asOf` is injected — never `Date.now()`. */
 export interface BuildFeedInput {
@@ -205,6 +216,17 @@ export function deriveLiveness(
     return "closed";
   }
 
+  // ORDERING IS LOAD-BEARING — do not move this gate below the confidence
+  // check. Because staleness is decided FIRST, any row that later returns
+  // 'idle' has already passed pipeline-freshness: an 'idle' is therefore
+  // genuine, fresh knowledge ("we looked, and it is quiet"), never absence of
+  // knowledge. That is the whole justification for ranking idle ABOVE stale in
+  // the instance roll-up (see LIVENESS_RANK). Reorder these two checks and a
+  // stale-pipeline row would surface as 'idle' — a fresh-looking claim built on
+  // timestamps nobody has refreshed — and the roll-up ordering would become
+  // wrong (stale would have to dominate instead). Pinned by the test named
+  // "the mirroredAt staleness gate strictly precedes the confidence check".
+  //
   // Replicated/mirrored record (Part C's push-to-root path): `heartbeatAt` is
   // re-stamped with the receiving clock on ingest, but the payload's own
   // `lastMcpActivityAt` is a LOCAL clock value copied through verbatim — it is
@@ -220,7 +242,14 @@ export function deriveLiveness(
   return confidence === "active" ? "live" : "idle";
 }
 
-/** Best-of ranking for the instance-level roll-up: live > idle > stale > closed. */
+/**
+ * Best-of ranking for the instance-level roll-up: live > idle > stale > closed.
+ *
+ * `idle` outranks `stale` ONLY because {@link deriveLiveness} decides staleness
+ * before it consults connection confidence, so an `idle` here is always fresh
+ * knowledge rather than absence of it. If that ordering is ever inverted, this
+ * ranking must be inverted with it — `stale` would then have to dominate.
+ */
 const LIVENESS_RANK: Record<H2ALivenessState, number> = {
   live: 3,
   idle: 2,
@@ -263,7 +292,7 @@ export function buildSessionDescriptor(
 ): SessionDescriptor {
   const registration = options.registration;
   const workspaceLabel =
-    labelOf(session.workspace) ?? labelOf(registration?.workspace) ?? UNKNOWN_LABEL;
+    labelOf(session.workspace) ?? labelOf(registration?.workspace) ?? UNKNOWN;
   // DEC-114 per-session mutable display name (host-native customTitle /
   // thread_name, or `/rename`). May legitimately diverge from the owning
   // instance's displayName — a session can be renamed independently.
@@ -315,7 +344,7 @@ export function buildInstanceDescriptor(
     labelOf(mostRecent?.workspace) ??
     ordered.map((session) => labelOf(session.workspace)).find((label) => label !== undefined) ??
     labelOf(registration?.workspace) ??
-    UNKNOWN_LABEL;
+    UNKNOWN;
 
   const liveSessionName = ordered
     .filter((session) => deriveSessionState(session, options.asOf) !== "closed")
@@ -330,7 +359,7 @@ export function buildInstanceDescriptor(
     // never a path.
     mostRecent?.workspace?.host ??
     registration?.workspace?.host ??
-    UNKNOWN_LABEL;
+    UNKNOWN;
 
   const lastSeenMs = ordered.reduce((max, session) => Math.max(max, heartbeatMs(session)), 0);
   const lastSeen =
@@ -344,7 +373,8 @@ export function buildInstanceDescriptor(
     instanceId,
     displayName,
     host,
-    role: registration?.roles?.[0] ?? DEFAULT_ROLE,
+    // Never synthesize a real H2ARole for a missing one (see the field's doc).
+    role: registration?.roles?.[0] ?? UNKNOWN,
     workspaceLabel,
     // Declared display list only — never an authorization input (condition #3).
     capabilities: [...(registration?.capabilities ?? [])],
