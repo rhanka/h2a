@@ -1548,10 +1548,22 @@ export function resolveAutoOpen(
   // §D1b: only follow the host title when the operator left the name implicit,
   // and only when a real provider session id was readable (the synthetic
   // `fallback:` id names no transcript, so there is nothing to re-read).
+  //
+  // The host gate is EXPLICIT, not incidental. `createHostSessionNameRefresher`
+  // can only read `claude` and `codex` transcripts; for any other host it returns
+  // `undefined` forever. `resolveProviderSession` does resolve a provider session
+  // id for `remote`, `gemini` and `agy`, so without this gate those three install
+  // a callback that is called on every heartbeat and can never return a name — a
+  // guard whose premise cannot hold. Installing nothing is behaviourally
+  // identical (the heartbeat keeps the previous name either way) and does not
+  // pretend to a capability the reader does not have.
+  const refreshableHost = host === "claude" || host === "codex";
   const refreshDisplayName =
-    flags.name === undefined && identity.providerSessionId !== undefined
+    flags.name === undefined &&
+    identity.providerSessionId !== undefined &&
+    refreshableHost
       ? createHostSessionNameRefresher({
-          host: host ?? "agent",
+          host,
           cwd: cwd(),
           sessionId: identity.providerSessionId
         })

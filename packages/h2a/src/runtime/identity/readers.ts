@@ -313,14 +313,36 @@ function findClaudeTranscript(
 }
 
 /**
- * Normalize a candidate display name: trim, reject whitespace-only, and cap the
- * length. Without the trim a title of `"   "` is truthy and would be written to
- * presence verbatim; without the cap an unbounded user-controlled string lands in
- * every peer's presence read (`isH2ASession` only checks `typeof`).
+ * C0/C1 control characters and Unicode bidi overrides/isolates.
+ *
+ * A display name is host-controlled free text that D3's list-and-ask presents to
+ * a HUMAN choosing a message recipient. A bidi override (U+202E) can make
+ * `auth<U+202E>gnitnuocca` render as `authaccounting`, so two candidates in a
+ * disambiguation list can be made to look alike; a C0 control can truncate or
+ * corrupt a terminal line. Neither is ever legitimate in a display name, so both
+ * are removed at INGEST rather than left to every consumer to re-discover.
+ *
+ * This is defence in depth, not a substitute for escaping: a renderer must still
+ * escape what it prints (spec §10.6), and candidate choice must never rest on
+ * title text alone.
+ */
+// eslint-disable-next-line no-control-regex
+const UNSAFE_DISPLAY_CHARS = /[\u0000-\u001F\u007F-\u009F\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
+
+/**
+ * Normalize a candidate display name: strip unsafe characters, trim, reject
+ * whitespace-only, and cap the length. Without the trim a title of `"   "` is
+ * truthy and would be written to presence verbatim; without the cap an unbounded
+ * user-controlled string lands in every peer's presence read (`isH2ASession` only
+ * checks `typeof`).
+ *
+ * EVERY host reader must route its title through this function. Claude reaches it
+ * via `jsonField`; Codex calls it directly (`readCodexSessionName`). A reader that
+ * bypasses it writes untrimmed, unbounded, control-bearing text into presence.
  */
 function normalizeTitle(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
+  const trimmed = value.replace(UNSAFE_DISPLAY_CHARS, "").trim();
   if (trimmed.length === 0) return undefined;
   return trimmed.length > MAX_DISPLAY_NAME_CHARS
     ? trimmed.slice(0, MAX_DISPLAY_NAME_CHARS)
@@ -492,8 +514,13 @@ function readCodexSessionName(
     if (!trimmed) continue;
     try {
       const obj = JSON.parse(trimmed) as Record<string, unknown>;
-      if (obj.id === sessionId && typeof obj.thread_name === "string" && obj.thread_name.length > 0) {
-        lastMatch = obj.thread_name;
+      if (obj.id === sessionId) {
+        // Route through the SAME normalization as Claude. Previously this branch
+        // assigned `obj.thread_name` raw, so a Codex thread name was written to
+        // presence untrimmed, whitespace-only-accepted and UNBOUNDED — the one
+        // host-controlled presence input the length cap did not actually cover.
+        const normalized = normalizeTitle(obj.thread_name);
+        if (normalized !== undefined) lastMatch = normalized;
       }
     } catch {
       // skip
