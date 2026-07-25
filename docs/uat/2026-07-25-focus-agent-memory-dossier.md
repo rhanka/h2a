@@ -6,9 +6,12 @@ cards, neutral presentation, notes, export, hand-off to a live CLI, a wide bench
 every defect the owner reported on it is listed below as a regression checkpoint that must not
 come back.
 
-- Dossier fixture: `apps/focus/src/lib/server/agent-memory-dossier.ts` (revision `agent-memory-2026-07-24`)
+- Dossier fixture: `apps/focus/src/lib/server/agent-memory-dossier.ts` (revision `agent-memory-2026-07-25`,
+  which supersedes `agent-memory-2026-07-24` **without orphaning it**: D1..D7 keep their keys and their
+  option keys, so the committed answer set below still replays in full)
 - Page: `apps/focus/src/routes/dossier/agent-memory/`
-- Owner answers to replay: `docs/decisions/2026-07-25-agent-memory-owner-answers.json`
+- Owner answers to replay: `docs/decisions/2026-07-25-agent-memory-owner-answers.json` (captured against
+  revision `agent-memory-2026-07-24` — the revision mismatch is expected and must be reported, not hidden)
 - Hand-off precedent: `apps/focus/src/routes/api/decisions/inject/` (the live-CLI deposit used by the root
   page). NOTE: an earlier draft of this document cited `apps/focus/src/routes/dossier/session-safety/` as the
   reference implementation. That path is **untracked working-tree work — it exists in no commit and on no
@@ -31,12 +34,26 @@ checkpoints hold; a failing CRITICAL checkpoint blocks the release.
 ## Checkpoints
 
 ### A. Content integrity (CRITICAL)
-- A1. The seven decisions D1..D7 render, each with its question, why-now, options, criterion and
-  next-work.
+- A1. The thirteen decisions D1..D13 render, each with its question, why-now, options, criterion and
+  next-work. D1..D7 are the original seven (kept, enriched, never re-keyed); D8..D13 were added in
+  revision 2 and carry a "Nouvelle carte (révision 2)" badge.
 - A2. **No option is presented as recommended.** The dossier is neutral by construction; the
   per-card field is a criterion to weigh, never a pick. A "Recommandée" badge appearing on an
   agent-memory option is a failure.
 - A3. The benchmark matrix renders all approaches and columns.
+- A4. **Mechanism detail is on the card, not in an appendix** (added revision 2, answering the owner's
+  "il faut plus de détail"). Every decision card renders a "Comment ça marche réellement" list, and every
+  entry carries a source (research section + file:line, issue, or arXiv id) that makes it checkable.
+- A5. **Unverified claims are marked as such.** A mechanism fact the research could not establish at
+  primary source renders a "Non vérifié" badge, and cards carry a "Ce que nous n'avons pas pu établir"
+  section. Presenting an unverified claim as fact is a failure — the honest gap is the point.
+- A6. **Corrections are visible, never silent.** The leading state-of-the-art card lists what the previous
+  revision asserted and what the mechanism research found instead (Hermes caps in characters not tokens and
+  no LLM consolidation; Letta not last-writer-wins; ctx's "convergent" is not a CRDT and it does ship MCP;
+  graphify already ingests transcripts). A rewritten matrix cell with no corresponding entry is a failure.
+- A7. Round-2 cards quote the owner's own answer **verbatim** ("Découle de votre réponse à …"). A paraphrase
+  in that block is a failure: the note is the reasoning, and a card built on our paraphrase of him is not
+  his decision. D13 legitimately has no quote — it is the card nobody raised.
 
 ### B. État de l'art placement (CRITICAL — regression, reported 2026-07-25)
 - B1. The state of the art is the **first page** of the deck and carries **no decision**. It was
@@ -83,9 +100,18 @@ checkpoints hold; a failing CRITICAL checkpoint blocks the release.
 
 ### F. Replay (CRITICAL)
 - F1. The committed answer set (`docs/decisions/2026-07-25-agent-memory-owner-answers.json`) can be
-  loaded back into the dossier, restoring selections **and** notes.
+  loaded back into the dossier, restoring selections **and** notes. On revision
+  `agent-memory-2026-07-25` this must restore **all seven** D1..D7 answers: 7 applied, 0 missing
+  decisions, 0 stale options.
 - F2. If the dossier revision has changed, a replay states which decision keys no longer exist
   rather than dropping answers silently.
+- F3. **A revision bump states what carries over** (added revision 2). Before the replay control, the page
+  names how many decisions were kept from the previous revision and how many were added, so the reader can
+  see that a revision mismatch is not a loss. A bump that orphans a committed answer set silently is a
+  failure.
+- F4. **A replay is honest in both directions** (added revision 2): besides answers that could not be
+  replayed, it names the decisions of *this* revision that the answer set does not cover (D8..D13), so a
+  "successful" replay never implies the whole dossier is answered.
 
 ### G. Theme and viewport
 - G1. Readable in both light and dark theme; no hardcoded colors (design-system tokens only).
@@ -108,3 +134,12 @@ checkpoints hold; a failing CRITICAL checkpoint blocks the release.
 - 2026-07-25 — owner ran the dossier for real and reported four form defects: no include-to-CLI,
   state of the art placed last, note not full width, large dead space under short cards. They are
   checkpoints B1, C3, D1 and E1 above.
+- 2026-07-25 — **revision 2** (`agent-memory-2026-07-25`, focus 0.3.0). The owner answered all seven
+  decisions with substantive reasoning and flagged one gap explicitly — the first benchmark never showed
+  *how* Hermes or the others actually work. Revision 2 answers it (mechanism facts on the cards, with
+  sources and with unverified items marked) and turns his answers into six new cards: D8 graphify as both
+  archive and live sink, D9 one graph both ontology-typed and bi-temporal, D10 the write trigger given that
+  `PreCompact` cannot inject, D11 the pending-memory tier behind a Focus review session, D12 the
+  single-writer-then-CRDT migration, D13 whether this dossier supersedes or extends the prior local design
+  seed in graphify's gitignored scratch directory. New checkpoints: A4, A5, A6, A7, F3, F4. The revision
+  bump deliberately keeps D1..D7 keyed identically so the committed answer set is not orphaned.
