@@ -9,7 +9,11 @@ come back.
 - Dossier fixture: `apps/focus/src/lib/server/agent-memory-dossier.ts` (revision `agent-memory-2026-07-24`)
 - Page: `apps/focus/src/routes/dossier/agent-memory/`
 - Owner answers to replay: `docs/decisions/2026-07-25-agent-memory-owner-answers.json`
-- Reference sibling implementation: `apps/focus/src/routes/dossier/session-safety/`
+- Hand-off precedent: `apps/focus/src/routes/api/decisions/inject/` (the live-CLI deposit used by the root
+  page). NOTE: an earlier draft of this document cited `apps/focus/src/routes/dossier/session-safety/` as the
+  reference implementation. That path is **untracked working-tree work — it exists in no commit and on no
+  branch**, so it cannot serve as a reference. The shared resolution logic now lives in
+  `apps/focus/src/lib/server/h2a-bus.ts`, used by both the inject and the dossier include routes.
 
 ## How to run
 
@@ -63,8 +67,11 @@ checkpoints hold; a failing CRITICAL checkpoint blocks the release.
 - D4. `prefers-reduced-motion` is honored.
 
 ### E. Hand-off — export and include (CRITICAL — regression, reported 2026-07-25)
-- E1. **Include into a live CLI** exists per decision, as `session-safety` already had it. Dropping
-  it in agent-memory was a regression: the owner had to fall back to copy-paste.
+- E1. **Include into a live CLI** exists per decision, mirroring the `/api/decisions/inject` precedent.
+  Its absence in agent-memory was a regression: the owner had to fall back to copy-paste.
+- E1b. Served from a git worktree, `projectName()` resolves the project from the directory basename, so it
+  finds no live session. Run this checkpoint from the primary checkout, or expect the honest no-live-CLI
+  warning rather than a delivery.
 - E2. The include payload carries the owner's **note**, not only the selected option. The note is
   the reasoning and is the most valuable part.
 - E3. With no live CLI for the project, the UI says so plainly (a warning) instead of claiming a
