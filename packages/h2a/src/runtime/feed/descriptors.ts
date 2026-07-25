@@ -128,11 +128,13 @@ export interface SessionDescriptor {
    */
   readonly activitySource: "mcp" | "heartbeat";
   /**
-   * Other parties' handles, opacified. Always `[]` for P1: per the contract's
-   * Gaps §2, no h2a structure records "who is this session in contact with",
-   * and negotiations are not mirrored yet (EVO-13 scopes
-   * `h2a_conflict_posture` out until they are). `[]` is ACCURATE, not
-   * fabricated. When a derivation lands, the raw `instance:` routing string is
+   * Other parties' handles, opacified. Empty for P1 — and empty as an
+   * ESTABLISHED FACT, produced by the explicit branch in
+   * `counterpartsOpaqueRefsFor()` rather than by a literal default: per the
+   * contract's Gaps §2 no h2a structure records "who is this session in contact
+   * with", and negotiations are not mirrored yet (EVO-13 scopes
+   * `h2a_conflict_posture` out until they are). So `[]` here means "there is no
+   * counterpart source at all", never "we did not look". When a derivation lands, the raw `instance:` routing string is
    * never emitted — the feed server opacifies it with a server-held,
    * per-principal salt (ratification condition #1) that is stable within a
    * principal but not enumerable or reversible into a routable bus address.
@@ -148,7 +150,14 @@ export interface SessionDescriptor {
 export interface H2AFeedResponse {
   /** ISO 8601 — the feed's own read timestamp. */
   readonly asOf: string;
+  /**
+   * Empty means "we looked and this principal has nothing" — an established
+   * fact, never a default: the builders throw if a source was not read, so a
+   * broken presence read can never surface here as "no agents". A consumer may
+   * therefore trust an empty feed the same way it trusts a populated one.
+   */
   readonly instances: readonly InstanceDescriptor[];
+  /** Empty carries the same established-fact meaning as `instances`. */
   readonly sessions: readonly SessionDescriptor[];
 }
 
@@ -163,14 +172,105 @@ export interface H2AFeedResponse {
  */
 const UNKNOWN = "unknown";
 
+/**
+ * AN EMPTY COLLECTION ON THE WIRE IS A FACTUAL CLAIM — "there is nothing" — so
+ * it must be produced by code that actually ESTABLISHED that fact. A default
+ * cannot establish a fact.
+ *
+ * That is why nothing in this module reaches the wire through `?? []`, `|| []`
+ * or an equivalent tail: a DEFAULTED empty array is indistinguishable from an
+ * errored read, a silently-empty query, and a lookup that was never performed.
+ * Every empty value below is a named constant returned from an explicit branch,
+ * and an *unread* source is a THROWN ERROR rather than an empty feed. (Amendment
+ * accepted by the architect, 2026-07-25, raised by the sentropic auth lane; it
+ * governs this feed as well as the binding resolver. Same discipline as
+ * `isoOrUnknown`/`nonEmpty` for scalars, extended to collections.)
+ */
+const NO_COUNTERPART_SOURCE_IN_P1: readonly string[] = Object.freeze([]);
+
+/** Nothing was declared: absent registration, or the field is absent/empty. */
+const NOTHING_DECLARED: readonly string[] = Object.freeze([]);
+
+/**
+ * Whether ANY counterpart source is wired into this build.
+ *
+ * P1: none exists — no h2a structure records "who is this session is in contact
+ * with", and negotiations are not mirrored (contract Gaps §2; EVO-13 scopes
+ * `h2a_conflict_posture` out until they are). Typed `boolean` deliberately so
+ * both branches of {@link counterpartsOpaqueRefsFor} stay reachable to the type
+ * checker.
+ */
+const COUNTERPART_SOURCE_WIRED: boolean = false;
+
+/**
+ * `counterpartsOpaqueRefs` for one session, from an EXPLICIT branch.
+ *
+ * The empty list is P1's answer to a question we can actually answer: there is
+ * no source at all, so "no counterparts" is established rather than assumed.
+ * When a source IS wired, its derivation must be added ABOVE the throw — the
+ * empty case must never become reachable by falling through, because from that
+ * point on an empty list would mean "we did not look" while claiming "there are
+ * none".
+ */
+function counterpartsOpaqueRefsFor(): readonly string[] {
+  if (!COUNTERPART_SOURCE_WIRED) return NO_COUNTERPART_SOURCE_IN_P1;
+  throw new Error(
+    "h2a feed: a counterpart source is wired but no derivation is implemented — " +
+      "refusing to emit an empty counterpart list that would read as 'no counterparts'"
+  );
+}
+
+/**
+ * Guard a collection the caller was supposed to have READ.
+ *
+ * A missing array is not an empty one: it means the read never happened or it
+ * failed. Rendering that as an empty feed would tell the owner "you have no
+ * agents" on the strength of a broken read, so fail loudly instead. This is the
+ * one place the pure builders can enforce the distinction, since the read itself
+ * happens in the caller.
+ */
+function requireRead<T>(value: readonly T[] | undefined, source: string): readonly T[] {
+  if (!Array.isArray(value)) {
+    throw new Error(
+      `h2a feed: ${source} was not read (got ${value === undefined ? "undefined" : typeof value}) — ` +
+        "an unread source must never render as an empty feed"
+    );
+  }
+  return value;
+}
+
+/**
+ * The instance's declared display list, from an explicit branch on whether a
+ * declaration exists at all — never a `?? []` tail.
+ */
+function declaredCapabilitiesOf(
+  registration: H2AActorRegistration | undefined
+): readonly string[] {
+  if (registration === undefined) return NOTHING_DECLARED;
+  if (registration.declaredCapabilities === undefined) return NOTHING_DECLARED;
+  // Present: ALLOWLIST it (intersection with the closed vocabulary). An empty
+  // result here is also a fact — every value offered was outside the vocabulary.
+  return sanitizeDeclaredCapabilities(registration.declaredCapabilities);
+}
+
 /** Input common to every builder. `asOf` is injected — never `Date.now()`. */
 export interface BuildFeedInput {
   /** The feed's read timestamp, in epoch ms. */
   readonly asOf: number;
-  /** Presence records, e.g. from `listPresence(root)`. */
+  /**
+   * Presence records, e.g. from `listPresence(root)`. **Required to be an
+   * array**: an empty feed must mean "we looked and there is nothing", so a
+   * missing/failed read throws instead of rendering as "no agents".
+   */
   readonly sessions: readonly H2ASession[];
-  /** Registry rows, e.g. from `store.listInstances()`. Optional. */
-  readonly registrations?: readonly H2AActorRegistration[];
+  /**
+   * Registry rows, e.g. from `store.listInstances()`. **Required, and required
+   * to be an array**: a caller with no registry must pass `[]` DELIBERATELY,
+   * which is a claim ("I looked, the registry is empty"). Omitting it — or
+   * passing the result of a failed read — throws rather than quietly producing a
+   * feed that says the owner has no agents.
+   */
+  readonly registrations: readonly H2AActorRegistration[];
   /**
    * The mirror push daemon's interval (ms). Only meaningful for MIRRORED rows:
    * it is what makes `stale` computable (Part C). Absent → no row is `stale`.
@@ -394,8 +494,9 @@ export function buildSessionDescriptor(
       ? (session.lastMcpActivityAt as string)
       : isoOrUnknown(session.heartbeatAt),
     activitySource: provenMcp ? "mcp" : "heartbeat",
-    // P1: always empty — see the field's own doc comment (contract Gaps §2).
-    counterpartsOpaqueRefs: []
+    // From an explicit branch, never a literal default: an empty list here is
+    // the CLAIM "there are no counterparts", so it must be established.
+    counterpartsOpaqueRefs: counterpartsOpaqueRefsFor()
   };
 }
 
@@ -468,7 +569,7 @@ export function buildInstanceDescriptor(
     // authority-bearing `capabilities` is deliberately NOT read here: it is the
     // subagent ceiling and the attestation right, and it must never surface in a
     // browser panel nor be conflated with a declaration.
-    declaredCapabilities: sanitizeDeclaredCapabilities(registration?.declaredCapabilities),
+    declaredCapabilities: declaredCapabilitiesOf(registration),
     lastSeen,
     liveness
   };
@@ -483,16 +584,18 @@ function instanceIds(input: BuildFeedInput): string[] {
     seen.add(id);
     ids.push(id);
   };
-  for (const registration of input.registrations ?? []) push(registration.instance);
+  for (const registration of requireRead(input.registrations, "registrations")) {
+    push(registration.instance);
+  }
   for (const session of input.sessions) push(session.instance);
   return ids;
 }
 
 function registrationIndex(
-  registrations: readonly H2AActorRegistration[] | undefined
+  registrations: readonly H2AActorRegistration[]
 ): Map<string, H2AActorRegistration> {
   const index = new Map<string, H2AActorRegistration>();
-  for (const registration of registrations ?? []) {
+  for (const registration of registrations) {
     if (!index.has(registration.instance)) index.set(registration.instance, registration);
   }
   return index;
@@ -506,7 +609,9 @@ function registrationIndex(
  * behaviour. Rows whose `lastSeen` is the sentinel sort last.
  */
 export function buildInstanceDescriptors(input: BuildFeedInput): InstanceDescriptor[] {
-  const index = registrationIndex(input.registrations);
+  // Both sources must have been READ. An empty result below is then a fact.
+  requireRead(input.sessions, "sessions");
+  const index = registrationIndex(requireRead(input.registrations, "registrations"));
   return instanceIds(input)
     .map((instanceId) =>
       buildInstanceDescriptor(instanceId, {
@@ -525,8 +630,9 @@ export function buildInstanceDescriptors(input: BuildFeedInput): InstanceDescrip
  * same reason as {@link buildInstanceDescriptors}.
  */
 export function buildSessionDescriptors(input: BuildFeedInput): SessionDescriptor[] {
-  const index = registrationIndex(input.registrations);
-  return input.sessions
+  const sessions = requireRead(input.sessions, "sessions");
+  const index = registrationIndex(requireRead(input.registrations, "registrations"));
+  return sessions
     .map((session) =>
       buildSessionDescriptor(session, {
         asOf: input.asOf,
