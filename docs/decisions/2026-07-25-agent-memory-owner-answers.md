@@ -82,5 +82,27 @@ the answer set from the JSON next to this file. The dossier is revision-scoped
 (`agent-memory-2026-07-24`); if the revision changes, a replay must state which decision keys
 still exist rather than dropping answers silently.
 
+### Carry-over into revision 2 (`agent-memory-2026-07-25`)
+
+The dossier has since moved to revision `agent-memory-2026-07-25`. **This answer set is not
+orphaned, and the JSON below is unchanged on purpose** — it is the fixture the replay checkpoint
+loads, so rewriting it would destroy the very thing it proves.
+
+- D1..D7 keep their decision keys **and** their option keys in revision 2. Their text was enriched
+  with mechanism-level detail; nothing was re-keyed. A replay therefore applies **7 of 7** answers,
+  with 0 missing decisions and 0 stale options.
+- The revision string differs, so the page shows a revision-mismatch warning. That warning is
+  correct and must stay: the answers *were* captured against the older revision. It is accompanied
+  by an explicit carry-over statement so a mismatch is not read as a loss.
+- Revision 2 adds D8..D13, which this answer set does not cover. The replay report names them
+  rather than letting a "successful" replay imply the whole dossier is answered.
+
+The six added cards come from these very answers — they card the compositions the answers pointed
+at, which were not options in revision 1: graphify as both archive and live sink (D8, from D1+D4),
+one graph both ontology-typed and bi-temporal (D9, from D2+D4), the write trigger behind
+"prehook de compaction" (D10, from D2), the pending-memory tier behind a Focus review session
+(D11, from D3), the single-writer-then-CRDT migration (D12, from D6), and one card nobody raised:
+whether this dossier supersedes or extends the prior local design seed (D13).
+
 See also `docs/uat/2026-07-25-focus-agent-memory-dossier.md`, which uses this same dossier as the
 acceptance scenario for Focus releases.

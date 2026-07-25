@@ -222,6 +222,12 @@
     missingDecisions: string[];
     /** Décision toujours là, mais option disparue : la note est rejouée, la sélection non. */
     staleOptions: string[];
+    /**
+     * L'inverse : des décisions de CETTE révision que le jeu enregistré ne couvre pas. Sur un changement
+     * de révision c'est précisément ce que le lecteur doit voir — sans cela, un rejeu « réussi » laisse
+     * croire que tout le dossier est répondu alors que les cartes ajoutées sont vides.
+     */
+    unanswered: string[];
     revisionMismatch: boolean;
   };
 
@@ -282,11 +288,20 @@
       applied.push(key);
     }
 
+    // Nommer les décisions de cette révision que le jeu ne couvre pas : un rejeu doit être honnête dans
+    // les DEUX sens — ce qui n'a pas pu être rejoué, et ce qui n'a jamais été répondu.
+    const unanswered = dossier.decisions
+      .filter((decision) => {
+        const entry = set.answers[decision.key];
+        return !entry || (!entry.option && entry.note.length === 0);
+      })
+      .map((decision) => decision.key);
+
     selections = nextSelections;
     notes = nextNotes;
     replayPendingConfirm = false;
     exportState = 'idle';
-    replayReport = { applied, missingDecisions, staleOptions, revisionMismatch };
+    replayReport = { applied, missingDecisions, staleOptions, unanswered, revisionMismatch };
     // On atterrit sur la première décision : un rejeu qu'on ne voit pas n'est pas un rejeu.
     current = 1;
   }
@@ -412,7 +427,7 @@
           <Alert
             tone="info"
             title="Support de décision neutre"
-            message="Ce dossier ne préconise aucune option. La première carte présente l'état de l'art et ne demande rien ; viennent ensuite les décisions, chacune avec ses alternatives, leur comportement et leur conséquence. Le champ « critère à trancher » nomme ce qu'il faut peser, jamais un choix. Votre sélection et votre note sont conservées dans votre navigateur : « Copier ma synthèse » les met au presse-papier, « Inclure ce choix dans la CLI » les remet à une CLI live du projet."
+            message="Ce dossier ne préconise aucune option. La première carte présente l'état de l'art, ne demande rien, et liste les corrections apportées à la révision précédente ; viennent ensuite les décisions, chacune avec ses alternatives, leur comportement, leur conséquence, les faits de mécanisme qui les éclairent avec leur source, et ce que la recherche n'a PAS pu établir. Le champ « critère à trancher » nomme ce qu'il faut peser, jamais un choix. Les cartes marquées « nouvelle carte » découlent de vos propres réponses du premier passage, citées verbatim. Votre sélection et votre note sont conservées dans votre navigateur : « Copier ma synthèse » les met au presse-papier, « Inclure ce choix dans la CLI » les remet à une CLI live du projet."
           />
 
           <div
@@ -464,6 +479,40 @@
                     </div>
                     <p class="matrix-legend">{matrix.legend}</p>
 
+                    <!-- Les corrections à la révision précédente sont montrées ICI, sur la carte d'état de
+                         l'art, et jamais appliquées en silence : un dossier de décision qui réécrit un fait
+                         sans le dire demande au lecteur de faire confiance à une version qu'il ne peut plus
+                         comparer. Chaque entrée nomme ce qui était affirmé, ce qu'il en est, et la source. -->
+                    {#if dossier.corrections?.length}
+                      <section aria-labelledby="corrections-title">
+                        <Stack gap={2}>
+                          <h2 id="corrections-title">
+                            Corrections à la révision précédente ({dossier.corrections.length})
+                          </h2>
+                          <p>
+                            La recherche de mécanismes a démenti des affirmations que la révision
+                            <strong>{dossier.previousRevision}</strong> présentait comme des faits. Elles sont
+                            listées ici, et les cellules concernées de la matrice ci-dessus ont été réécrites.
+                          </p>
+                          <ul class="corrections">
+                            {#each dossier.corrections as correction (correction.subject)}
+                              <li>
+                                <Stack gap={1}>
+                                  <strong>{correction.subject}</strong>
+                                  <p class="was-stated">
+                                    <em>Était affirmé :</em>
+                                    {correction.wasStated}
+                                  </p>
+                                  <p><strong>En réalité :</strong> {correction.actually}</p>
+                                  <p class="fact-source">{correction.source}</p>
+                                </Stack>
+                              </li>
+                            {/each}
+                          </ul>
+                        </Stack>
+                      </section>
+                    {/if}
+
                     <Alert
                       tone="info"
                       title="Rien à trancher sur cette carte"
@@ -479,7 +528,12 @@
                   <Card>
                     <Stack gap={4}>
                       <Flex align="center" justify="between" wrap gap={2}>
-                        <Badge tone="info">{decision.key}</Badge>
+                        <Flex align="center" wrap gap={2}>
+                          <Badge tone="info">{decision.key}</Badge>
+                          {#if decision.addedInRevision}
+                            <Badge tone="neutral" size="sm">Nouvelle carte (révision 2)</Badge>
+                          {/if}
+                        </Flex>
                         <span>Décision {slide} sur {decisionsTotal}</span>
                       </Flex>
 
@@ -487,6 +541,25 @@
                         <h2>{decision.question}</h2>
                         <p>{decision.whyNow}</p>
                       </Stack>
+
+                      <!-- Une carte de la ronde 2 doit dire d'où elle vient : la réponse du propriétaire est
+                           citée VERBATIM, dans ses mots, parce que c'est le raisonnement — la reformuler
+                           reviendrait à lui présenter une carte fondée sur notre paraphrase de lui. -->
+                      {#if decision.fromAnswer}
+                        <section
+                          class="from-answer"
+                          aria-labelledby={`from-answer-${decision.key}`}
+                        >
+                          <Stack gap={1}>
+                            <h3 id={`from-answer-${decision.key}`}>
+                              Découle de votre réponse{decision.parent?.length
+                                ? ` à ${decision.parent.join(' et ')}`
+                                : ''}
+                            </h3>
+                            <blockquote>{decision.fromAnswer}</blockquote>
+                          </Stack>
+                        </section>
+                      {/if}
 
                       <section aria-labelledby={`options-${decision.key}`}>
                         <Stack gap={2}>
@@ -522,6 +595,56 @@
                           </Stack>
                         </Stack>
                       </section>
+
+                      <!-- Les faits de MÉCANISME vivent sur la carte qui en a besoin, jamais en annexe : la
+                           demande explicite du propriétaire était « comment hermes fait ou d'autres, il faut
+                           plus de détail ». Chaque fait porte sa source (section de recherche + fichier:ligne,
+                           issue ou arXiv) pour être vérifiable, et un fait que la recherche n'a pas pu établir
+                           est marqué NON VÉRIFIÉ au lieu d'être présenté comme acquis. -->
+                      {#if decision.mechanisms?.length}
+                        <section aria-labelledby={`mechanisms-${decision.key}`}>
+                          <Stack gap={2}>
+                            <h3 id={`mechanisms-${decision.key}`}>
+                              Comment ça marche réellement ({decision.mechanisms.length})
+                            </h3>
+                            <ul class="mechanisms">
+                              {#each decision.mechanisms as mechanism (mechanism.system + mechanism.source)}
+                                <li>
+                                  <Stack gap={1}>
+                                    <Flex align="center" wrap gap={2}>
+                                      <strong>{mechanism.system}</strong>
+                                      {#if mechanism.status === 'unverified'}
+                                        <Badge tone="warning" size="sm">Non vérifié</Badge>
+                                      {/if}
+                                    </Flex>
+                                    <p>{mechanism.fact}</p>
+                                    <p class="fact-source">{mechanism.source}</p>
+                                  </Stack>
+                                </li>
+                              {/each}
+                            </ul>
+                          </Stack>
+                        </section>
+                      {/if}
+
+                      <!-- La ligne la plus utile d'une carte de décision est un « nous n'avons pas pu
+                           l'établir » honnête. Ces éléments ne sont donc pas fondus dans la prose des options,
+                           où ils prendraient la couleur d'un fait. -->
+                      {#if decision.unknowns?.length}
+                        <section class="unknowns" aria-labelledby={`unknowns-${decision.key}`}>
+                          <Stack gap={2}>
+                            <Flex align="center" wrap gap={2}>
+                              <h3 id={`unknowns-${decision.key}`}>Ce que nous n’avons pas pu établir</h3>
+                              <Badge tone="warning" size="sm">{decision.unknowns.length}</Badge>
+                            </Flex>
+                            <ul>
+                              {#each decision.unknowns as unknown, unknownIndex (unknownIndex)}
+                                <li>{unknown}</li>
+                              {/each}
+                            </ul>
+                          </Stack>
+                        </section>
+                      {/if}
 
                       <Alert tone="info" title="Critère à trancher (neutre)" message={decision.recommendation} />
 
@@ -676,11 +799,21 @@
                     : ''}{answerSet.status ? ` (${answerSet.status})` : ''}. Le rejeu restaure les
                   sélections <strong>et</strong> les notes, telles qu'elles ont été écrites.
                 </p>
+                <!-- Ce que la montée de révision conserve, dit AVANT l'avertissement de révision différente :
+                     l'écart de révision est un fait, mais il n'implique pas une perte, et laisser croire le
+                     contraire ferait hésiter à rejouer un jeu qui se rejoue intégralement. -->
+                {#if dossier.carryOver}
+                  <Alert
+                    tone="info"
+                    title={`Report depuis « ${dossier.carryOver.from} » : ${dossier.carryOver.carried.length} décisions conservées, ${dossier.carryOver.added.length} ajoutées`}
+                    message={dossier.carryOver.statement}
+                  />
+                {/if}
                 {#if revisionMismatch}
                   <Alert
                     tone="warning"
                     title="Révision différente"
-                    message={`Ces réponses ont été capturées sur « ${answerSet.revision} », or ce dossier est en « ${dossier.revision} ». Le rejeu dira précisément ce qui ne retombe plus sur cette révision.`}
+                    message={`Ces réponses ont été capturées sur « ${answerSet.revision} », or ce dossier est en « ${dossier.revision} ». Le rejeu dira précisément ce qui retombe sur cette révision, ce qui n'y retombe plus, et quelles décisions ce jeu ne couvre pas.`}
                   />
                 {/if}
                 <Flex align="center" justify="between" wrap gap={2}>
@@ -727,6 +860,14 @@
                       tone="warning"
                       title="Options disparues : note rejouée, sélection non"
                       message={`Ces options n'existent plus pour leur décision : ${replayReport.staleOptions.join(', ')}. La note a été restaurée, la sélection est restée vide — à vous de la reprendre.`}
+                    />
+                  {/if}
+                  <!-- L'autre moitié de l'honnêteté d'un rejeu : les cartes que ce jeu ne couvre pas. -->
+                  {#if replayReport.unanswered.length}
+                    <Alert
+                      tone="info"
+                      title={`${replayReport.unanswered.length} décision(s) sans réponse dans ce jeu`}
+                      message={`Ce jeu enregistré ne couvre pas : ${replayReport.unanswered.join(', ')}. Ce ne sont pas des réponses perdues — ce sont les cartes ajoutées depuis, qui attendent la vôtre.`}
                     />
                   {/if}
                 {/if}
@@ -783,5 +924,41 @@
   .matrix-legend {
     color: var(--st-semantic-text-secondary, inherit);
     font-size: 0.875rem;
+  }
+  /* Les listes de la révision 2 (corrections, mécanismes, inconnues) : uniquement des tokens du design
+     system, aucune couleur en dur, pour rester lisibles en thème clair comme en thème sombre. */
+  .corrections,
+  .mechanisms,
+  .unknowns ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--st-spacing-3, 0.75rem);
+  }
+  .corrections > li,
+  .mechanisms > li,
+  .unknowns ul > li {
+    border-inline-start: 2px solid var(--st-semantic-border-default, currentColor);
+    padding-inline-start: var(--st-spacing-3, 0.75rem);
+    min-width: 0;
+  }
+  /* La source rend le fait vérifiable : discrète, mais jamais absente. */
+  .fact-source {
+    color: var(--st-semantic-text-secondary, inherit);
+    font-size: 0.8125rem;
+    /* Un chemin fichier:ligne ne doit pas provoquer de débordement horizontal du corps de page. */
+    overflow-wrap: anywhere;
+  }
+  .was-stated {
+    color: var(--st-semantic-text-secondary, inherit);
+  }
+  /* La réponse du propriétaire, citée verbatim : visuellement distincte de notre propre texte. */
+  .from-answer blockquote {
+    margin: 0;
+    border-inline-start: 3px solid var(--st-semantic-border-default, currentColor);
+    padding-inline-start: var(--st-spacing-3, 0.75rem);
+    font-style: italic;
   }
 </style>
