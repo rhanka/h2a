@@ -4,7 +4,7 @@
 //  1. Claude: returns customTitle from transcript (preferred over agentName, aiTitle)
 //  2. Claude: falls back to agentName when no customTitle
 //  3. Claude: never returns aiTitle
-//  4. Claude: prefers first customTitle over later agentName (across multiple lines)
+//  4. Claude: LAST customTitle wins (amended 2026-07-25 — see the test) (across multiple lines)
 //  5. Codex: returns thread_name for matching session id (last-match wins)
 //  6. Codex: returns undefined when session id not found
 //  7. Unknown host: returns undefined
@@ -65,9 +65,13 @@ function makeClaudeFixture(lines) {
  */
 function makeReaders({ fakeHome = tmpdir(), codexIndexLines = [] } = {}) {
   return {
-    readLines(path, maxLines) {
+    readTailLines(path, maxBytes) {
       try {
-        return readFileSync(path, "utf8").split("\n").slice(0, maxLines);
+        const raw = readFileSync(path);
+        const start = Math.max(0, raw.length - maxBytes);
+        const lines = raw.subarray(start).toString("utf8").split("\n");
+        if (start > 0) lines.shift();
+        return lines;
       } catch {
         return [];
       }
@@ -138,9 +142,19 @@ test("readHostSessionName: claude never returns aiTitle (returns undefined)", ()
   }
 });
 
-// ─── 4. Claude: first customTitle wins across multiple lines ────────────────
+// ─── 4. Claude: LAST customTitle wins across multiple lines ─────────────────
+//
+// AMENDED 2026-07-25 (spec docs/specs/2026-07-25-h2a-lane-addressing.md §RC-1).
+// This test previously asserted that the FIRST customTitle wins. That assertion
+// encoded the bug: a Claude transcript is APPEND-ONLY and stamps customTitle on
+// nearly every record, so a /rename appends the NEW title at the END and the
+// first match is the title as of session start — permanently. Measured live: one
+// transcript held 1022 records saying "39etc" then 65 saying "auth"; the reader
+// returned "39etc" while the human saw "auth" in the pane, so
+// discover_sessions(name: "auth") returned nothing and a consultation misrouted.
+// Codex (thread_name) already did last-match-wins; Claude was the outlier.
 
-test("readHostSessionName: claude prefers first customTitle over later agentName", () => {
+test("readHostSessionName: claude takes the LAST customTitle (a rename appends)", () => {
   const { fakeHome, sessionId, cleanup } = makeClaudeFixture([
     JSON.stringify({ agentName: "AgentFirst" }),
     JSON.stringify({ customTitle: "ActualTitle" }),
@@ -153,8 +167,8 @@ test("readHostSessionName: claude prefers first customTitle over later agentName
       sessionId,
       readers: makeReaders({ fakeHome })
     });
-    // customTitle wins over agentName; first customTitle found wins
-    assert.equal(result, "ActualTitle", `expected "ActualTitle", got ${result}`);
+    // customTitle still wins over agentName; among titles, the newest wins.
+    assert.equal(result, "SecondTitle", `expected "SecondTitle", got ${result}`);
   } finally {
     cleanup();
   }

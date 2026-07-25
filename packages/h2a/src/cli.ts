@@ -224,6 +224,7 @@ import {
 } from "./runtime/upgrade/index.js";
 import {
   H2A_CLI_DECLARED_CAPABILITIES,
+  createHostSessionNameRefresher,
   resolveLiveIdentity
 } from "./runtime/identity/index.js";
 import {
@@ -1522,6 +1523,13 @@ export function resolveAutoOpen(
   scopes?: string[];
   migrationNotice?: string;
   privateKeyPath?: string;
+  /**
+   * Re-reads the host-native display title on each heartbeat (spec
+   * 2026-07-25-h2a-lane-addressing §D1b). Present only when the operator did
+   * NOT pass `--name`: an explicit name is the operator's, and must never be
+   * overwritten by a host rename.
+   */
+  refreshDisplayName?: () => string | undefined;
 } | undefined {
   if (flags["auto-open"] === undefined) return undefined;
   const host = flags.host;
@@ -1537,11 +1545,23 @@ export function resolveAutoOpen(
     ...(flags.name !== undefined ? { name: flags.name } : {}),
     ...(flags.scope !== undefined ? { scopes: [flags.scope] } : {})
   });
+  // §D1b: only follow the host title when the operator left the name implicit,
+  // and only when a real provider session id was readable (the synthetic
+  // `fallback:` id names no transcript, so there is nothing to re-read).
+  const refreshDisplayName =
+    flags.name === undefined && identity.providerSessionId !== undefined
+      ? createHostSessionNameRefresher({
+          host: host ?? "agent",
+          cwd: cwd(),
+          sessionId: identity.providerSessionId
+        })
+      : undefined;
   return {
     instance: identity.instance,
     ...(host ? { host } : {}),
     ...(identity.workspace !== undefined ? { workspace: identity.workspace } : {}),
     ...(identity.name !== undefined ? { name: identity.name } : {}),
+    ...(refreshDisplayName ? { refreshDisplayName } : {}),
     ...(flags.scope ? { scopes: [flags.scope] } : {}),
     ...(identity.migrationNotice !== undefined
       ? { migrationNotice: identity.migrationNotice }
