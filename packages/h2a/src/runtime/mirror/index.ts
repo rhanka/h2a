@@ -27,11 +27,13 @@ export {
   runMirrorPushDaemon,
   sanitizeForLog,
   DEFAULT_MIRROR_AUTH_FAILURE_LIMIT,
+  DEFAULT_MIRROR_BUILD_FAILURE_LIMIT,
   DEFAULT_MIRROR_PUSH_INTERVAL_MS,
   DEFAULT_MIRROR_REJECT_LIMIT,
   MIN_MIRROR_PUSH_INTERVAL_MS,
   MIRROR_PUSH_BACKOFF_BASE_MS,
   MIRROR_PUSH_BACKOFF_MAX_MS,
+  MIRROR_PUSH_BUILD_FAILED_MESSAGE,
   MIRROR_PUSH_INVALID_URL_MESSAGE,
   MIRROR_PUSH_JITTER_FRACTION,
   MIRROR_PUSH_OFF_ENV,
@@ -44,6 +46,7 @@ export {
   type MirrorPushDaemonOptions,
   type MirrorPushDaemonSummary,
   type MirrorPushOutcome,
+  type MirrorPushPayloadShape,
   type MirrorPushRunnerOptions,
   type MirrorPushStopReason
 } from "./push-daemon.js";

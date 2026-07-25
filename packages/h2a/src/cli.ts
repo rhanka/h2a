@@ -162,6 +162,7 @@ import {
   redactEndpoint,
   runMirrorPushDaemon,
   MIN_MIRROR_PUSH_INTERVAL_MS,
+  MIRROR_PUSH_INVALID_URL_MESSAGE,
   MIRROR_PUSH_OFF_ENV,
   type MirrorPushDaemonOptions
 } from "./runtime/mirror/index.js";
@@ -2040,14 +2041,31 @@ export async function runMirrorPush(
   signal?: AbortSignal,
   overrides: H2AMirrorPushOverrides = {}
 ): Promise<number> {
+  // OPT-IN GATE, evaluated BEFORE any validation. The daemon exists only for a
+  // caller that explicitly asked for an interval — and on that path the
+  // kill-switch has to be the very first thing that runs, ahead even of the
+  // required-flag presence check. Otherwise a HALF-EDITED unit (placeholders
+  // partly replaced, a `--private-key <path>` pair accidentally dropped) exits 1
+  // and lands in systemd `failed`, while the README promises a disarmed unit is
+  // `inactive (dead)`. Mid-edit is exactly when that promise has to hold.
+  if (flags["interval-ms"] !== undefined) {
+    return runMirrorPushWatch(flags, streams, signal, overrides);
+  }
+  // `--interval-ms=20000` parses as the flag KEY `interval-ms=20000` (this CLI
+  // takes `--flag value`, never `--flag=value`), so the opt-in above would miss
+  // it and this would silently run as a one-shot. Fail loudly instead of
+  // quietly doing something other than what was asked.
+  const equalsForm = Object.keys(flags).find((k) => k.startsWith("interval-ms="));
+  if (equalsForm) {
+    streams.stderr.write(
+      `h2a remote mirror: use "--interval-ms ${equalsForm.slice("interval-ms=".length)}", not "--${equalsForm}" (this CLI does not take --flag=value)\n`
+    );
+    return 1;
+  }
+  // --- one-shot, byte-identical to the pre-daemon path from here down ---
   if (!flags.url || !flags.instance || !flags["private-key"]) {
     streams.stderr.write("h2a remote mirror: --url, --instance and --private-key are required\n");
     return 1;
-  }
-  // OPT-IN GATE: the daemon exists only for a caller that explicitly asked for
-  // an interval. Everything after this branch is the untouched one-shot.
-  if (flags["interval-ms"] !== undefined) {
-    return runMirrorPushWatch(flags, streams, signal, overrides);
   }
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
@@ -2103,17 +2121,22 @@ async function runMirrorPushWatch(
   signal?: AbortSignal,
   overrides: H2AMirrorPushOverrides = {}
 ): Promise<number> {
-  // KILL-SWITCH FIRST, before ANY input is parsed or read. A disabled daemon must
-  // short-circuit without touching the filesystem, so the shipped systemd unit —
-  // kill-switch present, ExecStart values still placeholders — is a clean exit-0
-  // no-op rather than a "cannot read --private-key" failure on a placeholder path.
-  // Flag validation is deliberately skipped in this state: nothing is going to
-  // run, so there is nothing to validate.
+  // KILL-SWITCH FIRST, before ANY validation and before ANY input is read. A
+  // disabled daemon short-circuits without touching the filesystem and without
+  // judging its own arguments — including whether the required ones are even
+  // present. That is what makes the promise "a disarmed unit is inactive (dead),
+  // not failed" true for a PARTIALLY edited unit, which is the state an operator
+  // is actually in while replacing the placeholders.
   if (mirrorPushGloballyDisabled(process.env)) {
     streams.stderr.write(
       `h2a remote mirror: ${MIRROR_PUSH_OFF_ENV} is set — the live push is disabled, nothing was sent\n`
     );
     return 0;
+  }
+  // Armed: now the same required-flag contract as the one-shot applies.
+  if (!flags.url || !flags.instance || !flags["private-key"]) {
+    streams.stderr.write("h2a remote mirror: --url, --instance and --private-key are required\n");
+    return 1;
   }
   const intervalMs = Number.parseInt(flags["interval-ms"] ?? "", 10);
   if (!Number.isInteger(intervalMs) || intervalMs < MIN_MIRROR_PUSH_INTERVAL_MS) {
@@ -2132,9 +2155,14 @@ async function runMirrorPushWatch(
   // forever (an unfilled placeholder or a typo would look "active (running)"
   // while pushing nothing). So the daemon form requires a usable http(s) URL
   // up front and fails fast, like the other pre-flight checks.
+  // Emits the SAME text the library's `config-invalid` stop carries, so the
+  // string an operator greps for in the journal is the one the docs document —
+  // the CLI's fail-fast makes the library branch unreachable in practice, and
+  // two different wordings for one condition would send them looking for a
+  // message that never appears.
   if (!isPushableHttpUrl(flags.url as string)) {
     streams.stderr.write(
-      `h2a remote mirror: --url must be an http(s) URL (got "${flags.url}")\n`
+      `h2a remote mirror: ${MIRROR_PUSH_INVALID_URL_MESSAGE} (got "${flags.url}")\n`
     );
     return 1;
   }
