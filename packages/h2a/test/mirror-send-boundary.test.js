@@ -38,6 +38,8 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  MIRROR_ENDPOINT_PLAN,
+  MIRROR_INTERESTS_PLAN,
   MIRROR_PRESENCE_PLAN,
   MIRROR_REGISTRATION_PLAN,
   MIRROR_SUBAGENT_PLAN,
@@ -78,6 +80,30 @@ const BAIT_WORKSPACE_PATH = "/home/victim/src/secret-ledger";
 const BAIT_REPO = "/home/victim/mirrors/secret-ledger.git";
 const BAIT_ENDPOINT_URI = "file:///home/victim/.h2a";
 const BAIT_MIRRORED_AT = "2099-01-01T00:00:00.000Z"; // forged freshness claim
+// NESTED bait. `isInterests` (`session.ts`) is a two-field spot-check that does
+// NOT reject extra keys, so this whole object is a well-formed `interests` as far
+// as `isH2ASession` and therefore `writePresence` are concerned. While
+// `interests` was classified `SEND`, `applyPlan` copied it BY REFERENCE and the
+// nested payload reached the receiver's disk through a real 202. It is planted in
+// the shared fixture on purpose, so every assertion below — the field-set tests,
+// the serialized-push test and the end-to-end at-rest test — covers it.
+const BAIT_NESTED_TMUX_SESSION = "NESTEDSESSION";
+const BAIT_NESTED_TMUX_PANE = "%NESTEDPANE";
+const BAIT_NESTED_CWD = "/home/victim/NESTEDCWD";
+const BAIT_NESTED_PID = 987654;
+const BAIT_NESTED_INTERESTS = {
+  scopes: ["scope:default"],
+  negotiations: [],
+  lc: {
+    tmux: { session: BAIT_NESTED_TMUX_SESSION, pane: BAIT_NESTED_TMUX_PANE },
+    cwd: BAIT_NESTED_CWD,
+    pid: BAIT_NESTED_PID
+  }
+};
+// Same shape one level down on the OTHER unnarrowed composite: the endpoints
+// ELEMENT. `Array.prototype.filter` is a pass-through, so a field added to the
+// element type travelled whole even when the scheme filter kept the element.
+const BAIT_ENDPOINT_EXTRA_FIELD = "/home/victim/.ssh/id_ed25519";
 
 const WORKSPACE_ID = "ws:11111111-2222-5333-8444-555555555555";
 const WORKSPACE_LABEL = "secret-ledger";
@@ -115,7 +141,7 @@ function baitedSession(overrides = {}) {
     startedAt: new Date(NOW - 3_600_000).toISOString(),
     heartbeatAt: new Date(NOW - 2_000).toISOString(),
     state: "live",
-    interests: { scopes: ["scope:default"], negotiations: [] },
+    interests: BAIT_NESTED_INTERESTS,
     subscribedTopics: ["presence.peer_joined"],
     workStatus: "working",
     launchContext: {
@@ -149,7 +175,16 @@ function baitedRegistration(pub, overrides = {}) {
     conductor: "claude:conductor:bbbbbbbbbbbb",
     capabilities: ["negotiate", "attest"],
     declaredCapabilities: ["code"],
-    endpoints: [{ kind: "local-files", uri: BAIT_ENDPOINT_URI }],
+    endpoints: [
+      { kind: "local-files", uri: BAIT_ENDPOINT_URI },
+      // Survives the scheme filter, so the ELEMENT itself is what must be
+      // rebuilt from a plan rather than passed through.
+      {
+        kind: "remote",
+        uri: "https://h2a.example.test/mirror",
+        secretPath: BAIT_ENDPOINT_EXTRA_FIELD
+      }
+    ],
     publicKeys: [pub],
     acceptedPolicies: ["policy:default"],
     createdAt: new Date(NOW - 86_400_000).toISOString(),
@@ -174,6 +209,11 @@ const FORBIDDEN_SUBSTRINGS = [
   BAIT_ENDPOINT_URI,
   BAIT_MIRRORED_AT,
   String(BAIT_PID),
+  BAIT_NESTED_TMUX_SESSION,
+  BAIT_NESTED_TMUX_PANE,
+  BAIT_NESTED_CWD,
+  String(BAIT_NESTED_PID),
+  BAIT_ENDPOINT_EXTRA_FIELD,
   "/home/",
   "/Users/",
   "file://",
@@ -362,8 +402,10 @@ test("the workspace ref keeps id/host/label and drops path/repo", () => {
 
 test("registration endpoints: a file:// uri is withheld, a network locator survives", () => {
   const k = keypair();
-  const local = sanitizeRegistrationForMirror(baitedRegistration(k.pub));
-  assert.deepEqual(local.endpoints, []);
+  const onlyLocal = sanitizeRegistrationForMirror(
+    baitedRegistration(k.pub, { endpoints: [{ kind: "local-files", uri: BAIT_ENDPOINT_URI }] })
+  );
+  assert.deepEqual(onlyLocal.endpoints, []);
   const remote = sanitizeRegistrationForMirror(
     baitedRegistration(k.pub, {
       endpoints: [
@@ -378,6 +420,145 @@ test("registration endpoints: a file:// uri is withheld, a network locator survi
   assert.deepEqual(remote.endpoints, [
     { kind: "remote", uri: "https://h2a.example.test/mirror" }
   ]);
+});
+
+// ─── 4b. The NESTED level: a plan at every composite, not only at the top ────
+
+test("nested interests: a field the interests plan does not classify is NEVER transmitted", () => {
+  // The defect this closes, exactly as it was demonstrated: `interests` was
+  // classified SEND, `applyPlan` copied it by reference, `isInterests` tolerated
+  // the extra key, and the nested tmux/cwd/pid landed on the receiver's disk
+  // through a real 202. A top-level-only allowlist does not see one level down.
+  const sanitized = sanitizePresenceForMirror(baitedSession());
+  assert.deepEqual(Object.keys(sanitized.interests).sort(), ["negotiations", "scopes"]);
+  assert.equal(sanitized.interests.lc, undefined);
+  assertNothingForbidden(JSON.stringify(sanitized.interests), "sanitized interests");
+  // And the narrowed object still satisfies the guard that gates the hosted
+  // write — `isInterests` requires BOTH fields, so rebuilding must not drop one.
+  assert.ok(isH2ASession(sanitized));
+});
+
+test("nested endpoints: a field the endpoint plan does not classify is NEVER transmitted", () => {
+  const k = keypair();
+  const sanitized = sanitizeRegistrationForMirror(baitedRegistration(k.pub));
+  assert.deepEqual(sanitized.endpoints, [
+    { kind: "remote", uri: "https://h2a.example.test/mirror" }
+  ]);
+  assertNothingForbidden(JSON.stringify(sanitized.endpoints), "sanitized endpoints");
+});
+
+test("the interests and endpoint plans classify EVERY field of their source type", () => {
+  // The nested half of the ratchet's runtime companion. The compile-time half is
+  // `satisfies MirrorPlanFor<H2ASessionInterests>` / `MirrorPlanFor<endpoint>`,
+  // which is what actually fails the build; this names the field when it happens.
+  assert.deepEqual(
+    unclassifiedMirrorFields({ scopes: [], negotiations: [] }, MIRROR_INTERESTS_PLAN),
+    []
+  );
+  assert.deepEqual(
+    unclassifiedMirrorFields({ kind: "remote", uri: "https://h/" }, MIRROR_ENDPOINT_PLAN),
+    []
+  );
+  // Both can fire — a guard that cannot fire proves nothing.
+  assert.deepEqual(
+    unclassifiedMirrorFields(BAIT_NESTED_INTERESTS, MIRROR_INTERESTS_PLAN),
+    ["lc"]
+  );
+  assert.deepEqual(
+    unclassifiedMirrorFields(
+      { kind: "remote", uri: "https://h/", secretPath: BAIT_ENDPOINT_EXTRA_FIELD },
+      MIRROR_ENDPOINT_PLAN
+    ),
+    ["secretPath"]
+  );
+});
+
+// ─── 4c. The endpoint filter must not be able to kill the push ───────────────
+
+test("a non-array endpoints field yields [] instead of throwing (availability)", () => {
+  // `isH2AActorRegistration` would reject this, but it is NEVER called on any
+  // production path: `handleRegisterInstance` validates `typeof === "object"` and
+  // `store.registerInstance` validates nothing, so this row is accepted and
+  // written to `instances.jsonl`. Pre-fix `build.ts` shipped `reg` verbatim and
+  // never touched `endpoints`, so an unguarded `endpoints.filter` would be a
+  // dead-push fault INTRODUCED by the send boundary — availability-negative for
+  // no confidentiality gain.
+  const k = keypair();
+  const hostile = baitedRegistration(k.pub, {
+    roles: "NOTANARRAY",
+    endpoints: "nope",
+    publicKeys: "nope"
+  });
+  const sanitized = sanitizeRegistrationForMirror(hostile);
+  assert.deepEqual(sanitized.endpoints, []);
+});
+
+test("buildInstanceMirror survives a stored registration whose endpoints is not an array", () => {
+  // The same thing where it actually mattered: the throw propagated out of
+  // `buildInstanceMirror` and killed the beat.
+  const k = keypair();
+  const tmp = mkdtempSync(join(tmpdir(), "h2a-send-boundary-nonarray-"));
+  const root = join(tmp, ".h2a");
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(
+      baitedRegistration(k.pub, { endpoints: "nope", publicKeys: "nope" })
+    );
+    const envelope = buildInstanceMirror(store, INSTANCE, NOW);
+    assert.deepEqual(envelope.body.registrations[0].endpoints, []);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+// ─── 4d. What the plans do NOT cover, asserted so it cannot be forgotten ─────
+
+test("DISCLOSED GAP: free-text element values inside scopes[] still travel", () => {
+  // Not a bug report — a pinned disclosure. A field plan bounds the SHAPE of what
+  // travels; it cannot bound the CONTENT of a string an agent chose. A plain
+  // `h2a_session_open` (which copies `interests.scopes` verbatim — see
+  // `runtime/mcp/sessions.ts`) puts this on the hosted disk with no privilege, no
+  // malformed record and no older CLI involved. If someone later closes this, the
+  // test fails and the disclosure in the feed contract must be updated with it.
+  const scope = "scope:/home/antoinefa/Documents/private-directory-name";
+  const sanitized = sanitizePresenceForMirror(
+    baitedSession({ interests: { scopes: [scope], negotiations: [] } })
+  );
+  assert.deepEqual(sanitized.interests.scopes, [scope]);
+});
+
+test("DISCLOSED GAP: the endpoint scheme filter is a locator test, not a content test", () => {
+  // Vindicated where it claims to work — every scheme variant is rejected — and
+  // honest about what it does not do: a network locator carrying a path, a query,
+  // a fragment or credentials in its userinfo is still a network locator.
+  const k = keypair();
+  const uri = (u) => ({ kind: "remote", uri: u });
+  const rejected = sanitizeRegistrationForMirror(
+    baitedRegistration(k.pub, {
+      endpoints: [
+        uri("FILE:///home/victim/.h2a"),
+        uri("File:///home/victim/.h2a"),
+        uri("  file:///home/victim/.h2a"),
+        uri("file:/home/victim/.h2a"),
+        uri("data:text/plain,/home/victim"),
+        uri("javascript:alert(1)"),
+        uri("//h2a.example.test/mirror"),
+        uri("/home/victim/.h2a")
+      ]
+    })
+  );
+  assert.deepEqual(rejected.endpoints, [], "no scheme variant may slip through");
+  const travels = sanitizeRegistrationForMirror(
+    baitedRegistration(k.pub, {
+      endpoints: [
+        uri("http://localhost/home/antoinefa/Documents"),
+        uri("https://h/?cwd=/home/antoinefa"),
+        uri("https://h/#/home/antoinefa"),
+        uri("https://leakuser:sk-live-TOKEN@h/")
+      ]
+    })
+  );
+  assert.equal(travels.endpoints.length, 4, "all four are network locators, so all travel");
 });
 
 // ─── 5. The signature still covers the transmitted body ─────────────────────
