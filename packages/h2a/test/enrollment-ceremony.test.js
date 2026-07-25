@@ -42,14 +42,19 @@ import {
   listUnusablePrivateKeys,
   runCli,
   runEnrollmentCeremony,
+  sanitizeEnrollmentChallenge,
   signEnrollmentChallenge,
   verifyCanonical,
   verifyEnrollmentProof,
   verifyReclaimProof,
+  H2A_ENROLLMENT_CHALLENGE_KEYS,
   H2A_ENROLLMENT_MAX_NONCE_LENGTH,
+  H2A_ENROLLMENT_NONCE_MAX_BITS,
+  H2A_ENROLLMENT_NONCE_MAX_LENGTH,
   H2A_ENROLLMENT_NONCE_MIN_BITS,
   H2A_ENROLLMENT_NONCE_MIN_LENGTH,
-  H2A_ENROLLMENT_NONCE_PATTERN
+  H2A_ENROLLMENT_NONCE_PATTERN,
+  H2A_ENROLLMENT_PROOF_TYPE
 } from "../dist/index.js";
 
 /** A realistic gateway nonce: 32 random bytes, base64url, 43 chars. */
@@ -145,14 +150,57 @@ test("a well-formed challenge yields a proof the gateway's verifier accepts", ()
   assert.equal(proof.signature.by, identity.instance);
 });
 
-test("the proof carries EXACTLY the four fields of Part B step 4", () => {
+test("the proof carries EXACTLY the fields of Part B step 4, as amended", () => {
   const proof = signEnrollmentChallenge({ challenge: { nonce: NONCE }, identity: fakeIdentity() });
   assert.deepEqual(
     Object.keys(proof).sort(),
-    ["instance", "nonce", "publicKeyPem", "signature"],
+    ["instance", "nonce", "publicKeyPem", "signature", "type"],
     "any extra field is a new contract term; any missing field breaks the gateway"
   );
   assert.deepEqual(Object.keys(proof.signature).sort(), ["alg", "by", "value"]);
+});
+
+// ---------------------------------------------------------------------------
+// DOMAIN SEPARATION: the proof attests WHAT IT IS, not only what it carries.
+// ---------------------------------------------------------------------------
+
+test("the proof carries a VERSIONED type tag, and it is INSIDE the signed payload", () => {
+  // "Attest everything you carry" is only content-completeness. Attesting content
+  // while leaving the message type unstated is how cross-protocol attacks work:
+  // signature valid, content honest, interpretation attacker-chosen.
+  const proof = signEnrollmentChallenge({ challenge: { nonce: NONCE }, identity: fakeIdentity() });
+  assert.equal(proof.type, "h2a-enrollment-proof-v1");
+  assert.equal(proof.type, H2A_ENROLLMENT_PROOF_TYPE);
+  assert.match(proof.type, /-v\d+$/, "the tag must be VERSIONED, or it defers the same problem");
+
+  // THE composition constraint: the tag must be covered by the same mechanism as
+  // every other field. A tag carried but excluded from the signed payload would
+  // be an unsigned field asserting the message's own identity — the worst
+  // possible field to leave unsigned, and worse than no tag at all.
+  const payload = enrollmentProofSignedPayload(proof);
+  assert.ok("type" in payload, "the tag must be inside the spread source");
+  assert.equal(payload.type, H2A_ENROLLMENT_PROOF_TYPE);
+});
+
+test("rewriting the type tag breaks verification", () => {
+  const identity = fakeIdentity();
+  const proof = signEnrollmentChallenge({ challenge: { nonce: NONCE }, identity });
+  // A signature over a payload claiming a different type is a valid signature
+  // over a DIFFERENT message. Both the tag check and the crypto must refuse it.
+  const retyped = { ...proof, type: "h2a-enrollment-proof-v2" };
+  assert.equal(verifyEnrollmentProof(retyped), false, "a v2 proof must not pass a v1 verifier");
+  assert.equal(
+    verifyCanonical(
+      enrollmentProofSignedPayload(retyped),
+      proof.signature,
+      proof.publicKeyPem
+    ),
+    false,
+    "and the signature itself does not cover the rewritten tag"
+  );
+  // Dropping the tag entirely is refused too.
+  const { type: _dropped, ...untagged } = proof;
+  assert.equal(verifyEnrollmentProof(untagged), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -160,11 +208,10 @@ test("the proof carries EXACTLY the four fields of Part B step 4", () => {
 // ---------------------------------------------------------------------------
 
 test("the signature covers EVERY field the proof carries except itself", () => {
-  // The checkable form of the rule. Derived from the proof's OWN keys, so adding
-  // a field to the proof without signing it fails HERE — the failure mode is
-  // "someone carried an unsigned field", which is a claim wider than its
-  // evidence in the one artifact whose job is to be exactly as wide as its
-  // evidence.
+  // Documentation of a rule that is now STRUCTURAL rather than asserted:
+  // `enrollmentProofSignedPayload` is a rest-spread removing exactly one field,
+  // so coverage is what the code does, not a list kept in step. Kept because it
+  // states the intent and costs nothing.
   const proof = signEnrollmentChallenge({ challenge: { nonce: NONCE }, identity: fakeIdentity() });
   const carried = Object.keys(proof)
     .filter((key) => key !== "signature")
@@ -177,6 +224,39 @@ test("the signature covers EVERY field the proof carries except itself", () => {
   );
 });
 
+test("STRUCTURAL: an unsigned extra field on a proof cannot be made to verify", () => {
+  // The rest-spread's real payoff, and the reason this holds with every test
+  // deleted: signing sees the unsigned view and verification RE-DERIVES it from
+  // the finished proof, so a field carried but not signed makes the two disagree.
+  // There is no way to smuggle an unsigned field past the verifier.
+  const identity = fakeIdentity();
+  const proof = signEnrollmentChallenge({ challenge: { nonce: NONCE }, identity });
+  assert.equal(verifyEnrollmentProof(proof), true);
+
+  const smuggled = { ...proof, capabilities: ["admin"] };
+  assert.equal(
+    verifyEnrollmentProof(smuggled),
+    false,
+    "an extra field is covered by the re-derived payload, so it cannot ride along unsigned"
+  );
+  // And the extra field really is in the derived payload — coverage is automatic,
+  // not enumerated.
+  assert.ok(
+    Object.keys(enrollmentProofSignedPayload(smuggled)).includes("capabilities"),
+    "the rest-spread must pick up a field nobody listed"
+  );
+});
+
+test("the signed payload strips the signature and NOTHING else", () => {
+  const identity = fakeIdentity();
+  const proof = signEnrollmentChallenge({ challenge: { nonce: NONCE }, identity });
+  const payload = enrollmentProofSignedPayload(proof);
+  assert.ok(!("signature" in payload), "the signature is the one field a signature cannot cover");
+  // Passing the unsigned view and the full proof must derive the SAME bytes —
+  // that identity is what makes sign-time and verify-time agree.
+  assert.deepEqual(payload, enrollmentProofSignedPayload(payload));
+});
+
 test("each signed field is cryptographically covered — tampering ANY of them fails", () => {
   const identity = fakeIdentity();
   const proof = signEnrollmentChallenge({ challenge: { nonce: NONCE }, identity });
@@ -184,6 +264,7 @@ test("each signed field is cryptographically covered — tampering ANY of them f
   const other = fakeIdentity("codex:someone-else:0002");
 
   const tampers = {
+    type: "h2a-enrollment-proof-v2",
     nonce: gatewayNonce(),
     instance: "claude:attacker-chosen:9999",
     publicKeyPem: other.publicKeyPem
@@ -337,15 +418,50 @@ test("the nonce is accepted by POSITIVE SHAPE, not by being under a bound", () =
   }
 });
 
-test("a nonce with under 256 bits of entropy is refused", () => {
+test("THE BRACKET: a floor that protects strength, a ceiling that does not claim to", () => {
+  // Four bounds, each with a stated purpose. The floor and the ceiling are
+  // different parameters and must not be read as one: the floor speaks about
+  // strength, the ceiling only says "beyond this it is not a nonce".
+  assert.equal(H2A_ENROLLMENT_NONCE_MIN_BITS, 256, "floor: security-bearing");
+  assert.equal(H2A_ENROLLMENT_NONCE_MIN_LENGTH, 43, "derived: ceil(256 / 6)");
+  assert.equal(H2A_ENROLLMENT_NONCE_MAX_BITS, 1024, "ceiling: SANITY, not security");
+  assert.equal(H2A_ENROLLMENT_NONCE_MAX_LENGTH, 171, "derived: ceil(1024 / 6)");
+  assert.equal(H2A_ENROLLMENT_MAX_NONCE_LENGTH, 4096, "pre-parse DoS guard only");
+
+  // Under the floor: refused, and the reason is entropy.
   const short = randomBytes(16).toString("base64url"); // 128 bits, 22 chars
   assert.ok(H2A_ENROLLMENT_NONCE_PATTERN.test(short), "correct alphabet, insufficient entropy");
   assert.throws(() => assertSignableEnrollmentChallenge({ nonce: short }, 1000), /under the 43/);
-  // The floor itself is accepted, and so is MORE entropy than specified — the
-  // minimum is a minimum, not a fixed length, so a stronger nonce from the
-  // gateway is not an outage here.
-  assertSignableEnrollmentChallenge({ nonce: randomBytes(32).toString("base64url") }, 1000);
-  assertSignableEnrollmentChallenge({ nonce: randomBytes(64).toString("base64url") }, 1000);
+
+  // THE POINT OF A MINIMUM: a STRONGER nonce than specified is accepted, because
+  // the issuer does not exist yet and pinning it to one value would turn their
+  // safer choice into our outage. 32B/43ch (the floor), 48B/64ch, 64B/88ch,
+  // 128B/171ch (the ceiling exactly) all pass.
+  for (const bytes of [32, 48, 64, 128]) {
+    const nonce = randomBytes(bytes).toString("base64url");
+    assert.ok(nonce.length <= H2A_ENROLLMENT_NONCE_MAX_LENGTH, `${bytes}B fits under the ceiling`);
+    assertSignableEnrollmentChallenge({ nonce }, 1000);
+  }
+  // Arithmetic worth pinning because it was misstated during review as 88: a
+  // 64-byte nonce is 86 base64url chars, not 88. So a 512-bit/86-char ceiling
+  // would sit EXACTLY on it, leaving zero headroom — every nonce above 64 bytes
+  // rejected by a bound that was never meant to bound entropy. That is the reason
+  // the ceiling is 1024 bits, and the corrected number does not weaken it.
+  assert.equal(randomBytes(64).toString("base64url").length, 86);
+
+  // Over the ceiling: refused as NOT-A-NONCE, and the message says so explicitly
+  // rather than implying an entropy judgement.
+  const tooLong = randomBytes(256).toString("base64url"); // 2048 bits, 342 chars
+  assert.ok(tooLong.length > H2A_ENROLLMENT_NONCE_MAX_LENGTH);
+  assert.throws(
+    () => assertSignableEnrollmentChallenge({ nonce: tooLong }, 1000),
+    /sanity ceiling/,
+    "a ceiling breach is not an entropy complaint"
+  );
+  assert.throws(
+    () => assertSignableEnrollmentChallenge({ nonce: tooLong }, 1000),
+    /NOT a statement that less entropy is enough/
+  );
 });
 
 test("the byte cap is a pre-parse guard, and is separate from the shape", () => {
@@ -387,32 +503,142 @@ test("a non-ISO expiresAt is refused, not ignored", () => {
 // (c) The agent never RECEIVES a principal id, and the proof leaks nothing.
 // ---------------------------------------------------------------------------
 
-test("a challenge carrying a principalSub is REFUSED at receipt", () => {
-  // Minimal disclosure beats verified non-retention. The agent signs a nonce; it
-  // has no functional need for the principal's identifier, and the gateway
-  // already knows which session it issued the nonce to. So the field is refused
-  // on the way IN rather than merely proven absent on the way out.
+/** Run the verb against a literal challenge document. */
+function proveControlWithChallengeJson(json) {
   const { cwd, root, cleanup } = scratch();
   const challengePath = join(cwd, "challenge.json");
   try {
-    writeFileSync(
-      challengePath,
-      JSON.stringify({ nonce: NONCE, principalSub: PRINCIPAL_SUB }),
-      "utf8"
-    );
+    writeFileSync(challengePath, json, "utf8");
     const streams = captureStreams(cwd);
-    const rc = withConversation("enroll-principalsub", () =>
+    const rc = withConversation("enroll-challenge-shape", () =>
       runCli(
         ["keys", "prove-control", "--root", root, "--host", "claude", "--challenge", challengePath],
         streams
       )
     );
-    assert.equal(rc, 1, "a challenge naming a principal must be refused");
-    assert.match(streams.stderrText, /must not receive a principal identifier/);
-    assert.equal(streams.stdoutText, "", "no proof may be emitted for such a challenge");
+    return { rc, stdout: streams.stdoutText, stderr: streams.stderrText };
   } finally {
     cleanup();
   }
+}
+
+test("the challenge is an ALLOWLIST: only nonce and expiresAt may appear", () => {
+  assert.deepEqual([...H2A_ENROLLMENT_CHALLENGE_KEYS], ["nonce", "expiresAt"]);
+  // Directly, on the library path — not only through the CLI.
+  assert.throws(
+    () => assertSignableEnrollmentChallenge({ nonce: NONCE, extra: 1 }, 1000),
+    /unexpected field\(s\) "extra"/
+  );
+  // Multiple offenders are all named, so the owner fixes the document once.
+  assert.throws(
+    () => assertSignableEnrollmentChallenge({ nonce: NONCE, a: 1, b: 2 }, 1000),
+    /unexpected field\(s\) "a", "b"/
+  );
+  // The accepted pair is accepted.
+  assertSignableEnrollmentChallenge(
+    { nonce: NONCE, expiresAt: new Date(Date.now() + 60_000).toISOString() },
+    Date.now()
+  );
+});
+
+test("a challenge carrying a TOP-LEVEL principalSub is REFUSED at receipt", () => {
+  // Minimal disclosure beats verified non-retention. The agent signs a nonce; it
+  // has no functional need for the principal's identifier, and the gateway
+  // already knows which session it issued the nonce to. So the field is refused
+  // on the way IN rather than merely proven absent on the way out.
+  const { rc, stdout, stderr } = proveControlWithChallengeJson(
+    JSON.stringify({ nonce: NONCE, principalSub: PRINCIPAL_SUB })
+  );
+  assert.equal(rc, 1, "a challenge naming a principal must be refused");
+  assert.match(stderr, /unexpected field\(s\) "principalSub"/);
+  assert.match(stderr, /MUST NOT be sent to the agent/, "the specific harm is still named");
+  assert.equal(stdout, "", "no proof may be emitted for such a challenge");
+  assert.ok(!stdout.includes(PRINCIPAL_SUB) && !stderr.includes(PRINCIPAL_SUB));
+});
+
+test("a NESTED principalSub is REFUSED — the harm is a principal id reaching the agent", () => {
+  // This passed the old top-level blocklist (measured: exit 0, accepted). It does
+  // exactly what the amendment forbids — puts a principal id into this process —
+  // so a control that lets it through does not cover its own stated harm.
+  const { rc, stdout, stderr } = proveControlWithChallengeJson(
+    JSON.stringify({ nonce: NONCE, meta: { principalSub: PRINCIPAL_SUB } })
+  );
+  assert.equal(rc, 1, "a nested principal id must be refused");
+  assert.match(stderr, /unexpected field\(s\) "meta"/);
+  assert.equal(stdout, "");
+  assert.ok(
+    !stdout.includes(PRINCIPAL_SUB) && !stderr.includes(PRINCIPAL_SUB),
+    "and the value is never echoed back"
+  );
+});
+
+test("a __proto__-nested principalSub is REFUSED", () => {
+  // Also passed the old blocklist: `JSON.parse` defines `"__proto__"` as an OWN
+  // property rather than reassigning the prototype, so `"principalSub" in parsed`
+  // was false. `Object.keys` sees it, so the allowlist refuses it — without the
+  // allowlist having to know that `__proto__` is special.
+  const { rc, stdout, stderr } = proveControlWithChallengeJson(
+    `{"nonce":"${NONCE}","__proto__":{"principalSub":"${PRINCIPAL_SUB}"}}`
+  );
+  assert.equal(rc, 1, "a __proto__-nested principal id must be refused");
+  assert.match(stderr, /unexpected field\(s\) "__proto__"/);
+  assert.equal(stdout, "");
+  assert.ok(!stdout.includes(PRINCIPAL_SUB) && !stderr.includes(PRINCIPAL_SUB));
+  // Sanity: the prototype was NOT polluted, so the refusal is the only control
+  // being tested here and not an accident of prototype semantics.
+  assert.equal({}.principalSub, undefined);
+});
+
+test("a non-string expiresAt is refused — no place for structure to hide", () => {
+  const { rc, stderr } = proveControlWithChallengeJson(
+    JSON.stringify({ nonce: NONCE, expiresAt: { principalSub: PRINCIPAL_SUB } })
+  );
+  assert.equal(rc, 1);
+  assert.match(stderr, /expiresAt must be an ISO-8601 STRING/);
+});
+
+test("a nonce that is not a string is refused, so it cannot smuggle structure", () => {
+  assert.throws(
+    () => assertSignableEnrollmentChallenge({ nonce: { principalSub: PRINCIPAL_SUB } }, 1000),
+    /carries no nonce/
+  );
+});
+
+test("the allowlist uses OWN KEYS, not `in`, so an inherited name is not mistaken for a field", () => {
+  // `in` walks the prototype chain and would ask the wrong question in both
+  // directions. This challenge inherits `nonce` from its prototype and has none of
+  // its own: `"nonce" in challenge` is true, `Object.keys` is empty. The allowlist
+  // must see the truth, which is that there is no nonce here.
+  const inherited = Object.create({ nonce: NONCE, principalSub: PRINCIPAL_SUB });
+  assert.ok("nonce" in inherited, "the trap: `in` would say there is a nonce");
+  assert.deepEqual(Object.keys(inherited), [], "but it carries nothing of its own");
+  assert.throws(
+    () => assertSignableEnrollmentChallenge(inherited, 1000),
+    /carries no nonce/,
+    "an inherited nonce is not a carried nonce"
+  );
+});
+
+test("sanitizeEnrollmentChallenge returns a FRESH null-prototype object", () => {
+  // Refuse-the-rest means refuse; what flows onward is then a new object with no
+  // prototype, so a parsed document's own `"__proto__"` key can never propagate
+  // past this boundary even if some future caller spreads the result.
+  const expiresAt = new Date(Date.now() + 60_000).toISOString();
+  const clean = sanitizeEnrollmentChallenge({ nonce: NONCE, expiresAt }, Date.now());
+  assert.equal(Object.getPrototypeOf(clean), null, "no prototype at all");
+  assert.deepEqual(Object.keys(clean).sort(), ["expiresAt", "nonce"]);
+  assert.equal(clean.nonce, NONCE);
+  assert.equal(clean.expiresAt, expiresAt);
+
+  // Absent optional stays absent — not defaulted to undefined-as-a-key.
+  const minimal = sanitizeEnrollmentChallenge({ nonce: NONCE }, Date.now());
+  assert.deepEqual(Object.keys(minimal), ["nonce"]);
+
+  // And it refuses, rather than quietly dropping, anything outside the allowlist.
+  assert.throws(
+    () => sanitizeEnrollmentChallenge({ nonce: NONCE, meta: { principalSub: PRINCIPAL_SUB } }, 1),
+    /unexpected field\(s\) "meta"/
+  );
 });
 
 test("a well-formed challenge document is accepted and its proof verifies", () => {
@@ -431,7 +657,7 @@ test("a well-formed challenge document is accepted and its proof verifies", () =
     assert.equal(rc, 0, streams.stderrText);
     const envelope = JSON.parse(streams.stdoutText);
     assert.equal(verifyEnrollmentProof(envelope.proof), true);
-    assert.deepEqual(envelope.signedFields, ["nonce", "instance", "publicKeyPem"]);
+    assert.deepEqual(envelope.signedFields, ["instance", "nonce", "publicKeyPem", "type"]);
   } finally {
     cleanup();
   }
