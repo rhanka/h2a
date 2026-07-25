@@ -25,7 +25,12 @@ import {
   resolveConfigPath,
   type LayoutConfig,
 } from "./config.js";
-import { listLive, type RegistryEntry } from "./registry.js";
+import {
+  listLive,
+  looksLikeConversationUuid,
+  persistReconciledConvIds,
+  type RegistryEntry,
+} from "./registry.js";
 import { listLocalSessions, slugify, type LocalSession } from "./tmux.js";
 
 export type DiscoveredSession = {
@@ -151,13 +156,174 @@ export function isHumanFacingSession(
 }
 
 /**
+ * Last `customTitle` recorded in a claude conversation transcript — i.e. the
+ * human-facing session name the SessionStart hook could NOT capture (the hook
+ * only sees `session_id`). The transcript is
+ * `<home>/.claude/projects/<encode(cwd)>/<convId>.jsonl`; each rename appends a
+ * `{"type":"custom-title","customTitle":…}` line, so the LAST one wins. This is
+ * the durable label→conversation-uuid bridge that lets `restore` join a `run`
+ * entry (which recorded the LABEL as its convId) to the `hook` entry that holds
+ * the real conversation uuid. Best-effort: undefined when the transcript is
+ * absent/unreadable or the conversation was never titled.
+ */
+export function readConversationCustomTitle(
+  home: string,
+  cwd: string,
+  convId: string,
+): string | undefined {
+  const file = join(
+    home,
+    ".claude",
+    "projects",
+    encodeCwd(cwd),
+    `${convId}.jsonl`,
+  );
+  let raw: string;
+  try {
+    raw = readFileSync(file, "utf8");
+  } catch {
+    return undefined; // no transcript / unreadable
+  }
+  let title: string | undefined;
+  for (const line of raw.split("\n")) {
+    // Cheap pre-filter: only parse the (rare) custom-title lines.
+    if (!line.includes('"custom-title"')) continue;
+    try {
+      const obj = JSON.parse(line) as { type?: string; customTitle?: unknown };
+      if (obj.type === "custom-title" && typeof obj.customTitle === "string") {
+        title = obj.customTitle;
+      }
+    } catch {
+      // ignore a malformed transcript line — keep the last good title
+    }
+  }
+  return title;
+}
+
+/**
+ * Outcome of reconciling `run` local-tmux entries against the `hook` entries
+ * that carry the real conversation id for the SAME live session.
+ */
+export type ConvIdResolution = {
+  /** run entry id → the real conversation id to emit as the resume sid. */
+  resolvedSid: Map<string, string>;
+  /** run entry ids with NO resolvable conversation id — restore must SKIP these
+   *  (never emit a broken `--resume <label>`), noting an attach hint instead. */
+  unresolvedRunIds: Set<string>;
+  /** conversation ids OWNED by a run entry — the matching hook entry is a dup of
+   *  the same conversation and must not ALSO surface as an anonymous tab. */
+  claimedConvIds: Set<string>;
+};
+
+/**
+ * Reconcile `run` ↔ `hook` registry entries for the same live/known session.
+ *
+ * Root cause: `h2a run` enrolls a `source:"run"`, `kind:"local-tmux"` entry
+ * whose `convId` is the LABEL (e.g. `llm-mesh`), while the Claude SessionStart
+ * hook enrolls a SEPARATE `source:"hook"`, `kind:"local"` entry that holds the
+ * REAL conversation uuid but no label. Nothing joins them, so restore emits
+ * `claude --resume llm-mesh` (fails) and the hook entry looks anonymous.
+ *
+ * Join-key strategy (highest priority first):
+ *  1. the run entry ALREADY carries a real conversation uuid → trust it (it was
+ *     captured at launch, e.g. from an explicit `--resume <uuid>`);
+ *  2. same `cwd` + the run entry's `label` equals a hook conversation's
+ *     `customTitle` (read from its `.jsonl`) → adopt that hook's convId;
+ *  3. a canonical-broken convId (missing, or `=== label`, or `=== id`) with no
+ *     match → UNRESOLVED (skip);
+ *  4. a claude session whose cwd HAS known conversations but none matched, and
+ *     whose convId is not a real uuid → UNRESOLVED (an untrustworthy label);
+ *  5. otherwise (no transcript knowledge, e.g. codex, or a never-scanned cwd)
+ *     trust the recorded convId rather than drop a live session.
+ *
+ * Pure: `customTitleFor(cwd, convId)` is injected (production reads the jsonl via
+ * `readConversationCustomTitle`; tests pass a stub map), so the whole join is
+ * unit-testable with plain registry entries.
+ */
+export function reconcileRunConvIds(
+  entries: readonly RegistryEntry[],
+  customTitleFor: (cwd: string, convId: string) => string | undefined,
+): ConvIdResolution {
+  // Hook conversations per cwd — their convId IS the real conversation uuid, and
+  // the transcript records the human-facing label as `customTitle`.
+  type HookConv = { convId: string; title: string | undefined; lastSeenAt: string };
+  const hooksByCwd = new Map<string, HookConv[]>();
+  for (const e of entries) {
+    if (e.kind !== "local" || e.source !== "hook" || e.tool !== "claude") continue;
+    if (!looksLikeConversationUuid(e.convId)) continue;
+    const list = hooksByCwd.get(e.cwd) ?? [];
+    list.push({
+      convId: e.convId!,
+      title: customTitleFor(e.cwd, e.convId!),
+      lastSeenAt: e.lastSeenAt,
+    });
+    hooksByCwd.set(e.cwd, list);
+  }
+
+  const resolvedSid = new Map<string, string>();
+  const unresolvedRunIds = new Set<string>();
+  const claimedConvIds = new Set<string>();
+
+  for (const r of entries) {
+    if (r.kind !== "local-tmux" || r.source !== "run") continue;
+    // Delegated jobs / background launches are never restored as human tabs, so
+    // don't reconcile (and don't emit a spurious skip note) for them.
+    if (!isHumanFacingSession(r)) continue;
+    const hooks = hooksByCwd.get(r.cwd) ?? [];
+
+    // 1. The run entry already carries a real conversation uuid — trust it.
+    if (looksLikeConversationUuid(r.convId)) {
+      resolvedSid.set(r.id, r.convId!);
+      claimedConvIds.add(r.convId!);
+      continue;
+    }
+    // 2. Join to a hook conversation whose customTitle equals this label.
+    if (r.label !== undefined) {
+      const matches = hooks.filter((h) => h.title === r.label);
+      if (matches.length > 0) {
+        const chosen = matches
+          .slice()
+          .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))[0]!;
+        resolvedSid.set(r.id, chosen.convId);
+        claimedConvIds.add(chosen.convId);
+        continue;
+      }
+    }
+    // 3. Canonical-broken convId (the LABEL was written as the id, or none).
+    if (!r.convId || r.convId === r.label || r.convId === r.id) {
+      unresolvedRunIds.add(r.id);
+      continue;
+    }
+    // 4. A claude session whose cwd HAS known conversations but none matched the
+    //    label, and whose convId is not a real uuid, is untrustworthy → skip.
+    if (r.tool === "claude" && hooks.length > 0) {
+      unresolvedRunIds.add(r.id);
+      continue;
+    }
+    // 5. No transcript knowledge (codex, or a cwd we never scanned): trust the
+    //    recorded convId as-is rather than dropping a live session.
+    resolvedSid.set(r.id, r.convId);
+    claimedConvIds.add(r.convId);
+  }
+
+  return { resolvedSid, unresolvedRunIds, claimedConvIds };
+}
+
+/**
  * REGISTRY-FIRST discovery: live registry entries (local kinds) mapped to
  * discovered sessions. label/cwd/convId come straight from enrolment, no
  * mtime guessing. `entries` is injectable for tests (defaults to listLive()).
+ *
+ * `resolution` (from `reconcileRunConvIds`) rewires convIds so a named `run`
+ * session resumes on its REAL conversation uuid, drops a run session that has no
+ * resolvable conversation (so restore never emits `--resume <label>`), and
+ * dedups the `hook` twin of a conversation already represented by a run session.
+ * Omitted (the plain 2-arg call) → legacy behaviour, one session per entry.
  */
 export function registrySessions(
   home: string = homedir(),
   entries: RegistryEntry[] = listLive(),
+  resolution?: ConvIdResolution,
 ): DiscoveredSession[] {
   const src = join(home, "src");
   const out: DiscoveredSession[] = [];
@@ -167,14 +333,37 @@ export function registrySessions(
     // background launches (they had no human in front of them).
     if (!isHumanFacingSession(e)) continue;
     if (!e.cwd.startsWith(`${src}/`)) continue;
+    // A run session whose conversation id could not be resolved is skipped here
+    // (restore() emits the attach-hint note) — never a broken `--resume <label>`.
+    if (
+      resolution &&
+      e.kind === "local-tmux" &&
+      e.source === "run" &&
+      resolution.unresolvedRunIds.has(e.id)
+    ) {
+      continue;
+    }
+    // A hook conversation already owned by a run session (same real convId, but
+    // the run entry carries the label + tmux name) must not ALSO appear as an
+    // anonymous project tab — that is the duplicate the reconciliation removes.
+    if (
+      resolution &&
+      e.kind === "local" &&
+      e.source === "hook" &&
+      e.convId !== undefined &&
+      resolution.claimedConvIds.has(e.convId)
+    ) {
+      continue;
+    }
     const project = e.cwd.slice(src.length + 1).split("/")[0];
     if (!project) continue;
     const seen = Date.parse(e.lastSeenAt);
+    const sid = resolution?.resolvedSid.get(e.id) ?? e.convId ?? "";
     const session: DiscoveredSession = {
       project,
       mtimeMs: Number.isFinite(seen) ? seen : Date.now(),
       tool: e.tool,
-      sid: e.convId ?? "",
+      sid,
       cwd: e.cwd,
       origin: "registry",
     };
@@ -601,8 +790,49 @@ export function restore(
 
   // Local windows (groups + shared) — REGISTRY-FIRST: live enrolled sessions
   // are the truth; the filesystem scan only completes uncovered projects.
+  //
+  // Reconcile run↔hook entries first: a `run` session enrolled with its LABEL as
+  // convId is joined to the `hook` conversation carrying the real uuid, so it
+  // resumes correctly (and each named session of a repo keeps its own uuid).
+  const home = homedir();
+  const liveEntries = listLive();
+  const resolution = reconcileRunConvIds(liveEntries, (cwd, convId) =>
+    readConversationCustomTitle(home, cwd, convId),
+  );
+  // Persist the resolved conversation ids back onto the run entries so the state
+  // is EMITTED, not re-derived (a transcript scan) on every restore. Skipped on
+  // --dry-run so a preview stays side-effect-free.
+  if (!opts.dryRun) {
+    try {
+      const updates = new Map<string, string>();
+      for (const [id, sid] of resolution.resolvedSid) {
+        const e = liveEntries.find((x) => x.id === id);
+        if (e && e.kind === "local-tmux" && e.source === "run" && e.convId !== sid) {
+          updates.set(id, sid);
+        }
+      }
+      persistReconciledConvIds(updates);
+    } catch {
+      // best-effort: a persistence hiccup must never break restore
+    }
+  }
+  // Never emit a broken `--resume <label>`: note the un-resumable named sessions
+  // with an explicit attach hint instead of silently dropping (or mis-running) them.
+  for (const id of resolution.unresolvedRunIds) {
+    const e = liveEntries.find((x) => x.id === id);
+    if (!e) continue;
+    const label = e.label ?? e.id;
+    stderr.write(
+      `[h2a] restore skipped "${label}": no resolved conversation id ` +
+        `(convId ${e.convId ? `"${e.convId}"` : "missing"} is not a real conversation); ` +
+        `attach it live with h2a attach ${slugify(label)}\n`,
+    );
+  }
   const scanned = discoverSessions(cfg.maxAgeHours * 3600 * 1000);
-  const allLocal = mergeDiscovered(registrySessions(), scanned);
+  const allLocal = mergeDiscovered(
+    registrySessions(home, liveEntries, resolution),
+    scanned,
+  );
   // Bug #3: a session moved to a remote Pod must NOT also be re-launched as a
   // ghost LOCAL tmux. Drop locals already covered by a remote tab.
   const { kept: sessions, dropped: remoteBacked } = dropRemoteBackedLocals(
