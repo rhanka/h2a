@@ -33,7 +33,9 @@ interface InstanceDescriptor {
   readonly instanceId: string;
   readonly displayName: string;
   readonly host: string;
-  readonly role: H2ARole;
+  /** Q1 ruling (2026-07-25): `'unknown'` when no role is declared — a missing
+   *  role must never be synthesized into a real H2ARole. */
+  readonly role: H2ARole | 'unknown';
   readonly workspaceLabel: string;
   readonly capabilities: readonly string[];
   readonly lastSeen: string;          // ISO 8601
@@ -64,7 +66,7 @@ interface SessionDescriptor {
 | `instanceId` | `string` | `H2ASession.instance` / `H2AActorRegistration.instance` — the addressable `host:slug(label):uuid12` handle, frozen at mint (DEC-114, `packages/h2a/src/identity.ts` `deriveInstanceId`). Own-principal's own resource id, so it is shown verbatim (see "opacity boundary" below — this is NOT a counterpart ref). |
 | `displayName` | `string` | `H2AActorRegistration.name` (DEC-114 mutable display name, set at mint or `/rename`), falling back to the most recent live session's `H2ASession.name` (host-native `customTitle`/`thread_name`, WP-6), falling back to `workspaceLabel`. |
 | `host` | `string` | `H2ASession.host` ("claude"/"codex"/"gemini" hint set at session open), most-recent session for that instance. |
-| `role` | `H2ARole` | `H2AActorRegistration.roles[0]` (`packages/h2a/src/types.ts` `H2A_ROLES`). **Note**: today `identity/live.ts` `ensureRegistered` hardcodes `roles: ["AGENTS"]` at mint, so the field is emitted but currently shows only one value in practice — not a missing field, a narrow-range one (see Gaps). |
+| `role` | `H2ARole \| 'unknown'` | `H2AActorRegistration.roles[0]` (`packages/h2a/src/types.ts` `H2A_ROLES`), else the literal `'unknown'` (Q1 ruling, 2026-07-25 — **never** synthesize a real `H2ARole` for a missing one). **Note**: today `identity/live.ts` `ensureRegistered` hardcodes `roles: ["AGENTS"]` at mint, so the field is emitted but currently shows only one value in practice — not a missing field, a narrow-range one (see Gaps). |
 | `workspaceLabel` | `string` | `H2AWorkspaceRef.label` off `session.workspace` (preferred, per-session-authoritative) falling back to `registration.workspace` (mint-time). **Never** `H2AWorkspaceRef.path`/`launchContext.cwd` — those are filesystem paths and are excluded by design. |
 | `capabilities` | `readonly string[]` | `H2AActorRegistration.capabilities`. **Gap**: always `[]` today (see Gaps §1). |
 | `lastSeen` | `string` (ISO) | `max(H2ASession.heartbeatAt)` across the instance's known sessions, computed by the descriptor builder over `listPresence(root).filter(s => s.instance === instanceId)` (`packages/h2a/src/runtime/local-files/presence.ts`). |
@@ -452,5 +454,7 @@ Architect independently verified the load-bearing grounding (signCanonical/verif
 3. **`capabilities` closed vocab**: a **declared, non-authoritative display list only**. The gateway MUST NOT use it for any authorization decision — authz stays principal-binding + server-side scope.
 
 **Grant-model note (non-blocking)**: `H2APrincipalAgentBinding` is a **sibling** record, NOT a `ConnectorAccountEnrollment` (no `secretRefs`/`accountRef`; a public key is not secret). When the canonical AccessGrant workstream lands, the gateway references the binding by opaque `bindingId`; the binding does not fold into it.
+
+**Q1 ruling on absent sources (architect, 2026-07-25 — architecture/contract-conformance GO given conditional on it)**: a row is **NEVER DROPPED** to hide a missing field (a dropped row is a false negative on presence and collides with the "empty arrays = nothing enrolled" semantic above). The governing principle is instead: **never synthesize a value indistinguishable from a real one.** So `workspaceLabel`/`host` fall back to the literal `'unknown'` (no real label or host hint is `unknown`; it reads as a blank), while `role` is **widened to `H2ARole | 'unknown'`** — synthesizing `'AGENTS'` was rejected because it is a real `H2A_ROLES` member, so once real roles land (PRINCIPAL/CONDUCTOR/CONTROL) an absent role would silently render as a genuine claim of authority with nothing downstream able to tell synthesized from asserted. The instance roll-up ordering `live > idle > stale > closed` is **confirmed**, on the structural ground that `deriveLiveness` decides staleness *before* consulting `deriveConnectionConfidence` — so an `idle` is always fresh knowledge, never absence of it; were that ordering inverted, `stale` would have to dominate. Capabilities need **no backfill** for P1: `[]` on a pre-existing registration is cosmetic, not a correctness or security gap, since the list is display-only (condition #3); the UI renders `[]` as "not declared", never "this agent can do nothing".
 
 **P1 confirmed**: read-only, owner's own `sub`, single per-principal root slice, enrollment ON for that one owner. Full multi-tenant fan-out stays behind ARCH-11 strict (exposure spec §5). Attach = read-only metadata; interactive attach is a separate gated capability.
