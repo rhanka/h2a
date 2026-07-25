@@ -185,6 +185,10 @@
   </div>
 {/snippet}
 
+<svelte:head>
+  <title>Focus · Suivi</title>
+</svelte:head>
+
 <AppShell variant="workspace">
   {#snippet topChrome()}
     <AppHeader brandName="Focus" productName="Suivi & décision" brandMode="full">
