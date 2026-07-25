@@ -20,6 +20,8 @@
   let { data }: { data: PageData } = $props();
   const dossier = $derived(data.dossier);
   const matrix = $derived(data.matrix);
+  /** Jeu de réponses commité, rejouable. `null` si le fichier n'est pas atteignable. */
+  const answerSet = $derived(data.answerSet);
   const decisionsTotal = $derived(dossier.decisions.length);
   /**
    * L'état de l'art est la PREMIÈRE carte et ne porte aucune décision : on lit le paysage avant de
@@ -35,7 +37,7 @@
   let notes = $state<Record<string, string>>({});
   let storageReady = $state(false);
   let pointerStart = $state<{ id: number; x: number; y: number } | null>(null);
-  let exportState = $state<'idle' | 'copied' | 'failed'>('idle');
+  let exportState = $state<'idle' | 'copied' | 'copied-json' | 'failed'>('idle');
 
   function previous() {
     current = Math.max(0, current - 1);
@@ -121,14 +123,34 @@
   let trackEl = $state<HTMLElement | null>(null);
   let activeHeight = $state(0);
 
+  function measureActiveSlide() {
+    const slide = trackEl?.children[current] as HTMLElement | undefined;
+    if (slide) activeHeight = slide.getBoundingClientRect().height;
+  }
+
+  /**
+   * Mesure principale, pilotée par la réactivité Svelte. Elle couvre tout ce qui fait grandir la carte
+   * active par changement d'état : alerte de transmission, rapport de rejeu, note qui s'allonge,
+   * sélection d'une option. Vérifié en navigateur : sans ce chemin, l'alerte de transmission dépassait
+   * la hauteur mesurée et se faisait rogner, car un ResizeObserver seul dépend d'une frame d'animation
+   * (et n'en reçoit aucune dans un onglet en arrière-plan).
+   */
+  $effect(() => {
+    // Lectures volontaires : elles abonnent cet effet aux changements de contenu de la carte active.
+    void current;
+    void includeResult;
+    void notes;
+    void selections;
+    void replayReport;
+    void exportState;
+    measureActiveSlide();
+  });
+
+  /** Filet pour ce qui ne passe pas par l'état : redimensionnement de fenêtre, polices, poignée de resize. */
   $effect(() => {
     const slide = trackEl?.children[current] as HTMLElement | undefined;
     if (!slide) return;
-    const measure = () => {
-      activeHeight = slide.getBoundingClientRect().height;
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => measureActiveSlide());
     observer.observe(slide);
     return () => observer.disconnect();
   });
@@ -158,6 +180,115 @@
     } catch {
       exportState = 'failed';
     }
+  }
+
+  /**
+   * Même forme que le jeu de réponses commité : ce qui sort peut donc être rejoué tel quel, sans
+   * édition à la main. C'est ce qui fait du dossier un scénario de recette et pas une capture d'écran.
+   */
+  function buildAnswerSetJson(): string {
+    const answers: Record<string, { option: string | null; note: string }> = {};
+    for (const decision of dossier.decisions) {
+      answers[decision.key] = {
+        option: selections[decision.key] ?? null,
+        note: notes[decision.key]?.trim() ?? ''
+      };
+    }
+    return `${JSON.stringify(
+      {
+        dossier: 'agent-memory',
+        revision: dossier.revision,
+        capturedAt: new Date().toISOString().slice(0, 10),
+        capturedFrom: 'focus, dossier /dossier/agent-memory',
+        answers
+      },
+      null,
+      2
+    )}\n`;
+  }
+
+  async function copyAnswerSetJson() {
+    try {
+      await navigator.clipboard.writeText(buildAnswerSetJson());
+      exportState = 'copied-json';
+    } catch {
+      exportState = 'failed';
+    }
+  }
+
+  type ReplayReport = {
+    applied: string[];
+    /** Clés de réponse dont la décision n'existe plus dans cette révision. */
+    missingDecisions: string[];
+    /** Décision toujours là, mais option disparue : la note est rejouée, la sélection non. */
+    staleOptions: string[];
+    revisionMismatch: boolean;
+  };
+
+  let replayReport = $state<ReplayReport | null>(null);
+  let replayPendingConfirm = $state(false);
+
+  const revisionMismatch = $derived(Boolean(answerSet) && answerSet!.revision !== dossier.revision);
+
+  /**
+   * Rejouer est un acte DÉLIBÉRÉ, jamais un effet de bord du chargement de page : des réponses en
+   * cours ne doivent pas disparaître parce qu'on a rafraîchi. S'il y a déjà des réponses locales, on
+   * demande confirmation en nommant ce qui va être remplacé.
+   */
+  function requestReplay() {
+    if (!answerSet) return;
+    replayReport = null;
+    if (answeredCount > 0) {
+      replayPendingConfirm = true;
+      return;
+    }
+    applyReplay();
+  }
+
+  function cancelReplay() {
+    replayPendingConfirm = false;
+  }
+
+  /**
+   * Applique le jeu enregistré. Toute réponse qui ne retombe pas sur cette révision est RAPPORTÉE,
+   * jamais écartée en silence : une absence invisible est un mensonge de plus dans un dossier de
+   * décision. Les réponses sont rejouées telles quelles — y compris une sélection qui contredit sa
+   * propre note : c'est ce que l'humain a écrit, ce n'est pas à l'interface de le réconcilier.
+   */
+  function applyReplay() {
+    const set = answerSet;
+    if (!set) return;
+
+    const nextSelections: Record<string, string> = {};
+    const nextNotes: Record<string, string> = {};
+    const applied: string[] = [];
+    const missingDecisions: string[] = [];
+    const staleOptions: string[] = [];
+
+    for (const [key, entry] of Object.entries(set.answers)) {
+      const decision = dossier.decisions.find((candidate) => candidate.key === key);
+      if (!decision) {
+        missingDecisions.push(key);
+        continue;
+      }
+      if (entry.option) {
+        if (decision.options.some((option) => option.key === entry.option)) {
+          nextSelections[key] = entry.option;
+        } else {
+          staleOptions.push(`${key} → ${entry.option}`);
+        }
+      }
+      if (entry.note.length > 0) nextNotes[key] = entry.note;
+      applied.push(key);
+    }
+
+    selections = nextSelections;
+    notes = nextNotes;
+    replayPendingConfirm = false;
+    exportState = 'idle';
+    replayReport = { applied, missingDecisions, staleOptions, revisionMismatch };
+    // On atterrit sur la première décision : un rejeu qu'on ne voit pas n'est pas un rejeu.
+    current = 1;
   }
 
   type IncludeResult = {
@@ -496,7 +627,12 @@
                 <span>
                   {answeredCount} décision(s) sur {decisionsTotal} annotée(s) ou sélectionnée(s).
                 </span>
-                <Button variant="secondary" onclick={copySummary}>Copier ma synthèse</Button>
+                <Flex align="center" wrap gap={2}>
+                  <Button variant="secondary" onclick={copySummary}>Copier ma synthèse</Button>
+                  <Button variant="secondary" onclick={copyAnswerSetJson}>
+                    Copier le jeu de réponses (JSON)
+                  </Button>
+                </Flex>
               </Flex>
               {#if exportState === 'copied'}
                 <Alert
@@ -504,12 +640,96 @@
                   title="Synthèse copiée"
                   message="Vos sélections et vos notes sont dans le presse-papier, en markdown. Collez-les où vous voulez : une CLI, un ticket, un message."
                 />
+              {:else if exportState === 'copied-json'}
+                <Alert
+                  tone="success"
+                  title="Jeu de réponses copié (JSON)"
+                  message="Même forme que le jeu enregistré : il peut être commité puis rejoué tel quel dans ce dossier, sans retouche à la main."
+                />
               {:else if exportState === 'failed'}
                 <Alert
                   tone="error"
                   title="Copie refusée par le navigateur"
                   message="Le presse-papier n'est pas accessible ici. Vos notes restent enregistrées dans ce navigateur ; sélectionnez-les à la main dans les cartes."
                 />
+              {/if}
+            </Stack>
+          </section>
+
+          <!-- Rejeu du jeu de réponses commité : ce dossier sert de scénario de recette, il doit donc
+               pouvoir être re-parcouru avec de vraies réponses. Jamais au chargement, toujours sur
+               action explicite. -->
+          <section aria-labelledby="replay-title">
+            <Stack gap={2}>
+              <h2 id="replay-title">Rejouer un jeu de réponses</h2>
+              {#if !answerSet}
+                <Alert
+                  tone="warning"
+                  title="Rejeu indisponible"
+                  message="Le jeu de réponses enregistré n'est pas atteignable depuis ce service (docs/decisions/2026-07-25-agent-memory-owner-answers.json). Rien n'a été inventé : vos réponses locales sont intactes."
+                />
+              {:else}
+                <p>
+                  Jeu enregistré : <code>{answerSet.source}</code> — révision
+                  <strong>{answerSet.revision}</strong>{answerSet.capturedAt
+                    ? `, capturé le ${answerSet.capturedAt}`
+                    : ''}{answerSet.status ? ` (${answerSet.status})` : ''}. Le rejeu restaure les
+                  sélections <strong>et</strong> les notes, telles qu'elles ont été écrites.
+                </p>
+                {#if revisionMismatch}
+                  <Alert
+                    tone="warning"
+                    title="Révision différente"
+                    message={`Ces réponses ont été capturées sur « ${answerSet.revision} », or ce dossier est en « ${dossier.revision} ». Le rejeu dira précisément ce qui ne retombe plus sur cette révision.`}
+                  />
+                {/if}
+                <Flex align="center" justify="between" wrap gap={2}>
+                  <span class="include-hint">
+                    {answeredCount > 0
+                      ? 'Vous avez déjà des réponses ici : le rejeu les remplacera, après confirmation.'
+                      : 'Aucune réponse locale : le rejeu peut être appliqué directement.'}
+                  </span>
+                  <Button variant="secondary" onclick={requestReplay} disabled={replayPendingConfirm}>
+                    Rejouer les réponses enregistrées
+                  </Button>
+                </Flex>
+
+                {#if replayPendingConfirm}
+                  <Alert
+                    tone="warning"
+                    title="Remplacer vos réponses actuelles ?"
+                    message={`Le rejeu va remplacer vos réponses locales (${answeredCount} décision(s) annotée(s) ou sélectionnée(s)) par le jeu enregistré. Cette action est volontaire et ne peut pas être annulée.`}
+                  />
+                  <Flex align="center" wrap gap={2}>
+                    <Button variant="primary" onclick={applyReplay}>Remplacer et rejouer</Button>
+                    <Button variant="secondary" onclick={cancelReplay}>Annuler</Button>
+                  </Flex>
+                {/if}
+
+                {#if replayReport}
+                  <Alert
+                    tone={replayReport.missingDecisions.length || replayReport.staleOptions.length
+                      ? 'warning'
+                      : 'success'}
+                    title={`${replayReport.applied.length} réponse(s) rejouée(s)`}
+                    message={`Sélections et notes restaurées pour : ${replayReport.applied.join(', ') || '(aucune)'}.`}
+                  />
+                  <!-- Une réponse qui ne retombe plus sur cette révision est NOMMÉE, jamais escamotée. -->
+                  {#if replayReport.missingDecisions.length}
+                    <Alert
+                      tone="error"
+                      title="Réponses non rejouables : décision disparue"
+                      message={`Ces clés n'existent plus dans la révision « ${dossier.revision} » et n'ont donc pas pu être rejouées : ${replayReport.missingDecisions.join(', ')}. Leurs notes sont toujours dans le jeu enregistré, pas dans cette page.`}
+                    />
+                  {/if}
+                  {#if replayReport.staleOptions.length}
+                    <Alert
+                      tone="warning"
+                      title="Options disparues : note rejouée, sélection non"
+                      message={`Ces options n'existent plus pour leur décision : ${replayReport.staleOptions.join(', ')}. La note a été restaurée, la sélection est restée vide — à vous de la reprendre.`}
+                    />
+                  {/if}
+                {/if}
               {/if}
             </Stack>
           </section>
