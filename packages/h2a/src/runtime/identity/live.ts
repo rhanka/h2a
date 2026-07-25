@@ -31,14 +31,28 @@ import { resolveProviderSession, type ProviderSessionReaders } from "./resolver.
 import { durableWorkspaceId } from "./workspace-id.js";
 
 /**
- * The CLOSED vocabulary an agent may declare at registration.
+ * The CLOSED vocabulary an agent may DECLARE at registration.
  *
- * DISPLAY ONLY, and NON-AUTHORITATIVE. This list is self-reported by the agent
- * and MUST NEVER be an input to any authorization decision, anywhere — not in
- * h2a, not in a gateway, not in a UI. Authorization is the principal binding
- * plus server-side scoping; a capability string proves nothing. (Binding
- * condition #3 of the session-exposure feed contract ratified 2026-07-24,
+ * DISPLAY ONLY, and NON-AUTHORITATIVE. Self-reported by the agent, and it MUST
+ * NEVER be an input to any authorization decision, anywhere — not in h2a, not in
+ * a gateway, not in a UI. Authorization is the principal binding plus
+ * server-side scoping; a capability string proves nothing. (Binding condition #3
+ * of the session-exposure feed contract ratified 2026-07-24,
  * docs/superpowers/specs/2026-07-24-h2a-feed-contract-for-sentropic.md.)
+ *
+ * These values are written to `H2AActorRegistration.declaredCapabilities` and
+ * NEVER to `capabilities` — the latter is the authority-bearing rights list read
+ * by the subagent ceiling (`subagents.ts` `capabilities-exceed-parent`) and by
+ * `canAttestComprehension`. Writing display vocabulary there would widen a
+ * privilege ceiling as a side effect of a display feature, which is exactly the
+ * defect the architect's 2026-07-25 split ruling removes. The two fields must
+ * never be merged.
+ *
+ * Note why "no vocabulary member may ever equal a right string" is NOT a
+ * sufficient guard, and is not relied upon here: the subagent ceiling is a
+ * SUBSET check over the whole field, not a lookup of specific right strings — so
+ * that invariant holds for these three values and the ceiling still widens.
+ * Separation of fields is the mitigation; string choice is not.
  *
  * Closed on purpose: an unknown string is DROPPED rather than stored, so the
  * set a consumer can ever render stays enumerable and reviewable.
@@ -87,9 +101,11 @@ export interface ResolveLiveIdentityInput {
   /**
    * Capabilities the agent DECLARES at mint (display-only, non-authoritative —
    * see {@link H2A_DECLARED_CAPABILITIES}). Filtered against the closed
-   * vocabulary; anything else is dropped. Absent → `[]`, today's behaviour.
+   * vocabulary; anything else is dropped. Written to the registration's
+   * `declaredCapabilities`, never to the authority-bearing `capabilities`.
+   * Absent → the field is omitted.
    */
-  readonly capabilities?: readonly string[];
+  readonly declaredCapabilities?: readonly string[];
   readonly readers?: ProviderSessionReaders;
   readonly now?: () => number;
 }
@@ -226,7 +242,7 @@ function ensureRegistered(input: {
   readonly publicKeyPem: string;
   readonly scopes: readonly string[];
   /** Declared, display-only capabilities; already sanitized by the caller. */
-  readonly capabilities: readonly string[];
+  readonly declaredCapabilities: readonly string[];
   readonly now: () => number;
 }): void {
   const store = createLocalStore({ root: input.root });
@@ -237,14 +253,21 @@ function ensureRegistered(input: {
       instance: input.instance,
       roles: ["AGENTS"],
       scopes: [...input.scopes],
-      capabilities: [...input.capabilities],
+      // AUTHORITY-BEARING and intentionally left EMPTY, exactly as before this
+      // workstream: it is the subagent ceiling and the attestation right. A
+      // display list must never be written here (architect ruling, 2026-07-25).
+      capabilities: [],
       endpoints: [{ kind: "local-files", uri: `file://${input.root}` }],
       publicKeys: [input.publicKeyPem],
       acceptedPolicies: [],
       agentUuid: input.agentUuid,
       workspace: input.workspace,
       name: input.name,
-      createdAt: new Date(input.now()).toISOString()
+      createdAt: new Date(input.now()).toISOString(),
+      // The declared DISPLAY list, kept structurally apart from `capabilities`.
+      ...(input.declaredCapabilities.length > 0
+        ? { declaredCapabilities: [...input.declaredCapabilities] }
+        : {})
     };
     store.registerInstance(registration);
     return;
@@ -343,7 +366,7 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
     // Declared at mint only: an already-registered instance keeps whatever it
     // declared then. Nothing downstream may treat this list as authority, so a
     // narrow/empty list is a display gap, never a permission gap.
-    capabilities: sanitizeDeclaredCapabilities(input.capabilities),
+    declaredCapabilities: sanitizeDeclaredCapabilities(input.declaredCapabilities),
     now
   });
   recordIdentityAlias(input.root, {
