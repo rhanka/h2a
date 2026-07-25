@@ -43,6 +43,7 @@ import {
   runCli,
   runEnrollmentCeremony,
   sanitizeEnrollmentChallenge,
+  signCanonical,
   signEnrollmentChallenge,
   verifyCanonical,
   verifyEnrollmentProof,
@@ -201,6 +202,41 @@ test("rewriting the type tag breaks verification", () => {
   // Dropping the tag entirely is refused too.
   const { type: _dropped, ...untagged } = proof;
   assert.equal(verifyEnrollmentProof(untagged), false);
+});
+
+test("a VALIDLY SIGNED v2 proof is refused by the v1 verifier", () => {
+  // THE case the explicit tag check exists for, and the only one — found because a
+  // mutation that disabled that check was NOT caught by the tests above.
+  //
+  // Rewriting a tag on a finished proof is already caught by the crypto (the
+  // signature no longer matches). What the crypto CANNOT catch is a proof that is
+  // correctly signed over a DIFFERENT version: the signature is perfectly valid
+  // over its own payload, and only a verifier that reads the tag can refuse it.
+  // Without that, a v2 proof would be silently reinterpreted as v1 — which is
+  // exactly what versioning the tag is supposed to prevent.
+  const identity = fakeIdentity();
+  const v2Payload = {
+    type: "h2a-enrollment-proof-v2",
+    nonce: NONCE,
+    instance: identity.instance,
+    publicKeyPem: identity.publicKeyPem
+  };
+  const signature = signCanonical(v2Payload, {
+    by: identity.instance,
+    privateKeyPem: identity.privateKeyPem
+  });
+  // The signature is genuinely valid over its own payload — nothing is forged.
+  assert.equal(
+    verifyCanonical(v2Payload, signature, identity.publicKeyPem),
+    true,
+    "the v2 proof is honestly signed; that is what makes this the interesting case"
+  );
+  // And the v1 verifier refuses it anyway.
+  assert.equal(
+    verifyEnrollmentProof({ ...v2Payload, signature }),
+    false,
+    "a validly signed v2 proof must not be reinterpreted as v1"
+  );
 });
 
 // ---------------------------------------------------------------------------
