@@ -216,6 +216,149 @@ test("the kill-switch makes the CLI daemon a no-op: nothing is sent", async () =
   }
 });
 
+// The exact state the shipped systemd unit is in: kill-switch present AND all
+// three ExecStart values still placeholders. This MUST be a clean exit-0 no-op —
+// the unit file and the README both promise that. It used to read the private key
+// first and exit 1 with "cannot read --private-key (ENOENT ...
+// 'REPLACE_WITH_PRIVATE_KEY_PATH')", landing the unit in systemd `failed`.
+test("the shipped-unit state (kill-switch + unfilled placeholders) is a clean exit-0 no-op", async () => {
+  const stub = stubFetch(() => ({ status: 202, body: { ok: true } }));
+  const previous = process.env[MIRROR_PUSH_OFF_ENV];
+  process.env[MIRROR_PUSH_OFF_ENV] = "1";
+  try {
+    const streams = captureStreams(process.cwd());
+    const rc = await runMirrorPush(
+      {
+        url: "REPLACE_WITH_INGESTER_URL",
+        instance: "REPLACE_WITH_INSTANCE_ID",
+        "private-key": "REPLACE_WITH_PRIVATE_KEY_PATH",
+        "interval-ms": "20000"
+      },
+      streams,
+      undefined,
+      FAST
+    );
+    assert.equal(rc, 0, "the documented clean no-op, NOT an exit-1 failure");
+    assert.equal(stub.calls.length, 0, "nothing sent");
+    assert.match(streams.stderrText, /H2A_MIRROR_PUSH_OFF is set/);
+    assert.ok(
+      !/private-key/.test(streams.stderrText),
+      "the key is never even read when the daemon is disabled"
+    );
+  } finally {
+    if (previous === undefined) delete process.env[MIRROR_PUSH_OFF_ENV];
+    else process.env[MIRROR_PUSH_OFF_ENV] = previous;
+    stub.restore();
+  }
+});
+
+test("the kill-switch short-circuits BEFORE flag validation too", async () => {
+  const previous = process.env[MIRROR_PUSH_OFF_ENV];
+  process.env[MIRROR_PUSH_OFF_ENV] = "1";
+  try {
+    const streams = captureStreams(process.cwd());
+    // A deliberately invalid interval: disabled means nothing runs, so there is
+    // nothing to validate and nothing to complain about.
+    const rc = await runMirrorPush(
+      { url: "nonsense", instance: "x", "private-key": "/nope", "interval-ms": "1" },
+      streams,
+      undefined,
+      FAST
+    );
+    assert.equal(rc, 0);
+    assert.match(streams.stderrText, /the live push is disabled/);
+  } finally {
+    if (previous === undefined) delete process.env[MIRROR_PUSH_OFF_ENV];
+    else process.env[MIRROR_PUSH_OFF_ENV] = previous;
+  }
+});
+
+test("an unfilled or unusable --url is refused up front, not retried forever", async () => {
+  const { dir, root, keyPath } = fixture();
+  const stub = stubFetch(() => ({ status: 202, body: { ok: true } }));
+  try {
+    // An EMPTY --url is caught earlier, by the unchanged required-flags check.
+    for (const bad of ["REPLACE_WITH_INGESTER_URL", "mirror.example/h2a/mirror", "file:///tmp/x", "   "]) {
+      const streams = captureStreams(dir);
+      const rc = await runMirrorPush(
+        {
+          url: bad,
+          instance: INSTANCE,
+          "private-key": keyPath,
+          root,
+          "interval-ms": "5000",
+          max: "1000"
+        },
+        streams,
+        undefined,
+        FAST
+      );
+      assert.equal(rc, 1, `--url ${JSON.stringify(bad)} must fail fast`);
+      assert.match(streams.stderrText, /--url must be an http\(s\) URL/);
+    }
+    assert.equal(stub.calls.length, 0, "an unusable URL pushes nothing, ever");
+  } finally {
+    stub.restore();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the ONE-SHOT still accepts any --url (unchanged: the transport reports it)", async () => {
+  // The url pre-flight is a daemon-only guard. The one-shot's behavior on a bad
+  // URL is whatever it always was — a single failed attempt, exit 1 — and must
+  // NOT have gained a new validation error.
+  const { dir, root, keyPath } = fixture();
+  const previousFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    throw new TypeError("Failed to parse URL from REPLACE_WITH_INGESTER_URL");
+  };
+  try {
+    const streams = captureStreams(dir);
+    const rc = await runMirrorPush(
+      { url: "REPLACE_WITH_INGESTER_URL", instance: INSTANCE, "private-key": keyPath, root },
+      streams
+    );
+    assert.equal(rc, 1);
+    assert.equal(calls, 1, "the one-shot still attempted exactly once");
+    assert.ok(
+      !/--url must be an http/.test(streams.stderrText),
+      "the daemon-only pre-flight must not leak into the one-shot"
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("repeated non-auth 4xx stops the CLI daemon and exits 1", async () => {
+  const { dir, root, keyPath } = fixture();
+  const stub = stubFetch(() => ({ status: 404, body: {} }));
+  try {
+    const streams = captureStreams(dir);
+    const rc = await runMirrorPush(
+      {
+        url: URL_FAKE,
+        instance: INSTANCE,
+        "private-key": keyPath,
+        root,
+        "interval-ms": "5000",
+        max: "1000"
+      },
+      streams,
+      undefined,
+      FAST
+    );
+    assert.equal(rc, 1, "a reject stop is a failure exit, so systemd keeps it stopped");
+    assert.equal(stub.calls.length, 5, "stopped at the reject budget, no hammering");
+    assert.match(streams.stderrText, /rejected this mirror on every attempt/);
+  } finally {
+    stub.restore();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("an interval under the CLI floor is refused before anything is pushed", async () => {
   const { dir, root, keyPath } = fixture();
   const stub = stubFetch(() => ({ status: 202, body: { ok: true } }));
