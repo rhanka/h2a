@@ -190,7 +190,16 @@ test('death by signal is a failure, not a pass', () => {
   )
   assert.equal(code, 1)
   assert.match(io.text, /killed\s+failed/)
-  assert.match(io.text, /signal:SIG/)
+  // The invariant that matters everywhere: violent death is never a pass.
+  assert.doesNotMatch(io.text, /killed\s+passed/)
+  // The `signal:` rendering itself is POSIX-only. Windows has no real signals —
+  // node emulates process.kill by terminating the child, so spawnSync reports a
+  // plain non-zero status and no signal. Asserting `signal:` unconditionally
+  // made this test red on both windows legs while the behaviour was correct.
+  // classifyRun's signal mapping is covered portably by its own unit test below.
+  if (process.platform !== 'win32') {
+    assert.match(io.text, /signal:SIG/)
+  }
 })
 
 test('a5: a throwing step is reported, and later steps are still reported', () => {
