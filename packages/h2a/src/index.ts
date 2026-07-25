@@ -776,6 +776,8 @@ export {
   resolveProviderSession,
   defaultProviderSessionReaders,
   readHostSessionName,
+  createHostSessionNameRefresher,
+  CLAUDE_TITLE_TAIL_BYTES,
   listBindings,
   findBinding,
   verifyReclaimProof,

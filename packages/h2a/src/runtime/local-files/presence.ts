@@ -174,6 +174,14 @@ export function updatePresence(
     workStatus?: H2AWorkStatus;
     launchContext?: H2ALaunchContext;
     lastMcpActivityAt?: string;
+    /**
+     * Display name (spec 2026-07-25-h2a-lane-addressing §D1b). Mutable at
+     * runtime so a host-native rename converges into presence within one
+     * heartbeat instead of staying stale until the host reconnects. UX only —
+     * the routing key is the frozen `instance` handle, which never moves.
+     * Pass only a non-empty value; omit to keep the current name.
+     */
+    name?: string;
   }
 ): H2ASession | undefined {
   const existing = readPresence(root, sessionId);
@@ -198,7 +206,9 @@ export function updatePresence(
     ...(patch.launchContext ? { launchContext: patch.launchContext } : {}),
     ...(patch.lastMcpActivityAt
       ? { lastMcpActivityAt: patch.lastMcpActivityAt }
-      : {})
+      : {}),
+    // Empty-string guard: never blank out a name that is already correct.
+    ...(patch.name ? { name: patch.name } : {})
   };
   writePresence(root, next);
   return next;
