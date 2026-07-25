@@ -19,3 +19,27 @@ export {
   mirrorRejectionStatus,
   type MirrorServerForStoreOptions
 } from "./serve.js";
+export {
+  createMirrorPushRunner,
+  mirrorPushGloballyDisabled,
+  redactEndpoint,
+  runMirrorPushDaemon,
+  sanitizeForLog,
+  DEFAULT_MIRROR_AUTH_FAILURE_LIMIT,
+  DEFAULT_MIRROR_PUSH_INTERVAL_MS,
+  MIN_MIRROR_PUSH_INTERVAL_MS,
+  MIRROR_PUSH_BACKOFF_BASE_MS,
+  MIRROR_PUSH_BACKOFF_MAX_MS,
+  MIRROR_PUSH_JITTER_FRACTION,
+  MIRROR_PUSH_OFF_ENV,
+  MIRROR_PUSH_REENROLLMENT_MESSAGE,
+  type MirrorEnvelopeBuilder,
+  type MirrorEnvelopeSender,
+  type MirrorPushCycleLog,
+  type MirrorPushCycleResult,
+  type MirrorPushDaemonOptions,
+  type MirrorPushDaemonSummary,
+  type MirrorPushOutcome,
+  type MirrorPushRunnerOptions,
+  type MirrorPushStopReason
+} from "./push-daemon.js";
