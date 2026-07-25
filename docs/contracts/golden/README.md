@@ -4,7 +4,7 @@ Baseline du **contrat public** capturée le 2026-06-29 (P1 de la migration track
 
 ## Fichiers
 - **`mcp-tools.json`** — les 37 outils MCP `h2a_*` exposés sur le bus local (surface du bus, dont le mutateur local-only `h2a_run`). Source : `h2a mcp-tools` (trié).
-- **`cli-verbs.json`** — les 90 verbes dispatchables de la CLI. Source : `H2A_CLI_VERB_CONTRACTS` (`packages/h2a-cli/src/cli-contract.ts`, trié).
+- **`cli-verbs.json`** — les 98 verbes dispatchables de la CLI. Source : `H2A_CLI_VERB_CONTRACTS` (`packages/h2a/src/cli-contract.ts`, trié). Le compte annoncé ici était resté à 90 alors que le contrat en portait 97 ; il suit maintenant l'ajout de `explain` (97 → 98). Le chemin cité pointait sur `packages/h2a-cli/`, qui est un stub déprécié.
 
 ## Usage (P2 — à câbler en CI)
 Régénérer et **diff = échec sans bump de version explicite** :
