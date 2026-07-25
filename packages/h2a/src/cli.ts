@@ -154,7 +154,16 @@ import {
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
-import { buildInstanceMirror, mirrorServerForStore } from "./runtime/mirror/index.js";
+import {
+  buildInstanceMirror,
+  mirrorPushGloballyDisabled,
+  mirrorServerForStore,
+  redactEndpoint,
+  runMirrorPushDaemon,
+  MIN_MIRROR_PUSH_INTERVAL_MS,
+  MIRROR_PUSH_OFF_ENV,
+  type MirrorPushDaemonOptions
+} from "./runtime/mirror/index.js";
 import {
   recordStop,
   scanDrumbeat,
@@ -349,7 +358,7 @@ export function renderCliHelp(): string {
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a remote mirror-serve [--port <n>] [--host <h>] [--path </h2a/mirror>] [--enrolled-keys-file <json>] [--root <path>]   (EVO-13 instance-mirror ingester; enrolled keys also via H2A_MIRROR_ENROLLED_KEYS base64)",
-    "  h2a remote mirror --url <u> --instance <id> --private-key <pem> [--root <path>]   (push this instance's registration to a remote ingester)",
+    "  h2a remote mirror --url <u> --instance <id> --private-key <pem> [--root <path>] [--interval-ms <n> [--max <n>]]   (push this instance's registration to a remote ingester; ONE-SHOT by default. --interval-ms >= 5000 opts into the live daemon: same payload, repeated on a monotonic beat (15000-30000 recommended), overlap-guarded, backing off on transient errors and STOPPING on repeated 401/403 because re-enrollment is required. Kill-switch: H2A_MIRROR_PUSH_OFF)",
     "  h2a drive --from <instance> --to <instance> --instruction <text> --private-key <pem> [--driver logging|native|local-tmux|headless|auto] [--host <host>] [--root <path>]",
     "  h2a drive receive --to <instance> (--line <signed-line> | --stdin) [--ignore-non-drive] [--root <path>]   (verify-before-act gate for host hooks)",
     "  h2a drive serve --to <instance> --inject-command <command> [--port <n>] [--host <h>] [--path </h2a/drive>] [--root <path>]   (remote verify-before-inject service)",
@@ -2016,14 +2025,28 @@ export async function runMirrorServe(
  * `h2a remote mirror` (EVO-13 P1): build the local instance's own registration
  * mirror, sign it with `--private-key`, and POST it to a remote ingester `--url`.
  * Exit 0 on a 2xx. Async (network) → dispatched from bin.ts.
+ *
+ * ONE-SHOT BY DEFAULT. Passing `--interval-ms <n>` — and only that — opts into
+ * the live daemon (feed-contract P1 step 4a): the identical build → sign → POST
+ * cycle, repeated on a monotonic beat with overlap prevention, transient-error
+ * backoff, and a hard stop on repeated 401/403 (re-enrollment required). With no
+ * `--interval-ms` the code path below is byte-identical to the pre-daemon one.
+ * The global kill-switch `H2A_MIRROR_PUSH_OFF` disables the daemon entirely.
  */
 export async function runMirrorPush(
   flags: Record<string, string>,
-  streams: H2ACliStreams = { stdout: process.stdout, stderr: process.stderr }
+  streams: H2ACliStreams = { stdout: process.stdout, stderr: process.stderr },
+  signal?: AbortSignal,
+  overrides: H2AMirrorPushOverrides = {}
 ): Promise<number> {
   if (!flags.url || !flags.instance || !flags["private-key"]) {
     streams.stderr.write("h2a remote mirror: --url, --instance and --private-key are required\n");
     return 1;
+  }
+  // OPT-IN GATE: the daemon exists only for a caller that explicitly asked for
+  // an interval. Everything after this branch is the untouched one-shot.
+  if (flags["interval-ms"] !== undefined) {
+    return runMirrorPushWatch(flags, streams, signal, overrides);
   }
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
@@ -2050,6 +2073,88 @@ export async function runMirrorPush(
   }
   streams.stdout.write(`${JSON.stringify({ status: result.status, body: result.body }, null, 2)}\n`);
   return result.status >= 200 && result.status < 300 ? 0 : 1;
+}
+
+/**
+ * Timing/transport seams for the live mirror push, so an integration test can
+ * exercise the real CLI wiring at millisecond speed instead of sleeping through
+ * real backoffs. Same intent as `sendImpl` on the drumbeat relaunchers. Never set
+ * by any production caller — `bin.ts` passes nothing.
+ */
+export type H2AMirrorPushOverrides = Pick<
+  MirrorPushDaemonOptions,
+  "sleep" | "random" | "backoffBaseMs" | "backoffMaxMs" | "authFailureLimit" | "sendImpl" | "now"
+>;
+
+/**
+ * `h2a remote mirror --interval-ms <n>` (feed-contract P1 step 4a): the SAME
+ * one-shot push, live. Reached only from {@link runMirrorPush} when the operator
+ * passed an interval — never by default, never as a side effect.
+ *
+ * Emits one JSON status line per cycle on stdout (no key material, no request or
+ * response body — see `MirrorPushCycleLog`). Exit 0 when it stops cleanly
+ * (SIGTERM, `--max`, or the kill-switch), 1 when it stops because the endpoint
+ * refuses this instance's key and re-enrollment is required.
+ */
+async function runMirrorPushWatch(
+  flags: Record<string, string>,
+  streams: H2ACliStreams,
+  signal?: AbortSignal,
+  overrides: H2AMirrorPushOverrides = {}
+): Promise<number> {
+  const intervalMs = Number.parseInt(flags["interval-ms"] ?? "", 10);
+  if (!Number.isInteger(intervalMs) || intervalMs < MIN_MIRROR_PUSH_INTERVAL_MS) {
+    streams.stderr.write(
+      `h2a remote mirror: --interval-ms must be an integer >= ${MIN_MIRROR_PUSH_INTERVAL_MS} (got "${flags["interval-ms"]}")\n`
+    );
+    return 1;
+  }
+  const max = flags.max !== undefined ? Number.parseInt(flags.max, 10) : undefined;
+  if (max !== undefined && (!Number.isInteger(max) || max < 1)) {
+    streams.stderr.write(`h2a remote mirror: --max must be an integer >= 1 (got "${flags.max}")\n`);
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  // The key is read ONCE, at start, and kept only in memory: a rotated key needs
+  // a restart, which a re-enrollment needs anyway.
+  let privateKeyPem: string;
+  try {
+    privateKeyPem = readFileSync(flags["private-key"] as string, "utf8");
+  } catch (error) {
+    streams.stderr.write(`h2a remote mirror: cannot read --private-key (${(error as Error).message})\n`);
+    return 1;
+  }
+  if (mirrorPushGloballyDisabled(process.env)) {
+    streams.stderr.write(
+      `h2a remote mirror: ${MIRROR_PUSH_OFF_ENV} is set — the live push is disabled, nothing was sent\n`
+    );
+    return 0;
+  }
+  streams.stderr.write(
+    `h2a remote mirror: pushing instance ${flags.instance} to ${redactEndpoint(flags.url as string)} every ${intervalMs}ms (root ${root})\n`
+  );
+  const summary = await runMirrorPushDaemon({
+    root,
+    url: flags.url as string,
+    instance: flags.instance as string,
+    privateKeyPem,
+    intervalMs,
+    ...(max !== undefined ? { max } : {}),
+    ...(signal ? { signal } : {}),
+    ...overrides,
+    onCycle: (line) => {
+      streams.stdout.write(`${JSON.stringify(line)}\n`);
+    }
+  });
+  if (summary.stopReason === "auth-stop") {
+    streams.stderr.write(`h2a remote mirror: ${summary.message}\n`);
+    return 1;
+  }
+  streams.stderr.write(
+    `h2a remote mirror: stopped (${summary.stopReason}) after ${summary.cycles} cycles, ${summary.ok} accepted\n`
+  );
+  return 0;
 }
 
 function parseLoopRepo(value: string): H2ALoopRepoRef {
