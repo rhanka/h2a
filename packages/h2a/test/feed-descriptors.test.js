@@ -456,7 +456,9 @@ test("an unrecognized role is validated to 'unknown' on read", () => {
 test("malformed timestamps become the sentinel, never raw text", () => {
   const feed = buildFeedResponse({
     asOf: NOW,
-    sessions: [session({ startedAt: "", heartbeatAt: "garbage" })]
+    sessions: [session({ startedAt: "", heartbeatAt: "garbage" })],
+    // Explicit: the registry WAS consulted and is empty.
+    registrations: []
   });
   assert.equal(feed.sessions[0].openedAt, "unknown");
   assert.equal(feed.sessions[0].lastActivityAt, "unknown");
@@ -505,7 +507,9 @@ test("buildInstanceDescriptors orders instances by lastSeen descending", () => {
       session({ sessionId: "s-b", instance: b, heartbeatAt: iso(NOW - 30_000) }),
       session({ sessionId: "s-c", instance: c, heartbeatAt: iso(NOW - 60_000) }),
       session({ sessionId: "s-a", instance: a, heartbeatAt: iso(NOW - 1_000) })
-    ]
+    ],
+    // Explicit: the registry WAS consulted and is empty.
+    registrations: []
   });
   assert.deepEqual(
     feed.instances.map((i) => i.instanceId),
@@ -526,12 +530,109 @@ test("buildSessionDescriptors orders sessions by lastActivityAt descending", () 
         heartbeatAt: iso(NOW - 45_000),
         lastMcpActivityAt: iso(NOW - 1_000)
       })
-    ]
+    ],
+    // Explicit: the registry WAS consulted and is empty.
+    registrations: []
   });
   assert.deepEqual(
     feed.sessions.map((s) => s.sessionId),
     ["newest", "middle", "oldest"]
   );
+});
+
+// ─── 5e. An empty collection is a CLAIM, so it must be established ────────
+//
+// A DEFAULTED empty array cannot be told apart from (a) an errored read,
+// (b) a silently-empty query and (c) a lookup that never happened. So every
+// empty collection reaching the wire comes from an explicit branch, and an
+// UNREAD source throws instead of rendering as a cheerful empty feed.
+// (Amendment accepted by the architect 2026-07-25, from the sentropic auth lane.)
+
+test("an unread sessions source THROWS instead of producing an empty feed", () => {
+  // What a failed `listPresence` looks like to the builder. "You have no agents"
+  // must never be the rendering of a broken read.
+  assert.throws(
+    () => buildFeedResponse({ asOf: NOW, sessions: undefined, registrations: [] }),
+    /sessions was not read/,
+    "a missing sessions array must fail loudly"
+  );
+  assert.throws(
+    () => buildFeedResponse({ asOf: NOW, registrations: [] }),
+    /sessions was not read/
+  );
+  // A non-array truthy value is just as unread.
+  assert.throws(
+    () => buildSessionDescriptors({ asOf: NOW, sessions: null, registrations: [] }),
+    /sessions was not read/
+  );
+});
+
+test("an unread registrations source THROWS instead of producing an empty feed", () => {
+  assert.throws(
+    () => buildFeedResponse({ asOf: NOW, sessions: [] }),
+    /registrations was not read/,
+    "omitting the registry must fail loudly, not silently mean 'no registrations'"
+  );
+  assert.throws(
+    () => buildInstanceDescriptors({ asOf: NOW, sessions: [], registrations: undefined }),
+    /registrations was not read/
+  );
+});
+
+test("a deliberately empty read yields an empty feed — the 'we looked' case", () => {
+  // The counterpart to the two tests above: BOTH sources read, both genuinely
+  // empty. That is a fact and must be reported calmly.
+  const feed = buildFeedResponse({ asOf: NOW, sessions: [], registrations: [] });
+  assert.deepEqual(feed.instances, []);
+  assert.deepEqual(feed.sessions, []);
+  assert.equal(feed.asOf, iso(NOW));
+});
+
+test("counterpartsOpaqueRefs comes from the named P1 branch, not a default", () => {
+  // If the explicit `if (!COUNTERPART_SOURCE_WIRED) return ...` branch is
+  // deleted, the function throws (that is deliberate: once a source exists,
+  // silence must not be emitted as "no counterparts"), so this fails.
+  const feed = buildFeedResponse({
+    asOf: NOW,
+    sessions: [session(), session({ sessionId: "s2" })],
+    registrations: [registration()]
+  });
+  for (const descriptor of feed.sessions) {
+    assert.deepEqual(descriptor.counterpartsOpaqueRefs, []);
+    // The named constant is frozen: a consumer cannot be handed a mutable
+    // shared empty array, and the empty value has a single identity in the module.
+    assert.ok(Object.isFrozen(descriptor.counterpartsOpaqueRefs));
+  }
+  // Every session's empty list is the SAME established value, not per-call junk.
+  assert.equal(
+    feed.sessions[0].counterpartsOpaqueRefs,
+    feed.sessions[1].counterpartsOpaqueRefs
+  );
+});
+
+test("declaredCapabilities empty comes from an explicit branch in both cases", () => {
+  // (a) no registration at all, (b) a registration that declares nothing.
+  const noReg = buildFeedResponse({ asOf: NOW, sessions: [session()], registrations: [] });
+  assert.deepEqual(noReg.instances[0].declaredCapabilities, []);
+  assert.ok(Object.isFrozen(noReg.instances[0].declaredCapabilities));
+
+  const regNoField = buildFeedResponse({
+    asOf: NOW,
+    sessions: [session()],
+    registrations: [registration()]
+  });
+  assert.deepEqual(regNoField.instances[0].declaredCapabilities, []);
+  assert.ok(Object.isFrozen(regNoField.instances[0].declaredCapabilities));
+
+  // (c) declared, but every value outside the vocabulary: also a fact, and NOT
+  // the same frozen "nothing declared" constant — it is a filtered result.
+  const filtered = buildFeedResponse({
+    asOf: NOW,
+    sessions: [session()],
+    registrations: [registration({ declaredCapabilities: ["admin", SECRET_PATH] })]
+  });
+  assert.deepEqual(filtered.instances[0].declaredCapabilities, []);
+  assert.equal(Object.isFrozen(filtered.instances[0].declaredCapabilities), false);
 });
 
 // ─── 6. Field mapping: names, role, declaredCapabilities, lastSeen ───────
@@ -621,7 +722,10 @@ test("role is never synthesized: a registration with no roles yields 'unknown'",
   // Same for an instance with presence but no registration at all — and the row
   // is still EMITTED, never dropped (a dropped row would be a false negative on
   // presence, and collides with "empty arrays = nothing enrolled").
-  const feed = buildFeedResponse({ asOf: NOW, sessions: [session()] });
+  const feed = buildFeedResponse({ asOf: NOW, sessions: [session()],
+    // Explicit: the registry WAS consulted and is empty.
+    registrations: []
+  });
   assert.equal(feed.instances.length, 1);
   assert.equal(feed.instances[0].role, "unknown");
   assert.ok(!REAL_ROLES.includes(feed.instances[0].role));
@@ -660,7 +764,10 @@ test("instance liveness is the best-of across its own sessions", () => {
 // ─── 7. Envelope + purity ─────────────────────────────────────────────────
 
 test("buildFeedResponse stamps asOf from the injected timestamp only", () => {
-  const feed = buildFeedResponse({ asOf: NOW, sessions: [session()] });
+  const feed = buildFeedResponse({ asOf: NOW, sessions: [session()],
+    // Explicit: the registry WAS consulted and is empty.
+    registrations: []
+  });
   assert.equal(feed.asOf, iso(NOW));
 });
 
@@ -688,9 +795,18 @@ test("buildFeedResponse covers instances known only from the registry", () => {
 });
 
 test("buildSessionDescriptors / buildInstanceDescriptors handle an empty feed", () => {
-  assert.deepEqual(buildSessionDescriptors({ asOf: NOW, sessions: [] }), []);
-  assert.deepEqual(buildInstanceDescriptors({ asOf: NOW, sessions: [] }), []);
-  const feed = buildFeedResponse({ asOf: NOW, sessions: [] });
+  assert.deepEqual(buildSessionDescriptors({ asOf: NOW, sessions: [],
+    // Explicit: the registry WAS consulted and is empty.
+    registrations: []
+  }), []);
+  assert.deepEqual(buildInstanceDescriptors({ asOf: NOW, sessions: [],
+    // Explicit: the registry WAS consulted and is empty.
+    registrations: []
+  }), []);
+  const feed = buildFeedResponse({ asOf: NOW, sessions: [],
+    // Explicit: the registry WAS consulted and is empty.
+    registrations: []
+  });
   assert.deepEqual(feed.instances, []);
   assert.deepEqual(feed.sessions, []);
   assert.equal(feed.asOf, iso(NOW));
