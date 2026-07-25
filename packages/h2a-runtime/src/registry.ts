@@ -190,6 +190,21 @@ export function resolveRegistryPath(): string {
   return join(dirname(resolveConfigPath()), "registry.json");
 }
 
+/**
+ * Canonical shape of a real agent CONVERSATION id (claude session uuid / codex
+ * rollout uuid). A `source:"run"` local-tmux entry that never learned the real
+ * conversation writes its LABEL as `convId` (e.g. `convId:"llm-mesh"`), which is
+ * NOT resumable (`claude --resume llm-mesh` fails). This predicate is how
+ * `restore` tells a real, resumable conversation id apart from a label/slug that
+ * only masquerades as one. Pure, exported for the reconciliation logic + tests.
+ */
+const CONVERSATION_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function looksLikeConversationUuid(value: string | undefined): boolean {
+  return value !== undefined && CONVERSATION_UUID_RE.test(value);
+}
+
 export function loadRegistry(
   path: string = resolveRegistryPath(),
 ): RegistryEntry[] {
@@ -354,6 +369,35 @@ export function enroll(
   return withRegistryLock(path, (entries) => {
     const entry = applyEnroll(entries, input);
     return { entries, result: entry };
+  });
+}
+
+/**
+ * Persist the REAL conversation id back onto run entries whose `convId` had been
+ * a stale label (the run↔hook reconciliation resolved it). `updates` maps an
+ * entry id → the resolved conversation id. Only entries that still differ are
+ * rewritten, so this is idempotent and a no-op once every session is resolved.
+ * Nothing else on the entry is touched (no lastSeenAt bump — this is not
+ * liveness activity, just a metadata correction). Returns the number rewritten.
+ * Best-effort persistence so `restore` emits durable state instead of
+ * re-deriving the mapping (an fs scan of the transcripts) on every run.
+ */
+export function persistReconciledConvIds(
+  updates: ReadonlyMap<string, string>,
+  path: string = resolveRegistryPath(),
+): number {
+  if (updates.size === 0) return 0;
+  return withRegistryLock(path, (entries) => {
+    let changed = 0;
+    for (const [id, convId] of updates) {
+      const entry = entries.find((e) => e.id === id);
+      if (!entry || entry.convId === convId) continue;
+      entry.convId = convId;
+      changed += 1;
+    }
+    return changed === 0
+      ? { entries, result: 0, save: false }
+      : { entries, result: changed };
   });
 }
 
