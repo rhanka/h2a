@@ -98,10 +98,20 @@ of the transcript, and `:235` breaks on the **first** `customTitle` found:
       }
 ```
 
-A Claude transcript is an **append-only** JSONL, and `customTitle` is stamped on
-essentially every record. A rename therefore appends records carrying the *new*
-title at the **end**; the first 40 lines carry the title as it was at session
-start, permanently. The scan window is at the wrong end of the file.
+A Claude transcript is an **append-only** JSONL. A rename appends a dedicated
+**rename-event record** (`type: "custom-title"`) carrying the *new* title at the
+**end**; the first 40 lines therefore carry the title as it was at session start,
+permanently. The scan window is at the wrong end of the file.
+
+> **Correction to an earlier draft of this spec.** It claimed `customTitle` is
+> "stamped on nearly every record". That is **wrong**, and the wrong model is
+> worth correcting because it hides the real failure: a title appears **only from
+> a rename onward**, on rename-event records only. Measured 2026-07-25 —
+> title-bearing records are **5.1%** of the motivating transcript (1087 of 21473)
+> and **0.06%** of tail records across the whole corpus. This is precisely why
+> main's head-40 read found **nothing at all** in 16 of 8078 transcripts: those
+> conversations were renamed later than line 40. The fix is right; the stated
+> reason was not.
 
 Proof, on the live offender `%1` (presence name `39etc`, pane title `auth`):
 
@@ -185,10 +195,20 @@ with a bug fix would smuggle in part of that contract. See §D2 and §6.
 It is real in code and in convention, but — honest finding — it is **not recorded
 as a DEC anywhere**. The citations that do exist:
 
-- `docs/specs/2026-07-20-CR_h2a-tmux-liveness-activatable.md:57` —
+- ⚠️ **`docs/specs/2026-07-20-CR_h2a-tmux-liveness-activatable.md:57`** —
   `- [[reflect_host_native]] (h2a reflects native host state)`.
-  This is the **only** occurrence of the token in the entire repo. It is
-  referenced as an already-established standing rule and defined nowhere.
+  This is the **only** occurrence of the token anywhere, and it is referenced as
+  an already-established standing rule while being defined nowhere.
+  **But that file is UNTRACKED working-tree material** (`git ls-files` →
+  *"Did you forget to 'git add'?"*), and `git grep reflect_host_native
+  origin/main` returns **nothing**. So a reader of this spec on `main` cannot open
+  the citation at all.
+  **Therefore this spec does not rest the claim on that file.** The claim rests on
+  the grep result, which is the stronger statement anyway:
+  **on `origin/main` the reflect-host-native rule does not appear in the
+  repository in any form.** The untracked file is noted only as evidence that the
+  rule is *believed* to exist. Citing it as though it were readable would
+  reproduce exactly the dangling-reference defect recorded in §3.3 for DEC-116.
 - `docs/superpowers/specs/2026-07-24-h2a-feed-contract-for-sentropic.md:79` —
   `topicOrTitle` is `H2ASession.name` — *"the DEC-114 per-session mutable display
   name (host-native `customTitle`/`thread_name`, or `/rename`), falling back to
@@ -207,13 +227,14 @@ as a DEC anywhere**. The citations that do exist:
 **Two things must be said plainly, because both are load-bearing and neither is
 written down anywhere else.**
 
-**(a) The reflect-host-native rule exists only as a citation.**
+**(a) The reflect-host-native rule is not in the repository at all.**
 `[[reflect_host_native]]` is referenced as an already-established standing rule
-and is **defined nowhere** — no DEC, no VOCABULARY entry, one single occurrence in
-the entire repo. A rule that exists only as a citation is **one rename away from
-being lost**: rename or delete that CR file and the only trace of the rule
-disappears, while five code sites keep silently depending on it. It should be
-promoted to a DEC or a VOCABULARY entry independently of this spec.
+and is **defined nowhere** — no DEC, no VOCABULARY entry. Its one occurrence is in
+an **untracked** file, so on `origin/main` the rule has **zero** presence in
+version control while five code sites silently depend on it. A rule in that state
+is not "one rename away from being lost" — for anyone who has not got that
+working-tree file, **it is already lost**. It should be promoted to a DEC or a
+VOCABULARY entry independently of this spec.
 
 **(b) No document states that the title is surfaced at heartbeat.**
 The code only ever did it at identity-resolve / session-open. So RC-2 is not a
@@ -319,11 +340,49 @@ not move an inbox. This is what keeps D1 a bug fix rather than a contract change
 
 **Consequences.** `presence.name` becomes mutable *within* a session, where
 before it was fixed per session. Any consumer that cached it per session must
-re-read. Because it is documented UX-only and never a routing key
-(`session.ts:114-117`), no routing consumer is affected — the address is the
-handle, which does not move. The visible effect is that
-`h2a_discover_sessions(name: …)` starts returning the lane a human would name,
-which is the entire point: it is the lookup that returned `[]` for `auth`.
+re-read. The visible effect is that `h2a_discover_sessions(name: …)` starts
+returning the lane a human would name, which is the entire point: it is the
+lookup that returned `[]` for `auth`.
+
+**Precise scope of the routing claim — narrowed 2026-07-25 after review.** An
+earlier draft said *"no routing consumer is affected"*. That is **too strong** and
+is corrected here, because a claim wider than its evidence is the defect class
+this spec exists to document.
+
+The display name **seeds the handle at mint**:
+`live.ts:318` (`const name = input.name ?? hostName ?? label`) →
+`deriveInstanceId({ host, label: name, uuid })` → `slugify(label)`. So changing
+the reader changes **which handle gets minted** for a conversation that was
+renamed *before* h2a first attached to it. That is a real, if narrow,
+routing-visible effect, and it is **new with this fix**.
+
+What does hold — and it is the load-bearing safety property — is that **an
+existing inbox never moves**:
+
+| | claim |
+| --- | --- |
+| **at mint** | the reader's output influences the minted handle. **Changed by this fix.** |
+| **after mint** | the handle is frozen (`identity.ts:17-19`) and reclaim keys on `{host, providerSessionId, workspaceId}` (`live.ts`, `bindings.ts`) — **not** on the name. A rename is display-only and moves no mail. **Unchanged.** |
+
+So the correct statement is: **no routing consumer is affected after mint**, and
+no queued mail can be redirected by a rename.
+
+**And the name↔handle invariant is already broken on `main`, before this PR.**
+Measured on the live (main-built) bus 2026-07-25: `slugify(presence.name)` equals
+the handle's label segment in only **34 of 39** live sessions. The **5**
+violations:
+
+```
+name "pokemon"       -> handle label "pokemon-cards"  (codex:pokemon-cards:431e10ec4139, x3)
+name "sentropic-app" -> handle label "sentropic"      (claude:sentropic:7f3b90716dc5)
+name "cowork"        -> handle label "sentropic"      (claude:sentropic:8f2c1223e514)
+```
+
+Recorded because it matters for attribution: display name and minted handle
+**already** diverge on `main`, so this PR is not the breakage — and anyone reading
+a diverged pair later should not attribute it here. It also demonstrates the
+after-mint property empirically: those five have diverged and their inboxes did
+not move.
 
 **Residual after D1.** D1 does **not** make `auth` unambiguous — it makes it
 *findable*. After D1, `name: "auth"` returns **2** sessions instead of **0**.
@@ -541,10 +600,15 @@ instance-id. **A recorded instance-id rots.** Therefore:
 
 **Implemented (D1 only):**
 
-- `readers.ts` — tail-based Claude title read, last `customTitle` wins;
+- `readers.ts` — tail-based Claude title read, last rename event wins;
   `readTailLines` added to the injectable `HostNameReaders`.
+- `readers.ts` — **one title policy, shared with `h2a-runtime/src/restore.ts`**:
+  a title is only honoured on a `type: "custom-title"` record. See §10.
 - `readers.ts` — `createHostSessionNameRefresher()`: a memoized per-session
-  resolver (the transcript path is resolved once; only the tail is re-read).
+  resolver (the transcript path is resolved once; only the tail is re-read), with
+  **negative caching + exponential backoff** on a lookup miss. See §10.
+- `readers.ts` — titles are trimmed, whitespace-only rejected, and length-capped
+  at `MAX_DISPLAY_NAME_CHARS`; the Codex index read is tail-bounded.
 - `presence.ts` — `updatePresence` accepts `name`.
 - `sessions.ts` — per-session display-name resolver; `touch()` re-derives and
   writes on change only.
@@ -561,6 +625,9 @@ instance-id. **A recorded instance-id rots.** Therefore:
 - **RC-3** (the cwd-basename fallback and the missing-transcript case) — needs
   `nameSource` and/or a guessing policy, both of which are D2 material.
 - The `h2a loop agents` first-match selector — D3 increment.
+- **`InstanceDescriptor.displayName` staleness after a rename** — a real defect
+  this fix makes reachable, deferred with an argument and a named follow-up in
+  §10.5 (`descriptors.ts:542`, `live.ts:259-286`).
 - The decision-log gaps in §3.3 — flagged as governance observations, wider than
   this spec. Not fixed here.
 - Reconciling `SKILL.md:153` (hard refuse) with `SKILL.md:310` (list and ask) —
@@ -719,3 +786,100 @@ The migration case, and the one most likely to be got wrong:
 - during adoption the candidate lists will be long. That is honest and expected;
   it is the visible cost of the sequencing in §D2, and it shrinks exactly as fast
   as scopes get populated.
+
+---
+
+## 10. Review follow-ups (independent correctness leg, 2026-07-25)
+
+The leg returned **GO** and validated the fix well past this PR's own evidence:
+across **all 8078** local transcripts (largest **233 MB**, not the 46 MB this spec
+originally cited), emulating main's head-40 reader against this one —
+**0 regressions, 16 improvements** where main found no title and this reader finds
+the real one, and **3 changed values** including the reported `39etc` → `auth`.
+Cost **0.30 ms/call** on the 233 MB file against a 5000 ms heartbeat.
+
+Five should-fix items. Four are closed in this branch; one is deferred with an
+argument.
+
+### 10.1 CLOSED — one title policy (was: two readers, two policies)
+
+`h2a-runtime/src/restore.ts:187-200` requires `type === "custom-title"` and reads
+the whole file; this reader accepted `customTitle` on any record and read only the
+tail. **Resolved by adopting the stricter predicate**, so the two now agree by
+construction.
+
+Chosen on measurement, not taste: comparing both policies **on the same 64 KiB
+window across all 8078 transcripts** gives **0 divergences**, and **0** of the 89
+title-bearing records carried the field on any record type other than
+`custom-title`. The tie-break is asymmetric risk — a **misread** produces a wrong
+name and therefore wrong routing, while a **missed** read produces no name, which
+§D1's keep-previous rule already absorbs safely.
+
+Also corrected: this spec previously said *"Codex already did last-wins; Claude
+was the outlier."* **`restore.ts` did last-wins too.** The outlier was
+`readers.ts` specifically, not "Claude" as a host.
+
+### 10.2 CLOSED — the tail window is validated, not assumed
+
+Of the 8078 transcripts, **45 carry a title at all**, and **all 45** resolve from
+the 64 KiB window: **0 missed, 0 wrong values**. (Independently, the review leg
+found that of 2010 transcripts over 200 KiB, **zero** have a title deeper than
+64 KiB.) The bound is therefore empirical rather than a guess — and the residual
+risk, should it ever be exceeded, degrades to "no title" and is absorbed by
+keep-previous.
+
+### 10.3 CLOSED — negative caching for a transcript miss
+
+`createHostSessionNameRefresher` memoized **only on success**, so a session whose
+transcript never appears — exactly the RC-3 case above — re-walked
+`~/.claude/projects` (**87 directories, 14345 files, 8.73 ms**) on **every
+heartbeat, every 5 s, forever**, on a machine with a known OOM history. Now a miss
+is cached with exponential backoff (`TRANSCRIPT_MISS_BACKOFF_MS` →
+`TRANSCRIPT_MISS_BACKOFF_MAX_MS`), so a persistent miss costs a handful of walks
+per hour instead of 720. A transcript appearing later is still picked up, bounded
+by the current backoff.
+
+### 10.4 CLOSED — nits
+
+Whitespace-only titles were written verbatim (`"   "` is truthy, no trim); there
+was no length cap, so an unbounded user-controlled title would land in every
+peer's presence read (`isH2ASession` checks only `typeof`); and the Codex index
+was read whole on every heartbeat with no bound on a monotonically growing file.
+All three fixed. The cap **truncates rather than rejects**, so an over-long title
+stays findable by the substring match `discover_sessions(name:)` performs.
+
+### 10.5 DEFERRED, with an argument — `InstanceDescriptor.displayName` goes stale
+
+**The defect is real and is recorded here so it is not lost:**
+
+- `runtime/feed/descriptors.ts:542` —
+  `const displayName = nonEmpty(registration?.name) ?? liveSessionName ?? workspaceLabel;`
+  → prefers the **registration**.
+- `runtime/feed/descriptors.ts:477` —
+  `nonEmpty(session.name) ?? nonEmpty(registration?.name) ?? workspaceLabel`
+  → prefers the **live session**.
+- `runtime/identity/live.ts:259-286` (`ensureRegistered`) writes
+  `registration.name` **only inside the `if (!existing)` branch**.
+
+So after a rename, one feed payload carries the **new** title in `topicOrTitle`
+and the **old** one in `displayName`. This fix makes that reachable rather than
+causing it, and the feed is already merged.
+
+**Why it is not fixed in this branch.** Both candidate fixes are contract acts,
+not bug fixes:
+
+1. **Invert `:542` to prefer the live session name.** One line — but it inverts a
+   precedence the merged feed contract states explicitly
+   (`2026-07-24-h2a-feed-contract-for-sentropic.md:65`: `displayName` is
+   `registration.name` … *falling back to* the live session name). Changing a
+   documented public precedence is exactly what §D2/§D3 are being held back for.
+2. **Make `registration.name` track renames** in `ensureRegistered`. Arguably the
+   *faithful* reading — the feed contract says the registration name is "set at
+   mint or `/rename`", and it is frozen today only because **no `/rename` verb
+   exists on the h2a side at all** (`grep` for `cmdRename`/`updateInstanceName`
+   finds nothing). But this adds a durable-store write to the boot path and needs
+   a registry update API, so it is not a one-liner either.
+
+Either way it is a public-contract or durable-store change and belongs to its own
+increment. **Named follow-up: `feed displayName must not outlive a rename` —
+`descriptors.ts:542` + `live.ts:259-286`, with the two options above.**
