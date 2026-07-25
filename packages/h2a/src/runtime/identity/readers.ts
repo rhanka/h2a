@@ -121,12 +121,42 @@ export const defaultProviderSessionReaders: ProviderSessionReaders = {
 
 /**
  * How much of the tail of a Claude transcript to scan for the current title.
- * A transcript is append-only and stamps `customTitle` on nearly every record,
- * so the newest records are at the END; 64 KiB is many records deep while
- * staying cheap enough to re-read on every heartbeat (live transcripts reach
- * tens of MB — the `auth` transcript that motivated this fix was 46 MB).
+ *
+ * A transcript is append-only, and `customTitle` is carried by dedicated
+ * **rename-event records** (`type: "custom-title"`) — NOT by ordinary records.
+ * Measured 2026-07-25 over all 8078 local transcripts: title-bearing records are
+ * 0.06% of tail records (5.1% within the one heavily-renamed transcript that
+ * motivated this fix). The newest such record is therefore near the END, and a
+ * 64 KiB window reaches it: of the 45 transcripts that carry a title at all,
+ * **all 45** are resolved from this window — 0 missed, 0 wrong values.
+ *
+ * Bounded rather than whole-file because this now runs on the heartbeat and live
+ * transcripts reach hundreds of MB (largest local: 233 MB; cost 0.30 ms/call).
  */
 export const CLAUDE_TITLE_TAIL_BYTES = 64 * 1024;
+
+/**
+ * How much of the TAIL of `~/.codex/session_index.jsonl` to read. Codex resolves
+ * last-match-wins, so the tail is what matters; the file grows monotonically and
+ * this also runs on the heartbeat (48 KiB today, so today's whole file fits).
+ * A session whose entry has aged out of the window simply yields `undefined`,
+ * which the caller treats as "keep the name you have".
+ */
+export const CODEX_INDEX_TAIL_BYTES = 256 * 1024;
+
+/**
+ * Upper bound on a display name written into presence. A host title is
+ * user-controlled and unbounded; `isH2ASession` only checks `typeof`, so an
+ * absurd title would otherwise land in every peer's presence read. Truncated
+ * rather than rejected so the name stays findable by the substring match that
+ * `discover_sessions(name:)` performs.
+ */
+export const MAX_DISPLAY_NAME_CHARS = 200;
+
+/** Initial re-scan delay after a transcript lookup MISSES (negative cache). */
+export const TRANSCRIPT_MISS_BACKOFF_MS = 60_000;
+/** Ceiling for the negative-cache backoff. */
+export const TRANSCRIPT_MISS_BACKOFF_MAX_MS = 300_000;
 
 /**
  * Injectable FS readers for `readHostSessionName` (test-friendly).
@@ -143,10 +173,24 @@ export interface HostNameReaders {
    * interface gets a compile error rather than silently-stale names.
    */
   readTailLines(path: string, maxBytes: number): string[];
-  /** List newline-delimited JSONL entries from `~/.codex/session_index.jsonl`. */
+  /**
+   * List newline-delimited JSONL entries from the TAIL of
+   * `~/.codex/session_index.jsonl` (see `CODEX_INDEX_TAIL_BYTES`).
+   */
   readCodexSessionIndex(): string[];
   /** Whether the home dir root is known (for path construction). */
   homedir(): string;
+  /**
+   * Locate the transcript file for a Claude session id. Optional: defaults to
+   * scanning `~/.claude/projects`. Injectable so a test can COUNT the scans and
+   * pin the negative-cache behaviour — that walk is 87 directories / 14345 files
+   * and it sits on a 5-second timer, so a repeated miss must not re-walk.
+   */
+  findClaudeTranscript?(
+    cwd: string,
+    sessionId: string,
+    home: string
+  ): string | undefined;
 }
 
 export const defaultHostNameReaders: HostNameReaders = {
@@ -182,16 +226,21 @@ export const defaultHostNameReaders: HostNameReaders = {
     }
   },
   readCodexSessionIndex(): string[] {
-    try {
-      const f = join(homedir(), ".codex", "session_index.jsonl");
-      const raw = readFileSync(f, "utf8");
-      return raw.split("\n");
-    } catch {
-      return [];
-    }
+    // Tail-bounded: this runs on the heartbeat and the index grows monotonically.
+    return defaultHostNameReaders.readTailLines(
+      join(homedir(), ".codex", "session_index.jsonl"),
+      CODEX_INDEX_TAIL_BYTES
+    );
   },
   homedir(): string {
     return homedir();
+  },
+  findClaudeTranscript(
+    cwd: string,
+    sessionId: string,
+    home: string
+  ): string | undefined {
+    return findClaudeTranscript(cwd, sessionId, home);
   }
 };
 
@@ -263,14 +312,40 @@ function findClaudeTranscript(
   }
 }
 
-/** Read one non-empty string field out of a JSONL record. Total (undefined on junk). */
-function jsonField(line: string | undefined, key: string): string | undefined {
+/**
+ * Normalize a candidate display name: trim, reject whitespace-only, and cap the
+ * length. Without the trim a title of `"   "` is truthy and would be written to
+ * presence verbatim; without the cap an unbounded user-controlled string lands in
+ * every peer's presence read (`isH2ASession` only checks `typeof`).
+ */
+function normalizeTitle(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.length > MAX_DISPLAY_NAME_CHARS
+    ? trimmed.slice(0, MAX_DISPLAY_NAME_CHARS)
+    : trimmed;
+}
+
+/**
+ * Read one display-name field out of a JSONL record. Total (undefined on junk).
+ *
+ * `requireCustomTitleType` applies the same policy as
+ * `h2a-runtime/src/restore.ts` — only a dedicated rename-event record
+ * (`type: "custom-title"`) carries an authoritative title. See
+ * `titleFromClaudeTranscript` for the measurement behind that choice.
+ */
+function jsonField(
+  line: string | undefined,
+  key: string,
+  requireCustomTitleType = false
+): string | undefined {
   const trimmed = line?.trim();
   if (!trimmed) return undefined;
   try {
     const obj = JSON.parse(trimmed) as Record<string, unknown>;
-    const value = obj[key];
-    return typeof value === "string" && value.length > 0 ? value : undefined;
+    if (requireCustomTitleType && obj.type !== "custom-title") return undefined;
+    return normalizeTitle(obj[key]);
   } catch {
     return undefined; // skip malformed lines
   }
@@ -279,19 +354,28 @@ function jsonField(line: string | undefined, key: string): string | undefined {
 /**
  * Extract the CURRENT display title from a Claude transcript.
  *
- * A transcript is **append-only** and stamps `customTitle` on nearly every
- * record, so a `/rename` appends records carrying the NEW title at the END.
- * We therefore scan **backwards** and take the LAST `customTitle`.
+ * A transcript is **append-only**, and a title lives on a dedicated rename-event
+ * record (`type: "custom-title"`), so a rename appends the NEW title at the END.
+ * We therefore scan **backwards** and take the LAST one.
  *
  * The pre-fix reader took the FIRST `customTitle` out of the first 40 lines,
  * which is the title as of session start — it could never observe a rename, so
  * `presence.name` stayed pinned to a stale title for the life of the session
  * (measured live: 1022 records saying `39etc` then 65 saying `auth`; the reader
- * returned `39etc` while the human saw `auth`). Codex already did last-wins;
- * Claude was the outlier.
+ * returned `39etc` while the human saw `auth`).
+ *
+ * **Policy note (single source of truth).** `h2a-runtime/src/restore.ts:187-200`
+ * reads the same field and requires `type === "custom-title"`. This reader now
+ * applies the identical predicate, so the two agree by construction. That is not
+ * a guess: measured 2026-07-25 across all 8078 local transcripts, comparing both
+ * policies on the same window, there were **0 divergences**, and **0** of the 89
+ * title-bearing records carried the field on any other record type. The stricter
+ * predicate is chosen because a misread produces a WRONG name (bad routing) while
+ * a missed read produces NO name (the caller keeps the name it has).
  *
  * `agentName` keeps first-seen-wins — it is not user-mutable, so recency is
- * meaningless for it. `aiTitle` is never read, hence never returned.
+ * meaningless for it, and it is not a rename event so the type check must not
+ * apply to it. `aiTitle` is never read, hence never returned.
  */
 function titleFromClaudeTranscript(
   transcriptPath: string,
@@ -299,7 +383,9 @@ function titleFromClaudeTranscript(
 ): string | undefined {
   const lines = readers.readTailLines(transcriptPath, CLAUDE_TITLE_TAIL_BYTES);
   for (let i = lines.length - 1; i >= 0; i -= 1) {
-    const customTitle = jsonField(lines[i], "customTitle");
+    // Cheap pre-filter before JSON.parse, mirroring restore.ts.
+    if (!lines[i]?.includes('"custom-title"')) continue;
+    const customTitle = jsonField(lines[i], "customTitle", true);
     if (customTitle) return customTitle;
   }
   for (const line of lines) {
@@ -309,13 +395,24 @@ function titleFromClaudeTranscript(
   return undefined;
 }
 
+/** Locate a transcript, preferring an injected finder (see `HostNameReaders`). */
+function locateClaudeTranscript(
+  cwd: string,
+  sessionId: string,
+  readers: HostNameReaders
+): string | undefined {
+  return readers.findClaudeTranscript
+    ? readers.findClaudeTranscript(cwd, sessionId, readers.homedir())
+    : findClaudeTranscript(cwd, sessionId, readers.homedir());
+}
+
 function readClaudeSessionName(
   cwd: string,
   sessionId: string | undefined,
   readers: HostNameReaders
 ): string | undefined {
   if (!sessionId) return undefined;
-  const transcriptPath = findClaudeTranscript(cwd, sessionId, readers.homedir());
+  const transcriptPath = locateClaudeTranscript(cwd, sessionId, readers);
   if (!transcriptPath) return undefined;
   return titleFromClaudeTranscript(transcriptPath, readers);
 }
@@ -326,9 +423,18 @@ function readClaudeSessionName(
  *
  * `readHostSessionName` is a one-shot: it re-scans every project directory to
  * locate the transcript. This factory memoizes the transcript path (the session
- * id is fixed for the life of the server process) so a heartbeat costs one
- * bounded tail read. A path that has not appeared yet is retried on the next
- * call, so a transcript created after boot is still picked up.
+ * id is fixed for the life of the server process) so a steady-state heartbeat
+ * costs one bounded tail read.
+ *
+ * **Negative caching (required, not an optimization).** A session whose
+ * transcript never appears is a real, observed state — it is the RC-3 case in the
+ * spec, where `CLAUDE_CODE_SESSION_ID` names a session with no transcript at all.
+ * Memoizing only on success meant that session re-walked
+ * `~/.claude/projects` — 87 directories, 14345 files, 8.73 ms — on EVERY
+ * heartbeat, i.e. every 5 seconds, forever. So a miss is cached too, with
+ * exponential backoff from `TRANSCRIPT_MISS_BACKOFF_MS` to
+ * `TRANSCRIPT_MISS_BACKOFF_MAX_MS`. A transcript that appears later is still
+ * picked up, just not instantly — bounded by the current backoff.
  *
  * Returns `undefined` whenever the title cannot be read — the caller must treat
  * that as "keep the name you have", never as "fall back to the cwd basename".
@@ -338,21 +444,35 @@ export function createHostSessionNameRefresher(opts: {
   cwd: string;
   sessionId?: string;
   readers?: HostNameReaders;
+  /** Injectable clock, for testing the negative cache without real waiting. */
+  now?: () => number;
 }): () => string | undefined {
   const readers = opts.readers ?? defaultHostNameReaders;
+  const now = opts.now ?? Date.now;
   let cachedTranscript: string | undefined;
+  let nextScanAllowedAt = 0;
+  let missBackoffMs = TRANSCRIPT_MISS_BACKOFF_MS;
   return () => {
     try {
       if (opts.host === "codex") {
         return readCodexSessionName(opts.sessionId, readers);
       }
-      if (opts.host !== "claude" || !opts.sessionId) return undefined;
-      cachedTranscript ??= findClaudeTranscript(
-        opts.cwd,
-        opts.sessionId,
-        readers.homedir()
-      );
-      if (!cachedTranscript) return undefined;
+      const sessionId = opts.sessionId;
+      if (opts.host !== "claude" || !sessionId) return undefined;
+      if (cachedTranscript === undefined) {
+        const at = now();
+        // Negative-cache hit: do NOT walk the filesystem.
+        if (at < nextScanAllowedAt) return undefined;
+        cachedTranscript = locateClaudeTranscript(opts.cwd, sessionId, readers);
+        if (cachedTranscript === undefined) {
+          nextScanAllowedAt = at + missBackoffMs;
+          missBackoffMs = Math.min(
+            missBackoffMs * 2,
+            TRANSCRIPT_MISS_BACKOFF_MAX_MS
+          );
+          return undefined;
+        }
+      }
       return titleFromClaudeTranscript(cachedTranscript, readers);
     } catch {
       return undefined; // a naming bug must never break the heartbeat
