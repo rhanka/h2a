@@ -124,10 +124,21 @@ export const H2A_ENROLLMENT_NONCE_MIN_BITS = 256;
 /**
  * Upper end of the bracket. **SANITY CEILING — NOT A SECURITY PARAMETER.**
  *
- * It says "beyond this it is not a nonce", nothing about sufficiency. Set at 1024
- * rather than 512 because a perfectly reasonable 64-byte nonce is 512 bits / 88
- * base64url characters, and a bound never meant to bound entropy must not be the
- * thing that rejects it.
+ * It says "beyond this it is not a nonce", nothing about sufficiency.
+ *
+ * Set at 1024 rather than 512 for HEADROOM — and the arithmetic has to be stated
+ * correctly, because an earlier draft of this comment said "88 base64url
+ * characters" and then drew a conclusion that only the wrong number supports.
+ * Base64url packs 6 bits per character, so a perfectly reasonable 64-byte nonce is
+ * 512 bits / **86** characters — and a 512-bit ceiling derives to `ceil(512 / 6) =
+ * 86` as well. It would therefore land EXACTLY on such a nonce and ACCEPT it, not
+ * reject it. So "512 would reject a 64-byte nonce" was never true; the real
+ * objection is that it leaves ZERO margin. A bound never meant to bound entropy
+ * must not sit flush against a legitimate value, where one more byte of issuer
+ * entropy — or base64 padding the issuer does not strip — turns a sanity bound
+ * into an outage. 1024 buys that margin. The corrected number does not weaken the
+ * choice; it removes a justification that misreported its own arithmetic, which is
+ * the defect class this module exists to argue against.
  */
 export const H2A_ENROLLMENT_NONCE_MAX_BITS = 1024;
 
@@ -581,20 +592,43 @@ export interface SignEnrollmentChallengeInput {
   readonly now?: () => number;
 }
 
+/** The own, allowlisted fields of a challenge — the ONLY object anything reads. */
+interface CarriedChallengeFields {
+  readonly nonce: string;
+  readonly expiresAt?: string;
+}
+
 /**
- * Reject a challenge we must not sign. Narrowing only — this can refuse a
- * signature, never authorize one. Throws with a message naming the reason.
+ * What a challenge document actually CARRIES: its allowlisted OWN properties,
+ * copied once into a fresh null-prototype object.
  *
- * Exported so a caller that classifies errors (the CLI, which owes a distinct
- * exit code for "your challenge is bad" vs "my local key state is bad") can
- * check the input it was handed BEFORE touching any identity.
- * {@link signEnrollmentChallenge} calls it again regardless: each entry point
- * validates its own input, and an upstream check is never assumed.
+ * WHY OWN-NESS IS ESTABLISHED HERE AND NOT AT EACH CONSUMER — this is the
+ * generalisation of a defect that was first fixed one field at a time, and the
+ * reason it is now structural.
+ *
+ * `Object.keys` (the allowlist) cannot see an inherited field, but plain property
+ * access (`challenge.expiresAt`) walks the prototype chain. So the allowlist and
+ * the consumers can disagree about what the document says. Guarding each consumer
+ * with `Object.hasOwn` only fixes the consumers you remembered: the first version
+ * of this code remembered `nonce` and forgot `expiresAt`, so an own `nonce` plus an
+ * INHERITED `expiresAt` was read by the validator *and* copied in as an own field
+ * by the sanitizer. **An allowlist is only as strong as the accessor the consumer
+ * uses afterwards** — and a rule applied to one of two allowlisted fields is a
+ * habit, not a guarantee.
+ *
+ * The durable fix is therefore not a second `hasOwn` at the second consumer. It is
+ * to make own-ness a property of the OBJECT everything downstream reads. The two
+ * reads below are the only prototype-chain-capable reads of a challenge left in
+ * this module, each immediately gated by the `Object.hasOwn` above it; after this
+ * function returns, its result has no prototype, so no later read — including one
+ * a future edit adds — can walk a chain. Validation and consumption cannot diverge
+ * again because there is only one object left for them to disagree about.
+ *
+ * Refuses rather than trims: an unexpected key, or a `nonce` that is not the
+ * document's own, throws here. Field VALUES are not checked yet — that is
+ * {@link assertCarriedChallengeIsSignable}, which reads only this copy.
  */
-export function assertSignableEnrollmentChallenge(
-  challenge: H2AEnrollmentChallenge,
-  nowMs: number
-): void {
+function carriedChallengeFields(challenge: H2AEnrollmentChallenge): CarriedChallengeFields {
   // ALLOWLIST FIRST, over OWN ENUMERABLE KEYS — `Object.keys`, never `in`.
   //
   // `in` walks the prototype chain, so an allowlist built on it would ask the
@@ -628,105 +662,156 @@ export function assertSignableEnrollmentChallenge(
           : "")
     );
   }
-  // …and read only what is CARRIED. The allowlist above inspects own keys, but
-  // plain property access (`challenge.nonce`) walks the prototype chain, so
-  // without this the validator and the consumer would disagree: a challenge with
-  // an INHERITED nonce carries nothing of its own, sails through the allowlist,
-  // and then gets signed anyway. `Object.hasOwn` is the same question the
-  // allowlist asks, asked of the fields we actually use.
+  // An inherited nonce carries nothing of its own: it sails through the allowlist
+  // (`Object.keys` is empty) and would then be signed anyway. Refused by name
+  // here, before the copy, so the message says what is actually wrong rather than
+  // surfacing later as "no nonce" on a copy that never received one.
   if (!Object.hasOwn(challenge, "nonce")) {
     throw new Error(
       "h2a enrollment: the challenge carries no nonce of its own — an inherited value is not a " +
         "carried field, and only carried fields are signed"
     );
   }
-  if (challenge.expiresAt !== undefined && typeof challenge.expiresAt !== "string") {
+  const carried = Object.create(null) as { nonce: string; expiresAt?: string };
+  carried.nonce = challenge.nonce;
+  // THE SAME QUESTION, asked of the other allowlisted field — this is the field the
+  // one-at-a-time fix missed. An inherited `expiresAt` is not carried, so it is not
+  // copied, so nothing downstream can see it. The extra `!== undefined` keeps an
+  // own-but-undefined `expiresAt` from becoming a key, preserving the "absent
+  // optional stays absent" property of the sanitized object.
+  if (Object.hasOwn(challenge, "expiresAt") && challenge.expiresAt !== undefined) {
+    carried.expiresAt = challenge.expiresAt;
+  }
+  return carried;
+}
+
+/**
+ * Reject a challenge we must not sign, reading ONLY the carried copy. Narrowing
+ * only — this can refuse a signature, never authorize one.
+ *
+ * The parameter is deliberately {@link CarriedChallengeFields} and not
+ * `H2AEnrollmentChallenge`: every read below is then own-by-construction, and the
+ * validator has no access to the caller's object to accidentally read through.
+ */
+function assertCarriedChallengeIsSignable(
+  carried: CarriedChallengeFields,
+  nowMs: number
+): void {
+  if (carried.expiresAt !== undefined && typeof carried.expiresAt !== "string") {
     throw new Error(
       "h2a enrollment: challenge expiresAt must be an ISO-8601 STRING — a non-string cannot be an " +
         "instant, and would be a place for structure to hide"
     );
   }
-  if (typeof challenge.nonce !== "string" || challenge.nonce.length === 0) {
+  if (typeof carried.nonce !== "string" || carried.nonce.length === 0) {
     throw new Error(
       "h2a enrollment: the challenge carries no nonce — nothing to prove key control over"
     );
   }
   // Cheap pre-parse bound first, so a hostile blob is dropped before any regex
   // walks it. This is a DoS cap, NOT the nonce's definition.
-  if (challenge.nonce.length > H2A_ENROLLMENT_MAX_NONCE_LENGTH) {
+  if (carried.nonce.length > H2A_ENROLLMENT_MAX_NONCE_LENGTH) {
     throw new Error(
-      `h2a enrollment: challenge nonce is ${challenge.nonce.length} chars, over the ` +
+      `h2a enrollment: challenge nonce is ${carried.nonce.length} chars, over the ` +
         `${H2A_ENROLLMENT_MAX_NONCE_LENGTH}-char pre-parse cap — refusing to read an unbounded blob`
     );
   }
   // The definition, stated positively: base64url of at least 256 bits. Free
   // text, JSON, a URL, or a message borrowed from another protocol all fail here
   // because they are not the specified shape — not because they were enumerated.
-  if (!H2A_ENROLLMENT_NONCE_PATTERN.test(challenge.nonce)) {
+  if (!H2A_ENROLLMENT_NONCE_PATTERN.test(carried.nonce)) {
     throw new Error(
       "h2a enrollment: challenge nonce is not base64url ([A-Za-z0-9_-]) — a nonce is a random " +
         "value of a specified shape, and anything else is refused rather than signed"
     );
   }
   // FLOOR — the only bound here that speaks about strength.
-  if (challenge.nonce.length < H2A_ENROLLMENT_NONCE_MIN_LENGTH) {
+  if (carried.nonce.length < H2A_ENROLLMENT_NONCE_MIN_LENGTH) {
     throw new Error(
-      `h2a enrollment: challenge nonce is ${challenge.nonce.length} base64url chars, under the ` +
+      `h2a enrollment: challenge nonce is ${carried.nonce.length} base64url chars, under the ` +
         `${H2A_ENROLLMENT_NONCE_MIN_LENGTH} needed for ${H2A_ENROLLMENT_NONCE_MIN_BITS} bits — ` +
         "a guessable challenge is one an attacker can pre-compute a proof for"
     );
   }
   // CEILING — a SANITY bound, not a security one. It says "beyond this it is not
   // a nonce"; it says nothing about how much entropy is enough.
-  if (challenge.nonce.length > H2A_ENROLLMENT_NONCE_MAX_LENGTH) {
+  if (carried.nonce.length > H2A_ENROLLMENT_NONCE_MAX_LENGTH) {
     throw new Error(
-      `h2a enrollment: challenge nonce is ${challenge.nonce.length} base64url chars, over the ` +
+      `h2a enrollment: challenge nonce is ${carried.nonce.length} base64url chars, over the ` +
         `${H2A_ENROLLMENT_NONCE_MAX_LENGTH}-char sanity ceiling (${H2A_ENROLLMENT_NONCE_MAX_BITS} ` +
         "bits) — beyond this it is not a nonce. This is NOT a statement that less entropy is enough"
     );
   }
-  if (challenge.expiresAt !== undefined) {
-    const expiresAtMs = Date.parse(challenge.expiresAt);
+  if (carried.expiresAt !== undefined) {
+    const expiresAtMs = Date.parse(carried.expiresAt);
     if (Number.isNaN(expiresAtMs)) {
       throw new Error(
-        `h2a enrollment: challenge expiresAt "${challenge.expiresAt}" is not an ISO-8601 instant`
+        `h2a enrollment: challenge expiresAt "${carried.expiresAt}" is not an ISO-8601 instant`
       );
     }
     if (expiresAtMs <= nowMs) {
       throw new Error(
-        `h2a enrollment: challenge expired at ${challenge.expiresAt} — ask the gateway for a new one`
+        `h2a enrollment: challenge expired at ${carried.expiresAt} — ask the gateway for a new one`
       );
     }
   }
 }
 
 /**
+ * Reject a challenge we must not sign. Narrowing only — this can refuse a
+ * signature, never authorize one. Throws with a message naming the reason.
+ *
+ * Exported so a caller that classifies errors (the CLI, which owes a distinct
+ * exit code for "your challenge is bad" vs "my local key state is bad") can
+ * check the input it was handed BEFORE touching any identity.
+ * {@link signEnrollmentChallenge} validates again regardless: each entry point
+ * validates its own input, and an upstream check is never assumed.
+ *
+ * IMPLEMENTED AS the sanitize path with the result discarded, deliberately. The
+ * validator and the sanitizer used to be two independent readers of the caller's
+ * object, which is precisely how `expiresAt` came to be validated *through the
+ * prototype chain* while the allowlist looked only at own keys. One reader means
+ * they cannot disagree.
+ */
+export function assertSignableEnrollmentChallenge(
+  challenge: H2AEnrollmentChallenge,
+  nowMs: number
+): void {
+  sanitizeEnrollmentChallenge(challenge, nowMs);
+}
+
+/**
  * Validate a parsed challenge document and return a FRESH, NULL-PROTOTYPE object
  * carrying only the allowlisted keys.
  *
- * Two distinct jobs, both load-bearing:
+ * Three distinct jobs, all load-bearing:
  *
- * 1. It refuses, via {@link assertSignableEnrollmentChallenge}. Refuse-the-rest
- *    means refuse, not ignore.
- * 2. What flows onward is a **new object with `null` prototype**, so the
+ * 1. It takes the OWN-ONLY view first ({@link carriedChallengeFields}), so what is
+ *    validated and what is returned are the same object. An inherited field is
+ *    invisible to both.
+ * 2. It refuses ({@link assertCarriedChallengeIsSignable}). Refuse-the-rest means
+ *    refuse, not ignore.
+ * 3. What flows onward is a **new object with `null` prototype**, so the
  *    `JSON.parse` result — which may carry an own `"__proto__"` key, a
  *    prototype-pollution vector the moment anything spreads or assigns it into
  *    another object — never propagates past this boundary. Even though such a
  *    document is already refused above, nothing downstream has to depend on that
  *    having happened.
  *
+ * Order matters and is the point: sanitize-then-validate, never validate-then-copy.
+ * The copy is what removes the second accessor, so validating the caller's object
+ * first would put the bug back.
+ *
  * Use this at any boundary where the challenge came from parsed input. The CLI
- * does.
+ * does, and so does {@link signEnrollmentChallenge}.
  */
 export function sanitizeEnrollmentChallenge(
   challenge: H2AEnrollmentChallenge,
   nowMs: number
 ): H2AEnrollmentChallenge {
-  assertSignableEnrollmentChallenge(challenge, nowMs);
-  const clean = Object.create(null) as { nonce: string; expiresAt?: string };
-  clean.nonce = challenge.nonce;
-  if (challenge.expiresAt !== undefined) clean.expiresAt = challenge.expiresAt;
-  return clean;
+  const carried = carriedChallengeFields(challenge);
+  assertCarriedChallengeIsSignable(carried, nowMs);
+  return carried;
 }
 
 /**
@@ -768,7 +853,12 @@ export function signEnrollmentChallenge(
   input: SignEnrollmentChallengeInput
 ): H2AEnrollmentProof {
   const now = input.now ?? Date.now;
-  assertSignableEnrollmentChallenge(input.challenge, now());
+  // Validate and take the own-only view in ONE step, then sign what THAT view says.
+  // Reading `input.challenge.nonce` below instead would be another accessor on the
+  // caller's object — own today only because the validator happens to have rejected
+  // an inherited nonce first, i.e. correct by ordering rather than by construction.
+  // The signed nonce comes off the sanitized copy so the ordering cannot matter.
+  const challenge = sanitizeEnrollmentChallenge(input.challenge, now());
 
   const { instance, privateKeyPem, publicKeyPem } = input.identity;
   // Build the unsigned proof first, then sign the payload DERIVED from it, so the
@@ -781,7 +871,7 @@ export function signEnrollmentChallenge(
   // unsigned, and worse than having no tag at all.
   const unsigned = {
     type: H2A_ENROLLMENT_PROOF_TYPE,
-    nonce: input.challenge.nonce,
+    nonce: challenge.nonce,
     instance,
     publicKeyPem
   } as const;
