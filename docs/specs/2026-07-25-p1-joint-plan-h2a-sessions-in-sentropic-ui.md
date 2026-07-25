@@ -73,11 +73,11 @@ independent GO reviews with distinct framings.
 |---|---|---|---|---|
 | 0 | Binding store + schema | arch | **held for owner GO** — ready | owner GO |
 | 1 | Feed descriptors | h2a | **built**, PR #22 open: architect GO in hand, code-quality leg running | — |
-| 2 | Nonce challenge + verify endpoint | auth | not started; **unblocked and cheaper than assumed** | 0; and Lot 1 for an authenticated round-trip |
+| 2 | Nonce challenge + verify endpoint | auth | not started; **unblocked and cheaper than assumed** | 0 |
 | 3 | Enrollment ceremony (agent side) + **re-enrollment of current keys** | h2a | not started | 2 |
 | 4a | Push daemon (one-shot → opt-in live) | h2a | **MERGED** (#23), ships disarmed | — |
 | 4b | Per-binding push keying + per-principal partition | h2a | not started | 0, 3, 5 |
-| 5 | Gateway resolves `sub` → active bindings → scoped store | arch | not started | 0 |
+| 5 | Gateway resolves `sub` → active bindings → scoped store | arch | not started | 0; **Lot 1** for an authenticated round-trip |
 | 6 | Read-only session panel | app/ui | not started | 5 |
 
 **Step 3's definition of done is not "code exists"**: it is *current live agents re-enrolled and the feed
@@ -121,11 +121,21 @@ finished without achieving.
 
 - **A GO to build P1**, which unblocks step 0 (a schema change in the live product repo) and, at step 3,
   turns on hosted enrollment **for the owner's own principal only**.
-- **A disclosure trade-off.** Once armed, the daemon pushes presence, registrations **and subagent NHI
-  bindings** every 15–30 s instead of once on demand. The payload is **signed but not confidential**, so a
-  mistyped URL discloses that metadata repeatedly to whatever host answers — while the local journal
-  reports `ok`. Mitigation: verify a single manual push before arming, which the shipped unit documents
-  and enforces by shipping disarmed (kill-switch active, placeholder target).
+- **A disclosure trade-off, stated as what is actually sent.** Once armed, the daemon pushes — every
+  15–30 s instead of once on demand — the instance registration, **subagent NHI bindings**, and the
+  **raw presence records**. "Presence" is not the sanitized descriptor the browser sees. **The feed
+  sanitizes at READ; the mirror does not sanitize at SEND.** So what comes to rest in the hosted root is,
+  per record: the **working-directory path** (`launchContext.cwd`, a real filesystem path), the **full
+  command line**, the **tmux session and pane**, and the **process id** — precisely the fields the feed
+  contract exists to keep out of a browser, and which its opacity helper strips on the way out.
+  The payload is **signed but not confidential**, so a mistyped target discloses all of that repeatedly to
+  whatever host answers, while the local journal reports `ok`. Mitigations: the unit ships disarmed
+  (kill-switch active, placeholder target) and documents verifying a single manual push before arming; the
+  hosted read boundary allowlists what can leave again. What is **not** yet mitigated is the send side —
+  see section 9.
+  This is a disclosure-accuracy point, not a design objection: signed-not-confidential to a host the owner
+  controls may be entirely fine. But the owner must consent to *paths, command lines, tmux coordinates and
+  pids leaving the machine*, not to the word "metadata".
 - **Nothing else.** No other owner action is on the critical path.
 
 ## 8. Gates
@@ -146,6 +156,13 @@ finished without achieving.
   the mitigation is different in kind: length bounds + character-class normalisation on the h2a side, and
   the untrusted-rendering rule on the panel side. Disclosed by the feed's author and independently
   confirmed.
+- **The mirror does not sanitize at send.** `runtime/mirror/build.ts` ships `listPresence(...)` records
+  verbatim, so `launchContext.cwd`, the command line, tmux coordinates and the pid reach the hosted store
+  even though the feed strips them on read. The rule we applied to the read boundary applies here too —
+  sanitize at the boundary you are responsible for — and the send boundary is one of ours. Options are to
+  narrow what the mirror ships to the fields the feed can actually emit, or to sanitize before signing.
+  Not folded into P1 because P1 can proceed with disclosure (section 7) while this is fixed; recorded so
+  the disclosure does not become the permanent answer.
 - **Lane addressing defect.** The h2a name has diverged from the host-native title, so routing to a named
   lane is ambiguous: nothing is registered as `auth`, four live instances share one name, and two panes
   share a title. This is a bus-correctness defect, not a BR-39l feature; folding it into P1 would hide it.
