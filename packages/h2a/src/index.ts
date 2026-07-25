@@ -782,6 +782,10 @@ export {
   reclaimOrMint,
   mergeInboxDedup,
   decideLegacyAdoption,
+  sanitizeDeclaredCapabilities,
+  H2A_CLI_DECLARED_CAPABILITIES,
+  H2A_DECLARED_CAPABILITIES,
+  type H2ADeclaredCapability,
   type LegacyAdoptionInput,
   type LegacyAdoptionDecision,
   type ProviderSession,
@@ -877,6 +881,8 @@ export {
 export * from "./runtime/mcp-http/index.js";
 
 export * from "./runtime/mirror/index.js";
+
+export * from "./runtime/feed/index.js";
 
 export * from "./runtime/reporting/index.js";
 

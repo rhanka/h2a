@@ -108,7 +108,24 @@ export interface H2AActorRegistration {
   scopes: string[];
   principal?: string;
   conductor?: string;
+  /**
+   * AUTHORITY-BEARING rights list. Two gates read it: the subagent capability
+   * CEILING (`subagents.ts` `capabilities-exceed-parent` — a child's
+   * capabilities must be a subset of its parent's) and the attestation right
+   * (`canAttestComprehension`). Nothing display-oriented may be written here:
+   * adding an entry WIDENS what a subagent may claim. Declared, cosmetic lists
+   * belong in {@link H2AActorRegistration.declaredCapabilities}.
+   */
   capabilities: string[];
+  /**
+   * DECLARED, NON-AUTHORITATIVE display list — deliberately separate from
+   * `capabilities` so a display feature can never widen a privilege ceiling as
+   * a side effect (architect ruling, 2026-07-25). Self-reported by the agent at
+   * registration, drawn from a closed vocabulary, and read by the
+   * session-exposure feed only. MUST NEVER be an input to any authorization
+   * decision, and must never be merged back into `capabilities`.
+   */
+  declaredCapabilities?: string[];
   endpoints: Array<{
     kind: "mcp" | "local-files" | "remote";
     uri: string;
@@ -300,5 +317,8 @@ export function isH2AActorRegistration(
   if (v.agentUuid !== undefined && typeof v.agentUuid !== "string") return false;
   if (v.workspace !== undefined && !isH2AWorkspaceRef(v.workspace)) return false;
   if (v.name !== undefined && typeof v.name !== "string") return false;
+  if (v.declaredCapabilities !== undefined && !isStringList(v.declaredCapabilities)) {
+    return false;
+  }
   return true;
 }
