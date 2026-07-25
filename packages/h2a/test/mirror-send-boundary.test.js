@@ -27,6 +27,27 @@
 //     fields — the end-to-end statement the disclosure in § 7 was about.
 //  5. THE FEED STILL WORKS. `workspaceLabel` still resolves from a narrowed
 //     record, so narrowing did not silently degrade the panel to 'unknown'.
+//  6. `send` IS INEXPRESSIBLE FOR A COMPOSITE. Classifying a composite `send`
+//     was legal, and it is how the `interests` leak shipped past a plan that was
+//     already in place — the ratchet forced a classification and the wrong one
+//     was available. The compiler now rejects it. The runtime test here covers
+//     the single case the type rule cannot (a field typed `any`) and reads the
+//     plans DIRECTLY, so updating a fixture does not silence it.
+//  7. THE ENVELOPE IS INSIDE THE BOUNDARY. `actor.role` was `reg.roles?.[0]` —
+//     a source record's field on the wire with no plan and no ratchet, which is
+//     what the module's "the envelope is all literals" claim missed. It is now
+//     derived from the SANITIZED registration and closed against `H2A_ROLES`.
+
+// ─── What these tests do NOT establish ──────────────────────────────────────
+//
+// Stated because a security test file is exactly where an unstated limit gets
+// read as a guarantee:
+//  - Element VALUES are free text and travel. A scope, a role or a `name` that
+//    is really a filesystem path comes to rest on the receiver. Tests 4d assert
+//    this ON PURPOSE, as a disclosed gap, rather than leaving it implied.
+//  - This is the SEND half only. The ingester still writes what a verified
+//    sender hands it, so an older CLI keeps pushing raw records.
+//  - Nothing here bounds what a receiver does with the data once it has it.
 //
 // No network: the only server is a 127.0.0.1 ingester created in-process.
 
@@ -49,6 +70,7 @@ import {
   isH2ASession,
   isH2AWorkspaceRef,
   mirrorServerForStore,
+  sanitizeActorForMirror,
   sanitizePresenceForMirror,
   sanitizeRegistrationForMirror,
   sanitizeWorkspaceRefForMirror,
@@ -58,7 +80,27 @@ import {
   writePresence
 } from "../dist/index.js";
 
-const NOW = Date.parse("2026-07-25T12:00:00.000Z");
+// The fixture clock. DERIVED FROM THE RUN CLOCK, and it must stay that way.
+//
+// Two freshness mechanisms in the code under test run on the REAL clock while
+// the fixture's timestamps are frozen relative to this constant:
+//   1. `listPresence(root, { now })` drops any record whose `heartbeatAt` is
+//      older than `H2A_SESSION_DEFAULT_EXPIRY_MS` (90s, `session.ts`). The
+//      builder reads presence through it.
+//   2. The ingester's freshness guard rejects an envelope whose `createdAt` is
+//      far from the receiver's own clock (422 instead of 202).
+// Pinning this to an ABSOLUTE instant satisfies neither for long: the fixture
+// only agrees with the real clock inside a ~90s window around that instant, and
+// every run outside it fails — the whole suite becomes a calendar time bomb that
+// looks green to whoever happens to run it on the right day. That is exactly
+// what happened here: this file shipped with
+// `Date.parse("2026-07-25T12:00:00.000Z")` and both reviewer gate runs landed
+// inside the window, so a permanently-broken test read as passing twice.
+//
+// Keep it `Date.now()`. Determinism inside a run comes from every timestamp
+// being expressed as an OFFSET from this one value, not from the value itself
+// being a literal.
+const NOW = Date.now();
 const INSTANCE = "claude:secret-ledger:aaaaaaaaaaaa";
 const SESSION_ID = "sess:bait0001";
 
@@ -561,6 +603,128 @@ test("DISCLOSED GAP: the endpoint scheme filter is a locator test, not a content
   assert.equal(travels.endpoints.length, 4, "all four are network locators, so all travel");
 });
 
+// ─── 4bis. `send` is INEXPRESSIBLE for a composite ───────────────────────────
+
+test("no plan classifies a COMPOSITE field as `send`", () => {
+  // The primary enforcement of this rule is the COMPILER: `MirrorFieldPlan<T>`
+  // only includes `SendPlan` when `T` is a primitive or an array of primitives,
+  // so `interests: SEND` (the original leak) is now a type error rather than a
+  // legal-but-wrong classification. Verified by reverting it: `tsc` fails with
+  // "Type 'SendPlan' is not assignable to type 'MirrorFieldPlan<
+  // H2ASessionInterests>'".
+  //
+  // This runtime test is not a duplicate of that. It covers the ONE hole the
+  // type-level rule cannot close: a field typed `any` makes the conditional type
+  // resolve to BOTH branches, so `SEND` stays assignable and the compiler says
+  // nothing. `any` is exactly what an in-a-hurry field addition looks like.
+  //
+  // It deliberately does NOT sit behind the fixture-completeness assertion — it
+  // reads the plans directly, so a developer who "fixes" a red ratchet by
+  // updating the fixture does not silence it.
+  const k = keypair();
+  const isSendable = (v) =>
+    v === undefined ||
+    v === null ||
+    ["string", "number", "boolean"].includes(typeof v) ||
+    (Array.isArray(v) && v.every((e) => ["string", "number", "boolean"].includes(typeof e)));
+
+  const cases = [
+    ["presence", MIRROR_PRESENCE_PLAN, baitedSession()],
+    ["registration", MIRROR_REGISTRATION_PLAN, baitedRegistration(k.pub)],
+    ["interests", MIRROR_INTERESTS_PLAN, BAIT_NESTED_INTERESTS],
+    [
+      "endpoint",
+      MIRROR_ENDPOINT_PLAN,
+      { kind: "remote", uri: "https://h/", secretPath: "/home/victim/x" }
+    ]
+  ];
+  const offenders = [];
+  for (const [what, plan, fixture] of cases) {
+    for (const [field, step] of Object.entries(plan)) {
+      if (step?.kind !== "send") continue;
+      if (!isSendable(fixture[field])) offenders.push(`${what}.${field}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    "a `send` classification on a composite copies it BY REFERENCE — give it a narrow plan of its own"
+  );
+});
+
+// ─── 4e. The ENVELOPE is inside the boundary too ─────────────────────────────
+//
+// The module header used to claim the envelope "needs no plan" because every
+// field was a literal. That was false: `actor` was assembled from the registry
+// row (`role: reg.roles?.[0]`), so a source record's field reached the wire in
+// the one place with no plan and no ratchet. These tests pin the correction.
+
+/** A role that is really a filesystem path — the demonstrated escape. */
+const BAIT_ROLE_PATH = "/home/victim/Documents/impots2025";
+
+test("the envelope actor does NOT carry a roles[] value that is a filesystem path", () => {
+  const k = keypair();
+  const tmp = mkdtempSync(join(tmpdir(), "h2a-send-boundary-actor-"));
+  const root = join(tmp, ".h2a");
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(
+      baitedRegistration(k.pub, { roles: [BAIT_ROLE_PATH, "AGENTS"] })
+    );
+    const envelope = buildInstanceMirror(store, INSTANCE, NOW);
+    // Pre-fix, this was exactly `BAIT_ROLE_PATH`. `sanitizeActorForMirror`
+    // re-intersects against the `H2A_ROLES` vocabulary, so a non-role cannot
+    // occupy the field at all.
+    assert.equal(envelope.actor.role, "AGENTS");
+    assert.ok(!JSON.stringify(envelope.actor).includes(BAIT_ROLE_PATH));
+
+    // AND THE HONEST OTHER HALF: the same value still travels in the BODY, in
+    // `registrations[0].roles`. `roles[]` element values are free text and are a
+    // DISCLOSED, not-covered gap — closing the envelope did not close that, and
+    // asserting otherwise here would overstate the fix. What changed is that the
+    // envelope no longer adds a SECOND, unplanned channel for it.
+    assert.deepEqual(envelope.body.registrations[0].roles, [
+      BAIT_ROLE_PATH,
+      "AGENTS"
+    ]);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("a non-array roles yields a real role, not its first CHARACTER", () => {
+  // `reg.roles?.[0]` on the string "NOTANARRAY" indexed the string and produced
+  // "N" — not a role, not a diagnostic, and it travelled. `h2a_register_instance`
+  // accepts an arbitrary object and `isH2AActorRegistration` is on no production
+  // path, so this row is storable.
+  const k = keypair();
+  const sanitized = sanitizeRegistrationForMirror(
+    baitedRegistration(k.pub, { roles: "NOTANARRAY" })
+  );
+  const actor = sanitizeActorForMirror(INSTANCE, sanitized);
+  assert.equal(actor.role, "AGENTS");
+  assert.notEqual(actor.role, "N");
+});
+
+test("the envelope actor is derived from the SANITIZED registration", () => {
+  // The structural claim, stated as a test: `sanitizeActorForMirror` takes an
+  // `H2AMirroredRegistration`, so it cannot read a withheld field even by
+  // mistake — `workspace.path` is not on the value it receives. `scope` now
+  // comes from `scopes[0]` rather than a hardcoded literal, which is what
+  // disarms the "someone makes the obvious edit later" trap.
+  const k = keypair();
+  const sanitized = sanitizeRegistrationForMirror(
+    baitedRegistration(k.pub, { scopes: ["scope:mine"] })
+  );
+  const actor = sanitizeActorForMirror(INSTANCE, sanitized);
+  assert.deepEqual(actor, {
+    instance: INSTANCE,
+    role: "AGENTS",
+    scope: "scope:mine"
+  });
+  assert.equal(sanitized.workspace.path, undefined);
+});
+
 // ─── 5. The signature still covers the transmitted body ─────────────────────
 
 test("the signature verifies over the sanitized body after a JSON round-trip", () => {
@@ -586,7 +750,29 @@ test("a narrowed presence record still satisfies isH2ASession (hosted writePrese
 });
 
 // ─── 7. End-to-end: the real ingester still accepts, and stores nothing bad ──
-
+//
+// DO NOT SKIP, WEAKEN OR DELETE THIS TEST TO MAKE A RED BUILD GREEN.
+//
+// This is the tripwire for the fix this whole PR exists for. Every other test in
+// this file works on in-process return values; only this one proves the property
+// that actually matters, which is what comes to REST on the receiver's disk. A
+// read-side sanitizer could never have given that, and neither can a unit
+// assertion.
+//
+// Measured against the reverts, so the claim is not decorative:
+//  - Endpoint element back to `Array.prototype.filter` pass-through: compiles
+//    (tsc exit 0) and THIS TEST goes red. It is a real end-to-end pin.
+//  - `interests` back to `SEND`: no longer reaches runtime at all — `SEND` is not
+//    assignable for a composite, so tsc rejects it. Forced through anyway by
+//    typing the field `any` (the one hole in that rule), and this test goes red
+//    again.
+// So the compile-time rule caught up with one of the two reverts. That is the
+// ladder working, not a reason to retire the test: the other revert still needs
+// it, and the `any` path routes straight back here.
+//
+// So if it goes red: fix the code or fix the fixture's clock (see `NOW`), never
+// the test. Deleting it removes the only end-to-end pin on the send boundary and
+// leaves the leak free to come back silently.
 test("the real ingester accepts a narrowed push (202) and what comes to rest is clean", async () => {
   const k = keypair();
   const senderTmp = mkdtempSync(join(tmpdir(), "h2a-send-boundary-sender-"));
@@ -598,7 +784,18 @@ test("the real ingester accepts a narrowed push (202) and what comes to rest is 
     senderStore.registerInstance(baitedRegistration(k.pub));
     writePresence(senderRoot, baitedSession());
 
-    const envelope = buildInstanceMirror(senderStore, INSTANCE, Date.now());
+    const envelope = buildInstanceMirror(senderStore, INSTANCE, NOW);
+    // PROVE THE PRECONDITION rather than trip over it further down. A push
+    // carrying ZERO presence records is accepted with a perfectly good 202, and
+    // the receiver then never creates its presence directory — so without this
+    // line the `202` assertion below proves nothing about presence and the only
+    // thing standing between an empty push and a green test is `readdirSync`
+    // happening to throw ENOENT. A test should state what it depends on.
+    assert.equal(
+      envelope.body.presence.length,
+      1,
+      "the baited session must be IN the push, or the at-rest assertions below are vacuous"
+    );
     const signed = signEnvelope(envelope, { by: INSTANCE, privateKeyPem: k.priv });
 
     const receiverStore = createLocalStore({ root: receiverRoot });
