@@ -222,7 +222,10 @@ import {
   H2A_UPGRADE_CHECK_TTL_MS,
   type UpgradeRuntime
 } from "./runtime/upgrade/index.js";
-import { resolveLiveIdentity } from "./runtime/identity/index.js";
+import {
+  H2A_CLI_DECLARED_CAPABILITIES,
+  resolveLiveIdentity
+} from "./runtime/identity/index.js";
 import { conductorFor } from "./runtime/governance/conductor.js";
 import { appendConductorClaim } from "./runtime/governance/claims.js";
 import { conductorLaunchCheck } from "./runtime/governance/launch-check.js";
@@ -1519,6 +1522,9 @@ export function resolveAutoOpen(
     root: resolveRoot(flags, cwd),
     host: host ?? "agent",
     cwd: cwd(),
+    // Declared display list only, never an authorization input (feed contract
+    // ratification condition #3).
+    capabilities: H2A_CLI_DECLARED_CAPABILITIES,
     ...(flags.instance !== undefined ? { explicitInstance: flags.instance } : {}),
     ...(flags.name !== undefined ? { name: flags.name } : {}),
     ...(flags.scope !== undefined ? { scopes: [flags.scope] } : {})
@@ -5434,6 +5440,9 @@ function cmdConnect(
     root,
     host: flags.host,
     cwd: cwd(),
+    // Declared display list only, never an authorization input (feed contract
+    // ratification condition #3).
+    capabilities: H2A_CLI_DECLARED_CAPABILITIES,
     ...(flags.instance !== undefined ? { explicitInstance: flags.instance } : {}),
     ...(flags.name !== undefined ? { name: flags.name } : {})
   });
