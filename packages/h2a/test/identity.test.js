@@ -87,6 +87,25 @@ test("isH2AWorkspaceRef validates a full ref and rejects malformed input", () =>
   assert.ok(isH2AWorkspaceRef({ ...ref, repo: "github.com/o/r" }));
   assert.ok(!isH2AWorkspaceRef(null));
   assert.ok(!isH2AWorkspaceRef({ ...ref, id: 5 }));
-  assert.ok(!isH2AWorkspaceRef({ ...ref, path: undefined }));
   assert.ok(!isH2AWorkspaceRef({ ...ref, repo: 7 }));
+  // The IDENTITY fields stay required — this is a narrower guard, not a laxer one.
+  assert.ok(!isH2AWorkspaceRef({ ...ref, host: undefined }));
+  assert.ok(!isH2AWorkspaceRef({ ...ref, label: undefined }));
+  assert.ok(!isH2AWorkspaceRef({ ...ref, id: undefined }));
+});
+
+// `path` USED TO BE REQUIRED, and that is exactly why the mirror leaked it:
+// `isH2ASession` validates `workspace` through this guard, so the only shape the
+// hosted `writePresence` would accept was one carrying a real filesystem path —
+// the required field was compelling the disclosure, not merely permitting it.
+// It is now checked WHEN PRESENT, so a sanitized ref is a valid ref.
+// See packages/h2a/src/runtime/mirror/sanitize.ts and the feed contract's
+// "Send boundary (the mirror)" section.
+test("isH2AWorkspaceRef accepts a path-free (sanitized) ref, still rejects a bad path", () => {
+  const sanitized = { id: "ws:abc", host: "claude", label: "repo" };
+  assert.ok(isH2AWorkspaceRef(sanitized), "a mirrored ref carries no path");
+  assert.ok(isH2AWorkspaceRef({ ...sanitized, path: undefined }));
+  // Present but not a usable path → still invalid. Absence is a fact; "" is not.
+  assert.ok(!isH2AWorkspaceRef({ ...sanitized, path: "" }));
+  assert.ok(!isH2AWorkspaceRef({ ...sanitized, path: 5 }));
 });
