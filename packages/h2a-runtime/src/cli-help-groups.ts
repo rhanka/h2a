@@ -10,26 +10,32 @@
  *
  * SOURCE OF THE VOCABULARY
  * ------------------------
- * `docs/specs/2026-07-17-STUDY_h2a-cli-coconception.md` (STUDY rung — proposal
- * only), § "Target command map" → "Daily operator surface — top level", which
- * states verbatim:
+ * `docs/cli-help-grouping-vocabulary.md` — committed in this repo. It vendors, in
+ * full and verbatim, the load-bearing passages of an unpublished internal design
+ * study (STUDY rung — proposal only) that is on no git ref, so no reader can fetch
+ * it; the vendored file is therefore the citable authority, and no source comment
+ * or command output prints a path to the study itself. Its excerpt 3 reads:
  *
  *   > `h2a --help` should render these as a short "Start / Observe / Coordinate /
  *   > Work / Set up" guide, then link to namespaces. It should not print the full
  *   > protocol implementation inventory first.
  *
  * The five daily words below are taken from that sentence, and each group's
- * membership is justified by the study rows named in its comment. Three further
- * groups come from elsewhere in the same study:
+ * membership is justified by the excerpt named in its comment. Two further groups
+ * come from elsewhere in the same vendored set, and one is not a group at all:
  *
- * - `SESSION_RECOVERY` — § "Advanced session controls" (`session recover`,
- *   "Make recovery semantics explicit") plus § "Three loop distinction" #3,
- *   "Process/session supervision loop: heartbeat, lease, crash/stop detection,
- *   and backend recovery".
- * - `TRANSPORT` — § "Specialist namespaces and delegation", last row:
- *   "`h2a remote …` and `h2a relay …` | Quarantined transport/bridge
- *   compatibility … | The primary user journey".
- * - `UNGROUPED` — NOT from the study. An honest catch-all, see its comment.
+ * - `SESSION_RECOVERY` — excerpt 4: `session recover`, "Make recovery semantics
+ *   explicit", plus the third of the three loops, "Process/session supervision
+ *   loop: heartbeat, lease, crash/stop detection, and backend recovery".
+ * - `TRANSPORT` — excerpt 5, last table row: "`h2a remote …` and `h2a relay …` |
+ *   Quarantined transport/bridge compatibility … | The primary user journey".
+ * - `LLM_LOCAL` — NOT from the study; see excerpt 6 and the group's own comment.
+ *   It is a labelled bucket for two commands that ship, not an intention.
+ *
+ * There is no fallback group on this surface. An unclassified command keeps
+ * Commander's default `Commands:` heading, which is exactly what the "none left in
+ * the default bucket" test detects — so a missing entry is loud, and never filed
+ * under a heading it has not earned.
  *
  * SCOPE
  * -----
@@ -48,7 +54,7 @@ export type H2aRuntimeHelpGroupId =
   | "SET_UP"
   | "SESSION_RECOVERY"
   | "TRANSPORT"
-  | "UNGROUPED"
+  | "LLM_LOCAL"
   | "HELP";
 
 export interface H2aRuntimeHelpGroup {
@@ -60,8 +66,35 @@ export interface H2aRuntimeHelpGroup {
 }
 
 /**
- * The groups, in render order. Every one of the runtime's top-level commands
- * appears in exactly one `commands` list — asserted by `cli-help-groups.test.ts`.
+ * The groups, in render order.
+ *
+ * Two separate properties hold here, and they are enforced at different strengths.
+ * Both rungs are named so neither claim is broader than its evidence. (An earlier
+ * revision of this comment cited a single file `cli-help-groups.test.ts` that was
+ * never written — a comment asserting a guard that does not exist. Both citations
+ * below are to tests that exist and run.)
+ *
+ * 1. NO COMMAND IS LEFT IN COMMANDER'S DEFAULT BUCKET — enforced.
+ *    `packages/h2a/test/cli-command-map.test.js:181`, "the runtime help groups
+ *    every command by intention, none left in the default bucket", spawns the
+ *    built runtime's `--help` and asserts the output contains no `Commands:`
+ *    heading. A command missing from every list below keeps that default heading,
+ *    so the test fires. It is in the `.js` suite deliberately: `*.test.ts` under
+ *    this package is not executed by `scripts/run-tests.mjs` (nor type-checked —
+ *    `tsconfig.json` excludes it), so a `.test.ts` here would be inert.
+ *
+ * 2. EACH COMMAND APPEARS IN AT MOST ONE `commands` LIST — enforced.
+ *    `packages/h2a/test/cli-command-map.test.js:375`, "no runtime command is
+ *    listed in two intention groups", imports `H2A_RUNTIME_HELP_GROUPS` from the built
+ *    runtime and counts names across groups. This property has NO structural
+ *    backstop: `HEADING_BY_COMMAND` below is a `Map`, so a name listed in two
+ *    groups is silently deduped to the LAST one, and the drift test compares
+ *    sorted UNIQUE names, so it would not notice either. The duplicate would
+ *    simply render under the wrong heading. Hence the explicit test.
+ *
+ * What is NOT enforced, stated rather than implied: nothing checks that a command
+ * is in the *right* group. Group membership is a judgement, warranted by
+ * `docs/cli-help-grouping-vocabulary.md` and by the per-group comments below.
  */
 export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
   {
@@ -153,20 +186,24 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
     commands: ["sync", "sync-files", "forward", "browser", "migrate"],
   },
   {
-    // NOT a study group. `account` and `llm-mesh` manage the local LLM account
-    // pool and the local gateway/mesh. The study § "Commands deliberately
-    // absent" lists exactly these as areas h2a should NOT own: "`h2a gateway`,
-    // `h2a provider`, `h2a account`, `h2a catalogue`, or `h2a failover`" and "A
-    // command that lists or selects sentropic account pools, raw upstream model
-    // identifiers, sticky routing state, or provider audit records."
+    // A SEMANTIC bucket for two named, known commands — NOT a fallback. This
+    // surface has no fallback group at all (see the header): an unclassified
+    // command keeps Commander's default heading and trips the test.
+    //
+    // Not a study group. `account` and `llm-mesh` manage the local LLM account
+    // pool and the local gateway/mesh. Vendored excerpt 6 lists exactly these as
+    // areas h2a should NOT own: "`h2a gateway`, `h2a provider`, `h2a account`,
+    // `h2a catalogue`, or `h2a failover`" and "A command that lists or selects
+    // sentropic account pools, raw upstream model identifiers, sticky routing
+    // state, or provider audit records."
     //
     // They nevertheless SHIP today. Forcing them into an operator group would
     // launder that contradiction, and hiding them would be dishonest — so they
-    // get a labelled catch-all. This is a finding about the command set, not a
+    // get a labelled bucket. This is a finding about the command set, not a
     // deprecation: both commands keep working exactly as before.
-    id: "UNGROUPED",
+    id: "LLM_LOCAL",
     heading:
-      "Local LLM account & gateway (outside the 2026-07-17 study's operator grouping):",
+      "Local LLM account & gateway (outside the design study's operator grouping):",
     commands: ["account", "llm-mesh"],
   },
   {
