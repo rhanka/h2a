@@ -88,43 +88,110 @@ import {
 import { createLocalStore } from "../local-files/store.js";
 
 /**
- * Minimum entropy a gateway nonce must carry. Not a preference: below this a
- * "nonce" is guessable, and a guessable challenge is a challenge an attacker can
- * pre-compute a proof for.
+ * THE NONCE BRACKET — four bounds, each labelled with what it is FOR.
+ * =================================================================
+ *
+ * The general form, which is the correction to the first draft of this contract:
+ * **a positive specification does not mean a single value — it means every
+ * accepted-set boundary is stated, and each one says what it is for.** A floor
+ * that protects strength and a ceiling that protects against blobs are different
+ * parameters and must not be described in the same breath. The first attempt
+ * specified `fixed ~43`, which pinned an issuer that DOES NOT EXIST YET to an
+ * entropy choice made on its behalf: if the auth lane later picks 384 or 512 bits
+ * — the *safer* choice — a fixed verifier turns their improvement into our
+ * outage.
+ *
+ * 1. {@link H2A_ENROLLMENT_NONCE_PATTERN} — alphabet base64url.
+ *    **POSITIVE, SECURITY-BEARING.**
+ * 2. {@link H2A_ENROLLMENT_NONCE_MIN_BITS} / {@link H2A_ENROLLMENT_NONCE_MIN_LENGTH}
+ *    — minimum 256 bits. **POSITIVE, SECURITY-BEARING.**
+ * 3. {@link H2A_ENROLLMENT_NONCE_MAX_BITS} / {@link H2A_ENROLLMENT_NONCE_MAX_LENGTH}
+ *    — maximum 1024 bits. **SANITY CEILING, EXPLICITLY NOT A SECURITY
+ *    PARAMETER.** It means *"beyond this it is not a nonce"*. It must NEVER be
+ *    read as *"this much entropy is enough"* — the floor is the only bound that
+ *    speaks about strength.
+ * 4. {@link H2A_ENROLLMENT_MAX_NONCE_LENGTH} — 4096 chars, pre-parse DoS guard
+ *    only. Not a definition of anything.
+ */
+
+/**
+ * Minimum entropy a gateway nonce must carry. **POSITIVE, SECURITY-BEARING.**
+ * Below this a "nonce" is guessable, and a guessable challenge is one an attacker
+ * can pre-compute a proof for.
  */
 export const H2A_ENROLLMENT_NONCE_MIN_BITS = 256;
 
 /**
- * The nonce's accepted shape, stated POSITIVELY: base64url characters only.
+ * Upper end of the bracket. **SANITY CEILING — NOT A SECURITY PARAMETER.**
  *
- * A negative bound accepts everything not yet excluded; a positive shape accepts
- * only what was specified. So the nonce is not "anything under N characters" —
- * it is base64url of at least {@link H2A_ENROLLMENT_NONCE_MIN_BITS} bits, and
- * anything else is refused, including free text, JSON, a URL, or a message
- * borrowed from some other protocol.
+ * It says "beyond this it is not a nonce", nothing about sufficiency. Set at 1024
+ * rather than 512 because a perfectly reasonable 64-byte nonce is 512 bits / 88
+ * base64url characters, and a bound never meant to bound entropy must not be the
+ * thing that rejects it.
+ */
+export const H2A_ENROLLMENT_NONCE_MAX_BITS = 1024;
+
+/**
+ * The nonce's accepted alphabet, stated POSITIVELY: base64url characters only.
+ * **POSITIVE, SECURITY-BEARING** — it is what refuses free text, JSON, a URL, or
+ * a message borrowed from some other protocol, rather than enumerating those.
  */
 export const H2A_ENROLLMENT_NONCE_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 /**
- * Minimum nonce length: base64url packs 6 bits per character, so
- * `ceil(256 / 6) = 43` characters is the 256-bit floor.
+ * Minimum nonce length, DERIVED not asserted: base64url packs 6 bits per
+ * character, so `ceil(256 / 6) = 43` characters is the 256-bit floor.
+ * **POSITIVE, SECURITY-BEARING.**
  *
- * A MINIMUM rather than an exact length, deliberately. The auth lane's issuer
- * does not exist yet; requiring exactly 43 would reject a *stronger* nonce (a
- * 48-byte one is 64 characters) and turn a strictly-safer choice on their side
- * into an outage on ours. More entropy than specified is never the failure mode
- * worth guarding against.
+ * A MINIMUM, never an exact length — see the bracket note above for why pinning
+ * an as-yet-unbuilt issuer to one value is the error this replaces.
  */
 export const H2A_ENROLLMENT_NONCE_MIN_LENGTH = Math.ceil(H2A_ENROLLMENT_NONCE_MIN_BITS / 6);
 
 /**
+ * Maximum nonce length, derived the same way: `ceil(1024 / 6) = 171` characters.
+ * **SANITY CEILING, NOT A SECURITY PARAMETER** — see
+ * {@link H2A_ENROLLMENT_NONCE_MAX_BITS}.
+ */
+export const H2A_ENROLLMENT_NONCE_MAX_LENGTH = Math.ceil(H2A_ENROLLMENT_NONCE_MAX_BITS / 6);
+
+/**
  * Cheap PRE-PARSE cap, and nothing more.
  *
- * This is a DoS sanity bound, not a definition of a nonce — the definition is
- * {@link H2A_ENROLLMENT_NONCE_PATTERN} plus the minimum length. Kept separate so
- * neither is mistaken for the other.
+ * A DoS sanity bound, not a definition of a nonce — the definition is the
+ * alphabet plus the floor, with the ceiling as a separate sanity bound. Kept
+ * distinct so none of the four is mistaken for another.
  */
 export const H2A_ENROLLMENT_MAX_NONCE_LENGTH = 4096;
+
+/**
+ * The ONLY keys a challenge document may carry. An ALLOWLIST, not a blocklist.
+ *
+ * The nonce was specified positively while the challenge *object* was left
+ * specified negatively — a blocklist of one key, `principalSub`. That control did
+ * not cover the harm it was written for: the harm is *"a principal id reaching an
+ * agent process and context window"*, and `{ nonce, meta: { principalSub } }` or
+ * `{ nonce, "__proto__": { principalSub } }` both do exactly that while passing a
+ * top-level `"principalSub" in challenge` check. A blocklist of one key stops one
+ * spelling of one field; nesting is a different spelling.
+ *
+ * So the same positive-specification move is applied one level up: only `nonce`
+ * and `expiresAt` may appear, both must be strings, and anything else is refused
+ * without needing to know what it means. No nesting is reachable, so no
+ * deep scan for a forbidden name is needed — that would be the blocklist again,
+ * one level deeper.
+ */
+export const H2A_ENROLLMENT_CHALLENGE_KEYS = ["nonce", "expiresAt"] as const;
+
+/**
+ * The domain-separation tag carried and signed by every proof — see
+ * {@link H2AEnrollmentProof.type}.
+ *
+ * Versioned so a format change is distinguishable rather than silently
+ * reinterpreted. Bump this and the verifier stops accepting the old shape, which
+ * is the entire point of it being here.
+ */
+export const H2A_ENROLLMENT_PROOF_TYPE = "h2a-enrollment-proof-v1";
 
 /**
  * A gateway-issued enrollment challenge, as the local agent receives it.
@@ -158,6 +225,29 @@ export interface H2AEnrollmentChallenge {
  * capability list. What the gateway does with it is Part B flow step 5.
  */
 export interface H2AEnrollmentProof {
+  /**
+   * WHAT THIS MESSAGE IS — the domain-separation tag, signed like every other
+   * carried field.
+   *
+   * The rule "a proof must attest to everything it CARRIES" is only
+   * content-completeness. The other half: **a proof must also attest WHAT IT
+   * IS.** Attesting content while leaving the message type unstated is exactly
+   * how cross-protocol attacks work — signature valid, content honest,
+   * *interpretation attacker-chosen*.
+   *
+   * That is precisely the oracle this contract already closed once: moving from a
+   * signed string to a signed object fixed it, but bound the type only
+   * ACCIDENTALLY, via a key set that happens to be unique among h2a's signing
+   * sites today. "Safe because no other site currently signs this shape" is the
+   * same negative property — satisfied by absence, expiring when someone adds the
+   * colliding site. This field makes it positive.
+   *
+   * **VERSIONED deliberately.** A future format change must be
+   * *distinguishable*, not silently reinterpreted; an unversioned tag only defers
+   * the same problem to the next revision. {@link verifyEnrollmentProof} checks
+   * this value, so a `-v2` proof cannot pass a v1 verifier.
+   */
+  readonly type: typeof H2A_ENROLLMENT_PROOF_TYPE;
   /** The gateway's nonce, echoed verbatim. Signed. */
   readonly nonce: string;
   /**
@@ -197,21 +287,35 @@ export interface H2AEnrollmentProof {
  * because `canonicalize` normalizes it — so an independent implementation cannot
  * disagree about what was signed by guessing at key order.
  *
- * The rule this function exists to make CHECKABLE: adding a field to
- * {@link H2AEnrollmentProof} without adding it here must break a test, because a
- * carried-but-unsigned field is a claim wider than its evidence.
+ * The rule is STRUCTURAL, not asserted. Coverage is a rest-spread that removes
+ * exactly one field, so "every field except the signature" is what the code
+ * *does* rather than a list that has to be kept in step — the same shape as
+ * `envelope.ts` `envelopeSigningView` (`const { signatures: _omit, ...rest }`).
+ * Three things follow, and the third is why this beats an enumeration:
+ *
+ * 1. `Omit<…, "signature">` on the parameter makes **tsc** reject a caller that
+ *    does not hold every non-signature field, so a new required field on
+ *    {@link H2AEnrollmentProof} is a compile error, not a test failure.
+ * 2. A new field flows into the signature automatically. There is no second list
+ *    to forget.
+ * 3. A field carried on the proof but NOT signed becomes impossible to emit:
+ *    signing sees the unsigned view, verification re-derives it from the finished
+ *    proof, so any extra field makes the two disagree and
+ *    {@link signEnrollmentChallenge}'s self-verification throws. The rule holds
+ *    even with every test deleted.
+ *
+ * The keys test is kept anyway — it documents the intent and costs nothing.
  */
 export function enrollmentProofSignedPayload(
   // `Omit<…, "signature">` states the rule in the type itself: the signature is
-  // the ONE field a signature cannot cover, and it is also the only field this
-  // function is allowed not to see. A full proof satisfies this parameter too.
-  proof: Omit<H2AEnrollmentProof, "signature">
-): {
-  readonly nonce: string;
-  readonly instance: string;
-  readonly publicKeyPem: string;
-} {
-  return { nonce: proof.nonce, instance: proof.instance, publicKeyPem: proof.publicKeyPem };
+  // the ONE field a signature cannot cover, and the only field this function is
+  // allowed not to see. A full proof satisfies this parameter too, which is why
+  // `signature` is accepted-and-stripped rather than merely absent: verification
+  // hands in the finished proof.
+  proof: Omit<H2AEnrollmentProof, "signature"> & { readonly signature?: H2ASignature }
+): Omit<H2AEnrollmentProof, "signature"> {
+  const { signature: _omit, ...rest } = proof;
+  return rest;
 }
 
 /**
@@ -226,6 +330,11 @@ export function enrollmentProofSignedPayload(
  * can shortcut a binding lookup.
  */
 export function verifyEnrollmentProof(proof: H2AEnrollmentProof): boolean {
+  // CHECK THE TAG, or it is decoration. A signature over a payload whose `type`
+  // says something else is a valid signature over a DIFFERENT message, and this
+  // verifier speaks v1 only — a `-v2` proof must fail here rather than be
+  // reinterpreted as v1. That is what versioning the tag is for.
+  if (proof.type !== H2A_ENROLLMENT_PROOF_TYPE) return false;
   return verifyCanonical(
     enrollmentProofSignedPayload(proof),
     proof.signature,
@@ -486,6 +595,57 @@ export function assertSignableEnrollmentChallenge(
   challenge: H2AEnrollmentChallenge,
   nowMs: number
 ): void {
+  // ALLOWLIST FIRST, over OWN ENUMERABLE KEYS — `Object.keys`, never `in`.
+  //
+  // `in` walks the prototype chain, so an allowlist built on it would ask the
+  // wrong question twice over: it would miss an own `"__proto__"` key (which
+  // `JSON.parse` DEFINES as an own property rather than reassigning the
+  // prototype) while being confused by inherited names. `Object.keys` sees
+  // exactly what a parsed document actually carries. That makes the
+  // `__proto__` case — a prototype-pollution vector on a `JSON.parse` result, not
+  // merely a disclosure one — refused rather than ignored.
+  //
+  // REFUSE-THE-REST MEANS REFUSE, NOT IGNORE. Silently dropping unknown fields
+  // would let a document that says something we do not understand be treated as
+  // one that says nothing.
+  //
+  // This runs on the LIBRARY path, not only in the CLI: a TS caller cannot add an
+  // excess key to a typed literal, but a parsed document can, and every entry
+  // point validates its own input rather than assuming an upstream check.
+  const unexpected = Object.keys(challenge).filter(
+    (key) => !(H2A_ENROLLMENT_CHALLENGE_KEYS as readonly string[]).includes(key)
+  );
+  if (unexpected.length > 0) {
+    const named = unexpected.map((key) => `"${key}"`).join(", ");
+    throw new Error(
+      `h2a enrollment: challenge carries unexpected field(s) ${named} — only ` +
+        `${H2A_ENROLLMENT_CHALLENGE_KEYS.join(" and ")} are accepted. The agent signs a nonce; ` +
+        "any other field is refused so that a principal identifier (or anything else) cannot ride " +
+        "in nested inside one, which is what a top-level principalSub check alone would miss" +
+        (unexpected.includes("principalSub")
+          ? ". principalSub in particular MUST NOT be sent to the agent: the gateway already knows " +
+            "which session it issued the nonce to"
+          : "")
+    );
+  }
+  // …and read only what is CARRIED. The allowlist above inspects own keys, but
+  // plain property access (`challenge.nonce`) walks the prototype chain, so
+  // without this the validator and the consumer would disagree: a challenge with
+  // an INHERITED nonce carries nothing of its own, sails through the allowlist,
+  // and then gets signed anyway. `Object.hasOwn` is the same question the
+  // allowlist asks, asked of the fields we actually use.
+  if (!Object.hasOwn(challenge, "nonce")) {
+    throw new Error(
+      "h2a enrollment: the challenge carries no nonce of its own — an inherited value is not a " +
+        "carried field, and only carried fields are signed"
+    );
+  }
+  if (challenge.expiresAt !== undefined && typeof challenge.expiresAt !== "string") {
+    throw new Error(
+      "h2a enrollment: challenge expiresAt must be an ISO-8601 STRING — a non-string cannot be an " +
+        "instant, and would be a place for structure to hide"
+    );
+  }
   if (typeof challenge.nonce !== "string" || challenge.nonce.length === 0) {
     throw new Error(
       "h2a enrollment: the challenge carries no nonce — nothing to prove key control over"
@@ -508,11 +668,21 @@ export function assertSignableEnrollmentChallenge(
         "value of a specified shape, and anything else is refused rather than signed"
     );
   }
+  // FLOOR — the only bound here that speaks about strength.
   if (challenge.nonce.length < H2A_ENROLLMENT_NONCE_MIN_LENGTH) {
     throw new Error(
       `h2a enrollment: challenge nonce is ${challenge.nonce.length} base64url chars, under the ` +
         `${H2A_ENROLLMENT_NONCE_MIN_LENGTH} needed for ${H2A_ENROLLMENT_NONCE_MIN_BITS} bits — ` +
         "a guessable challenge is one an attacker can pre-compute a proof for"
+    );
+  }
+  // CEILING — a SANITY bound, not a security one. It says "beyond this it is not
+  // a nonce"; it says nothing about how much entropy is enough.
+  if (challenge.nonce.length > H2A_ENROLLMENT_NONCE_MAX_LENGTH) {
+    throw new Error(
+      `h2a enrollment: challenge nonce is ${challenge.nonce.length} base64url chars, over the ` +
+        `${H2A_ENROLLMENT_NONCE_MAX_LENGTH}-char sanity ceiling (${H2A_ENROLLMENT_NONCE_MAX_BITS} ` +
+        "bits) — beyond this it is not a nonce. This is NOT a statement that less entropy is enough"
     );
   }
   if (challenge.expiresAt !== undefined) {
@@ -531,17 +701,49 @@ export function assertSignableEnrollmentChallenge(
 }
 
 /**
+ * Validate a parsed challenge document and return a FRESH, NULL-PROTOTYPE object
+ * carrying only the allowlisted keys.
+ *
+ * Two distinct jobs, both load-bearing:
+ *
+ * 1. It refuses, via {@link assertSignableEnrollmentChallenge}. Refuse-the-rest
+ *    means refuse, not ignore.
+ * 2. What flows onward is a **new object with `null` prototype**, so the
+ *    `JSON.parse` result — which may carry an own `"__proto__"` key, a
+ *    prototype-pollution vector the moment anything spreads or assigns it into
+ *    another object — never propagates past this boundary. Even though such a
+ *    document is already refused above, nothing downstream has to depend on that
+ *    having happened.
+ *
+ * Use this at any boundary where the challenge came from parsed input. The CLI
+ * does.
+ */
+export function sanitizeEnrollmentChallenge(
+  challenge: H2AEnrollmentChallenge,
+  nowMs: number
+): H2AEnrollmentChallenge {
+  assertSignableEnrollmentChallenge(challenge, nowMs);
+  const clean = Object.create(null) as { nonce: string; expiresAt?: string };
+  clean.nonce = challenge.nonce;
+  if (challenge.expiresAt !== undefined) clean.expiresAt = challenge.expiresAt;
+  return clean;
+}
+
+/**
  * Sign a gateway-issued challenge with the agent's identity key and return the
  * Part B proof payload. PURE apart from the injected clock: no I/O, no network,
  * no store.
  *
  * The signed message is the CANONICAL COMPOSITE
- * {@link enrollmentProofSignedPayload} — `{ nonce, instance, publicKeyPem }` —
- * per the signed-composite amendment. The earlier shape signed the bare nonce
+ * {@link enrollmentProofSignedPayload} — `{ type, nonce, instance, publicKeyPem }`
+ * — per the signed-composite amendment. The earlier shape signed the bare nonce
  * (Part B flow steps 3 and 5b as originally written), which was safe only
  * because nothing yet consumed `instance`: safety derived from the *absence* of a
- * consumer, which expires the moment someone adds one. A proof must attest to
- * everything it carries.
+ * consumer, which expires the moment someone adds one.
+ *
+ * The rule, in its amended form: **a proof must attest to everything it carries
+ * AND to what it is.** Content-completeness plus context-binding — the first
+ * without the second leaves the interpretation attacker-chosen.
  *
  * A structural consequence worth knowing, because it removes a whole finding
  * rather than guarding against it: the reclaim proof-of-possession signs a
@@ -551,6 +753,11 @@ export function assertSignableEnrollmentChallenge(
  * is impossible by construction, not by refusal. There is deliberately no guard
  * against it: a guard that cannot fire is the defect this PR spent its time
  * finding. The property is pinned by a regression test instead.
+ *
+ * Note that that separation was ACCIDENTAL — it held because the two payload
+ * types differ, not because either said what it was. The signed `type` field is
+ * what makes it deliberate, and it generalizes: no h2a signing site can collide
+ * with this one now, whatever shape it later adopts.
  *
  * Before returning, the proof is VERIFIED against the public key it ships. A
  * proof we cannot verify ourselves is never emitted: that is what catches a
@@ -566,7 +773,18 @@ export function signEnrollmentChallenge(
   const { instance, privateKeyPem, publicKeyPem } = input.identity;
   // Build the unsigned proof first, then sign the payload DERIVED from it, so the
   // signed bytes and the shipped fields cannot drift apart.
-  const unsigned = { nonce: input.challenge.nonce, instance, publicKeyPem };
+  //
+  // `type` sits INSIDE this object — the spread SOURCE — so it is covered by the
+  // very same mechanism as every other field. A tag added after the spread, or
+  // carried on the proof but excluded from it, would be an UNSIGNED field
+  // asserting the message's own identity: the worst possible field to leave
+  // unsigned, and worse than having no tag at all.
+  const unsigned = {
+    type: H2A_ENROLLMENT_PROOF_TYPE,
+    nonce: input.challenge.nonce,
+    instance,
+    publicKeyPem
+  } as const;
   const signature = signCanonical(enrollmentProofSignedPayload(unsigned), {
     by: instance,
     privateKeyPem
