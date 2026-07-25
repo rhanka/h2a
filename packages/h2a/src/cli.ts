@@ -1522,9 +1522,10 @@ export function resolveAutoOpen(
     root: resolveRoot(flags, cwd),
     host: host ?? "agent",
     cwd: cwd(),
-    // Declared display list only, never an authorization input (feed contract
-    // ratification condition #3).
-    capabilities: H2A_CLI_DECLARED_CAPABILITIES,
+    // Declared DISPLAY list only, never an authorization input (feed contract
+    // ratification condition #3). Lands in the registration's
+    // `declaredCapabilities`, never in the authority-bearing `capabilities`.
+    declaredCapabilities: H2A_CLI_DECLARED_CAPABILITIES,
     ...(flags.instance !== undefined ? { explicitInstance: flags.instance } : {}),
     ...(flags.name !== undefined ? { name: flags.name } : {}),
     ...(flags.scope !== undefined ? { scopes: [flags.scope] } : {})
@@ -5440,9 +5441,10 @@ function cmdConnect(
     root,
     host: flags.host,
     cwd: cwd(),
-    // Declared display list only, never an authorization input (feed contract
-    // ratification condition #3).
-    capabilities: H2A_CLI_DECLARED_CAPABILITIES,
+    // Declared DISPLAY list only, never an authorization input (feed contract
+    // ratification condition #3). Lands in the registration's
+    // `declaredCapabilities`, never in the authority-bearing `capabilities`.
+    declaredCapabilities: H2A_CLI_DECLARED_CAPABILITIES,
     ...(flags.instance !== undefined ? { explicitInstance: flags.instance } : {}),
     ...(flags.name !== undefined ? { name: flags.name } : {})
   });
