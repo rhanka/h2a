@@ -43,6 +43,7 @@ import test from "node:test";
 
 import {
   CLAUDE_TITLE_TAIL_BYTES,
+  MAX_DISPLAY_NAME_CHARS,
   createHostSessionNameRefresher,
   readHostSessionName,
   runCli
@@ -156,8 +157,8 @@ test("reader: the LAST customTitle wins (a rename appends to the transcript)", (
   try {
     // The live shape: many records with the old title, then the rename.
     fx.write([
-      ...Array.from({ length: 20 }, () => JSON.stringify({ customTitle: "39etc" })),
-      JSON.stringify({ customTitle: "auth" })
+      ...Array.from({ length: 20 }, () => JSON.stringify({ type: "custom-title", customTitle:"39etc" })),
+      JSON.stringify({ type: "custom-title", customTitle:"auth" })
     ]);
     const result = readHostSessionName({
       host: "claude",
@@ -177,7 +178,7 @@ test("reader: customTitle beats agentName even when agentName is newer", () => {
   const fx = makeClaudeHome();
   try {
     fx.write([
-      JSON.stringify({ customTitle: "TheTitle" }),
+      JSON.stringify({ type: "custom-title", customTitle:"TheTitle" }),
       JSON.stringify({ agentName: "SomeAgent" })
     ]);
     const result = readHostSessionName({
@@ -243,9 +244,9 @@ test("reader: finds a rename that sits far beyond the old 40-line head window", 
     // return "39etc". This is exactly the live measurement (1022 then 65).
     fx.write([
       ...Array.from({ length: 500 }, (_, i) =>
-        JSON.stringify({ seq: i, customTitle: "39etc" })
+        JSON.stringify({ type: "custom-title", seq: i, customTitle: "39etc" })
       ),
-      JSON.stringify({ customTitle: "auth" })
+      JSON.stringify({ type: "custom-title", customTitle:"auth" })
     ]);
     const result = readHostSessionName({
       host: "claude",
@@ -273,7 +274,7 @@ test("reader: a title older than the tail window yields undefined (not a wrong n
       { length: Math.ceil(CLAUDE_TITLE_TAIL_BYTES / 64) + 200 },
       () => JSON.stringify({ pad: "x".repeat(48) })
     );
-    fx.write([JSON.stringify({ customTitle: "VeryOldTitle" }), ...padding]);
+    fx.write([JSON.stringify({ type: "custom-title", customTitle:"VeryOldTitle" }), ...padding]);
     const result = readHostSessionName({
       host: "claude",
       cwd: tmpdir(),
@@ -295,7 +296,7 @@ test("reader: a file smaller than the tail window keeps its very first record", 
   try {
     // The title is on the FIRST line and the file is tiny: the tail reader must
     // not drop it as a partial record.
-    fx.write([JSON.stringify({ customTitle: "OnlyOnLineOne" }), JSON.stringify({ x: 1 })]);
+    fx.write([JSON.stringify({ type: "custom-title", customTitle:"OnlyOnLineOne" }), JSON.stringify({ x: 1 })]);
     const result = readHostSessionName({
       host: "claude",
       cwd: tmpdir(),
@@ -314,8 +315,8 @@ test("reader: a truncated leading record in the tail window is ignored", () => {
   const fx = makeClaudeHome();
   try {
     fx.write([
-      JSON.stringify({ customTitle: "ShouldBeCutOff", pad: "y".repeat(200) }),
-      JSON.stringify({ customTitle: "TheCurrentOne" })
+      JSON.stringify({ type: "custom-title", customTitle:"ShouldBeCutOff", pad: "y".repeat(200) }),
+      JSON.stringify({ type: "custom-title", customTitle:"TheCurrentOne" })
     ]);
     // A window that lands mid-way through the first record.
     const readers = makeReaders({ fakeHome: fx.fakeHome });
@@ -556,7 +557,7 @@ test("end-to-end: a cwd-basename name converges to the host title and becomes fi
     // The human renames the conversation: the host appends the new title.
     fx.write([
       JSON.stringify({ type: "user" }),
-      JSON.stringify({ customTitle: "auth" })
+      JSON.stringify({ type: "custom-title", customTitle:"auth" })
     ]);
 
     registry.touch(opened.sessionId);
@@ -605,7 +606,7 @@ test("defaultHostNameReaders.readTailLines: keeps the first record of a small fi
   const dir = mkdtempSync(join(tmpdir(), "lane-addr-tail-small-"));
   const f = join(dir, "t.jsonl");
   try {
-    writeFileSync(f, JSON.stringify({ customTitle: "only" }) + "\n", "utf8");
+    writeFileSync(f, JSON.stringify({ type: "custom-title", customTitle:"only" }) + "\n", "utf8");
     const lines = defaultHostNameReaders.readTailLines(f, CLAUDE_TITLE_TAIL_BYTES);
     assert.ok(
       lines.some((l) => l.includes("only")),
@@ -624,6 +625,208 @@ test("defaultHostNameReaders.readTailLines: returns [] for a missing file", () =
     ),
     []
   );
+});
+
+// ─── 22-24. item 4: negative caching of a transcript MISS ──────────────────
+//
+// A session whose transcript never appears is the spec's RC-3 case (measured
+// live: CLAUDE_CODE_SESSION_ID=0f6c3a97-… has no transcript anywhere). Before
+// negative caching, that session re-walked ~/.claude/projects — 87 dirs, 14345
+// files, 8.73 ms — on EVERY heartbeat, i.e. every 5 s, forever.
+
+function countingReaders({ fakeHome = tmpdir(), transcript = undefined } = {}) {
+  const base = makeReaders({ fakeHome });
+  let scans = 0;
+  return {
+    readers: {
+      ...base,
+      findClaudeTranscript() {
+        scans += 1;
+        return transcript;
+      }
+    },
+    get scans() {
+      return scans;
+    }
+  };
+}
+
+test("refresher: a repeated MISS does not re-walk the filesystem", () => {
+  const c = countingReaders({ transcript: undefined });
+  let clock = 1_000_000;
+  const refresh = createHostSessionNameRefresher({
+    host: "claude",
+    cwd: tmpdir(),
+    sessionId: "sess-missing",
+    readers: c.readers,
+    now: () => clock
+  });
+
+  assert.equal(refresh(), undefined);
+  assert.equal(c.scans, 1, "the first call must attempt the lookup");
+
+  // 100 further heartbeats that all land INSIDE the first backoff window
+  // (100 x 500 ms = 50 s < TRANSCRIPT_MISS_BACKOFF_MS = 60 s).
+  for (let i = 0; i < 100; i += 1) {
+    clock += 500;
+    assert.equal(refresh(), undefined);
+  }
+  assert.equal(
+    c.scans,
+    1,
+    `a cached miss must not re-walk inside the window: expected 1 scan, got ${c.scans}`
+  );
+
+  // And at the REAL cadence the growth must be logarithmic, not linear: 500
+  // further heartbeats 5 s apart is ~42 minutes of uptime. Un-cached that is 500
+  // filesystem walks at 8.73 ms each; with backoff it is a handful.
+  for (let i = 0; i < 500; i += 1) {
+    clock += 5_000;
+    refresh();
+  }
+  assert.ok(
+    c.scans <= 12,
+    `expected backoff to keep scans in single digits over ~42 min, got ${c.scans}`
+  );
+});
+
+test("refresher: the negative cache expires, so a late transcript is still found", () => {
+  const c = countingReaders({ transcript: undefined });
+  let clock = 0;
+  const refresh = createHostSessionNameRefresher({
+    host: "claude",
+    cwd: tmpdir(),
+    sessionId: "sess-late",
+    readers: c.readers,
+    now: () => clock
+  });
+
+  refresh();
+  assert.equal(c.scans, 1);
+  clock += 60_001; // just past the initial backoff
+  refresh();
+  assert.equal(c.scans, 2, "the cache must expire, or a late transcript is never picked up");
+});
+
+test("refresher: a HIT is memoized — the walk happens once, not per heartbeat", () => {
+  const fx = makeClaudeHome();
+  try {
+    fx.write([JSON.stringify({ type: "custom-title", customTitle: "auth" })]);
+    const c = countingReaders({ fakeHome: fx.fakeHome, transcript: fx.transcript });
+    const refresh = createHostSessionNameRefresher({
+      host: "claude",
+      cwd: tmpdir(),
+      sessionId: fx.sessionId,
+      readers: c.readers
+    });
+    assert.equal(refresh(), "auth");
+    assert.equal(refresh(), "auth");
+    assert.equal(refresh(), "auth");
+    assert.equal(c.scans, 1, "a resolved path must be memoized across heartbeats");
+  } finally {
+    fx.cleanup();
+  }
+});
+
+// ─── 25-26. item 5: ONE title policy, shared with restore.ts ───────────────
+
+test("reader: a customTitle on a non-rename record is IGNORED (policy matches restore.ts)", () => {
+  const fx = makeClaudeHome();
+  try {
+    // h2a-runtime/src/restore.ts requires type === "custom-title"; this reader now
+    // applies the identical predicate. Measured over all 8078 local transcripts:
+    // 0 policy divergences, and 0 of 89 carriers used any other record type. A
+    // misread yields a WRONG name (bad routing); a missed read yields NO name,
+    // which the caller absorbs by keeping the name it has.
+    fx.write([
+      JSON.stringify({ type: "custom-title", customTitle: "TheRealTitle" }),
+      // (a) a non-rename carrier the cheap string pre-filter rejects...
+      JSON.stringify({ type: "assistant", customTitle: "NotARenameEvent" }),
+      // (b) ...and one it does NOT. `subtype` here serializes to the UNESCAPED
+      // literal `"custom-title"`, so the cheap pre-filter lets this record
+      // through and ONLY the type predicate can reject it.
+      //
+      // Without (b) this test passes even with the predicate deleted, because the
+      // pre-filter masks it — found by a surviving mutation. Note that putting
+      // the literal inside a string VALUE does not work: JSON escaping turns it
+      // into \"custom-title\", which no longer contains the literal. It has to be
+      // an unescaped field value, as here.
+      JSON.stringify({
+        type: "assistant",
+        customTitle: "InjectedByContent",
+        subtype: "custom-title"
+      })
+    ]);
+    const result = readHostSessionName({
+      host: "claude",
+      cwd: tmpdir(),
+      sessionId: fx.sessionId,
+      readers: makeReaders({ fakeHome: fx.fakeHome })
+    });
+    assert.equal(
+      result,
+      "TheRealTitle",
+      "only a type:custom-title record may set the display name"
+    );
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("reader: agentName is NOT subject to the custom-title type check", () => {
+  const fx = makeClaudeHome();
+  try {
+    // agentName is not a rename event, so the type predicate must not apply to it
+    // or the fallback would become unreachable.
+    fx.write([JSON.stringify({ type: "summary", agentName: "TheAgent" })]);
+    const result = readHostSessionName({
+      host: "claude",
+      cwd: tmpdir(),
+      sessionId: fx.sessionId,
+      readers: makeReaders({ fakeHome: fx.fakeHome })
+    });
+    assert.equal(result, "TheAgent");
+  } finally {
+    fx.cleanup();
+  }
+});
+
+// ─── 27-28. nits: whitespace-only and oversized titles ─────────────────────
+
+test("reader: a whitespace-only title is rejected, not written verbatim", () => {
+  const fx = makeClaudeHome();
+  try {
+    fx.write([JSON.stringify({ type: "custom-title", customTitle: "   " })]);
+    const result = readHostSessionName({
+      host: "claude",
+      cwd: tmpdir(),
+      sessionId: fx.sessionId,
+      readers: makeReaders({ fakeHome: fx.fakeHome })
+    });
+    // "   " is truthy: without a trim it would land in presence as the name.
+    assert.equal(result, undefined);
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("reader: titles are trimmed and length-capped before reaching presence", () => {
+  const fx = makeClaudeHome();
+  try {
+    fx.write([
+      JSON.stringify({ type: "custom-title", customTitle: `  ${"x".repeat(5000)}  ` })
+    ]);
+    const result = readHostSessionName({
+      host: "claude",
+      cwd: tmpdir(),
+      sessionId: fx.sessionId,
+      readers: makeReaders({ fakeHome: fx.fakeHome })
+    });
+    assert.equal(result.length, MAX_DISPLAY_NAME_CHARS, `got length ${result.length}`);
+    assert.equal(result.startsWith("x"), true, "must be trimmed, not padded");
+  } finally {
+    fx.cleanup();
+  }
 });
 
 // ─── 21. the wiring: an explicit --name is never followed ───────────────────

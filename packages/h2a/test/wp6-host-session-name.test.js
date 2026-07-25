@@ -88,8 +88,15 @@ function makeReaders({ fakeHome = tmpdir(), codexIndexLines = [] } = {}) {
 // ─── 1. Claude: prefers customTitle ────────────────────────────────────────
 
 test("readHostSessionName: claude returns customTitle (preferred over agentName and aiTitle)", () => {
+  // FIXTURE CORRECTED 2026-07-25: this used to put `customTitle` on a
+  // `type: "summary"` record. Measured over all 8078 local transcripts, 0 of the
+  // 89 title-bearing records look like that — a title only ever rides a
+  // dedicated `type: "custom-title"` rename event. The fixture now matches the
+  // real data shape; the test's intent (customTitle wins over agentName/aiTitle)
+  // is unchanged.
   const { fakeHome, sessionId, cleanup } = makeClaudeFixture([
-    JSON.stringify({ type: "summary", aiTitle: "AI Generated Title", agentName: "AgentName", customTitle: "My Custom Title" })
+    JSON.stringify({ type: "summary", aiTitle: "AI Generated Title", agentName: "AgentName" }),
+    JSON.stringify({ type: "custom-title", customTitle: "My Custom Title" })
   ]);
   try {
     const result = readHostSessionName({
@@ -146,19 +153,22 @@ test("readHostSessionName: claude never returns aiTitle (returns undefined)", ()
 //
 // AMENDED 2026-07-25 (spec docs/specs/2026-07-25-h2a-lane-addressing.md §RC-1).
 // This test previously asserted that the FIRST customTitle wins. That assertion
-// encoded the bug: a Claude transcript is APPEND-ONLY and stamps customTitle on
-// nearly every record, so a /rename appends the NEW title at the END and the
-// first match is the title as of session start — permanently. Measured live: one
-// transcript held 1022 records saying "39etc" then 65 saying "auth"; the reader
-// returned "39etc" while the human saw "auth" in the pane, so
-// discover_sessions(name: "auth") returned nothing and a consultation misrouted.
-// Codex (thread_name) already did last-match-wins; Claude was the outlier.
+// encoded the bug: a Claude transcript is APPEND-ONLY and a rename appends a NEW
+// `type: "custom-title"` record at the END, so the first match is the title as of
+// session start — permanently. Measured live: one transcript held 1022 records
+// saying "39etc" then 65 saying "auth"; the reader returned "39etc" while the
+// human saw "auth" in the pane, so discover_sessions(name: "auth") returned
+// nothing and a consultation misrouted.
+//
+// Codex (thread_name) already did last-match-wins, and so did
+// h2a-runtime/src/restore.ts — it was THIS reader that was the outlier, not
+// "Claude" generally.
 
 test("readHostSessionName: claude takes the LAST customTitle (a rename appends)", () => {
   const { fakeHome, sessionId, cleanup } = makeClaudeFixture([
     JSON.stringify({ agentName: "AgentFirst" }),
-    JSON.stringify({ customTitle: "ActualTitle" }),
-    JSON.stringify({ customTitle: "SecondTitle" })
+    JSON.stringify({ type: "custom-title", customTitle:"ActualTitle" }),
+    JSON.stringify({ type: "custom-title", customTitle:"SecondTitle" })
   ]);
   try {
     const result = readHostSessionName({
