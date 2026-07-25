@@ -131,8 +131,15 @@ finished without achieving.
   The payload is **signed but not confidential**, so a mistyped target discloses all of that repeatedly to
   whatever host answers, while the local journal reports `ok`. Mitigations: the unit ships disarmed
   (kill-switch active, placeholder target) and documents verifying a single manual push before arming; the
-  hosted read boundary allowlists what can leave again. What is **not** yet mitigated is the send side —
-  see section 9.
+  hosted read boundary allowlists what can leave again.
+  **UPDATE 2026-07-25 — the send side is now mitigated, so the list above no longer describes what
+  travels.** The mirror sanitizes before signing: `launchContext` (cwd, command line, tty, tmux), `pid`,
+  `workspace.path`, `workspace.repo` and `file://` endpoint uris are withheld by an allowlist that fails
+  the build when a new field is left unclassified. The paragraph is kept rather than rewritten because the
+  consent it records was given against it, and because it still holds for one case: a sender running a CLI
+  older than the fix, since the INGEST boundary does not sanitize yet (section 9). What the owner is
+  consenting to for an up-to-date sender is now the field list in the feed contract's "Send boundary"
+  section — identity, liveness timestamps, a workspace **label**, and no paths.
   This is a disclosure-accuracy point, not a design objection: signed-not-confidential to a host the owner
   controls may be entirely fine. But the owner must consent to *paths, command lines, tmux coordinates and
   pids leaving the machine*, not to the word "metadata".
@@ -156,13 +163,27 @@ finished without achieving.
   the mitigation is different in kind: length bounds + character-class normalisation on the h2a side, and
   the untrusted-rendering rule on the panel side. Disclosed by the feed's author and independently
   confirmed.
-- **The mirror does not sanitize at send.** `runtime/mirror/build.ts` ships `listPresence(...)` records
-  verbatim, so `launchContext.cwd`, the command line, tmux coordinates and the pid reach the hosted store
-  even though the feed strips them on read. The rule we applied to the read boundary applies here too —
-  sanitize at the boundary you are responsible for — and the send boundary is one of ours. Options are to
-  narrow what the mirror ships to the fields the feed can actually emit, or to sanitize before signing.
-  Not folded into P1 because P1 can proceed with disclosure (section 7) while this is fixed; recorded so
-  the disclosure does not become the permanent answer.
+- **~~The mirror does not sanitize at send.~~ CLOSED on the send side (2026-07-25).** The fix took the
+  **narrow-what-is-shipped** option: `runtime/mirror/sanitize.ts` gives every payload member a wire type
+  built from a field plan that classifies **every** field of the source record, so `launchContext` (cwd,
+  command line, resumeCommand, tty, tmux), `pid`, `workspace.path`, `workspace.repo` and `file://`
+  endpoint uris no longer leave the machine. Three properties, each mutation-proved: an unclassified field
+  cannot travel (the builder iterates the plan), a newly-added field **fails the build** until it is
+  classified (`satisfies` over `keyof Required<Source>`), and the wire type cannot drift from its plan.
+  Sanitizing happens before signing, so the signature still covers exactly what is transmitted, and the
+  signing primitive, sequence fencing and accept-side verification are untouched. A denylist was measured
+  rather than dismissed: it passes every hostile-value test and fails only the unclassified-field test —
+  which is the whole failure mode. The disclosure in section 7 **no longer describes the fields that
+  travel**; what a hosted store now receives is listed in the feed contract's "Send boundary" section.
+  Two consequences worth reading there: `H2AWorkspaceRef.path` had to become optional (while it was
+  required, `isH2ASession` made a path-free presence record unwritable — the required field was
+  *compelling* the leak), and `capabilities` is transmitted deliberately because the receiving side's
+  subagent ceiling and attestation right both read it off the mirrored row.
+- **Still owed: the INGEST half of the same rule.** `serve.ts` writes whatever a *verified* sender hands
+  it, so an agent running a CLI older than this fix keeps pushing raw records into the hosted root, and a
+  hosted read surface remains a full passthrough of what is stored. Sanitizing at ingest with the same
+  functions closes it; kept separate so the accept-side verification and fencing are reviewed on their own
+  terms. Until then the section 7 disclosure still holds **for un-upgraded senders only**.
 - **Lane addressing defect.** The h2a name has diverged from the host-native title, so routing to a named
   lane is ambiguous: nothing is registered as `auth`, four live instances share one name, and two panes
   share a title. This is a bus-correctness defect, not a BR-39l feature; folding it into P1 would hide it.
