@@ -9,6 +9,8 @@ export {
   type H2AInstanceMirrorBody
 } from "./build.js";
 export {
+  MIRROR_ENDPOINT_PLAN,
+  MIRROR_INTERESTS_PLAN,
   MIRROR_PRESENCE_PLAN,
   MIRROR_REGISTRATION_PLAN,
   MIRROR_SUBAGENT_PLAN,
@@ -17,8 +19,10 @@ export {
   sanitizeSubagentForMirror,
   sanitizeWorkspaceRefForMirror,
   unclassifiedMirrorFields,
+  type H2AMirroredEndpoint,
   type H2AMirroredRegistration,
   type H2AMirroredSession,
+  type H2AMirroredSessionInterests,
   type H2AMirroredSubagentBinding,
   type H2AMirroredWorkspaceRef,
   type MirrorFieldPlan,
