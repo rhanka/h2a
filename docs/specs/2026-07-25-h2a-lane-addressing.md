@@ -380,7 +380,12 @@ increment, by the owner, not here.
 
 ### D1 — where the display name comes from, and when — **DECIDED, implemented**
 
-Source precedence is **unchanged**: explicit `--name` > host-native title > cwd
+Source *order* is unchanged — explicit `--name` > host-native title > cwd basename
+— but **the window each source is read from DID change, and for `agentName` that is
+a real narrowing.** An earlier draft said precedence was "unchanged" full stop;
+that is too strong, and §10.7 measures exactly how much.
+
+Source precedence, stated precisely: explicit `--name` > host-native title > cwd
 basename. Two behavioural changes:
 
 **D1a — the Claude reader takes the LAST `customTitle`, not the first.**
@@ -469,8 +474,16 @@ existing inbox never moves**:
 | **at mint** | the reader's output influences the minted handle. **Changed by this fix.** |
 | **after mint** | the handle is frozen (`identity.ts:17-19`) and reclaim keys on `{host, providerSessionId, workspaceId}` (`live.ts`, `bindings.ts`) — **not** on the name. A rename is display-only and moves no mail. **Unchanged.** |
 
-So the correct statement is: **no routing consumer is affected after mint**, and
-no queued mail can be redirected by a rename.
+So the correct statement is — **narrowed again 2026-07-25, because even this was
+too broad**: **no delivery address, inbox, or queued message moves after mint.**
+
+Not *"no routing consumer is affected after mint"*: `discover_sessions(name:)` is a
+routing consumer, it is consulted to **select a recipient**, and D1 deliberately
+changes what it returns — that is the entire point of the fix. A claim that no
+routing consumer is affected is contradicted by D1's own purpose statement two
+paragraphs above. What actually holds is the *delivery* invariant: resolution may
+return different candidates, but nothing already addressed or queued is
+re-pointed.
 
 **And the name↔handle invariant is already broken on `main`, before this PR.**
 Measured on the live (main-built) bus 2026-07-25: `slugify(presence.name)` equals
@@ -489,8 +502,40 @@ a diverged pair later should not attribute it here. It also demonstrates the
 after-mint property empirically: those five have diverged and their inboxes did
 not move.
 
-**Residual after D1.** D1 does **not** make `auth` unambiguous — it makes it
-*findable*. After D1, `name: "auth"` returns **2** sessions instead of **0**.
+**Residual after D1 — CORRECTED 2026-07-25 after a third review leg.** D1 does
+**not** make `auth` unambiguous — it makes it *findable*. But an earlier draft
+claimed `name: "auth"` returns **2** sessions after D1, and **that is wrong**: it
+is an outcome D1's own mechanism cannot produce for one of the two panes.
+
+| pane | why it was wrong | what D1 actually does |
+| --- | --- | --- |
+| `%1` | transcript exists; title `auth` sits past the head-40 window | **REPAIRED.** Measured on the built `dist`: the refresher returns `"auth"`. |
+| `%37` | RC-3: its `CLAUDE_CODE_SESSION_ID` names **no transcript at all** | **NOT REPAIRED.** Measured: the refresher returns `undefined` on every heartbeat, so `touch()` keeps the previous name — the cwd basename `sentropic`. |
+
+Measured with the built `dist` (positive control first, so the null result is not
+a broken fixture): a `%1`-class transcript resolves to `"auth"`; a `%37`-class
+session — provider id naming no transcript — returns `undefined` five times out of
+five and never yields a name.
+
+**So the honest post-D1 count for that pair is 1, not 2.** `%37` reaches `auth`
+only if it acquires a *readable* transcript, which requires either a reconnect
+whose fresh `CLAUDE_CODE_SESSION_ID` happens to name a real transcript, or the
+**RC-3 mechanism that this branch explicitly does not ship** (§RC-3, §6). D1's
+heartbeat refresher reads a transcript; it does not read tmux, and it does not
+discover a replacement session id. *"After hosts reconnect"* was doing unearned
+work in the old wording: it is a hope about the environment, not a property of the
+fix.
+
+> **This is the third time this document has had to be corrected for the same
+> error**, and by far the worst place for it: an **acceptance criterion** that the
+> shipped mechanism cannot satisfy. §3.1(a) over-claimed from a grep; §D1b left a
+> guarantee standing after its own fix invalidated it; this one asserted an
+> end-state for a session whose root cause the same document marks as **NOT FIXED
+> HERE**. The tell was available all along — RC-3 says `%37` has no transcript, and
+> D1 only reads transcripts — so the acceptance criterion contradicted the root-cause
+> section four hundred lines above it. **An acceptance criterion must be derivable
+> from the mechanism being accepted**; if it needs the environment to cooperate,
+> that dependency is part of the criterion and must be written into it.
 Turning 2 into a correct single delivery is §D2/§D3, and is not shipped here.
 
 ### D2 — how a lane becomes addressable unambiguously — **DECIDED 2026-07-25 (owner): REUSE `scope`**
@@ -755,8 +800,21 @@ instance-id. **A recorded instance-id rots.** Therefore:
 - `readers.ts` — `createHostSessionNameRefresher()`: a memoized per-session
   resolver (the transcript path is resolved once; only the tail is re-read), with
   **negative caching + exponential backoff** on a lookup miss. See §10.
-- `readers.ts` — titles are trimmed, whitespace-only rejected, and length-capped
-  at `MAX_DISPLAY_NAME_CHARS`; the Codex index read is tail-bounded.
+- `readers.ts` — titles are trimmed, whitespace-only rejected, length-capped at
+  `MAX_DISPLAY_NAME_CHARS`, and stripped of C0/C1 control characters and Unicode
+  bidi overrides/isolates (§10.6); the Codex index read is tail-bounded.
+  **Corrected 2026-07-25 (third leg):** `normalizeTitle` was reachable only via
+  Claude's `jsonField`, so the **Codex** reader bypassed all of it and wrote
+  `thread_name` untrimmed, whitespace-only-accepted and **unbounded** into
+  presence. `readCodexSessionName` now routes through `normalizeTitle`. §6, §10.4
+  and the constant's own comment all previously claimed a cap that Codex did not
+  have.
+- `cli.ts` — the heartbeat refresher is installed **only** for `claude` and
+  `codex`. `resolveProviderSession` also resolves a provider session id for
+  `remote`, `gemini` and `agy`, which the reader cannot read, so those three
+  previously received a callback invoked every heartbeat that could never return a
+  name. Behaviourally identical (keep-previous either way), but it no longer
+  installs machinery whose premise cannot hold.
 - `presence.ts` — `updatePresence` accepts `name`.
 - `sessions.ts` — per-session display-name resolver; `touch()` re-derives and
   writes on change only.
@@ -842,9 +900,19 @@ nothing asserts that `auth` becomes *unique* — after D1 it becomes *findable*
 - `npx tsc -b packages/h2a` clean.
 - Affected suites green, with an `origin/main` baseline in an equally-installed
   tree for any failure claimed pre-existing.
-- On the live bus after the fix ships and hosts reconnect:
-  `h2a_discover_sessions(name: "auth")` returns **2** sessions, not 0. Two is the
-  correct post-D1 outcome; turning two into one delivery is D2+D3 (§9).
+- On the live bus, for every session whose provider session id names a **readable
+  transcript**, `presence.name` converges to the host-native title. For the
+  motivating pair that means `%1` moves `39etc` → `auth`; **`%37` does not move**,
+  because RC-3 leaves it with no transcript to read (§D1 Residual). So the
+  supportable criterion is:
+  **`h2a_discover_sessions(name: "auth")` returns at least 1 where it returned 0**,
+  and returns 2 only once `%37` also has a readable transcript — which is an
+  **RC-3 outcome this branch does not ship**, not a D1 outcome.
+- Stated as a mechanism check rather than a bus observation, because that is what
+  this branch can actually guarantee: *a session with a readable transcript adopts
+  its host-native title within the bound in §D1b; a session without one keeps the
+  name it had and is never downgraded.* Both halves are pinned by tests.
+- Turning any number >1 into a single delivery is D2+D3 (§9).
 - No live session restarted, renamed, or written to by this work.
 
 ---
@@ -994,8 +1062,23 @@ argument.
 
 `h2a-runtime/src/restore.ts:187-200` requires `type === "custom-title"` and reads
 the whole file; this reader accepted `customTitle` on any record and read only the
-tail. **Resolved by adopting the stricter predicate**, so the two now agree by
-construction.
+tail. **Resolved by adopting the stricter predicate.**
+
+**Narrowed 2026-07-25 (third review leg).** An earlier draft said the two readers
+"now agree by construction", full stop. They do not, and the difference is
+deliberate: **`restore.ts` reads the WHOLE file; this reader reads the last
+64 KiB.** A title that sits outside the window is a real divergence — this
+document's own test 6 pins this reader returning `undefined` in exactly that case.
+The supportable claim is narrower and is what the measurement below actually
+supports:
+
+> **The two predicates agree on every record both readers inspect.**
+
+The window is a separate, intentional difference of *scope*, justified on cost
+(§D1a: 233 MB transcripts on a 5 s timer) and bounded empirically (§10.2). Saying
+"agree by construction" quietly upgraded a same-window predicate comparison into a
+whole-reader equivalence — a claim wider than the experiment, which is the defect
+class §11 catalogues.
 
 Chosen on measurement, not taste: comparing both policies **on the same 64 KiB
 window across all 8078 transcripts** gives **0 divergences**, and **0** of the
@@ -1114,6 +1197,18 @@ was read whole on every heartbeat with no bound on a monotonically growing file.
 All three fixed. The cap **truncates rather than rejects**, so an over-long title
 stays findable by the substring match `discover_sessions(name:)` performs.
 
+> ⚠️ **Corrected 2026-07-25 — this section over-reported its own coverage.** "All
+> three fixed" was true only for **Claude**. `normalizeTitle` sat behind
+> `jsonField`, which only the Claude path calls, so the Codex reader assigned
+> `obj.thread_name` raw. Measured on the built `dist` before the fix: a Codex
+> `thread_name` of `"   padded   "` came back with its whitespace, `"     "` was
+> accepted as a name, and a 5000-character value came back at **5000** characters —
+> against a Claude control that returned `"padded"`, `undefined`, and **200**.
+> So the single **unbounded host-controlled presence input** was still open, in the
+> section claiming it had been closed. Both Opus review legs verified
+> `normalizeTitle`'s *behaviour* and neither checked its *call sites* — testing a
+> sanitizer without testing who calls it measures the sanitizer, not the system.
+
 ### 10.5 DEFERRED, with an argument — `InstanceDescriptor.displayName` goes stale
 
 **The defect is real and is recorded here so it is not lost:**
@@ -1156,7 +1251,7 @@ not bug fixes:
 
    **The deferral still holds, for a different and better reason.** The shipped
    verb writes the **remote control-plane `displayName`** (`renameRemoteSession`)
-   and the **local tmux window/session display name**
+   and the **local tmux window name**
    (`setLocalSessionDisplayName`). It does **not** write
    `H2AActorRegistration.name`, and **nothing mutates `registration.name`
    post-mint** — no `putRegistration`, `writeRegistration`, `updateRegistration`
@@ -1192,6 +1287,150 @@ not bug fixes:
 Either way it is a public-contract or durable-store change and belongs to its own
 increment. **Named follow-up: `feed displayName must not outlive a rename` —
 `descriptors.ts:542` + `live.ts:253-295`, with the two options above.**
+
+---
+
+## 10.6 Display-name text is UNTRUSTED on a human decision surface
+
+**New requirement, from the third review leg.** D3 (list-and-ask) presents
+candidate display names **to a human who is choosing a message recipient**. Those
+names are host-controlled free text. A length cap does not make them safe to
+render.
+
+Measured on the built `dist` before the fix: a Claude title of
+`auth<U+202E>gnitnuocca<U+202C><BEL>` was returned **verbatim** — the bidi override
+and the C0 control both survived normalization. Rendered in a terminal that honours
+bidi, `auth<U+202E>gnitnuocca` displays as `authaccounting`, so two candidates in a
+disambiguation list can be made to look like each other, on the exact surface the
+owner chose for deciding where a message goes.
+
+Two layers, deliberately separate:
+
+1. **Ingest (implemented here).** `normalizeTitle` now strips C0/C1 controls
+   (`U+0000-001F`, `U+007F-009F`), LRM/RLM, bidi embeddings/overrides
+   (`U+202A-202E`) and isolates (`U+2066-2069`) before trimming and capping — for
+   **every** host, Claude and Codex alike. These are never legitimate in a display
+   name, so removing them at the boundary is cheaper and more reliable than asking
+   each consumer to remember.
+2. **Render (REQUIRED of the D2/D3 increment, not implemented here).** Stripping
+   is defence in depth, not a substitute for escaping. Confusables
+   (`rn`/`m`, Cyrillic `а` for Latin `a`) and zero-width characters remain
+   expressible and are **not** stripped, because they can be legitimate. Therefore:
+   - any surface that prints a display name **MUST** escape it as untrusted text;
+   - a candidate list **MUST** distinguish candidates by a field the peer does not
+     control — `instance`, `workspace.path`, `launchContext.tmux.pane` — and
+     **MUST NOT** let choice rest on title text alone;
+   - where two live candidates' names normalize to the same string, that fact
+     **SHOULD** be surfaced rather than hidden by ordering.
+
+This composes with the free-text finding already recorded in the merged feed
+contract (*"no allowlist can constrain free text — so the consumer must escape
+those like any user content"*). What is new is **who is reading**: the feed
+contract's consumer is a UI; D3's consumer is a human making a routing decision
+under time pressure. The bar is higher, and §D4's proportionality argument does not
+lower it — a display-trust failure here defeats confirm-first itself, because the
+thing being confirmed is the string that was spoofed.
+
+## 10.7 The tail window narrows `agentName` — measured, and NOT fixed
+
+**Finding (third leg), confirmed structurally and refuted as a live regression.**
+Moving the Claude reader from a 40-line **head** read to a 64 KiB **tail** read
+changed the window for *every* field it resolves — including `agentName`, which
+legitimately appears at the **start** of a transcript. So a long transcript with an
+initial `agentName` and no tail title now falls through to the cwd basename where
+`origin/main` would have returned the `agentName`.
+
+Confirmed on the built `dist` with a positive control:
+
+| fixture | branch reader |
+| --- | --- |
+| `agentName` at head, transcript > 64 KiB, no `custom-title` | `undefined` (would be `"MyAgentName"` on main) |
+| `agentName` at head, **short** transcript (control) | `"ShortAgent"` — found |
+| `custom-title` older than 64 KiB at first attach | `undefined` |
+
+And **keep-previous does not repair it at initial acquisition**, because at open the
+"previous" name is already the cwd fallback. §10.2's *"degrades safely to no title,
+absorbed by keep-previous"* is therefore only true **after** a prior successful
+read. That qualification was missing and is now stated.
+
+**But the live incidence is zero, and that decides the response.** Re-running both
+readers over the whole corpus:
+
+| measurement | value |
+| --- | --- |
+| UUID-named transcripts compared | **8080** |
+| **regressions** (main names it, branch returns `undefined`) | **0** |
+| improvements (main `undefined`, branch names it) | 16 |
+| changed values | 3 |
+| transcripts > 64 KiB | 4233 |
+| transcripts whose name comes from a head `agentName` | **0** |
+| of those, over 64 KiB | **0** |
+
+`agentName` **never sources a display name** in 8080 real transcripts — it appears
+anywhere in only 41 of them, and never as the resolved value. The regression is on a
+path that carries no traffic.
+
+**Decision: state and risk-assess rather than fix.** Adding a bounded head read
+would mean adding another method to `HostNameReaders` — the very interface this PR
+is already breaking (§10.8) — to protect a path with **0 measured uses**, in a PR
+whose thesis is that contract changes are deferred. That trade is not worth it on
+this evidence. What is done instead: the behaviour is **pinned by tests** so it
+cannot drift unnoticed, and the claim is corrected (§D1a no longer says precedence
+is "unchanged").
+
+**Re-open this if** `agentName` starts sourcing names — the check is the last two
+rows of the table above, and it is cheap to re-run.
+
+The same shape applies to **Codex**: only the last `CODEX_INDEX_TAIL_BYTES`
+(256 KiB) of `~/.codex/session_index.jsonl` is searched, so an aged-out entry
+yields `undefined`. Measured today: the index is **49,150 bytes** — the whole file
+fits in the window **5.3x over**. Structurally possible, zero incidence, and it
+degrades to keep-previous. Recorded rather than fixed, on the same reasoning.
+
+## 10.8 Compatibility position on the `HostNameReaders` break
+
+§6 called the `readLines` -> `readTailLines` replacement "the one public contract
+change", and called the resulting compile error desirable. **Both needed
+correcting**: an adjective is not a compatibility position, and the claim was not
+even accurate.
+
+**What actually changes in the published surface** (`@sentropic/h2a`):
+
+| change | kind |
+| --- | --- |
+| `HostNameReaders.readLines` -> `readTailLines` | **breaking** (source-incompatible for any external implementor) |
+| `HostNameReaders.findClaudeTranscript?` added | additive (optional) |
+| `createHostSessionNameRefresher`, `MAX_DISPLAY_NAME_CHARS`, `CLAUDE_TITLE_TAIL_BYTES`, `CODEX_INDEX_TAIL_BYTES` exported | additive |
+| `updatePresence` accepts `name`; presence mutates within a session | **observable behaviour change** |
+
+So it is **not** "the one public contract change" — it is one breaking type change
+plus additive exports plus a behaviour change. That sentence is withdrawn.
+
+**Position: ship it as a breaking change in a versioned release, with migration
+guidance, and do NOT add an adapter.**
+
+- *Why not an adapter.* A shim that kept `readLines` working would let an external
+  implementor keep a **head** reader that is wrong by construction (RC-1) — it
+  returns the title as of session start and can never observe a rename. The adapter
+  would preserve the exact defect this PR exists to remove, silently, in someone
+  else's code. A compile error is the correct outcome *because* no correct
+  implementation of the old signature exists.
+- *Why that is not sufficient on its own.* "The break is good for you" is a
+  justification, not a migration path. Required of the release: a **minor version
+  bump with the break called out in the changelog**, and this migration note —
+  *replace `readLines(path, maxLines)` with `readTailLines(path, maxBytes)`, reading
+  the LAST `maxBytes` and dropping a leading partial record; returning the head will
+  compile but will reproduce RC-1.*
+- *Blast radius, measured:* `HostNameReaders` is exported as a **type only** —
+  `defaultHostNameReaders` is **not** a value export of the package index
+  (`node -e "require('@sentropic/h2a').defaultHostNameReaders"` -> `undefined`). An
+  external implementor must therefore have written the interface by hand, which is
+  a small and self-selected population, but not one we can enumerate. That is an
+  argument for a clear changelog entry, not for pretending the break is free.
+
+
+---
+
 
 ---
 
@@ -1315,3 +1554,62 @@ main-relative in §RC-2, since this branch deliberately changes them),
 > can re-find it after it moves** — which is why every citation above now carries
 > its content, and why the §D3 loop-selector claim was re-anchored on quoted code
 > rather than on a line range in an untracked study.
+
+### 11.2 Third review leg — NO-GO on code (gpt-5.6-terra, 2026-07-25)
+
+A third independent leg reviewed the **spec plus the diff** and returned
+**NO-GO**, against the two prior GOs. It found **code** defects, three of which
+both earlier legs missed entirely. It **executed nothing**, so every item below was
+re-measured against the built `dist` before being accepted or rejected — and two of
+its claims did not survive that.
+
+| # | claim | verdict | how it was settled |
+| --- | --- | --- | --- |
+| BLOCKING | acceptance `== 2` is impossible for `%37` | **CONFIRMED** | refresher returns `undefined` 5/5 for a provider id naming no transcript; `%1` control returns `"auth"` |
+| SF1 | refresher wired to the wrong host; dead callback when `--host` omitted | **mechanism REFUTED, defect real elsewhere** | with `--host` omitted no refresher is installed at all; the dead callback is `remote`/`gemini`/`agy` |
+| SF2 | tail window loses head-resident `agentName` | **CONFIRMED structurally, REFUTED as a live regression** | 0 regressions / 8080 transcripts; `agentName` sources **0** names |
+| SF3 | `normalizeTitle` never reached by Codex | **CONFIRMED** | Codex returned `"   padded   "`, accepted `"     "`, returned 5000 chars |
+| SF4 | "agree by construction" too wide | **CONFIRMED** | `restore.ts` reads whole file, this reads 64 KiB |
+| SF5 | breaking export needs a position | **CONFIRMED** | §10.8 |
+| SF6 | "no routing consumer affected" too wide | **CONFIRMED** | contradicted by D1's own purpose |
+| SF7 | untrusted title on a human decision surface | **CONFIRMED** | U+202E and BEL survived verbatim |
+
+**Where the reviewer was wrong, and why it matters.**
+
+1. **SF1's mechanism.** It argued that with `--host` omitted, provider identity
+   resolution could succeed while the refresher went permanently dead. That cannot
+   happen: `resolveAutoOpen` feeds the **same** `host ?? "agent"` string to both
+   `resolveProviderSession` and `createHostSessionNameRefresher`, and
+   `resolveProviderSession`'s `switch` returns `{source:"none"}` for `agent` — so
+   there is no provider session id and the install is skipped entirely. Measured:
+   `--host` omitted -> no refresher; `--host Claude` (miscased) -> no refresher.
+   **But the reviewer was right that something was wrong here**, and its
+   *test* criticism was exactly right: the only wiring test forced `host:"claude"`
+   in both arms and could not see any other host. Measuring the claim found the
+   **real** case it had missed — `remote`, `gemini` and `agy` *do* resolve a
+   provider session id, so they were the hosts getting a callback that runs every
+   heartbeat and can never return a name. Fixed, and pinned by a test.
+2. **SF2's severity.** Structurally correct and worth finding. But it is a
+   regression on a path that carries **no traffic**: across 8080 transcripts,
+   `agentName` resolves a display name **zero** times, and there are **zero**
+   regressions between the two readers. The reviewer inferred severity from the code
+   shape; the corpus says otherwise. Fixing it would mean growing the very interface
+   this PR is criticised for breaking, to protect nothing measurable — so the claim
+   is corrected and the behaviour pinned instead (§10.7).
+
+**The pattern in what it caught that two Opus legs did not.** All three misses —
+Codex bypassing `normalizeTitle`, the acceptance criterion its own mechanism cannot
+meet, untrusted text on the D3 surface — are **call-site and end-to-end** questions,
+not unit questions. Both earlier legs verified `normalizeTitle`'s behaviour and
+neither asked **who calls it**; both verified the refresher's behaviour and neither
+asked **which sessions it can reach**; both audited claims against code and neither
+asked **what a human sees**. A reviewer that reads only the diff sees the change; a
+reviewer that reads only the spec sees the claim. The defects lived in the join —
+which is also where this document's remaining risk lives, and why §10.6's rendering
+requirement is written as a requirement on the *next* increment rather than a note.
+
+**Also added on its prompting, both previously unpinned:** a late-discovery test
+that actually flips the fixture absent -> present (the old one asserted only that
+the scan recurs), and a rename A -> B -> A test, since a cache keyed on "changed
+since last read" would pass A -> B and silently fail the return to A. Both fail
+against a reverted fix.
