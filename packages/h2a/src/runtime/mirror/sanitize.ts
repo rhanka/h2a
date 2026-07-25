@@ -15,6 +15,48 @@
  *   or downstream sanitizer.** A read-side sanitizer does not protect data at
  *   rest. The send boundary is ours, so it sanitizes.
  *
+ * ── AND THE SAME RULE APPLIED TO THIS FILE'S OWN COMMENTS ───────────────────
+ *
+ *   **When a comment here cites another module's validator, CALL IT and check
+ *   what it actually rejects. Do not read its name, its type signature, or its
+ *   docstring and infer.**
+ *
+ * This is written down because the file broke its own rule three times, and each
+ * time it took a measurement to notice — a comment assuming a sibling guard is
+ * the same mistake as code assuming one:
+ *
+ *  - `isH2AActorRegistration` "requires `endpoints` to be an array" — it does,
+ *    but it is **never called on any production path**, so it required nothing.
+ *  - `isH2AEnvelope` "requires a vocabulary role" — it checks `actor.instance`
+ *    and nothing else (see {@link sanitizeActorForMirror}).
+ *  - `isActorRef` (`envelope.ts:27`) does check the role vocabulary, and is
+ *    referenced **nowhere**. Reading it as live would have been the third.
+ *
+ * A false claim about a sibling guard is worse than no claim: it supplies a
+ * reason to delete a protection that works. Every guard citation below has been
+ * exercised, and what each one ACTUALLY enforces is recorded at its use site:
+ *
+ *   | Cited guard              | What it really enforces                      |
+ *   |--------------------------|----------------------------------------------|
+ *   | `isH2AWorkspaceRef`      | `id`/`host`/`label` required; `path` rejected |
+ *   |                          | when present-but-empty; EXTRA KEYS TOLERATED  |
+ *   | `isH2ASession`           | rejects missing `interests`/`subscribedTopics`|
+ *   |                          | and a non-vocabulary topic; tolerates extra   |
+ *   |                          | top-level keys                                |
+ *   | `isInterests`            | `scopes`+`negotiations` string arrays only;   |
+ *   |                          | EXTRA NESTED KEYS TOLERATED (the P1 leak)     |
+ *   | `isH2AActorRegistration` | would reject `endpoints: "nope"` — but has NO |
+ *   |                          | production caller, so it guards nothing        |
+ *   | `isH2AEnvelope`          | `actor.instance` is a string. NOT `role`.     |
+ *   | `canAttestComprehension` | `(role, rights = [])`; both call sites pass   |
+ *   |                          | `registration.capabilities` — claim holds     |
+ *   | `deriveLiveness`         | reads `mirroredAt` to gate staleness          |
+ *   |                          | (`descriptors.ts:410`) — claim holds          |
+ *
+ * Note the shape of the three tolerances: every one of these guards is a
+ * SPOT-CHECK that accepts unknown keys. None of them is an allowlist. That is
+ * precisely why this module cannot delegate to any of them.
+ *
  * ── Why an ALLOWLIST, and why it is a *type*, not a filter ──────────────────
  *
  * A denylist that strips `cwd`/`command`/`tmux`/`pid` starts leaking silently
@@ -759,8 +801,29 @@ function firstDeclared(values: unknown, fallback: string): string {
  * vocabulary check, not a shape check: `roles[]` element VALUES are otherwise
  * free text (disclosed above), and this is the one place where an element value
  * escapes the body into the envelope, so it is the one place worth closing.
- * `isH2AEnvelope` requires a vocabulary role anyway, so a non-role here produced
- * an envelope that fails the protocol's own guard.
+ *
+ * ── STRUCK, AND LEFT VISIBLE ON PURPOSE ────────────────────────────────────
+ *
+ * An earlier version of this comment continued: ~~"`isH2AEnvelope` requires a
+ * vocabulary role anyway, so a non-role here produced an envelope that fails the
+ * protocol's own guard."~~ **That is false.** `isH2AEnvelope` delegates to
+ * `validateH2AEnvelope` (`envelope.ts:109`), which checks `actor` only for
+ * `typeof actor.instance === "string"`. It never looks at `role`. Measured:
+ *
+ *   isH2AEnvelope(actor.role = "/home/antoinefa/NOTAROLE")  -> true
+ *   isH2AEnvelope(actor with no role at all)                -> true
+ *   isH2AEnvelope(actor with no instance)                   -> false
+ *
+ * There IS a function that checks the vocabulary — `isActorRef`, `envelope.ts:27`
+ * — but it is module-private and referenced nowhere in the tree. A guard that
+ * cannot fire.
+ *
+ * The sentence is struck rather than deleted because of what it was doing: it
+ * supplied a REASON TO DELETE THE RE-INTERSECTION BELOW. "The protocol guard
+ * catches it anyway" is exactly the argument someone would use to remove that
+ * line, and removing it restores the leak. A false justification for a live
+ * guard is more dangerous than no justification at all — nothing downstream
+ * validates this field, so the check here is the only one there is.
  *
  * `scope` is NOT closed — there is no scope vocabulary to close it against — but
  * it is now sourced from the sanitized registration rather than hardcoded, so
