@@ -104,6 +104,82 @@ interface SessionDescriptor {
   bus directly, bypassing h2a's own authority model). They MUST be opaque,
   stable, per-principal-scoped ids (see Gaps §2).
 
+### Send boundary (the mirror) — CONTRACT, added 2026-07-25
+
+The opacity boundary above governs what a browser READS. It protects nothing
+that has already come to rest on someone else's disk. The mirror push
+(`runtime/mirror/build.ts`) used to ship `listPresence(...)` records and registry
+rows **verbatim**, so every beat landed `launchContext.cwd`, the full command
+line, the tmux session/pane, the pid, `workspace.path` and the `file://<root>`
+endpoint uri in the hosted store — precisely the fields this contract exists to
+keep out of a browser. Disclosed in the joint plan (§ 7) and recorded as owed
+(§ 9); **closed on the send side** by `runtime/mirror/sanitize.ts`.
+
+**The rule, as contract:**
+
+> **Sanitize at the boundary you are responsible for; never assume an upstream or
+> downstream sanitizer.** A read-side sanitizer does not protect data at rest.
+> Both the send boundary and the read boundary are ours, and each sanitizes
+> independently of the other.
+
+Binding consequences for anything that leaves the machine:
+
+1. **ALLOWLIST, never a denylist.** The permitted field set is *iterated*; the
+   record's own keys are never enumerated onto the wire. A denylist that strips
+   `cwd`/`command`/`tmux`/`pid` starts leaking the day someone adds a field.
+   This was measured rather than assumed: implemented as spread-then-delete, a
+   denylist passes every hostile-value test and fails only the
+   unclassified-field test. Same reasoning as `sanitizeDeclaredCapabilities`,
+   which intersects the closed vocabulary instead of removing known-bad values.
+2. **A new field must not be able to travel by default.** Each payload member's
+   plan is checked with `satisfies` over `keyof Required<Source>`, so adding a
+   field to `H2ASession` / `H2AActorRegistration` / `H2ASubagentBinding` **fails
+   the build** until it is explicitly classified `send` / `withhold` / `narrow`.
+   The ratchet is the compiler, not a reviewer's attention; a runtime
+   `unclassifiedMirrorFields` covers the paths the compiler cannot see.
+3. **Sanitize BEFORE signing.** The signature must cover exactly the bytes
+   transmitted. `buildInstanceMirror` returns an UNSIGNED envelope that is
+   already narrowed, so a caller can only sign what was already sanitized — a
+   post-signing scrub is structurally unavailable, not merely discouraged.
+4. **Never silently drop what a consumer needs.** A field required by a
+   receiving-side consumer is transmitted and the reason recorded, even when the
+   feed itself does not display it. `capabilities` is the live example: the
+   subagent ceiling (`subagents.ts`) and `canAttestComprehension`
+   (`mcp/handlers.ts`) both read it off the mirrored registry row, so
+   withholding it would change an authorization outcome on the receiver.
+
+**The field set transmitted today.** Presence: `sessionId`, `instance`, `host`,
+`name`, `startedAt`, `heartbeatAt`, `state`, `interests`, `subscribedTopics`,
+`workStatus`, `lastMcpActivityAt`, `version`, and `workspace` narrowed to
+`{id, host, label}`. Withheld: `launchContext` (cwd / command / resumeCommand /
+tty / tmux), `pid`, and `mirroredAt` — the last one for PROVENANCE, since
+`deriveLiveness` reads it to decide `stale` and a sender-supplied value would be
+a forged freshness claim; the receiver stamps it. Registration: identity, roles,
+scopes, capabilities, declaredCapabilities, publicKeys, acceptedPolicies,
+createdAt, principal, conductor, agentUuid, name, the same narrowed workspace,
+and `endpoints` filtered to **network-locator schemes** (`http`/`https`/`ws`/
+`wss`) — filtered by scheme rather than by `kind` because `kind` is
+self-declared, so a `file://` uri labelled `kind: "remote"` would sail through a
+kind-based check.
+
+**`H2AWorkspaceRef.path` is now optional, and that was the root cause.**
+`isH2ASession` validates `workspace` through `isH2AWorkspaceRef`; while `path`
+was required, the only shape the hosted `writePresence` would accept was one
+carrying a real filesystem path. A type that makes a filesystem path mandatory
+on every workspace reference cannot express a sanitized reference at all — the
+required field was *compelling* the disclosure, not merely permitting it. `id`,
+`host` and `label` stay required and `path` is still validated when present.
+
+**Still owed (the symmetric half).** The INGEST boundary is also ours and does
+not yet apply this. `serve.ts` writes whatever a *verified* sender hands it, so
+an older CLI that predates the send boundary keeps pushing raw records into the
+hosted root, and a hosted read surface is still a full passthrough of stored
+records (`h2a_discover_sessions` returns `{...session}`; the feed builders are
+not wired into the hosted handlers yet — Part C step 5). Applying the same
+`sanitize*ForMirror` functions in `serve.ts`'s `applyPresence` /
+`applyRegistration` closes it, and should be a separate change so the
+accept-side verification and fencing are reviewed on their own terms.
+
 ### Liveness / state derivation
 
 Both derivations are pure functions of h2a's existing primitives —
