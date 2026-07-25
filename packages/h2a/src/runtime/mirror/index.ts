@@ -14,6 +14,7 @@ export {
   MIRROR_PRESENCE_PLAN,
   MIRROR_REGISTRATION_PLAN,
   MIRROR_SUBAGENT_PLAN,
+  sanitizeActorForMirror,
   sanitizePresenceForMirror,
   sanitizeRegistrationForMirror,
   sanitizeSubagentForMirror,
