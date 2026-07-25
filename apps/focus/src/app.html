@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Focus · Suivi</title>
+    <!-- No <title> here on purpose: pages set their own through `svelte:head`, and a hardcoded one
+         would ship a SECOND <title> element in the SSR response instead of being replaced. -->
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
