@@ -70,6 +70,26 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     optionalFlags: [],
     description: "Print human-readable usage. Same as `help` and no-argv invocation."
   },
+  {
+    // Added 2026-07-25. Public-contract addition (README: adding a verb IS a
+    // public-contract change), so `docs/contracts/golden/cli-verbs.json` and the
+    // enforced `expected` list in `test/cli-contract.test.js` move together,
+    // 97 → 98 — the same handling as the `keys prove-control` precedent.
+    // Proposed by docs/specs/2026-07-17-STUDY_h2a-cli-coconception.md
+    // (§ "Compatibility and migration": "ship a generated `h2a help map` /
+    // `h2a explain <legacy-command>` view"; § "Incremental path" step 2:
+    // "introduce `explain` and completion"). `explain` rather than `help map`
+    // because every frozen top-level verb in this contract is a single word and
+    // `help` is currently an alias of `--help`, not a namespace — a `help map`
+    // sub-verb would turn an alias into one.
+    verb: "explain",
+    outputShape: "text",
+    exitCodes: [0],
+    requiredFlags: [],
+    optionalFlags: [],
+    description:
+      "Print the h2a command map grouped by operator intention — one line per group and per verb, core and runtime."
+  },
 
   // --- registry / hosts / tooling discovery ---
   {

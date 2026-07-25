@@ -71,6 +71,7 @@ import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 // `install-skills` renders `harness-<name>` from it (no hard-coded list, no
 // skill copies committed here; SOURCE UNIQUE = the installed npm package).
 import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
+import { renderCommandMap } from "./cli-command-map.js";
 
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
@@ -324,10 +325,19 @@ export function renderCliHelp(): string {
   return [
     "h2a",
     "",
-    "Human-to-agent coordination CLI.",
+    "Human-to-agent coordination CLI — the unified sentropic CLI and core.",
+    "It also fronts agent work sessions, the work record (@sentropic/track) and the",
+    "harness method; a verb it does not serve itself loads the h2a runtime on demand.",
+    "h2a runs and coordinates agents; it is not itself an agent.",
+    "",
+    "The list below is a flat usage reference, and it is NOT exhaustive. For every",
+    "command grouped by what you are trying to do — core and runtime, derived from",
+    "the frozen verb contract so it cannot go stale — run:",
+    "  h2a explain",
     "",
     "Usage:",
     "  h2a --help",
+    "  h2a explain",
     "  h2a hosts",
     "  h2a mcp-tools",
     "  h2a init [--root <path>]",
@@ -360,6 +370,13 @@ export function renderCliHelp(): string {
     "  entry's id, and correlationId from the previous entry's correlationId.",
     "  Explicit --causation-id / --correlation-id flags always override the",
     "  inherited default; pass them on the first offer to start a fresh thread.",
+    "",
+    // These 24 lines used to be nested under the "Auto-propagation (DEC-033):"
+    // prose block above, which described only offer/counter/sign/event causation.
+    // They have nothing to do with it — mailboxes, local servers and host wiring
+    // were appended inside someone else's section. Heading added; every usage line
+    // below is byte-identical to before.
+    "Mailboxes, local services and host wiring:",
     "  h2a inbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a inbox read --instance <id> [--root <path>]",
     "  h2a inbox pop --instance <id> --envelope <id> [--root <path>]",
@@ -6665,6 +6682,14 @@ export function runCli(
 
   if (!command || command === "--help" || command === "-h" || command === "help") {
     streams.stdout.write(`${renderCliHelp()}\n`);
+    return 0;
+  }
+
+  // `explain` — the grouped command map. Added 2026-07-25 as a NEW verb; it
+  // repurposes no existing argv and no existing output. DEC-034's no-argv-is-help
+  // rule above is untouched: bare `h2a` still renders `renderCliHelp()`.
+  if (command === "explain") {
+    streams.stdout.write(`${renderCommandMap([...TRACK_FACADE_VERBS])}\n`);
     return 0;
   }
 

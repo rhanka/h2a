@@ -15,6 +15,6 @@
     "rule": "h2a-cli X.Y.Z consomme @sentropic/h2a ^X.Y.0 (même majeure/mineure). track/gateway/mesh/k8s épinglés par plage; bridge Pod versionné séparément (P7 canary).",
     "busKey": "h2a",
     "mcpToolsSurface": "37 (cf mcp-tools.json)",
-    "cliVerbs": "90 (cf cli-verbs.json)"
+    "cliVerbs": "98 (cf cli-verbs.json)"
   }
 }
