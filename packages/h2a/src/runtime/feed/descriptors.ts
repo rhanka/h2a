@@ -22,9 +22,11 @@
  * is gated on the architecture lane's per-principal root partition (Part C).
  */
 import {
+  H2A_ROLES,
   H2A_SESSION_DEFAULT_EXPIRY_MS,
   deriveConnectionConfidence,
   isSessionExpired,
+  sanitizeDeclaredCapabilities,
   type H2AActorRegistration,
   type H2ARole,
   type H2ASession
@@ -49,26 +51,53 @@ export interface InstanceDescriptor {
   readonly displayName: string;
   readonly host: string;
   /**
-   * `H2AActorRegistration.roles[0]`, or the literal `'unknown'` when the
-   * instance has no registration or declares no role.
+   * `H2AActorRegistration.roles[0]` **validated against `H2A_ROLES` on read**,
+   * or the literal `'unknown'` when the instance has no registration, declares
+   * no role, or declares a string outside the enum.
    *
    * The union is deliberate (architect ruling, 2026-07-25): a MISSING role must
    * never be rendered as a real `H2ARole`. Synthesizing e.g. `'AGENTS'` would be
    * indistinguishable from an asserted claim, so once real roles land
    * (PRINCIPAL/CONDUCTOR/CONTROL) an absent role would silently read as a
    * genuine claim of authority and no consumer could tell the two apart.
+   *
+   * Validation on READ is what makes the union true on the wire whoever wrote
+   * the registry: the store re-validates nothing on read, `mirror/accept.ts`
+   * authorizes a mirrored registration by key ownership without constraining its
+   * content, and `mcp/handlers.ts` applies a caller-supplied registration. A
+   * `'SUPERADMIN'` planted by any of those paths must surface as `'unknown'`,
+   * never as an out-of-union string in a typed consumer.
    */
   readonly role: H2ARole | "unknown";
   /** Human label only. NEVER a filesystem path (Part A, opacity boundary). */
   readonly workspaceLabel: string;
   /**
    * Ratification condition #3: a DECLARED, NON-AUTHORITATIVE DISPLAY LIST
-   * ONLY. It is self-reported by the agent at registration and MUST NEVER be
-   * an input to any authorization decision — authorization stays
-   * principal-binding + server-side scoping (Part B).
+   * ONLY. Self-reported by the agent at registration, and it MUST NEVER be an
+   * input to any authorization decision — authorization stays principal-binding
+   * + server-side scoping (Part B).
+   *
+   * The NAME carries that semantic on purpose (architect ruling, 2026-07-25):
+   * the field is sourced from `H2AActorRegistration.declaredCapabilities` and
+   * never from the authority-bearing `capabilities`, which is the subagent
+   * ceiling and the attestation right. The whole defect this rename closes was
+   * ambiguity between "display list" and "authz list", so the wire field does
+   * not keep the ambiguous name.
+   *
+   * ALLOWLISTED on read: values are intersected with the closed vocabulary
+   * `H2A_DECLARED_CAPABILITIES`, so only known members survive. It is an
+   * intersection, never a denylist — nothing here strips `/home/` or PEM
+   * markers, because a denylist is whack-a-mole and loses to the next encoding.
+   * Anything outside the vocabulary was never a valid declaration and is
+   * dropped silently.
    */
-  readonly capabilities: readonly string[];
-  /** ISO 8601 — max heartbeat across this instance's known sessions. */
+  readonly declaredCapabilities: readonly string[];
+  /**
+   * ISO 8601 — max heartbeat across this instance's known sessions, or
+   * `'unknown'` when no session carries a parseable heartbeat. NEVER the
+   * registration's mint time: reporting a `createdAt` as "last seen" would be an
+   * unearned freshness claim, the same class the Q1 ruling rejected.
+   */
   readonly lastSeen: string;
   readonly liveness: H2ALivenessState;
 }
@@ -79,9 +108,17 @@ export interface SessionDescriptor {
   readonly instanceId: string;
   readonly topicOrTitle: string;
   readonly state: "open" | "idle" | "closed";
-  /** ISO 8601 — `H2ASession.startedAt`. */
+  /**
+   * ISO 8601 — `H2ASession.startedAt`, or `'unknown'` when it is missing or
+   * unparseable. Validated on read for the same reason `role` is: the contract
+   * types this field as ISO 8601, and a presence record written by any other
+   * path must not be able to put arbitrary text in an ISO-typed field.
+   */
   readonly openedAt: string;
-  /** ISO 8601 — see {@link SessionDescriptor.activitySource} for provenance. */
+  /**
+   * ISO 8601, or `'unknown'` when neither source carries a parseable timestamp.
+   * See {@link SessionDescriptor.activitySource} for provenance.
+   */
   readonly lastActivityAt: string;
   /**
    * Ratification condition #2: discriminates proven MCP traffic
@@ -152,14 +189,53 @@ function heartbeatMs(session: H2ASession): number {
 }
 
 /**
- * The ONLY reader of a workspace reference in this module, and it reads
- * `label` exclusively. `H2AWorkspaceRef.path` and `H2ALaunchContext.cwd` are
- * filesystem paths and are excluded from the feed by design — this indirection
- * is what keeps that exclusion structural instead of a review-time hope.
+ * A present, non-empty string, or `undefined`.
+ *
+ * Used by every fallback chain in this module so `""` behaves like absence
+ * everywhere. Without it the `'unknown'` sentinel is defeated by an empty
+ * string: `h2a connect --name ""` writes `registration.name === ""`, and a `??`
+ * chain would happily emit that as the displayName.
+ */
+function nonEmpty(value: string | undefined): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * The ONLY reader of a workspace reference in this module — the whole ref
+ * reaches exactly this function, which returns `label` and nothing else.
+ * `H2AWorkspaceRef.path` and `H2ALaunchContext.cwd` are filesystem paths,
+ * excluded from the feed by design, and this single choke point is what makes
+ * that exclusion structural rather than a review-time hope.
+ *
+ * The claim is only true while it is literally the only reader: an earlier
+ * revision of this file also read `workspace?.host` directly at the instance
+ * builder, which made the comment overstate the guarantee. Do not add a second
+ * reader; extend this one.
  */
 function labelOf(workspace: { readonly label?: string } | undefined): string | undefined {
-  const label = workspace?.label;
-  return typeof label === "string" && label.length > 0 ? label : undefined;
+  return nonEmpty(workspace?.label);
+}
+
+/**
+ * Validate a declared role against `H2A_ROLES` at the READ boundary.
+ *
+ * Anything unrecognized — `'SUPERADMIN'`, `''`, a non-string — becomes
+ * `'unknown'`. This is the Q1 ruling applied to the read path: never emit a
+ * value outside the declared union, no matter which writer produced the
+ * registry row.
+ */
+function sanitizeRole(role: unknown): H2ARole | typeof UNKNOWN {
+  if (typeof role !== "string") return UNKNOWN;
+  return (H2A_ROLES as readonly string[]).includes(role) ? (role as H2ARole) : UNKNOWN;
+}
+
+/**
+ * Emit a timestamp only if it actually parses as one; otherwise the sentinel.
+ * The contract types these fields as ISO 8601, so arbitrary text must not pass
+ * through into them.
+ */
+function isoOrUnknown(value: string | undefined): string {
+  return parseIso(value) === undefined ? UNKNOWN : (value as string);
 }
 
 /** Sessions of one instance, most recent heartbeat first. */
@@ -295,8 +371,10 @@ export function buildSessionDescriptor(
     labelOf(session.workspace) ?? labelOf(registration?.workspace) ?? UNKNOWN;
   // DEC-114 per-session mutable display name (host-native customTitle /
   // thread_name, or `/rename`). May legitimately diverge from the owning
-  // instance's displayName — a session can be renamed independently.
-  const topicOrTitle = session.name ?? registration?.name ?? workspaceLabel;
+  // instance's displayName — a session can be renamed independently. `nonEmpty`
+  // keeps `""` behaving as absence, so the chain cannot emit a blank title.
+  const topicOrTitle =
+    nonEmpty(session.name) ?? nonEmpty(registration?.name) ?? workspaceLabel;
 
   const mcpActivityAt = parseIso(session.lastMcpActivityAt);
   const provenMcp = mcpActivityAt !== undefined;
@@ -306,10 +384,15 @@ export function buildSessionDescriptor(
     instanceId: session.instance,
     topicOrTitle,
     state: deriveSessionState(session, options.asOf),
-    openedAt: session.startedAt,
+    openedAt: isoOrUnknown(session.startedAt),
+    // When the MCP stamp is absent/unparseable we fall back to the heartbeat,
+    // which is itself validated: an unparseable heartbeat yields the sentinel
+    // rather than leaking arbitrary text into an ISO-typed field. The source is
+    // still reported as 'heartbeat' — that IS the source we consulted, and a
+    // consumer must keep treating it as advisory.
     lastActivityAt: provenMcp
       ? (session.lastMcpActivityAt as string)
-      : session.heartbeatAt,
+      : isoOrUnknown(session.heartbeatAt),
     activitySource: provenMcp ? "mcp" : "heartbeat",
     // P1: always empty — see the field's own doc comment (contract Gaps §2).
     counterpartsOpaqueRefs: []
@@ -331,6 +414,12 @@ export interface BuildInstanceDescriptorOptions {
  * then the most recent LIVE session's host-native name (WP-6), then the
  * workspace label. `lastSeen` is the max heartbeat across the instance's
  * sessions. `host` comes from the most recent session's host hint.
+ *
+ * Every chain below matches the contract's declared mapping exactly and adds no
+ * undeclared step: earlier revisions scanned ALL sessions for a label/host and
+ * fell back to `workspace.host` and to `registration.createdAt`, none of which
+ * the spec declares. Code and contract must not disagree, so those were removed
+ * rather than quietly kept.
  */
 export function buildInstanceDescriptor(
   instanceId: string,
@@ -340,30 +429,27 @@ export function buildInstanceDescriptor(
   const ordered = [...options.sessions].sort((a, b) => heartbeatMs(b) - heartbeatMs(a));
   const mostRecent = ordered[0];
 
+  // Declared mapping: the session's workspace label (per-session authoritative,
+  // taken from the most recent session), else the registration's, else nothing.
   const workspaceLabel =
-    labelOf(mostRecent?.workspace) ??
-    ordered.map((session) => labelOf(session.workspace)).find((label) => label !== undefined) ??
-    labelOf(registration?.workspace) ??
-    UNKNOWN;
+    labelOf(mostRecent?.workspace) ?? labelOf(registration?.workspace) ?? UNKNOWN;
 
   const liveSessionName = ordered
     .filter((session) => deriveSessionState(session, options.asOf) !== "closed")
-    .map((session) => session.name)
-    .find((name) => typeof name === "string" && name.length > 0);
-  const displayName = registration?.name ?? liveSessionName ?? workspaceLabel;
+    .map((session) => nonEmpty(session.name))
+    .find((name) => name !== undefined);
+  const displayName = nonEmpty(registration?.name) ?? liveSessionName ?? workspaceLabel;
 
-  const host =
-    mostRecent?.host ??
-    ordered.map((session) => session.host).find((value) => typeof value === "string") ??
-    // A workspace ref carries the host CLI hint that observed it; it is a hint,
-    // never a path.
-    mostRecent?.workspace?.host ??
-    registration?.workspace?.host ??
-    UNKNOWN;
+  // Declared mapping: the most recent session's host hint, else nothing. A
+  // workspace ref is NOT consulted here — that would be a second reader of the
+  // ref and would break `labelOf`'s choke-point guarantee.
+  const host = nonEmpty(mostRecent?.host) ?? UNKNOWN;
 
+  // Strictly max(heartbeatAt). No mint-time fallback: `createdAt` is not a
+  // sighting, and presenting it as "last seen" would be an unearned freshness
+  // claim.
   const lastSeenMs = ordered.reduce((max, session) => Math.max(max, heartbeatMs(session)), 0);
-  const lastSeen =
-    lastSeenMs > 0 ? new Date(lastSeenMs).toISOString() : (registration?.createdAt ?? "");
+  const lastSeen = lastSeenMs > 0 ? new Date(lastSeenMs).toISOString() : UNKNOWN;
 
   const liveness = rollUpLiveness(
     ordered.map((session) => deriveLiveness(session, options.asOf, options.pushIntervalMs))
@@ -373,11 +459,16 @@ export function buildInstanceDescriptor(
     instanceId,
     displayName,
     host,
-    // Never synthesize a real H2ARole for a missing one (see the field's doc).
-    role: registration?.roles?.[0] ?? UNKNOWN,
+    // Validated against H2A_ROLES on read, and never synthesized for a missing
+    // one (see the field's doc). Whoever wrote the registry, the wire union holds.
+    role: sanitizeRole(registration?.roles?.[0]),
     workspaceLabel,
-    // Declared display list only — never an authorization input (condition #3).
-    capabilities: [...(registration?.capabilities ?? [])],
+    // Declared DISPLAY list, read from `declaredCapabilities` and ALLOWLISTED
+    // against the closed vocabulary — an intersection, never a denylist. The
+    // authority-bearing `capabilities` is deliberately NOT read here: it is the
+    // subagent ceiling and the attestation right, and it must never surface in a
+    // browser panel nor be conflated with a declaration.
+    declaredCapabilities: sanitizeDeclaredCapabilities(registration?.declaredCapabilities),
     lastSeen,
     liveness
   };
@@ -407,7 +498,13 @@ function registrationIndex(
   return index;
 }
 
-/** Presence + registry → `InstanceDescriptor[]`, ordered by `lastSeen` desc. */
+/**
+ * Presence + registry → `InstanceDescriptor[]`, **ordered by `lastSeen`
+ * descending** (most recently seen agent first). The order is part of the
+ * behaviour, not an accident of input order, and is pinned by a test — a
+ * documented behaviour that can be deleted with the suite still green is not a
+ * behaviour. Rows whose `lastSeen` is the sentinel sort last.
+ */
 export function buildInstanceDescriptors(input: BuildFeedInput): InstanceDescriptor[] {
   const index = registrationIndex(input.registrations);
   return instanceIds(input)
@@ -422,7 +519,11 @@ export function buildInstanceDescriptors(input: BuildFeedInput): InstanceDescrip
     .sort((a, b) => (parseIso(b.lastSeen) ?? 0) - (parseIso(a.lastSeen) ?? 0));
 }
 
-/** Presence + registry → `SessionDescriptor[]`, ordered by last activity desc. */
+/**
+ * Presence + registry → `SessionDescriptor[]`, **ordered by `lastActivityAt`
+ * descending** (most recently active session first). Pinned by a test, for the
+ * same reason as {@link buildInstanceDescriptors}.
+ */
 export function buildSessionDescriptors(input: BuildFeedInput): SessionDescriptor[] {
   const index = registrationIndex(input.registrations);
   return input.sessions
