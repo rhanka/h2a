@@ -878,6 +878,8 @@ export * from "./runtime/mcp-http/index.js";
 
 export * from "./runtime/mirror/index.js";
 
+export * from "./runtime/feed/index.js";
+
 export * from "./runtime/reporting/index.js";
 
 export const H2A_CLI_HOSTS = [
