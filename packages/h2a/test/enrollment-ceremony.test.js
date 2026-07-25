@@ -429,6 +429,10 @@ test("the nonce is accepted by POSITIVE SHAPE, not by being under a bound", () =
   // A negative bound accepts everything not yet excluded; a positive shape
   // accepts only what was specified. So these are refused for FAILING THE SHAPE,
   // not for having been enumerated as bad.
+  // VALUE-PINNING, not behaviour-pinning — same limitation, same annotation as in
+  // THE BRACKET below (ceil(257 / 6) is also 43, so a 256→257 edit is bit-identical
+  // and is caught only because the constant is asserted directly). Annotated here too
+  // so no instance of it is left for a reader to mistake for behavioural coverage.
   assert.equal(H2A_ENROLLMENT_NONCE_MIN_BITS, 256);
   assert.equal(H2A_ENROLLMENT_NONCE_MIN_LENGTH, 43, "ceil(256 / 6) base64url chars");
   assert.ok(H2A_ENROLLMENT_NONCE_PATTERN.test(gatewayNonce()));
@@ -458,6 +462,14 @@ test("THE BRACKET: a floor that protects strength, a ceiling that does not claim
   // Four bounds, each with a stated purpose. The floor and the ceiling are
   // different parameters and must not be read as one: the floor speaks about
   // strength, the ceiling only says "beyond this it is not a nonce".
+  // VALUE-PINNING, NOT BEHAVIOUR-PINNING — the FLOOR carries EXACTLY the same
+  // limitation as the ceiling below, annotated identically because an un-annotated
+  // instance of a known limitation is worse than an annotated one: the annotation is
+  // the only thing stopping the next reader inferring behavioural coverage from a
+  // green line. A 256→257 edit is bit-identical in behaviour (ceil(257 / 6) is also
+  // 43), so it is caught here ONLY because the declared value is asserted directly.
+  // That pin is wanted: the declared security parameter is what the architect ruled
+  // on and a silent edit to it should be visible. It is not behavioural coverage.
   assert.equal(H2A_ENROLLMENT_NONCE_MIN_BITS, 256, "floor: security-bearing");
   assert.equal(H2A_ENROLLMENT_NONCE_MIN_LENGTH, 43, "derived: ceil(256 / 6)");
   // VALUE-PINNING, NOT BEHAVIOUR-PINNING — read this green for what it is. A
@@ -699,13 +711,25 @@ test("an INHERITED expiresAt is not a carried field either — the same rule, ge
   // is an error instead — the same rule, a different obligation.
   assertSignableEnrollmentChallenge(withInheritedExpiry(future), Date.now());
 
-  // THE DIRECTION THAT FLIPPED, named so it is not mistaken for a weakening: an
-  // inherited PAST expiresAt used to be refused as expired, and is now ignored. That
-  // refusal was the validator acting on a field the allowlist says is not there —
-  // the same divergence, pointing the other way. Refusing it instead would need an
-  // `in`-style read, which this module rejects by design; the gateway remains the
-  // authority on the TTL (Part B flow step 5a), so nothing security-bearing rests on
-  // it, and an unparseable inherited value can no longer reach Date.parse at all.
+  // THE TWO INPUTS THAT FLIPPED — framed as the carriage rule, which is how they must
+  // be read, because this is the line a future auditor will try to "restore". NOT
+  // "used to refuse, now accepts": an inherited field is not carried, therefore not
+  // present, so the behaviour FOLLOWS FROM THE CARRIAGE RULE and is not a special case
+  // for expiresAt. An inherited PAST expiresAt (once refused as expired) and an
+  // inherited non-string expiresAt (once refused as not an instant) are both simply
+  // absent now. The old refusal was the validator acting on a field the allowlist says
+  // is not there — the same divergence, pointing the other way.
+  //
+  // RESTORING THE REFUSAL MEANS REINTRODUCING A SECOND READER: to refuse an inherited
+  // value you must first read it through the chain. You cannot say "I never read
+  // inherited fields, except to reject them" without being two readers again.
+  //
+  // Security check, on the record because the flip is toward acceptance: agent-side
+  // expiry is ADVISORY and the gateway remains the TTL authority (Part B flow step
+  // 5a); suppressing the advisory check requires ALREADY controlling the challenge
+  // object, and the authoritative server-side check is unaffected. One bypassable
+  // defence-in-depth layer against a party who already owns the input, traded for
+  // eliminating an entire defect class. Full argument at the field in ceremony.ts.
   assertSignableEnrollmentChallenge(
     withInheritedExpiry(new Date(Date.now() - 600_000).toISOString()),
     Date.now()
