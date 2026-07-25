@@ -229,6 +229,7 @@ import {
 import {
   assertSignableEnrollmentChallenge,
   buildEnrollmentProof,
+  listUnusablePrivateKeys,
   type H2AEnrollmentChallenge
 } from "./runtime/enrollment/index.js";
 import { conductorFor } from "./runtime/governance/conductor.js";
@@ -5496,12 +5497,27 @@ function cmdKeysProveControl(
     }
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       streams.stderr.write(
-        "h2a keys prove-control: --challenge must be a JSON object { nonce, expiresAt?, principalSub? }\n"
+        "h2a keys prove-control: --challenge must be a JSON object { nonce, expiresAt? }\n"
+      );
+      return 1;
+    }
+    // MINIMAL DISCLOSURE, enforced at receipt rather than proven absent from the
+    // output. The agent signs a nonce; it has no functional need for the 39-auth
+    // principal's identifier, so it must not receive one — a principal id in an
+    // agent process and context window buys nothing and discloses something.
+    if ("principalSub" in parsed) {
+      streams.stderr.write(
+        "h2a keys prove-control: --challenge carries a principalSub. The agent must not receive a " +
+          "principal identifier: it signs a nonce, and the gateway already knows which session it " +
+          "issued that nonce to. Remove the field and re-run.\n"
       );
       return 1;
     }
     challenge = parsed as H2AEnrollmentChallenge;
   } else if (flags.nonce !== undefined && flags.nonce !== "true") {
+    // `"true"` is `parseFlags`' bare-flag sentinel (`--nonce` with no value), not
+    // a nonce. It is also not a valid nonce under the base64url + 256-bit shape,
+    // so rejecting it here only improves the error message.
     challenge = { nonce: flags.nonce };
   } else {
     streams.stderr.write(
@@ -5525,6 +5541,19 @@ function cmdKeysProveControl(
   warnIfCwdRootFallback(flags, cwd, streams);
   const root = resolveRoot(flags, cwd);
 
+  // NAME A DAMAGED KEY BEFORE MINTING OVER IT. A corrupt, truncated or
+  // passphrase-protected private key does not fail the ceremony: live resolution
+  // silently mints a fresh identity and this verb exits 0 on a brand-new key. The
+  // mint is defensible; doing it silently is not, because it is indistinguishable
+  // from tampering. So say which file is unusable, on stderr, before it happens.
+  for (const path of listUnusablePrivateKeys(root)) {
+    streams.stderr.write(
+      `h2a keys prove-control: WARNING — private key at ${path} exists but cannot be loaded ` +
+        "(corrupt, truncated, or passphrase-protected). If it belongs to the identity you meant to " +
+        "re-prove, a NEW identity will be minted instead and the proof will be for a different key.\n"
+    );
+  }
+
   let result;
   try {
     result = buildEnrollmentProof({ root, host: flags.host, cwd: cwd(), challenge });
@@ -5541,19 +5570,20 @@ function cmdKeysProveControl(
     ok: true,
     instance: result.instance,
     publicKeyFingerprint: result.publicKeyFingerprint,
+    // So a MINT is never silent. `mint` means this run proved a key that did not
+    // exist before — expected after a re-anchor, but also what a damaged key
+    // produces, which is why the stderr warning above names the file.
+    ...(result.identityAction !== undefined ? { identityAction: result.identityAction } : {}),
     // Explicit branch, not a defaulted field: h2a ships no transport at all, so
     // "not attempted" is an established fact about this run.
     submission: { attempted: false, reason: "no-transport-configured" },
     proof: result.proof,
+    signedFields: ["nonce", "instance", "publicKeyPem"],
     authority:
-      "Proof of KEY CONTROL only. It proves this key produced this signature; it proves nothing " +
-      "about what the key may see. The 39-auth principal authorizes, and sentropic mints and " +
-      "stores the binding.",
-    // DISPLAY only, and outside `proof` on purpose: h2a cannot verify a
-    // principal, so no payload of h2a's may appear to assert one.
-    ...(challenge.principalSub !== undefined
-      ? { challengeIssuedToForDisplayOnly: challenge.principalSub }
-      : {})
+      "Proof of KEY CONTROL only. The signature covers every field of the proof except itself, so " +
+      "their provenance is trustworthy — but SIGNED IS NOT AUTHORIZED. It proves this key produced " +
+      "this payload; it proves nothing about what the key may see. The 39-auth principal " +
+      "authorizes, and sentropic mints and stores the binding."
   };
   streams.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
   return 0;
