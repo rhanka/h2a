@@ -497,6 +497,18 @@ export {
 };
 
 export {
+  H2A_COMMAND_GROUPS,
+  H2A_COMMAND_MAP_CORE_FIRST_WORDS,
+  H2A_COMMAND_MAP_RUNTIME_VERBS,
+  buildCommandMap,
+  renderCommandMap,
+  type H2ACommandGroup,
+  type H2ACommandGroupId,
+  type H2ACommandMapEntry,
+  type H2ACommandMapSection
+} from "./cli-command-map.js";
+
+export {
   H2A_CLI_VERB_CONTRACTS,
   H2A_CLI_VERB_CONTRACT_BY_VERB,
   type H2ACliExitCode,

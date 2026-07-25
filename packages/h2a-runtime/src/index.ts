@@ -17,6 +17,11 @@ import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 
 import {
+  applyRuntimeHelpGroups,
+  groupRuntimeHelpItems,
+} from "./cli-help-groups.js";
+
+import {
   attach,
   createRemoteSession,
   getRemoteSession,
@@ -2065,8 +2070,19 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   const program = new Command();
   program
     .name("h2a")
+    // The previous wording ("Wrap a local agent CLI … and expose its session for
+    // h2a attach.") described h2a before the consolidation: it named only the
+    // session-wrapper role and taught nothing about track, harness, focus or the
+    // h2a protocol. See docs/TRANSITION.md § 1. Deliberately NOT claimed here:
+    // that h2a is a native agent (see
+    // docs/specs/2026-07-18-STUDY_h2a-native-agent-and-session-engine.md — an
+    // owner-approved but unshipped change).
     .description(
-      "Wrap a local agent CLI (codex/claude/agy/gemini/mistral) and expose its session for h2a attach.",
+      "The unified sentropic CLI and core: start and return to agent work sessions " +
+        "(local tmux or cluster), coordinate agents over the h2a protocol, and read " +
+        "or record the work — one entry point for the surfaces that used to live in " +
+        "the separate remote and track CLIs. The heavy session runtime loads on " +
+        "demand. h2a runs and coordinates agents; it is not itself an agent.",
     )
     .version("0.0.0");
 
@@ -8994,6 +9010,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           : `[h2a] lineage ${id} was not suspended (no-op)\n`,
       );
     });
+
+  // Help layout only — assign every top-level command an intention group and
+  // render the groups in the declared order instead of registration order.
+  // Purely presentational: `helpGroup()` and the `groupItems` override touch
+  // nothing but the heading a command is listed under. Dispatch, argv parsing,
+  // exit codes and every `--json` payload are untouched.
+  // `visibleCommands` (not `program.commands`) so Commander's lazily-created
+  // built-in `help` command is grouped too — otherwise it is the lone survivor
+  // of the default `Commands:` heading.
+  applyRuntimeHelpGroups(program.createHelp().visibleCommands(program));
+  program.configureHelp({ groupItems: groupRuntimeHelpItems });
+  program.addHelpText(
+    "after",
+    "\nGrouped map of every h2a command (core + runtime): h2a explain\n",
+  );
 
   await program.parseAsync([...argv]);
   const code = process.exitCode;
