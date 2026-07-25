@@ -49,6 +49,7 @@
   "keys add",
   "keys generate",
   "keys list",
+  "keys prove-control",
   "keys revoke",
   "loop agents",
   "loop attach",

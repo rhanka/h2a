@@ -226,6 +226,11 @@ import {
   H2A_CLI_DECLARED_CAPABILITIES,
   resolveLiveIdentity
 } from "./runtime/identity/index.js";
+import {
+  assertSignableEnrollmentChallenge,
+  buildEnrollmentProof,
+  type H2AEnrollmentChallenge
+} from "./runtime/enrollment/index.js";
 import { conductorFor } from "./runtime/governance/conductor.js";
 import { appendConductorClaim } from "./runtime/governance/claims.js";
 import { conductorLaunchCheck } from "./runtime/governance/launch-check.js";
@@ -5414,6 +5419,146 @@ function cmdKeysRevoke(
   return 0;
 }
 
+/**
+ * `h2a keys prove-control` — the OWNER-facing half of the principal↔agent
+ * enrollment ceremony (Part B of the session-exposure feed contract ratified
+ * 2026-07-24; step 3 of the P1 joint plan).
+ *
+ * The verb is named for what it does and only what it does: it PROVES CONTROL
+ * of the live agent key over a gateway-issued challenge. It does not "enroll"
+ * anything, because h2a cannot — the 39-auth principal is the authorizing
+ * authority and sentropic mints the binding record. Naming this `enroll` would
+ * misstate the authority model in the one place the owner reads it.
+ *
+ * It makes NO network call. The proof is printed for the owner to hand to the
+ * gateway (which requires an active FIRST-PARTY session — deliberately not
+ * reachable by a bearer token). Nothing is stored: no binding, no challenge,
+ * no proof.
+ */
+function cmdKeysProveControl(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  if (!flags.host) {
+    streams.stderr.write(
+      "h2a keys prove-control: --host <codex|claude|gemini|agy|hermes|opencode|remote> is required\n"
+    );
+    return 1;
+  }
+  if (
+    !["codex", "claude", "gemini", "agy", "hermes", "opencode", "remote"].includes(flags.host)
+  ) {
+    streams.stderr.write(
+      `h2a keys prove-control: unknown --host "${flags.host}". Supported: codex, claude, gemini, agy, hermes, opencode, remote.\n`
+    );
+    return 1;
+  }
+  // A NAMED instance-id ROTS. A stale recorded mapping has already sent work to
+  // the wrong instance in this project, and the 2026-06-07 identity re-anchor
+  // means yesterday's id names yesterday's key. The ceremony therefore resolves
+  // the LIVE identity itself, every run — so an override is refused loudly
+  // rather than quietly honoured.
+  if (flags.instance !== undefined) {
+    streams.stderr.write(
+      "h2a keys prove-control: --instance is refused. The ceremony must prove the key that is LIVE " +
+        "now, so the identity is resolved at run time; a recorded id would name a key that may " +
+        "already have been re-anchored away. Re-run `h2a connect` if the live identity is wrong.\n"
+    );
+    return 1;
+  }
+
+  if (flags.nonce !== undefined && flags.challenge !== undefined) {
+    streams.stderr.write(
+      "h2a keys prove-control: pass either --nonce <value> or --challenge <json-file>, not both\n"
+    );
+    return 1;
+  }
+
+  let challenge: H2AEnrollmentChallenge;
+  if (flags.challenge !== undefined) {
+    let raw: string;
+    try {
+      raw = readFileSync(flags.challenge, "utf8");
+    } catch (error) {
+      streams.stderr.write(
+        `h2a keys prove-control: cannot read --challenge (${(error as Error).message})\n`
+      );
+      return 1;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      streams.stderr.write(
+        `h2a keys prove-control: --challenge is not valid JSON (${(error as Error).message})\n`
+      );
+      return 1;
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      streams.stderr.write(
+        "h2a keys prove-control: --challenge must be a JSON object { nonce, expiresAt?, principalSub? }\n"
+      );
+      return 1;
+    }
+    challenge = parsed as H2AEnrollmentChallenge;
+  } else if (flags.nonce !== undefined && flags.nonce !== "true") {
+    challenge = { nonce: flags.nonce };
+  } else {
+    streams.stderr.write(
+      "h2a keys prove-control: --nonce <value> or --challenge <json-file> is required " +
+        "(the gateway issues it to your authenticated session)\n"
+    );
+    return 1;
+  }
+
+  // The challenge is the caller's input, so a bad one is a USER error (exit 1);
+  // a broken local key state is a STATE error (exit 2). Classified by checking
+  // the two separately, never by matching on an error string.
+  try {
+    assertSignableEnrollmentChallenge(challenge, Date.now());
+  } catch (error) {
+    streams.stderr.write(`h2a keys prove-control: ${(error as Error).message}\n`);
+    return 1;
+  }
+
+  const cwd = streams.cwd ?? (() => process.cwd());
+  warnIfCwdRootFallback(flags, cwd, streams);
+  const root = resolveRoot(flags, cwd);
+
+  let result;
+  try {
+    result = buildEnrollmentProof({ root, host: flags.host, cwd: cwd(), challenge });
+  } catch (error) {
+    streams.stderr.write(`h2a keys prove-control: ${(error as Error).message}\n`);
+    return 2;
+  }
+
+  // Deliberately PATH-FREE output. This envelope exists to be copied into a
+  // browser, so it holds no `root`, no key path and no private key — the same
+  // discipline the feed applies to its descriptors, applied to the one h2a
+  // output whose purpose is to leave the machine.
+  const envelope: Record<string, unknown> = {
+    ok: true,
+    instance: result.instance,
+    publicKeyFingerprint: result.publicKeyFingerprint,
+    // Explicit branch, not a defaulted field: h2a ships no transport at all, so
+    // "not attempted" is an established fact about this run.
+    submission: { attempted: false, reason: "no-transport-configured" },
+    proof: result.proof,
+    authority:
+      "Proof of KEY CONTROL only. It proves this key produced this signature; it proves nothing " +
+      "about what the key may see. The 39-auth principal authorizes, and sentropic mints and " +
+      "stores the binding.",
+    // DISPLAY only, and outside `proof` on purpose: h2a cannot verify a
+    // principal, so no payload of h2a's may appear to assert one.
+    ...(challenge.principalSub !== undefined
+      ? { challengeIssuedToForDisplayOnly: challenge.principalSub }
+      : {})
+  };
+  streams.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
+  return 0;
+}
+
 function cmdConnect(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -6600,7 +6745,10 @@ export function runCli(
     if (sub === "add") return cmdKeysAdd(subFlags, streams);
     if (sub === "list") return cmdKeysList(subFlags, streams);
     if (sub === "revoke") return cmdKeysRevoke(subFlags, streams);
-    streams.stderr.write(`h2a keys: unknown subcommand "${sub ?? ""}" (generate, add, list, revoke)\n`);
+    if (sub === "prove-control") return cmdKeysProveControl(subFlags, streams);
+    streams.stderr.write(
+      `h2a keys: unknown subcommand "${sub ?? ""}" (generate, add, list, revoke, prove-control)\n`
+    );
     return 1;
   }
 

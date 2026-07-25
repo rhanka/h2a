@@ -884,6 +884,11 @@ export * from "./runtime/mirror/index.js";
 
 export * from "./runtime/feed/index.js";
 
+// Part B of the same ratified contract: the agent side of the principal↔agent
+// enrollment ceremony. Proof of key control only — the binding record, the
+// challenge endpoint and every authorization decision stay sentropic's.
+export * from "./runtime/enrollment/index.js";
+
 export * from "./runtime/reporting/index.js";
 
 export const H2A_CLI_HOSTS = [

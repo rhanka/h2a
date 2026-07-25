@@ -669,6 +669,11 @@ function buildHappyArgv(verb, ctx) {
     }
     case "keys list":
       return ["keys", "list", "--root", root, "--instance", "agent-001"];
+    case "keys prove-control":
+      // Resolves the LIVE identity in this temp root (minting the keypair on the
+      // way) and signs the simulated challenge. No network: the verb has no
+      // transport at all.
+      return ["keys", "prove-control", "--root", root, "--host", "claude", "--nonce", "contract-nonce"];
     case "keys revoke": {
       // Add a key first so there is an active key to revoke.
       const { publicKey } = generateKeyPairSync("ed25519");
@@ -908,6 +913,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "keys add",
     "keys list",
     "keys revoke",
+    "keys prove-control",
     "nhi report",
     "nhi inventory",
     "nhi attest",
