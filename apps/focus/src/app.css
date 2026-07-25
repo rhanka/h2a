@@ -25,3 +25,31 @@ body {
   background: var(--st-color-surface-sunken, var(--st-color-surface-base, #f4f5f7));
   color: var(--st-color-text-primary, var(--st-color-text, #1c2024));
 }
+
+/* ---------------------------------------------------------------------------
+   Consumer-side correction of the design-system AppShell at mobile widths.
+
+   `@sentropic/design-system-svelte`'s AppShell styles `.st-appShell__main` with
+   `flex: 1 1 0` (a zero flex-basis) for a body laid out as a flex ROW, where the
+   basis applies on the inline axis and the block size comes from stretching.
+   Its own `@media (max-width: 48rem)` rule then switches `.st-appShell__body`
+   to `flex-flow: column`, which moves the main axis to the BLOCK direction — so
+   `flex-basis: 0` combined with `min-block-size: 0` and `overflow: auto` turns
+   `main` into a 0-px-tall scrollport holding the entire page. Measured on
+   /dossier/agent-memory before this rule: main height 0 px with scrollHeight
+   6617–9323 px, document scrollHeight == clientHeight (720), window.scrollTo
+   leaving scrollY at 0 — a blank, unscrollable page at every width <= 768 px.
+
+   Restoring a content-derived basis on the block axis is enough; grow/shrink,
+   overflow and every desktop value are left exactly as the DS sets them (at
+   >= 769 px this rule does not apply at all). Done from the consumer by
+   specificity (0,3,0 beats the component's scoped 0,2,0), the same way
+   `--st-component-field-maxWidth` is overridden for the dossier note field —
+   the component is never forked, and node_modules is never edited. Remove this
+   rule once the design system ships the block-axis fix upstream.
+   --------------------------------------------------------------------------- */
+@media (max-width: 48rem) {
+  .st-appShell .st-appShell__body > .st-appShell__main {
+    flex-basis: auto;
+  }
+}
