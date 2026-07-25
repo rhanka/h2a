@@ -1,0 +1,37 @@
+{
+  "dossier": "agent-memory",
+  "revision": "agent-memory-2026-07-24",
+  "capturedAt": "2026-07-25",
+  "capturedFrom": "owner, first pass over the dossier at /dossier/agent-memory",
+  "status": "direction, not ratified",
+  "answers": {
+    "D1": {
+      "option": "hybride",
+      "note": "Zep/Graphiti ressemble a ce qu'on fait avec graphify. on pourrait donc utiliser a la fois graphify pour la mémoire d'archive et la capture vivante. cependant tu ne m'as pas présenté comment hermes fait ou d'autres, il faut plus de détail"
+    },
+    "D2": {
+      "option": "graphe-ontologique-corpus",
+      "note": "J'aimerais une approche hybride de graphe entre ontology et bi-temporel - la bi-temporalité pourrait être une forme de gestion de mémoire longue au dela de la journée ou simplement du dépassement de contexte (avec des prehook de compaction, l'idéal ?)"
+    },
+    "D3": {
+      "option": "ecriture-gatee",
+      "note": "j'imagine des sessions via h2a focus pour la révision de mémoires."
+    },
+    "D4": {
+      "option": "bi-temporelle",
+      "note": "on repose a maxima sur graphify pour cela (évolution bi temporelle a co-design)"
+    },
+    "D5": {
+      "option": "embarque-local",
+      "note": "il faut pouvoir reposer sur local first et permettre la capitalisation. graphify embarque un backend db et pourrait être configuré pour l'usage d'une tierce db, surtout lorsque h2a devient intégré a sentropic, version web"
+    },
+    "D6": {
+      "option": "crdt-append-log",
+      "note": "j hesite entre 1 et 2. peut être 2 avec opt in 1 dans un deuxieme temps"
+    },
+    "D7": {
+      "option": "activememory-ctx",
+      "note": ""
+    }
+  }
+}
