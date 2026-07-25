@@ -1,6 +1,8 @@
 # h2a → sentropic session-exposure feed — h2a's side of the contract
 
-Status: **DRAFT for architect ratification**, 2026-07-24. Companion to
+Status: **RATIFIED** by the architect 2026-07-24 (see the Ratification
+section at the end), amended 2026-07-25 by the Q1 and SPLIT rulings recorded
+there. Companion to
 `sentropic/spec/SPEC_EVOL_CONNECTOR_ACCOUNT_WORKSPACE_EXPOSURE.md` (the
 "exposure spec"). Scope: **h2a's own surface only** — a read-only,
 principal-scoped presence/sessions feed, plus the principal↔agent enrollment
@@ -37,7 +39,10 @@ interface InstanceDescriptor {
    *  role must never be synthesized into a real H2ARole. */
   readonly role: H2ARole | 'unknown';
   readonly workspaceLabel: string;
-  readonly capabilities: readonly string[];
+  /** SPLIT ruling (2026-07-25): sourced from
+   *  `H2AActorRegistration.declaredCapabilities`, NEVER from the
+   *  authority-bearing `capabilities`. Allowlisted on read. */
+  readonly declaredCapabilities: readonly string[];
   readonly lastSeen: string;          // ISO 8601
   readonly liveness: H2ALivenessState;
 }
@@ -65,11 +70,11 @@ interface SessionDescriptor {
 |---|---|---|
 | `instanceId` | `string` | `H2ASession.instance` / `H2AActorRegistration.instance` — the addressable `host:slug(label):uuid12` handle, frozen at mint (DEC-114, `packages/h2a/src/identity.ts` `deriveInstanceId`). Own-principal's own resource id, so it is shown verbatim (see "opacity boundary" below — this is NOT a counterpart ref). |
 | `displayName` | `string` | `H2AActorRegistration.name` (DEC-114 mutable display name, set at mint or `/rename`), falling back to the most recent live session's `H2ASession.name` (host-native `customTitle`/`thread_name`, WP-6), falling back to `workspaceLabel`. |
-| `host` | `string` | `H2ASession.host` ("claude"/"codex"/"gemini" hint set at session open), most-recent session for that instance. |
+| `host` | `string` | `H2ASession.host` ("claude"/"codex"/"gemini" hint set at session open), most-recent session for that instance, else `'unknown'`. A workspace ref is deliberately NOT consulted: `labelOf` must stay the single reader of a workspace reference for the path-exclusion to be structural. |
 | `role` | `H2ARole \| 'unknown'` | `H2AActorRegistration.roles[0]` (`packages/h2a/src/types.ts` `H2A_ROLES`), else the literal `'unknown'` (Q1 ruling, 2026-07-25 — **never** synthesize a real `H2ARole` for a missing one). **Note**: today `identity/live.ts` `ensureRegistered` hardcodes `roles: ["AGENTS"]` at mint, so the field is emitted but currently shows only one value in practice — not a missing field, a narrow-range one (see Gaps). |
-| `workspaceLabel` | `string` | `H2AWorkspaceRef.label` off `session.workspace` (preferred, per-session-authoritative) falling back to `registration.workspace` (mint-time). **Never** `H2AWorkspaceRef.path`/`launchContext.cwd` — those are filesystem paths and are excluded by design. |
-| `capabilities` | `readonly string[]` | `H2AActorRegistration.capabilities`. **Gap**: always `[]` today (see Gaps §1). |
-| `lastSeen` | `string` (ISO) | `max(H2ASession.heartbeatAt)` across the instance's known sessions, computed by the descriptor builder over `listPresence(root).filter(s => s.instance === instanceId)` (`packages/h2a/src/runtime/local-files/presence.ts`). |
+| `workspaceLabel` | `string` | `H2AWorkspaceRef.label` off `session.workspace` for the **most recent** session (preferred, per-session-authoritative) falling back to `registration.workspace` (mint-time), else `'unknown'`. **Never** `H2AWorkspaceRef.path`/`launchContext.cwd` — those are filesystem paths and are excluded by design. |
+| `declaredCapabilities` | `readonly string[]` | `H2AActorRegistration.declaredCapabilities` — the DECLARED display list, a field kept structurally separate from the authority-bearing `capabilities` (SPLIT ruling, 2026-07-25). **ALLOWLISTED at the read boundary**: intersected with the closed vocabulary, so only known members are emitted. An intersection, never a denylist. |
+| `lastSeen` | `string` (ISO) or `'unknown'` | `max(H2ASession.heartbeatAt)` across the instance's known sessions, computed by the descriptor builder over `listPresence(root).filter(s => s.instance === instanceId)` (`packages/h2a/src/runtime/local-files/presence.ts`). **Strictly that** — never `registration.createdAt`: a mint is not a sighting, and presenting one as "last seen" would be an unearned freshness claim. No parseable heartbeat → `'unknown'`. |
 | `liveness` | `H2ALivenessState` | Derived — see "Liveness/state derivation" below. Best-of across the instance's sessions. |
 
 **`SessionDescriptor`**
@@ -80,8 +85,8 @@ interface SessionDescriptor {
 | `instanceId` | `string` | `H2ASession.instance`. |
 | `topicOrTitle` | `string` | `H2ASession.name` — the DEC-114 per-session mutable display name (host-native `customTitle`/`thread_name`, or `/rename`), falling back to `registration.name`, falling back to `workspace.label`. **Note**: this can diverge from `InstanceDescriptor.displayName` — a session can be renamed independently of its owning instance. |
 | `state` | `'open'\|'idle'\|'closed'` | Derived from `H2ASessionState` + `connectionConfidence` — see below. |
-| `openedAt` | `string` (ISO) | `H2ASession.startedAt`. |
-| `lastActivityAt` | `string` (ISO) | `H2ASession.lastMcpActivityAt` when present (WP-F: proof the MCP channel carried real traffic), else falls back to `H2ASession.heartbeatAt`. The fallback is advisory-only (a live process, not proven channel activity) and MUST be labelled as such by any consumer, never conflated with the proven case. |
+| `openedAt` | `string` (ISO) or `'unknown'` | `H2ASession.startedAt`, validated on read — an unparseable value yields `'unknown'` rather than passing arbitrary text into an ISO-typed field. |
+| `lastActivityAt` | `string` (ISO) or `'unknown'` | Validated on read (unparseable → `'unknown'`). `H2ASession.lastMcpActivityAt` when present (WP-F: proof the MCP channel carried real traffic), else falls back to `H2ASession.heartbeatAt`. The fallback is advisory-only (a live process, not proven channel activity) and MUST be labelled as such by any consumer, never conflated with the proven case. |
 | `counterpartsOpaqueRefs` | `readonly string[]` | **Gap**: no such field/derivation exists on `H2ASession` today. Defaults to `[]` for P1. See Gaps §2 for the proposed derivation + opacity mechanism. |
 
 ### Opacity boundary (non-negotiable)
@@ -386,7 +391,7 @@ and is explicitly not proposed here.
 
 ## Gaps: fields the architect wants that h2a doesn't emit today
 
-### 1. `InstanceDescriptor.capabilities` — always `[]`
+### 1. `InstanceDescriptor.declaredCapabilities` — always `[]` (see the SPLIT ruling)
 
 `H2AActorRegistration.capabilities: string[]` exists and is typed, but
 `identity/live.ts` `ensureRegistered` hard-codes `capabilities: []` at
@@ -394,12 +399,16 @@ mint — nothing populates it today; its only current reader
 (`canAttestComprehension` in `handlers.ts:539`) is an NHI-attestation gate,
 not a descriptive list.
 
-**Proposed minimal addition**: thread an optional `capabilities?: readonly
-string[]` through `ResolveLiveIdentityInput` → `ensureRegistered`, defaulted
-by the host plugin (the Claude/Codex/Gemini skill) to a small static,
-closed vocabulary (e.g. `["h2a.session", "h2a.mcp", "h2a.subagents"]`) at
-registration. Additive, no schema break — the field already exists and is
-already typed `string[]`.
+**Resolution (as implemented, per the SPLIT ruling below)**: thread an optional
+`declaredCapabilities?: readonly string[]` through `ResolveLiveIdentityInput` →
+`ensureRegistered`, defaulted by the caller to a small static, closed vocabulary
+(`["h2a.session", "h2a.mcp", "h2a.subagents"]`; the CLI path declares the first
+two, since subagent support is host-specific and not knowable there), and write
+it to a **new, separate** `H2AActorRegistration.declaredCapabilities` field.
+Additive, no schema break. **NOT** into `capabilities` — that field is the
+subagent ceiling and the attestation right; see the SPLIT ruling for why this is
+non-negotiable and why a "don't collide with right strings" invariant does not
+substitute for it.
 
 ### 2. `SessionDescriptor.counterpartsOpaqueRefs` — no source field at all
 
@@ -456,5 +465,18 @@ Architect independently verified the load-bearing grounding (signCanonical/verif
 **Grant-model note (non-blocking)**: `H2APrincipalAgentBinding` is a **sibling** record, NOT a `ConnectorAccountEnrollment` (no `secretRefs`/`accountRef`; a public key is not secret). When the canonical AccessGrant workstream lands, the gateway references the binding by opaque `bindingId`; the binding does not fold into it.
 
 **Q1 ruling on absent sources (architect, 2026-07-25 — architecture/contract-conformance GO given conditional on it)**: a row is **NEVER DROPPED** to hide a missing field (a dropped row is a false negative on presence and collides with the "empty arrays = nothing enrolled" semantic above). The governing principle is instead: **never synthesize a value indistinguishable from a real one.** So `workspaceLabel`/`host` fall back to the literal `'unknown'` (no real label or host hint is `unknown`; it reads as a blank), while `role` is **widened to `H2ARole | 'unknown'`** — synthesizing `'AGENTS'` was rejected because it is a real `H2A_ROLES` member, so once real roles land (PRINCIPAL/CONDUCTOR/CONTROL) an absent role would silently render as a genuine claim of authority with nothing downstream able to tell synthesized from asserted. The instance roll-up ordering `live > idle > stale > closed` is **confirmed**, on the structural ground that `deriveLiveness` decides staleness *before* consulting `deriveConnectionConfidence` — so an `idle` is always fresh knowledge, never absence of it; were that ordering inverted, `stale` would have to dominate. Capabilities need **no backfill** for P1: `[]` on a pre-existing registration is cosmetic, not a correctness or security gap, since the list is display-only (condition #3); the UI renders `[]` as "not declared", never "this agent can do nothing".
+
+**SPLIT ruling on `capabilities` (architect, 2026-07-25 — supersedes the single-field reading of condition #3; the earlier architecture/contract GO was WITHDRAWN pending it)**: `H2AActorRegistration.capabilities` is **authority-bearing** — it is the subagent capability CEILING (`subagents.ts`, a SUBSET check over the whole field, `capabilities-exceed-parent`) and it feeds `canAttestComprehension` (`authority.ts` `H2A_ATTESTER_COMPREHENSION_RIGHT`). A display list must therefore **never** be written into it: doing so widens a privilege ceiling as a side effect of a display feature. The four parts of the ruling:
+
+1. Nothing writes display vocabulary into `capabilities`; it keeps its pre-existing content, so pre-existing authz semantics are untouched.
+2. The registration store gains a separate **`declaredCapabilities`** field carrying the declared display list. The feed reads THAT field, never `capabilities`.
+3. The **wire/descriptor field is named `declaredCapabilities` too** — the whole defect was ambiguity between "display list" and "authz list", so the wire name must carry the non-authoritative semantic itself.
+4. A regression test pins the separation: populating `declaredCapabilities` must change **no** subagent-ceiling outcome and **no** attestation-right outcome.
+
+Explicitly NOT relied upon: the invariant "no display-vocabulary member may ever equal a right string". In the observed failure that invariant **held** — none of `h2a.session`/`h2a.mcp`/`h2a.subagents` is a right string — and the ceiling widened anyway, because the check is a subset over the whole field rather than a lookup of specific strings. An invariant satisfied by the exact case it is meant to stop is not a mitigation: separation of fields is, string choice is not.
+
+**Read-boundary sanitization (same ruling)**: the feed is a boundary of its own and sanitizes there, never assuming an upstream sanitizer — `mirror/accept.ts` authorizes a mirrored registration by key ownership alone without constraining its content, `serve.ts` persists it verbatim, `mcp/handlers.ts` applies a caller-supplied registration, and the store re-validates nothing on read. Two hard constraints: `declaredCapabilities` is filtered by **ALLOWLIST — an intersection with the closed vocabulary, never a denylist** that strips path or PEM markers (a denylist is whack-a-mole and loses to the next encoding); and `role` is **validated against `H2A_ROLES` on read**, anything unrecognized mapped to `'unknown'`, so a `'SUPERADMIN'` planted by any writer can never reach a consumer typed against this contract.
+
+**Shape of the opacity guarantee, stated precisely**: the feed never *sources* a filesystem path or key material into a descriptor, and every field with a declared closed shape (`role`, `declaredCapabilities`, the ISO timestamps, `state`, `liveness`, `activitySource`) is validated on read. It does **not** guarantee that a free-text host-native title (`displayName`/`topicOrTitle`, from Claude `customTitle` / Codex `thread_name` / `/rename`) is benign — no allowlist can constrain free text — so the consumer must escape those like any user content. They are the owner's own agent's names in the owner's own panel, never another principal's data.
 
 **P1 confirmed**: read-only, owner's own `sub`, single per-principal root slice, enrollment ON for that one owner. Full multi-tenant fan-out stays behind ARCH-11 strict (exposure spec §5). Attach = read-only metadata; interactive attach is a separate gated capability.
