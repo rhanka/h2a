@@ -86,8 +86,9 @@ changes. What the daemon adds is only scheduling and failure handling:
   "interval after the last one finished". Slots already in the past are skipped,
   and a small ±10% jitter keeps several agents from hitting one endpoint in
   lockstep.
-- **No overlap.** A push slower than the interval does not stack: the next cycle
-  is skipped rather than queued, and a skipped cycle issues no request.
+- **No overlap.** The daemon awaits each cycle before scheduling the next, so a
+  slow push delays the following beat instead of stacking on it — and the missed
+  beats are then skipped rather than fired back-to-back.
 - **Transient errors keep looping.** A network failure, a 5xx or a 429 is backed
   off exponentially (5s doubling, capped at 5min) and then retried.
 - **A refused key STOPS the daemon.** Repeated 401/403 means the receiving side
@@ -95,6 +96,14 @@ changes. What the daemon adds is only scheduling and failure handling:
   re-anchored and now signs with a different keypair. Retrying cannot fix that,
   so after three backed-off attempts the daemon exits 1 with an explicit
   re-enrollment instruction instead of hammering a server that is saying no.
+- **A refused request also stops it.** Five consecutive non-auth 4xx (a wrong
+  path answering 404, a clock so skewed that every envelope reads expired) exit 1
+  the same way. A looser budget than the auth one, because a stale-sequence
+  rejection can genuinely clear — but not an unbounded one, because a wrong path
+  never will.
+- **An unusable `--url` never starts.** A target that is not a parseable http(s)
+  URL — an unfilled placeholder, a typo — is refused before the first cycle. It
+  would otherwise look like a network failure and be retried forever.
 - **Safe logs.** One JSON status line per cycle on stdout: cycle number,
   outcome, HTTP status, a closed-vocabulary rejection reason, duration, and the
   endpoint reduced to scheme+host+path. Never key material, never a token, never
@@ -104,7 +113,10 @@ changes. What the daemon adds is only scheduling and failure handling:
 
 **This unit ships DISARMED**: `Environment=H2A_MIRROR_PUSH_OFF=1` is active in
 the file, so enabling it as-shipped starts a process that reports itself disabled
-and exits without sending anything. Arming it is a deliberate, separate act.
+and exits 0 — before reading the key file or validating any flag, so unfilled
+placeholders cannot even produce an error. `Restart=on-failure` means that clean
+exit leaves the unit **inactive**, not restarting every 30s. Arming it is a
+deliberate, separate act.
 
 ```sh
 # 1. Copy the unit into your user systemd dir
@@ -115,7 +127,10 @@ cp contrib/systemd/h2a-mirror-push.service ~/.config/systemd/user/
 #    --private-key) and point Environment=H2A_ROOT at the root this agent
 #    actually registers in. `h2a discover --root <root>` lists the instances.
 
-# 3. Enable + start (still a no-op while the kill-switch line is present)
+# 3. Enable + start. While the kill-switch line is present this start is a
+#    no-op: the process says it is disabled and exits 0, so `systemctl --user
+#    status h2a-mirror-push` reads inactive (dead) with a clean exit. That is
+#    the expected state until step 5 — it is not a failure.
 systemctl --user daemon-reload
 systemctl --user enable --now h2a-mirror-push
 
@@ -143,12 +158,18 @@ systemctl --user set-environment H2A_MIRROR_PUSH_OFF=1
 systemctl --user restart h2a-mirror-push
 ```
 
-If the journal ends with `RE-ENROLLMENT IS REQUIRED`, the daemon stopped on
-purpose: enroll this instance's current public key on the receiving side, then
-`systemctl --user restart h2a-mirror-push`. The unit carries
-`RestartPreventExitStatus=1` precisely so that stop is respected — **do not
-remove that line**, or `Restart=always` will turn a deliberate stop back into an
-endless retry loop against a rejecting endpoint.
+A daemon that exits 1 stopped **on purpose** and needs a human act; the last
+journal line says which:
+
+| Message starts with | What to do |
+|---|---|
+| `mirror push STOPPED: the endpoint rejected this instance's signing key` | enroll this instance's current public key on the receiving side, then restart |
+| `mirror push STOPPED: the endpoint rejected this mirror on every attempt` | check `--url` points at the ingester's mirror path, and check this host's clock |
+| `mirror push NOT STARTED: the push target is not a usable http(s) URL` | fill in / fix the `--url` in `ExecStart` |
+
+The unit carries `RestartPreventExitStatus=1` precisely so those stops are
+respected — **do not remove that line**, or systemd will turn a deliberate stop
+back into an endless retry against an endpoint that is saying no.
 
 ## Run it by hand first
 
