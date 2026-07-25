@@ -1,6 +1,6 @@
 {
   "name": "@sentropic/focus-app",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "private": true,
   "description": "Focus / Suivi — human-facing decision-support app for the track backlog, built on the sentropic design system.",
