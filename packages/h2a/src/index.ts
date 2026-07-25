@@ -778,6 +778,8 @@ export {
   readHostSessionName,
   createHostSessionNameRefresher,
   CLAUDE_TITLE_TAIL_BYTES,
+  CODEX_INDEX_TAIL_BYTES,
+  MAX_DISPLAY_NAME_CHARS,
   listBindings,
   findBinding,
   verifyReclaimProof,
