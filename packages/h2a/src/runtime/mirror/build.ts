@@ -13,11 +13,17 @@
  * — so `launchContext.cwd`, the command line, the tmux coordinates, the pid,
  * `workspace.path` and `file://` endpoint uris do not travel. This happens
  * BEFORE signing, so the signature still covers exactly what is transmitted.
+ *
+ * The ENVELOPE is inside that boundary too, which it was not at first. `actor`
+ * is built from the SANITIZED registration by `sanitizeActorForMirror`, not from
+ * the raw registry row — see the note in `sanitize.ts`. The other envelope
+ * fields really are constants, the instance id, or the injected clock.
  */
 import { H2A_PROTOCOL, H2A_VERSION, type H2AEnvelope } from "@sentropic/h2a";
 
 import { listPresence, type LocalStore } from "../local-files/index.js";
 import {
+  sanitizeActorForMirror,
   sanitizePresenceForMirror,
   sanitizeRegistrationForMirror,
   sanitizeSubagentForMirror,
@@ -79,16 +85,23 @@ export function buildInstanceMirror(
     .filter((s) => s.instance === instance)
     .map(sanitizePresenceForMirror);
   const subagents = store.listSubagentsOf(instance).map(sanitizeSubagentForMirror);
+  // Sanitize ONCE and reuse, so the envelope's `actor` is derived from the same
+  // narrowed record the body carries. The actor used to be assembled from `reg`
+  // directly (`role: reg.roles?.[0]`), which put a source record's field on the
+  // wire outside every field plan — the envelope was the one place with no plan
+  // and no ratchet. `sanitizeActorForMirror` takes the MIRRORED registration, so
+  // the raw record is not reachable from it at all.
+  const mirroredReg = sanitizeRegistrationForMirror(reg);
   return {
     protocol: H2A_PROTOCOL,
     version: H2A_VERSION,
     id: `mirror:${instance}:${nowMs}`,
     type: "event",
-    actor: { instance, role: reg.roles?.[0] ?? "AGENTS", scope: "scope:default" },
+    actor: sanitizeActorForMirror(instance, mirroredReg),
     target: { instance },
     body: {
       kind: H2A_MIRROR_BODY_KIND,
-      registrations: [sanitizeRegistrationForMirror(reg)],
+      registrations: [mirroredReg],
       presence,
       seq: nowMs,
       subagents
