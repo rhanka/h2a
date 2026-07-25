@@ -154,7 +154,18 @@ import {
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
-import { buildInstanceMirror, mirrorServerForStore } from "./runtime/mirror/index.js";
+import {
+  buildInstanceMirror,
+  isPushableHttpUrl,
+  mirrorPushGloballyDisabled,
+  mirrorServerForStore,
+  redactEndpoint,
+  runMirrorPushDaemon,
+  MIN_MIRROR_PUSH_INTERVAL_MS,
+  MIRROR_PUSH_INVALID_URL_MESSAGE,
+  MIRROR_PUSH_OFF_ENV,
+  type MirrorPushDaemonOptions
+} from "./runtime/mirror/index.js";
 import {
   recordStop,
   scanDrumbeat,
@@ -349,7 +360,7 @@ export function renderCliHelp(): string {
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a remote mirror-serve [--port <n>] [--host <h>] [--path </h2a/mirror>] [--enrolled-keys-file <json>] [--root <path>]   (EVO-13 instance-mirror ingester; enrolled keys also via H2A_MIRROR_ENROLLED_KEYS base64)",
-    "  h2a remote mirror --url <u> --instance <id> --private-key <pem> [--root <path>]   (push this instance's registration to a remote ingester)",
+    "  h2a remote mirror --url <u> --instance <id> --private-key <pem> [--root <path>] [--interval-ms <n> [--max <n>]]   (push this instance's registration to a remote ingester; ONE-SHOT by default. --interval-ms >= 5000 opts into the live daemon: same payload, repeated on a monotonic beat (15000-30000 recommended), overlap-guarded, backing off on transient errors and STOPPING on repeated 401/403 because re-enrollment is required. Kill-switch: H2A_MIRROR_PUSH_OFF)",
     "  h2a drive --from <instance> --to <instance> --instruction <text> --private-key <pem> [--driver logging|native|local-tmux|headless|auto] [--host <host>] [--root <path>]",
     "  h2a drive receive --to <instance> (--line <signed-line> | --stdin) [--ignore-non-drive] [--root <path>]   (verify-before-act gate for host hooks)",
     "  h2a drive serve --to <instance> --inject-command <command> [--port <n>] [--host <h>] [--path </h2a/drive>] [--root <path>]   (remote verify-before-inject service)",
@@ -2016,11 +2027,42 @@ export async function runMirrorServe(
  * `h2a remote mirror` (EVO-13 P1): build the local instance's own registration
  * mirror, sign it with `--private-key`, and POST it to a remote ingester `--url`.
  * Exit 0 on a 2xx. Async (network) → dispatched from bin.ts.
+ *
+ * ONE-SHOT BY DEFAULT. Passing `--interval-ms <n>` — and only that — opts into
+ * the live daemon (feed-contract P1 step 4a): the identical build → sign → POST
+ * cycle, repeated on a monotonic beat with overlap prevention, transient-error
+ * backoff, and a hard stop on repeated 401/403 (re-enrollment required). With no
+ * `--interval-ms` the code path below is byte-identical to the pre-daemon one.
+ * The global kill-switch `H2A_MIRROR_PUSH_OFF` disables the daemon entirely.
  */
 export async function runMirrorPush(
   flags: Record<string, string>,
-  streams: H2ACliStreams = { stdout: process.stdout, stderr: process.stderr }
+  streams: H2ACliStreams = { stdout: process.stdout, stderr: process.stderr },
+  signal?: AbortSignal,
+  overrides: H2AMirrorPushOverrides = {}
 ): Promise<number> {
+  // OPT-IN GATE, evaluated BEFORE any validation. The daemon exists only for a
+  // caller that explicitly asked for an interval — and on that path the
+  // kill-switch has to be the very first thing that runs, ahead even of the
+  // required-flag presence check. Otherwise a HALF-EDITED unit (placeholders
+  // partly replaced, a `--private-key <path>` pair accidentally dropped) exits 1
+  // and lands in systemd `failed`, while the README promises a disarmed unit is
+  // `inactive (dead)`. Mid-edit is exactly when that promise has to hold.
+  if (flags["interval-ms"] !== undefined) {
+    return runMirrorPushWatch(flags, streams, signal, overrides);
+  }
+  // `--interval-ms=20000` parses as the flag KEY `interval-ms=20000` (this CLI
+  // takes `--flag value`, never `--flag=value`), so the opt-in above would miss
+  // it and this would silently run as a one-shot. Fail loudly instead of
+  // quietly doing something other than what was asked.
+  const equalsForm = Object.keys(flags).find((k) => k.startsWith("interval-ms="));
+  if (equalsForm) {
+    streams.stderr.write(
+      `h2a remote mirror: use "--interval-ms ${equalsForm.slice("interval-ms=".length)}", not "--${equalsForm}" (this CLI does not take --flag=value)\n`
+    );
+    return 1;
+  }
+  // --- one-shot, byte-identical to the pre-daemon path from here down ---
   if (!flags.url || !flags.instance || !flags["private-key"]) {
     streams.stderr.write("h2a remote mirror: --url, --instance and --private-key are required\n");
     return 1;
@@ -2050,6 +2092,118 @@ export async function runMirrorPush(
   }
   streams.stdout.write(`${JSON.stringify({ status: result.status, body: result.body }, null, 2)}\n`);
   return result.status >= 200 && result.status < 300 ? 0 : 1;
+}
+
+/**
+ * Timing/transport seams for the live mirror push, so an integration test can
+ * exercise the real CLI wiring at millisecond speed instead of sleeping through
+ * real backoffs. Same intent as `sendImpl` on the drumbeat relaunchers. Never set
+ * by any production caller — `bin.ts` passes nothing.
+ */
+export type H2AMirrorPushOverrides = Pick<
+  MirrorPushDaemonOptions,
+  "sleep" | "random" | "backoffBaseMs" | "backoffMaxMs" | "authFailureLimit" | "sendImpl" | "now"
+>;
+
+/**
+ * `h2a remote mirror --interval-ms <n>` (feed-contract P1 step 4a): the SAME
+ * one-shot push, live. Reached only from {@link runMirrorPush} when the operator
+ * passed an interval — never by default, never as a side effect.
+ *
+ * Emits one JSON status line per cycle on stdout (no key material, no request or
+ * response body — see `MirrorPushCycleLog`). Exit 0 when it stops cleanly
+ * (SIGTERM, `--max`, or the kill-switch), 1 when it stops because the endpoint
+ * refuses this instance's key and re-enrollment is required.
+ */
+async function runMirrorPushWatch(
+  flags: Record<string, string>,
+  streams: H2ACliStreams,
+  signal?: AbortSignal,
+  overrides: H2AMirrorPushOverrides = {}
+): Promise<number> {
+  // KILL-SWITCH FIRST, before ANY validation and before ANY input is read. A
+  // disabled daemon short-circuits without touching the filesystem and without
+  // judging its own arguments — including whether the required ones are even
+  // present. That is what makes the promise "a disarmed unit is inactive (dead),
+  // not failed" true for a PARTIALLY edited unit, which is the state an operator
+  // is actually in while replacing the placeholders.
+  if (mirrorPushGloballyDisabled(process.env)) {
+    streams.stderr.write(
+      `h2a remote mirror: ${MIRROR_PUSH_OFF_ENV} is set — the live push is disabled, nothing was sent\n`
+    );
+    return 0;
+  }
+  // Armed: now the same required-flag contract as the one-shot applies.
+  if (!flags.url || !flags.instance || !flags["private-key"]) {
+    streams.stderr.write("h2a remote mirror: --url, --instance and --private-key are required\n");
+    return 1;
+  }
+  const intervalMs = Number.parseInt(flags["interval-ms"] ?? "", 10);
+  if (!Number.isInteger(intervalMs) || intervalMs < MIN_MIRROR_PUSH_INTERVAL_MS) {
+    streams.stderr.write(
+      `h2a remote mirror: --interval-ms must be an integer >= ${MIN_MIRROR_PUSH_INTERVAL_MS} (got "${flags["interval-ms"]}")\n`
+    );
+    return 1;
+  }
+  const max = flags.max !== undefined ? Number.parseInt(flags.max, 10) : undefined;
+  if (max !== undefined && (!Number.isInteger(max) || max < 1)) {
+    streams.stderr.write(`h2a remote mirror: --max must be an integer >= 1 (got "${flags.max}")\n`);
+    return 1;
+  }
+  // The one-shot POSTs once and surfaces the transport error; a daemon would
+  // instead classify an unusable --url as a transient failure and retry it
+  // forever (an unfilled placeholder or a typo would look "active (running)"
+  // while pushing nothing). So the daemon form requires a usable http(s) URL
+  // up front and fails fast, like the other pre-flight checks.
+  // Emits the SAME text the library's `config-invalid` stop carries, so the
+  // string an operator greps for in the journal is the one the docs document —
+  // the CLI's fail-fast makes the library branch unreachable in practice, and
+  // two different wordings for one condition would send them looking for a
+  // message that never appears.
+  if (!isPushableHttpUrl(flags.url as string)) {
+    streams.stderr.write(
+      `h2a remote mirror: ${MIRROR_PUSH_INVALID_URL_MESSAGE} (got "${flags.url}")\n`
+    );
+    return 1;
+  }
+  const cwd = streams.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  // The key is read ONCE, at start, and kept only in memory: a rotated key needs
+  // a restart, which a re-enrollment needs anyway.
+  let privateKeyPem: string;
+  try {
+    privateKeyPem = readFileSync(flags["private-key"] as string, "utf8");
+  } catch (error) {
+    streams.stderr.write(`h2a remote mirror: cannot read --private-key (${(error as Error).message})\n`);
+    return 1;
+  }
+  streams.stderr.write(
+    `h2a remote mirror: pushing instance ${flags.instance} to ${redactEndpoint(flags.url as string)} every ${intervalMs}ms (root ${root})\n`
+  );
+  const summary = await runMirrorPushDaemon({
+    root,
+    url: flags.url as string,
+    instance: flags.instance as string,
+    privateKeyPem,
+    intervalMs,
+    ...(max !== undefined ? { max } : {}),
+    ...(signal ? { signal } : {}),
+    ...overrides,
+    onCycle: (line) => {
+      streams.stdout.write(`${JSON.stringify(line)}\n`);
+    }
+  });
+  // Every stop that needs a human act carries its own actionable message and
+  // exits 1, so systemd's RestartPreventExitStatus=1 keeps it stopped instead of
+  // restarting into the same wall.
+  if (summary.message) {
+    streams.stderr.write(`h2a remote mirror: ${summary.message}\n`);
+    return 1;
+  }
+  streams.stderr.write(
+    `h2a remote mirror: stopped (${summary.stopReason}) after ${summary.cycles} cycles, ${summary.ok} accepted\n`
+  );
+  return 0;
 }
 
 function parseLoopRepo(value: string): H2ALoopRepoRef {

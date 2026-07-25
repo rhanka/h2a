@@ -1,0 +1,66 @@
+[Unit]
+Description=h2a live mirror push (session-exposure feed)
+Documentation=https://github.com/rhanka/h2a
+# Pushes this agent's own signed instance mirror (registration + presence) to a
+# remote h2a ingester on a fixed beat, so a hosted read-only surface stays warm
+# for a consumer that only ever pulls. Feed-contract P1 step 4a; the payload and
+# the signed-envelope trust boundary are identical to the one-shot
+# `h2a remote mirror`.
+After=default.target
+
+[Service]
+Type=simple
+# ---------------------------------------------------------------------------
+# THIS UNIT SHIPS DISARMED. It will not push anything until you (a) fill in the
+# three placeholders below and (b) delete the H2A_MIRROR_PUSH_OFF line. Enabling
+# the unit as-shipped starts a process that reports itself disabled and exits 0
+# without reading any input or sending any request; with Restart=on-failure that
+# clean exit leaves the unit inactive rather than restarting every 30s.
+# ---------------------------------------------------------------------------
+#
+# `h2a` must resolve on the user service PATH. If your npm global bin is not on
+# it, replace with the absolute path (the output of `command -v h2a`).
+#
+# Replace ALL THREE placeholders:
+#   --url          the ingester endpoint that accepts your signed mirror
+#   --instance     THIS agent's h2a instance id (`h2a discover --root <root>`)
+#   --private-key  that instance's key, normally <root>/keys/<instance>.key.pem
+#
+# `--interval-ms` is what turns the one-shot push into this daemon. The ratified
+# feed contract asks for 15000-30000; the CLI refuses anything below 5000.
+ExecStart=h2a remote mirror --url REPLACE_WITH_INGESTER_URL --instance REPLACE_WITH_INSTANCE_ID --private-key REPLACE_WITH_PRIVATE_KEY_PATH --interval-ms 20000
+# The h2a root the mirror is built FROM. This MUST match the root where this
+# agent actually registers and heartbeats, or the daemon mirrors an empty
+# registry. Confirm with `h2a discover --root <value>`.
+Environment=H2A_ROOT=%h/h2a-workspace/.h2a
+# GLOBAL KILL-SWITCH, DELIBERATELY ON BY DEFAULT. While this line is present the
+# daemon starts, reports that it is disabled, and exits 0 without sending a
+# single request. Delete it (or set it to 0) only once the instance's CURRENT
+# public key is enrolled on the receiving side — otherwise every push is
+# rejected. Any non-empty, non-0/false value freezes the push.
+Environment=H2A_MIRROR_PUSH_OFF=1
+# on-failure, NOT always: every exit-0 of this daemon is deliberate (kill-switch
+# set, --max reached, or SIGTERM), so restarting on a clean exit would just spin.
+# In particular, while the kill-switch line above is present the process exits 0
+# on every start, and `Restart=always` would restart it every RestartSec forever
+# — a unit that looks permanently unhealthy while doing nothing. Note that this
+# daemon's own deliberate stops all exit 1 and are therefore pinned by
+# RestartPreventExitStatus below; what still restarts is a signal death or an
+# abnormal exit (OOM kill, SIGSEGV) rather than any considered stop.
+Restart=on-failure
+RestartSec=30
+# CRITICAL, DO NOT REMOVE. The daemon exits 1 when a stop needs a human act: the
+# endpoint refused this instance's signing key on every attempt (re-enrollment
+# required), it refused the request itself on every attempt, this root cannot
+# build a mirror for --instance at all, or --url is not a usable http(s)
+# endpoint. No amount of restarting fixes any of those. Without this line a
+# deliberate stop becomes an endless retry against a wall — and, worse, a unit
+# that reports `activating`/`active` while never successfully pushing anything.
+RestartPreventExitStatus=1
+# SIGTERM stops the daemon between cycles rather than mid-request; if a push is
+# in flight, `h2a` gives it a short grace period and then exits regardless, so
+# this timeout is a backstop and not the normal path.
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

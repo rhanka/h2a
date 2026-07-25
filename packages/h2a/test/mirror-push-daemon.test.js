@@ -1,0 +1,924 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  createMirrorPushRunner,
+  isPushableHttpUrl,
+  mirrorPushGloballyDisabled,
+  redactEndpoint,
+  runMirrorPushDaemon,
+  sanitizeForLog,
+  DEFAULT_MIRROR_AUTH_FAILURE_LIMIT,
+  DEFAULT_MIRROR_BUILD_FAILURE_LIMIT,
+  DEFAULT_MIRROR_PUSH_INTERVAL_MS,
+  DEFAULT_MIRROR_REJECT_LIMIT,
+  MIRROR_PUSH_BUILD_FAILED_MESSAGE,
+  MIRROR_PUSH_INVALID_URL_MESSAGE,
+  MIRROR_PUSH_OFF_ENV,
+  MIRROR_PUSH_REENROLLMENT_MESSAGE,
+  MIRROR_PUSH_REJECTED_MESSAGE
+} from "../dist/index.js";
+
+// Feed-contract P1 step 4a — the mirror push as an OPT-IN live daemon.
+// Every test drives an INJECTED clock and an INJECTED transport: no real socket
+// is ever opened here, and no hosted endpoint is ever contacted.
+
+const URL_OK = "https://mirror.example/h2a/mirror";
+const FAKE_KEY = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIFAKEKEYMATERIALdeadbeef\n-----END PRIVATE KEY-----\n";
+
+/** A minimal, syntactically valid mirror envelope stand-in. */
+function fakeEnvelope(nowMs) {
+  return {
+    protocol: "h2a",
+    version: "1.0",
+    id: `mirror:test:${nowMs}`,
+    type: "event",
+    actor: { instance: "host:ws:abc", role: "AGENTS", scope: "scope:default" },
+    target: { instance: "host:ws:abc" },
+    body: { kind: "mirror.instances", registrations: [], seq: nowMs },
+    createdAt: new Date(nowMs).toISOString()
+  };
+}
+
+/**
+ * A fake transport. `responses` is consumed one per call; each entry is either
+ * `{ status, body }` or an Error to throw. The last entry repeats forever.
+ */
+function fakeSender(responses, log = []) {
+  let i = 0;
+  return async (url, envelope, options) => {
+    const spec = responses[Math.min(i, responses.length - 1)];
+    i += 1;
+    log.push({ url, instance: options.by, seq: envelope.body.seq });
+    if (spec instanceof Error) throw spec;
+    return spec;
+  };
+}
+
+/** A deterministic clock a test advances by hand, plus the sleep that drives it. */
+function fakeClock(startMs = 1_000_000) {
+  let t = startMs;
+  return {
+    now: () => t,
+    advance: (ms) => {
+      t += ms;
+    },
+    // The daemon's sleep: instead of waiting, jump the clock forward.
+    sleep: async (ms) => {
+      t += ms;
+    }
+  };
+}
+
+/** Baseline daemon wiring: fake clock, fake transport, no jitter, no env. */
+function daemonOptions(overrides = {}) {
+  const clock = overrides.clock ?? fakeClock();
+  return {
+    clock,
+    options: {
+      root: "/nonexistent-root-never-read",
+      url: URL_OK,
+      instance: "host:ws:abc",
+      privateKeyPem: FAKE_KEY,
+      intervalMs: 20_000,
+      env: {},
+      now: clock.now,
+      sleep: clock.sleep,
+      // random() = 0.5 ⇒ the jitter term is exactly 0, so schedules are exact.
+      random: () => 0.5,
+      buildImpl: fakeEnvelope,
+      ...overrides.options
+    }
+  };
+}
+
+// --- 1. Opt-in / default behavior -------------------------------------------
+
+test("the runner alone is a ONE-SHOT: one cycle, exactly one request", async () => {
+  const sent = [];
+  const runCycle = createMirrorPushRunner({
+    root: "/nope",
+    url: URL_OK,
+    instance: "host:ws:abc",
+    privateKeyPem: FAKE_KEY,
+    now: () => 1_000_000,
+    buildImpl: fakeEnvelope,
+    sendImpl: fakeSender([{ status: 202, body: { ok: true } }], sent)
+  });
+  const result = await runCycle();
+  assert.equal(result.outcome, "ok");
+  assert.equal(result.status, 202);
+  assert.equal(sent.length, 1, "exactly one push for one cycle");
+});
+
+test("the documented default beat sits inside the ratified 15-30s range", () => {
+  assert.ok(DEFAULT_MIRROR_PUSH_INTERVAL_MS >= 15_000);
+  assert.ok(DEFAULT_MIRROR_PUSH_INTERVAL_MS <= 30_000);
+});
+
+// --- 2. The loop actually loops ---------------------------------------------
+
+test("the daemon fires N times on a fake clock and stops at --max", async () => {
+  const sent = [];
+  const { clock, options } = daemonOptions();
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 4,
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }], sent)
+  });
+  assert.equal(summary.cycles, 4, "ran exactly max cycles");
+  assert.equal(summary.ok, 4, "all four accepted");
+  assert.equal(summary.failures, 0);
+  assert.equal(summary.stopReason, "max-cycles");
+  assert.equal(sent.length, 4, "one push per cycle");
+  // Monotonic scheduling with zero jitter ⇒ 3 sleeps of exactly one interval.
+  assert.equal(clock.now(), 1_000_000 + 3 * 20_000, "no drift: cycles land on their slots");
+});
+
+test("a cycle slower than the interval does NOT stack: missed slots are skipped", async () => {
+  // Each push consumes 50s of the fake clock — more than the 20s interval.
+  const { clock, options } = daemonOptions();
+  const slowSender = async () => {
+    clock.advance(50_000);
+    return { status: 200, body: { ok: true } };
+  };
+  const waits = [];
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 3,
+    sendImpl: slowSender,
+    onCycle: (line) => {
+      if (line.nextInMs !== undefined) waits.push(line.nextInMs);
+    }
+  });
+  assert.equal(summary.cycles, 3);
+  assert.equal(summary.ok, 3);
+  // Slots 1 and 2 are already in the past when the 50s cycle ends, so the daemon
+  // waits for the NEXT future slot instead of firing the missed ones back-to-back.
+  for (const w of waits) {
+    assert.ok(w > 0, `overrun cycle still waits for a future slot (got ${w})`);
+    assert.ok(w <= 20_000, `wait never exceeds one interval (got ${w})`);
+  }
+});
+
+// --- 3. Kill-switch ---------------------------------------------------------
+
+test("kill-switch: the daemon sends NOTHING and stops before the first cycle", async () => {
+  const sent = [];
+  const { options } = daemonOptions();
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 5,
+    env: { [MIRROR_PUSH_OFF_ENV]: "1" },
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }], sent)
+  });
+  assert.equal(summary.stopReason, "kill-switch");
+  assert.equal(summary.cycles, 0, "not a single cycle ran");
+  assert.equal(sent.length, 0, "not a single request was issued");
+});
+
+test("kill-switch flipped mid-run freezes the daemon at the next beat", async () => {
+  const sent = [];
+  const env = {};
+  const { options } = daemonOptions();
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 10,
+    env,
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }], sent),
+    onCycle: (line) => {
+      if (line.cycle === 2) env[MIRROR_PUSH_OFF_ENV] = "true";
+    }
+  });
+  assert.equal(summary.stopReason, "kill-switch");
+  assert.equal(summary.cycles, 2, "stopped at the beat after the switch flipped");
+  assert.equal(sent.length, 2);
+});
+
+test("kill-switch parsing matches the H2A_LOOP_AUTOTICK_OFF convention", () => {
+  assert.equal(mirrorPushGloballyDisabled({}), false, "unset ⇒ enabled");
+  assert.equal(mirrorPushGloballyDisabled({ [MIRROR_PUSH_OFF_ENV]: "" }), false);
+  assert.equal(mirrorPushGloballyDisabled({ [MIRROR_PUSH_OFF_ENV]: "0" }), false);
+  assert.equal(mirrorPushGloballyDisabled({ [MIRROR_PUSH_OFF_ENV]: "false" }), false);
+  assert.equal(mirrorPushGloballyDisabled({ [MIRROR_PUSH_OFF_ENV]: "1" }), true);
+  assert.equal(mirrorPushGloballyDisabled({ [MIRROR_PUSH_OFF_ENV]: "yes" }), true);
+});
+
+// --- 4. Overlap prevention --------------------------------------------------
+
+test("overlap prevention: a cycle requested while one is in flight sends nothing", async () => {
+  const sent = [];
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const runCycle = createMirrorPushRunner({
+    root: "/nope",
+    url: URL_OK,
+    instance: "host:ws:abc",
+    privateKeyPem: FAKE_KEY,
+    now: () => 1_000_000,
+    buildImpl: fakeEnvelope,
+    sendImpl: async (url, envelope, options) => {
+      sent.push(options.by);
+      await gate;
+      return { status: 200, body: { ok: true } };
+    }
+  });
+  const first = runCycle();
+  const second = await runCycle(); // while `first` is still blocked on the gate
+  assert.equal(second.outcome, "skipped-overlap");
+  assert.equal(sent.length, 1, "the overlapping cycle issued no request at all");
+  release();
+  assert.equal((await first).outcome, "ok");
+  // Once the first settled, the guard is free again.
+  const third = await runCycle();
+  assert.equal(third.outcome, "ok");
+  assert.equal(sent.length, 2);
+});
+
+// --- 5. Transient errors: backoff, keep looping -----------------------------
+
+test("a network throw backs off and the daemon KEEPS looping", async () => {
+  const { options } = daemonOptions();
+  const lines = [];
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 4,
+    backoffBaseMs: 1_000,
+    sendImpl: fakeSender([
+      new Error("fetch failed"),
+      new Error("fetch failed"),
+      { status: 200, body: { ok: true } },
+      { status: 200, body: { ok: true } }
+    ]),
+    onCycle: (line) => lines.push(line)
+  });
+  assert.equal(summary.stopReason, "max-cycles", "transient errors never stop the daemon");
+  assert.equal(summary.cycles, 4);
+  assert.equal(summary.ok, 2);
+  assert.equal(summary.failures, 2);
+  assert.deepEqual(
+    lines.map((l) => l.outcome),
+    ["transient", "transient", "ok", "ok"]
+  );
+  // Exponential: base after the 1st failure, doubled after the 2nd.
+  assert.equal(lines[0].nextInMs, 1_000);
+  assert.equal(lines[1].nextInMs, 2_000);
+  // Recovery re-anchors on the normal interval.
+  assert.equal(lines[2].nextInMs, 20_000);
+});
+
+test("a 5xx and a 429 are transient; a non-auth 4xx is rejected but keeps looping", async () => {
+  const { options } = daemonOptions();
+  const lines = [];
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 3,
+    backoffBaseMs: 1_000,
+    sendImpl: fakeSender([
+      { status: 503, body: {} },
+      { status: 429, body: {} },
+      { status: 409, body: { ok: false, reason: "replayed" } }
+    ]),
+    onCycle: (line) => lines.push(line)
+  });
+  assert.deepEqual(
+    lines.map((l) => l.outcome),
+    ["transient", "transient", "rejected"]
+  );
+  assert.equal(lines[2].reason, "replayed", "closed-vocabulary reason is surfaced");
+  assert.equal(summary.stopReason, "max-cycles", "none of these stop the daemon");
+  assert.equal(summary.authFailures, 0, "non-auth rejections never spend the auth budget");
+});
+
+// The worst failure shape there is: a wrong H2A_ROOT means buildInstanceMirror
+// throws every cycle, nothing is ever sent, and yet `systemctl status` reads
+// `active (running)` forever — monitoring keyed on systemd state reads GREEN
+// while the feed is dead. A wrong root never self-heals, so it must terminate.
+test("repeated local build failures STOP the daemon instead of idling green forever", async () => {
+  const sent = [];
+  const { options } = daemonOptions();
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 500,
+    backoffBaseMs: 1,
+    buildImpl: () => {
+      throw new Error("mirror: unknown local instance host:ws:abc");
+    },
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }], sent)
+  });
+  assert.equal(summary.stopReason, "build-stop");
+  assert.equal(summary.cycles, DEFAULT_MIRROR_BUILD_FAILURE_LIMIT, "stops at the build budget");
+  assert.equal(summary.buildFailures, DEFAULT_MIRROR_BUILD_FAILURE_LIMIT);
+  assert.equal(sent.length, 0, "nothing was ever pushed");
+  assert.equal(summary.message, MIRROR_PUSH_BUILD_FAILED_MESSAGE);
+  assert.match(summary.message, /H2A_ROOT/, "the message names the likely cause");
+});
+
+test("a build failure that RECOVERS does not stop the daemon", async () => {
+  const { options } = daemonOptions();
+  let calls = 0;
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 5,
+    backoffBaseMs: 1,
+    buildFailureLimit: 3,
+    // Fails twice (an agent still registering), then builds fine.
+    buildImpl: (nowMs) => {
+      calls += 1;
+      if (calls <= 2) throw new Error("mirror: unknown local instance host:ws:abc");
+      return fakeEnvelope(nowMs);
+    },
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }])
+  });
+  assert.equal(summary.stopReason, "max-cycles", "a transient build race must not be fatal");
+  assert.equal(summary.buildFailures, 0, "an accepted push cleared the build budget");
+});
+
+test("a local build failure backs off without issuing any request", async () => {
+  const sent = [];
+  const { options } = daemonOptions();
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 2,
+    backoffBaseMs: 1_000,
+    buildImpl: () => {
+      throw new Error("mirror: unknown local instance host:ws:abc");
+    },
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }], sent)
+  });
+  assert.equal(summary.failures, 2);
+  assert.equal(summary.stopReason, "max-cycles");
+  assert.equal(sent.length, 0, "nothing is pushed when the envelope cannot be built");
+});
+
+// --- 6. Auth failure: backoff, then STOP ------------------------------------
+
+test("repeated 401 backs off then STOPS with the re-enrollment message", async () => {
+  const sent = [];
+  const { options } = daemonOptions();
+  const lines = [];
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    // `max` is deliberately far higher than the auth budget: the stop must come
+    // from the auth rule, not from running out of cycles.
+    max: 500,
+    backoffBaseMs: 1_000,
+    sendImpl: fakeSender([{ status: 401, body: { ok: false, reason: "unauthorized-key" } }], sent),
+    onCycle: (line) => lines.push(line)
+  });
+  assert.equal(summary.stopReason, "auth-stop");
+  assert.equal(summary.cycles, DEFAULT_MIRROR_AUTH_FAILURE_LIMIT, "stops at the auth budget");
+  assert.equal(sent.length, DEFAULT_MIRROR_AUTH_FAILURE_LIMIT, "does NOT hammer the endpoint");
+  assert.equal(summary.message, MIRROR_PUSH_REENROLLMENT_MESSAGE);
+  assert.match(summary.message, /RE-ENROLLMENT IS REQUIRED/);
+  // Backoff DID happen between the attempts before the stop.
+  assert.equal(lines[0].nextInMs, 1_000);
+  assert.equal(lines[1].nextInMs, 2_000);
+  assert.equal(lines[2].nextInMs, undefined, "the final line announces no next cycle");
+  assert.equal(lines[2].reason, "unauthorized-key");
+});
+
+test("a 403 counts the same as a 401", async () => {
+  const { options } = daemonOptions();
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 500,
+    backoffBaseMs: 1,
+    authFailureLimit: 2,
+    sendImpl: fakeSender([{ status: 403, body: {} }])
+  });
+  assert.equal(summary.stopReason, "auth-stop");
+  assert.equal(summary.cycles, 2);
+});
+
+test("an ACCEPTED push clears the auth budget; a transient error does NOT", async () => {
+  const { options } = daemonOptions();
+  // 401, 200 (clears), 401, transient (does not clear), 401 ⇒ 2 consecutive
+  // auth failures ⇒ stop at limit 2, on cycle 5.
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 500,
+    backoffBaseMs: 1,
+    authFailureLimit: 2,
+    sendImpl: fakeSender([
+      { status: 401, body: {} },
+      { status: 200, body: { ok: true } },
+      { status: 401, body: {} },
+      new Error("fetch failed"),
+      { status: 401, body: {} }
+    ])
+  });
+  assert.equal(summary.stopReason, "auth-stop");
+  assert.equal(summary.cycles, 5, "the 200 reset the budget, the transient error did not");
+});
+
+// --- 7. Graceful shutdown ---------------------------------------------------
+
+test("an already-aborted signal stops before any push", async () => {
+  const sent = [];
+  const { options } = daemonOptions();
+  const ac = new AbortController();
+  ac.abort();
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 5,
+    signal: ac.signal,
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }], sent)
+  });
+  assert.equal(summary.stopReason, "aborted");
+  assert.equal(summary.cycles, 0);
+  assert.equal(sent.length, 0);
+});
+
+test("SIGTERM mid-run stops cleanly after the in-flight cycle", async () => {
+  const sent = [];
+  const { options } = daemonOptions();
+  const ac = new AbortController();
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 100,
+    signal: ac.signal,
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }], sent),
+    onCycle: (line) => {
+      if (line.cycle === 2) ac.abort(); // the "SIGTERM"
+    }
+  });
+  assert.equal(summary.stopReason, "aborted");
+  assert.equal(summary.cycles, 2, "no cycle starts after the abort");
+  assert.equal(summary.ok, 2, "the in-flight cycle completed rather than being torn up");
+  assert.equal(sent.length, 2);
+});
+
+// --- 8. Logs never leak secrets --------------------------------------------
+
+test("no key material, token or body ever reaches the status line", async () => {
+  const secretUrl = "https://user:hunter2@mirror.example/h2a/mirror?token=SUPERSECRET";
+  const { options } = daemonOptions();
+  const lines = [];
+  await runMirrorPushDaemon({
+    ...options,
+    url: secretUrl,
+    max: 2,
+    backoffBaseMs: 1,
+    sendImpl: fakeSender([
+      // A transport error that (pathologically) carries the private key and a token.
+      new Error(`connect failed for token=SUPERSECRET using ${FAKE_KEY}`),
+      { status: 200, body: { secretEcho: "SUPERSECRET", note: FAKE_KEY } }
+    ]),
+    onCycle: (line) => lines.push(line)
+  });
+  const rendered = JSON.stringify(lines);
+  assert.ok(!rendered.includes("SUPERSECRET"), "no token in the logs");
+  assert.ok(!rendered.includes("hunter2"), "no URL userinfo in the logs");
+  assert.ok(!rendered.includes("BEGIN PRIVATE KEY"), "no PEM header in the logs");
+  assert.ok(!rendered.includes("FAKEKEYMATERIAL"), "no key bytes in the logs");
+  assert.ok(!rendered.includes("secretEcho"), "no response body in the logs");
+  assert.equal(lines[0].endpoint, "https://mirror.example/h2a/mirror", "endpoint is redacted");
+  // Closed field set: a status line can only ever carry these keys, so no future
+  // field can smuggle a body or a credential into the journal by accident.
+  const allowed = new Set([
+    "at",
+    "authFailures",
+    "buildFailures",
+    "cycle",
+    "durationMs",
+    "endpoint",
+    "error",
+    "instance",
+    "nextInMs",
+    "outcome",
+    "presence",
+    "reason",
+    "registrations",
+    "rejections",
+    "seq",
+    "status",
+    "subagents"
+  ]);
+  for (const line of lines) {
+    for (const key of Object.keys(line)) {
+      assert.ok(allowed.has(key), `status line field "${key}" is not in the safe allowlist`);
+    }
+  }
+  // And it is still USEFUL: the operator-facing essentials are always present.
+  for (const line of lines) {
+    for (const key of ["cycle", "at", "instance", "endpoint", "outcome", "durationMs"]) {
+      assert.ok(key in line, `status line must carry "${key}"`);
+    }
+  }
+});
+
+test("sanitizeForLog and redactEndpoint scrub the known secret shapes", () => {
+  assert.equal(sanitizeForLog(`key is ${FAKE_KEY.trim()} ok`), "key is [redacted-key] ok");
+  // The header rule redacts the whole value, which subsumes the Bearer rule.
+  assert.equal(sanitizeForLog("Authorization: Bearer abc.def-123"), "Authorization: [redacted]");
+  assert.equal(sanitizeForLog("carrying Bearer abc.def-123 inline"), "carrying Bearer [redacted] inline");
+  assert.equal(sanitizeForLog("url?token=abc&x=1"), "url?token=[redacted]&x=1");
+  assert.equal(sanitizeForLog("x".repeat(500)).length, 300, "free-form text is length-capped");
+  assert.equal(redactEndpoint("https://u:p@h.example/p/q?token=t#f"), "https://h.example/p/q");
+  assert.equal(redactEndpoint("not a url"), "[unparseable-url]");
+});
+
+// `sanitizeForLog` is re-exported from @sentropic/h2a, so it is a general-purpose
+// public scrubber, not just this daemon's helper. These four shapes were all
+// passing through UNREDACTED: `\b` does not fire after an underscore (so every
+// `*_token=` / `*_key=` form escaped), Basic was not covered, and URL userinfo in
+// free-form text was untouched.
+test("sanitizeForLog redacts underscore-prefixed credential params", () => {
+  assert.equal(sanitizeForLog("access_token=SECRET"), "access_token=[redacted]");
+  assert.equal(sanitizeForLog("session_key=SECRET"), "session_key=[redacted]");
+  assert.equal(sanitizeForLog("refresh_token=SECRET&x=1"), "refresh_token=[redacted]&x=1");
+  assert.equal(sanitizeForLog("client_secret=SECRET"), "client_secret=[redacted]");
+});
+
+test("sanitizeForLog redacts Basic auth and URL userinfo in free-form text", () => {
+  assert.equal(
+    sanitizeForLog("Authorization: Basic dXNlcjpwYXNzd29yZA=="),
+    "Authorization: [redacted]"
+  );
+  assert.equal(sanitizeForLog("sent Basic dXNlcjpwYXNz inline"), "sent Basic [redacted] inline");
+  assert.equal(
+    sanitizeForLog("connect to https://user:PASSWORD@host.example/p failed"),
+    "connect to https://[redacted]@host.example/p failed"
+  );
+  const scrubbed = sanitizeForLog("https://user:PASSWORD@host.example/p?access_token=T");
+  assert.ok(!scrubbed.includes("PASSWORD"), "no userinfo password survives");
+  assert.ok(!scrubbed.includes("=T"), "no token value survives");
+});
+
+// Round-2 nit: the `name=value` and `Bearer|Basic` rules cannot see a credential
+// delivered as a HEADER, because the delimiter is a colon.
+test("sanitizeForLog redacts header-colon credentials", () => {
+  assert.equal(sanitizeForLog("X-Api-Key: literalsecret"), "X-Api-Key: [redacted]");
+  assert.equal(sanitizeForLog("cookie: sid=abc; auth=def"), "cookie: [redacted]");
+  assert.equal(sanitizeForLog("Set-Cookie: session=abc; HttpOnly"), "Set-Cookie: [redacted]");
+  assert.equal(sanitizeForLog("x-auth-token: abc123"), "x-auth-token: [redacted]");
+  // A harmless header is left readable — the rule must not redact everything.
+  assert.equal(sanitizeForLog("content-type: application/json"), "content-type: application/json");
+});
+
+// --- 9. An unusable --url must never become an infinite retry ---------------
+
+test("a URL fetch cannot parse stops BEFORE the first cycle instead of retrying forever", async () => {
+  const sent = [];
+  const { options } = daemonOptions();
+  // The exact operator scenario: the systemd ExecStart placeholder left unfilled.
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    url: "REPLACE_WITH_INGESTER_URL",
+    max: 500,
+    backoffBaseMs: 1,
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }], sent)
+  });
+  assert.equal(summary.stopReason, "config-invalid");
+  assert.equal(summary.cycles, 0, "not one cycle ran");
+  assert.equal(sent.length, 0, "not one request was issued");
+  assert.equal(summary.message, MIRROR_PUSH_INVALID_URL_MESSAGE);
+  assert.match(summary.message, /not a usable http\(s\) URL/);
+});
+
+test("a non-http scheme is refused the same way", async () => {
+  const { options } = daemonOptions();
+  for (const url of ["file:///tmp/x", "ws://h.example/p", "", "   "]) {
+    const summary = await runMirrorPushDaemon({ ...options, url, max: 5, backoffBaseMs: 1 });
+    assert.equal(summary.stopReason, "config-invalid", `${JSON.stringify(url)} must be refused`);
+  }
+});
+
+test("isPushableHttpUrl accepts only reachable http(s) targets", () => {
+  assert.equal(isPushableHttpUrl("https://h.example/h2a/mirror"), true);
+  assert.equal(isPushableHttpUrl("http://127.0.0.1:8080/h2a/mirror"), true);
+  assert.equal(isPushableHttpUrl("REPLACE_WITH_INGESTER_URL"), false);
+  assert.equal(isPushableHttpUrl("h.example/h2a/mirror"), false);
+  assert.equal(isPushableHttpUrl("file:///tmp/x"), false);
+  assert.equal(isPushableHttpUrl(""), false);
+  assert.equal(isPushableHttpUrl(undefined), false);
+});
+
+// --- 10. A permanently refused REQUEST also stops --------------------------
+
+test("repeated non-auth 4xx stops the daemon instead of looping forever", async () => {
+  const sent = [];
+  const { options } = daemonOptions();
+  // A wrong path answering 404 forever: nothing about retrying can fix it.
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 500,
+    backoffBaseMs: 1,
+    sendImpl: fakeSender([{ status: 404, body: {} }], sent)
+  });
+  assert.equal(summary.stopReason, "reject-stop");
+  assert.equal(summary.cycles, DEFAULT_MIRROR_REJECT_LIMIT, "stops at the reject budget");
+  assert.equal(sent.length, DEFAULT_MIRROR_REJECT_LIMIT, "does NOT hammer the endpoint");
+  assert.equal(summary.message, MIRROR_PUSH_REJECTED_MESSAGE);
+  assert.equal(summary.rejections, DEFAULT_MIRROR_REJECT_LIMIT);
+});
+
+test("the reject budget is looser than the auth one, and an accepted push clears it", async () => {
+  assert.ok(
+    DEFAULT_MIRROR_REJECT_LIMIT > DEFAULT_MIRROR_AUTH_FAILURE_LIMIT,
+    "a self-healing fencing rejection deserves more room than a refused key"
+  );
+  const { options } = daemonOptions();
+  // 404, 404, 200 (clears), 404, 404 ⇒ never 3 consecutive ⇒ runs to --max.
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 5,
+    backoffBaseMs: 1,
+    rejectLimit: 3,
+    sendImpl: fakeSender([
+      { status: 404, body: {} },
+      { status: 404, body: {} },
+      { status: 200, body: { ok: true } },
+      { status: 404, body: {} },
+      { status: 404, body: {} }
+    ])
+  });
+  assert.equal(summary.stopReason, "max-cycles", "the accepted push reset the reject budget");
+  assert.equal(summary.rejections, 2, "counter is CONSECUTIVE, not cumulative");
+});
+
+test("a transient error does NOT clear the reject budget", async () => {
+  const { options } = daemonOptions();
+  // 404, transient, 404 ⇒ 2 consecutive rejections ⇒ stop at limit 2.
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 500,
+    backoffBaseMs: 1,
+    rejectLimit: 2,
+    sendImpl: fakeSender([
+      { status: 404, body: {} },
+      new Error("fetch failed"),
+      { status: 404, body: {} }
+    ])
+  });
+  assert.equal(summary.stopReason, "reject-stop");
+  assert.equal(summary.cycles, 3);
+});
+
+// --- 11. The classifier really never throws --------------------------------
+
+// The runner's contract is "never throws: every failure is classified". A
+// rejection carrying a non-Error used to break that: reading `.message` off it
+// threw, escaped the classifier AND the daemon, and landed in bin.ts's
+// UNSANITIZED fatal handler. Reachable through the public sendImpl seam.
+test("a transport rejecting with a non-Error is classified, not thrown", async () => {
+  for (const thrown of ["a bare string", { code: "ECONNRESET" }, undefined, null, 42]) {
+    const runCycle = createMirrorPushRunner({
+      root: "/nope",
+      url: URL_OK,
+      instance: "host:ws:abc",
+      privateKeyPem: FAKE_KEY,
+      now: () => 1_000_000,
+      buildImpl: fakeEnvelope,
+      sendImpl: async () => {
+        throw thrown;
+      }
+    });
+    const result = await runCycle();
+    assert.equal(result.outcome, "transient", `${String(thrown)} is classified as transient`);
+    assert.equal(typeof result.error, "string", "and carries a string error, never undefined");
+  }
+});
+
+// The residual of the same class: `.message` is not a safe read. A getter that
+// throws — including on a real Error subclass — escaped a guard that only wrapped
+// the String() fallback, so the whole inspection has to be inside the try.
+test("a rejection whose `message` getter THROWS is still classified, not thrown", async () => {
+  class HostileError extends Error {
+    get message() {
+      throw new Error("hostile getter");
+    }
+  }
+  const hostiles = [
+    // A plain object with a throwing getter.
+    {
+      get message() {
+        throw new Error("hostile getter");
+      }
+    },
+    // A real Error subclass with a throwing getter (defeats the instanceof path).
+    new HostileError(),
+    // Throwing getter AND hostile toString (defeats the String() fallback too).
+    {
+      get message() {
+        throw new Error("hostile getter");
+      },
+      toString() {
+        throw new Error("hostile toString");
+      }
+    }
+  ];
+  for (const thrown of hostiles) {
+    const runCycle = createMirrorPushRunner({
+      root: "/nope",
+      url: URL_OK,
+      instance: "host:ws:abc",
+      privateKeyPem: FAKE_KEY,
+      now: () => 1_000_000,
+      buildImpl: fakeEnvelope,
+      sendImpl: async () => {
+        throw thrown;
+      }
+    });
+    // Must RESOLVE with a classification, never reject.
+    const result = await runCycle();
+    assert.equal(result.outcome, "transient");
+    assert.equal(typeof result.error, "string");
+  }
+});
+
+test("a hostile `message` getter does not escape the DAEMON either", async () => {
+  const { options } = daemonOptions();
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 2,
+    backoffBaseMs: 1,
+    sendImpl: async () => {
+      throw {
+        get message() {
+          throw new Error("hostile getter");
+        }
+      };
+    }
+  });
+  assert.equal(summary.stopReason, "max-cycles", "the daemon survived and kept looping");
+  assert.equal(summary.failures, 2);
+});
+
+test("a builder throwing a non-Error is classified, not thrown", async () => {
+  const runCycle = createMirrorPushRunner({
+    root: "/nope",
+    url: URL_OK,
+    instance: "host:ws:abc",
+    privateKeyPem: FAKE_KEY,
+    now: () => 1_000_000,
+    buildImpl: () => {
+      throw "build blew up";
+    },
+    sendImpl: async () => ({ status: 200, body: {} })
+  });
+  const result = await runCycle();
+  assert.equal(result.outcome, "build-failed");
+  assert.equal(result.error, "build blew up");
+});
+
+test("a non-Error rejection does not escape the DAEMON either", async () => {
+  const { options } = daemonOptions();
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 2,
+    backoffBaseMs: 1,
+    sendImpl: async () => {
+      throw { weird: true };
+    }
+  });
+  assert.equal(summary.stopReason, "max-cycles", "the daemon survived and kept looping");
+  assert.equal(summary.failures, 2);
+});
+
+// --- 13. The status line says WHAT was pushed ------------------------------
+
+// A 200 alone cannot distinguish "pushed the mirror" from "successfully pushed
+// nothing": a valid root whose instance has no live sessions sends presence: []
+// every cycle and logs a perfectly healthy ok while the hosted UI stays empty.
+test("the status line carries seq and the payload counts, so an EMPTY push is visible", async () => {
+  const { options } = daemonOptions();
+  const lines = [];
+  // A mirror with a registration but NO presence and NO subagents.
+  const emptyish = (nowMs) => ({
+    ...fakeEnvelope(nowMs),
+    body: { kind: "mirror.instances", registrations: [{ instance: "x" }], presence: [], seq: nowMs }
+  });
+  await runMirrorPushDaemon({
+    ...options,
+    max: 1,
+    buildImpl: emptyish,
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }]),
+    onCycle: (line) => lines.push(line)
+  });
+  assert.equal(lines[0].outcome, "ok");
+  assert.equal(lines[0].registrations, 1);
+  assert.equal(lines[0].presence, 0, "an empty presence push is DISTINGUISHABLE from a full one");
+  assert.equal(lines[0].subagents, 0);
+  assert.equal(typeof lines[0].seq, "number", "seq is reported (the fencing anchor)");
+});
+
+test("the counts reflect a full mirror too, and are reported for a FAILED push", async () => {
+  const { options } = daemonOptions();
+  const lines = [];
+  const full = (nowMs) => ({
+    ...fakeEnvelope(nowMs),
+    body: {
+      kind: "mirror.instances",
+      registrations: [{ instance: "x" }],
+      presence: [{ sessionId: "s1" }, { sessionId: "s2" }],
+      subagents: [{ id: "sub1" }],
+      seq: 4242
+    }
+  });
+  await runMirrorPushDaemon({
+    ...options,
+    max: 2,
+    backoffBaseMs: 1,
+    buildImpl: full,
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }, { status: 503, body: {} }]),
+    onCycle: (line) => lines.push(line)
+  });
+  assert.equal(lines[0].presence, 2);
+  assert.equal(lines[0].subagents, 1);
+  assert.equal(lines[0].seq, 4242);
+  // The shape of what was ATTEMPTED is reported even when the push failed.
+  assert.equal(lines[1].outcome, "transient");
+  assert.equal(lines[1].presence, 2);
+});
+
+// --- 14. A throwing status sink must not kill the pipeline -----------------
+
+// `onCycle` writes to a stream the CALLER owns. Unguarded, a throw escaped the
+// daemon into bin.ts's raw fatal handler and pinned the unit `failed` with a
+// message matching none of the documented stops. Real trigger, from the README's
+// own "run it by hand first": `| head -3` closes the pipe → EPIPE.
+test("a throwing onCycle does not escape the daemon", async () => {
+  const { options } = daemonOptions();
+  let seen = 0;
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 3,
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }]),
+    onCycle: () => {
+      seen += 1;
+      throw new Error("logger blew up");
+    }
+  });
+  assert.equal(summary.stopReason, "max-cycles", "logging failures never break the push loop");
+  assert.equal(summary.ok, 3, "all three cycles still pushed");
+  assert.equal(summary.logFailures, seen, "and the lost log lines are counted, not hidden");
+});
+
+test("a CLOSED stdout (EPIPE) stops the daemon cleanly rather than pushing unobserved", async () => {
+  const { options } = daemonOptions();
+  const summary = await runMirrorPushDaemon({
+    ...options,
+    max: 100,
+    sendImpl: fakeSender([{ status: 200, body: { ok: true } }]),
+    onCycle: () => {
+      const err = new Error("write EPIPE");
+      err.code = "EPIPE";
+      throw err;
+    }
+  });
+  assert.equal(summary.stopReason, "log-unavailable", "a dead sink is a clean stop");
+  assert.equal(summary.message, undefined, "no message ⇒ the CLI exits 0, not systemd `failed`");
+  assert.equal(summary.cycles, 1, "it does not keep pushing into a void");
+  assert.equal(summary.logFailures, 1);
+});
+
+// --- 12. The REAL sleep (no injected scheduler) ----------------------------
+
+// Every other test injects `sleep`, which means the production `delay()` — and
+// with it "abort is honored inside a sleep" — would otherwise be verified by
+// reading only. These two exercise the real timer.
+test("the real (uninjected) delay actually paces cycles", async () => {
+  const { options } = daemonOptions();
+  const { sleep, now, ...noScheduler } = options;
+  const startedAt = Date.now();
+  const summary = await runMirrorPushDaemon({
+    ...noScheduler,
+    intervalMs: 40,
+    max: 3,
+    sendImpl: async () => ({ status: 200, body: { ok: true } })
+  });
+  const elapsed = Date.now() - startedAt;
+  assert.equal(summary.cycles, 3);
+  assert.equal(summary.ok, 3);
+  // Two real sleeps of ~40ms between three cycles (minus up to 10% jitter).
+  assert.ok(elapsed >= 60, `three cycles at 40ms must take real time (took ${elapsed}ms)`);
+});
+
+test("an abort DURING a real sleep wakes it immediately", async () => {
+  const { options } = daemonOptions();
+  const { sleep, now, ...noScheduler } = options;
+  const ac = new AbortController();
+  const startedAt = Date.now();
+  const summary = await runMirrorPushDaemon({
+    ...noScheduler,
+    // A 30s beat: if the abort did not interrupt the real sleep, this test would
+    // hang for 30 seconds instead of returning at once.
+    intervalMs: 30_000,
+    max: 100,
+    signal: ac.signal,
+    sendImpl: async () => ({ status: 200, body: { ok: true } }),
+    // Abort asynchronously, so the signal fires while the real sleep is ALREADY
+    // pending — the abort-listener path, not the already-aborted shortcut.
+    onCycle: () => {
+      setTimeout(() => ac.abort(), 20);
+    }
+  });
+  const elapsed = Date.now() - startedAt;
+  assert.equal(summary.stopReason, "aborted");
+  assert.equal(summary.cycles, 1);
+  assert.ok(elapsed < 5_000, `abort must not wait out the interval (took ${elapsed}ms)`);
+});
