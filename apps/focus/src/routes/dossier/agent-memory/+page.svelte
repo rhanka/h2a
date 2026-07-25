@@ -12,6 +12,7 @@
     SlideIndicator,
     Stack,
     Table,
+    Textarea,
     Tile
   } from '@sentropic/design-system-svelte';
   import type { PageData } from './$types';
@@ -21,11 +22,14 @@
   const matrix = $derived(data.matrix);
   const total = $derived(dossier.decisions.length);
   const storageKey = $derived(`focus:dossier-agent-memory:${dossier.revision}:choix`);
+  const notesKey = $derived(`focus:dossier-agent-memory:${dossier.revision}:notes`);
 
   let current = $state(0);
   let selections = $state<Record<string, string>>({});
+  let notes = $state<Record<string, string>>({});
   let storageReady = $state(false);
   let pointerStart = $state<{ id: number; x: number; y: number } | null>(null);
+  let exportState = $state<'idle' | 'copied' | 'failed'>('idle');
 
   function previous() {
     current = Math.max(0, current - 1);
@@ -41,6 +45,11 @@
     selections = { ...selections, [decisionKey]: optionKey };
   }
 
+  function setNote(decisionKey: string, value: string) {
+    notes = { ...notes, [decisionKey]: value };
+    exportState = 'idle';
+  }
+
   function restoreSelections(value: unknown): Record<string, string> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
     const restored: Record<string, string> = {};
@@ -53,10 +62,23 @@
     return restored;
   }
 
+  /** Ne restaure que des notes rattachées à une décision existante de cette révision. */
+  function restoreNotes(value: unknown): Record<string, string> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const restored: Record<string, string> = {};
+    for (const decision of dossier.decisions) {
+      const note = (value as Record<string, unknown>)[decision.key];
+      if (typeof note === 'string' && note.length > 0) restored[decision.key] = note;
+    }
+    return restored;
+  }
+
   onMount(() => {
     try {
       const saved = window.localStorage.getItem(storageKey);
       if (saved) selections = restoreSelections(JSON.parse(saved));
+      const savedNotes = window.localStorage.getItem(notesKey);
+      if (savedNotes) notes = restoreNotes(JSON.parse(savedNotes));
     } catch {
       // Le dossier reste utilisable même si le navigateur interdit le stockage.
     } finally {
@@ -73,10 +95,57 @@
     }
   });
 
+  $effect(() => {
+    if (!storageReady) return;
+    try {
+      window.localStorage.setItem(notesKey, JSON.stringify(notes));
+    } catch {
+      // Idem : une note non persistée ne doit jamais faire perdre la lecture en cours.
+    }
+  });
+
+  /**
+   * Les notes ne servent à rien si elles restent prisonnières du navigateur : cette
+   * synthèse markdown les rend transmissibles (à une CLI, à Track, à un tiers). Elle
+   * n'enregistre aucune décision — elle recopie ce que le lecteur a écrit.
+   */
+  function buildSummary(): string {
+    const lines = [`# ${dossier.title}`, '', `Révision : ${dossier.revision}`, ''];
+    for (const decision of dossier.decisions) {
+      const selected = decision.options.find((option) => option.key === selections[decision.key]);
+      const note = notes[decision.key]?.trim();
+      lines.push(`## ${decision.key} — ${decision.question}`);
+      lines.push(`- Option retenue : ${selected ? selected.title : '(aucune)'}`);
+      lines.push(`- Note : ${note ? note : '(aucune)'}`);
+      lines.push('');
+    }
+    return lines.join('\n');
+  }
+
+  async function copySummary() {
+    try {
+      await navigator.clipboard.writeText(buildSummary());
+      exportState = 'copied';
+    } catch {
+      exportState = 'failed';
+    }
+  }
+
+  const answeredCount = $derived(
+    dossier.decisions.filter(
+      (decision) => selections[decision.key] || notes[decision.key]?.trim()
+    ).length
+  );
+
   // Une carte de choix reste prioritaire sur le geste de navigation : le
   // viewport ne doit jamais capturer le pointer d'un label/radio/bouton.
   function isInteractiveTarget(target: EventTarget | null): boolean {
-    return target instanceof Element && Boolean(target.closest('button, input, label, a, [role="button"]'));
+    // `textarea` en fait partie : sans lui, glisser pour sélectionner du texte dans
+    // une note ferait défiler la carte et la saisie serait inutilisable.
+    return (
+      target instanceof Element &&
+      Boolean(target.closest('button, input, textarea, label, a, [role="button"]'))
+    );
   }
 
   function onPointerDown(event: PointerEvent) {
@@ -135,7 +204,7 @@
           <Alert
             tone="info"
             title="Support de décision neutre"
-            message="Ce dossier ne préconise aucune option. Chaque carte présente les alternatives avec leur comportement et leur conséquence ; le champ « critère à trancher » nomme ce qu'il faut peser, jamais un choix. La sélection ci-dessous est une note personnelle conservée uniquement dans votre navigateur."
+            message="Ce dossier ne préconise aucune option. Chaque carte présente les alternatives avec leur comportement et leur conséquence ; le champ « critère à trancher » nomme ce qu'il faut peser, jamais un choix. Votre sélection et votre note sont conservées uniquement dans votre navigateur ; utilisez « Copier ma synthèse » pour les transmettre."
           />
 
           <div
@@ -164,7 +233,7 @@
                       <section aria-labelledby={`options-${decision.key}`}>
                         <Stack gap={2}>
                           <h3 id={`options-${decision.key}`}>Alternatives</h3>
-                          <p>Aucune option n’est recommandée par défaut. Une note personnelle est facultative.</p>
+                          <p>Aucune option n’est recommandée par défaut. La sélection est facultative.</p>
                           <Stack gap={2}>
                             {#each decision.options as option (option.key)}
                               <!-- Les choix ne participent jamais au swipe : Tile conserve ainsi
@@ -184,7 +253,7 @@
                                     <Flex align="center" justify="between" wrap gap={2}>
                                       <strong>{option.title}</strong>
                                       {#if option.recommended}<Badge tone="success" size="sm">Recommandée</Badge>{/if}
-                                      {#if selections[decision.key] === option.key}<Badge tone="info" size="sm">Notée</Badge>{/if}
+                                      {#if selections[decision.key] === option.key}<Badge tone="info" size="sm">Sélectionnée</Badge>{/if}
                                     </Flex>
                                     <p>{option.behavior}</p>
                                     <p><strong>Conséquence :</strong> {option.consequence}</p>
@@ -197,6 +266,24 @@
                       </section>
 
                       <Alert tone="info" title="Critère à trancher (neutre)" message={decision.recommendation} />
+
+                      <!-- La saisie ne participe jamais au swipe : sans cette barrière, taper ou
+                           sélectionner du texte ferait défiler la carte. -->
+                      <div
+                        role="presentation"
+                        onpointerdown={(event) => event.stopPropagation()}
+                        onpointerup={(event) => event.stopPropagation()}
+                        onpointercancel={(event) => event.stopPropagation()}
+                      >
+                        <Textarea
+                          label="Votre note"
+                          helperText="Pourquoi ce choix, ce qui manque, ce qu'il faut vérifier. Enregistrée dans votre navigateur au fil de la frappe."
+                          rows={4}
+                          value={notes[decision.key] ?? ''}
+                          oninput={(event) =>
+                            setNote(decision.key, (event.currentTarget as HTMLTextAreaElement).value)}
+                        />
+                      </div>
 
                       <Stack gap={2}>
                         <h3>Prochain travail</h3>
@@ -224,6 +311,31 @@
               Suivante
             </Button>
           </Flex>
+
+          <section aria-labelledby="summary-title">
+            <Stack gap={2}>
+              <h2 id="summary-title">Vos notes</h2>
+              <Flex align="center" justify="between" wrap gap={2}>
+                <span>
+                  {answeredCount} décision(s) sur {total} annotée(s) ou sélectionnée(s).
+                </span>
+                <Button variant="secondary" onclick={copySummary}>Copier ma synthèse</Button>
+              </Flex>
+              {#if exportState === 'copied'}
+                <Alert
+                  tone="success"
+                  title="Synthèse copiée"
+                  message="Vos sélections et vos notes sont dans le presse-papier, en markdown. Collez-les où vous voulez : une CLI, un ticket, un message."
+                />
+              {:else if exportState === 'failed'}
+                <Alert
+                  tone="error"
+                  title="Copie refusée par le navigateur"
+                  message="Le presse-papier n'est pas accessible ici. Vos notes restent enregistrées dans ce navigateur ; sélectionnez-les à la main dans les cartes."
+                />
+              {/if}
+            </Stack>
+          </section>
 
           <section aria-labelledby="matrix-title">
             <Stack gap={2}>
