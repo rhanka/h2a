@@ -12,7 +12,7 @@
 //   - `negotiate sign` with a missing private-key file → exit 3 (I/O error).
 
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -672,8 +672,18 @@ function buildHappyArgv(verb, ctx) {
     case "keys prove-control":
       // Resolves the LIVE identity in this temp root (minting the keypair on the
       // way) and signs the simulated challenge. No network: the verb has no
-      // transport at all.
-      return ["keys", "prove-control", "--root", root, "--host", "claude", "--nonce", "contract-nonce"];
+      // transport at all. The nonce must be a real one — base64url, >=256 bits —
+      // because the verb validates the SHAPE, not just a length bound.
+      return [
+        "keys",
+        "prove-control",
+        "--root",
+        root,
+        "--host",
+        "claude",
+        "--nonce",
+        randomBytes(32).toString("base64url")
+      ];
     case "keys revoke": {
       // Add a key first so there is an active key to revoke.
       const { publicKey } = generateKeyPairSync("ed25519");

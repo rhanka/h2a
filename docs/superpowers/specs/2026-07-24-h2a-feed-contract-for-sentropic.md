@@ -222,21 +222,94 @@ auditable and immediate) as a sibling, h2a-specific record type.
    `sub`.
 3. The owner's local h2a agent — already holding its ed25519 keypair at
    `<root>/keys/<instance>.key.pem` (`identity/live.ts` `ensureKeypair`) —
-   signs the nonce: `signCanonical(nonce, { by: instance, privateKeyPem })`
-   (`packages/h2a/src/signature.ts`). This is the **exact same primitive**
-   already used for reclaim proof-of-possession
-   (`identity/bindings.ts` `provesLocalKey` / `verifyReclaimProof`) — no new
-   crypto, no new key.
+   signs the **canonical composite**
+   `signCanonical({ nonce, instance, publicKeyPem }, { by: instance, privateKeyPem })`
+   (`packages/h2a/src/signature.ts`); see the SIGNED-COMPOSITE amendment below.
+   This is the **exact same primitive** already used for reclaim
+   proof-of-possession (`identity/bindings.ts` `provesLocalKey` /
+   `verifyReclaimProof`) — `signCanonical` already takes `unknown`, so this is
+   the same primitive with a different argument: no new crypto, no new key.
 4. The agent returns `{ nonce, signature, publicKeyPem, instance }` to the
-   gateway.
+   gateway. The challenge it received carries **no `principalSub`** — see the
+   amendment.
 5. Gateway verifies: (a) the nonce is unexpired and was issued to this same
    `sub` (this is the principal's authorizing act — the 39-auth session that
    requested the challenge already IS the authenticated principal; no second
-   human-side signature scheme is needed); (b) `verifyCanonical(nonce,
-   signature, publicKeyPem)` (`packages/h2a/src/signature.ts`) proves key
-   control.
+   human-side signature scheme is needed); (b)
+   `verifyCanonical({ nonce, instance, publicKeyPem }, signature, publicKeyPem)`
+   (`packages/h2a/src/signature.ts`) proves key control. h2a exports
+   `enrollmentProofSignedPayload` and `verifyEnrollmentProof`
+   (`runtime/enrollment/ceremony.ts`) so both lanes verify the same bytes and
+   neither has to guess at key ordering.
 6. On success, gateway **mints a new** `H2APrincipalAgentBinding` row —
    fresh `bindingId`, `state: 'active'`.
+
+#### SIGNED-COMPOSITE amendment (architect, 2026-07-25 — supersedes the bare-nonce signature in steps 3 and 5b above)
+
+The original shape signed the **bare nonce**, leaving `instance` and
+`publicKeyPem` carried but unsigned. The crypto review established that this is
+safe *on its own terms* — the nonce is single-use against a first-party session,
+`principalSub` comes from the session and not the proof, authorization is
+`(principalSub, agentPubKey)`, and `instance` is provenance revalidated live.
+
+**That is exactly the objection.** "It is safe because nothing currently relies
+on `instance`" is a NEGATIVE property: safety derived from the present *absence*
+of a consumer, satisfied by emptiness, and expiring the moment someone adds the
+consumer. The price is asymmetric — cheap now, breaking once the auth lane
+implements.
+
+**The rule, statable and checkable: a proof must attest to everything it
+carries.** The signed composite MUST cover **every field the proof carries
+except the signature itself** — here `{ nonce, instance, publicKeyPem }`. **If a
+field does not deserve signing, remove it from the proof instead**; carrying an
+unsigned field is what is disallowed. A reader sees a signature and reasonably
+infers it covers the payload, so an unsigned-but-present field is a claim wider
+than its evidence — in the one artifact whose whole job is to be exactly as wide
+as its evidence. h2a pins this with a test that derives the covered set from the
+proof's own keys, so adding a field without signing it fails.
+
+**GUARD-RAIL ON THIS RULING, which is part of the ruling: SIGNED ≠ AUTHORIZED.**
+Signing `instance` makes its **provenance** trustworthy. It does **NOT** make
+`instance` an authorization input, and nothing downstream may start treating it
+as one. Authorization remains the ACTIVE-binding lookup on
+`(principalSub, agentPubKey)` with the instance re-resolved live at read time —
+`agentInstanceIdAtBinding` stays "provenance only, NEVER re-used as authority at
+read time" exactly as the Binding record says. This is the same line as
+authorship ≠ authorization, one field further in: a signature widens what you may
+*believe about the payload*, never what the payload may *reach*. A future
+implementer must not "upgrade" a now-signed field into an authz key.
+
+**Structural consequence, recorded because it removes a finding instead of
+guarding against it**: the reclaim proof-of-possession signs a STRING
+(`identity-reclaim:<instance>:<fingerprint>`, fully derivable from public data)
+while enrollment now signs an OBJECT, and `canonicalize` type-tags the two
+differently. So no enrollment signature can ever satisfy `verifyReclaimProof` —
+the signing-oracle collision the review reproduced under the bare-nonce shape is
+**impossible by construction**. h2a therefore ships **no guard** against it and
+a regression test proving the property instead: a guard that cannot fire is a
+defect, not a mitigation.
+
+#### Challenge shape: what the agent receives (amendment, 2026-07-25)
+
+- **`nonce`** — REQUIRED. Specified **positively**: base64url
+  (`[A-Za-z0-9_-]`), **≥256 bits of entropy** (≥43 characters, since base64url
+  packs 6 bits per character). Anything else is refused rather than signed. A
+  negative bound accepts everything not yet excluded; a positive shape accepts
+  only what was specified. h2a additionally keeps a generous pre-parse byte cap
+  (4096 chars) as a cheap DoS guard — that cap is **not** the definition of a
+  nonce. h2a enforces a MINIMUM rather than a fixed length, so a *stronger* nonce
+  from the gateway is never an outage.
+- **`expiresAt`** — OPTIONAL and **advisory**. The gateway remains the authority
+  on the TTL (step 5a). Present, it lets the agent refuse to spend a signature on
+  a challenge it can already see is dead, which can only ever narrow what
+  happens.
+- **`principalSub`** — **MUST NOT be sent to the agent.** The agent signs a
+  nonce; it has no functional need for the principal's identifier, and the
+  gateway already knows which session it issued that nonce to. Shipping one puts
+  a principal id into an agent process and context window for zero benefit.
+  *Minimal disclosure beats verified non-retention* — so h2a enforces this at
+  RECEIPT (`h2a keys prove-control` refuses a challenge document carrying the
+  field) rather than merely proving it absent from the proof.
 
 ### Re-enrollment of a post-re-anchor key (the June-key problem)
 
