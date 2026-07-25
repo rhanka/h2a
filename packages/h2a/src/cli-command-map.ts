@@ -3,10 +3,24 @@
  *
  * WHY THIS EXISTS
  * ---------------
- * `h2a --help` lists its verbs flat, and the lazily-loaded runtime adds 46 more
- * top-level commands of its own. Neither list tells a human which command
- * answers their question. This module groups BOTH surfaces by operator intention
- * and renders one line per group and one line per verb.
+ * The CORE `runCli(["--help"])` lists its verbs flat, and the RUNTIME ENTRYPOINT
+ * adds 46 more top-level commands of its own. Neither list tells a human which
+ * command answers their question. This module covers BOTH sets of verbs in one
+ * grouped map and renders one line per group and one line per verb.
+ *
+ * Precision about which surface renders what, because two things print help and
+ * only one of them is regrouped in place:
+ *
+ * - The RUNTIME ENTRYPOINT'S `--help` renders the intention headings directly
+ *   (see `packages/h2a-runtime/src/cli-help-groups.ts`).
+ * - The CORE `--help` deliberately stays a flat usage reference and points at
+ *   `h2a explain`. It is hand-maintained and already omits 13 frozen verbs, so
+ *   regrouping it would tidy the wrong artifact.
+ * - `h2a explain` — this module — is the only surface that shows BOTH.
+ *
+ * Two groups here are therefore `explain`-ONLY: `WORK` and `SPECIALIST` contain
+ * no runtime commands, so they never appear in the runtime help. They exist
+ * because the core contract's verbs land in them.
  *
  * SOURCE OF THE VOCABULARY
  * ------------------------
