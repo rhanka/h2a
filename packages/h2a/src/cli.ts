@@ -227,9 +227,10 @@ import {
   resolveLiveIdentity
 } from "./runtime/identity/index.js";
 import {
-  assertSignableEnrollmentChallenge,
   buildEnrollmentProof,
+  enrollmentProofSignedPayload,
   listUnusablePrivateKeys,
+  sanitizeEnrollmentChallenge,
   type H2AEnrollmentChallenge
 } from "./runtime/enrollment/index.js";
 import { conductorFor } from "./runtime/governance/conductor.js";
@@ -5501,18 +5502,13 @@ function cmdKeysProveControl(
       );
       return 1;
     }
-    // MINIMAL DISCLOSURE, enforced at receipt rather than proven absent from the
-    // output. The agent signs a nonce; it has no functional need for the 39-auth
-    // principal's identifier, so it must not receive one — a principal id in an
-    // agent process and context window buys nothing and discloses something.
-    if ("principalSub" in parsed) {
-      streams.stderr.write(
-        "h2a keys prove-control: --challenge carries a principalSub. The agent must not receive a " +
-          "principal identifier: it signs a nonce, and the gateway already knows which session it " +
-          "issued that nonce to. Remove the field and re-run.\n"
-      );
-      return 1;
-    }
+    // MINIMAL DISCLOSURE is enforced by the challenge-key ALLOWLIST inside
+    // `assertSignableEnrollmentChallenge` below, not by a check here. A top-level
+    // `"principalSub" in parsed` blocklist used to live at this spot and was
+    // incomplete against its own stated harm: `{ nonce, meta: { principalSub } }`
+    // and `{ nonce, "__proto__": { principalSub } }` both put a principal id into
+    // this process while passing it. The allowlist refuses every field that is
+    // not `nonce` or `expiresAt`, so nesting is unreachable rather than hunted.
     challenge = parsed as H2AEnrollmentChallenge;
   } else if (flags.nonce !== undefined && flags.nonce !== "true") {
     // `"true"` is `parseFlags`' bare-flag sentinel (`--nonce` with no value), not
@@ -5530,8 +5526,12 @@ function cmdKeysProveControl(
   // The challenge is the caller's input, so a bad one is a USER error (exit 1);
   // a broken local key state is a STATE error (exit 2). Classified by checking
   // the two separately, never by matching on an error string.
+  //
+  // `sanitize` both validates (allowlist over own keys) and hands back a FRESH
+  // null-prototype object, so nothing downstream carries a parsed document's own
+  // `"__proto__"` key even by accident.
   try {
-    assertSignableEnrollmentChallenge(challenge, Date.now());
+    challenge = sanitizeEnrollmentChallenge(challenge, Date.now());
   } catch (error) {
     streams.stderr.write(`h2a keys prove-control: ${(error as Error).message}\n`);
     return 1;
@@ -5578,12 +5578,15 @@ function cmdKeysProveControl(
     // "not attempted" is an established fact about this run.
     submission: { attempted: false, reason: "no-transport-configured" },
     proof: result.proof,
-    signedFields: ["nonce", "instance", "publicKeyPem"],
+    // Derived from the proof itself, never a hand-kept list: the signed set is
+    // whatever the proof carries minus the signature.
+    signedFields: Object.keys(enrollmentProofSignedPayload(result.proof)).sort(),
     authority:
-      "Proof of KEY CONTROL only. The signature covers every field of the proof except itself, so " +
-      "their provenance is trustworthy — but SIGNED IS NOT AUTHORIZED. It proves this key produced " +
-      "this payload; it proves nothing about what the key may see. The 39-auth principal " +
-      "authorizes, and sentropic mints and stores the binding."
+      "Proof of KEY CONTROL only. The signature covers every field of the proof except itself — " +
+      "including the versioned `type` tag, so the proof attests what it IS as well as what it " +
+      "carries. But SIGNED IS NOT AUTHORIZED: it proves this key produced this payload; it proves " +
+      "nothing about what the key may see. The 39-auth principal authorizes, and sentropic mints " +
+      "and stores the binding."
   };
   streams.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
   return 0;
