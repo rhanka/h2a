@@ -70,6 +70,22 @@
  * `runtime/identity/bindings.ts` `verifyReclaimProof`). `signCanonical` already
  * takes `unknown`, so signing a composite is the same primitive with a different
  * argument: no new key, no new algorithm, no new file, no extra round-trip.
+ *
+ * ONE EXCEPTION CONSIDERED AND REFUSED — recorded so nobody re-litigates it.
+ * -------------------------------------------------------------------------
+ * A natural-looking proposal is to WARN when a challenge has an inherited
+ * `expiresAt` it does not carry —
+ * `!Object.hasOwn(c, "expiresAt") && "expiresAt" in c` — on the grounds that it is
+ * diagnostic only and never control flow. **It was considered and REFUSED.**
+ *
+ * A diagnostic-only prototype-chain read is exactly the shape of harmless-looking
+ * thing that a later refactor promotes into control flow, and the module's rule is
+ * stronger as an ABSOLUTE — *this module never reads through the prototype chain* —
+ * than as *"never, except for warnings"*. An absolute is verifiable by reading the
+ * file; an exception has to be policed forever. Refusing the exception once is
+ * cheaper than guarding it indefinitely, so it is refused here rather than
+ * admitted and watched. Do not add it back without reopening this with the
+ * approver.
  */
 import { createPrivateKey } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
@@ -679,6 +695,43 @@ function carriedChallengeFields(challenge: H2AEnrollmentChallenge): CarriedChall
   // copied, so nothing downstream can see it. The extra `!== undefined` keeps an
   // own-but-undefined `expiresAt` from becoming a key, preserving the "absent
   // optional stays absent" property of the sanitized object.
+  //
+  // THE FRAMING THIS BEHAVIOUR MUST BE READ IN. Two inputs now pass that once threw:
+  // an inherited PAST `expiresAt` (once refused as expired) and an inherited
+  // non-string `expiresAt` (once refused as not an instant). This is the line a
+  // future auditor will try to "restore", so the correct description is recorded at
+  // the field rather than left to be rediscovered. It is NOT *"used to refuse, now
+  // accepts"*. It is: **an inherited field is not carried, therefore not present; the
+  // behaviour follows from the carriage rule and is not a special case for
+  // `expiresAt`.** Nothing was relaxed about expiry — the set of fields that exist
+  // got smaller, and every rule about expiry still applies in full to every expiry
+  // that is actually there.
+  //
+  // THE CONSEQUENCE OF RESTORING THE REFUSAL, stated explicitly because it is the
+  // whole cost: **restoring the refusal means reintroducing a second reader.** To
+  // refuse an inherited value you must first look at it, and looking at it is a
+  // prototype-chain read of the caller's object — precisely the divergence between
+  // the allowlist and its consumers that this function exists to remove. You cannot
+  // say *"I never read inherited fields, except to reject them"* without being two
+  // readers again. The refusal and the guarantee cannot both be had; this module
+  // keeps the guarantee.
+  //
+  // THE SECURITY CHECK, on the record because this flip is TOWARD ACCEPTANCE and
+  // that direction earns one. The agent-side expiry check is ADVISORY by the
+  // architect's own ruling, and the GATEWAY REMAINS THE TTL AUTHORITY (Part B flow
+  // step 5a). An attacker who suppresses the advisory check by hanging `expiresAt`
+  // on a prototype must ALREADY CONTROL the challenge object, and the authoritative
+  // check is server-side and wholly unaffected by anything reachable from here. So
+  // the trade is: one bypassable defence-in-depth layer, against a party who already
+  // owns the input, in exchange for eliminating an entire defect class — validator
+  // and consumer disagreeing about what a document says.
+  //
+  // THE ASYMMETRY WITH `nonce` IS PRINCIPLED, NOT INCONSISTENT. An inherited `nonce`
+  // throws just above; an inherited `expiresAt` is ignored here. Both fields collapse
+  // *inherited* to *absent* — that is one rule, applied identically. The only thing
+  // that differs is REQUIREDNESS, never the rule: `nonce` is required, so absence is
+  // an error however it arose; `expiresAt` is optional, so absence is legal. Read the
+  // two branches as a single carriage rule meeting two different obligations.
   if (Object.hasOwn(challenge, "expiresAt") && challenge.expiresAt !== undefined) {
     carried.expiresAt = challenge.expiresAt;
   }
