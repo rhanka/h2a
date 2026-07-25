@@ -460,6 +460,11 @@ test("THE BRACKET: a floor that protects strength, a ceiling that does not claim
   // strength, the ceiling only says "beyond this it is not a nonce".
   assert.equal(H2A_ENROLLMENT_NONCE_MIN_BITS, 256, "floor: security-bearing");
   assert.equal(H2A_ENROLLMENT_NONCE_MIN_LENGTH, 43, "derived: ceil(256 / 6)");
+  // VALUE-PINNING, NOT BEHAVIOUR-PINNING — read this green for what it is. A
+  // 1024→1025 edit is bit-identical in behaviour (ceil(1025 / 6) is also 171), so
+  // it is caught here ONLY because the declared value is asserted directly. That
+  // pin is wanted: the stated security parameter is what the architect ruled on and
+  // a silent edit to it should be visible. It is not behavioural coverage.
   assert.equal(H2A_ENROLLMENT_NONCE_MAX_BITS, 1024, "ceiling: SANITY, not security");
   assert.equal(H2A_ENROLLMENT_NONCE_MAX_LENGTH, 171, "derived: ceil(1024 / 6)");
   assert.equal(H2A_ENROLLMENT_MAX_NONCE_LENGTH, 4096, "pre-parse DoS guard only");
@@ -471,19 +476,22 @@ test("THE BRACKET: a floor that protects strength, a ceiling that does not claim
 
   // THE POINT OF A MINIMUM: a STRONGER nonce than specified is accepted, because
   // the issuer does not exist yet and pinning it to one value would turn their
-  // safer choice into our outage. 32B/43ch (the floor), 48B/64ch, 64B/88ch,
+  // safer choice into our outage. 32B/43ch (the floor), 48B/64ch, 64B/86ch,
   // 128B/171ch (the ceiling exactly) all pass.
   for (const bytes of [32, 48, 64, 128]) {
     const nonce = randomBytes(bytes).toString("base64url");
     assert.ok(nonce.length <= H2A_ENROLLMENT_NONCE_MAX_LENGTH, `${bytes}B fits under the ceiling`);
     assertSignableEnrollmentChallenge({ nonce }, 1000);
   }
-  // Arithmetic worth pinning because it was misstated during review as 88: a
-  // 64-byte nonce is 86 base64url chars, not 88. So a 512-bit/86-char ceiling
-  // would sit EXACTLY on it, leaving zero headroom — every nonce above 64 bytes
-  // rejected by a bound that was never meant to bound entropy. That is the reason
-  // the ceiling is 1024 bits, and the corrected number does not weaken it.
+  // Arithmetic worth pinning because the comment justifying the ceiling misstated
+  // it as 88: a 64-byte nonce is 86 base64url chars, not 88. A 512-bit ceiling
+  // derives to ceil(512 / 6) = 86 too, so it would land EXACTLY on such a nonce and
+  // ACCEPT it — "512 would reject a 64-byte nonce" was never true. The real
+  // objection to 512 is zero margin: the very next byte of issuer entropy, or
+  // padding it does not strip, would breach a bound never meant to bound entropy.
+  // 1024 buys the margin; the corrected number does not weaken the choice.
   assert.equal(randomBytes(64).toString("base64url").length, 86);
+  assert.equal(Math.ceil(512 / 6), 86, "a 512-bit ceiling would sit flush on a 64-byte nonce");
 
   // Over the ceiling: refused as NOT-A-NONCE, and the message says so explicitly
   // rather than implying an entropy judgement.
@@ -652,6 +660,135 @@ test("the allowlist uses OWN KEYS, not `in`, so an inherited name is not mistake
     () => assertSignableEnrollmentChallenge(inherited, 1000),
     /carries no nonce/,
     "an inherited nonce is not a carried nonce"
+  );
+});
+
+test("an INHERITED expiresAt is not a carried field either — the same rule, generalised", () => {
+  // THE GENERALISATION THE FIRST FIX MISSED, and the reviewer's exact reproduction.
+  // `nonce` was guarded with `Object.hasOwn`; `expiresAt` was still read THROUGH the
+  // prototype chain by the validator, and the sanitizer copied the inherited value
+  // IN as an own field. An allowlist is only as strong as the accessor the consumer
+  // uses after it, and a rule applied to one of two allowlisted fields is a habit
+  // rather than a guarantee.
+  const future = new Date(Date.now() + 600_000).toISOString();
+  const withInheritedExpiry = (expiresAt) => {
+    const challenge = Object.create({ expiresAt });
+    challenge.nonce = NONCE;
+    return challenge;
+  };
+
+  // The trap, stated explicitly: the allowlist sees only `nonce`, while plain
+  // property access happily reads the inherited value.
+  const trap = withInheritedExpiry(future);
+  assert.deepEqual(Object.keys(trap), ["nonce"], "it carries only a nonce");
+  assert.equal(trap.expiresAt, future, "the trap: property access reads through the chain");
+  assert.equal(Object.hasOwn(trap, "expiresAt"), false, "but it is not a carried field");
+
+  // THE FIX. This is the assertion that failed before it: the inherited value was
+  // copied in and `Object.hasOwn(clean, "expiresAt")` came back true.
+  const clean = sanitizeEnrollmentChallenge(withInheritedExpiry(future), Date.now());
+  assert.equal(
+    Object.hasOwn(clean, "expiresAt"),
+    false,
+    "an inherited expiresAt must NOT be copied in as an own field"
+  );
+  assert.deepEqual(Object.keys(clean), ["nonce"], "only carried fields survive sanitize");
+
+  // The challenge is ACCEPTED, because `expiresAt` is optional: a field the document
+  // does not carry is ABSENT, not invalid. `nonce` is required, so an inherited one
+  // is an error instead — the same rule, a different obligation.
+  assertSignableEnrollmentChallenge(withInheritedExpiry(future), Date.now());
+
+  // THE DIRECTION THAT FLIPPED, named so it is not mistaken for a weakening: an
+  // inherited PAST expiresAt used to be refused as expired, and is now ignored. That
+  // refusal was the validator acting on a field the allowlist says is not there —
+  // the same divergence, pointing the other way. Refusing it instead would need an
+  // `in`-style read, which this module rejects by design; the gateway remains the
+  // authority on the TTL (Part B flow step 5a), so nothing security-bearing rests on
+  // it, and an unparseable inherited value can no longer reach Date.parse at all.
+  assertSignableEnrollmentChallenge(
+    withInheritedExpiry(new Date(Date.now() - 600_000).toISOString()),
+    Date.now()
+  );
+  assertSignableEnrollmentChallenge(withInheritedExpiry(12_345), Date.now());
+
+  // A CARRIED expiry is still honoured in both directions — the fix narrows what is
+  // read, not what an actual expiry means.
+  assertSignableEnrollmentChallenge({ nonce: NONCE, expiresAt: future }, Date.now());
+  assert.throws(
+    () =>
+      assertSignableEnrollmentChallenge(
+        { nonce: NONCE, expiresAt: new Date(1000).toISOString() },
+        2000
+      ),
+    /expired at/,
+    "a carried expiry is still enforced"
+  );
+});
+
+test("the SIGNED nonce is read off the sanitized copy, not off the caller's object", () => {
+  // Validation and consumption must read ONE object. Signing used to read
+  // `input.challenge.nonce`, which was own only because the validator had already
+  // rejected an inherited nonce — correct by ORDERING, not by construction. It now
+  // reads the null-prototype copy, so no ordering can reintroduce the divergence.
+  const identity = fakeIdentity();
+  const challenge = Object.create({ expiresAt: new Date(Date.now() + 600_000).toISOString() });
+  challenge.nonce = NONCE;
+
+  const proof = signEnrollmentChallenge({ challenge, identity, now: () => Date.now() });
+  assert.equal(proof.nonce, NONCE, "the carried nonce is what got signed");
+  assert.ok(verifyEnrollmentProof(proof), "and the proof still verifies");
+  // The inherited field reached neither the proof nor the signed payload.
+  assert.deepEqual(
+    Object.keys(enrollmentProofSignedPayload(proof)).sort(),
+    ["instance", "nonce", "publicKeyPem", "type"],
+    "no inherited field can ride into the signed payload"
+  );
+});
+
+test("VALIDATE-THEN-REREAD is a TOCTOU: the nonce is read ONCE and the read value is signed", () => {
+  // This is what makes "read off the sanitized copy" a BEHAVIOUR rather than a
+  // structural nicety. Own-ness alone does not make a field stable: an own
+  // ENUMERABLE GETTER passes `Object.keys` and `Object.hasOwn` and can still answer
+  // differently on a second read. So a validator that checks the caller's object and
+  // a signer that re-reads it are checking one value and signing another — a nonce
+  // that would have been REFUSED gets signed, with a perfectly valid signature over
+  // it. Reading once into the null-prototype copy is what closes that window.
+  //
+  // Not reachable from a `JSON.parse` document (which has only plain data
+  // properties); this pins the read-once discipline on the library path.
+  const identity = fakeIdentity();
+  const REFUSABLE = "!!not-base64url-and-far-too-short!!";
+  let reads = 0;
+  const challenge = {};
+  Object.defineProperty(challenge, "nonce", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      reads += 1;
+      return reads === 1 ? NONCE : REFUSABLE;
+    }
+  });
+
+  // The trap is real: the allowlist and the own-ness check both accept this object.
+  assert.deepEqual(Object.keys(challenge), ["nonce"]);
+  assert.ok(Object.hasOwn(challenge, "nonce"));
+
+  const proof = signEnrollmentChallenge({ challenge, identity, now: () => Date.now() });
+  assert.equal(reads, 1, "the challenge nonce is read exactly ONCE, then never again");
+  assert.equal(proof.nonce, NONCE, "what was validated is what was signed");
+  assert.notEqual(proof.nonce, REFUSABLE, "a second-read value must never reach the proof");
+  assert.ok(verifyEnrollmentProof(proof));
+
+  // And the same object sanitized yields a STABLE plain value, not a live getter.
+  reads = 0;
+  const clean = sanitizeEnrollmentChallenge(challenge, Date.now());
+  assert.equal(clean.nonce, NONCE);
+  assert.equal(clean.nonce, NONCE, "re-reading the sanitized copy cannot change the answer");
+  assert.equal(
+    Object.getOwnPropertyDescriptor(clean, "nonce").get,
+    undefined,
+    "the copy holds a value, not an accessor"
   );
 });
 
