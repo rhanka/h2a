@@ -115,15 +115,26 @@ checkpoints hold; a failing CRITICAL checkpoint blocks the release.
 
 ### G. Theme and viewport
 - G1. Readable in both light and dark theme; no hardcoded colors (design-system tokens only).
+  **The light/dark half is currently not satisfiable and must not be scored as a pass**: the app pins a
+  single hardwired theme (`<ThemeProvider theme={entropicTheme}>` in `src/routes/+layout.svelte`) and the
+  served CSS contains **0** `prefers-color-scheme` rules, so emulating a dark OS preference changes no
+  measured colour. Report it as a missing capability (a Focus/design-system gap), not as a checkpoint
+  failure of whatever change is under test. Only the token half — zero hardcoded colour literals — is
+  scoreable today.
 - G2. Usable at a narrow mobile width: no horizontal body scroll, controls reachable, note usable.
 
 ## Gates for a Focus release
 
 - `npm run lint`, `npm run check`, `npm run build` in `apps/focus` all pass.
-- Known pre-existing `npm run check` errors, unrelated to the dossier: two in
-  `src/lib/track-model.ts` (`@sentropic/track/report/friendly` unresolved when `@sentropic/track`
-  is not built) and one in `src/routes/+page.svelte` (`FriendlyTone` indexing, which cascades from
-  the first two). A release must add **zero** new errors; it is not required to fix these.
+- **`npm run check` must be clean.** Corrected 2026-07-25 (run 1, re-confirmed run 2): this document
+  used to name three pre-existing errors to "confirm unchanged" — two in `src/lib/track-model.ts`
+  (`@sentropic/track/report/friendly` unresolved) and one cascading in `src/routes/+page.svelte`.
+  Those errors **only occur when `@sentropic/track` is not built**, which the "How to run" section
+  above already forbids. With `@sentropic/track` built, `svelte-check` reports **0 errors / 1 warning
+  over 523 files**; the single warning is `src/routes/+page.svelte:21:17 state_referenced_locally`,
+  pre-existing and unrelated to the dossier. The bar is therefore **0 errors**, not "0 new errors on
+  top of 3".
+- A release must add **zero** new problems.
 - The checkpoints above are run against a served build, not inferred from the source.
 
 ## History
@@ -143,3 +154,8 @@ checkpoints hold; a failing CRITICAL checkpoint blocks the release.
   single-writer-then-CRDT migration, D13 whether this dossier supersedes or extends the prior local design
   seed in graphify's gitignored scratch directory. New checkpoints: A4, A5, A6, A7, F3, F4. The revision
   bump deliberately keeps D1..D7 keyed identically so the committed answer set is not orphaned.
+- 2026-07-25 — **G2 fixed** (focus 0.3.1). The dossier rendered blank and unscrollable at every width
+  ≤ 768 px because the design-system `AppShell` gives `.st-appShell__main` a zero `flex-basis` that starts
+  applying on the block axis once its own `max-width: 48rem` rule turns `.st-appShell__body` into a column.
+  Corrected from the consumer in `apps/focus/src/app.css` (block-axis basis restored at that breakpoint
+  only) — the component is not forked. Run 2 records the measurements.
