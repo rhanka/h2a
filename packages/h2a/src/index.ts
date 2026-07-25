@@ -501,6 +501,7 @@ export {
   H2A_COMMAND_MAP_CORE_FIRST_WORDS,
   H2A_COMMAND_MAP_RUNTIME_VERBS,
   buildCommandMap,
+  coreGroupForFirstWord,
   renderCommandMap,
   type H2ACommandGroup,
   type H2ACommandGroupId,

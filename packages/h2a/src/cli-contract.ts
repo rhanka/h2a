@@ -75,10 +75,11 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     // public-contract change), so `docs/contracts/golden/cli-verbs.json` and the
     // enforced `expected` list in `test/cli-contract.test.js` move together,
     // 97 → 98 — the same handling as the `keys prove-control` precedent.
-    // Proposed by docs/specs/2026-07-17-STUDY_h2a-cli-coconception.md
-    // (§ "Compatibility and migration": "ship a generated `h2a help map` /
-    // `h2a explain <legacy-command>` view"; § "Incremental path" step 2:
-    // "introduce `explain` and completion"). `explain` rather than `help map`
+    // Proposed by the design study whose load-bearing passages are vendored in
+    // `docs/cli-help-grouping-vocabulary.md` (the study itself is unpublished and
+    // on no git ref, so it is not cited by path). Excerpt 7 there is the warrant
+    // for treating `explain` as a NEW public verb requiring a contract + golden
+    // entry rather than a documentation-only alias. `explain` rather than `help map`
     // because every frozen top-level verb in this contract is a single word and
     // `help` is currently an alias of `--help`, not a namespace — a `help map`
     // sub-verb would turn an alias into one.
