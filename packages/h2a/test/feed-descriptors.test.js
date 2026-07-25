@@ -273,6 +273,7 @@ test("buildSessionDescriptor: counterpartsOpaqueRefs is empty for P1", () => {
 // ─── 5. Opacity boundary: no filesystem path may reach a descriptor ────────
 
 const SECRET_PATH = "/home/owner/private-clients/acme-merger-duediligence";
+const PEM_BAIT = "-----BEGIN PRIVATE KEY-----MIIEvQIBADAN";
 
 test("workspaceLabel uses workspace.label and never leaks workspace.path", () => {
   const s = session({
@@ -312,14 +313,33 @@ test("workspaceLabel falls back to the registration workspace label, still no pa
 test("no descriptor field carries a key, token or message body", () => {
   // Only the contract's declared fields may exist — an additive leak (someone
   // spreading the raw presence record into the descriptor) fails here.
+  //
+  // The bait must sit in fields the builder ACTUALLY READS, and in fields whose
+  // values are STRUCTURALLY constrained (a closed vocabulary, an enum, a
+  // timestamp). An earlier revision planted the PEM in `registration.publicKeys`,
+  // which the builder never touches: the test looked like it pinned hostile
+  // content and pinned nothing. Free-text titles are a separate, documented case
+  // — see the next test.
   const feed = buildFeedResponse({
     asOf: NOW,
-    sessions: [session({ pid: 4242, workStatus: "working" })],
-    registrations: [registration({ publicKeys: ["-----BEGIN PUBLIC KEY-----"] })]
+    sessions: [
+      session({
+        pid: 4242,
+        workStatus: "working",
+        workspace: { id: "ws:9", path: SECRET_PATH, host: "claude", label: "lbl" }
+      })
+    ],
+    registrations: [
+      registration({
+        publicKeys: ["-----BEGIN PUBLIC KEY-----"],
+        declaredCapabilities: [PEM_BAIT, SECRET_PATH],
+        roles: [PEM_BAIT]
+      })
+    ]
   });
   assert.deepEqual(Object.keys(feed).sort(), ["asOf", "instances", "sessions"]);
   assert.deepEqual(Object.keys(feed.instances[0]).sort(), [
-    "capabilities",
+    "declaredCapabilities",
     "displayName",
     "host",
     "instanceId",
@@ -340,10 +360,181 @@ test("no descriptor field carries a key, token or message body", () => {
   ]);
   const serialized = JSON.stringify(feed);
   assert.ok(!serialized.includes("BEGIN PUBLIC KEY"));
+  assert.ok(!serialized.includes("BEGIN PRIVATE KEY"));
+  assert.ok(!serialized.includes(SECRET_PATH));
   assert.ok(!serialized.includes("4242"));
 });
 
-// ─── 6. Field mapping: names, role, capabilities, lastSeen ────────────────
+test("DOCUMENTED LIMIT: free-text display names pass through verbatim", () => {
+  // This test states the exact SHAPE of the opacity guarantee, so nobody reads
+  // the guarantee as wider than it is.
+  //
+  // `displayName` / `topicOrTitle` are host-native session titles (Claude
+  // customTitle, Codex thread_name, `/rename`). They are free text by nature, so
+  // NO allowlist can constrain them the way `declaredCapabilities` and `role` are
+  // constrained. Whatever the agent named itself is what the owner sees.
+  //
+  // What the feed therefore guarantees, precisely:
+  //   - it never SOURCES a filesystem path or key material into a descriptor
+  //     (paths live in workspace.path / launchContext.cwd, which are unreachable
+  //     here, and key material is never read at all);
+  //   - every field with a declared closed shape is validated on read.
+  // What it does NOT guarantee: that a free-text title is benign. A consumer must
+  // escape it like any user content — and it is the owner's OWN agent's name, in
+  // the owner's own panel, not another principal's data.
+  const feed = buildFeedResponse({
+    asOf: NOW,
+    sessions: [session({ name: PEM_BAIT })],
+    registrations: [registration({ name: PEM_BAIT })]
+  });
+  assert.equal(feed.sessions[0].topicOrTitle, PEM_BAIT);
+  assert.equal(feed.instances[0].displayName, PEM_BAIT);
+  // But the STRUCTURAL fields are still clean in that very same feed.
+  assert.deepEqual(feed.instances[0].declaredCapabilities, []);
+  assert.equal(feed.instances[0].role, "AGENTS");
+  assert.ok(!JSON.stringify(feed).includes(SECRET_PATH));
+});
+
+// ─── 5b. Hostile registry content at the READ boundary ────────────────────
+//
+// The store is populated by writers this module does not control:
+// `mirror/accept.ts` authorizes a mirrored registration by KEY OWNERSHIP alone
+// and never constrains its content, `serve.ts` persists it verbatim,
+// `mcp/handlers.ts` applies a caller-supplied registration, and the store
+// re-validates nothing on read. So a remote or prompt-injected agent can put a
+// path or a PEM in its OWN registration. Sanitizing only the write path we own
+// would not help: the feed IS the read boundary, and it must sanitize there.
+
+test("declaredCapabilities is ALLOWLISTED on read: a path and a PEM cannot reach the feed", () => {
+  const feed = buildFeedResponse({
+    asOf: NOW,
+    sessions: [session()],
+    registrations: [
+      registration({
+        declaredCapabilities: [SECRET_PATH, PEM_BAIT, "h2a.session"]
+      })
+    ]
+  });
+  // Only the vocabulary member survives — an INTERSECTION, not a strip: nothing
+  // here looks for "/home/" or "BEGIN"; non-members simply are not members.
+  assert.deepEqual(feed.instances[0].declaredCapabilities, ["h2a.session"]);
+  const serialized = JSON.stringify(feed);
+  assert.ok(!serialized.includes(SECRET_PATH), "a path reached the feed via declaredCapabilities");
+  assert.ok(!serialized.includes("BEGIN PRIVATE KEY"), "a PEM reached the feed");
+  assert.ok(!serialized.includes("/home/"));
+});
+
+test("an unrecognized role is validated to 'unknown' on read", () => {
+  // Q1 applied to the READ path: never emit a value outside the declared union,
+  // no matter who wrote the registry row.
+  const bogus = buildFeedResponse({
+    asOf: NOW,
+    sessions: [session()],
+    registrations: [registration({ roles: ["SUPERADMIN"] })]
+  });
+  assert.equal(bogus.instances[0].role, "unknown");
+  assert.ok(!JSON.stringify(bogus).includes("SUPERADMIN"));
+
+  const blank = buildFeedResponse({
+    asOf: NOW,
+    sessions: [session()],
+    registrations: [registration({ roles: [""] })]
+  });
+  assert.equal(blank.instances[0].role, "unknown");
+
+  // A real member still passes through untouched.
+  const real = buildFeedResponse({
+    asOf: NOW,
+    sessions: [session()],
+    registrations: [registration({ roles: ["CONTROL"] })]
+  });
+  assert.equal(real.instances[0].role, "CONTROL");
+});
+
+// ─── 5c. ISO-typed fields never carry unparseable text ────────────────────
+
+test("malformed timestamps become the sentinel, never raw text", () => {
+  const feed = buildFeedResponse({
+    asOf: NOW,
+    sessions: [session({ startedAt: "", heartbeatAt: "garbage" })]
+  });
+  assert.equal(feed.sessions[0].openedAt, "unknown");
+  assert.equal(feed.sessions[0].lastActivityAt, "unknown");
+  assert.equal(feed.sessions[0].activitySource, "heartbeat");
+  assert.equal(feed.instances[0].lastSeen, "unknown");
+  assert.ok(!JSON.stringify(feed).includes("garbage"));
+});
+
+test("lastSeen is max(heartbeatAt) only — never the registration's mint time", () => {
+  // Reporting a createdAt as "last seen" would be an unearned freshness claim:
+  // a mint is not a sighting.
+  const createdAt = iso(NOW - 86_400_000);
+  const feed = buildFeedResponse({
+    asOf: NOW,
+    sessions: [],
+    registrations: [registration({ createdAt })]
+  });
+  assert.equal(feed.instances[0].lastSeen, "unknown");
+  assert.notEqual(feed.instances[0].lastSeen, createdAt);
+  assert.ok(!JSON.stringify(feed.instances[0]).includes(createdAt));
+});
+
+test("an empty string behaves as absence, so the sentinel is not defeated", () => {
+  // Reachable in practice: `h2a connect --name ""` writes name === "".
+  const feed = buildFeedResponse({
+    asOf: NOW,
+    sessions: [session({ host: "", name: "", workspace: undefined })],
+    registrations: [registration({ name: "", workspace: undefined })]
+  });
+  assert.equal(feed.instances[0].displayName, "unknown");
+  assert.equal(feed.instances[0].host, "unknown");
+  assert.equal(feed.instances[0].workspaceLabel, "unknown");
+  assert.equal(feed.sessions[0].topicOrTitle, "unknown");
+});
+
+// ─── 5d. The documented orderings are behaviour, so they are pinned ───────
+
+test("buildInstanceDescriptors orders instances by lastSeen descending", () => {
+  const a = "claude:a:aaaaaaaaaaaa";
+  const b = "codex:b:bbbbbbbbbbbb";
+  const c = "gemini:c:cccccccccccc";
+  const feed = buildFeedResponse({
+    asOf: NOW,
+    // Deliberately NOT in output order.
+    sessions: [
+      session({ sessionId: "s-b", instance: b, heartbeatAt: iso(NOW - 30_000) }),
+      session({ sessionId: "s-c", instance: c, heartbeatAt: iso(NOW - 60_000) }),
+      session({ sessionId: "s-a", instance: a, heartbeatAt: iso(NOW - 1_000) })
+    ]
+  });
+  assert.deepEqual(
+    feed.instances.map((i) => i.instanceId),
+    [a, b, c]
+  );
+});
+
+test("buildSessionDescriptors orders sessions by lastActivityAt descending", () => {
+  const feed = buildFeedResponse({
+    asOf: NOW,
+    sessions: [
+      session({ sessionId: "middle", heartbeatAt: iso(NOW - 30_000) }),
+      session({ sessionId: "oldest", heartbeatAt: iso(NOW - 60_000) }),
+      // Newest by PROVEN MCP activity, not by heartbeat, so this also pins that
+      // the sort keys off the emitted lastActivityAt.
+      session({
+        sessionId: "newest",
+        heartbeatAt: iso(NOW - 45_000),
+        lastMcpActivityAt: iso(NOW - 1_000)
+      })
+    ]
+  });
+  assert.deepEqual(
+    feed.sessions.map((s) => s.sessionId),
+    ["newest", "middle", "oldest"]
+  );
+});
+
+// ─── 6. Field mapping: names, role, declaredCapabilities, lastSeen ───────
 
 test("displayName prefers the registration name over any session name", () => {
   const d = buildInstanceDescriptor(INSTANCE, {
@@ -392,17 +583,17 @@ test("topicOrTitle uses the session name and may diverge from displayName", () =
   assert.equal(feed.sessions[0].topicOrTitle, "per-session title");
 });
 
-test("role comes from registration.roles[0]; capabilities pass through verbatim", () => {
+test("role comes from registration.roles[0]; declaredCapabilities pass through", () => {
   const d = buildInstanceDescriptor(INSTANCE, {
     asOf: NOW,
     sessions: [session()],
     registration: registration({
       roles: ["CONDUCTOR", "AGENTS"],
-      capabilities: ["h2a.session", "h2a.mcp"]
+      declaredCapabilities: ["h2a.session", "h2a.mcp"]
     })
   });
   assert.equal(d.role, "CONDUCTOR");
-  assert.deepEqual(d.capabilities, ["h2a.session", "h2a.mcp"]);
+  assert.deepEqual(d.declaredCapabilities, ["h2a.session", "h2a.mcp"]);
 });
 
 test("role is never synthesized: a registration with no roles yields 'unknown'", () => {
