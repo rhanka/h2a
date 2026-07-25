@@ -188,6 +188,46 @@ test("deriveLiveness: a closed mirrored row reads closed, not stale", () => {
   assert.equal(deriveLiveness(s, NOW, 30_000), "closed");
 });
 
+test("deriveLiveness: the mirroredAt staleness gate strictly precedes the confidence check", () => {
+  // ORDERING INVARIANT (architect ruling, 2026-07-25). The roll-up ranks `idle`
+  // ABOVE `stale`, and that is only sound because staleness is decided BEFORE
+  // connection confidence: it makes every `idle` genuine fresh knowledge rather
+  // than absence of knowledge. Both rows below have a quiet pipeline, and each
+  // would take a DIFFERENT branch of the confidence check — so if the two checks
+  // are ever reordered, one of these assertions reports `idle` (or `live`) and
+  // this test fails loudly instead of the roll-up silently becoming wrong.
+  const pushIntervalMs = 30_000;
+  const quietPipeline = iso(NOW - (2 * pushIntervalMs + 1_000));
+
+  // (a) would be "idle-uncertain" -> 'idle' if confidence were consulted first.
+  const wouldBeIdle = session({
+    heartbeatAt: iso(NOW - 1_000),
+    lastMcpActivityAt: iso(NOW - (ACTIVITY_WINDOW_MS + 1_000)),
+    mirroredAt: quietPipeline
+  });
+  assert.equal(deriveLiveness(wouldBeIdle, NOW, pushIntervalMs), "stale");
+  assert.notEqual(
+    deriveLiveness(wouldBeIdle, NOW, pushIntervalMs),
+    "idle",
+    "a stale-pipeline row must NEVER be reported idle: the staleness gate must run first"
+  );
+
+  // (b) would be "active" -> 'live' if confidence were consulted first.
+  const wouldBeLive = session({
+    heartbeatAt: iso(NOW - 1_000),
+    lastMcpActivityAt: iso(NOW - 1_000),
+    mirroredAt: quietPipeline
+  });
+  assert.equal(deriveLiveness(wouldBeLive, NOW, pushIntervalMs), "stale");
+
+  // (c) confidence "unknown" (no MCP stamp at all) is also gated by staleness.
+  const wouldBeUnknown = session({
+    heartbeatAt: iso(NOW - 1_000),
+    mirroredAt: quietPipeline
+  });
+  assert.equal(deriveLiveness(wouldBeUnknown, NOW, pushIntervalMs), "stale");
+});
+
 test("rollUpLiveness: best-of is live > idle > stale > closed, empty is closed", () => {
   assert.equal(rollUpLiveness(["closed", "stale", "idle", "live"]), "live");
   assert.equal(rollUpLiveness(["closed", "stale", "idle"]), "idle");
@@ -363,6 +403,37 @@ test("role comes from registration.roles[0]; capabilities pass through verbatim"
   });
   assert.equal(d.role, "CONDUCTOR");
   assert.deepEqual(d.capabilities, ["h2a.session", "h2a.mcp"]);
+});
+
+test("role is never synthesized: a registration with no roles yields 'unknown'", () => {
+  // Architect ruling, 2026-07-25: never emit a value indistinguishable from a
+  // real one. A missing role must NOT render as a genuine H2A_ROLES member,
+  // because once real roles land an absent role would read as an asserted claim
+  // of authority.
+  const REAL_ROLES = [
+    "PRINCIPAL",
+    "EXECUTIF",
+    "CONDUCTOR",
+    "AGENTS",
+    "CONTROL",
+    "MANDATAIRE"
+  ];
+
+  const noRoles = buildInstanceDescriptor(INSTANCE, {
+    asOf: NOW,
+    sessions: [session()],
+    registration: registration({ roles: [] })
+  });
+  assert.equal(noRoles.role, "unknown");
+  assert.ok(!REAL_ROLES.includes(noRoles.role), "a missing role must not be a real H2ARole");
+
+  // Same for an instance with presence but no registration at all — and the row
+  // is still EMITTED, never dropped (a dropped row would be a false negative on
+  // presence, and collides with "empty arrays = nothing enrolled").
+  const feed = buildFeedResponse({ asOf: NOW, sessions: [session()] });
+  assert.equal(feed.instances.length, 1);
+  assert.equal(feed.instances[0].role, "unknown");
+  assert.ok(!REAL_ROLES.includes(feed.instances[0].role));
 });
 
 test("lastSeen is the max heartbeat across the instance's sessions", () => {
