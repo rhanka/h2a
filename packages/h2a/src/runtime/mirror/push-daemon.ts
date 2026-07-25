@@ -132,11 +132,6 @@ export function mirrorPushGloballyDisabled(
 }
 
 /**
- * The actionable message emitted when the daemon stops on repeated auth
- * rejection. Deliberately explicit: the failure is NOT retryable and the
- * operator must know exactly which human act unblocks it.
- */
-/**
  * Emitted when the daemon stops because the endpoint keeps rejecting the request
  * itself (not the key). Like the auth stop, retrying cannot fix a permanently
  * malformed request or a wrong path.
@@ -157,6 +152,11 @@ export const MIRROR_PUSH_INVALID_URL_MESSAGE =
   "Set --url to the ingester's full mirror endpoint (for example https://host/h2a/mirror). " +
   "If this is a systemd unit, its ExecStart placeholder was not filled in.";
 
+/**
+ * The actionable message emitted when the daemon stops on repeated auth
+ * rejection. Deliberately explicit: the failure is NOT retryable and the
+ * operator must know exactly which human act unblocks it.
+ */
 export const MIRROR_PUSH_REENROLLMENT_MESSAGE =
   "mirror push STOPPED: the endpoint rejected this instance's signing key (HTTP 401/403) on every attempt. " +
   "This is not a transient error and retrying cannot fix it — the key is not enrolled on the receiving side " +
