@@ -129,8 +129,13 @@ already does last-match-wins for `thread_name`. Claude is the outlier.
 
 ### RC-2 — `presence.name` can never be refreshed after session open
 
-`updatePresence`'s patch type (`packages/h2a/src/runtime/local-files/presence.ts:171-177`)
-admits exactly five fields, and `name` is not among them:
+`updatePresence`'s patch type
+(`packages/h2a/src/runtime/local-files/presence.ts:171-177` **on `origin/main`**)
+admits exactly five fields, and `name` is not among them.
+*(Main-relative by necessity: this section describes the pre-fix defect, and the
+branch's whole point is that it adds `name` to this type — so on the branch the
+same block has six fields. Every RC-2 citation below is `origin/main`, not this
+branch.)*
 
 ```ts
   patch: {
@@ -142,7 +147,7 @@ admits exactly five fields, and `name` is not among them:
   }
 ```
 
-`SessionRegistry.touch` (`runtime/mcp/sessions.ts:176-196`) is the only
+`SessionRegistry.touch` (`runtime/mcp/sessions.ts:176-196` on `origin/main`) is the only
 in-process heartbeat writer, and it can only patch through that type. The two
 other presence rewriters — `keepaliveOnce` (`cli.ts:6024-6047`) and the mirror
 re-stamp (`runtime/mirror/serve.ts:132-135`) — spread the existing object and so
@@ -155,13 +160,14 @@ or days.
 
 ### RC-3 — silent fallback to the cwd basename manufactures the collisions (contributing; NOT fixed here)
 
-`runtime/identity/live.ts:230`:
+`runtime/identity/live.ts:325` on this branch / `:315` on `origin/main`:
 
 ```ts
   const name = input.name ?? hostName ?? label;
 ```
 
-where `label = labelFromCwd(cwd)` = the cwd basename (`live.ts:89-91`). When the
+where `label = labelFromCwd(cwd)` = the cwd basename (`live.ts:168` on this branch
+/ `:158` on `origin/main`). When the
 reader returns `undefined`, presence advertises the **directory name** as if it
 were a human display name — indistinguishable, to any consumer, from a real one.
 
@@ -196,20 +202,29 @@ It is real in code and in convention, but — honest finding — it is **not rec
 as a DEC anywhere**. The citations that do exist:
 
 - ⚠️ **`docs/specs/2026-07-20-CR_h2a-tmux-liveness-activatable.md:57`** —
-  `- [[reflect_host_native]] (h2a reflects native host state)`.
-  This is the **only** occurrence of the token anywhere, and it is referenced as
-  an already-established standing rule while being defined nowhere.
+  `- [[reflect_host_native]] (h2a reflects native host state)`, referenced as an
+  already-established standing rule while being defined nowhere.
   **But that file is UNTRACKED working-tree material** (`git ls-files` →
-  *"Did you forget to 'git add'?"*), and `git grep reflect_host_native
-  origin/main` returns **nothing**. So a reader of this spec on `main` cannot open
-  the citation at all.
-  **Therefore this spec does not rest the claim on that file.** The claim rests on
-  the grep result, which is the stronger statement anyway:
-  **on `origin/main` the reflect-host-native rule does not appear in the
-  repository in any form.** The untracked file is noted only as evidence that the
-  rule is *believed* to exist. Citing it as though it were readable would
-  reproduce exactly the dangling-reference defect recorded in §3.3 for DEC-116.
-- `docs/superpowers/specs/2026-07-24-h2a-feed-contract-for-sentropic.md:79` —
+  *"Did you forget to 'git add'?"*), and it is **not present in this branch's
+  worktree either** — so no reader of this spec, on `main` or on this branch, can
+  open the citation.
+  **Therefore this spec does not rest the claim on that file.**
+  Scope the count precisely, because an earlier round of this spec did not:
+  `git grep reflect_host_native origin/main` returns **nothing**, so the bracketed
+  token has **zero** occurrences in version control on `main`; on this branch it
+  occurs **4×**, and every one of them is **inside this document** — this bullet
+  (twice), §3.1(a), and §3.3 item 1 — i.e. self-reference only, never an
+  independent attestation.
+  (Deliberately cited by section rather than by line: a line-pinned
+  self-reference inside the document it counts goes stale on the next edit to that
+  document, and the first draft of this very correction shipped with four line
+  numbers that its own edits had already invalidated. Self-references must be
+  addressed by a stable anchor, not a line.)
+  *"The only occurrence of the token anywhere"* was never true
+  of any tree, only of one dirty working tree, and is **withdrawn**. The defensible
+  claim is narrower and is stated at (a) below: the **bracketed token** and any
+  **DEC or VOCABULARY definition** are absent — **not** the rule "in any form."
+- `docs/superpowers/specs/2026-07-24-h2a-feed-contract-for-sentropic.md:86` —
   `topicOrTitle` is `H2ASession.name` — *"the DEC-114 per-session mutable display
   name (host-native `customTitle`/`thread_name`, or `/rename`), falling back to
   `registration.name`, falling back to `workspace.label`."*
@@ -217,9 +232,11 @@ as a DEC anywhere**. The citations that do exist:
   `| h2a rename | h2a rename | reflects host-native name |`
 - `docs/specs/2026-06-28-h2a-command-mapping-v3-finalites.md:143` —
   `claude customTitle · codex thread_name`
-- in code: `runtime/identity/live.ts:225-226` (*"WP-6: prefer the host-native
-  session name (Claude customTitle / Codex thread_name) over the cwd label"*) and
-  the reader contract at `runtime/identity/readers.ts:153-155`.
+- in code: `runtime/identity/live.ts:320-321` on this branch / `:310-311` on
+  `origin/main` (*"WP-6: prefer the host-native session name (Claude customTitle /
+  Codex thread_name) over the cwd label"*) and the reader contract at
+  `runtime/identity/readers.ts:153-155` on `origin/main` (this branch moved that
+  doc comment; the branch's `:153-155` is `MAX_DISPLAY_NAME_CHARS`).
 - `packages/h2a/src/session.ts:114-117` — `name` is *"the perennial agent's
   mutable display name … UX only — never a routing key (the `instance` handle
   is)."*
@@ -227,14 +244,49 @@ as a DEC anywhere**. The citations that do exist:
 **Two things must be said plainly, because both are load-bearing and neither is
 written down anywhere else.**
 
-**(a) The reflect-host-native rule is not in the repository at all.**
-`[[reflect_host_native]]` is referenced as an already-established standing rule
-and is **defined nowhere** — no DEC, no VOCABULARY entry. Its one occurrence is in
-an **untracked** file, so on `origin/main` the rule has **zero** presence in
-version control while five code sites silently depend on it. A rule in that state
-is not "one rename away from being lost" — for anyone who has not got that
-working-tree file, **it is already lost**. It should be promoted to a DEC or a
-VOCABULARY entry independently of this spec.
+**(a) The reflect-host-native rule is NAMED in prose but DEFINED nowhere — and
+only that narrower claim survives.**
+
+*What is true on `origin/main`:* there is **no DEC and no VOCABULARY entry**
+defining the rule, and the bracketed token `[[reflect_host_native]]` has **zero**
+occurrences in version control — its one occurrence is in an **untracked** file —
+while five code sites silently depend on the rule. For the **token**, "one rename
+away from being lost" is too kind: for anyone who has not got that working-tree
+file, **it is already lost**. The rule should be promoted to a DEC or a VOCABULARY
+entry independently of this spec.
+
+*What is FALSE,* and was asserted by an earlier round of this spec — *"on
+`origin/main` the reflect-host-native rule does not appear in the repository in any
+form"* — is **refuted**. On `origin/main` it appears in four tracked files:
+
+| file:line | text |
+| --- | --- |
+| `docs/decisions/2026-07-25-evidence-the-rule-cited-as-dec-116.md:98` | *"The weaker sibling: `reflect-host-native`"* |
+| `docs/specs/2026-07-11-sentropic-h2a-enrollment-DOSSIER.md:103` | *"anchored in the reflect-host-native standing rule"* |
+| `docs/specs/2026-06-27-h2a-command-mapping.md:155` | *"reflects host-native name (overlaps `h2a rename`)"* |
+| `docs/specs/2026-06-27-h2a-unified-cli-syntax.md:100` | *"reflects host-native name"* |
+
+**The last of those is cited by this very section, two bullets above.** The claim
+contradicted its own citation list — the refutation was inside the document making
+the claim.
+
+> **Recorded because it is the same defect class, in the opposite direction.**
+> That sentence entered this spec *as a fix*. An earlier draft rested the claim on
+> a citation no reader could open; the repair removed the dangling citation and
+> replaced it with a grep-backed absolute. So the repair **traded a claim with no
+> evidence for a claim wider than its evidence** — which is the very failure mode
+> §D1's routing-scope narrowing and §3.3 exist to document. Both directions are one
+> error: an assertion whose scope is not the scope of what was actually checked.
+>
+> The generalisable rule: **when a citation fails, narrow the claim to what the
+> remaining evidence supports — never promote it to an absolute because a grep came
+> back empty.** A grep proves the absence of *the pattern you searched for*, never
+> the absence of *the thing*. Here the pattern was the snake_case token and the
+> thing was a rule that is mostly written in prose as "reflects host-native", so
+> the search could not have found it, and "returns nothing" was read as "is not
+> there". Deleting an unsupported claim is a complete fix; widening it is not a fix
+> at all, only a relocation of the same defect. (See §10.5 item 2 for the identical
+> error committed with a strawman grep pattern.)
 
 **(b) No document states that the title is surfaced at heartbeat.**
 The code only ever did it at identity-resolve / session-open. So RC-2 is not a
@@ -278,15 +330,37 @@ back-filling a decision log is a governance act, not a bug fix, and doing it
 silently inside a naming fix is precisely the smuggling this spec refuses
 elsewhere.
 
-1. `[[reflect_host_native]]` is cited as a standing rule but is defined nowhere —
-   no DEC, no VOCABULARY entry, one single occurrence in the repo.
+1. `[[reflect_host_native]]` is cited as a standing rule but is **defined nowhere**
+   — no DEC, no VOCABULARY entry. Scope the count carefully (§3.1(a)): the
+   **bracketed token** occurs once, in an **untracked** file, hence **zero** times
+   in version control on `main`; the rule is nonetheless *named in prose* in **four
+   tracked files** on `origin/main`. **"One single occurrence in the repo" is
+   wrong** — it is true only of a dirty working tree, and only of the token.
+   ⚠️ Note this same overreach is **already merged on `main`**, at
+   `docs/decisions/2026-07-25-evidence-the-rule-cited-as-dec-116.md:101` (*"cited
+   **once** in the repo and **defined nowhere**"*). This branch **inherits** the
+   error rather than inventing it; it is corrected here and flagged there, but the
+   merged copy is not edited from this branch — amending a decision document is a
+   governance act (see the framing at the top of §3.3).
 2. **DEC-116 is absent from `DECISIONS.md`** (the file goes DEC-115 → DEC-117)
    despite being cited as the identity/addressing anchor by `PLAN.md:33,43`, five
    specs, and five source files (`runtime/identity/resolver.ts:2`,
    `readers.ts:3`, `migration.ts:2,58`, `mirror/build.ts:9`).
-3. Two specs cite **DEC-114** for "mutable display name"; DEC-114 is actually
-   *"fix: fetchLatest 4s timeout silently broke every upgrade check"*
-   (`DECISIONS.md:1996`). The citation is wrong — likely intended DEC-116.
+3. **DEC-114** is cited for "mutable display name" by more than the two specs an
+   earlier round of this section counted — the understatement is corrected here
+   even though it errs in the safe direction, because a governance observation that
+   undercounts its own blast radius invites the wrong-sized remedy. DEC-114 is
+   actually *"fix: fetchLatest 4s timeout silently broke every upgrade check"*
+   (`DECISIONS.md:1996`), so every one of these is a misattribution — likely
+   intended DEC-116:
+   - specs: `2026-07-24-h2a-feed-contract-for-sentropic.md:71,72,86`
+   - **code**: `packages/h2a/src/identity.ts:2` (the module header — *"Agent
+     identity derivations (DEC-114 — agent-identity fix)"*),
+     `runtime/feed/descriptors.ts:46,472,514`, `packages/h2a/src/session.ts:108,114`,
+     `packages/h2a/src/types.ts:137,144,148,295`
+   The point sharpens rather than softens: the misattribution is not a stray
+   footnote in two documents, it is **stamped through the identity subsystem's own
+   source**, which is where a reader is most likely to trust it.
 4. There is **no DEC** for case-folding, handle slugification,
    resolve-before-send, or the bare-alias policy. All four are load-bearing and
    all four live outside the decision log — in `SKILL.md` prose and code comments
@@ -321,13 +395,43 @@ This also makes Claude consistent with Codex, which already does last-wins.
 **D1b — the heartbeat re-derives the name and writes it when it changed.**
 `updatePresence` accepts `name`; `SessionRegistry` accepts a per-session
 display-name resolver, installed by the `mcp-serve` auto-open path, and
-`touch()` calls it each heartbeat. Convergence bound: **one heartbeat interval.**
+`touch()` calls it each heartbeat.
+
+**Convergence bound — QUALIFIED. Read with §10.3.**
+
+| case | bound |
+| --- | --- |
+| transcript already located (the common case: it existed at session open) | **one heartbeat interval** |
+| transcript **not found on a previous attempt** | bounded by the **current negative-cache backoff**, not by one interval: `TRANSCRIPT_MISS_BACKOFF_MS` (60 s) doubling to `TRANSCRIPT_MISS_BACKOFF_MAX_MS` (300 s), so **up to ~300 s ≈ 60 heartbeats** |
+
+Measured on the built `dist`: a transcript appearing after the first miss resolves
+at **61 s (12 heartbeats)**; a worst case that had reached the ceiling was observed
+at **220 s (44 heartbeats)**. This is the deliberate price of §10.3 — not
+re-walking `~/.claude/projects` every 5 s on a machine with a known OOM history.
+
+**Scope limit, which is what keeps this minor.** Initial acquisition at session
+open does **not** go through the refresher: it goes through `resolveLiveIdentity` /
+`readHostSessionName`, which walk unconditionally. The backoff therefore only ever
+delays the **RC-3 population** — sessions whose `CLAUDE_CODE_SESSION_ID` names a
+transcript that does not exist yet. A session that had a transcript at open
+converges in one heartbeat, as originally stated.
+
+> **Why this correction is recorded rather than quietly applied.** An earlier round
+> of this spec stated *"Convergence bound: one heartbeat interval"* unqualified, and
+> then a later round of the **same review cycle** added the negative cache (§10.3)
+> — which invalidated that bound without updating it. The caveat did get written,
+> but only at §10.3, roughly 500 lines away, with **no cross-reference from this
+> normative section**. So the document carried a normative claim and its own
+> refutation simultaneously, each defensible in isolation. A fix that changes a
+> timing guarantee must be applied to **the sentence that states the guarantee**,
+> not only to the section describing the fix; distance inside one document is
+> enough to let a stale normative claim survive its own correction.
 
 Behaviour at the edges, all specified and all tested:
 
 | situation | behaviour |
 | --- | --- |
-| title changes mid-session | converges within one heartbeat; repeated renames converge to the last |
+| title changes mid-session | converges within one heartbeat **when the transcript is already located**; if a previous lookup missed, within the current negative-cache backoff (up to ~300 s — see the bound above and §10.3). Repeated renames converge to the last. |
 | explicit `--name` given | no resolver is installed — the operator's name is never overwritten |
 | resolver returns `undefined` mid-session (transcript rotated/deleted) | **keep the previous name.** Never downgrade a real name back to the cwd basename. Refresh is monotonic in confidence. |
 | resolver returns the same value | no write (the patch is omitted, not a no-op write) |
@@ -350,7 +454,8 @@ is corrected here, because a claim wider than its evidence is the defect class
 this spec exists to document.
 
 The display name **seeds the handle at mint**:
-`live.ts:318` (`const name = input.name ?? hostName ?? label`) →
+`live.ts:325` on this branch / `:315` on `origin/main`
+(`const name = input.name ?? hostName ?? label`) →
 `deriveInstanceId({ host, label: name, uuid })` → `slugify(label)`. So changing
 the reader changes **which handle gets minted** for a conversation that was
 renamed *before* h2a first attached to it. That is a real, if narrow,
@@ -459,7 +564,7 @@ the candidate set once populated (see the sequencing caveat above).
 
 **Option D — accept ambiguity; require disambiguation at send time.**
 Status quo, plus honesty. Note that the *send* path is **already correct**:
-`resolveRecipient` (`paths.ts:252-262`) refuses a bare alias with >1 live match
+`resolveRecipient` (`paths.ts:262-269`) refuses a bare alias with >1 live match
 and returns the candidate list. The gap was never the send path; it was that
 (i) discovery *by name* returned nothing at all, because of RC-1/RC-2, and
 (ii) the skill tells agents to *"list them and pick/ask"* for a name match
@@ -518,14 +623,40 @@ mechanism** until scopes are populated. It must be shipped and correct on its ow
 merits, not as a stopgap.
 
 Already correct and to be preserved: `resolveRecipient` returns the candidate set
-on >1 live match (`paths.ts:252-262`) and states the interception invariant
+on >1 live match (`paths.ts:262-269`) and states the interception invariant
 (`paths.ts:187-188`). The change D3 requires is at the *name* path and in the
 skill wording, not in that invariant.
 
-Known remaining first-match sites, from `2026-07-18-STUDY_h2a-named-session-addressing.md:358,414`:
-`h2a loop agents` / attach / logs takes the first match across id, role, host and
-remote-agent id, checking for neither multiplicity nor `remoteJobId`. These are
-in scope for the D3 increment and are **not** touched here.
+Known remaining first-match site, **re-anchored on tracked code** —
+`selectLoopAgent`, `packages/h2a/src/cli.ts:2297-2302`:
+
+```ts
+  return loop.agents.find(
+    (agent) => agent.id === selector || agent.role === selector || agent.host === selector || agent.remoteAgentId === selector || agent.h2aInstance === selector
+  );
+```
+
+`Array.prototype.find` returns the **first** match across `id`, `role`, `host`,
+`remoteAgentId` and `h2aInstance`, so two `participant` or two `claude` agents are
+selected **by array order**; multiplicity is never checked, and `remoteJobId` — which
+the loop-agent schema does carry — is never consulted (it appears nowhere in
+`cli.ts`). This can attach or log the wrong loop participant. It is precisely the
+shape §D3 rejects, it is in scope for the D3 increment, and it is **not** touched
+here.
+
+> **Citation defect found and fixed in this round, same class as §3.1.** This claim
+> was previously sourced to
+> `2026-07-18-STUDY_h2a-named-session-addressing.md:358,414`. That file is
+> **UNTRACKED** — never `git add`ed (not ignored), absent from this branch and from
+> `origin/main`, so no reader could open it. Its content is accurate (lines 358 and
+> 414 do say this), which is exactly why the defect survived: a correct claim
+> resting on an unreadable source reads as sourced. This is the **second** instance
+> in this document of the pattern §3.1 spends a paragraph condemning, and it was
+> missed by the review leg that caught the first — so the fix is not "cite the
+> tracked file instead" but the general rule: **before citing, confirm the target is
+> in version control**, because a citation's job is to let a *reader* verify, and an
+> untracked path verifies nothing for anyone but its author. The claim is now
+> anchored on code that ships.
 
 ### D4 — identity assurance PROPORTIONATE TO USE — **GOVERNING RULE, preserved verbatim**
 
@@ -601,7 +732,24 @@ instance-id. **A recorded instance-id rots.** Therefore:
 **Implemented (D1 only):**
 
 - `readers.ts` — tail-based Claude title read, last rename event wins;
-  `readTailLines` added to the injectable `HostNameReaders`.
+  **`readLines` REPLACED by `readTailLines`** on the injectable `HostNameReaders`
+  — ⚠️ **a breaking change to an exported type.** `HostNameReaders` is publicly
+  exported (`packages/h2a/src/index.ts:803`) from a **published** package
+  (`@sentropic/h2a` 0.85.25), so an external implementor of the interface will
+  **fail to compile** against this version.
+  **The choice is deliberate and is the right one**, already reasoned at
+  `readers.ts:170-174`: *"An external implementor of this interface gets a compile
+  error rather than silently-stale names."* A head read of an append-only
+  transcript returns the title as of session **start** and can never observe a
+  later rename (RC-1), so leaving `readLines` in place would keep a
+  provably-broken reader expressible — a loud break is strictly better than a
+  silent wrong name.
+  Flagged explicitly because an earlier round of this spec said `readTailLines` was
+  *"added"*, which describes a **supplement** and conceals a **replacement**. In a
+  PR whose entire thesis is that contract changes are deliberately deferred (§6,
+  §D2, §D3, §10.5), an unflagged breaking type change contradicts its own framing.
+  The break is fine; describing it as an addition was not. **This is the one public
+  contract change in this branch, and it is intentional.**
 - `readers.ts` — **one title policy, shared with `h2a-runtime/src/restore.ts`**:
   a title is only honoured on a `type: "custom-title"` record. See §10.
 - `readers.ts` — `createHostSessionNameRefresher()`: a memoized per-session
@@ -627,7 +775,7 @@ instance-id. **A recorded instance-id rots.** Therefore:
 - The `h2a loop agents` first-match selector — D3 increment.
 - **`InstanceDescriptor.displayName` staleness after a rename** — a real defect
   this fix makes reachable, deferred with an argument and a named follow-up in
-  §10.5 (`descriptors.ts:542`, `live.ts:259-286`).
+  §10.5 (`descriptors.ts:542`, `live.ts:253-295`).
 - The decision-log gaps in §3.3 — flagged as governance observations, wider than
   this spec. Not fixed here.
 - Reconciling `SKILL.md:153` (hard refuse) with `SKILL.md:310` (list and ask) —
@@ -744,9 +892,22 @@ outcome. Open points:
   with candidates, which the agent must resolve before a send. For a human
   caller, the natural home is the CLI printing the table and exiting non-zero
   **without** having sent anything.
-- `SKILL.md:153` must be rewritten to match (`:310` wins). Both copies —
-  `packages/h2a/skills/h2a/SKILL.md` and `.claude/skills/h2a/SKILL.md` — drift
-  independently today and must be changed together.
+- `SKILL.md:153` must be rewritten to match (`:310` wins). Two copies drift
+  independently today — but they are **not symmetric**, and an earlier round of
+  this section said "must change together" without noting why that is impossible
+  as stated:
+  - `packages/h2a/skills/h2a/SKILL.md` is **tracked**, and is the copy a commit can
+    change.
+  - `.claude/skills/h2a/SKILL.md` is **git-ignored** (`.gitignore:6` → `.claude/`)
+    and is therefore **installed, not committed**. No commit in this repo can
+    change it. It converges only via the install path
+    (`packages/h2a/src/postinstall.ts` / `install-skills`), on each machine, after
+    a release.
+  - So the requirement is really: change the tracked copy, and **rely on install
+    to propagate** — which means the two are guaranteed to disagree on every
+    machine between the merge and the next install. That window is the real hazard
+    for a behaviour change like `:153`'s, and the D3 increment should say what
+    happens to an agent reading the stale installed copy in the meantime.
 
 ### 9.3 How `scope` gets populated
 
@@ -757,9 +918,13 @@ Open points, all needing a decision in the increment:
 
 - **who sets it.** At launch (`h2a run --scope …`, the launcher's job) is the
   cheapest and matches how these panes are already started per-purpose. Deriving
-  it from the host-native title would be tempting after D1 — and should be
-  resisted: it would re-couple the routing key to a mutable display string, which
-  is what §5 rejects for the handle.
+  it from the host-native title would be tempting after D1 — and this spec
+  **argues against** it, without deciding: it would re-couple a routing key to a
+  mutable display string, which is the property §5 rejects for the handle. Noted as
+  an argument rather than a prohibition, because §5's rejection is about the
+  *handle* and extending it to *scope* is an analogy, not a decision the owner has
+  taken. If the increment wants title-derived scopes it must answer §5's objection
+  on scope's own terms, not be blocked by this sentence.
 - **at launch or at rename.** If a scope may change mid-session, it needs the same
   heartbeat-refresh treatment D1 just built for the name, and the same
   keep-previous rule. If it is launch-only, it is immutable and simpler — but then
@@ -772,20 +937,44 @@ Open points, all needing a decision in the increment:
 
 ### 9.4 What happens to a session still in `scope:default`
 
-The migration case, and the one most likely to be got wrong:
+The migration case, and the one most likely to be got wrong.
 
-- `scope:default` must be treated as **"no scope declared"**, never as a real
-  lane. A resolver must not consider two `scope:default` sessions to be in the
-  same purpose group in any way that narrows a choice.
-- routing by scope must therefore **fail open into D3** for default-scope
-  sessions: return them as candidates, do not silently exclude them (a message
-  that vanishes because a peer had not adopted a scope yet is worse than a
-  candidate list).
-- and it must not fail *closed* either: refusing to reach a default-scope session
-  would make 100% of the current bus unreachable on day one.
-- during adoption the candidate lists will be long. That is honest and expected;
-  it is the visible cost of the sequencing in §D2, and it shrinks exactly as fast
-  as scopes get populated.
+> ⚠️ **These are PROPOSALS, not requirements — and one of them is an owner
+> decision this spec must not pre-empt.** An earlier round of this section was
+> written with three normative **MUST**s, inside a §9 whose own preamble says these
+> are *"open design points, not settled answers."* **Fail-open versus fail-closed
+> on an unreachable-by-scope peer is a consequential routing choice the owner has
+> not made**, and a MUST in a spec is how an unmade decision becomes a default by
+> the time someone implements it. Nothing here is implemented, so no code was
+> smuggled — but the *authority* was, which is the same act one step earlier.
+> Demoted to proposals accordingly; §D2 and §D3 remain the only settled decisions
+> in this document.
+
+- **Proposed:** treat `scope:default` as *"no scope declared"* rather than as a
+  real lane, so a resolver does not consider two `scope:default` sessions to be in
+  the same purpose group in a way that narrows a choice. (Rationale: today that
+  group is the entire bus — all 39 live sessions — so treating it as a lane would
+  make "the default lane" a synonym for "everyone".)
+- **OPEN — for the owner, in the D2/D3 increment: fail open or fail closed for a
+  default-scope session?** Both directions have a real cost and this spec asserts
+  neither:
+  - *fail open into D3* (return default-scope sessions as candidates rather than
+    excluding them) avoids a message vanishing because a peer had not adopted a
+    scope yet, and avoids making 100% of the current bus unreachable on day one —
+    but it means scope filtering silently does nothing during the whole adoption
+    period, so an operator may believe they are routing by purpose when they are
+    not;
+  - *fail closed* (refuse to reach a session that has declared no scope) makes the
+    filter honest and forces adoption, at the cost of breaking every currently
+    live session until scopes are populated.
+  - Note this is **not** the same question as §D3's ambiguity handling, which the
+    owner *has* decided (list-and-ask). This is about a peer that scope routing
+    would *exclude*, not one it finds several of. Per §D4 the bar differs by use, so
+    the answer may legitimately differ for a consultation and for an authorization
+    input.
+- **Expected either way:** during adoption the candidate lists will be long. That
+  is honest and expected; it is the visible cost of the sequencing in §D2, and it
+  shrinks exactly as fast as scopes get populated.
 
 ---
 
@@ -809,20 +998,73 @@ tail. **Resolved by adopting the stricter predicate**, so the two now agree by
 construction.
 
 Chosen on measurement, not taste: comparing both policies **on the same 64 KiB
-window across all 8078 transcripts** gives **0 divergences**, and **0** of the 89
+window across all 8078 transcripts** gives **0 divergences**, and **0** of the
 title-bearing records carried the field on any record type other than
 `custom-title`. The tie-break is asymmetric risk — a **misread** produces a wrong
 name and therefore wrong routing, while a **missed** read produces no name, which
 §D1's keep-previous rule already absorbs safely.
 
+> **Reconciliation of the carrier count — 89 vs 88, and why the count is the wrong
+> thing to pin.** This spec first reported **89** title-bearing records; the
+> independent review leg counted **88**; a third run at the end of the review also
+> gives **88**. All three are correct as of their own timestamp, and the drift is
+> instructive rather than embarrassing:
+>
+> | quantity | first pass | re-measured at review close | direction |
+> | --- | --- | --- | --- |
+> | transcripts (UUID-named, `~/.claude/projects`) | 8078 | **8079** | grew |
+> | corpus size (all `.jsonl`) | 7.59 GB | **7.60 GiB** | grew |
+> | transcripts carrying a title in the window | 45 | **45** | unchanged |
+> | title-bearing **records** in the window | 89 | **88** | **fell** |
+> | of which on a type other than `custom-title` | **0** | **0** | unchanged |
+>
+> The corpus is **live and grew during the review** (the review's own transcript is
+> one of the 45), so the transcript count rose. The record count *fell* anyway, and
+> that is not a contradiction: **"records in the last 64 KiB" is window-relative
+> and therefore NOT monotonic.** As a transcript keeps appending, an older
+> `custom-title` record slides *out* of its own tail window. Growth can lower this
+> count. (A pruned transcript would do the same; either way the number is a
+> property of a moving window over a live corpus, not a fact about the corpus.)
+>
+> **So the denominator is not the load-bearing part of the claim — the zeros are.**
+> `0` policy divergences and `0` non-`custom-title` carriers held at 89, at 88, and
+> at both corpus sizes. A reviewer re-running this measurement should expect a
+> *different* carrier count and should treat a non-zero in the last row, not a
+> changed count in the fourth, as a refutation. Quoting a bare `89` as if it were
+> stable was the actual defect; it is a measurement with an expiry date, and it is
+> now labelled as one.
+
 Also corrected: this spec previously said *"Codex already did last-wins; Claude
 was the outlier."* **`restore.ts` did last-wins too.** The outlier was
 `readers.ts` specifically, not "Claude" as a host.
 
+**How the type predicate is actually held down, and why the test looks odd.**
+Recorded here because it is the kind of detail a later reader silently breaks. The
+reader applies a cheap `includes('"custom-title"')` string pre-filter before
+`JSON.parse`. That pre-filter, not the predicate, rejects almost every non-rename
+carrier — so a test that only feeds it an ordinary `{type:"assistant",
+customTitle:…}` record **passes even with the predicate deleted**, and the
+mutation survives. The guarding test therefore needs a record the pre-filter
+**cannot** reject: a fixture carrying `subtype: "custom-title"`, whose *unescaped*
+literal defeats the pre-filter so that only the type check can reject the record.
+(Putting the literal inside a string *value* does not work — JSON escaping turns it
+into `\"custom-title\"`, which no longer contains the literal.) This is already
+documented at the test itself
+(`packages/h2a/test/lane-addressing-presence-name.test.js:743-752`, the
+*"a customTitle on a non-rename record is IGNORED"* case) and needed no edit in
+this round. Flagged in the spec as well because it generalises: **a cheap
+pre-filter in front of a real guard makes the guard's tests pass for the wrong
+reason**, and the mutation-kill was the only thing that distinguished them. Anyone
+who "simplifies" that fixture will silently delete the only coverage the predicate
+has.
+
 ### 10.2 CLOSED — the tail window is validated, not assumed
 
 Of the 8078 transcripts, **45 carry a title at all**, and **all 45** resolve from
-the 64 KiB window: **0 missed, 0 wrong values**. (Independently, the review leg
+the 64 KiB window: **0 missed, 0 wrong values**. (The 45 and the two zeros were
+re-measured unchanged at review close, on a corpus that had grown to 8079
+transcripts — see the reconciliation table in §10.1 for what does and does not
+drift here.) (Independently, the review leg
 found that of 2010 transcripts over 200 KiB, **zero** have a title deeper than
 64 KiB.) The bound is therefore empirical rather than a guess — and the residual
 risk, should it ever be exceeded, degrades to "no title" and is absorbed by
@@ -834,10 +1076,34 @@ keep-previous.
 transcript never appears — exactly the RC-3 case above — re-walked
 `~/.claude/projects` (**87 directories, 14345 files, 8.73 ms**) on **every
 heartbeat, every 5 s, forever**, on a machine with a known OOM history. Now a miss
-is cached with exponential backoff (`TRANSCRIPT_MISS_BACKOFF_MS` →
-`TRANSCRIPT_MISS_BACKOFF_MAX_MS`), so a persistent miss costs a handful of walks
-per hour instead of 720. A transcript appearing later is still picked up, bounded
-by the current backoff.
+is cached with exponential backoff (`TRANSCRIPT_MISS_BACKOFF_MS` = 60 s, doubling
+to `TRANSCRIPT_MISS_BACKOFF_MAX_MS` = 300 s), so a persistent miss costs **at most
+14 walks in the first hour and 12/hour in steady state**, instead of 720. (The
+delay ramp is 60 s, 120 s, 240 s, then 300 s capped: walks land at t = 0, 60, 180,
+420, 720, … 3420 s. An earlier round said *"a handful of walks per hour"* — the
+720 → 14 magnitude was honest, but "a handful" is vaguer than the number, and a
+bound worth claiming is worth stating.)
+
+A transcript appearing later is still picked up, **bounded by the current backoff —
+up to ~300 s, not one heartbeat.** This is the qualification that §D1b now carries
+normatively; see the convergence table there. Because §D1b is the section a reader
+consults for the guarantee, the caveat has to live *there* too — it lived only here
+for one round, which is how the unqualified "one heartbeat interval" survived the
+very fix that invalidated it.
+
+> **Honest limit of the test that covers this.** The late-discovery test
+> (`lane-addressing-presence-name.test.js:693`, *"the negative cache expires, so a
+> late transcript is still found"*) asserts only that the scan **recurs** — it
+> drives `countingReaders({ transcript: undefined })` past the backoff and asserts
+> `scans === 2`. It **never flips the fixture from absent to present**, so
+> "late transcript → name resolves" is proven **by construction** (the scan
+> re-runs, and a re-run of a working locator would find it) rather than
+> **end-to-end**. The recurrence is the part that was actually at risk — a
+> permanent negative cache would be the real bug — so the coverage is not
+> misplaced, but it is weaker than its own test name suggests. **Follow-up for the
+> D2/D3 increment: flip the fixture mid-test (absent → present) and assert the
+> resolved name, not the scan count.** Not done here: this round is spec text only,
+> and changing a test is a code change.
 
 ### 10.4 CLOSED — nits
 
@@ -858,7 +1124,7 @@ stays findable by the substring match `discover_sessions(name:)` performs.
 - `runtime/feed/descriptors.ts:477` —
   `nonEmpty(session.name) ?? nonEmpty(registration?.name) ?? workspaceLabel`
   → prefers the **live session**.
-- `runtime/identity/live.ts:259-286` (`ensureRegistered`) writes
+- `runtime/identity/live.ts:253-295` on this branch / `:243-285` on `origin/main` (`ensureRegistered`) writes
   `registration.name` **only inside the `if (!existing)` branch**.
 
 So after a rename, one feed payload carries the **new** title in `topicOrTitle`
@@ -870,16 +1136,182 @@ not bug fixes:
 
 1. **Invert `:542` to prefer the live session name.** One line — but it inverts a
    precedence the merged feed contract states explicitly
-   (`2026-07-24-h2a-feed-contract-for-sentropic.md:65`: `displayName` is
+   (`2026-07-24-h2a-feed-contract-for-sentropic.md:72`: `displayName` is
    `registration.name` … *falling back to* the live session name). Changing a
    documented public precedence is exactly what §D2/§D3 are being held back for.
 2. **Make `registration.name` track renames** in `ensureRegistered`. Arguably the
    *faithful* reading — the feed contract says the registration name is "set at
-   mint or `/rename`", and it is frozen today only because **no `/rename` verb
-   exists on the h2a side at all** (`grep` for `cmdRename`/`updateInstanceName`
-   finds nothing). But this adds a durable-store write to the boot path and needs
-   a registry update API, so it is not a one-liner either.
+   mint or `/rename`".
+
+   **Correction — an earlier round of this spec gave a FALSE reason.** It claimed
+   the field is frozen because *"no `/rename` verb exists on the h2a side at all
+   (`grep` for `cmdRename`/`updateInstanceName` finds nothing)"*, concluding
+   *"frozen by omission, not by design."* **Refuted.** A rename verb **is
+   shipped**: `h2a rename <slugOrId> <newName>` is implemented at
+   `packages/h2a-runtime/src/index.ts:8063`, reachable because `rename` is absent
+   from `H2A_NATIVE_VERBS` (`bin-routing.ts:31-40`) and is therefore dispatched to
+   the runtime — **asserted by a test**, `bin-routing.test.js:19` — calling
+   `renameRemoteSession` (`packages/h2a-runtime/src/attach.ts:455`). It is also
+   **advertised in `h2a --help`** at `packages/h2a/src/cli.ts:396`.
+
+   **The deferral still holds, for a different and better reason.** The shipped
+   verb writes the **remote control-plane `displayName`** (`renameRemoteSession`)
+   and the **local tmux window/session display name**
+   (`setLocalSessionDisplayName`). It does **not** write
+   `H2AActorRegistration.name`, and **nothing mutates `registration.name`
+   post-mint** — no `putRegistration`, `writeRegistration`, `updateRegistration`
+   or `saveRegistration` exists anywhere in `packages/h2a/src`. So the accurate
+   statement is: **a `h2a rename` verb exists in the runtime but writes only the
+   remote `displayName` and the tmux window name; nothing mutates
+   `registration.name` post-mint.** Making it do so still adds a durable-store
+   write to the boot path and still needs a registry update API, so it is still
+   not a one-liner, and the deferral is unchanged.
+
+   > **Why the wrong version was worse than merely wrong.** "Frozen by omission,
+   > not by design" would cost a follow-up implementer a cycle hunting for an
+   > entry point that already exists — and would invite them to *add* a second
+   > rename verb beside the shipped one. And the grep offered as proof searched
+   > for `cmdRename` / `updateInstanceName`: identifiers the implementation
+   > **never used**, on any tree, in any version. It was a **strawman** — it could
+   > only ever return nothing, no matter what was implemented, so it carried zero
+   > information while presenting itself as a search of the codebase.
+   >
+   > **A grep that searches for names the implementation never used cannot find
+   > it, and then reports absence with the full confidence of a search.** This is
+   > the same shape as a guard whose premise does not exist: machinery that cannot
+   > fire, manufacturing assurance instead of evidence. A negative grep is
+   > evidence only in proportion to how well its pattern was derived from the
+   > thing being searched for. Derive the pattern from **observable behaviour** —
+   > here, the CLI's own advertised verb list (`cli.ts:396`) or the routing set
+   > (`H2A_NATIVE_VERBS`) — never from a guessed identifier; and when a negative
+   > result is load-bearing, state the pattern alongside the conclusion so a
+   > reader can judge whether it could have succeeded. (§3.1(a) records the same
+   > error in its other form: a grep whose empty result was promoted to an
+   > absolute.)
 
 Either way it is a public-contract or durable-store change and belongs to its own
 increment. **Named follow-up: `feed displayName must not outlive a rename` —
-`descriptors.ts:542` + `live.ts:259-286`, with the two options above.**
+`descriptors.ts:542` + `live.ts:253-295`, with the two options above.**
+
+---
+
+## 11. Second review leg — document fidelity (2026-07-25)
+
+A second independent leg was chartered on **document fidelity and operational
+behaviour** rather than code correctness. It returned **GO with no blocking
+defects**; it reproduced every substantive technical claim, several exactly, and
+**every defect it found was in this document.** Its corrections are applied above,
+in spec text only — **no code file was changed in this round**, deliberately, so
+that neither review leg's verdict is invalidated by the edits it asked for.
+
+**Re-verified by that leg, and therefore banked:** the gate counts on this branch
+(1456 tests / 1437 pass / 0 fail / 19 skipped) against `origin/main` @ `e80d424`
+(1428/1409/0/19) — a delta of exactly the **+28** tests added here — with `tsc -b`
+clean on both sides. Both self-reported mutations were re-killed with dist-hash
+proof and restored to the exact baseline hash. The load-bearing §1.2 premise was
+re-validated read-only on the live bus: **39 live sessions, all 39 in
+`scope:default`, 8 colliding display-name groups**, with an identical list and
+identical counts.
+
+**What it corrected, and the one theme underneath.** Five should-fix items, all
+documentary:
+
+| § | defect | direction of the error |
+| --- | --- | --- |
+| §3.1(a) | *"the rule does not appear in the repository in any form"* — refuted, 4 tracked occurrences on `main`, one of them cited two bullets earlier | claim **wider** than its evidence |
+| §3.1, §3.3(1) | *"the only occurrence of the token anywhere"* — self-refuting (4× in this file); true only of one dirty working tree; also already merged on `main` | claim wider than its evidence |
+| §10.5(2) | *"no `/rename` verb exists on the h2a side at all"* — refuted; the verb ships and is advertised. The grep offered as proof used identifiers the implementation never had | absence asserted from a **strawman search** |
+| §D1b | *"Convergence bound: one heartbeat interval"* — invalidated by this branch's own round-2 negative cache, with the caveat ~500 lines away and un-cross-referenced | guarantee **stale** against its own fix |
+| §6 | `readTailLines` *"added"* — it **replaced** `readLines` on a publicly exported type in a published package | break **understated** |
+
+Plus: six stale line citations (all corrected above, with branch and `main` line
+numbers given separately where they differ — one statement had previously been
+cited both correctly and incorrectly *within this one document*); three normative
+**MUST**s in §9.4 demoted to proposals, with fail-open-vs-fail-closed handed back
+to the owner as an explicit open question rather than settled by a spec sentence;
+§9.3's prohibition-by-analogy softened to an argument; a vague *"handful of walks
+per hour"* replaced by **14**; the 89-vs-88 carrier count reconciled as a
+non-monotonic window measurement (§10.1); the git-ignored second `SKILL.md`
+copy noted as un-committable (§9.2); the DEC-114 misattribution corrected **upward**
+(it reaches into the identity subsystem's own source, not just two specs); and two
+test-honesty notes recorded in the spec rather than the tests (§10.1's pre-filter
+trap, §10.3's by-construction late-discovery assertion), because this round does not
+touch code.
+
+> **The single theme, worth more than any individual fix.** Nine of the eleven
+> corrections above are one error: **a statement whose scope is not the scope of
+> what was actually checked.** It appears in both directions — a claim widened past
+> its evidence (§3.1(a)), and a claim left standing after its evidence expired
+> (§D1b) — and in the specific form that is hardest to catch, **absence reported
+> with the confidence of a search** (§10.5(2), where the grep pattern could not have
+> matched anything on any tree).
+>
+> Two of them were introduced *by earlier rounds of review acting as fixes*: §3.1's
+> over-general claim replaced a dangling citation, and §D1b's stale bound was
+> broken by the negative cache added one round earlier. That is the finding with
+> teeth: **a correction is itself a change that can be wrong, and "I was told to fix
+> this" is not evidence that the fix is sound.** Narrowing an unsupported claim is
+> the complete repair; widening it, or fixing the mechanism without fixing the
+> sentence that promises the behaviour, only moves the defect somewhere a later
+> reader will trust it more.
+>
+> Concretely, for anyone extending this spec: state the pattern beside any
+> load-bearing negative result so a reader can judge whether it could have
+> succeeded; put a timing guarantee's caveat in **the sentence that states the
+> guarantee**, not only in the section describing the cause; and label any
+> measurement over a live corpus with what drifts and what must stay zero.
+
+### 11.1 Rebase onto `0f285c2` — baseline retired, citations re-pinned
+
+PR #30 merged while this correction round was in flight, so the `e80d424`
+baseline above is **historical**. This branch was **rebased** (never
+cherry-picked) onto `origin/main` @ `0f285c2`, and both sides were re-measured
+from scratch, running the suite via `node scripts/run-tests.mjs` directly:
+
+| tree | tests | pass | fail | skip | `tsc -b` |
+| --- | --- | --- | --- | --- | --- |
+| `origin/main` @ `0f285c2` | 1473 | 1454 | **0** | 19 | exit 0 |
+| this branch, rebased | **1501** | **1482** | **0** | 19 | exit 0 |
+| delta | **+28** | **+28** | 0 | 0 | — |
+
+The delta is exactly the +28 tests this branch adds and nothing else, which is the
+required outcome for a spec-text-only pass.
+
+> **Do not measure this suite with `npm test`.** Until very recently `npm test`
+> ran **zero** tests: a focus packaging gate earlier in the `&&` chain exited
+> non-zero and short-circuited it before the runner was ever reached, so the
+> command *looked* like a passing-or-failing test run while never having executed
+> a test. Use `node scripts/run-tests.mjs`. (Fixed by PR #38, in review at the time
+> of writing.) This is worth recording next to the gate numbers because it is the
+> same defect class as everything else in §11 — **an instrument reporting on work
+> it did not do** — and it is the reason the counts here are quoted from the runner
+> directly rather than from the wrapper.
+
+**Citations re-pinned after the rebase.** Line-numbered citations are, by
+construction, invalidated by any rebase that moves the cited file — so all of them
+were re-resolved against `0f285c2` and this branch's rebased tree rather than
+carried forward. Moved: `live.ts`'s `const name = …` (branch `:318`→`:325`, main
+`:308`→`:315`), the WP-6 comment (branch `:313-314`→`:320-321`, main
+`:303-304`→`:310-311`), `ensureRegistered` (`:259-286`→ branch `:253-295` / main
+`:243-285`), the `h2a rename` help line (`cli.ts:388`→`:396`), and `selectLoopAgent`
+(`cli.ts:2290-2295`→`:2297-2302`). Also corrected: `paths.ts:252-262` for the
+ambiguous-alias refusal, which was **wrong on both trees** (the block is
+`:262-269`) and had survived both review legs. Unchanged and re-confirmed:
+`labelFromCwd` (branch `:168` / main `:158`), `readers.ts:225,235` and `:153-155`
+on main, `presence.ts:171-177` and `sessions.ts:176-196` on main (both now marked
+main-relative in §RC-2, since this branch deliberately changes them),
+`identity.ts:17-19`, `paths.ts:187-188` and `:216-296`, `descriptors.ts:542,477`,
+`index.ts:803`, `readers.ts:170-174`, `attach.ts:455`,
+`h2a-runtime/src/index.ts:8063`, `SKILL.md:153,310,313-318,304-309`, and
+`DECISIONS.md:1996`.
+
+> **The durable lesson, and it is not "re-check after a rebase".** A line number is
+> a **pointer into a mutable structure held by an immutable document** — it decays
+> on every edit to the target, silently, and nothing in the toolchain reports the
+> decay. Four of the six stale citations this round corrected were stale *before*
+> the rebase; two more went stale *because of it*. Prefer anchors that survive
+> motion: a symbol name, a quoted line of code, a test name. Where a line number is
+> genuinely the clearest pointer, **quote enough of the target text that a reader
+> can re-find it after it moves** — which is why every citation above now carries
+> its content, and why the §D3 loop-selector claim was re-anchored on quoted code
+> rather than on a line range in an untracked study.
