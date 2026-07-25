@@ -84,10 +84,28 @@
  * plans close, and the concern is DATA AT REST on someone else's disk, not only
  * how a panel renders it.
  *
- * The ENVELOPE around the body needs no plan: `buildInstanceMirror` writes
- * `protocol` / `version` / `id` / `type` / `actor` / `target` / `createdAt` as
- * literals, so no source record's fields flow through them and there is nothing
- * for an added field to ride out on.
+ * The ENVELOPE around the body is NOT all literals — an earlier version of this
+ * comment claimed it was, and that was false. `protocol` / `version` / `id` /
+ * `type` / `target` / `createdAt` are built from constants, the instance id and
+ * the injected clock. But `actor` is assembled from the REGISTRATION:
+ * `buildInstanceMirror` wrote `role: reg.roles?.[0]`, which is a source record's
+ * field reaching the wire outside every plan in this module — demonstrated with
+ * a `roles` array whose first element was a real filesystem path, which came to
+ * rest on the receiver. `scope` was a hardcoded `"scope:default"`, i.e. the one
+ * remaining literal in the one place with no plan and no ratchet: the day
+ * somebody made it `reg.scopes?.[0]` — the obvious edit — a record field would
+ * have ridden out with no compile-time and no test signal.
+ *
+ * So `actor` now has a boundary like everything else, and it is a stronger one
+ * than a plan: {@link sanitizeActorForMirror} derives it from the ALREADY
+ * SANITIZED `H2AMirroredRegistration`, never from the raw record. That makes the
+ * property structural rather than reviewed — the envelope cannot carry a field
+ * the registration plan does not already transmit, because the raw record is not
+ * in scope at the point the actor is built. `role` is additionally re-intersected
+ * against the `H2A_ROLES` vocabulary at runtime, so the path in the example above
+ * no longer reaches the wire at all, and the unvalidated `reg.roles?.[0]` — which
+ * on the string `"NOTANARRAY"` quietly yielded the single character `"N"` — is
+ * gone with it.
  *
  * ── What this module is NOT ────────────────────────────────────────────────
  *
@@ -101,9 +119,12 @@
  * symmetric half of the rule and is recorded as owed — see the feed contract's
  * "Send boundary" section.
  */
+import { H2A_ROLES } from "@sentropic/h2a";
 import type {
+  H2AActorRef,
   H2AActorRegistration,
   H2AAgentVersion,
+  H2ARole,
   H2ASession,
   H2ASessionInterests,
   H2ASessionNotificationTopic,
@@ -146,8 +167,57 @@ interface NarrowPlan<T> {
   readonly narrow: (value: NonNullable<T>) => unknown;
 }
 
-/** How one source field is treated at the send boundary. */
-export type MirrorFieldPlan<T> = SendPlan | WithholdPlan | NarrowPlan<T>;
+/**
+ * A value that may be transmitted VERBATIM: a primitive, or an array of
+ * primitives. Deliberately narrow — an array of arrays or an array of objects is
+ * composite and does not qualify.
+ *
+ * This is the type that makes "no composite is ever copied by reference" a
+ * STRUCTURAL property instead of a convention, and it exists because convention
+ * demonstrably was not enough. The `interests` leak this module was written to
+ * fix was precisely a composite classified `send`: `applyPlan` copied the whole
+ * object by reference, `isInterests` tolerated the extra keys, and a nested
+ * `cwd`/`pid`/tmux payload came to rest on the receiver's disk. The field plan
+ * was already in place at the time. It forced a classification and the
+ * classification was `send`, which is a LEGAL classification — so the ratchet
+ * fired, was answered, and the leak shipped anyway.
+ *
+ * A plan that forces you to classify does not force you to classify CORRECTLY.
+ * Making `send` inexpressible for a composite removes the wrong answer from the
+ * menu rather than trusting the next author not to pick it.
+ *
+ * ── WHERE THIS RULE STOPS ──────────────────────────────────────────────────
+ *
+ * It is structural for any field with a real type, and it is NOT structural for
+ * a field typed `any`: a conditional type on `any` resolves to both branches, so
+ * `SEND` stays assignable and the compiler says nothing. `unknown` is fine
+ * (forced to `narrow`); `any` is the hole, and `any` is exactly what a field
+ * added in a hurry looks like. That case is covered one rung lower, by a runtime
+ * test that reads the plans directly rather than through a fixture
+ * (`mirror-send-boundary.test.js`, "no plan classifies a COMPOSITE field as
+ * `send`"). Naming the boundary here rather than letting "structural" be heard
+ * as "total".
+ */
+type MirrorSendableValue =
+  | string
+  | number
+  | boolean
+  | readonly (string | number | boolean)[];
+
+/**
+ * How one source field is treated at the send boundary.
+ *
+ * `send` is only in the union when the field's type is a
+ * {@link MirrorSendableValue}. For a composite field the union collapses to
+ * `withhold | narrow`, so `SEND` is not assignable and the build fails until the
+ * field gets a plan of its own. That is the difference between "the ratchet
+ * forces you to classify" and "the ratchet forces a classification that cannot
+ * copy by reference".
+ */
+export type MirrorFieldPlan<T> =
+  | ([NonNullable<T>] extends [MirrorSendableValue] ? SendPlan : never)
+  | WithholdPlan
+  | NarrowPlan<T>;
 
 /** Transmitted as-is. Only for fields that are provably not sender-private. */
 const SEND: SendPlan = { kind: "send" };
@@ -536,6 +606,22 @@ void _endpointKeysMatchPlan;
  * module would have INTRODUCED, since the pre-fix builder shipped `reg` verbatim
  * and never touched `endpoints`. Confidentiality-neutral, availability-negative:
  * exactly the failure a guard justified by a premise that does not exist creates.
+ *
+ * ── RECORDED, NOT FIXED: `endpoints: null` ────────────────────────────────
+ *
+ * {@link applyPlan} omits null/undefined values rather than serializing them, so
+ * a registration whose `endpoints` is `null` arrives with the field ABSENT — not
+ * as `[]`. At the receiver, `runtime/drumbeat/relaunchers.ts:296` reads
+ * `store?.findInstance(instance)?.endpoints.find(…)`: the optional chain stops
+ * BEFORE `.endpoints`, so an absent field is a `TypeError` there.
+ *
+ * Left alone deliberately. It is a PRE-EXISTING shape — the verbatim builder
+ * produced the same absence for `endpoints: undefined`, and `null.find` threw
+ * just as hard — and the reachability is low (nothing in the tree writes a null
+ * `endpoints`). Fixing it belongs at line 296, which is the ingest/relaunch half
+ * this PR is deliberately not touching, and a one-character fix there (`?.`)
+ * without a test would be the cosmetic version. Written down here so the next
+ * person to see the `TypeError` finds the cause instead of rediscovering it.
  */
 function sanitizeEndpointsForMirror(
   endpoints: H2AActorRegistration["endpoints"]
@@ -634,6 +720,66 @@ export function sanitizeRegistrationForMirror(
     registration,
     REGISTRATION_PLAN
   ) as unknown as H2AMirroredRegistration;
+}
+
+// ─── Envelope actor ─────────────────────────────────────────────────────────
+
+/** Role used when the registration declares none usable. */
+const MIRROR_FALLBACK_ROLE: H2ARole = "AGENTS";
+/** Scope used when the registration declares none usable. */
+const MIRROR_FALLBACK_SCOPE = "scope:default";
+
+/**
+ * First usable element of a declared list, or the fallback.
+ *
+ * `Array.isArray` first, and not as a formality — the same reason it guards
+ * {@link sanitizeEndpointsForMirror}. `h2a_register_instance` accepts an
+ * arbitrary object and `isH2AActorRegistration` is not called on any production
+ * path, so `roles` can be a bare string at runtime despite its `H2ARole[]` type.
+ * The previous `reg.roles?.[0]` then indexed the STRING: `"NOTANARRAY"` yielded
+ * `"N"`, a value that is not a role, not a diagnostic, and travelled anyway.
+ */
+function firstDeclared(values: unknown, fallback: string): string {
+  if (!Array.isArray(values)) return fallback;
+  const first: unknown = values[0];
+  return typeof first === "string" && first.length > 0 ? first : fallback;
+}
+
+/**
+ * The envelope's `actor`, derived from the SANITIZED registration.
+ *
+ * Taking `H2AMirroredRegistration` rather than `H2AActorRegistration` is the
+ * whole point and is worth not "simplifying" later: the raw record is not in
+ * scope here, so this function CANNOT read a withheld field even by mistake.
+ * Every value it can reach has already been through {@link REGISTRATION_PLAN},
+ * which makes "the envelope carries nothing the body does not already carry" a
+ * consequence of the signature instead of a claim in a comment.
+ *
+ * `role` is re-intersected against `H2A_ROLES`. That is a genuinely closed
+ * vocabulary check, not a shape check: `roles[]` element VALUES are otherwise
+ * free text (disclosed above), and this is the one place where an element value
+ * escapes the body into the envelope, so it is the one place worth closing.
+ * `isH2AEnvelope` requires a vocabulary role anyway, so a non-role here produced
+ * an envelope that fails the protocol's own guard.
+ *
+ * `scope` is NOT closed — there is no scope vocabulary to close it against — but
+ * it is now sourced from the sanitized registration rather than hardcoded, so
+ * the trap is disarmed by construction: the "obvious edit" has already been made
+ * here, safely, under test. Its value is free text and rides out under the same
+ * disclosed gap as `scopes[]` in the body, which already transmits it verbatim.
+ */
+export function sanitizeActorForMirror(
+  instance: string,
+  mirrored: H2AMirroredRegistration
+): H2AActorRef {
+  const declaredRole = firstDeclared(mirrored.roles, MIRROR_FALLBACK_ROLE);
+  return {
+    instance,
+    role: (H2A_ROLES as readonly string[]).includes(declaredRole)
+      ? (declaredRole as H2ARole)
+      : MIRROR_FALLBACK_ROLE,
+    scope: firstDeclared(mirrored.scopes, MIRROR_FALLBACK_SCOPE)
+  };
 }
 
 // ─── Subagent binding ───────────────────────────────────────────────────────
