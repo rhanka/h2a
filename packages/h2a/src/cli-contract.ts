@@ -704,6 +704,15 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Revoke a public key (PEM file) from an instance's keyring (rotate-out). Appends a `revoked` event; the verifier stops accepting it. Exit 2 if the key is not currently active. DEC-079."
   },
   {
+    verb: "keys prove-control",
+    outputShape: "action",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["host"],
+    optionalFlags: ["root", "nonce", "challenge"],
+    description:
+      "Prove control of the LIVE agent key over a gateway-issued enrollment challenge, and print the `{ nonce, signature, publicKeyPem, instance }` proof. Proof of AUTHORSHIP only, never of authorization: the 39-auth principal authorizes and sentropic mints/stores the binding. Resolves the live identity at run time (`--instance` is refused — a recorded id names a re-anchored key), makes NO network call, and stores nothing. Exit 1 on a bad/expired challenge, 2 when the local key is missing or not active. Part B of the 2026-07-24 session-exposure feed contract."
+  },
+  {
     verb: "nhi report",
     outputShape: "resource",
     exitCodes: [0, 1],
