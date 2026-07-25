@@ -19,11 +19,16 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const RUNNER = resolve(HERE, '..', '..', '..', 'scripts', 'run-test-gates.mjs')
+// pathToFileURL, not the bare path: on Windows an absolute path starts with a
+// drive letter, which the ESM loader reads as an unsupported URL scheme
+// ("Received protocol 'd:'"). CI's windows-latest legs caught exactly that.
+const RUNNER = pathToFileURL(
+  resolve(HERE, '..', '..', '..', 'scripts', 'run-test-gates.mjs'),
+).href
 
 const {
   runGates,
