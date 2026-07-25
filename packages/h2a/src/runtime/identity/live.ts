@@ -159,7 +159,14 @@ function labelFromCwd(cwd: string): string {
   return basename(cwd) || "workspace";
 }
 
-function publicKeyFingerprint(publicKeyPem: string): string {
+/**
+ * Short, stable, NON-SECRET fingerprint of a public key: the first 16 hex chars
+ * of its sha256. Used by the reclaim proof's nonce and by the enrollment
+ * ceremony's owner-facing summary, so the owner can eyeball WHICH key was
+ * proved without ever reading a PEM. It is a label, never an authority: nothing
+ * may accept a fingerprint where it should verify a signature.
+ */
+export function publicKeyFingerprint(publicKeyPem: string): string {
   return createHash("sha256").update(publicKeyPem, "utf8").digest("hex").slice(0, 16);
 }
 
