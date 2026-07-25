@@ -59,6 +59,8 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  H2A_PROTOCOL,
+  H2A_VERSION,
   MIRROR_ENDPOINT_PLAN,
   MIRROR_INTERESTS_PLAN,
   MIRROR_PRESENCE_PLAN,
@@ -67,6 +69,7 @@ import {
   buildFeedResponse,
   buildInstanceMirror,
   createLocalStore,
+  isH2AEnvelope,
   isH2ASession,
   isH2AWorkspaceRef,
   mirrorServerForStore,
@@ -704,6 +707,41 @@ test("a non-array roles yields a real role, not its first CHARACTER", () => {
   const actor = sanitizeActorForMirror(INSTANCE, sanitized);
   assert.equal(actor.role, "AGENTS");
   assert.notEqual(actor.role, "N");
+});
+
+test("NOTHING downstream validates actor.role — the re-intersection is the only guard", () => {
+  // This test exists to stop a specific DELETION, not to catch a leak.
+  //
+  // A comment here used to say "`isH2AEnvelope` requires a vocabulary role
+  // anyway", which would make the `H2A_ROLES` re-intersection in
+  // `sanitizeActorForMirror` redundant — a perfectly good reason to remove it.
+  // The claim was false. `isH2AEnvelope` delegates to `validateH2AEnvelope`,
+  // which checks `actor` only for a string `instance`.
+  //
+  // So the measured absence is pinned. If someone strengthens the protocol guard
+  // later this test goes red, which is the correct moment to revisit — and if
+  // someone deletes the re-intersection on the old reasoning, the two tests
+  // above go red first.
+  const envelope = (actor) => ({
+    protocol: H2A_PROTOCOL,
+    version: H2A_VERSION,
+    id: "mirror:x:1",
+    type: "event",
+    actor,
+    target: { instance: INSTANCE },
+    body: { kind: "mirror.instances", registrations: [] },
+    createdAt: new Date(NOW).toISOString()
+  });
+  const scope = "scope:default";
+  // A filesystem path as a role sails straight through the protocol guard.
+  assert.equal(
+    isH2AEnvelope(envelope({ instance: INSTANCE, role: BAIT_ROLE_PATH, scope })),
+    true
+  );
+  // So does no role at all.
+  assert.equal(isH2AEnvelope(envelope({ instance: INSTANCE, scope })), true);
+  // The ONE thing it does check on the actor.
+  assert.equal(isH2AEnvelope(envelope({ role: "AGENTS", scope })), false);
 });
 
 test("the envelope actor is derived from the SANITIZED registration", () => {
