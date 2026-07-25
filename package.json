@@ -25,7 +25,7 @@
     "check:focus-app": "node scripts/check-focus-app.mjs",
     "typecheck": "npm run build -w @sentropic/track && tsc -b --pretty false",
     "lint:focus-imports": "node apps/focus/scripts/check-imports.mjs",
-    "test": "npm run build && node scripts/check-focus-vendor.mjs && node scripts/check-focus-app.mjs && node apps/focus/scripts/check-imports.mjs && node scripts/run-tests.mjs"
+    "test": "node scripts/run-test-gates.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
