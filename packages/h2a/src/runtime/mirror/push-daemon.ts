@@ -38,9 +38,13 @@
  *    between does NOT, because "network flap between two 401s" must not be a
  *    way to loop forever against a server that is refusing us.
  *
- *  - NO OVERLAP. A push slower than the interval must not stack. The runner
- *    carries its own in-flight guard: a cycle requested while one is still
- *    running returns `skipped-overlap` without building or sending anything.
+ *  - NO OVERLAP. The daemon cannot overlap itself: it awaits each cycle before
+ *    scheduling the next, so a slow push delays the next beat rather than
+ *    stacking on top of it (and the slot arithmetic below then skips the beats
+ *    that were missed). The exported runner ALSO carries an in-flight guard, for
+ *    the different case of two concurrent callers sharing one runner: the second
+ *    gets `skipped-overlap` without building or sending anything. That guard is
+ *    defence for external callers, not what protects the daemon's own loop.
  *
  *  - NO DRIFT. Cycles are scheduled against a monotonic slot anchor
  *    (`anchor + n × interval`), not by sleeping a fixed interval after each
@@ -97,6 +101,17 @@ export const MIRROR_PUSH_BACKOFF_MAX_MS = 300_000;
  */
 export const DEFAULT_MIRROR_AUTH_FAILURE_LIMIT = 3;
 
+/**
+ * How many CONSECUTIVE non-auth rejections (a 4xx that is not 401/403) are
+ * tolerated before the daemon stops. Some of these genuinely self-heal — a
+ * stale-sequence or replay rejection clears as `seq` advances — which is why the
+ * budget is looser than the auth one. But a permanently malformed request or a
+ * wrong path returning 404 will never heal, and retrying it forever is the same
+ * failure mode as retrying a refused key: a unit that reads "active (running)"
+ * while pushing nothing. 5 tolerates a real fencing race, then stops.
+ */
+export const DEFAULT_MIRROR_REJECT_LIMIT = 5;
+
 /** Name of the global kill-switch env var. */
 export const MIRROR_PUSH_OFF_ENV = "H2A_MIRROR_PUSH_OFF";
 
@@ -121,6 +136,27 @@ export function mirrorPushGloballyDisabled(
  * rejection. Deliberately explicit: the failure is NOT retryable and the
  * operator must know exactly which human act unblocks it.
  */
+/**
+ * Emitted when the daemon stops because the endpoint keeps rejecting the request
+ * itself (not the key). Like the auth stop, retrying cannot fix a permanently
+ * malformed request or a wrong path.
+ */
+export const MIRROR_PUSH_REJECTED_MESSAGE =
+  "mirror push STOPPED: the endpoint rejected this mirror on every attempt with a 4xx that is not an auth failure. " +
+  "The request itself is being refused, so retrying cannot fix it — check that --url points at the ingester's mirror path " +
+  "(a wrong path typically answers 404) and that this instance's clock is accurate (a skewed clock is refused as expired/future). " +
+  "The per-cycle status lines carry the endpoint and the rejection reason. Nothing further will be pushed until the daemon is restarted.";
+
+/**
+ * Emitted when the daemon is asked to push to something that is not a usable
+ * http(s) endpoint. Returned BEFORE any cycle runs, because a URL `fetch` cannot
+ * even parse would otherwise be retried forever as a transient network failure.
+ */
+export const MIRROR_PUSH_INVALID_URL_MESSAGE =
+  "mirror push NOT STARTED: the push target is not a usable http(s) URL, so no request could ever succeed. " +
+  "Set --url to the ingester's full mirror endpoint (for example https://host/h2a/mirror). " +
+  "If this is a systemd unit, its ExecStart placeholder was not filled in.";
+
 export const MIRROR_PUSH_REENROLLMENT_MESSAGE =
   "mirror push STOPPED: the endpoint rejected this instance's signing key (HTTP 401/403) on every attempt. " +
   "This is not a transient error and retrying cannot fix it — the key is not enrolled on the receiving side " +
@@ -137,12 +173,21 @@ export type MirrorPushOutcome =
   | "build-failed"
   | "skipped-overlap";
 
-/** Why the daemon returned. Every reason is a clean, intentional stop. */
+/**
+ * Why the daemon returned. Every reason is a clean, intentional stop — the
+ * daemon never falls out of its loop by accident.
+ *
+ * `auth-stop`, `reject-stop` and `config-invalid` are the three that need a
+ * human act; they are exactly the reasons that carry a `message`, and the CLI
+ * turns any `message` into exit 1 so systemd keeps the unit stopped.
+ */
 export type MirrorPushStopReason =
   | "max-cycles"
   | "aborted"
   | "kill-switch"
-  | "auth-stop";
+  | "auth-stop"
+  | "reject-stop"
+  | "config-invalid";
 
 export interface MirrorPushCycleResult {
   readonly outcome: MirrorPushOutcome;
@@ -171,6 +216,8 @@ export interface MirrorPushCycleLog {
   readonly nextInMs?: number;
   /** Consecutive auth rejections so far — 0 unless the key is being refused. */
   readonly authFailures?: number;
+  /** Consecutive non-auth rejections so far — 0 unless the request is refused. */
+  readonly rejections?: number;
 }
 
 export interface MirrorPushDaemonSummary {
@@ -179,10 +226,16 @@ export interface MirrorPushDaemonSummary {
   readonly ok: number;
   /** Cycles that did not push successfully (any non-ok, non-skipped outcome). */
   readonly failures: number;
-  /** Cycles skipped because a previous push was still in flight. */
+  /**
+   * Cycles skipped because a previous push was still in flight. Always 0 for the
+   * daemon itself, which awaits each cycle and therefore cannot overlap itself;
+   * non-zero only when a `runner` is shared with another concurrent caller.
+   */
   readonly skippedOverlap: number;
   /** Consecutive auth rejections at stop time. */
   readonly authFailures: number;
+  /** Consecutive non-auth rejections at stop time. */
+  readonly rejections: number;
   readonly stopReason: MirrorPushStopReason;
   /** Present only on `auth-stop`: {@link MIRROR_PUSH_REENROLLMENT_MESSAGE}. */
   readonly message?: string;
@@ -222,12 +275,58 @@ const MIRROR_REJECTION_REASONS = new Set([
  * out one line at a time.
  */
 export function sanitizeForLog(text: string): string {
-  return text
-    .replace(/-----BEGIN[\s\S]*?-----END[^-]*-----/g, "[redacted-key]")
-    .replace(/-----BEGIN[\s\S]*/g, "[redacted-key]")
-    .replace(/\b(bearer)\s+[\w.\-+/=]+/gi, "$1 [redacted]")
-    .replace(/\b(token|key|secret|password|signature|apikey|api_key)=([^&\s]+)/gi, "$1=[redacted]")
-    .slice(0, 300);
+  return (
+    text
+      .replace(/-----BEGIN[\s\S]*?-----END[^-]*-----/g, "[redacted-key]")
+      .replace(/-----BEGIN[\s\S]*/g, "[redacted-key]")
+      // URL userinfo (https://user:password@host) anywhere in free-form text.
+      .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1[redacted]@")
+      .replace(/\b(bearer|basic)\s+[\w.\-+/=]+/gi, "$1 [redacted]")
+      // Credential-ish parameters. The name prefix is matched explicitly rather
+      // than with `\b`, because `\b` does not fire after an underscore — which
+      // let every `access_token=` / `session_key=` form through untouched.
+      .replace(
+        /([\w.-]*(?:token|key|secret|password|passwd|signature|credential)s?)=([^&\s]+)/gi,
+        "$1=[redacted]"
+      )
+      .slice(0, 300)
+  );
+}
+
+/**
+ * Text of a caught value, for a value that is NOT guaranteed to be an `Error`.
+ * A rejection can carry anything — a string, an object, `undefined` from a bare
+ * `Promise.reject()` — and this daemon's whole contract is that a cycle never
+ * throws. Reading `.message` off a non-Error would itself throw, escape the
+ * classifier, and land in the CLI's unsanitized fatal handler.
+ */
+function errorText(error: unknown): string {
+  if (error instanceof Error && typeof error.message === "string") return error.message;
+  const message = (error as { message?: unknown } | null | undefined)?.message;
+  if (typeof message === "string") return message;
+  try {
+    return String(error);
+  } catch {
+    // A thrown object with a hostile toString still must not break the cycle.
+    return "[unrepresentable error]";
+  }
+}
+
+/**
+ * True when `url` is something a push could actually reach: parseable, and
+ * http(s). Anything else — an unfilled placeholder, a typo, a `file:` or `ws:`
+ * scheme — makes `fetch` throw a parse error that would otherwise be classified
+ * as a retryable network failure and retried forever.
+ */
+export function isPushableHttpUrl(url: string | undefined): boolean {
+  if (typeof url !== "string" || url.trim() === "") return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  return parsed.protocol === "http:" || parsed.protocol === "https:";
 }
 
 /**
@@ -282,12 +381,13 @@ export interface MirrorPushRunnerOptions {
 /**
  * Create the guarded one-cycle runner: build → sign → POST once, classified.
  *
- * The returned function is the ONLY thing that touches the network, and it
- * carries the overlap guard: while one cycle is in flight, a second call
- * returns `skipped-overlap` immediately without building an envelope or
- * issuing a request. Exposed so a caller (or a test) can drive single cycles
- * without the timer loop — exactly as `runSupervisorBeat` is exposed next to
- * `runLoopSupervisor`.
+ * The returned function is the ONLY thing that touches the network. It carries an
+ * in-flight guard for CONCURRENT callers of the same runner: while one cycle is
+ * running, a second call returns `skipped-overlap` immediately without building
+ * an envelope or issuing a request. (The daemon itself awaits each cycle, so it
+ * never trips this guard on its own — see the module header.) Exposed so a caller
+ * or a test can drive single cycles without the timer loop, exactly as
+ * `runSupervisorBeat` is exposed next to `runLoopSupervisor`.
  *
  * Never throws: every failure is classified into a {@link MirrorPushOutcome}.
  */
@@ -319,7 +419,7 @@ export function createMirrorPushRunner(
         // keep looping rather than tearing the daemon down. No request was made.
         return {
           outcome: "build-failed",
-          error: sanitizeForLog((error as Error).message),
+          error: sanitizeForLog(errorText(error)),
           durationMs: nowFn() - startedAt
         };
       }
@@ -337,7 +437,7 @@ export function createMirrorPushRunner(
         // Transport threw: DNS, refused, TLS, timeout. Retryable.
         return {
           outcome: "transient",
-          error: sanitizeForLog((error as Error).message),
+          error: sanitizeForLog(errorText(error)),
           durationMs: nowFn() - startedAt
         };
       }
@@ -379,6 +479,8 @@ export interface MirrorPushDaemonOptions extends MirrorPushRunnerOptions {
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** Consecutive auth rejections tolerated. Default {@link DEFAULT_MIRROR_AUTH_FAILURE_LIMIT}. */
   readonly authFailureLimit?: number;
+  /** Consecutive non-auth rejections tolerated. Default {@link DEFAULT_MIRROR_REJECT_LIMIT}. */
+  readonly rejectLimit?: number;
   readonly backoffBaseMs?: number;
   readonly backoffMaxMs?: number;
   /** Pre-built runner (shares one overlap guard across callers). */
@@ -427,6 +529,10 @@ export async function runMirrorPushDaemon(
     options.authFailureLimit && options.authFailureLimit > 0
       ? options.authFailureLimit
       : DEFAULT_MIRROR_AUTH_FAILURE_LIMIT;
+  const rejectLimit =
+    options.rejectLimit && options.rejectLimit > 0
+      ? options.rejectLimit
+      : DEFAULT_MIRROR_REJECT_LIMIT;
   const backoffBase =
     options.backoffBaseMs && options.backoffBaseMs > 0
       ? options.backoffBaseMs
@@ -442,6 +548,7 @@ export async function runMirrorPushDaemon(
   let failures = 0;
   let skippedOverlap = 0;
   let authFailures = 0;
+  let rejections = 0;
   let consecutiveFailures = 0;
 
   const finish = (
@@ -453,6 +560,7 @@ export async function runMirrorPushDaemon(
     failures,
     skippedOverlap,
     authFailures,
+    rejections,
     stopReason,
     ...(message ? { message } : {})
   });
@@ -461,6 +569,14 @@ export async function runMirrorPushDaemon(
   // a single request, not even one.
   if (mirrorPushGloballyDisabled(env)) return finish("kill-switch");
   if (options.signal?.aborted) return finish("aborted");
+
+  // A target `fetch` cannot even parse would throw a parse TypeError that this
+  // daemon would classify as a retryable network failure and retry forever. Stop
+  // before the first cycle instead — the CLI refuses such a URL up front, but the
+  // library is public API and must not be loopable into that state either.
+  if (!isPushableHttpUrl(options.url)) {
+    return finish("config-invalid", MIRROR_PUSH_INVALID_URL_MESSAGE);
+  }
 
   const runCycle = options.runner ?? createMirrorPushRunner(options);
 
@@ -484,12 +600,14 @@ export async function runMirrorPushDaemon(
     } else if (result.outcome === "ok") {
       ok += 1;
       consecutiveFailures = 0;
-      // Only a genuinely ACCEPTED push clears the auth budget.
+      // Only a genuinely ACCEPTED push clears either stop budget.
       authFailures = 0;
+      rejections = 0;
     } else {
       failures += 1;
       consecutiveFailures += 1;
       if (result.outcome === "auth-rejected") authFailures += 1;
+      if (result.outcome === "rejected") rejections += 1;
     }
 
     const emit = async (nextInMs?: number): Promise<void> => {
@@ -504,7 +622,8 @@ export async function runMirrorPushDaemon(
         ...(result.error ? { error: result.error } : {}),
         durationMs: result.durationMs,
         ...(nextInMs !== undefined ? { nextInMs } : {}),
-        authFailures
+        authFailures,
+        rejections
       });
     };
 
@@ -513,6 +632,14 @@ export async function runMirrorPushDaemon(
     if (authFailures >= authLimit) {
       await emit(undefined);
       return finish("auth-stop", MIRROR_PUSH_REENROLLMENT_MESSAGE);
+    }
+
+    // REJECT STOP: the same reasoning for a request the endpoint keeps refusing
+    // on non-auth grounds. A looser budget, because a fencing rejection can
+    // genuinely clear — but not an unbounded one, because a wrong path cannot.
+    if (rejections >= rejectLimit) {
+      await emit(undefined);
+      return finish("reject-stop", MIRROR_PUSH_REJECTED_MESSAGE);
     }
 
     if (options.max !== undefined && cycles >= options.max) {

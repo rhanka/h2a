@@ -156,6 +156,7 @@ import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
 import {
   buildInstanceMirror,
+  isPushableHttpUrl,
   mirrorPushGloballyDisabled,
   mirrorServerForStore,
   redactEndpoint,
@@ -2102,6 +2103,18 @@ async function runMirrorPushWatch(
   signal?: AbortSignal,
   overrides: H2AMirrorPushOverrides = {}
 ): Promise<number> {
+  // KILL-SWITCH FIRST, before ANY input is parsed or read. A disabled daemon must
+  // short-circuit without touching the filesystem, so the shipped systemd unit —
+  // kill-switch present, ExecStart values still placeholders — is a clean exit-0
+  // no-op rather than a "cannot read --private-key" failure on a placeholder path.
+  // Flag validation is deliberately skipped in this state: nothing is going to
+  // run, so there is nothing to validate.
+  if (mirrorPushGloballyDisabled(process.env)) {
+    streams.stderr.write(
+      `h2a remote mirror: ${MIRROR_PUSH_OFF_ENV} is set — the live push is disabled, nothing was sent\n`
+    );
+    return 0;
+  }
   const intervalMs = Number.parseInt(flags["interval-ms"] ?? "", 10);
   if (!Number.isInteger(intervalMs) || intervalMs < MIN_MIRROR_PUSH_INTERVAL_MS) {
     streams.stderr.write(
@@ -2114,6 +2127,17 @@ async function runMirrorPushWatch(
     streams.stderr.write(`h2a remote mirror: --max must be an integer >= 1 (got "${flags.max}")\n`);
     return 1;
   }
+  // The one-shot POSTs once and surfaces the transport error; a daemon would
+  // instead classify an unusable --url as a transient failure and retry it
+  // forever (an unfilled placeholder or a typo would look "active (running)"
+  // while pushing nothing). So the daemon form requires a usable http(s) URL
+  // up front and fails fast, like the other pre-flight checks.
+  if (!isPushableHttpUrl(flags.url as string)) {
+    streams.stderr.write(
+      `h2a remote mirror: --url must be an http(s) URL (got "${flags.url}")\n`
+    );
+    return 1;
+  }
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
   // The key is read ONCE, at start, and kept only in memory: a rotated key needs
@@ -2124,12 +2148,6 @@ async function runMirrorPushWatch(
   } catch (error) {
     streams.stderr.write(`h2a remote mirror: cannot read --private-key (${(error as Error).message})\n`);
     return 1;
-  }
-  if (mirrorPushGloballyDisabled(process.env)) {
-    streams.stderr.write(
-      `h2a remote mirror: ${MIRROR_PUSH_OFF_ENV} is set — the live push is disabled, nothing was sent\n`
-    );
-    return 0;
   }
   streams.stderr.write(
     `h2a remote mirror: pushing instance ${flags.instance} to ${redactEndpoint(flags.url as string)} every ${intervalMs}ms (root ${root})\n`
@@ -2147,7 +2165,10 @@ async function runMirrorPushWatch(
       streams.stdout.write(`${JSON.stringify(line)}\n`);
     }
   });
-  if (summary.stopReason === "auth-stop") {
+  // Every stop that needs a human act carries its own actionable message and
+  // exits 1, so systemd's RestartPreventExitStatus=1 keeps it stopped instead of
+  // restarting into the same wall.
+  if (summary.message) {
     streams.stderr.write(`h2a remote mirror: ${summary.message}\n`);
     return 1;
   }

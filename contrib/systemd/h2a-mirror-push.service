@@ -13,7 +13,9 @@ Type=simple
 # ---------------------------------------------------------------------------
 # THIS UNIT SHIPS DISARMED. It will not push anything until you (a) fill in the
 # three placeholders below and (b) delete the H2A_MIRROR_PUSH_OFF line. Enabling
-# the unit as-shipped starts a process that immediately exits as a clean no-op.
+# the unit as-shipped starts a process that reports itself disabled and exits 0
+# without reading any input or sending any request; with Restart=on-failure that
+# clean exit leaves the unit inactive rather than restarting every 30s.
 # ---------------------------------------------------------------------------
 #
 # `h2a` must resolve on the user service PATH. If your npm global bin is not on
@@ -37,14 +39,23 @@ Environment=H2A_ROOT=%h/h2a-workspace/.h2a
 # public key is enrolled on the receiving side — otherwise every push is
 # rejected. Any non-empty, non-0/false value freezes the push.
 Environment=H2A_MIRROR_PUSH_OFF=1
-Restart=always
+# on-failure, NOT always: every exit-0 of this daemon is deliberate (kill-switch
+# set, --max reached, or SIGTERM), so restarting on a clean exit would just spin.
+# In particular, while the kill-switch line above is present the process exits 0
+# on every start, and `Restart=always` would restart it every RestartSec forever
+# — a unit that looks permanently unhealthy while doing nothing. Crashes and
+# non-zero exits other than 1 still restart.
+Restart=on-failure
 RestartSec=30
-# CRITICAL, DO NOT REMOVE. The daemon exits 1 when the endpoint has refused this
-# instance's signing key on every attempt: re-enrollment is required and no
-# amount of restarting fixes it. Without this line, `Restart=always` would turn a
-# deliberate stop back into an endless retry against a server saying no.
+# CRITICAL, DO NOT REMOVE. The daemon exits 1 when a stop needs a human act: the
+# endpoint refused this instance's signing key on every attempt (re-enrollment
+# required), it refused the request itself on every attempt, or --url is not a
+# usable http(s) endpoint. No amount of restarting fixes any of those. Without
+# this line a deliberate stop becomes an endless retry against a server saying no.
 RestartPreventExitStatus=1
-# A cycle is never interrupted mid-push: SIGTERM stops the daemon between cycles.
+# SIGTERM stops the daemon between cycles rather than mid-request; if a push is
+# in flight, `h2a` gives it a short grace period and then exits regardless, so
+# this timeout is a backstop and not the normal path.
 TimeoutStopSec=15
 
 [Install]
