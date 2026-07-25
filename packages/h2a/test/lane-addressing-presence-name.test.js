@@ -864,3 +864,199 @@ test("resolveAutoOpen: installs a title refresher only when --name was NOT given
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+const RLO_LITERAL = "\u202E";
+const PDF_LITERAL = "\u202C";
+const BEL_LITERAL = "\u0007";
+
+
+// --- 34-40. NO-GO review leg (gpt-5.6-terra, 2026-07-25) ---------------------
+// Each test below pins a behaviour that leg found unpinned. Where its stated
+// mechanism was wrong, the test pins what the code ACTUALLY does, so the next
+// reader inherits a measurement rather than a claim. See spec 10.6.
+
+test("refresher: a transcript that appears LATE resolves to its title (absent -> present)", () => {
+  // The pre-existing late-discovery test asserted only that the SCAN RECURS
+  // (scans === 2). It never flipped the fixture, so "late transcript -> name"
+  // was proven by construction, not end to end. This flips it.
+  const fx = makeClaudeHome();
+  try {
+    let present = false;
+    const base = makeReaders({ fakeHome: fx.fakeHome });
+    let clock = 0;
+    const refresh = createHostSessionNameRefresher({
+      host: "claude",
+      cwd: tmpdir(),
+      sessionId: fx.sessionId,
+      now: () => clock,
+      readers: {
+        ...base,
+        findClaudeTranscript: () => (present ? fx.transcript : undefined)
+      }
+    });
+
+    assert.equal(refresh(), undefined, "an absent transcript resolves to no name");
+
+    fx.write([JSON.stringify({ type: "custom-title", customTitle: "auth" })]);
+    present = true;
+
+    // Still inside the negative-cache window: must NOT re-scan yet.
+    assert.equal(refresh(), undefined, "the negative cache must suppress the re-scan");
+
+    clock += 60_001; // just past TRANSCRIPT_MISS_BACKOFF_MS
+    assert.equal(
+      refresh(),
+      "auth",
+      "once the backoff expires the late transcript must resolve to its real title"
+    );
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("refresher: a rename A -> B -> A is followed each way", () => {
+  // Neither transition was pinned. A cache keyed on "changed since last read"
+  // rather than on the current value would pass A->B and silently fail B->A.
+  const fx = makeClaudeHome();
+  try {
+    const refresh = createHostSessionNameRefresher({
+      host: "claude",
+      cwd: tmpdir(),
+      sessionId: fx.sessionId,
+      readers: makeReaders({ fakeHome: fx.fakeHome })
+    });
+
+    fx.write([JSON.stringify({ type: "custom-title", customTitle: "A" })]);
+    assert.equal(refresh(), "A");
+
+    fx.write([
+      JSON.stringify({ type: "custom-title", customTitle: "A" }),
+      JSON.stringify({ type: "custom-title", customTitle: "B" })
+    ]);
+    assert.equal(refresh(), "B", "a rename must be followed");
+
+    fx.write([
+      JSON.stringify({ type: "custom-title", customTitle: "A" }),
+      JSON.stringify({ type: "custom-title", customTitle: "B" }),
+      JSON.stringify({ type: "custom-title", customTitle: "A" })
+    ]);
+    assert.equal(refresh(), "A", "a rename BACK to a previous value must also be followed");
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("resolveAutoOpen: no refresher is installed when --host is omitted", () => {
+  // The only pre-existing wiring test forced host:"claude" in BOTH arms, so it
+  // could not observe any other host. With --host omitted the host is "agent",
+  // resolveProviderSession returns {source:"none"}, so there is no provider
+  // session id and nothing is installed.
+  const cwd = mkdtempSync(join(tmpdir(), "lane-addr-nohost-cwd-"));
+  const root = join(mkdtempSync(join(tmpdir(), "lane-addr-nohost-root-")), ".h2a");
+  const previous = process.env.CLAUDE_CODE_SESSION_ID;
+  process.env.CLAUDE_CODE_SESSION_ID = "lane-addr-session";
+  try {
+    const resolved = resolveAutoOpen({ "auto-open": "true", root }, () => cwd);
+    assert.equal(
+      resolved.refreshDisplayName,
+      undefined,
+      "no provider session id resolves for host 'agent', so no refresher may be installed"
+    );
+  } finally {
+    if (previous === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
+    else process.env.CLAUDE_CODE_SESSION_ID = previous;
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resolveAutoOpen: host 'remote' resolves a session id but installs NO refresher", () => {
+  // The real dead-callback case. resolveProviderSession DOES return a provider
+  // session id for remote/gemini/agy, while the refresher can only read claude
+  // and codex - so without an explicit host gate those three install a callback
+  // that runs every heartbeat and can never return a name.
+  const cwd = mkdtempSync(join(tmpdir(), "lane-addr-remote-cwd-"));
+  const root = join(mkdtempSync(join(tmpdir(), "lane-addr-remote-root-")), ".h2a");
+  const prev = process.env.SESSION_ID;
+  process.env.SESSION_ID = "remote-session-1";
+  try {
+    const resolved = resolveAutoOpen(
+      { "auto-open": "true", host: "remote", root },
+      () => cwd
+    );
+    assert.equal(
+      resolved.refreshDisplayName,
+      undefined,
+      "a host the reader cannot read must not get a permanently-undefined refresher"
+    );
+  } finally {
+    if (prev === undefined) delete process.env.SESSION_ID;
+    else process.env.SESSION_ID = prev;
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reader: a Codex thread_name is trimmed, whitespace-rejected and length-capped", () => {
+  // normalizeTitle was reachable ONLY through Claude's jsonField(). The Codex
+  // branch assigned obj.thread_name raw, so it was the remaining unbounded
+  // host-controlled presence input despite the cap being claimed as closed.
+  const read = (threadName) =>
+    readHostSessionName({
+      host: "codex",
+      cwd: tmpdir(),
+      sessionId: "cx-1",
+      readers: makeReaders({
+        codexIndexLines: [JSON.stringify({ id: "cx-1", thread_name: threadName })]
+      })
+    });
+
+  assert.equal(read("  padded  "), "padded", "a Codex title must be trimmed");
+  assert.equal(read("     "), undefined, "a whitespace-only Codex title must be rejected");
+  assert.equal(
+    read("L".repeat(5000))?.length,
+    MAX_DISPLAY_NAME_CHARS,
+    "a Codex title must be capped exactly like a Claude one"
+  );
+});
+
+test("reader: control and bidi characters are stripped from a Claude display name", () => {
+  // D3 presents this string to a HUMAN choosing a recipient. U+202E (RLO) can
+  // make two candidates render identically; a C0 control can corrupt the line.
+  const fx = makeClaudeHome();
+  try {
+    fx.write([
+      JSON.stringify({
+        type: "custom-title",
+        customTitle: "auth" + RLO_LITERAL + "gnitnuocca" + PDF_LITERAL + BEL_LITERAL
+      })
+    ]);
+    const got = readHostSessionName({
+      host: "claude",
+      cwd: tmpdir(),
+      sessionId: fx.sessionId,
+      readers: makeReaders({ fakeHome: fx.fakeHome })
+    });
+    assert.equal(
+      got,
+      "authgnitnuocca",
+      "bidi overrides and control chars must never reach presence"
+    );
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("reader: a Codex thread_name is also stripped of control/bidi characters", () => {
+  const got = readHostSessionName({
+    host: "codex",
+    cwd: tmpdir(),
+    sessionId: "cx-1",
+    readers: makeReaders({
+      codexIndexLines: [
+        JSON.stringify({ id: "cx-1", thread_name: "ops" + RLO_LITERAL + "kcatta" })
+      ]
+    })
+  });
+  assert.equal(got, "opskcatta");
+});
