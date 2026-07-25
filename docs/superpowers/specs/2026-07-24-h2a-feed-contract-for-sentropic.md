@@ -490,3 +490,40 @@ Consequences that are now contract, not implementation detail:
 This is the same discipline the contract already applies to scalars via the `'unknown'` sentinel, extended to collections. Architect's framing: it is the third instance today of one defect family — *a value that cannot distinguish "nothing" from "we never looked"* — alongside a claim wider than its instrument and a status wider than its evidence.
 
 **P1 confirmed**: read-only, owner's own `sub`, single per-principal root slice, enrollment ON for that one owner. Full multi-tenant fan-out stays behind ARCH-11 strict (exposure spec §5). Attach = read-only metadata; interactive attach is a separate gated capability.
+
+---
+
+## Step 4b — BLOCKING security requirement: cross-verify path identity against key identity
+
+Recorded on the ruling of the sentropic architect lane (2026-07-25), raised **before** the code exists.
+Blocking on step 4b; may be cited as constraining work in the h2a lane.
+
+Step 4b makes the push target per-binding-keyed (`/h2a/mirror/<bindingId>`). Today's ingest check
+(`runtime/mirror/accept.ts`) proves only that the payload is signed by a key that owns the instance
+**declared in that same payload** — payload-internal consistency — and `runtime/mirror/serve.ts` routes on
+one fixed path with **no** path parameter, which is why there is no vulnerability today and why 4b would
+introduce one.
+
+If 4b routes the write by the `<bindingId>` in the **path** while validation only proves the payload is
+internally self-consistent, then path-identity and key-identity are validated **independently**. Agent A,
+holding a perfectly valid key and a perfectly valid signature over its own payload, can POST to principal
+B's bindingId path and land a write in B's partition. **Every individual check passes; the composition is
+what fails** — which is exactly why this is blocking rather than advisory.
+
+**REQUIRED**
+
+1. The ingester MUST cross-verify that the signing key **is** the `agentPubKey` of the **ACTIVE** binding
+   named by the `<bindingId>` in the path. Path-identity and key-identity are checked **against each
+   other**, never each merely valid on its own.
+2. A `bindingId` in a URL is a **ROUTING key, never a bearer credential**. Possession of the path confers
+   nothing.
+3. Mandatory negative test: valid key + valid signature + **someone else's** `bindingId` ⇒ **REJECTED**,
+   with **no write and no partial write** (a rejected cross-principal push must leave the target partition
+   byte-identical; a per-item loop that validates late is how partial writes appear).
+4. Logging: a `bindingId` in the owner's own local journal is fine — it is not a credential. Once the
+   ingester logs server-side in a shared or multi-tenant context, `bindingId`s must not reach shared logs.
+
+**The generalisation, which is the reusable part**: a credential proves **who produced** something, never
+**what it may touch**. This is the same failure family as *authorship ≠ authorization* — there a valid
+signature was almost allowed to stand in for an authorization lookup; here it would stand in for partition
+ownership.
