@@ -10,57 +10,12 @@
 // Response 200  : { ok:true, delivered:boolean, target?:string, note:string }
 // Response 400/503: { ok:false, error }
 
-import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
-
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
+import { putEnvelope, repoRoot, resolveLiveTarget } from '$lib/server/h2a-bus';
 import { loadReport } from '$lib/server/report-view';
 import { subjectOf, stepAction } from '$lib/track-model';
-
-function repoRoot(): string {
-  return process.env.FOCUS_REPO_ROOT ?? path.resolve(process.cwd(), '..', '..');
-}
-function h2aBin(root: string): string {
-  const installed = process.env.FOCUS_H2A_BIN?.trim();
-  if (installed) return installed;
-  return path.join(root, 'packages', 'h2a', 'dist', 'bin.js');
-}
-
-/**
- * LIVE h2a sessions of the given project, freshest first. We use `h2a sessions` (not `h2a discover`):
- * `discover` lists every registered instance including long-dead ones, so it would hand us a stale inbox
- * nobody reads. `sessions` returns only sessions with a current presence (`state:"live"` + heartbeat), which
- * is exactly what we need — a decision must land where someone is actually working.
- */
-function liveSessionsForProject(root: string, project: string): string[] {
-  const bin = h2aBin(root);
-  if (!existsSync(bin)) return [];
-  try {
-    const out = execFileSync('node', [bin, 'sessions'], {
-      cwd: root,
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024
-    });
-    const parsed = JSON.parse(out) as unknown;
-    const arr = (Array.isArray(parsed) ? parsed : ((parsed as { sessions?: unknown[] }).sessions ?? [])) as {
-      instance?: string;
-      state?: string;
-      heartbeatAt?: string;
-    }[];
-    return arr
-      .filter((x) => x.state === 'live')
-      .filter((x) => (x.instance ?? '').includes(`:${project}:`))
-      // a real CLI host, not another agent/service
-      .filter((x) => /^(claude|codex|gemini|agy|hermes|opencode):/.test(x.instance ?? ''))
-      .sort((a, b) => (b.heartbeatAt ?? '').localeCompare(a.heartbeatAt ?? ''))
-      .map((x) => x.instance as string);
-  } catch {
-    return [];
-  }
-}
 
 export const POST: RequestHandler = async ({ request }) => {
   let body: unknown;
@@ -86,13 +41,9 @@ export const POST: RequestHandler = async ({ request }) => {
   const question = d.gate?.blockedByTitle?.trim() || subjectOf(d);
   const action = stepAction(d.step.code);
 
-  // The decision goes back to WHOEVER EMITTED THIS FOCUS: when h2a serves the app it passes its own instance
-  // as FOCUS_EMITTER_INSTANCE, and that's the recipient — straightforward, no guessing. But we only honour the
-  // emitter if it is STILL LIVE: a decision must land where someone is actually working, never in a dead inbox.
-  // When the emitter is absent or has gone stale we target the freshest live session of the project instead.
-  const live = liveSessionsForProject(root, project);
-  const emitter = process.env.FOCUS_EMITTER_INSTANCE?.trim();
-  const target = emitter && live.includes(emitter) ? emitter : live[0];
+  // The decision goes back to WHOEVER EMITTED THIS FOCUS when it is still live, else the freshest live
+  // session of the project — see `resolveLiveTarget`, shared with the dossier include route.
+  const target = resolveLiveTarget(root, project);
 
   if (!target) {
     return json({
@@ -123,18 +74,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
   let recipientLive = false;
   try {
-    const out = execFileSync(
-      'node',
-      [h2aBin(root), 'inbox', 'put', '--instance', target, '--json', JSON.stringify(envelope)],
-      { cwd: root, encoding: 'utf8' }
-    );
     // `inbox put` reports whether the recipient is live at deposit time — surface it so the human knows
     // whether the decision hit an active session (picked up now) or just sits in an inbox for later.
-    try {
-      recipientLive = Boolean((JSON.parse(out) as { recipientLive?: boolean }).recipientLive);
-    } catch {
-      /* older CLI without the field — leave recipientLive=false */
-    }
+    recipientLive = putEnvelope(root, target, envelope).recipientLive;
   } catch (e) {
     return json({ ok: false, error: `Dépôt h2a échoué : ${e instanceof Error ? e.message : String(e)}` });
   }
