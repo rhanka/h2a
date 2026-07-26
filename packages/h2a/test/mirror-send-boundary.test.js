@@ -641,6 +641,7 @@ test("no plan classifies a COMPOSITE field as `send`", () => {
   // updating the fixture does not silence it.
   const k = keypair();
   const isSendable = (v) =>
+    v === undefined ||
     v === null ||
     ["string", "number", "boolean"].includes(typeof v) ||
     (Array.isArray(v) && v.every((e) => ["string", "number", "boolean"].includes(typeof e)));
@@ -664,25 +665,34 @@ test("no plan classifies a COMPOSITE field as `send`", () => {
   ];
   assert.equal(cases.length, 7, "every plan the module exports must be audited");
 
-  const offenders = [];
-  for (const [what, plan, fixture] of cases) {
-    for (const [field, step] of Object.entries(plan)) {
-      if (step?.kind !== "send") continue;
-      // A `send` field MISSING from the probe fixture used to pass, because
-      // `undefined` is trivially sendable — so the audit could be silenced by
-      // simply not adding the new field to a fixture. Absence is now an offence
-      // in its own right: the audit fails closed.
-      if (!(field in fixture)) {
-        offenders.push(`${what}.${field} (absent from probe fixture)`);
-        continue;
+  const audit = (auditCases) => {
+    const offenders = [];
+    for (const [what, plan, fixture] of auditCases) {
+      for (const [field, step] of Object.entries(plan)) {
+        if (step?.kind !== "send") continue;
+        // A `send` field MISSING from the probe fixture used to pass, because
+        // `undefined` is trivially sendable — so the audit could be silenced by
+        // simply not adding the new field to a fixture. Absence is now an offence
+        // in its own right: the audit fails closed.
+        if (!(field in fixture)) {
+          offenders.push(`${what}.${field} (absent from probe fixture)`);
+          continue;
+        }
+        if (!isSendable(fixture[field])) offenders.push(`${what}.${field}`);
       }
-      if (!isSendable(fixture[field])) offenders.push(`${what}.${field}`);
     }
-  }
+    return offenders;
+  };
   assert.deepEqual(
-    offenders,
+    audit(cases),
     [],
     "a `send` classification on a composite copies it BY REFERENCE — give it a narrow plan of its own"
+  );
+  assert.equal(isSendable(undefined), true, "absence is caught by the audit, not the value predicate");
+  assert.deepEqual(
+    audit([["workspace", MIRROR_WORKSPACE_PLAN, { id: "ws:x", host: "claude" }]]),
+    ["workspace.label (absent from probe fixture)"],
+    "a missing send field must fail the audit even when undefined is sendable"
   );
 });
 
@@ -775,12 +785,27 @@ test("the smuggled composite does not reach the receiver's disk either", async (
   }
 });
 
-test("endpoints null/undefined yield [] — the guard that could not fire, now fires", () => {
-  // `applyPlan` used to skip null BEFORE calling the narrow, so the
-  // `Array.isArray` guard inside `sanitizeEndpointsForMirror` — written for
-  // exactly this — could never run for `null`. The field came out ABSENT, which
-  // violates `H2AMirroredRegistration.endpoints` and hands `relaunchers.ts:296`
-  // (`?.endpoints.find` — not optional-chained after `.endpoints`) a TypeError.
+test("null reaches the endpoints narrow, which emits []", () => {
+  // This bypasses `sanitizeRegistrationForMirror`'s required-field backstop.
+  // The test below proves that backstop; this one pins the distinct behavior
+  // claimed here. With the old `value === null` short-circuit in `applyPlan`,
+  // `endpoints` was absent from this intermediate result and this test fails.
+  const k = keypair();
+  const out = MIRROR_TEST_HOOKS.applyPlan(
+    baitedRegistration(k.pub, { endpoints: null }),
+    MIRROR_REGISTRATION_PLAN
+  );
+  assert.ok(
+    Object.prototype.hasOwnProperty.call(out, "endpoints"),
+    "null must reach the narrow instead of being short-circuited before it"
+  );
+  assert.deepEqual(out.endpoints, []);
+});
+
+test("registration output makes endpoints an array for hostile input", () => {
+  // `sanitizeRegistrationForMirror` makes `endpoints` unconditional: this is
+  // the wire-type backstop for undefined and malformed values. It is not the
+  // proof that null reached the endpoint narrow; that proof is the test above.
   const k = keypair();
   for (const hostile of [null, undefined, "nope", 42, {}]) {
     const out = sanitizeRegistrationForMirror(
