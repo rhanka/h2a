@@ -36,6 +36,16 @@ export {
   type H2AMirrorResult
 } from "./accept.js";
 export {
+  INGEST_NARROWERS,
+  createNarrowingTally,
+  droppedKeyPaths,
+  narrowIngestedPresence,
+  narrowIngestedRegistration,
+  narrowIngestedSubagent,
+  type MirrorBodyRecordMember,
+  type MirrorNarrowingReport
+} from "./ingest.js";
+export {
   mirrorServerForStore,
   mirrorRejectionStatus,
   type MirrorServerForStoreOptions
