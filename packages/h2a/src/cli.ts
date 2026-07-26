@@ -412,6 +412,7 @@ export function renderCliHelp(): string {
     "  h2a keepalive [--root <path>] [--interval <ms>] [--once]   (external keepalive prober — refreshes presence for agents whose tmux pane is still alive)",
     "  h2a rename --instance <id> --name <name> [--root <path>]   (set a live session's display name so peers can find it via discover --name)",
     "  h2a status [--root <path>] [--scope <s>] [--instance <i>]",
+    "  h2a status --human [--watch] [--tmux-session <exact>] [--interval <duration>]   (read-only tmux/work/gateway/inbox/loop status; --bar is the terse tmux segment)",
     "  h2a sessions [--root <path>] [--scope <s>] [--instance <i>]",
     "  h2a thread --id <threadId> --instance <self> [--root <path>]   (the ordered conversation for a thread, from your inbox+outbox)",
     "  h2a keys generate --instance <id> [--out <dir>] [--root <path>]",
