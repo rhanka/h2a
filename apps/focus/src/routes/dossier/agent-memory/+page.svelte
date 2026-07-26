@@ -144,8 +144,9 @@
   });
 
   /**
-   * Revenir au jeu commité : on SUPPRIME le brouillon au lieu de le réécrire, pour que la page retrouve
-   * exactement l'état d'un navigateur neuf. Action volontaire, jamais automatique.
+   * Trancher un écart en faveur du dépôt : on SUPPRIME le brouillon au lieu de le réécrire, pour que la
+   * page retrouve exactement l'état d'un navigateur neuf. N'est proposé QUE lorsqu'un écart réel existe —
+   * sans écart il n'y a pas de choix à faire, donc pas de bouton.
    */
   function useCommitted() {
     if (!committed) return;
@@ -153,7 +154,6 @@
     notes = { ...committed.state.notes };
     dirty = false;
     exportState = 'idle';
-    replayReport = committed.report;
     try {
       window.localStorage.removeItem(storageKey);
       window.localStorage.removeItem(notesKey);
@@ -192,7 +192,7 @@
     void includeResult;
     void notes;
     void selections;
-    void replayReport;
+    void committedReport;
     void exportState;
     void divergences;
     void sendAllResult;
@@ -270,64 +270,14 @@
     }
   }
 
-  type ReplayReport = {
-    applied: string[];
-    /** Clés de réponse dont la décision n'existe plus dans cette révision. */
-    missingDecisions: string[];
-    /** Décision toujours là, mais option disparue : la note est rejouée, la sélection non. */
-    staleOptions: string[];
-    /**
-     * L'inverse : des décisions de CETTE révision que le jeu enregistré ne couvre pas. Sur un changement
-     * de révision c'est précisément ce que le lecteur doit voir — sans cela, un rejeu « réussi » laisse
-     * croire que tout le dossier est répondu alors que les cartes ajoutées sont vides.
-     */
-    unanswered: string[];
-    revisionMismatch: boolean;
-  };
-
   /**
-   * Le rapport du jeu commité tel qu'il retombe sur CETTE révision. Affiché d'emblée, plus seulement
-   * après un clic : puisque le jeu commité est désormais ce qu'on voit à l'ouverture, le lecteur doit
-   * savoir immédiatement ce qui a été chargé, ce qui n'a pas pu l'être, et quelles cartes ont été
-   * AJOUTÉES depuis (D8–D13) — des cartes en attente, pas des réponses perdues.
+   * Ce que le jeu commité donne sur CETTE révision : ce qui a été chargé, ce qui n'a pas pu l'être, et
+   * les cartes AJOUTÉES depuis (D8–D13) qui attendent une réponse. C'est de l'information sur un état
+   * déjà atteint, pas le compte rendu d'une action — il n'y a jamais eu de clic à faire pour l'obtenir.
    */
-  let replayReport = $state<ReplayReport | null>(committed ? committed.report : null);
-  let replayPendingConfirm = $state(false);
+  const committedReport = $derived(committed ? committed.report : null);
 
   const revisionMismatch = $derived(Boolean(answerSet) && answerSet!.revision !== dossier.revision);
-
-  /**
-   * Recharger le jeu commité est un acte DÉLIBÉRÉ dès qu'il y a un brouillon à écraser : des réponses en
-   * cours ne doivent pas disparaître d'un clic. Sans brouillon, il n'y a rien à confirmer.
-   */
-  function requestReplay() {
-    if (!answerSet) return;
-    if (divergences.length > 0) {
-      replayPendingConfirm = true;
-      return;
-    }
-    applyReplay();
-  }
-
-  function cancelReplay() {
-    replayPendingConfirm = false;
-  }
-
-  /**
-   * Applique le jeu enregistré. Toute réponse qui ne retombe pas sur cette révision est RAPPORTÉE,
-   * jamais écartée en silence : une absence invisible est un mensonge de plus dans un dossier de
-   * décision. Les réponses sont rejouées telles quelles — y compris une sélection qui contredit sa
-   * propre note : c'est ce que l'humain a écrit, ce n'est pas à l'interface de le réconcilier.
-   */
-  function applyReplay() {
-    if (!committed) return;
-    // Une seule projection, partagée avec le chargement initial (`$lib/dossier-answers.js`) : deux
-    // implémentations du même report finiraient par ne plus dire la même chose au même lecteur.
-    useCommitted();
-    replayPendingConfirm = false;
-    // On atterrit sur la première décision : un rejeu qu'on ne voit pas n'est pas un rejeu.
-    current = 1;
-  }
 
   type IncludeResult = {
     ok: boolean;
@@ -535,8 +485,11 @@
               message="Le fichier docs/decisions/2026-07-25-agent-memory-owner-answers.json n'est pas atteignable depuis ce service. Rien n'a été inventé : le dossier s'ouvre vide, et vos réponses commitées ne sont pas perdues pour autant — elles sont dans le dépôt."
             />
           {:else if answerOrigin === 'committed'}
+            <!-- `info`, pas `success` : c'est la provenance d'un état permanent, pas la confirmation d'un
+                 évènement. Un ton de réussite laisserait croire qu'il s'est passé quelque chose — or il ne
+                 s'est rien passé, ces réponses sont simplement là. -->
             <Alert
-              tone="success"
+              tone="info"
               title={`Réponses commitées chargées (${Object.keys(committed?.state.notes ?? {}).length} note(s), ${Object.keys(committed?.state.selections ?? {}).length} sélection(s))`}
               message={`Chargées côté serveur depuis ${answerSet.source} — aucun état de navigateur n'est nécessaire pour les voir. Vos modifications restent locales tant qu'elles ne sont pas commitées, et cette bannière vous dira si elles s'écartent du jeu commité.`}
             />
@@ -1060,92 +1013,83 @@
                   <Alert
                     tone="warning"
                     title="Révision différente"
-                    message={`Ces réponses ont été capturées sur « ${answerSet.revision} », or ce dossier est en « ${dossier.revision} ». Le rejeu dira précisément ce qui retombe sur cette révision, ce qui n'y retombe plus, et quelles décisions ce jeu ne couvre pas.`}
+                    message={`Ces réponses ont été capturées sur « ${answerSet.revision} », or ce dossier est en « ${dossier.revision} ». Ce qui retombe sur cette révision est chargé ; ce qui n'y retombe plus et ce que ce jeu ne couvre pas sont nommés ci-dessous.`}
                   />
                 {/if}
-                <!-- LE DÉTAIL DES ÉCARTS. Quand le brouillon local et le jeu commité ne disent pas la même
-                     chose, on montre LES DEUX valeurs plutôt que d'en choisir une sans le dire. -->
-                {#if divergences.length > 0}
-                  <Alert
-                    tone="warning"
-                    title={`${divergences.length} écart(s) entre votre brouillon local et le jeu commité`}
-                    message="Ce que la page affiche est votre brouillon. Voici, décision par décision, ce que dit le jeu commité du dépôt."
-                  />
-                  <ul class="divergences">
-                    {#each divergences as divergence (divergence.key)}
-                      <li>
-                        <Stack gap={1}>
-                          <strong>{divergence.key}</strong>
-                          <p>
-                            <em>Jeu commité :</em>
-                            {divergence.committedOption ?? '(aucune option)'} —
-                            {divergence.committedNote ? divergence.committedNote : '(aucune note)'}
-                          </p>
-                          <p>
-                            <em>Votre brouillon :</em>
-                            {divergence.draftOption ?? '(aucune option)'} —
-                            {divergence.draftNote ? divergence.draftNote : '(aucune note)'}
-                          </p>
-                        </Stack>
-                      </li>
-                    {/each}
-                  </ul>
-                {/if}
 
-                <Flex align="center" justify="between" wrap gap={2}>
-                  <span class="include-hint">
-                    {divergences.length > 0
-                      ? 'Votre brouillon local diverge : le recharger le remplacera, après confirmation.'
-                      : 'Aucun écart : ce que vous voyez EST le jeu commité.'}
-                  </span>
-                  <Button variant="secondary" onclick={requestReplay} disabled={replayPendingConfirm}>
-                    Recharger le jeu commité
-                  </Button>
-                </Flex>
-
-                {#if replayPendingConfirm}
-                  <Alert
-                    tone="warning"
-                    title="Remplacer votre brouillon local ?"
-                    message={`Le rechargement va supprimer votre brouillon local (${divergences.length} écart(s) : ${divergences.map((d) => d.key).join(', ')}) et réafficher le jeu commité du dépôt. Cette action est volontaire et ne peut pas être annulée.`}
-                  />
-                  <Flex align="center" wrap gap={2}>
-                    <Button variant="primary" onclick={applyReplay}>Remplacer et recharger</Button>
-                    <Button variant="secondary" onclick={cancelReplay}>Annuler</Button>
-                  </Flex>
-                {/if}
-
-                {#if replayReport}
-                  <Alert
-                    tone={replayReport.missingDecisions.length || replayReport.staleOptions.length
-                      ? 'warning'
-                      : 'success'}
-                    title={`${replayReport.applied.length} réponse(s) chargée(s) depuis le jeu commité`}
-                    message={`Sélections et notes chargées pour : ${replayReport.applied.join(', ') || '(aucune)'}.`}
-                  />
+                <!-- ÉTAT DU CHARGEMENT — de l'information, pas le compte rendu d'une action. Ces réponses
+                     sont là dès le premier rendu ; personne n'a eu à cliquer pour les obtenir. -->
+                {#if committedReport}
                   <!-- Une réponse qui ne retombe plus sur cette révision est NOMMÉE, jamais escamotée. -->
-                  {#if replayReport.missingDecisions.length}
+                  {#if committedReport.missingDecisions.length}
                     <Alert
                       tone="error"
-                      title="Réponses non rejouables : décision disparue"
-                      message={`Ces clés n'existent plus dans la révision « ${dossier.revision} » et n'ont donc pas pu être rejouées : ${replayReport.missingDecisions.join(', ')}. Leurs notes sont toujours dans le jeu enregistré, pas dans cette page.`}
+                      title="Réponses non chargeables : décision disparue"
+                      message={`Ces clés n'existent plus dans la révision « ${dossier.revision} » et n'ont donc pas pu être chargées : ${committedReport.missingDecisions.join(', ')}. Leurs notes sont toujours dans le jeu commité, pas dans cette page.`}
                     />
                   {/if}
-                  {#if replayReport.staleOptions.length}
+                  {#if committedReport.staleOptions.length}
                     <Alert
                       tone="warning"
-                      title="Options disparues : note rejouée, sélection non"
-                      message={`Ces options n'existent plus pour leur décision : ${replayReport.staleOptions.join(', ')}. La note a été restaurée, la sélection est restée vide — à vous de la reprendre.`}
+                      title="Options disparues : note chargée, sélection non"
+                      message={`Ces options n'existent plus pour leur décision : ${committedReport.staleOptions.join(', ')}. La note a été chargée, la sélection est restée vide — à vous de la reprendre.`}
                     />
                   {/if}
-                  <!-- L'autre moitié de l'honnêteté d'un rejeu : les cartes que ce jeu ne couvre pas. -->
-                  {#if replayReport.unanswered.length}
+                  <!-- L'autre moitié de l'honnêteté : les cartes que ce jeu ne couvre pas. -->
+                  {#if committedReport.unanswered.length}
                     <Alert
                       tone="info"
-                      title={`${replayReport.unanswered.length} décision(s) sans réponse dans ce jeu`}
-                      message={`Ce jeu enregistré ne couvre pas : ${replayReport.unanswered.join(', ')}. Ce ne sont pas des réponses perdues — ce sont les cartes ajoutées depuis, qui attendent la vôtre.`}
+                      title={`${committedReport.unanswered.length} décision(s) sans réponse dans ce jeu`}
+                      message={`Ce jeu commité ne couvre pas : ${committedReport.unanswered.join(', ')}. Ce ne sont pas des réponses perdues — ce sont les cartes ajoutées depuis, qui attendent la vôtre.`}
                     />
                   {/if}
+                {/if}
+
+                <!-- LE SEUL CAS QUI MÉRITE UN GESTE : deux versions qui se contredisent réellement.
+                     Charger des réponses déjà enregistrées n'est pas un évènement qui demande un
+                     consentement — sans écart, il n'y a donc RIEN à cliquer ici, et aucun bouton n'est
+                     rendu. Avec un écart, la question n'est pas « rejouer ? » mais « laquelle des deux »,
+                     les deux valeurs sous les yeux. -->
+                {#if divergences.length > 0}
+                  <section aria-labelledby="divergence-title">
+                    <Stack gap={2}>
+                      <h3 id="divergence-title">
+                        Deux versions de vos réponses ({divergences.length} écart(s))
+                      </h3>
+                      <p>
+                        La page affiche votre <strong>brouillon local</strong>. Le jeu commité du dépôt dit
+                        autre chose sur ces décisions. Choisissez laquelle garder — rien n'est remplacé
+                        tant que vous n'avez pas choisi.
+                      </p>
+                      <ul class="divergences">
+                        {#each divergences as divergence (divergence.key)}
+                          <li>
+                            <Stack gap={1}>
+                              <strong>{divergence.key}</strong>
+                              <p>
+                                <em>Jeu commité :</em>
+                                {divergence.committedOption ?? '(aucune option)'} —
+                                {divergence.committedNote ? divergence.committedNote : '(aucune note)'}
+                              </p>
+                              <p>
+                                <em>Votre brouillon (affiché) :</em>
+                                {divergence.draftOption ?? '(aucune option)'} —
+                                {divergence.draftNote ? divergence.draftNote : '(aucune note)'}
+                              </p>
+                            </Stack>
+                          </li>
+                        {/each}
+                      </ul>
+                      <Flex align="center" justify="between" wrap gap={2}>
+                        <span class="include-hint">
+                          Garder votre brouillon ne demande aucune action : il est déjà à l'écran.
+                        </span>
+                        <Button variant="secondary" onclick={useCommitted}>
+                          Utiliser le jeu commité du dépôt
+                        </Button>
+                      </Flex>
+                    </Stack>
+                  </section>
                 {/if}
               {/if}
             </Stack>
