@@ -53,7 +53,7 @@ describe("h2a runtime Codex gateway", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           messages: [{ role: "user", content: "refresh-sensitive context" }],
         }),
       }),
@@ -65,7 +65,7 @@ describe("h2a runtime Codex gateway", () => {
 
   it("keeps xhigh Claude requests as Codex xhigh", () => {
     const req = toCodexRequest({
-      model: "claude-opus-4-8",
+      model: "claude-opus-5-xhigh",
       messages: [{ role: "user", content: "continue" }],
       max_tokens: 4096,
       stream: true,
@@ -78,7 +78,7 @@ describe("h2a runtime Codex gateway", () => {
     });
   });
 
-  it("sends xhigh to the Codex Responses upstream request", async () => {
+  it("uses canonical max effort without a thinking budget", async () => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     const fetchMock = vi
       .fn()
@@ -101,10 +101,9 @@ describe("h2a runtime Codex gateway", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-opus-4-8",
+          model: "claude-fable-5-max",
           max_tokens: 10,
           messages: [{ role: "user", content: "ping" }],
-          thinking: { type: "enabled", budget_tokens: 50_000 },
         }),
       }),
     );
@@ -112,17 +111,17 @@ describe("h2a runtime Codex gateway", () => {
     expect(res.status).toBe(200);
     const upstreamInit = fetchMock.mock.calls[0]![1] as RequestInit;
     expect(JSON.parse(String(upstreamInit.body))).toMatchObject({
-      model: "gpt-5.6-terra",
-      reasoning: { effort: "xhigh" },
+      model: "gpt-5.6-sol",
+      reasoning: { effort: "max" },
     });
-    expect(res.headers.get("x-h2a-resolved-model")).toBe("gpt-5.6-terra");
-    expect(res.headers.get("x-h2a-reasoning-effort")).toBe("xhigh");
+    expect(res.headers.get("x-h2a-resolved-model")).toBe("gpt-5.6-sol");
+    expect(res.headers.get("x-h2a-reasoning-effort")).toBe("max");
   });
 
   it("replaces unsupported image tool results before Codex trimming and preserves final text", () => {
     const largeImageData = "a".repeat(180_000);
     const req = {
-      model: "claude-opus-4-8",
+      model: "claude-opus-5-xhigh",
       max_tokens: 1024,
       messages: [
         {
@@ -220,7 +219,7 @@ describe("h2a runtime Codex gateway", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           max_tokens: 10,
           messages: [{ role: "user", content: "ping" }],
           thinking: { type: "enabled", budget_tokens: 50_000 },
