@@ -216,6 +216,7 @@ async function dispatchToSessionAccount(
   c: Context,
   session: SessionEntry,
   body: ArrayBuffer,
+  recordOutbound: () => void,
 ): Promise<Response> {
   if (
     session.requiredTransport &&
@@ -226,6 +227,11 @@ async function dispatchToSessionAccount(
       503,
     );
   }
+  // The account/transport guard above has passed. This is the final common
+  // point immediately before the provider-specific outbound request is
+  // constructed, so route text cannot be claimed merely from parsing or a
+  // successful rebind.
+  recordOutbound();
   if (
     session.provider === "google" ||
     session.provider === "gemini" ||
@@ -295,21 +301,26 @@ export async function handleMessages(c: Context): Promise<Response> {
       if (!rebound) {
         return c.json({ error: "requested route could not be rebound" }, 503);
       }
-      session = rebound;
+      const reboundSession = rebound;
+      session = reboundSession;
     } catch (err) {
       console.error("rebindGatewaySession failed:", err);
       return c.json({ error: "requested route could not be rebound" }, 503);
     }
   }
 
-  recordSessionRequest(session.sessionId, route);
-
   const attempted = new Set<string>();
+  let outboundRecorded = false;
 
   try {
     for (;;) {
-      attempted.add(session.accountId);
-      const response = await dispatchToSessionAccount(c, session, body);
+      const dispatchSession = session;
+      attempted.add(dispatchSession.accountId);
+      const response = await dispatchToSessionAccount(c, dispatchSession, body, () => {
+        if (outboundRecorded) return;
+        recordSessionRequest(dispatchSession.sessionId, route);
+        outboundRecorded = true;
+      });
       if (!isQuotaFallbackResponse(response)) {
         const completedSessionId = session.sessionId;
         return completeWhenBodyEnds(response, () =>
