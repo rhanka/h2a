@@ -30,6 +30,10 @@ import {
   type RegistryEntry,
 } from "./registry.js";
 import { emitJobDone, type EmitJobDoneResult } from "./h2a-jobs.js";
+import {
+  SESSION_CLASS_ENV,
+  sessionClassFromEnv,
+} from "./session-class.js";
 
 // ---------------------------------------------------------------------------
 // Hook mode
@@ -134,6 +138,25 @@ export function handleClaudeHook(
     const cwd = typeof payload.cwd === "string" ? payload.cwd : process.cwd();
     const env = opts.env ?? process.env;
     const envJobId = env.REMOTE_JOB_ID;
+    const envSessionClass = env[SESSION_CLASS_ENV];
+    const parsedSessionClass = sessionClassFromEnv(envSessionClass);
+    // A malformed marker is evidence of a broken managed launch. Do not turn it
+    // into a human row: the hook must fail closed rather than upgrade a job.
+    if (envSessionClass !== undefined && !parsedSessionClass) {
+      return { ok: false, error: `invalid ${SESSION_CLASS_ENV}` };
+    }
+    // A hook payload has no intrinsic role or session kind.  Only managed
+    // launchers stamp H2A_SESSION_CLASS; without it, admitting this event as a
+    // human would be the same fail-open that let background h2a-run hooks come
+    // back after restore.  REMOTE_JOB_ID is separately authoritative for the
+    // older delegated-job channel.
+    if (!envJobId && !parsedSessionClass) {
+      return { ok: true };
+    }
+    // REMOTE_JOB_ID is itself a durable job marker. If its registry row was
+    // concurrently pruned, preserve the conservative background class instead
+    // of falling through to an ordinary human hook enrollment.
+    const sessionClass = envJobId ? "background" : parsedSessionClass!;
     if (hook === "claude-start") {
       // H1 — if this claude session IS a delegated job (REMOTE_JOB_ID stamped on
       // its tmux env by startJob), LINK its conversation uuid onto the job entry
@@ -152,6 +175,7 @@ export function handleClaudeHook(
               cwd: job.cwd,
               source: job.source,
               convId: id,
+              sessionClass: "background",
               role: "job",
             },
             registryPath,
@@ -160,7 +184,15 @@ export function handleClaudeHook(
         }
       }
       enroll(
-        { id, tool: "claude", kind: "local", cwd, convId: id, source: "hook" },
+        {
+          id,
+          tool: "claude",
+          kind: "local",
+          cwd,
+          convId: id,
+          source: "hook",
+          sessionClass,
+        },
         registryPath,
       );
       return { ok: true };
@@ -189,7 +221,15 @@ export function handleClaudeHook(
     // leaves a (terminated) trace, then mark it ended.
     if (!markEnded(id, registryPath)) {
       enroll(
-        { id, tool: "claude", kind: "local", cwd, convId: id, source: "hook" },
+        {
+          id,
+          tool: "claude",
+          kind: "local",
+          cwd,
+          convId: id,
+          source: "hook",
+          sessionClass,
+        },
         registryPath,
       );
       markEnded(id, registryPath);
@@ -236,6 +276,7 @@ export function manualEnroll(
       kind: "local",
       cwd,
       source: "run",
+      sessionClass: "human",
       ...(opts.conv !== undefined ? { convId: opts.conv } : {}),
       ...(opts.label !== undefined ? { label: opts.label } : {}),
       ...(pid !== undefined ? { pid } : {}),
