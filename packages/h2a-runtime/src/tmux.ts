@@ -831,6 +831,16 @@ export function localSessionPanePid(agentPane: string): number | undefined {
 }
 
 /**
+ * Read the recorded agent pane's pid without discovering or mutating tmux
+ * metadata. Status callers use this to prove an attested worker is still the
+ * same process, not merely a recycled session name.
+ */
+export function localSessionAgentPanePid(session: string): number | undefined {
+  const agentPane = readSessionOption(session, AGENT_PANE_OPTION);
+  return validTmuxPaneId(agentPane) ? localSessionPanePid(agentPane) : undefined;
+}
+
+/**
  * Start a HEADLESS delegated job in a detached local tmux session under the
  * run-once-exit wrapper: the CLI runs, its output is captured to `outputLog`,
  * a `resultJson` is written, then the session ENDS. The task lands as a single
@@ -1134,20 +1144,24 @@ function unsetSessionOption(session: string, option: string): boolean {
 }
 
 export function h2aStatusSurfaceOptions(
-  previousRight = "%H:%M",
+  _previousRight = "%H:%M",
 ): ReadonlyArray<readonly [string, string]> {
   return [
     ["status", "on"],
     ["status-interval", "5"],
-    ["status-left-length", "96"],
-    ["status-right-length", "120"],
+    ["status-left-length", "40"],
+    ["status-right-length", "200"],
     [
       "status-left",
-      "[#{session_name}:#{window_name}#{window_flags}] #(h2a status --bar --segment workload --tmux-session #{q:session_name}) ",
+      "[h2a] #(h2a status --bar --segment workload --tmux-session #{q:session_name} --owner-instance #{q:@h2a_owner_instance}) ",
     ],
     [
       "status-right",
-      `#(h2a status --bar --segment gateway --tmux-session #{q:session_name})  ${previousRight}`,
+      // Preserve the user's previous value for exact uninstall, but never
+      // embed it in the active bar: tmux formats can expand pane/session
+      // titles supplied by a host and bypass the status renderer's cap and
+      // control/bidi stripping. The fixed clock is bounded, trusted text.
+      "#(h2a status --bar --segment gateway --tmux-session #{q:session_name} --width #{client_width})  %H:%M",
     ],
   ];
 }
@@ -1274,6 +1288,18 @@ export function uninstallH2aStatusSurface(session: string): boolean {
   return uninstallH2aStatusSurfaceWithAccess(session, TMUX_STATUS_OPTION_ACCESS);
 }
 
+export function h2aStatusWindowCommand(
+  session: string,
+  ownerInstance: string | undefined,
+): string {
+  const quotedSession = shellSingleQuote(session);
+  const quotedOwner = ownerInstance &&
+      /^[A-Za-z0-9][A-Za-z0-9._:~-]{0,255}$/.test(ownerInstance)
+    ? ` --owner-instance ${shellSingleQuote(ownerInstance)}`
+    : "";
+  return `h2a status --human --watch --tmux-session ${quotedSession}${quotedOwner}`;
+}
+
 /** Open or reuse the detailed in-process watcher in a distinct tmux window. */
 export function openH2aStatusWindow(
   session: string,
@@ -1281,12 +1307,14 @@ export function openH2aStatusWindow(
 ): boolean {
   if (!parseManagedSessionName(session)) return false;
   if (sessionWindowNames(session).includes(H2A_STATUS_WINDOW_NAME)) return true;
-  const quotedSession = shellSingleQuote(session);
+  // The same exact session option used by the bar is carried into the human
+  // companion; without it J/I must deliberately remain UNKNOWN.
+  const owner = readSessionOption(session, "@h2a_owner_instance");
   return addSessionWindow(
     session,
     H2A_STATUS_WINDOW_NAME,
     cwd,
-    `h2a status --human --watch --tmux-session ${quotedSession}`,
+    h2aStatusWindowCommand(session, owner),
   );
 }
 
