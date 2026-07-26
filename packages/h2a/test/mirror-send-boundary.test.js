@@ -66,6 +66,9 @@ import {
   MIRROR_PRESENCE_PLAN,
   MIRROR_REGISTRATION_PLAN,
   MIRROR_SUBAGENT_PLAN,
+  MIRROR_TEST_HOOKS,
+  MIRROR_VERSION_PLAN,
+  MIRROR_WORKSPACE_PLAN,
   buildFeedResponse,
   buildInstanceMirror,
   createLocalStore,
@@ -236,6 +239,18 @@ function baitedRegistration(pub, overrides = {}) {
     agentUuid: "11111111-2222-4333-8444-555555555555",
     workspace: workspaceRef(),
     name: WORKSPACE_LABEL,
+    ...overrides
+  };
+}
+
+/** A subagent binding carrying every field of `H2ASubagentBinding`. */
+function baitedSubagent(overrides = {}) {
+  return {
+    id: "nhi:probe:0001",
+    parentInstance: INSTANCE,
+    name: "probe-subagent",
+    capabilities: ["code"],
+    createdAt: new Date(NOW - 3_600_000).toISOString(),
     ...overrides
   };
 }
@@ -626,11 +641,14 @@ test("no plan classifies a COMPOSITE field as `send`", () => {
   // updating the fixture does not silence it.
   const k = keypair();
   const isSendable = (v) =>
-    v === undefined ||
     v === null ||
     ["string", "number", "boolean"].includes(typeof v) ||
     (Array.isArray(v) && v.every((e) => ["string", "number", "boolean"].includes(typeof e)));
 
+  // ALL SEVEN plans. An earlier version of this test covered only four and
+  // silently omitted workspace, version and subagent — so an `any` field on one
+  // of those could have been classified `send` with nothing firing. The list is
+  // asserted complete below so it cannot quietly shrink again.
   const cases = [
     ["presence", MIRROR_PRESENCE_PLAN, baitedSession()],
     ["registration", MIRROR_REGISTRATION_PLAN, baitedRegistration(k.pub)],
@@ -639,12 +657,25 @@ test("no plan classifies a COMPOSITE field as `send`", () => {
       "endpoint",
       MIRROR_ENDPOINT_PLAN,
       { kind: "remote", uri: "https://h/", secretPath: "/home/victim/x" }
-    ]
+    ],
+    ["workspace", MIRROR_WORKSPACE_PLAN, workspaceRef()],
+    ["version", MIRROR_VERSION_PLAN, { cli: "0.85.25", skill: "0.66.0" }],
+    ["subagent", MIRROR_SUBAGENT_PLAN, baitedSubagent()]
   ];
+  assert.equal(cases.length, 7, "every plan the module exports must be audited");
+
   const offenders = [];
   for (const [what, plan, fixture] of cases) {
     for (const [field, step] of Object.entries(plan)) {
       if (step?.kind !== "send") continue;
+      // A `send` field MISSING from the probe fixture used to pass, because
+      // `undefined` is trivially sendable — so the audit could be silenced by
+      // simply not adding the new field to a fixture. Absence is now an offence
+      // in its own right: the audit fails closed.
+      if (!(field in fixture)) {
+        offenders.push(`${what}.${field} (absent from probe fixture)`);
+        continue;
+      }
       if (!isSendable(fixture[field])) offenders.push(`${what}.${field}`);
     }
   }
@@ -653,6 +684,149 @@ test("no plan classifies a COMPOSITE field as `send`", () => {
     [],
     "a `send` classification on a composite copies it BY REFERENCE — give it a narrow plan of its own"
   );
+});
+
+// ─── 4ter. The record is UNVALIDATED, so the value is checked at runtime ─────
+//
+// The compile-time constraint proves the PLAN is well-typed. It proves nothing
+// about the VALUE: `store.registerInstance` validates nothing and
+// `handleRegisterInstance` checks `typeof === "object"` and stops, so a field
+// declared `string` can hold an object at runtime and a `send` classification
+// would copy it wholesale. This is NOT the disclosed free-text-element gap —
+// that is about the CONTENT of strings; this is a composite smuggled through a
+// field the type says is a scalar.
+
+const BAIT_SMUGGLED = {
+  cwd: "/home/victim/smuggled",
+  command: "h2a mcp-serve --token sk-live-SMUGGLED"
+};
+
+test("a COMPOSITE smuggled through a scalar-declared `send` field is dropped", () => {
+  const k = keypair();
+  const sanitized = sanitizeRegistrationForMirror(
+    baitedRegistration(k.pub, {
+      principal: BAIT_SMUGGLED,
+      conductor: { tmux: { pane: "%SMUGGLED" } },
+      agentUuid: { nested: "/home/victim/uuid" }
+    })
+  );
+  assert.equal(sanitized.principal, undefined, "an object in a string field must not travel");
+  assert.equal(sanitized.conductor, undefined);
+  assert.equal(sanitized.agentUuid, undefined);
+  assertNothingForbidden(JSON.stringify(sanitized), "a registration with smuggled composites");
+});
+
+test("a COMPOSITE smuggled through an array-of-scalars field is dropped", () => {
+  const k = keypair();
+  const sanitized = sanitizeRegistrationForMirror(
+    baitedRegistration(k.pub, {
+      roles: [{ cwd: "/home/victim/roles" }],
+      capabilities: { cwd: "/home/victim/caps" },
+      scopes: [["/home/victim/nested-array"]]
+    })
+  );
+  // An array whose ELEMENTS are not primitives is not an array of scalars.
+  assert.equal(sanitized.roles, undefined);
+  assert.equal(sanitized.capabilities, undefined);
+  assert.equal(sanitized.scopes, undefined);
+  assertNothingForbidden(JSON.stringify(sanitized), "a registration with smuggled arrays");
+});
+
+test("the smuggled composite does not reach the receiver's disk either", async () => {
+  // End-to-end through the real path, because the unit assertion above would be
+  // satisfied by a sanitizer that merely reordered the leak.
+  const k = keypair();
+  const senderTmp = mkdtempSync(join(tmpdir(), "h2a-smuggle-sender-"));
+  const receiverTmp = mkdtempSync(join(tmpdir(), "h2a-smuggle-recv-"));
+  const senderRoot = join(senderTmp, ".h2a");
+  const receiverRoot = join(receiverTmp, ".h2a");
+  try {
+    const senderStore = createLocalStore({ root: senderRoot });
+    senderStore.registerInstance(
+      baitedRegistration(k.pub, { principal: BAIT_SMUGGLED })
+    );
+    writePresence(senderRoot, baitedSession());
+    const envelope = buildInstanceMirror(senderStore, INSTANCE, NOW);
+    const signed = signEnvelope(envelope, { by: INSTANCE, privateKeyPem: k.priv });
+
+    const receiverStore = createLocalStore({ root: receiverRoot });
+    const server = mirrorServerForStore(receiverStore, { enrolledKeys: [k.pub] });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    let status;
+    try {
+      const { port } = server.address();
+      const res = await fetch(`http://127.0.0.1:${port}/h2a/mirror`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(signed)
+      });
+      status = res.status;
+      await res.json();
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+    assert.equal(status, 202, "a row with a smuggled composite must still push");
+    const stored = readFileSync(join(receiverRoot, "registry", "instances.jsonl"), "utf8");
+    assertNothingForbidden(stored, "the stored registry row");
+    assert.ok(!stored.includes("SMUGGLED"));
+  } finally {
+    rmSync(senderTmp, { recursive: true, force: true });
+    rmSync(receiverTmp, { recursive: true, force: true });
+  }
+});
+
+test("endpoints null/undefined yield [] — the guard that could not fire, now fires", () => {
+  // `applyPlan` used to skip null BEFORE calling the narrow, so the
+  // `Array.isArray` guard inside `sanitizeEndpointsForMirror` — written for
+  // exactly this — could never run for `null`. The field came out ABSENT, which
+  // violates `H2AMirroredRegistration.endpoints` and hands `relaunchers.ts:296`
+  // (`?.endpoints.find` — not optional-chained after `.endpoints`) a TypeError.
+  const k = keypair();
+  for (const hostile of [null, undefined, "nope", 42, {}]) {
+    const out = sanitizeRegistrationForMirror(
+      baitedRegistration(k.pub, { endpoints: hostile })
+    );
+    assert.ok(Array.isArray(out.endpoints), `endpoints must be an array for ${String(hostile)}`);
+    assert.deepEqual(out.endpoints, []);
+    // The exact receiver-side dereference, which must not throw.
+    assert.equal(out.endpoints.find((e) => e.kind === "remote"), undefined);
+  }
+});
+
+// ─── 4quater. A hostile PLAN must not defeat the boundary either ─────────────
+
+test("an IDENTITY narrow copies nothing — a composite must be REBUILT, not passed through", () => {
+  // `NarrowPlan.narrow` is an arbitrary callback returning `unknown`, so
+  // `narrow((value) => value)` type-checks and copies a composite wholesale —
+  // which is precisely the leak the plans exist to stop. The compiler CANNOT
+  // reject it (identity returns a structurally compatible type), so this is
+  // enforced at runtime: a narrow's output is dropped unless it was itself built
+  // by `applyPlan`.
+  const { applyPlan, narrow, send } = MIRROR_TEST_HOOKS;
+  const hostileSource = {
+    ok: "fine",
+    sneaky: { cwd: "/home/victim/identity", tmux: { pane: "%IDENTITY" } }
+  };
+  const out = applyPlan(hostileSource, {
+    ok: send,
+    sneaky: narrow((value) => value) // identity — the whole object, by reference
+  });
+  assert.equal(out.ok, "fine", "the legitimate field still travels");
+  assert.equal(out.sneaky, undefined, "an identity narrow must not smuggle the composite");
+  assertNothingForbidden(JSON.stringify(out), "output of a plan with an identity narrow");
+});
+
+test("a narrow that REBUILDS from a plan is accepted (the rule is not vacuous)", () => {
+  // Guard on the guard: the check above must not simply reject every narrow.
+  const { applyPlan, narrow, send } = MIRROR_TEST_HOOKS;
+  const out = applyPlan(
+    { ok: "fine", nested: { keep: "yes", drop: "/home/victim/x" } },
+    {
+      ok: send,
+      nested: narrow((value) => applyPlan(value, { keep: send }))
+    }
+  );
+  assert.deepEqual(out, { ok: "fine", nested: { keep: "yes" } });
 });
 
 // ─── 4e. The ENVELOPE is inside the boundary too ─────────────────────────────
