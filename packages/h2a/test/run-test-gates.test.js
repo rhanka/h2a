@@ -9,9 +9,10 @@
  *   M1  the verdict line, so a failed step reports `passed`  -> npm test exit 0
  *   M4  the exit rule, so a skipped step still exits 0       -> npm test exit 0
  *
- * Both SURVIVED: nothing in the repository detected either. The tests below make
- * both mutations fail loudly. A gate that cannot itself be verified is a promise,
- * not a guarantee.
+ * Both SURVIVED when this file ran inside the runner it verifies: an M1 mutation
+ * made the outer runner call its failed inner test a pass. CI now invokes this
+ * file directly, outside that runner; run-tests.mjs deliberately excludes it from
+ * `npm test` discovery. The tests below make both mutations fail loudly there.
  *
  * The runner is driven through `runGates()` with SYNTHETIC steps: real `node -e`
  * subprocesses with chosen exit codes. That exercises the true code path — spawn,
@@ -21,6 +22,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, resolve } from 'node:path'
+import { discoverTestFiles, RUNNER_TEST_FILE } from '../../../scripts/run-tests.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 // pathToFileURL, not the bare path: on Windows an absolute path starts with a
@@ -38,6 +40,7 @@ const {
   PASSED,
   FAILED,
   SKIPPED,
+  TIMED_OUT,
   INCONCLUSIVE,
   STEPS,
 } = await import(RUNNER)
@@ -125,7 +128,7 @@ test('M4: a skipped step must yield exit 1, never a pass', () => {
 test('exit rule: exit 0 requires every step to have passed', () => {
   assert.equal(exitCodeFor([{ status: PASSED }, { status: PASSED }]), 0)
   assert.equal(exitCodeFor([]), 1, 'nothing observed is not the same as nothing wrong')
-  for (const bad of [FAILED, SKIPPED, INCONCLUSIVE, 'a-status-invented-next-year']) {
+  for (const bad of [FAILED, SKIPPED, TIMED_OUT, INCONCLUSIVE, 'a-status-invented-next-year']) {
     assert.equal(
       exitCodeFor([{ status: PASSED }, { status: bad }]),
       1,
@@ -145,6 +148,30 @@ test('a skipped step is never reported as passed', () => {
   runGates([step('build', 1), step('tests', 0, { requiresBuild: true })], io.options)
   assert.doesNotMatch(io.text, /tests\s+passed/)
   assert.match(io.text, /not run/)
+})
+
+test('a timed-out step is named as a non-verdict and later steps still run', () => {
+  const io = capture()
+  const code = runGates(
+    [
+      {
+        id: 'hung',
+        description: 'never exits',
+        command: process.execPath,
+        args: ['-e', 'setInterval(() => {}, 1000)'],
+        timeoutMs: 50,
+      },
+      step('after-timeout', 0),
+    ],
+    io.options,
+  )
+  assert.equal(code, 1, 'a step without an exit code must fail the run')
+  assert.match(io.text, new RegExp(`hung\\s+${TIMED_OUT}\\s+no exit`))
+  assert.match(io.text, /TIMED OUT \(1\): hung/)
+  assert.match(io.text, /after-timeout\s+passed\s+exit 0/)
+  assert.match(io.text, /=== npm test summary ===/)
+  assert.doesNotMatch(io.text, /hung\s+passed/)
+  assert.doesNotMatch(io.text, /All \d+ steps passed\./)
 })
 
 test('every step appears in the summary, including after a failure', () => {
@@ -258,6 +285,10 @@ test('classifyRun maps spawnSync results to reportable codes', () => {
   assert.equal(classifyRun({ status: 0 }), 0)
   assert.equal(classifyRun({ status: 7 }), 7)
   assert.equal(classifyRun({ error: new Error('nope') }), 'spawn-error')
+  assert.equal(
+    classifyRun({ error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }) }),
+    TIMED_OUT,
+  )
   assert.equal(classifyRun({ signal: 'SIGTERM' }), 'signal:SIGTERM')
   assert.equal(classifyRun({ status: null }), 1, 'an unknown status must not read as success')
 })
@@ -269,4 +300,11 @@ test('the real STEPS list is non-empty and contains the test runner', () => {
   assert.ok(ids.includes('build'))
   const tests = STEPS.find((s) => s.id === 'tests')
   assert.equal(tests.requiresBuild, true, 'the suite depends on the compiled dist')
+  for (const step of STEPS) {
+    assert.ok(Number.isInteger(step.timeoutMs) && step.timeoutMs > 0, `${step.id} needs a bounded timeout`)
+  }
+})
+
+test('the runner test is not discovered through the runner it verifies', () => {
+  assert.ok(!discoverTestFiles().includes(RUNNER_TEST_FILE))
 })
