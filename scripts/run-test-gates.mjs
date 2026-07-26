@@ -43,6 +43,13 @@
  * interpret the exit code of the tests that verify it, and a one-line verdict
  * mutation could make both itself and its broken tests look green.
  *
+ * CEILING: this breaks the circularity for the workflow, not for `npm test`.
+ * `npm test` delegates its verdict to this runner, so a mutated runner can still
+ * green its own failed self-test. The separate direct CI step carries the entire
+ * guarantee. This excluded self-test asserts scripts.test; the discovered
+ * test-gate-wiring.test.js asserts the CI and release wiring that invokes this
+ * file, so each side guards the other's otherwise-unreachable failure mode.
+ *
  * The raw exit-code column and the repeated non-passing list below are diagnostics,
  * not guarantees. They help a human spot a contradictory report, but only the
  * separate direct CI test enforces that the reporter cannot grade its own exam.

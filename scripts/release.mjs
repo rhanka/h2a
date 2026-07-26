@@ -320,6 +320,12 @@ async function main(argv) {
   if (!dryRun) assertCleanWorktree();
 
   runStep("Typecheck", "npm", ["run", "typecheck"], { dryRun });
+  runStep(
+    "Test npm test gate runner directly",
+    "node",
+    ["--test", "packages/h2a/test/run-test-gates.test.js"],
+    { dryRun }
+  );
   runStep("Tests", "npm", ["test"], { dryRun });
   runStep("Check verification left worktree clean", "git", ["status", "--porcelain"], {
     dryRun

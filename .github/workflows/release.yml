@@ -38,6 +38,9 @@ jobs:
       - run: npm test
 
   publish:
+    # `npm test` cannot self-guard its runner. `verify` runs the direct runner
+    # self-test before npm test on this same tag revision, and `needs: verify`
+    # prevents this fresh checkout from publishing if that guard fails.
     needs: verify
     runs-on: ubuntu-latest
     steps:
