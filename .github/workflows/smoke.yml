@@ -2,6 +2,7 @@ name: smoke
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches: [main]
 
@@ -25,7 +26,51 @@ jobs:
         with:
           node-version: "22"
 
+      # Two genuinely different tests, deliberately not conflated:
+      #
+      # - On a pull_request, install THIS PR's own build. This is the
+      #   required-check path: it must be able to fail when the PR's CLI
+      #   code is broken, or it isn't a gate.
+      # - On push to main (and workflow_dispatch), install the PUBLISHED
+      #   @sentropic/h2a@latest from npm. This checks the published
+      #   artefact is actually installable/runnable — this project has
+      #   shipped a release before where CI was green but the published
+      #   tarball was an empty stub, so this half stays as a post-publish
+      #   check, not as a PR gate (a PR's own diff has nothing to do with
+      #   what npm currently serves as "latest").
+      - name: Build and pack the PR's own @sentropic/h2a
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+          # packages/h2a's `prepack` (scripts/check-focus-app.mjs) asserts
+          # the vendored packages/h2a/focus-app bundle is fresh against
+          # apps/focus/src. That is a real, separate, pre-existing
+          # invariant about publish-readiness of the bundled web app, not
+          # about CLI correctness, which is all this job gates. Skip that
+          # lifecycle script here rather than let its unrelated staleness
+          # fail every PR's smoke check for a reason that has nothing to
+          # do with the PR's own code; the push/publish path below still
+          # exercises a real `npm publish`, which runs prepack for real.
+          chmod +x packages/h2a/dist/bin.js
+          pack_dir="$(mktemp -d)"
+          npm pack --workspace @sentropic/h2a --ignore-scripts --pack-destination "$pack_dir"
+          tarball="$(ls "$pack_dir"/sentropic-h2a-*.tgz)"
+          echo "PACKED_H2A_TARBALL=$tarball" >> "$GITHUB_ENV"
+
+      - name: Install this PR's own build globally
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm i -g "$PACKED_H2A_TARBALL"
+          which h2a
+          h2a --help
+
       - name: Install published @sentropic/h2a globally
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -33,7 +78,7 @@ jobs:
           which h2a
           h2a --help
 
-      - name: Published CLI verbs exit 0
+      - name: CLI verbs exit 0
         shell: bash
         run: |
           set -euo pipefail
