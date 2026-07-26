@@ -9,6 +9,7 @@ import {
 } from "../../h2a-runtime/dist/llm-gateway-runtime/model-catalog.js";
 import {
   getSessionLedgerEntry,
+  getSessionLedgerEntryForClient,
   recordSessionFallback,
   recordSessionIdle,
   recordSessionRateLimitComplete,
@@ -19,11 +20,13 @@ import {
 } from "../../h2a-runtime/dist/llm-gateway-runtime/session-ledger.js";
 import {
   h2aStatusSurfaceOptions,
+  h2aStatusWindowCommand,
   installH2aStatusSurfaceWithAccess,
   uninstallH2aStatusSurfaceWithAccess
 } from "../../h2a-runtime/dist/tmux.js";
 import {
   gatewayFromLedger,
+  projectDelegatedExecutions,
   selectExactGatewayLedgerEntry,
   uniqueManagedWork
 } from "../../h2a-runtime/dist/status-projection.js";
@@ -147,6 +150,22 @@ test("gateway ledger exposes concurrent active work and only explicit fallback t
   assert.equal(getSessionLedgerEntry("gw-one")?.upstreamModel, undefined);
 });
 
+test("gateway route stays unknown until an outbound dispatch is recorded", () => {
+  resetSessionLedger();
+  const account = { id: "acct-a", provider: "openai", label: "work", token: "secret" };
+  const route = resolveModelRoute("claude-opus-5-high");
+  upsertSessionLedger({
+    gatewaySessionId: "gw-not-yet-dispatched",
+    clientSessionId: "h2a-owner",
+    account,
+    route,
+  });
+  assert.equal(getSessionLedgerEntry("gw-not-yet-dispatched")?.requestedModel, undefined);
+  assert.equal(getSessionLedgerEntryForClient("h2a-owner")?.upstreamModel, undefined);
+  recordSessionRequest("gw-not-yet-dispatched", route);
+  assert.equal(getSessionLedgerEntryForClient("h2a-owner")?.upstreamModel, "gpt-5.6-terra");
+});
+
 test("overlapping gateway routes suppress non-attributable route and account details", () => {
   resetSessionLedger();
   const account = { id: "acct-a", provider: "openai", label: "work", token: "secret" };
@@ -218,15 +237,172 @@ test("gateway projection selects only the exact tmux client session id", () => {
   assert.equal(selectExactGatewayLedgerEntry([wrong], "h2a-demo"), undefined);
 });
 
+test("exact-client gateway lookup chooses the freshest unambiguous gateway record", () => {
+  resetSessionLedger();
+  const account = { id: "acct", provider: "openai", label: "work", token: "secret" };
+  upsertSessionLedger({
+    gatewaySessionId: "gw-old",
+    clientSessionId: "h2a-owner",
+    account,
+    now: new Date("2026-07-26T12:00:00.000Z"),
+  });
+  upsertSessionLedger({
+    gatewaySessionId: "gw-new",
+    clientSessionId: "h2a-owner",
+    account,
+    now: new Date("2026-07-26T12:01:00.000Z"),
+  });
+  assert.equal(getSessionLedgerEntryForClient("h2a-owner")?.gatewaySessionId, "gw-new");
+  upsertSessionLedger({
+    gatewaySessionId: "gw-old",
+    clientSessionId: "h2a-owner",
+    account,
+    now: new Date("2026-07-26T12:02:00.000Z"),
+  });
+  assert.equal(getSessionLedgerEntryForClient("h2a-owner")?.gatewaySessionId, "gw-old");
+  upsertSessionLedger({
+    gatewaySessionId: "gw-tied",
+    clientSessionId: "h2a-owner",
+    account,
+    now: new Date("2026-07-26T12:02:00.000Z"),
+  });
+  assert.equal(getSessionLedgerEntryForClient("h2a-owner"), undefined);
+});
+
+test("delegated-execution projection fails closed without owner provenance or live child evidence", () => {
+  const base = {
+    id: "plugin-review",
+    tool: "codex",
+    kind: "local-tmux",
+    cwd: "/workspace",
+    enrolledAt: "2026-07-26T12:00:00.000Z",
+    lastSeenAt: "2026-07-26T12:00:00.000Z",
+    source: "run",
+    sessionClass: "background",
+    tmuxSession: "h2a-plugin-review",
+    pid: 4242,
+    delegationOrigin: "cli:h2a-delegate",
+    delegatorInstance: "codex:owner:abc",
+    delegatorTmuxSession: "h2a-owner"
+  };
+  const live = projectDelegatedExecutions(
+    [base],
+    true,
+    [session("h2a-owner"), session("h2a-plugin-review")],
+    "h2a-owner",
+    "codex:owner:abc",
+    [],
+    true,
+    () => 4242,
+  );
+  assert.equal(live.degraded, false);
+  assert.deepEqual(live.executions.map((item) => item.id), ["plugin-review"]);
+
+  const wrongOwner = projectDelegatedExecutions(
+    [base],
+    true,
+    [session("h2a-owner"), session("h2a-plugin-review")],
+    "h2a-owner",
+    "codex:other:def",
+    [],
+    true,
+    () => 4242,
+  );
+  assert.equal(wrongOwner.degraded, false);
+  assert.equal(wrongOwner.executions.length, 0);
+
+  const unproven = { ...base, delegationOrigin: undefined };
+  const unknown = projectDelegatedExecutions(
+    [unproven],
+    true,
+    [session("h2a-owner"), session("h2a-plugin-review")],
+    "h2a-owner",
+    "codex:owner:abc"
+  );
+  assert.equal(unknown.degraded, true);
+  assert.equal(unknown.executions.length, 0);
+
+  const serverAttested = projectDelegatedExecutions(
+    [{
+      ...base,
+      delegationOrigin: undefined,
+      delegatorInstance: undefined,
+      delegatorTmuxSession: undefined
+    }],
+    true,
+    [session("h2a-owner"), session("h2a-plugin-review")],
+    "h2a-owner",
+    "codex:owner:abc",
+    [{
+      workerTmuxSession: "h2a-plugin-review",
+      workerPid: 4242,
+      origin: "mcp:h2a_run",
+      delegatorInstance: "codex:owner:abc",
+      delegatorTmuxSession: "h2a-owner"
+    }],
+    true,
+    () => 4242,
+  );
+  assert.equal(serverAttested.degraded, false);
+  assert.deepEqual(serverAttested.executions.map((item) => item.id), ["plugin-review"]);
+
+  const replayedName = projectDelegatedExecutions(
+    [{
+      ...base,
+      pid: 9999,
+      delegationOrigin: undefined,
+      delegatorInstance: undefined,
+      delegatorTmuxSession: undefined
+    }],
+    true,
+    [session("h2a-owner"), session("h2a-plugin-review")],
+    "h2a-owner",
+    "codex:owner:abc",
+    [{
+      workerTmuxSession: "h2a-plugin-review",
+      workerPid: 4242,
+      origin: "mcp:h2a_run",
+      delegatorInstance: "codex:owner:abc",
+      delegatorTmuxSession: "h2a-owner"
+    }],
+    true,
+    () => 9999,
+  );
+  assert.equal(replayedName.degraded, true);
+  assert.equal(replayedName.executions.length, 0);
+
+  const vanished = projectDelegatedExecutions(
+    [base],
+    true,
+    [session("h2a-owner")],
+    "h2a-owner",
+    "codex:owner:abc"
+  );
+  assert.equal(vanished.degraded, true);
+  assert.equal(vanished.executions.length, 0);
+});
+
 test("tmux status surface uses bounded five-second polling and no cache", () => {
   const options = Object.fromEntries(h2aStatusSurfaceOptions());
   assert.equal(options["status-interval"], "5");
   assert.match(options["status-left"], /status --bar --segment workload/);
   assert.match(options["status-right"], /status --bar --segment gateway/);
+  assert.match(options["status-left"], /--owner-instance #\{q:@h2a_owner_instance\}/);
+  assert.match(options["status-right"], /--width #\{client_width\}/);
+  assert.doesNotMatch(options["status-left"], /#\{session_name\}|#\{window_name\}/);
+  assert.doesNotMatch(options["status-left"], /remote-/);
   assert.doesNotMatch(JSON.stringify(options), /cache/i);
+  const hostilePriorRight = "#{pane_title}\u202e".repeat(100);
+  const installedRight = Object.fromEntries(h2aStatusSurfaceOptions(hostilePriorRight))["status-right"];
+  assert.match(installedRight, /%H:%M$/);
+  assert.doesNotMatch(installedRight, /pane_title|\u202e/);
   assert.match(
-    Object.fromEntries(h2aStatusSurfaceOptions("#[fg=blue]%Y-%m-%d"))["status-right"],
-    /#\[fg=blue\]%Y-%m-%d$/
+    h2aStatusWindowCommand("h2a-owner", "codex:owner:abc"),
+    /--owner-instance 'codex:owner:abc'/,
+  );
+  assert.doesNotMatch(
+    h2aStatusWindowCommand("h2a-owner", "owner; rm -rf /"),
+    /owner-instance/,
   );
 });
 
