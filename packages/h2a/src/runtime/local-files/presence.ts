@@ -21,7 +21,7 @@ import {
   type H2ASession,
   type H2ASessionState,
   type H2AWorkStatus
-} from "@sentropic/h2a";
+} from "../../session.js";
 
 import {
   localStorePaths,
@@ -109,6 +109,13 @@ export interface ListPresenceOptions {
   readonly expiryMs?: number;
   /** Include expired sessions (default false). */
   readonly includeExpired?: boolean;
+  /** Sweep malformed/expired files (default true). Read-only projections disable it. */
+  readonly sweep?: boolean;
+}
+
+export interface ListPresenceResult {
+  readonly sessions: H2ASession[];
+  readonly warnings: string[];
 }
 
 /**
@@ -116,16 +123,19 @@ export interface ListPresenceOptions {
  * files, and (by default) drop sessions whose heartbeat is older than
  * `expiryMs`. Sweep expired files from disk as a side-effect.
  */
-export function listPresence(
+export function listPresenceWithDiagnostics(
   root: string,
   options: ListPresenceOptions = {}
-): H2ASession[] {
+): ListPresenceResult {
   const paths = localStorePaths(root);
+  const warnings: string[] = [];
   let entries: string[];
   try {
     entries = readdirSync(paths.presence);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { sessions: [], warnings };
+    }
     throw err;
   }
   const now = options.now ?? Date.now();
@@ -136,28 +146,40 @@ export function listPresence(
     const sid = entry.slice(0, -".json".length);
     const session = readPresence(root, sid);
     if (!session) {
+      warnings.push(`presence ${entry} is malformed or unreadable`);
       // Stale or malformed — best-effort cleanup
-      try {
-        unlinkSync(join(paths.presence, entry));
-      } catch {
-        // ignore
+      if (options.sweep !== false) {
+        try {
+          unlinkSync(join(paths.presence, entry));
+        } catch {
+          // ignore
+        }
       }
       continue;
     }
     all.push(session);
   }
-  if (options.includeExpired) return all;
+  if (options.includeExpired) return { sessions: all, warnings };
   const fresh = pickFreshSessions(all, { now, expiryMs });
   // Sweep newly-expired files
-  for (const session of all) {
-    if (!isSessionExpired(session, { now, expiryMs })) continue;
-    try {
-      unlinkSync(presenceFile(paths, session.sessionId));
-    } catch {
-      // ignore
+  if (options.sweep !== false) {
+    for (const session of all) {
+      if (!isSessionExpired(session, { now, expiryMs })) continue;
+      try {
+        unlinkSync(presenceFile(paths, session.sessionId));
+      } catch {
+        // ignore
+      }
     }
   }
-  return fresh;
+  return { sessions: fresh, warnings };
+}
+
+export function listPresence(
+  root: string,
+  options: ListPresenceOptions = {},
+): H2ASession[] {
+  return listPresenceWithDiagnostics(root, options).sessions;
 }
 
 /**

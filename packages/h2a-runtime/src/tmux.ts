@@ -183,6 +183,16 @@ eval "exec $cmd"`;
  * so the agent is reachable/wakeable through ~/h2a-workspace/.h2a.
  */
 export const H2A_WINDOW_NAME = "h2a";
+export const H2A_STATUS_WINDOW_NAME = "h2a-status";
+const H2A_STATUS_INSTALLED_OPTION = "@h2a_status_surface";
+const H2A_STATUS_PREVIOUS_LEFT = "@h2a_status_previous_left";
+const H2A_STATUS_PREVIOUS_RIGHT = "@h2a_status_previous_right";
+const H2A_STATUS_PREVIOUS_INTERVAL = "@h2a_status_previous_interval";
+const H2A_STATUS_PREVIOUS_STATUS = "@h2a_status_previous_status";
+const H2A_STATUS_PREVIOUS_LEFT_LENGTH = "@h2a_status_previous_left_length";
+const H2A_STATUS_PREVIOUS_RIGHT_LENGTH = "@h2a_status_previous_right_length";
+const H2A_STATUS_INSTALLING = "installing";
+const H2A_STATUS_RESTORED = "restored";
 const AGENT_PANE_OPTION = "@remote_agent_pane";
 const AGENT_HOST_OPTION = "@remote_agent_host";
 const AGENT_CWD_OPTION = "@remote_agent_cwd";
@@ -191,6 +201,12 @@ const H2A_MCP_READY_NONCE_ENV = "H2A_MCP_READY_NONCE";
 const H2A_MCP_READY_KIND = "h2a.mcp.ready";
 
 export type LocalSession = {
+  /** Stable tmux identity for this live session (for example `$3`). */
+  tmuxId: string;
+  /** Session creation epoch from tmux; paired with server identity for replay safety. */
+  tmuxCreatedAt: string;
+  tmuxServerPid: string;
+  tmuxSocketPath: string;
   /** full tmux session name, e.g. `h2a-surch` */
   name: string;
   /** short name shown to the user, e.g. `surch` */
@@ -285,26 +301,63 @@ function shellSingleQuote(value: string): string {
 }
 
 /** List h2a-managed local tmux sessions (best-effort; [] if no server). */
-export function listLocalSessions(): LocalSession[] {
-  if (!tmuxAvailable()) return [];
+export function listLocalSessionsWithDiagnostics(): {
+  readonly sessions: LocalSession[];
+  readonly known: boolean;
+  readonly reason?: string;
+} {
+  if (!tmuxAvailable()) {
+    return { sessions: [], known: false, reason: "tmux is unavailable" };
+  }
   const r = spawnSync(
     TMUX,
     [
       "list-sessions",
       "-F",
-      "#{session_name}\t#{session_attached}\t#{session_path}\t#{@profile}\t#{@display_name}",
+      "#{session_id}\t#{session_created}\t#{pid}\t#{socket_path}\t#{session_name}\t#{session_attached}\t#{session_path}\t#{@profile}\t#{@display_name}",
     ],
     { encoding: "utf8" },
   );
-  if (r.status !== 0 || !r.stdout) return [];
+  if (r.status !== 0) {
+    const detail = `${r.stderr ?? ""}`.trim();
+    if (/no server running|failed to connect to server/i.test(detail)) {
+      return { sessions: [], known: true };
+    }
+    return {
+      sessions: [],
+      known: false,
+      reason: detail ? `tmux list failed: ${detail}` : "tmux list failed",
+    };
+  }
+  if (!r.stdout) return { sessions: [], known: true };
   const out: LocalSession[] = [];
   for (const line of r.stdout.split("\n")) {
     if (!line) continue;
-    const [name, attached, path, profile, displayName] = line.split("\t");
-    if (!name) continue;
+    const [
+      tmuxId,
+      tmuxCreatedAt,
+      tmuxServerPid,
+      tmuxSocketPath,
+      name,
+      attached,
+      path,
+      profile,
+      displayName,
+    ] = line.split("\t");
+    if (
+      !tmuxId ||
+      !tmuxCreatedAt ||
+      !tmuxServerPid ||
+      !tmuxSocketPath ||
+      !name
+    ) continue;
     const managed = parseManagedSessionName(name);
     if (!managed) continue;
     const session: LocalSession = {
+      tmuxId,
+      tmuxCreatedAt,
+      tmuxServerPid,
+      tmuxSocketPath,
       name,
       slug: managed.slug,
       profile: profile || "?",
@@ -316,7 +369,12 @@ export function listLocalSessions(): LocalSession[] {
     }
     out.push(session);
   }
-  return out;
+  return { sessions: out, known: true };
+}
+
+/** Compatibility reader used by existing callers that accept best-effort []. */
+export function listLocalSessions(): LocalSession[] {
+  return listLocalSessionsWithDiagnostics().sessions;
 }
 
 /**
@@ -750,6 +808,7 @@ export function startLocalSession(
     stdio: "ignore",
   });
   persistLaunchContext(name, buildLaunchContext({ profile, cwd, label, ...launchMetadata }));
+  installH2aStatusSurface(name);
   return { name, slug, ...(agentPane ? { agentPane } : {}) };
 }
 
@@ -855,6 +914,8 @@ export function startHeadlessSession(
   spawnSync(TMUX, ["set-option", "-t", name, "@profile", profile], {
     stdio: "ignore",
   });
+  persistLaunchContext(name, buildLaunchContext({ profile, cwd, label }));
+  installH2aStatusSurface(name);
   return {
     name,
     slug,
@@ -1030,18 +1091,207 @@ function readSessionOption(
   return value || undefined;
 }
 
+function readSessionOptionRaw(
+  session: string,
+  option: string,
+): string | undefined {
+  const result = spawnSync(
+    TMUX,
+    ["show-options", "-qv", "-t", exactSessionTarget(session), option],
+    { encoding: "utf8" },
+  );
+  if (result.status !== 0 || result.stdout === undefined) return undefined;
+  return result.stdout.replace(/\r?\n$/, "");
+}
+
 function setSessionOption(
   session: string,
   option: string,
   value: string,
-): void {
-  spawnSync(
+): boolean {
+  return spawnSync(
     TMUX,
     ["set-option", "-t", exactSessionTarget(session), option, value],
     {
       stdio: "ignore",
     },
+  ).status === 0;
+}
+
+function unsetSessionOption(session: string, option: string): boolean {
+  return spawnSync(
+    TMUX,
+    ["set-option", "-u", "-t", exactSessionTarget(session), option],
+    { stdio: "ignore" },
+  ).status === 0;
+}
+
+export function h2aStatusSurfaceOptions(
+  previousRight = "%H:%M",
+): ReadonlyArray<readonly [string, string]> {
+  return [
+    ["status", "on"],
+    ["status-interval", "5"],
+    ["status-left-length", "96"],
+    ["status-right-length", "120"],
+    [
+      "status-left",
+      "[#{session_name}:#{window_name}#{window_flags}] #(h2a status --bar --segment workload --tmux-session #{q:session_name}) ",
+    ],
+    [
+      "status-right",
+      `#(h2a status --bar --segment gateway --tmux-session #{q:session_name})  ${previousRight}`,
+    ],
+  ];
+}
+
+const H2A_STATUS_SNAPSHOTS = [
+  [H2A_STATUS_PREVIOUS_STATUS, "status"],
+  [H2A_STATUS_PREVIOUS_LEFT, "status-left"],
+  [H2A_STATUS_PREVIOUS_RIGHT, "status-right"],
+  [H2A_STATUS_PREVIOUS_INTERVAL, "status-interval"],
+  [H2A_STATUS_PREVIOUS_LEFT_LENGTH, "status-left-length"],
+  [H2A_STATUS_PREVIOUS_RIGHT_LENGTH, "status-right-length"],
+] as const;
+
+export interface H2aStatusOptionAccess {
+  readonly read: (session: string, option: string) => string | undefined;
+  readonly set: (session: string, option: string, value: string) => boolean;
+  readonly unset: (session: string, option: string) => boolean;
+}
+
+const TMUX_STATUS_OPTION_ACCESS: H2aStatusOptionAccess = {
+  read: readSessionOptionRaw,
+  set: setSessionOption,
+  unset: unsetSessionOption,
+};
+
+function removeStatusMetadata(
+  session: string,
+  access: H2aStatusOptionAccess,
+): boolean {
+  let removed = true;
+  for (const [snapshot] of H2A_STATUS_SNAPSHOTS) {
+    removed = access.unset(session, snapshot) && removed;
+  }
+  removed = access.unset(session, H2A_STATUS_INSTALLED_OPTION) && removed;
+  return removed;
+}
+
+/** Restore a prior bar using captured effective values, with retryable recovery state. */
+export function uninstallH2aStatusSurfaceWithAccess(
+  session: string,
+  access: H2aStatusOptionAccess,
+): boolean {
+  const marker = access.read(session, H2A_STATUS_INSTALLED_OPTION);
+  if (marker === H2A_STATUS_RESTORED) return removeStatusMetadata(session, access);
+  if (marker !== "v1" && marker !== H2A_STATUS_INSTALLING) return false;
+
+  const captured = H2A_STATUS_SNAPSHOTS.map(([snapshot, option]) => ({
+    snapshot,
+    option,
+    value: access.read(session, snapshot),
+  }));
+  if (captured.some((item) => item.value === undefined)) return false;
+
+  let restored = true;
+  for (const item of captured) {
+    restored = access.set(session, item.option, item.value ?? "") && restored;
+  }
+  if (!restored) return false;
+  if (!access.set(session, H2A_STATUS_INSTALLED_OPTION, H2A_STATUS_RESTORED)) {
+    return false;
+  }
+  return removeStatusMetadata(session, access);
+}
+
+/**
+ * Install transaction used by the tmux wrapper and executable failure-injection
+ * tests. No live option changes until all six prior values are captured.
+ */
+export function installH2aStatusSurfaceWithAccess(
+  session: string,
+  access: H2aStatusOptionAccess,
+): boolean {
+  let marker = access.read(session, H2A_STATUS_INSTALLED_OPTION);
+  if (marker === H2A_STATUS_INSTALLING || marker === H2A_STATUS_RESTORED) {
+    if (!uninstallH2aStatusSurfaceWithAccess(session, access)) return false;
+    marker = undefined;
+  }
+
+  if (marker !== "v1") {
+    const captured = H2A_STATUS_SNAPSHOTS.map(([snapshot, option]) => ({
+      snapshot,
+      value: access.read(session, option),
+    }));
+    if (captured.some((item) => item.value === undefined)) return false;
+
+    const written: string[] = [];
+    for (const item of captured) {
+      if (!access.set(session, item.snapshot, item.value ?? "")) {
+        for (const snapshot of written) access.unset(session, snapshot);
+        return false;
+      }
+      written.push(item.snapshot);
+    }
+    if (!access.set(session, H2A_STATUS_INSTALLED_OPTION, H2A_STATUS_INSTALLING)) {
+      for (const snapshot of written) access.unset(session, snapshot);
+      return false;
+    }
+  }
+
+  const previousRight = access.read(session, H2A_STATUS_PREVIOUS_RIGHT);
+  if (previousRight === undefined) return false;
+  let applied = true;
+  for (const [option, value] of h2aStatusSurfaceOptions(previousRight)) {
+    applied = access.set(session, option, value) && applied;
+  }
+  applied = access.set(session, H2A_STATUS_INSTALLED_OPTION, "v1") && applied;
+  if (applied) return true;
+
+  // A failed live write may have partially changed the bar. Restore all six
+  // captured values; retained metadata makes an incomplete recovery retryable.
+  uninstallH2aStatusSurfaceWithAccess(session, access);
+  return false;
+}
+
+/** Install the composable 5-second status projection on one exact session. */
+export function installH2aStatusSurface(session: string): boolean {
+  if (!parseManagedSessionName(session)) return false;
+  if (!listLocalSessions().some((item) => item.name === session)) return false;
+  return installH2aStatusSurfaceWithAccess(session, TMUX_STATUS_OPTION_ACCESS);
+}
+
+/** Restore every user option captured on first install. */
+export function uninstallH2aStatusSurface(session: string): boolean {
+  return uninstallH2aStatusSurfaceWithAccess(session, TMUX_STATUS_OPTION_ACCESS);
+}
+
+/** Open or reuse the detailed in-process watcher in a distinct tmux window. */
+export function openH2aStatusWindow(
+  session: string,
+  cwd: string,
+): boolean {
+  if (!parseManagedSessionName(session)) return false;
+  if (sessionWindowNames(session).includes(H2A_STATUS_WINDOW_NAME)) return true;
+  const quotedSession = shellSingleQuote(session);
+  return addSessionWindow(
+    session,
+    H2A_STATUS_WINDOW_NAME,
+    cwd,
+    `h2a status --human --watch --tmux-session ${quotedSession}`,
   );
+}
+
+/** Exact current tmux session, only when this process is itself inside tmux. */
+export function currentTmuxSessionName(): string | undefined {
+  if (!process.env.TMUX) return undefined;
+  const result = spawnSync(TMUX, ["display-message", "-p", "#{session_name}"], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0 || !result.stdout) return undefined;
+  const name = result.stdout.trim();
+  return name || undefined;
 }
 
 function firstNonH2aPane(session: string): string | undefined {
@@ -1125,7 +1375,7 @@ function persistAgentPaneMetadata(
  * the user reading raw tmux state. Applied on every create AND reuse so a reused session refreshes
  * a stale context. Best-effort + secret-free (see launch-context.ts). Spec 2026-07-11.
  */
-function persistLaunchContext(session: string, ctx: LaunchContext): void {
+export function persistLaunchContext(session: string, ctx: LaunchContext): void {
   for (const [key, value] of launchContextOptions(ctx)) {
     setSessionOption(session, key, value);
   }
