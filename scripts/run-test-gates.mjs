@@ -26,6 +26,8 @@
  *   - Exit 0 only if ALL steps passed.
  *   - A step that could not produce a verdict is named as such — never as passed:
  *       `skipped-because-build-failed`     the build failed, so it never ran;
+ *       `timed-out`                        the step did not return before its
+ *                                          explicit timeout;
  *       `inconclusive-could-not-build`     it ran, but its own prerequisite build
  *                                          failed, so it compared nothing.
  *     Both still force a non-zero exit. A status must never be wider than its
@@ -35,12 +37,15 @@
  * Nothing is weakened relative to the old chain: the same five commands run, and
  * `npm test` still exits non-zero whenever any one of them fails.
  *
- * THIS FILE IS ITSELF GATED. It decides whether every future green is trustworthy,
- * so it must not be the one unverified link in the chain:
- * `packages/h2a/test/run-test-gates.test.js` drives `runGates()` with synthetic steps
- * and asserts the failure paths. Two one-line mutations (a failed step reported as
- * passed; a skipped step exiting 0) previously survived undetected — both are now
- * covered by tests that fail loudly when reintroduced.
+ * THIS FILE IS TESTED OUTSIDE ITSELF. CI invokes
+ * `packages/h2a/test/run-test-gates.test.js` directly in its own step; discovery in
+ * `run-tests.mjs` deliberately excludes that file. Otherwise this runner would
+ * interpret the exit code of the tests that verify it, and a one-line verdict
+ * mutation could make both itself and its broken tests look green.
+ *
+ * The raw exit-code column and the repeated non-passing list below are diagnostics,
+ * not guarantees. They help a human spot a contradictory report, but only the
+ * separate direct CI test enforces that the reporter cannot grade its own exam.
  */
 import { spawnSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
@@ -55,7 +60,11 @@ const REPO_ROOT = resolve(HERE, '..')
 export const PASSED = 'passed'
 export const FAILED = 'failed'
 export const SKIPPED = 'skipped-because-build-failed'
+export const TIMED_OUT = 'timed-out'
 export const INCONCLUSIVE = 'inconclusive-could-not-build'
+
+const MINUTE_MS = 60 * 1000
+const DEFAULT_STEP_TIMEOUT_MS = 3 * MINUTE_MS
 
 /**
  * Spawn `npm run <script>` portably.
@@ -104,12 +113,14 @@ export const STEPS = [
     id: 'build',
     description: 'npm run build (@sentropic/track + tsc -b)',
     ...npmRunCommand('build'),
+    timeoutMs: 3 * MINUTE_MS,
   },
   {
     id: 'check:focus-vendor',
     description: 'vendored focus render-core is in phase',
     command: process.execPath,
     args: ['scripts/check-focus-vendor.mjs'],
+    timeoutMs: 3 * MINUTE_MS,
     // check-focus-vendor.mjs exits 2 when its prerequisite build failed and it
     // therefore compared nothing. That is not drift and must not be reported as one.
     inconclusiveExitCode: 2,
@@ -119,12 +130,14 @@ export const STEPS = [
     description: 'packaged Focus artifact matches its source',
     command: process.execPath,
     args: ['scripts/check-focus-app.mjs'],
+    timeoutMs: 2 * MINUTE_MS,
   },
   {
     id: 'lint:focus-imports',
     description: 'no forbidden @sentropic/track value-imports in apps/focus/src',
     command: process.execPath,
     args: ['apps/focus/scripts/check-imports.mjs'],
+    timeoutMs: MINUTE_MS,
   },
   {
     id: 'tests',
@@ -132,11 +145,13 @@ export const STEPS = [
     command: process.execPath,
     args: ['scripts/run-tests.mjs'],
     requiresBuild: true,
+    timeoutMs: 4 * MINUTE_MS,
   },
 ]
 
 /** Turn a spawnSync result into a reportable exit code. */
 export function classifyRun(run) {
+  if (run.error?.code === 'ETIMEDOUT') return TIMED_OUT
   if (run.error) return 'spawn-error'
   if (run.signal) return `signal:${run.signal}`
   return run.status ?? 1
@@ -165,6 +180,7 @@ export function exitCodeFor(results) {
 /** The verdict for a code, honouring a step's declared inconclusive code. */
 export function verdictFor(code, step) {
   if (code === 0) return PASSED
+  if (code === TIMED_OUT) return TIMED_OUT
   if (step && step.inconclusiveExitCode !== undefined && code === step.inconclusiveExitCode) {
     return INCONCLUSIVE
   }
@@ -267,12 +283,15 @@ export function runGates(steps, options = {}) {
     // 27-second test step as "27121.0s" for exactly that reason. A reported
     // number that a clock jump can falsify is not a measurement.
     const startedAt = performance.now()
+    const timeoutMs = step.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS
     let code
     try {
       const run = spawnSync(step.command, step.args, {
         cwd: options.cwd ?? REPO_ROOT,
         stdio: options.stdio ?? 'inherit',
         shell: step.shell ?? false,
+        timeout: timeoutMs,
+        killSignal: 'SIGKILL',
       })
       code = classifyRun(run)
       if (code === 'spawn-error') {
@@ -290,24 +309,28 @@ export function runGates(steps, options = {}) {
 
     const status = verdictFor(code, step)
     if (status !== PASSED && step.id === 'build') buildFailed = true
-    results.push({ id: step.id, status, code, ms })
+    results.push({ id: step.id, status, code, ms, timeoutMs })
   }
 
   const width = Math.max(...results.map((r) => r.id.length))
   const statusWidth = Math.max(...results.map((r) => r.status.length))
   write('\n=== npm test summary ===\n')
   for (const r of results) {
-    // DEFENCE IN DEPTH, deliberately redundant #1: print the RAW exit code next to
-    // the verdict. If the two ever disagree the row is visibly absurd on its face
-    // ("check:focus-app passed exit 1"), so a mutation that flips a verdict cannot
-    // also launder the evidence for that verdict. Do not "tidy" the exit code away.
-    const code = r.status === SKIPPED ? 'not run' : `exit ${r.code}`
+    // Diagnostic #1: print the raw exit code next to every returned verdict. A
+    // contradiction ("passed exit 1") is useful evidence for a human, but it is
+    // not an enforcement mechanism; the direct CI test above is that mechanism.
+    const code = r.status === SKIPPED
+      ? 'not run'
+      : r.status === TIMED_OUT
+        ? `no exit (timed out after ${r.timeoutMs}ms)`
+        : `exit ${r.code}`
     const time = r.status === SKIPPED ? '' : ` (${(r.ms / 1000).toFixed(1)}s)`
     write(`  ${r.id.padEnd(width)}  ${r.status.padEnd(statusWidth)}  ${code}${time}\n`)
   }
 
   const failed = results.filter((r) => r.status === FAILED)
   const skipped = results.filter((r) => r.status === SKIPPED)
+  const timedOut = results.filter((r) => r.status === TIMED_OUT)
   const inconclusive = results.filter((r) => r.status === INCONCLUSIVE)
 
   write(options.scope ?? describeScope())
@@ -317,10 +340,8 @@ export function runGates(steps, options = {}) {
     return 0
   }
 
-  // DEFENCE IN DEPTH, deliberately redundant #2: every non-passing step is named a
-  // SECOND time here, independently of the table above. Dropping a row from the
-  // table is then not enough to hide a failure — it is still named below. Two
-  // renderings driven from one result set mean one edit cannot suppress a finding.
+  // Diagnostic #2: name every non-passing step a second time. This makes a report
+  // easier to audit, but it is not a guarantee against a mutated reporter.
   if (failed.length > 0) {
     writeErr(`\nFAILED steps (${failed.length}): ${failed.map((r) => r.id).join(', ')}\n`)
   }
@@ -329,6 +350,12 @@ export function runGates(steps, options = {}) {
       `INCONCLUSIVE (${inconclusive.length}): ${inconclusive.map((r) => r.id).join(', ')}\n` +
         '  These could not build their own prerequisite, so they compared nothing.\n' +
         '  This is NOT a finding against what they check. Fix the build to get a verdict.\n',
+    )
+  }
+  if (timedOut.length > 0) {
+    writeErr(
+      `TIMED OUT (${timedOut.length}): ${timedOut.map((r) => r.id).join(', ')}\n` +
+        '  These produced no exit code and therefore no verdict. Fix the hang and re-run.\n',
     )
   }
   if (skipped.length > 0) {

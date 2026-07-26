@@ -7,7 +7,10 @@
  * is forwarded to node. This runner discovers the `*.test.js` files itself
  * using `node:fs`, so it behaves identically on Linux, macOS and Windows.
  *
- * Discovers test files under the directories in TEST_DIRS below.
+ * Discovers test files under the directories in TEST_DIRS below. The test for
+ * the `npm test` gate runner itself is deliberately excluded: CI invokes that
+ * one file directly in a separate step, so a mutation in the runner cannot
+ * decide that its own failing test has passed.
  *
  * Then invokes `node --test <file1> <file2> ...` and forwards the exit code.
  */
@@ -24,6 +27,10 @@ export const TEST_DIRS = [
   "packages/h2a/test",
   "packages/focus-interactive/test"
 ];
+
+// This test must run outside scripts/run-test-gates.mjs. See CI's named
+// "Test npm test gate runner directly" step.
+export const RUNNER_TEST_FILE = "packages/h2a/test/run-test-gates.test.js";
 
 /**
  * Floor on the number of discovered test files.
@@ -62,7 +69,10 @@ export function discoverTestFiles() {
     }
     for (const entry of entries) {
       if (entry.endsWith(".test.js")) {
-        files.push(join(rel, entry));
+        const file = join(rel, entry);
+        if (file.split("\\").join("/") !== RUNNER_TEST_FILE) {
+          files.push(file);
+        }
       }
     }
   }

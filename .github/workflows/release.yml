@@ -33,6 +33,8 @@ jobs:
 
       - run: npm ci
       - run: npm run typecheck
+      - name: Test npm test gate runner directly
+        run: node --test packages/h2a/test/run-test-gates.test.js
       - run: npm test
 
   publish:
