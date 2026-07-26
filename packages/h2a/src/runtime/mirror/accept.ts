@@ -48,13 +48,11 @@ import {
   narrowIngestedPresence,
   narrowIngestedRegistration,
   narrowIngestedSubagent,
+  type H2AMirroredRegistration,
+  type H2AMirroredSession,
+  type H2AMirroredSubagentBinding,
   type MirrorNarrowingReport
 } from "./ingest.js";
-import type {
-  H2AMirroredRegistration,
-  H2AMirroredSession,
-  H2AMirroredSubagentBinding
-} from "./sanitize.js";
 
 export type H2AMirrorRejection =
   | "malformed"
