@@ -1,0 +1,51 @@
+{
+  "dossier": "agent-memory",
+  "revision": "agent-memory-2026-07-25",
+  "capturedAt": "2026-07-25",
+  "capturedFrom": "owner, second pass over D8-D13 plus amendments to D2-D6",
+  "status": "owner direction, not a ratified design",
+  "baseAnswerSet": "2026-07-25-agent-memory-owner-answers.json",
+  "answers": {
+    "D8": {
+      "option": "graphify-substrat-unique",
+      "note": "graphify doit pouvoir continuer a jouer le role qu'elle joue aujourd'hui + le role de memoire vivante selon le contexte d'utilisation."
+    },
+    "D9": {
+      "option": "detecteur-assertions",
+      "note": "in claro: on va adopter ontologie + bi temporalite avec contradiction, comme graphifi, mais dans graphify, et graphify sera couche vivante version a froid."
+    },
+    "D10": {
+      "option": "compte-de-tours",
+      "note": "Je n'ai pas de conviction, j'ai choisi ce qui me semblait le plus evident. Mais ca pose des questions sur les \"/rewind\" par exemple. et sur l'articulation avec le commit. Dans ce mode, il faudra probablement preconiser de ne plus commiter le graph avec le repo, ou bien changer le mode de commit. J'aime bien quand meme avoir la memoire commitee, mais on risque d'avoir plusieurs roles d'agents avec des memoires distinctes (cf les roles dans sentropic: architect, conductor, llm-mesh, cowork, sentropic-chat, sentropic-app etc). dans ce cas si on commit il faut avoir les mecanismes de reconciliation live vs commit + potentielle mutualisation de memoire inter-agents (une couche h2a par dessus graphify)"
+    },
+    "D11": {
+      "option": "reduire-la-surface",
+      "note": "utiliser le principe de double consensus. avec des agents de haut grade (consenus 5.6 terra xhigh, opus 5 xhigh suffisant)"
+    },
+    "D12": {
+      "option": "journal-plus-fold",
+      "note": "tu m'a un peu dissuade d'un CRDT j'ai donc choisi l'option par defaut de journal\n\ncependant tu as critique automerge pas GUN. ce serait peut etre a approfondir, mais avec decision par defaut de journal"
+    },
+    "D13": {
+      "option": "fusionner-en-un-document",
+      "note": ""
+    }
+  },
+  "amendments": {
+    "D2": {
+      "note": "Il faudra mener la correction a la contradiction identifiee dans graphify"
+    },
+    "D3": {
+      "note": "inspire toi des meilleurs mecanismes qu on implementera dans graphify. il est important de confier l etude et le dossier de decision integral a graphify pour qu il dispose du meme point de depart"
+    },
+    "D4": {
+      "note": "il faut ajouter un algo de reconciliation d assertion a graphify c est parfaitement ce que je souhaitait lire. S inspirer de graphifi / cognee et donner ces elments d analyse a graphify"
+    },
+    "D5": {
+      "note": "update note v2: si le backend db n est pas encore en rw il faut demander la completion pour les besoin de la memoire / knowledge"
+    },
+    "D6": {
+      "note": "pour les limites en max graph bytes de graphify: il faut probablement lever une etude d options pour lever cette limite quand on ira a la specification avec graphify"
+    }
+  }
+}
