@@ -295,6 +295,41 @@ type SentKey<Plan> = Exclude<keyof Plan, WithheldKey<Plan>>;
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
 /**
+ * Objects this module built field-by-field from a plan.
+ *
+ * The membership test is what makes "a composite is REBUILT, never passed
+ * through" checkable at runtime instead of merely intended. See
+ * {@link isPlanBuilt} and the `narrow` branch of {@link applyPlan}.
+ */
+const PLAN_BUILT = new WeakSet<object>();
+
+/**
+ * The RUNTIME twin of {@link MirrorSendableValue}.
+ *
+ * It exists because the compile-time constraint proves something about the
+ * PLAN, not about the VALUE. `applyPlan` receives records from
+ * `store.findInstance` / `listPresence`, and a registration is accepted and
+ * written with **no validation at all** (`registerInstance` validates nothing;
+ * `handleRegisterInstance` checks `typeof === "object"` and stops). So the
+ * declared type of a field is a hope about the data, not a fact about it: a
+ * `principal` declared `string` can hold `{cwd, command}` at runtime, and a
+ * `send` classification would copy that object wholesale.
+ */
+function isSendableAtRuntime(value: unknown): boolean {
+  const isPrimitive = (v: unknown): boolean =>
+    typeof v === "string" || typeof v === "number" || typeof v === "boolean";
+  if (isPrimitive(value)) return true;
+  return Array.isArray(value) && value.every(isPrimitive);
+}
+
+/** Whether a narrow's output was really rebuilt from a plan (arrays: elementwise). */
+function isPlanBuilt(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return true;
+  if (Array.isArray(value)) return value.every(isPlanBuilt);
+  return PLAN_BUILT.has(value);
+}
+
+/**
  * Apply a plan: iterate the PLAN (never the record's own keys) and copy only
  * what it permits.
  *
@@ -302,22 +337,75 @@ type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
  * unclassified field on `record` is not skipped, it is never looked at. Absent
  * values are omitted rather than serialized as `undefined`, so the payload keeps
  * the same "optional field absent" shape the store and the guards expect.
+ *
+ * ── THE TWO RUNTIME CHECKS, AND WHY A TYPE IS NOT ENOUGH ───────────────────
+ *
+ * Both exist because this function's input is UNVALIDATED. The compile-time
+ * ratchet governs the plan; nothing governs the record.
+ *
+ *  - A `send` value that is not a primitive or an array of primitives is
+ *    DROPPED. The declared type says what the field must be, so anything else is
+ *    a lie, and a lie shaped like an object is how a `cwd` and a command line
+ *    ride out through a field declared `string`. Dropped rather than thrown:
+ *    throwing here would let any hostile registry row kill the push for every
+ *    session on the machine, trading availability for a confidentiality win
+ *    that dropping already secures. If the dropped field was required, the
+ *    receiver's own guard rejects the record — fail-closed, and visible.
+ *  - A `narrow` whose output was not itself built by this function is DROPPED.
+ *    `NarrowPlan.narrow` is an arbitrary callback returning `unknown`, so
+ *    `narrow((value) => value)` — an identity narrow — type-checks and copies a
+ *    composite wholesale, which is precisely the leak the plans exist to stop.
+ *    The compiler cannot reject it (identity returns a structurally compatible
+ *    type), so the membership test in {@link PLAN_BUILT} does.
+ *
+ * `null` is passed THROUGH to a narrow rather than short-circuited, so the
+ * narrow's own hostile-input handling can run. That is what makes
+ * `endpoints: null` produce `[]` instead of an absent field.
  */
 function applyPlan<Source extends object>(
   record: Source,
   plan: MirrorPlanFor<Source>
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  const source = record as Record<string, unknown>;
+  PLAN_BUILT.add(out);
+  // The record itself may be null/undefined or not an object at all — every
+  // narrow must be TOTAL, because nothing validated what is in the store.
+  const source = (record ?? {}) as Record<string, unknown>;
   for (const field of Object.keys(plan)) {
     const step = (plan as Record<string, MirrorFieldPlan<unknown>>)[field];
     if (step === undefined || step.kind === "withhold") continue;
     const value = source[field];
-    if (value === undefined || value === null) continue;
-    out[field] = step.kind === "narrow" ? step.narrow(value) : value;
+    if (value === undefined) continue;
+    if (step.kind === "narrow") {
+      const narrowed = step.narrow(value as never);
+      if (narrowed === undefined || narrowed === null) continue;
+      if (!isPlanBuilt(narrowed)) continue;
+      out[field] = narrowed;
+      continue;
+    }
+    if (value === null) continue;
+    if (!isSendableAtRuntime(value)) continue;
+    out[field] = value;
   }
   return out;
 }
+
+/**
+ * {@link applyPlan} and the plan constructors, exported for the send-boundary
+ * tests ONLY.
+ *
+ * Exporting internals to test them is usually a smell. It is justified here
+ * because the property under test is "a hostile PLAN cannot defeat the
+ * boundary", and a plan cannot be made hostile from outside without these. The
+ * alternative — trusting that no future plan uses an identity narrow — is the
+ * assumption this module exists to eliminate.
+ */
+export const MIRROR_TEST_HOOKS = {
+  applyPlan,
+  send: SEND,
+  narrow,
+  withhold
+} as const;
 
 /**
  * Fields present on `record` that the plan does not classify at all.
@@ -398,6 +486,10 @@ const WORKSPACE_PLAN = {
   repo: withhold("not-consumed-downstream")
 } satisfies MirrorPlanFor<H2AWorkspaceRef>;
 
+/** The plan, for tests. */
+export const MIRROR_WORKSPACE_PLAN: Readonly<Record<string, MirrorFieldPlan<never>>> =
+  WORKSPACE_PLAN as Readonly<Record<string, MirrorFieldPlan<never>>>;
+
 /** Pins {@link H2AMirroredWorkspaceRef} to {@link WORKSPACE_PLAN}. */
 export type WorkspaceKeysMatchPlan = Exact<
   keyof H2AMirroredWorkspaceRef,
@@ -418,6 +510,10 @@ const VERSION_PLAN = {
   cli: SEND,
   skill: SEND
 } satisfies MirrorPlanFor<H2AAgentVersion>;
+
+/** The plan, for tests. */
+export const MIRROR_VERSION_PLAN: Readonly<Record<string, MirrorFieldPlan<never>>> =
+  VERSION_PLAN as Readonly<Record<string, MirrorFieldPlan<never>>>;
 
 function sanitizeVersionForMirror(version: H2AAgentVersion): H2AAgentVersion {
   return applyPlan(version, VERSION_PLAN) as H2AAgentVersion;
@@ -649,21 +745,24 @@ void _endpointKeysMatchPlan;
  * and never touched `endpoints`. Confidentiality-neutral, availability-negative:
  * exactly the failure a guard justified by a premise that does not exist creates.
  *
- * ── RECORDED, NOT FIXED: `endpoints: null` ────────────────────────────────
+ * ── `endpoints: null` — RECORDED IN ROUND 3, CLOSED IN ROUND 5 ────────────
  *
- * {@link applyPlan} omits null/undefined values rather than serializing them, so
- * a registration whose `endpoints` is `null` arrives with the field ABSENT — not
- * as `[]`. At the receiver, `runtime/drumbeat/relaunchers.ts:296` reads
- * `store?.findInstance(instance)?.endpoints.find(…)`: the optional chain stops
- * BEFORE `.endpoints`, so an absent field is a `TypeError` there.
+ * The earlier note said this was recorded and left to the ingest half. That was
+ * wrong on ownership, and the second review leg was right to push back: the SEND
+ * side was emitting a row that violated its OWN declared wire type, so the fix
+ * belongs here regardless of what the receiver does.
  *
- * Left alone deliberately. It is a PRE-EXISTING shape — the verbatim builder
- * produced the same absence for `endpoints: undefined`, and `null.find` threw
- * just as hard — and the reachability is low (nothing in the tree writes a null
- * `endpoints`). Fixing it belongs at line 296, which is the ingest/relaunch half
- * this PR is deliberately not touching, and a one-character fix there (`?.`)
- * without a test would be the cosmetic version. Written down here so the next
- * person to see the `TypeError` finds the cause instead of rediscovering it.
+ * The mechanism: {@link applyPlan} used to skip null BEFORE invoking the narrow,
+ * so `Array.isArray` inside {@link sanitizeEndpointsForMirror} — the guard
+ * written precisely for this — could never fire for `null`. The field came out
+ * ABSENT rather than `[]`, and `runtime/drumbeat/relaunchers.ts:296` reads
+ * `store?.findInstance(instance)?.endpoints.find(…)`, whose optional chain stops
+ * BEFORE `.endpoints`. A guard that could not fire, which is the same shape this
+ * module keeps finding elsewhere.
+ *
+ * Now closed on both sides: `null` flows through to the narrow (which returns
+ * `[]`), and {@link sanitizeRegistrationForMirror} makes the array
+ * unconditional, covering the `undefined` case too. Both are pinned by tests.
  */
 function sanitizeEndpointsForMirror(
   endpoints: H2AActorRegistration["endpoints"]
@@ -758,10 +857,17 @@ void _registrationKeysMatchPlan;
 export function sanitizeRegistrationForMirror(
   registration: H2AActorRegistration
 ): H2AMirroredRegistration {
-  return applyPlan(
-    registration,
-    REGISTRATION_PLAN
-  ) as unknown as H2AMirroredRegistration;
+  const out = applyPlan(registration, REGISTRATION_PLAN);
+  // `endpoints` is REQUIRED by `H2AMirroredRegistration`, and the receiver
+  // dereferences it WITHOUT optional chaining (`relaunchers.ts:296`:
+  // `…?.endpoints.find(…)` — the chain stops before `.endpoints`). `applyPlan`
+  // omits a source field that is `undefined`, so without this the emitted row
+  // would violate its own declared wire type and hand the receiver a
+  // `TypeError`. `null` is already handled — it now flows through the narrow,
+  // which returns `[]` — so this closes the remaining `undefined` case and makes
+  // the array unconditional.
+  if (!Array.isArray(out.endpoints)) out.endpoints = [];
+  return out as unknown as H2AMirroredRegistration;
 }
 
 // ─── Envelope actor ─────────────────────────────────────────────────────────
