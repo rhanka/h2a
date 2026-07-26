@@ -90,6 +90,7 @@ function fakeSpawn(
   adapterStderr = '',
   observeAdapter?: (options: { input?: string; timeout?: number }) => void,
   adapterErrorCode?: string,
+  adapterStatus = 0,
 ) {
   return ((command: string, args: string[], options: { input?: string; timeout?: number }) => {
     if (command === 'git' && args.includes('--show-toplevel')) return spawnResult(`${dir}\n`)
@@ -99,7 +100,7 @@ function fakeSpawn(
     observeAdapter?.(options)
     if (adapterErrorCode !== undefined) return spawnError(adapterErrorCode)
     const input = JSON.parse(options.input ?? '{}') as ReportContextEnvelopeV1
-    return spawnResult(`${JSON.stringify(adapter(input))}${adapterSuffix}`, 0, adapterStderr)
+    return spawnResult(`${JSON.stringify(adapter(input))}${adapterSuffix}`, adapterStatus, adapterStderr)
   }) as never
 }
 
@@ -170,6 +171,21 @@ describe('AI report context and adapter boundary', () => {
       { reader, cwd: dir, request: request(), env: { PATH: '/bin', H2A_ROOT: dir, TRACK_REPORT_AI_ARGV: '["fake"]' } },
       { spawn: fakeSpawn(undefined, undefined, '', 'x'.repeat(16 * 1024 + 1)) },
     )).toThrow(/adapter-stderr-cap/)
+  })
+
+  it('should expose a bounded redacted stderr preview when the adapter exits nonzero', () => {
+    let caught: Error | undefined
+    try {
+      generateAiReport(
+        { reader, cwd: dir, request: request(), env: { PATH: '/bin', H2A_ROOT: dir, TRACK_REPORT_AI_ARGV: '["fake"]' } },
+        { spawn: fakeSpawn(undefined, undefined, '', 'gateway rejected request: token=top-secret-value', undefined, undefined, 17) },
+      )
+    } catch (error) {
+      caught = error as Error
+    }
+    expect(caught).toBeInstanceOf(AiReportError)
+    expect(caught?.message).toContain('adapter-nonzero: exit=17; stderr="gateway rejected request: token=[REDACTED]"')
+    expect(caught?.message).not.toContain('top-secret-value')
   })
 
   it('should cap git at 50 commits and 500 total paths with honest partial failures', () => {

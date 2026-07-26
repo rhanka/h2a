@@ -443,6 +443,7 @@ test("report-ai makes one no-tools Messages call and accepts only attested Terra
     "Every section value MUST be an array. Every entry MUST contain exactly the keys id, text, citations.",
     "Every citations value MUST be an array of one to eight objects, each containing exactly the key ref.",
     "Use only refs present in context. Use plain text, at most 20 entries per section and 1000 characters per text.",
+    "Each ownerDecisions entry MUST cite at least one decision ref whose state is open, and MUST NOT cite a decision ref in any other state.",
     "Put recommendations only in suggestions and unresolved evidence limits in uncertainty.",
     "FINAL CHECK: the top-level object MUST contain exactly the single key sections, whose value is the eight-key object shown above."
   ].join("\n"));
