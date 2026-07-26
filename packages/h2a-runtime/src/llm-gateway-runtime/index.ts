@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { acquireSession, sessionCount } from "./sticky.js";
 import { handleMessages } from "./proxy-anthropic.js";
 import { listAccountDescriptors, listRoutableModels } from "./accounts.js";
-import { modelCatalogResponse } from "./model-catalog.js";
+import { modelCatalogResponse } from "./canonical-routing.js";
 import { getSessionLedgerEntry, listSessionLedger } from "./session-ledger.js";
 
 export const app = new Hono();

@@ -4,7 +4,7 @@ import {
   resolveModelRoute,
   type ModelCatalogEntry,
   type RoutingTarget,
-} from "./model-catalog.js";
+} from "./canonical-routing.js";
 
 export interface AccountDescriptor {
   id: string;

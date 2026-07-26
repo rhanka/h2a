@@ -18,7 +18,7 @@ export const TRACK_REPORT_AI_CONFIG = {
     "h2a",
     "report-ai",
     "--model",
-    "claude-opus-4-8",
+    "claude-opus-5-xhigh",
     "--effort",
     "xhigh",
     "--gateway",

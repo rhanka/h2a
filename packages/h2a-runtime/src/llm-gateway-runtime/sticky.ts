@@ -26,7 +26,7 @@ import {
   resolveModelRoute,
   routeForProvider,
   type RoutingTarget,
-} from "./model-catalog.js";
+} from "./canonical-routing.js";
 import { upsertSessionLedger } from "./session-ledger.js";
 
 // ─── k8s ConfigMap client ────────────────────────────────────────────────────
