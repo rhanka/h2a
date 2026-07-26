@@ -132,14 +132,16 @@ finished without achieving.
   whatever host answers, while the local journal reports `ok`. Mitigations: the unit ships disarmed
   (kill-switch active, placeholder target) and documents verifying a single manual push before arming; the
   hosted read boundary allowlists what can leave again.
-  **UPDATE 2026-07-25 — the send side is now mitigated, so the list above no longer describes what
-  travels.** The mirror sanitizes before signing: `launchContext` (cwd, command line, tty, tmux), `pid`,
+  **UPDATE 2026-07-25 — the mirror BUILDER is now mitigated, so the list above no longer describes what
+  its automatic beat travels.** The mirror sanitizes before signing: `launchContext` (cwd, command line, tty, tmux), `pid`,
   `workspace.path`, `workspace.repo` and `file://` endpoint uris are withheld by an allowlist that fails
   the build when a new field is left unclassified. The paragraph is kept rather than rewritten because the
-  consent it records was given against it, and because it still holds for one case: a sender running a CLI
-  older than the fix, since the INGEST boundary does not sanitize yet (section 9). What the owner is
-  consenting to for an up-to-date sender is now the field list in the feed contract's "Send boundary"
-  section — identity, liveness timestamps, a workspace **label**, and no paths.
+  consent it records was given against it, and because it still holds for two cases: a sender running a CLI
+  older than the fix, since the INGEST boundary does not sanitize yet (section 9), and the separate
+  general-purpose `h2a remote send --json` escape hatch, which signs an arbitrary operator-supplied
+  envelope rather than routing it through the mirror builder. What the owner is
+  consenting to for an up-to-date mirror builder's automatic beat is now the field list in the feed
+  contract's "Send boundary" section — identity, liveness timestamps, a workspace **label**, and no paths.
   This is a disclosure-accuracy point, not a design objection: signed-not-confidential to a host the owner
   controls may be entirely fine. But the owner must consent to *paths, command lines, tmux coordinates and
   pids leaving the machine*, not to the word "metadata".
@@ -176,7 +178,7 @@ finished without achieving.
   length bounds + character-class normalisation on the h2a side, userinfo stripping and a query/fragment
   policy for URI-shaped fields, and the untrusted-rendering rule on the panel side. Disclosed by the
   feed's author, independently confirmed, and widened by adversarial review.
-- **~~The mirror does not sanitize at send.~~ CLOSED on the send side (2026-07-25).** The fix took the
+- **~~The mirror does not sanitize at send.~~ CLOSED for the mirror BUILDER (2026-07-25).** The fix took the
   **narrow-what-is-shipped** option: `runtime/mirror/sanitize.ts` gives every payload member a wire type
   built from a field plan that classifies **every** field of the source record, so `launchContext` (cwd,
   command line, resumeCommand, tty, tmux), `pid`, `workspace.path`, `workspace.repo` and `file://`
@@ -187,7 +189,10 @@ finished without achieving.
   signing primitive, sequence fencing and accept-side verification are untouched. A denylist was measured
   rather than dismissed: it passes every hostile-value test and fails only the unclassified-field test —
   which is the whole failure mode. The disclosure in section 7 **no longer describes the fields that
-  travel**; what a hosted store now receives is listed in the feed contract's "Send boundary" section.
+  travel**; what a hosted store now receives from the automatic builder is listed in the feed contract's
+  "Send boundary" section. This does not cover the general-purpose `h2a remote send --json` path: it signs
+  and posts arbitrary operator-supplied envelopes and is intentionally not passed to sanitizers typed only
+  for the builder's three mirror payload members.
   Two consequences worth reading there: `H2AWorkspaceRef.path` had to become optional (while it was
   required, `isH2ASession` made a path-free presence record unwritable — the required field was
   *compelling* the leak), and `capabilities` is transmitted deliberately because the receiving side's
