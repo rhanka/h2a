@@ -76,8 +76,11 @@ import {
   localSessionIdle,
   localSessionPanePid,
   localSessionName,
+  installH2aStatusSurface,
   managedSessionCandidates,
   parseManagedSessionName,
+  openH2aStatusWindow,
+  persistLaunchContext,
   readLaunchContext,
   relaunchInSession,
   resolveAgentPaneForInstance,
@@ -94,8 +97,12 @@ import {
   startHeadlessSession,
   startLocalSession,
   tmuxAvailable,
+  uninstallH2aStatusSurface,
   type LocalSession,
 } from "./tmux.js";
+import { buildLaunchContext } from "./launch-context.js";
+import { migrateTmuxNames, type TmuxNameMigrationMode } from "./tmux-name-migration.js";
+import { projectStatusForH2a } from "./status-projection.js";
 import {
   buildAgentLaunchArgs,
   isAgentLaunchEffort,
@@ -332,7 +339,12 @@ const H2A_RUNTIME_VERSION = (
   ) as { version: string }
 ).version;
 
-import { CLI_PROFILES, type CliProfile } from "./protocol-local.js";
+import {
+  CLI_PROFILES,
+  gatewayModeForProfile,
+  profileUsesLlmMeshGateway,
+  type CliProfile,
+} from "./protocol-local.js";
 import {
   enrollCodexAccount,
   enrollClaudeAccount,
@@ -345,6 +357,7 @@ import {
   llmMeshLogPath,
   jwtExpiry,
   refreshAccountToken,
+  replaceAnthropicGatewayEnvironment,
   readLlmMeshSessionEnv,
   acquireLlmMeshSessionEnv,
 } from "./llm-mesh.js";
@@ -1443,15 +1456,36 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
   // Inject llm-mesh gateway env if running. Do not trust a parent env that may
   // contain an old gateway token from a previous restart.
   // tmux inherits process.env, so claude + its subagents all get the gateway automatically.
-  const meshEnv = getLlmMeshRuntimeConfig().enabled
-    ? readLlmMeshSessionEnv()
-    : null;
-  if (meshEnv) {
-    for (const [k, v] of Object.entries(meshEnv)) {
-      prevAccountEnvs[k] = process.env[k];
-      process.env[k] = v;
+  const jobSessionSlug = slugify(job.id);
+  const jobSessionResolution = resolveLocalSession(jobSessionSlug);
+  const gatewayClientSessionId =
+    jobSessionResolution.kind === "found"
+      ? jobSessionResolution.session.name
+      : jobSessionResolution.kind === "missing"
+        ? localSessionName(jobSessionSlug)
+        : undefined;
+  let meshEnv: Awaited<ReturnType<typeof acquireLlmMeshSessionEnv>> | null;
+  try {
+    meshEnv =
+      profileUsesLlmMeshGateway(job.tool) &&
+      getLlmMeshRuntimeConfig().enabled &&
+      gatewayClientSessionId
+        ? await acquireLlmMeshSessionEnv(undefined, gatewayClientSessionId)
+        : null;
+  } catch (error) {
+    for (const [key, previous] of Object.entries(prevAccountEnvs)) {
+      if (previous === undefined) delete process.env[key];
+      else process.env[key] = previous;
     }
+    return {
+      started: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
+  const restoreGatewayEnvironment = replaceAnthropicGatewayEnvironment(
+    process.env,
+    meshEnv ?? undefined,
+  );
   let tmuxSession: string;
   try {
     if (headless) {
@@ -1479,6 +1513,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
   } catch (err) {
     return { started: false, error: (err as Error).message };
   } finally {
+    restoreGatewayEnvironment();
     if (prevDepth === undefined) delete process.env[DEPTH_ENV];
     else process.env[DEPTH_ENV] = prevDepth;
     if (prevJobId === undefined) delete process.env[JOB_ID_ENV];
@@ -1787,7 +1822,7 @@ function gatewayModeFromOptions(opts: {
 
 function shouldUseClaudeBare(profile: string): boolean {
   return (
-    (profile === "claude" || profile === "claude-code") &&
+    profileUsesLlmMeshGateway(profile) &&
     Boolean(process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN)
   );
 }
@@ -2069,6 +2104,113 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "Wrap a local agent CLI (codex/claude/agy/gemini/mistral) and expose its session for h2a attach.",
     )
     .version("0.0.0");
+
+  const tmuxCommand = program
+    .command("tmux")
+    .description("Manage h2a's local tmux naming and status surface");
+
+  tmuxCommand
+    .command("migrate-names")
+    .description(
+      "Plan, apply, or roll back legacy remote-* to h2a-* session names",
+    )
+    .option("--dry-run", "show the exact rename plan (default)")
+    .option("--apply", "rename collision-free sessions and update the registry")
+    .option("--rollback", "reverse the journalled migration")
+    .action(
+      (opts: { dryRun?: boolean; apply?: boolean; rollback?: boolean }) => {
+        const selected = [opts.dryRun, opts.apply, opts.rollback].filter(Boolean);
+        if (selected.length > 1) {
+          process.stderr.write(
+            "[h2a] choose exactly one of --dry-run, --apply, or --rollback\n",
+          );
+          process.exitCode = 2;
+          return;
+        }
+        const mode: TmuxNameMigrationMode = opts.apply
+          ? "apply"
+          : opts.rollback
+            ? "rollback"
+            : "dry-run";
+        const result = migrateTmuxNames(mode);
+        for (const entry of result.entries) {
+          process.stdout.write(
+            `${entry.tmuxSessionId.padEnd(5)} ${entry.state.padEnd(11)} ${entry.oldName} -> ${entry.newName}` +
+              `${entry.registryEntriesUpdated ? `  registry:${entry.registryEntriesUpdated}` : ""}\n`,
+          );
+        }
+        for (const collision of result.collisions) {
+          process.stderr.write(
+            `[h2a] collision: ${collision.oldName} cannot become ${collision.newName}\n`,
+          );
+        }
+        for (const warning of result.warnings) {
+          process.stderr.write(`[h2a] ${warning}\n`);
+        }
+        process.stderr.write(
+          `[h2a] tmux name migration ${mode}: ${result.changed} session(s) changed\n`,
+        );
+        if (result.collisions.length > 0 || result.warnings.length > 0) {
+          process.exitCode = 2;
+        }
+      },
+    );
+
+  const tmuxStatusCommand = tmuxCommand
+    .command("status")
+    .description("Install or restore the h2a tmux status surface");
+
+  tmuxStatusCommand
+    .command("install [session]")
+    .option("--all", "install on every currently managed h2a/legacy session")
+    .action((session: string | undefined, opts: { all?: boolean }) => {
+      const targets = opts.all
+        ? listLocalSessions().map((item) => item.name)
+        : session
+          ? [session]
+          : [];
+      if (targets.length === 0) {
+        process.stderr.write(
+          "[h2a] tmux status install requires an exact session or --all\n",
+        );
+        process.exitCode = 2;
+        return;
+      }
+      let installed = 0;
+      for (const target of targets) {
+        if (installH2aStatusSurface(target)) installed += 1;
+      }
+      process.stderr.write(
+        `[h2a] installed status surface on ${installed} session(s)\n`,
+      );
+      if (installed !== targets.length) process.exitCode = 2;
+    });
+
+  tmuxStatusCommand
+    .command("uninstall [session]")
+    .option("--all", "restore captured options on every managed session")
+    .action((session: string | undefined, opts: { all?: boolean }) => {
+      const targets = opts.all
+        ? listLocalSessions().map((item) => item.name)
+        : session
+          ? [session]
+          : [];
+      if (targets.length === 0) {
+        process.stderr.write(
+          "[h2a] tmux status uninstall requires an exact session or --all\n",
+        );
+        process.exitCode = 2;
+        return;
+      }
+      let restored = 0;
+      for (const target of targets) {
+        if (uninstallH2aStatusSurface(target)) restored += 1;
+      }
+      process.stderr.write(
+        `[h2a] restored prior status options on ${restored} session(s)\n`,
+      );
+      if (restored !== targets.length) process.exitCode = 2;
+    });
 
   for (const [profileName, alias] of [
     ["codex", undefined],
@@ -4739,11 +4881,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
-        const gateway = await injectLlmMeshGatewayEnv(
-          gatewayMode,
-          true,
-          entry.convId ?? localSessionName(resumeSlug),
-        );
+        if (gatewayMode === "gateway" && !profileUsesLlmMeshGateway(profile)) {
+          process.stderr.write(
+            `[h2a] --llm-gateway/--gw is unsupported for ${profile}; this gateway is Anthropic-compatible and only Claude profiles consume it.\n`,
+          );
+          process.exitCode = 2;
+          return;
+        }
+        const effectiveGatewayMode = gatewayModeForProfile(profile, gatewayMode);
+        let gateway: string | undefined;
         const useBare = shouldUseClaudeBare(profile);
         const command = localCliCommand(profile);
         const args = localResumeArgs(profile, entry.convId, {
@@ -4781,6 +4927,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
           if (opts.attach || explicitProfile) {
             if (explicitProfile && currentTmuxSessionIs(local.name)) {
+              gateway = await injectLlmMeshGatewayEnv(
+                effectiveGatewayMode,
+                true,
+                local.name,
+              );
+              persistLaunchContext(
+                local.name,
+                buildLaunchContext({
+                  profile,
+                  cwd: entry.cwd,
+                  label: displaySlug,
+                  ...(entry.convId ? { resumeId: entry.convId } : {}),
+                }),
+              );
               process.stderr.write(
                 `[h2a] already inside ${displaySlug}; running ${profile} resume in this pane\n`,
               );
@@ -4889,6 +5049,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             }
           }
         }
+        gateway = await injectLlmMeshGatewayEnv(
+          effectiveGatewayMode,
+          true,
+          localSessionName(resumeSlug),
+        );
         const { name } = startLocalSession(
           profile,
           command,
@@ -5164,19 +5329,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
-        if (
-          structuredLaunch &&
-          profile === "codex" &&
-          gatewayMode === "gateway"
-        ) {
+        if (gatewayMode === "gateway" && !profileUsesLlmMeshGateway(profile)) {
           process.stderr.write(
-            "[h2a] --gw is unsupported for structured codex launches (llm-mesh is Anthropic-compatible)\n",
+            `[h2a] --llm-gateway/--gw is unsupported for ${profile}; this gateway is Anthropic-compatible and only Claude profiles consume it.\n`,
           );
           process.exitCode = 2;
           return;
         }
-        const launchGatewayMode =
-          structuredLaunch && profile === "codex" ? "direct" : gatewayMode;
+        const launchGatewayMode = gatewayModeForProfile(profile, gatewayMode);
         const command = localCliCommand(profile);
         let activeGateway: string | undefined;
         const h2a = getH2aConfig();
@@ -5203,8 +5363,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           resultJson?: string;
         }> = [];
         for (const label of labels) {
-          const clientSessionId =
-            opts.resume ?? localSessionName(slugify(label ?? cwd));
+          const clientSessionId = localSessionName(slugify(label ?? cwd));
           try {
             if (structuredLaunch) {
               activeGateway = await prepareStructuredGateway(
@@ -5218,7 +5377,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               );
             } else {
               activeGateway = await injectLlmMeshGatewayEnv(
-                gatewayMode,
+                launchGatewayMode,
                 true,
                 clientSessionId,
               );
@@ -9037,6 +9196,14 @@ export { main as dispatch };
  */
 export function projectAgentsForH2a(): ReturnType<typeof projectRemoteAgents> {
   return projectRemoteAgents({ jobs: listJobs(), localRows: listLocalForLs() });
+}
+
+export { projectStatusForH2a };
+
+/** Open the detailed watcher only for an exact, currently managed session. */
+export function openStatusWindowForH2a(session: string): boolean {
+  const exact = listLocalSessions().find((item) => item.name === session);
+  return exact ? openH2aStatusWindow(exact.name, exact.path) : false;
 }
 
 /**

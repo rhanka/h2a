@@ -2,6 +2,7 @@
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -250,6 +251,48 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
     `loop ${argv[1]}`,
     runLoopEngineCli(argv, { stdout: process.stdout, stderr: process.stderr }, ac.signal)
   );
+} else if (
+  argv[0] === "status" &&
+  argv.some((token) =>
+    token === "--bar" ||
+    token === "--human" ||
+    token === "--watch" ||
+    token === "--tmux-window"
+  )
+) {
+  const flags = parseFlagsFrom(1);
+  const ac = new AbortController();
+  if (flags.watch === "true") {
+    const onSignal = (sig: NodeJS.Signals): void => {
+      process.stderr.write(`h2a status: received ${sig}, stopping\n`);
+      ac.abort();
+    };
+    for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+      process.once(sig, () => onSignal(sig));
+    }
+  }
+  const root =
+    flags.root ??
+    process.env.H2A_ROOT ??
+    join(homedir(), "h2a-workspace", ".h2a");
+  runAsync("status", (async () => {
+    const { runStatusSurfaceCli } = await import("./status-surface.js");
+    return runStatusSurfaceCli(
+      flags,
+      { stdout: process.stdout, stderr: process.stderr },
+      {
+        root,
+        signal: ac.signal,
+        openTmuxWindow: async (tmuxSession: string) => {
+          const packageName: string = "@sentropic/h2a-runtime";
+          const runtime = (await import(packageName)) as {
+            openStatusWindowForH2a?: (session: string) => boolean;
+          };
+          return runtime.openStatusWindowForH2a?.(tmuxSession) ?? false;
+        }
+      }
+    );
+  })());
 } else if (shouldDispatchRuntime(argv)) {
   runAsync(`runtime:${argv[0]}`, dispatchRuntime());
 } else {
