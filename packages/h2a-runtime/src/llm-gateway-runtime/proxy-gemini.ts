@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import { randomUUID } from "node:crypto";
 import { recordSessionRequest } from "./session-ledger.js";
-import { routeModelOrThrow } from "./model-catalog.js";
+import { routeModelOrThrow } from "./canonical-routing.js";
 import { refreshOAuthToken } from "./accounts.js";
 
 const projectCache = new Map<string, string>();
