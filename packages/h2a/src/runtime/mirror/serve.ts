@@ -180,7 +180,13 @@ export function mirrorServerForStore(store: LocalStore, options: MirrorServerFor
           // on read and still sit on disk. Cleaning data already at rest is a
           // separate operation on the hosted store, not something an ingest fix
           // can do. See the PR body and the joint plan § 9.
-          applyRegistration: (reg) => store.registerInstance(reg),
+          applyRegistration: (reg) => {
+            try {
+              store.registerInstance(reg);
+            } catch (error) {
+              if (!/already registered/i.test((error as Error).message)) throw error;
+            }
+          },
           // Re-stamp heartbeatAt with the REMOTE clock → freshness derives from the
           // beat (no local-clock skew, no immortal ghost when the agent dies).
           // Unlike the registry, presence DOES self-heal: this overwrites the
