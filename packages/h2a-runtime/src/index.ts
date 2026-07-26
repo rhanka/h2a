@@ -1330,6 +1330,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         kind: "remote",
         cwd: ws.id,
         source: "remote",
+        sessionClass: "background",
         label: job.id,
         remoteId: session.id,
         role: "job",
@@ -1464,6 +1465,10 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         join(dir, "result.json"),
         join(dir, "output.log"),
         job.id,
+        undefined,
+        undefined,
+        false,
+        "background",
       ));
     } else {
       ({ name: tmuxSession } = startLocalSession(
@@ -1472,6 +1477,8 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         runCwd,
         argv.args,
         job.id,
+        undefined,
+        { sessionClass: "background" },
       ));
       const h2a = getH2aConfig();
       startH2aWindow(tmuxSession, runCwd, h2a.command);
@@ -1495,6 +1502,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
     kind: "local-tmux",
     cwd: runCwd,
     source: "run",
+    sessionClass: "background",
     label: job.id,
     tmuxSession,
     role: "job",
@@ -1605,6 +1613,10 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
       join(dir, "result.json"),
       join(dir, "output.log"),
       job.id,
+      undefined,
+      undefined,
+      false,
+      "background",
     ));
   } catch (err) {
     return { started: false, error: (err as Error).message };
@@ -1634,6 +1646,7 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
     kind: "local-tmux",
     cwd: runCwd,
     source: "run",
+    sessionClass: "background",
     label: job.id,
     tmuxSession,
     role: "job",
@@ -1918,7 +1931,14 @@ function registryEntryForResumeTarget(
       ? [target]
       : managedSessionCandidates(canonicalSlug);
   const matches = loadRegistry().filter((e) => {
-    if (e.role !== undefined || e.kind !== "local-tmux") return false;
+    // Resume is a human-facing operation, not a promotion path.  Keep the
+    // durable class intact by accepting only explicitly human rows; legacy and
+    // background entries fail closed instead of becoming restorable here.
+    if (
+      e.role !== undefined ||
+      e.kind !== "local-tmux" ||
+      e.sessionClass !== "human"
+    ) return false;
     // Full managed names are exact targets; never reinterpret one as an id
     // or label that happens to share a prefix-shaped string.
     if (parsedTarget) {
@@ -4895,12 +4915,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           entry.cwd,
           args,
           resumeSlug,
+          undefined,
+          { sessionClass: "human" },
         );
         enrollFromRun({
           profile,
           slug: resumeSlug,
           tmuxSession: name,
           cwd: entry.cwd,
+          sessionClass: "human",
           ...(entry.convId ? { convId: entry.convId } : {}),
           ...(gatewayMode !== "auto" ? { gatewayMode } : {}),
         });
@@ -5178,6 +5201,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const launchGatewayMode =
           structuredLaunch && profile === "codex" ? "direct" : gatewayMode;
         const command = localCliCommand(profile);
+        // A detached/background or run-once launch is a worker, even when its
+        // agent later emits a Claude SessionStart hook. Stamp this through tmux
+        // so that hook cannot reclassify it as a human session.
+        const sessionClass =
+          opts.background || opts.headless ? "background" : "human";
         let activeGateway: string | undefined;
         const h2a = getH2aConfig();
         const h2aSidecar = opts.h2a ?? h2a.enabled;
@@ -5285,6 +5313,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               getTmuxProfileConfig().profile,
               initialPrompt,
               structuredLaunch,
+              sessionClass,
             ));
           } else {
             ({ name, slug, agentPane } = startLocalSession(
@@ -5303,6 +5332,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   ? { terminateOnAgentExit: true }
                   : {}),
                 ...(structuredLaunch ? { refuseExisting: true } : {}),
+                sessionClass,
               },
             ));
           }
@@ -5384,9 +5414,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             slug,
             tmuxSession: name,
             cwd,
+            sessionClass,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
             ...(gatewayMode !== "auto" ? { gatewayMode } : {}),
-            ...(opts.background ? { sessionClass: "background" } : {}),
           });
           started.push({
             name,
@@ -5626,6 +5656,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             kind: isRemote ? "remote" : "local-tmux",
             cwd: isRemote ? `job-${jobId}` : process.cwd(),
             source: isRemote ? "remote" : "run",
+            sessionClass: "background",
             label: jobId,
             role: "job",
             jobState: "pending",
@@ -5655,6 +5686,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           kind: (isRemote ? "remote" : "local-tmux") as RegistryEntry["kind"],
           cwd: isRemote ? `job-${jobId}` : process.cwd(),
           source: (isRemote ? "remote" : "run") as RegistryEntry["source"],
+          sessionClass: "background" as const,
           label: jobId,
           role: "job" as const,
           task,
@@ -6672,6 +6704,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       enrolledAt: new Date().toISOString(),
       lastSeenAt: new Date().toISOString(),
       source: "run",
+      sessionClass: "background",
       label: slug,
       role: "job",
       jobState: "running",
@@ -6686,6 +6719,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       kind: "local-tmux",
       cwd: process.cwd(),
       source: "run",
+      sessionClass: "background",
       label: slug,
       role: "job",
       jobState: "pending",
