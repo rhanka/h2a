@@ -27,6 +27,7 @@ const DOCUMENT_FILE_LIMIT = 32 * 1024
 const RESULT_LIMIT = 128 * 1024
 const ADAPTER_STDOUT_LIMIT = 256 * 1024
 const ADAPTER_STDERR_LIMIT = 16 * 1024
+const ADAPTER_ERROR_STDERR_PREVIEW_LIMIT = 1_024
 const GIT_COMMIT_LIMIT = 50
 const GIT_PATH_LIMIT = 500
 
@@ -167,7 +168,7 @@ function truncateUtf8(value: string, max: number): { text: string; truncated: bo
 const SECRET_PATTERNS: readonly [RegExp, string][] = [
   [/-----BEGIN [^-\r\n]*PRIVATE KEY-----[\s\S]*?-----END [^-\r\n]*PRIVATE KEY-----/giu, '[REDACTED_PRIVATE_KEY]'],
   [/\b(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{12,}\b/gu, '[REDACTED_TOKEN]'],
-  [/\b(?:api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/giu, '$1=[REDACTED]'],
+  [/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/giu, '$1=[REDACTED]'],
   [/\bBearer\s+[A-Za-z0-9._~+\/-]+=*\b/giu, 'Bearer [REDACTED]'],
 ]
 
@@ -175,6 +176,14 @@ export function redactText(value: string): string {
   let out = value
   for (const [pattern, replacement] of SECRET_PATTERNS) out = out.replace(pattern, replacement)
   return out
+}
+
+function adapterStderrPreview(stderr: string): string {
+  const { text, truncated } = truncateUtf8(
+    cleanOneLine(redactText(stderr)),
+    ADAPTER_ERROR_STDERR_PREVIEW_LIMIT,
+  )
+  return `${JSON.stringify(text.length > 0 ? text : '<empty>')}${truncated ? '…' : ''}`
 }
 
 function redactValue<T>(value: T): T {
@@ -768,7 +777,10 @@ export function generateAiReport(
     const code = (result.error as NodeJS.ErrnoException).code
     throw new AiReportError(code === 'ETIMEDOUT' ? 'adapter-timeout' : code === 'ENOBUFS' ? 'adapter-output-cap' : 'adapter-spawn')
   }
-  if (result.status !== 0) throw new AiReportError('adapter-nonzero')
+  if (result.status !== 0) {
+    const exitCode = result.status === null ? 'unknown' : String(result.status)
+    throw new AiReportError(`adapter-nonzero: exit=${exitCode}; stderr=${adapterStderrPreview(result.stderr)}`)
+  }
   const validated = validateResult(result.stdout, envelope)
   return {
     output: renderAiReport(validated, envelope, options.request.format, options.width),
