@@ -14,17 +14,25 @@
  * file directly, outside that runner; run-tests.mjs deliberately excludes it from
  * `npm test` discovery. The tests below make both mutations fail loudly there.
  *
+ * The wiring is cross-guarded. test-gate-wiring.test.js stays IN `npm test`
+ * discovery and asserts that CI invokes this excluded file directly; removing
+ * that invocation therefore fails the normal suite. This excluded file asserts
+ * scripts.test itself, because an inert `npm test` command would never start the
+ * discovered wiring test. Neither check describes `npm test` as self-guarding.
+ *
  * The runner is driven through `runGates()` with SYNTHETIC steps: real `node -e`
  * subprocesses with chosen exit codes. That exercises the true code path — spawn,
  * classification, verdict, aggregation, exit code — without invoking the real gates.
  */
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { discoverTestFiles, RUNNER_TEST_FILE } from '../../../scripts/run-tests.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+const REPO_ROOT = resolve(HERE, '..', '..', '..')
 // pathToFileURL, not the bare path: on Windows an absolute path starts with a
 // drive letter, which the ESM loader reads as an unsupported URL scheme
 // ("Received protocol 'd:'"). CI's windows-latest legs caught exactly that.
@@ -44,6 +52,19 @@ const {
   INCONCLUSIVE,
   STEPS,
 } = await import(RUNNER)
+
+function readRepoFile(...parts) {
+  return readFileSync(resolve(REPO_ROOT, ...parts), 'utf8')
+}
+
+test('npm test invokes the gate runner, not a string that merely mentions it', () => {
+  const manifest = JSON.parse(readRepoFile('package.json'))
+  assert.equal(
+    manifest.scripts?.test,
+    'node scripts/run-test-gates.mjs',
+    'scripts.test must execute the gate runner directly',
+  )
+})
 
 /** A synthetic step that exits with the given code. */
 function step(id, exitCode, extra = {}) {
