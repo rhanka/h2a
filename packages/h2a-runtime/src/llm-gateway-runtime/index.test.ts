@@ -21,6 +21,33 @@ afterEach(() => {
 });
 
 describe("embedded gateway reporting session attestation", () => {
+  it("serves one exact client session without using the ledger collection", async () => {
+    vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
+      { id: "codex-oauth", provider: "openai", label: "Codex OAuth", token: "codex.header.signature" },
+    ]));
+    const { app } = await import("./index.js");
+    const created = await app.fetch(
+      new Request("http://localhost/v1/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "gateway-opaque-id",
+          clientSessionId: "h2a-owner/with space",
+          model: "claude-opus-5-xhigh",
+        }),
+      }),
+    );
+    expect(created.status).toBe(201);
+    const exact = await app.fetch(
+      new Request("http://localhost/v1/status/client/h2a-owner%2Fwith%20space"),
+    );
+    expect(exact.status).toBe(200);
+    await expect(exact.json()).resolves.toMatchObject({
+      gatewaySessionId: "gateway-opaque-id",
+      clientSessionId: "h2a-owner/with space",
+    });
+  });
+
   it("attests the requested Opus alias and canonical Terra Codex transport before use", async () => {
     vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
       {

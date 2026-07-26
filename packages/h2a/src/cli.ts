@@ -1548,6 +1548,8 @@ export function resolveAutoOpen(
    * overwritten by a host rename.
    */
   refreshDisplayName?: () => string | undefined;
+  /** Only a locally-derived identity may attest an MCP delegation. */
+  delegationEligible?: true;
 } | undefined {
   if (flags["auto-open"] === undefined) return undefined;
   const host = flags.host;
@@ -1598,7 +1600,11 @@ export function resolveAutoOpen(
       : {}),
     ...(identity.privateKeyPath !== undefined
       ? { privateKeyPath: identity.privateKeyPath }
-      : {})
+      : {}),
+    // An explicit --instance is an operator-provided label, not an identity
+    // derived and owned by this sidecar. It may open presence, but it cannot
+    // cause h2a_run to be attributed to that claimed owner in the status bar.
+    ...(flags.instance === undefined ? { delegationEligible: true as const } : {})
   };
 }
 
