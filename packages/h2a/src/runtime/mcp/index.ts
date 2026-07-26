@@ -30,6 +30,7 @@ export {
   executeH2aRun,
   executeH2aRunWithSpawn,
   handleH2aRun,
+  recordMcpRunDelegation,
   H2A_RUN_API_VERSION,
   validateH2aRunRequest,
   type H2aRunExecutor,
