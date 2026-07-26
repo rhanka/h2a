@@ -37,11 +37,14 @@
  * Nothing is weakened relative to the old chain: the same five commands run, and
  * `npm test` still exits non-zero whenever any one of them fails.
  *
- * THIS FILE IS TESTED OUTSIDE ITSELF. CI invokes
- * `packages/h2a/test/run-test-gates.test.js` directly in its own step; discovery in
- * `run-tests.mjs` deliberately excludes that file. Otherwise this runner would
- * interpret the exit code of the tests that verify it, and a one-line verdict
- * mutation could make both itself and its broken tests look green.
+ * THIS FILE IS TESTED OUTSIDE ITSELF. CI's independently requireable
+ * `npm-test-trust-root` job invokes `packages/h2a/test/run-test-gates.test.js`
+ * directly, then executes this production entrypoint without going through
+ * package.json. The direct test pins package wiring, the workflow job, and this
+ * file's exact production commands; discovery in `run-tests.mjs` deliberately
+ * excludes it. Otherwise this runner would interpret the exit code of the tests
+ * that verify it, and a one-line verdict mutation could make both itself and its
+ * broken tests look green.
  *
  * The raw exit-code column and the repeated non-passing list below are diagnostics,
  * not guarantees. They help a human spot a contradictory report, but only the
