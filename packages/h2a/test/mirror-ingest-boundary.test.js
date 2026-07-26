@@ -75,8 +75,11 @@ const BAIT_FILE_URI = `file://${BAIT_DIR}/.h2a`;
 const BAIT_UNCLASSIFIED = "INGESTBAIT-UNCLASSIFIED-FIELD";
 const BAIT_MIRRORED_AT = new Date(NOW - 86_400_000).toISOString();
 
-/** Every bait string that must never reach disk. */
-const FORBIDDEN = [
+/**
+ * Bait VALUES — the sender's actual private data. These must never appear
+ * anywhere: not on disk, and not echoed back over the network.
+ */
+const FORBIDDEN_VALUES = [
   BAIT_DIR,
   BAIT_COMMAND,
   BAIT_TTY,
@@ -85,14 +88,32 @@ const FORBIDDEN = [
   String(BAIT_PID),
   BAIT_REPO,
   BAIT_FILE_URI,
-  BAIT_UNCLASSIFIED,
-  "launchContext",
-  "file://"
+  BAIT_UNCLASSIFIED
 ];
 
+/**
+ * At rest we additionally forbid the field NAMES, because a withheld field must
+ * not survive even as an empty key.
+ *
+ * Deliberately NOT applied to the response body. The narrowing report names the
+ * key paths it dropped — `launchContext` is the whole point of that report — so
+ * asserting "no forbidden string in the 202" against this list would contradict
+ * the assertion two lines above it that the report must name `launchContext`.
+ * The distinction the design rests on is names-yes / values-never, and the two
+ * helpers below are that distinction made mechanical rather than remembered.
+ */
+const FORBIDDEN_AT_REST = [...FORBIDDEN_VALUES, "launchContext", "file://"];
+
+/** For bytes at rest: no bait values AND no withheld field names. */
 function assertNothingForbidden(text, what) {
-  const hits = FORBIDDEN.filter((needle) => text.includes(needle));
+  const hits = FORBIDDEN_AT_REST.filter((needle) => text.includes(needle));
   assert.deepEqual(hits, [], `${what} must not carry ${JSON.stringify(hits)}`);
+}
+
+/** For anything sent back to the client: field names are allowed, values never. */
+function assertNoBaitValues(text, what) {
+  const hits = FORBIDDEN_VALUES.filter((needle) => text.includes(needle));
+  assert.deepEqual(hits, [], `${what} must not carry the VALUE ${JSON.stringify(hits)}`);
 }
 
 function keypair() {
@@ -385,8 +406,9 @@ test("the 202 reports WHAT was narrowed, so an un-upgraded sender is not silent"
     for (const expected of ["launchContext", "pid", "workspace.path", "workspace.repo", "endpoints[]"]) {
       assert.ok(fields.includes(expected), `the report must name ${expected}, got ${JSON.stringify(fields)}`);
     }
-    // Names, never values.
-    assertNothingForbidden(JSON.stringify(res.json), "the 202 response body");
+    // Names, never values — the report NAMES `launchContext` (asserted above) and
+    // must still not carry the cwd, the command line, the tmux pane or the pid.
+    assertNoBaitValues(JSON.stringify(res.json), "the 202 response body");
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
@@ -400,8 +422,13 @@ test("NEGATIVE CONTROL: an UP-TO-DATE sender narrows nothing and reports zero", 
     // Built by the real send boundary, so the records are already narrowed.
     sender.store.registerInstance(baitedRegistration(k.pub));
     writePresence(sender.root, baitedSession());
+    sender.store.registerSubagent(baitedSubagent());
     const envelope = buildInstanceMirror(sender.store, INSTANCE, NOW);
+    // All three record-carrying members must be populated, or "narrows nothing"
+    // is a claim about a smaller payload than the positive test's.
     assert.equal(envelope.body.presence.length, 1, "the sender must actually be pushing a record");
+    assert.equal(envelope.body.registrations.length, 1, "the sender must be pushing a registration");
+    assert.equal(envelope.body.subagents.length, 1, "the sender must be pushing a subagent binding");
     const signed = signEnvelope(envelope, { by: INSTANCE, privateKeyPem: k.priv });
 
     const res = await withIngester(recv.store, { enrolledKeys: [k.pub] }, (s) => post(s, signed));
@@ -435,13 +462,25 @@ test("every record-carrying member of the mirror body has an ingest narrower", (
   try {
     sender.store.registerInstance(baitedRegistration(k.pub));
     writePresence(sender.root, baitedSession());
+    // The subagent MUST be registered in the sender store, not just invented on
+    // the wire: `buildInstanceMirror` reads the store, so without this the body
+    // carries `subagents: []`, the length filter below drops it, and the test
+    // silently checks two members while claiming to check every one. Measured:
+    // the members are kind, registrations(1), presence(1), seq, subagents(0).
+    sender.store.registerSubagent(baitedSubagent());
     const body = buildInstanceMirror(sender.store, INSTANCE, NOW).body;
 
     const recordMembers = Object.entries(body)
       .filter(([, value]) => Array.isArray(value) && value.every((e) => typeof e === "object" && e !== null))
       .filter(([, value]) => value.length > 0)
       .map(([key]) => key);
-    assert.ok(recordMembers.length >= 3, "the fixture must exercise every payload member");
+    // Guard the guard: assert the members are the ones we mean, so a body that
+    // stops populating a member fails here instead of quietly lowering the bar.
+    assert.deepEqual(
+      recordMembers.sort(),
+      ["presence", "registrations", "subagents"],
+      "the fixture must exercise every record-carrying payload member"
+    );
 
     const unnarrowed = recordMembers.filter((member) => typeof INGEST_NARROWERS[member] !== "function");
     assert.deepEqual(
@@ -507,8 +546,9 @@ test("a store-writer throw becomes a 500 and leaves the ingester serving", async
       );
       const res = await post(s, bad);
       assert.equal(res.status, 500, "a store-writer throw must be answered, not fatal");
-      // No exception message: they interpolate record content.
-      assertNothingForbidden(JSON.stringify(res.json), "the 500 body");
+      // No exception message: they interpolate record content. Checked against
+      // the VALUES — `Invalid subagent binding (<id>)` would carry one.
+      assertNoBaitValues(JSON.stringify(res.json), "the 500 body");
       assert.equal(res.json.error, "apply-failed");
 
       // The process is alive and the server still serving — which is the whole
