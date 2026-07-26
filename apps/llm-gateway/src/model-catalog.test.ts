@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { describeCanonicalTargetRoutes } from "@sentropic/llm-gateway";
 
 import {
+  listModelCatalog,
   modelCatalogResponse,
   resetModelCatalogCache,
   resolveModelRoute,
@@ -13,36 +15,49 @@ afterEach(() => {
 });
 
 describe("model catalog routing", () => {
-  it("resolves Claude compatibility names as catalog aliases", () => {
-    expect(resolveModelRoute("claude-sonnet-4-6")).toMatchObject({
-      requestedModel: "claude-sonnet-4-6",
-      catalogModelId: "gpt-5.5",
-      upstreamModel: "gpt-5.5",
-      accountPool: "codex",
-      routingPolicy: "round-robin",
-      routeReason: "catalog-alias",
-    });
+  it("uses the package's canonical route descriptions as its only default map", () => {
+    expect(
+      listModelCatalog().map((entry) => [
+        entry.id,
+        entry.targetProviderId,
+        entry.transportProviderId,
+        entry.upstreamModel,
+        entry.routeKind,
+      ]),
+    ).toEqual(
+      describeCanonicalTargetRoutes().map((entry) => [
+        entry.requestedId,
+        entry.providerId,
+        entry.transportProviderId,
+        entry.model,
+        entry.kind,
+      ]),
+    );
   });
 
-  it("routes Opus 4.8 to GPT-5.6 Terra and Fable 5 to GPT-5.6 Sol", () => {
+  it("keeps bare ids faithful and routes only described aliases", () => {
     expect(resolveModelRoute("claude-opus-4-8")).toMatchObject({
       requestedModel: "claude-opus-4-8",
-      catalogModelId: "gpt-5.6-terra",
-      upstreamModel: "gpt-5.6-terra",
-      accountPool: "codex",
-      routeReason: "catalog-alias",
+      catalogModelId: "claude-opus-4-8",
+      upstreamModel: "claude-opus-4-8",
+      accountPool: "anthropic",
+      routeReason: "canonical-route",
+      routeKind: "faithful",
     });
     expect(resolveModelRoute("claude-fable-5")).toMatchObject({
       requestedModel: "claude-fable-5",
-      catalogModelId: "gpt-5.6-sol",
-      upstreamModel: "gpt-5.6-sol",
-      routeReason: "catalog-alias",
+      catalogModelId: "claude-fable-5",
+      upstreamModel: "claude-fable-5",
+      accountPool: "anthropic",
+      routeKind: "faithful",
     });
-    expect(resolveModelRoute("fable-5")).toMatchObject({
-      catalogModelId: "gpt-5.6-sol",
+    expect(resolveModelRoute("claude-fable-5-max")).toMatchObject({
+      catalogModelId: "claude-fable-5-max",
       upstreamModel: "gpt-5.6-sol",
-      routeReason: "catalog-alias",
+      routeReason: "canonical-route",
+      routeKind: "alias",
     });
+    expect(resolveModelRoute("claude-opus-4-8-xhigh")).toBeUndefined();
   });
 
   it("keeps Terra and Luna as explicit catalog routes", () => {
@@ -50,27 +65,19 @@ describe("model catalog routing", () => {
       catalogModelId: "gpt-5.6-terra",
       upstreamModel: "gpt-5.6-terra",
       accountPool: "codex",
-      routeReason: "catalog-id",
+      routeReason: "canonical-route",
     });
     expect(resolveModelRoute("gpt-5.6-luna")).toMatchObject({
       catalogModelId: "gpt-5.6-luna",
       upstreamModel: "gpt-5.6-luna",
       accountPool: "codex",
-      routeReason: "catalog-id",
+      routeReason: "canonical-route",
     });
   });
 
-  it("keeps other explicit GPT model ids as catalog or passthrough routes", () => {
-    expect(resolveModelRoute("gpt-5.3-codex-spark")).toMatchObject({
-      catalogModelId: "gpt-5.3-codex-spark",
-      upstreamModel: "gpt-5.3-codex-spark",
-      routeReason: "catalog-id",
-    });
-    expect(resolveModelRoute("gpt-5.future")).toMatchObject({
-      catalogModelId: "gpt-5.future",
-      upstreamModel: "gpt-5.future",
-      routeReason: "passthrough-gpt",
-    });
+  it("rejects routes absent from the canonical descriptions", () => {
+    expect(resolveModelRoute("gpt-5.future")).toBeUndefined();
+    expect(resolveModelRoute("claude-sonnet-4-6")).toBeUndefined();
   });
 
   it("keeps OPENAI_MODEL_MAP as an env compatibility source", () => {
@@ -94,7 +101,7 @@ describe("model catalog routing", () => {
     const response = modelCatalogResponse();
 
     expect(response.object).toBe("list");
-    expect(response.data[0]).toMatchObject({
+    expect(response.data.find((entry) => entry.id === "gpt-5.6-terra")).toMatchObject({
       object: "model",
       id: "gpt-5.6-terra",
       owned_by: "codex",
