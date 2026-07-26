@@ -70,6 +70,7 @@ import {
   attachPodTmux,
   capturePane,
   conductorRunning,
+  currentTmuxSessionName,
   currentTmuxSessionIs,
   ensureManagedTmuxProfile,
   existingLocalSessionSlugs,
@@ -1353,6 +1354,15 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         remoteId: session.id,
         role: "job",
         jobState: "running",
+        ...(job.delegationOrigin !== undefined
+          ? { delegationOrigin: job.delegationOrigin }
+          : {}),
+        ...(job.delegatorInstance !== undefined
+          ? { delegatorInstance: job.delegatorInstance }
+          : {}),
+        ...(job.delegatorTmuxSession !== undefined
+          ? { delegatorTmuxSession: job.delegatorTmuxSession }
+          : {}),
         // Persist originCwd so reconcile reads result.json under the right dir
         // (H2) regardless of the conductor's cwd.
         ...(job.originCwd !== undefined ? { originCwd: job.originCwd } : {}),
@@ -1493,10 +1503,11 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
     meshEnv ?? undefined,
   );
   let tmuxSession: string;
+  let workerPid: number | undefined;
   try {
     if (headless) {
       const dir = jobDir(originCwd, job.id);
-      ({ name: tmuxSession } = startHeadlessSession(
+      const launched = startHeadlessSession(
         job.tool,
         argv.command,
         runCwd,
@@ -1508,9 +1519,13 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         undefined,
         false,
         "background",
-      ));
+      );
+      tmuxSession = launched.name;
+      workerPid = launched.agentPane
+        ? localSessionPanePid(launched.agentPane)
+        : undefined;
     } else {
-      ({ name: tmuxSession } = startLocalSession(
+      const launched = startLocalSession(
         job.tool,
         argv.command,
         runCwd,
@@ -1518,7 +1533,11 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         job.id,
         undefined,
         { sessionClass: "background" },
-      ));
+      );
+      tmuxSession = launched.name;
+      workerPid = launched.agentPane
+        ? localSessionPanePid(launched.agentPane)
+        : undefined;
       const h2a = getH2aConfig();
       startH2aWindow(tmuxSession, runCwd, h2a.command);
     }
@@ -1545,6 +1564,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
     sessionClass: "background",
     label: job.id,
     tmuxSession,
+    ...(workerPid !== undefined ? { pid: workerPid } : {}),
     role: "job",
     jobState: "running",
     // Persist originCwd (H2): result.json/output.log live under originCwd, read
@@ -1552,6 +1572,15 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
     originCwd,
     ...(job.task !== undefined ? { task: job.task } : {}),
     ...(job.callbackTo !== undefined ? { callbackTo: job.callbackTo } : {}),
+    ...(job.delegationOrigin !== undefined
+      ? { delegationOrigin: job.delegationOrigin }
+      : {}),
+    ...(job.delegatorInstance !== undefined
+      ? { delegatorInstance: job.delegatorInstance }
+      : {}),
+    ...(job.delegatorTmuxSession !== undefined
+      ? { delegatorTmuxSession: job.delegatorTmuxSession }
+      : {}),
   });
   mirrorNew();
   return {
@@ -1643,9 +1672,10 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
   );
   process.env[JOB_ID_ENV] = job.id;
   let tmuxSession: string;
+  let workerPid: number | undefined;
   try {
     const dir = jobDir(originCwd, job.id);
-    ({ name: tmuxSession } = startHeadlessSession(
+    const launched = startHeadlessSession(
       job.tool,
       argv.command,
       runCwd,
@@ -1657,7 +1687,11 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
       undefined,
       false,
       "background",
-    ));
+    );
+    tmuxSession = launched.name;
+    workerPid = launched.agentPane
+      ? localSessionPanePid(launched.agentPane)
+      : undefined;
   } catch (err) {
     return { started: false, error: (err as Error).message };
   } finally {
@@ -1689,11 +1723,21 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
     sessionClass: "background",
     label: job.id,
     tmuxSession,
+    ...(workerPid !== undefined ? { pid: workerPid } : {}),
     role: "job",
     jobState: "running",
     originCwd,
     ...(job.task !== undefined ? { task: job.task } : {}),
     ...(job.callbackTo !== undefined ? { callbackTo: job.callbackTo } : {}),
+    ...(job.delegationOrigin !== undefined
+      ? { delegationOrigin: job.delegationOrigin }
+      : {}),
+    ...(job.delegatorInstance !== undefined
+      ? { delegatorInstance: job.delegatorInstance }
+      : {}),
+    ...(job.delegatorTmuxSession !== undefined
+      ? { delegatorTmuxSession: job.delegatorTmuxSession }
+      : {}),
     ...(job.throttle !== undefined ? { throttle: job.throttle } : {}),
   });
   return { started: true, target: "local", detail: `${runCwd} [resume]` };
@@ -5595,6 +5639,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             profile,
             slug,
             tmuxSession: name,
+            ...(pid !== undefined ? { pid } : {}),
             cwd,
             sessionClass,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
@@ -5764,6 +5809,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           opts.name ?? `${jobType}-${Math.random().toString(36).slice(2, 8)}`;
         // Parent h2a instance to notify on done + answer decisions (best-effort).
         const callbackTo = opts.onDone ?? opts.parent;
+        // A CLI delegation is attributable only when the caller explicitly
+        // names its callback owner AND tmux can identify the exact delegating
+        // session.  Do not infer either value from a job name or cwd.
+        const delegatorTmuxSession = callbackTo
+          ? currentTmuxSessionName()
+          : undefined;
         try {
           assertSafeName(jobId);
         } catch (err) {
@@ -5849,6 +5900,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(remoteTarget !== undefined ? { remoteTarget } : {}),
             ...(explicitCwd !== undefined ? { explicitCwd } : {}),
             ...(callbackTo !== undefined ? { callbackTo } : {}),
+            ...(callbackTo !== undefined && delegatorTmuxSession !== undefined
+              ? {
+                  delegationOrigin: "cli:h2a-delegate" as const,
+                  delegatorInstance: callbackTo,
+                  delegatorTmuxSession,
+                }
+              : {}),
             ...(opts.track !== undefined ? { trackWp: opts.track } : {}),
             ...(opts.model !== undefined ? { model: opts.model } : {}),
             ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
@@ -5878,6 +5936,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           ...(remoteTarget !== undefined ? { remoteTarget } : {}),
           ...(explicitCwd !== undefined ? { explicitCwd } : {}),
           ...(callbackTo !== undefined ? { callbackTo } : {}),
+          ...(callbackTo !== undefined && delegatorTmuxSession !== undefined
+            ? {
+                delegationOrigin: "cli:h2a-delegate" as const,
+                delegatorInstance: callbackTo,
+                delegatorTmuxSession,
+              }
+            : {}),
           ...(opts.track !== undefined ? { trackWp: opts.track } : {}),
           ...(opts.model !== undefined ? { model: opts.model } : {}),
           ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
@@ -5925,6 +5990,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(remoteTarget !== undefined ? { remoteTarget } : {}),
             ...(explicitCwd !== undefined ? { explicitCwd } : {}),
             ...(callbackTo !== undefined ? { callbackTo } : {}),
+            ...(callbackTo !== undefined && delegatorTmuxSession !== undefined
+              ? {
+                  delegationOrigin: "cli:h2a-delegate" as const,
+                  delegatorInstance: callbackTo,
+                  delegatorTmuxSession,
+                }
+              : {}),
             ...(opts.track !== undefined ? { trackWp: opts.track } : {}),
             ...(opts.model !== undefined ? { model: opts.model } : {}),
             ...(opts.effort !== undefined ? { effort: opts.effort } : {}),

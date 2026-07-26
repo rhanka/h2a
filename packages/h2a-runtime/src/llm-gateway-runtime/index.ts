@@ -4,7 +4,11 @@ import { acquireSession, sessionCount } from "./sticky.js";
 import { handleMessages } from "./proxy-anthropic.js";
 import { listAccountDescriptors, listRoutableModels } from "./accounts.js";
 import { modelCatalogResponse } from "./model-catalog.js";
-import { getSessionLedgerEntry, listSessionLedger } from "./session-ledger.js";
+import {
+  getSessionLedgerEntry,
+  getSessionLedgerEntryForClient,
+  listSessionLedger,
+} from "./session-ledger.js";
 
 export const app = new Hono();
 
@@ -59,6 +63,13 @@ app.get("/v1/sessions", (c) => c.json({ data: listSessionLedger() }));
 app.get("/v1/sessions/:id", (c) => {
   const entry = getSessionLedgerEntry(c.req.param("id"));
   if (!entry) return c.json({ error: "session not found" }, 404);
+  return c.json(entry);
+});
+// The tmux surface asks for one attested client session. This is deliberately
+// not the collection endpoint: a five-second status refresh must stay O(1).
+app.get("/v1/status/client/:clientSessionId", (c) => {
+  const entry = getSessionLedgerEntryForClient(c.req.param("clientSessionId"));
+  if (!entry) return c.json({ error: "client session not found" }, 404);
   return c.json(entry);
 });
 

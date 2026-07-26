@@ -5,13 +5,16 @@ import type {
 } from "./llm-gateway-runtime/session-ledger.js";
 import { projectRemoteAgents, type RemoteAgentProjection } from "./agents-projection.js";
 import {
+  loadRegistryWithDiagnostics,
   listJobs,
   listLive,
   localLsRows,
+  type RegistryEntry,
   type LocalLsRow,
 } from "./registry.js";
 import {
   currentTmuxSessionName,
+  localSessionAgentPanePid,
   listLocalSessionsWithDiagnostics,
   readLaunchContext,
   type LocalSession,
@@ -31,6 +34,9 @@ export interface H2AGatewayStatusV1 {
   readonly gatewaySessionId?: string;
   readonly requestedModel?: string;
   readonly upstreamModel?: string;
+  /** True means the identifier exceeded its display cap; omit the route. */
+  readonly requestedModelTruncated?: boolean;
+  readonly upstreamModelTruncated?: boolean;
   readonly provider?: string;
   readonly transport?: string;
   readonly accountId?: string;
@@ -40,6 +46,25 @@ export interface H2AGatewayStatusV1 {
   readonly retryAfterMs?: number;
   readonly updatedAt?: string;
   readonly reason?: string;
+}
+
+export interface H2ADelegatedExecutionV1 {
+  readonly id: string;
+  readonly origin: "mcp:h2a_run" | "cli:h2a-delegate";
+  readonly delegatorInstance: string;
+  readonly delegatorTmuxSession: string;
+  readonly tool: string;
+  readonly state: "pending" | "running" | "throttled" | "failed";
+}
+
+/** A launch record written by the originating MCP sidecar, never by `run`. */
+export interface H2AMcpDelegationAttestationV1 {
+  readonly workerTmuxSession: string;
+  /** Bind the attestation to this launch, not a later reused tmux name. */
+  readonly workerPid: number;
+  readonly origin: "mcp:h2a_run";
+  readonly delegatorInstance: string;
+  readonly delegatorTmuxSession: string;
 }
 
 export interface H2AStatusRuntimeProjectionV1 {
@@ -59,24 +84,54 @@ export interface H2AStatusRuntimeProjectionV1 {
     /** False until the runtime projection carries every design attention state. */
     readonly attentionComplete: false;
   };
+  /** Owner-scoped executions only; never a count of ordinary tmux sessions. */
+  readonly delegations: {
+    readonly executions: readonly H2ADelegatedExecutionV1[];
+    readonly degraded: boolean;
+  };
   readonly gateway: H2AGatewayStatusV1;
   readonly warnings: readonly string[];
 }
 
 export interface ProjectStatusForH2aOptions {
   readonly tmuxSession?: string;
+  /** Exact owner attested by the MCP sidecar for the requested tmux session. */
+  readonly ownerInstance?: string;
   readonly includeGateway?: boolean;
+  /** Gateway-only bar reads do not need registry or delegated-work projection. */
+  readonly includeDelegations?: boolean;
+  /** The detailed human view alone needs the broad managed-work inventory. */
+  readonly includeManagedInventory?: boolean;
+  /** Sidecar-owned records that bind generic runtime rows to an MCP launch. */
+  readonly delegationAttestations?: readonly H2AMcpDelegationAttestationV1[];
+  readonly delegationAttestationsKnown?: boolean;
   readonly fetchImpl?: typeof fetch;
   readonly gatewayTimeoutMs?: number;
 }
 
-function cleanDisplay(value: string, maxScalars = 64): string {
+function cleanDisplay(value: string, maxScalars = 256): string {
   const clean = value
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/[\p{Cc}\p{Cf}\p{Cs}\u2028\u2029]/gu, " ")
     .replace(/[#\[\]]/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return Array.from(clean).slice(0, maxScalars).join("");
+  const scalars = Array.from(clean);
+  return scalars.length > maxScalars
+    ? `${scalars.slice(0, maxScalars).join("")}[cut]`
+    : clean;
+}
+
+function cleanGatewayModel(value: string): { value: string; truncated: boolean } {
+  const clean = value
+    .replace(/[\p{Cc}\p{Cf}\p{Cs}\u2028\u2029]/gu, " ")
+    .replace(/[#\[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const scalars = Array.from(clean);
+  return {
+    value: scalars.slice(0, 256).join(""),
+    truncated: scalars.length > 256,
+  };
 }
 
 const GENERIC_ACCOUNT_LABEL = /^(?:raw\s+)?(?:api\s+key|bearer|oauth)$/i;
@@ -197,15 +252,27 @@ export function gatewayFromLedger(
     }
   }
 
+  const requested = !entry.detailsAmbiguous && entry.requestedModel
+    ? cleanGatewayModel(entry.requestedModel)
+    : undefined;
+  const upstream = !entry.detailsAmbiguous && entry.upstreamModel
+    ? cleanGatewayModel(entry.upstreamModel)
+    : undefined;
   return {
     state: entry.state,
     clientSessionId: cleanDisplay(entry.clientSessionId),
     gatewaySessionId: cleanDisplay(entry.gatewaySessionId),
-    ...(!entry.detailsAmbiguous && entry.requestedModel
-      ? { requestedModel: cleanDisplay(entry.requestedModel) }
+    ...(requested
+      ? {
+          requestedModel: requested.value,
+          ...(requested.truncated ? { requestedModelTruncated: true } : {}),
+        }
       : {}),
-    ...(!entry.detailsAmbiguous && entry.upstreamModel
-      ? { upstreamModel: cleanDisplay(entry.upstreamModel) }
+    ...(upstream
+      ? {
+          upstreamModel: upstream.value,
+          ...(upstream.truncated ? { upstreamModelTruncated: true } : {}),
+        }
       : {}),
     ...(!entry.detailsAmbiguous
       ? {
@@ -229,7 +296,10 @@ export function gatewayFromLedger(
   };
 }
 
-function localGatewayStatusUrl(baseUrl: string): string | undefined {
+function localGatewayStatusUrl(
+  baseUrl: string,
+  clientSessionId: string,
+): string | undefined {
   try {
     const parsed = new URL(baseUrl);
     if (
@@ -240,7 +310,10 @@ function localGatewayStatusUrl(baseUrl: string): string | undefined {
     ) {
       return undefined;
     }
-    return new URL("/v1/sessions", parsed.origin).toString();
+    return new URL(
+      `/v1/status/client/${encodeURIComponent(clientSessionId)}`,
+      parsed.origin,
+    ).toString();
   } catch {
     return undefined;
   }
@@ -262,6 +335,133 @@ export function uniqueManagedWork(
       !agent.tmuxSession ||
       !delegatedTmuxSessions.has(agent.tmuxSession),
   );
+}
+
+/**
+ * Project only work that carries an explicit delegator identity AND the exact
+ * tmux session that made the request.  Old background sessions and generic
+ * registry jobs cannot be attributed retrospectively, so they degrade J to
+ * UNKNOWN rather than being silently omitted or counted for the wrong owner.
+ */
+export function projectDelegatedExecutions(
+  entries: readonly RegistryEntry[],
+  registryKnown: boolean,
+  tmuxSessions: readonly LocalSession[],
+  delegatorTmuxSession: string | undefined,
+  delegatorInstance: string | undefined,
+  attestations: readonly H2AMcpDelegationAttestationV1[] = [],
+  attestationsKnown = true,
+  workerPidForTmuxSession: (session: string) => number | undefined =
+    localSessionAgentPanePid,
+): { executions: H2ADelegatedExecutionV1[]; degraded: boolean } {
+  if (!registryKnown || !attestationsKnown || !delegatorTmuxSession || !delegatorInstance) {
+    return { executions: [], degraded: true };
+  }
+  const attestationByWorker = new Map<string, H2AMcpDelegationAttestationV1>();
+  const ambiguousWorkers = new Set<string>();
+  for (const attestation of attestations) {
+    const existing = attestationByWorker.get(attestation.workerTmuxSession);
+    if (existing) {
+      ambiguousWorkers.add(attestation.workerTmuxSession);
+      continue;
+    }
+    attestationByWorker.set(attestation.workerTmuxSession, attestation);
+  }
+  const liveTmux = new Set(tmuxSessions.map((session) => session.name));
+  let degraded = false;
+  const executions: H2ADelegatedExecutionV1[] = [];
+  for (const entry of entries) {
+    if (entry.sessionClass !== "background" && entry.role !== "job") continue;
+    if (entry.jobState === "done") continue;
+    const attestation = entry.tmuxSession && !ambiguousWorkers.has(entry.tmuxSession)
+      ? attestationByWorker.get(entry.tmuxSession)
+      : undefined;
+    // Session names are reusable. A sidecar attestation establishes MCP origin
+    // only when it also binds to the pid that the runtime observed for this
+    // currently-live worker; otherwise it is stale/unverifiable evidence.
+    const requiresLivePaneProof = attestation !== undefined ||
+      (entry.delegationOrigin === "cli:h2a-delegate" &&
+        entry.jobState !== "pending" && entry.jobState !== "failed");
+    const liveWorkerPid = requiresLivePaneProof && entry.tmuxSession
+      ? workerPidForTmuxSession(entry.tmuxSession)
+      : undefined;
+    const attestationMatchesWorker = attestation !== undefined &&
+      liveWorkerPid !== undefined && liveWorkerPid === attestation.workerPid;
+    // MCP provenance is authoritative only through the sidecar record. Older
+    // runtime rows that merely spell `mcp:h2a_run` have no trusted origin.
+    const inlineOrigin = entry.delegationOrigin === "cli:h2a-delegate"
+      ? entry.delegationOrigin
+      : undefined;
+    const origin = attestationMatchesWorker ? attestation!.origin : inlineOrigin;
+    const entryDelegatorInstance = attestationMatchesWorker
+      ? attestation!.delegatorInstance
+      : inlineOrigin ? entry.delegatorInstance : undefined;
+    const entryDelegatorTmuxSession = attestationMatchesWorker
+      ? attestation!.delegatorTmuxSession
+      : inlineOrigin ? entry.delegatorTmuxSession : undefined;
+    const hasProvenance =
+      origin !== undefined &&
+      typeof entryDelegatorInstance === "string" &&
+      entryDelegatorInstance.length > 0 &&
+      typeof entryDelegatorTmuxSession === "string" &&
+      entryDelegatorTmuxSession.length > 0;
+    if (!hasProvenance) {
+      // It may belong to this owner, but the old record gives no authority to
+      // claim either zero or another owner's work.
+      degraded = true;
+      continue;
+    }
+    if (
+      entryDelegatorTmuxSession !== delegatorTmuxSession ||
+      entryDelegatorInstance !== delegatorInstance
+    ) continue;
+    if (entry.jobState === "failed") {
+      executions.push({
+        id: entry.id,
+        origin: origin!,
+        delegatorInstance: entryDelegatorInstance!,
+        delegatorTmuxSession: entryDelegatorTmuxSession!,
+        tool: entry.tool,
+        state: "failed",
+      });
+      continue;
+    }
+    if (entry.jobState === "pending") {
+      // Queued work has a durable lifecycle row but no worker pane yet.
+      executions.push({
+        id: entry.id,
+        origin: origin!,
+        delegatorInstance: entryDelegatorInstance!,
+        delegatorTmuxSession: entryDelegatorTmuxSession!,
+        tool: entry.tool,
+        state: "pending",
+      });
+      continue;
+    }
+    if (entry.kind !== "local-tmux" || !entry.tmuxSession || !liveTmux.has(entry.tmuxSession)) {
+      // The structured MCP launcher terminates its tmux session with the agent.
+      // A vanished row without a terminal result is unverifiable, not failed.
+      degraded = true;
+      continue;
+    }
+    // A tmux wrapper can outlive or replace an agent. For executable work, the
+    // recorded launch pid must still be the exact recorded agent pane pid.
+    if (entry.pid === undefined || liveWorkerPid !== entry.pid) {
+      degraded = true;
+      continue;
+    }
+    executions.push({
+      id: entry.id,
+      origin: origin!,
+      delegatorInstance: entryDelegatorInstance!,
+      delegatorTmuxSession: entryDelegatorTmuxSession!,
+      tool: entry.tool,
+      state: entry.jobState === "throttled"
+        ? entry.jobState
+        : "running",
+    });
+  }
+  return { executions, degraded };
 }
 
 async function readGatewayStatus(
@@ -286,8 +486,7 @@ async function readGatewayStatus(
       reason: "gateway is on but no safe local status URL was recorded",
     };
   }
-  const statusUrl = localGatewayStatusUrl(launchContext.gatewayBaseUrl);
-  if (!statusUrl) {
+  if (!localGatewayStatusUrl(launchContext.gatewayBaseUrl, session.name)) {
     return {
       state: "unavailable",
       clientSessionId: session.name,
@@ -297,26 +496,30 @@ async function readGatewayStatus(
 
   const fetchImpl = options.fetchImpl ?? fetch;
   try {
-    const response = await fetchImpl(statusUrl, {
-      signal: AbortSignal.timeout(options.gatewayTimeoutMs ?? 400),
-    });
-    if (!response.ok) {
-      return {
-        state: "unavailable",
-        clientSessionId: session.name,
-        reason: `gateway status returned ${response.status}`,
-      };
-    }
-    const body = (await response.json()) as { data?: unknown };
-    const exactEntry = Array.isArray(body.data)
-      ? selectExactGatewayLedgerEntry(body.data, session.name)
-      : undefined;
+    const readExactClient = async (
+      clientSessionId: string,
+    ): Promise<SessionLedgerEntry | undefined> => {
+      const url = localGatewayStatusUrl(
+        launchContext.gatewayBaseUrl!,
+        clientSessionId,
+      );
+      if (!url) throw new Error("unsafe gateway status URL");
+      const response = await fetchImpl(url, {
+        signal: AbortSignal.timeout(options.gatewayTimeoutMs ?? 400),
+      });
+      if (response.status === 404) return undefined;
+      if (!response.ok) throw new Error(`gateway status returned ${response.status}`);
+      const body: unknown = await response.json();
+      if (!isLedgerEntry(body)) throw new Error("gateway status returned an invalid snapshot");
+      return body;
+    };
+    const exactEntry = await readExactClient(session.name);
     const legacyClientSessionId = exactEntry
       ? undefined
       : legacyClientSessionIdForMigratedSession(session);
     const entry = exactEntry ??
-      (legacyClientSessionId && Array.isArray(body.data)
-        ? selectExactGatewayLedgerEntry(body.data, legacyClientSessionId)
+      (legacyClientSessionId
+        ? await readExactClient(legacyClientSessionId)
         : undefined);
     if (!entry) {
       return {
@@ -352,6 +555,8 @@ export async function projectStatusForH2a(
   let sessions: LocalSession[] = [];
   let rows: LocalLsRow[] = [];
   let agents: RemoteAgentProjection[] = [];
+  let registryEntries: RegistryEntry[] = [];
+  let registryKnown = false;
   let degraded = false;
   let tmuxKnown = true;
   try {
@@ -362,11 +567,24 @@ export async function projectStatusForH2a(
       degraded = true;
       warnings.push(inventory.reason ?? "tmux inventory is unavailable");
     }
-    const live = listLive();
-    rows = localLsRows(sessions, live);
-    agents = uniqueManagedWork(
-      projectRemoteAgents({ jobs: listJobs(), localRows: rows }).agents,
-    );
+    if (options.includeDelegations !== false) {
+      const registry = loadRegistryWithDiagnostics();
+      registryEntries = registry.entries;
+      registryKnown = registry.known;
+      if (!registryKnown) {
+        warnings.push(registry.reason ?? "registry is unavailable");
+      }
+    }
+    // The bar's owner-scoped J signal does not consume the broad managed
+    // inventory. Keep this potentially expensive registry/job traversal for
+    // the explicit human detail view only.
+    if (options.includeManagedInventory !== false) {
+      const live = listLive();
+      rows = localLsRows(sessions, live);
+      agents = uniqueManagedWork(
+        projectRemoteAgents({ jobs: listJobs(), localRows: rows }).agents,
+      );
+    }
   } catch {
     degraded = true;
     warnings.push("managed runtime projection could not be read");
@@ -384,6 +602,17 @@ export async function projectStatusForH2a(
       : "absent"
     : "unknown";
   const launchContext = exact ? readLaunchContext(exact.name) : undefined;
+  const delegations = options.includeDelegations === false
+    ? { executions: [], degraded: true }
+    : projectDelegatedExecutions(
+        registryEntries,
+        registryKnown,
+        sessions,
+        requestedTmuxSession,
+        options.ownerInstance,
+        options.delegationAttestations,
+        options.delegationAttestationsKnown,
+      );
   const gateway = exact
     ? options.includeGateway === false
       ? {
@@ -409,6 +638,7 @@ export async function projectStatusForH2a(
       ...(launchContext ? { launchContext } : {}),
     },
     managed: { agents, rows, degraded, attentionComplete: false },
+    delegations,
     gateway,
     warnings,
   };
