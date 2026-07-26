@@ -19,12 +19,16 @@
  * classification, verdict, aggregation, exit code — without invoking the real gates.
  */
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { discoverTestFiles, RUNNER_TEST_FILE } from '../../../scripts/run-tests.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+const REPO_ROOT = resolve(HERE, '..', '..', '..')
+const PACKAGE_JSON = JSON.parse(readFileSync(resolve(REPO_ROOT, 'package.json'), 'utf8'))
+const CI_WORKFLOW = readFileSync(resolve(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8')
 // pathToFileURL, not the bare path: on Windows an absolute path starts with a
 // drive letter, which the ESM loader reads as an unsupported URL scheme
 // ("Received protocol 'd:'"). CI's windows-latest legs caught exactly that.
@@ -44,6 +48,17 @@ const {
   INCONCLUSIVE,
   STEPS,
 } = await import(RUNNER)
+
+function workflowJobBlock(source, id) {
+  const marker = `  ${id}:\n`
+  const start = source.indexOf(marker)
+  assert.notEqual(start, -1, `workflow must contain a ${id} job`)
+  const fromJob = source.slice(start)
+  const nextJob = fromJob.slice(marker.length).search(/\n  [a-zA-Z0-9_-]+:\n/)
+  return nextJob === -1
+    ? fromJob
+    : fromJob.slice(0, marker.length + nextJob)
+}
 
 /** A synthetic step that exits with the given code. */
 function step(id, exitCode, extra = {}) {
@@ -303,6 +318,103 @@ test('the real STEPS list is non-empty and contains the test runner', () => {
   for (const step of STEPS) {
     assert.ok(Number.isInteger(step.timeoutMs) && step.timeoutMs > 0, `${step.id} needs a bounded timeout`)
   }
+})
+
+test('package.json wires npm test to the production gate entrypoint', () => {
+  assert.equal(
+    PACKAGE_JSON.scripts?.test,
+    'node scripts/run-test-gates.mjs',
+    'an inert or redirected scripts.test must fail the independent trust-root test',
+  )
+})
+
+test('the real STEPS list invokes the exact production commands', () => {
+  const npmExecPath = process.env.npm_execpath
+  const expectedBuild = npmExecPath && /\.(c?js|mjs)$/i.test(npmExecPath)
+    ? {
+        command: process.execPath,
+        args: [npmExecPath, 'run', 'build'],
+        shell: false,
+      }
+    : {
+        command: process.platform === 'win32' ? 'npm.cmd' : 'npm',
+        args: ['run', 'build'],
+        shell: process.platform === 'win32',
+      }
+
+  assert.deepEqual(
+    STEPS.map((step) => ({
+      id: step.id,
+      command: step.command,
+      args: step.args,
+      shell: Boolean(step.shell),
+      requiresBuild: Boolean(step.requiresBuild),
+      inconclusiveExitCode: step.inconclusiveExitCode ?? null,
+    })),
+    [
+      {
+        id: 'build',
+        ...expectedBuild,
+        requiresBuild: false,
+        inconclusiveExitCode: null,
+      },
+      {
+        id: 'check:focus-vendor',
+        command: process.execPath,
+        args: ['scripts/check-focus-vendor.mjs'],
+        shell: false,
+        requiresBuild: false,
+        inconclusiveExitCode: 2,
+      },
+      {
+        id: 'check:focus-app',
+        command: process.execPath,
+        args: ['scripts/check-focus-app.mjs'],
+        shell: false,
+        requiresBuild: false,
+        inconclusiveExitCode: null,
+      },
+      {
+        id: 'lint:focus-imports',
+        command: process.execPath,
+        args: ['apps/focus/scripts/check-imports.mjs'],
+        shell: false,
+        requiresBuild: false,
+        inconclusiveExitCode: null,
+      },
+      {
+        id: 'tests',
+        command: process.execPath,
+        args: ['scripts/run-tests.mjs'],
+        shell: false,
+        requiresBuild: true,
+        inconclusiveExitCode: null,
+      },
+    ],
+    'IDs alone are not evidence: replacing a production command with an inert command must fail',
+  )
+})
+
+test('CI exposes an independent, stable npm-test-trust-root job', () => {
+  assert.match(CI_WORKFLOW, /^  pull_request:\n    branches: \[main\]$/m)
+  const job = workflowJobBlock(CI_WORKFLOW, 'npm-test-trust-root')
+
+  assert.match(job, /^    name: npm-test-trust-root$/m)
+  assert.match(job, /uses: actions\/checkout@v4/)
+  assert.match(job, /uses: actions\/setup-node@v4/)
+  assert.match(job, /^          node-version: "22"$/m)
+  assert.doesNotMatch(job, /^    needs:/m, 'the trust root must not inherit another job verdict')
+
+  const commands = [...job.matchAll(/^\s+(?:- )?run:\s*(.+)$/gm)].map((match) => match[1])
+  assert.deepEqual(
+    commands,
+    [
+      'npm ci',
+      'node --test packages/h2a/test/run-test-gates.test.js',
+      'node scripts/run-test-gates.mjs',
+    ],
+    'the dedicated job must verify the runner and then execute its real entrypoint',
+  )
 })
 
 test('the runner test is not discovered through the runner it verifies', () => {

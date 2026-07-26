@@ -9,8 +9,8 @@
  *
  * Discovers test files under the directories in TEST_DIRS below. The test for
  * the `npm test` gate runner itself is deliberately excluded: CI invokes that
- * one file directly in a separate step, so a mutation in the runner cannot
- * decide that its own failing test has passed.
+ * one file directly in a dedicated, independently requireable job, so a mutation
+ * in the runner cannot decide that its own failing test has passed.
  *
  * Then invokes `node --test <file1> <file2> ...` and forwards the exit code.
  */
@@ -28,8 +28,8 @@ export const TEST_DIRS = [
   "packages/focus-interactive/test"
 ];
 
-// This test must run outside scripts/run-test-gates.mjs. See CI's named
-// "Test npm test gate runner directly" step.
+// This test must run outside scripts/run-test-gates.mjs. See CI's dedicated
+// `npm-test-trust-root` job.
 export const RUNNER_TEST_FILE = "packages/h2a/test/run-test-gates.test.js";
 
 /**
