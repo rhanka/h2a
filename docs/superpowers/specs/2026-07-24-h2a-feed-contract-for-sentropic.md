@@ -124,7 +124,25 @@ rows **verbatim**, so every beat landed `launchContext.cwd`, the full command
 line, the tmux session/pane, the pid, `workspace.path` and the `file://<root>`
 endpoint uri in the hosted store — precisely the fields this contract exists to
 keep out of a browser. Disclosed in the joint plan (§ 7) and recorded as owed
-(§ 9); **closed on the send side** by `runtime/mirror/sanitize.ts`.
+(§ 9); **closed for the mirror BUILDER** by `runtime/mirror/sanitize.ts` — which
+is narrower than "closed on the send side", and the narrower sentence is the
+true one.
+
+**The escape hatch, named rather than implied (amended 2026-07-25 after the
+second review leg).** `h2a remote send --json` (`cli.ts` `runRemoteSend`) parses
+an **arbitrary operator-supplied envelope**, signs it with the instance key and
+POSTs it, with no shape validation and no sanitize. A raw `mirror.instances`
+envelope pushed through it carries `launchContext`, `pid` and `workspace.path`
+from an **up-to-date** sender — so this is *not* the old-sender/ingest residual
+recorded further down, and it must not be filed under it. It is not routed
+through `sanitize*ForMirror` because the verb is a general-purpose envelope
+sender, not a mirror verb: the sanitizers are typed to the three mirror payload
+members and have no defined meaning for an arbitrary body, so "sanitize it too"
+would be a type error dressed as a safety measure. What bounds it is that it
+requires shell access to the agent's own machine and its private key — an
+operator who has both can write to the hosted root by construction. Stated
+plainly so the contract's guarantee is read as covering the automatic beat, not
+every byte the CLI can be made to emit.
 
 **The rule, as contract:**
 
@@ -183,6 +201,30 @@ Binding consequences for anything that leaves the machine:
    covers nothing); and an index signature added to a source type **is** caught,
    which was mutation-tested and is the hatch that would otherwise reopen all of
    this.
+
+   **Where the ratchet's guarantee STOPS, stated because it is a real edge and
+   the second review leg found it.** The ratchet governs the **plan**; it says
+   nothing about the **value**. `applyPlan`'s input is a registry row or a
+   presence record read back from the local store, and a registration is accepted
+   and written with **no validation at all** — `handleRegisterInstance` checks
+   `typeof === "object"` and stops, `store.registerInstance` checks nothing. So a
+   field's declared type is a *hope about the data*, not a fact about it: a
+   `principal` declared `string` can hold `{cwd, command}` at runtime, and a
+   `send` classification would have copied that object wholesale. This is **not**
+   the free-text-element gap below — that one is about the CONTENT of strings;
+   this was a composite smuggled through a field the type calls a scalar.
+
+   Closed at runtime rather than by a type, because no type can reach data that
+   nothing validated: a `send` value that is not a primitive or an array of
+   primitives is **dropped**, and a `narrow` whose output was not itself rebuilt
+   by `applyPlan` is **dropped** (which is what makes an *identity* narrow —
+   legal to the compiler, since identity returns a structurally compatible type —
+   unable to pass a composite through by reference). Dropped rather than thrown:
+   a throw would let one hostile row kill the beat for every session on the
+   machine, buying availability damage for a confidentiality win that dropping
+   already secures. So the honest summary is: **compile-time for the plans,
+   runtime-checked for the values, and nothing at all for the CONTENT of a
+   well-typed string.**
 3. **Sanitize BEFORE signing.** The signature must cover exactly the bytes
    transmitted. `buildInstanceMirror` returns an UNSIGNED envelope that is
    already narrowed, so a caller can only sign what was already sanitized — a
