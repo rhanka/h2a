@@ -26,7 +26,7 @@ import {
   type GatewayUpstreamTransport,
 } from "./accounts.js";
 import { updateSessionToken } from "./sticky.js";
-import { routeModelOrThrow } from "./model-catalog.js";
+import { routeModelOrThrow } from "./canonical-routing.js";
 
 const OPENAI_BASE = process.env.OPENAI_UPSTREAM_URL ?? "https://api.openai.com";
 

@@ -1,6 +1,6 @@
 import type { AccountDescriptor, PublicAccountDescriptor } from "./accounts.js";
 import { publicAccountDescriptor } from "./accounts.js";
-import type { RoutingTarget } from "./model-catalog.js";
+import type { RoutingTarget } from "./canonical-routing.js";
 
 export interface SessionLedgerEntry {
   gatewaySessionId: string;

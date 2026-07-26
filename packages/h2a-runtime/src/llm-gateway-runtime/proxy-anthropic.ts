@@ -11,7 +11,7 @@ import {
   accountPoolForProvider,
   resolveModelRoute,
   type RoutingTarget,
-} from "./model-catalog.js";
+} from "./canonical-routing.js";
 import { recordSessionRequest } from "./session-ledger.js";
 
 const ANTHROPIC_BASE =
