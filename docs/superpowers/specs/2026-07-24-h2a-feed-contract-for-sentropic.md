@@ -294,31 +294,95 @@ on every workspace reference cannot express a sanitized reference at all — the
 required field was *compelling* the disclosure, not merely permitting it. `id`,
 `host` and `label` stay required and `path` is still validated when present.
 
-**Still owed (the symmetric half).** The INGEST boundary is also ours and does
-not yet apply this. `serve.ts` writes whatever a *verified* sender hands it, so
-an older CLI that predates the send boundary keeps pushing raw records into the
-hosted root, and a hosted read surface is still a full passthrough of stored
-records (`h2a_discover_sessions` returns `{...session}`; the feed builders are
-not wired into the hosted handlers yet — Part C step 5). Applying the same
-`sanitize*ForMirror` functions in `serve.ts`'s `applyPresence` /
-`applyRegistration` closes it, and should be a separate change so the
-accept-side verification and fencing are reviewed on their own terms.
+### Ingest boundary (the mirror) — CONTRACT, added 2026-07-25
 
-Two defects found while scoping that half, **recorded here and deliberately not
-fixed in the send-boundary change** (touching `accept.ts` / `serve.ts` /
-`push-daemon.ts` would merge the two increments):
+**~~Still owed (the symmetric half).~~ CLOSED for records arriving from now on.**
+The INGEST boundary is also ours, and it now applies the same narrowing. What
+changed, precisely:
 
-- `serve.ts` wires `applyRegistration` to `store.registerInstance`, which
-  **throws** `Instance already registered` on every repeat beat, with no
-  `try`/`catch` — unlike the sibling `applySubagent`, which does catch. So a
-  steady mirror beat from an already-registered instance takes the throw path.
-  Availability, on the ingest side; it belongs to the ingest increment.
+- Every record-carrying member of the mirror body — `registrations`, `presence`,
+  `subagents` — is narrowed on arrival by **the same `sanitize*ForMirror`
+  functions** the send side uses (`runtime/mirror/ingest.ts`). Not "the same
+  rules": the same functions. A second, hand-maintained ingest allowlist would
+  drift, and the compile-time ratchet would fire for the send copy only.
+- The narrowing is **structural, not remembered**. The apply-callback types in
+  `accept.ts` are now the `H2AMirrored*` wire types, so no caller of
+  `acceptMirrorEnvelope` — `serve.ts` included — can be handed a raw record even
+  by writing its callback carelessly. Same instrument as `sanitizeActorForMirror`
+  on the send side: the raw value is not in scope where it would be used.
+- **Narrow, do not reject.** A record with withheld fields is narrowed and
+  applied, never refused: the senders that trip it are exactly the un-upgraded
+  ones, and a 4xx would take their presence off the hosted surface — trading a
+  confidentiality problem this fix closes for an availability problem it would
+  create. So that "forgiving" does not become "silent", the 202 now carries
+  `narrowed: { records, fields }` naming what was dropped. Field **names** only,
+  never values.
+- A second ratchet, one level up from the field plans: `INGEST_NARROWERS`
+  `satisfies` a mapped type over the body members whose type is an array of
+  objects, so **adding a fourth payload member fails the build** until it has an
+  ingest narrower. The field plans could not have caught that — they classify
+  fields within a type, not members of the body.
+
+**Ordering, and what it therefore does not claim.** The envelope is signed over
+its body, so narrowing before `verifyEnvelopeSignature` would change the signed
+bytes and every push would fail — sanitize-then-verify is not a stricter option,
+it is a broken one. Narrowing is therefore strictly **after** verification, and
+after the `publicKeys` authorization filter, so it can never change an
+authorization outcome. The honest consequence: **the raw record exists in the
+ingester's process memory** between `JSON.parse` and narrowing. That is
+unavoidable for any signed payload. The claim this boundary makes is narrower and
+is what the tests assert: *no withheld field reaches disk.* The only thing the
+path writes before narrowing is the sequence fence (`identity/mirror-seq.json`),
+which is reached after verification and stores the verified signer's id and a
+number — no record field.
+
+**What is STILL not closed, and must not be read as closed:**
+
+- **Data already at rest.** This protects what arrives from now on. It does
+  **nothing** for records a pre-fix sender already landed. Presence self-heals —
+  `writePresence` overwrites the session's file, so one beat from an upgraded
+  sender replaces the raw record. **The registry does not**: the ingest applies a
+  known id as a no-op, the JSONL is append-only, and `findInstance` returns the
+  FIRST match, so a raw row already on disk is neither replaced nor shadowed by
+  appending. Cleaning it is an operation on the hosted store, not something an
+  ingest fix can perform.
+- **The hosted READ surface is still a passthrough.** `h2a_discover_sessions`
+  returns `{...session}`; the feed builders are not wired into the hosted
+  handlers (Part C step 5). A narrowed store limits what that passthrough can
+  disclose, but it is not itself a read boundary.
+- **Free text is unchanged.** Element values and free-text scalars travel and
+  come to rest exactly as before — a field allowlist bounds shape, never content.
+
+**The two defects recorded while scoping this half, now resolved or re-recorded:**
+
+- `serve.ts` wired `applyRegistration` to `store.registerInstance`, which
+  **throws** `Instance already registered` on every repeat beat with no
+  `try`/`catch`. **Fixed**, and it was worse than "takes the throw path" —
+  measured through the real server, the throw escapes the `req.on("end")`
+  callback as an **uncaught exception that terminates the ingester**, and because
+  no response is written the sender hangs until its own timeout. A daemon beats
+  every 15-30 s, so a healthy authorized agent killed the ingester about one beat
+  after starting. Two further throws of the same class were found by the same
+  measurement and contained by a try/catch → 500: `registerSubagent` raises four
+  distinct errors and the existing `/already registered/i` filter matches one of
+  them, and `writePresence` raises a `TypeError` on a record `isH2ASession`
+  rejects. The 500 body carries no exception message — those interpolate record
+  content.
 - `h2a remote send --json` (`cli.ts`) signs and POSTs an **arbitrary
   operator-supplied envelope** with no shape validation and no sanitize — an
-  escape hatch around the very boundary this section establishes. It is
-  operator-driven rather than agent-driven, which is why it is a recorded gap and
-  not a blocker, but the boundary is only as strong as the absence of a bypass and
-  this is one.
+  escape hatch around the very boundary this section establishes. **Still open**,
+  and note the ingest fix narrows its *effect on a hosted h2a* (the receiver now
+  narrows whatever it is handed) without closing the bypass itself, since the
+  operator may be POSTing to something other than an h2a ingester.
+- **Recorded, not fixed:** `runtime/drumbeat/relaunchers.ts:296` reads
+  `store?.findInstance(instance)?.endpoints.find(…)` — the optional chain stops
+  before `.endpoints`, so an absent field throws a `TypeError`. Measured against
+  this change: reachability is **unchanged**. A raw `endpoints: null` produced
+  `null.find` before and an absent field produces `undefined.find` now; both
+  throw. The common case improves — a registration whose endpoints are all
+  `file://` now stores `endpoints: []`, which `.find` handles, where before it
+  stored the `file://` rows. The fix belongs at line 296 with a test, in the
+  relaunch lane.
 
 ### Liveness / state derivation
 
