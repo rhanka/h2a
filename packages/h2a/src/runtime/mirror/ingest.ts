@@ -90,15 +90,55 @@
  * one rung lower, by a runtime test that reads the map against the body a real
  * sender builds (`mirror-ingest-boundary.test.js`).
  */
+import type {
+  H2AActorRegistration,
+  H2ASession,
+  H2ASubagentBinding
+} from "@sentropic/h2a";
+import type { H2AInstanceMirrorBody } from "./build.js";
 import {
   sanitizePresenceForMirror,
   sanitizeRegistrationForMirror,
   sanitizeSubagentForMirror,
-  type H2AMirroredRegistration,
-  type H2AMirroredSession,
-  type H2AMirroredSubagentBinding
+  type H2AMirroredRegistration as SanitizedRegistration,
+  type H2AMirroredSession as SanitizedSession,
+  type H2AMirroredSubagentBinding as SanitizedSubagentBinding
 } from "./sanitize.js";
-import type { H2AInstanceMirrorBody } from "./build.js";
+
+/**
+ * An ingest-only nominal marker. The send-side types deliberately describe the
+ * shape of a serializable record, so raw local records with extra fields are
+ * structurally assignable to them. Callbacks need a stronger guarantee: only a
+ * value returned by one of this module's narrowers may reach a store writer.
+ *
+ * `declare` keeps the marker type-only: it never becomes a field in a mirrored
+ * record or on disk. The casts below are the sole fabrication points.
+ */
+declare const MIRROR_INGEST_NARROWED: unique symbol;
+
+export type H2AMirroredRegistration = SanitizedRegistration & {
+  readonly [MIRROR_INGEST_NARROWED]: true;
+};
+export type H2AMirroredSession = SanitizedSession & {
+  readonly [MIRROR_INGEST_NARROWED]: true;
+};
+export type H2AMirroredSubagentBinding = SanitizedSubagentBinding & {
+  readonly [MIRROR_INGEST_NARROWED]: true;
+};
+
+type Assert<T extends true> = T;
+type NotAssignable<Raw, Narrowed> = Raw extends Narrowed ? false : true;
+
+// Compile-time regression guard for the nominal boundary above. If the brand is
+// removed, the raw local types become structurally assignable again and this
+// file fails the build before a callback can be changed back to passthrough.
+type _RawRegistrationCannotReachCallback = Assert<
+  NotAssignable<H2AActorRegistration, H2AMirroredRegistration>
+>;
+type _RawSessionCannotReachCallback = Assert<NotAssignable<H2ASession, H2AMirroredSession>>;
+type _RawSubagentCannotReachCallback = Assert<
+  NotAssignable<H2ASubagentBinding, H2AMirroredSubagentBinding>
+>;
 
 /**
  * Members of the mirror body that carry RECORDS — i.e. whose type is an array of
@@ -136,21 +176,21 @@ export const INGEST_NARROWERS = {
 export function narrowIngestedRegistration(
   registration: Parameters<typeof INGEST_NARROWERS.registrations>[0]
 ): H2AMirroredRegistration {
-  return INGEST_NARROWERS.registrations(registration);
+  return INGEST_NARROWERS.registrations(registration) as H2AMirroredRegistration;
 }
 
 /** Narrow an arriving presence record to the fields the mirror boundary permits. */
 export function narrowIngestedPresence(
   session: Parameters<typeof INGEST_NARROWERS.presence>[0]
 ): H2AMirroredSession {
-  return INGEST_NARROWERS.presence(session);
+  return INGEST_NARROWERS.presence(session) as H2AMirroredSession;
 }
 
 /** Narrow an arriving subagent binding to the fields the mirror boundary permits. */
 export function narrowIngestedSubagent(
   binding: Parameters<typeof INGEST_NARROWERS.subagents>[0]
 ): H2AMirroredSubagentBinding {
-  return INGEST_NARROWERS.subagents(binding);
+  return INGEST_NARROWERS.subagents(binding) as H2AMirroredSubagentBinding;
 }
 
 /** What narrowing removed from one mirror push. */
