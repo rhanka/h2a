@@ -81,7 +81,16 @@ test("operator-enrolled key mirrors its OWN registration → applied (bootstrap,
     applyRegistration: (r) => applied.push(r.instance),
     now: NOW
   });
-  assert.deepEqual(res, { ok: true, applied: [reg.instance], signer: reg.instance });
+  // `narrowed` is the ingest boundary's staleness signal (2026-07-25). Pinned to
+  // its value rather than loosened away: this fixture is built by the SEND
+  // boundary, so it must already be narrowed and report zero. A non-zero here
+  // would mean the send and ingest boundaries disagree about what may travel.
+  assert.deepEqual(res, {
+    ok: true,
+    applied: [reg.instance],
+    signer: reg.instance,
+    narrowed: { records: 0, fields: [] }
+  });
   assert.deepEqual(applied, [reg.instance]);
 });
 
