@@ -34,6 +34,7 @@ import {
   listLocalSessions,
   type LocalSession,
 } from "./tmux.js";
+import type { SessionClass } from "./session-class.js";
 
 export type RegistryTool = "claude" | "codex" | "agy";
 export type RegistryKind = "local-tmux" | "local" | "remote";
@@ -47,7 +48,14 @@ export type RegistrySource = "run" | "hook" | "scan" | "remote";
  */
 export type RegistryRole = "job";
 export type JobState = "pending" | "running" | "throttled" | "done" | "failed";
-export type RegistrySessionClass = "human" | "background";
+/**
+ * Durable restore eligibility. Every newly-enrolled entry MUST carry one:
+ * restore accepts only `human`; `background` is retained but never eligible.
+ * Legacy rows may lack it and deliberately fail closed at restore time.
+ */
+export type RegistrySessionClass = SessionClass;
+/** Provenance admitted to the owner-scoped status projection. */
+export type DelegationOrigin = "mcp:h2a_run" | "cli:h2a-delegate";
 
 /**
  * Rate-limit ("throttled") bookkeeping for a HEADLESS LOCAL job whose agent CLI
@@ -88,8 +96,18 @@ export type RegistryEntry = {
   lastSeenAt: string;
   endedAt?: string;
   source: RegistrySource;
-  /** Human-facing sessions may be restored; background MCP launches may not. */
+  /** Required on every new enrollment; absent only on legacy rows (fail closed). */
   sessionClass?: RegistrySessionClass;
+  /**
+   * Durable delegation provenance.  A background session alone is deliberately
+   * not treated as delegated work: it must say which trusted launch surface
+   * created it and which owner session requested it.
+   */
+  delegationOrigin?: DelegationOrigin;
+  /** Exact h2a identity of the delegating MCP sidecar or delegate callback. */
+  delegatorInstance?: string;
+  /** Exact tmux session that hosted the delegator when the launch was made. */
+  delegatorTmuxSession?: string;
   /** "job" marks a delegated agent (see `delegate.ts`); absent = a session. */
   role?: RegistryRole;
   /** Lifecycle of a delegated job (role "job" only). */
@@ -143,7 +161,11 @@ export type EnrollInput = {
   kind: RegistryKind;
   cwd: string;
   source: RegistrySource;
-  sessionClass?: RegistrySessionClass;
+  /** Required so every new durable record is restore-classified at creation. */
+  sessionClass: RegistrySessionClass;
+  delegationOrigin?: DelegationOrigin;
+  delegatorInstance?: string;
+  delegatorTmuxSession?: string;
   label?: string;
   convId?: string;
   remoteId?: string;
@@ -219,6 +241,34 @@ export function loadRegistry(
   }
 }
 
+/**
+ * Read the registry without collapsing a missing/corrupt file into an empty
+ * collection.  Operational commands may rebuild their registry; the status
+ * bar must instead render UNKNOWN rather than claim a truthful zero.
+ */
+export function loadRegistryWithDiagnostics(
+  path: string = resolveRegistryPath(),
+): { entries: RegistryEntry[]; known: boolean; reason?: string } {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    const entries = (parsed as { entries?: unknown })?.entries;
+    if (!Array.isArray(entries)) {
+      return { entries: [], known: false, reason: "registry has no entries array" };
+    }
+    if (entries.some((entry) => !isRegistryEntry(entry))) {
+      return { entries: [], known: false, reason: "registry contains an invalid entry" };
+    }
+    return { entries, known: true };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return {
+      entries: [],
+      known: false,
+      reason: code === "ENOENT" ? "registry is absent" : "registry is unreadable or malformed",
+    };
+  }
+}
+
 function isRegistryEntry(raw: unknown): raw is RegistryEntry {
   if (!raw || typeof raw !== "object") return false;
   const e = raw as Record<string, unknown>;
@@ -235,7 +285,17 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
       e.source === "remote") &&
     (e.sessionClass === undefined ||
       e.sessionClass === "human" ||
-      e.sessionClass === "background")
+      e.sessionClass === "background") &&
+    (e.role === undefined || e.role === "job") &&
+    // A job marked human is an invalid/tampered record, never a restoreable
+    // exception. Historical jobs without a class remain readable but fail closed.
+    !(e.role === "job" && e.sessionClass === "human") &&
+    (e.delegationOrigin === undefined ||
+      e.delegationOrigin === "mcp:h2a_run" ||
+      e.delegationOrigin === "cli:h2a-delegate") &&
+    (e.pid === undefined || (typeof e.pid === "number" && Number.isInteger(e.pid) && e.pid > 0)) &&
+    (e.delegatorInstance === undefined || typeof e.delegatorInstance === "string") &&
+    (e.delegatorTmuxSession === undefined || typeof e.delegatorTmuxSession === "string")
   );
 }
 
@@ -402,6 +462,19 @@ export function persistReconciledConvIds(
 }
 
 /**
+ * Reject an ambiguous row at the one mutation boundary shared by `enroll` and
+ * `tryClaimSlot`; JavaScript callers cannot bypass the TypeScript requirement.
+ */
+function assertEnrollmentClass(input: EnrollInput): void {
+  if (input.sessionClass !== "human" && input.sessionClass !== "background") {
+    throw new Error("registry enrollment requires sessionClass: human or background");
+  }
+  if (input.role === "job" && input.sessionClass !== "background") {
+    throw new Error("registry job enrollment requires sessionClass: background");
+  }
+}
+
+/**
  * Upsert `input` into `entries` IN PLACE and return the resulting entry. Pure
  * over the array (no fs); shared by `enroll` (under the lock) and the atomic
  * check-cap-and-enroll helper. The lock is held by the caller.
@@ -410,6 +483,7 @@ function applyEnroll(
   entries: RegistryEntry[],
   input: EnrollInput,
 ): RegistryEntry {
+  assertEnrollmentClass(input);
   const now = new Date().toISOString();
   const idx = entries.findIndex((e) => e.id === input.id);
   const prev = idx >= 0 ? entries[idx] : undefined;
@@ -432,8 +506,13 @@ function applyEnroll(
   if (tmuxSession !== undefined) entry.tmuxSession = tmuxSession;
   const pid = input.pid ?? prev?.pid;
   if (pid !== undefined) entry.pid = pid;
-  const sessionClass = input.sessionClass ?? prev?.sessionClass;
-  if (sessionClass !== undefined) entry.sessionClass = sessionClass;
+  entry.sessionClass = input.sessionClass;
+  const delegationOrigin = input.delegationOrigin ?? prev?.delegationOrigin;
+  if (delegationOrigin !== undefined) entry.delegationOrigin = delegationOrigin;
+  const delegatorInstance = input.delegatorInstance ?? prev?.delegatorInstance;
+  if (delegatorInstance !== undefined) entry.delegatorInstance = delegatorInstance;
+  const delegatorTmuxSession = input.delegatorTmuxSession ?? prev?.delegatorTmuxSession;
+  if (delegatorTmuxSession !== undefined) entry.delegatorTmuxSession = delegatorTmuxSession;
   const role = input.role ?? prev?.role;
   if (role !== undefined) entry.role = role;
   const jobState = input.jobState ?? prev?.jobState;
@@ -747,10 +826,15 @@ export function enrollFromRun(args: {
   profile: string;
   slug: string;
   tmuxSession: string;
+  /** Pane pid observed by the structured launcher, if available. */
+  pid?: number;
   cwd: string;
   convId?: string;
   gatewayMode?: "gateway" | "direct";
-  sessionClass?: RegistrySessionClass;
+  sessionClass: RegistrySessionClass;
+  delegationOrigin?: DelegationOrigin;
+  delegatorInstance?: string;
+  delegatorTmuxSession?: string;
 }): void {
   const tool = coerceRegistryTool(args.profile);
   if (!tool) return; // shell/opencode/… sessions stay tmux-only
@@ -763,8 +847,16 @@ export function enrollFromRun(args: {
       source: "run",
       label: args.slug,
       tmuxSession: args.tmuxSession,
-      ...(args.sessionClass !== undefined
-        ? { sessionClass: args.sessionClass }
+      sessionClass: args.sessionClass,
+      ...(args.pid !== undefined ? { pid: args.pid } : {}),
+      ...(args.delegationOrigin !== undefined
+        ? { delegationOrigin: args.delegationOrigin }
+        : {}),
+      ...(args.delegatorInstance !== undefined
+        ? { delegatorInstance: args.delegatorInstance }
+        : {}),
+      ...(args.delegatorTmuxSession !== undefined
+        ? { delegatorTmuxSession: args.delegatorTmuxSession }
         : {}),
       ...(args.convId !== undefined ? { convId: args.convId } : {}),
       ...(args.gatewayMode !== undefined ? { gatewayMode: args.gatewayMode } : {}),

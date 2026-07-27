@@ -49,8 +49,8 @@ describe("gateway descriptor APIs", () => {
     const models = await app.fetch(new Request("http://localhost/v1/models"));
     expect(models.status).toBe(200);
     const modelBody = await models.json() as { data: Array<{ id: string; owned_by: string }> };
-    expect(modelBody.data.map((model) => model.id)).toContain("gpt-5.5");
-    expect(modelBody.data.map((model) => model.id)).toContain("gpt-5.3-codex-spark");
+    expect(modelBody.data.map((model) => model.id)).toContain("gpt-5.6-terra");
+    expect(modelBody.data.map((model) => model.id)).toContain("gpt-5.6-luna");
     expect(JSON.stringify(modelBody)).not.toContain("secret");
   });
 
@@ -63,7 +63,7 @@ describe("gateway descriptor APIs", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "sess-ledger",
-          model: "gpt-5.3-codex-spark",
+          model: "gpt-5.6-luna",
           workspaceId: "workspace-a",
           profile: "claude",
         }),
@@ -73,10 +73,10 @@ describe("gateway descriptor APIs", () => {
     expect(created.status).toBe(201);
     await expect(created.json()).resolves.toMatchObject({
       accountId: "codex-a",
-      modelId: "gpt-5.3-codex-spark",
-      upstreamModel: "gpt-5.3-codex-spark",
+      modelId: "gpt-5.6-luna",
+      upstreamModel: "gpt-5.6-luna",
       routePolicy: "round-robin",
-      routeReason: "catalog-id",
+      routeReason: "canonical-route",
     });
 
     const session = await app.fetch(new Request("http://localhost/v1/sessions/sess-ledger"));
@@ -87,9 +87,9 @@ describe("gateway descriptor APIs", () => {
       workspaceId: "workspace-a",
       profile: "claude",
       account: { id: "codex-a", provider: "openai", label: "Codex A" },
-      requestedModel: "gpt-5.3-codex-spark",
-      modelId: "gpt-5.3-codex-spark",
-      upstreamModel: "gpt-5.3-codex-spark",
+      requestedModel: "gpt-5.6-luna",
+      modelId: "gpt-5.6-luna",
+      upstreamModel: "gpt-5.6-luna",
       requestCount: 0,
     });
 
@@ -116,7 +116,7 @@ describe("gateway descriptor APIs", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "track-report-alias",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
           profile: "track-report-ai",
@@ -127,14 +127,14 @@ describe("gateway descriptor APIs", () => {
     expect(created.status).toBe(201);
     await expect(created.json()).resolves.toMatchObject({
       accountId: "codex-oauth",
-      requestedModel: "claude-opus-4-8",
-      modelId: "gpt-5.6-terra",
+      requestedModel: "claude-opus-5-xhigh",
+      modelId: "claude-opus-5-xhigh",
       upstreamModel: "gpt-5.6-terra",
       reasoningEffort: "xhigh",
       provider: "openai",
       authType: "bearer",
       transport: "codex-responses",
-      routeReason: "catalog-alias",
+      routeReason: "canonical-route",
     });
   });
 
@@ -159,7 +159,7 @@ describe("gateway descriptor APIs", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "track-report-raw-key",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
           profile: "track-report-ai",
@@ -192,7 +192,7 @@ describe("gateway descriptor APIs", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "no-durable-store",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
         }),
@@ -227,7 +227,7 @@ describe("gateway descriptor APIs", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "track-report-quota",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
         }),
@@ -251,7 +251,7 @@ describe("gateway descriptor APIs", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           max_tokens: 58_192,
           thinking: { type: "enabled", budget_tokens: 50_000 },
           messages: [{ role: "user", content: "sensitive report context" }],
@@ -282,7 +282,7 @@ describe("gateway descriptor APIs", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "logical-request-retry",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           requiredTransport: "codex-responses",
         }),
       }),
@@ -312,7 +312,7 @@ describe("gateway descriptor APIs", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           max_tokens: 1_024,
           messages: [{ role: "user", content: "report context" }],
         }),
@@ -350,7 +350,7 @@ describe("gateway descriptor APIs", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "transport-immutable",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           ...(requiredTransport ? { requiredTransport } : {}),
         }),
@@ -406,7 +406,7 @@ describe("gateway descriptor APIs", () => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             sessionId: "concurrent-transport",
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
             reasoningEffort: "xhigh",
             requiredTransport,
           }),
@@ -464,7 +464,7 @@ describe("gateway descriptor APIs", () => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             sessionId: "legacy-race",
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
             ...(constrained
               ? {
                   reasoningEffort: "xhigh",
@@ -509,7 +509,7 @@ describe("gateway descriptor APIs", () => {
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
             thinking: { type: "enabled", budget_tokens: 50_000 },
             messages: [{ role: "user", content: "legacy-race-sensitive" }],
           }),
@@ -558,7 +558,7 @@ describe("gateway descriptor APIs", () => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             sessionId: "stale-session",
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
           }),
         }),
       );
@@ -573,7 +573,7 @@ describe("gateway descriptor APIs", () => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             sessionId: "stale-session",
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
             reasoningEffort: "xhigh",
             requiredTransport: "codex-responses",
           }),
@@ -610,7 +610,7 @@ describe("gateway descriptor APIs", () => {
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
             thinking: { type: "enabled", budget_tokens: 50_000 },
             messages: [{ role: "user", content: "stale-cache-sensitive" }],
           }),
@@ -658,7 +658,7 @@ describe("gateway descriptor APIs", () => {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               sessionId: "legacy-session",
-              model: "claude-opus-4-8",
+              model: "claude-opus-5-xhigh",
               reasoningEffort: "xhigh",
               requiredTransport,
             }),
@@ -712,7 +712,7 @@ describe("gateway descriptor APIs", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "missing-binding",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
         }),
@@ -736,7 +736,7 @@ describe("gateway descriptor APIs", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           messages: [{ role: "user", content: "must remain local" }],
         }),
       }),
@@ -787,7 +787,7 @@ describe("gateway descriptor APIs", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "k8s-empty-data",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
         }),
@@ -882,7 +882,7 @@ describe("gateway descriptor APIs", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId,
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
         }),
