@@ -7,6 +7,20 @@ on:
     branches: [main]
 
 jobs:
+  security-debt:
+    # The owner parked cross-platform CI coverage separately (01KYJ3Q3V5AW9YR0QMXSGW93RE).
+    # This dependency-tree audit gate is deliberately Linux-only.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run audit:security
+
   build-and-test:
     runs-on: ${{ matrix.os }}
     # DEC-061: a leaked subprocess (e.g. an mcp-serve sidecar in a
