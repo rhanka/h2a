@@ -13,7 +13,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 
-import { putEnvelope, repoRoot, resolveLiveTarget } from '$lib/server/h2a-bus';
+import { putEnvelope, repoRoot, resolveTarget } from '$lib/server/h2a-bus';
 import { loadReport } from '$lib/server/report-view';
 import { subjectOf, stepAction } from '$lib/track-model';
 
@@ -41,17 +41,21 @@ export const POST: RequestHandler = async ({ request }) => {
   const question = d.gate?.blockedByTitle?.trim() || subjectOf(d);
   const action = stepAction(d.step.code);
 
-  // The decision goes back to WHOEVER EMITTED THIS FOCUS when it is still live, else the freshest live
-  // session of the project — see `resolveLiveTarget`, shared with the dossier include route.
-  const target = resolveLiveTarget(root, project);
+  // The decision goes back to WHOEVER EMITTED THIS FOCUS when it is still live, else a session resolved
+  // against the live registry — see `resolveTarget`, shared with the dossier include route. Resolution is
+  // on the checkout PATH before any name, so serving this app from a worktree still delivers.
+  const resolution = resolveTarget(root);
 
-  if (!target) {
+  if (!resolution.target) {
     return json({
       ok: true,
       delivered: false,
-      note: `Aucune session h2a live sur « ${project} » : rien à qui remettre la décision. Ouvrez/relancez une CLI sur ce projet (ou servez le focus via h2a) puis réessayez.`
+      reason: resolution.reason,
+      remedy: resolution.remedy,
+      note: resolution.remedy ?? `Aucune session h2a live sur « ${project} » : rien à qui remettre la décision.`
     });
   }
+  const target = resolution.target;
   const envelope = {
     protocol: 'sentropic.h2a',
     version: '0.1',
