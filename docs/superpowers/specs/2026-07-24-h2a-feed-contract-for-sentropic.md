@@ -95,6 +95,17 @@ interface SessionDescriptor {
   keys/tokens, no filesystem paths beyond a human label.
 - `workspaceLabel` — yes (a repo/folder name). `cwd`/`launchContext.path` —
   never.
+- **Scope of that statement: this feed and the mirror push, NOT the product.**
+  "No filesystem paths leave the machine" is true of the mirror push (enforced by
+  `runtime/mirror/sanitize.ts`) and of what this feed renders. It is **not** a
+  product-wide property, and must not be quoted as one. Other egress paths in the
+  same monorepo do send paths and file content today: `packages/h2a-runtime`'s
+  `h2a-bridge.ts` relays files base64-encoded to remote pods and `h2a sync`
+  transfers workspace content; and `report-ai` posts
+  `H2AReportContextEntry.workspace` — an **absolute realpath** — to a loopback
+  gateway that proxies **upstream**. Each is a deliberate, separately-owned
+  channel with its own rationale; none is covered by this boundary. The honest
+  claim is per-channel, and this contract governs one channel.
 - `instanceId`/`sessionId` are the row's **own** identity (the resource the
   owner is reading about their own agent) — shown verbatim, because P1 is
   "read your own data."
@@ -103,6 +114,253 @@ interface SessionDescriptor {
   leaking it into a browser surface would let the UI attempt to address the
   bus directly, bypassing h2a's own authority model). They MUST be opaque,
   stable, per-principal-scoped ids (see Gaps §2).
+
+### Send boundary (the mirror) — CONTRACT, added 2026-07-25
+
+The opacity boundary above governs what a browser READS. It protects nothing
+that has already come to rest on someone else's disk. The mirror push
+(`runtime/mirror/build.ts`) used to ship `listPresence(...)` records and registry
+rows **verbatim**, so every beat landed `launchContext.cwd`, the full command
+line, the tmux session/pane, the pid, `workspace.path` and the `file://<root>`
+endpoint uri in the hosted store — precisely the fields this contract exists to
+keep out of a browser. Disclosed in the joint plan (§ 7) and recorded as owed
+(§ 9); **closed for the mirror BUILDER** by `runtime/mirror/sanitize.ts` — which
+is narrower than "closed on the send side", and the narrower sentence is the
+true one.
+
+**The escape hatch, named rather than implied (amended 2026-07-25 after the
+second review leg).** `h2a remote send --json` (`cli.ts` `runRemoteSend`) parses
+an **arbitrary operator-supplied envelope**, signs it with the instance key and
+POSTs it, with no shape validation and no sanitize. A raw `mirror.instances`
+envelope pushed through it carries `launchContext`, `pid` and `workspace.path`
+from an **up-to-date** sender — so this is *not* the old-sender/ingest residual
+recorded further down, and it must not be filed under it. It is not routed
+through `sanitize*ForMirror` because the verb is a general-purpose envelope
+sender, not a mirror verb: the sanitizers are typed to the three mirror payload
+members and have no defined meaning for an arbitrary body, so "sanitize it too"
+would be a type error dressed as a safety measure. What bounds it is that it
+requires shell access to the agent's own machine and its private key — an
+operator who has both can write to the hosted root by construction. Stated
+plainly so the contract's guarantee is read as covering the automatic beat, not
+every byte the CLI can be made to emit.
+
+**The rule, as contract:**
+
+> **Sanitize at the boundary you are responsible for; never assume an upstream or
+> downstream sanitizer.** A read-side sanitizer does not protect data at rest.
+> Both the send boundary and the read boundary are ours, and each sanitizes
+> independently of the other.
+
+Binding consequences for anything that leaves the machine:
+
+1. **ALLOWLIST, never a denylist.** The permitted field set is *iterated*; the
+   record's own keys are never enumerated onto the wire. This holds for **every
+   field of every composite type that travels, at every level** — each nested
+   composite is rebuilt from its own plan rather than copied by reference. The
+   exhaustive list of those types and their plans is in `sanitize.ts`'s header
+   table; it is exhaustive by construction, because `buildInstanceMirror` puts
+   exactly three member arrays in the body and every entry is reachable from one
+   of them. A denylist that strips `cwd`/`command`/`tmux`/`pid` starts leaking the
+   day someone adds a field. This was measured rather than assumed: implemented as
+   spread-then-delete, a denylist passes every hostile-value test and fails only
+   the unclassified-field test. Same reasoning as `sanitizeDeclaredCapabilities`,
+   which intersects the closed vocabulary instead of removing known-bad values.
+
+   **What this claim does NOT cover, stated because the earlier wording was wider
+   than what was built.** Until 2026-07-25 the guarantee was true at the top level
+   of each payload member and **false one level down**, and that was demonstrated
+   end-to-end, not argued: `interests` was classified `send`, so the plan copied
+   the object by reference; `isInterests` is a two-field spot-check that does not
+   reject extra keys, so `interests: {scopes, negotiations, lc:{tmux, cwd, pid}}`
+   was a well-formed record by the receiver's own guard; the push was accepted
+   **202** and the nested value came to rest on the receiver's disk. The same shape
+   applied to the endpoints **element** type, which `Array.prototype.filter` passes
+   through whole. Both now have plans (`INTERESTS_PLAN`, `ENDPOINT_PLAN`), so the
+   claim above is true as written — but the correction is recorded rather than
+   quietly overwritten, because the failure was documentation asserting a nested
+   guarantee the code did not implement.
+
+   The claim still does **not** cover the element VALUES inside arrays of
+   primitives, nor free-text scalars — see "Free text is not content-checked"
+   below. A field allowlist bounds the SHAPE of what travels, never the content.
+2. **A new field must not be able to travel by default.** Each payload member's
+   plan is checked with `satisfies` over `keyof Required<Source>`, so adding a
+   field to `H2ASession` / `H2AActorRegistration` / `H2ASubagentBinding` **fails
+   the build** until it is explicitly classified `send` / `withhold` / `narrow`.
+   **The same applies to the nested types** (`H2ASessionInterests`,
+   `H2AAgentVersion`, `H2AWorkspaceRef`, the endpoints element): each carries its
+   own `satisfies`, so the ratchet reaches downward instead of stopping at the
+   payload member. Before the nested plans, a new field on `H2ASessionInterests`
+   or on the endpoints element compiled with `tsc` exit 0 **and travelled** —
+   mutation-proved in both directions.
+
+   The ratchet is the compiler, not a reviewer's attention. Two limits worth
+   knowing: it is a **compile-time** ratchet only — `unclassifiedMirrorFields` is
+   a test-time assertion helper, called from the test file and from nowhere on the
+   send path, so it must not be described as a runtime half (an uninvoked guard
+   covers nothing); and an index signature added to a source type **is** caught,
+   which was mutation-tested and is the hatch that would otherwise reopen all of
+   this.
+
+   **Where the ratchet's guarantee STOPS, stated because it is a real edge and
+   the second review leg found it.** The ratchet governs the **plan**; it says
+   nothing about the **value**. `applyPlan`'s input is a registry row or a
+   presence record read back from the local store, and a registration is accepted
+   and written with **no validation at all** — `handleRegisterInstance` checks
+   `typeof === "object"` and stops, `store.registerInstance` checks nothing. So a
+   field's declared type is a *hope about the data*, not a fact about it: a
+   `principal` declared `string` can hold `{cwd, command}` at runtime, and a
+   `send` classification would have copied that object wholesale. This is **not**
+   the free-text-element gap below — that one is about the CONTENT of strings;
+   this was a composite smuggled through a field the type calls a scalar.
+
+   Closed at runtime rather than by a type, because no type can reach data that
+   nothing validated: a `send` value that is not a primitive or an array of
+   primitives is **dropped**, and a `narrow` whose output was not itself rebuilt
+   by `applyPlan` is **dropped** (which is what makes an *identity* narrow —
+   legal to the compiler, since identity returns a structurally compatible type —
+   unable to pass a composite through by reference). Dropped rather than thrown:
+   a throw would let one hostile row kill the beat for every session on the
+   machine, buying availability damage for a confidentiality win that dropping
+   already secures. So the honest summary is: **compile-time for the plans,
+   runtime-checked for the values, and nothing at all for the CONTENT of a
+   well-typed string.**
+3. **Sanitize BEFORE signing.** The signature must cover exactly the bytes
+   transmitted. `buildInstanceMirror` returns an UNSIGNED envelope that is
+   already narrowed, so a caller can only sign what was already sanitized — a
+   post-signing scrub is structurally unavailable, not merely discouraged.
+4. **Never silently drop what a consumer needs.** A field required by a
+   receiving-side consumer is transmitted and the reason recorded, even when the
+   feed itself does not display it. `capabilities` is the live example: the
+   subagent ceiling (`subagents.ts`) and `canAttestComprehension`
+   (`mcp/handlers.ts`) both read it off the mirrored registry row, so
+   withholding it would change an authorization outcome on the receiver.
+
+**The field set transmitted today.** Presence: `sessionId`, `instance`, `host`,
+`name`, `startedAt`, `heartbeatAt`, `state`, `interests`, `subscribedTopics`,
+`workStatus`, `lastMcpActivityAt`, `version`, and `workspace` narrowed to
+`{id, host, label}`. Withheld: `launchContext` (cwd / command / resumeCommand /
+tty / tmux), `pid`, and `mirroredAt` — the last one for PROVENANCE, since
+`deriveLiveness` reads it to decide `stale` and a sender-supplied value would be
+a forged freshness claim; the receiver stamps it. Registration: identity, roles,
+scopes, capabilities, declaredCapabilities, publicKeys, acceptedPolicies,
+createdAt, principal, conductor, agentUuid, name, the same narrowed workspace,
+and `endpoints` filtered to **network-locator schemes** (`http`/`https`/`ws`/
+`wss`) and then rebuilt element-by-element from `ENDPOINT_PLAN` — filtered by
+scheme rather than by `kind` because `kind` is self-declared, so a `file://` uri
+labelled `kind: "remote"` would sail through a kind-based check. The scheme test
+holds against every variant it was attacked with (uppercase, mixed case, leading
+whitespace, embedded newline, single-slash `file:/`, `data:`, `javascript:`,
+scheme-relative `//host`, and a bare relative path), which is what vindicates the
+scheme-over-`kind` choice; what it does **not** do is in the next paragraph.
+
+**Free text is not content-checked — and the concern is data at rest, not
+rendering.** The joint plan's § 9 item 1 framed this as a *rendering* concern over
+four display fields. That framing is too narrow on both axes. The transmitted
+free-text set is larger, and the harm is that an agent-chosen string comes to rest
+**on someone else's disk**; whether a panel escapes it on the way out is a
+separate, additional concern.
+
+Transmitted and agent-settable, none of it content-checked:
+
+- Presence: `name`, `workspace.label`, `workspace.host`, `workspace.id`,
+  `version.cli`, `version.skill`, and the element values of `interests.scopes[]`,
+  `interests.negotiations[]` and `subscribedTopics[]`.
+- Registration: `principal`, `conductor`, `agentUuid`, `name`, and the element
+  values of `scopes[]`, `capabilities[]`, `declaredCapabilities[]`,
+  `acceptedPolicies[]`, `publicKeys[]`, `roles[]`.
+
+`h2a_register_instance` accepts an **arbitrary object** — `handleRegisterInstance`
+validates `typeof === "object"` and nothing else, and `store.registerInstance`
+validates nothing — so every registration field above is whatever the agent wrote.
+`h2a_session_open` likewise copies `interests.scopes` / `interests.negotiations`
+**verbatim** from its caller (`runtime/mcp/sessions.ts`). Two consequences to hold
+in view:
+
+- A plain `h2a_session_open` with `interests: {scopes: ["scope:/home/you/private/
+  directory"]}` puts that path on the hosted disk. No privilege, no malformed
+  record, no older CLI — full reachability today.
+- `conductor: "file:///home/you/…"` is how a `file://` URI **still** reaches the
+  hosted store despite the endpoint scheme filter. The filter covers `endpoints`,
+  not every field that can hold a URI.
+
+And the endpoint filter's own bounded gap, stated with its shape: it answers *"is
+this a network locator"*, not *"does this value contain a path or a secret"*. So
+`http://localhost/home/you/…`, `https://h/?cwd=/home/you/…`, `https://h/#/home/
+you/…` and `https://user:sk-live-TOKEN@h/` (**credentials in the URI userinfo**)
+all travel. Mirror endpoint URLs are exactly the kind of value that carries a
+token, so this is named rather than left implied.
+
+Mitigations are different in kind from an allowlist and are tracked separately:
+length bounds + character-class normalisation on the h2a side, userinfo stripping
+and a query/fragment policy for URIs, and the untrusted-rendering rule on the
+panel side. `roles[]` and `subscribedTopics[]` are closed vocabularies in the type
+but are **not** re-intersected against that vocabulary at the send boundary; for
+`subscribedTopics` the sender's own `writePresence`/`isH2ASession` rejects an
+off-vocabulary topic, so the real pipeline cannot reach it and only a direct call
+to `sanitizePresenceForMirror` can — defence-in-depth, recorded, not fixed.
+
+**Undeclared behavioural change on a HOSTED root (stated, not left to be
+discovered).** Withholding both `workspace.path` and `launchContext` means
+`runtime/reporting/context.ts`'s `sessionWorkspace` returns `undefined` for every
+mirrored session, so `readH2AReportContext` calls `markUnsafe(session.instance)`
+and `continue`s — every mirrored instance is marked **unsafe and skipped**, and
+contributes no `h2a:session:` report-context entry and no inbox metadata on the
+receiving host. This is fail-closed and arguably the right outcome (a remote
+agent's cwd is not a directory the hosted process may reason about), but it is a
+behaviour change on the receiver and it belongs in the contract rather than in
+someone's debugging session.
+
+**Two latent hazards closed as a side effect, recorded because they are the
+strongest part of the case.** Both are on the RECEIVING host:
+
+- Withholding `pid` prevents `reapAllDeadPresence`
+  (`runtime/local-files/presence.ts`) from reading a foreign pid as dead. Its own
+  docstring says it *"assumes presence pids are local to this machine (true for a
+  single-host bus)"* — and a mirror root is by definition not a single-host bus. It
+  reaps on `!isAlive(pid)` with `includeExpired: true`, so an unrelated local pid
+  collision would have deleted **every mirrored row**. A row with no `pid` is
+  skipped before any liveness test, so withholding it is not merely tidier — it is
+  what keeps the janitor from being data-destructive.
+- Withholding `launchContext` prevents `headlessRelauncher`
+  (`runtime/drumbeat/relaunchers.ts`) from `spawnDetached`-ing a remote agent's
+  captured command line in that agent's cwd **on the hosted pod**. Both the command
+  and the cwd come entirely from `launchContext`, unvalidated; with it absent the
+  relauncher returns `false` before spawning anything.
+
+**`H2AWorkspaceRef.path` is now optional, and that was the root cause.**
+`isH2ASession` validates `workspace` through `isH2AWorkspaceRef`; while `path`
+was required, the only shape the hosted `writePresence` would accept was one
+carrying a real filesystem path. A type that makes a filesystem path mandatory
+on every workspace reference cannot express a sanitized reference at all — the
+required field was *compelling* the disclosure, not merely permitting it. `id`,
+`host` and `label` stay required and `path` is still validated when present.
+
+**Still owed (the symmetric half).** The INGEST boundary is also ours and does
+not yet apply this. `serve.ts` writes whatever a *verified* sender hands it, so
+an older CLI that predates the send boundary keeps pushing raw records into the
+hosted root, and a hosted read surface is still a full passthrough of stored
+records (`h2a_discover_sessions` returns `{...session}`; the feed builders are
+not wired into the hosted handlers yet — Part C step 5). Applying the same
+`sanitize*ForMirror` functions in `serve.ts`'s `applyPresence` /
+`applyRegistration` closes it, and should be a separate change so the
+accept-side verification and fencing are reviewed on their own terms.
+
+Two defects found while scoping that half, **recorded here and deliberately not
+fixed in the send-boundary change** (touching `accept.ts` / `serve.ts` /
+`push-daemon.ts` would merge the two increments):
+
+- `serve.ts` wires `applyRegistration` to `store.registerInstance`, which
+  **throws** `Instance already registered` on every repeat beat, with no
+  `try`/`catch` — unlike the sibling `applySubagent`, which does catch. So a
+  steady mirror beat from an already-registered instance takes the throw path.
+  Availability, on the ingest side; it belongs to the ingest increment.
+- `h2a remote send --json` (`cli.ts`) signs and POSTs an **arbitrary
+  operator-supplied envelope** with no shape validation and no sanitize — an
+  escape hatch around the very boundary this section establishes. It is
+  operator-driven rather than agent-driven, which is why it is a recorded gap and
+  not a blocker, but the boundary is only as strong as the absence of a bypass and
+  this is one.
 
 ### Liveness / state derivation
 
