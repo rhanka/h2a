@@ -1,4 +1,5 @@
 import { createInterface } from "node:readline";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { linkSync, unlinkSync, writeFileSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
@@ -15,7 +16,7 @@ import {
   isMcpTransportResult,
   type McpServer
 } from "./server.js";
-import type { H2aRunExecutor } from "./agent-launch.js";
+import type { H2aRunDelegation, H2aRunExecutor } from "./agent-launch.js";
 
 /**
  * Minimal subset of the JSON-RPC 2.0 spec we accept on the wire. The spec
@@ -85,6 +86,14 @@ export interface RunMcpStdioOptions {
     readonly workspace?: H2AWorkspaceRef;
     readonly name?: string;
     readonly scopes?: readonly string[];
+    /**
+     * Re-reads the host-native display title on each heartbeat (spec
+     * 2026-07-25-h2a-lane-addressing §D1b). Omit to freeze the name — which is
+     * what an explicit `--name` does.
+     */
+    readonly refreshDisplayName?: () => string | undefined;
+    /** Set only for a locally-derived sidecar identity (not --instance). */
+    readonly delegationEligible?: true;
   };
   /**
    * Internal structured-launch readiness handshake. When present, auto-open is
@@ -126,6 +135,36 @@ function envInt(name: string): number | undefined {
 const PROTOCOL_VERSION = "2025-06-18";
 const SERVER_NAME = "@sentropic/h2a";
 const SERVER_VERSION = "0.1.1";
+
+function currentTmuxSessionForSidecar(): string | undefined {
+  const pane = process.env.TMUX_PANE;
+  if (!pane || !/^%\d+$/.test(pane)) return undefined;
+  try {
+    const result = spawnSync(
+      "tmux",
+      ["display-message", "-p", "-t", pane, "#{session_name}"],
+      { encoding: "utf8", timeout: 250 },
+    );
+    const name = result.status === 0 ? (result.stdout ?? "").trim() : "";
+    return name && name.length <= 128 && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(name)
+      ? name
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function recordTmuxOwner(session: string, instance: string): void {
+  try {
+    spawnSync(
+      "tmux",
+      ["set-option", "-t", `=${session}`, "@h2a_owner_instance", instance],
+      { stdio: "ignore", timeout: 250 },
+    );
+  } catch {
+    // A missing tmux server means the owner link stays unknown; never invent it.
+  }
+}
 
 export const H2A_MCP_READY_FILE_ENV = "H2A_MCP_READY_FILE";
 export const H2A_MCP_READY_NONCE_ENV = "H2A_MCP_READY_NONCE";
@@ -244,10 +283,12 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   const expiryMs = options.expiryMs ?? envInt("H2A_SESSION_EXPIRY_MS");
   // The stdio transport carries live agent sessions; enable autoHeartbeat so
   // the presence file stays fresh while this mcp-serve process is alive.
+  let delegation: H2aRunDelegation | undefined;
   const server = createMcpServer({
     root,
     workspaceRoot: options.workspaceRoot ?? process.cwd(),
     ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
+    delegationContext: () => delegation,
     sessions: {
       autoHeartbeat: true,
       ...(heartbeatIntervalMs !== undefined ? { heartbeatIntervalMs } : {}),
@@ -311,6 +352,25 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         }
       });
       autoOpenedSessionId = opened.sessionId;
+      // Spec 2026-07-25-h2a-lane-addressing §D1b: follow the host-native title
+      // for the life of the session, so a rename converges into presence within
+      // one heartbeat instead of staying stale until the host reconnects.
+      // Absent when the operator passed an explicit `--name`.
+      if (options.autoOpen.refreshDisplayName) {
+        server.sessions.setDisplayNameResolver(
+          opened.sessionId,
+          options.autoOpen.refreshDisplayName
+        );
+      }
+      const delegatorTmuxSession = currentTmuxSessionForSidecar();
+      if (delegatorTmuxSession && options.autoOpen.delegationEligible === true) {
+        delegation = {
+          origin: "mcp:h2a_run",
+          delegatorInstance: options.autoOpen.instance,
+          delegatorTmuxSession,
+        };
+        recordTmuxOwner(delegatorTmuxSession, options.autoOpen.instance);
+      }
       stderr.write(
         `h2a mcp-serve: auto-opened session for ${options.autoOpen.instance}\n`
       );

@@ -21,20 +21,27 @@ describe("embedded h2a runtime model catalog", () => {
     expect(accountPoolForProvider("gemini-code-assist")).toBe("google");
   });
 
-  it("routes the Opus compatibility alias to Terra", () => {
-    expect(resolveModelRoute("claude-opus-4-8")).toMatchObject({
-      catalogModelId: "gpt-5.6-terra",
+  it("routes only the canonical Opus effort alias to Terra", () => {
+    expect(resolveModelRoute("claude-opus-5-xhigh")).toMatchObject({
+      catalogModelId: "claude-opus-5-xhigh",
       upstreamModel: "gpt-5.6-terra",
       accountPool: "codex",
-      routeReason: "catalog-alias",
+      routeReason: "canonical-route",
     });
+    expect(resolveModelRoute("claude-opus-4-8")).toMatchObject({
+      catalogModelId: "claude-opus-4-8",
+      upstreamModel: "claude-opus-4-8",
+      accountPool: "anthropic",
+      routeKind: "faithful",
+    });
+    expect(resolveModelRoute("claude-opus-4-8-xhigh")).toBeUndefined();
   });
 
   it("keeps Luna available as an explicit model", () => {
     expect(resolveModelRoute("gpt-5.6-luna")).toMatchObject({
       catalogModelId: "gpt-5.6-luna",
       upstreamModel: "gpt-5.6-luna",
-      routeReason: "catalog-id",
+      routeReason: "canonical-route",
     });
   });
 

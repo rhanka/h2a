@@ -5,11 +5,8 @@
  * requests and responses between the two formats so Claude Code (which speaks
  * Anthropic) can transparently use OpenAI/Codex models.
  *
- * Model mapping (overridable via OPENAI_MODEL_MAP env JSON):
- *   claude-opus-4-8                       → gpt-5.6-terra
- *   claude-opus-4-7                       → gpt-5.5
- *   claude-sonnet-4-6 / claude-sonnet-4-5 → gpt-5.5
- *   claude-haiku-*                        → gpt-5.5
+ * Model routing comes from @sentropic/llm-gateway's canonical descriptions,
+ * with OPENAI_MODEL_MAP retained only as an explicit operator override.
  *
  * Thinking budget_tokens → reasoning effort:
  *   ≥ 50 000 (xhigh) → "xhigh"
@@ -452,7 +449,10 @@ function codexEffort(budgetTokens: number): string {
   return budgetToEffort(budgetTokens);
 }
 
-export function toCodexRequest(body: AntRequest): Record<string, unknown> {
+export function toCodexRequest(
+  body: AntRequest,
+  canonicalEffort?: string,
+): Record<string, unknown> {
   body = normalizeUnsupportedRequestContent(body);
   const req: Record<string, unknown> = {
     model: mapModel(body.model),
@@ -464,8 +464,12 @@ export function toCodexRequest(body: AntRequest): Record<string, unknown> {
   const instructions = systemToText(body.system);
   if (instructions) req.instructions = instructions;
 
-  if (body.thinking?.type === "enabled") {
-    req.reasoning = { effort: codexEffort(body.thinking.budget_tokens) };
+  const effort = canonicalEffort ??
+    (body.thinking?.type === "enabled"
+      ? codexEffort(body.thinking.budget_tokens)
+      : undefined);
+  if (effort) {
+    req.reasoning = { effort };
   }
 
   if (body.tools && body.tools.length > 0) {
@@ -604,7 +608,10 @@ export function trimCodexBodyForContext(
 // Request translation: Anthropic → OpenAI Chat Completions (standard sk- key)
 // ---------------------------------------------------------------------------
 
-export function toOpenAIRequest(body: AntRequest): Record<string, unknown> {
+export function toOpenAIRequest(
+  body: AntRequest,
+  canonicalEffort?: string,
+): Record<string, unknown> {
   body = normalizeUnsupportedRequestContent(body);
   const messages: OAIMessage[] = [];
   const system = systemToText(body.system);
@@ -622,8 +629,12 @@ export function toOpenAIRequest(body: AntRequest): Record<string, unknown> {
     req.stream_options = { include_usage: true };
   }
 
-  if (body.thinking?.type === "enabled") {
-    req.reasoning_effort = budgetToEffort(body.thinking.budget_tokens);
+  const effort = canonicalEffort ??
+    (body.thinking?.type === "enabled"
+      ? budgetToEffort(body.thinking.budget_tokens)
+      : undefined);
+  if (effort) {
+    req.reasoning_effort = effort;
   }
 
   if (body.tools && body.tools.length > 0) {
@@ -1437,8 +1448,8 @@ export async function handleMessagesViaOpenAI(
     );
   }
   const upstreamReq = isCodex
-    ? toCodexRequest(upstreamBody)
-    : toOpenAIRequest(upstreamBody);
+    ? toCodexRequest(upstreamBody, route.effort)
+    : toOpenAIRequest(upstreamBody, route.effort);
   // Build the Codex request ONCE. Response attestation is derived from this
   // exact post-mapping payload, never copied from the Anthropic input.
   const codexRequest = isCodex
