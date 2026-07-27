@@ -6,6 +6,44 @@
  * Runs as a SEPARATE deployment from the read-only MCP pod (it writes the store;
  * the MCP surface only reads it), co-mounting the RWX PVC. Store-agnostic +
  * unit-testable; the k8s wiring is the deploy kit.
+ *
+ * ── WHAT THIS FILE NO LONGER DOES (2026-07-25) ─────────────────────────────
+ *
+ * It used to wire `applyRegistration: (reg) => store.registerInstance(reg)` and
+ * `writePresence(root, { ...session, … })` — raw passthroughs on both. Narrowing
+ * now happens inside `acceptMirrorEnvelope`, and the callback TYPES are the
+ * `H2AMirrored*` wire types, so this file could not hand a raw record to a store
+ * writer even if it tried. The boundary is not "serve.ts remembers to sanitize";
+ * it is "serve.ts is never given anything to leak". See `ingest.ts`.
+ *
+ * ── AND THE TWO CRASHES THAT MADE THE BOUNDARY MOOT ────────────────────────
+ *
+ * A boundary that dies is not a boundary, and this one died on the second beat.
+ * Both faults are pre-existing, both were MEASURED through this server rather
+ * than read off the source, and both had the same shape: a store writer throws,
+ * nothing on the path catches it, the throw escapes the `req.on("end")` callback
+ * as an **uncaught exception that terminates the process**, and — because the
+ * response is never written — the sender does not even get an error. It hangs
+ * until its own timeout.
+ *
+ *  1. `store.registerInstance` throws `Instance already registered` on EVERY
+ *     repeat beat (`store.ts:398-409`), and a mirror daemon beats every 15-30 s.
+ *     So a healthy, authorized, up-to-date agent killed the ingester roughly one
+ *     beat after it started. Fixed here the way the sibling `applySubagent`
+ *     already did it: a known id is a no-op.
+ *  2. Any OTHER throw from a store writer did the same. `applySubagent`'s
+ *     existing catch is narrower than it looks — `registerSubagent` throws four
+ *     distinct errors and the `/already registered/i` filter matches one of them;
+ *     `Invalid subagent binding (…)` and `Subagent parent not registered` both
+ *     escaped. `writePresence` throws a `TypeError` on a record `isH2ASession`
+ *     rejects. Each was a remote process-kill available to any enrolled sender.
+ *     Contained by a try/catch around the whole pipeline → 500.
+ *
+ * The 500 body deliberately carries NO exception message. Those messages
+ * interpolate record content (`Instance already registered: <instance>`,
+ * `Invalid subagent binding (<id>)`), and echoing a record's content back over
+ * the network from the module whose job is to keep record content off the wire
+ * would be a small version of the exact bug being fixed.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
@@ -124,28 +162,68 @@ export function mirrorServerForStore(store: LocalStore, options: MirrorServerFor
         return respond(400, { ok: false, error: "malformed" });
       }
       const stampMs = options.now ? options.now() : Date.now();
-      const result = acceptMirrorEnvelope(payload, {
-        resolvePublicKeys: (signer) => store.listInstanceKeys(signer),
-        enrolledKeys,
-        guard,
-        applyRegistration: (reg) => store.registerInstance(reg),
-        // Re-stamp heartbeatAt with the REMOTE clock → freshness derives from the
-        // beat (no local-clock skew, no immortal ghost when the agent dies).
-        applyPresence: (session) =>
-          writePresence(root, { ...session, heartbeatAt: new Date(stampMs).toISOString(), state: "live", mirroredAt: new Date(stampMs).toISOString() }),
-        // Idempotent: registerSubagent throws on a known id — re-mirroring a beat
-        // re-sends the same bindings, so treat "already registered" as a no-op.
-        applySubagent: (binding) => {
-          try {
-            store.registerSubagent(binding);
-          } catch (error) {
-            if (!/already registered/i.test((error as Error).message)) throw error;
-          }
-        },
-        fenceSequence,
-        now: stampMs
-      });
-      if (result.ok) return respond(202, { ok: true, applied: result.applied, signer: result.signer });
+      let result;
+      try {
+        result = acceptMirrorEnvelope(payload, {
+          resolvePublicKeys: (signer) => store.listInstanceKeys(signer),
+          enrolledKeys,
+          guard,
+          // `reg` is an `H2AMirroredRegistration` — narrowed by `ingest.ts`
+          // before it ever reaches this callback. Idempotent for the same reason
+          // `applySubagent` is: a mirror beat re-sends the same registration
+          // every cycle, and `registerInstance` throws on a known id.
+          //
+          // RECORDED, NOT FIXED: a no-op means a row a PRE-FIX sender already
+          // landed is never replaced by its narrowed version. The registry is
+          // append-only JSONL and `findInstance` returns the FIRST match, so
+          // appending would not help either — the raw row would still shadow it
+          // on read and still sit on disk. Cleaning data already at rest is a
+          // separate operation on the hosted store, not something an ingest fix
+          // can do. See the PR body and the joint plan § 9.
+          applyRegistration: (reg) => {
+            try {
+              store.registerInstance(reg);
+            } catch (error) {
+              if (!/already registered/i.test((error as Error).message)) throw error;
+            }
+          },
+          // Re-stamp heartbeatAt with the REMOTE clock → freshness derives from the
+          // beat (no local-clock skew, no immortal ghost when the agent dies).
+          // Unlike the registry, presence DOES self-heal: this overwrites the
+          // session's file, so one beat from an upgraded sender replaces the raw
+          // record a pre-fix sender left behind.
+          applyPresence: (session) =>
+            writePresence(root, { ...session, heartbeatAt: new Date(stampMs).toISOString(), state: "live", mirroredAt: new Date(stampMs).toISOString() }),
+          // Idempotent: registerSubagent throws on a known id — re-mirroring a beat
+          // re-sends the same bindings, so treat "already registered" as a no-op.
+          // Its OTHER three throws are caught by the outer handler, not here.
+          applySubagent: (binding) => {
+            try {
+              store.registerSubagent(binding);
+            } catch (error) {
+              if (!/already registered/i.test((error as Error).message)) throw error;
+            }
+          },
+          fenceSequence,
+          now: stampMs
+        });
+      } catch {
+        // A store writer threw. Without this the throw escapes the request
+        // handler as an uncaught exception and TERMINATES the ingester, leaving
+        // the sender waiting for a response that never comes. No message is
+        // echoed: they interpolate record content. See the module header.
+        return respond(500, { ok: false, error: "apply-failed" });
+      }
+      if (result.ok) {
+        return respond(202, {
+          ok: true,
+          applied: result.applied,
+          signer: result.signer,
+          // Non-zero ⇒ this sender is running a CLI without the send boundary and
+          // we narrowed for it. Field NAMES only, never values.
+          narrowed: result.narrowed
+        });
+      }
       return respond(mirrorRejectionStatus(result.reason), { ok: false, reason: result.reason });
     });
   });

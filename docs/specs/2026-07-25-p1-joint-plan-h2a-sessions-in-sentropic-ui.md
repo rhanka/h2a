@@ -142,6 +142,21 @@ finished without achieving.
   envelope rather than routing it through the mirror builder. What the owner is
   consenting to for an up-to-date mirror builder's automatic beat is now the field list in the feed
   contract's "Send boundary" section — identity, liveness timestamps, a workspace **label**, and no paths.
+  **UPDATE 2026-07-25 (b) — the ingest side is now mitigated too, so the "un-upgraded sender" carve-out
+  in the sentence above is retired for records arriving from now on. The `h2a remote send --json`
+  carve-out is NOT retired: that path is still unsanitized on send, and ingest narrowing is what now
+  bounds what it can land.** `runtime/mirror/ingest.ts` narrows
+  every arriving record with **the same** `sanitize*ForMirror` functions, and the apply-callback types in
+  `accept.ts` are the `H2AMirrored*` wire types, so a raw record cannot reach a store writer at all.
+  Measured end-to-end through the real ingester rather than argued: a hand-built push carrying
+  `workspace.path`, the full command line, tty, tmux session/pane, `pid`, `workspace.repo` and a `file://`
+  endpoint is accepted **202** and lands **none** of them, while the workspace label, session identity,
+  interests, `publicKeys` and `capabilities` survive. An un-upgraded sender is narrowed rather than
+  refused — refusing would drop old agents off the hosted surface — and the 202 reports
+  `narrowed: { records, fields }` so a stale sender is a number an operator can watch, not a silent repair.
+  **Two things this does NOT do, and the owner should not read them as done:** it does nothing for records
+  a pre-fix sender **already landed** (presence self-heals on the next beat; the append-only registry row
+  does not), and the hosted **read** surface is still a passthrough (section 9).
   This is a disclosure-accuracy point, not a design objection: signed-not-confidential to a host the owner
   controls may be entirely fine. But the owner must consent to *paths, command lines, tmux coordinates and
   pids leaving the machine*, not to the word "metadata".
@@ -192,7 +207,8 @@ finished without achieving.
   travel**; what a hosted store now receives from the automatic builder is listed in the feed contract's
   "Send boundary" section. This does not cover the general-purpose `h2a remote send --json` path: it signs
   and posts arbitrary operator-supplied envelopes and is intentionally not passed to sanitizers typed only
-  for the builder's three mirror payload members.
+  for the builder's three mirror payload members. Ingest narrowing is what now bounds what that path can
+  land, since it applies to every arriving record regardless of how it was sent.
   Two consequences worth reading there: `H2AWorkspaceRef.path` had to become optional (while it was
   required, `isH2ASession` made a path-free presence record unwritable — the required field was
   *compelling* the leak), and `capabilities` is transmitted deliberately because the receiving side's
@@ -213,11 +229,35 @@ finished without achieving.
   guard cited a validator — `isH2AActorRegistration` — that is **never called on any production path**.
   Remaining, disclosed, and not closable by a field allowlist: the free-text element values in item 1
   above.
-- **Still owed: the INGEST half of the same rule.** `serve.ts` writes whatever a *verified* sender hands
-  it, so an agent running a CLI older than this fix keeps pushing raw records into the hosted root, and a
-  hosted read surface remains a full passthrough of what is stored. Sanitizing at ingest with the same
-  functions closes it; kept separate so the accept-side verification and fencing are reviewed on their own
-  terms. Until then the section 7 disclosure still holds **for un-upgraded senders only**.
+- **~~Still owed: the INGEST half of the same rule.~~ CLOSED for arriving records (2026-07-25).**
+  `serve.ts` used to write whatever a *verified* sender handed it, so an agent running a CLI older than the
+  send fix kept pushing raw records into the hosted root. `runtime/mirror/ingest.ts` now narrows every
+  record-carrying member of the mirror body — `registrations`, `presence`, `subagents` — with **the same**
+  `sanitize*ForMirror` functions, so there is one definition of what may cross the mirror boundary and both
+  directions call it. A second, hand-maintained ingest allowlist was rejected precisely because the
+  compile-time ratchet would then fire for the send copy only, and the two would drift.
+  Made structural rather than remembered: the apply-callback types in `accept.ts` are the `H2AMirrored*`
+  wire types, so no caller — `serve.ts` included — can be handed a raw record even by writing its callback
+  carelessly. A second ratchet one level up (`INGEST_NARROWERS satisfies` a mapped type over the body's
+  record-carrying members) fails the build if a **fourth payload member** is added without an ingest
+  narrower; the field plans could not have caught that, since they classify fields within a type rather
+  than members of the body. Verification order is unchanged and had to be: narrowing runs strictly after
+  `verifyEnvelopeSignature` (narrowing first would alter the signed bytes) and after the `publicKeys`
+  authorization filter, so it can never change an authorization outcome. The raw record therefore exists in
+  the ingester's **process memory**; the claim made and tested is that no withheld field reaches **disk**.
+  Also fixed here, because a boundary that dies is not a boundary: any authorized sender's **second beat**
+  killed the ingester. `store.registerInstance` throws `Instance already registered`, the throw escaped the
+  request handler as an uncaught exception terminating the process, and the sender got no response at all —
+  measured, not read off the source. Made idempotent, and the same throw class from `registerSubagent`
+  (four distinct errors, one matched by the existing filter) and `writePresence` contained as a 500 whose
+  body carries no exception message, since those messages interpolate record content.
+  **Still open, and the reason this is not the whole disclosure:** (a) **data already at rest** is
+  untouched — presence self-heals on the next beat because `writePresence` overwrites the file, but the
+  append-only registry row does **not**, since a known id is a no-op and `findInstance` returns the first
+  match, so appending would not shadow it either; cleaning it is an operation on the hosted store; (b) the
+  hosted **read** surface is still a full passthrough (`h2a_discover_sessions` returns `{...session}`; the
+  feed builders are not wired into the hosted handlers — Part C step 5); (c) free text is unchanged, per
+  item 1 above; (d) the `h2a remote send --json` operator bypass is unchanged.
 - **Lane addressing defect.** The h2a name has diverged from the host-native title, so routing to a named
   lane is ambiguous: nothing is registered as `auth`, four live instances share one name, and two panes
   share a title. This is a bus-correctness defect, not a BR-39l feature; folding it into P1 would hide it.
