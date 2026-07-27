@@ -70,6 +70,37 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     optionalFlags: [],
     description: "Print human-readable usage. Same as `help` and no-argv invocation."
   },
+  {
+    // Added 2026-07-25. Public-contract addition (README: adding a verb IS a
+    // public-contract change), so `docs/contracts/golden/cli-verbs.json` and the
+    // enforced `expected` list in `test/cli-contract.test.js` move together.
+    // This branch was written against a 97-verb main; PR #30 landed
+    // `keys prove-control` first, so the reconciled count is 98 → 99, not
+    // 97 → 98 — the same handling as that precedent.
+    //
+    // Proposed by the design study whose load-bearing passages are vendored in
+    // `docs/cli-help-grouping-vocabulary.md` (the study itself is unpublished and
+    // on no git ref, so it is not cited by path). Excerpt 7 there is the warrant
+    // for treating `explain` as a NEW public verb requiring a contract + golden
+    // entry rather than a documentation-only alias. `explain` rather than `help map`
+    // because every frozen top-level verb in this contract is a single word and
+    // `help` is currently an alias of `--help`, not a namespace — a `help map`
+    // sub-verb would turn an alias into one.
+    //
+    // GRAMMAR: bare `explain`, or `--help`/`-h` for the same output. Any other
+    // flag or positional is a usage error (exit 1, empty stdout) — see the
+    // dispatch comment in cli.ts. Declared here rather than left implicit
+    // because review measured the verb silently accepting `explain --json` and
+    // `explain foo` with exit 0, which is this table saying one thing and the
+    // binary doing another.
+    verb: "explain",
+    outputShape: "text",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["help"],
+    description:
+      "Print the h2a command map grouped by operator intention — one line per group and per verb, core and runtime."
+  },
 
   // --- registry / hosts / tooling discovery ---
   {
