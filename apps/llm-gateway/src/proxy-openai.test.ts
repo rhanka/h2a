@@ -62,7 +62,7 @@ describe("OpenAI/Codex model mapping", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           messages: [{ role: "user", content: "refresh-sensitive context" }],
         }),
       }),
@@ -72,15 +72,15 @@ describe("OpenAI/Codex model mapping", () => {
     expect(upstreamFetch).not.toHaveBeenCalled();
   });
 
-  it("maps Claude Sonnet/Haiku defaults to gpt-5.5 for Codex OAuth", () => {
-    expect(mapModel("claude-sonnet-4-6")).toBe("gpt-5.5");
-    expect(mapModel("claude-sonnet-4-5")).toBe("gpt-5.5");
-    expect(mapModel("claude-haiku-4-5-20251001")).toBe("gpt-5.5");
+  it("maps only canonical Claude aliases for Codex OAuth", () => {
+    expect(mapModel("claude-opus-5-high")).toBe("gpt-5.6-terra");
+    expect(mapModel("claude-fable-5-high")).toBe("gpt-5.6-sol");
+    expect(mapModel("claude-fable-5-max")).toBe("gpt-5.6-sol");
   });
 
   it("keeps xhigh Claude requests on a Codex-supported model", () => {
     const req = toCodexRequest({
-      model: "claude-sonnet-4-6",
+      model: "claude-opus-5-high",
       messages: [{ role: "user", content: "continue" }],
       max_tokens: 4096,
       stream: true,
@@ -88,12 +88,12 @@ describe("OpenAI/Codex model mapping", () => {
     });
 
     expect(req).toMatchObject({
-      model: "gpt-5.5",
+      model: "gpt-5.6-terra",
       reasoning: { effort: "xhigh" },
     });
   });
 
-  it("sends xhigh to the Codex Responses upstream request", async () => {
+  it("uses canonical max effort without a thinking budget", async () => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
@@ -114,10 +114,9 @@ describe("OpenAI/Codex model mapping", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-opus-4-8",
+          model: "claude-fable-5-max",
           max_tokens: 10,
           messages: [{ role: "user", content: "ping" }],
-          thinking: { type: "enabled", budget_tokens: 50_000 },
         }),
       }),
     );
@@ -125,11 +124,11 @@ describe("OpenAI/Codex model mapping", () => {
     expect(res.status).toBe(200);
     const upstreamInit = fetchMock.mock.calls[0]![1] as RequestInit;
     expect(JSON.parse(String(upstreamInit.body))).toMatchObject({
-      model: "gpt-5.6-terra",
-      reasoning: { effort: "xhigh" },
+      model: "gpt-5.6-sol",
+      reasoning: { effort: "max" },
     });
-    expect(res.headers.get("x-h2a-resolved-model")).toBe("gpt-5.6-terra");
-    expect(res.headers.get("x-h2a-reasoning-effort")).toBe("xhigh");
+    expect(res.headers.get("x-h2a-resolved-model")).toBe("gpt-5.6-sol");
+    expect(res.headers.get("x-h2a-reasoning-effort")).toBe("max");
   });
 
   it("returns a gateway error instead of 500 when Codex OAuth refresh cannot retry", async () => {
@@ -147,7 +146,7 @@ describe("OpenAI/Codex model mapping", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           max_tokens: 10,
           messages: [{ role: "user", content: "ping" }],
           thinking: { type: "enabled", budget_tokens: 50_000 },
@@ -167,13 +166,13 @@ describe("OpenAI/Codex model mapping", () => {
   });
 
   it("keeps explicit GPT model names instead of remapping them to the default", () => {
-    expect(mapModel("gpt-5.5")).toBe("gpt-5.5");
-    expect(mapModel("gpt-5.3-codex-spark")).toBe("gpt-5.3-codex-spark");
+    expect(mapModel("gpt-5.6-terra")).toBe("gpt-5.6-terra");
+    expect(mapModel("gpt-5.6-luna")).toBe("gpt-5.6-luna");
   });
 
   it("serializes Anthropic system blocks into Codex instructions text", () => {
     const req = toCodexRequest({
-      model: "claude-sonnet-4-6",
+      model: "claude-opus-5-high",
       system: [
         { type: "text", text: "You are precise." },
         { type: "text", text: "Use tools carefully." },
@@ -188,7 +187,7 @@ describe("OpenAI/Codex model mapping", () => {
 
   it("trims oversized Codex contexts to recent messages", () => {
     const body = {
-      model: "claude-sonnet-4-6",
+      model: "claude-opus-5-high",
       max_tokens: 10,
       messages: [
         { role: "user" as const, content: "old".repeat(1000) },
@@ -231,7 +230,7 @@ describe("OpenAI/Codex model mapping", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6",
+          model: "claude-opus-5-high",
           max_tokens: 10,
           messages: [{ role: "user", content: "ping" }],
         }),
@@ -243,7 +242,7 @@ describe("OpenAI/Codex model mapping", () => {
     await expect(res.json()).resolves.toMatchObject({
       type: "message",
       role: "assistant",
-      model: "claude-sonnet-4-6",
+      model: "claude-opus-5-high",
       content: [{ type: "text", text: "pong" }],
       stop_reason: "end_turn",
       usage: { output_tokens: 1 },
@@ -280,7 +279,7 @@ describe("OpenAI/Codex model mapping", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6",
+          model: "claude-opus-5-high",
           max_tokens: 10,
           messages: [{ role: "user", content: "ping" }],
         }),
@@ -316,7 +315,7 @@ describe("OpenAI/Codex model mapping", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6",
+          model: "claude-opus-5-high",
           max_tokens: 10,
           messages: [{ role: "user", content: "ping" }],
         }),
@@ -352,7 +351,7 @@ describe("OpenAI/Codex model mapping", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6",
+          model: "claude-opus-5-high",
           max_tokens: 10,
           stream: true,
           messages: [{ role: "user", content: "ping" }],
@@ -374,7 +373,7 @@ describe("OpenAI/Codex model mapping", () => {
           cause: { code: "ETIMEDOUT", hostname: "chatgpt.com" },
         }),
       ),
-      "claude-sonnet-4-6",
+      "claude-opus-5-high",
       "msg_test",
       1,
     );

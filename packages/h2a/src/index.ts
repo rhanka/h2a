@@ -610,6 +610,7 @@ export {
   executeH2aRun,
   executeH2aRunWithSpawn,
   handleH2aRun,
+  recordMcpRunDelegation,
   runMcpStdio,
   validateH2aRunRequest,
   type CreateMcpServerOptions,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
@@ -10,6 +10,7 @@ import {
   buildH2aRunInvocation,
   createMcpServer,
   executeH2aRunWithSpawn,
+  recordMcpRunDelegation,
   runMcpStdio,
   validateH2aRunRequest
 } from "../dist/index.js";
@@ -74,7 +75,7 @@ function runtimeResult(req, overrides = {}) {
     state: "started",
     session: {
       id: req.name,
-      tmuxSession: `remote-${req.name}`,
+      tmuxSession: `h2a-${req.name}`,
       pane: "%7",
       profile: req.profile,
       workspace: req.workspace,
@@ -140,6 +141,36 @@ test("h2a_run validates both profiles and returns the real launcher result", () 
   });
 });
 
+test("MCP launch records post-launch delegation evidence outside the CLI argv/env", () => {
+  withWorkspace(({ workspace, storeRoot }) => {
+    const delegation = {
+      origin: "mcp:h2a_run",
+      delegatorInstance: "codex:owner:abc",
+      delegatorTmuxSession: "h2a-owner"
+    };
+    recordMcpRunDelegation(storeRoot, runtimeResult(request(workspace)), delegation);
+    const record = JSON.parse(
+      readFileSync(join(storeRoot, "registry", "mcp-delegations.jsonl"), "utf8")
+    );
+    assert.deepEqual(
+      {
+        workerTmuxSession: record.workerTmuxSession,
+        workerPid: record.workerPid,
+        origin: record.origin,
+        delegatorInstance: record.delegatorInstance,
+        delegatorTmuxSession: record.delegatorTmuxSession
+      },
+      { workerTmuxSession: "h2a-review-worker", workerPid: 4242, ...delegation }
+    );
+    const invocation = buildH2aRunInvocation(
+      { ...request(workspace), delegation },
+      "/opt/h2a/bin.js"
+    );
+    assert.equal(invocation.args.some((arg) => arg.includes("delegat")), false);
+    assert.equal(invocation.env, undefined);
+  });
+});
+
 test("stdio tools/call exposes the same h2a_run contract", async () => {
   await withWorkspaceAsync(async ({ workspaceRoot, workspace, storeRoot }) => {
     const stdin = new PassThrough();
@@ -173,7 +204,7 @@ test("stdio tools/call exposes the same h2a_run contract", async () => {
     assert.equal(response.result.isError, false);
     const payload = JSON.parse(response.result.content[0].text);
     assert.equal(payload.apiVersion, H2A_RUN_API_VERSION);
-    assert.equal(payload.session.tmuxSession, "remote-review-worker");
+    assert.equal(payload.session.tmuxSession, "h2a-review-worker");
   });
 });
 
@@ -271,6 +302,12 @@ test("subprocess bridge sets shell:false and fails closed on API/runtime skew", 
     assert.equal(observed.options.shell, false);
     assert.equal(observed.options.input, req.prompt);
     assert.equal(observed.args.includes(req.prompt), false);
+
+    executeH2aRunWithSpawn(req, (_command, args, options) => {
+      assert.equal(args.includes("--delegation-origin"), false);
+      assert.equal(options.env, undefined);
+      return { status: 0, stdout: JSON.stringify(runtimeResult(req)), stderr: "" };
+    });
 
     assert.throws(
       () =>
