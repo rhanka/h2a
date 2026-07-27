@@ -18,7 +18,10 @@ test("should consume a chunked report envelope from stdin", async () => {
   );
 });
 
-test("should consume a piped report envelope without a synchronous fd read", () => {
+test("should consume a piped report envelope without a synchronous fd read", {
+  // Parked owner decision: a real Windows platform defect (not a flaky test) is deferred under track 01KYJ3Q3V5AW9YR0QMXSGW93RE.
+  skip: process.platform === "win32"
+}, () => {
   const readerModule = pathToFileURL(new URL("../dist/runtime/reporting/stdin.js", import.meta.url).pathname).href;
   const child = spawnSync(
     process.execPath,

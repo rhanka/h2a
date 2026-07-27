@@ -12,7 +12,14 @@ import {
   resolveModelRoute,
   type RoutingTarget,
 } from "./model-catalog.js";
-import { recordSessionRequest } from "./session-ledger.js";
+import {
+  recordSessionActive,
+  recordSessionFallback,
+  recordSessionIdle,
+  recordSessionRateLimitComplete,
+  recordSessionRateLimited,
+  recordSessionRequest,
+} from "./session-ledger.js";
 
 const ANTHROPIC_BASE =
   process.env.ANTHROPIC_UPSTREAM_URL ?? "https://api.anthropic.com";
@@ -51,12 +58,29 @@ function quotaReason(response: Response): string {
   return `upstream ${response.status}`;
 }
 
+function retryAfterMs(response: Response, nowMs = Date.now()): number | undefined {
+  const raw = response.headers.get("retry-after")?.trim();
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  const at = Date.parse(raw);
+  return Number.isFinite(at) ? Math.max(0, at - nowMs) : undefined;
+}
+
 async function rebindAfterQuotaResponse(
   gatewayToken: string,
   session: SessionEntry,
   response: Response,
   route?: RoutingTarget,
 ): Promise<SessionEntry | undefined> {
+  const exhaustedAccount = findAccount(session.accountId);
+  if (exhaustedAccount && response.status === 429) {
+    const retry = retryAfterMs(response);
+    recordSessionRateLimited(session.sessionId, exhaustedAccount, {
+      ...(route ? { route } : {}),
+      ...(retry !== undefined ? { retryAfterMs: retry } : {}),
+    });
+  }
   markAccountExhausted(session.accountId, quotaReason(response));
   const fallback = selectFallbackAccount(session.accountId, Date.now(), {
     ...(session.requiredTransport
@@ -77,12 +101,63 @@ async function rebindAfterQuotaResponse(
   }
   if (!rebound) return undefined;
 
+  if (exhaustedAccount) {
+    recordSessionFallback(
+      session.sessionId,
+      exhaustedAccount,
+      fallback,
+      route,
+    );
+  }
+
   await response.body?.cancel().catch(() => {});
   console.warn(
     `[llm-gateway] account ${session.accountId} returned ${response.status}; ` +
       `rebinding session to ${fallback.id} (${fallback.provider})`,
   );
   return rebound;
+}
+
+function completeWhenBodyEnds(
+  response: Response,
+  complete: () => void,
+): Response {
+  if (!response.body) {
+    complete();
+    return response;
+  }
+  const reader = response.body.getReader();
+  let completed = false;
+  const completeOnce = () => {
+    if (completed) return;
+    completed = true;
+    complete();
+  };
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await reader.read();
+        if (result.done) {
+          completeOnce();
+          controller.close();
+          return;
+        }
+        controller.enqueue(result.value);
+      } catch (error) {
+        completeOnce();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      completeOnce();
+      await reader.cancel(reason);
+    },
+  });
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 async function handleMessagesViaAnthropic(
@@ -141,6 +216,7 @@ async function dispatchToSessionAccount(
   c: Context,
   session: SessionEntry,
   body: ArrayBuffer,
+  recordOutbound: () => void,
 ): Promise<Response> {
   if (
     session.requiredTransport &&
@@ -151,6 +227,11 @@ async function dispatchToSessionAccount(
       503,
     );
   }
+  // The account/transport guard above has passed. This is the final common
+  // point immediately before the provider-specific outbound request is
+  // constructed, so route text cannot be claimed merely from parsing or a
+  // successful rebind.
+  recordOutbound();
   if (
     session.provider === "google" ||
     session.provider === "gemini" ||
@@ -199,47 +280,73 @@ export async function handleMessages(c: Context): Promise<Response> {
 
   const body = await c.req.raw.arrayBuffer();
   const route = routeFromRequestBody(body);
-  recordSessionRequest(session.sessionId, route);
-
 
   const sessionAccount = findAccount(session.accountId);
-  if (
-    route &&
-    sessionAccount &&
-    !accountSupportsRoute(sessionAccount, route)
-  ) {
+  if (route && !sessionAccount) {
+    return c.json({ error: "gateway session account is unavailable" }, 503);
+  }
+  if (route && sessionAccount && !accountSupportsRoute(sessionAccount, route)) {
     const correctPoolAccount = selectFallbackAccount(session.accountId, Date.now(), {
       route,
     });
-    if (correctPoolAccount) {
-      try {
-        const rebound = await rebindGatewaySession(
-          gatewayToken,
-          correctPoolAccount,
-          route,
-        );
-        if (rebound) session = rebound;
-      } catch (err) {
-        console.error("rebindGatewaySession failed:", err);
-        // If rebind fails, continue with the original session
+    if (!correctPoolAccount) {
+      return c.json({ error: "no account can serve the requested route" }, 503);
+    }
+    try {
+      const rebound = await rebindGatewaySession(
+        gatewayToken,
+        correctPoolAccount,
+        route,
+      );
+      if (!rebound) {
+        return c.json({ error: "requested route could not be rebound" }, 503);
       }
+      const reboundSession = rebound;
+      session = reboundSession;
+    } catch (err) {
+      console.error("rebindGatewaySession failed:", err);
+      return c.json({ error: "requested route could not be rebound" }, 503);
     }
   }
 
   const attempted = new Set<string>();
+  let outboundRecorded = false;
 
-  for (;;) {
-    attempted.add(session.accountId);
-    const response = await dispatchToSessionAccount(c, session, body);
-    if (!isQuotaFallbackResponse(response)) return response;
+  try {
+    for (;;) {
+      const dispatchSession = session;
+      attempted.add(dispatchSession.accountId);
+      const response = await dispatchToSessionAccount(c, dispatchSession, body, () => {
+        if (outboundRecorded) return;
+        recordSessionRequest(dispatchSession.sessionId, route);
+        outboundRecorded = true;
+      });
+      if (!isQuotaFallbackResponse(response)) {
+        const completedSessionId = session.sessionId;
+        return completeWhenBodyEnds(response, () =>
+          recordSessionIdle(completedSessionId, route),
+        );
+      }
 
-    const rebound = await rebindAfterQuotaResponse(
-      gatewayToken,
-      session,
-      response,
-      route,
-    );
-    if (!rebound || attempted.has(rebound.accountId)) return response;
-    session = rebound;
+      const rebound = await rebindAfterQuotaResponse(
+        gatewayToken,
+        session,
+        response,
+        route,
+      );
+      if (!rebound || attempted.has(rebound.accountId)) {
+        if (response.status === 429) {
+          recordSessionRateLimitComplete(session.sessionId, route);
+        } else {
+          recordSessionIdle(session.sessionId, route);
+        }
+        return response;
+      }
+      session = rebound;
+      recordSessionActive(session.sessionId, route);
+    }
+  } catch (error) {
+    recordSessionIdle(session.sessionId, route);
+    throw error;
   }
 }

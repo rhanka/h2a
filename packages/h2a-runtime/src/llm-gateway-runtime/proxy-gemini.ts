@@ -1,6 +1,5 @@
 import type { Context } from "hono";
 import { randomUUID } from "node:crypto";
-import { recordSessionRequest } from "./session-ledger.js";
 import { routeModelOrThrow } from "./model-catalog.js";
 import { refreshOAuthToken } from "./accounts.js";
 
@@ -360,8 +359,6 @@ export async function handleMessagesViaGemini(
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 400);
   }
-  recordSessionRequest(session.sessionId, route);
-
   // Cross-pool fallback: if the upstream model targets Codex (gpt-*), use the
   // default Gemini model instead. This happens when a Codex 429 triggers a
   // rebind to the Google pool.

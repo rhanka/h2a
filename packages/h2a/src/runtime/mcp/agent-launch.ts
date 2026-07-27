@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative } from "node:path";
+import { appendFileSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { isOsTemporaryPath } from "../path-safety.js";
@@ -24,6 +24,14 @@ export type H2aRunRequest = {
   h2aSidecar: boolean;
   model?: string;
   effort?: H2aRunEffort;
+  /** Server-attested launch provenance; never supplied by the MCP caller. */
+  delegation?: H2aRunDelegation;
+};
+
+export type H2aRunDelegation = {
+  origin: "mcp:h2a_run";
+  delegatorInstance: string;
+  delegatorTmuxSession: string;
 };
 
 export type H2aRunExecutor = (request: H2aRunRequest) => unknown;
@@ -298,13 +306,59 @@ export function executeH2aRunWithSpawn(
 export const executeH2aRun: H2aRunExecutor = (request) =>
   executeH2aRunWithSpawn(request, spawnSync);
 
+/**
+ * Server-owned attestation record for an MCP launch. It is written only after
+ * the structured launcher has returned a valid started session; the runtime
+ * CLI has no argument or environment channel through which a direct caller
+ * can assert this origin.
+ */
+export function recordMcpRunDelegation(
+  root: string,
+  result: Record<string, unknown>,
+  delegation: H2aRunDelegation | undefined,
+): void {
+  if (!delegation || result.ok !== true || result.state !== "started") return;
+  const session = result.session;
+  if (!session || typeof session !== "object") return;
+  const tmuxSession = (session as { tmuxSession?: unknown }).tmuxSession;
+  const workerPid = (session as { pid?: unknown }).pid;
+  if (typeof tmuxSession !== "string" || tmuxSession.length === 0) return;
+  if (typeof workerPid !== "number" || !Number.isInteger(workerPid) || workerPid <= 0) return;
+  try {
+    const registry = join(root, "registry");
+    mkdirSync(registry, { recursive: true, mode: 0o700 });
+    appendFileSync(
+      join(registry, "mcp-delegations.jsonl"),
+      `${JSON.stringify({
+        version: 1,
+        workerTmuxSession: tmuxSession,
+        workerPid,
+        origin: delegation.origin,
+        delegatorInstance: delegation.delegatorInstance,
+        delegatorTmuxSession: delegation.delegatorTmuxSession,
+        recordedAt: new Date().toISOString(),
+      })}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+  } catch {
+    // A missing attestation is fail-closed as J?, but must not turn a worker
+    // that already started into a launcher failure.
+  }
+}
+
 export function handleH2aRun(
   args: Record<string, unknown> | undefined,
   workspaceRoot: string,
   execute: H2aRunExecutor = executeH2aRun,
+  delegation?: H2aRunDelegation,
 ): Record<string, unknown> {
   try {
-    const request = validateH2aRunRequest(args, workspaceRoot);
+    const base = validateH2aRunRequest(args, workspaceRoot);
+    // Provenance comes from the local MCP server's own auto-opened session,
+    // never from a tool argument that a caller could merely assert.
+    const request: H2aRunRequest = delegation
+      ? { ...base, delegation }
+      : base;
     const result = execute(request);
     if (!result || typeof result !== "object") {
       return { error: "h2a_run: launcher returned no structured result" };
