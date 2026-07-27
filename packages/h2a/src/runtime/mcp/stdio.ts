@@ -85,6 +85,12 @@ export interface RunMcpStdioOptions {
     readonly workspace?: H2AWorkspaceRef;
     readonly name?: string;
     readonly scopes?: readonly string[];
+    /**
+     * Re-reads the host-native display title on each heartbeat (spec
+     * 2026-07-25-h2a-lane-addressing §D1b). Omit to freeze the name — which is
+     * what an explicit `--name` does.
+     */
+    readonly refreshDisplayName?: () => string | undefined;
   };
   /**
    * Internal structured-launch readiness handshake. When present, auto-open is
@@ -311,6 +317,16 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         }
       });
       autoOpenedSessionId = opened.sessionId;
+      // Spec 2026-07-25-h2a-lane-addressing §D1b: follow the host-native title
+      // for the life of the session, so a rename converges into presence within
+      // one heartbeat instead of staying stale until the host reconnects.
+      // Absent when the operator passed an explicit `--name`.
+      if (options.autoOpen.refreshDisplayName) {
+        server.sessions.setDisplayNameResolver(
+          opened.sessionId,
+          options.autoOpen.refreshDisplayName
+        );
+      }
       stderr.write(
         `h2a mcp-serve: auto-opened session for ${options.autoOpen.instance}\n`
       );
