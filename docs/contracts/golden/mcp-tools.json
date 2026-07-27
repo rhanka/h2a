@@ -35,5 +35,20 @@
   "h2a_session_close",
   "h2a_session_open",
   "h2a_sign",
-  "h2a_stabilize"
+  "h2a_stabilize",
+  "track_amendment_trace",
+  "track_audit",
+  "track_branch_provenance",
+  "track_canevas",
+  "track_cursor",
+  "track_external_deps",
+  "track_freshness",
+  "track_query",
+  "track_report",
+  "track_scope_validate",
+  "track_snapshot",
+  "track_status",
+  "track_validate",
+  "track_verification_runs",
+  "track_workspace_activity"
 ]
