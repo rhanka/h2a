@@ -165,6 +165,11 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
       "workspace",
       "plugin",
       "check",
+      // Not from the vendored study — `tmux` postdates it. Grouped alongside
+      // `config` (which already manages "the local tmux profile") because it
+      // is the same kind of work: local tmux naming and status-surface setup
+      // on this host, not a provider route or a session lifecycle action.
+      "tmux",
     ],
   },
   {

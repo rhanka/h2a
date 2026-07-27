@@ -11,7 +11,7 @@ afterEach(() => {
 describe("Gemini proxy translator", () => {
   it("translates basic Anthropic requests to Gemini format", () => {
     const req = translateAnthropicToGemini({
-      model: "claude-opus-4-8",
+      model: "claude-opus-5-xhigh",
       messages: [
         { role: "user", content: "hello" },
         { role: "assistant", content: "hi there" },
@@ -41,7 +41,7 @@ describe("Gemini proxy translator", () => {
 
   it("handles tool definitions and calls", () => {
     const req = translateAnthropicToGemini({
-      model: "claude-opus-4-8",
+      model: "claude-opus-5-xhigh",
       messages: [
         { role: "user", content: "use tool" },
         {
