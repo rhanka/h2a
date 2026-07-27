@@ -1,0 +1,246 @@
+{
+  "note": "Pins EVERY top-level command row of the runtime entrypoint's --help: term, description and the intention group it renders under. Generated from the built runtime; regenerate deliberately, never to make a red test green. The ROOT description is intentionally NOT here - it is top-level prose and it changed by design; it is pinned separately as rootDescriptionContains.",
+  "commandCount": 47,
+  "descriptionsWrapped": false,
+  "rootDescriptionContains": [
+    "The unified sentropic CLI and core",
+    "it is not itself an agent"
+  ],
+  "commands": [
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "codex [options] [commandArgs...]",
+      "description": "Run codex via h2a"
+    },
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "claude|claude-code [options] [commandArgs...]",
+      "description": "Run claude via h2a"
+    },
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "agy|antigravity [options] [commandArgs...]",
+      "description": "Run agy via h2a"
+    },
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "gemini|gemini-cli [options] [commandArgs...]",
+      "description": "Run gemini via h2a"
+    },
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "mistral|mistralcli [options] [commandArgs...]",
+      "description": "Run mistral via h2a"
+    },
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "opencode [options] [commandArgs...]",
+      "description": "Run opencode via h2a"
+    },
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "shell [options] [commandArgs...]",
+      "description": "Run shell via h2a"
+    },
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "resume [options] [slug]",
+      "description": "Resume a LOCAL session. Known sessions come from the registry; use --claude/--codex from a repo to open that CLI's resume flow."
+    },
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "run [options] <profile> [path]",
+      "description": "Start a LOCAL session in tmux (claude/codex/…) in <path> (default: cwd), then attach this terminal by default. h2a applies its embedded scroll-safe tmux profile at launch; no ~/.tmux.conf is required. Manage it with `h2a ls`, `h2a attach <slug>`, and `h2a stop <slug>`. Detach with Ctrl-b d; the session keeps running."
+    },
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "attach [options] <urlOrSessionId> [sessionId]",
+      "description": "Attach to a session. Resolves a LOCAL tmux session (by slug) first, otherwise a remote session on the control-plane. URL is optional when a default remote is configured."
+    },
+    {
+      "group": "Start — begin, return to, or end a work session:",
+      "term": "stop [options] <urlOrSessionId> [sessionId]",
+      "description": "Stop a session. Resolves a LOCAL tmux session (by slug) first (kills it), otherwise stops a remote session on the control-plane."
+    },
+    {
+      "group": "Observe — see what is running and what needs attention:",
+      "term": "status [options]",
+      "description": "Unified view: local active CLI sessions + remote sessions (correlated by path, with agent health) + local tool auth"
+    },
+    {
+      "group": "Observe — see what is running and what needs attention:",
+      "term": "diff [options] [sessionId]",
+      "description": "Check whether each remote session is in sync with local — conversation log by default (--session), or git workspace state with --files (metrics/names only — content never transferred)"
+    },
+    {
+      "group": "Observe — see what is running and what needs attention:",
+      "term": "sync-status [options]",
+      "description": "show sync status for the current session (reads ~/.remote/sync-status/<sessionId>.json)"
+    },
+    {
+      "group": "Observe — see what is running and what needs attention:",
+      "term": "agents",
+      "description": "Project remote-visible agents (read-only; not objective-state authoritative)."
+    },
+    {
+      "group": "Observe — see what is running and what needs attention:",
+      "term": "ls [options] [url]",
+      "description": "List sessions — LOCAL (tmux) and REMOTE (control-plane) — uniformly"
+    },
+    {
+      "group": "Coordinate — hand work to agents and talk to peers:",
+      "term": "delegate [options] <type> <task>",
+      "description": "Delegate a task to a LIVE agent (claude/codex/agy) in a detached tmux session, primed with <task> (passed as a single argv — never shell-concatenated) and with the h2a side-window so the parent/master dialogue works. Returns a job id. Supervise with `h2a jobs`; drain the queue with `h2a jobs conduct`. `--remote` runs the job CONCURRENTLY in a SCW Pod on the shared RWX volume (subPath per job). Beyond the concurrency cap (default 16) the job is QUEUED (pending) and started by the conductor as slots free."
+    },
+    {
+      "group": "Coordinate — hand work to agents and talk to peers:",
+      "term": "jobs",
+      "description": "Supervise delegated agent jobs (see `h2a delegate`)."
+    },
+    {
+      "group": "Coordinate — hand work to agents and talk to peers:",
+      "term": "conductor-launch [options]",
+      "description": "Handle an h2a `conductor-launch-request` envelope: when h2a reports stalled work and no live conductor, launch one (claude/codex/agy, first available on PATH) via the same delegation path as `h2a delegate`, instructed to claim the conductor role at boot. DRY-RUN unless --confirm. Idempotent (skips when a conductor is already alive) and rate-limited per workspace (cooldown). One pass by default; --watch loops in the FOREGROUND (no daemon; Ctrl-C to stop)."
+    },
+    {
+      "group": "Coordinate — hand work to agents and talk to peers:",
+      "term": "wake-request [options]",
+      "description": "Handle an h2a `wake-request` envelope: read the local h2a inbox for a wake-request, resolve the target agent pane from launch records, and send tmux send-keys to wake it. No-op if no pane is known for the target (agent not launched by h2a). Idempotent: ignores duplicate wake-requests received within 60s. --watch loops in the foreground."
+    },
+    {
+      "group": "Coordinate — hand work to agents and talk to peers:",
+      "term": "relay|h2a",
+      "description": "h2a agent-network helpers (local file store: ~/h2a-workspace/.h2a)"
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "tmux",
+      "description": "Manage h2a's local tmux naming and status surface"
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "install <url>",
+      "description": "Set default remote URL and apply h2a's managed local tmux profile"
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "workspace",
+      "description": "Map the current project to a persistent remote workspace and sync files"
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "auth",
+      "description": "Inspect and manage the local CLI credentials h2a sends to sessions"
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "check|smoke [options] <profile>",
+      "description": "End-to-end probe: create a remote session for <profile>, wait for the Pod's terminal.opened, then stop it. Exits non-zero on failure."
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "config",
+      "description": "Manage remote endpoint and local tmux profile configuration"
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "connect [options]",
+      "description": "Ensure the control-plane is reachable, opening the configured tunnel if needed"
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "disconnect",
+      "description": "Close the managed control-plane tunnel (if any)"
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "secrets",
+      "description": "Audit the credentials transmitted to remote sessions"
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "plugin",
+      "description": "Install npm plugin packages (CLI + MCP server, e.g. @sentropic/track) for the agent CLIs — locally and in live remote session Pods"
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "refresh [options] [urlOrSessionId] [sessionId]",
+      "description": "Re-bundle the local CLI credentials and push them to an existing remote session's Secret. The session's Pod is restarted by the control-plane so the new tokens take effect. Profile is auto-detected from the session."
+    },
+    {
+      "group": "Recover & supervise sessions (advanced):",
+      "term": "relaunch [options] [filter]",
+      "description": "Relaunch the CLI in local tmux sessions whose CLI dropped to a shell, in situ (windows kept), each resuming ITS OWN conversation from the registry. Running sessions are left alone. Dry-run by default; --apply to do it. [filter] = only sessions whose slug contains it."
+    },
+    {
+      "group": "Recover & supervise sessions (advanced):",
+      "term": "resume-throttled [options] [filter]",
+      "description": "Auto-resume RATE-LIMITED INTERACTIVE local tmux sessions (claude/codex/agy). Detects the provider's transient rate-limit in each pane, and nudges ONLY a DETACHED, stalled session back to life (a minimal `continue`) — staggered (AIMD cap, oldest-first, backoff). NEVER touches a pane a human is attached to. DRY-RUN by default; --apply to actually nudge, or --watch to loop. [filter] = only sessions whose slug contains it."
+    },
+    {
+      "group": "Recover & supervise sessions (advanced):",
+      "term": "restore [options] [group]",
+      "description": "Relance les sessions dev dans leur layout (fenêtre par groupe, onglet par session). Sans argument: tous les groupes. Avec [group]: ce lot seulement (ex: `h2a restore \"full remote\"`). Groupes LOCAUX = claude/codex sous ~/src/* (tmux via `h2a run`); groupes REMOTE = sessions SCW (`h2a attach <id> --exec`). Layout: champ `layout` de la config."
+    },
+    {
+      "group": "Recover & supervise sessions (advanced):",
+      "term": "enroll [options]",
+      "description": "Plumbing for the live-session registry (feeds `h2a ls`/`h2a restore`). Hook mode (--hook claude-start|claude-end) is wired by --install-hooks into ~/.claude/settings.json (idempotent; backs up settings.json.bak.<epoch>) and always exits 0 so it can never break the host claude session. codex has no reliable session hook: codex sessions are enrolled by `h2a run` and by the restore filesystem-scan fallback. Manual mode: --tool/--cwd/--conv/--pid/--label."
+    },
+    {
+      "group": "Recover & supervise sessions (advanced):",
+      "term": "layout",
+      "description": "Layout auto-enregistré par `h2a restore` (layout-last.json)"
+    },
+    {
+      "group": "Recover & supervise sessions (advanced):",
+      "term": "rename [options] <slugOrId> <newName>",
+      "description": "Rename a session's display name without restarting the Pod. Also renames the local tmux window if a matching local session exists."
+    },
+    {
+      "group": "Recover & supervise sessions (advanced):",
+      "term": "lineage",
+      "description": "Manage local lineage incarnation lifecycle"
+    },
+    {
+      "group": "Transport & bridges (compatibility — not the session front door):",
+      "term": "sync [options] <sessionId>",
+      "description": "Copy the conversation log between local and the session Pod (base64 over kubectl exec — content never printed). Guarded: refuses to overwrite the side that is ahead without --force; the overwritten file is backed up as .bak-<epoch> first."
+    },
+    {
+      "group": "Transport & bridges (compatibility — not the session front door):",
+      "term": "sync-files [options]",
+      "description": "Push the current git workspace to the session pod incrementally (git bundle on first push, diff on subsequent). Distinct from `h2a sync` which syncs conversations."
+    },
+    {
+      "group": "Transport & bridges (compatibility — not the session front door):",
+      "term": "forward [options] <sessionId> <podPort> [localPort]",
+      "description": "Expose a port of a session Pod on localhost via kubectl port-forward — reach a web UI running in the Pod (UAT/mail control, dev server) at http://localhost:<localPort>. Foreground until Ctrl-C."
+    },
+    {
+      "group": "Transport & bridges (compatibility — not the session front door):",
+      "term": "browser",
+      "description": "Open a headful browser running INSIDE a session Pod (noVNC) to complete a 2FA / login challenge visually."
+    },
+    {
+      "group": "Transport & bridges (compatibility — not the session front door):",
+      "term": "migrate",
+      "description": "Round-trip a local CLI session to a remote (SCW k8s) session and back"
+    },
+    {
+      "group": "Local LLM account & gateway (outside the design study's operator grouping):",
+      "term": "account",
+      "description": "Manage the local LLM account pool (WP16)"
+    },
+    {
+      "group": "Local LLM account & gateway (outside the design study's operator grouping):",
+      "term": "llm-mesh",
+      "description": "Manage the local LLM gateway (solo-dev mesh: multi-account, cross-provider fallback)"
+    },
+    {
+      "group": "Help:",
+      "term": "help [command]",
+      "description": "display help for command"
+    }
+  ]
+}

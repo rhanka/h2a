@@ -206,12 +206,7 @@ export function accountSupportsRoute(
   if (accountStatus(account) !== "active") return false;
   if (isAccountExhausted(account.id)) return false;
   const pool = accountPoolForProvider(account.provider);
-  if (pool !== route.accountPool) {
-    const isClaudeModel = route.requestedModel?.startsWith("claude-");
-    if (!(pool === "anthropic" && isClaudeModel)) {
-      return false;
-    }
-  }
+  if (pool !== route.accountPool) return false;
 
   const modelIds = explicitModelIds(account);
   if (modelIds.length === 0) return true;

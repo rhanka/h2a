@@ -26,7 +26,7 @@ import {
   type LayoutConfig,
 } from "./config.js";
 import {
-  listLive,
+  loadRegistry,
   looksLikeConversationUuid,
   persistReconciledConvIds,
   type RegistryEntry,
@@ -45,6 +45,11 @@ export type DiscoveredSession = {
   label?: string;
   /** Pinned llm-mesh gateway posture (from an explicit --gw/--no-gw at launch). */
   gatewayMode?: "gateway" | "direct";
+  /**
+   * Positive restore marker. Registry entries are explicitly `human`; a raw
+   * transcript scan is always `unclassified` because it carries no role/class.
+   */
+  restoreClass: "human" | "unclassified";
 };
 
 export type LayoutTab = {
@@ -71,6 +76,14 @@ function encodeCwd(cwd: string): string {
   return cwd.replace(/\//g, "-");
 }
 
+/** Project identity is the whole workspace path below ~/src, never its root. */
+function projectForCwd(src: string, cwd: string): string | undefined {
+  const prefix = `${src}/`;
+  if (!cwd.startsWith(prefix)) return undefined;
+  const project = cwd.slice(prefix.length);
+  return project || undefined;
+}
+
 /** Discover claude + codex sessions under ~/src/* newer than maxAgeMs. */
 export function discoverSessions(
   maxAgeMs: number,
@@ -91,10 +104,8 @@ export function discoverSessions(
       // whole (project names contain "-": sent-tech-design-system) and skip
       // anything that isn't an existing ~/src/<project> dir (sub-paths encode
       // ambiguously and the workdir wouldn't exist anyway).
-      const project = dirName.slice(claudePrefix.length);
-      const cwd = join(src, project);
-      const cst = safeStat(cwd);
-      if (!cst || !statSync(cwd).isDirectory()) continue;
+      const encodedProject = dirName.slice(claudePrefix.length);
+      const fallbackCwd = join(src, encodedProject);
       const dir = join(claudeRoot, dirName);
       let entries: string[];
       try {
@@ -104,14 +115,30 @@ export function discoverSessions(
       }
       for (const f of entries) {
         if (!f.endsWith(".jsonl")) continue;
-        const st = safeStat(join(dir, f));
+        const file = join(dir, f);
+        const st = safeStat(file);
         if (!st || st.mtimeMs < cutoff) continue;
+        // Claude's transcript records its real cwd. Prefer it so a nested job
+        // worktree is not collapsed into its repository root by the lossy
+        // slash→dash directory encoding. Old transcripts retain the prior
+        // direct-child fallback when no cwd is available.
+        const meta = firstLineJson(file);
+        const transcriptCwd = meta?.cwd ?? meta?.payload?.cwd;
+        const cwd =
+          typeof transcriptCwd === "string" && transcriptCwd.startsWith(`${src}/`)
+            ? transcriptCwd
+            : fallbackCwd;
+        const cst = safeStat(cwd);
+        if (!cst || !statSync(cwd).isDirectory()) continue;
+        const project = projectForCwd(src, cwd);
+        if (!project) continue;
         out.push({
           project,
           mtimeMs: st.mtimeMs,
           tool: "claude",
           sid: f.replace(/\.jsonl$/, ""),
           cwd: join(src, project),
+          restoreClass: "unclassified",
         });
       }
     }
@@ -129,8 +156,16 @@ export function discoverSessions(
       const cwd: string | undefined = meta?.payload?.cwd;
       const id: string | undefined = meta?.payload?.id;
       if (!cwd || !id || !cwd.startsWith(`${src}/`)) continue;
-      const project = cwd.slice(src.length + 1).split("/")[0]!;
-      out.push({ project, mtimeMs: st.mtimeMs, tool: "codex", sid: id, cwd });
+      const project = projectForCwd(src, cwd);
+      if (!project) continue;
+      out.push({
+        project,
+        mtimeMs: st.mtimeMs,
+        tool: "codex",
+        sid: id,
+        cwd,
+        restoreClass: "unclassified",
+      });
     }
   }
 
@@ -138,21 +173,14 @@ export function discoverSessions(
 }
 
 /**
- * Is a registry entry a HUMAN-FACING session that `remote restore` may resurrect
- * as a dev tab? No, when it is:
- *  - a delegated job (`role: "job"`) — a background worker spawned by
- *    `h2a delegate`/the conductor; no human ever sat in front of it, and
- *    relaunching it as a dev tab is exactly the "restore relaunches fake/bg
- *    agents" defect. Delegated jobs are enrolled WITHOUT a sessionClass, so the
- *    background check below never catches them — the role check must.
- *  - an explicit background launch (`sessionClass: "background"`) — an MCP /
- *    `run --background` detached session, likewise not a human dev tab.
- * Pure, exported for tests.
+ * Positive restore gate: only an explicitly human, non-ended registry record
+ * may become a dev tab. Legacy records and raw transcript scans have no such
+ * marker, so they fail closed instead of reviving a job as a human session.
  */
 export function isHumanFacingSession(
-  e: Pick<RegistryEntry, "role" | "sessionClass">,
+  e: Pick<RegistryEntry, "sessionClass" | "endedAt">,
 ): boolean {
-  return e.role !== "job" && e.sessionClass !== "background";
+  return e.sessionClass === "human" && e.endedAt === undefined;
 }
 
 /**
@@ -310,7 +338,7 @@ export function reconcileRunConvIds(
 }
 
 /**
- * REGISTRY-FIRST discovery: live registry entries (local kinds) mapped to
+ * REGISTRY-FIRST discovery: durable registry entries (local kinds) mapped to
  * discovered sessions. label/cwd/convId come straight from enrolment, no
  * mtime guessing. `entries` is injectable for tests (defaults to listLive()).
  *
@@ -322,7 +350,7 @@ export function reconcileRunConvIds(
  */
 export function registrySessions(
   home: string = homedir(),
-  entries: RegistryEntry[] = listLive(),
+  entries: RegistryEntry[] = loadRegistry(),
   resolution?: ConvIdResolution,
 ): DiscoveredSession[] {
   const src = join(home, "src");
@@ -355,7 +383,7 @@ export function registrySessions(
     ) {
       continue;
     }
-    const project = e.cwd.slice(src.length + 1).split("/")[0];
+    const project = projectForCwd(src, e.cwd);
     if (!project) continue;
     const seen = Date.parse(e.lastSeenAt);
     const sid = resolution?.resolvedSid.get(e.id) ?? e.convId ?? "";
@@ -366,6 +394,7 @@ export function registrySessions(
       sid,
       cwd: e.cwd,
       origin: "registry",
+      restoreClass: "human",
     };
     if (e.label !== undefined) session.label = e.label;
     if (e.gatewayMode !== undefined) session.gatewayMode = e.gatewayMode;
@@ -375,20 +404,27 @@ export function registrySessions(
 }
 
 /**
- * Merge discovery sources: registry entries win; the filesystem scan only
- * completes projects that have NO registry entry (tagged origin "scan").
+ * Merge discovery sources by session identity, never by project. One live
+ * registry row must not make every other conversation under that project vanish.
  */
 export function mergeDiscovered(
   registry: DiscoveredSession[],
   scanned: DiscoveredSession[],
 ): DiscoveredSession[] {
-  const covered = new Set(registry.map((s) => s.project));
+  const known = new Set(registry.map((s) => `${s.tool}\u0000${s.sid}\u0000${s.cwd}`));
   return [
     ...registry,
     ...scanned
-      .filter((s) => !covered.has(s.project))
+      .filter((s) => !known.has(`${s.tool}\u0000${s.sid}\u0000${s.cwd}`))
       .map((s) => ({ ...s, origin: "scan" as const })),
   ];
+}
+
+/** Raw scanner candidates are unclassified by construction and cannot restore. */
+export function isRestorableDiscoveredSession(
+  session: Pick<DiscoveredSession, "restoreClass">,
+): boolean {
+  return session.restoreClass === "human";
 }
 
 /**
@@ -788,15 +824,16 @@ export function restore(
   // groups). Computed up-front so they can ALSO dedup the local discovery.
   const remoteTabs = opts.remoteTabs ?? [];
 
-  // Local windows (groups + shared) — REGISTRY-FIRST: live enrolled sessions
-  // are the truth; the filesystem scan only completes uncovered projects.
+  // Local windows (groups + shared) — durable registry rows are the truth.
+  // Liveness cannot be a pre-classification filter: a dead tmux session is the
+  // very thing restore exists to relaunch.
   //
   // Reconcile run↔hook entries first: a `run` session enrolled with its LABEL as
   // convId is joined to the `hook` conversation carrying the real uuid, so it
   // resumes correctly (and each named session of a repo keeps its own uuid).
   const home = homedir();
-  const liveEntries = listLive();
-  const resolution = reconcileRunConvIds(liveEntries, (cwd, convId) =>
+  const registryEntries = loadRegistry();
+  const resolution = reconcileRunConvIds(registryEntries, (cwd, convId) =>
     readConversationCustomTitle(home, cwd, convId),
   );
   // Persist the resolved conversation ids back onto the run entries so the state
@@ -806,7 +843,7 @@ export function restore(
     try {
       const updates = new Map<string, string>();
       for (const [id, sid] of resolution.resolvedSid) {
-        const e = liveEntries.find((x) => x.id === id);
+        const e = registryEntries.find((x) => x.id === id);
         if (e && e.kind === "local-tmux" && e.source === "run" && e.convId !== sid) {
           updates.set(id, sid);
         }
@@ -819,7 +856,7 @@ export function restore(
   // Never emit a broken `--resume <label>`: note the un-resumable named sessions
   // with an explicit attach hint instead of silently dropping (or mis-running) them.
   for (const id of resolution.unresolvedRunIds) {
-    const e = liveEntries.find((x) => x.id === id);
+    const e = registryEntries.find((x) => x.id === id);
     if (!e) continue;
     const label = e.label ?? e.id;
     stderr.write(
@@ -829,10 +866,13 @@ export function restore(
     );
   }
   const scanned = discoverSessions(cfg.maxAgeHours * 3600 * 1000);
-  const allLocal = mergeDiscovered(
-    registrySessions(home, liveEntries, resolution),
+  const allDiscovered = mergeDiscovered(
+    registrySessions(home, registryEntries, resolution),
     scanned,
   );
+  // Transcript scans lack a durable human/job marker. They are deliberately
+  // represented as `unclassified` and filtered here, before grouping/capping.
+  const allLocal = allDiscovered.filter(isRestorableDiscoveredSession);
   // Bug #3: a session moved to a remote Pod must NOT also be re-launched as a
   // ghost LOCAL tmux. Drop locals already covered by a remote tab.
   const { kept: sessions, dropped: remoteBacked } = dropRemoteBackedLocals(

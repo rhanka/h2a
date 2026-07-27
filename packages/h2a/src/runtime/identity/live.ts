@@ -118,6 +118,16 @@ export interface ResolvedLiveIdentity {
   readonly legacyInstance?: string;
   readonly action: "override" | "reclaim" | "mint";
   readonly providerSessionSource?: string;
+  /**
+   * The host-native provider session id actually read (Claude
+   * CLAUDE_CODE_SESSION_ID / Codex thread id), when one was readable. Exposed so
+   * the caller can build a heartbeat display-name refresher against the same
+   * conversation this identity resolved from (spec
+   * 2026-07-25-h2a-lane-addressing §D1b). Absent when no provider session was
+   * readable — do NOT substitute the synthetic `fallback:` id here, it names no
+   * transcript.
+   */
+  readonly providerSessionId?: string;
   readonly privateKeyPath?: string;
   readonly publicKeyPath?: string;
   readonly migrationNotice?: string;
@@ -391,6 +401,9 @@ export function resolveLiveIdentity(input: ResolveLiveIdentityInput): ResolvedLi
     legacyInstance,
     action: result.action,
     providerSessionSource: provider.source,
+    ...(provider.providerSessionId !== undefined
+      ? { providerSessionId: provider.providerSessionId }
+      : {}),
     privateKeyPath: keypair.privateKeyPath,
     publicKeyPath: keypair.publicKeyPath,
     migrationNotice:

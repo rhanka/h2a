@@ -16,6 +16,37 @@ export type {
   H2AAbcTrack
 } from "./abc.js";
 export {
+  authenticatedPrincipal,
+  createPrincipalScopedRegistryBroker,
+  established,
+  isEstablished,
+  secretRef
+} from "./runtime/mcp-registry/broker.js";
+export type {
+  AgentVisibleRegistryTool,
+  AgentVisibleRegistryArguments,
+  AgentVisibleRegistryOutput,
+  AuthenticatedPrincipal,
+  ConnectorGrant,
+  Established,
+  NonEstablishedResolution,
+  PrincipalGrantResolver,
+  PrincipalScopedRegistryBroker,
+  PrincipalScopedRegistryBrokerOptions,
+  RegistryAuditEvent,
+  RegistryCallResult,
+  RegistryResolution,
+  RegistryToolInputSchema,
+  RegistryUnavailableCode,
+  RegistryUnavailableSource,
+  ReviewedMailSearchResult,
+  RegistryToolsResult,
+  RegistryUnavailable,
+  RegistryUpstreamAdapter,
+  ReviewedRegistryServer,
+  SecretRef
+} from "./runtime/mcp-registry/broker.js";
+export {
   H2A_MULTI_HUMAN_MODE_IDS,
   H2A_MULTI_HUMAN_MODES,
   getMultiHumanMode,
@@ -497,6 +528,19 @@ export {
 };
 
 export {
+  H2A_COMMAND_GROUPS,
+  H2A_COMMAND_MAP_CORE_FIRST_WORDS,
+  H2A_COMMAND_MAP_RUNTIME_VERBS,
+  buildCommandMap,
+  coreGroupForFirstWord,
+  renderCommandMap,
+  type H2ACommandGroup,
+  type H2ACommandGroupId,
+  type H2ACommandMapEntry,
+  type H2ACommandMapSection
+} from "./cli-command-map.js";
+
+export {
   H2A_CLI_VERB_CONTRACTS,
   H2A_CLI_VERB_CONTRACT_BY_VERB,
   type H2ACliExitCode,
@@ -566,6 +610,7 @@ export {
   executeH2aRun,
   executeH2aRunWithSpawn,
   handleH2aRun,
+  recordMcpRunDelegation,
   runMcpStdio,
   validateH2aRunRequest,
   type CreateMcpServerOptions,
@@ -776,6 +821,10 @@ export {
   resolveProviderSession,
   defaultProviderSessionReaders,
   readHostSessionName,
+  createHostSessionNameRefresher,
+  CLAUDE_TITLE_TAIL_BYTES,
+  CODEX_INDEX_TAIL_BYTES,
+  MAX_DISPLAY_NAME_CHARS,
   listBindings,
   findBinding,
   verifyReclaimProof,
