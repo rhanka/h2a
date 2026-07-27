@@ -16,6 +16,37 @@ export type {
   H2AAbcTrack
 } from "./abc.js";
 export {
+  authenticatedPrincipal,
+  createPrincipalScopedRegistryBroker,
+  established,
+  isEstablished,
+  secretRef
+} from "./runtime/mcp-registry/broker.js";
+export type {
+  AgentVisibleRegistryTool,
+  AgentVisibleRegistryArguments,
+  AgentVisibleRegistryOutput,
+  AuthenticatedPrincipal,
+  ConnectorGrant,
+  Established,
+  NonEstablishedResolution,
+  PrincipalGrantResolver,
+  PrincipalScopedRegistryBroker,
+  PrincipalScopedRegistryBrokerOptions,
+  RegistryAuditEvent,
+  RegistryCallResult,
+  RegistryResolution,
+  RegistryToolInputSchema,
+  RegistryUnavailableCode,
+  RegistryUnavailableSource,
+  ReviewedMailSearchResult,
+  RegistryToolsResult,
+  RegistryUnavailable,
+  RegistryUpstreamAdapter,
+  ReviewedRegistryServer,
+  SecretRef
+} from "./runtime/mcp-registry/broker.js";
+export {
   H2A_MULTI_HUMAN_MODE_IDS,
   H2A_MULTI_HUMAN_MODES,
   getMultiHumanMode,
