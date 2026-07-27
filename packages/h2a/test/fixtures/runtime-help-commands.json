@@ -1,6 +1,6 @@
 {
   "note": "Pins EVERY top-level command row of the runtime entrypoint's --help: term, description and the intention group it renders under. Generated from the built runtime; regenerate deliberately, never to make a red test green. The ROOT description is intentionally NOT here - it is top-level prose and it changed by design; it is pinned separately as rootDescriptionContains.",
-  "commandCount": 46,
+  "commandCount": 47,
   "descriptionsWrapped": false,
   "rootDescriptionContains": [
     "The unified sentropic CLI and core",
@@ -111,6 +111,11 @@
       "group": "Coordinate — hand work to agents and talk to peers:",
       "term": "relay|h2a",
       "description": "h2a agent-network helpers (local file store: ~/h2a-workspace/.h2a)"
+    },
+    {
+      "group": "Set up — connect this host, its credentials, and diagnostics:",
+      "term": "tmux",
+      "description": "Manage h2a's local tmux naming and status surface"
     },
     {
       "group": "Set up — connect this host, its credentials, and diagnostics:",
