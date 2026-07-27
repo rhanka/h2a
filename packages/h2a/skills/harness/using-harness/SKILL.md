@@ -1,6 +1,6 @@
 ---
 name: using-harness
-description: Load FIRST in any sentropic repo — establishes the harness method (branch/scope/test/debug/review/brainstorm/plan) and replaces legacy superpowers for those acts.
+description: Load FIRST in any sentropic repo — establishes the harness method (branch/scope/test/debug/review/security/brainstorm/plan) and replaces legacy superpowers for those acts.
 ---
 
 # Using harness
@@ -20,6 +20,7 @@ compatibility only. Do NOT invoke superpowers for acts covered here — use the 
 | tests | `harness/test` | superpowers:test-driven-development |
 | debugging | `harness/debug` | superpowers:systematic-debugging |
 | code review | `harness/review` | superpowers:requesting/receiving-code-review |
+| dependency / vulnerability debt | `harness/security` | — |
 | planning | `harness/plan` | superpowers:writing-plans / executing-plans |
 | branch lifecycle | `harness branch init|close` | superpowers:using-git-worktrees / finishing-a-development-branch |
 | scope / verification | `harness verify` · `harness check scope|branch` | superpowers:verification-before-completion |
