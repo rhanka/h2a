@@ -31,6 +31,32 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 
+const ANTHROPIC_GATEWAY_ENV_KEYS = [
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_API_KEY",
+] as const;
+
+/** Temporarily replace the Anthropic gateway lane and return an exact restorer. */
+export function replaceAnthropicGatewayEnvironment(
+  env: NodeJS.ProcessEnv,
+  replacement?: Partial<Record<(typeof ANTHROPIC_GATEWAY_ENV_KEYS)[number], string>>,
+): () => void {
+  const previous = new Map(
+    ANTHROPIC_GATEWAY_ENV_KEYS.map((key) => [key, env[key]] as const),
+  );
+  for (const key of ANTHROPIC_GATEWAY_ENV_KEYS) delete env[key];
+  for (const [key, value] of Object.entries(replacement ?? {})) {
+    if (value !== undefined) env[key] = value;
+  }
+  return () => {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete env[key];
+      else env[key] = value;
+    }
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Config types
 // ---------------------------------------------------------------------------

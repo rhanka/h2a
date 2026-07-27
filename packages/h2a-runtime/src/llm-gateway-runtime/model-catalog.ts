@@ -1,17 +1,22 @@
+import { describeCanonicalTargetRoutes } from "@sentropic/llm-gateway";
+
 export type AccountPool = "anthropic" | "codex" | "google";
 export type GatewayProtocol = "anthropic.messages";
 export type RoutingPolicy = "round-robin";
 
 export interface ModelCatalogEntry {
   id: string;
-  provider: "anthropic" | "codex" | "google";
+  provider: AccountPool;
+  targetProviderId: string;
+  transportProviderId: string;
   upstreamModel: string;
   accountPool: AccountPool;
   inputProtocol: GatewayProtocol;
   outputProtocol: GatewayProtocol;
   capabilities: string[];
   defaultPolicy: RoutingPolicy;
-  aliases?: string[];
+  effort?: string;
+  routeKind: "faithful" | "alias";
 }
 
 export interface RoutingTarget {
@@ -21,101 +26,17 @@ export interface RoutingTarget {
   accountPool: AccountPool;
   routingPolicy: RoutingPolicy;
   routeReason:
-    | "catalog-id"
-    | "catalog-alias"
     | "env-model-map"
     | "provider-request"
-    | "passthrough-gpt";
+    | "canonical-route";
+  providerId?: string;
+  transportProviderId?: string;
+  effort?: string;
+  routeKind?: "faithful" | "alias";
 }
 
 const CODEX_CAPABILITIES = ["streaming", "tools", "reasoning_effort"] as const;
 const GOOGLE_CAPABILITIES = ["streaming", "tools"] as const;
-
-const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
-  {
-    id: "gpt-5.6-terra",
-    provider: "codex",
-    upstreamModel: "gpt-5.6-terra",
-    accountPool: "codex",
-    inputProtocol: "anthropic.messages",
-    outputProtocol: "anthropic.messages",
-    capabilities: [...CODEX_CAPABILITIES],
-    defaultPolicy: "round-robin",
-    aliases: [],
-  },
-  {
-    id: "gpt-5.6-sol",
-    provider: "codex",
-    upstreamModel: "gpt-5.6-sol",
-    accountPool: "codex",
-    inputProtocol: "anthropic.messages",
-    outputProtocol: "anthropic.messages",
-    capabilities: [...CODEX_CAPABILITIES],
-    defaultPolicy: "round-robin",
-    aliases: ["claude-fable-5", "fable-5"],
-  },
-  {
-    id: "gpt-5.6-luna",
-    provider: "codex",
-    upstreamModel: "gpt-5.6-luna",
-    accountPool: "codex",
-    inputProtocol: "anthropic.messages",
-    outputProtocol: "anthropic.messages",
-    capabilities: [...CODEX_CAPABILITIES],
-    defaultPolicy: "round-robin",
-  },
-  {
-    id: "gpt-5.5",
-    provider: "codex",
-    upstreamModel: "gpt-5.5",
-    accountPool: "codex",
-    inputProtocol: "anthropic.messages",
-    outputProtocol: "anthropic.messages",
-    capabilities: [...CODEX_CAPABILITIES],
-    defaultPolicy: "round-robin",
-    aliases: [
-      "claude-opus-4-7",
-      "claude-opus-4-6",
-      "claude-sonnet-4-6",
-      "claude-sonnet-4-5",
-      "claude-haiku-4-5-20251001",
-    ],
-  },
-  {
-    id: "gpt-5.3-codex-spark",
-    provider: "codex",
-    upstreamModel: "gpt-5.3-codex-spark",
-    accountPool: "codex",
-    inputProtocol: "anthropic.messages",
-    outputProtocol: "anthropic.messages",
-    capabilities: [...CODEX_CAPABILITIES],
-    defaultPolicy: "round-robin",
-  },
-  // ── Google / Gemini models ──
-  {
-    id: "gemini-3.5-flash",
-    provider: "google",
-    upstreamModel: "gemini-3.5-flash",
-    accountPool: "google",
-    inputProtocol: "anthropic.messages",
-    outputProtocol: "anthropic.messages",
-    capabilities: [...GOOGLE_CAPABILITIES],
-    defaultPolicy: "round-robin",
-    aliases: ["gemini-3.5-high", "gemini-flash", "claude-sonnet-5", "claude-sonnet-5-high"],
-  },
-  {
-    id: "gemini-3.1-pro",
-    provider: "google",
-    upstreamModel: "gemini-3.1-pro",
-    accountPool: "google",
-    inputProtocol: "anthropic.messages",
-    outputProtocol: "anthropic.messages",
-    capabilities: [...GOOGLE_CAPABILITIES],
-    defaultPolicy: "round-robin",
-    aliases: ["gemini-3.1-pro-high", "gemini-pro-high", "gemini-pro", "claude-opus-4-8", "claude-opus-4-8-xhigh"],
-  },
-
-];
 
 let _catalog: ModelCatalogEntry[] | null = null;
 let _envModelMap: Record<string, string> | null = null;
@@ -137,22 +58,65 @@ function envCatalogEntries(): ModelCatalogEntry[] {
   return Object.entries(parseEnvModelMap()).map(([id, upstreamModel]) => {
     const isGoogle = upstreamModel.toLowerCase().includes("gemini");
     const isAnthropic = upstreamModel.toLowerCase().includes("claude");
-    
+
     return {
       id,
       provider: isGoogle ? "google" : (isAnthropic ? "anthropic" : "codex"),
+      targetProviderId: isGoogle
+        ? "google"
+        : isAnthropic
+          ? "anthropic"
+          : "openai",
+      transportProviderId: isGoogle
+        ? "gemini-code-assist"
+        : isAnthropic
+          ? "claude-code"
+          : "codex",
       upstreamModel,
       accountPool: isGoogle ? "google" : (isAnthropic ? "anthropic" : "codex"),
       inputProtocol: "anthropic.messages",
       outputProtocol: "anthropic.messages",
       capabilities: isGoogle ? [...GOOGLE_CAPABILITIES] : [...CODEX_CAPABILITIES],
       defaultPolicy: "round-robin",
+      routeKind: upstreamModel === id ? "faithful" : "alias",
     };
   });
 }
 
 export function listModelCatalog(): ModelCatalogEntry[] {
-  if (!_catalog) _catalog = [...DEFAULT_MODEL_CATALOG, ...envCatalogEntries()];
+  if (!_catalog) {
+    const canonical = describeCanonicalTargetRoutes().map((route) => {
+      const accountPool = accountPoolForProvider(route.transportProviderId) ??
+        accountPoolForProvider(route.providerId);
+      if (!accountPool) {
+        throw new Error(
+          `canonical route ${route.requestedId} has unsupported transport ${route.transportProviderId}`,
+        );
+      }
+      return {
+        id: route.requestedId,
+        provider: accountPool,
+        targetProviderId: route.providerId,
+        transportProviderId: route.transportProviderId,
+        upstreamModel: route.model,
+        accountPool,
+        inputProtocol: "anthropic.messages" as const,
+        outputProtocol: "anthropic.messages" as const,
+        capabilities:
+          accountPool === "google"
+            ? [...GOOGLE_CAPABILITIES]
+            : [...CODEX_CAPABILITIES],
+        defaultPolicy: "round-robin" as const,
+        ...(route.effort ? { effort: route.effort } : {}),
+        routeKind: route.kind,
+      } satisfies ModelCatalogEntry;
+    });
+    const byId = new Map<string, ModelCatalogEntry>(
+      canonical.map((entry) => [entry.id, entry]),
+    );
+    for (const entry of envCatalogEntries()) byId.set(entry.id, entry);
+    _catalog = [...byId.values()];
+  }
   return _catalog;
 }
 
@@ -204,6 +168,9 @@ export function resolveModelRoute(model: string): RoutingTarget | undefined {
       accountPool: isGoogle ? "google" : (isAnthropic ? "anthropic" : "codex"),
       routingPolicy: "round-robin",
       routeReason: "env-model-map",
+      providerId: isGoogle ? "google" : (isAnthropic ? "anthropic" : "openai"),
+      transportProviderId: isGoogle ? "gemini-code-assist" : (isAnthropic ? "claude-code" : "codex"),
+      routeKind: envUpstream === model ? "faithful" : "alias",
     };
   }
 
@@ -215,30 +182,13 @@ export function resolveModelRoute(model: string): RoutingTarget | undefined {
         upstreamModel: entry.upstreamModel,
         accountPool: entry.accountPool,
         routingPolicy: entry.defaultPolicy,
-        routeReason: "catalog-id",
+        routeReason: "canonical-route",
+        providerId: entry.targetProviderId,
+        transportProviderId: entry.transportProviderId,
+        ...(entry.effort ? { effort: entry.effort } : {}),
+        routeKind: entry.routeKind,
       };
     }
-    if (entry.aliases?.includes(model)) {
-      return {
-        requestedModel: model,
-        catalogModelId: entry.id,
-        upstreamModel: entry.upstreamModel,
-        accountPool: entry.accountPool,
-        routingPolicy: entry.defaultPolicy,
-        routeReason: "catalog-alias",
-      };
-    }
-  }
-
-  if (model.startsWith("gpt-")) {
-    return {
-      requestedModel: model,
-      catalogModelId: model,
-      upstreamModel: model,
-      accountPool: "codex",
-      routingPolicy: "round-robin",
-      routeReason: "passthrough-gpt",
-    };
   }
 
   return undefined;
@@ -266,18 +216,6 @@ export function modelCatalogResponse(entries = listModelCatalog()): {
       object: "model" as const,
       owned_by: entry.provider,
     });
-    if (entry.aliases) {
-      for (const alias of entry.aliases) {
-        if (!modelMap.has(alias)) {
-          modelMap.set(alias, {
-            ...entry,
-            id: alias,
-            object: "model" as const,
-            owned_by: entry.provider,
-          });
-        }
-      }
-    }
   }
 
   return {
