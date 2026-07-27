@@ -34,6 +34,7 @@ import {
   redactSecrets,
   type LaunchContext,
 } from "./launch-context.js";
+import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import type { TunnelConfig } from "./config.js";
 
 const TMUX = "tmux";
@@ -258,12 +259,14 @@ const ANTHROPIC_ENV_KEYS = [
   "ANTHROPIC_API_KEY",
 ] as const;
 
-function tmuxEnvironmentArgs(): string[] {
+/** Build the environment explicitly stamped into a newly-created tmux session. */
+export function tmuxEnvironmentArgs(sessionClass?: SessionClass): string[] {
   const args: string[] = [];
   for (const key of ANTHROPIC_ENV_KEYS) {
     const value = process.env[key];
     if (value) args.push("-e", `${key}=${value}`);
   }
+  if (sessionClass) args.push("-e", `${SESSION_CLASS_ENV}=${sessionClass}`);
   return args;
 }
 
@@ -421,6 +424,8 @@ export type StartLocalResult = {
 };
 
 export type ManagedLaunchMetadata = {
+  /** Durable class inherited by the agent's SessionStart/SessionEnd hooks. */
+  sessionClass?: SessionClass;
   /** Conversation id only; never pass arbitrary CLI argv as resume metadata. */
   resumeId?: string;
   /** Sidecar command selected for this launch, if any. */
@@ -668,6 +673,7 @@ export function startLocalSession(
   const slug = slugify(label ?? cwd);
   const name = localSessionName(slug);
   const {
+    sessionClass,
     terminateOnAgentExit = false,
     refuseExisting = false,
     ...launchMetadata
@@ -703,7 +709,7 @@ export function startLocalSession(
       "-P",
       "-F",
       "#{pane_id}",
-      ...tmuxEnvironmentArgs(),
+      ...tmuxEnvironmentArgs(sessionClass),
       "-s",
       name,
       // Launcher contract (a2a): the agent's window is NAMED after the profile
@@ -784,6 +790,7 @@ export function startHeadlessSession(
   tmuxProfile = getTmuxProfileConfig().profile,
   promptInput?: string,
   refuseExisting = false,
+  sessionClass?: SessionClass,
 ): StartLocalResult {
   const slug = slugify(label);
   const name = localSessionName(slug);
@@ -818,7 +825,7 @@ export function startHeadlessSession(
       "-P",
       "-F",
       "#{pane_id}",
-      ...tmuxEnvironmentArgs(),
+      ...tmuxEnvironmentArgs(sessionClass),
       "-s",
       name,
       "-n",
