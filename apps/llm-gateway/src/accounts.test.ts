@@ -153,7 +153,7 @@ describe("account descriptors and route selection", () => {
     const { resolveModelRoute } = await import("./model-catalog.js");
     resetAccountsCache();
 
-    const route = resolveModelRoute("gpt-5.5");
+    const route = resolveModelRoute("gpt-5.6-terra");
     expect(route).toBeDefined();
     expect(selectAccountForRoute(route!).id).toBe("codex-a");
     expect(selectAccountForRoute(route!).id).toBe("codex-b");
@@ -170,7 +170,7 @@ describe("account descriptors and route selection", () => {
     const { resolveModelRoute } = await import("./model-catalog.js");
     resetAccountsCache();
 
-    const route = resolveModelRoute("gpt-5.5");
+    const route = resolveModelRoute("gpt-5.6-terra");
     expect(() => selectAccountForRoute(route!)).toThrow("no eligible codex account");
   });
 });
