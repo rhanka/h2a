@@ -5,7 +5,14 @@ export type {
   ProviderSessionSource,
   ResolveProviderSessionInput
 } from "./resolver.js";
-export { defaultProviderSessionReaders, readHostSessionName } from "./readers.js";
+export {
+  CLAUDE_TITLE_TAIL_BYTES,
+  CODEX_INDEX_TAIL_BYTES,
+  MAX_DISPLAY_NAME_CHARS,
+  createHostSessionNameRefresher,
+  defaultProviderSessionReaders,
+  readHostSessionName
+} from "./readers.js";
 export type { HostNameReaders } from "./readers.js";
 export {
   listBindings,
