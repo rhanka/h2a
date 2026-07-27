@@ -89,6 +89,25 @@ describe("registry", () => {
     expect(third.convId).toBe("conv-42");
   });
 
+  it("persists delegated-work provenance and the observed worker pid", () => {
+    const entry = enroll({
+      ...baseInput,
+      pid: 4242,
+      sessionClass: "background",
+      delegationOrigin: "cli:h2a-delegate",
+      delegatorInstance: "codex:owner:abc",
+      delegatorTmuxSession: "h2a-owner",
+    }, regPath);
+    expect(entry).toMatchObject({
+      pid: 4242,
+      sessionClass: "background",
+      delegationOrigin: "cli:h2a-delegate",
+      delegatorInstance: "codex:owner:abc",
+      delegatorTmuxSession: "h2a-owner",
+    });
+    expect(loadRegistry(regPath)[0]).toMatchObject(entry);
+  });
+
   it("re-enrolling an ended session revives it (endedAt dropped)", () => {
     enroll(baseInput, regPath);
     expect(markEnded("sess-1", regPath)).toBe(true);

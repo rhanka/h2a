@@ -293,6 +293,7 @@ const RUNTIME_VERBS: readonly {
   { group: "SET_UP", verb: "workspace", summary: "Map this project to a persistent remote workspace." },
   { group: "SET_UP", verb: "plugin", summary: "Install npm plugin packages into the agent CLIs." },
   { group: "SET_UP", verb: "check", summary: "End-to-end probe: create a session, await it, stop it (alias: smoke)." },
+  { group: "SET_UP", verb: "tmux", summary: "Manage h2a's local tmux naming and status surface." },
 
   { group: "SESSION_RECOVERY", verb: "restore", summary: "Relaunch the dev sessions in their recorded layout." },
   { group: "SESSION_RECOVERY", verb: "relaunch", summary: "Restart the CLI in sessions that dropped to a shell." },

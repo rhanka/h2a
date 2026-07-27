@@ -11,6 +11,18 @@ export const CLI_PROFILES = [
 ] as const;
 
 export type CliProfile = (typeof CLI_PROFILES)[number];
+
+/** Profiles that actually consume the local Anthropic-compatible gateway env. */
+export function profileUsesLlmMeshGateway(profile: string): boolean {
+  return profile === "claude" || profile === "claude-code";
+}
+
+export function gatewayModeForProfile<T extends "auto" | "gateway" | "direct">(
+  profile: string,
+  requested: T,
+): T | "direct" {
+  return profileUsesLlmMeshGateway(profile) ? requested : "direct";
+}
 export type SessionTarget = "docker" | "k3s" | "scaleway-kapsule" | "gke";
 export type UatExposurePolicy =
   | "operator-only"
