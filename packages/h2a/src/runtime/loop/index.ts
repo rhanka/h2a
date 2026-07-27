@@ -344,24 +344,81 @@ export function readObjectiveLoop(root: string, loopId: string): H2AObjectiveLoo
   return JSON.parse(readFileSync(file, "utf8")) as H2AObjectiveLoop;
 }
 
-export function listObjectiveLoops(root: string): H2AObjectiveLoop[] {
+export interface H2AObjectiveLoopListResult {
+  readonly loops: H2AObjectiveLoop[];
+  readonly warnings: string[];
+}
+
+const H2A_LOOP_STATUS_VALUES: ReadonlySet<string> = new Set([
+  "created",
+  "running",
+  "waiting-human",
+  "waiting-agent",
+  "stalled",
+  "degraded",
+  "done",
+  "failed",
+  "cancelled",
+  "active",
+  "stopped",
+  "blocked",
+]);
+
+function isObjectiveLoopProjection(value: unknown): value is H2AObjectiveLoop {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const loop = value as Partial<H2AObjectiveLoop>;
+  return (
+    typeof loop.id === "string" &&
+    loop.ownerSystem === "h2a" &&
+    typeof loop.name === "string" &&
+    typeof loop.goal === "string" &&
+    typeof loop.status === "string" &&
+    H2A_LOOP_STATUS_VALUES.has(loop.status) &&
+    Array.isArray(loop.repos) &&
+    Array.isArray(loop.refs) &&
+    Array.isArray(loop.agents) &&
+    !!loop.policy &&
+    typeof loop.policy === "object" &&
+    typeof loop.createdAt === "string" &&
+    typeof loop.updatedAt === "string"
+  );
+}
+
+export function listObjectiveLoopsWithDiagnostics(
+  root: string,
+): H2AObjectiveLoopListResult {
   let names: string[];
   try {
     names = readdirSync(loopsDir(root));
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { loops: [], warnings: [] };
+    }
     throw err;
   }
   const loops: H2AObjectiveLoop[] = [];
+  const warnings: string[] = [];
   for (const name of names) {
     try {
-      const parsed = JSON.parse(readFileSync(join(loopsDir(root), name, "state.json"), "utf8")) as H2AObjectiveLoop;
+      const parsed: unknown = JSON.parse(
+        readFileSync(join(loopsDir(root), name, "state.json"), "utf8"),
+      );
+      if (!isObjectiveLoopProjection(parsed)) {
+        throw new Error("invalid objective loop projection");
+      }
       loops.push(parsed);
     } catch {
-      // skip malformed loop directories
+      warnings.push(`loop ${name.replace(/[\u0000-\u001f\u007f]/g, "?")} has no readable state`);
     }
   }
-  return loops.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return {
+    loops: loops.sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    warnings,
+  };
+}
+
+export function listObjectiveLoops(root: string): H2AObjectiveLoop[] {
+  return listObjectiveLoopsWithDiagnostics(root).loops;
 }
 
 /**

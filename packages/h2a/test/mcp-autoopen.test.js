@@ -17,22 +17,23 @@ test("resolveAutoOpen: explicit --instance wins; else <host>:<cwd-leaf>", () => 
   const previous = process.env.CLAUDE_CODE_SESSION_ID;
   process.env.CLAUDE_CODE_SESSION_ID = "claude-autoopen-session";
   try {
-  assert.deepEqual(
-    resolveAutoOpen(
+  const explicit = resolveAutoOpen(
       { "auto-open": "true", host: "claude", instance: "claude:custom", root },
       () => cwd
-    ),
-    { instance: "claude:custom", host: "claude" }
   );
+  assert.deepEqual(explicit, { instance: "claude:custom", host: "claude" });
+  assert.equal(explicit.delegationEligible, undefined);
   const resolved = resolveAutoOpen({ "auto-open": "true", host: "claude", root }, () => cwd);
   assert.match(resolved.instance, /^claude:h2a-autoopen-cwd-[a-z0-9]+:[a-f0-9]{12}$/);
   assert.equal(resolved.host, "claude");
   assert.equal(resolved.name, basename(cwd));
   assert.equal(resolved.workspace.id.startsWith("ws:"), true);
+  assert.equal(resolved.delegationEligible, true);
   // no host → "agent:<leaf>"; scope carried through
   const agent = resolveAutoOpen({ "auto-open": "true", scope: "scope:team", root }, () => cwd);
   assert.match(agent.instance, /^agent:h2a-autoopen-cwd-[a-z0-9]+:[a-f0-9]{12}$/);
   assert.deepEqual(agent.scopes, ["scope:team"]);
+  assert.equal(agent.delegationEligible, true);
   } finally {
     if (previous === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
     else process.env.CLAUDE_CODE_SESSION_ID = previous;

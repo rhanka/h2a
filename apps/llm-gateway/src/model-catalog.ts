@@ -1,3 +1,5 @@
+import { describeCanonicalTargetRoutes } from "@sentropic/llm-gateway";
+
 export type AccountPool = "anthropic" | "codex";
 export type GatewayProtocol = "anthropic.messages";
 export type RoutingPolicy = "round-robin";
@@ -5,13 +7,16 @@ export type RoutingPolicy = "round-robin";
 export interface ModelCatalogEntry {
   id: string;
   provider: "anthropic" | "codex";
+  targetProviderId: string;
+  transportProviderId: string;
   upstreamModel: string;
   accountPool: AccountPool;
   inputProtocol: GatewayProtocol;
   outputProtocol: GatewayProtocol;
   capabilities: string[];
   defaultPolicy: RoutingPolicy;
-  aliases?: string[];
+  effort?: string;
+  routeKind: "faithful" | "alias";
 }
 
 export interface RoutingTarget {
@@ -21,76 +26,16 @@ export interface RoutingTarget {
   accountPool: AccountPool;
   routingPolicy: RoutingPolicy;
   routeReason:
-    | "catalog-id"
-    | "catalog-alias"
     | "env-model-map"
     | "provider-request"
-    | "passthrough-gpt";
+    | "canonical-route";
+  providerId?: string;
+  transportProviderId?: string;
+  effort?: string;
+  routeKind?: "faithful" | "alias";
 }
 
 const CODEX_CAPABILITIES = ["streaming", "tools", "reasoning_effort"] as const;
-
-const DEFAULT_MODEL_CATALOG: ModelCatalogEntry[] = [
-  {
-    id: "gpt-5.6-terra",
-    provider: "codex",
-    upstreamModel: "gpt-5.6-terra",
-    accountPool: "codex",
-    inputProtocol: "anthropic.messages",
-    outputProtocol: "anthropic.messages",
-    capabilities: [...CODEX_CAPABILITIES],
-    defaultPolicy: "round-robin",
-    aliases: ["claude-opus-4-8"],
-  },
-  {
-    id: "gpt-5.6-sol",
-    provider: "codex",
-    upstreamModel: "gpt-5.6-sol",
-    accountPool: "codex",
-    inputProtocol: "anthropic.messages",
-    outputProtocol: "anthropic.messages",
-    capabilities: [...CODEX_CAPABILITIES],
-    defaultPolicy: "round-robin",
-    aliases: ["claude-fable-5", "fable-5"],
-  },
-  {
-    id: "gpt-5.6-luna",
-    provider: "codex",
-    upstreamModel: "gpt-5.6-luna",
-    accountPool: "codex",
-    inputProtocol: "anthropic.messages",
-    outputProtocol: "anthropic.messages",
-    capabilities: [...CODEX_CAPABILITIES],
-    defaultPolicy: "round-robin",
-  },
-  {
-    id: "gpt-5.5",
-    provider: "codex",
-    upstreamModel: "gpt-5.5",
-    accountPool: "codex",
-    inputProtocol: "anthropic.messages",
-    outputProtocol: "anthropic.messages",
-    capabilities: [...CODEX_CAPABILITIES],
-    defaultPolicy: "round-robin",
-    aliases: [
-      "claude-opus-4-7",
-      "claude-opus-4-6",
-      "claude-sonnet-4-6",
-      "claude-sonnet-4-5",
-      "claude-haiku-4-5-20251001",
-    ],
-  },
-  {
-    id: "gpt-5.3-codex-spark",
-    provider: "codex",
-    upstreamModel: "gpt-5.3-codex-spark",
-    accountPool: "codex",
-    inputProtocol: "anthropic.messages",
-    outputProtocol: "anthropic.messages",
-    capabilities: [...CODEX_CAPABILITIES],
-    defaultPolicy: "round-robin",
-  },
-];
 
 let _catalog: ModelCatalogEntry[] | null = null;
 let _envModelMap: Record<string, string> | null = null;
@@ -112,17 +57,50 @@ function envCatalogEntries(): ModelCatalogEntry[] {
   return Object.entries(parseEnvModelMap()).map(([id, upstreamModel]) => ({
     id,
     provider: "codex" as const,
+    targetProviderId: "openai",
+    transportProviderId: "codex",
     upstreamModel,
     accountPool: "codex" as const,
     inputProtocol: "anthropic.messages" as const,
     outputProtocol: "anthropic.messages" as const,
     capabilities: [...CODEX_CAPABILITIES],
     defaultPolicy: "round-robin" as const,
+    routeKind: upstreamModel === id ? "faithful" as const : "alias" as const,
   }));
 }
 
 export function listModelCatalog(): ModelCatalogEntry[] {
-  if (!_catalog) _catalog = [...DEFAULT_MODEL_CATALOG, ...envCatalogEntries()];
+  if (!_catalog) {
+    const canonical = describeCanonicalTargetRoutes().map((route) => {
+      const accountPool =
+        accountPoolForProvider(route.transportProviderId) ??
+        accountPoolForProvider(route.providerId);
+      if (!accountPool) {
+        throw new Error(
+          `canonical route ${route.requestedId} has unsupported transport ${route.transportProviderId}`,
+        );
+      }
+      return {
+        id: route.requestedId,
+        provider: accountPool,
+        targetProviderId: route.providerId,
+        transportProviderId: route.transportProviderId,
+        upstreamModel: route.model,
+        accountPool,
+        inputProtocol: "anthropic.messages" as const,
+        outputProtocol: "anthropic.messages" as const,
+        capabilities: [...CODEX_CAPABILITIES],
+        defaultPolicy: "round-robin" as const,
+        ...(route.effort ? { effort: route.effort } : {}),
+        routeKind: route.kind,
+      } satisfies ModelCatalogEntry;
+    });
+    const byId = new Map<string, ModelCatalogEntry>(
+      canonical.map((entry) => [entry.id, entry]),
+    );
+    for (const entry of envCatalogEntries()) byId.set(entry.id, entry);
+    _catalog = [...byId.values()];
+  }
   return _catalog;
 }
 
@@ -162,6 +140,9 @@ export function resolveModelRoute(model: string): RoutingTarget | undefined {
       accountPool: "codex",
       routingPolicy: "round-robin",
       routeReason: "env-model-map",
+      providerId: "openai",
+      transportProviderId: "codex",
+      routeKind: envUpstream === model ? "faithful" : "alias",
     };
   }
 
@@ -173,30 +154,13 @@ export function resolveModelRoute(model: string): RoutingTarget | undefined {
         upstreamModel: entry.upstreamModel,
         accountPool: entry.accountPool,
         routingPolicy: entry.defaultPolicy,
-        routeReason: "catalog-id",
+        routeReason: "canonical-route",
+        providerId: entry.targetProviderId,
+        transportProviderId: entry.transportProviderId,
+        ...(entry.effort ? { effort: entry.effort } : {}),
+        routeKind: entry.routeKind,
       };
     }
-    if (entry.aliases?.includes(model)) {
-      return {
-        requestedModel: model,
-        catalogModelId: entry.id,
-        upstreamModel: entry.upstreamModel,
-        accountPool: entry.accountPool,
-        routingPolicy: entry.defaultPolicy,
-        routeReason: "catalog-alias",
-      };
-    }
-  }
-
-  if (model.startsWith("gpt-")) {
-    return {
-      requestedModel: model,
-      catalogModelId: model,
-      upstreamModel: model,
-      accountPool: "codex",
-      routingPolicy: "round-robin",
-      routeReason: "passthrough-gpt",
-    };
   }
 
   return undefined;
