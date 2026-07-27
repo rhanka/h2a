@@ -131,8 +131,17 @@ finished without achieving.
   The payload is **signed but not confidential**, so a mistyped target discloses all of that repeatedly to
   whatever host answers, while the local journal reports `ok`. Mitigations: the unit ships disarmed
   (kill-switch active, placeholder target) and documents verifying a single manual push before arming; the
-  hosted read boundary allowlists what can leave again. What is **not** yet mitigated is the send side —
-  see section 9.
+  hosted read boundary allowlists what can leave again.
+  **UPDATE 2026-07-25 — the mirror BUILDER is now mitigated, so the list above no longer describes what
+  its automatic beat travels.** The mirror sanitizes before signing: `launchContext` (cwd, command line, tty, tmux), `pid`,
+  `workspace.path`, `workspace.repo` and `file://` endpoint uris are withheld by an allowlist that fails
+  the build when a new field is left unclassified. The paragraph is kept rather than rewritten because the
+  consent it records was given against it, and because it still holds for two cases: a sender running a CLI
+  older than the fix, since the INGEST boundary does not sanitize yet (section 9), and the separate
+  general-purpose `h2a remote send --json` escape hatch, which signs an arbitrary operator-supplied
+  envelope rather than routing it through the mirror builder. What the owner is
+  consenting to for an up-to-date mirror builder's automatic beat is now the field list in the feed
+  contract's "Send boundary" section — identity, liveness timestamps, a workspace **label**, and no paths.
   This is a disclosure-accuracy point, not a design objection: signed-not-confidential to a host the owner
   controls may be entirely fine. But the owner must consent to *paths, command lines, tmux coordinates and
   pids leaving the machine*, not to the word "metadata".
@@ -150,19 +159,65 @@ finished without achieving.
 
 ## 9. Tracked separately (deliberately not folded into P1)
 
-- **Free-text display fields are not content-checked.** `displayName` / `workspaceLabel` / `topicOrTitle` /
-  `host` are validated for non-emptiness only, so an agent can put a path or key material in its own
-  label and have it rendered. Pre-existing, not an authz field, and free text cannot be allowlisted — so
-  the mitigation is different in kind: length bounds + character-class normalisation on the h2a side, and
-  the untrusted-rendering rule on the panel side. Disclosed by the feed's author and independently
-  confirmed.
-- **The mirror does not sanitize at send.** `runtime/mirror/build.ts` ships `listPresence(...)` records
-  verbatim, so `launchContext.cwd`, the command line, tmux coordinates and the pid reach the hosted store
-  even though the feed strips them on read. The rule we applied to the read boundary applies here too —
-  sanitize at the boundary you are responsible for — and the send boundary is one of ours. Options are to
-  narrow what the mirror ships to the fields the feed can actually emit, or to sanitize before signing.
-  Not folded into P1 because P1 can proceed with disclosure (section 7) while this is fixed; recorded so
-  the disclosure does not become the permanent answer.
+- **Free text is not content-checked — and the concern is DATA AT REST, not only rendering.** Revised
+  2026-07-25: the earlier version of this item named four display fields (`displayName` /
+  `workspaceLabel` / `topicOrTitle` / `host`) and framed the risk as *rendering*. Both were too narrow.
+  The full transmitted, agent-settable, unchecked set is: presence `name`, `workspace.label`,
+  `workspace.host`, `workspace.id`, `version.cli`, `version.skill`, and the element values of
+  `interests.scopes[]` / `interests.negotiations[]` / `subscribedTopics[]`; registration `principal`,
+  `conductor`, `agentUuid`, `name`, and the element values of `scopes[]` / `capabilities[]` /
+  `declaredCapabilities[]` / `acceptedPolicies[]` / `publicKeys[]` / `roles[]`. All of it is
+  agent-settable because `h2a_register_instance` accepts an **arbitrary object** (`handleRegisterInstance`
+  checks `typeof === "object"` and nothing more; `store.registerInstance` checks nothing) and
+  `h2a_session_open` copies `interests.scopes` verbatim from its caller. Two concrete consequences: a
+  plain `h2a_session_open` with `interests: {scopes:["scope:/home/you/private/directory"]}` puts that
+  path on the hosted disk with no privilege and no malformed record; and `conductor: "file:///home/you/…"`
+  is how a `file://` URI still reaches the hosted store despite the endpoint scheme filter. The harm is a
+  value coming to rest **on someone else's disk** — how a panel escapes it on the way out is an
+  additional, separate concern. Free text cannot be allowlisted, so the mitigations are different in kind:
+  length bounds + character-class normalisation on the h2a side, userinfo stripping and a query/fragment
+  policy for URI-shaped fields, and the untrusted-rendering rule on the panel side. Disclosed by the
+  feed's author, independently confirmed, and widened by adversarial review.
+- **~~The mirror does not sanitize at send.~~ CLOSED for the mirror BUILDER (2026-07-25).** The fix took the
+  **narrow-what-is-shipped** option: `runtime/mirror/sanitize.ts` gives every payload member a wire type
+  built from a field plan that classifies **every** field of the source record, so `launchContext` (cwd,
+  command line, resumeCommand, tty, tmux), `pid`, `workspace.path`, `workspace.repo` and `file://`
+  endpoint uris no longer leave the machine. Three properties, each mutation-proved: an unclassified field
+  cannot travel (the builder iterates the plan), a newly-added field **fails the build** until it is
+  classified (`satisfies` over `keyof Required<Source>`), and the wire type cannot drift from its plan.
+  Sanitizing happens before signing, so the signature still covers exactly what is transmitted, and the
+  signing primitive, sequence fencing and accept-side verification are untouched. A denylist was measured
+  rather than dismissed: it passes every hostile-value test and fails only the unclassified-field test —
+  which is the whole failure mode. The disclosure in section 7 **no longer describes the fields that
+  travel**; what a hosted store now receives from the automatic builder is listed in the feed contract's
+  "Send boundary" section. This does not cover the general-purpose `h2a remote send --json` path: it signs
+  and posts arbitrary operator-supplied envelopes and is intentionally not passed to sanitizers typed only
+  for the builder's three mirror payload members.
+  Two consequences worth reading there: `H2AWorkspaceRef.path` had to become optional (while it was
+  required, `isH2ASession` made a path-free presence record unwritable — the required field was
+  *compelling* the leak), and `capabilities` is transmitted deliberately because the receiving side's
+  subagent ceiling and attestation right both read it off the mirrored row.
+
+  **Amended after adversarial review (2026-07-25).** The first version of the fix was correct at the top
+  level of each payload member and **incomplete one level down**, demonstrated end-to-end rather than
+  argued: `interests` was classified `send`, so the plan copied the object by reference; `isInterests` is a
+  two-field spot-check that does not reject extra keys, so `interests: {scopes, negotiations, lc:{tmux,
+  cwd, pid}}` was well-formed by the receiver's own guard, was accepted **202**, and came to rest on the
+  receiver's disk. The endpoints **element** type had the same shape (`Array.prototype.filter` passes the
+  element through whole), and both mutations — a new field on `H2ASessionInterests`, a new field on the
+  endpoints element — compiled with `tsc` exit 0 and travelled. Closed by giving each nested composite its
+  own plan (`INTERESTS_PLAN`, `ENDPOINT_PLAN`), which makes the allowlist claim true as written and
+  extends the compile-time ratchet downward. Also corrected in the same pass: the endpoint filter could
+  **throw** on a stored registration whose `endpoints` was not an array (a fault the send boundary itself
+  introduced, since the pre-fix builder never touched the field), and the comment justifying the absent
+  guard cited a validator — `isH2AActorRegistration` — that is **never called on any production path**.
+  Remaining, disclosed, and not closable by a field allowlist: the free-text element values in item 1
+  above.
+- **Still owed: the INGEST half of the same rule.** `serve.ts` writes whatever a *verified* sender hands
+  it, so an agent running a CLI older than this fix keeps pushing raw records into the hosted root, and a
+  hosted read surface remains a full passthrough of what is stored. Sanitizing at ingest with the same
+  functions closes it; kept separate so the accept-side verification and fencing are reviewed on their own
+  terms. Until then the section 7 disclosure still holds **for un-upgraded senders only**.
 - **Lane addressing defect.** The h2a name has diverged from the host-native title, so routing to a named
   lane is ambiguous: nothing is registered as `auth`, four live instances share one name, and two panes
   share a title. This is a bus-correctness defect, not a BR-39l feature; folding it into P1 would hide it.
