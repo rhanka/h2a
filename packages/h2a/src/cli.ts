@@ -71,6 +71,7 @@ import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 // `install-skills` renders `harness-<name>` from it (no hard-coded list, no
 // skill copies committed here; SOURCE UNIQUE = the installed npm package).
 import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
+import { renderCommandMap } from "./cli-command-map.js";
 
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
@@ -224,6 +225,7 @@ import {
 } from "./runtime/upgrade/index.js";
 import {
   H2A_CLI_DECLARED_CAPABILITIES,
+  createHostSessionNameRefresher,
   resolveLiveIdentity
 } from "./runtime/identity/index.js";
 import {
@@ -324,10 +326,19 @@ export function renderCliHelp(): string {
   return [
     "h2a",
     "",
-    "Human-to-agent coordination CLI.",
+    "Human-to-agent coordination CLI — the unified sentropic CLI and core.",
+    "It also fronts agent work sessions, the work record (@sentropic/track) and the",
+    "harness method; a verb it does not serve itself loads the h2a runtime on demand.",
+    "h2a runs and coordinates agents; it is not itself an agent.",
+    "",
+    "The list below is a flat usage reference, and it is NOT exhaustive. For every",
+    "command grouped by what you are trying to do — core and runtime, derived from",
+    "the frozen verb contract so it cannot go stale — run:",
+    "  h2a explain",
     "",
     "Usage:",
     "  h2a --help",
+    "  h2a explain",
     "  h2a hosts",
     "  h2a mcp-tools",
     "  h2a init [--root <path>]",
@@ -360,6 +371,13 @@ export function renderCliHelp(): string {
     "  entry's id, and correlationId from the previous entry's correlationId.",
     "  Explicit --causation-id / --correlation-id flags always override the",
     "  inherited default; pass them on the first offer to start a fresh thread.",
+    "",
+    // These 24 lines used to be nested under the "Auto-propagation (DEC-033):"
+    // prose block above, which described only offer/counter/sign/event causation.
+    // They have nothing to do with it — mailboxes, local servers and host wiring
+    // were appended inside someone else's section. Heading added; every usage line
+    // below is byte-identical to before.
+    "Mailboxes, local services and host wiring:",
     "  h2a inbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a inbox read --instance <id> [--root <path>]",
     "  h2a inbox pop --instance <id> --envelope <id> [--root <path>]",
@@ -1522,6 +1540,13 @@ export function resolveAutoOpen(
   scopes?: string[];
   migrationNotice?: string;
   privateKeyPath?: string;
+  /**
+   * Re-reads the host-native display title on each heartbeat (spec
+   * 2026-07-25-h2a-lane-addressing §D1b). Present only when the operator did
+   * NOT pass `--name`: an explicit name is the operator's, and must never be
+   * overwritten by a host rename.
+   */
+  refreshDisplayName?: () => string | undefined;
 } | undefined {
   if (flags["auto-open"] === undefined) return undefined;
   const host = flags.host;
@@ -1537,11 +1562,35 @@ export function resolveAutoOpen(
     ...(flags.name !== undefined ? { name: flags.name } : {}),
     ...(flags.scope !== undefined ? { scopes: [flags.scope] } : {})
   });
+  // §D1b: only follow the host title when the operator left the name implicit,
+  // and only when a real provider session id was readable (the synthetic
+  // `fallback:` id names no transcript, so there is nothing to re-read).
+  //
+  // The host gate is EXPLICIT, not incidental. `createHostSessionNameRefresher`
+  // can only read `claude` and `codex` transcripts; for any other host it returns
+  // `undefined` forever. `resolveProviderSession` does resolve a provider session
+  // id for `remote`, `gemini` and `agy`, so without this gate those three install
+  // a callback that is called on every heartbeat and can never return a name — a
+  // guard whose premise cannot hold. Installing nothing is behaviourally
+  // identical (the heartbeat keeps the previous name either way) and does not
+  // pretend to a capability the reader does not have.
+  const refreshableHost = host === "claude" || host === "codex";
+  const refreshDisplayName =
+    flags.name === undefined &&
+    identity.providerSessionId !== undefined &&
+    refreshableHost
+      ? createHostSessionNameRefresher({
+          host,
+          cwd: cwd(),
+          sessionId: identity.providerSessionId
+        })
+      : undefined;
   return {
     instance: identity.instance,
     ...(host ? { host } : {}),
     ...(identity.workspace !== undefined ? { workspace: identity.workspace } : {}),
     ...(identity.name !== undefined ? { name: identity.name } : {}),
+    ...(refreshDisplayName ? { refreshDisplayName } : {}),
     ...(flags.scope ? { scopes: [flags.scope] } : {}),
     ...(identity.migrationNotice !== undefined
       ? { migrationNotice: identity.migrationNotice }
@@ -6665,6 +6714,44 @@ export function runCli(
 
   if (!command || command === "--help" || command === "-h" || command === "help") {
     streams.stdout.write(`${renderCliHelp()}\n`);
+    return 0;
+  }
+
+  // `explain` — the grouped command map. Added 2026-07-25 as a NEW verb; it
+  // repurposes no existing argv and no existing output. DEC-034's no-argv-is-help
+  // rule above is untouched: bare `h2a` still renders `renderCliHelp()`.
+  //
+  // GRAMMAR, and why it is strict. Review measured that this verb accepted
+  // ANY trailing argv and returned the map with exit 0 — `explain foo`,
+  // `explain --json`, `explain --root /tmp` all "succeeded". That contradicted
+  // the contract, which declares no flags at all, and it manufactures a
+  // successful-looking result for input nobody implemented: a caller who pipes
+  // `explain --json` into a JSON parser gets prose and exit 0.
+  //
+  // The ambient convention in this file is laxer — `hosts foo` and
+  // `mcp-tools --json` also exit 0, measured. `explain` is deliberately NOT
+  // following it, because it is a NEW verb: no caller can already depend on
+  // junk argv being tolerated, so strictness is free here and impossible to
+  // retrofit later without a breaking change. Tightening the siblings is a
+  // separate change against verbs that DO have callers, and is not in scope.
+  //
+  // Accepted: bare `explain`, plus `--help`/`-h` which print the same map (the
+  // map IS this verb's help; erroring there would be user-hostile). Everything
+  // else — any other flag, any positional — is a usage error: exit 1, nothing
+  // on stdout, the offending token named on stderr. `optionalFlags: ["help"]`
+  // and `exitCodes: [0, 1]` in cli-contract.ts say exactly this.
+  if (command === "explain") {
+    const rest = argv.slice(1);
+    const unsupported = rest.filter((token) => token !== "--help" && token !== "-h");
+    if (unsupported.length > 0) {
+      streams.stderr.write(
+        `h2a explain: unsupported argument${unsupported.length > 1 ? "s" : ""}: ${unsupported.join(", ")}\n` +
+          "  usage: h2a explain [--help]\n" +
+          "  `explain` takes no arguments; it always prints the whole grouped map.\n"
+      );
+      return 1;
+    }
+    streams.stdout.write(`${renderCommandMap([...TRACK_FACADE_VERBS])}\n`);
     return 0;
   }
 
