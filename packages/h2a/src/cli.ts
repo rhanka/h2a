@@ -225,6 +225,7 @@ import {
 } from "./runtime/upgrade/index.js";
 import {
   H2A_CLI_DECLARED_CAPABILITIES,
+  createHostSessionNameRefresher,
   resolveLiveIdentity
 } from "./runtime/identity/index.js";
 import {
@@ -1539,6 +1540,13 @@ export function resolveAutoOpen(
   scopes?: string[];
   migrationNotice?: string;
   privateKeyPath?: string;
+  /**
+   * Re-reads the host-native display title on each heartbeat (spec
+   * 2026-07-25-h2a-lane-addressing §D1b). Present only when the operator did
+   * NOT pass `--name`: an explicit name is the operator's, and must never be
+   * overwritten by a host rename.
+   */
+  refreshDisplayName?: () => string | undefined;
 } | undefined {
   if (flags["auto-open"] === undefined) return undefined;
   const host = flags.host;
@@ -1554,11 +1562,35 @@ export function resolveAutoOpen(
     ...(flags.name !== undefined ? { name: flags.name } : {}),
     ...(flags.scope !== undefined ? { scopes: [flags.scope] } : {})
   });
+  // §D1b: only follow the host title when the operator left the name implicit,
+  // and only when a real provider session id was readable (the synthetic
+  // `fallback:` id names no transcript, so there is nothing to re-read).
+  //
+  // The host gate is EXPLICIT, not incidental. `createHostSessionNameRefresher`
+  // can only read `claude` and `codex` transcripts; for any other host it returns
+  // `undefined` forever. `resolveProviderSession` does resolve a provider session
+  // id for `remote`, `gemini` and `agy`, so without this gate those three install
+  // a callback that is called on every heartbeat and can never return a name — a
+  // guard whose premise cannot hold. Installing nothing is behaviourally
+  // identical (the heartbeat keeps the previous name either way) and does not
+  // pretend to a capability the reader does not have.
+  const refreshableHost = host === "claude" || host === "codex";
+  const refreshDisplayName =
+    flags.name === undefined &&
+    identity.providerSessionId !== undefined &&
+    refreshableHost
+      ? createHostSessionNameRefresher({
+          host,
+          cwd: cwd(),
+          sessionId: identity.providerSessionId
+        })
+      : undefined;
   return {
     instance: identity.instance,
     ...(host ? { host } : {}),
     ...(identity.workspace !== undefined ? { workspace: identity.workspace } : {}),
     ...(identity.name !== undefined ? { name: identity.name } : {}),
+    ...(refreshDisplayName ? { refreshDisplayName } : {}),
     ...(flags.scope ? { scopes: [flags.scope] } : {}),
     ...(identity.migrationNotice !== undefined
       ? { migrationNotice: identity.migrationNotice }
