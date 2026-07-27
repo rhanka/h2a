@@ -270,6 +270,8 @@ function buildHappyArgv(verb, ctx) {
   switch (verb) {
     case "--help":
       return ["--help"];
+    case "explain":
+      return ["explain"];
     case "hosts":
       return ["hosts"];
     case "mcp-tools":
@@ -858,6 +860,14 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
   // Hand-rolled list of verbs we know `runCli` will dispatch.
   const expected = [
     "--help",
+    // 2026-07-25: public-contract addition. This branch was written against a
+    // 97-verb main; PR #30 landed `keys prove-control` first, so the reconciled
+    // count is 99, not 98. Kept in exact sync with
+    // docs/contracts/golden/cli-verbs.json — by `scripts/check-public-contract.sh`
+    // (which diffs the golden against the built H2A_CLI_VERB_CONTRACTS) and by
+    // the count guard in test/cli-command-map.test.js, which additionally covers
+    // the two hand-written counts that neither the script nor this array reads.
+    "explain",
     "hosts",
     "mcp-tools",
     "report-context",

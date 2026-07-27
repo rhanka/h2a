@@ -62,6 +62,8 @@ import { H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS } from "@sentropic/h2a";
 import {
   executeH2aRun,
   handleH2aRun,
+  recordMcpRunDelegation,
+  type H2aRunDelegation,
   type H2aRunExecutor
 } from "./agent-launch.js";
 
@@ -72,6 +74,8 @@ export interface CreateMcpServerOptions {
   workspaceRoot?: string;
   /** Test seam for the canonical h2a run subprocess bridge. */
   runExecutor?: H2aRunExecutor;
+  /** Trusted context of this MCP sidecar, read only when a launch occurs. */
+  delegationContext?: () => H2aRunDelegation | undefined;
   /**
    * Optional pre-built store. If omitted, the server creates one with
    * `createLocalStore({ root })`. Useful for tests that want to share state
@@ -246,11 +250,17 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       case "h2a_loop_status":
         return handleLoopStatus(store.paths.root, args as never);
       case "h2a_run":
-        return handleH2aRun(
+        {
+          const delegation = options.delegationContext?.();
+          const result = handleH2aRun(
           args,
           options.workspaceRoot ?? process.cwd(),
-          options.runExecutor ?? executeH2aRun
-        );
+          options.runExecutor ?? executeH2aRun,
+            delegation,
+          );
+          recordMcpRunDelegation(store.paths.root, result, delegation);
+          return result;
+        }
       default:
         return { error: `unknown tool: ${name}` };
     }

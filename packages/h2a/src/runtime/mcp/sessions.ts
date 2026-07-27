@@ -59,6 +59,13 @@ interface SessionEntry {
   session: H2ASession;
   heartbeatHandle?: ReturnType<typeof setInterval>;
   /**
+   * Spec 2026-07-25-h2a-lane-addressing §D1b: re-reads the host-native display
+   * title (Claude `customTitle` / Codex `thread_name`) so a mid-session rename
+   * converges into presence within one heartbeat. Installed only when the
+   * operator did NOT pass an explicit `--name`. Absent = the name is frozen.
+   */
+  resolveDisplayName?: () => string | undefined;
+  /**
    * WP-F: in-memory ISO timestamp of the last inbound MCP line for this session.
    * `markActivity()` updates it cheaply on every line; the next heartbeat
    * `touch()` flushes it to the presence file, so a burst never thrashes disk.
@@ -172,22 +179,64 @@ export class SessionRegistry {
     return updated;
   }
 
+  /**
+   * Install (or replace) the host-native display-name resolver for a session.
+   * Spec 2026-07-25-h2a-lane-addressing §D1b. Idempotent on unknown ids.
+   */
+  setDisplayNameResolver(
+    sessionId: string,
+    resolve: () => string | undefined
+  ): void {
+    const entry = this.entries.get(sessionId);
+    if (!entry) return;
+    entry.resolveDisplayName = resolve;
+  }
+
+  /**
+   * Re-derive the host-native display name for a session, returning it only
+   * when it is a real CHANGE worth writing.
+   *
+   * Deliberately conservative in three ways (spec §D1b):
+   * - a resolver that throws is swallowed — a naming bug must never break the
+   *   heartbeat, which is what liveness is computed from;
+   * - `undefined` (transcript rotated, deleted, or not yet findable) keeps the
+   *   name we already have. It must NEVER downgrade a real host-native name back
+   *   to the cwd basename — refresh is monotonic in confidence;
+   * - an unchanged value returns undefined so the patch key is omitted entirely
+   *   rather than re-writing the same string.
+   */
+  private nextDisplayName(entry: SessionEntry): string | undefined {
+    if (!entry.resolveDisplayName) return undefined;
+    let resolved: string | undefined;
+    try {
+      resolved = entry.resolveDisplayName();
+    } catch {
+      return undefined;
+    }
+    if (!resolved) return undefined;
+    if (resolved === entry.session.name) return undefined;
+    return resolved;
+  }
+
   /** Mark heartbeat on disk for a known session. Idempotent on unknown ids. */
   touch(sessionId: string): H2ASession | undefined {
     const entry = this.entries.get(sessionId);
     if (!entry) return undefined;
+    const nextName = this.nextDisplayName(entry);
     let updated = updatePresence(this.root, sessionId, {
       heartbeatAt: nowIso(),
       // WP-F: flush the latest in-memory MCP-activity timestamp alongside the
       // blind heartbeat. Unlike heartbeatAt (which the external keepalive prober
       // can also refresh), this only advances on real inbound MCP traffic.
-      ...(entry.lastActivityAt ? { lastMcpActivityAt: entry.lastActivityAt } : {})
+      ...(entry.lastActivityAt ? { lastMcpActivityAt: entry.lastActivityAt } : {}),
+      ...(nextName ? { name: nextName } : {})
     });
     if (!updated) {
       updated = {
         ...entry.session,
         heartbeatAt: nowIso(),
-        ...(entry.lastActivityAt ? { lastMcpActivityAt: entry.lastActivityAt } : {})
+        ...(entry.lastActivityAt ? { lastMcpActivityAt: entry.lastActivityAt } : {}),
+        ...(nextName ? { name: nextName } : {})
       };
       writePresence(this.root, updated);
     }

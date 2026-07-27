@@ -21,6 +21,33 @@ afterEach(() => {
 });
 
 describe("embedded gateway reporting session attestation", () => {
+  it("serves one exact client session without using the ledger collection", async () => {
+    vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
+      { id: "codex-oauth", provider: "openai", label: "Codex OAuth", token: "codex.header.signature" },
+    ]));
+    const { app } = await import("./index.js");
+    const created = await app.fetch(
+      new Request("http://localhost/v1/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "gateway-opaque-id",
+          clientSessionId: "h2a-owner/with space",
+          model: "claude-opus-5-xhigh",
+        }),
+      }),
+    );
+    expect(created.status).toBe(201);
+    const exact = await app.fetch(
+      new Request("http://localhost/v1/status/client/h2a-owner%2Fwith%20space"),
+    );
+    expect(exact.status).toBe(200);
+    await expect(exact.json()).resolves.toMatchObject({
+      gatewaySessionId: "gateway-opaque-id",
+      clientSessionId: "h2a-owner/with space",
+    });
+  });
+
   it("attests the requested Opus alias and canonical Terra Codex transport before use", async () => {
     vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
       {
@@ -38,7 +65,7 @@ describe("embedded gateway reporting session attestation", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "track-report-alias",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
           profile: "track-report-ai",
@@ -49,14 +76,14 @@ describe("embedded gateway reporting session attestation", () => {
     expect(created.status).toBe(201);
     await expect(created.json()).resolves.toMatchObject({
       accountId: "codex-oauth",
-      requestedModel: "claude-opus-4-8",
-      modelId: "gpt-5.6-terra",
+      requestedModel: "claude-opus-5-xhigh",
+      modelId: "claude-opus-5-xhigh",
       upstreamModel: "gpt-5.6-terra",
       reasoningEffort: "xhigh",
       provider: "openai",
       authType: "bearer",
       transport: "codex-responses",
-      routeReason: "catalog-alias",
+      routeReason: "canonical-route",
     });
   });
 
@@ -81,7 +108,7 @@ describe("embedded gateway reporting session attestation", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "track-report-raw-key",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
           profile: "track-report-ai",
@@ -114,7 +141,7 @@ describe("embedded gateway reporting session attestation", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "no-durable-store",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
         }),
@@ -149,7 +176,7 @@ describe("embedded gateway reporting session attestation", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "track-report-quota",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
         }),
@@ -173,7 +200,7 @@ describe("embedded gateway reporting session attestation", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           max_tokens: 58_192,
           thinking: { type: "enabled", budget_tokens: 50_000 },
           messages: [{ role: "user", content: "sensitive report context" }],
@@ -204,7 +231,7 @@ describe("embedded gateway reporting session attestation", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "logical-request-retry",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           requiredTransport: "codex-responses",
         }),
       }),
@@ -234,7 +261,7 @@ describe("embedded gateway reporting session attestation", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           max_tokens: 1_024,
           messages: [{ role: "user", content: "report context" }],
         }),
@@ -272,7 +299,7 @@ describe("embedded gateway reporting session attestation", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "transport-immutable",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           ...(requiredTransport ? { requiredTransport } : {}),
         }),
@@ -328,7 +355,7 @@ describe("embedded gateway reporting session attestation", () => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             sessionId: "concurrent-transport",
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
             reasoningEffort: "xhigh",
             requiredTransport,
           }),
@@ -386,7 +413,7 @@ describe("embedded gateway reporting session attestation", () => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             sessionId: "legacy-race",
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
             ...(constrained
               ? {
                   reasoningEffort: "xhigh",
@@ -431,7 +458,7 @@ describe("embedded gateway reporting session attestation", () => {
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
             thinking: { type: "enabled", budget_tokens: 50_000 },
             messages: [{ role: "user", content: "legacy-race-sensitive" }],
           }),
@@ -480,7 +507,7 @@ describe("embedded gateway reporting session attestation", () => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             sessionId: "stale-session",
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
           }),
         }),
       );
@@ -495,7 +522,7 @@ describe("embedded gateway reporting session attestation", () => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             sessionId: "stale-session",
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
             reasoningEffort: "xhigh",
             requiredTransport: "codex-responses",
           }),
@@ -532,7 +559,7 @@ describe("embedded gateway reporting session attestation", () => {
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
             thinking: { type: "enabled", budget_tokens: 50_000 },
             messages: [{ role: "user", content: "stale-cache-sensitive" }],
           }),
@@ -580,7 +607,7 @@ describe("embedded gateway reporting session attestation", () => {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               sessionId: "legacy-session",
-              model: "claude-opus-4-8",
+              model: "claude-opus-5-xhigh",
               reasoningEffort: "xhigh",
               requiredTransport,
             }),
@@ -634,7 +661,7 @@ describe("embedded gateway reporting session attestation", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "missing-binding",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
         }),
@@ -658,7 +685,7 @@ describe("embedded gateway reporting session attestation", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           messages: [{ role: "user", content: "must remain local" }],
         }),
       }),
@@ -709,7 +736,7 @@ describe("embedded gateway reporting session attestation", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId: "k8s-empty-data",
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
         }),
@@ -804,7 +831,7 @@ describe("embedded gateway reporting session attestation", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sessionId,
-          model: "claude-opus-4-8",
+          model: "claude-opus-5-xhigh",
           reasoningEffort: "xhigh",
           requiredTransport: "codex-responses",
         }),
@@ -839,7 +866,7 @@ describe("embedded gateway reporting session attestation", () => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             sessionId: "restart-safe",
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
             reasoningEffort: "xhigh",
             requiredTransport: "codex-responses",
           }),
@@ -870,7 +897,7 @@ describe("embedded gateway reporting session attestation", () => {
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            model: "claude-opus-4-8",
+            model: "claude-opus-5-xhigh",
             messages: [{ role: "user", content: "restart-sensitive context" }],
           }),
         }),
