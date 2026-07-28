@@ -39,7 +39,7 @@ export type SnapshotReportRow = Pick<
 export type SnapshotDecisionRow = Pick<
   DecisionRow,
   | 'id' | 'title' | 'workspace' | 'decisionKind' | 'realization' | 'outcome'
-  | 'accountable' | 'optionCount' | 'openQuestionCount' | 'hasRecommendation'
+  | 'accountable' | 'optionCount' | 'openQuestionCount' | 'hasRecommendation' | 'structure'
 >
 
 export type SnapshotWpLeafBlocker = Pick<
@@ -67,6 +67,7 @@ export interface SnapshotReport {
   }
   decisions: SnapshotDecisionRow[]
   wpTree: SnapshotWpNode[]
+  outsideRollup?: SnapshotReportRow[]
 }
 
 export interface SnapshotV1 {
@@ -110,6 +111,9 @@ function stableReport(report: Report): Report {
     },
     decisions: [...(report.decisions ?? [])].sort((a, b) => ordinalCompare(a.id, b.id)),
     wpTree: tree,
+    ...(report.outsideRollup !== undefined
+      ? { outsideRollup: [...report.outsideRollup].sort((a, b) => ordinalCompare(a.id, b.id)) }
+      : {}),
   }
 }
 
@@ -144,6 +148,7 @@ function projectDecision(decision: DecisionRow): SnapshotDecisionRow {
     ...(decision.optionCount !== undefined ? { optionCount: decision.optionCount } : {}),
     ...(decision.openQuestionCount !== undefined ? { openQuestionCount: decision.openQuestionCount } : {}),
     ...(decision.hasRecommendation !== undefined ? { hasRecommendation: decision.hasRecommendation } : {}),
+    structure: decision.structure ?? 'unstructured',
   }
 }
 
@@ -205,6 +210,7 @@ function projectReport(report: Report): SnapshotReport {
     },
     decisions: (report.decisions ?? []).map(projectDecision),
     wpTree: (report.wpTree ?? []).map(projectNode),
+    ...(report.outsideRollup !== undefined ? { outsideRollup: report.outsideRollup.map(projectRow) } : {}),
   }
 }
 
@@ -246,7 +252,7 @@ export function buildSnapshot(events: readonly TrackEvent[], options: SnapshotOp
     schema: SNAPSHOT_SCHEMA,
     baseline: { input: options.baselineInput, resolvedCommit: options.resolvedCommit },
     report: projectReport(report),
-    wpTotals: wpTotals(report.wpTree ?? []),
+    wpTotals: wpTotals(report.wpTree ?? [], report.outsideRollup),
     directives,
     recentEvents: recentEvents(events),
   }

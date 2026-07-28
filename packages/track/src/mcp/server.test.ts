@@ -102,9 +102,9 @@ describe('MCP read server — CLI≡MCP parity (same shared command layer)', () 
     expect(() => dispatchReadTool(reader, 'track_report', { baselineCommit: 'c1', format: 'bullets' })).toThrow(/format/)
   })
 
-  it('track_report tool description distinguishes legacy facts from the AI CLI', () => {
+  it('track_report tool description distinguishes legacy facts from the deterministic CLI conductor', () => {
     const tool = READ_TOOLS.find((t) => t.name === 'track_report')!
-    expect(tool.description).toMatch(/CLI `track report`/)
+    expect(tool.description).toMatch(/CLI `track report --wp --decisions`/)
     expect(tool.description).toMatch(/never invoke AI/)
   })
 

@@ -32,7 +32,7 @@ export const READ_TOOLS = [
   {
     name: 'track_report',
     description:
-      'Legacy deterministic backlog projection. JSON/text/Markdown outputs are compatibility reads and never invoke AI; use track_snapshot for the canonical factual contract and CLI `track report` for a cited human AI interpretation.',
+      'Legacy deterministic backlog projection. JSON/text/Markdown outputs are compatibility reads and never invoke AI; use track_snapshot for the canonical factual contract and CLI `track report --wp --decisions` for the complete local conductor.',
     inputSchema: {
       type: 'object',
       properties: {

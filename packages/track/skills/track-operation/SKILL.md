@@ -1,6 +1,6 @@
 ---
 name: track-operation
-description: "Use when the user asks for a track report, status, or advancement/progress report — run the CLI `track report` from the repo root and return its AI-prepared, cited output verbatim; never substitute the deterministic `track_report` MCP projection for a human AI report. Also use when an agent needs to read, update, import, or verify track state; when a BRANCH.md or plan/NN-BRANCH_*.md changed; or when deciding between Track MCP and CLI. MCP remains read-only, writes/imports use the CLI, and .track is append-only/single-writer."
+description: "Use when the user asks for a track report, status, or advancement/progress report — run the deterministic `track` CLI from the repo root; the in-session agent supplies any contextual prose. Also use when an agent needs to read, update, import, or verify track state; when a BRANCH.md or plan/NN-BRANCH_*.md changed; or when deciding between Track MCP and CLI. MCP remains read-only, writes/imports use the CLI, and .track is append-only/single-writer."
 ---
 
 # Track Operation
@@ -9,21 +9,19 @@ Use this for ordinary track hygiene: reading status, importing BRANCH files, rec
 updates, and verifying that the sidecar is current. This is the general operational skill; use
 `present-decision` for human decision dossiers and `propose-workpackages` for backlog restructuring.
 
-## Human AI report/status — DO THIS FIRST
+## Human deterministic report/status — DO THIS FIRST
 
 For ANY human-facing track report or status (including "fais-moi un track report", "un track report",
-"a status", "an advancement/progress report"): run the CLI `track report` (or
-`track report --format md`) from the repo root and paste its AI-prepared, cited output verbatim.
+"a status", "an advancement/progress report"): run the CLI `track report --wp --decisions --format text`
+from the repo root. It is a complete, local projection of the folded log; the agent already in session may
+add contextual prose without invoking another model.
 
-- NEVER call the `track_report` MCP tool to render a human AI report. It is the frozen legacy,
-  deterministic projection; `track_snapshot` is the canonical factual context projection.
-- NEVER invent a report by interpreting MCP JSON or snapshot facts yourself.
-- If `track report` fails because no adapter is configured, times out, or returns invalid output, say that
-  the AI report is unavailable and preserve the command's honest error. You MAY run
-  `track snapshot --format text`, but label it exactly as a **factual snapshot (not an AI report)**. Do not
-  turn rule-derived snapshot directives into AI advice.
-- `--wp`, `--flat`, `--decisions`, and `--active-roster` are emphasis/context controls for the AI adapter;
-  they no longer select a deterministic human renderer.
+- The MCP server is read-only. Use its `track_*` tools only for factual reads; use the CLI for human
+  rendering, writes, and imports.
+- `track report --wp --decisions --format json` exposes the complete conductor machine view; `--flat` is a
+  deterministic diagnostic, never a way to recover rows omitted by the conductor.
+- `track snapshot` or `track report --raw` is a **factual snapshot (not an AI report)**. Label it exactly
+  that way when returning it to a human; do not turn rule-derived directives into unsupported advice.
 
 ## Contract
 
@@ -34,7 +32,7 @@ For ANY human-facing track report or status (including "fais-moi un track report
   standalone Track entry rather than stacking servers.
 - **Never configure or call `track-mcp` / `h2a track-mcp` directly as a host MCP endpoint.** Track is not a
   second host MCP connection: use the selected h2a endpoint for its read-only `track_*` tools. Use the
-  `track` CLI from the repository root for human AI reports, writes, and imports.
+  `track` CLI from the repository root for deterministic human reports, writes, and imports.
 - Do not treat missing MCP write/import tools as a blocker. Writes and imports are CLI operations.
 - Run CLI writes from the target repository root, never from a different checkout. `track branch import
   ../other-repo/plan/X.md` writes to the current repo's `.track/`, not the other repo's store.
@@ -85,14 +83,14 @@ Use direct CLI writes only for the event they actually represent:
 
 Report track results from the verified state, not from memory:
 
-- Use `track report --format text` for a human AI status and paste its raw, cited output verbatim.
-- Use `track report --format md` when Markdown is explicitly useful, and `--wp` or `--flat` only to request
-  a workpackage or flat emphasis from the adapter.
+- Use `track report --wp --decisions --format text` for the exhaustive deterministic conductor.
+- Use `track report --format md` when Markdown is explicitly useful; use `--flat` only for its separate,
+  deterministic flat diagnostic.
 - Use `track snapshot` or the exact alias `track report --raw` for canonical deterministic facts. Its text
   and Markdown renderers are diagnostics; always label them **factual snapshot (not an AI report)** when
   returning them to a human.
-- `track report --format json` and the MCP `track_report` tool remain frozen legacy compatibility surfaces;
-  do not present either as the new human AI report.
+- `track report --format json` and the MCP `track_report` tool are deterministic factual compatibility
+  surfaces, not AI-generated reports.
 - Mention if `.track/` was intentionally not written because the current checkout is not the designated
   writer.
 
