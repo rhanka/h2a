@@ -110,6 +110,17 @@ describe('track focus', () => {
     expect(err.join('')).toMatch(/focus/)
   })
 
+  it('a decision in another workspace fails loudly instead of rendering under the supplied workspace', async () => {
+    const { decisionId } = seed()
+    const code = await runCli(
+      ['focus', decisionId, '--workspace', 'ws-wrong', '--baseline-commit', 'c1'],
+      io(root),
+    )
+    expect(code).toBe(3)
+    expect(out.join('')).toBe('')
+    expect(err.join('')).toContain(`decision ${decisionId} belongs to workspace ws-1, not ws-wrong`)
+  })
+
   it('an unknown decision → rc=3 (DecisionNotFoundError, focus exit-code parity)', async () => {
     seed()
     const code = await runCli(
