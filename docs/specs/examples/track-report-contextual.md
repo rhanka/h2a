@@ -1,9 +1,9 @@
 # TRACK REPORT — h2a
 
-*Reference example of the CONTEXTUALISED report. Produced from the deterministic
-output alone (`track report --raw --format text` + `track_report` legacy text +
-`track focus <id>`), by the agent already holding the conversation. No AI
-subprocess, no gateway, no model call.*
+> Historical illustration only — not an executable procedure and not a current factual report. It predates
+> the deterministic conductor, its reconciled HORS ROLLUP total, required `track focus --workspace`, and
+> the rule that model/effort must come from owner context. Follow
+> `packages/h2a/skills/harness/track-report/SKILL.md` instead.
 
 *baseline `5fa272e` · 54/84 (64%) · DONE 57 · TO-DO 29 · AWAITED 5 · DROPPED 2*
 

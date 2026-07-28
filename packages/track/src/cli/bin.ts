@@ -6,6 +6,18 @@
 // same posture as track-mcp's cli.ts and cannot regress that way. `index.ts` stays import-only.
 import { runCli } from './index.js'
 
+// Keep the natural drain that preserves large reports, while treating a downstream closed pipe (for
+// example `track report | head`) as normal CLI termination rather than an uncaught stream error.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EPIPE') {
+      process.exitCode ??= 0
+      return
+    }
+    throw error
+  })
+}
+
 // `runCli` returns `number | Promise<number>` — the `focus` command is async (it dynamically imports the
 // integrated focus); every other command stays sync and returns a plain number. `Promise.resolve`
 // normalizes both into one exit path, so a sync command still exits with no added microtask churn beyond a
@@ -16,4 +28,9 @@ Promise.resolve(
     out: (s) => process.stdout.write(s),
     err: (s) => process.stderr.write(s),
   }),
-).then((rc) => process.exit(rc))
+// Do NOT call `process.exit(rc)` after `process.stdout.write(...)`: on a pipe Node can terminate before
+// its buffered output drains, truncating a valid report at the stream's high-water mark. `exitCode` keeps
+// the natural event-loop shutdown and therefore preserves complete deterministic JSON/text projections.
+).then((rc) => {
+  process.exitCode = rc
+})

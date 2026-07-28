@@ -98,7 +98,7 @@ interface InstallResult {
 }
 
 const TRACK_SLASH_COMMAND_MD = `---
-description: Run Track commands from the repo root; a human report uses the AI-prepared CLI path, never the deterministic track_report MCP compatibility projection.
+description: Run deterministic Track commands from the repo root; the agent in session supplies any contextual prose, never a report adapter or model.
 argument-hint: report [--commit <ref>] | <track args...>
 ---
 
@@ -107,31 +107,33 @@ You are the Track slash command.
 If \`$ARGUMENTS\` is empty or starts with \`report\`, run the Track report from the repository root:
 
 \`\`\`bash
-track report --format text --commit HEAD
+track report --wp --decisions --format text --commit HEAD
 \`\`\`
 
 If the user supplied \`report --commit <ref>\`, use that commit/ref instead of \`HEAD\`. For any other
 arguments, run \`track $ARGUMENTS\` from the repository root.
 
-When returning a report/status, paste the raw, cited AI output verbatim inside a fenced \`text\` code block.
-If the adapter is unavailable, preserve the honest error. You may run \`track snapshot --format text\`, but
-label it **factual snapshot (not an AI report)** and never turn its rule-derived facts into AI advice.
+When returning a report/status, render the complete deterministic conductor. It never invokes an adapter,
+gateway, model, or network. Use \`track snapshot --format text\` only for the canonical raw projection and
+label it **factual snapshot (not an AI report)**. Any contextual prose comes from the agent already in session;
+do not claim it came from Track.
 `
 
-const TRACK_SLASH_COMMAND_TOML = `description = "Run Track commands from the repo root; a human report uses the AI-prepared CLI path, never the deterministic track_report MCP compatibility projection"
+const TRACK_SLASH_COMMAND_TOML = `description = "Run deterministic Track commands from the repo root; the agent in session supplies any contextual prose, never a report adapter or model"
 prompt = '''
 You are the Track custom command.
 
 If the argument is empty or starts with \`report\`, run from the repository root:
 
-    track report --format text --commit HEAD
+    track report --wp --decisions --format text --commit HEAD
 
 If the user supplied \`report --commit <ref>\`, use that commit/ref instead of \`HEAD\`. For any other
 arguments, run \`track <arguments>\` from the repository root.
 
-When returning a report/status, paste the raw, cited AI output verbatim inside a fenced \`text\` code block.
-If the adapter is unavailable, preserve the honest error. You may run \`track snapshot --format text\`, but
-label it **factual snapshot (not an AI report)** and never turn its rule-derived facts into AI advice.
+When returning a report/status, render the complete deterministic conductor. It never invokes an adapter,
+gateway, model, or network. Use \`track snapshot --format text\` only for the canonical raw projection and
+label it **factual snapshot (not an AI report)**. Any contextual prose comes from the agent already in session;
+do not claim it came from Track.
 '''
 `
 
