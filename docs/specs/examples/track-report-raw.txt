@@ -3,13 +3,17 @@ source commit: 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
 explicit event window: #1..#568 (state folded through cursor count:568)
 workspace: ws:89c45cc3e040949f1a1a034529722ee877150fd2a0e3da16a7f6e9d8e27f495d
 
-Reproduction (from the fixed Track tree over the materialized exact event log):
+Fixture reproduction (not the live-report default; use the same three report reads with an explicit store and baseline):
+  export TMPDIR=/tmp
+  npm ci
+  npm run build -w @sentropic/track
+  track() { npm exec --workspace @sentropic/track -- track "$@"; }
   golden_track_dir="$(mktemp -d)"
   git show 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5:.track/events.jsonl > "$golden_track_dir/events.jsonl"
-  TRACK_DIR="$golden_track_dir" node packages/track/dist/cli/bin.js report --format json --wp --decisions --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
-  TRACK_DIR="$golden_track_dir" node packages/track/dist/cli/bin.js focus <decision-id> --workspace ws:89c45cc3e040949f1a1a034529722ee877150fd2a0e3da16a7f6e9d8e27f495d --format md --baseline-commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
-`--commit`/`--baseline-commit` select read baselines; TRACK_DIR pins the 568-event input.
-Build the fixed Track tree before running these commands.
+  track --track-dir "$golden_track_dir" report --raw --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
+  track --track-dir "$golden_track_dir" report --wp --decisions --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
+  track --track-dir "$golden_track_dir" decision ls --outcome pending --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
+`--commit` selects the acceptance baseline; `--track-dir` pins the 568-event input.
 
 WP ROWS (label | title | done/active | pct)
 S1 | WP-C Keepalive, presence & infra | 0/0 | n/a
