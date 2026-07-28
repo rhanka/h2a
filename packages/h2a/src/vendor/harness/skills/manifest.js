@@ -11,6 +11,7 @@ export const HARNESS_SKILLS = [
     { name: 'test', summary: 'test-pyramid + scoped-test loop (not "tdd")', legacySuperpowers: 'test-driven-development' },
     { name: 'debug', summary: 'generic root-cause loop', legacySuperpowers: 'systematic-debugging' },
     { name: 'review', summary: '≥2-peer consensus review', legacySuperpowers: 'requesting-code-review' },
+    { name: 'security', summary: 'dependency/vulnerability debt: coverage, expiring exceptions, CI gates' },
     { name: 'plan', summary: 'spec-ladder + BRANCH.md lots; completes with track', legacySuperpowers: 'writing-plans' },
     { name: 'adopt', summary: 'adapt the harness method to ANY repo (profile)' },
 ];
