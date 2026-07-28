@@ -50,8 +50,8 @@ describe('seam v0 — contract version bumps (additive, backward-compatible)', (
   it('INGEST_CONTRACT_VERSION ≥ seam-v0 1.1.0 (now 1.6.0 — A2 role stream additive value+kind, still MINOR)', () => {
     expect(INGEST_CONTRACT_VERSION).toBe('1.6.0')
   })
-  it('READ_CONTRACT_VERSION ≥ seam-v0 1.9.0 (now 1.19.0 — report-revamp additive directive/view surface, still MINOR)', () => {
-    expect(READ_CONTRACT_VERSION).toBe('1.19.0')
+  it('READ_CONTRACT_VERSION ≥ seam-v0 1.9.0 (now 1.20.0 — additive decision dossier list, still MINOR)', () => {
+    expect(READ_CONTRACT_VERSION).toBe('1.20.0')
   })
 })
 

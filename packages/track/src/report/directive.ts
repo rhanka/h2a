@@ -402,7 +402,9 @@ export function buildDirectives(
             step: { code: focus ? 'focus-decision' : 'settle-decision' },
             rank: 'P1_GATE',
             facts: factsOf(l, decisionId !== '' ? [decisionId] : [], fanInOf(l.id)),
-            ...(decisionId !== '' ? { commandHint: `track focus ${decisionId}` } : {}),
+            // `focus` binds to the decision's workspace, which can differ from the blocked item's
+            // workspace. A dangling blocker ref has no authoritative workspace, so it gets no hint.
+            ...(d !== undefined ? { commandHint: `track focus ${decisionId} --workspace ${d.workspace}` } : {}),
           }),
         })
         if (decisionId !== '') seenDecisionRef.add(decisionId)
@@ -510,7 +512,7 @@ export function buildDirectives(
           ...(d.accountable !== undefined ? { accountable: d.accountable } : {}),
           blockerRefs: [d.id],
         },
-        commandHint: `track focus ${d.id}`,
+        commandHint: `track focus ${d.id} --workspace ${d.workspace}`,
       }),
     })
   }

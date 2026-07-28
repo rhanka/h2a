@@ -6,9 +6,10 @@ and `docs/specs/examples/track-report-contextual.md` (the reference rendering).
 
 ## 1. The defect
 
-`track report` today spawns an adapter (`h2a report-ai`) which calls a gateway which
-calls a model, and prints a narrative: SUMMARY / FACTS / RECENT CHANGES / ACTIVE WORK /
-BLOCKERS / OWNER DECISIONS / AI SUGGESTIONS / UNCERTAINTY.
+Before this change, `track report` spawned an adapter (`h2a report-ai`) which called a gateway
+and a model, then printed a narrative: SUMMARY / FACTS / RECENT CHANGES / ACTIVE WORK /
+BLOCKERS / OWNER DECISIONS / AI SUGGESTIONS / UNCERTAINTY. The normal command is now a local,
+deterministic renderer; the adapter remains a separately invoked legacy capability.
 
 Three things are wrong with that, and only the third is about taste.
 
@@ -46,27 +47,29 @@ The skill is `packages/h2a/skills/harness/track-report/SKILL.md`.
 
 This is the load-bearing part of the design, and it was nearly missed.
 
-`track focus <decision-id>` already renders, per decision:
+`track focus <decision-id> --workspace <workspace>` renders one decision dossier. Its workspace is
+the decision's stored workspace, not the current-directory workspace. A mismatch is an error.
 
 ```
 1/6 — Un nom de session peut-il envoyer une commande ?
-Choix A : … Choix B : … Recommandation : A — … Effet : débloque le lot adressage sûr.
+Choix A : … Choix B : … Recommandation : A — …
 Outcome [decision]: PENDING
 ```
 
-Alternatives, recommendation AND effect **already exist** in the dossier. They are merely
-flattened into one prose `context` string.
+For a structured dossier, alternatives and a recommendation are stored fields; option title/summary is the
+only stored explanatory text surfaced by the deterministic route. There is no separate machine-readable
+effect field. A historical prose-only dossier is explicitly `unstructured`; prose is never parsed to
+manufacture a choice set.
 
-So the report's DÉCISIONS section and `track focus` are **the same data in two renders**:
-inline as a table when the owner wants the whole picture, one dossier per screen when he
-wants to decide. Switching to focus mode must therefore never re-derive anything — it
-renders the same `Choix / Recommandation / Effet` triplet, one at a time.
+So the report's structured **DÉCISIONS** section and `track focus` are **the same stored data in two
+renders**: inline when the owner wants the whole picture, one dossier per screen when he wants to
+decide. Switching to focus mode must never re-derive anything. An unstructured dossier belongs in
+À-FAIRE as work to structure, not in DÉCISIONS.
 
-**Consequence for the store, and it is the only structural change worth making:** that
-triplet should be structured fields, not a prose blob. While it is prose, the table render
-must PARSE it, and a parser over free text is a habit dressed as a mechanism — it will
-silently produce an empty cell the day someone writes the context differently. Recorded
-here as a follow-up rather than smuggled into this change.
+**Consequence for the store:** the triplet must be structured fields, not a prose blob. Parsing
+free text is forbidden: it silently produces an empty or invented cell when wording changes. The
+read surface exposes `structure: structured|unstructured` so the renderer can say which case it has
+without inspecting prose.
 
 ## 4. Rules the rendering must respect
 
@@ -92,7 +95,9 @@ cell needing several lines — the alternatives — must be a DRAWN table inside
 block, which is what `formatWpConductor` already does.
 
 **RECOMMANDATION is an executable plan**, conditioned on the decisions: which lanes to
-launch, on which model, and what each answer unblocks. The owner must be able to reply
+launch, what each answer unblocks, and any executor context the owner supplied. The log does not
+record a model or reasoning effort; the report must name that missing context rather than invent it.
+The owner must be able to reply
 `vas y`, or `D1 A · D2 B · …`, and have work start.
 
 ## 5. Where this stops holding
@@ -101,19 +106,24 @@ The agent can still write a poor synthesis inside a cell, and no structure preve
 What the structure does guarantee is that no WP disappears, that no rule-derived prompt is
 promoted to a decision, and that the report renders with the network down.
 
-The `Choix / Recommandation / Effet` parsing over a prose `context` is the weakest link and
-is named as such above.
+The deterministic route does not parse choices or a recommendation from a prose `context`.
+An unstructured dossier remains visibly incomplete until an authorized writer records structured fields.
 
 ## 6. Disposition of the AI adapter
 
 Not removed by this change — that is a separate decision with its own blast radius. What
 this change does is make it UNNECESSARY: the contextual rendering no longer depends on it.
 
-Follow-up, recorded not done: make `report-ai` opt-in rather than mandatory, and reconcile
-the flags so `--wp` and `--decisions` mean the same thing on both paths or are rejected on
-both with a message naming what replaced them.
+`report-ai` is now an explicit legacy command, not a `track report` dependency. Its adapter-specific
+configuration and flags remain outside the deterministic report contract; do not use them as a report
+fallback or document them in the report skill.
 
-## 7. A decision without options and a recommendation is not a decision
+## 7. Deferred follow-up — enforce structured decisions at write time
+
+Status: **not implemented by this change**. The deterministic read/render path now classifies existing
+records as `structured` or `unstructured` and never parses prose. It does not change the decision model,
+the outcome enum, `decision new`, or focus answer handling. The following is a future write-model proposal,
+not a current CLI contract.
 
 Owner rule, 2026-07-28: **never present a decision that has no alternatives and no
 recommendation.** One without them asks the owner to invent the options himself, which is
@@ -130,27 +140,27 @@ the chat and, at best, as prose in a dossier. That is why eight decisions have b
 `PENDING` for days: nothing can move them except `go`/`no-go`/`deferred`, and none of those
 means "I chose A".
 
-### What changes
+### Proposed changes
 
-**Model.** A decision carries `options: [{ key, label, effect? }]` and `recommendation: key`.
-`Outcome` gains a chosen-option form, so settling a decision NAMES the alternative rather
+**Model.** A decision would carry `options: [{ key, label, effect? }]` and `recommendation: key`.
+`Outcome` would gain a chosen-option form, so settling a decision names the alternative rather
 than collapsing it to a boolean.
 
-**Creation is fail-closed.** `decision new` REQUIRES at least two options and a
-recommendation. Refusing to create an optionless decision is the enforcement; a convention
+**Creation would be fail-closed.** `decision new` would require at least two options and a
+recommendation. Refusing to create an optionless decision would be the enforcement; a convention
 that one should add options is a habit, and habits get skipped — which is exactly how the
 current eight came to exist.
 
-**`track focus`** renders the structured options instead of a prose blob, and accepts an
+**`track focus`** would render the structured options instead of a prose blob, and accept an
 answer by key.
 
-**The report** renders the same options inline in DÉCISIONS. It stops parsing free text:
-today it must recover `Choix A :` / `Recommandation :` from one `context` string, and a
-parser over prose produces an empty cell the day someone writes it differently.
+**The report** already renders stored options inline in DÉCISIONS and never parses free text:
+a prose-only historical dossier is rendered as `unstructured`, so the report cannot silently
+pretend that a written phrase is a recorded alternative.
 
-**Migration.** The log is append-only and is not rewritten. Existing decisions keep their
-prose `context` and render as they do today, flagged `unstructured`. New ones cannot be
-created without options. No backfill, no invention of options nobody chose.
+**Migration.** The log would remain append-only and would not be rewritten. Existing decisions keep their
+prose `context` and render as `unstructured`. New write-time validation would apply only after the migration;
+there would be no backfill or invention of options nobody chose.
 
 ### Impact, both ways
 
