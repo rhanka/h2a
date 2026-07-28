@@ -173,6 +173,8 @@ describe('formatting', () => {
 
     const text = formatActionReport(report, 'text')
     const normalized = text.replace(/\s+/g, ' ')
+    expect(text).toContain('ACTIONS DÉRIVÉES')
+    expect(text).not.toContain('DÉCISIONS/ACTIONS')
     expect(text).toContain('À INSTRUIRE')
     expect(text).toContain('legacy-pending')
     expect(text).toContain('alternatives et')
@@ -180,7 +182,7 @@ describe('formatting', () => {
     expect(text).toContain('HISTORIQUE NON STRUCTURÉ')
     expect(text).toContain('legacy-settled')
     expect(normalized).toContain("aucune option sélectionnée n'est attestée")
-    expect(text).toContain('track decision select')
+    expect(text).toMatch(/track decision[\s\S]*select/)
     expect(text).not.toContain('enregistrer outcome')
     expect(text).not.toContain('MCP')
   })
