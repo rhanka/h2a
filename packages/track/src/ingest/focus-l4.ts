@@ -8,7 +8,7 @@ import type { WorkEventKind } from './contract.js'
  * submits ordinary WorkEvents through `ingest(context,event,store)`; this table prevents UI prose from
  * becoming the contract.
  */
-export const FOCUS_L4_ACTIONS = ['ratifyOutcome', 'amendSpec', 'addDossierArtifact'] as const
+export const FOCUS_L4_ACTIONS = ['selectOption', 'ratifyOutcome', 'amendSpec', 'addDossierArtifact'] as const
 export type FocusL4Action = (typeof FOCUS_L4_ACTIONS)[number]
 
 export type FocusL4Aggregate = 'decision' | 'item'
@@ -29,13 +29,21 @@ export interface FocusL4ActionBinding {
 }
 
 export const FOCUS_L4_ACTION_BINDINGS: Readonly<Record<FocusL4Action, FocusL4ActionBinding>> = Object.freeze({
+  selectOption: Object.freeze({
+    action: 'selectOption',
+    workEventKind: 'decision.select',
+    requiresBindingAuth: true,
+    aggregate: 'decision',
+    requiredPayload: Object.freeze(['decisionId', 'optionId']),
+    summary: 'Select a recorded option and settle it atomically.',
+  }),
   ratifyOutcome: Object.freeze({
     action: 'ratifyOutcome',
     workEventKind: 'decision.outcome',
     requiresBindingAuth: true,
     aggregate: 'decision',
     requiredPayload: Object.freeze(['decisionId', 'to']),
-    summary: 'Ratify a decision outcome by appending decision.outcome.',
+    summary: 'Defer an unresolved dossier; a go/no-go settlement uses selectOption.',
   }),
   amendSpec: Object.freeze({
     action: 'amendSpec',

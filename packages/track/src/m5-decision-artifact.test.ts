@@ -73,7 +73,7 @@ const ctx = (over: Partial<IngestContext> = {}): IngestContext => ({ by: 'h2a:br
 function seedDecision(c: IngestContext = ctx()): string {
   const itemId = ingest([ev('item.create', { kind: 'feature', title: 'A', workspace: c.workspace })], c, store).ids[0]!
   return ingest(
-    [ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: c.workspace, targets: [itemId], dossier: { context: '', options: [], qa: [] } })],
+    [ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: c.workspace, targets: [itemId], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })],
     c,
     store,
   ).ids[0]!
@@ -81,7 +81,7 @@ function seedDecision(c: IngestContext = ctx()): string {
 
 describe('M5 — additivity (frozen-contract regression)', () => {
   it('a decision.created with NO artifacts hashes byte-identically to a pre-M5 dossier event', () => {
-    const dossier = { context: 'c', options: [], qa: [] }
+    const dossier = { context: 'c', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } }
     // The contentHash is computed over the command core (see frame.ts). The dossier payload object is
     // identical whether or not `artifacts` exists as an OPTIONAL key — canonicalize drops `undefined`.
     const withoutKey = computeHash(dossier)
@@ -91,7 +91,7 @@ describe('M5 — additivity (frozen-contract regression)', () => {
 
   it('an existing dossier.revised event with no artifacts stays integral', () => {
     const decId = seedDecision()
-    ingest([ev('decision.dossier', { decisionId: decId, dossier: { context: 'updated', options: [], qa: [] } })], ctx(), store)
+    ingest([ev('decision.dossier', { decisionId: decId, dossier: { context: 'updated', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })], ctx(), store)
     expect(integral()).toBe(true)
     const revised = store.readAll().find((e) => e.type === 'dossier.revised')!
     expect('artifacts' in (revised.payload as { dossier: Record<string, unknown> }).dossier).toBe(false)
@@ -247,7 +247,7 @@ describe('M5 — CLI≡ingest parity (facade command vs WorkEvent)', () => {
     const store2 = new EventStore(join(dir2, '.track', 'events.jsonl'))
     const t2 = new Track(store2, { by: 'human:x', prov: LOCAL })
     const itemId = t2.createItem({ kind: 'feature', title: 'A', workspace: 'ws' })
-    const decF = t2.createDecision({ decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [], qa: [] } })
+    const decF = t2.createDecision({ decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
     t2.addDecisionArtifact(decF, DOSSIER_ARTIFACT)
     const viaFacade = t2.state().decisions.get(decF)!.dossier.artifacts
     rmSync(dir2, { recursive: true, force: true })
@@ -260,7 +260,7 @@ describe('M5 — CLI≡ingest parity (facade command vs WorkEvent)', () => {
     const t = new Track(store, { by: 'human:x', prov: LOCAL })
     expect(() => t.addDecisionArtifact('nope', DOSSIER_ARTIFACT)).toThrow()
     const itemId = t.createItem({ kind: 'feature', title: 'A', workspace: 'ws' })
-    const decF = t.createDecision({ decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [], qa: [] } })
+    const decF = t.createDecision({ decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
     expect(() => t.addDecisionArtifact(decF, { kind: 'h2a-decision-dossier', negotiationRef: 'n' } as DossierArtifact)).toThrow()
   })
 })

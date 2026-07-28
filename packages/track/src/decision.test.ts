@@ -30,7 +30,15 @@ afterEach(() => {
 })
 
 function dossier(): Dossier {
-  return { context: 'ctx', options: [], qa: [] }
+  return {
+    context: 'ctx',
+    options: [
+      { id: 'a', title: 'Option A', summary: 'Take the first path' },
+      { id: 'b', title: 'Option B', summary: 'Take the second path' },
+    ],
+    qa: [],
+    recommendation: { optionId: 'a', rationale: 'A is safer' },
+  }
 }
 
 function feature(title = 'f'): string {
@@ -130,9 +138,10 @@ describe('outcome machine + target effect (A5, §2.6)', () => {
     expect(s.decisions.get(d)!.outcome).toBe('deferred')
     expect(openBlockersForItem(s, t)).toHaveLength(1) // still AWAITED
 
-    track.setOutcome(d, 'go') // deferred -> go is legal
+    track.selectDecisionOption(d, 'a') // deferred -> selected go is legal
     s = track.state()
     expect(s.decisions.get(d)!.outcome).toBe('go')
+    expect(s.decisions.get(d)!.dossier.selectedOptionId).toBe('a')
     expect(openBlockersForItem(s, t)).toHaveLength(0) // resolved
     expect(s.items.get(t)!.realization).toBe('to-do') // go does not drop
     expect(s.items.get(t)!.disposition.orientation).toBe('completed')
@@ -149,20 +158,21 @@ describe('outcome machine + target effect (A5, §2.6)', () => {
       dossier: dossier(),
     })
 
-    track.setOutcome(d, 'no-go')
+    track.selectDecisionOption(d, 'b', 'no-go')
     const s = track.state()
     expect(s.decisions.get(d)!.outcome).toBe('no-go')
     expect(openBlockersForItem(s, t)).toHaveLength(0)
     expect(s.items.get(t)!.realization).toBe('rejected')
     expect(s.items.get(t)!.disposition.commitment).toBe('completed')
 
-    // the effect is ONE atomic cmdId batch (decision.outcome + blocker.resolved + realization.transition)
+    // the effect is ONE atomic cmdId batch (selected option + outcome + blocker resolution + rejection)
     const events = store.readAll()
     const outcomeEvent = events.find((e) => e.type === 'decision.outcome')!
     expect(outcomeEvent.cmdId).toBeDefined()
     const batch = events.filter((e) => e.cmdId === outcomeEvent.cmdId)
     expect(batch.map((e) => e.type).sort()).toEqual([
       'blocker.resolved',
+      'decision.option-selected',
       'decision.outcome',
       'realization.transition',
     ])
@@ -178,7 +188,7 @@ describe('outcome machine + target effect (A5, §2.6)', () => {
       targets: [t],
       dossier: dossier(),
     })
-    track.setOutcome(d, 'no-go')
+    track.selectDecisionOption(d, 'b', 'no-go')
 
     const full = store.readAll()
     const partial = full.slice(0, -1) // drop the trailing batch member (realization.transition)
@@ -196,8 +206,8 @@ describe('outcome machine + target effect (A5, §2.6)', () => {
       targets: [t],
       dossier: dossier(),
     })
-    track.setOutcome(d, 'go')
-    expect(() => track.setOutcome(d, 'no-go')).toThrow(/illegal outcome transition go -> no-go/)
+    track.selectDecisionOption(d, 'a')
+    expect(() => track.selectDecisionOption(d, 'b', 'no-go')).toThrow(/illegal outcome transition go -> no-go/)
   })
 })
 
@@ -227,8 +237,39 @@ describe('decision realization (prep) + dossier + disposition', () => {
       targets: [t],
       dossier: dossier(),
     })
-    track.reviseDossier(d, { context: 'updated', options: [], qa: [] })
+    track.reviseDossier(d, { ...dossier(), context: 'updated' })
     expect(track.state().decisions.get(d)!.dossier.context).toBe('updated')
+  })
+
+  it('rejects optionless creation and records an existing selected option durably', () => {
+    const t = feature()
+    expect(() => track.createDecision({
+      decisionKind: 'orientation', title: 'legacy-shaped', workspace: 'ws', targets: [t],
+      dossier: { context: 'old prose', options: [], qa: [] },
+    })).toThrow(/at least two options/)
+
+    const d = track.createDecision({ decisionKind: 'orientation', title: 'structured', workspace: 'ws', targets: [t], dossier: dossier() })
+    expect(() => track.selectDecisionOption(d, 'unknown')).toThrow(/not declared/)
+    track.selectDecisionOption(d, 'a')
+    expect(track.state().decisions.get(d)!.dossier.selectedOptionId).toBe('a')
+  })
+
+  it('freezes the selected option and recorded recommendation after settlement', () => {
+    const t = feature()
+    const d = track.createDecision({ decisionKind: 'orientation', title: 'structured', workspace: 'ws', targets: [t], dossier: dossier() })
+    track.selectDecisionOption(d, 'a')
+
+    expect(() => track.reviseDossier(d, {
+      ...dossier(), selectedOptionId: 'a',
+      options: [{ id: 'a', title: 'Changed', summary: 'Changed meaning' }, { id: 'b', title: 'Option B', summary: 'Take the second path' }],
+    })).toThrow(/cannot change its selected option/)
+    expect(() => track.reviseDossier(d, {
+      ...dossier(), selectedOptionId: 'a', recommendation: { optionId: 'b', rationale: 'Changed recommendation' },
+    })).toThrow(/cannot change its recorded recommendation/)
+    expect(() => track.setOutcome(d, 'no-go')).toThrow(/must use decision.select/)
+
+    track.reviseDossier(d, { ...dossier(), selectedOptionId: 'a', context: 'Post-settlement note' })
+    expect(track.state().decisions.get(d)!.dossier.context).toBe('Post-settlement note')
   })
 
   it('sets explicit dispositions and rejects explicit completed', () => {

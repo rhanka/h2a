@@ -51,10 +51,10 @@ describe('ingest — parity: a WorkEvent stream ≡ the direct Track facade (ant
       title: 'D',
       workspace: 'ws',
       targets: [itemId],
-      dossier: { context: '', options: [], qa: [] },
+      dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
     })
-    direct.reviseDossier(decId, { context: 'x', options: [], qa: [] })
-    direct.setOutcome(decId, 'go')
+    direct.reviseDossier(decId, { context: 'x', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } })
+    direct.selectDecisionOption(decId, 'a')
     direct.setRealization(itemId, 'in-progress')
     direct.setRealization(itemId, 'done') // terminal realize coverage
     const blkId = direct.openBlocker({ targetId: itemId, kind: 'dependency', ref: itemId, reason: '', resolutionRule: 'manual' })
@@ -71,9 +71,9 @@ describe('ingest — parity: a WorkEvent stream ≡ the direct Track facade (ant
         ev('acceptance.link', { criterionId: critId, kind: 'unit', locator: 'l' }),
         ev('acceptance.run', { evidenceId: evId, commit: 'c1', env: 'ci', runner: 'gh', result: 'pass' }),
         ev('priority.assess', { itemId, ...WSJF }),
-        ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [], qa: [] } }),
-        ev('decision.dossier', { decisionId: decId, dossier: { context: 'x', options: [], qa: [] } }),
-        ev('decision.outcome', { decisionId: decId, to: 'go' }),
+        ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } }),
+        ev('decision.dossier', { decisionId: decId, dossier: { context: 'x', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } }),
+        ev('decision.select', { decisionId: decId, optionId: 'a' }),
         ev('item.realize', { itemId, to: 'in-progress' }),
         ev('item.realize', { itemId, to: 'done' }),
         ev('blocker.raise', { targetId: itemId, kind: 'dependency', ref: itemId, resolutionRule: 'manual' }),
@@ -94,8 +94,8 @@ describe('ingest — parity: a WorkEvent stream ≡ the direct Track facade (ant
     const critId = d.addCriterion(itemId, 's')
     d.waive(critId, 'r')
     d.setDisposition(itemId, 'commitment', 'skipped')
-    const decId = d.createDecision({ decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [], qa: [] } })
-    d.setOutcome(decId, 'no-go') // emits decision.outcome + blocker.resolved + realization→rejected on the target
+    const decId = d.createDecision({ decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
+    d.selectDecisionOption(decId, 'a', 'no-go') // emits selection + outcome + blocker.resolved + realization→rejected on the target
 
     const ingestStore = freshStore()
     ingest(
@@ -104,8 +104,8 @@ describe('ingest — parity: a WorkEvent stream ≡ the direct Track facade (ant
         ev('acceptance.criterion', { itemId, statement: 's' }),
         ev('acceptance.waive', { criterionId: critId, reason: 'r' }),
         ev('decision.disposition', { itemId, gate: 'commitment', disposition: 'skipped' }),
-        ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [], qa: [] } }),
-        ev('decision.outcome', { decisionId: decId, to: 'no-go' }),
+        ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } }),
+        ev('decision.select', { decisionId: decId, optionId: 'a', outcome: 'no-go' }),
       ],
       ctx({ now, newId: counter() }),
       ingestStore,
@@ -135,7 +135,7 @@ describe('ingest — workspace containment against folded state (the security pr
     const vItem = ingest([ev('item.create', { kind: 'feature', title: 'x', workspace: 'V' })], ctx({ workspace: 'V' }), store).ids[0]!
     expect(() =>
       ingest(
-        [ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'W', targets: [vItem], dossier: { context: '', options: [], qa: [] } })],
+        [ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'W', targets: [vItem], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })],
         ctx({ workspace: 'W' }),
         store,
       ),
@@ -146,7 +146,7 @@ describe('ingest — workspace containment against folded state (the security pr
     const store = freshStore()
     const vItem = ingest([ev('item.create', { kind: 'feature', title: 'x', workspace: 'V' })], ctx({ workspace: 'V' }), store).ids[0]!
     const vDec = ingest(
-      [ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'V', targets: [vItem], dossier: { context: '', options: [], qa: [] } })],
+      [ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'V', targets: [vItem], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })],
       ctx({ workspace: 'V' }),
       store,
     ).ids[0]!
