@@ -7,12 +7,13 @@ Fixture reproduction (not the live-report default; use the same three report rea
   export TMPDIR=/tmp
   npm ci
   npm run build -w @sentropic/track
-  track() { npm exec --workspace @sentropic/track -- track "$@"; }
+  track_bin="$(pwd -P)/packages/track/dist/cli/bin.js"
+  test -f "$track_bin"
   golden_track_dir="$(mktemp -d)"
   git show 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5:.track/events.jsonl > "$golden_track_dir/events.jsonl"
-  track --track-dir "$golden_track_dir" report --raw --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
-  track --track-dir "$golden_track_dir" report --wp --decisions --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
-  track --track-dir "$golden_track_dir" decision ls --outcome pending --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
+  node "$track_bin" --track-dir "$golden_track_dir" report --raw --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
+  node "$track_bin" --track-dir "$golden_track_dir" report --wp --decisions --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
+  node "$track_bin" --track-dir "$golden_track_dir" decision ls --outcome pending --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
 `--commit` selects the acceptance baseline; `--track-dir` pins the 568-event input.
 
 WP ROWS (label | title | done/active | pct)

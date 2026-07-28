@@ -16,7 +16,7 @@ import type { TrackReader } from './contract.js'
  * deterministic action/decision fallback otherwise. Use `--flat` to force the deprecated legacy bucket dump.
  * JSON stays the flat structured contract unless `--wp` is explicit.
  *
- * The CONDUCTOR view is the 3-table FAIT / À-FAIRE(%·WP) / DÉCISIONS-ACTIONS rendered for `text`/`md`.
+ * The conductor renders deterministic FAIT / À-FAIRE / ACTIONS DÉRIVÉES tables for `text`/`md`.
  * For `json` the contract is UNCHANGED from 0.19.0: the additive `{...report, wpTotals}` flat structure
  * (so existing machine consumers keep working), PLUS an OPTIONAL `view` field carrying the conductor view
  * model (for presentation skills). If no WP forest exists, text/md falls back to the deterministic action view.

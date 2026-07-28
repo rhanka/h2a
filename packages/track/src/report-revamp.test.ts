@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { EventStore } from './events/store.js'
-import type { DecisionRow } from './report/build.js'
+import type { DecisionRow, ReportRow } from './report/build.js'
 import { buildWpConductorView, formatWpConductor, formatWpTree } from './report/format.js'
 import { computeWpTree } from './report/rollup.js'
 import { reportHtml, reportText } from './read/commands.js'
@@ -120,10 +120,11 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
     expect(flat.buckets).toHaveProperty('TO-DO')
   })
 
-  it('the conductor view recommends next actions with an execution mode', () => {
+  it('the conductor view renders rule-derived actions with an execution mode, not as decisions', () => {
     seed()
     const text = reportText(new TrackReader(eventsPath), { ...base, wpTree: true }, 'text')
-    expect(text).toContain('DÉCISIONS/ACTIONS')
+    expect(text).toContain('ACTIONS DÉRIVÉES')
+    expect(text).not.toContain('DÉCISIONS/ACTIONS')
     expect(text).toMatch(/(action|décision) \(/)
     // Unified lexicon (spec 2026-07-11): the préconisation clause is the shared canonical action wording.
     expect(text).toMatch(/trancher|rédiger|relancer|corriger|démarrer|inspecter/i)
@@ -145,12 +146,19 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
     expect(text).not.toMatch(/^TO-DO \(/m)
   })
 
+  it('the no-WP default fallback never labels rule-derived actions as decisions', () => {
+    t.createItem({ kind: 'feature', title: 'orphan action', workspace: 'ws' })
+    const text = reportText(new TrackReader(eventsPath), { ...base, wpTree: true }, 'text')
+    expect(text).toContain('ACTIONS DÉRIVÉES')
+    expect(text).not.toContain('DÉCISIONS/ACTIONS')
+  })
+
   it('FAIT / À-FAIRE / ATTENDUS sections are present with correct membership', () => {
     seed()
     const text = reportText(new TrackReader(eventsPath), { ...base, wpTree: true }, 'text')
     expect(text).toContain('FAIT')
     expect(text).toContain('À-FAIRE')
-    expect(text).toContain('DÉCISIONS/ACTIONS')
+    expect(text).toContain('ACTIONS DÉRIVÉES')
     expect(text).toContain('WP1 · Done WP')
     // global total = sum of all WP leaves (1 done of 3 active: d1 + open-todo + awaited-leaf) ⇒ 1/3, 33%
     expect(text).toContain('1/3 (33%)')
@@ -200,7 +208,9 @@ describe('report-revamp — json path keeps the machine contract + additive view
         kind: string
         tables: { id: string; rows: Record<string, string>[] }[]
         directives: { id: string; step: { code: string }; mode: string }[]
+        directivesProjection: { kind: string; order: string }
         dispatchQueue: string[]
+        dispatchQueueProjection: { kind: string; order: string; modes: string[] }
       }
     }
     // Machine contract UNCHANGED from 0.19.0.
@@ -213,7 +223,36 @@ describe('report-revamp — json path keeps the machine contract + additive view
     // 1.14.0 — the actionable directives + the subagent dispatch queue are carried additively.
     expect(Array.isArray(parsed.view!.directives)).toBe(true)
     expect(parsed.view!.directives.length).toBeGreaterThanOrEqual(1)
+    expect(parsed.view!.directivesProjection).toEqual({ kind: 'conductor-action-directives', order: 'canonical-urgency' })
     expect(Array.isArray(parsed.view!.dispatchQueue)).toBe(true)
+    expect(parsed.view!.dispatchQueueProjection).toEqual({ kind: 'delegable-directive-ids', order: 'canonical-urgency', modes: ['subagent', 'local'] })
+    expect(parsed.view).not.toHaveProperty('generalRecommendation')
+  })
+
+  it('emits the documented section order and a factual done projection without a generic recommendation', () => {
+    const wp = t.createItem({ kind: 'chore', title: 'WP1', workspace: 'ws', role: 'workpackage' })
+    done(t.createItem({ kind: 'chore', title: 'done leaf', workspace: 'ws', parentId: wp }))
+    const decisions: DecisionRow[] = [
+      {
+        id: 'structured', title: 'Structured', workspace: 'ws', decisionKind: 'orientation', realization: 'to-do', outcome: 'pending', structured: true,
+        options: [{ id: 'a', title: 'A', summary: 'first' }, { id: 'b', title: 'B', summary: 'second' }],
+        recommendation: { optionId: 'a', rationale: 'first' },
+      },
+      { id: 'legacy-pending', title: 'Legacy pending', workspace: 'ws', decisionKind: 'orientation', realization: 'to-do', outcome: 'pending', structured: false },
+      { id: 'legacy-settled', title: 'Legacy settled', workspace: 'ws', decisionKind: 'orientation', realization: 'done', outcome: 'go', structured: false },
+    ]
+    const outside: ReportRow = {
+      id: 'outside', title: 'Outside', kind: 'feature', workspace: 'ws', bucket: 'TO-DO', realization: 'to-do', acceptance: 'unknown',
+      detail: { acceptanceLabel: 'recette non évaluée' },
+    }
+    const view = buildWpConductorView(computeWpTree(t.state(), cfg), decisions, [outside])
+    expect(view.tables.map((table) => table.id)).toEqual([
+      'done', 'todo', 'todo-unscoped', 'outside-rollup', 'decisions', 'prepare', 'legacy-history', 'rule-derived-actions',
+    ])
+    const doneTable = view.tables[0]!
+    expect(doneTable.columns.map((column) => column.id)).toEqual(['scope', 'progress', 'completion'])
+    expect(doneTable.rows[0]!['completion']).toBe('agrégat de périmètre; pas une action')
+    expect(JSON.stringify(view)).not.toContain('generalRecommendation')
   })
 })
 
@@ -228,7 +267,7 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     expect(text).not.toContain('autres')
   })
 
-  it('DÉCISIONS/ACTIONS lists every pending decision when more than 8 exist', () => {
+  it('DÉCISIONS lists every pending structured decision when more than 8 exist', () => {
     const wp = t.createItem({ kind: 'chore', title: 'WP1', workspace: 'ws', role: 'workpackage' })
     t.createItem({ kind: 'chore', title: 'leaf', workspace: 'ws', parentId: wp })
     const decisions: DecisionRow[] = Array.from({ length: 9 }, (_, i) => ({
@@ -245,7 +284,7 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     const wp = t.createItem({ kind: 'chore', title: 'WP1', workspace: 'ws', role: 'workpackage' })
     const wpLeaf = t.createItem({ kind: 'feature', title: 'inside WP', workspace: 'ws', parentId: wp })
     done(wpLeaf)
-    const orphanDoneA = t.createItem({ kind: 'feature', title: 'orphan done A', workspace: 'ws' })
+    const orphanDoneA = t.createItem({ kind: 'feature', title: 'orphan done A', workspace: 'ws', body: 'outside rollup detail' })
     const orphanDoneB = t.createItem({ kind: 'feature', title: 'orphan done B', workspace: 'ws' })
     const orphanPending = t.createItem({ kind: 'feature', title: 'orphan pending decision', workspace: 'ws' })
     done(orphanDoneA)
@@ -275,8 +314,9 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     }
     const outsideRows = view.view.tables.find((table) => table.id === 'outside-rollup')!.rows
     for (const row of outside) {
-      expect(outsideRows).toContainEqual(expect.objectContaining({ id: row.id, workspace: row.workspace, item: row.title }))
+      expect(outsideRows).toContainEqual(expect.objectContaining({ id: row.id, workspace: row.workspace, item: row.title, acceptance: row.detail.acceptanceLabel }))
     }
+    expect(outsideRows).toContainEqual(expect.objectContaining({ id: orphanDoneA, summary: 'outside rollup detail' }))
 
     const json = JSON.parse(reportText(reader, { ...base, decisions: true, wpTree: true }, 'json')) as {
       buckets: Record<string, unknown[]>
@@ -295,6 +335,8 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     expect(html).toContain('HORS ROLLUP')
     expect(html).toContain('orphan A')
     expect(html).toContain('orphan B')
+    expect(html).not.toContain('report-recommendation')
+    expect(html).not.toContain('<h2>Recommandation</h2>')
   })
 
   it('labels --active-roster totals as a filtered roster rather than global', () => {
@@ -322,7 +364,7 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     // Terminal tables can wrap within a title column; preserve both fragments rather than assuming adjacency.
     expect(text).toContain('Unstructured')
     expect(text).toContain('choice')
-    const decisionsSection = text.slice(text.indexOf('DÉCISIONS/ACTIONS'))
+    const decisionsSection = text.slice(text.indexOf('DÉCISIONS'))
     expect(decisionsSection).not.toContain('Unstructured legacy')
   })
 
@@ -385,6 +427,18 @@ describe('report-revamp — legacy CLI JSON `track report --wp` end-to-end', () 
     expect(r.code).toBe(0)
     const report = JSON.parse(r.out) as { wpTree: Array<{ label: string; title: string }> }
     expect(report.wpTree[0]).toMatchObject({ label: 'WP1', title: 'WP1 — Record Integrity' })
+  })
+
+  it('documents the global fixture override in both help surfaces', () => {
+    const out: string[] = []
+    const err: string[] = []
+    const io = { cwd: dir, out: (s: string) => out.push(s), err: (s: string) => err.push(s) }
+    expect(runCli(['--help'], io)).toBe(0)
+    expect(out.join('')).toContain('--track-dir <directory-containing-events.jsonl>')
+    out.length = 0
+    expect(runCli(['report', '--help'], io)).toBe(0)
+    expect(out.join('')).toContain('--track-dir <directory-containing-events.jsonl>')
+    expect(err).toEqual([])
   })
 })
 
