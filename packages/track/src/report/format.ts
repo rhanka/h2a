@@ -12,7 +12,7 @@ import {
 // Unified report presentation (spec 2026-07-11) — the SINGLE enum→French lexicon the cockpit shares, so
 // the two surfaces can never re-word apart. The terminal composes its own `<nature> (<actor>): <clause>`
 // sentence but sources the canonical action clause + scope label from here.
-import { directiveScopeLabelFr as directiveScopeLabel, stepActionFr } from './friendly.js'
+import { directiveScopeLabelFr as directiveScopeLabel, gatePhraseFr, stepActionFr } from './friendly.js'
 
 export type Format = 'json' | 'text' | 'md'
 
@@ -562,11 +562,52 @@ export function buildWpConductorView(
     ...wpNodes.filter((n) => n.pct === 100).map((n) => ({ scope: wpName(n), progress: `${n.done}/${n.active} (100%)`, lastActions: 'WP clos; preuve/acceptance enregistrée' })),
   ]
 
-  const todoRows = wpNodes.filter((n) => n.pct !== 100).map((n) => {
+  // À-FAIRE is a ready-to-render projection.  A consumer MUST NOT join `tables.todo` back to
+  // `directives`: directives with no WP scope (notably standalone pending decisions) have no
+  // `scope.wpLabel`, and WP labels are presentation text rather than an identity key.  We attach by
+  // `scope.wpId` here, then retain the directive ids as an auditable machine-only row property.
+  const directivesByWpId = new Map<string, Directive[]>()
+  for (const directive of directives) {
+    const wpId = directive.scope.wpId
+    if (wpId === undefined) continue
+    const attached = directivesByWpId.get(wpId)
+    if (attached === undefined) directivesByWpId.set(wpId, [directive])
+    else attached.push(directive)
+  }
+  const noGate = 'Aucun blocage enregistré'
+  const noDirectAction = 'Aucune directive directe'
+  const blocked = (attached: readonly Directive[]): string =>
+    attached.map((directive) => gatePhraseFr(directive.gate) ?? noGate).join(' / ') || noGate
+  const nextAction = (attached: readonly Directive[]): string =>
+    attached.map(directivePhrase).join(' / ') || noDirectAction
+  const directiveIds = (attached: readonly Directive[]): string => attached.map((directive) => directive.id).join(',')
+
+  // A completed WP can still carry a stale/failed acceptance directive, so retain it whenever a
+  // directive is attached even when its rollup percentage is 100.
+  const todoRows = wpNodes.filter((n) => n.pct !== 100 || directivesByWpId.has(n.id)).map((n) => {
     const open = openLeaves(n)
     const listed = open.map((l) => clean(l.title)).join(' / ')
-    return { wp: wpName(n), progress: `${n.done}/${n.active} (${pctStr(n.pct)})`, todo: listed || 'aucun item ouvert direct' }
+    const attached = directivesByWpId.get(n.id) ?? []
+    return {
+      wp: wpName(n),
+      progress: `${n.done}/${n.active} (${pctStr(n.pct)})`,
+      todo: listed || 'aucun item ouvert direct',
+      blocked: blocked(attached),
+      nextAction: nextAction(attached),
+      directiveIds: directiveIds(attached),
+    }
   })
+
+  // A pending decision may be a real directive without a WP ancestor.  It is not a HORS ROLLUP item,
+  // so give it an explicit same-shape table rather than silently assigning it to a similarly named WP.
+  const unscopedTodoRows = directives.filter((directive) => directive.scope.wpId === undefined).map((directive) => ({
+    wp: 'sans WP',
+    progress: '-',
+    todo: clean(directive.target.title ?? directive.target.id),
+    blocked: blocked([directive]),
+    nextAction: nextAction([directive]),
+    directiveIds: directive.id,
+  }))
 
   // DÉCISIONS/ACTIONS rows — derived from the directives. Decisions first, then engagement/work directives.
   // This is deliberately exhaustive: a conductor table is the deterministic route to every open row.
@@ -581,6 +622,8 @@ export function buildWpConductorView(
     actionRows.push({ scope: directiveScopeLabel(d), subject: clean(d.target.title ?? d.target.id), recommendation: directivePhrase(d) })
   }
   const outsideRows = outsideRollup.map((row) => ({
+    id: row.id,
+    workspace: row.workspace,
     scope: row.wpId === undefined ? 'sans WP' : `intermédiaire · ${row.wpLabel ?? '-'}`,
     progress: row.bucket,
     item: clean(row.title),
@@ -591,9 +634,36 @@ export function buildWpConductorView(
     locale: 'fr',
     tables: [
       { id: 'done', title: 'FAIT', columns: [{ id: 'scope', label: 'scope' }, { id: 'progress', label: 'avancement' }, { id: 'lastActions', label: 'dernières actions' }], rows: doneRows },
-      { id: 'todo', title: 'À-FAIRE', columns: [{ id: 'wp', label: 'WP' }, { id: 'progress', label: 'avancement' }, { id: 'todo', label: 'à faire' }], rows: todoRows.length > 0 ? todoRows : [{ wp: '-', progress: '-', todo: 'aucun WP ouvert' }] },
+      {
+        id: 'todo',
+        title: 'À-FAIRE',
+        columns: [
+          { id: 'wp', label: 'WP' },
+          { id: 'progress', label: 'avancement' },
+          { id: 'todo', label: 'à faire' },
+          { id: 'blocked', label: 'bloqué' },
+          { id: 'nextAction', label: 'prochaine action' },
+        ],
+        rows: todoRows.length > 0
+          ? todoRows
+          : [{ wp: '-', progress: '-', todo: 'aucun WP ouvert', blocked: noGate, nextAction: noDirectAction, directiveIds: '' }],
+      },
+      ...(unscopedTodoRows.length > 0
+        ? [{
+            id: 'todo-unscoped',
+            title: 'À-FAIRE SANS WP',
+            columns: [
+              { id: 'wp', label: 'WP' },
+              { id: 'progress', label: 'avancement' },
+              { id: 'todo', label: 'à faire' },
+              { id: 'blocked', label: 'bloqué' },
+              { id: 'nextAction', label: 'prochaine action' },
+            ],
+            rows: unscopedTodoRows,
+          }]
+        : []),
       ...(outsideRows.length > 0
-        ? [{ id: 'outside-rollup', title: 'HORS ROLLUP', columns: [{ id: 'scope', label: 'rattachement' }, { id: 'progress', label: 'état' }, { id: 'item', label: 'item' }], rows: outsideRows }]
+        ? [{ id: 'outside-rollup', title: 'HORS ROLLUP', columns: [{ id: 'id', label: 'id' }, { id: 'workspace', label: 'workspace' }, { id: 'scope', label: 'rattachement' }, { id: 'progress', label: 'état' }, { id: 'item', label: 'item' }], rows: outsideRows }]
         : []),
       ...(structuredDecisions.length > 0 ? [{ id: 'decisions', title: 'DÉCISIONS', columns: [{ id: 'decision', label: 'dossier' }, { id: 'alternatives', label: 'alternatives enregistrées' }, { id: 'recommendation', label: 'recommandation / règlement' }], rows: structuredDecisions.map((d) => ({
         decision: `${d.id} — ${clean(d.title)} (${d.outcome})`,
