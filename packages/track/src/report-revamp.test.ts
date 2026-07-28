@@ -270,6 +270,14 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     expect(rendered).toContain('HORS ROLLUP')
     for (const row of outside) expect(rendered).toContain(row.title)
 
+    const view = JSON.parse(reportText(reader, { ...base, decisions: true, wpTree: true }, 'json')) as {
+      view: { tables: Array<{ id: string; rows: Record<string, string>[] }> }
+    }
+    const outsideRows = view.view.tables.find((table) => table.id === 'outside-rollup')!.rows
+    for (const row of outside) {
+      expect(outsideRows).toContainEqual(expect.objectContaining({ id: row.id, workspace: row.workspace, item: row.title }))
+    }
+
     const json = JSON.parse(reportText(reader, { ...base, decisions: true, wpTree: true }, 'json')) as {
       buckets: Record<string, unknown[]>
       wpTotals: { done: number; active: number; dropped: number }
