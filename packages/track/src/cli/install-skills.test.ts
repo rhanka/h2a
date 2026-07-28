@@ -72,8 +72,8 @@ describe('track install-skills — claude', () => {
     expect(existsSync(skillMd)).toBe(true)
     const trackCommand = join(home, '.claude', 'commands', 'track.md')
     expect(readFileSync(trackCommand, 'utf8')).toContain('track report --wp --decisions --format text --commit HEAD')
-    expect(readFileSync(trackCommand, 'utf8')).toContain('never invokes an adapter')
-    expect(readFileSync(trackCommand, 'utf8')).toContain('factual snapshot (not an AI report)')
+    expect(readFileSync(trackCommand, 'utf8')).toContain('paste the deterministic output verbatim')
+    expect(readFileSync(trackCommand, 'utf8')).toContain('contextual summary is advisory agent behaviour')
     // copied verbatim — frontmatter intact
     expect(readFileSync(skillMd, 'utf8')).toContain('name: present-decision')
     // assets tree copied too
@@ -140,10 +140,10 @@ describe('track install-skills — codex', () => {
     const skillMd = join(home, '.codex', 'skills', 'track-operation', 'SKILL.md')
     const text = readFileSync(skillMd, 'utf8')
     expect(text).toContain('name: track-operation')
-    expect(text).toContain('MCP server is read-only')
+    expect(text).toContain('MCP remains read-only')
     expect(text).toContain('track branch import plan/<BRANCH_FILE>.md')
     expect(text).toContain('Do not treat missing MCP write/import tools as a blocker')
-    expect(text).toContain('factual snapshot (not an AI report)')
+    expect(text).toContain('deterministic conductor')
   })
 
   it('--scope project adds an AGENTS.md pointer for each skill ONLY when AGENTS.md exists', () => {

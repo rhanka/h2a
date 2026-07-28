@@ -147,6 +147,7 @@ function resolveWorkspace(cmd: MappedCommand, state: State): { create: boolean; 
       return { create: false, workspace: item((p['items'] as string[] | undefined)?.[0]) }
     case 'decision.outcome':
     case 'decision.dossier':
+    case 'decision.select':
     case 'decision.add-artifact':
       return { create: false, workspace: state.decisions.get(p['decisionId'] as ItemId)?.workspace }
     case 'acceptance.link':
@@ -204,6 +205,10 @@ function affectedTargetWorkspaces(cmd: MappedCommand, state: State): Array<strin
     case 'decision.create':
       return (cmd.payload['targets'] as string[]).map((t) => wsOf(t as ItemId))
     case 'decision.outcome': {
+      const dec = state.decisions.get(cmd.payload['decisionId'] as ItemId)
+      return dec ? dec.targets.map((t) => wsOf(t)) : []
+    }
+    case 'decision.select': {
       const dec = state.decisions.get(cmd.payload['decisionId'] as ItemId)
       return dec ? dec.targets.map((t) => wsOf(t)) : []
     }
@@ -289,6 +294,9 @@ function applyCommand(track: Track, cmd: MappedCommand, ctx: IngestContext): str
       return track.createDecision(a[0] as DecisionCreatedPayload)
     case 'decision.dossier':
       track.reviseDossier(a[0] as ItemId, a[1] as Dossier)
+      return undefined
+    case 'decision.select':
+      track.selectDecisionOption(a[0] as ItemId, a[1] as string, a[2] as 'go' | 'no-go')
       return undefined
     case 'decision.add-artifact':
       // The clientToken is already in scope via the ingest seam's withClientToken (do not double-pass).

@@ -87,7 +87,7 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
       title: 'gate awaited-leaf',
       workspace: 'ws',
       targets: [blocked],
-      dossier: { context: '', options: [], qa: [] },
+      dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
     })
   }
 
@@ -113,7 +113,7 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
     expect(structured.wpTree?.length).toBeGreaterThan(0)
 
     out.length = 0
-    expect(runCli(['report', '--format', 'json', '--flat', '--commit', 'c1'], io)).toBe(0)
+    expect(runCli(['report', '--format', 'json', '--commit', 'c1'], io)).toBe(0)
     const flat = JSON.parse(out.join()) as { wpTree?: unknown[]; buckets: Record<string, unknown[]> }
     expect(flat.wpTree).toBeUndefined()
     expect(flat.buckets).toHaveProperty('DONE')
@@ -232,7 +232,9 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     const wp = t.createItem({ kind: 'chore', title: 'WP1', workspace: 'ws', role: 'workpackage' })
     t.createItem({ kind: 'chore', title: 'leaf', workspace: 'ws', parentId: wp })
     const decisions: DecisionRow[] = Array.from({ length: 9 }, (_, i) => ({
-      id: `d${i}`, title: `dec${i}`, workspace: 'ws', decisionKind: 'commitment', realization: 'to-do', outcome: 'pending',
+      id: `d${i}`, title: `dec${i}`, workspace: 'ws', decisionKind: 'commitment', realization: 'to-do', outcome: 'pending', structured: true,
+      options: [{ id: 'a', title: 'A', summary: 'first' }, { id: 'b', title: 'B', summary: 'second' }],
+      recommendation: { optionId: 'a', rationale: 'first is safer' },
     }))
     const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text', decisions)
     for (const i of Array.from({ length: 9 }, (_, n) => n)) expect(text).toContain(`dec${i}`)
@@ -248,7 +250,15 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     const orphanPending = t.createItem({ kind: 'feature', title: 'orphan pending decision', workspace: 'ws' })
     done(orphanDoneA)
     done(orphanDoneB)
-    t.createDecision({ decisionKind: 'commitment', title: 'decide orphan', workspace: 'ws', targets: [orphanPending], dossier: { context: '', options: [], qa: [] } })
+    t.createDecision({
+      decisionKind: 'commitment', title: 'decide orphan', workspace: 'ws', targets: [orphanPending],
+      dossier: {
+        context: 'Choose how to handle the orphan item.',
+        options: [{ id: 'complete', title: 'Complete it', summary: 'Finish the item in this workpackage.' }, { id: 'defer', title: 'Defer it', summary: 'Leave it pending for a later window.' }],
+        recommendation: { optionId: 'complete', rationale: 'The item is already in scope.' },
+        qa: [],
+      },
+    })
 
     const reader = new TrackReader(eventsPath)
     const report = reader.report({ ...base, decisions: true, wpTree: true })
@@ -290,6 +300,53 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     expect(text).toContain('roster actif')
     expect(text).not.toMatch(/^global\s/m)
     expect(text).not.toContain('terminal WP')
+  })
+
+  it('moves a legacy optionless decision to À INSTRUIRE instead of the decision table', () => {
+    const wp = t.createItem({ kind: 'chore', title: 'WP1', workspace: 'ws', role: 'workpackage' })
+    t.createItem({ kind: 'chore', title: 'leaf', workspace: 'ws', parentId: wp })
+    const legacy: DecisionRow = {
+      id: 'legacy-1', title: 'Unstructured legacy choice', workspace: 'ws',
+      decisionKind: 'orientation', realization: 'to-do', outcome: 'pending', structured: false,
+    }
+    const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text', [legacy])
+    expect(text).toContain('À INSTRUIRE')
+    // Terminal tables can wrap within a title column; preserve both fragments rather than assuming adjacency.
+    expect(text).toContain('Unstructured')
+    expect(text).toContain('choice')
+    const decisionsSection = text.slice(text.indexOf('DÉCISIONS/ACTIONS'))
+    expect(decisionsSection).not.toContain('Unstructured legacy')
+  })
+
+  it('keeps a settled legacy outcome as history without pretending an option was selected', () => {
+    const wp = t.createItem({ kind: 'chore', title: 'WP1', workspace: 'ws', role: 'workpackage' })
+    t.createItem({ kind: 'chore', title: 'leaf', workspace: 'ws', parentId: wp })
+    const legacy: DecisionRow = {
+      id: 'legacy-settled', title: 'Historical outcome without options', workspace: 'ws',
+      decisionKind: 'orientation', realization: 'done', outcome: 'go', structured: false,
+    }
+    const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text', [legacy])
+    expect(text).toContain('HISTORIQUE NON STRUCTURÉ')
+    expect(text).toContain('Historical outcome')
+    expect(text).toContain('without options')
+    expect(text).toContain('outcome historique:go')
+    expect(text).toContain('aucune option')
+    expect(text).not.toContain('À INSTRUIRE')
+  })
+
+  it('renders only validated native alternatives in DÉCISIONS', () => {
+    const wp = t.createItem({ kind: 'chore', title: 'WP1', workspace: 'ws', role: 'workpackage' })
+    t.createItem({ kind: 'chore', title: 'leaf', workspace: 'ws', parentId: wp })
+    const structured: DecisionRow = {
+      id: 'structured-1', title: 'Recorded alternatives', workspace: 'ws', decisionKind: 'orientation',
+      realization: 'to-do', outcome: 'pending', structured: true,
+      options: [{ id: 'a', title: 'Safe route', summary: 'Require proof' }, { id: 'b', title: 'Fast route', summary: 'Use the alias' }],
+      recommendation: { optionId: 'a', rationale: 'The route is safer' },
+    }
+    const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text', [structured])
+    expect(text).toContain('DÉCISIONS')
+    expect(text).toContain('a: Safe route')
+    expect(text).toContain('recommandée:a')
   })
 
   it('md render escapes markdown metacharacters in a crafted item title (no injection)', () => {

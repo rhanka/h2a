@@ -280,6 +280,17 @@ function applyEvent(state: State, event: TrackEvent): void {
       break
     }
 
+    case 'decision.option-selected': {
+      const decision = state.decisions.get(event.aggregateId)
+      if (decision) {
+        decision.dossier = {
+          ...decision.dossier,
+          selectedOptionId: (event.payload as { optionId: string }).optionId,
+        }
+      }
+      break
+    }
+
     case 'decision.artifact-added': {
       // M5 — append ONE artifact to the decision's dossier.artifacts[] (the existing dossier is left
       // intact; no whole-dossier rewrite). Legality (union shape) is checked at append.

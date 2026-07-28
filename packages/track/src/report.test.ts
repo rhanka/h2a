@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { EventStore } from './events/store.js'
-import { formatReport } from './report/format.js'
+import { formatActionReport, formatReport } from './report/format.js'
 import { Track } from './track.js'
 
 let dir: string
@@ -30,7 +30,7 @@ function feature(title = 'f', workspace = 'ws'): string {
   return track.createItem({ kind: 'feature', title, workspace })
 }
 
-const emptyDossier = { context: '', options: [], qa: [] }
+const emptyDossier = { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } }
 const base = { baselineCommit: 'c1' as const }
 
 function ids(rows: { id: string }[]): string[] {
@@ -52,7 +52,7 @@ describe('report buckets — A2 (SPEC §7)', () => {
       targets: [dropped],
       dossier: emptyDossier,
     })
-    track.setOutcome(decision, 'no-go') // dropped -> rejected, decision blocker resolved
+    track.selectDecisionOption(decision, 'a', 'no-go') // dropped -> rejected, decision blocker resolved
 
     const done = feature('done')
     track.setRealization(done, 'in-progress')
@@ -160,5 +160,28 @@ describe('formatting', () => {
     const md = formatReport(track.report(base), 'md')
     expect(md.split('\n').some((l) => l.startsWith('## INJECTED'))).toBe(false)
     expect(md).toContain('\\*x\\*') // markdown metacharacters escaped
+  })
+
+  it('keeps legacy decision presentation safe in the no-WP action fallback', () => {
+    const target = feature('decision target')
+    track.createDecision({ decisionKind: 'orientation', title: 'structured choice', workspace: 'ws', targets: [target], dossier: emptyDossier })
+    const report = track.report({ ...base, decisions: true, wpTree: true })
+    report.decisions!.push(
+      { id: 'legacy-pending', title: 'legacy pending', workspace: 'ws', decisionKind: 'orientation', realization: 'to-do', outcome: 'pending', structured: false },
+      { id: 'legacy-settled', title: 'legacy settled', workspace: 'ws', decisionKind: 'commitment', realization: 'done', outcome: 'go', structured: false },
+    )
+
+    const text = formatActionReport(report, 'text')
+    const normalized = text.replace(/\s+/g, ' ')
+    expect(text).toContain('À INSTRUIRE')
+    expect(text).toContain('legacy-pending')
+    expect(text).toContain('alternatives et')
+    expect(text).toContain('recommandation non')
+    expect(text).toContain('HISTORIQUE NON STRUCTURÉ')
+    expect(text).toContain('legacy-settled')
+    expect(normalized).toContain("aucune option sélectionnée n'est attestée")
+    expect(text).toContain('track decision select')
+    expect(text).not.toContain('enregistrer outcome')
+    expect(text).not.toContain('MCP')
   })
 })

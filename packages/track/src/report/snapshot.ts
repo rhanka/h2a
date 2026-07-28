@@ -39,7 +39,7 @@ export type SnapshotReportRow = Pick<
 export type SnapshotDecisionRow = Pick<
   DecisionRow,
   | 'id' | 'title' | 'workspace' | 'decisionKind' | 'realization' | 'outcome'
-  | 'accountable' | 'optionCount' | 'openQuestionCount' | 'hasRecommendation' | 'structure'
+  | 'structured' | 'structure' | 'accountable' | 'optionCount' | 'openQuestionCount' | 'hasRecommendation'
 >
 
 export type SnapshotWpLeafBlocker = Pick<
@@ -144,6 +144,7 @@ function projectDecision(decision: DecisionRow): SnapshotDecisionRow {
     decisionKind: decision.decisionKind,
     realization: decision.realization,
     outcome: decision.outcome,
+    ...(decision.structured !== undefined ? { structured: decision.structured } : {}),
     ...(decision.accountable !== undefined ? { accountable: decision.accountable } : {}),
     ...(decision.optionCount !== undefined ? { optionCount: decision.optionCount } : {}),
     ...(decision.openQuestionCount !== undefined ? { openQuestionCount: decision.openQuestionCount } : {}),

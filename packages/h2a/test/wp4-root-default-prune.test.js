@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -29,17 +29,13 @@ function captureStreams(cwd) {
 // ─── 1. resolveRoot fallback → homedir global ──────────────────────────────
 
 test("doctor: no --root / no H2A_ROOT → rootSource=default, root ends with h2a-workspace/.h2a", () => {
-  const dir = mkdtempSync(join(homedir(), "wp4-default-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "wp4-default-test-"));
   const savedEnv = process.env.H2A_ROOT;
   try {
     delete process.env.H2A_ROOT;
-    // Init the global default so doctor hard-checks pass.
-    const globalRoot = join(homedir(), "h2a-workspace", ".h2a");
-    runCli(["init", "--root", globalRoot], captureStreams(dir));
-
     const streams = captureStreams(dir);
-    const rc = runCli(["doctor"], streams);
-    // May be exit 0 (root exists) or exit 2 (if the init above failed for some reason).
+    runCli(["doctor"], streams);
+    // Resolution is the contract under test; the shared global bus need not exist.
     const report = JSON.parse(streams.stdoutText);
     assert.equal(report.rootSource, "default");
     assert.ok(
@@ -57,7 +53,7 @@ test("doctor: no --root / no H2A_ROOT → rootSource=default, root ends with h2a
 });
 
 test("doctor: H2A_ROOT env → rootSource=env (not default)", () => {
-  const dir = mkdtempSync(join(homedir(), "wp4-env-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "wp4-env-test-"));
   const sharedRoot = join(dir, "shared-bus");
   const savedEnv = process.env.H2A_ROOT;
   try {
@@ -83,7 +79,7 @@ test("doctor: H2A_ROOT env → rootSource=env (not default)", () => {
 // ─── 2. doctor --prune removes dead dirs, leaves valid one ─────────────────
 
 test("doctor --prune: removes host-less + phantom dirs, leaves valid 3-segment dir", () => {
-  const dir = mkdtempSync(join(homedir(), "wp4-prune-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "wp4-prune-test-"));
   const savedEnv = process.env.H2A_ROOT;
   try {
     delete process.env.H2A_ROOT;
@@ -142,7 +138,7 @@ test("doctor --prune: removes host-less + phantom dirs, leaves valid 3-segment d
 // ─── 3. doctor without --prune: report only, no deletion ───────────────────
 
 test("doctor without --prune: reports dead dirs but does not delete them", () => {
-  const dir = mkdtempSync(join(homedir(), "wp4-dryrun-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "wp4-dryrun-test-"));
   const savedEnv = process.env.H2A_ROOT;
   try {
     delete process.env.H2A_ROOT;
@@ -177,7 +173,7 @@ test("doctor without --prune: reports dead dirs but does not delete them", () =>
 // ─── 4. warnIfCwdRootFallback: only warns when local .h2a differs ──────────
 
 test("connect: no stderr warning when using shared bus with NO local .h2a in cwd", () => {
-  const dir = mkdtempSync(join(homedir(), "wp4-nowarn-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "wp4-nowarn-test-"));
   const savedEnv = process.env.H2A_ROOT;
   // Isolated temp shared-bus so the connect write never touches the real shared bus.
   const isolatedBus = mkdtempSync(join(tmpdir(), "h2a-test-bus-"));
@@ -204,7 +200,7 @@ test("connect: no stderr warning when using shared bus with NO local .h2a in cwd
 });
 
 test("connect: warns when local .h2a exists and differs from shared default", () => {
-  const dir = mkdtempSync(join(homedir(), "wp4-warn-test-"));
+  const dir = mkdtempSync(join(tmpdir(), "wp4-warn-test-"));
   const savedEnv = process.env.H2A_ROOT;
   // Isolated temp shared-bus so the connect write never touches the real shared bus.
   const isolatedBus = mkdtempSync(join(tmpdir(), "h2a-test-bus-"));

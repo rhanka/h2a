@@ -81,8 +81,8 @@ test("install-skills --host claude renders h2a + track + harness from a single s
       new URL("../../track/skills/track-operation/SKILL.md", import.meta.url),
       "utf8"
     );
-    assert.match(trackOperation, /Host MCP singleton/);
-    assert.match(trackOperation, /Never configure or call `track-mcp`/);
+    assert.match(trackOperation, /MCP remains read-only/);
+    assert.match(trackOperation, /Never configure `track-mcp`/);
 
     // track skills rendered from @sentropic/track (native names).
     for (const t of TRACK_SKILLS) {

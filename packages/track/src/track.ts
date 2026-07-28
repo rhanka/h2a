@@ -30,9 +30,13 @@ import {
 import {
   assertDossierArtifact,
   assertOutcomeTransition,
+  assertStructuredDossier,
+  isStructuredDossier,
   type DecisionCreatedPayload,
+  type DecisionState,
   type DossierArtifact,
   type Dossier,
+  type Option,
   type Outcome,
 } from './model/decision.js'
 import {
@@ -73,6 +77,52 @@ interface EventPart {
   aggregateId: Ulid
   type: EventType
   payload: Record<string, unknown>
+}
+
+function outcomeParts(state: State, decision: DecisionState, to: Outcome): EventPart[] {
+  const parts: EventPart[] = [
+    { aggregate: 'decision', aggregateId: decision.id, type: 'decision.outcome', payload: { to } },
+  ]
+  if (to === 'go' || to === 'no-go') {
+    for (const targetId of decision.targets) {
+      const blocker = [...state.blockers.values()].find(
+        (b) => b.kind === 'decision' && b.ref === decision.id && b.targetId === targetId && b.open,
+      )
+      if (blocker) {
+        parts.push({
+          aggregate: 'blocker',
+          aggregateId: blocker.id,
+          type: 'blocker.resolved',
+          payload: { blockerId: blocker.id, decisionId: decision.id },
+        })
+      }
+      if (to === 'no-go') {
+        const target = state.items.get(targetId)
+        if (target && (target.realization === 'to-do' || target.realization === 'in-progress')) {
+          parts.push({
+            aggregate: 'item',
+            aggregateId: targetId,
+            type: 'realization.transition',
+            payload: { to: 'rejected', cause: { decisionId: decision.id } },
+          })
+        }
+      }
+    }
+  }
+  return parts
+}
+
+function sameStringList(left: readonly string[] | undefined, right: readonly string[] | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function sameOption(left: Option, right: Option): boolean {
+  return left.id === right.id &&
+    left.title === right.title &&
+    left.summary === right.summary &&
+    sameStringList(left.pros, right.pros) &&
+    sameStringList(left.cons, right.cons)
 }
 
 export interface ImportResult {
@@ -867,6 +917,7 @@ export class Track {
    * guard). The decision starts `outcome:"pending"`, leaving every target AWAITED until it settles.
    */
   createDecision(input: DecisionCreatedPayload): ItemId {
+    assertStructuredDossier(input.dossier)
     if (input.targets.length === 0) {
       throw new DomainError('a decision needs at least one target (SPEC §2.5)')
     }
@@ -910,59 +961,69 @@ export class Track {
   }
 
   /**
-   * Settle (or defer) a Decision's outcome (SPEC §2.6). Legal: pending→{go,no-go,deferred};
-   * deferred→{go,no-go}; go/no-go terminal. Emits the effect as ONE atomic batch (A5):
-   * `go` resolves each target's decision blocker; `no-go` also rejects each non-terminal target
-   * (cause:{decisionId}); `deferred` emits only the outcome (target stays AWAITED).
+   * Defer an unresolved decision. A `go`/`no-go` settlement is intentionally not
+   * available here: it must go through `selectDecisionOption`, which atomically
+   * records the selected native option with its outcome. This keeps legacy prose
+   * dossiers readable without letting a new un-attested settlement bypass migration.
    */
   setOutcome(decisionId: ItemId, to: Outcome): void {
     const state = this.state()
     const decision = state.decisions.get(decisionId)
     if (!decision) throw new DomainError(`unknown decision ${decisionId}`)
-    assertOutcomeTransition(decision.outcome, to)
-
-    const parts: EventPart[] = [
-      { aggregate: 'decision', aggregateId: decisionId, type: 'decision.outcome', payload: { to } },
-    ]
-    if (to === 'go' || to === 'no-go') {
-      for (const targetId of decision.targets) {
-        const blocker = [...state.blockers.values()].find(
-          (b) => b.kind === 'decision' && b.ref === decisionId && b.targetId === targetId && b.open,
-        )
-        if (blocker) {
-          parts.push({
-            aggregate: 'blocker',
-            aggregateId: blocker.id,
-            type: 'blocker.resolved',
-            payload: { blockerId: blocker.id, decisionId },
-          })
-        }
-        if (to === 'no-go') {
-          const target = state.items.get(targetId)
-          // Reject only NON-terminal targets. A target already done/cancelled/rejected keeps its
-          // realization (we do not retro-reject finished work); its decision blocker is still
-          // resolved above. Rejecting the whole no-go when a target is terminal would make a
-          // decision with an independently-finished (done) target UN-SETTLEABLE forever — strictly
-          // worse. (Reviewer split here; the done-under-no-go semantics are flagged for the user.)
-          if (target && (target.realization === 'to-do' || target.realization === 'in-progress')) {
-            parts.push({
-              aggregate: 'item',
-              aggregateId: targetId,
-              type: 'realization.transition',
-              payload: { to: 'rejected', cause: { decisionId } },
-            })
-          }
-        }
+    if (to !== 'deferred') {
+      if (!isStructuredDossier(decision.dossier)) {
+        throw new DomainError('an unstructured legacy decision must be revised with native options and a recommendation before decision.select can settle it')
       }
+      throw new DomainError('a structured decision must use decision.select to record an option with its outcome')
     }
-    this.emitBatch(parts)
+    assertOutcomeTransition(decision.outcome, to)
+    this.emitBatch(outcomeParts(state, decision, to))
   }
 
   reviseDossier(decisionId: ItemId, dossier: Dossier): void {
-    if (!this.state().decisions.has(decisionId)) {
+    const decision = this.state().decisions.get(decisionId)
+    if (!decision) {
       throw new DomainError(`unknown decision ${decisionId}`)
     }
+    assertStructuredDossier(dossier, { allowSelectedOption: true })
+    if (dossier.selectedOptionId !== decision.dossier.selectedOptionId) {
+      throw new DomainError('decision dossier selectedOptionId is set only by decision.option-selected')
+    }
+    if (decision.dossier.selectedOptionId !== undefined) {
+      const selectedOption = decision.dossier.options.find((option) => option.id === decision.dossier.selectedOptionId)
+      const revisedSelectedOption = dossier.options.find((option) => option.id === dossier.selectedOptionId)
+      if (selectedOption === undefined || revisedSelectedOption === undefined || !sameOption(selectedOption, revisedSelectedOption)) {
+        throw new DomainError('a settled decision cannot change its selected option')
+      }
+      if (
+        decision.dossier.recommendation === undefined ||
+        dossier.recommendation === undefined ||
+        decision.dossier.recommendation.optionId !== dossier.recommendation.optionId ||
+        decision.dossier.recommendation.rationale !== dossier.recommendation.rationale
+      ) {
+        throw new DomainError('a settled decision cannot change its recorded recommendation')
+      }
+    }
     this.emit('decision', decisionId, 'dossier.revised', { dossier })
+  }
+
+  /** Record the owner-selected option and its explicit settlement in one immutable command batch. */
+  selectDecisionOption(decisionId: ItemId, optionId: string, to: Extract<Outcome, 'go' | 'no-go'> = 'go'): void {
+    const state = this.state()
+    const decision = state.decisions.get(decisionId)
+    if (!decision) throw new DomainError(`unknown decision ${decisionId}`)
+    assertStructuredDossier(decision.dossier, { allowSelectedOption: true })
+    assertOutcomeTransition(decision.outcome, to)
+    if (decision.dossier.selectedOptionId !== undefined) {
+      throw new DomainError(`decision ${decisionId} already has selected option "${decision.dossier.selectedOptionId}"`)
+    }
+    if (!decision.dossier.options.some((option) => option.id === optionId)) {
+      throw new DomainError(`decision option "${optionId}" is not declared on ${decisionId}`)
+    }
+    this.emitBatch([
+      { aggregate: 'decision', aggregateId: decisionId, type: 'decision.option-selected', payload: { optionId } },
+      ...outcomeParts(state, decision, to),
+    ])
   }
 
   /**

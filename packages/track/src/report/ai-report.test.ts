@@ -43,13 +43,13 @@ beforeEach(() => {
   const item = track.createItem({ kind: 'feature', title: 'Do work sk-secret-value-123456', workspace: 'ws' })
   openDecision = track.createDecision({
     decisionKind: 'orientation', title: 'Open choice', workspace: 'ws', targets: [item],
-    dossier: { context: 'choose', options: [], qa: [] },
+    dossier: { context: 'choose', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
   })
   closedDecision = track.createDecision({
     decisionKind: 'orientation', title: 'Closed choice', workspace: 'ws', targets: [item],
-    dossier: { context: 'chosen', options: [], qa: [] },
+    dossier: { context: 'chosen', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
   })
-  track.setOutcome(closedDecision, 'go')
+  track.selectDecisionOption(closedDecision, 'a')
   reader = new TrackReader(eventsPath)
 })
 
