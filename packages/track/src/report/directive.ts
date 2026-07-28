@@ -142,8 +142,8 @@ export function assertSafeCommandHint(hint: string | undefined): void {
 // The LEGAL next writes per step (a curated affordance set — what the human/AI MAY submit, never a
 // presumed write). Mirrors the monotone facade machines coarsely; the facade re-checks legality.
 const AFFORDANCES: Record<DirectiveStepCode, WorkEventKind[]> = {
-  'focus-decision': ['decision.outcome'],
-  'settle-decision': ['decision.outcome'],
+  'focus-decision': ['decision.dossier'],
+  'settle-decision': ['decision.select'],
   'resume-engagement': ['blocker.resolve-external'],
   'resolve-external-blocker': ['blocker.resolve', 'blocker.resolve-external'],
   'amend-spec': ['item.spec', 'item.spec-amend'],

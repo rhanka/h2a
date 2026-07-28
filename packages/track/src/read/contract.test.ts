@@ -117,7 +117,12 @@ describe('read contract — version + curated surface (snapshot gate)', () => {
     const item = track.createItem({ kind: 'feature', title: 'target', workspace: 'ws-a' })
     const decisionId = track.createDecision({
       decisionKind: 'orientation', title: 'cross-workspace dossier', workspace: 'ws-a', targets: [item],
-      dossier: { context: 'stored', options: [], qa: [] },
+      dossier: {
+        context: 'stored',
+        options: [{ id: 'keep', title: 'Keep it', summary: 'Keep the cross-workspace dossier.' }, { id: 'drop', title: 'Drop it', summary: 'Discard the dossier.' }],
+        recommendation: { optionId: 'keep', rationale: 'The compatibility read needs the stored dossier.' },
+        qa: [],
+      },
     })
 
     const view = reader.canevas('ws-b', { baselineCommit: 'c1', decisionId })

@@ -78,7 +78,7 @@ describe('WSJF prioritization (SPEC §2.8)', () => {
       title: 'commit',
       workspace: 'ws',
       targets: [i],
-      dossier: { context: '', options: [], qa: [], decisionEvaluation: frozen },
+      dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' }, decisionEvaluation: frozen },
     })
     // re-assess (live changes)
     track.assessPriority(i, wsjf({ userBusinessValue: 9, jobSize: 1 })) // 11

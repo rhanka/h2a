@@ -144,7 +144,7 @@ describe('statusByLevel — generalized computeWpTree projection (LOT 2)', () =>
     expect(allDone.status).toBe('DONE')
     // add an awaited leaf (open blocker)
     const b = track.createItem({ kind: 'feature', title: 'b', workspace: 'ws', parentId: wp })
-    const dec = track.createDecision({ decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [b], dossier: { context: '', options: [], qa: [] } })
+    const dec = track.createDecision({ decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [b], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
     void dec
     const awaited = statusByLevel(track.state(), 'plan', CONFIG)[0]!
     expect(awaited.status).toBe('AWAITED')
