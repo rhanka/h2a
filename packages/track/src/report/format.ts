@@ -23,7 +23,7 @@ const MD_META = new Set([
 ])
 
 /** Collapse control characters (newlines, tabs, line separators) to single spaces. */
-function clean(s: string): string {
+export function cleanDisplayText(s: string): string {
   let out = ''
   let prevSpace = false
   for (const ch of s) {
@@ -44,12 +44,20 @@ function clean(s: string): string {
 }
 
 /** A display-safe title: control-normalized for text, plus markdown-metacharacter-escaped for md. */
-function title(s: string, format: Format): string {
-  const t = clean(s)
+export function displayText(s: string, format: Format): string {
+  const t = cleanDisplayText(s)
   if (format !== 'md') return t
   let out = ''
   for (const ch of t) out += MD_META.has(ch) ? BACKSLASH + ch : ch
   return out
+}
+
+function clean(s: string): string {
+  return cleanDisplayText(s)
+}
+
+function title(s: string, format: Format): string {
+  return displayText(s, format)
 }
 
 function heading(label: string, count: number, format: Format): string {
@@ -92,8 +100,6 @@ export function formatReport(report: Report, format: Format): string {
   return lines.join('\n').trimEnd() + '\n'
 }
 
-const topRows = (rows: readonly ReportRow[], max: number): ReportRow[] => rows.slice(0, max)
-
 function actionDisposition(r: ReportRow): string {
   if (r.engagementRef !== undefined) return 'relancer engagement/subagent'
   if (r.acceptance === 'fail' || r.acceptance === 'stale') return 'corriger puis revalider acceptance'
@@ -101,9 +107,9 @@ function actionDisposition(r: ReportRow): string {
   return 'exécuter prochain incrément'
 }
 
-function decisionDisposition(d: { id: string; decisionKind: string; optionCount?: number; openQuestionCount?: number; artifacts?: readonly unknown[]; hasRecommendation?: boolean }): string {
+function decisionDisposition(d: { id: string; workspace: string; decisionKind: string; optionCount?: number; openQuestionCount?: number; artifacts?: readonly unknown[]; hasRecommendation?: boolean }): string {
   if (decisionNeedsFocus(d)) {
-    return `focus décision HTML conseillé: track focus ${d.id} --format html`
+    return `focus décision HTML conseillé: track focus ${d.id} --workspace ${d.workspace} --format html`
   }
   if ((d.openQuestionCount ?? 0) > 0) return 'répondre aux questions ouvertes puis trancher'
   if (d.decisionKind === 'commitment') return 'trancher go/no-go et enregistrer outcome'
@@ -114,36 +120,30 @@ function cell(s: string): string {
   return clean(s).replaceAll('|', '¦')
 }
 
-function wrapCell(s: string, width: number, maxLines = 3): string[] {
+function wrapCell(s: string, width: number): string[] {
   const c = cell(s).trim()
   if (c.length === 0) return ['']
   const words = c.split(/\s+/)
   const lines: string[] = []
   let line = ''
-  let consumed = 0
-  for (const word of words) {
-    if (lines.length >= maxLines) break
-    if (word.length > width) {
+  for (const originalWord of words) {
+    let word = originalWord
+    while (word.length > width) {
       if (line.length > 0) {
         lines.push(line)
         line = ''
-        if (lines.length >= maxLines) break
       }
       lines.push(word.slice(0, width))
-      consumed++
-      continue
+      word = word.slice(width)
     }
     const next = line.length === 0 ? word : `${line} ${word}`
     if (next.length <= width) line = next
     else {
       lines.push(line)
       line = word
-      if (lines.length >= maxLines) break
     }
-    consumed++
   }
-  if (line.length > 0 && lines.length < maxLines) lines.push(line)
-  if (consumed < words.length && lines.length > 0) lines[lines.length - 1] = `${lines[lines.length - 1]} ↳ détail --flat`
+  if (line.length > 0) lines.push(line)
   return lines
 }
 
@@ -161,7 +161,9 @@ function table(headers: readonly string[], rows: readonly (readonly string[])[])
   const head = headers.map((h, i) => cell(h).slice(0, caps[i]!))
   const wrappedRows = rows.map((row) => headers.map((_, i) => wrapCell(row[i] ?? '', caps[i]!)))
   const widths = head.map((h, i) => Math.min(caps[i]!, Math.max(h.length, ...wrappedRows.flatMap((r) => r[i]!).map((v) => v.length))))
-  const renderLine = (row: readonly string[]): string => row.map((v, i) => v.padEnd(widths[i]!)).join('   ')
+  // Padding aligns interior columns; remove only terminal padding so reports and committed fixtures do not
+  // carry invisible trailing whitespace.
+  const renderLine = (row: readonly string[]): string => row.map((v, i) => v.padEnd(widths[i]!)).join('   ').trimEnd()
   const out = [renderLine(head), renderLine(widths.map((w) => '─'.repeat(w)))]
   for (const row of wrappedRows) {
     const height = Math.max(...row.map((cellLines) => cellLines.length))
@@ -192,13 +194,13 @@ export function formatActionReport(report: Report, format: Format): string {
   lines.push('')
 
   lines.push(h('DÉCISIONS/ACTIONS'))
-  const candidates = [...awaited, ...todo].slice(0, 10)
+  const candidates = [...awaited, ...todo]
   const actionRows: string[][] = []
   const focusCount = pendingDecisions.filter(decisionNeedsFocus).length
   if (focusCount >= 2 || pendingDecisions.length >= 4) {
     actionRows.push(['focus', 'décisions accumulées', 'focus (humain+MCP): lancer focus HTML local; retour outcome via vue interactive/MCP'])
   }
-  for (const d of pendingDecisions.slice(0, 8)) {
+  for (const d of pendingDecisions) {
     actionRows.push([
       d.decisionKind,
       title(d.title, format),
@@ -216,9 +218,8 @@ export function formatActionReport(report: Report, format: Format): string {
   lines.push('')
 
   lines.push(h('FAIT RÉCENT / REPÈRES'))
-  const doneRows = topRows(done, 5).map((r) => ['done', title(r.title, format), r.acceptance])
-  if (done.length > 5) doneRows.push(['info', `${done.length - 5} autres done; utiliser --flat pour le détail complet`, ''])
-  if (dropped.length > 0) doneRows.push(['dropped', `${dropped.length}; utiliser --flat pour audit`, ''])
+  const doneRows = done.map((r) => ['done', title(r.title, format), r.acceptance])
+  for (const r of dropped) doneRows.push(['dropped', title(r.title, format), r.acceptance])
   lines.push(...table(['type', 'sujet', 'acceptance'], doneRows.length > 0 ? doneRows : [['-', 'aucun repère récent', '-']]))
 
   return lines.join('\n').trimEnd() + '\n'
@@ -261,7 +262,10 @@ export function formatWpTree(tree: readonly WpNode[], format: Format = 'md'): st
   return lines.join('\n') + (lines.length > 0 ? '\n' : '')
 }
 
-/** Global totals — the SUM of every WP node's directly-attached leaves across the forest (no double-count). */
+/**
+ * Global totals — every directly-attached WP leaf exactly once, plus `outsideRollup` rows that a leaf-only
+ * forest cannot represent. That makes the conductor denominator identical to the flat bucket denominator.
+ */
 export interface WpTotals {
   done: number
   active: number
@@ -274,7 +278,7 @@ export interface WpTotals {
  * stops at sub-WP boundaries), so a flat walk over `node.leaves` is the true global total — never the
  * roots' rolled-up counts (which would double-count nested sub-WP leaves).
  */
-export function wpTotals(tree: readonly WpNode[]): WpTotals {
+export function wpTotals(tree: readonly WpNode[], outsideRollup: readonly ReportRow[] = []): WpTotals {
   let done = 0
   let active = 0
   let dropped = 0
@@ -290,6 +294,16 @@ export function wpTotals(tree: readonly WpNode[]): WpTotals {
     for (const c of node.children) walk(c)
   }
   for (const node of tree) walk(node)
+  for (const row of outsideRollup) {
+    if (row.bucket === 'DONE') {
+      done++
+      active++
+    } else if (row.bucket === 'AWAITED' || row.bucket === 'TO-DO') {
+      active++
+    } else {
+      dropped++
+    }
+  }
   return { done, active, dropped, pct: active === 0 ? 'n/a' : Math.round((done / active) * 100) }
 }
 
@@ -431,9 +445,22 @@ export function directivePhrase(d: Directive): string {
   return `action (${mode}): ${stepActionFr(d.step.code)}${suffix}`
 }
 
-export function buildWpConductorView(tree: readonly WpNode[], decisions: readonly DecisionRow[] = []): ReportView {
+export function buildWpConductorView(
+  tree: readonly WpNode[],
+  decisions: readonly DecisionRow[] = [],
+  outsideRollup: readonly ReportRow[] = [],
+  totalScope = 'global',
+): ReportView {
   const wpName = (n: WpNode): string => `${n.label} · ${clean(stripWpPrefix(n.title))}`
-  const totals = wpTotals(tree)
+  const totals = wpTotals(tree, outsideRollup)
+  const wpNodes: WpNode[] = []
+  const collectWpNodes = (nodes: readonly WpNode[]): void => {
+    for (const node of nodes) {
+      wpNodes.push(node)
+      collectWpNodes(node.children)
+    }
+  }
+  collectWpNodes(tree)
 
   // preconisation-actionnable (DESIGN §4): the DÉCISIONS/ACTIONS table + generalRecommendation are now
   // DERIVED from the directive set (each directive ⇒ one row, phrase rendered, never stored). FAIT/À-FAIRE
@@ -448,34 +475,33 @@ export function buildWpConductorView(tree: readonly WpNode[], decisions: readonl
     : 'Avancer par premier item ouvert, enregistrer preuve/acceptance, et escalader uniquement les décisions réellement bloquantes.'
 
   const doneRows: Record<string, string>[] = [
-    { scope: 'global', progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`, lastActions: `${totals.done} items faits; poursuivre les WP ouverts` },
-    ...tree.filter((n) => n.pct === 100).map((n) => ({ scope: wpName(n), progress: `${n.done}/${n.active} (100%)`, lastActions: 'WP clos; preuve/acceptance enregistrée' })),
+    { scope: totalScope, progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`, lastActions: `${totals.done} items faits; poursuivre les WP ouverts` },
+    ...wpNodes.filter((n) => n.pct === 100).map((n) => ({ scope: wpName(n), progress: `${n.done}/${n.active} (100%)`, lastActions: 'WP clos; preuve/acceptance enregistrée' })),
   ]
 
-  const todoRows = tree.filter((n) => n.pct !== 100).map((n) => {
+  const todoRows = wpNodes.filter((n) => n.pct !== 100).map((n) => {
     const open = openLeaves(n)
-    const shown = open.slice(0, 2).map((l) => clean(l.title)).join(' / ')
-    // NEVER truncate silently: surface the count of items not shown so the report can't read as complete.
-    const more = open.length > 2 ? `${shown} (+${open.length - 2} autres)` : shown
-    return { wp: wpName(n), progress: `${n.done}/${n.active} (${pctStr(n.pct)})`, todo: more || 'aucun item ouvert direct' }
+    const listed = open.map((l) => clean(l.title)).join(' / ')
+    return { wp: wpName(n), progress: `${n.done}/${n.active} (${pctStr(n.pct)})`, todo: listed || 'aucun item ouvert direct' }
   })
 
-  // DÉCISIONS/ACTIONS rows — derived from the directives. Decisions first (capped at 8 + an omission count
-  // so the table never reads as complete when it isn't), then engagement/work directives.
+  // DÉCISIONS/ACTIONS rows — derived from the directives. Decisions first, then engagement/work directives.
+  // This is deliberately exhaustive: a conductor table is the deterministic route to every open row.
   const actionRows: Record<string, string>[] = []
   if (focusNeeded >= 2 || humanDecisions.length >= 4) {
     actionRows.push({ scope: '-', subject: 'décisions accumulées', recommendation: 'focus (humain+MCP): lancer focus HTML local; retour outcome via vue interactive/MCP' })
   }
-  for (const d of humanDecisions.slice(0, 8)) {
+  for (const d of humanDecisions) {
     actionRows.push({ scope: directiveScopeLabel(d), subject: clean(d.target.title ?? d.target.id), recommendation: directivePhrase(d) })
   }
   for (const d of directives.filter((x) => x.mode !== 'human-decision')) {
     actionRows.push({ scope: directiveScopeLabel(d), subject: clean(d.target.title ?? d.target.id), recommendation: directivePhrase(d) })
   }
-  const omitted = Math.max(0, humanDecisions.length - 8)
-  if (omitted > 0) {
-    actionRows.push({ scope: '-', subject: `+${omitted} entrées non listées`, recommendation: 'voir `track query` / `track report --flat` pour le détail complet' })
-  }
+  const outsideRows = outsideRollup.map((row) => ({
+    scope: row.wpId === undefined ? 'sans WP' : `intermédiaire · ${row.wpLabel ?? '-'}`,
+    progress: row.bucket,
+    item: clean(row.title),
+  }))
 
   return {
     kind: 'wp-conductor-report',
@@ -483,6 +509,9 @@ export function buildWpConductorView(tree: readonly WpNode[], decisions: readonl
     tables: [
       { id: 'done', title: 'FAIT', columns: [{ id: 'scope', label: 'scope' }, { id: 'progress', label: 'avancement' }, { id: 'lastActions', label: 'dernières actions' }], rows: doneRows },
       { id: 'todo', title: 'À-FAIRE', columns: [{ id: 'wp', label: 'WP' }, { id: 'progress', label: 'avancement' }, { id: 'todo', label: 'à faire' }], rows: todoRows.length > 0 ? todoRows : [{ wp: '-', progress: '-', todo: 'aucun WP ouvert' }] },
+      ...(outsideRows.length > 0
+        ? [{ id: 'outside-rollup', title: 'HORS ROLLUP', columns: [{ id: 'scope', label: 'rattachement' }, { id: 'progress', label: 'état' }, { id: 'item', label: 'item' }], rows: outsideRows }]
+        : []),
       { id: 'decisions-actions', title: 'DÉCISIONS/ACTIONS', columns: [{ id: 'scope', label: 'scope/gate' }, { id: 'subject', label: 'sujet' }, { id: 'recommendation', label: 'préconisation' }], rows: actionRows.length > 0 ? actionRows : [{ scope: '-', subject: 'aucune action ouverte dans les WP actifs', recommendation: '-' }] },
     ],
     generalRecommendation,
@@ -510,8 +539,14 @@ function renderReportView(view: ReportView, format: Format): string {
   return lines.join('\n').trimEnd() + '\n'
 }
 
-export function formatWpConductor(tree: readonly WpNode[], format: Format, decisions: readonly DecisionRow[] = []): string {
-  return renderReportView(buildWpConductorView(tree, decisions), format)
+export function formatWpConductor(
+  tree: readonly WpNode[],
+  format: Format,
+  decisions: readonly DecisionRow[] = [],
+  outsideRollup: readonly ReportRow[] = [],
+  totalScope = 'global',
+): string {
+  return renderReportView(buildWpConductorView(tree, decisions, outsideRollup, totalScope), format)
 }
 
 // ---- INLINE mode (report-revamp §B) ----------------------------------------------------------------
@@ -525,6 +560,8 @@ export interface InlineOptions {
   width?: number
   /** Max PRÉCO lines before an omission count is surfaced (never a silent cut). Defaults to 10. */
   maxDirectives?: number
+  /** Honest label when the caller deliberately filters the roster before rendering. */
+  totalScope?: string
 }
 
 /** Clean + hard-truncate a line to `width` with a trailing ellipsis (never a silent cut mid-report). */
@@ -549,19 +586,28 @@ export function formatWpConductorInline(
   tree: readonly WpNode[],
   decisions: readonly DecisionRow[] = [],
   opts: InlineOptions = {},
+  outsideRollup: readonly ReportRow[] = [],
 ): string {
   const width = Math.min(200, Math.max(48, opts.width ?? 80))
   const maxDir = Math.max(1, opts.maxDirectives ?? 10)
-  const view = buildWpConductorView(tree, decisions)
-  const totals = wpTotals(tree)
+  const view = buildWpConductorView(tree, decisions, outsideRollup)
+  const totals = wpTotals(tree, outsideRollup)
   const wpName = (n: WpNode): string => `${n.label} · ${clean(stripWpPrefix(n.title))}`
+  const wpNodes: WpNode[] = []
+  const collectWpNodes = (nodes: readonly WpNode[]): void => {
+    for (const node of nodes) {
+      wpNodes.push(node)
+      collectWpNodes(node.children)
+    }
+  }
+  collectWpNodes(tree)
   const lines: string[] = []
 
   // FAIT — one line: global progress + the closed WPs (by label).
-  const closed = tree.filter((n) => n.pct === 100).map((n) => n.label)
+  const closed = wpNodes.filter((n) => n.pct === 100).map((n) => n.label)
   lines.push(
     truncateLine(
-      `FAIT  ${totals.done}/${totals.active} (${pctStr(totals.pct)})${closed.length > 0 ? `  ·  clos: ${closed.join(', ')}` : ''}`,
+      `FAIT${opts.totalScope !== undefined ? ` (${opts.totalScope})` : ''}  ${totals.done}/${totals.active} (${pctStr(totals.pct)})${closed.length > 0 ? `  ·  clos: ${closed.join(', ')}` : ''}${outsideRollup.length > 0 ? `  ·  hors rollup: ${outsideRollup.length}` : ''}`,
       width,
     ),
   )
@@ -570,7 +616,7 @@ export function formatWpConductorInline(
   // (N× tag) so it stays on screen. WPs/streams with no open direct item ("0/0 — aucun item ouvert")
   // are pure noise (their remaining work, if any, shows under a child WP) and are dropped.
   lines.push('À-FAIRE')
-  const openWps = tree.filter((n) => n.pct !== 100)
+  const openWps = wpNodes.filter((n) => n.pct !== 100)
   let shown = 0
   for (const n of openWps) {
     const cohorts = collapseLeafCohorts(openLeaves(n))

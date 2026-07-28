@@ -14,7 +14,7 @@ import type { BlockerKind, BlockerScope, ResolutionRule } from '../model/blocker
 import type { DecisionKind, DossierArtifact, Outcome } from '../model/decision.js'
 import { DomainError, type Disposition, type Gate, type ItemKind, type ItemRole, type Realization, type ScopeDecl, type SpecStatus } from '../model/item.js'
 import type { Bucket } from '../report/buckets.js'
-import { formatRows, type Format } from '../report/format.js'
+import { displayText, formatRows, type Format } from '../report/format.js'
 import { Track } from '../track.js'
 import type { ActorId, Provenance } from '../events/types.js'
 import {
@@ -37,10 +37,9 @@ import {
 import { ingest, type IngestContext } from '../ingest/ingest.js'
 import { applyRestructurePlan, type RestructurePlan } from './restructure-apply.js'
 import { TrackReader } from '../read/contract.js'
-import { queryText, reportText, statusText } from '../read/commands.js'
+import { queryText, reportHtml, reportInline, reportText, statusText } from '../read/commands.js'
 import { STATUS_LEVELS } from '../report/status-by-level.js'
 import { renderSnapshot } from '../report/snapshot.js'
-import { generateAiReport, type AiReportRequest } from '../report/ai-report.js'
 import { VERSION } from '../version.js'
 import { durableWorkspaceId } from '../workspace-id.js'
 import { desyncFindings } from './desync.js'
@@ -80,6 +79,7 @@ const USAGE = `usage: track <command>
   item show <itemId>
   item ls [--workspace <w>] [--kind <feature|bug|chore>] [--format json|text|md]
   decision new --kind <orientation|commitment> --title <t> --workspace <w> --targets <id,id> [--context <c>] [--accountable <a>] [--engagement-ref <e>]
+  decision ls [--workspace <w>] [--outcome <pending|go|no-go|deferred>] [--format json|text|md] [--commit <sha>]
   decision outcome <decisionId> <go|no-go|deferred>
   decision dossier <decisionId> --context <c>
   decision disposition <itemId> <orientation|commitment> <required|skipped|not-applicable>
@@ -119,6 +119,7 @@ const USAGE = `usage: track <command>
 const REALIZATIONS = ['to-do', 'in-progress', 'done', 'cancelled', 'rejected'] as const
 const FROM_FORMATS = ['junit', 'json'] as const
 const BUCKETS_ARG = ['AWAITED', 'DROPPED', 'DONE', 'TO-DO'] as const
+const DECISION_OUTCOMES = ['pending', 'go', 'no-go', 'deferred'] as const
 // `n/a` is decision-only; `query` projects non-decision rows, so it would never match.
 const ACCEPTANCES = ['fail', 'waived', 'unknown', 'stale', 'pass'] as const
 // The DossierArtifact discriminator (M5 §3.1). CLI-local: the union SHAPE is validated fail-closed in the
@@ -341,6 +342,21 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
     ...(trackDirEnv !== undefined ? { env: trackDirEnv } : {}),
   }
   try {
+    // `decision ls` is an inspection surface, not a write verb. Route it through the same serve-empty
+    // read path as report/query so it never creates a sidecar and can be used by a fresh reporting agent.
+    if (cmd === 'decision' && rest[0] === 'ls') {
+      const trackDir = resolveTrackDirOrNull(resolveOpts)
+      if (trackDir === null) {
+        io.err(
+          `track: no .track resolved from ${io.cwd}. Run \`track init\` to create one ` +
+            `(the ONLY command that does), or pass --track-dir / TRACK_DIR. Serving an empty view.\n`,
+        )
+      }
+      return cmdDecisionLs(rest, {
+        io,
+        eventsPath: trackDir !== null ? eventsPathOf(trackDir) : eventsPathOf(join(resolve(io.cwd), '.track')),
+      })
+    }
     switch (cmd) {
       case '--version':
       case '-v':
@@ -920,8 +936,6 @@ function cmdReport(args: string[], ctx: Ctx): number {
     assertOnlyFlags(flags, ['raw', 'commit', 'require-accepted', 'format'])
     return emitSnapshot(flags, ctx, true)
   }
-  // Reads go through the shared TrackReader command layer (same path the MCP server uses).
-  const reader = new TrackReader(ctx.eventsPath)
   // Scope §A/§B — `--level <spec|plan|wp|lot|task>` switches to the status(level) projection.
   // Otherwise 0.19.1 prefers the WP/table conductor view; `--flat` is the deprecated legacy opt-out.
   if (opt(flags, 'level') !== undefined) {
@@ -929,7 +943,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
     assertBooleanFlag(flags, 'require-accepted')
     io.out(
       statusText(
-        reader,
+        new TrackReader(ctx.eventsPath),
         oneOf(req(flags, 'level'), STATUS_LEVELS, '--level'),
         {
           baselineCommit: resolveCommit(io.cwd, opt(flags, 'commit')),
@@ -944,83 +958,42 @@ function cmdReport(args: string[], ctx: Ctx): number {
   const widthArg = opt(flags, 'width')
   const inlineFlag = assertBooleanFlag(flags, 'inline')
   const inline = inlineFlag || widthArg !== undefined
-  if (inline && rawFormat !== undefined && rawFormat !== 'text') {
-    throw new DomainError('--inline/--width accepts no --format, or --format text')
-  }
-  if (rawFormat === 'html' && inline) throw new DomainError('--format html rejects --inline/--width')
-
-  // The deterministic conductor projection is the ONLY report path. It renders the
-  // FAIT / À-FAIRE / DÉCISIONS-ACTIONS table straight from the folded log — no context
-  // collection, no adapter subprocess, no gateway, no model. It therefore works offline
-  // and cannot fail for a reason unrelated to the log.
-  //
-  // The AI narrative that used to own `text|md|html` was removed: it REPLACED this table
-  // rather than adding to it, it silently ignored `--wp`/`--decisions` (which `--raw`
-  // rejects outright — the same flag meaning two different things on two paths), and its
-  // git source was truncated, so it paraphrased the documentation instead of reporting the
-  // work. Contextual synthesis is now the job of `harness/track-report`: the agent already
-  // in session renders these cells, with nothing to install and nothing to reach over the
-  // network. See docs/specs/2026-07-28-track-report-contextual-rendering.md.
-  if (rawFormat === undefined || ['json', 'text', 'md'].includes(rawFormat)) {
-    assertOnlyFlags(flags, ['commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'format'])
-    io.out(
-      reportText(
-        reader,
-        {
-          baselineCommit: resolveCommit(io.cwd, opt(flags, 'commit')),
-          requireAccepted: flags['require-accepted'] === true,
-          decisions: flags['decisions'] === true,
-          wpTree: flags['wp'] === true,
-          activeRoster: flags['active-roster'] === true,
-        },
-        rawFormat === 'json' ? 'json' : rawFormat === 'md' ? 'md' : 'text',
-      ),
-    )
-    return 0
-  }
-
   assertOnlyFlags(flags, [
     'commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'inline', 'width', 'format',
   ])
-  if (rawFormat !== undefined && !['text', 'md', 'html'].includes(rawFormat)) {
-    throw new DomainError('--format must be one of: json|text|md|html')
-  }
+  const format = oneOf(rawFormat ?? 'text', ['json', 'text', 'md', 'html'], '--format')
+  if (inline && format !== 'text') throw new DomainError('--inline/--width accepts no --format, or --format text')
   const requireAccepted = assertBooleanFlag(flags, 'require-accepted')
   const decisions = assertBooleanFlag(flags, 'decisions')
   const activeRoster = assertBooleanFlag(flags, 'active-roster')
   const wp = assertBooleanFlag(flags, 'wp')
   const flat = assertBooleanFlag(flags, 'flat')
   if (wp && flat) throw new DomainError('--wp and --flat are mutually exclusive')
+  if (format === 'html' && flat) throw new DomainError('--format html rejects --flat')
   let width: number | undefined
   if (widthArg !== undefined) {
     if (!/^\d+$/u.test(widthArg)) throw new DomainError('--width must be an integer in [40,240]')
     width = Number(widthArg)
     if (width < 40 || width > 240) throw new DomainError('--width must be an integer in [40,240]')
   }
-  const baselineInput = opt(flags, 'commit') ?? 'HEAD'
-  const baselineCommit = resolveCommit(io.cwd, baselineInput)
-  const format: AiReportRequest['format'] = inline
-    ? 'inline'
-    : rawFormat === 'md' || rawFormat === 'html'
-      ? rawFormat
-      : 'text'
-  io.out(
-    generateAiReport({
-      reader,
-      cwd: io.cwd,
-      request: {
-        baselineInput,
-        baselineCommit,
-        format,
-        emphasis: wp ? 'workpackages' : flat ? 'flat' : 'default',
-        requireAccepted,
-        decisionEmphasis: decisions ? 'all' : 'open-only',
-        activeRoster,
-      },
-      ...(width !== undefined ? { width } : {}),
-      ...(io.env !== undefined ? { env: io.env } : {}),
-    }).output,
-  )
+  // Every report mode is a projection of the folded log. No adapter, gateway, subprocess, network, or
+  // model call is reachable from this command; the in-session harness skill owns contextual prose.
+  const options = {
+    baselineCommit: resolveCommit(io.cwd, opt(flags, 'commit')),
+    requireAccepted,
+    decisions: decisions || (!flat && format !== 'json'),
+    // Text/MD/HTML default to the conductor. JSON remains the flat machine contract unless --wp is explicit.
+    wpTree: wp || (!flat && format !== 'json'),
+    activeRoster,
+  }
+  const reader = new TrackReader(ctx.eventsPath)
+  if (inline) {
+    io.out(reportInline(reader, options, ...(width !== undefined ? [{ width }] : [])))
+  } else if (format === 'html') {
+    io.out(reportHtml(reader, options))
+  } else {
+    io.out(reportText(reader, options, format))
+  }
   return 0
 }
 
@@ -1087,6 +1060,42 @@ function cmdQuery(args: string[], ctx: Ctx): number {
       fmt(flags),
     ),
   )
+  return 0
+}
+
+/**
+ * List decision dossiers without a renderer cap. `structure` makes the prose-only migration state explicit;
+ * only a structured dossier has durable alternatives + a durable recommendation to render as a choice.
+ */
+function cmdDecisionLs(args: string[], ctx: Ctx): number {
+  const { io } = ctx
+  const { positional, flags } = parseFlags(args.slice(1))
+  if (positional.length > 0) throw new DomainError(`unexpected decision ls argument(s): ${positional.join(' ')}`)
+  assertOnlyFlags(flags, ['workspace', 'outcome', 'format', 'commit'])
+  for (const name of ['workspace', 'outcome', 'format', 'commit']) assertValueFlag(flags, name)
+  const format = fmt(flags)
+  const baselineCommit = resolveCommit(io.cwd, opt(flags, 'commit'))
+  const reader = new TrackReader(ctx.eventsPath)
+  const workspace = opt(flags, 'workspace')
+  const outcome = opt(flags, 'outcome') !== undefined ? oneOf(req(flags, 'outcome'), DECISION_OUTCOMES, '--outcome') : undefined
+  const rows = reader.decisionDossiers({ baselineCommit })
+    .filter((decision) => (workspace === undefined || decision.workspace === workspace) && (outcome === undefined || decision.outcome === outcome))
+    .map(({ dossier, ...decision }) => ({
+      ...decision,
+      options: dossier.options,
+      ...(dossier.recommendation !== undefined ? { recommendation: dossier.recommendation } : {}),
+    }))
+  if (format === 'json') {
+    io.out(`${JSON.stringify(rows, null, 2)}\n`)
+    return 0
+  }
+  const lines = rows.map((decision) => {
+    const safe = (value: string): string => displayText(value, format)
+    const recommendation = safe(decision.recommendation?.optionId ?? '-')
+    const line = `${safe(decision.id)} · ${safe(decision.workspace)} · ${safe(decision.outcome)} · ${safe(decision.structure ?? 'unstructured')} · options:${decision.options.length} · recommendation:${recommendation} — ${safe(decision.title)}`
+    return format === 'md' ? `- ${line}` : line
+  })
+  io.out(lines.length > 0 ? `${lines.join('\n')}\n` : '')
   return 0
 }
 
@@ -1174,6 +1183,13 @@ async function cmdFocus(args: string[], ctx: Ctx, _noStore: boolean): Promise<nu
   const { io } = ctx
   const FOCUS_USAGE = 'usage: track focus <decision-id> --workspace <w> [--format terminal|md|html] [--baseline-commit <sha>]\n'
   const { positional, flags } = parseFlags(args)
+  try {
+    assertOnlyFlags(flags, ['workspace', 'format', 'baseline-commit'])
+    for (const name of ['workspace', 'format', 'baseline-commit']) assertValueFlag(flags, name)
+  } catch (error) {
+    io.err(`error: ${error instanceof Error ? error.message : String(error)}\n`)
+    return 2
+  }
   // decision-id is positional + REQUIRED; --workspace is a REQUIRED flag (both gate at the CLI boundary
   // with rc=2 + usage, never reaching focus). Validate BEFORE the dynamic import so a usage error is
   // independent of whether focus is installed.
@@ -1191,6 +1207,16 @@ async function cmdFocus(args: string[], ctx: Ctx, _noStore: boolean): Promise<nu
   } catch (error) {
     io.err(`error: ${error instanceof Error ? error.message : String(error)}\n`)
     return 2
+  }
+
+  const baselineCommit = resolveCommit(io.cwd, opt(flags, 'baseline-commit'))
+  const decision = new TrackReader(ctx.eventsPath)
+    .report({ baselineCommit, decisions: true })
+    .decisions
+    ?.find((candidate) => candidate.id === decisionId)
+  if (decision !== undefined && decision.workspace !== workspace) {
+    io.err(`error: decision ${decisionId} belongs to workspace ${decision.workspace}, not ${workspace}\n`)
+    return 3
   }
 
   // Load the focus render binding + core. focus is an integrated dependency → a MODULE_NOT_FOUND means the
@@ -1215,7 +1241,7 @@ async function cmdFocus(args: string[], ctx: Ctx, _noStore: boolean): Promise<nu
     // baseline commit resolves HEAD/refs/short-SHA → 40-char, and `ctx.eventsPath` is the single store.
     const doc = focusTrack.readDecisionDossier(
       ctx.eventsPath,
-      { workspace, baselineCommit: resolveCommit(io.cwd, opt(flags, 'baseline-commit')), decisionId },
+      { workspace, baselineCommit, decisionId },
       new Date().toISOString(),
     )
     const rendered =
