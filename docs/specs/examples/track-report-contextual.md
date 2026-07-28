@@ -6,20 +6,28 @@ agent-written recommendation. Its sole source is
 `9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5`, event window `#1..#568`, folded
 through cursor `count:568`.
 
-Reproduce from the fixed Track tree by materializing the exact committed log
-(the 568-event window is the entire `.track/events.jsonl` blob at that commit)
-into an otherwise empty scratch `.track` directory, then point the read-only
-command at it:
+Reproduce this historical fixture from the fixed Track tree by materializing the
+exact committed log (the 568-event window is the entire `.track/events.jsonl`
+blob at that commit) into an otherwise empty scratch `.track` directory. This
+is fixture mode, not the live-report route: it uses the same three
+`harness/track-report` reads with an explicit store and acceptance baseline on
+each command.
 
 ```sh
+export TMPDIR=/tmp
+npm ci
+npm run build -w @sentropic/track
+track() { npm exec --workspace @sentropic/track -- track "$@"; }
 golden_track_dir="$(mktemp -d)"
 git show 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5:.track/events.jsonl > "$golden_track_dir/events.jsonl"
-TRACK_DIR="$golden_track_dir" node packages/track/dist/cli/bin.js report --format text --decisions --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
+track --track-dir "$golden_track_dir" report --raw --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
+track --track-dir "$golden_track_dir" report --wp --decisions --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
+track --track-dir "$golden_track_dir" decision ls --outcome pending --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
 ```
 
-`--commit` selects the report baseline; `TRACK_DIR` pins the log. Both are
-necessary. Run this after building the fixed Track tree. The report command is a
-read and does not alter the materialized fixture.
+`--commit` selects the acceptance baseline; `--track-dir` pins the fixture log.
+Both are necessary in this historical reproduction. The commands are reads and
+do not alter the materialized fixture.
 
 ## WP roster
 
