@@ -1,0 +1,233 @@
+TRACK FACTUAL SNAPSHOT
+schema: track.snapshot/v1
+baseline: 9159e9189bfe856030acc0ec386fb4deac9354e7
+
+BUCKETS
+AWAITED 5 · DROPPED 2 · DONE 57 · TO-DO 29
+
+RULE-DERIVED FACTS (NOT AI ADVICE)
+- [focus-decision] décision (human:rhanka): Instruire le dossier puis trancher (decision:01KY66FTP7Y4W214SADDWKHT15)
+- [focus-decision] décision (human:rhanka): Instruire le dossier puis trancher (decision:01KY66FV4W1JKHBZ2MW44P9EP6)
+- [focus-decision] décision (human:rhanka): Instruire le dossier puis trancher (decision:01KY66FW260Q5TV1DVR6ZPH891)
+- [focus-decision] décision (human:rhanka): Instruire le dossier puis trancher (decision:01KY66FWJ4MYNJMDDJXA54G3FD)
+- [focus-decision] décision (human:rhanka): Instruire le dossier puis trancher (decision:01KY66T2F35VNZP6FHFAVVBGH0)
+- [amend-spec] action (subagent): Rédiger la spécification (item:01KTQC2GSSXZXK7FWATW6MX5DV)
+- [amend-spec] action (subagent): Rédiger la spécification (item:01KTQC2JBZ9VFEXMQH7QYS2MYC)
+- [amend-spec] action (subagent): Rédiger la spécification (item:01KTQC2JDS7NYSZEQ4VQHF50NK)
+- [amend-spec] action (subagent): Rédiger la spécification (item:01KTQC2JFGDCTBV8W2FMT63XNX)
+- [focus-decision] décision (owner): Instruire le dossier puis trancher (item:01KTQC2JH9G7JNJXAH2BY1BHGK)
+- [amend-spec] action (subagent): Rédiger la spécification (item:01KTQC2JK2Y3T7R8GQ6EQNHSJ5)
+- [focus-decision] décision (owner): Instruire le dossier puis trancher (item:01KTT31AZVYPVH9VGRN7PVAYDF)
+- [rerun-acceptance] action (subagent): Relancer la vérification sur le commit courant (item:01KWKX7MXN0P0SVG21V1NNDH6G)
+- [rerun-acceptance] action (subagent): Relancer la vérification sur le commit courant (item:01KWKX7V5HAZV29TW701DXDSG1)
+- [finish-increment] action (subagent): Terminer l’incrément en cours (item:01KWVM4Z0AWMM4MS2SE76ZHHG5)
+- [focus-decision] décision (owner): Instruire le dossier puis trancher (item:01KWVM4Z972ZAFK6TKW753ZBR1)
+- [focus-decision] décision (owner): Instruire le dossier puis trancher (item:01KWVM4ZM1TP1R70MB0Q597CE1)
+- [amend-spec] action (subagent): Rédiger la spécification (item:01KWVNYNHVJGA8CCW566PG4WMH)
+- [rerun-acceptance] action (subagent): Relancer la vérification sur le commit courant (item:01KX7G7QPAER84JCMFZKMXAAN2)
+- [rerun-acceptance] action (subagent): Relancer la vérification sur le commit courant (item:01KX9FPSTFJF5PSP6W3R1BWWQX)
+- [finish-increment] action (subagent): Terminer l’incrément en cours (item:01KXG8BX68TY4Z5GQY5TMXCRB3)
+- [rerun-acceptance] action (subagent): Relancer la vérification sur le commit courant (item:01KXHGD1ET2BKJ74C1TP6FQ65R)
+- [amend-spec] action (subagent): Rédiger la spécification (item:01KY7CBBRAAKXJBQ3DJNR2CVXC)
+
+RECENT EVENTS
+- #369 acceptance.evidence.linked · 01KX7G7QPAER84JCMFZKMXAAN2
+- #370 acceptance.run · 01KX7G7QPAER84JCMFZKMXAAN2
+- #371 acceptance.criterion.added · 01KWKX7Y3BT7TX0DCB2EP4HB1E
+- #372 acceptance.evidence.linked · 01KWKX7Y3BT7TX0DCB2EP4HB1E
+- #373 acceptance.run · 01KWKX7Y3BT7TX0DCB2EP4HB1E
+- #374 item.created · 01KX7HY6B695P5FK1QMXA7C6WZ
+- #375 realization.transition · 01KX7HY6B695P5FK1QMXA7C6WZ
+- #376 realization.transition · 01KX7HY6B695P5FK1QMXA7C6WZ
+- #377 acceptance.criterion.added · 01KX7HY6B695P5FK1QMXA7C6WZ
+- #378 acceptance.evidence.linked · 01KX7HY6B695P5FK1QMXA7C6WZ
+- #379 acceptance.run · 01KX7HY6B695P5FK1QMXA7C6WZ
+- #380 item.created · 01KX944X2B7CC0E6D4BR41E03Q
+- #381 realization.transition · 01KX944X2B7CC0E6D4BR41E03Q
+- #382 realization.transition · 01KX944X2B7CC0E6D4BR41E03Q
+- #383 acceptance.criterion.added · 01KX944X2B7CC0E6D4BR41E03Q
+- #384 acceptance.evidence.linked · 01KX944X2B7CC0E6D4BR41E03Q
+- #385 acceptance.run · 01KX944X2B7CC0E6D4BR41E03Q
+- #386 item.created · 01KX9FPSTFJF5PSP6W3R1BWWQX
+- #387 realization.transition · 01KX9FPSTFJF5PSP6W3R1BWWQX
+- #388 realization.transition · 01KX9FPSTFJF5PSP6W3R1BWWQX
+- #389 acceptance.criterion.added · 01KX9FPSTFJF5PSP6W3R1BWWQX
+- #390 acceptance.evidence.linked · 01KX9FPSTFJF5PSP6W3R1BWWQX
+- #391 acceptance.run · 01KX9FPSTFJF5PSP6W3R1BWWQX
+- #392 item.created · 01KXA2TRS5CS633PCGXQ5TYF1W
+- #393 spec.transition · 01KXA2TRS5CS633PCGXQ5TYF1W
+- #394 realization.transition · 01KXA2TRS5CS633PCGXQ5TYF1W
+- #395 realization.transition · 01KXA2TRS5CS633PCGXQ5TYF1W
+- #396 acceptance.criterion.added · 01KXA2TRS5CS633PCGXQ5TYF1W
+- #397 acceptance.evidence.linked · 01KXA2TRS5CS633PCGXQ5TYF1W
+- #398 acceptance.run · 01KXA2TRS5CS633PCGXQ5TYF1W
+- #399 item.created · 01KXBZ9XYPE2T7PYBBQF2NXA42
+- #400 realization.transition · 01KXBZ9XYPE2T7PYBBQF2NXA42
+- #401 realization.transition · 01KXBZ9XYPE2T7PYBBQF2NXA42
+- #402 acceptance.criterion.added · 01KXBZ9XYPE2T7PYBBQF2NXA42
+- #403 acceptance.evidence.linked · 01KXBZ9XYPE2T7PYBBQF2NXA42
+- #404 acceptance.run · 01KXBZ9XYPE2T7PYBBQF2NXA42
+- #405 decision.created · 01KXC2PNENYM96ZFC3FJNEACVC
+- #406 blocker.opened · 01KXC2PNEQJ4KHN04ESGF7AYQV
+- #407 decision.outcome · 01KXC2PNENYM96ZFC3FJNEACVC
+- #408 blocker.resolved · 01KXC2PNEQJ4KHN04ESGF7AYQV
+- #409 decision.artifact-added · 01KXC2PNENYM96ZFC3FJNEACVC
+- #410 item.created · 01KXC2W2K7TJAYXPA7SYVS3AY1
+- #411 item.created · 01KXDFVE4JW5KHZB131KMGAM1S
+- #412 realization.transition · 01KXDFVE4JW5KHZB131KMGAM1S
+- #413 realization.transition · 01KXDFVE4JW5KHZB131KMGAM1S
+- #414 acceptance.criterion.added · 01KXDFVE4JW5KHZB131KMGAM1S
+- #415 acceptance.evidence.linked · 01KXDFVE4JW5KHZB131KMGAM1S
+- #416 acceptance.run · 01KXDFVE4JW5KHZB131KMGAM1S
+- #417 item.created · 01KXDG9E6FHT85549BAV349W77
+- #418 realization.transition · 01KXDG9E6FHT85549BAV349W77
+- #419 realization.transition · 01KXDG9E6FHT85549BAV349W77
+- #420 acceptance.criterion.added · 01KXDG9E6FHT85549BAV349W77
+- #421 acceptance.evidence.linked · 01KXDG9E6FHT85549BAV349W77
+- #422 acceptance.run · 01KXDG9E6FHT85549BAV349W77
+- #423 item.created · 01KXDHAWM5DVT1FE95ZJAEAZ1S
+- #424 realization.transition · 01KXDHAWM5DVT1FE95ZJAEAZ1S
+- #425 realization.transition · 01KXDHAWM5DVT1FE95ZJAEAZ1S
+- #426 acceptance.criterion.added · 01KXDHAWM5DVT1FE95ZJAEAZ1S
+- #427 acceptance.evidence.linked · 01KXDHAWM5DVT1FE95ZJAEAZ1S
+- #428 acceptance.run · 01KXDHAWM5DVT1FE95ZJAEAZ1S
+- #429 item.created · 01KXDNP6TX1A09QTDPW9T9XZ3F
+- #430 realization.transition · 01KXDNP6TX1A09QTDPW9T9XZ3F
+- #431 realization.transition · 01KXDNP6TX1A09QTDPW9T9XZ3F
+- #432 acceptance.criterion.added · 01KXDNP6TX1A09QTDPW9T9XZ3F
+- #433 acceptance.evidence.linked · 01KXDNP6TX1A09QTDPW9T9XZ3F
+- #434 acceptance.run · 01KXDNP6TX1A09QTDPW9T9XZ3F
+- #435 item.created · 01KXDPBQY1X66M7ZRK72D34S56
+- #436 item.created · 01KXDPBR505FKNV9XCZ45P638H
+- #437 item.reparented · 01KXDFVE4JW5KHZB131KMGAM1S
+- #438 item.reparented · 01KXDG9E6FHT85549BAV349W77
+- #439 item.reparented · 01KXDHAWM5DVT1FE95ZJAEAZ1S
+- #440 item.reparented · 01KX9FPSTFJF5PSP6W3R1BWWQX
+- #441 item.reparented · 01KXC2W2K7TJAYXPA7SYVS3AY1
+- #442 item.code-assigned · 01KXDPBQY1X66M7ZRK72D34S56
+- #443 item.code-assigned · 01KXDPBR505FKNV9XCZ45P638H
+- #444 item.reparented · 01KWVNYNHVJGA8CCW566PG4WMH
+- #445 item.reparented · 01KTQC2JK2Y3T7R8GQ6EQNHSJ5
+- #446 item.created · 01KXG8BX2QDZ06EN64C60BJ2RS
+- #447 item.created · 01KXG8BX68TY4Z5GQY5TMXCRB3
+- #448 acceptance.criterion.added · 01KXG8BX2QDZ06EN64C60BJ2RS
+- #449 acceptance.criterion.added · 01KXG8BX2QDZ06EN64C60BJ2RS
+- #450 acceptance.criterion.added · 01KXG8BX2QDZ06EN64C60BJ2RS
+- #451 acceptance.criterion.added · 01KXG8BX68TY4Z5GQY5TMXCRB3
+- #452 acceptance.criterion.added · 01KXG8BX68TY4Z5GQY5TMXCRB3
+- #453 acceptance.criterion.added · 01KXG8BX68TY4Z5GQY5TMXCRB3
+- #454 realization.transition · 01KXG8BX68TY4Z5GQY5TMXCRB3
+- #455 item.created · 01KXGWMX7AHZ44W38A3AQR9YK4
+- #456 acceptance.criterion.added · 01KXGWMX7AHZ44W38A3AQR9YK4
+- #457 realization.transition · 01KXGWMX7AHZ44W38A3AQR9YK4
+- #458 acceptance.evidence.linked · 01KXGWMX7AHZ44W38A3AQR9YK4
+- #459 realization.transition · 01KXGWMX7AHZ44W38A3AQR9YK4
+- #460 acceptance.run · 01KXGWMX7AHZ44W38A3AQR9YK4
+- #461 item.created · 01KXH082NTR64B7NSA4SBRZ7NP
+- #462 acceptance.criterion.added · 01KXH082NTR64B7NSA4SBRZ7NP
+- #463 realization.transition · 01KXH082NTR64B7NSA4SBRZ7NP
+- #464 acceptance.evidence.linked · 01KXH082NTR64B7NSA4SBRZ7NP
+- #465 realization.transition · 01KXH082NTR64B7NSA4SBRZ7NP
+- #466 item.created · 01KXHGD0JJH9S3YSHR7B4WAYF9
+- #467 item.created · 01KXHGD0QX2RKN8C5C4N3VK2PE
+- #468 item.created · 01KXHGD0XRFHBZP778MMEYBFJ0
+- #469 item.created · 01KXHGD13KP3FXWQHXPYFQR4A4
+- #470 item.created · 01KXHGD19MDCHNW9VD768Z1SDA
+- #471 item.created · 01KXHGD1ET2BKJ74C1TP6FQ65R
+- #472 realization.transition · 01KXHGD0JJH9S3YSHR7B4WAYF9
+- #473 realization.transition · 01KXHGD0JJH9S3YSHR7B4WAYF9
+- #474 realization.transition · 01KXHGD13KP3FXWQHXPYFQR4A4
+- #475 realization.transition · 01KXHGD1ET2BKJ74C1TP6FQ65R
+- #476 acceptance.criterion.added · 01KXHGD0JJH9S3YSHR7B4WAYF9
+- #477 acceptance.evidence.linked · 01KXHGD0JJH9S3YSHR7B4WAYF9
+- #478 acceptance.run · 01KXHGD0JJH9S3YSHR7B4WAYF9
+- #479 spec.transition · 01KXHGD0JJH9S3YSHR7B4WAYF9
+- #480 realization.anchored · 01KXHGD0JJH9S3YSHR7B4WAYF9
+- #481 realization.transition · 01KXHGD0XRFHBZP778MMEYBFJ0
+- #482 realization.transition · 01KXHGD0QX2RKN8C5C4N3VK2PE
+- #483 acceptance.criterion.added · 01KXHGD1ET2BKJ74C1TP6FQ65R
+- #484 acceptance.evidence.linked · 01KXHGD1ET2BKJ74C1TP6FQ65R
+- #485 acceptance.run · 01KXHGD1ET2BKJ74C1TP6FQ65R
+- #486 spec.transition · 01KXHGD1ET2BKJ74C1TP6FQ65R
+- #487 realization.transition · 01KXHGD1ET2BKJ74C1TP6FQ65R
+- #488 realization.anchored · 01KXHGD1ET2BKJ74C1TP6FQ65R
+- #489 spec.transition · 01KXHGD0QX2RKN8C5C4N3VK2PE
+- #490 acceptance.criterion.added · 01KXHGD19MDCHNW9VD768Z1SDA
+- #491 acceptance.evidence.linked · 01KXHGD19MDCHNW9VD768Z1SDA
+- #492 acceptance.run · 01KXHGD19MDCHNW9VD768Z1SDA
+- #493 spec.transition · 01KXHGD19MDCHNW9VD768Z1SDA
+- #494 realization.transition · 01KXHGD19MDCHNW9VD768Z1SDA
+- #495 realization.transition · 01KXHGD19MDCHNW9VD768Z1SDA
+- #496 realization.anchored · 01KXHGD19MDCHNW9VD768Z1SDA
+- #497 acceptance.criterion.added · 01KXHGD13KP3FXWQHXPYFQR4A4
+- #498 acceptance.criterion.added · 01KXHGD0XRFHBZP778MMEYBFJ0
+- #499 acceptance.evidence.linked · 01KXHGD13KP3FXWQHXPYFQR4A4
+- #500 acceptance.evidence.linked · 01KXHGD0XRFHBZP778MMEYBFJ0
+- #501 spec.transition · 01KXHGD0XRFHBZP778MMEYBFJ0
+- #502 realization.transition · 01KXHGD0XRFHBZP778MMEYBFJ0
+- #503 acceptance.run · 01KXHGD0XRFHBZP778MMEYBFJ0
+- #504 realization.anchored · 01KXHGD0XRFHBZP778MMEYBFJ0
+- #505 spec.transition · 01KXHGD13KP3FXWQHXPYFQR4A4
+- #506 realization.anchored · 01KXHGD0JJH9S3YSHR7B4WAYF9
+- #507 acceptance.run · 01KXHGD0JJH9S3YSHR7B4WAYF9
+- #508 realization.anchored · 01KXHGD0XRFHBZP778MMEYBFJ0
+- #509 acceptance.run · 01KXHGD0XRFHBZP778MMEYBFJ0
+- #510 realization.anchored · 01KXHGD19MDCHNW9VD768Z1SDA
+- #511 acceptance.run · 01KXHGD19MDCHNW9VD768Z1SDA
+- #512 realization.anchored · 01KXHGD1ET2BKJ74C1TP6FQ65R
+- #513 acceptance.run · 01KXHGD1ET2BKJ74C1TP6FQ65R
+- #514 acceptance.run · 01KXHGD13KP3FXWQHXPYFQR4A4
+- #515 realization.transition · 01KXHGD13KP3FXWQHXPYFQR4A4
+- #516 realization.anchored · 01KXHGD13KP3FXWQHXPYFQR4A4
+- #517 acceptance.criterion.added · 01KXHGD0QX2RKN8C5C4N3VK2PE
+- #518 acceptance.evidence.linked · 01KXHGD0QX2RKN8C5C4N3VK2PE
+- #519 acceptance.run · 01KXHGD0QX2RKN8C5C4N3VK2PE
+- #520 realization.transition · 01KXHGD0QX2RKN8C5C4N3VK2PE
+- #521 realization.anchored · 01KXHGD0QX2RKN8C5C4N3VK2PE
+- #522 item.created · 01KY4Y2NGQ23RWGBYFFWSM7GCN
+- #523 acceptance.criterion.added · 01KY4Y2NGQ23RWGBYFFWSM7GCN
+- #524 acceptance.criterion.added · 01KY4Y2NGQ23RWGBYFFWSM7GCN
+- #525 acceptance.criterion.added · 01KY4Y2NGQ23RWGBYFFWSM7GCN
+- #526 acceptance.criterion.added · 01KY4Y2NGQ23RWGBYFFWSM7GCN
+- #527 acceptance.criterion.added · 01KY4Y2NGQ23RWGBYFFWSM7GCN
+- #528 realization.transition · 01KY4Y2NGQ23RWGBYFFWSM7GCN
+- #529 acceptance.criterion.added · 01KY4Y2NGQ23RWGBYFFWSM7GCN
+- #530 acceptance.criterion.added · 01KY4Y2NGQ23RWGBYFFWSM7GCN
+- #531 acceptance.criterion.added · 01KY4Y2NGQ23RWGBYFFWSM7GCN
+- #532 acceptance.criterion.added · 01KY4Y2NGQ23RWGBYFFWSM7GCN
+- #533 acceptance.criterion.added · 01KY4Y2NGQ23RWGBYFFWSM7GCN
+- #534 acceptance.criterion.added · 01KXA2TRS5CS633PCGXQ5TYF1W
+- #535 acceptance.criterion.added · 01KXA2TRS5CS633PCGXQ5TYF1W
+- #536 acceptance.criterion.added · 01KXA2TRS5CS633PCGXQ5TYF1W
+- #537 item.created · 01KY564R6XWB0EJHSE04ZRP8MH
+- #538 decision.created · 01KY65RNV7GWCXV787PJW5FYQ1
+- #539 blocker.opened · 01KY65RNV8ZA76P82F45XHCQFA
+- #540 decision.created · 01KY66FTP7Y4W214SADDWKHT15
+- #541 blocker.opened · 01KY66FTPARZ0KTTB7SF76ZAJQ
+- #542 decision.created · 01KY66FV4W1JKHBZ2MW44P9EP6
+- #543 blocker.opened · 01KY66FV4YQMT7FHYYXDDXXMRB
+- #544 decision.created · 01KY66FVKFFVKRDXY9PFGEF4RD
+- #545 blocker.opened · 01KY66FVKH57S5B4975RJ8K461
+- #546 decision.created · 01KY66FW260Q5TV1DVR6ZPH891
+- #547 blocker.opened · 01KY66FW28ZJQM411TPD2EERWS
+- #548 decision.created · 01KY66FWJ4MYNJMDDJXA54G3FD
+- #549 blocker.opened · 01KY66FWJ6QYW3A5FF8ZPAFTED
+- #550 decision.created · 01KY66FX0PFH958103YVQWRBQZ
+- #551 blocker.opened · 01KY66FX0SMWRJ5C2HY5J0FM05
+- #552 item.created · 01KY66T20YS7JEQP73999VPVFJ
+- #553 decision.created · 01KY66T2F35VNZP6FHFAVVBGH0
+- #554 blocker.opened · 01KY66T2F5PXJ5E6CES7XB3QD3
+- #555 item.created · 01KY7CAYTVW4PVGQ0D552EENDG
+- #556 item.created · 01KY7CAZ119CZ3Y7K9VA7DX1M2
+- #557 item.created · 01KY7CBBRAAKXJBQ3DJNR2CVXC
+- #558 item.created · 01KY7CBBYY3343TX635JA5J90K
+- #559 item.created · 01KY7CBC4XHTYA1PYSSNQS2P0F
+- #560 item.created · 01KY7D1Z0B0TNDP9PK48GAZN6W
+- #561 item.created · 01KY7D1Z6QVKXTR17GP7V38YZX
+- #562 item.created · 01KY7D1ZCNZDMYV9YM4VV3VYHJ
+- #563 item.created · 01KY7D1ZK1XEV46V2RXA4AE7AV
+- #564 item.created · 01KY7JYETQVYWDNNQVNZT875FF
+- #565 item.created · 01KY7K95K4Y24ZQKTXQDD1EMNH
+- #566 item.created · 01KY7K95S9SVRENWZC6T6XQY2A
+- #567 item.created · 01KYJVQM5JMJ49MTKR2H4K12NK
+- #568 item.created · 01KYJY3K9XZMA5HJ3K1H3EZW3R

@@ -12,6 +12,7 @@ export const HARNESS_SKILLS = [
     { name: 'debug', summary: 'generic root-cause loop', legacySuperpowers: 'systematic-debugging' },
     { name: 'review', summary: '≥2-peer consensus review', legacySuperpowers: 'requesting-code-review' },
     { name: 'security', summary: 'dependency/vulnerability debt: coverage, expiring exceptions, CI gates' },
+    { name: 'track-report', summary: 'render the deterministic track output in session (FAIT/À-FAIRE/DÉCISIONS/RECOMMANDATION), no AI subprocess' },
     { name: 'plan', summary: 'spec-ladder + BRANCH.md lots; completes with track', legacySuperpowers: 'writing-plans' },
     { name: 'adopt', summary: 'adapt the harness method to ANY repo (profile)' },
 ];
