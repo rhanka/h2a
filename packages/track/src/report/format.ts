@@ -74,6 +74,32 @@ function rowLine(r: ReportRow, format: Format): string {
     : `  - ${title(r.title, format)} [${meta(r)}]`
 }
 
+interface DecisionPresentation {
+  structured: DecisionRow[]
+  legacyPending: DecisionRow[]
+  legacySettled: DecisionRow[]
+}
+
+/**
+ * Classify folded decision rows once for every human renderer. Legacy events remain
+ * readable, but only a dossier that satisfies the native validator is actionable.
+ */
+function classifyDecisions(decisions: readonly DecisionRow[]): DecisionPresentation {
+  return {
+    structured: decisions.filter((decision) => decision.structured === true),
+    legacyPending: decisions.filter((decision) => decision.structured !== true && decision.outcome === 'pending'),
+    legacySettled: decisions.filter((decision) => decision.structured !== true && decision.outcome !== 'pending'),
+  }
+}
+
+function legacyRevisionAction(decision: DecisionRow): string {
+  return `alternatives et recommandation non enregistrées; réviser avec track decision dossier ${decision.id}`
+}
+
+function legacyHistoryNote(decision: DecisionRow): string {
+  return `outcome historique:${decision.outcome}; aucune option sélectionnée n'est attestée`
+}
+
 export function formatReport(report: Report, format: Format): string {
   if (format === 'json') return JSON.stringify(report, null, 2)
   const lines: string[] = []
@@ -84,8 +110,9 @@ export function formatReport(report: Report, format: Format): string {
     lines.push('')
   }
   if (report.decisions !== undefined) {
-    lines.push(heading('DECISIONS', report.decisions.length, format))
-    for (const d of report.decisions) {
+    const { structured, legacyPending, legacySettled } = classifyDecisions(report.decisions)
+    lines.push(heading('DECISIONS', structured.length, format))
+    for (const d of structured) {
       const t = title(d.title, format)
       // D6-B (WP5): surface the sponsor (= `accountable`, D6 resolved) when present. Additive — a
       // decision without a sponsor renders exactly as before (no trailing segment).
@@ -95,6 +122,26 @@ export function formatReport(report: Report, format: Format): string {
           ? `- **${t}** — ${d.decisionKind} · ${d.realization} · outcome:${d.outcome}${sponsor}`
           : `  - ${t} [${d.decisionKind}, ${d.realization}, outcome:${d.outcome}${d.accountable !== undefined ? `, sponsor:${d.accountable}` : ''}]`,
       )
+      const alternatives = d.options?.map((option) => `${option.id}: ${title(option.title, format)} — ${title(option.summary, format)}`).join(' / ') ?? ''
+      const recommendation = d.recommendation === undefined
+        ? ''
+        : `recommandation:${d.recommendation.optionId} — ${title(d.recommendation.rationale, format)}`
+      lines.push(format === 'md' ? `  - alternatives: ${alternatives}` : `    alternatives: ${alternatives}`)
+      lines.push(format === 'md' ? `  - ${recommendation}` : `    ${recommendation}`)
+    }
+    if (legacyPending.length > 0) {
+      lines.push(heading('À INSTRUIRE (legacy)', legacyPending.length, format))
+      for (const d of legacyPending) {
+        const t = title(d.title, format)
+        lines.push(format === 'md' ? `- **${t}** — ${legacyRevisionAction(d)}` : `  - ${t} [${legacyRevisionAction(d)}]`)
+      }
+    }
+    if (legacySettled.length > 0) {
+      lines.push(heading('HISTORIQUE NON STRUCTURÉ', legacySettled.length, format))
+      for (const d of legacySettled) {
+        const t = title(d.title, format)
+        lines.push(format === 'md' ? `- **${t}** — ${legacyHistoryNote(d)}` : `  - ${t} [${legacyHistoryNote(d)}]`)
+      }
     }
   }
   return lines.join('\n').trimEnd() + '\n'
@@ -112,8 +159,7 @@ function decisionDisposition(d: { id: string; workspace: string; decisionKind: s
     return `focus décision HTML conseillé: track focus ${d.id} --workspace ${d.workspace} --format html`
   }
   if ((d.openQuestionCount ?? 0) > 0) return 'répondre aux questions ouvertes puis trancher'
-  if (d.decisionKind === 'commitment') return 'trancher go/no-go et enregistrer outcome'
-  return 'choisir l’orientation recommandée puis enregistrer outcome'
+  return `choisir une option enregistrée puis la régler durablement avec track decision select ${d.id} <option-id> --outcome <go|no-go>`
 }
 
 function cell(s: string): string {
@@ -187,7 +233,9 @@ export function formatActionReport(report: Report, format: Format): string {
   const todo = report.buckets['TO-DO']
   const done = report.buckets.DONE
   const dropped = report.buckets.DROPPED
-  const pendingDecisions = report.decisions?.filter((d) => d.outcome === 'pending') ?? []
+  const allDecisions = report.decisions ?? []
+  const { structured, legacyPending, legacySettled } = classifyDecisions(allDecisions)
+  const pendingDecisions = structured.filter((d) => d.outcome === 'pending')
 
   lines.push(h('SYNTHÈSE'))
   lines.push(...table(['fait', 'à-faire', 'attendus', 'dropped', 'décisions pending'], [[String(done.length), String(todo.length), String(awaited.length), String(dropped.length), String(pendingDecisions.length)]]))
@@ -198,7 +246,7 @@ export function formatActionReport(report: Report, format: Format): string {
   const actionRows: string[][] = []
   const focusCount = pendingDecisions.filter(decisionNeedsFocus).length
   if (focusCount >= 2 || pendingDecisions.length >= 4) {
-    actionRows.push(['focus', 'décisions accumulées', 'focus (humain+MCP): lancer focus HTML local; retour outcome via vue interactive/MCP'])
+    actionRows.push(['focus', 'décisions accumulées', 'focus (humain): lancer focus HTML local; régler toute option choisie avec track decision select'])
   }
   for (const d of pendingDecisions) {
     actionRows.push([
@@ -216,6 +264,35 @@ export function formatActionReport(report: Report, format: Format): string {
   }
   lines.push(...table(['scope/gate', 'sujet', 'préconisation'], actionRows.length > 0 ? actionRows : [['-', 'aucune décision/action ouverte', '-']]))
   lines.push('')
+
+  if (structured.length > 0) {
+    lines.push(h('DÉCISIONS'))
+    lines.push(...table(
+      ['dossier', 'alternatives enregistrées', 'recommandation / règlement'],
+      structured.map((d) => [
+        `${d.id} — ${title(d.title, format)} (${d.outcome})`,
+        d.options?.map((option) => `${option.id}: ${title(option.title, format)} — ${title(option.summary, format)}`).join(' / ') ?? '-',
+        `recommandée:${d.recommendation?.optionId ?? '-'}${d.selectedOptionId !== undefined ? `; sélectionnée:${d.selectedOptionId}` : ''}`,
+      ]),
+    ))
+    lines.push('')
+  }
+  if (legacyPending.length > 0) {
+    lines.push(h('À INSTRUIRE'))
+    lines.push(...table(
+      ['dossier legacy', 'disposition sûre'],
+      legacyPending.map((d) => [`${d.id} — ${title(d.title, format)}`, legacyRevisionAction(d)]),
+    ))
+    lines.push('')
+  }
+  if (legacySettled.length > 0) {
+    lines.push(h('HISTORIQUE NON STRUCTURÉ'))
+    lines.push(...table(
+      ['dossier legacy', 'constat'],
+      legacySettled.map((d) => [`${d.id} — ${title(d.title, format)}`, legacyHistoryNote(d)]),
+    ))
+    lines.push('')
+  }
 
   lines.push(h('FAIT RÉCENT / REPÈRES'))
   const doneRows = done.map((r) => ['done', title(r.title, format), r.acceptance])
@@ -468,7 +545,13 @@ export function buildWpConductorView(
   const directives = buildDirectives(tree, decisions)
   const dispatchQueue = dispatchQueueOf(directives)
   const keystone = keystoneOf(tree)
-  const humanDecisions = directives.filter((d) => d.mode === 'human-decision')
+  const { structured: structuredDecisions, legacyPending, legacySettled } = classifyDecisions(decisions)
+  const legacyIds = new Set(legacyPending.map((d) => d.id))
+  // A legacy dossier may still have a decision blocker on a leaf. Its directive is deliberately
+  // withheld from the owner-facing decision section: it belongs in À INSTRUIRE until the recorded
+  // option/recommendation model is populated by an authenticated revision.
+  const displayDirectives = directives.filter((d) => !legacyIds.has(d.gate?.ref ?? ''))
+  const humanDecisions = displayDirectives.filter((d) => d.mode === 'human-decision')
   const focusNeeded = humanDecisions.filter((d) => d.step.code === 'focus-decision').length
   const generalRecommendation = focusNeeded >= 2 || humanDecisions.length >= 4
     ? 'Prévoir un temps de focus HTML pour trancher les décisions accumulées, puis reprendre les WP par premier item ouvert.'
@@ -489,12 +572,12 @@ export function buildWpConductorView(
   // This is deliberately exhaustive: a conductor table is the deterministic route to every open row.
   const actionRows: Record<string, string>[] = []
   if (focusNeeded >= 2 || humanDecisions.length >= 4) {
-    actionRows.push({ scope: '-', subject: 'décisions accumulées', recommendation: 'focus (humain+MCP): lancer focus HTML local; retour outcome via vue interactive/MCP' })
+    actionRows.push({ scope: '-', subject: 'décisions accumulées', recommendation: 'focus (lecture): instruire le dossier, puis enregistrer le choix avec track decision select' })
   }
   for (const d of humanDecisions) {
     actionRows.push({ scope: directiveScopeLabel(d), subject: clean(d.target.title ?? d.target.id), recommendation: directivePhrase(d) })
   }
-  for (const d of directives.filter((x) => x.mode !== 'human-decision')) {
+  for (const d of displayDirectives.filter((x) => x.mode !== 'human-decision')) {
     actionRows.push({ scope: directiveScopeLabel(d), subject: clean(d.target.title ?? d.target.id), recommendation: directivePhrase(d) })
   }
   const outsideRows = outsideRollup.map((row) => ({
@@ -512,6 +595,13 @@ export function buildWpConductorView(
       ...(outsideRows.length > 0
         ? [{ id: 'outside-rollup', title: 'HORS ROLLUP', columns: [{ id: 'scope', label: 'rattachement' }, { id: 'progress', label: 'état' }, { id: 'item', label: 'item' }], rows: outsideRows }]
         : []),
+      ...(structuredDecisions.length > 0 ? [{ id: 'decisions', title: 'DÉCISIONS', columns: [{ id: 'decision', label: 'dossier' }, { id: 'alternatives', label: 'alternatives enregistrées' }, { id: 'recommendation', label: 'recommandation / règlement' }], rows: structuredDecisions.map((d) => ({
+        decision: `${d.id} — ${clean(d.title)} (${d.outcome})`,
+        alternatives: d.options!.map((option) => `${option.id}: ${clean(option.title)} — ${clean(option.summary)}`).join(' / '),
+        recommendation: `recommandée:${d.recommendation!.optionId} — ${clean(d.recommendation!.rationale)}${d.selectedOptionId !== undefined ? `; sélectionnée:${d.selectedOptionId}` : ''}`,
+      })) }] : []),
+      ...(legacyPending.length > 0 ? [{ id: 'prepare', title: 'À INSTRUIRE', columns: [{ id: 'decision', label: 'dossier legacy' }, { id: 'action', label: 'disposition sûre' }], rows: legacyPending.map((d) => ({ decision: `${d.id} — ${clean(d.title)}`, action: legacyRevisionAction(d) })) }] : []),
+      ...(legacySettled.length > 0 ? [{ id: 'legacy-history', title: 'HISTORIQUE NON STRUCTURÉ', columns: [{ id: 'decision', label: 'dossier legacy' }, { id: 'record', label: 'constat' }], rows: legacySettled.map((d) => ({ decision: `${d.id} — ${clean(d.title)}`, record: legacyHistoryNote(d) })) }] : []),
       { id: 'decisions-actions', title: 'DÉCISIONS/ACTIONS', columns: [{ id: 'scope', label: 'scope/gate' }, { id: 'subject', label: 'sujet' }, { id: 'recommendation', label: 'préconisation' }], rows: actionRows.length > 0 ? actionRows : [{ scope: '-', subject: 'aucune action ouverte dans les WP actifs', recommendation: '-' }] },
     ],
     generalRecommendation,
@@ -556,7 +646,7 @@ export function formatWpConductor(
 // second engine) — collapse lives ONLY here (render), never in `directives[]`.
 
 export interface InlineOptions {
-  /** Target line width (terminal columns). Clamped to [48, 200]; defaults to 80. */
+  /** Target line width (terminal columns). Clamped to the CLI contract [40, 240]; defaults to 80. */
   width?: number
   /** Max PRÉCO lines before an omission count is surfaced (never a silent cut). Defaults to 10. */
   maxDirectives?: number
@@ -588,7 +678,7 @@ export function formatWpConductorInline(
   opts: InlineOptions = {},
   outsideRollup: readonly ReportRow[] = [],
 ): string {
-  const width = Math.min(200, Math.max(48, opts.width ?? 80))
+  const width = Math.min(240, Math.max(40, opts.width ?? 80))
   const maxDir = Math.max(1, opts.maxDirectives ?? 10)
   const view = buildWpConductorView(tree, decisions, outsideRollup)
   const totals = wpTotals(tree, outsideRollup)

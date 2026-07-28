@@ -55,7 +55,7 @@ describe('Lot A — RACI fields on items & decisions (additive)', () => {
       title: 'D',
       workspace: 'ws',
       targets: [itm],
-      dossier: { context: '', options: [], qa: [] },
+      dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
       accountable: 'human:carol',
       engagementRef: 'eng-9',
     })
@@ -162,7 +162,7 @@ describe('Lot A — the WorkEvent ingest path carries the new fields', () => {
   it('ingests accountable (= sponsor) + engagementRef on a decision', () => {
     const itm = ingest([{ v: 1, kind: 'item.create', payload: { kind: 'feature', title: 'T', workspace: 'ws' } }], ctx, store).ids[0]!
     const d = ingest(
-      [{ v: 1, kind: 'decision.create', payload: { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itm], dossier: { context: '', options: [], qa: [] }, accountable: 'human:carol', engagementRef: 'eng-9' } }],
+      [{ v: 1, kind: 'decision.create', payload: { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itm], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } }, accountable: 'human:carol', engagementRef: 'eng-9' } }],
       ctx,
       store,
     ).ids[0]!
@@ -254,7 +254,7 @@ describe('D6-B — decision sponsor (= accountable) surfaced end-to-end', () => 
   it('track decision new --accountable <actor> persists the sponsor', () => {
     expect(cli('init').code).toBe(0)
     const itm = cli('item', 'new', '--kind', 'feature', '--title', 'T', '--workspace', 'ws').out.trim()
-    const out = cli('decision', 'new', '--kind', 'orientation', '--title', 'D', '--workspace', 'ws', '--targets', itm, '--accountable', 'human:carol').out
+    const out = cli('decision', 'new', '--kind', 'orientation', '--title', 'D', '--workspace', 'ws', '--targets', itm, '--context', 'choose', '--options-json', '[{"id":"a","title":"A","summary":"first"},{"id":"b","title":"B","summary":"second"}]', '--recommendation', 'a', '--rationale', 'A is safer', '--accountable', 'human:carol').out
     const decId = out.trim().split('\n').pop()!
     const dec = new Track(new EventStore(eventsPath)).state().decisions.get(decId)!
     expect(dec.accountable).toBe('human:carol')
@@ -267,7 +267,7 @@ describe('D6-B — decision sponsor (= accountable) surfaced end-to-end', () => 
       title: 'D',
       workspace: 'ws',
       targets: [itm],
-      dossier: { context: '', options: [], qa: [] },
+      dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
       accountable: 'human:dave',
     })
     const reader = new TrackReader(eventsPath)
@@ -277,8 +277,8 @@ describe('D6-B — decision sponsor (= accountable) surfaced end-to-end', () => 
 
   it('renders the sponsor in report --decisions text/md (present), and omits it when absent', () => {
     const itm = t.createItem({ kind: 'feature', title: 'T', workspace: 'ws' })
-    t.createDecision({ decisionKind: 'orientation', title: 'Sponsored', workspace: 'ws', targets: [itm], dossier: { context: '', options: [], qa: [] }, accountable: 'human:carol' })
-    t.createDecision({ decisionKind: 'orientation', title: 'Unsponsored', workspace: 'ws', targets: [itm], dossier: { context: '', options: [], qa: [] } })
+    t.createDecision({ decisionKind: 'orientation', title: 'Sponsored', workspace: 'ws', targets: [itm], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } }, accountable: 'human:carol' })
+    t.createDecision({ decisionKind: 'orientation', title: 'Unsponsored', workspace: 'ws', targets: [itm], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
     const reader = new TrackReader(eventsPath)
     const text = reportText(reader, { baselineCommit: 'c1', decisions: true }, 'text')
     expect(text).toContain('sponsor:human:carol')
@@ -292,7 +292,7 @@ describe('D6-B — decision sponsor (= accountable) surfaced end-to-end', () => 
     const itm = t.createItem({ kind: 'feature', title: 'T', workspace: 'ws' })
     const ctx: IngestContext = { by: 'human:t', workspace: 'ws', prov: { transport: 'import', proposed: false, auth: 'local-user' } }
     const d = ingest(
-      [{ v: 1, kind: 'decision.create', payload: { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itm], dossier: { context: '', options: [], qa: [] }, accountable: 'human:erin' } }],
+      [{ v: 1, kind: 'decision.create', payload: { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itm], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } }, accountable: 'human:erin' } }],
       ctx,
       store,
     ).ids[0]!
@@ -301,7 +301,7 @@ describe('D6-B — decision sponsor (= accountable) surfaced end-to-end', () => 
 
   it('absent --accountable ⇒ undefined (additive, hash-neutral on the decision.created event)', () => {
     const itm = t.createItem({ kind: 'feature', title: 'T', workspace: 'ws' })
-    const d = t.createDecision({ decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itm], dossier: { context: '', options: [], qa: [] } })
+    const d = t.createDecision({ decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itm], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
     expect(t.state().decisions.get(d)!.accountable).toBeUndefined()
     const createdEvent = store.readAll().find((e) => e.type === 'decision.created')!
     expect('accountable' in (createdEvent.payload as Record<string, unknown>)).toBe(false)
