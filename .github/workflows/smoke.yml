@@ -38,7 +38,7 @@ jobs:
       #   tarball was an empty stub, so this half stays as a post-publish
       #   check, not as a PR gate (a PR's own diff has nothing to do with
       #   what npm currently serves as "latest").
-      - name: Build and pack the PR's own @sentropic/h2a
+      - name: Build and pack this PR's lockstep packages
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
@@ -57,15 +57,23 @@ jobs:
           chmod +x packages/h2a/dist/bin.js
           pack_dir="$(mktemp -d)"
           npm pack --workspace @sentropic/h2a --ignore-scripts --pack-destination "$pack_dir"
-          tarball="$(ls "$pack_dir"/sentropic-h2a-*.tgz)"
-          echo "PACKED_H2A_TARBALL=$tarball" >> "$GITHUB_ENV"
+          npm pack --workspace @sentropic/track --pack-destination "$pack_dir"
+          npm pack --workspace @sentropic/h2a-cli --pack-destination "$pack_dir"
+          npm pack --workspace @sentropic/h2a-runtime --pack-destination "$pack_dir"
+          echo "PACKED_H2A_TARBALL=$(ls "$pack_dir"/sentropic-h2a-[0-9]*.tgz)" >> "$GITHUB_ENV"
+          echo "PACKED_TRACK_TARBALL=$(ls "$pack_dir"/sentropic-track-*.tgz)" >> "$GITHUB_ENV"
+          echo "PACKED_H2A_CLI_TARBALL=$(ls "$pack_dir"/sentropic-h2a-cli-*.tgz)" >> "$GITHUB_ENV"
+          echo "PACKED_H2A_RUNTIME_TARBALL=$(ls "$pack_dir"/sentropic-h2a-runtime-*.tgz)" >> "$GITHUB_ENV"
 
       - name: Install this PR's own build globally
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
-          npm i -g "$PACKED_H2A_TARBALL"
+          # Install the lockstep tarballs in one npm transaction so h2a's
+          # unreleased track dependency and runtime peer resolve from this PR,
+          # rather than requiring the release version from the registry.
+          npm i -g "$PACKED_H2A_TARBALL" "$PACKED_TRACK_TARBALL" "$PACKED_H2A_CLI_TARBALL" "$PACKED_H2A_RUNTIME_TARBALL"
           which h2a
           h2a --help
 
