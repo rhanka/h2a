@@ -50,7 +50,7 @@ describe('./ingest barrel — the submit-facing surface', () => {
     // The runtime VALUE exports the host needs: the function, the contract version, the error, the
     // binding-auth pre-check (predicate + decoupled frozen copy).
     expect(typeof ingest).toBe('function')
-    expect(INGEST_CONTRACT_VERSION).toBe('1.6.0')
+    expect(INGEST_CONTRACT_VERSION).toBe('2.0.0')
     expect(typeof IngestError).toBe('function')
 
     // The pre-check PREDICATE — the host's "does my channel auth admit binding writes?" question.
@@ -94,7 +94,7 @@ describe('./ingest barrel — the submit-facing surface', () => {
 })
 
 describe('./ingest barrel — END-TO-END in-process submit through ONLY the barrel exports', () => {
-  it('an authenticated host submits a binding stream (item.realize→done, decision.outcome) and reads the receipt', () => {
+  it('an authenticated host submits a binding stream (item.realize→done, decision.select) and reads the receipt', () => {
     const store = freshStore()
     // The host carries auth via the IngestContext (WHO/trust from the context, never the event).
     const prov: Provenance = { transport: 'import', proposed: false, auth: 'local-user' }
@@ -118,7 +118,7 @@ describe('./ingest barrel — END-TO-END in-process submit through ONLY the barr
           title: 'Ship it',
           workspace: 'ws',
           targets: [itemId],
-          dossier: { context: '', options: [], qa: [] },
+          dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
         },
       },
     ]
@@ -130,7 +130,7 @@ describe('./ingest barrel — END-TO-END in-process submit through ONLY the barr
     const settle: WorkEvent[] = [
       { v: 1, kind: 'item.realize', payload: { itemId, to: 'in-progress' } },
       { v: 1, kind: 'item.realize', payload: { itemId, to: 'done' } },
-      { v: 1, kind: 'decision.outcome', payload: { decisionId, to: 'go' } },
+      { v: 1, kind: 'decision.select', payload: { decisionId, optionId: 'a' } },
     ]
     const settleRes = ingest(settle, ctx, store)
     // Receipt SHAPE: ids array (null for non-creating kinds) in input order + a count.
@@ -141,6 +141,7 @@ describe('./ingest barrel — END-TO-END in-process submit through ONLY the barr
     const types = persisted.map((e) => e.type)
     expect(types).toContain('item.created')
     expect(types).toContain('decision.created')
+    expect(types).toContain('decision.option-selected')
     expect(types).toContain('decision.outcome')
     // The item reached terminal `done` (two realization transitions: in-progress, then done).
     const realizeEvents = persisted.filter((e) => e.type === 'realization.transition')
@@ -192,7 +193,7 @@ describe('./ingest barrel — END-TO-END in-process submit through ONLY the barr
             title: 'D',
             workspace: 'ws',
             targets: [itemId],
-            dossier: { context: '', options: [], qa: [] },
+            dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
           },
         },
       ],
@@ -207,14 +208,14 @@ describe('./ingest barrel — END-TO-END in-process submit through ONLY the barr
     // The pre-check predicate still reports the unchanged admit-set.
     expect(isBindingAuth('unauthenticated')).toBe(false)
 
-    // The GATE is unaffected: an unauthenticated BINDING write (decision.outcome) STILL throws IngestError.
+    // The GATE is unaffected: an unauthenticated BINDING write (decision.outcome defer) STILL throws IngestError.
     const unauth: IngestContext = {
       by: 'agent:x',
       workspace: 'ws',
       prov: { transport: 'import', proposed: false, auth: 'unauthenticated' },
     }
     expect(() =>
-      ingest([{ v: 1, kind: 'decision.outcome', payload: { decisionId, to: 'go' } }], unauth, store),
+      ingest([{ v: 1, kind: 'decision.outcome', payload: { decisionId, to: 'deferred' } }], unauth, store),
     ).toThrow(IngestError)
   })
 })
@@ -234,7 +235,7 @@ describe('./ingest package export — the compiled subpath resolves at runtime',
     if (!existsSync(distEntry)) execFileSync('npx', ['tsc', '-p', 'tsconfig.build.json'], { cwd: repoRoot, stdio: 'pipe' })
     const mod = (await import(pathToFileURL(distEntry).href)) as Record<string, unknown>
     expect(typeof mod['ingest']).toBe('function')
-    expect(mod['INGEST_CONTRACT_VERSION']).toBe('1.6.0')
+    expect(mod['INGEST_CONTRACT_VERSION']).toBe('2.0.0')
     expect(typeof mod['IngestError']).toBe('function')
     expect(typeof mod['isBindingAuth']).toBe('function')
     expect(Array.isArray(mod['BINDING_AUTH'])).toBe(true)

@@ -73,7 +73,7 @@ describe('provenance (D3) — stamped, hash-covered, additive', () => {
     })
     live.auth = 'unauthenticated' // mutate the caller's object AFTER construction
     const target = t.createItem({ kind: 'feature', title: 'x', workspace: 'ws' })
-    t.createDecision({ decisionKind: 'orientation', title: 'd', workspace: 'ws', targets: [target], dossier: { context: '', options: [], qa: [] } })
+    t.createDecision({ decisionKind: 'orientation', title: 'd', workspace: 'ws', targets: [target], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
     // every emitted event carries the SNAPSHOT taken at construction, not the later mutation
     for (const e of events()) expect(e.prov?.auth).toBe('local-user')
     expect(integ().ok).toBe(true)
@@ -82,7 +82,7 @@ describe('provenance (D3) — stamped, hash-covered, additive', () => {
   it('stamps prov on EVERY member of a multi-event cmdId batch', () => {
     const t = track({ prov: PROV })
     const target = t.createItem({ kind: 'feature', title: 'x', workspace: 'ws' })
-    t.createDecision({ decisionKind: 'orientation', title: 'd', workspace: 'ws', targets: [target], dossier: { context: '', options: [], qa: [] } })
+    t.createDecision({ decisionKind: 'orientation', title: 'd', workspace: 'ws', targets: [target], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
     const batch = events().filter((e) => e.type === 'decision.created' || e.type === 'blocker.opened')
     expect(batch.length).toBeGreaterThan(1)
     for (const e of batch) expect(e.prov).toEqual(PROV)

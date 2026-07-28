@@ -165,7 +165,7 @@ describe('directive selector — routing a decision wait (DESIGN §2.A)', () => 
       title: 'gate gated',
       workspace: 'ws',
       targets: [id],
-      dossier: { context: '', options: [], qa: [] },
+      dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
     })
     const decision: DecisionRow = {
       id: decisionId, title: 'gate gated', workspace: 'ws', decisionKind: 'commitment', realization: 'to-do', outcome: 'pending',
@@ -183,7 +183,12 @@ describe('directive selector — routing a decision wait (DESIGN §2.A)', () => 
     const target = t.createItem({ kind: 'feature', title: 'cross target', workspace: 'ws-a', parentId: crossWp })
     const decisionId = t.createDecision({
       decisionKind: 'orientation', title: 'cross decision', workspace: 'ws-b', targets: [target],
-      dossier: { context: '', options: [], qa: [] },
+      dossier: {
+        context: 'Choose whether to proceed across workspaces.',
+        options: [{ id: 'proceed', title: 'Proceed', summary: 'Continue the work.' }, { id: 'pause', title: 'Pause', summary: 'Wait for more evidence.' }],
+        recommendation: { optionId: 'proceed', rationale: 'The target remains actionable.' },
+        qa: [],
+      },
     })
     const decision: DecisionRow = {
       id: decisionId, title: 'cross decision', workspace: 'ws-b', decisionKind: 'orientation', realization: 'to-do', outcome: 'pending',
@@ -242,7 +247,7 @@ describe('directive selector — record-only commandHint allowlist (DESIGN §5)'
     t.setRealization(specified(leaf('wip', wp('WP3'))), 'in-progress')
     specified(leaf('unprioritized', wp('WP4')))
     const gated = leaf('gated', wp('WP5'), 'feature')
-    t.createDecision({ decisionKind: 'commitment', title: 'g', workspace: 'ws', targets: [gated], dossier: { context: '', options: [], qa: [] } })
+    t.createDecision({ decisionKind: 'commitment', title: 'g', workspace: 'ws', targets: [gated], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
 
     const hints = directives().map((d) => d.commandHint).filter((h): h is string => h !== undefined)
     expect(hints.length).toBeGreaterThan(0) // there ARE hints (focus/priority) — proving the negative is meaningful
@@ -334,7 +339,7 @@ describe('view — additive directives + dispatchQueue (DESIGN §4)', () => {
   it('buildWpConductorView exposes directives[] and a subagent-only dispatchQueue', () => {
     failing(leaf('fail', wp('WP1')))
     const gated = leaf('gated', wp('WP2'), 'feature')
-    t.createDecision({ decisionKind: 'commitment', title: 'g', workspace: 'ws', targets: [gated], dossier: { context: '', options: [], qa: [] } })
+    t.createDecision({ decisionKind: 'commitment', title: 'g', workspace: 'ws', targets: [gated], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
 
     const view = buildWpConductorView(computeWpTree(t.state(), cfg))
     expect(view.directives.length).toBeGreaterThanOrEqual(2)

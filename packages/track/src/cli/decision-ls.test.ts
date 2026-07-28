@@ -27,6 +27,40 @@ function cli(args: string[]): { code: number; out: string; err: string } {
   return { code: result as number, out: out.join(''), err: err.join('') }
 }
 
+function legacyDecision(input: { id: string; title: string; workspace: string; targets: string[] }): string {
+  // Read-only historical fixture: old logs predate write-boundary validation and can contain prose-only
+  // dossiers. It is deliberately injected at the event-store seam solely to prove the reader labels it
+  // unstructured; all current public decision writers are exercised with structured dossiers below.
+  new EventStore(eventsPath).appendCommand([{
+    id: `event-${input.id}`,
+    type: 'decision.created',
+    aggregate: 'decision',
+    aggregateId: input.id,
+    at: '2026-07-28T00:00:00.000Z',
+    by: 'legacy-fixture',
+    payload: {
+      decisionKind: 'commitment',
+      title: input.title,
+      workspace: input.workspace,
+      targets: input.targets,
+      dossier: { context: 'Choix A: prose only', options: [], qa: [] },
+    },
+  }])
+  return input.id
+}
+
+function dossier() {
+  return {
+    context: 'Choose one documented alternative.',
+    options: [
+      { id: 'A', title: 'Option A', summary: 'first' },
+      { id: 'B', title: 'Option B', summary: 'second' },
+    ],
+    recommendation: { optionId: 'A', rationale: 'evidence' },
+    qa: [],
+  }
+}
+
 describe('track decision ls', () => {
   it('lists every pending decision and exposes whether alternatives are structured', () => {
     const track = new Track(new EventStore(eventsPath), { by: 'tester' })
@@ -36,27 +70,13 @@ describe('track decision ls', () => {
       title: 'structured decision',
       workspace: 'ws-a',
       targets: [target],
-      dossier: {
-        context: 'ignored as structure source',
-        options: [
-          { id: 'A', title: 'Option A', summary: 'first' },
-          { id: 'B', title: 'Option B', summary: 'second' },
-        ],
-        recommendation: { optionId: 'A', rationale: 'evidence' },
-        qa: [],
-      },
+      dossier: dossier(),
     })
-    const prose = track.createDecision({
-      decisionKind: 'commitment',
-      title: 'prose-only decision',
-      workspace: 'ws-b',
-      targets: [target],
-      dossier: { context: 'Choix A: prose only', options: [], qa: [] },
-    })
+    const prose = legacyDecision({ id: 'legacy-prose', title: 'prose-only decision', workspace: 'ws-b', targets: [target] })
     for (let i = 0; i < 8; i++) {
       track.createDecision({
         decisionKind: 'orientation', title: `extra ${i}`, workspace: 'ws-a', targets: [target],
-        dossier: { context: '', options: [], qa: [] },
+        dossier: dossier(),
       })
     }
 
@@ -82,7 +102,7 @@ describe('track decision ls', () => {
     const target = track.createItem({ kind: 'feature', title: 'target', workspace: 'ws' })
     const decisionId = track.createDecision({
       decisionKind: 'orientation', title: 'safe\n- forged | **markdown**\u001b[31m', workspace: 'ws', targets: [target],
-      dossier: { context: '', options: [], qa: [] },
+      dossier: dossier(),
     })
 
     const text = cli(['decision', 'ls', '--format', 'text', '--commit', 'c1'])
@@ -95,6 +115,20 @@ describe('track decision ls', () => {
     expect(md.code, md.err).toBe(0)
     expect(md.out).not.toContain('\n- forged')
     expect(md.out).toContain('\\*\\*markdown\\*\\*')
+  })
+
+  it('permits decision outcome only for an authenticated deferral; go/no-go uses decision select', () => {
+    const track = new Track(new EventStore(eventsPath), { by: 'tester' })
+    const target = track.createItem({ kind: 'feature', title: 'target', workspace: 'ws' })
+    const decisionId = track.createDecision({ decisionKind: 'orientation', title: 'structured', workspace: 'ws', targets: [target], dossier: dossier() })
+
+    const go = cli(['decision', 'outcome', decisionId, 'go'])
+    expect(go.code).toBe(1)
+    expect(go.err).toMatch(/deferred/)
+
+    const deferred = cli(['decision', 'outcome', decisionId, 'deferred'])
+    expect(deferred.code, deferred.err).toBe(0)
+    expect(new Track(new EventStore(eventsPath)).state().decisions.get(decisionId)!.outcome).toBe('deferred')
   })
 
   it('serves an empty read without a sidecar, but rejects an explicit missing --track-dir', () => {

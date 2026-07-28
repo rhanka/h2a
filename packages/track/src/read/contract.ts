@@ -32,7 +32,7 @@ import {
 import { clipWpTreeToWorkspace } from '../report/rollup.js'
 import { auditFindings, type AuditFinding } from '../report/audit.js'
 import { fold, type State } from '../state/fold.js'
-import type { Dossier, Outcome } from '../model/decision.js'
+import { isStructuredDossier, type DecisionState, type Dossier, type Outcome } from '../model/decision.js'
 import type {
   DemandId,
   DemandRaw,
@@ -314,7 +314,7 @@ export interface AmendmentProv {
 /**
  * One ordered, prov-tagged step in an aggregate's amendment trace — the human/machine diff. A PURE replay
  * projection over the aggregate's `spec.amended` / `dossier.revised` / `decision.artifact-added` /
- * `decision.outcome` events: ZERO new event data (`origin` derives from `prov.proposed`). An AI proposal
+ * `decision.option-selected` / `decision.outcome` events: ZERO new event data (`origin` derives from `prov.proposed`). An AI proposal
  * and a human acceptance both appear — the machine origin is NEVER laundered away.
  */
 export interface AmendmentStep {
@@ -330,6 +330,8 @@ export interface AmendmentStep {
   patchRef?: string
   /** For a `spec.amended` step: the `proposalRef` it accepts/derives from (proof of non-laundered origin). */
   proposalRef?: string
+  /** For a `decision.option-selected` step: the exact recorded native option id. */
+  selectedOptionId?: string
 }
 
 /** A per-aggregate `prov` lineage summary surfaced on the canevas (the latest write's provenance). */
@@ -439,6 +441,7 @@ const AMENDMENT_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
   'spec.amended',
   'dossier.revised',
   'decision.artifact-added',
+  'decision.option-selected',
   'decision.outcome',
 ])
 
@@ -465,11 +468,15 @@ function itemAffordances(state: State, itemId: ItemId): WorkEventKind[] {
   return out
 }
 
-/** Open-action affordances for a decision, by its outcome state (the outcome machine the facade enforces). */
-function decisionAffordances(outcome: Outcome): WorkEventKind[] {
-  // Whole-dossier revise + an append-only artifact are always offerable; outcome only until terminal.
+/** Open-action affordances for a decision, matching its native dossier and outcome state. */
+function decisionAffordances(decision: DecisionState): WorkEventKind[] {
+  // Whole-dossier revise + an append-only artifact are always offerable. A structured
+  // dossier settles only through decision.select, so the canevas never advertises the
+  // option-losing decision.outcome route.
   const out: WorkEventKind[] = ['decision.dossier', 'decision.add-artifact']
-  if (outcome === 'pending' || outcome === 'deferred') out.push('decision.outcome')
+  if (decision.outcome === 'pending' || decision.outcome === 'deferred') {
+    out.push(isStructuredDossier(decision.dossier) ? 'decision.select' : 'decision.outcome')
+  }
   return out
 }
 
@@ -753,7 +760,7 @@ export class TrackReader {
     for (const d of state.decisions.values()) {
       if (d.workspace !== workspace) continue
       surface(d.id)
-      affordances[d.id] = decisionAffordances(d.outcome)
+      affordances[d.id] = decisionAffordances(d)
     }
     // Demand lifecycle (Mode A, Build 2) — surface demands ON THE CANEVAS (reuse the latestProvAt loop keyed
     // on the demand aggregateId) + demand affordances (legal next actions by status). Demands are NOT items,
@@ -788,7 +795,8 @@ export class TrackReader {
 
   /**
    * M5 (canevas) — the human/machine diff: an ORDERED (by seq), prov-tagged projection over the aggregate's
-   * `spec.amended` / `dossier.revised` / `decision.artifact-added` / `decision.outcome` events. PURE replay;
+   * `spec.amended` / `dossier.revised` / `decision.artifact-added` / `decision.option-selected` /
+   * `decision.outcome` events. PURE replay;
    * ZERO new event data — `origin` derives from `prov.proposed` (true ⇒ machine, false ⇒ human). An AI
    * proposal (proposed:true, with a proposalRef) and a human acceptance (referencing the same proposalRef)
    * BOTH appear — the machine origin is NEVER laundered away.
@@ -799,7 +807,7 @@ export class TrackReader {
       if (e.aggregateId !== aggregateId) continue
       if (!AMENDMENT_EVENT_TYPES.has(e.type)) continue
       const proposed = e.prov?.proposed ?? false
-      const p = e.payload as { summary?: unknown; resultHash?: unknown; proposalRef?: unknown }
+      const p = e.payload as { summary?: unknown; resultHash?: unknown; proposalRef?: unknown; optionId?: unknown }
       steps.push({
         seq: e.seq,
         at: e.at,
@@ -814,6 +822,7 @@ export class TrackReader {
         ...(typeof p.summary === 'string' ? { summary: p.summary } : {}),
         ...(typeof p.resultHash === 'string' ? { patchRef: p.resultHash } : {}),
         ...(typeof p.proposalRef === 'string' ? { proposalRef: p.proposalRef } : {}),
+        ...(typeof p.optionId === 'string' ? { selectedOptionId: p.optionId } : {}),
       })
     }
     return steps.sort((a, b) => a.seq - b.seq)

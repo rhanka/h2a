@@ -112,6 +112,80 @@ export interface DecisionCreatedPayload {
   engagementRef?: string
 }
 
+/**
+ * Validate the existing decision-dossier model at every write boundary. A pending
+ * decision is owner-facing only when it names at least two real alternatives and
+ * a recommendation among them. This intentionally does not reinterpret legacy
+ * prose dossiers while folding old events; those must be explicitly revised.
+ */
+export function assertStructuredDossier(
+  dossier: Dossier,
+  options: { allowSelectedOption?: boolean } = {},
+): void {
+  if (typeof dossier !== 'object' || dossier === null || Array.isArray(dossier)) {
+    throw new DomainError('decision dossier must be an object')
+  }
+  if (typeof dossier.context !== 'string') {
+    throw new DomainError('decision dossier context must be a string')
+  }
+  if (!Array.isArray(dossier.options) || dossier.options.length < 2) {
+    throw new DomainError('decision dossier requires at least two options')
+  }
+  const optionIds = new Set<string>()
+  dossier.options.forEach((option, index) => {
+    if (
+      typeof option !== 'object' || option === null ||
+      !nonEmptyString(option.id) || !nonEmptyString(option.title) || !nonEmptyString(option.summary)
+    ) {
+      throw new DomainError(`decision dossier option[${index}] requires non-empty id, title, and summary`)
+    }
+    if (optionIds.has(option.id)) {
+      throw new DomainError(`decision dossier option id "${option.id}" is duplicated`)
+    }
+    optionIds.add(option.id)
+    for (const field of ['pros', 'cons'] as const) {
+      const values = option[field]
+      if (values !== undefined && (!Array.isArray(values) || values.some((value) => !nonEmptyString(value)))) {
+        throw new DomainError(`decision dossier option[${index}].${field} must contain non-empty strings`)
+      }
+    }
+  })
+  if (!Array.isArray(dossier.qa)) {
+    throw new DomainError('decision dossier qa must be an array')
+  }
+  dossier.qa.forEach((entry, index) => {
+    if (!nonEmptyString(entry.id) || !nonEmptyString(entry.question) || (entry.answer !== undefined && !nonEmptyString(entry.answer))) {
+      throw new DomainError(`decision dossier qa[${index}] requires non-empty id and question`)
+    }
+  })
+  if (
+    typeof dossier.recommendation !== 'object' || dossier.recommendation === null ||
+    !nonEmptyString(dossier.recommendation.optionId) ||
+    !optionIds.has(dossier.recommendation.optionId) ||
+    !nonEmptyString(dossier.recommendation.rationale)
+  ) {
+    throw new DomainError('decision dossier requires a recommendation for one declared option')
+  }
+  if (dossier.selectedOptionId !== undefined) {
+    if (!options.allowSelectedOption) {
+      throw new DomainError('decision dossier selectedOptionId is set only by decision.option-selected')
+    }
+    if (!nonEmptyString(dossier.selectedOptionId) || !optionIds.has(dossier.selectedOptionId)) {
+      throw new DomainError('decision dossier selectedOptionId must name a declared option')
+    }
+  }
+}
+
+/** True only for a dossier that can safely appear in the owner-facing decision section. */
+export function isStructuredDossier(dossier: Dossier): boolean {
+  try {
+    assertStructuredDossier(dossier, { allowSelectedOption: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
 // outcome machine (SPEC §2.6): pending → {go,no-go,deferred}; deferred → {go,no-go}; go/no-go terminal.
 const OUTCOME_TRANSITIONS: Record<Outcome, ReadonlyArray<Outcome>> = {
   pending: ['go', 'no-go', 'deferred'],
