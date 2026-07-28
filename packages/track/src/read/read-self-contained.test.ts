@@ -101,7 +101,7 @@ describe('@sentropic/track/read is self-contained (Focus-M1 L2 versioned binding
     expect(affordance).toBe('demand.raise')
   })
 
-  it('pins READ_CONTRACT_VERSION at 1.19.0 (+report-revamp additive directive/view surface)', () => {
-    expect(READ_CONTRACT_VERSION).toBe('1.19.0')
+  it('pins READ_CONTRACT_VERSION at 1.20.0 (+decisionDossiers additive list surface)', () => {
+    expect(READ_CONTRACT_VERSION).toBe('1.20.0')
   })
 })

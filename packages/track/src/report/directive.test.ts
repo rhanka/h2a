@@ -167,12 +167,38 @@ describe('directive selector — routing a decision wait (DESIGN §2.A)', () => 
       targets: [id],
       dossier: { context: '', options: [], qa: [] },
     })
-    const d = directives().find((x) => x.mode === 'human-decision')!
+    const decision: DecisionRow = {
+      id: decisionId, title: 'gate gated', workspace: 'ws', decisionKind: 'commitment', realization: 'to-do', outcome: 'pending',
+    }
+    const d = directives([decision]).find((x) => x.mode === 'human-decision')!
     expect(d).toBeDefined()
     expect(d.gate?.code).toBe('decision-pending')
     expect(d.gate?.ref).toBe(decisionId) // the actual decisionId, not just "awaited" boolean
     expect(d.target.title).toBe('gated') // the blocked item stays identifiable
-    expect(d.commandHint).toBe(`track focus ${decisionId}`)
+    expect(d.commandHint).toBe(`track focus ${decisionId} --workspace ws`)
+  })
+
+  it('uses the decision workspace, not a cross-workspace target workspace, in the focus hint', () => {
+    const crossWp = t.createItem({ kind: 'chore', title: 'WP cross', workspace: 'ws-a', role: 'workpackage' })
+    const target = t.createItem({ kind: 'feature', title: 'cross target', workspace: 'ws-a', parentId: crossWp })
+    const decisionId = t.createDecision({
+      decisionKind: 'orientation', title: 'cross decision', workspace: 'ws-b', targets: [target],
+      dossier: { context: '', options: [], qa: [] },
+    })
+    const decision: DecisionRow = {
+      id: decisionId, title: 'cross decision', workspace: 'ws-b', decisionKind: 'orientation', realization: 'to-do', outcome: 'pending',
+    }
+
+    const directive = directives([decision]).find((d) => d.gate?.ref === decisionId)!
+    expect(directive.commandHint).toBe(`track focus ${decisionId} --workspace ws-b`)
+  })
+
+  it('a standalone pending decision carries its exact workspace in the focus hint', () => {
+    const decisionId = 'decision-standalone'
+    const [directive] = buildDirectives([], [{
+      id: decisionId, title: 'standalone', workspace: 'ws', decisionKind: 'orientation', realization: 'to-do', outcome: 'pending',
+    }])
+    expect(directive.commandHint).toBe(`track focus ${decisionId} --workspace ws`)
   })
 })
 
