@@ -35,7 +35,21 @@ jobs:
         # fixed by safePathSegment() (DEC-062). The cross-CLI subprocess
         # tests of DEC-053 may still need a Windows-specific harness;
         # see cross-cli-cooperation.test.js for that skip decision.
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Owner decision 2026-07-28 (track 01KYJ3Q3V5AW9YR0QMXSGW93RE): cross-platform
+        # support is a SEPARATE workstream, and a parked platform must be INACTIVE, not
+        # red-and-tolerated. An "accepted red" trains everyone to read failures as noise,
+        # which is how a real failure gets waved through.
+        #
+        # Parked with the platform, so nothing is silently lost when it returns:
+        #   windows — reporting-stdin (spawnSync stdin), restore-dead-session-recovery,
+        #             and the cli-help-groups citation check
+        #   macos/node-20 — the command-map + help-grouping suite; `--help` capture comes
+        #             back truncated on that runner, so unrelated commands are simply
+        #             absent from the captured output (a runner defect, not code)
+        #
+        # What this stops proving: that the code works on macOS or Windows at all.
+        # `smoke-install` still exercises the PUBLISHED package on all three after release.
+        os: [ubuntu-latest]
         node: ["20", "22"]
     steps:
       - uses: actions/checkout@v4
