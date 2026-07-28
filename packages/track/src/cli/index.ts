@@ -65,6 +65,8 @@ interface Ctx {
 type Flags = Record<string, string | true>
 
 const USAGE = `usage: track <command>
+  --help | help
+  global read/store override: --track-dir <directory-containing-events.jsonl> (or TRACK_DIR)
   --version | -v
   init
   item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] [--engagement-ref <e>]
@@ -344,10 +346,23 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
+const REPORT_USAGE = `usage: track report [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--commit <sha>] [--format json|text|md|html] [--track-dir <directory-containing-events.jsonl>]
+
+--track-dir is a global override and may appear before or after the command. It selects the directory that contains events.jsonl; it is especially useful for a read-only fixture. TRACK_DIR is the environment equivalent.
+`
+
 export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
   const { trackDirFlag, rest: argv } = extractTrackDirFlag(rawArgv)
   const cmd = argv[0]
   const rest = argv.slice(1)
+  if (cmd === '--help' || cmd === 'help' || cmd === undefined) {
+    io.out(USAGE)
+    return 0
+  }
+  if (cmd === 'report' && rest.length === 1 && rest[0] === '--help') {
+    io.out(REPORT_USAGE)
+    return 0
+  }
   const trackDirEnv = process.env['TRACK_DIR']
   const resolveOpts = {
     cwd: io.cwd,
