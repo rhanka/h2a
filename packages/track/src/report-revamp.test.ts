@@ -12,7 +12,7 @@ import { EventStore } from './events/store.js'
 import type { DecisionRow } from './report/build.js'
 import { buildWpConductorView, formatWpConductor, formatWpTree } from './report/format.js'
 import { computeWpTree } from './report/rollup.js'
-import { reportText } from './read/commands.js'
+import { reportHtml, reportText } from './read/commands.js'
 import { TrackReader } from './read/contract.js'
 import { Track } from './track.js'
 import { runCli } from './cli/index.js'
@@ -156,6 +156,16 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
     expect(text).toContain('1/3 (33%)')
   })
 
+  it('renders every nested WP as its own conductor row', () => {
+    const root = t.createItem({ kind: 'chore', title: 'WP1 — Root', workspace: 'ws', role: 'workpackage' })
+    const child = t.createItem({ kind: 'chore', title: 'Child', workspace: 'ws', role: 'workpackage', parentId: root })
+    t.createItem({ kind: 'feature', title: 'child work', workspace: 'ws', parentId: child })
+
+    const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text')
+    expect(text).toContain('WP1 · Root')
+    expect(text).toContain('WP1.1 · Child')
+  })
+
   it('an AWAITED leaf lands in ATTENDUS with a derived disposition', () => {
     seed()
     const text = reportText(new TrackReader(eventsPath), { ...base, wpTree: true }, 'text')
@@ -209,22 +219,77 @@ describe('report-revamp — json path keeps the machine contract + additive view
 
 // ---- 4b. no silent truncation + md escaping (Codex 0.19.5 review nits) ------------------------
 
-describe('report-revamp — the conductor never truncates silently and escapes md', () => {
-  it('À-FAIRE surfaces "(+N autres)" when a WP has more than 2 open leaves', () => {
+describe('report-revamp — the conductor is exhaustive and escapes md', () => {
+  it('À-FAIRE lists every open leaf when a WP has more than 2', () => {
     const wp = t.createItem({ kind: 'chore', title: 'WP1 — Many', workspace: 'ws', role: 'workpackage' })
     for (const title of ['l1', 'l2', 'l3', 'l4']) t.createItem({ kind: 'chore', title, workspace: 'ws', parentId: wp })
     const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text')
-    expect(text).toContain('(+2 autres)') // 4 open, 2 shown ⇒ +2
+    for (const title of ['l1', 'l2', 'l3', 'l4']) expect(text).toContain(title)
+    expect(text).not.toContain('autres')
   })
 
-  it('DÉCISIONS/ACTIONS surfaces "+N entrées non listées" when more than 8 pending decisions exist', () => {
+  it('DÉCISIONS/ACTIONS lists every pending decision when more than 8 exist', () => {
     const wp = t.createItem({ kind: 'chore', title: 'WP1', workspace: 'ws', role: 'workpackage' })
     t.createItem({ kind: 'chore', title: 'leaf', workspace: 'ws', parentId: wp })
     const decisions: DecisionRow[] = Array.from({ length: 9 }, (_, i) => ({
       id: `d${i}`, title: `dec${i}`, workspace: 'ws', decisionKind: 'commitment', realization: 'to-do', outcome: 'pending',
     }))
     const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text', decisions)
-    expect(text).toContain('entrées non listées') // 9 pending, 8 shown ⇒ +1
+    for (const i of Array.from({ length: 9 }, (_, n) => n)) expect(text).toContain(`dec${i}`)
+    expect(text).not.toContain('entrées non listées')
+  })
+
+  it('surfaces rows outside the WP leaves and reconciles the global total with the flat buckets', () => {
+    const wp = t.createItem({ kind: 'chore', title: 'WP1', workspace: 'ws', role: 'workpackage' })
+    const wpLeaf = t.createItem({ kind: 'feature', title: 'inside WP', workspace: 'ws', parentId: wp })
+    done(wpLeaf)
+    const orphanDoneA = t.createItem({ kind: 'feature', title: 'orphan done A', workspace: 'ws' })
+    const orphanDoneB = t.createItem({ kind: 'feature', title: 'orphan done B', workspace: 'ws' })
+    const orphanPending = t.createItem({ kind: 'feature', title: 'orphan pending decision', workspace: 'ws' })
+    done(orphanDoneA)
+    done(orphanDoneB)
+    t.createDecision({ decisionKind: 'commitment', title: 'decide orphan', workspace: 'ws', targets: [orphanPending], dossier: { context: '', options: [], qa: [] } })
+
+    const reader = new TrackReader(eventsPath)
+    const report = reader.report({ ...base, decisions: true, wpTree: true })
+    const outside = report.outsideRollup ?? []
+    expect(outside.map((row) => row.title)).toEqual(expect.arrayContaining(['orphan done A', 'orphan done B', 'orphan pending decision']))
+    expect(outside.every((row) => row.wpId === undefined)).toBe(true)
+
+    const rendered = reportText(reader, { ...base, decisions: true, wpTree: true }, 'text')
+    expect(rendered).toContain('HORS ROLLUP')
+    for (const row of outside) expect(rendered).toContain(row.title)
+
+    const json = JSON.parse(reportText(reader, { ...base, decisions: true, wpTree: true }, 'json')) as {
+      buckets: Record<string, unknown[]>
+      wpTotals: { done: number; active: number; dropped: number }
+    }
+    const rawCount = Object.values(json.buckets).flat().length
+    expect(json.wpTotals.done + (json.wpTotals.active - json.wpTotals.done) + json.wpTotals.dropped).toBe(rawCount)
+  })
+
+  it('HTML keeps every outside-rollup item when there is no WP root', () => {
+    t.createItem({ kind: 'feature', title: 'orphan A', workspace: 'ws' })
+    const orphanB = t.createItem({ kind: 'feature', title: 'orphan B', workspace: 'ws' })
+    done(orphanB)
+
+    const html = reportHtml(new TrackReader(eventsPath), { ...base, decisions: true, wpTree: true })
+    expect(html).toContain('HORS ROLLUP')
+    expect(html).toContain('orphan A')
+    expect(html).toContain('orphan B')
+  })
+
+  it('labels --active-roster totals as a filtered roster rather than global', () => {
+    const active = t.createItem({ kind: 'chore', title: 'active WP', workspace: 'ws', role: 'workpackage' })
+    t.createItem({ kind: 'feature', title: 'active item', workspace: 'ws', parentId: active })
+    const terminal = t.createItem({ kind: 'chore', title: 'terminal WP', workspace: 'ws', role: 'workpackage' })
+    t.createItem({ kind: 'feature', title: 'terminal item', workspace: 'ws', parentId: terminal })
+    t.setRealization(terminal, 'cancelled')
+
+    const text = reportText(new TrackReader(eventsPath), { ...base, wpTree: true, activeRoster: true }, 'text')
+    expect(text).toContain('roster actif')
+    expect(text).not.toMatch(/^global\s/m)
+    expect(text).not.toContain('terminal WP')
   })
 
   it('md render escapes markdown metacharacters in a crafted item title (no injection)', () => {
