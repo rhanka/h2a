@@ -29,14 +29,19 @@ export function reportText(reader: TrackReader, options: ReportOptions, format: 
       // Machine contract preserved (0.19.0 shape) + additive optional `view` for skill rendering. WP-codes
       // A3: `--active-roster` is a HUMAN-render option only — JSON ALWAYS carries the full forest (every node
       // + its `terminal` flag) so a machine consumer filters terminal roots itself.
-      const view = report.wpTree.length > 0 ? buildWpConductorView(report.wpTree, report.decisions ?? []) : undefined
-      return `${JSON.stringify({ ...report, wpTotals: wpTotals(report.wpTree), ...(view !== undefined ? { view } : {}) }, null, 2)}\n`
+      const view = report.wpTree.length > 0 ? buildWpConductorView(report.wpTree, report.decisions ?? [], report.outsideRollup) : undefined
+      return `${JSON.stringify({ ...report, wpTotals: wpTotals(report.wpTree, report.outsideRollup), ...(view !== undefined ? { view } : {}) }, null, 2)}\n`
     }
     // text/md: the rendered conductor tables when there is an actual WP forest. WP-codes A3 (DESIGN §A3) —
     // `--active-roster` OMITS terminal (DROPPED) ROOTS from the rendered roster. The ordinals were assigned in
     // `computeWpTree` over ALL roots, so the survivors keep their `WP<n>`/code (a gap appears) — no re-pack.
     const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
-    if (roster.length > 0) return formatWpConductor(roster, format, report.decisions)
+    if (roster.length > 0) {
+      return formatWpConductor(
+        roster, format, report.decisions, report.outsideRollup,
+        options.activeRoster === true ? 'roster actif (terminal exclu)' : 'global',
+      )
+    }
     // No WP containers yet (or every root filtered out): keep the report action-oriented, not a flat dump.
     return formatActionReport(report, format)
   }
@@ -53,7 +58,14 @@ export function reportInline(reader: TrackReader, options: ReportOptions, inline
   const report = reader.report(options)
   if (report.wpTree !== undefined && report.wpTree.length > 0) {
     const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
-    if (roster.length > 0) return formatWpConductorInline(roster, report.decisions ?? [], inline)
+    if (roster.length > 0) {
+      return formatWpConductorInline(
+        roster,
+        report.decisions ?? [],
+        { ...inline, ...(options.activeRoster === true ? { totalScope: 'roster actif (terminal exclu)' } : {}) },
+        report.outsideRollup,
+      )
+    }
   }
   return formatActionReport(report, 'text')
 }
@@ -68,9 +80,14 @@ export function reportHtml(reader: TrackReader, options: ReportOptions): string 
   const decisions = report.decisions ?? []
   if (report.wpTree !== undefined && report.wpTree.length > 0) {
     const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
-    if (roster.length > 0) return `${formatWpConductorHtml(roster, decisions)}\n`
+    if (roster.length > 0) {
+      return `${formatWpConductorHtml(
+        roster, decisions, undefined, report.outsideRollup,
+        options.activeRoster === true ? 'roster actif (terminal exclu)' : 'global',
+      )}\n`
+    }
   }
-  return `${formatWpConductorHtml([], decisions)}\n`
+  return `${formatWpConductorHtml([], decisions, undefined, report.outsideRollup)}\n`
 }
 
 /**
