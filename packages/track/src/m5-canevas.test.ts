@@ -150,7 +150,7 @@ describe('M5 LOT1 — canevas()', () => {
       title: 'D',
       workspace: 'ws',
       targets: [item],
-      dossier: { context: 'why', options: [{ id: 'o1', title: 'O', summary: 's' }], qa: [{ id: 'q1', question: 'q?' }] },
+      dossier: { context: 'why', options: [{ id: 'o1', title: 'O', summary: 's' }, { id: 'o2', title: 'P', summary: 't' }], qa: [{ id: 'q1', question: 'q?' }], recommendation: { optionId: 'o1', rationale: 'O' } },
     })
     t.addDecisionArtifact(dec, { kind: 'mockup', viewRef: 'view://x' })
     const view = reader.canevas('ws', { ...OPTS, decisionId: dec })
@@ -364,7 +364,7 @@ describe('M5 LOT1 — amendmentTrace()', () => {
     expect(trace[1]!.origin).toBe('human')
   })
 
-  it('projects across spec.amended, decision.dossier, decision.artifact-added, decision.outcome', () => {
+  it('projects across spec.amended, decision.dossier, decision.artifact-added, selected option, and outcome', () => {
     const human = trackWith(HUMAN)
     const item = human.createItem({ kind: 'feature', title: 'A', workspace: 'ws' })
     const dec = human.createDecision({
@@ -372,17 +372,19 @@ describe('M5 LOT1 — amendmentTrace()', () => {
       title: 'D',
       workspace: 'ws',
       targets: [item],
-      dossier: { context: '', options: [], qa: [] },
+      dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
     })
-    human.reviseDossier(dec, { context: 'rev', options: [], qa: [] })
+    human.reviseDossier(dec, { context: 'rev', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } })
     human.addDecisionArtifact(dec, { kind: 'mockup', viewRef: 'v://x' })
-    human.setOutcome(dec, 'go')
+    human.selectDecisionOption(dec, 'a')
 
     const trace = reader.amendmentTrace(dec)
     const kinds = trace.map((s) => s.kind)
     expect(kinds).toContain('dossier.revised')
     expect(kinds).toContain('decision.artifact-added')
+    expect(kinds).toContain('decision.option-selected')
     expect(kinds).toContain('decision.outcome')
+    expect(trace.find((step) => step.kind === 'decision.option-selected')!.selectedOptionId).toBe('a')
     // ordered by seq.
     expect(trace.map((s) => s.seq)).toEqual([...trace.map((s) => s.seq)].sort((a, b) => a - b))
   })

@@ -114,7 +114,7 @@ describe('workspaceActivity — stalled predicates (older than idleMs triggers; 
       title: 'd-old',
       workspace: 'W',
       targets: [item],
-      dossier: { context: 'c', options: [], qa: [] },
+      dossier: { context: 'c', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
     })
     let act = reader.workspaceActivity('W', BASE)
     expect(act.stalled.find((x) => x.id === dOld)).toMatchObject({ reason: 'pending-decision', since: OLD })
@@ -127,7 +127,7 @@ describe('workspaceActivity — stalled predicates (older than idleMs triggers; 
       title: 'd-fresh',
       workspace: 'W',
       targets: [item2],
-      dossier: { context: 'c', options: [], qa: [] },
+      dossier: { context: 'c', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
     })
     act = reader.workspaceActivity('W', BASE)
     expect(act.stalled.find((x) => x.id === dFresh)).toBeUndefined()
@@ -141,7 +141,7 @@ describe('workspaceActivity — stalled predicates (older than idleMs triggers; 
       title: 'deferred',
       workspace: 'W',
       targets: [i1],
-      dossier: { context: 'c', options: [], qa: [] },
+      dossier: { context: 'c', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
     })
     t.setOutcome(deferred, 'deferred')
 
@@ -151,9 +151,9 @@ describe('workspaceActivity — stalled predicates (older than idleMs triggers; 
       title: 'settled',
       workspace: 'W',
       targets: [i2],
-      dossier: { context: 'c', options: [], qa: [] },
+      dossier: { context: 'c', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
     })
-    t.setOutcome(settled, 'go')
+    t.selectDecisionOption(settled, 'a')
 
     const act = reader.workspaceActivity('W', BASE)
     expect(act.stalled.find((x) => x.id === deferred)?.reason).toBe('pending-decision')

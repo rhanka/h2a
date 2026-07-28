@@ -171,7 +171,7 @@ export const READ_TOOLS = [
   },
   {
     name: 'track_amendment_trace',
-    description: 'M5 (canevas) — the human/machine diff for ONE aggregate, as JSON [{seq, at, by, kind, prov, origin, summary?, patchRef?, proposalRef?}]. An ordered (by seq), prov-tagged projection over the aggregate\'s spec.amended / dossier.revised / decision.artifact-added / decision.outcome events. `origin` derives PURELY from prov.proposed (true=machine, false=human). An AI proposal + a human acceptance both appear — the machine origin is never laundered. PURE replay.',
+    description: 'M5 (canevas) — the human/machine diff for ONE aggregate, as JSON [{seq, at, by, kind, prov, origin, summary?, patchRef?, proposalRef?, selectedOptionId?}]. An ordered (by seq), prov-tagged projection over the aggregate\'s spec.amended / dossier.revised / decision.artifact-added / decision.option-selected / decision.outcome events. `origin` derives PURELY from prov.proposed (true=machine, false=human). An AI proposal + a human acceptance both appear — the machine origin is never laundered. PURE replay.',
     inputSchema: {
       type: 'object',
       properties: { aggregateId: { type: 'string', description: 'The item/decision aggregate id to trace.' } },

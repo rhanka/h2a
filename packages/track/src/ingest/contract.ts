@@ -5,6 +5,9 @@
 // One WorkEvent ⇒ one Track command. This module is the SINGLE SOURCE of the write enums (so the CLI's
 // `oneOf` checks and the mapper cannot diverge on accepted values) and of the per-kind payload schema.
 
+// 2.0.0 — decision.outcome is now defer-only. Any new go/no-go settlement must use decision.select so a
+// native selected option is recorded atomically; legacy historical outcomes remain readable in the fold.
+// This narrows an existing producer payload enum and is therefore a MAJOR contract change.
 // 1.6.0 — A2 role:'stream' (DESIGN wp-codes-and-stream-role §A2): TWO additive changes — (1) a new ITEM_ROLES
 // value `'stream'` (a third container category, accepted on `item.create`'s `role` enum); (2) one ADDITIVE new
 // WorkEvent kind `item.set-role` → the persisted `item.role-changed` event (a BOUNDED container↔container role
@@ -28,7 +31,7 @@
 // removed, no required field added, envelope keys unchanged; old producers never send them and still validate).
 // 1.1.0 — seam v0 FREEZE: two ADDITIVE optional producer fields (artifactLocator on scope.verification,
 // caller-supplied evidenceId on acceptance.link).
-export const INGEST_CONTRACT_VERSION = '1.6.0'
+export const INGEST_CONTRACT_VERSION = '2.0.0'
 
 // --- write enums (shared with src/cli/index.ts) ------------------------------------------------------
 export const ITEM_KINDS = ['feature', 'bug', 'chore'] as const
@@ -60,6 +63,7 @@ export const WORK_EVENT_KINDS = [
   'item.realize',
   'decision.create',
   'decision.dossier',
+  'decision.select',
   'decision.add-artifact',
   'decision.outcome',
   'decision.disposition',
@@ -207,6 +211,11 @@ export const WORK_EVENT_SCHEMA: Record<WorkEventKind, KindSchema> = {
     settles: 'never',
     fields: { decisionId: str(true), dossier: { type: 'object', required: true } },
   },
+  'decision.select': {
+    method: 'selectDecisionOption',
+    settles: 'always',
+    fields: { decisionId: str(true), optionId: str(true), outcome: str(false, ['go', 'no-go']) },
+  },
   'decision.add-artifact': {
     // M5 — append ONE record-only DossierArtifact to a decision's dossier. Binding (`always`): a false
     // comprehension marker is trust-sensitive ⇒ requires auth ∈ {local-user, signed}. The `artifact`
@@ -218,8 +227,10 @@ export const WORK_EVENT_SCHEMA: Record<WorkEventKind, KindSchema> = {
   },
   'decision.outcome': {
     method: 'setOutcome',
+    // `settles` also marks an authenticated binding write. Deferral is not a terminal go/no-go outcome,
+    // but it still mutates an owner decision state and must not be writable by an unauthenticated bridge.
     settles: 'always',
-    fields: { decisionId: str(true), to: str(true, OUTCOMES) },
+    fields: { decisionId: str(true), to: str(true, ['deferred']) },
   },
   'decision.disposition': {
     method: 'setDisposition',

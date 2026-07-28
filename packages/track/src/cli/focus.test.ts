@@ -38,9 +38,9 @@ function seed(): { decisionId: string } {
     title: DECISION_TITLE,
     workspace: 'ws-1',
     targets: [targetId],
-    dossier: { context: 'We need a render path', options: [], qa: [] },
+    dossier: { context: 'We need a render path', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
   })
-  track.setOutcome(decisionId, 'go')
+  track.selectDecisionOption(decisionId, 'a')
   return { decisionId }
 }
 

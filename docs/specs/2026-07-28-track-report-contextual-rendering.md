@@ -1,171 +1,100 @@
-# Contextual track report — rendered by the agent in session, not by a remote model
+# Track report: deterministic conductor and advisory contextual prose
 
-Status: **proposed**. Companion examples:
-`docs/specs/examples/track-report-raw.txt` (deterministic output, captured verbatim)
-and `docs/specs/examples/track-report-contextual.md` (the reference rendering).
+Status: **corrected after NO-GO review**. The reproducible input inventory is
+`docs/specs/examples/track-report-raw.txt`; the corresponding non-narrative
+golden is `docs/specs/examples/track-report-contextual.md`.
 
-## 1. The defect
+## Deterministic command contract
 
-Before this change, `track report` spawned an adapter (`h2a report-ai`) which called a gateway
-and a model, then printed a narrative: SUMMARY / FACTS / RECENT CHANGES / ACTIVE WORK /
-BLOCKERS / OWNER DECISIONS / AI SUGGESTIONS / UNCERTAINTY. The normal command is now a local,
-deterministic renderer; the adapter remains a separately invoked legacy capability.
+`track report` is a deterministic read of the folded log. It does not invoke a
+report adapter, gateway, subprocess, or model.
 
-Three things are wrong with that, and only the third is about taste.
+- `text` and `md` default to the WP conductor when a WP forest exists; an empty
+  or fully filtered forest uses the deterministic action fallback. `--flat` is
+  the explicit legacy bucket-dump opt-out.
+- `json` keeps its flat machine contract by default; `--wp` adds the WP tree and
+  conductor view model. `--flat` is rejected for JSON because it would be a no-op.
+- `html` is the deterministic conductor HTML fragment. It rejects `--flat`.
+- `--wp --flat` is rejected in every format.
 
-**It was never asked for.** The owner's request, repeatedly, is that the agent already
-running the command reformulates the deterministic table. A second model was nobody's
-requirement.
+`formatWpConductor` renders ordinary text/Markdown tables; it does **not** add a
+fenced block. A consumer that needs a fence owns that presentation choice.
 
-**It is a four-link chain, and every link broke in one day**: `adapter-nonzero` with the
-child's stderr discarded; `readFileSync(0)` returning `EAGAIN` on a 160 KB envelope;
-a model id the gateway does not serve; an OAuth token expired at 13:39 while the process
-kept reporting `status: active` with `modelIds: []`. A report that cannot be produced
-when the network is down is not a report.
+The installed `/track` command describes this output as deterministic. It must
+not call it “AI-prepared”.
 
-**It REPLACED a better rendering.** `formatWpConductor` — FAIT / À-FAIRE / DÉCISIONS-ACTIONS,
-still present in `packages/track/src/report/format.ts` — is reachable only through the
-legacy MCP projection. Its cells already carry the real item titles. The narrative
-substituted README paraphrase for them, because `degraded sources: git:truncated` starves
-it of the actual history: **the AI layer describes the documentation because it cannot see
-the work**.
+## Decision record contract
 
-Worse, the flags lie in two directions: `--wp`, `--decisions` and `--format text` are
-ACCEPTED AND IGNORED on the AI path, and REJECTED on `--raw`. An option that claims a
-capability it no longer has is worse than a removed one.
-
-## 2. What replaces it
-
-The deterministic layer stays exactly as it is — it is correct, and the owner said so.
-The contextual rendering is produced **by the agent already in the conversation**, from
-that output plus what the session knows. No subprocess, no gateway, no model call, no
-network. This is a skill, not a pipeline.
-
-The skill is `packages/h2a/skills/harness/track-report/SKILL.md`.
-
-## 3. Alignment with `track focus` — same data, two renders
-
-This is the load-bearing part of the design, and it was nearly missed.
-
-`track focus <decision-id> --workspace <workspace>` renders one decision dossier. Its workspace is
-the decision's stored workspace, not the current-directory workspace. A mismatch is an error.
-
-```
-1/6 — Un nom de session peut-il envoyer une commande ?
-Choix A : … Choix B : … Recommandation : A — …
-Outcome [decision]: PENDING
-```
-
-For a structured dossier, alternatives and a recommendation are stored fields; option title/summary is the
-only stored explanatory text surfaced by the deterministic route. There is no separate machine-readable
-effect field. A historical prose-only dossier is explicitly `unstructured`; prose is never parsed to
-manufacture a choice set.
-
-So the report's structured **DÉCISIONS** section and `track focus` are **the same stored data in two
-renders**: inline when the owner wants the whole picture, one dossier per screen when he wants to
-decide. Switching to focus mode must never re-derive anything. An unstructured dossier belongs in
-À-FAIRE as work to structure, not in DÉCISIONS.
-
-**Consequence for the store:** the triplet must be structured fields, not a prose blob. Parsing
-free text is forbidden: it silently produces an empty or invented cell when wording changes. The
-read surface exposes `structure: structured|unstructured` so the renderer can say which case it has
-without inspecting prose.
-
-## 4. Rules the rendering must respect
-
-**Every WP appears.** A workpackage present in the rollup is a row whether or not it is
-interesting. When the AI chose which WPs to mention, absence carried no information.
-Structure comes from the log; only prose comes from the agent.
-
-**A decision is not a rule-derived prompt.** The raw layer emits
-`[focus-decision] décision: Instruire le dossier puis trancher` automatically whenever an
-item has an open blocker. Nobody framed a choice. Rendering those as "Pending owner
-decision" tells the owner he is the bottleneck when there is nothing yet to arbitrate.
-Only a decision with actual alternatives belongs in DÉCISIONS; the rest is À-FAIRE.
-
-**No counts where substance is needed.** "5 rerun-acceptance actions" says nothing. WHICH
-items, and why it matters — those five are completed items whose acceptance went stale, so
-they cannot serve as release evidence. That is the sentence worth printing.
-
-**Focus is an ordering, not a column.** The priority WPs are the first rows. A dedicated
-column holding `①②③ / dette / —` is noise.
-
-**Markdown tables cannot hold a line break.** `<br>` renders literally in a terminal. Any
-cell needing several lines — the alternatives — must be a DRAWN table inside a fenced
-block, which is what `formatWpConductor` already does.
-
-**RECOMMANDATION is an executable plan**, conditioned on the decisions: which lanes to
-launch, what each answer unblocks, and any executor context the owner supplied. The log does not
-record a model or reasoning effort; the report must name that missing context rather than invent it.
-The owner must be able to reply
-`vas y`, or `D1 A · D2 B · …`, and have work start.
-
-## 5. Where this stops holding
-
-The agent can still write a poor synthesis inside a cell, and no structure prevents that.
-What the structure does guarantee is that no WP disappears, that no rule-derived prompt is
-promoted to a decision, and that the report renders with the network down.
-
-The deterministic route does not parse choices or a recommendation from a prose `context`.
-An unstructured dossier remains visibly incomplete until an authorized writer records structured fields.
-
-## 6. Disposition of the AI adapter
-
-Not removed by this change — that is a separate decision with its own blast radius. What
-this change does is make it UNNECESSARY: the contextual rendering no longer depends on it.
-
-`report-ai` is now an explicit legacy command, not a `track report` dependency. Its adapter-specific
-configuration and flags remain outside the deterministic report contract; do not use them as a report
-fallback or document them in the report skill.
-
-## 7. Deferred follow-up — enforce structured decisions at write time
-
-Status: **not implemented by this change**. The deterministic read/render path now classifies existing
-records as `structured` or `unstructured` and never parses prose. It does not change the decision model,
-the outcome enum, `decision new`, or focus answer handling. The following is a future write-model proposal,
-not a current CLI contract.
-
-Owner rule, 2026-07-28: **never present a decision that has no alternatives and no
-recommendation.** One without them asks the owner to invent the options himself, which is
-the work the decision was supposed to save him.
-
-Today that rule cannot be enforced, and the consequence is measurable:
+The native model already has the required vocabulary:
 
 ```ts
-export type Outcome = 'pending' | 'go' | 'no-go' | 'deferred'
+Option { id, title, summary, pros?, cons? }
+Dossier { context, options, qa, recommendation?: { optionId, rationale }, selectedOptionId? }
 ```
 
-There is no option in the store, so **an answer of "D1 A" cannot be recorded**. It lives in
-the chat and, at best, as prose in a dossier. That is why eight decisions have been
-`PENDING` for days: nothing can move them except `go`/`no-go`/`deferred`, and none of those
-means "I chose A".
+No second `{key,label,effect}` representation is introduced. A newly created or
+revised dossier must have a string context, at least two distinct complete
+options, and a recommendation for one declared option. The selected option may
+be set only by `decision.option-selected`.
 
-### Proposed changes
+The enforcement applies at every write boundary:
 
-**Model.** A decision would carry `options: [{ key, label, effect? }]` and `recommendation: key`.
-`Outcome` would gain a chosen-option form, so settling a decision names the alternative rather
-than collapsing it to a boolean.
+1. `track decision new` requires `--options-json`, `--recommendation`, and
+   `--rationale`; it no longer emits `options: []`.
+2. `Track.createDecision` validates the dossier.
+3. Neutral ingest `decision.create` maps to that validated facade.
+4. `track decision dossier` and `Track.reviseDossier` validate a revision;
+   neutral ingest `decision.dossier` maps to the same path.
+5. In-repository fixtures that exercise a decision create/revise write use the
+   native `Option` shape and recommendation. `packages/focus/tests/track.spec.ts`
+   deliberately retains one read-only legacy dossier fixture so the Focus mapper
+   continues to render pre-enforcement history; it never reaches a Track writer.
 
-**Creation would be fail-closed.** `decision new` would require at least two options and a
-recommendation. Refusing to create an optionless decision would be the enforcement; a convention
-that one should add options is a habit, and habits get skipped — which is exactly how the
-current eight came to exist.
+`track decision select <decisionId> <optionId> [--outcome go|no-go]` and neutral
+ingest `decision.select` append `decision.option-selected` and the outcome in
+one operation. The fold records `selectedOptionId`; an outcome by itself is not
+evidence of a selected option.
 
-**`track focus`** would render the structured options instead of a prose blob, and accept an
-answer by key.
+`track decision outcome` and neutral ingest `decision.outcome` may only record
+`deferred`; their `go`/`no-go` variants are rejected. This closes the legacy
+settlement bypass while retaining an authenticated way to defer an unresolved
+dossier.
 
-**The report** already renders stored options inline in DÉCISIONS and never parses free text:
-a prose-only historical dossier is rendered as `unstructured`, so the report cannot silently
-pretend that a written phrase is a recorded alternative.
+## Legacy migration and owner presentation
 
-**Migration.** The log would remain append-only and would not be rewritten. Existing decisions keep their
-prose `context` and render as `unstructured`. New write-time validation would apply only after the migration;
-there would be no backfill or invention of options nobody chose.
+The event log is append-only and is not rewritten. A legacy dossier is not
+parsed into options by this renderer.
 
-### Impact, both ways
+- A pending legacy dossier appears under **À INSTRUIRE**, with its ID and the
+  statement that alternatives and recommendation are not recorded.
+- A legacy dossier with a historical `go`, `no-go`, or `deferred` outcome appears
+  under **HISTORIQUE NON STRUCTURÉ**. It names the historical outcome and states
+  that no selected option is attested.
+- A validated native dossier appears under **DÉCISIONS** with its recorded
+  alternatives, recommendation, and (when present) selected option.
 
-| | Doing it | Not doing it |
-|---|---|---|
-| Cost | Model + CLI + focus render + report render; a migration that adds fields without rewriting history | Zero |
-| Gain | An answer becomes an EVENT. The decision loop closes inside the record | — |
-| Risk | Fail-closed creation will reject scripts that create decisions without options — intended, but it will break callers | **Decisions stay `PENDING` forever.** The owner answers, work proceeds, and the record still says nothing was decided — the gap between committed work and the tracked state that this repository keeps rediscovering |
+The owner or another authenticated author may use existing prose from
+`track focus <id>` as source material, but must deliberately revise the dossier
+into the native options and recommendation before selecting it. This preserves
+what was actually written without inventing an option or retroactively claiming
+that an old `go` selected one.
+
+## Contextual rendering is advisory
+
+`packages/h2a/skills/harness/track-report/SKILL.md` is guidance for an agent in
+a conversation. Nothing executes that skill, validates its prose, or guarantees
+that it was used. Therefore it has no place in a structural enforcement order.
+
+The machine-checkable guarantees are narrower: the CLI renderer is deterministic,
+new and revised decision dossiers are fail-closed, and selection has a durable
+event. A contextual synthesis may add prose only when the session supplies its
+window, focus ordering, lane/model choices, and any claimed decisions; otherwise
+it must say those inputs are absent rather than infer them from the report.
+
+## Golden boundary
+
+The golden uses one pinned input commit,
+`9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5`, and the explicit event window
+`#1..#568` (state folded through cursor `count:568`). It contains all 22 WP
+rows, all 15 decision rows, and the eight actual Focus prose captures. It makes
+no release, PR, security, model-lane, or settlement claim beyond those inputs.
