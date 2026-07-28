@@ -11,7 +11,7 @@ import { cmdInstallSkills } from './install-skills.js'
 import { initTrackDir, resolveTrackDir, resolveTrackDirOrNull } from './resolve.js'
 import type { EvidenceKind, RunResult } from '../model/acceptance.js'
 import type { BlockerKind, BlockerScope, ResolutionRule } from '../model/blocker.js'
-import type { DecisionKind, DossierArtifact, Outcome } from '../model/decision.js'
+import type { DecisionKind, Dossier, DossierArtifact, Outcome } from '../model/decision.js'
 import { DomainError, type Disposition, type Gate, type ItemKind, type ItemRole, type Realization, type ScopeDecl, type SpecStatus } from '../model/item.js'
 import type { Bucket } from '../report/buckets.js'
 import { displayText, formatRows, type Format } from '../report/format.js'
@@ -26,7 +26,6 @@ import {
   GATES,
   ITEM_KINDS,
   ITEM_ROLES,
-  OUTCOMES,
   REALIZE_TARGETS,
   RESOLUTION_RULES,
   RESULTS,
@@ -78,10 +77,11 @@ const USAGE = `usage: track <command>
   item assign-code <itemId> --code <c> [--client-token <t>]
   item show <itemId>
   item ls [--workspace <w>] [--kind <feature|bug|chore>] [--format json|text|md]
-  decision new --kind <orientation|commitment> --title <t> --workspace <w> --targets <id,id> [--context <c>] [--accountable <a>] [--engagement-ref <e>]
+  decision new --kind <orientation|commitment> --title <t> --workspace <w> --targets <id,id> --context <c> --options-json <json> --recommendation <optionId> --rationale <r> [--accountable <a>] [--engagement-ref <e>]
   decision ls [--workspace <w>] [--outcome <pending|go|no-go|deferred>] [--format json|text|md] [--commit <sha>]
-  decision outcome <decisionId> <go|no-go|deferred>
-  decision dossier <decisionId> --context <c>
+  decision outcome <decisionId> deferred
+  decision select <decisionId> <optionId> [--outcome <go|no-go>]
+  decision dossier <decisionId> [--context <c>] [--options-json <json> --recommendation <optionId> --rationale <r>]
   decision disposition <itemId> <orientation|commitment> <required|skipped|not-applicable>
   decision add-artifact <decisionId> --kind <h2a-decision-dossier|rendered-view|mockup> [--negotiation-ref <n>] [--dossier-hash <h>] [--view-ref <v>] [--source-dossier-hash <h>] [--label <l>] [--client-token <t>]
   blocker raise --target <id> --kind <decision|dependency> [--ref <id>] [--reason <r>] [--rule <linked-done|linked-accepted|manual>] [--scope <intra|extra>] [--engagement-ref <e>]
@@ -111,7 +111,7 @@ const USAGE = `usage: track <command>
   workspace-id [--cwd <path>]
 `
 
-// Write enums (ITEM_KINDS, SPEC_TARGETS, REALIZE_TARGETS, DECISION_KINDS, OUTCOMES, GATES, DISPOSITIONS,
+// Write enums (ITEM_KINDS, SPEC_TARGETS, REALIZE_TARGETS, DECISION_KINDS, GATES, DISPOSITIONS,
 // BLOCKER_KINDS, RESOLUTION_RULES, EVIDENCE_KINDS, RESULTS) are sourced from the ingest contract — the
 // SINGLE source, so the CLI's `oneOf` checks and the WorkEvent mapper cannot diverge on accepted values.
 // (`linked-accepted` openness is DERIVED at report/query time vs `--commit`, v2.2a hybrid-A; see
@@ -280,6 +280,19 @@ function num(flags: Flags, key: string): number {
   const n = Number(req(flags, key))
   if (Number.isNaN(n)) throw new DomainError(`--${key} must be a number`)
   return n
+}
+
+function dossierOptions(raw: string): Dossier['options'] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new DomainError('--options-json must be a JSON array of existing Option objects')
+  }
+  if (!Array.isArray(parsed)) {
+    throw new DomainError('--options-json must be a JSON array of existing Option objects')
+  }
+  return parsed as Dossier['options']
 }
 /** Validate a positional/flag against an allowed enum (CLI-boundary input validation). */
 function oneOf<T extends string>(value: string | undefined, allowed: readonly T[], name: string): T {
@@ -722,7 +735,12 @@ function cmdDecision(args: string[], ctx: Ctx): number {
       title: req(flags, 'title'),
       workspace: req(flags, 'workspace'),
       targets: req(flags, 'targets').split(',').map((s) => s.trim()).filter(Boolean),
-      dossier: { context: opt(flags, 'context') ?? '', options: [], qa: [] },
+      dossier: {
+        context: req(flags, 'context'),
+        options: dossierOptions(req(flags, 'options-json')),
+        qa: [],
+        recommendation: { optionId: req(flags, 'recommendation'), rationale: req(flags, 'rationale') },
+      },
       ...(opt(flags, 'accountable') !== undefined ? { accountable: req(flags, 'accountable') } : {}),
       ...(opt(flags, 'engagement-ref') !== undefined ? { engagementRef: req(flags, 'engagement-ref') } : {}),
     })
@@ -730,15 +748,40 @@ function cmdDecision(args: string[], ctx: Ctx): number {
     return 0
   }
   if (sub === 'outcome') {
-    track.setOutcome(positional[0]!, oneOf(positional[1], OUTCOMES, 'outcome') as Outcome)
+    track.setOutcome(positional[0]!, oneOf(positional[1], ['deferred'], 'outcome') as Outcome)
     io.out('ok\n')
     return 0
   }
   if (sub === 'dossier') {
-    // merge: a context-only edit must not erase existing options/qa/recommendation
+    // Merge: a context-only edit preserves a structured dossier. A legacy dossier must provide the
+    // full options/recommendation triplet here; the facade validates it fail-closed.
     const current = track.state().decisions.get(positional[0]!)?.dossier
     if (current === undefined) throw new DomainError(`unknown decision ${positional[0]!}`)
-    track.reviseDossier(positional[0]!, { ...current, context: opt(flags, 'context') ?? current.context })
+    const optionJson = opt(flags, 'options-json')
+    const recommendation = opt(flags, 'recommendation')
+    const rationale = opt(flags, 'rationale')
+    if ((recommendation === undefined) !== (rationale === undefined)) {
+      throw new DomainError('--recommendation and --rationale must be supplied together')
+    }
+    if (optionJson !== undefined && recommendation === undefined && current.recommendation === undefined) {
+      throw new DomainError('migrating a legacy dossier requires --recommendation and --rationale')
+    }
+    track.reviseDossier(positional[0]!, {
+      ...current,
+      context: opt(flags, 'context') ?? current.context,
+      ...(optionJson !== undefined ? { options: dossierOptions(optionJson) } : {}),
+      ...(recommendation !== undefined ? { recommendation: { optionId: recommendation, rationale: rationale! } } : {}),
+    })
+    io.out('ok\n')
+    return 0
+  }
+  if (sub === 'select') {
+    const outcome = opt(flags, 'outcome')
+    track.selectDecisionOption(
+      positional[0]!,
+      positional[1]!,
+      outcome === undefined ? 'go' : oneOf(outcome, ['go', 'no-go'], '--outcome') as 'go' | 'no-go',
+    )
     io.out('ok\n')
     return 0
   }
@@ -785,7 +828,7 @@ function cmdDecision(args: string[], ctx: Ctx): number {
     io.out('ok\n')
     return 0
   }
-  io.err('usage: track decision <new|outcome|dossier|disposition|add-artifact>\n')
+  io.err('usage: track decision <new|outcome|select|dossier|disposition|add-artifact>\n')
   return 2
 }
 
@@ -937,7 +980,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
     return emitSnapshot(flags, ctx, true)
   }
   // Scope §A/§B — `--level <spec|plan|wp|lot|task>` switches to the status(level) projection.
-  // Otherwise 0.19.1 prefers the WP/table conductor view; `--flat` is the deprecated legacy opt-out.
+  // Otherwise the WP/table conductor is the default; `--flat` is the legacy opt-out.
   if (opt(flags, 'level') !== undefined) {
     assertOnlyFlags(flags, ['level', 'commit', 'require-accepted', 'format'])
     assertBooleanFlag(flags, 'require-accepted')
@@ -954,41 +997,49 @@ function cmdReport(args: string[], ctx: Ctx): number {
     )
     return 0
   }
-  const rawFormat = opt(flags, 'format')
-  const widthArg = opt(flags, 'width')
-  const inlineFlag = assertBooleanFlag(flags, 'inline')
-  const inline = inlineFlag || widthArg !== undefined
   assertOnlyFlags(flags, [
     'commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'inline', 'width', 'format',
   ])
+  const rawFormat = opt(flags, 'format')
+  if (rawFormat !== undefined && !['json', 'text', 'md', 'html'].includes(rawFormat)) {
+    throw new DomainError('--format must be one of: json|text|md|html')
+  }
+  const widthArg = opt(flags, 'width')
+  const inlineFlag = assertBooleanFlag(flags, 'inline')
+  const inline = inlineFlag || widthArg !== undefined
   const format = oneOf(rawFormat ?? 'text', ['json', 'text', 'md', 'html'], '--format')
   if (inline && format !== 'text') throw new DomainError('--inline/--width accepts no --format, or --format text')
   const requireAccepted = assertBooleanFlag(flags, 'require-accepted')
-  const decisions = assertBooleanFlag(flags, 'decisions')
+  const requestedDecisions = assertBooleanFlag(flags, 'decisions')
   const activeRoster = assertBooleanFlag(flags, 'active-roster')
   const wp = assertBooleanFlag(flags, 'wp')
   const flat = assertBooleanFlag(flags, 'flat')
   if (wp && flat) throw new DomainError('--wp and --flat are mutually exclusive')
-  if (format === 'html' && flat) throw new DomainError('--format html rejects --flat')
+  if (format === 'json' && flat) throw new DomainError('--flat is only meaningful for text or md reports')
+  if (format === 'html' && flat) throw new DomainError('--format html is always the deterministic conductor and rejects --flat')
   let width: number | undefined
   if (widthArg !== undefined) {
     if (!/^\d+$/u.test(widthArg)) throw new DomainError('--width must be an integer in [40,240]')
     width = Number(widthArg)
     if (width < 40 || width > 240) throw new DomainError('--width must be an integer in [40,240]')
   }
-  // Every report mode is a projection of the folded log. No adapter, gateway, subprocess, network, or
-  // model call is reachable from this command; the in-session harness skill owns contextual prose.
+  // Every format is a deterministic read over the folded log. The default human view is
+  // the conductor; --flat explicitly requests the legacy bucket projection. JSON preserves
+  // its established flat machine contract unless --wp is explicit, so --flat is rejected there
+  // instead of being silently accepted as a no-op. Contextual prose remains advisory agent work;
+  // no report format invokes an adapter, gateway, subprocess, or model.
   const options = {
     baselineCommit: resolveCommit(io.cwd, opt(flags, 'commit')),
     requireAccepted,
-    decisions: decisions || (!flat && format !== 'json'),
-    // Text/MD/HTML default to the conductor. JSON remains the flat machine contract unless --wp is explicit.
+    // The owner-facing conductor always classifies decision dossiers. JSON keeps its
+    // established opt-in decision payload, while --flat retains the legacy opt-in.
+    decisions: requestedDecisions || (!flat && format !== 'json'),
     wpTree: wp || (!flat && format !== 'json'),
     activeRoster,
   }
   const reader = new TrackReader(ctx.eventsPath)
   if (inline) {
-    io.out(reportInline(reader, options, ...(width !== undefined ? [{ width }] : [])))
+    io.out(reportInline(reader, options, width === undefined ? {} : { width }))
   } else if (format === 'html') {
     io.out(reportHtml(reader, options))
   } else {
