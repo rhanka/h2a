@@ -1,10 +1,14 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { existsSync, mkdtempSync, readlinkSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+
+import { EventStore } from '../events/store.js'
+import { Track } from '../track.js'
 
 // Regression guard for the installed-bin bug: a global/npx install exposes `track` as a SYMLINK
 // in bin/ pointing at the entry module. The old main-module guard compared argv[1] (the symlink)
@@ -67,6 +71,32 @@ describe('cli bin entry — installed-bin (symlink) regression', () => {
     const out = execFileSync(tsx, [link, '--version'], { cwd: dir, encoding: 'utf8' })
     expect(out.trim()).toMatch(/^\d+\.\d+\.\d+/) // a semver, not 0.0.0-looking garbage
     expect(out.trim()).not.toBe('0.0.0')
+  }, 30_000)
+
+  it('drains a report larger than the stdout high-water mark before exiting', () => {
+    const track = new Track(new EventStore(join(dir, '.track', 'events.jsonl')), { by: 'tester' })
+    for (let i = 0; i < 120; i++) {
+      track.createItem({ kind: 'feature', title: `item ${String(i).padStart(3, '0')} ${'x'.repeat(80)}`, workspace: 'ws' })
+    }
+
+    const out = execFileSync(tsx, [binSrc, 'report', '--raw', '--format', 'json'], { cwd: dir, encoding: 'utf8' })
+    expect(Buffer.byteLength(out, 'utf8')).toBeGreaterThan(8_192)
+    expect(JSON.parse(out)).toMatchObject({ schema: 'track.snapshot/v1' })
+  }, 30_000)
+
+  it('treats a downstream closed stdout pipe as normal termination', async () => {
+    const track = new Track(new EventStore(join(dir, '.track', 'events.jsonl')), { by: 'tester' })
+    for (let i = 0; i < 120; i++) {
+      track.createItem({ kind: 'feature', title: `item ${String(i).padStart(3, '0')} ${'x'.repeat(80)}`, workspace: 'ws' })
+    }
+
+    const child = spawn(tsx, [binSrc, 'report', '--raw', '--format', 'json'], {
+      cwd: dir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    child.stdout?.destroy() // model the reader end of `track report | head` closing early
+    const [code] = await once(child, 'close')
+    expect(code).toBe(0)
   }, 30_000)
 
   // Invoking the `track` bin under the WRONG argv[0] (e.g. a mis-symlinked `track-mcp`) must still

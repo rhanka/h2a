@@ -63,6 +63,21 @@ describe('statusByLevel — generalized computeWpTree projection (LOT 2)', () =>
     expect(got).toEqual(flat.sort((a, b) => a.id.localeCompare(b.id)))
   })
 
+  it('uses the conductor labels when assigned codes reserve mixed WP ordinals', () => {
+    const store = new EventStore(join(dir, 'coded', '.track', 'events.jsonl'))
+    const track = new Track(store, { now, newId: counter(), by: 'h', prov: { transport: 'cli', proposed: false, auth: 'local-user' } })
+    const first = track.createItem({ kind: 'chore', title: 'first', workspace: 'ws', role: 'workpackage' })
+    const coded = track.createItem({ kind: 'chore', title: 'coded', workspace: 'ws', role: 'workpackage' })
+    const third = track.createItem({ kind: 'chore', title: 'third', workspace: 'ws', role: 'workpackage' })
+    track.assignCode(coded, 'WP12')
+
+    const conductorLabels = new Map(computeWpTree(track.state(), CONFIG).map((node) => [node.id, node.label]))
+    const statusLabels = new Map(statusByLevel(track.state(), 'wp', CONFIG).map((group) => [group.id, group.label]))
+    expect(statusLabels.get(first)).toBe(conductorLabels.get(first))
+    expect(statusLabels.get(coded)).toBe('WP12')
+    expect(statusLabels.get(third)).toBe(conductorLabels.get(third))
+  })
+
   it("level 'task' = the leaf buckets (each leaf one group, status from bucketOf)", () => {
     const { track, wpA } = build()
     const groups = statusByLevel(track.state(), 'task', CONFIG)

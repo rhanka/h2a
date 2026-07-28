@@ -15,7 +15,7 @@
 import { isRoleContainer, type ItemId, type ItemState } from '../model/item.js'
 import type { State } from '../state/fold.js'
 import { bucketOf, type Bucket, type ReportConfig } from './buckets.js'
-import { buildWpLeaf, tally, type WpLeaf } from './rollup.js'
+import { buildWpLeaf, computeWpTree, tally, type WpLeaf } from './rollup.js'
 
 export type StatusLevel = 'spec' | 'plan' | 'wp' | 'lot' | 'task'
 export const STATUS_LEVELS: readonly StatusLevel[] = ['spec', 'plan', 'wp', 'lot', 'task']
@@ -27,7 +27,7 @@ export type GroupStatus = Bucket
 export interface StatusGroup {
   id: ItemId
   title: string
-  /** Derived dotted label from WP-forest position (e.g. "WP1", "WP1.2"); the leaf id for `task`. */
+  /** Conductor label (assigned code when present, otherwise derived dotted code); the leaf id for `task`. */
   label: string
   /** The WP-nesting depth (root WP = 0); `task` groups carry the depth of their nearest WP ancestor + 1. */
   depth: number
@@ -137,37 +137,17 @@ export function statusByLevel(state: State, level: StatusLevel, config: ReportCo
     return out
   }
 
-  // ---- WP-tier levels: collect every WP with its forest depth, then pick the tier the level names. ----
-  // Roots = WPs whose parent is not itself a WP (top-level WP, or a WP under a plain item) — same as rollup.
-  const isWpById = new Map(items.map((i) => [i.id, isWp(i)]))
-  const roots = items.filter((i) => isWp(i) && !(i.parentId !== undefined && isWpById.get(i.parentId)))
-  roots.sort((a, b) => a.id.localeCompare(b.id))
-
-  // Walk the WP forest, assigning the derived dotted label + depth (root WP = depth 0).
+  // ---- WP-tier levels: flatten the actual WP forest, not a second labelling implementation. ----
+  // `computeWpTree` owns assigned-code handling and the mixed coded/derived ordinal reservation. Reusing
+  // its labels makes `status --level wp` identity-compatible with the conductor even when only some WPs
+  // have durable codes; an independent counter silently gave one label two meanings.
   const all: Array<{ wp: ItemState; label: string; depth: number }> = []
-  const visit = (wp: ItemState, label: string, depth: number): void => {
-    all.push({ wp, label, depth })
-    // Direct sub-WPs (a sub-WP nested under a non-WP container still counts as a child tier) — id-ordered.
-    let ordinal = 0
-    const collectSubWps = (parentId: ItemId): void => {
-      for (const child of childrenOf.get(parentId) ?? []) {
-        if (isWp(child)) {
-          ordinal++
-          visit(child, `${label}.${ordinal}`, depth + 1)
-        } else {
-          collectSubWps(child.id)
-        }
-      }
-    }
-    collectSubWps(wp.id)
+  const visit = (node: ReturnType<typeof computeWpTree>[number], depth: number): void => {
+    const wp = state.items.get(node.id)
+    if (wp !== undefined) all.push({ wp, label: node.label, depth })
+    for (const child of node.children) visit(child, depth + 1)
   }
-  // A2 — PARTITION the root labels by container class: `workpackage` roots take `WP<n>`, `stream` roots take
-  // a SEPARATE `S<n>` sequence (so an epic surfaces as S1 at the spec/plan tier, never WP1). A WP under a
-  // stream is not a root ⇒ it is labelled RELATIVELY via the dotted recursion below (`S1.1`). No-stream ⇒
-  // every root is a workpackage ⇒ `wpN` == idx+1 and the S sequence stays empty (byte-identical to pre-A2).
-  let wpN = 0
-  let streamN = 0
-  roots.forEach((wp) => visit(wp, wp.role === 'stream' ? `S${++streamN}` : `WP${++wpN}`, 0))
+  for (const node of computeWpTree(state, config)) visit(node, 0)
 
   // Level → which depth tier. `wp` = ALL WP nodes (≡ computeWpTree). `spec`/`plan` = the ROOT tier
   // (depth 0). `lot` = the next nested tier (depth 1); deeper sub-WPs also surface as their own `lot`

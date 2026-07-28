@@ -103,14 +103,25 @@ afterEach(() => {
 
 describe('read contract — version + curated surface (snapshot gate)', () => {
   it('exposes a stable semver and the documented read methods', () => {
-    expect(READ_CONTRACT_VERSION).toBe('1.19.0') // +report-revamp: Directive.adviceKind + gate.blockedBy + facts.fanIn + view.keystone (additif)
+    expect(READ_CONTRACT_VERSION).toBe('1.20.0') // +decisionDossiers: uncapped one-fold decision+dossier projection (additive)
     expect(reader.contractVersion).toBe(READ_CONTRACT_VERSION)
     expect(typeof trackObjectiveRef).toBe('function')
     expect(typeof parseTrackObjectiveRef).toBe('function')
     const api = reader as unknown as Record<string, unknown>
-    for (const m of ['report', 'query', 'validate', 'branchProvenance', 'freshness', 'requireFresh', 'externalDependencies', 'workspaceActivity', 'statusByLevel', 'verificationRuns', 'scopeValidate', 'cursor', 'changesSince', 'graphExport', 'canevas', 'amendmentTrace', 'acceptanceDetail', 'demands', 'lifecycleTrace', 'audit']) {
+    for (const m of ['report', 'decisionDossiers', 'query', 'validate', 'branchProvenance', 'freshness', 'requireFresh', 'externalDependencies', 'workspaceActivity', 'statusByLevel', 'verificationRuns', 'scopeValidate', 'cursor', 'changesSince', 'graphExport', 'canevas', 'amendmentTrace', 'acceptanceDetail', 'demands', 'lifecycleTrace', 'audit']) {
       expect(typeof api[m]).toBe('function')
     }
+  })
+
+  it('keeps the globally unique dossier available across a canevas workspace mismatch (v1 compatibility)', () => {
+    const item = track.createItem({ kind: 'feature', title: 'target', workspace: 'ws-a' })
+    const decisionId = track.createDecision({
+      decisionKind: 'orientation', title: 'cross-workspace dossier', workspace: 'ws-a', targets: [item],
+      dossier: { context: 'stored', options: [], qa: [] },
+    })
+
+    const view = reader.canevas('ws-b', { baselineCommit: 'c1', decisionId })
+    expect(view.dossier).toMatchObject({ id: decisionId, workspace: 'ws-a', dossier: { context: 'stored' } })
   })
 
   it('round-trips Objective Loop track refs without owning objective state', () => {
