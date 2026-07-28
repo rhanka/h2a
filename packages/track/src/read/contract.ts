@@ -23,6 +23,7 @@ import { effectiveOpenBlockersForItem } from '../report/blocker-status.js'
 import {
   buildReport,
   query as runQuery,
+  type DecisionRow,
   type QueryFilter,
   type Report,
   type ReportOptions,
@@ -57,7 +58,7 @@ import { buildSnapshot, type SnapshotOptions, type SnapshotV1 } from '../report/
  * shapes it returns may only GROW (new methods / new optional fields); nothing is removed or
  * repurposed without a major bump. Consumers gate on `reader.contractVersion`.
  */
-export const READ_CONTRACT_VERSION = '1.19.0' // +report-revamp: Directive.adviceKind, gate.blockedBy/blockedByTitle, facts.fanIn, view.keystone (all additif)
+export const READ_CONTRACT_VERSION = '1.20.0' // +decisionDossiers: uncapped one-fold decision+dossier projection (additive)
 
 /** Provenance of the last `branch.imported` for a locator (drawn from the raw event log). */
 export interface BranchProvenance {
@@ -350,6 +351,11 @@ export interface DecisionDossierView {
   dossier: Dossier
 }
 
+/** An uncapped decision report row joined with its stored dossier in one folded-log read. */
+export interface DecisionDossierRow extends DecisionRow {
+  dossier: Dossier
+}
+
 /** Options for {@link TrackReader.canevas}. `decisionId` opts the full decision dossier into the view. */
 export interface CanevasOptions {
   baselineCommit: string
@@ -622,6 +628,16 @@ export class TrackReader {
     return buildReport(fold(this.events()), options)
   }
 
+  /**
+   * Every decision plus its stored dossier, derived from ONE folded state. This is deliberately separate
+   * from `canevas`: callers listing an uncapped decision set must not replay the entire log once per row.
+   */
+  decisionDossiers(options: Pick<ReportOptions, 'baselineCommit' | 'requireAccepted'>): DecisionDossierRow[] {
+    const state = fold(this.events())
+    const rows = buildReport(state, { ...options, decisions: true }).decisions ?? []
+    return rows.map((row) => ({ ...row, dossier: state.decisions.get(row.id)!.dossier }))
+  }
+
   /** Canonical provider-free factual snapshot. Pure replay over the append log and caller baseline. */
   snapshot(options: SnapshotOptions): SnapshotV1 {
     return buildSnapshot(this.events(), options)
@@ -697,6 +713,9 @@ export class TrackReader {
       ...(baseReport.decisions !== undefined
         ? { decisions: baseReport.decisions.filter((d) => d.workspace === workspace) }
         : {}),
+      ...(baseReport.outsideRollup !== undefined
+        ? { outsideRollup: baseReport.outsideRollup.filter((r) => r.workspace === workspace) }
+        : {}),
       // DESIGN R3a — a TRUE leaf-clip (not the old node-filter): keep only leaves with item.workspace===W,
       // retain a node iff ≥1 W-leaf in its subtree (so W leaves under a V-rooted WP are NOT lost), recompute
       // W-only counts, and mark `partial`. Mono-workspace ⇒ byte-identical (no node dropped, no `partial`).
@@ -748,6 +767,9 @@ export class TrackReader {
     const view: CanevasView = { workspace, report, prov, affordances }
     if (opts.decisionId !== undefined) {
       const d = state.decisions.get(opts.decisionId)
+      // A decision id is globally unique. Preserve this read contract's additive, historical behavior by
+      // returning its dossier even when the caller's workspace differs; `track focus` performs the strict
+      // workspace ownership check at its CLI boundary before it invokes this generic read binding.
       if (d !== undefined) {
         view.dossier = { id: d.id, title: d.title, workspace: d.workspace, outcome: d.outcome, dossier: d.dossier }
       }
