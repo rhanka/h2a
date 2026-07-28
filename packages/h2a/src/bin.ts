@@ -31,8 +31,6 @@ import { readUtf8Stdin } from "./runtime/reporting/stdin.js";
 
 const argv = process.argv.slice(2);
 
-throw new Error("intentional smoke gate demonstration");
-
 function readOwnVersion(): string {
   try {
     const here = dirname(fileURLToPath(import.meta.url));
