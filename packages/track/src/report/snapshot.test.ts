@@ -32,7 +32,7 @@ beforeEach(() => {
   })
   const decision = track.createDecision({
     decisionKind: 'commitment', title: 'Choose', workspace: 'ws', targets: [item],
-    dossier: { context: 'not copied verbatim', options: [], qa: [] },
+    dossier: { context: 'not copied verbatim', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
   })
   track.addDecisionArtifact(decision, {
     kind: 'h2a-decision-dossier',

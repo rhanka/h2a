@@ -1,7 +1,7 @@
 import { acceptanceStatus } from '../accept/status.js'
 import type { ActorId } from '../events/types.js'
 import type { AcceptanceStatus } from '../model/acceptance.js'
-import type { DecisionKind, DossierArtifact, Outcome } from '../model/decision.js'
+import { isStructuredDossier, type DecisionKind, type DossierArtifact, type Option, type Outcome } from '../model/decision.js'
 import { isRoleContainer, type ItemId, type ItemKind, type ItemRole, type ItemState, type Realization } from '../model/item.js'
 import type { State } from '../state/fold.js'
 import { BUCKETS, bucketOf, type Bucket, type ReportConfig } from './buckets.js'
@@ -56,6 +56,8 @@ export interface DecisionRow {
   decisionKind: DecisionKind
   realization: Realization
   outcome: Outcome
+  /** True only when options + recommendation are recorded in the native dossier model. */
+  structured?: boolean
   accountable?: ActorId // the decision sponsor (D6)
   optionCount?: number
   openQuestionCount?: number
@@ -65,6 +67,9 @@ export interface DecisionRow {
    * Existing prose-only dossiers are deliberately `unstructured`: the reader must not invent alternatives.
    */
   structure?: 'structured' | 'unstructured'
+  options?: Option[]
+  recommendation?: { optionId: string; rationale: string }
+  selectedOptionId?: string
   // M5 (additive) — record-only pointers to an h2a decision dossier / rendered view / mockup, the read
   // surface the DS render consumes. Present iff the decision has appended artifacts.
   artifacts?: DossierArtifact[]
@@ -257,25 +262,31 @@ export function buildReport(
     if (outsideRollup.length > 0) report.outsideRollup = outsideRollup
   }
   if (options.decisions) {
-    report.decisions = [...state.decisions.values()].map((d) => ({
-      id: d.id,
-      title: d.title,
-      workspace: d.workspace,
-      decisionKind: d.decisionKind,
-      realization: d.realization,
-      outcome: d.outcome,
-      ...(d.accountable !== undefined ? { accountable: d.accountable } : {}),
-      optionCount: d.dossier.options.length,
-      openQuestionCount: d.dossier.qa.filter((q) => q.answer === undefined || q.answer.trim() === '').length,
-      hasRecommendation: d.dossier.recommendation !== undefined,
-      structure:
-        d.dossier.options.length >= 2 &&
-        d.dossier.recommendation !== undefined &&
-        d.dossier.options.some((option) => option.id === d.dossier.recommendation!.optionId)
-          ? 'structured'
-          : 'unstructured',
-      ...(d.dossier.artifacts !== undefined ? { artifacts: d.dossier.artifacts } : {}),
-    }))
+    report.decisions = [...state.decisions.values()].map((d) => {
+      const structured = isStructuredDossier(d.dossier)
+      return {
+        id: d.id,
+        title: d.title,
+        workspace: d.workspace,
+        decisionKind: d.decisionKind,
+        realization: d.realization,
+        outcome: d.outcome,
+        structured,
+        structure: structured ? 'structured' : 'unstructured',
+        ...(d.accountable !== undefined ? { accountable: d.accountable } : {}),
+        optionCount: d.dossier.options.length,
+        openQuestionCount: d.dossier.qa.filter((q) => q.answer === undefined || q.answer.trim() === '').length,
+        hasRecommendation: d.dossier.recommendation !== undefined,
+        ...(structured
+          ? {
+              options: d.dossier.options,
+              recommendation: d.dossier.recommendation!,
+              ...(d.dossier.selectedOptionId !== undefined ? { selectedOptionId: d.dossier.selectedOptionId } : {}),
+            }
+          : {}),
+        ...(d.dossier.artifacts !== undefined ? { artifacts: d.dossier.artifacts } : {}),
+      }
+    })
   }
   return report
 }
