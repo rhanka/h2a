@@ -949,9 +949,19 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   if (rawFormat === 'html' && inline) throw new DomainError('--format html rejects --inline/--width')
 
-  // Frozen legacy path. Keep this call and option derivation byte-for-byte equivalent to the former JSON
-  // branch: it never enters context collection or the adapter.
-  if (rawFormat === 'json') {
+  // The deterministic conductor projection is the ONLY report path. It renders the
+  // FAIT / À-FAIRE / DÉCISIONS-ACTIONS table straight from the folded log — no context
+  // collection, no adapter subprocess, no gateway, no model. It therefore works offline
+  // and cannot fail for a reason unrelated to the log.
+  //
+  // The AI narrative that used to own `text|md|html` was removed: it REPLACED this table
+  // rather than adding to it, it silently ignored `--wp`/`--decisions` (which `--raw`
+  // rejects outright — the same flag meaning two different things on two paths), and its
+  // git source was truncated, so it paraphrased the documentation instead of reporting the
+  // work. Contextual synthesis is now the job of `harness/track-report`: the agent already
+  // in session renders these cells, with nothing to install and nothing to reach over the
+  // network. See docs/specs/2026-07-28-track-report-contextual-rendering.md.
+  if (rawFormat === undefined || ['json', 'text', 'md'].includes(rawFormat)) {
     assertOnlyFlags(flags, ['commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'format'])
     io.out(
       reportText(
@@ -963,7 +973,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
           wpTree: flags['wp'] === true,
           activeRoster: flags['active-roster'] === true,
         },
-        'json',
+        rawFormat === 'json' ? 'json' : rawFormat === 'md' ? 'md' : 'text',
       ),
     )
     return 0
