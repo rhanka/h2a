@@ -126,7 +126,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: ["workspace-root"],
     optionalFlags: ["root"],
     description:
-      "Emit the read-only, workspace-scoped and capped h2a context projection consumed by Track AI reports."
+      "Emit the read-only, workspace-scoped and capped legacy context projection for an explicitly invoked report-ai adapter; Track's normal report command never consumes it."
   },
   {
     verb: "report-ai",

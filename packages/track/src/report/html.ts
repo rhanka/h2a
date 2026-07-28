@@ -6,7 +6,7 @@
 // share one derived model. The design system supplies the CSS/tokens and embeds the fragment.
 
 import { buildWpConductorView, directivePhrase, type ReportView, type ReportViewTable } from './format.js'
-import type { DecisionRow } from './build.js'
+import type { DecisionRow, ReportRow } from './build.js'
 import type { Directive } from './directive.js'
 import type { WpNode } from './rollup.js'
 import { escapeHtml, IDENTITY_HOOKS, type DsFragmentHooks, type DsFragmentPresenter } from './present.js'
@@ -91,6 +91,8 @@ export function formatWpConductorHtml(
   tree: readonly WpNode[],
   decisions: readonly DecisionRow[] = [],
   hooks: DsFragmentHooks = IDENTITY_HOOKS,
+  outsideRollup: readonly ReportRow[] = [],
+  totalScope = 'global',
 ): string {
-  return renderReportHtml(buildWpConductorView(tree, decisions), hooks)
+  return renderReportHtml(buildWpConductorView(tree, decisions, outsideRollup, totalScope), hooks)
 }

@@ -60,6 +60,11 @@ export interface DecisionRow {
   optionCount?: number
   openQuestionCount?: number
   hasRecommendation?: boolean
+  /**
+   * Whether this decision can be rendered as choices + recommendation without parsing its prose context.
+   * Existing prose-only dossiers are deliberately `unstructured`: the reader must not invent alternatives.
+   */
+  structure?: 'structured' | 'unstructured'
   // M5 (additive) — record-only pointers to an h2a decision dossier / rendered view / mockup, the read
   // surface the DS render consumes. Present iff the decision has appended artifacts.
   artifacts?: DossierArtifact[]
@@ -70,6 +75,12 @@ export interface Report {
   decisions?: DecisionRow[]
   /** Workpackages §2 — the %-by-WP rollup forest. Present iff `ReportOptions.wpTree` (additive, opt-in). */
   wpTree?: WpNode[]
+  /**
+   * Bucket rows not represented by a WP leaf. This includes items outside a WP and non-WP intermediate
+   * items that a leaf-only rollup intentionally descends through. Keeping them explicit makes the conductor
+   * global total reconcile with the flat buckets instead of silently losing work.
+   */
+  outsideRollup?: ReportRow[]
 }
 
 export interface ReportOptions {
@@ -232,7 +243,19 @@ export function buildReport(
   for (const bucket of BUCKETS) buckets[bucket].sort((a, b) => byPriority(a, b, compareIds))
 
   const report: Report = { buckets }
-  if (options.wpTree) report.wpTree = tree
+  if (options.wpTree) {
+    const represented = new Set<ItemId>()
+    const collectLeaves = (nodes: readonly WpNode[]): void => {
+      for (const node of nodes) {
+        for (const leaf of node.leaves) represented.add(leaf.id)
+        collectLeaves(node.children)
+      }
+    }
+    collectLeaves(tree)
+    const outsideRollup = BUCKETS.flatMap((bucket) => buckets[bucket]).filter((row) => !represented.has(row.id))
+    report.wpTree = tree
+    if (outsideRollup.length > 0) report.outsideRollup = outsideRollup
+  }
   if (options.decisions) {
     report.decisions = [...state.decisions.values()].map((d) => ({
       id: d.id,
@@ -245,6 +268,12 @@ export function buildReport(
       optionCount: d.dossier.options.length,
       openQuestionCount: d.dossier.qa.filter((q) => q.answer === undefined || q.answer.trim() === '').length,
       hasRecommendation: d.dossier.recommendation !== undefined,
+      structure:
+        d.dossier.options.length >= 2 &&
+        d.dossier.recommendation !== undefined &&
+        d.dossier.options.some((option) => option.id === d.dossier.recommendation!.optionId)
+          ? 'structured'
+          : 'unstructured',
       ...(d.dossier.artifacts !== undefined ? { artifacts: d.dossier.artifacts } : {}),
     }))
   }
