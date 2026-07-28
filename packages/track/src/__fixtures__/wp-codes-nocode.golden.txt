@@ -1,33 +1,33 @@
 === formatWpConductor(text) ===
 FAIT
-scope           avancement   dernières actions
-─────────────   ──────────   ────────────────────────────────────────
-global          3/5 (60%)    3 items faits; poursuivre les WP ouverts
+scope           avancement   constat
+─────────────   ──────────   ─────────────────────
+global          3/5 (60%)    agrégat de périmètre;
+                             pas une action
 
-WP1.1 · Phase   1/1 (100%)   WP clos; preuve/acceptance enregistrée
+WP1.1 · Phase   1/1 (100%)   WP clos (état
+                             enregistré)
 
-WP2 · Beta      1/1 (100%)   WP clos; preuve/acceptance enregistrée
+WP2 · Beta      1/1 (100%)   WP clos (état
+                             enregistré)
 
 À-FAIRE
-WP            avancement   à faire                    bloqué                     prochaine action
-───────────   ──────────   ────────────────────────   ────────────────────────   ────────────────────────
-WP1 · Alpha   2/4 (50%)    a-todo / s-todo            À spécifier avant de       action (subagent):
+WP            avancement   à faire                    bloqué                     prochaine action           cible action
+───────────   ──────────   ────────────────────────   ────────────────────────   ────────────────────────   ────────────────────────
+WP1 · Alpha   2/4 (50%)    a-todo / s-todo            À spécifier avant de       action (subagent):         id-0007 · a-todo [TO-DO]
                                                       démarrer                   Rédiger la spécification
 
-WP1.2 · Sub   0/1 (0%)     s-todo                     À spécifier avant de       action (subagent):
+WP1.2 · Sub   0/1 (0%)     s-todo                     À spécifier avant de       action (subagent):         id-0017 · s-todo [TO-DO]
                                                       démarrer                   Rédiger la spécification
 
-WP3 · Gamma   0/0 (n/a)    aucun item ouvert direct   Aucun blocage enregistré   Aucune directive directe
+WP3 · Gamma   0/0 (n/a)    aucun item ouvert direct   Aucun blocage enregistré   Aucune directive directe   -
 
-DÉCISIONS/ACTIONS
+ACTIONS DÉRIVÉES
 scope/gate       sujet    préconisation
 ──────────────   ──────   ───────────────────────────────────────────
 spec-not-ready   a-todo   action (subagent): Rédiger la spécification
 
 spec-not-ready   s-todo   action (subagent): Rédiger la spécification
-
-RECOMMANDATION
-Avancer par premier item ouvert, enregistrer preuve/acceptance, et escalader uniquement les décisions réellement bloquantes.
 
 === formatWpTree(md) ===
 - **WP1 · Alpha** (2/4, 50%)

@@ -1,7 +1,7 @@
 // friendly-snapshot — the CANONICAL enum→French lexicon, pinned in ONE place (spec 2026-07-11 §5 step 4).
 //
 // Both surfaces render from this exact lexicon: the terminal (`format.ts` `directivePhrase` composes
-// `stepActionFr`; the DÉCISIONS/ACTIONS scope cell is `directiveScopeLabelFr`) AND the cockpit
+// `stepActionFr`; the ACTIONS DÉRIVÉES scope cell is `directiveScopeLabelFr`) AND the cockpit
 // (`apps/focus` `todoRowFr`/`precoRowFr`/`decisionRowFr` map rank/gate/step/mode/adviceKind/kind). A change
 // to any French wording is a VISIBLE diff here — the single anti-re-drift guard both surfaces are checked
 // against (the terminal via its goldens, the cockpit via its parity test, both ultimately these strings).
