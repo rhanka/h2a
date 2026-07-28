@@ -1,6 +1,6 @@
 ---
 name: track-report
-description: Use when asked for a track report, a status, or an advancement report — renders deterministic track facts into FAIT / À-FAIRE / DÉCISIONS / RECOMMANDATION in session, with no AI subprocess.
+description: Use when asked for a track report, status, or advancement report. Read the deterministic conductor first; any contextual synthesis is advisory conversation work.
 ---
 
 # harness/track-report
@@ -45,7 +45,7 @@ Never infer choices by parsing a prose `context` field.
   choices, their stored titles/summaries, and the recommendation in **DÉCISIONS**. Do not invent an effect:
   no separate machine-readable effect field is exposed.
 - An `unstructured` decision has no machine-readable choice set, even if its prose happens to contain
-  “Choix A”. Put it in **À-FAIRE** as “dossier à structurer”; say explicitly that alternatives are not
+  “Choix A”. Put it in **À INSTRUIRE** as “dossier à structurer”; say explicitly that alternatives are not
   recorded. Do not present it as an owner choice with invented alternatives.
 
 For a single structured dossier, use the exact workspace from `decision ls`:
@@ -57,9 +57,11 @@ track focus <decision-id> --workspace <workspace-from-decision-ls>
 `--workspace` is required. A mismatched workspace is an error; never substitute `track workspace-id` or a
 workspace inferred from the current directory. Number only structured decisions `D1…Dn`, in their relative
 `decision ls` order, and retain each decision id alongside the number. Unstructured dossiers do not reserve
-a D-number: list them in À-FAIRE as “dossier à structurer”.
+a D-number: list them in À INSTRUIRE as “dossier à structurer”.
 
-## Render four sections, in this order
+This skill is **advisory**. No command, hook, MCP tool, or validator executes it
+or proves that a synthesis followed it. Do not describe this guidance as an
+enforcement mechanism.
 
 **FAIT** — `scope · avancement · dernières actions`. State the period you used (last report, baseline
 commit, or explicit session boundary) and synthesize accomplishments, not inventory. Keep the raw and
@@ -77,9 +79,10 @@ model/effort only when owner/session context supplied it; otherwise write exactl
 owner context required, for example: `exécuteur: contexte owner requis (modèle/effort non présents dans le
 journal)`. Do not invent `sol xhigh` or similar conventions, and do not leave the field blank.
 
-**DÉCISIONS** — only structured, genuine pending decisions. Render their stored alternatives and
-recommendation in a drawn table inside a fenced block; terminal Markdown tables cannot carry those lines
-reliably. Rule-derived blocker prompts and unstructured dossiers stay in À-FAIRE.
+**DÉCISIONS** — only structured, genuine native dossiers (pending or settled). Render their stored alternatives,
+recommendation, and a durable selected option when present. `formatWpConductor` uses ordinary
+drawn tables and does not add a fence; add one only when the destination requires it. Rule-derived
+blocker prompts stay in À-FAIRE; unstructured dossiers stay in À INSTRUIRE.
 
 **RECOMMANDATION** — an executable plan conditioned on those decisions: name lanes that can start now,
 what each answer unblocks, and where executor context is still required. The owner must be able to reply

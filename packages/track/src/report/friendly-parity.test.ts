@@ -188,7 +188,7 @@ function richDirectives(): { directives: Directive[]; decisions: DecisionRow[] }
   const gated = leaf('gated leaf', wp('WP9'), 'feature')
   const decisions: DecisionRow[] = [
     // A decision blocking a leaf ⇒ surfaces as a decision-wait on that leaf (target.kind = 'item').
-    { id: t.createDecision({ decisionKind: 'commitment', title: 'gate gated leaf', workspace: 'ws:89c4aa11deadbeefcafe', targets: [gated], dossier: { context: '', options: [], qa: [] } }), title: 'gate gated leaf', workspace: 'ws:89c4aa11deadbeefcafe', decisionKind: 'commitment', realization: 'to-do', outcome: 'pending' },
+    { id: t.createDecision({ decisionKind: 'commitment', title: 'gate gated leaf', workspace: 'ws:89c4aa11deadbeefcafe', targets: [gated], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } }), title: 'gate gated leaf', workspace: 'ws:89c4aa11deadbeefcafe', decisionKind: 'commitment', realization: 'to-do', outcome: 'pending' },
     // A standalone pending decision (no blocked leaf) ⇒ its OWN human-decision line (target.kind = 'decision'),
     // carrying a workspace short-form + a blockedByTitle. Passed as a plain row (no Track target needed).
     { id: 'D-standalone', title: 'standalone orientation', workspace: 'ws:0011deadbeefcafe2233', decisionKind: 'orientation', realization: 'to-do', outcome: 'pending', optionCount: 3 },

@@ -1,97 +1,124 @@
-# TRACK REPORT — h2a
+# TRACK REPORT — deterministic golden, no contextual conclusion
 
-> Historical illustration only — not an executable procedure and not a current factual report. It predates
-> the deterministic conductor, its reconciled HORS ROLLUP total, required `track focus --workspace`, and
-> the rule that model/effort must come from owner context. Follow
-> `packages/h2a/skills/harness/track-report/SKILL.md` instead.
+This is a reproducible golden for the fixed deterministic conductor, not an
+agent-written recommendation. Its sole source is
+[`track-report-raw.txt`](track-report-raw.txt): commit
+`9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5`, event window `#1..#568`, folded
+through cursor `count:568`.
 
-*baseline `5fa272e` · 54/84 (64%) · DONE 57 · TO-DO 29 · AWAITED 5 · DROPPED 2*
+Reproduce from the fixed Track tree by materializing the exact committed log
+(the 568-event window is the entire `.track/events.jsonl` blob at that commit)
+into an otherwise empty scratch `.track` directory, then point the read-only
+command at it:
 
-## FAIT
+```sh
+golden_track_dir="$(mktemp -d)"
+git show 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5:.track/events.jsonl > "$golden_track_dir/events.jsonl"
+TRACK_DIR="$golden_track_dir" node packages/track/dist/cli/bin.js report --format text --decisions --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
+```
 
-| scope | avancement | dernières actions |
+`--commit` selects the report baseline; `TRACK_DIR` pins the log. Both are
+necessary. Run this after building the fixed Track tree. The report command is a
+read and does not alter the materialized fixture.
+
+## WP roster
+
+Every row below is copied from the raw fixture; no priority order or recent-work
+claim is inferred.
+
+| label | title | done/active | pct |
+|---|---|---:|---:|
+| S1 | WP-C Keepalive, presence & infra | 0/0 | n/a |
+| S2 | WP-E EVO roadmap | 0/0 | n/a |
+| S3 | WP-MIG Migration track+remote → h2a (CLI unique) | 1/1 | 100 |
+| WP1 | Protocol & envelopes | 1/1 | 100 |
+| WP2 | Addressing & presence | 11/14 | 79 |
+| WP3 | Coordination & loop | 10/12 | 83 |
+| WP4 | Governance & RACI | 5/8 | 63 |
+| WP5 | Execution & runtime | 6/7 | 86 |
+| WP6 | Identity, auth & NHI | 4/5 | 80 |
+| WP7 | Infra, deploy & MCP | 4/9 | 44 |
+| WP8 | Tracking & record | 2/2 | 100 |
+| WP9 | Method & harness | 2/4 | 50 |
+| WP10 | Distribution, CLI & packaging | 8/9 | 89 |
+| WP11 | Memory & context | 0/1 | 0 |
+| S4 | Passerelle LLM : permettre à Hermes (et tout hôte) d'en profiter | 0/0 | n/a |
+| WP14 | Spec EVO-4b: unified local decision cockpit (double-consensus GO) | 0/0 | n/a |
+| WP15 | Spec: h2a<->sentropic enrollment (design + dossier, double-consensus GO) | 0/0 | n/a |
+| WP12 | MCP connector brokering & sharing — h2a as connector hub | 0/1 | 0 |
+| WP13 | Native h2a agent runtime via sentropic | 0/1 | 0 |
+| WP16 | Native-plugin control plane | 0/0 | n/a |
+| WP17 | tmux status surface | 0/0 | n/a |
+| WP18 | Host operator capability parity & gap governance | 0/7 | 0 |
+
+## Decision presentation
+
+The native record has no options or recommendation for any of these rows. The
+golden therefore renders no decision alternatives and makes no selection claim.
+
+| renderer section | IDs | source fact |
 |---|---|---|
-| **global** | 54/84 (64%) | 15 PR mergées · release 0.86.0 publiée et installée · file 22 → 4 |
-| WP1 · Protocol | 1/2 (50%) | Miroir sanitisé émission **et** ingestion, définition unique partagée |
-| WP2 · Addressing | 11/14 (79%) | Titre natif dans la présence · restore élimine les sessions mortes |
-| WP5 · Runtime | 6/7 (86%) | **tmux véridique livré** : `remote-` éradiqué, `?` sur l'invérifiable |
-| WP7 · Infra | 4/9 (44%) | Golden MCP réconcilié 37 → 52 |
-| WP8 · Tracking | 2/3 (67%) | Rapport track réparé : l'erreur avalée remonte avec code et stderr |
-| WP9 · Harness | 2/3 (67%) | `npm test` remesure après 12 merges à zéro · sécurité 3 hautes → 0 |
-| WP10 · Distribution | 8/9 (89%) | 0.86.0 publiée, tarball vérifié · aide CLI par intention |
-| WP11 · Memory | 0/1 (0%) | Fusion mémoire mergée : D1–D13, notes verbatim, ouvertes préservées |
+| À INSTRUIRE | `01KY65RNV7GWCXV787PJW5FYQ1`, `01KY66FTP7Y4W214SADDWKHT15`, `01KY66FV4W1JKHBZ2MW44P9EP6`, `01KY66FVKFFVKRDXY9PFGEF4RD`, `01KY66FW260Q5TV1DVR6ZPH891`, `01KY66FWJ4MYNJMDDJXA54G3FD`, `01KY66FX0PFH958103YVQWRBQZ`, `01KY66T2F35VNZP6FHFAVVBGH0` | pending; native options `0`; native recommendation absent |
+| HISTORIQUE NON STRUCTURÉ | `01KTSDXPY1F0S3PZSXHM9T2WJA`, `01KTSDXX77YGH3KGW3TN5ED1EM`, `01KWAVZZ1NB0DKQQ0AP1BFHJQM`, `01KWAW375CPJ9FDTZPNKVA37DT`, `01KWB13M2FZ9QE88GRT6BNTT7P`, `01KXC2PNENYM96ZFC3FJNEACVC` | historical `go`; native options `0`; no selected option attested |
+| HISTORIQUE NON STRUCTURÉ | `01KTT31B9KWF68E0NSQDJRYJ1Q` | historical `deferred`; native options `0`; no selected option attested |
 
-## À-FAIRE
+### Focus-source captures
 
-*ordre = priorité ; les premières lignes sont le focus courant*
+The eight blocks below are copied verbatim from `FOCUS PROSE CAPTURES` in the
+companion raw fixture, keyed by the same decision IDs. They are real Focus
+source material, not native `Option[]` records: no block is selectable and none
+attests a durable settlement. An authenticated author must first revise the
+dossier into native options and a recommendation before `track decision select`
+can settle it. The captures therefore preserve the owner's actual choices
+without turning prose into an invented decision record.
 
-| WP | av. | à faire | bloqué | prochaine action |
-|---|---|---|---|---|
-| **WP13** · CLI native | 0% | Lancer notre propre CLI, conçue avec l'architecte | **D7** | Récupérer la conception, spécifier l'incrément 1 — *sol xhigh* |
-| **WP12** · Registry MCP | 0% | Enregistrer les connecteurs (gmail…) aux CLIs | **D1–D5** | Route MCP publique + vrai fournisseur — *terra xhigh* |
-| **WP11** · Mémoire agents | 0% | Contexte pérenne multi-session / multi-CLI | **D6** | Implémenter sans trancher les questions ouvertes — *terra xhigh* |
-| **WP10** · h2a ↔ sentropic | 89% | Focus multi-projet, remote control, UAT proxy | — | Livrer la lecture, échelle d'autorité déjà specée — *terra xhigh* |
-| **WP5** · tmux | 86% | — | — | **Livré** (#53) · reste à vérifier chez l'owner |
-| WP1 · Protocol | 50% | Le réveil part alors que l'écriture a échoué | — | Réveil inatteignable sans reçu d'écriture |
-| WP2 · Addressing | 79% | Restore relance des agents jamais human-facing | — | Classer à l'enrôlement, fail-closed au restore |
-| WP5 · Runtime | 86% | `h2a run` accepte un modèle injoignable | — | Préflight contre `/v1/models` |
-| WP8 · Tracking | 67% | Restructuration WP tranchée, non appliquée | — | Créer WP Intégration, rétrograder WP12→18 |
-| WP18 · Parité | 0% | 8 items, rien commencé | — | Écrire le contrat de capacité seul |
-| WP3 · Coordination | 83% | Réveil par hôte dans chaque plugin | **D1–D5** | — |
-| WP7 · Infra | 44% | Proxy subagents gateway/Claude cassé | — | Diagnostiquer avant de corriger |
-| WP9 · Harness | 67% | Worktrees `/tmp` encore autorisés | — | Garde + migration des recettes |
-| WP4 · Governance | 63% | EVO-9 valeur / attention / mutualisation | — | À spécifier |
-| WP6 · Identity | 80% | Contrôles NHI depuis `nhi.md` | — | À spécifier |
+#### `01KY65RNV7GWCXV787PJW5FYQ1`
 
-## DÉCISIONS
-
-*Même donnée que `track focus`, rendue inline. Un tableau Markdown ne peut pas
-contenir de saut de ligne : le tableau est donc DESSINÉ, comme le fait
-`formatWpConductor`.*
-
-```
-┌────┬──────────────────────────────────┬─────────────────────────────────────────────┬───────┐
-│ #  │ sujet                            │ alternatives                                │ préco │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D1 │ Un nom seul peut-il commander ?  │ A  Jamais : (racine, instance) résolue      │       │
-│    │                                  │    et vivante                               │   A   │
-│    │                                  │ B  Oui si la résolution est unique          │       │
-│    │                                  │ C  Oui, avec confirmation si ambigu         │       │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D2 │ Un nom supprimé est-il           │ A  Jamais, le nom est brûlé                 │       │
-│    │ réutilisable ?                   │ B  Après quarantaine de 24 h                │   B   │
-│    │                                  │ C  Immédiatement — statu quo                │       │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D3 │ Plusieurs sessions               │ A  Refuser                                  │ A écr │
-│    │ correspondent ?                  │ B  Lister et demander                       │ B lir │
-│    │                                  │ C  Prendre la plus récente                  │       │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D4 │ Preuve avant                     │ A  Heartbeat seul — statu quo               │       │
-│    │ « agent disponible » ?           │ B  Heartbeat + activité MCP récente         │   B   │
-│    │                                  │ C  Aller-retour réel avant de déclarer      │       │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D5 │ Écrire dans un terminal          │ A  Refuser                                  │       │
-│    │ ambigu ?                         │ B  Écrire au plus probable                  │   A   │
-│    │                                  │ C  Demander                                 │       │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D6 │ Comment lance-t-on le            │ A  Processus local piloté par h2a           │       │
-│    │ moteur natif ?                   │ B  Orchestré par sentropic                  │   A   │
-│    │                                  │ C  Les deux, par configuration              │       │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D7 │ CLI native : quelle étude        │ A  18/07 — agent natif + moteur de session  │       │
-│    │ fait foi ?                       │ B  17/07 — surface CLI et couture           │   A   │
-│    │                                  │ C  Les fusionner                            │       │
-└────┴──────────────────────────────────┴─────────────────────────────────────────────┴───────┘
+```text
+Décision produit requise avant les prochains lots parallèles. Problème observé : un nom tmux, un PID ou une présence MCP peuvent rester visibles alors que l’agent est terminé, remplacé ou occupé par un humain. Choix A (recommandé) : priorité à la sécurité — un alias sert d’abord à retrouver/afficher une session ; si H2A ne peut pas prouver une cible unique et disponible, il n’envoie rien et explique pourquoi. Choix B : priorité à la fluidité — H2A choisit automatiquement la session la plus récente et peut la réveiller. Choix C : intermédiaire — H2A propose la cible choisie et attend une confirmation humaine avant l’envoi. Conséquences : A évite les commandes au mauvais terminal mais demande parfois une étape explicite ; B est plus rapide mais peut perturber une session humaine ou une nouvelle session homonyme ; C est sûr mais ajoute une interaction. Cette décision fixe aussi la base des tracks adressage, liveness et tmux. Le moteur natif restera une fondation interne, sans remplacer h2a run, tant que cette sécurité n’est pas prouvée.
 ```
 
-## RECOMMANDATION
+#### `01KY66FTP7Y4W214SADDWKHT15`
 
-**Sans décision** : lancer **WP10** — le seul objectif du focus bloqué par rien,
-à 89 %, spec d'autorité déjà écrite. Une lane *terra xhigh*.
+```text
+Choix A : le nom sert seulement à retrouver et afficher une session ; H2A demande ensuite une cible vérifiée. Choix B : le nom peut envoyer directement une commande. Recommandation : A — un nom peut être réutilisé ou ambigu. Effet : débloque le lot adressage sûr.
+```
 
-**`D1 A · D2 B · D3 A · D4 B · D5 A`** → débloque WP12 et WP3 : *sol xhigh*
-transforme les réponses en spec, *terra xhigh* implémente le courtier.
-**`D6 A`** → débloque WP11 : une lane *terra xhigh*.
-**`D7 A`** → débloque WP13 : une lane *sol xhigh*.
+#### `01KY66FV4W1JKHBZ2MW44P9EP6`
 
-Réponse attendue : `vas y` (WP10 seul) ou `D1 A · D2 B · D3 A · D4 B · D5 A · D6 A · D7 A`.
+```text
+Choix A : non par défaut ; H2A garde une trace et demande une réattribution explicite. Choix B : oui immédiatement. Recommandation : A — évite qu’un ancien lien pointe silencieusement vers une nouvelle session. Effet : fixe la conservation des noms et l’historique.
+```
+
+#### `01KY66FVKFFVKRDXY9PFGEF4RD`
+
+```text
+Choix A : il refuse d’agir et affiche les candidates. Choix B : il choisit automatiquement la plus récente. Choix C : il envoie à toutes. Recommandation : A — ni la date ni le nom ne prouvent la bonne cible. Effet : débloque l’adressage multi-session et le wake.
+```
+
+#### `01KY66FW260Q5TV1DVR6ZPH891`
+
+```text
+Choix A : une fenêtre tmux visible suffit. Choix B : un processus vivant suffit. Choix C : l’agent doit confirmer qu’il peut recevoir l’instruction. Recommandation : C — fenêtre et processus peuvent survivre après la fin de l’agent. Effet : fixe le statut liveness.
+```
+
+#### `01KY66FWJ4MYNJMDDJXA54G3FD`
+
+```text
+Choix A : non ; si le terminal peut être humain ou incertain, H2A ne frappe rien. Choix B : oui après confirmation humaine. Choix C : oui automatiquement. Recommandation : A — protège le travail humain ; une confirmation peut venir dans un lot ultérieur. Effet : fixe la sécurité de wake tmux.
+```
+
+#### `01KY66FX0PFH958103YVQWRBQZ`
+
+```text
+Choix A : construire d’abord le moteur en parallèle, sans modifier h2a run actuel, puis proposer un pilote. Choix B : remplacer progressivement h2a run dès le premier lot. Choix C : remplacer tmux immédiatement. Recommandation : A — permet de prouver la reprise après crash et la sécurité avant bascule. Effet : fixe le plan du moteur natif.
+```
+
+#### `01KY66T2F35VNZP6FHFAVVBGH0`
+
+```text
+Constat : le report Focus est fait pour suivre le travail, pas pour faire trancher une question. Le détour actuel (créer une décision Track, l’afficher dans le report, injecter une CLI) masque les options et crée du bruit. Proposition recommandée : ajouter une voie directe et stable « décision dossier » : création avec un schéma structuré (contexte, question, options, recommandation, impacts), URL dédiée, lecture centrée sur le dossier, choix humain durable/audité quand ce sera implémenté ; le report Track reste inchangé. Alternative : continuer à enrichir les cartes du report. Cette décision ne tranche pas les six choix de sessions ; elle tranche le produit Focus qui doit les présenter.
+```
+
+No session window, priority ordering, model/lane assignment, PR count, release,
+or file-count assertion was supplied by the fixture. This golden makes none.
