@@ -114,7 +114,7 @@ describe('A3 — no acceptance criterion on a Decision', () => {
       title: 'x',
       workspace: 'ws',
       targets: [t],
-      dossier: { context: '', options: [], qa: [] },
+      dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
     })
     expect(() => track.addCriterion(d, 'x')).toThrow(/cannot add an acceptance criterion to a decision/)
   })
@@ -180,7 +180,7 @@ describe('accept run --from ingestion', () => {
       title: 'x',
       workspace: 'ws',
       targets: [t],
-      dossier: { context: '', options: [], qa: [] },
+      dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
     })
     expect(acceptanceStatus(track.state(), d, 'c1')).toBe('n/a')
   })

@@ -1,114 +1,88 @@
 ---
 name: track-operation
-description: "Use when the user asks for a track report, status, or advancement/progress report — run the deterministic `track` CLI from the repo root; the in-session agent supplies any contextual prose. Also use when an agent needs to read, update, import, or verify track state; when a BRANCH.md or plan/NN-BRANCH_*.md changed; or when deciding between Track MCP and CLI. MCP remains read-only, writes/imports use the CLI, and .track is append-only/single-writer."
+description: "Use when the user asks for a track report, status, or advancement/progress report — run the CLI `track report` from the repo root and return its deterministic conductor. Contextual synthesis is advisory agent behaviour, not a machine-enforced report path. Also use when an agent needs to read, update, import, or verify track state; when a BRANCH.md or plan/NN-BRANCH_*.md changed; or when deciding between Track MCP and CLI. MCP remains read-only, writes/imports use the CLI, and .track is append-only/single-writer."
 ---
 
 # Track Operation
 
-Use this for ordinary track hygiene: reading status, importing BRANCH files, recording item or decision
-updates, and verifying that the sidecar is current. This is the general operational skill; use
-`present-decision` for human decision dossiers and `propose-workpackages` for backlog restructuring.
+Use this for track hygiene: reading status, importing BRANCH files, recording an item or an
+owner-ratified decision, and verifying the sidecar. Use `present-decision` for an owner decision
+dossier and `propose-workpackages` for backlog restructuring.
 
-## Human deterministic report/status — DO THIS FIRST
+## Deterministic report/status
 
-For ANY human-facing track report or status (including "fais-moi un track report", "un track report",
-"a status", "an advancement/progress report"): run the CLI `track report --wp --decisions --format text`
-from the repo root. It is a complete, local projection of the folded log; the agent already in session may
-add contextual prose without invoking another model.
+For a human-facing report or status, run `track report` from the repository root. It is a deterministic
+conductor over the folded log, with FAIT / À-FAIRE / DÉCISIONS-ACTIONS for text and Markdown. It never
+invokes an adapter, gateway, subprocess, or model.
 
-- The MCP server is read-only. Use its `track_*` tools only for factual reads; use the CLI for human
-  rendering, writes, and imports.
-- `track report --wp --decisions --format json` exposes the complete conductor machine view; `--flat` is a
-  deterministic diagnostic, never a way to recover rows omitted by the conductor.
-- `track snapshot` or `track report --raw` is a **factual snapshot (not an AI report)**. Label it exactly
-  that way when returning it to a human; do not turn rule-derived directives into unsupported advice.
+- `track report --format text` is the default conductor.
+- `track report --format md` is the same deterministic view in Markdown.
+- `track report --format html` is the deterministic DS fragment.
+- `track report --flat` explicitly requests the legacy bucket dump.
+- `track report --format json` is the flat machine contract; add `--wp` to carry the additive conductor
+  view model. Do not pass `--flat` with JSON.
+- `track snapshot` or `track report --raw` is a factual diagnostic projection, not a reporting-period
+  cursor or an executable plan.
+
+Paste deterministic command output verbatim when that is what was requested. Do not call it
+AI-prepared, cited AI, or adapter-backed.
+
+## Contextual synthesis is advisory
+
+An agent may add a contextual rendering, but no command, MCP tool, hook, or validator proves that it was
+run or that its prose is complete. Before writing it, identify an explicit report window, focus order,
+lane/concurrency policy, and model/effort policy. If any required input is absent, say that no executable
+recommendation can be made; never infer it from an arbitrary event tail or session memory.
+
+Do not invent options or recommendations for a legacy decision. A decision without recorded structured
+options and recommendation must be rendered in **À INSTRUIRE**, not under **DÉCISIONS**. An owner-ratified
+revision supplies the actual existing `Option { id, title, summary }` objects and recommendation; an owner
+selection is persisted with `track decision select <decisionId> <optionId>`.
 
 ## Contract
 
-- Track's read surface is read-only by design. It may report, query, validate, inspect canvas state, or show
-  cursor/status data; it must not append to `.track/`.
-- **Host MCP singleton:** a host may configure exactly one active h2a endpoint, selected as local stdio or
-  remote HTTP — never both. Re-running `h2a host setup --write` replaces that endpoint and removes its
-  standalone Track entry rather than stacking servers.
-- **Never configure or call `track-mcp` / `h2a track-mcp` directly as a host MCP endpoint.** Track is not a
-  second host MCP connection: use the selected h2a endpoint for its read-only `track_*` tools. Use the
-  `track` CLI from the repository root for deterministic human reports, writes, and imports.
-- Do not treat missing MCP write/import tools as a blocker. Writes and imports are CLI operations.
-- Run CLI writes from the target repository root, never from a different checkout. `track branch import
-  ../other-repo/plan/X.md` writes to the current repo's `.track/`, not the other repo's store.
-- `.track/events.jsonl` is append-only and single-writer. Do not write or commit `.track/` from a
-  concurrent worktree unless the user has explicitly designated that worktree as the writer.
+- The MCP server is read-only. It may report, query, validate, inspect canvas state, or show cursor/status
+  data; it must not append to `.track/`.
+- Do not treat missing MCP write/import tools as a blocker. Writes and imports use the `track` CLI from the
+  target repository root.
+- Run CLI writes from the target repository root, never from another checkout. `.track/events.jsonl` is
+  append-only and single-writer; do not write or commit it from a concurrent worktree unless the user
+  designated that writer.
+- Never configure `track-mcp` / `h2a track-mcp` as a second host endpoint. Use the host-selected read-only
+  endpoint for `track_*` tools and the CLI for local commands.
 
-## Before A Write
+## Before a write
 
-1. Confirm the repository root you are operating in.
-2. Confirm `.track/` exists. If it is absent, recommend `track init` and stop unless the user explicitly
-   asked to initialize tracking.
-3. If you are in a concurrent worktree, update the mergeable source artifact instead, usually the
-   `plan/NN-BRANCH_*.md` file. Leave `.track/` import to the designated writer checkout unless told
-   otherwise.
+1. Confirm the target repository root and `.track/` ownership.
+2. Confirm that the write represents the named owner-approved fact.
+3. In a concurrent worktree, update the mergeable source artifact instead; leave `.track/` import to its
+   designated writer unless explicitly told otherwise.
 
-## BRANCH Import
-
-When progress is represented by a `BRANCH.md` or `plan/NN-BRANCH_*.md` file:
-
-1. Update the checkboxes in the BRANCH file. Keep the BRANCH file as the source of truth.
-2. From the same repo root, run:
-
-   ```bash
-   track branch import plan/<BRANCH_FILE>.md
-   ```
-
-3. Verify immediately:
-
-   ```bash
-   track snapshot --format text
-   track validate
-   ```
-
-4. If the import reports `0 created, 0 updated`, that is a valid idempotent result when the sidecar was
-   already current.
-
-## Direct Writes
-
-Use direct CLI writes only for the event they actually represent:
+## Direct writes
 
 - New item: `track item new --kind <feature|bug|chore> --title "<title>" --workspace <workspace>`
 - Realization: `track item realize <itemId> <in-progress|done|cancelled>`
-- Decision dossier: `track decision dossier <decisionId> --context <context>`
+- Structured decision creation: `track decision new ... --context <text> --options-json <json> --recommendation <optionId> --rationale <text>`
+- Legacy dossier migration: `track decision dossier <decisionId> --options-json <json> --recommendation <optionId> --rationale <text>`
+- Owner choice: `track decision select <decisionId> <optionId> [--outcome go|no-go]`
 - Artifact evidence: `track decision add-artifact <decisionId> ...`
-- Workpackage changes: follow `propose-workpackages`; do not reparent without human approval.
 
-## Reporting Back
+## BRANCH import
 
-Report track results from the verified state, not from memory:
+When progress is represented by a `BRANCH.md` or `plan/NN-BRANCH_*.md` file, update that source artifact,
+then run from the same repository root:
 
-- Use `track report --wp --decisions --format text` for the exhaustive deterministic conductor.
-- Use `track report --format md` when Markdown is explicitly useful; use `--flat` only for its separate,
-  deterministic flat diagnostic.
-- Use `track snapshot` or the exact alias `track report --raw` for canonical deterministic facts. Its text
-  and Markdown renderers are diagnostics; always label them **factual snapshot (not an AI report)** when
-  returning them to a human.
-- `track report --format json` and the MCP `track_report` tool are deterministic factual compatibility
-  surfaces, not AI-generated reports.
-- Mention if `.track/` was intentionally not written because the current checkout is not the designated
-  writer.
+```bash
+track branch import plan/<BRANCH_FILE>.md
+track snapshot --format text
+track validate
+```
 
-## Do Not
+An import reporting `0 created, 0 updated` is valid when the sidecar is already current.
 
-- Do not say "track write/import is not exposed" when the CLI exists. The correct statement is "MCP is
-  read-only; I will use the track CLI from the repo root."
-- Do not initialize tracking in another repo without explicit user approval.
-- Do not manually edit `.track/events.jsonl` except for a deliberate repair with owner approval.
-- Do not commit `.track/` updates produced from the wrong repo root or an undesignated concurrent worktree.
+## Do not
 
-## Per-Agent Mapping
-
-| Capability | Claude | Codex | Gemini-agy |
-| --- | --- | --- | --- |
-| skill entrypoint | `~/.claude/skills/track-operation/SKILL.md` | `~/.codex/skills/track-operation/SKILL.md` | `~/.gemini/commands/track-operation.toml` |
-| read tools | selected h2a `track_*` tools or `track` CLI | selected h2a `track_*` tools or `track` CLI | selected h2a `track_*` tools or `track` CLI |
-| write/import tools | `track` CLI | `track` CLI | `track` CLI |
-
-Existing repo methods win on conflict. If a repo has a harness flow, let harness own the BRANCH artifact and
-use `track branch import` to project it into the track sidecar.
+- Do not manually edit `.track/events.jsonl` except for an owner-approved repair.
+- Do not turn a generic rule-derived action into an owner decision.
+- Do not claim a contextual report is machine-enforced.
+- Do not initialize tracking in another repository without approval.

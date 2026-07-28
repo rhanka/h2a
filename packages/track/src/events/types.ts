@@ -29,6 +29,9 @@ export const EVENT_TYPES = [
   'decision.created',
   'decision.disposition',
   'dossier.revised',
+  // Durable owner settlement of an existing option. The accompanying decision.outcome in the same
+  // command resolves the decision blocker; this event preserves which alternative was actually chosen.
+  'decision.option-selected',
   'decision.outcome',
   'priority.assessed',
   'branch.imported',

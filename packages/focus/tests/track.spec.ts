@@ -153,13 +153,15 @@ describe("readDecisionDossier (real @sentropic/track/read binding)", () => {
 });
 
 describe("toDecisionDossierDocument (pure mapper over the real read types)", () => {
-  it("maps an empty-artifact dossier without comprehension evidence", () => {
+  it("maps a legacy optionless read dossier without comprehension evidence", () => {
     const doc = toDecisionDossierDocument(
       {
         id: "01JBARE000000000000000000000",
         title: "Bare decision",
         workspace: "focus",
         outcome: "pending",
+        // Explicit legacy-read fixture: this pure mapper must render history that
+        // predates the fail-closed Track writer; it is never submitted to Track.
         dossier: { context: "no artifacts", options: [], qa: [] },
       },
       [],
