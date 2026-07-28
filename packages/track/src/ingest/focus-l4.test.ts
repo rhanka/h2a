@@ -10,11 +10,11 @@ import {
 
 describe('Focus L4 action bindings', () => {
   it('maps Focus/Canevas gestures to existing WorkEvent kinds without minting new event types', () => {
-    expect(INGEST_CONTRACT_VERSION).toBe('1.6.0')
-    expect(FOCUS_L4_ACTIONS).toEqual(['ratifyOutcome', 'amendSpec', 'addDossierArtifact'])
+    expect(INGEST_CONTRACT_VERSION).toBe('2.0.0')
+    expect(FOCUS_L4_ACTIONS).toEqual(['selectOption', 'ratifyOutcome', 'amendSpec', 'addDossierArtifact'])
 
     const kinds: WorkEventKind[] = FOCUS_L4_ACTIONS.map((a) => focusL4ActionBinding(a).workEventKind)
-    expect(kinds).toEqual(['decision.outcome', 'item.spec-amend', 'decision.add-artifact'])
+    expect(kinds).toEqual(['decision.select', 'decision.outcome', 'item.spec-amend', 'decision.add-artifact'])
   })
 
   it('marks every L4 action as a binding write requiring authenticated ingest context', () => {

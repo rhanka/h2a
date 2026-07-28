@@ -6,7 +6,7 @@ import { INGEST_CONTRACT_VERSION, WORK_EVENT_KINDS, WORK_EVENT_SCHEMA } from './
 // required field) MUST fail here — this is the contract's snapshot gate (v2.3b-DESIGN.md §6/§7).
 describe('WorkEvent contract surface', () => {
   it('pins the contract version and the kind list', () => {
-    expect(INGEST_CONTRACT_VERSION).toBe('1.6.0') // A2 role:'stream' (DESIGN) — MINOR bump (additive item.set-role + ITEM_ROLES value)
+    expect(INGEST_CONTRACT_VERSION).toBe('2.0.0') // decision.outcome is defer-only; go/no-go requires decision.select
     expect([...WORK_EVENT_KINDS]).toEqual([
       'item.create',
       'item.reparent',
@@ -14,6 +14,7 @@ describe('WorkEvent contract surface', () => {
       'item.realize',
       'decision.create',
       'decision.dossier',
+      'decision.select',
       'decision.add-artifact',
       'decision.outcome',
       'decision.disposition',
@@ -29,7 +30,7 @@ describe('WorkEvent contract surface', () => {
       'scope.declare',
       // WP-codes A1 (DESIGN) — 1.5.0 additive kind.
       'item.assign-code',
-      // A2 role:'stream' (DESIGN) — 1.6.0 additive kind.
+      // A2 role:'stream' (DESIGN) — 1.7.0 additive kind.
       'item.set-role',
       'item.spec-amend',
       'item.anchor',
@@ -68,6 +69,7 @@ describe('WorkEvent contract surface', () => {
         required: ['decisionKind', 'dossier', 'targets', 'title', 'workspace'],
       },
       'decision.dossier': { method: 'reviseDossier', settles: 'never', required: ['decisionId', 'dossier'] },
+      'decision.select': { method: 'selectDecisionOption', settles: 'always', required: ['decisionId', 'optionId'] },
       'decision.add-artifact': { method: 'addDecisionArtifact', settles: 'always', required: ['artifact', 'decisionId'] },
       'decision.outcome': { method: 'setOutcome', settles: 'always', required: ['decisionId', 'to'] },
       'decision.disposition': {
