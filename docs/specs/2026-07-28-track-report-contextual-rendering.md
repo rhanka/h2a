@@ -112,3 +112,50 @@ this change does is make it UNNECESSARY: the contextual rendering no longer depe
 Follow-up, recorded not done: make `report-ai` opt-in rather than mandatory, and reconcile
 the flags so `--wp` and `--decisions` mean the same thing on both paths or are rejected on
 both with a message naming what replaced them.
+
+## 7. A decision without options and a recommendation is not a decision
+
+Owner rule, 2026-07-28: **never present a decision that has no alternatives and no
+recommendation.** One without them asks the owner to invent the options himself, which is
+the work the decision was supposed to save him.
+
+Today that rule cannot be enforced, and the consequence is measurable:
+
+```ts
+export type Outcome = 'pending' | 'go' | 'no-go' | 'deferred'
+```
+
+There is no option in the store, so **an answer of "D1 A" cannot be recorded**. It lives in
+the chat and, at best, as prose in a dossier. That is why eight decisions have been
+`PENDING` for days: nothing can move them except `go`/`no-go`/`deferred`, and none of those
+means "I chose A".
+
+### What changes
+
+**Model.** A decision carries `options: [{ key, label, effect? }]` and `recommendation: key`.
+`Outcome` gains a chosen-option form, so settling a decision NAMES the alternative rather
+than collapsing it to a boolean.
+
+**Creation is fail-closed.** `decision new` REQUIRES at least two options and a
+recommendation. Refusing to create an optionless decision is the enforcement; a convention
+that one should add options is a habit, and habits get skipped — which is exactly how the
+current eight came to exist.
+
+**`track focus`** renders the structured options instead of a prose blob, and accepts an
+answer by key.
+
+**The report** renders the same options inline in DÉCISIONS. It stops parsing free text:
+today it must recover `Choix A :` / `Recommandation :` from one `context` string, and a
+parser over prose produces an empty cell the day someone writes it differently.
+
+**Migration.** The log is append-only and is not rewritten. Existing decisions keep their
+prose `context` and render as they do today, flagged `unstructured`. New ones cannot be
+created without options. No backfill, no invention of options nobody chose.
+
+### Impact, both ways
+
+| | Doing it | Not doing it |
+|---|---|---|
+| Cost | Model + CLI + focus render + report render; a migration that adds fields without rewriting history | Zero |
+| Gain | An answer becomes an EVENT. The decision loop closes inside the record | — |
+| Risk | Fail-closed creation will reject scripts that create decisions without options — intended, but it will break callers | **Decisions stay `PENDING` forever.** The owner answers, work proceeds, and the record still says nothing was decided — the gap between committed work and the tracked state that this repository keeps rediscovering |
