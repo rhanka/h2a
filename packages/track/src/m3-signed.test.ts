@@ -47,7 +47,7 @@ describe('M3 (Lot B) — signed provenance is RECORDED (not verified), additive'
     const t = new Track(store, { by: 'human:x', prov: live })
     live.sig!.value = 'TAMPERED' // mutate the caller's nested sig AFTER construction
     const target = t.createItem({ kind: 'feature', title: 'x', workspace: 'ws' })
-    t.createDecision({ decisionKind: 'orientation', title: 'd', workspace: 'ws', targets: [target], dossier: { context: '', options: [], qa: [] } })
+    t.createDecision({ decisionKind: 'orientation', title: 'd', workspace: 'ws', targets: [target], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
     for (const e of store.readAll()) expect((e.prov as Provenance).sig!.value).toBe('A') // the construction snapshot, not the mutation
     expect(integral()).toBe(true)
   })
@@ -82,14 +82,14 @@ describe('M3 (Lot B) — a signed channel may perform BINDING writes via ingest'
   const ctx = (over: Partial<IngestContext> = {}): IngestContext => ({ by: 'human:carol', workspace: 'ws', prov: SIGNED, ...over })
   const ev = (kind: WorkEventKind, payload: Record<string, unknown>) => ({ v: 1 as const, kind, payload })
 
-  it('admits a binding decision.outcome and records auth:signed + principal', () => {
+  it('admits a binding decision.select and records auth:signed + principal', () => {
     const item = ingest([ev('item.create', { kind: 'feature', title: 'A', workspace: 'ws' })], ctx(), store).ids[0]!
     const dec = ingest(
-      [ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [item], dossier: { context: '', options: [], qa: [] } })],
+      [ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [item], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })],
       ctx(),
       store,
     ).ids[0]!
-    expect(() => ingest([ev('decision.outcome', { decisionId: dec, to: 'go' })], ctx(), store)).not.toThrow() // 'signed' ∈ BINDING_AUTH
+    expect(() => ingest([ev('decision.select', { decisionId: dec, optionId: 'a' })], ctx(), store)).not.toThrow() // 'signed' ∈ BINDING_AUTH
     const outcome = store.readAll().find((e) => e.type === 'decision.outcome')!
     expect((outcome.prov as Provenance).auth).toBe('signed')
     expect((outcome.prov as Provenance).principal).toBe('claude:track:abc')

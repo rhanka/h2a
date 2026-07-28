@@ -142,7 +142,7 @@ describe('ingest idempotency — clientToken skip with stable ids', () => {
     const store = new EventStore(path)
     const itemId = ingest([ev('item.create', { kind: 'feature', title: 'A', workspace: 'ws' })], ctx(), store).ids[0]!
     const dstream = [
-      ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [], qa: [] } }, 'dec-1'),
+      ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } }, 'dec-1'),
     ]
     const r1 = ingest(dstream, ctx(), store)
     const after1 = store.readAll().length // decision.created + 1 blocker.opened
@@ -151,16 +151,16 @@ describe('ingest idempotency — clientToken skip with stable ids', () => {
     expect(r2.ids).toEqual(r1.ids) // returns the decisionId
   })
 
-  it('skips a tokened no-go outcome batch on retry (no illegal-transition throw)', () => {
+  it('skips a tokened no-go option-selection batch on retry (no illegal-transition throw)', () => {
     const path = pathFor()
     const store = new EventStore(path)
     const itemId = ingest([ev('item.create', { kind: 'feature', title: 'A', workspace: 'ws' })], ctx(), store).ids[0]!
     const decId = ingest(
-      [ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [], qa: [] } })],
+      [ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })],
       ctx(),
       store,
     ).ids[0]!
-    const out = [ev('decision.outcome', { decisionId: decId, to: 'no-go' }, 'out-1')]
+    const out = [ev('decision.select', { decisionId: decId, optionId: 'a', outcome: 'no-go' }, 'out-1')]
     ingest(out, ctx(), store)
     const after = store.readAll().length // outcome + blocker.resolved + realization→rejected
     expect(() => ingest(out, ctx(), store)).not.toThrow() // otherwise: illegal outcome transition (already no-go)
@@ -306,7 +306,7 @@ describe('ingest idempotency — clientToken skip with stable ids', () => {
       const store = new EventStore(path)
       const itemId = ingest([ev('item.create', { kind: 'feature', title: 'A', workspace: 'ws' })], ctx(), store).ids[0]!
       const create = [
-        ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [], qa: [] } }, 'race-dec'),
+        ev('decision.create', { decisionKind: 'orientation', title: 'D', workspace: 'ws', targets: [itemId], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } }, 'race-dec'),
       ]
       const r1 = ingest(create, ctx(), store) // first writer commits decision.created (+ blocker.opened)
       const firstId = r1.ids[0]!

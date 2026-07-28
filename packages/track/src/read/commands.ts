@@ -13,13 +13,13 @@ import type { TrackReader } from './contract.js'
  * `report` rendered exactly as the CLI renders it (SPEC §7).
  *
  * Default for text/md (0.19.1): a directive action report — WP/table conductor when a WP forest exists,
- * concise action/decision fallback otherwise. Use `--flat` to force the deprecated legacy bucket dump.
+ * deterministic action/decision fallback otherwise. Use `--flat` to force the deprecated legacy bucket dump.
  * JSON stays the flat structured contract unless `--wp` is explicit.
  *
  * The CONDUCTOR view is the 3-table FAIT / À-FAIRE(%·WP) / DÉCISIONS-ACTIONS rendered for `text`/`md`.
  * For `json` the contract is UNCHANGED from 0.19.0: the additive `{...report, wpTotals}` flat structure
  * (so existing machine consumers keep working), PLUS an OPTIONAL `view` field carrying the conductor view
- * model (for presentation skills). If no WP forest exists, text/md falls back to the legacy flat buckets.
+ * model (for presentation skills). If no WP forest exists, text/md falls back to the deterministic action view.
  */
 export function reportText(reader: TrackReader, options: ReportOptions, format: Format): string {
   const report = reader.report(options)

@@ -98,7 +98,7 @@ interface InstallResult {
 }
 
 const TRACK_SLASH_COMMAND_MD = `---
-description: Run deterministic Track commands from the repo root; the agent in session supplies any contextual prose, never a report adapter or model.
+description: Run Track commands from the repo root; report output is the deterministic conductor and any contextual prose is advisory agent work.
 argument-hint: report [--commit <ref>] | <track args...>
 ---
 
@@ -113,13 +113,12 @@ track report --wp --decisions --format text --commit HEAD
 If the user supplied \`report --commit <ref>\`, use that commit/ref instead of \`HEAD\`. For any other
 arguments, run \`track $ARGUMENTS\` from the repository root.
 
-When returning a report/status, render the complete deterministic conductor. It never invokes an adapter,
-gateway, model, or network. Use \`track snapshot --format text\` only for the canonical raw projection and
-label it **factual snapshot (not an AI report)**. Any contextual prose comes from the agent already in session;
-do not claim it came from Track.
+When returning a report/status, paste the deterministic output verbatim inside a fenced \`text\` code block.
+Do not claim it is AI-prepared or adapter-backed. A contextual summary is advisory agent behaviour: state its
+period, focus, and lane/model inputs, and say when any of those inputs are unavailable.
 `
 
-const TRACK_SLASH_COMMAND_TOML = `description = "Run deterministic Track commands from the repo root; the agent in session supplies any contextual prose, never a report adapter or model"
+const TRACK_SLASH_COMMAND_TOML = `description = "Run Track commands from the repo root; report output is the deterministic conductor and any contextual prose is advisory agent work"
 prompt = '''
 You are the Track custom command.
 
@@ -130,10 +129,9 @@ If the argument is empty or starts with \`report\`, run from the repository root
 If the user supplied \`report --commit <ref>\`, use that commit/ref instead of \`HEAD\`. For any other
 arguments, run \`track <arguments>\` from the repository root.
 
-When returning a report/status, render the complete deterministic conductor. It never invokes an adapter,
-gateway, model, or network. Use \`track snapshot --format text\` only for the canonical raw projection and
-label it **factual snapshot (not an AI report)**. Any contextual prose comes from the agent already in session;
-do not claim it came from Track.
+When returning a report/status, paste the deterministic output verbatim inside a fenced \`text\` code block.
+Do not claim it is AI-prepared or adapter-backed. A contextual summary is advisory agent behaviour: state its
+period, focus, and lane/model inputs, and say when any of those inputs are unavailable.
 '''
 `
 

@@ -57,7 +57,7 @@ describe('CLI smoke (Milestone 1): init -> branch import -> report', () => {
     expect(text).toContain('Scaffold the thing')
 
     out = []
-    expect(runCli(['report', '--flat', '--format', 'json', '--commit', 'c1'], io)).toBe(0)
+    expect(runCli(['report', '--format', 'json', '--commit', 'c1'], io)).toBe(0)
     expect(JSON.parse(out.join('')).buckets.DONE).toHaveLength(1)
 
     // BRANCH.md is the source of truth — the importer must never write it.
@@ -123,8 +123,8 @@ describe('CLI full verb surface (Lot 7) end-to-end', () => {
       'wsjf score 5',
     )
 
-    const decId = r(['decision', 'new', '--kind', 'orientation', '--title', 'go?', '--workspace', 'ws', '--targets', refId]).text
-    expect(r(['decision', 'outcome', decId, 'go']).code).toBe(0)
+    const decId = r(['decision', 'new', '--kind', 'orientation', '--title', 'go?', '--workspace', 'ws', '--targets', refId, '--context', 'choose', '--options-json', '[{"id":"a","title":"A","summary":"first"},{"id":"b","title":"B","summary":"second"}]', '--recommendation', 'a', '--rationale', 'A is safer']).text
+    expect(r(['decision', 'select', decId, 'a']).code).toBe(0)
 
     expect(r(['query', '--kind', 'feature', '--format', 'json', '--commit', 'c1']).text).toContain(itemId)
     expect(r(['report', '--format', 'json', '--decisions', '--commit', 'c1']).code).toBe(0)
@@ -227,7 +227,7 @@ describe('CLI input validation + review fixes (Lot 7)', () => {
   it('blocker raise --kind decision resolves a real decision ref', () => {
     runCli(['init'], io)
     const t = last(['item', 'new', '--kind', 'feature', '--title', 't', '--workspace', 'ws'])
-    const d = last(['decision', 'new', '--kind', 'orientation', '--title', 'x', '--workspace', 'ws', '--targets', t])
+    const d = last(['decision', 'new', '--kind', 'orientation', '--title', 'x', '--workspace', 'ws', '--targets', t, '--context', 'choose', '--options-json', '[{"id":"a","title":"A","summary":"first"},{"id":"b","title":"B","summary":"second"}]', '--recommendation', 'a', '--rationale', 'A is safer'])
     out.length = 0
     expect(runCli(['blocker', 'raise', '--target', t, '--kind', 'decision', '--ref', d], io)).toBe(0)
     expect(out.join('').trim().length).toBeGreaterThan(0) // a blockerId
@@ -243,13 +243,13 @@ describe('CLI input validation + review fixes (Lot 7)', () => {
       title: 'x',
       workspace: 'ws',
       targets: [t],
-      dossier: { context: 'old', options: [{ id: 'o1', title: 'A', summary: 's' }], qa: [] },
+      dossier: { context: 'old', options: [{ id: 'o1', title: 'A', summary: 's' }, { id: 'o2', title: 'B', summary: 't' }], qa: [], recommendation: { optionId: 'o1', rationale: 'A' } },
     })
     out.length = 0
     expect(runCli(['decision', 'dossier', d, '--context', 'new'], io)).toBe(0)
     const dossier = new Track(store).state().decisions.get(d)!.dossier
     expect(dossier.context).toBe('new')
-    expect(dossier.options).toHaveLength(1) // preserved, not erased
+    expect(dossier.options).toHaveLength(2) // preserved, not erased
   })
 
   it('decision add-artifact appends a rendered-view (parity with the lib/ingest path)', () => {
@@ -262,7 +262,7 @@ describe('CLI input validation + review fixes (Lot 7)', () => {
       title: 'x',
       workspace: 'ws',
       targets: [t],
-      dossier: { context: 'c', options: [], qa: [] },
+      dossier: { context: 'c', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } },
     })
     out.length = 0
     expect(
@@ -283,7 +283,7 @@ describe('CLI input validation + review fixes (Lot 7)', () => {
     const store = new EventStore(join(dir, '.track', 'events.jsonl'))
     const track = new Track(store)
     const t = track.createItem({ kind: 'feature', title: 't', workspace: 'ws' })
-    const d = track.createDecision({ decisionKind: 'orientation', title: 'x', workspace: 'ws', targets: [t], dossier: { context: '', options: [], qa: [] } })
+    const d = track.createDecision({ decisionKind: 'orientation', title: 'x', workspace: 'ws', targets: [t], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
     out.length = 0
     expect(
       runCli(['decision', 'add-artifact', d, '--kind', 'h2a-decision-dossier', '--negotiation-ref', 'neg-1', '--dossier-hash', 'sha256:x'], io),
@@ -297,7 +297,7 @@ describe('CLI input validation + review fixes (Lot 7)', () => {
     const store = new EventStore(join(dir, '.track', 'events.jsonl'))
     const track = new Track(store)
     const t = track.createItem({ kind: 'feature', title: 't', workspace: 'ws' })
-    const d = track.createDecision({ decisionKind: 'orientation', title: 'x', workspace: 'ws', targets: [t], dossier: { context: '', options: [], qa: [] } })
+    const d = track.createDecision({ decisionKind: 'orientation', title: 'x', workspace: 'ws', targets: [t], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
     out.length = 0
     // h2a-decision-dossier with no dossier-hash → fail-closed
     expect(runCli(['decision', 'add-artifact', d, '--kind', 'h2a-decision-dossier', '--negotiation-ref', 'neg-1'], io)).toBe(1)
@@ -315,7 +315,7 @@ describe('CLI input validation + review fixes (Lot 7)', () => {
     const store = new EventStore(join(dir, '.track', 'events.jsonl'))
     const track = new Track(store)
     const t = track.createItem({ kind: 'feature', title: 't', workspace: 'ws' })
-    const d = track.createDecision({ decisionKind: 'orientation', title: 'x', workspace: 'ws', targets: [t], dossier: { context: '', options: [], qa: [] } })
+    const d = track.createDecision({ decisionKind: 'orientation', title: 'x', workspace: 'ws', targets: [t], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
     const args = ['decision', 'add-artifact', d, '--kind', 'rendered-view', '--view-ref', 'track://dossier/1', '--client-token', 'tok-1']
     out.length = 0
     expect(runCli(args, io)).toBe(0)

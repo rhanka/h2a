@@ -51,7 +51,7 @@ describe('§A2 — adviceKind is derived from mode (orthogonal axis)', () => {
     specified(leaf('todo', w))
     t.assessPriority(leaf('valued', w), { userBusinessValue: 5, timeCriticality: 1, riskReductionOpportunityEnablement: 1, jobSize: 1 })
     const gated = leaf('gated', wp('WP2'))
-    t.createDecision({ decisionKind: 'commitment', title: 'gate gated', workspace: 'ws', targets: [gated], dossier: { context: '', options: [], qa: [] } })
+    t.createDecision({ decisionKind: 'commitment', title: 'gate gated', workspace: 'ws', targets: [gated], dossier: { context: '', options: [{ id: 'a', title: 'Option A', summary: 'first option' }, { id: 'b', title: 'Option B', summary: 'second option' }], qa: [], recommendation: { optionId: 'a', rationale: 'Option A is recommended' } } })
 
     const ds = buildDirectives(tree())
     const sub = ds.find((d) => d.mode === 'subagent')!

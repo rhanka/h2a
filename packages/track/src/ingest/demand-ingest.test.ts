@@ -39,8 +39,8 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 const RAISE = { type: 'feature', raw: { text: 'add X' }, source: { kind: 'human' }, handler: 'h:raise', workspace: 'ws' }
 
 describe('demand ingest — contract version bump (additive minor)', () => {
-  it('INGEST_CONTRACT_VERSION bumped 1.2.0 → 1.3.0 (demand lifecycle additive kinds)', () => {
-    expect(INGEST_CONTRACT_VERSION).toBe('1.6.0') // 1.5.0 (A1 item.assign-code) → 1.6.0 (A2 stream role + item.role-changed)
+  it('INGEST_CONTRACT_VERSION retains the post-demand evolution', () => {
+    expect(INGEST_CONTRACT_VERSION).toBe('2.0.0') // 2.0.0: decision.outcome is defer-only
   })
 })
 
