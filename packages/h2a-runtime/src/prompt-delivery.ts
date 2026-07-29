@@ -225,6 +225,12 @@ export type PromptDeliveryOptions = {
   readonly quietMs?: number;
   /** CPU under which the host counts as quiet, per window (default 40ms). */
   readonly quietCpuMs?: number;
+  /**
+   * Highest steady CPU rate (ms of CPU per ms of clock) still treated as "waiting
+   * for input" — default 0.3, i.e. a third of one core. Above it a host is busy,
+   * not idle, and an Enter typed into it can be swallowed.
+   */
+  readonly maxIdleRate?: number;
   /** How long to wait for the composer to RENDER the paste (default 8s). */
   readonly landedMs?: number;
 };
@@ -267,6 +273,7 @@ const DEFAULTS = {
   activityCpuMs: 300,
   quietMs: 2_000,
   quietCpuMs: 40,
+  maxIdleRate: 0.3,
   landedMs: 8_000,
 } as const;
 
@@ -307,6 +314,7 @@ function waitUntilReady(
   options: {
     quietMs: number;
     quietCpuMs: number;
+    maxIdleRate: number;
     timeoutMs: number;
     pollMs: number;
   },
@@ -315,6 +323,7 @@ function waitUntilReady(
   | { readonly ok: false; readonly unreadable: boolean } {
   const deadline = deps.now() + options.timeoutMs;
   let unreadable = 0;
+  let previousRate: number | undefined;
   for (;;) {
     const capture = deps.capturePane(pane);
     if (capture === undefined) {
@@ -323,14 +332,43 @@ function waitUntilReady(
     } else if (paneHasDrawnUi(capture)) {
       unreadable = 0;
       const before = deps.cpuMs(pane);
-      if (before !== undefined) {
-        const startedAt = deps.now();
-        deps.sleep(options.quietMs);
-        const after = deps.cpuMs(pane);
-        const elapsed = Math.max(1, deps.now() - startedAt);
-        if (after !== undefined && after - before <= options.quietCpuMs) {
-          return { ok: true, idleRate: Math.max(0, after - before) / elapsed };
+      const startedAt = deps.now();
+      deps.sleep(options.quietMs);
+      const after = deps.cpuMs(pane);
+      const elapsed = Math.max(1, deps.now() - startedAt);
+      if (before !== undefined && after !== undefined) {
+        const delta = after - before;
+        if (delta < 0) {
+          // The tree total FELL, so a process left it: only live descendants are
+          // counted, and the total is therefore not a monotonic counter. A
+          // negative delta says the tree was recomposed, not that it went quiet —
+          // reading it as quiet clamped the idle rate to zero and let leftover
+          // startup CPU pass for work.
+          previousRate = undefined;
+        } else {
+          const rate = delta / elapsed;
+          // Clearly quiet: the common case, and the fastest path.
+          if (delta <= options.quietCpuMs) return { ok: true, idleRate: rate };
+          // Or STABLE AND LOW: a host idling at a steady few percent of a core
+          // never meets an absolute threshold, and refusing it was a
+          // deterministic false negative. But "stable" alone is not enough — a
+          // host steadily burning most of a core is BUSY, not waiting for input,
+          // and typing into it is how an Enter gets swallowed. Measured spread:
+          // a booting TUI runs near a full core, an idle one near zero.
+          if (
+            rate <= options.maxIdleRate &&
+            previousRate !== undefined &&
+            Math.abs(rate - previousRate) <=
+              0.25 * Math.max(rate, previousRate, Number.EPSILON)
+          ) {
+            // Keep the HIGHER of the two: an over-estimated idle rate risks a
+            // refusal, an under-estimated one manufactures a false "working".
+            return { ok: true, idleRate: Math.max(rate, previousRate) };
+          }
+          previousRate = rate;
         }
+      } else {
+        previousRate = undefined; // unknown stays unknown
       }
     }
     if (deps.now() >= deadline) return { ok: false, unreadable: false };
@@ -357,6 +395,7 @@ export function deliverInitialPrompt(
   const activityCpuMs = options.activityCpuMs ?? DEFAULTS.activityCpuMs;
   const quietMs = options.quietMs ?? DEFAULTS.quietMs;
   const quietCpuMs = options.quietCpuMs ?? DEFAULTS.quietCpuMs;
+  const maxIdleRate = options.maxIdleRate ?? DEFAULTS.maxIdleRate;
   const landedMs = options.landedMs ?? DEFAULTS.landedMs;
   const probes = promptProbes(prompt);
   const startedAt = deps.now();
@@ -365,6 +404,7 @@ export function deliverInitialPrompt(
   const ready = waitUntilReady(pane, deps, {
     quietMs,
     quietCpuMs,
+    maxIdleRate,
     timeoutMs,
     pollMs,
   });
@@ -456,7 +496,19 @@ export function deliverInitialPrompt(
   }
 
   // 5. One Enter submits the whole block.
-  const cpuBefore = deps.cpuMs(pane) ?? 0;
+  // The pre-submit CPU baseline must be REAL. Coercing an unreadable sample to
+  // zero turned the process's whole lifetime CPU into a post-submit delta, which
+  // reported "working" over a brief that was still sitting unsent.
+  const cpuBefore = deps.cpuMs(pane);
+  if (cpuBefore === undefined) {
+    return {
+      state: "undelivered",
+      reason:
+        "the agent's CPU could not be read before submitting, so no work could be proven afterwards",
+      waitedMs: deps.now() - startedAt,
+      capture: captureTail(after),
+    };
+  }
   const submittedAt = deps.now();
   if (!deps.submit(pane)) {
     return {
@@ -474,9 +526,16 @@ export function deliverInitialPrompt(
     ? "collapsed-paste"
     : "composer-text";
   const activityDeadline = submittedAt + activityMs;
+  let cpuDeltaMs = 0;
   for (;;) {
     deps.sleep(pollMs);
-    const cpuDeltaMs = (deps.cpuMs(pane) ?? cpuBefore) - cpuBefore;
+    const cpuNow = deps.cpuMs(pane);
+    // An unreadable sample proves nothing, and a NEGATIVE delta means the tree
+    // lost a process rather than that work happened. Neither may advance the
+    // evidence: keep the last provable delta and keep waiting.
+    if (cpuNow !== undefined && cpuNow - cpuBefore > cpuDeltaMs) {
+      cpuDeltaMs = cpuNow - cpuBefore;
+    }
     const idleBudget = ready.idleRate * (deps.now() - submittedAt);
     if (cpuDeltaMs - idleBudget >= activityCpuMs) {
       return {
