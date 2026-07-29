@@ -1146,19 +1146,35 @@ export function translateCodexStreamToAnthropic(
                     item.arguments !== ""
                   ) {
                     const sent = block.argsSent ?? "";
-                    const remainder = item.arguments.startsWith(sent)
-                      ? item.arguments.slice(sent.length)
-                      : "";
-                    if (remainder !== "") {
-                      emit(
-                        sseEvent("content_block_delta", {
-                          type: "content_block_delta",
-                          index: block.idx,
-                          delta: {
-                            type: "input_json_delta",
-                            partial_json: remainder,
-                          },
-                        }),
+                    if (item.arguments.startsWith(sent)) {
+                      const remainder = item.arguments.slice(sent.length);
+                      if (remainder !== "") {
+                        emit(
+                          sseEvent("content_block_delta", {
+                            type: "content_block_delta",
+                            index: block.idx,
+                            delta: {
+                              type: "input_json_delta",
+                              partial_json: remainder,
+                            },
+                          }),
+                        );
+                      }
+                    } else {
+                      // Irreconcilable: what was relayed is not a prefix of the
+                      // authoritative terminal value, and an append-only stream
+                      // cannot retract it. Emitting anything would corrupt the
+                      // JSON, so nothing is emitted — but the client is then
+                      // holding a tool input that CONTRADICTS the upstream, and
+                      // that must never be a silent outcome. Announce it, with
+                      // the call identity, so it is attributable in a log.
+                      console.warn(
+                        `[llm-gateway] tool-call arguments could not be reconciled for ` +
+                          `${(item.name as string | undefined) ?? "?"} ` +
+                          `(${(item.call_id as string | undefined) ?? "?"}): ` +
+                          `${sent.length} relayed chars are not a prefix of the ` +
+                          `${item.arguments.length}-char terminal value; the client ` +
+                          `input differs from upstream`,
                       );
                     }
                   }
