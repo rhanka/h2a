@@ -34,8 +34,14 @@ composed per task from `RECALL.md`; blocks 2 and 3 are fixed and copied verbatim
 ## The preamble — paste this at the head of a subcontractor prompt
 
 Self-contained, thirteen lines, no pointer to any document. A subcontractor that must read
-three files before starting reads none of them. **Ordered deliberately**: if the channel
-fragments the prompt (see below), line 1 arrives first and already carries the hard stop.
+three files before starting reads none of them.
+
+**Short is a measured constraint, not a style.** `h2a run` truncates a long prompt silently:
+`runtime` measured 10 977 characters cut by both hosts and 9 830 passing whole; `gateway` lost
+the tail of both its subcontract briefs, and `conductor` lost the tail of a review brief —
+which is where its honesty rules were. So the preamble must fit in a prompt that arrives
+whole, and **the hard stops go first, because it is the end that disappears.** Line 1 is the
+one that must survive; line 13 is the one you check has arrived.
 
 ```
 Before you start, and these override any instinct you have about this repo:
@@ -82,9 +88,17 @@ document and hope" — the launch prompt is the one thing a subcontractor cannot
 is written per task, so it is never a stale copy. When
 `fix/h2a-run-prompt-delivery` merges, the paste form becomes correct there too.
 
-Then **verify, before you consider the work started**: CPU time greater than zero on the
-child process, and a visible working indicator. A launch that reports `started` is not a
-launch that ran (RECALL.md REC-10).
+Then **verify, before you consider the work started** — three checks, in this order:
+
+1. The **composer is empty**. A prompt still sitting in the input box was never submitted.
+2. The **child** process burns CPU — `ps --ppid <session.pid>`. `session.pid` is the wrapper
+   and reads 0 s no matter what; measuring it proves nothing.
+3. The last line of your preamble is visible in the transcript. If line 13 is missing, the
+   prompt was truncated and the rules at the end never arrived.
+
+A launch that reports `started` is not a launch that ran (RECALL.md REC-10, REC-14). And
+never infer the routing from what you requested: read what the launch returned — `required`
+is silently downgraded, not refused (REC-15).
 
 ---
 
