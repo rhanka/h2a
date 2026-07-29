@@ -49,11 +49,11 @@ Therefore this review uses stable item IDs and titles, never a bare `WPnn` label
 | TO-DO | `01KY7CBBRAAKXJBQ3DJNR2CVXC` — cross-host capability contract | Host operator capability parity (`01KY7CAYTVW4PVGQ0D552EENDG`) | Yes. |
 | TO-DO | `01KY7CBBYY3343TX635JA5J90K` — adapter guide/conformance tests | Host operator capability parity (`01KY7CAYTVW4PVGQ0D552EENDG`) | Yes. |
 | TO-DO | `01KY7CBC4XHTYA1PYSSNQS2P0F` — probe manual CLI enforcement | Host operator capability parity (`01KY7CAYTVW4PVGQ0D552EENDG`) | Yes. |
-| TO-DO | `01KY7D11DZ9H4DASG7GZQWFXSN` — Codex adapter | Host operator capability parity (`01KY7CAYTVW4PVGQ0D552EENDG`) | Yes. |
-| TO-DO | `01KY7D11PW35XWBTAVQCQGPMNJ` — OpenCode adapter | Host operator capability parity (`01KY7CAYTVW4PVGQ0D552EENDG`) | Yes. |
-| TO-DO | `01KY7D11Y0A28AFAV3B5YGJTWK` — Hermes adapter | Host operator capability parity (`01KY7CAYTVW4PVGQ0D552EENDG`) | Yes. |
-| TO-DO | `01KY7D12402R3M6Q8RBASF88J5` — agy adapter | Host operator capability parity (`01KY7CAYTVW4PVGQ0D552EENDG`) | Yes. |
-| TO-DO | `01KY7JXXGXTWC0VVVDKS5XSE7K` — Terra xhigh semantic preset | — | No parent; `track_audit` calls it an open orphan. It is a native-CLI launch contract, so Native CLI & runtime is the closest container. |
+| TO-DO | `01KY7D1Z0B0TNDP9PK48GAZN6W` — Codex adapter | Host operator capability parity (`01KY7CAYTVW4PVGQ0D552EENDG`) | Yes. |
+| TO-DO | `01KY7D1Z6QVKXTR17GP7V38YZX` — OpenCode adapter | Host operator capability parity (`01KY7CAYTVW4PVGQ0D552EENDG`) | Yes. |
+| TO-DO | `01KY7D1ZCNZDMYV9YM4VV3VYHJ` — Hermes adapter | Host operator capability parity (`01KY7CAYTVW4PVGQ0D552EENDG`) | Yes. |
+| TO-DO | `01KY7D1ZK1XEV46V2RXA4AE7AV` — agy adapter | Host operator capability parity (`01KY7CAYTVW4PVGQ0D552EENDG`) | Yes. |
+| TO-DO | `01KY7JYETQVYWDNNQVNZT875FF` — Terra xhigh semantic preset | — | No parent; `track_audit` calls it an open orphan. It is a native-CLI launch contract, so Native CLI & runtime is the closest container. |
 
 This is 30 open store rows: 29 in the project workspace and one explicit `ws:test` fixture. The two project orphans are not a taxonomy argument: they are simply a reporting defect that must be resolved before a percentage can claim full coverage.
 
