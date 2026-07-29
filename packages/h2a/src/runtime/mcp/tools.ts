@@ -581,6 +581,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         role: { type: "string" },
         required: { type: "boolean" },
         allowEmpty: { type: "boolean", description: "Explicitly permit a staged empty loop. Never inferred." },
+        autoTick: { type: "boolean", description: "Explicitly opt this loop into durable supervisor ticks. Defaults to false." },
         launch: {
           type: "object",
           additionalProperties: false,
