@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EventStore } from '../events/store.js'
 import { Track } from '../track.js'
 import type { DecisionRow, ReportRow } from './build.js'
-import { buildWpConductorView, formatWpConductor, type ReportView } from './format.js'
+import { buildWpConductorView, formatWpConductor, handleTokenRegex, type ReportView } from './format.js'
 import { formatWpConductorHtml } from './html.js'
 import { computeWpTree } from './rollup.js'
 import { renderSnapshot } from './snapshot.js'
@@ -317,13 +317,69 @@ describe('criteria 10b/10c — the identifier is relocated, not removed', () => 
   it('the report ends with a resolution block mapping each handle to its item id and naming the command', () => {
     seed()
     const v = view()
-    const rendered = text()
-    const block = rendered.slice(rendered.indexOf('RÉSOLUTION DES HANDLES'))
-    expect(block).toContain('track report --resolve <handle>')
-    for (const handle of v.handles) {
-      expect(block).toContain(`${handle.handle}\t${handle.id}`)
-    }
     expect(v.handles.length).toBeGreaterThan(0)
+    // The block is machine-facing in every format: `md` fences it (no backslash escaping) and `html`
+    // uses ordinary entity encoding, which any HTML consumer decodes. Both are checked, not assumed.
+    for (const [format, rendered] of [['text', text()], ['md', md()]] as const) {
+      const block = rendered.slice(rendered.indexOf('RÉSOLUTION DES HANDLES'))
+      expect(block, format).toContain('track report --resolve <handle>')
+      for (const handle of v.handles) expect(block, format).toContain(`${handle.handle}\t${handle.id}`)
+      expect(block, format).not.toMatch(/\\[[\]<>]/u)
+    }
+    const htmlBlock = html().slice(html().indexOf('report-resolution'))
+    expect(htmlBlock).toContain('track report --resolve &lt;handle&gt;')
+    for (const handle of v.handles) expect(htmlBlock).toContain(handle.id)
+  })
+
+  it('yields the SAME handle set in text, Markdown and HTML — a handle is machine-readable in all three', () => {
+    seed()
+    // The defect this pins: `md` escaped every handle to `\\[1.1\\]`, so a consumer parsing the Markdown
+    // for a handle found NONE, while text and html carried 61. It rendered fine and broke the documented
+    // report-row → `--resolve` path in exactly one format. Per-format expectations missed it; comparing
+    // the formats against EACH OTHER is what catches it.
+    const extract = (rendered: string): string[] => {
+      const body = rendered.split(/RÉSOLUTION DES HANDLES|report-resolution/u)[0]!
+      return [...body.matchAll(handleTokenRegex())].map((m) => m[0]).sort()
+    }
+    const perFormat = { text: extract(text()), md: extract(md()), html: extract(html()) }
+    expect(perFormat.text.length).toBeGreaterThan(0)
+    expect(perFormat.md).toEqual(perFormat.text)
+    expect(perFormat.html).toEqual(perFormat.text)
+    // ...and no format smuggles them in backslash-escaped instead.
+    for (const [format, rendered] of Object.entries({ text: text(), md: md(), html: html() })) {
+      expect(rendered, `${format} escapes a handle`).not.toMatch(/\\\[\d+\.\d+\\\]/u)
+    }
+  })
+
+  it('the handle exemption does not weaken title escaping, and is not an injection route', () => {
+    const w = wp('WP1')
+    // A title that MIMICS a handle and then tries to complete a markdown link with it.
+    leaf('[9.9](https://evil.example) **gras**', w)
+    const rendered = formatWpConductor(computeWpTree(t.state(), cfg), 'md')
+    const body = rendered.slice(0, rendered.indexOf('RÉSOLUTION DES HANDLES'))
+    expect(body).toContain('\\*\\*gras\\*\\*') // titles are still escaped
+    expect(body).toContain('\\(https') // the link parens a `[x](y)` needs are still escaped
+    expect(body).not.toContain('](https://evil.example)') // so no link can form
+    expect(body).toContain('[1.1]') // ...while the real handle is still verbatim
+  })
+
+  it('a title carrying a code fence cannot break out of the machine blocks in md', () => {
+    const w = wp('WP1')
+    leaf('```\n# INJECTED', w)
+    const rendered = formatWpConductor(computeWpTree(t.state(), cfg), 'md')
+    const block = rendered.slice(rendered.indexOf('RÉSOLUTION DES HANDLES'))
+    // The fence around a machine block is chosen longer than any backtick run inside it, so the block
+    // still closes where the renderer says it closes.
+    const fences = rendered.split('\n').filter((line) => /^`{3,}$/u.test(line))
+    expect(fences.length % 2).toBe(0)
+    const resolutionFence = fences[fences.length - 1]!
+    expect(resolutionFence.length).toBeGreaterThan(3) // the block carries a ``` run, so ``` would not hold
+    // Exactly one occurrence inside the block: the CLOSING fence, and it is the block's last line.
+    const blockLines = block.split('\n').filter((line) => line.trim() !== '')
+    expect(blockLines.filter((line) => line === resolutionFence)).toHaveLength(1)
+    expect(blockLines[blockLines.length - 1]).toBe(resolutionFence)
+    expect(block).toContain('# INJECTED') // the content is preserved verbatim, inside the fence
+    expect(rendered.split('\n').some((line) => line.startsWith('# INJECTED'))).toBe(false)
   })
 
   it('states that handles are per-report, so a reply quoting one without its report is not actionable', () => {
@@ -413,6 +469,7 @@ describe('criteria 17/18 — compression is declared; open work and pending doss
     const v = view()
     expect(v.coverage.projected).toBeGreaterThan(v.coverage.rendered)
     expect(v.coverage.projected - v.coverage.rendered).toBe(v.coverage.omitted.length)
+    // The coverage line is machine-facing too: it must read the same, unescaped, in all three formats.
     for (const rendered of [text(), md(), html()]) {
       expect(rendered).toMatch(/couverture : \d+ lignes projetées · \d+ rendues/u)
       expect(rendered).toMatch(/\d+ omise/u)
@@ -548,6 +605,7 @@ describe('the skill instructs the shape this renderer emits', () => {
     expect(s).toContain('**No ULID appears in any column the owner reads.**')
     expect(s).toContain('[0-9A-HJKMNP-TV-Z]{26}')
     expect(s).toContain('report --resolve <handle>')
+    expect(s).toContain('verbatim in text, Markdown and HTML')
     expect(s).toContain('Handles are **per-report and positional**')
     expect(s).toContain('is not actionable')
   })

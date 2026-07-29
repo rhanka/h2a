@@ -180,6 +180,10 @@ Each actionable row carries a positional handle `[n.m]` — row `n`, item `m` �
 node "$track_bin" report --resolve <handle>
 ```
 
+The handle token `[n.m]` is emitted **verbatim in text, Markdown and HTML** — it is machine-generated, so
+it is exempt from the Markdown escaping applied to user-originated titles, and the three formats yield the
+same handle set. Copy a handle straight from any rendering into `--resolve`; never unescape it first.
+
 Handles are **per-report and positional**. Two reports over the same log may number differently; the
 resolution block is what makes a reply unambiguous. A reply quoting `[3.2]` without the report it came
 from is not actionable, and the report says so. The resolution block is the machine's half of the page,
