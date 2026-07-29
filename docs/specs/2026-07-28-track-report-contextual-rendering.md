@@ -23,6 +23,75 @@ fenced block. A consumer that needs a fence owns that presentation choice.
 The installed `/track` command describes this output as deterministic. It must
 not call it “AI-prepared”.
 
+## Acceptance criteria
+
+1. A fresh-clone bootstrap defines an absolute `track_bin` pointing to that
+   clone's `packages/track/dist/cli/bin.js`, verifies the file, and invokes it
+   with `node "$track_bin"`; none of the three report reads depends on a shell
+   function, `PATH`, or `npm exec`. A later tool call that retains only the cwd
+   can reuse the recorded absolute path and cannot resolve a global `track`.
+2. `track --help` and `track report --help` both exit successfully and document
+   `--track-dir <directory-containing-events.jsonl>` as a global override that
+   may appear before or after the command. The same help explains that the
+   directory contains `events.jsonl` and that `TRACK_DIR` is its environment
+   equivalent.
+3. The two public `directives` arrays identify their different meanings in the
+   emitted JSON: `report --raw` carries
+   `directivesProjection: { kind: "rule-derived-facts", order:
+   "aggregate-id-then-id" }`, whereas `view` carries
+   `directivesProjection: { kind: "conductor-action-directives", order:
+   "canonical-urgency" }`. A consumer preserves the latter order and never
+   rank-sorts it; a cold agent can therefore distinguish the two arrays without
+   inferring it from their JSON paths.
+4. The deterministic conductor has no `decisions-actions` table and no table
+   titled `DÉCISIONS/ACTIONS`. Its rule-derived rows are exclusively in
+   `view.tables[id=rule-derived-actions]`, titled `ACTIONS DÉRIVÉES`; genuine
+   structured dossiers remain exclusively in `view.tables[id=decisions]`.
+5. `ReportView` has no `generalRecommendation`, and neither text/Markdown nor
+   HTML conductor rendering prints a deterministic `RECOMMANDATION` section.
+   Only a conversational author may add that section, using supplied owner
+   context and the emitted facts.
+6. The payload identifies `dispatchQueue` as
+   `delegable-directive-ids` in canonical urgency order with modes `subagent`
+   and `local`, and identifies raw `recentEvents` as the last up to 200
+   payload-free `position/eventId/kind/aggregateId` entries in append order.
+   These descriptors, plus the skill, make both arrays consumable without
+   guessing their role.
+7. The conductor table order is exactly `done`, `todo`, optional
+   `todo-unscoped`, optional `outside-rollup`, optional `decisions`, optional
+   `prepare`, optional `legacy-history`, then `rule-derived-actions`. A
+   contextual report follows the matching visible order and places any
+   conversational `RECOMMANDATION` only after `ACTIONS DÉRIVÉES`.
+8. `view.tables[id=done]` exposes `scope`, `progress`, and `completion`, never
+   an invented “dernières actions” field. Its global row is explicitly a scope
+   aggregate, not a completion claim; a contextual **FAIT** lists the recorded
+   completed WP rows and does not turn the global count into an accomplishment
+   sentence.
+9. Every `outside-rollup` view row exposes `id`, `workspace`, `scope`, bucket
+   state, title, rendered acceptance, and `summary` labelled **extrait**. No
+   report calls that field `attachment` or “as stored”: it is the emitted
+   `detail.summary` excerpt and may already be truncated.
+10. Every `todo` and `todo-unscoped` row exposes `actionTarget` beside its
+    open-work text, blocker, and next action. It names the directive target and
+    bucket, so a DONE acceptance-debt target is visibly intentional rather than
+    requiring a hand join to `view.directives`.
+11. The skill names `--width <40..240>` beside `--inline` in the same warning,
+    and states what that route drops (HORS ROLLUP, ACTIONS DÉRIVÉES, a `+N
+    autres` tail, plus its own deterministic `PRÉCO` block). The honesty rules
+    carry their own boundary — they are guarantees of the three read commands,
+    not of every route the CLI offers. `--width` is not a separate renderer: it
+    turns `--inline` on, so it is rejected for any non-text format exactly as
+    `--inline` is, and that rejection is the observable proof of the coupling.
+    The skill does not call `--track-dir` read-only, because it redirects the
+    whole store; and `track --help`, not only `report --help`, states that the
+    override may appear before or after the command.
+
+The tenth criterion was closed by a code change; the eleventh is closed by a
+skill edit, which is a weaker rung. `skill-truncation-warning.test.ts` pins it
+so the sentence cannot be deleted without turning something red — verified by
+removing the warning and observing the suite fail. That is the ceiling here: no
+command, hook, or validator forces an agent to read the skill at all.
+
 ## Decision record contract
 
 The native model already has the required vocabulary:

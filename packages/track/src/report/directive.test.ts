@@ -81,7 +81,7 @@ describe('directive selector — distinctness (DESIGN §9, grief regression)', (
     expect(new Set(phrases).size).toBe(6)
   })
 
-  it('renders 6 distinct préconisations in the DÉCISIONS/ACTIONS table (no constant column)', () => {
+  it('renders 6 distinct préconisations in the rule-derived action table (no constant column)', () => {
     staleDone(leaf('stale', wp('WP1')))
     failing(leaf('fail', wp('WP2')))
     t.setRealization(specified(leaf('wip', wp('WP3'))), 'in-progress')
@@ -90,7 +90,7 @@ describe('directive selector — distinctness (DESIGN §9, grief regression)', (
     t.assessPriority(specified(leaf('valued', wp('WP6'))), { userBusinessValue: 5, timeCriticality: 1, riskReductionOpportunityEnablement: 1, jobSize: 1 })
 
     const view = buildWpConductorView(computeWpTree(t.state(), cfg))
-    const recos = view.tables.find((tb) => tb.id === 'decisions-actions')!.rows.map((r) => r['recommendation'])
+    const recos = view.tables.find((tb) => tb.id === 'rule-derived-actions')!.rows.map((r) => r['recommendation'])
     expect(new Set(recos).size).toBe(recos.length) // all distinct — no constant préconisation
   })
 })
@@ -348,5 +348,82 @@ describe('view — additive directives + dispatchQueue (DESIGN §4)', () => {
     expect([...view.dispatchQueue]).toEqual(subagentIds)
     const humanIds = new Set(view.directives.filter((d) => d.mode === 'human-decision').map((d) => d.id))
     for (const qid of view.dispatchQueue) expect(humanIds.has(qid)).toBe(false)
+  })
+
+  it('projects the action target with each todo row without a consumer join and keeps scope-less decisions separate', () => {
+    const stale = staleDone(leaf('stale acceptance', wp('WP stale')))
+    const spec = leaf('needs specification', wp('WP spec'))
+    const wip = specified(leaf('active work', wp('WP wip')))
+    t.setRealization(wip, 'in-progress')
+    const standalone: DecisionRow = {
+      id: 'decision-without-wp', title: 'standalone decision', workspace: 'ws',
+      decisionKind: 'orientation', realization: 'to-do', outcome: 'pending',
+    }
+
+    const view = buildWpConductorView(computeWpTree(t.state(), cfg), [standalone])
+    const todo = view.tables.find((table) => table.id === 'todo')!
+    expect(todo.columns.map((column) => column.id)).toEqual(['wp', 'progress', 'todo', 'blocked', 'nextAction', 'actionTarget'])
+
+    const staleRow = todo.rows.find((row) => row['directiveIds'] === `item:${stale}`)!
+    expect(staleRow['blocked']).toBe('Vérification à refaire')
+    expect(staleRow['nextAction']).toContain('action (subagent): Relancer la vérification')
+    expect(staleRow['actionTarget']).toContain(`${stale} · stale acceptance [DONE]`)
+
+    const specRow = todo.rows.find((row) => row['directiveIds'] === `item:${spec}`)!
+    expect(specRow['blocked']).toBe('À spécifier avant de démarrer')
+
+    const wipRow = todo.rows.find((row) => row['todo'].includes('active work'))!
+    expect(wipRow['blocked']).toBe('Aucun blocage enregistré')
+
+    const unscoped = view.tables.find((table) => table.id === 'todo-unscoped')!
+    expect(unscoped.columns.map((column) => column.id)).toEqual(['wp', 'progress', 'todo', 'blocked', 'nextAction', 'actionTarget'])
+    expect(unscoped.rows).toHaveLength(1)
+    expect(unscoped.rows[0]).toMatchObject({
+      wp: 'sans WP',
+      todo: 'standalone decision',
+      blocked: 'En attente d’une décision : « standalone decision »',
+      directiveIds: 'decision:decision-without-wp',
+    })
+
+    const emittedIds = [todo, unscoped]
+      .flatMap((table) => table.rows)
+      .flatMap((row) => (row['directiveIds'] ?? '').split(','))
+      .filter((id) => id !== '')
+    expect(emittedIds).toHaveLength(view.directives.length)
+    expect(new Set(emittedIds)).toEqual(new Set(view.directives.map((directive) => directive.id)))
+  })
+
+  it('keeps the published directive array in its urgency ladder order, not rank-badge order', () => {
+    const dependencyTarget = specified(leaf('dependency target', wp('WP dependency')))
+    t.openBlocker({ targetId: dependencyTarget, kind: 'dependency', ref: dependencyTarget, reason: 'manual review required' })
+    failing(leaf('failed acceptance', wp('WP failed')))
+    const inProgress = specified(leaf('in progress', wp('WP active')))
+    t.setRealization(inProgress, 'in-progress')
+    staleDone(leaf('stale acceptance', wp('WP stale')))
+    leaf('needs spec', wp('WP spec'))
+    t.assessPriority(specified(leaf('prioritized todo', wp('WP todo'))), {
+      userBusinessValue: 2,
+      timeCriticality: 2,
+      riskReductionOpportunityEnablement: 2,
+      jobSize: 1,
+    })
+    const decision: DecisionRow = {
+      id: 'standalone-decision', title: 'standalone', workspace: 'ws',
+      decisionKind: 'orientation', realization: 'to-do', outcome: 'pending',
+      structured: true,
+      hasRecommendation: true,
+      options: [{ id: 'a', title: 'A', summary: 'A' }, { id: 'b', title: 'B', summary: 'B' }],
+      recommendation: { optionId: 'a', rationale: 'A' },
+    }
+
+    expect(directives([decision]).map((directive) => directive.step.code)).toEqual([
+      'settle-decision',
+      'resolve-external-blocker',
+      'fix-acceptance',
+      'finish-increment',
+      'rerun-acceptance',
+      'amend-spec',
+      'start-increment',
+    ])
   })
 })

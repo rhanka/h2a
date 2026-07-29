@@ -80,8 +80,6 @@ export const renderReportHtml: DsFragmentPresenter<ReportView> = (view, hooks = 
     renderHeader(view) +
     view.tables.map(renderTable).join('') +
     renderDirectives(view.directives) +
-    `<section class="report-section" data-section="recommandation"><h2>Recommandation</h2>` +
-    `<p class="report-recommendation">${escapeHtml(view.generalRecommendation)}</p></section>` +
     `</article>`
   return hooks.sanitizeHtml(html)
 }
