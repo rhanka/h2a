@@ -416,3 +416,107 @@ The fixture pair is regenerated at a baseline where the dossiers are structured,
 so the DÉCISIONS table is derivable without inventing an alternative. The
 validated report stays in the repository as the shape reference it is, with a
 note saying it predates that baseline.
+
+---
+
+## UAT — 2026-07-29, owner. Verdict : NO-GO
+
+Quatre constats sur le rendu froid à `a8fe747`. Ils portent tous sur la même
+faute de fond : **le rapport décrit la forme du travail au lieu de dire le
+travail**. Il annonce des catégories (« terminer l'incrément », « rédiger la
+spécification ») là où l'owner attend une phrase qui lui apprend quelque chose.
+
+### 20 — BLOQUANT. `prochaine action` doit être investiguée, pas dérivée
+
+Rendu observé : `action (subagent): Terminer l'incrément en cours` répété huit
+fois, `Rédiger la spécification` sept fois, `Relancer la vérification` quatre
+fois. Vingt lignes, cinq phrases distinctes, zéro information.
+
+Ces chaînes viennent du gate de la directive : elles nomment la **classe** de
+l'action, jamais son contenu. C'est un template, pas une recommandation.
+
+Exigence : pour toute ligne du focus, `prochaine action` nomme le prochain geste
+concret sur *cet* item — le fichier, la fonction, la question à trancher, la
+commande à lancer. L'agent l'obtient en **ouvrant l'item** : son corps, sa
+recette, les commits et le code qu'il référence. Ce n'est pas une reformulation
+du gate, c'est une investigation.
+
+Le coût est réel : cela demande de lire, par ligne, ce que le journal désigne.
+Il est donc borné aux lignes du focus, et le rapport dit explicitement pour les
+autres que l'action reste à instruire — plutôt que de servir un template en
+prétendant que c'en est une.
+
+Ce qu'un test peut vérifier : qu'aucune valeur de `prochaine action` n'apparaît
+plus de deux fois dans le rapport, et qu'aucune n'est égale à une chaîne de
+gate connue. Ce qu'aucun test n'atteint : si la phrase est *juste*. C'est
+l'owner qui juge, et ce critère est celui qui a échoué à l'UAT.
+
+### 21 — MAJEUR. Il y a toujours une fenêtre, et elle a des bornes
+
+Rendu observé : `couvre l'intégralité du journal (aucune fenêtre de période)`.
+
+C'est faux. « L'intégralité du journal » **est** une fenêtre : elle va du premier
+événement enregistré à maintenant. Ces deux bornes sont dans le log, lisibles
+sans aucun sélecteur.
+
+Exigence : l'en-tête porte toujours des dates. Sans sélecteur, il lit
+`période : <date du premier événement> → <maintenant> (intégralité du journal)`.
+La formule « aucune fenêtre » disparaît : elle décrivait l'absence d'un drapeau,
+pas l'absence d'une période.
+
+Cela lève aussi la contrainte du critère 1, qui interdisait une fenêtre nommée
+tant que `--since` n'existe pas : une fenêtre **mesurée dans le journal** n'est
+pas une fenêtre inventée. Ce qui reste interdit, c'est d'annoncer une fenêtre
+que rien ne soutient.
+
+### 22 — MAJEUR. Sur une longue période, FAIT est un bilan, pas les dernières actions
+
+Rendu observé : `Eradiquer le CLI remote legacy · Terra xhigh par défaut ·
+Délégation de subagents — 3 des 54 actions enregistrées`. Sur cinq semaines de
+travail, le rapport sert trois titres pris au hasard de l'ordre du log et
+annonce qu'il en cache 51.
+
+Trois actions sur cinquante-quatre ne sont pas un résumé, c'est un échantillon.
+
+Exigence : sur une fenêtre longue, FAIT énonce **ce qui a été accompli** —
+thèmes, bascules, capacités livrées — pas les derniers titres enregistrés. La
+densité suit la fenêtre : un jour nomme les faits, cinq semaines racontent une
+histoire courte.
+
+Le projeté déterministe ne suffit probablement pas pour cela, et c'est un
+constat, pas une excuse : il porte des titres d'items, pas une lecture. Les
+entrées nécessaires sont celles déjà énumérées en 15a/15b/15c — la projection,
+l'historique git sur la fenêtre, le contexte owner. Si le rapport ne peut pas
+produire un bilan, il doit dire ce qui lui manque, pas servir un échantillon
+en le présentant comme une synthèse.
+
+### 23 — Les décisions déjà prises n'ont rien à faire dans DÉCISIONS
+
+Rendu observé : `Q1 … A retenu · réglé (go)`, idem Q2, Q3, Q4.
+
+DÉCISIONS est la surface où l'owner tranche. Une décision déjà tranchée n'y a
+pas sa place : elle occupe l'espace de celles qui attendent et brouille la
+lecture. Elle est déjà visible là où elle compte — dans la case `bloqué` d'une
+ligne débloquée, ou dans FAIT si elle a produit un livrable.
+
+Exigence : DÉCISIONS ne contient que les dossiers en attente que l'owner peut
+répondre maintenant. Rien d'autre.
+
+### 24 — Ne pas servir de l'obscur en l'état
+
+Rendu observé : `Q5 Release 0.86.0 — non enregistrées — à structurer`,
+`Q7…Q15 (9 dossiers historiques) — non enregistrées — réglé · aucune option
+attestée`.
+
+Ces lignes n'apprennent rien et ne se répondent pas. « Aucune option attestée »
+décrit l'état d'une donnée, pas une situation à traiter.
+
+Exigence : ce qui ne peut pas être rendu utile n'est pas rendu. Un dossier sans
+options ne va pas dans DÉCISIONS : soit il porte du travail ouvert et il apparaît
+comme tel dans À-FAIRE avec ce qu'il faut faire pour le rendre répondable, soit
+il ne porte rien et il est compté dans les lignes omises. L'historique réglé
+sort du rapport.
+
+La règle générale, qui vaut au-delà de ces lignes : **si l'agent ne peut pas
+rendre une ligne intelligible, il ne la sert pas telle quelle.** Il l'instruit,
+ou il la compte parmi les omissions en disant pourquoi.
