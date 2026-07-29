@@ -81,7 +81,7 @@ describe('directive selector — distinctness (DESIGN §9, grief regression)', (
     expect(new Set(phrases).size).toBe(6)
   })
 
-  it('renders 6 distinct `prochaine action` cells in À-FAIRE (no constant column)', () => {
+  it('renders 6 distinct gate classes as a machine property, never as a `prochaine action`', () => {
     staleDone(leaf('stale', wp('WP1')))
     failing(leaf('fail', wp('WP2')))
     t.setRealization(specified(leaf('wip', wp('WP3'))), 'in-progress')
@@ -89,12 +89,15 @@ describe('directive selector — distinctness (DESIGN §9, grief regression)', (
     specified(leaf('unprioritized', wp('WP5')))
     t.assessPriority(specified(leaf('valued', wp('WP6'))), { userBusinessValue: 5, timeCriticality: 1, riskReductionOpportunityEnablement: 1, jobSize: 1 })
 
-    // The report has four sections (spec 2026-07-29); the rule-derived action table is gone and its
-    // content lives in À-FAIRE's `prochaine action`. The distinctness guarantee moves with it.
+    // The report has four sections (spec 2026-07-29) and, since the owner's UAT (criterion 20), the
+    // gate-derived clause is NOT a `prochaine action`: it names the class of the work, never the work.
+    // The distinctness guarantee follows the clause to `gateStep`, where it is honestly a class.
     const view = buildWpConductorView(computeWpTree(t.state(), cfg))
-    const recos = view.tables.find((tb) => tb.id === 'todo')!.rows.map((r) => r['nextAction'])
-    expect(recos).toHaveLength(6)
-    expect(new Set(recos).size).toBe(recos.length) // all distinct — no constant préconisation
+    const rows = view.tables.find((tb) => tb.id === 'todo')!.rows
+    const steps = rows.map((r) => r['gateStep'])
+    expect(steps).toHaveLength(6)
+    expect(new Set(steps).size).toBe(steps.length) // all distinct — no constant class
+    expect(rows.every((r) => !steps.includes(r['nextAction']!))).toBe(true)
   })
 })
 
@@ -373,7 +376,8 @@ describe('view — additive directives + dispatchQueue (DESIGN §4)', () => {
     // when a gate IS recorded. The precise gate phrase stays as a machine-only audit property.
     expect(staleRow['blocked']).toBe('recette')
     expect(staleRow['gateDetail']).toBe('Vérification à refaire')
-    expect(staleRow['nextAction']).toContain('action (subagent): Relancer la vérification')
+    expect(staleRow['gateStep']).toContain('action (subagent): Relancer la vérification')
+    expect(staleRow['nextAction']).not.toContain('Relancer la vérification')
     // The DONE item carrying acceptance debt is NAMED in `à faire` with its handle and its bucket.
     expect(staleRow['todo']).toMatch(/^\[\d+\.1\] stale acceptance \(done\)$/u)
 
@@ -387,17 +391,24 @@ describe('view — additive directives + dispatchQueue (DESIGN §4)', () => {
 
     // Criterion 2 — a scope-less dossier is not a top-level section; it is a row of À-FAIRE, gated on the
     // number that answers it. Criterion 18 — a pending dossier is never omitted.
-    const unscopedRow = todo.rows.find((row) => row['wp'] === 'hors WP · dossiers')!
+    const unscopedRow = todo.rows.find((row) => row['wp'] === 'hors WP · dossiers à structurer')!
     expect(unscopedRow['todo']).toContain('standalone decision')
-    expect(unscopedRow['blocked']).toBe('Q1') // unstructured ⇒ no D-number (criterion 16)
+    expect(unscopedRow['blocked']).toBe('options non enregistrées') // criteria 16/19/24
+    expect(unscopedRow['nextAction']).toBe('à structurer : enregistrer options + recommandation')
     expect(unscopedRow['directiveIds']).toBe('decision:decision-without-wp')
     expect(view.tables.map((table) => table.id)).not.toContain('todo-unscoped')
 
-    const emittedIds = todo.rows
-      .flatMap((row) => (row['directiveIds'] ?? '').split(','))
-      .filter((id) => id !== '')
-    expect(emittedIds).toHaveLength(view.directives.length)
-    expect(new Set(emittedIds)).toEqual(new Set(view.directives.map((directive) => directive.id)))
+    // No directive vanishes: it is either attached to a rendered À-FAIRE row, or it targets a dossier
+    // the DÉCISIONS table carries (criterion 23 moved the answerable ones there).
+    const emittedIds = new Set(
+      todo.rows.flatMap((row) => (row['directiveIds'] ?? '').split(',')).filter((id) => id !== ''),
+    )
+    const decided = new Set(
+      view.handles.filter((handle) => handle.kind === 'decision').map((handle) => `decision:${handle.id}`),
+    )
+    for (const directive of view.directives) {
+      expect(emittedIds.has(directive.id) || decided.has(directive.id), directive.id).toBe(true)
+    }
   })
 
   it('keeps the published directive array in its urgency ladder order, not rank-badge order', () => {

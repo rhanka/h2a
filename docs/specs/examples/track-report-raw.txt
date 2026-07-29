@@ -4,7 +4,12 @@ baseline: d01368f (la révision où les dossiers sont STRUCTURÉS — options et
           recommandation enregistrées — donc où la table DÉCISIONS est dérivable
           sans inventer une alternative ; cf. critère 16)
 journal:  625 événements, l'intégralité de .track/events.jsonl à ce commit
-dossiers: 8 en attente, dont 6 structurés (D1–D6) et 2 à structurer
+dossiers: 8 en attente, dont 6 structurés (D1–D6) et 2 à structurer ;
+          13 dossiers déjà tranchés sortent du rapport et sont comptés dans les
+          omissions (critère 23)
+horloge:  --now est ÉPINGLÉ ici. La période va toujours du premier événement à
+          « maintenant » (critère 21) ; sans épinglage la borne haute bouge chaque
+          jour et ce fichier ne serait plus reproductible octet à octet.
 
 Reproduction depuis un clone neuf :
 
@@ -12,7 +17,8 @@ Reproduction depuis un clone neuf :
   d=$(mktemp -d)
   git show d01368f:.track/events.jsonl > "$d/events.jsonl"
   node packages/track/dist/cli/bin.js --track-dir "$d" \
-       report --wp --decisions --format text --commit d01368f
+       report --wp --decisions --format text --commit d01368f \
+       --now 2026-07-29T12:00:00Z
 
 C'est cette sortie que le skill harness/track-report prend en entrée (input 1).
 Le rapport contextualisé y ajoute l'historique du dépôt sur la fenêtre (input 2)
@@ -20,41 +26,51 @@ et le contexte owner/session (input 3) ; il n'est donc PAS reproductible depuis
 ce seul fichier — l'ancienne exigence de reproduction octet-à-octet du rapport
 contextualisé a été retirée (spec 2026-07-29, « Reproducibility, stated honestly »).
 
+Deux cellules de cette sortie sont des CONSIGNES, pas des résultats :
+`bilan à écrire …` dans FAIT (critère 22) et `à instruire : ouvrir l'item …`
+dans `prochaine action` (critère 20). L'agent les remplace ; il ne les sert pas.
+
 track-report-contextual.md reste la référence de FORME.
 
 ────────────────────────────────────────────────────────────────────────
 
 TRACK REPORT — global · 57/96 (59%)
-baseline d’acceptance : d01368f61cf1 · couvre l’intégralité du journal (aucune fenêtre de période)
-couverture : 104 lignes projetées · 57 rendues · 47 omises (aucun travail ouvert, aucun blocage enregistré)
+période : 2026-06-09 → 2026-07-29 (intégralité du journal)
+baseline d’acceptance : d01368f61cf1
+couverture : 99 lignes projetées · 39 rendues · 60 omises : 47 WP sans item ouvert, sans blocage et sans livraison · 13 décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre)
 sources : projection déterministe du journal (track report --wp --decisions)
 
 FAIT
 scope                                        avancement    dernières actions
 ──────────────────────────────────────────   ───────────   ────────────────────────────────────────────────────────────────
-global                                       57/96 (59%)   Eradiquer le CLI remote legacy et canoniser h2a run · Terra
-                                                           xhigh par defaut et deploiement local Claude Codex · Delegation
-                                                           de subagents via plugins h2a Claude et Codex — 3 des 54 actions
-                                                           enregistrées
+global                                       57/96 (59%)   bilan à écrire — 54 actions enregistrées, titres seuls dans le
+                                                           projeté (requiert l’historique du dépôt sur la fenêtre) ·
+                                                           échantillon : Eradiquer le CLI remote legacy et canoniser h2a
+                                                           run · Terra xhigh par defaut et deploiement local Claude Codex ·
+                                                           Delegation de subagents via plugins h2a Claude et Codex
 
 S3 · WP-MIG Migration track+remote → h2a     1/1 (100%)    Eradiquer le CLI remote legacy et canoniser h2a run
 (CLI unique)
 
 WP1 · Protocol & envelopes                   1/2 (50%)     Envelope field-level validation errors (0.60)
 
-WP2 · Addressing & presence                  11/14 (79%)   discover --live presence-first + connectionConfidence: 'qui
-                                                           puis-je joindre' (337->3 sur le bus reel, faux-live visibles). +
-                                                           migration de 140 messages echoues fork->global (split-brain
-                                                           immo) + sweep 2 bus repo-local vides · Analyse: cause racine du
-                                                           decrochage MCP = faux-live (hote sans auto-reconnect stdio +
-                                                           heartbeat aveugle); identite/upgrade ecartes sur preuve ·
-                                                           Canonical liveness matching — no false dormant (0.57) — 3 des 11
-                                                           actions enregistrées
+WP2 · Addressing & presence                  11/14 (79%)   bilan à écrire — 11 actions enregistrées, titres seuls dans le
+                                                           projeté (requiert l’historique du dépôt sur la fenêtre) ·
+                                                           échantillon : discover --live presence-first +
+                                                           connectionConfidence: 'qui puis-je joindre' (337->3 sur le bus
+                                                           reel, faux-live visibles). + migration de 140 messages echoues
+                                                           fork->global (split-brain immo) + sweep 2 bus repo-local vides ·
+                                                           Analyse: cause racine du decrochage MCP = faux-live (hote sans
+                                                           auto-reconnect stdio + heartbeat aveugle); identite/upgrade
+                                                           ecartes sur preuve · Canonical liveness matching — no false
+                                                           dormant (0.57)
 
-WP2.1 · WP-A Addressing & routing            6/6 (100%)    BLOCKER #2 legacy-alias cross-read isolation (0.54) · Inbox
-                                                           threading — threadId/replyTo + h2a thread (0.54) ·
-                                                           Case-insensitive + slug-stable addressing + version visibility
-                                                           (0.40-41) — 3 des 6 actions enregistrées
+WP2.1 · WP-A Addressing & routing            6/6 (100%)    bilan à écrire — 6 actions enregistrées, titres seuls dans le
+                                                           projeté (requiert l’historique du dépôt sur la fenêtre) ·
+                                                           échantillon : BLOCKER #2 legacy-alias cross-read isolation
+                                                           (0.54) · Inbox threading — threadId/replyTo + h2a thread (0.54)
+                                                           · Case-insensitive + slug-stable addressing + version visibility
+                                                           (0.40-41)
 
 WP2.2 · WP-F MCP-disconnect / false-live     2/3 (67%)     discover --live presence-first + connectionConfidence: 'qui
 remediation                                                puis-je joindre' (337->3 sur le bus reel, faux-live visibles). +
@@ -63,39 +79,49 @@ remediation                                                puis-je joindre' (337
                                                            decrochage MCP = faux-live (hote sans auto-reconnect stdio +
                                                            heartbeat aveugle); identite/upgrade ecartes sur preuve
 
-WP3 · Coordination & loop                    10/12 (83%)   Objective loop relance durable des agents idle dead ou hors
-                                                           budget · Foundation: functional objective-loop (h2a loop) · D3
-                                                           dry-run: poll track workspaceActivity + conductor-launch
-                                                           recommendation (no spawn) — 3 des 10 actions enregistrées
+WP3 · Coordination & loop                    10/12 (83%)   bilan à écrire — 10 actions enregistrées, titres seuls dans le
+                                                           projeté (requiert l’historique du dépôt sur la fenêtre) ·
+                                                           échantillon : Objective loop relance durable des agents idle
+                                                           dead ou hors budget · Foundation: functional objective-loop (h2a
+                                                           loop) · D3 dry-run: poll track workspaceActivity +
+                                                           conductor-launch recommendation (no spawn)
 
-WP4 · Governance & RACI                      5/8 (63%)     EVO-9 trust concepts shipped — INTERET/conflit + CONFIANCE ·
-                                                           EVO-7 coach mode — org/RACI + provisioning (DEC-106/109/110) ·
-                                                           Cross-workspace CoI clearance gate (mandate + postureConflit) —
-                                                           3 des 5 actions enregistrées
+WP4 · Governance & RACI                      5/8 (63%)     bilan à écrire — 5 actions enregistrées, titres seuls dans le
+                                                           projeté (requiert l’historique du dépôt sur la fenêtre) ·
+                                                           échantillon : EVO-9 trust concepts shipped — INTERET/conflit +
+                                                           CONFIANCE · EVO-7 coach mode — org/RACI + provisioning
+                                                           (DEC-106/109/110) · Cross-workspace CoI clearance gate (mandate
+                                                           + postureConflit)
 
 WP4.1 · WP-D Governance (RACI / conductor)   3/4 (75%)     Cross-workspace CoI clearance gate (mandate + postureConflit) ·
                                                            Slice 1b — claimable conductor (real CONDUCTOR signal) ·
                                                            Governance slice 1a — read-only conductor/owner resolver (0.62)
 
-WP5 · Execution & runtime                    6/16 (38%)    tmux launch context + gateway 5.6 model mappings · x10 — h2a
-                                                           attach casse sur session locale (cherche un Pod k8s) + branding
-                                                           [remote] qui fuit partout · remote to h2a parity (fallback
-                                                           routing) — 3 des 6 actions enregistrées
+WP5 · Execution & runtime                    6/16 (38%)    bilan à écrire — 6 actions enregistrées, titres seuls dans le
+                                                           projeté (requiert l’historique du dépôt sur la fenêtre) ·
+                                                           échantillon : tmux launch context + gateway 5.6 model mappings ·
+                                                           x10 — h2a attach casse sur session locale (cherche un Pod k8s) +
+                                                           branding [remote] qui fuit partout · remote to h2a parity
+                                                           (fallback routing)
 
-WP6 · Identity, auth & NHI                   4/5 (80%)     DEC-089 coordinated NHI offboard / decommission · DEC-116
-                                                           identity binding + proof-of-possession security core · Durable
-                                                           git-derived workspace-id, byte-identical with track (0.63) — 3
-                                                           des 4 actions enregistrées
+WP6 · Identity, auth & NHI                   4/5 (80%)     bilan à écrire — 4 actions enregistrées, titres seuls dans le
+                                                           projeté (requiert l’historique du dépôt sur la fenêtre) ·
+                                                           échantillon : DEC-089 coordinated NHI offboard / decommission ·
+                                                           DEC-116 identity binding + proof-of-possession security core ·
+                                                           Durable git-derived workspace-id, byte-identical with track
+                                                           (0.63)
 
 WP6.1 · WP-B Identity & workspace            3/3 (100%)    DEC-116 identity binding + proof-of-possession security core ·
                                                            Durable git-derived workspace-id, byte-identical with track
                                                            (0.63) · Re-anchor identity on the provider conversation
                                                            (collision fix) (0.55)
 
-WP7 · Infra, deploy & MCP                    4/9 (44%)     Terra xhigh par defaut et deploiement local Claude Codex · x1 —
-                                                           Faire aboutir le nettoyage des 6 bus .h2a locaux via subagent ·
-                                                           Test bus isolation — stop tests polluting the shared bus — 3 des
-                                                           4 actions enregistrées
+WP7 · Infra, deploy & MCP                    4/9 (44%)     bilan à écrire — 4 actions enregistrées, titres seuls dans le
+                                                           projeté (requiert l’historique du dépôt sur la fenêtre) ·
+                                                           échantillon : Terra xhigh par defaut et deploiement local Claude
+                                                           Codex · x1 — Faire aboutir le nettoyage des 6 bus .h2a locaux
+                                                           via subagent · Test bus isolation — stop tests polluting the
+                                                           shared bus
 
 WP8 · Tracking & record                      2/3 (67%)     Rapport humain contextualise par IA avec snapshot brut explicite
                                                            · Focus app: injection live-session + i18n + filtre/tri WP +
@@ -104,10 +130,12 @@ WP8 · Tracking & record                      2/3 (67%)     Rapport humain conte
 WP9 · Method & harness                       2/5 (40%)     Harness principle: no dead-end diagnosis · Harness principle:
                                                            strict scope and minimal diff
 
-WP10 · Distribution, CLI & packaging         8/9 (89%)     Delegation de subagents via plugins h2a Claude et Codex · Focus
-                                                           Web production servi par h2a et artefact package · ④-S3/S4/S5
-                                                           track-mcp plugin cutover (native repoint) + orphan removal +
-                                                           transition doc — 3 des 8 actions enregistrées
+WP10 · Distribution, CLI & packaging         8/9 (89%)     bilan à écrire — 8 actions enregistrées, titres seuls dans le
+                                                           projeté (requiert l’historique du dépôt sur la fenêtre) ·
+                                                           échantillon : Delegation de subagents via plugins h2a Claude et
+                                                           Codex · Focus Web production servi par h2a et artefact package ·
+                                                           ④-S3/S4/S5 track-mcp plugin cutover (native repoint) + orphan
+                                                           removal + transition doc
 
 hors WP                                      3/9 (33%)     Decisional web canvas (read-only aggregator + Hono server +
                                                            swipe UI) · Enrollment Lot 0: a2a-cli client foundation
@@ -117,45 +145,42 @@ hors WP                                      3/9 (33%)     Decisional web canvas
 
 À-FAIRE
 ordre = priorité ; les cinq premiers sont le focus
-WP                               av.    à faire                                                                    bloqué              prochaine action
-──────────────────────────────   ────   ────────────────────────────────────────────────────────────────────────   ─────────────────   ───────────────────────────────────────────
-hors WP · dossiers               n/a    [1.1] 1/6 — Un nom de session peut-il envoyer une commande ? / [1.2] 2/6   D2 · D3 · D6 · Q5   —
-                                        — Après suppression, peut-on réutiliser le même nom ? / [1.3] Focus        · Q6
-                                        doit-il avoir une voie directe « décision dossier » séparée du report ?
-                                        / [1.4] Release 0.86.0: publish it, then update the owner installation
-                                        including the plugins / [1.5] main gets a required check, but only one
+WP                               av.    à faire                                                                    bloqué            prochaine action
+──────────────────────────────   ────   ────────────────────────────────────────────────────────────────────────   ───────────────   ────────────────────────────────────────
+hors WP · dossiers à             n/a    [1.1] Release 0.86.0: publish it, then update the owner installation       options non       à structurer : enregistrer options +
+structurer                              including the plugins / [1.2] main gets a required check, but only one     enregistrées      recommandation
                                         that can judge a PR on its own code
 
-WP2.2 · WP-F MCP-disconnect /    67%    [2.1] Phase 2a observabilite (livree): lastMcpActivityAt (touche sur       Q9                  —
-false-live remediation                  chaque ligne MCP, flush au heartbeat) + label connectionConfidence
+WP2.2 · WP-F MCP-disconnect /    67%    [2.1] Phase 2a observabilite (livree): lastMcpActivityAt (touche sur       décision réglée   à instruire : ouvrir l’item et nommer le
+false-live remediation                  chaque ligne MCP, flush au heartbeat) + label connectionConfidence                           geste
                                         active¦idle-uncertain¦unknown dans discover_sessions +
                                         recipientConfidence dans le retour put ; READ-ONLY/advisory, marge de
                                         skew mirrored, env H2A_ACTIVITY_WINDOW_MS
 
-WP3 · Coordination & loop        83%    [3.1] EVO-4 decision support / situation presentation / [3.2] EVO-3 D6 —   D4 · recette        action (subagent): Relancer la vérification
-                                        per-host wake command in each plugin / [3.3] Foundation: functional                            sur le commit courant
+WP3 · Coordination & loop        83%    [3.1] EVO-4 decision support / situation presentation / [3.2] EVO-3 D6 —   D4 · recette      à instruire : ouvrir l’item et nommer le
+                                        per-host wake command in each plugin / [3.3] Foundation: functional                          geste
                                         objective-loop (h2a loop) (done)
 
-WP7 · Infra, deploy & MCP        44%    [4.1] Sweep 6 leftover repo-local .h2a buses once agents reconnect /       D1                  action (subagent): Terminer l’incrément en
-                                        [4.2] EVO-13 k8s ingester MCP-pod sidecar (RWX constraint) / [4.3] x2 —                        cours
+WP7 · Infra, deploy & MCP        44%    [4.1] Sweep 6 leftover repo-local .h2a buses once agents reconnect /       D1                à instruire : ouvrir l’item et nommer le
+                                        [4.2] EVO-13 k8s ingester MCP-pod sidecar (RWX constraint) / [4.3] x2 —                      geste
                                         Bug gateway/Claude si le proxy des subagents ne fonctionne pas / [4.4]
                                         x4 — h2a mcp pour enregistrer les connecteurs MCP aux CLIs / [4.5] h2a
                                         resource governance: cgroups + prioritisation/escalation of sessions +
                                         child processes (anti-OOM)
 
-WP11 · Memory & context          0%     [5.1] x7 — Contexte et mémoire centralisée des agents pérennes             D5                  —
+WP11 · Memory & context          0%     [5.1] x7 — Contexte et mémoire centralisée des agents pérennes             D5                —
                                         multi-session/multi-CLI
 
-WP8.10 · x8 / WP-ROADMAP —       0%     [6.1] Apply the ratified WP restructuring: WP12-WP18 are not themes and    —                   action (subagent): Terminer l’incrément en
-Étude de restructuration des            must be demoted, merged or removed                                                             cours
+WP8.10 · x8 / WP-ROADMAP —       0%     [6.1] Apply the ratified WP restructuring: WP12-WP18 are not themes and    —                 non instruite
+Étude de restructuration des            must be demoted, merged or removed
 WP h2a en thèmes produit
 pérennes
 
-WP1 · Protocol & envelopes       50%    [7.1] h2a bus: a send reports deliver without writing, and the wake is     —                   action (subagent): Terminer l’incrément en
-                                        independent of the write                                                                       cours
+WP1 · Protocol & envelopes       50%    [7.1] h2a bus: a send reports deliver without writing, and the wake is     —                 non instruite
+                                        independent of the write
 
-WP5 · Execution & runtime        38%    [8.1] h2a run does not configure the codex sandbox it launches (no         —                   action (subagent): Terminer l’incrément en
-                                        network, non-writable npm cache) / [8.2] h2a run accepts unreachable                           cours
+WP5 · Execution & runtime        38%    [8.1] h2a run does not configure the codex sandbox it launches (no         —                 non instruite
+                                        network, non-writable npm cache) / [8.2] h2a run accepts unreachable
                                         model ids and fails opaquely after launch, instead of resolving against
                                         the reachable set / [8.3] Write cross-host capability contract and gap
                                         lifecycle / [8.4] Publish host adapter development guide and conformance
@@ -168,29 +193,29 @@ WP5 · Execution & runtime        38%    [8.1] h2a run does not configure the co
                                         (Windows/macOS) as a third-party workstream — the Windows-only
                                         reporting-stdin test is DISABLED meanwhile
 
-WP9 · Method & harness           40%    [9.1] Harness/worktree placement: forbid /tmp worktrees and heavy          —                   action (subagent): Terminer l’incrément en
-                                        scratch; use workspace-local/repo-local runtime dirs / [9.2] Harness:                          cours
+WP9 · Method & harness           40%    [9.1] Harness/worktree placement: forbid /tmp worktrees and heavy          —                 non instruite
+                                        scratch; use workspace-local/repo-local runtime dirs / [9.2] Harness:
                                         add a security/cyber discipline (vulnerability register + audit gate +
                                         exception expiry), portable across repos / [9.3] Review is not an h2a
                                         operation: consensus-review calls the OpenAI API directly and lets the
                                         author review its own draft
 
-S3 · WP-MIG Migration            100%   [10.1] Eradiquer le CLI remote legacy et canoniser h2a run (done)          recette             action (subagent): Relancer la vérification
-track+remote → h2a (CLI                                                                                                                sur le commit courant
+S3 · WP-MIG Migration            100%   [10.1] Eradiquer le CLI remote legacy et canoniser h2a run (done)          recette           non instruite
+track+remote → h2a (CLI
 unique)
 
-WP8 · Tracking & record          67%    [11.1] Apply the ratified WP restructuring: WP12-WP18 are not themes and   recette             action (subagent): Relancer la vérification
-                                        must be demoted, merged or removed / [11.2] Focus app: injection                               sur le commit courant
+WP8 · Tracking & record          67%    [11.1] Apply the ratified WP restructuring: WP12-WP18 are not themes and   recette           non instruite
+                                        must be demoted, merged or removed / [11.2] Focus app: injection
                                         live-session + i18n + filtre/tri WP + détail + période depuis-dev (done)
 
-WP10 · Distribution, CLI &       89%    [12.1] x5 — Intégration h2a à Sentropic et alignement workspaces           recette             action (subagent): Relancer la vérification
-packaging                               locaux/Sentropic / [12.2] Committable tooling: consensus-review +                              sur le commit courant
+WP10 · Distribution, CLI &       89%    [12.1] x5 — Intégration h2a à Sentropic et alignement workspaces           recette           non instruite
+packaging                               locaux/Sentropic / [12.2] Committable tooling: consensus-review +
                                         track-trace scripts (done)
 
-WP4.1 · WP-D Governance (RACI    75%    [13.1] Activity-growth suggestion ladder (graphify/track/harness)          spec                action (subagent): Rédiger la spécification
+WP4.1 · WP-D Governance (RACI    75%    [13.1] Activity-growth suggestion ladder (graphify/track/harness)          spec              non instruite
 / conductor)
 
-WP2 · Addressing & presence      79%    [14.1] EVO-10 availability worker / busy-on-user presence / [14.2]         spec                action (subagent): Rédiger la spécification
+WP2 · Addressing & presence      79%    [14.1] EVO-10 availability worker / busy-on-user presence / [14.2]         spec              non instruite
                                         Instance steering: distinguish human-facing h2a run sessions from
                                         background/restored agents; restore must not relaunch fake/bg agents /
                                         [14.3] Phase 2a observabilite (livree): lastMcpActivityAt (touche sur
@@ -199,13 +224,13 @@ WP2 · Addressing & presence      79%    [14.1] EVO-10 availability worker / bus
                                         recipientConfidence dans le retour put ; READ-ONLY/advisory, marge de
                                         skew mirrored, env H2A_ACTIVITY_WINDOW_MS
 
-WP4 · Governance & RACI          63%    [15.1] EVO-9 remaining — VALEUR / ATTENTION / MUTUALISATION / [15.2]       spec                action (subagent): Rédiger la spécification
+WP4 · Governance & RACI          63%    [15.1] EVO-9 remaining — VALEUR / ATTENTION / MUTUALISATION / [15.2]       spec              non instruite
                                         Specify host capability contract and gap states / [15.3] Activity-growth
                                         suggestion ladder (graphify/track/harness)
 
-WP6 · Identity, auth & NHI       80%    [16.1] EVO-5 NHI control work from nhi.md gaps                             spec                action (subagent): Rédiger la spécification
+WP6 · Identity, auth & NHI       80%    [16.1] EVO-5 NHI control work from nhi.md gaps                             spec              non instruite
 
-WP12 · MCP connector brokering   0%     [17.1] EVO-12 gateway broker — deploy + go-live (client seeded by          spec                action (subagent): Rédiger la spécification
+WP12 · MCP connector brokering   0%     [17.1] EVO-12 gateway broker — deploy + go-live (client seeded by          spec              non instruite
 & sharing — h2a as connector            sentropic)
 hub: register MCP connectors
 (gmail, …),
@@ -214,7 +239,7 @@ identity/workspace, broadcast
 to connected agents/CLIs
 (claude.ai-style)
 
-WP13 · Native h2a agent          0%     [18.1] x9 — Lancer notre propre CLI / gateway broker conçu avec            spec                action (subagent): Rédiger la spécification
+WP13 · Native h2a agent          0%     [18.1] x9 — Lancer notre propre CLI / gateway broker conçu avec            spec              non instruite
 runtime via sentropic — main            architecte
 loop managed by sentropic
 (potentially refactored); each
@@ -222,7 +247,7 @@ h2a session runs local /
 remote-k8s / in-sentropic
 (native orchestrator)
 
-WP5.17 · WP Host operator        0%     [19.1] Write cross-host capability contract and gap lifecycle / [19.2]     spec                action (subagent): Rédiger la spécification
+WP5.17 · WP Host operator        0%     [19.1] Write cross-host capability contract and gap lifecycle / [19.2]     spec              non instruite
 capability parity & gap                 Publish host adapter development guide and conformance tests / [19.3]
 governance                              Probe manual h2a CLI enforcement for Codex Hermes and OpenCode / [19.4]
                                         Codex: enforce manual h2a CLI guard via verified pre-tool adapter /
@@ -233,190 +258,95 @@ governance                              Probe manual h2a CLI enforcement for Cod
                                         third-party workstream — the Windows-only reporting-stdin test is
                                         DISABLED meanwhile
 
-hors WP · items                  n/a    [20.1] Focus: créer et présenter directement des décision dossiers ad      —                   action (subagent): Inspecter l’état puis
-                                        hoc (sans passer par le report Track) / [20.2] seed A / [20.3] x6 —                            décider la suite
+hors WP · items                  n/a    [20.1] Focus: créer et présenter directement des décision dossiers ad      —                 non instruite
+                                        hoc (sans passer par le report Track) / [20.2] seed A / [20.3] x6 —
                                         Greywall transparent autour des CLIs avec policy
                                         secure/transparent/adaptative / [20.4] H2A: intent-based Terra xhigh
                                         launch preset for Geo and Immo jobs / [20.5] Semantic model presets:
                                         Terra xhigh for run, delegate, and subagent launch / [20.6] Tmux:
                                         diagnose and restore visible managed-session workflow for Geo and Immo
 
-WP16 · Integration — MCP         0%     [21.1] EVO-12 gateway broker — deploy + go-live (client seeded by          —                   —
+WP16 · Integration — MCP         0%     [21.1] EVO-12 gateway broker — deploy + go-live (client seeded by          —                 non instruite
 connector brokering and                 sentropic)
 h2a↔sentropic
 
-WP17 · Native CLI & agent        0%     [22.1] x9 — Lancer notre propre CLI / gateway broker conçu avec            —                   —
+WP17 · Native CLI & agent        0%     [22.1] x9 — Lancer notre propre CLI / gateway broker conçu avec            —                 non instruite
 runtime                                 architecte
 
 DÉCISIONS
-┌─────┬──────────────────────────────────────────┬────────────────────────────────────────────────┬───────────────┐
-│ #   │ sujet                                    │ alternatives                                   │     préco     │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ D1  │ Comment H2A doit-il éviter d’envoyer une │ A Priorite surete : rien sans cible unique et  │       A       │
-│     │ commande à la mauvaise session ?         │ disponible prouvee — Aucune commande ne part   │               │
-│     │                                          │ sans une cible resolue, unique et dont la      │               │
-│     │                                          │ disponibilite est etablie.                     │               │
-│     │                                          │ B Priorite fluidite : choisir automatiquement  │               │
-│     │                                          │ — h2a resout au mieux et envoie sans           │               │
-│     │                                          │ confirmation.                                  │               │
-│     │                                          │ C Intermediaire : proposer et attendre         │               │
-│     │                                          │ confirmation — h2a propose une cible et attend │               │
-│     │                                          │ un accord humain.                              │               │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ D2  │ Un nom de session peut-il envoyer une    │ A Jamais — il faut (racine, instance) résolue  │       A       │
-│     │ commande ?                               │ et vivante — Un nom sert à retrouver et        │               │
-│     │                                          │ afficher une session ; commander exige une     │               │
-│     │                                          │ cible vérifiée.                                │               │
-│     │                                          │ B Oui si la résolution est unique et vivante — │               │
-│     │                                          │ Le nom suffit quand il ne désigne qu une seule │               │
-│     │                                          │ session vivante.                               │               │
-│     │                                          │ C Oui, avec confirmation humaine si ambigu —   │               │
-│     │                                          │ Le nom commande, sauf ambiguïté qui déclenche  │               │
-│     │                                          │ une demande.                                   │               │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ D3  │ Après suppression, peut-on réutiliser le │ A Jamais — le nom est brûlé — Un nom supprimé  │               │
-│     │ même nom ?                               │ ne peut plus jamais être réattribué.           │               │
-│     │                                          │ B Après une quarantaine de 24 h — Le nom       │       B       │
-│     │                                          │ redevient disponible une fois la fenêtre       │               │
-│     │                                          │ écoulée.                                       │               │
-│     │                                          │ C Immédiatement — statu quo — Le nom est       │               │
-│     │                                          │ réattribuable dès sa suppression.              │               │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ D4  │ H2A peut-il écrire dans un terminal      │ A Refuser — Terminal ambigu : h2a n écrit pas. │       A       │
-│     │ ambigu ?                                 │ B Écrire au plus probable — h2a choisit le     │               │
-│     │                                          │ candidat le plus vraisemblable.                │               │
-│     │                                          │ C Demander — h2a présente les candidats et     │               │
-│     │                                          │ attend.                                        │               │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ D5  │ Comment lancer le moteur natif H2A ?     │ A Processus local pilote par h2a — h2a possede │       A       │
-│     │                                          │ la boucle et la lance en local ; sentropic     │               │
-│     │                                          │ reste consommateur.                            │               │
-│     │                                          │ B Orchestre par sentropic — La boucle          │               │
-│     │                                          │ principale est geree par sentropic ; nous      │               │
-│     │                                          │ fournissons les sessions.                      │               │
-│     │                                          │ C Les deux, par configuration — Le moteur      │               │
-│     │                                          │ tourne en local ou a distance selon un         │               │
-│     │                                          │ reglage.                                       │               │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ D6  │ Focus doit-il avoir une voie directe «   │ A Voie directe separee du report — Focus       │       A       │
-│     │ décision dossier » séparée du report ?   │ expose une route dossier propre, independante  │               │
-│     │                                          │ du rapport Track.                              │               │
-│     │                                          │ B Tout passe par le report — Les dossiers      │               │
-│     │                                          │ restent des cartes enrichies du rapport.       │               │
-│     │                                          │ C Les deux — Route directe et cartes du        │               │
-│     │                                          │ rapport coexistent.                            │               │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q1  │ Quand plusieurs sessions correspondent,  │ A Refuser — Plusieurs candidats : h2a refuse   │   A retenu    │
-│     │ que fait H2A ?                           │ et affiche la liste.                           │               │
-│     │                                          │ B Lister et demander — h2a présente les        │               │
-│     │                                          │ candidats et attend un choix.                  │               │
-│     │                                          │ C Prendre la plus récente — h2a choisit        │               │
-│     │                                          │ automatiquement la session la plus récemment   │               │
-│     │                                          │ active.                                        │               │
-│     │                                          │                                                │  réglé (go)   │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q2  │ Quelle preuve faut-il avant de dire «    │ A Faisceau : pane tmux + processus + activite  │   A retenu    │
-│     │ agent disponible » ?                     │ recente — Disponible = le pane tmux existe ET  │               │
-│     │                                          │ le processus de l'agent tourne ET il y a eu    │               │
-│     │                                          │ une activite MCP recente.                      │               │
-│     │                                          │ B Sonde active avant chaque envoi — h2a        │               │
-│     │                                          │ interroge la session juste avant d'envoyer et  │               │
-│     │                                          │ n'envoie que si elle repond.                   │               │
-│     │                                          │ C Le pane tmux suffit — Si le pane existe, la  │               │
-│     │                                          │ session est consideree joignable.              │               │
-│     │                                          │                                                │  réglé (go)   │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q3  │ Sur quels espaces de noms resoudre une   │ A Chercher les quatre espaces de noms — Un nom │   A retenu    │
-│     │ cible ?                                  │ est resolu contre le role H2A, le --name de la │               │
-│     │                                          │ commande run, le nom natif de la CLI et le nom │               │
-│     │                                          │ de session tmux, en une seule passe, et H2A    │               │
-│     │                                          │ montre lequel a matche.                        │               │
-│     │                                          │ B Registre H2A + nom natif seulement — On      │               │
-│     │                                          │ ajoute le nom natif de la CLI mais pas tmux.   │               │
-│     │                                          │ C Registre H2A seul, mais imposer              │               │
-│     │                                          │ l'enregistrement — On ne change pas la         │               │
-│     │                                          │ resolution ; on force chaque session a         │               │
-│     │                                          │ s'enregistrer avec le bon nom au demarrage.    │               │
-│     │                                          │                                                │  réglé (go)   │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q4  │ Prefixe remote- sur les sessions tmux :  │ A Ignorer le prefixe a la resolution — H2A     │   A retenu    │
-│     │ que fait la resolution ?                 │ denude les prefixes connus (remote-, h2a-)     │               │
-│     │                                          │ avant de comparer, sans rien renommer.         │               │
-│     │                                          │ B Renommer en h2a- et tolerer l'ancien — Les   │               │
-│     │                                          │ nouvelles sessions prennent un prefixe h2a,    │               │
-│     │                                          │ l'ancien reste accepte.                        │               │
-│     │                                          │ C Supprimer tout prefixe — Le nom tmux devient │               │
-│     │                                          │ exactement le nom de la session.               │               │
-│     │                                          │                                                │  réglé (go)   │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q5  │ Release 0.86.0: publish it, then update  │ non enregistrées                               │ à structurer  │
-│     │ the owner installation including the     │                                                │               │
-│     │ plugins                                  │                                                │               │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q6  │ main gets a required check, but only one │ non enregistrées                               │ à structurer  │
-│     │ that can judge a PR on its own code      │                                                │               │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q7  │ Politique de spawn du                    │ non enregistrées                               │ réglé (go) ·  │
-│     │ lancement-conductor : seuil de stalled,  │                                                │ aucune option │
-│     │ cooldown anti-boucle, cap, qui declenche │                                                │   attestée    │
-│     │ — requis avant de cabler le spawn via    │                                                │               │
-│     │ remote                                   │                                                │               │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q8  │ Garder ou couper les 2 items             │ non enregistrées                               │ réglé (go) ·  │
-│     │ faible-valeur : conductor-mailbox +      │                                                │ aucune option │
-│     │ suggestion-ladder (reversibles)          │                                                │   attestée    │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q9  │ Cabler le routage h2a sur                │ non enregistrées                               │     réglé     │
-│     │ connectionConfidence (resolveRecipient   │                                                │ (deferred) ·  │
-│     │ prefere active / wake-confirm            │                                                │ aucune option │
-│     │ idle-uncertain) ?                        │                                                │   attestée    │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q10 │ Migration: dépréciation parity-triggered │ non enregistrées                               │ réglé (go) ·  │
-│     │ (A2), reprise sessions remote (C6),      │                                                │ aucune option │
-│     │ frontière CLI↔libs (C7)                  │                                                │   attestée    │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q11 │ A1: fusionner le domaine @sentropic/h2a  │ non enregistrées                               │ réglé (go) ·  │
-│     │ dans h2a-cli + extraire feuille          │                                                │ aucune option │
-│     │ @sentropic/h2a-protocol (option c,       │                                                │   attestée    │
-│     │ double consensus)                        │                                                │               │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q12 │ A1 RÉORIENTÉ (Fabien): tout fusionner    │ non enregistrées                               │ réglé (go) ·  │
-│     │ dans @sentropic/h2a (keystone, bin h2a)  │                                                │ aucune option │
-│     │ ; @sentropic/h2a-cli = stub déprécié +   │                                                │   attestée    │
-│     │ redirect + npm deprecate                 │                                                │               │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q13 │ §10 enrollment: key custody =            │ non enregistrées                               │ réglé (go) ·  │
-│     │ recovery-code + opt-in escrow; resume =  │                                                │ aucune option │
-│     │ blob-first per-host matrix               │                                                │   attestée    │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q14 │ Cross-platform Windows/macOS becomes a   │ non enregistrées                               │ réglé (go) ·  │
-│     │ third-party workstream; the Windows leg  │                                                │ aucune option │
-│     │ of the reporting-stdin test is disabled  │                                                │   attestée    │
-│     │ meanwhile                                │                                                │               │
-├─────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────────────┤
-│ Q15 │ WP structure: where does Integration     │ non enregistrées                               │ réglé (go) ·  │
-│     │ live, and what becomes of WP12-WP18      │                                                │ aucune option │
-│     │                                          │                                                │   attestée    │
-└─────┴──────────────────────────────────────────┴────────────────────────────────────────────────┴───────────────┘
+┌────┬──────────────────────────────────────────┬────────────────────────────────────────────────┬───────┐
+│ #  │ sujet                                    │ alternatives                                   │ préco │
+├────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────┤
+│ D1 │ Comment H2A doit-il éviter d’envoyer une │ A Priorite surete : rien sans cible unique et  │   A   │
+│    │ commande à la mauvaise session ?         │ disponible prouvee — Aucune commande ne part   │       │
+│    │                                          │ sans une cible resolue, unique et dont la      │       │
+│    │                                          │ disponibilite est etablie.                     │       │
+│    │                                          │ B Priorite fluidite : choisir automatiquement  │       │
+│    │                                          │ — h2a resout au mieux et envoie sans           │       │
+│    │                                          │ confirmation.                                  │       │
+│    │                                          │ C Intermediaire : proposer et attendre         │       │
+│    │                                          │ confirmation — h2a propose une cible et attend │       │
+│    │                                          │ un accord humain.                              │       │
+├────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────┤
+│ D2 │ Un nom de session peut-il envoyer une    │ A Jamais — il faut (racine, instance) résolue  │   A   │
+│    │ commande ?                               │ et vivante — Un nom sert à retrouver et        │       │
+│    │                                          │ afficher une session ; commander exige une     │       │
+│    │                                          │ cible vérifiée.                                │       │
+│    │                                          │ B Oui si la résolution est unique et vivante — │       │
+│    │                                          │ Le nom suffit quand il ne désigne qu une seule │       │
+│    │                                          │ session vivante.                               │       │
+│    │                                          │ C Oui, avec confirmation humaine si ambigu —   │       │
+│    │                                          │ Le nom commande, sauf ambiguïté qui déclenche  │       │
+│    │                                          │ une demande.                                   │       │
+├────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────┤
+│ D3 │ Après suppression, peut-on réutiliser le │ A Jamais — le nom est brûlé — Un nom supprimé  │       │
+│    │ même nom ?                               │ ne peut plus jamais être réattribué.           │       │
+│    │                                          │ B Après une quarantaine de 24 h — Le nom       │   B   │
+│    │                                          │ redevient disponible une fois la fenêtre       │       │
+│    │                                          │ écoulée.                                       │       │
+│    │                                          │ C Immédiatement — statu quo — Le nom est       │       │
+│    │                                          │ réattribuable dès sa suppression.              │       │
+├────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────┤
+│ D4 │ H2A peut-il écrire dans un terminal      │ A Refuser — Terminal ambigu : h2a n écrit pas. │   A   │
+│    │ ambigu ?                                 │ B Écrire au plus probable — h2a choisit le     │       │
+│    │                                          │ candidat le plus vraisemblable.                │       │
+│    │                                          │ C Demander — h2a présente les candidats et     │       │
+│    │                                          │ attend.                                        │       │
+├────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────┤
+│ D5 │ Comment lancer le moteur natif H2A ?     │ A Processus local pilote par h2a — h2a possede │   A   │
+│    │                                          │ la boucle et la lance en local ; sentropic     │       │
+│    │                                          │ reste consommateur.                            │       │
+│    │                                          │ B Orchestre par sentropic — La boucle          │       │
+│    │                                          │ principale est geree par sentropic ; nous      │       │
+│    │                                          │ fournissons les sessions.                      │       │
+│    │                                          │ C Les deux, par configuration — Le moteur      │       │
+│    │                                          │ tourne en local ou a distance selon un         │       │
+│    │                                          │ reglage.                                       │       │
+├────┼──────────────────────────────────────────┼────────────────────────────────────────────────┼───────┤
+│ D6 │ Focus doit-il avoir une voie directe «   │ A Voie directe separee du report — Focus       │   A   │
+│    │ décision dossier » séparée du report ?   │ expose une route dossier propre, independante  │       │
+│    │                                          │ du rapport Track.                              │       │
+│    │                                          │ B Tout passe par le report — Les dossiers      │       │
+│    │                                          │ restent des cartes enrichies du rapport.       │       │
+│    │                                          │ C Les deux — Route directe et cartes du        │       │
+│    │                                          │ rapport coexistent.                            │       │
+└────┴──────────────────────────────────────────┴────────────────────────────────────────────────┴───────┘
 
 RECOMMANDATION
-Sans décision : WP8.10 — action (subagent): Terminer l’incrément en cours ; WP1 — action (subagent): Terminer l’incrément en cours ; WP5 — action (subagent): Terminer l’incrément en cours.
+Sans décision : hors WP, WP2.2, WP8.10 peuvent démarrer — le geste concret reste à instruire par ligne.
 D1 A → débloque WP7.
-D2 A → débloque hors WP.
-D3 B → débloque hors WP.
+D2 A → débloque le dossier lui-même.
+D3 B → débloque le dossier lui-même.
 D4 A → débloque WP3.
 D5 A → débloque WP11.
-D6 A → débloque hors WP.
+D6 A → débloque le dossier lui-même.
 Réponds « vas y » (les lanes sans décision) ou « D1 A · D2 A · D3 B · D4 A · D5 A · D6 A » (tout débloquer).
 
 RÉSOLUTION DES HANDLES (bloc machine — pas une table à lire)
 handles positionnels, valables pour CE rapport uniquement : une réponse qui cite un handle sans son rapport n’est pas actionnable.
 commande : track report --resolve <handle>
-1.1	01KY66FTP7Y4W214SADDWKHT15	1/6 — Un nom de session peut-il envoyer une commande ?
-1.2	01KY66FV4W1JKHBZ2MW44P9EP6	2/6 — Après suppression, peut-on réutiliser le même nom ?
-1.3	01KY66T2F35VNZP6FHFAVVBGH0	Focus doit-il avoir une voie directe « décision dossier » séparée du report ?
-1.4	01KYJ4JNCCRG5DSFXR3N3Z7826	Release 0.86.0: publish it, then update the owner installation including the plugins
-1.5	01KYJ4JNMSDKHZBEW79RHK1DSG	main gets a required check, but only one that can judge a PR on its own code
+1.1	01KYJ4JNCCRG5DSFXR3N3Z7826	Release 0.86.0: publish it, then update the owner installation including the plugins
+1.2	01KYJ4JNMSDKHZBEW79RHK1DSG	main gets a required check, but only one that can judge a PR on its own code
 2.1	01KTT31AZVYPVH9VGRN7PVAYDF	Phase 2a observabilite (livree): lastMcpActivityAt (touche sur chaque ligne MCP, flush au heartbeat) + label connectionConfidence active|idle-uncertain|unknown dans discover_sessions + recipientConfidence dans le retour put ; READ-ONLY/advisory, marge de skew mirrored, env H2A_ACTIVITY_WINDOW_MS
 3.1	01KTQC2JA3TDSY494FM101M5Z9	EVO-4 decision support / situation presentation
 3.2	01KTQC2JH9G7JNJXAH2BY1BHGK	EVO-3 D6 — per-host wake command in each plugin
@@ -479,18 +409,5 @@ D3	01KY66FV4W1JKHBZ2MW44P9EP6	2/6 — Après suppression, peut-on réutiliser le
 D4	01KY66FWJ4MYNJMDDJXA54G3FD	5/6 — H2A peut-il écrire dans un terminal ambigu ?
 D5	01KY66FX0PFH958103YVQWRBQZ	6/6 — Comment lancer le moteur natif H2A ?
 D6	01KY66T2F35VNZP6FHFAVVBGH0	Focus doit-il avoir une voie directe « décision dossier » séparée du report ?
-Q1	01KY66FVKFFVKRDXY9PFGEF4RD	3/6 — Quand plusieurs sessions correspondent, que fait H2A ?
-Q2	01KY66FW260Q5TV1DVR6ZPH891	4/6 — Quelle preuve faut-il avant de dire « agent disponible » ?
-Q3	01KYNGMC6979YKMXV8MQQ8A16H	Sur quels espaces de noms resoudre une cible ?
-Q4	01KYNGMCB0Z7ESGYJKFVCTW8MH	Prefixe remote- sur les sessions tmux : que fait la resolution ?
-Q5	01KYJ4JNCCRG5DSFXR3N3Z7826	Release 0.86.0: publish it, then update the owner installation including the plugins
-Q6	01KYJ4JNMSDKHZBEW79RHK1DSG	main gets a required check, but only one that can judge a PR on its own code
-Q7	01KTSDXPY1F0S3PZSXHM9T2WJA	Politique de spawn du lancement-conductor : seuil de stalled, cooldown anti-boucle, cap, qui declenche — requis avant de cabler le spawn via remote
-Q8	01KTSDXX77YGH3KGW3TN5ED1EM	Garder ou couper les 2 items faible-valeur : conductor-mailbox + suggestion-ladder (reversibles)
-Q9	01KTT31B9KWF68E0NSQDJRYJ1Q	Cabler le routage h2a sur connectionConfidence (resolveRecipient prefere active / wake-confirm idle-uncertain) ?
-Q10	01KWAVZZ1NB0DKQQ0AP1BFHJQM	Migration: dépréciation parity-triggered (A2), reprise sessions remote (C6), frontière CLI↔libs (C7)
-Q11	01KWAW375CPJ9FDTZPNKVA37DT	A1: fusionner le domaine @sentropic/h2a dans h2a-cli + extraire feuille @sentropic/h2a-protocol (option c, double consensus)
-Q12	01KWB13M2FZ9QE88GRT6BNTT7P	A1 RÉORIENTÉ (Fabien): tout fusionner dans @sentropic/h2a (keystone, bin h2a) ; @sentropic/h2a-cli = stub déprécié + redirect + npm deprecate
-Q13	01KXC2PNENYM96ZFC3FJNEACVC	§10 enrollment: key custody = recovery-code + opt-in escrow; resume = blob-first per-host matrix
-Q14	01KYJ4F62EDC4G9N0VWSTEGC1Q	Cross-platform Windows/macOS becomes a third-party workstream; the Windows leg of the reporting-stdin test is disabled meanwhile
-Q15	01KYJ4YEWNWDJGGBYT49R6881A	WP structure: where does Integration live, and what becomes of WP12-WP18
+Q1	01KYJ4JNCCRG5DSFXR3N3Z7826	Release 0.86.0: publish it, then update the owner installation including the plugins
+Q2	01KYJ4JNMSDKHZBEW79RHK1DSG	main gets a required check, but only one that can judge a PR on its own code
