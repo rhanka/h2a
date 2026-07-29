@@ -55,6 +55,8 @@ describe('SnapshotV1', () => {
     expect(snapshot.recentEvents.map((event) => event.position)).toEqual([1, 2, 3, 4, 5])
     expect(snapshot.recentEvents.every((event) => event.summary === undefined)).toBe(true)
     expect(snapshot.directives.every((directive) => directive.source === 'rule-derived')).toBe(true)
+    expect(snapshot.directivesProjection).toEqual({ kind: 'rule-derived-facts', order: 'aggregate-id-then-id' })
+    expect(snapshot.recentEventsProjection).toEqual({ limit: 200, order: 'append-order', content: 'position-event-id-kind-aggregate-id' })
     const bytes = snapshotJson(snapshot)
     for (const forbidden of [
       'BODY_PAYLOAD_MUST_NOT_LEAK', 'NEGOTIATION_PAYLOAD_MUST_NOT_LEAK', 'DOSSIER_HASH_MUST_NOT_LEAK',
