@@ -121,6 +121,53 @@ export function promptProbes(prompt: string): ReadonlyArray<string> {
   return [prompt.replace(/\s+/g, "").slice(-8)];
 }
 
+/**
+ * A long paste is COLLAPSED by both hosts instead of being shown as text.
+ * Measured 2026-07-29 with a 10977-character brief:
+ *   codex  ->  "› [Pasted Content 10977 chars]"
+ *   claude ->  "❯ [Pasted text #1 +71 lines]"
+ * The brief's own words appear NOWHERE in the pane, so a fingerprint search
+ * alone would reject every long brief — and lane briefs are long. The marker is
+ * in fact stronger evidence: it states the size the host received, so it can be
+ * checked against what was sent.
+ */
+export type CollapsedPaste =
+  | { readonly kind: "chars"; readonly value: number }
+  | { readonly kind: "lines"; readonly value: number };
+
+export function detectCollapsedPaste(
+  capture: string,
+): CollapsedPaste | undefined {
+  const chars = /\[pasted\s+content\s+(\d+)\s+chars?\]/i.exec(capture);
+  if (chars) return { kind: "chars", value: Number.parseInt(chars[1]!, 10) };
+  const lines = /\[pasted\s+text[^\]]*?\+(\d+)\s+lines?\]/i.exec(capture);
+  if (lines) return { kind: "lines", value: Number.parseInt(lines[1]!, 10) };
+  return undefined;
+}
+
+/**
+ * Does a collapsed-paste marker account for the brief we sent? Compared with a
+ * tolerance: hosts differ on counting UTF-8 bytes vs code points, and the line
+ * count is reported as "additional" lines.
+ */
+export function collapsedPasteMatches(
+  marker: CollapsedPaste,
+  prompt: string,
+): boolean {
+  if (marker.kind === "chars") {
+    const codePoints = [...prompt].length;
+    const bytes = Buffer.byteLength(prompt, "utf8");
+    const tolerance = Math.max(4, Math.round(codePoints * 0.02));
+    return (
+      Math.abs(marker.value - codePoints) <= tolerance ||
+      Math.abs(marker.value - bytes) <= tolerance
+    );
+  }
+  const lineCount = prompt.split("\n").length;
+  // "+N lines" counts the lines beyond the first.
+  return Math.abs(marker.value - (lineCount - 1)) <= 1;
+}
+
 /** How many times does the fingerprint appear in a pane capture? */
 export function countOccurrences(capture: string, probe: string): number {
   if (probe.length === 0) return 0;
@@ -182,16 +229,21 @@ export type PromptDeliveryOptions = {
   readonly landedMs?: number;
 };
 
+/** How the brief was proven present: visible text, or a collapsed-paste marker. */
+export type LandedEvidence = "composer-text" | "collapsed-paste";
+
 export type PromptDeliveryResult =
   | {
       readonly state: "working";
       readonly waitedMs: number;
       readonly cpuDeltaMs: number;
+      readonly evidence: LandedEvidence;
     }
   | {
       readonly state: "submitted-idle";
       readonly waitedMs: number;
       readonly cpuDeltaMs: number;
+      readonly evidence: LandedEvidence;
     }
   | {
       readonly state: "host-modal";
@@ -356,6 +408,7 @@ export function deliverInitialPrompt(
   // Claude Code. So poll — never paste again, only look again.
   let after = "";
   let landed = false;
+  let collapsed: CollapsedPaste | undefined;
   const landedDeadline = deps.now() + landedMs;
   for (;;) {
     after = deps.capturePane(pane) ?? after;
@@ -370,9 +423,24 @@ export function deliverInitialPrompt(
         capture: captureTail(after),
       };
     }
-    landed = probes.some(
-      (probe, index) => countOccurrences(after, probe) > baseline[index]!,
-    );
+    // A collapsed-paste marker takes PRECEDENCE over a fingerprint search: it is
+    // quantitative (it states the size the host received) and it is the only
+    // evidence a long brief ever produces. It also has to be able to REFUSE — a
+    // marker accounting for less than what was sent means the host holds a
+    // truncated brief, and an amputated brief produces plausible wrong work.
+    // Fingerprints are a fallback, and only when no marker is on screen: a short
+    // probe can otherwise match a word inside the marker itself.
+    const marker = detectCollapsedPaste(after);
+    if (marker) {
+      if (collapsedPasteMatches(marker, prompt)) {
+        landed = true;
+        collapsed = marker;
+      }
+    } else {
+      landed = probes.some(
+        (probe, index) => countOccurrences(after, probe) > baseline[index]!,
+      );
+    }
     if (landed || deps.now() >= landedDeadline) break;
     deps.sleep(pollMs);
   }
@@ -402,19 +470,28 @@ export function deliverInitialPrompt(
   // 6. Judge work against THE HOST'S OWN idle rate, never a flat number: an
   // idling codex still burned 420ms over 30s, which a fixed threshold read as
   // "working" while nothing had been submitted at all.
+  const evidence: LandedEvidence = collapsed
+    ? "collapsed-paste"
+    : "composer-text";
   const activityDeadline = submittedAt + activityMs;
   for (;;) {
     deps.sleep(pollMs);
     const cpuDeltaMs = (deps.cpuMs(pane) ?? cpuBefore) - cpuBefore;
     const idleBudget = ready.idleRate * (deps.now() - submittedAt);
     if (cpuDeltaMs - idleBudget >= activityCpuMs) {
-      return { state: "working", waitedMs: deps.now() - startedAt, cpuDeltaMs };
+      return {
+        state: "working",
+        waitedMs: deps.now() - startedAt,
+        cpuDeltaMs,
+        evidence,
+      };
     }
     if (deps.now() >= activityDeadline) {
       return {
         state: "submitted-idle",
         waitedMs: deps.now() - startedAt,
         cpuDeltaMs,
+        evidence,
       };
     }
   }

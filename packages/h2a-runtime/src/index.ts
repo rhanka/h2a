@@ -85,6 +85,7 @@ import {
   localSessionPanePid,
   localSessionName,
   paneTreeCpuMs,
+  paneWorkerPid,
   pasteLiteralBlock,
   submitPane,
   installH2aStatusSurface,
@@ -5463,6 +5464,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           slug: string;
           pane?: string;
           pid?: number;
+          workerPid?: number;
           h2aSidecar: boolean;
           outputLog?: string;
           resultJson?: string;
@@ -5661,6 +5663,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const pid = agentPane
             ? localSessionPanePid(agentPane)
             : undefined;
+          const workerPid =
+            agentPane !== undefined ? paneWorkerPid(agentPane) : undefined;
           if (structuredLaunch && pid === undefined) {
             cleanupHeadlessPromptFile(promptFile);
             killLocalSession(name);
@@ -5678,6 +5682,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             slug,
             tmuxSession: name,
             ...(pid !== undefined ? { pid } : {}),
+            ...(workerPid !== undefined ? { workerPid } : {}),
             cwd,
             sessionClass,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
@@ -5722,6 +5727,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 h2aSidecar: only.h2aSidecar,
                 ...(only.pane !== undefined ? { pane: only.pane } : {}),
                 ...(only.pid !== undefined ? { pid: only.pid } : {}),
+                // `pid` is the launch WRAPPER. Measured 2026-07-29: it showed 0s
+                // of CPU after 37s while its codex child had burned 13s, so a
+                // liveness check on `pid` alone reports a working agent as dead.
+                // Name the process that actually works, and say it is distinct.
+                ...(only.workerPid !== undefined
+                  ? { workerPid: only.workerPid }
+                  : {}),
               },
               attach: opts.headless
                 ? null
