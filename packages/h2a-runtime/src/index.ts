@@ -5639,7 +5639,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             });
             if (promptDelivery.state !== "working") {
               cleanupHeadlessPromptFile(promptFile);
-              killLocalSession(name);
+              // Only claim the session is gone when the kill actually reported
+              // success. "nothing is left running" over an unchecked call is the
+              // same wider-than-its-evidence claim this change exists to remove,
+              // and a surviving partial session is precisely the idle lane the
+              // operator was just told could not happen.
+              const stopped = killLocalSession(name);
               const detail =
                 promptDelivery.state === "submitted-idle"
                   ? `the brief was submitted but the agent never started working ` +
@@ -5650,7 +5655,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   (promptDelivery.state === "host-modal"
                     ? `[h2a] fix: ${promptDelivery.hint}\n`
                     : "") +
-                  `[h2a] the partial session was stopped, so nothing is left running idle\n` +
+                  (stopped
+                    ? `[h2a] the partial session was stopped, so nothing is left running idle\n`
+                    : `[h2a] WARNING: stopping the partial session FAILED — ${name} may still be alive; ` +
+                      `list it with h2a ls and stop it with h2a stop ${slug} --reason failed-launch\n`) +
                   (promptDelivery.state !== "submitted-idle" &&
                   promptDelivery.capture
                     ? `[h2a] last screen:\n${promptDelivery.capture}\n`
