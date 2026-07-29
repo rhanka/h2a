@@ -82,6 +82,7 @@ async function rebindAfterQuotaResponse(
     });
   }
   markAccountExhausted(session.accountId, quotaReason(response));
+  if (response.status === 429) return undefined;
   const fallback = selectFallbackAccount(session.accountId, Date.now(), {
     ...(session.requiredTransport
       ? { requiredTransport: session.requiredTransport }
