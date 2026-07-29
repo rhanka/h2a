@@ -1,5 +1,16 @@
 # Track report: deterministic conductor and advisory contextual prose
 
+> **SUPERSEDED for section set and rendering** by
+> `docs/specs/2026-07-29-track-report-period.md` and its two corrections. The
+> report now has exactly four sections (FAIT, À-FAIRE, DÉCISIONS,
+> RECOMMANDATION); `À-FAIRE SANS WP`, `HORS ROLLUP`, `À INSTRUIRE`,
+> `HISTORIQUE NON STRUCTURÉ` and `ACTIONS DÉRIVÉES` are folded into them.
+> Two statements below are no longer true: the section list, and
+> "`formatWpConductor` … does **not** add a fenced block" — `md` now fences the
+> drawn DÉCISIONS table and the handle-resolution block, because their alignment
+> does not survive Markdown otherwise. Everything else (the command contract,
+> the anti-AI-labelling rule, the fresh-clone bootstrap) still holds.
+
 Status: **corrected after NO-GO review**. The reproducible input inventory is
 `docs/specs/examples/track-report-raw.txt`; the corresponding non-narrative
 golden is `docs/specs/examples/track-report-contextual.md`.
