@@ -97,7 +97,7 @@ const USAGE = `usage: track <command>
   accept waive <criterionId> --reason <r>
   consolidate --items <id,id> --commit <mergeCommit> [--client-token <t>]
   priority assess <itemId> --ubv <n> --tc <n> --rr <n> --js <n>
-  report [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--format json|text|md|html] [--commit <sha>] [--now <iso>]
+  report [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md|html] [--commit <sha>] [--now <iso>]
   snapshot [--require-accepted] [--format json|text|md] [--commit <sha>]
   export-graph [--repo-key <repo:key>] [--source-id <id>] [--observed-at <iso>]
   query [--kind <k>] [--role <workpackage|spec-phase|stream>] [--workspace <w>] [--bucket <AWAITED|DROPPED|DONE|TO-DO>] [--realization <r>] [--acceptance <a>] [--format json|text|md] [--commit <sha>]
@@ -347,9 +347,11 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
-const REPORT_USAGE = `usage: track report [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--format json|text|md|html] [--track-dir <directory-containing-events.jsonl>]
+const REPORT_USAGE = `usage: track report [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md|html] [--track-dir <directory-containing-events.jsonl>]
 
 --resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
+
+--sub-wp lists sub-WP rows beside their parent. Without it, sub-levels are aggregated into their parent on a long window (>= 14 days) and listed on a short one — the WP is the reading unit of a long report.
 
 --now <iso> pins the window's upper bound (default: the wall clock). The report's period always runs from the first recorded event to that bound; pin it to reproduce a committed fixture byte for byte.
 
@@ -1034,6 +1036,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   assertOnlyFlags(flags, [
     'commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'inline', 'width', 'format', 'now',
+    'sub-wp',
   ])
   const rawFormat = opt(flags, 'format')
   if (rawFormat !== undefined && !['json', 'text', 'md', 'html'].includes(rawFormat)) {
@@ -1080,13 +1083,16 @@ function cmdReport(args: string[], ctx: Ctx): number {
     throw new DomainError('--now must be an ISO timestamp')
   }
   const now = nowArg ?? new Date().toISOString()
+  // Criterion 25 — the EXPLICIT owner request for sub-WP rows. Without it the reading unit follows the
+  // window: the WP on a long one, the sub-level on a short one.
+  const subWp = assertBooleanFlag(flags, 'sub-wp')
   const reader = new TrackReader(ctx.eventsPath)
   if (inline) {
     io.out(reportInline(reader, options, width === undefined ? {} : { width }))
   } else if (format === 'html') {
-    io.out(reportHtml(reader, options, now))
+    io.out(reportHtml(reader, options, now, subWp))
   } else {
-    io.out(reportText(reader, options, format, now))
+    io.out(reportText(reader, options, format, now, subWp))
   }
   return 0
 }

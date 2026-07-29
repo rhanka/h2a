@@ -27,13 +27,19 @@ import type { TrackReader } from './contract.js'
  * module is the boundary: the renderer stays clockless, so the same log and the same `now` always render
  * the same bytes.
  */
-function conductorMeta(reader: TrackReader, options: ReportOptions, now?: string): ConductorMeta {
+function conductorMeta(
+  reader: TrackReader,
+  options: ReportOptions,
+  now?: string,
+  subWp?: boolean,
+): ConductorMeta {
   const window = reader.logWindow()
   return {
     baselineCommit: options.baselineCommit,
     ...(window.from !== undefined ? { logFrom: window.from } : {}),
     ...(window.to !== undefined ? { logTo: window.to } : {}),
     ...(now !== undefined ? { now } : {}),
+    ...(subWp === true ? { subWp } : {}),
   }
 }
 
@@ -42,9 +48,10 @@ export function reportText(
   options: ReportOptions,
   format: Format,
   now?: string,
+  subWp?: boolean,
 ): string {
   const report = reader.report(options)
-  const meta = conductorMeta(reader, options, now)
+  const meta = conductorMeta(reader, options, now, subWp)
 
   if (options.wpTree && report.wpTree !== undefined) {
     if (format === 'json') {
@@ -100,9 +107,14 @@ export function reportInline(reader: TrackReader, options: ReportOptions, inline
  * contract (the same path focus's `renderHtml` uses) over the SAME `ReportView` the JSON path exposes. A
  * WP-less repo still yields a valid (empty-state) fragment via the same presenter.
  */
-export function reportHtml(reader: TrackReader, options: ReportOptions, now?: string): string {
+export function reportHtml(
+  reader: TrackReader,
+  options: ReportOptions,
+  now?: string,
+  subWp?: boolean,
+): string {
   const report = reader.report(options)
-  const meta = conductorMeta(reader, options, now)
+  const meta = conductorMeta(reader, options, now, subWp)
   const decisions = report.decisions ?? []
   if (report.wpTree !== undefined && report.wpTree.length > 0) {
     const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
