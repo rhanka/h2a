@@ -75,6 +75,22 @@ not call it “AI-prepared”.
     open-work text, blocker, and next action. It names the directive target and
     bucket, so a DONE acceptance-debt target is visibly intentional rather than
     requiring a hand join to `view.directives`.
+11. The skill names `--width <40..240>` beside `--inline` in the same warning,
+    and states what that route drops (HORS ROLLUP, ACTIONS DÉRIVÉES, a `+N
+    autres` tail, plus its own deterministic `PRÉCO` block). The honesty rules
+    carry their own boundary — they are guarantees of the three read commands,
+    not of every route the CLI offers. `--width` is not a separate renderer: it
+    turns `--inline` on, so it is rejected for any non-text format exactly as
+    `--inline` is, and that rejection is the observable proof of the coupling.
+    The skill does not call `--track-dir` read-only, because it redirects the
+    whole store; and `track --help`, not only `report --help`, states that the
+    override may appear before or after the command.
+
+The tenth criterion was closed by a code change; the eleventh is closed by a
+skill edit, which is a weaker rung. `skill-truncation-warning.test.ts` pins it
+so the sentence cannot be deleted without turning something red — verified by
+removing the warning and observing the suite fail. That is the ceiling here: no
+command, hook, or validator forces an agent to read the skill at all.
 
 ## Decision record contract
 
