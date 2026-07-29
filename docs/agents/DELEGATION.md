@@ -31,6 +31,24 @@ So the subcontractor's memory lives in two places, neither of them the subcontra
 preamble the delegating actor prepends, and the gate the return passes through. Block 1 is
 composed per task from `RECALL.md`; blocks 2 and 3 are fixed and copied verbatim.
 
+### Deliver the preamble as a file, and verify it landed
+
+Measured while delegating this lane's first subcontract, on the installed 0.88.0: a launch
+prompt is typed into the pane **without a submit**. A multi-line prompt therefore
+self-submits on its own newlines and arrives as *N separate messages* — the subcontractor
+starts acting on fragment 1, before it has seen the task. A single-line prompt is never
+submitted at all: `state: "started"`, 0 s of CPU, the prompt sitting in the input box.
+
+So the preamble goes in a **file inside the subcontractor's worktree**, and the launch
+prompt is one line pointing at it. This is not a retreat to "reference a document and hope":
+the launch prompt is the one thing the subcontractor cannot skip, and it is generated per
+task, so it is never a stale copy — the two properties that made an extract of `RECALL.md`
+the wrong shape still hold.
+
+Then **verify, before you consider the work started**: CPU time greater than zero on the
+child process, and a visible working indicator. A launch that reports `started` is not a
+launch that ran (RECALL.md REC-10).
+
 ---
 
 ## Block 1 — What you may not assume *(composed per task)*
