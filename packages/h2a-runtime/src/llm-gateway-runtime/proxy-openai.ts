@@ -991,12 +991,12 @@ export function translateCodexStreamToAnthropic(
       const emit = (s: string) => controller.enqueue(enc.encode(s));
 
       let nextBlockIdx = 0;
-      // output_index → {type, idx}. `argsStreamed` records that the upstream
-      // already sent argument deltas for a tool block, so the terminal
-      // arguments are not appended a second time.
+      // output_index → {type, idx}. `argsSent` accumulates the tool-argument
+      // JSON already relayed to the client, so the terminal arguments can be
+      // reconciled against it rather than blindly appended or blindly skipped.
       const blockMap = new Map<
         number,
-        { type: "text" | "tool"; idx: number; argsStreamed?: boolean }
+        { type: "text" | "tool"; idx: number; argsSent?: string }
       >();
       let textBlockOpen = false;
       let outputTokens = 0;
@@ -1109,7 +1109,7 @@ export function translateCodexStreamToAnthropic(
                 if (!delta) break;
                 const fBlock = blockMap.get(outputIndex);
                 if (fBlock?.type === "tool") {
-                  fBlock.argsStreamed = true;
+                  fBlock.argsSent = (fBlock.argsSent ?? "") + delta;
                   emit(
                     sseEvent("content_block_delta", {
                       type: "content_block_delta",
@@ -1126,27 +1126,41 @@ export function translateCodexStreamToAnthropic(
                 const item = data.item as Record<string, unknown> | undefined;
                 if (block) {
                   // The Codex Responses upstream delivers function-call
-                  // arguments ONLY here, as one complete string — it never emits
+                  // arguments here, as one complete string; today it never emits
                   // response.function_call_arguments.delta. Relaying them as an
                   // input_json_delta before closing the block is what lets a
                   // client reconstruct the tool input; without it every tool
                   // call reaches the client with an empty input.
+                  //
+                  // The terminal value is authoritative, so it is reconciled
+                  // against what was already relayed instead of being skipped
+                  // whenever any delta arrived: an upstream that streamed only
+                  // PART of the arguments would otherwise leave the client with
+                  // a silently truncated input. Only the missing suffix is sent.
+                  // If what we relayed is not a prefix of the terminal value the
+                  // two cannot be reconciled inside an append-only stream, so
+                  // nothing is emitted rather than corrupting the JSON.
                   if (
                     block.type === "tool" &&
-                    !block.argsStreamed &&
                     typeof item?.arguments === "string" &&
                     item.arguments !== ""
                   ) {
-                    emit(
-                      sseEvent("content_block_delta", {
-                        type: "content_block_delta",
-                        index: block.idx,
-                        delta: {
-                          type: "input_json_delta",
-                          partial_json: item.arguments,
-                        },
-                      }),
-                    );
+                    const sent = block.argsSent ?? "";
+                    const remainder = item.arguments.startsWith(sent)
+                      ? item.arguments.slice(sent.length)
+                      : "";
+                    if (remainder !== "") {
+                      emit(
+                        sseEvent("content_block_delta", {
+                          type: "content_block_delta",
+                          index: block.idx,
+                          delta: {
+                            type: "input_json_delta",
+                            partial_json: remainder,
+                          },
+                        }),
+                      );
+                    }
                   }
                   emit(
                     sseEvent("content_block_stop", {
