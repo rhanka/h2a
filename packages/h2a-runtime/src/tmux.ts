@@ -18,6 +18,7 @@ import { getTmuxProfileConfig } from "./config.js";
 import {
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -25,6 +26,8 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
+
+import { readProcessTreeCpuMs } from "./proc-cpu.js";
 
 import {
   LAUNCH_OPTION_PREFIX,
@@ -1857,10 +1860,18 @@ export function sessionAttached(name: string): boolean {
  * Paste a LITERAL line into a session's main pane, then submit it with a real
  * Enter key event. Content reaches `tmux load-buffer -` on stdin, then a named
  * buffer is pasted: arbitrary text is never interpreted by a shell and never
- * appears in a process argv. Enter is a separate key-name event. Used both for
- * initial prompts and interactive throttle nudges.
+ * appears in a process argv. Enter is a separate key-name event. Used for
+ * interactive throttle nudges (single lines).
  */
 export function sendKeysLiteral(name: string, keys: string): boolean {
+  if (!loadAndPaste(name, keys, false)) return false;
+  const enter = spawnSync(TMUX, ["send-keys", "-t", name, "Enter"], {
+    stdio: "ignore",
+  });
+  return enter.status === 0;
+}
+
+function loadAndPaste(name: string, keys: string, bracketed: boolean): boolean {
   const buffer = `h2a-${process.pid}-${randomUUID()}`;
   const loaded = spawnSync(TMUX, ["load-buffer", "-b", buffer, "-"], {
     input: keys,
@@ -1870,17 +1881,100 @@ export function sendKeysLiteral(name: string, keys: string): boolean {
   if (loaded.status !== 0) return false;
   const pasted = spawnSync(
     TMUX,
-    ["paste-buffer", "-b", buffer, "-d", "-t", name],
+    [
+      "paste-buffer",
+      ...(bracketed ? ["-p"] : []),
+      "-b",
+      buffer,
+      "-d",
+      "-t",
+      name,
+    ],
     { stdio: "ignore" },
   );
   if (pasted.status !== 0) {
     spawnSync(TMUX, ["delete-buffer", "-b", buffer], { stdio: "ignore" });
     return false;
   }
-  const enter = spawnSync(TMUX, ["send-keys", "-t", name, "Enter"], {
+  return true;
+}
+
+/**
+ * Paste text as ONE block, WITHOUT submitting it.
+ *
+ * `-p` wraps the payload in bracketed-paste markers. Measured 2026-07-29 on
+ * Claude Code 2.1.220: without `-p`, a multi-line brief is submitted line by
+ * line — line 1 left as its own request while line 2 stayed in the composer.
+ * With `-p` the whole block lands as a single entry that one Enter submits.
+ */
+export function pasteLiteralBlock(name: string, keys: string): boolean {
+  return loadAndPaste(name, keys, true);
+}
+
+/** Submit whatever the composer currently holds (one real Enter key event). */
+export function submitPane(name: string): boolean {
+  const r = spawnSync(TMUX, ["send-keys", "-t", name, "Enter"], {
     stdio: "ignore",
   });
-  return enter.status === 0;
+  return r.status === 0;
+}
+
+/**
+ * Best-effort composer wipe. Ctrl-U only kills to the start of the CURRENT
+ * line, so a multi-line composer needs several — measured: one C-u left a
+ * multi-line brief in place, and retrying the paste then STACKED copies.
+ * Delivery never depends on this succeeding; it types only once.
+ */
+export function clearPaneComposer(name: string): boolean {
+  let ok = true;
+  for (let i = 0; i < 4; i += 1) {
+    const r = spawnSync(TMUX, ["send-keys", "-t", name, "C-u"], {
+      stdio: "ignore",
+    });
+    ok = ok && r.status === 0;
+  }
+  return ok;
+}
+
+/**
+ * VISIBLE text of one pane, or undefined when tmux cannot be read — unlike
+ * `capturePane`, which flattens a failure into "". Delivery needs the
+ * difference: an unreadable pane is not an empty one.
+ */
+export function capturePaneVisible(pane: string): string | undefined {
+  const r = spawnSync(TMUX, ["capture-pane", "-p", "-t", pane], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (r.status !== 0 || r.stdout === undefined) return undefined;
+  return r.stdout;
+}
+
+/**
+ * CPU time (ms) of the process tree behind a pane — the liveness signal used to
+ * tell a working agent from one parked on its placeholder.
+ */
+export function paneTreeCpuMs(pane: string): number | undefined {
+  const pid = localSessionPanePid(pane);
+  if (pid === undefined) return undefined;
+  return readProcessTreeCpuMs(pid, {
+    listPids: () => {
+      try {
+        return readdirSync("/proc")
+          .map((entry) => Number.parseInt(entry, 10))
+          .filter((value) => Number.isInteger(value) && value > 0);
+      } catch {
+        return [];
+      }
+    },
+    readStat: (target) => {
+      try {
+        return readFileSync(`/proc/${target}/stat`, "utf8");
+      } catch {
+        return undefined;
+      }
+    },
+  });
 }
 
 /**
