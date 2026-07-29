@@ -36,7 +36,7 @@ import {
 import { ingest, type IngestContext } from '../ingest/ingest.js'
 import { applyRestructurePlan, type RestructurePlan } from './restructure-apply.js'
 import { TrackReader } from '../read/contract.js'
-import { queryText, reportHtml, reportInline, reportText, statusText } from '../read/commands.js'
+import { queryText, reportHtml, reportInline, reportText, resolveHandle, statusText } from '../read/commands.js'
 import { STATUS_LEVELS } from '../report/status-by-level.js'
 import { renderSnapshot } from '../report/snapshot.js'
 import { VERSION } from '../version.js'
@@ -97,7 +97,7 @@ const USAGE = `usage: track <command>
   accept waive <criterionId> --reason <r>
   consolidate --items <id,id> --commit <mergeCommit> [--client-token <t>]
   priority assess <itemId> --ubv <n> --tc <n> --rr <n> --js <n>
-  report [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--format json|text|md|html] [--commit <sha>]
+  report [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--format json|text|md|html] [--commit <sha>]
   snapshot [--require-accepted] [--format json|text|md] [--commit <sha>]
   export-graph [--repo-key <repo:key>] [--source-id <id>] [--observed-at <iso>]
   query [--kind <k>] [--role <workpackage|spec-phase|stream>] [--workspace <w>] [--bucket <AWAITED|DROPPED|DONE|TO-DO>] [--realization <r>] [--acceptance <a>] [--format json|text|md] [--commit <sha>]
@@ -347,7 +347,9 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
-const REPORT_USAGE = `usage: track report [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--commit <sha>] [--format json|text|md|html] [--track-dir <directory-containing-events.jsonl>]
+const REPORT_USAGE = `usage: track report [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--format json|text|md|html] [--track-dir <directory-containing-events.jsonl>]
+
+--resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
 
 --track-dir is a global override and may appear before or after the command. It selects the directory that contains events.jsonl; it is especially useful for a read-only fixture. TRACK_DIR is the environment equivalent.
 `
@@ -989,7 +991,22 @@ function cmdReport(args: string[], ctx: Ctx): number {
   const { io } = ctx
   const { positional, flags } = parseFlags(args)
   if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
-  for (const name of ['commit', 'format', 'level', 'width']) assertValueFlag(flags, name)
+  for (const name of ['commit', 'format', 'level', 'width', 'resolve']) assertValueFlag(flags, name)
+  // Criterion 10b — the one documented command that turns a short report handle back into an item.
+  if (opt(flags, 'resolve') !== undefined) {
+    assertOnlyFlags(flags, ['resolve', 'commit', 'require-accepted'])
+    io.out(
+      resolveHandle(
+        new TrackReader(ctx.eventsPath),
+        {
+          baselineCommit: resolveCommit(io.cwd, opt(flags, 'commit')),
+          requireAccepted: assertBooleanFlag(flags, 'require-accepted'),
+        },
+        req(flags, 'resolve'),
+      ),
+    )
+    return 0
+  }
   const raw = assertBooleanFlag(flags, 'raw')
   if (raw) {
     assertOnlyFlags(flags, ['raw', 'commit', 'require-accepted', 'format'])

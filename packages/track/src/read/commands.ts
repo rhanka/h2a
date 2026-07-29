@@ -29,7 +29,9 @@ export function reportText(reader: TrackReader, options: ReportOptions, format: 
       // Machine contract preserved (0.19.0 shape) + additive optional `view` for skill rendering. WP-codes
       // A3: `--active-roster` is a HUMAN-render option only — JSON ALWAYS carries the full forest (every node
       // + its `terminal` flag) so a machine consumer filters terminal roots itself.
-      const view = report.wpTree.length > 0 ? buildWpConductorView(report.wpTree, report.decisions ?? [], report.outsideRollup) : undefined
+      const view = report.wpTree.length > 0
+        ? buildWpConductorView(report.wpTree, report.decisions ?? [], report.outsideRollup, 'global', { baselineCommit: options.baselineCommit })
+        : undefined
       return `${JSON.stringify({ ...report, wpTotals: wpTotals(report.wpTree, report.outsideRollup), ...(view !== undefined ? { view } : {}) }, null, 2)}\n`
     }
     // text/md: the rendered conductor tables when there is an actual WP forest. WP-codes A3 (DESIGN §A3) —
@@ -40,6 +42,7 @@ export function reportText(reader: TrackReader, options: ReportOptions, format: 
       return formatWpConductor(
         roster, format, report.decisions, report.outsideRollup,
         options.activeRoster === true ? 'roster actif (terminal exclu)' : 'global',
+        { baselineCommit: options.baselineCommit },
       )
     }
     // No WP containers yet (or every root filtered out): keep the report action-oriented, not a flat dump.
@@ -84,10 +87,31 @@ export function reportHtml(reader: TrackReader, options: ReportOptions): string 
       return `${formatWpConductorHtml(
         roster, decisions, undefined, report.outsideRollup,
         options.activeRoster === true ? 'roster actif (terminal exclu)' : 'global',
+        { baselineCommit: options.baselineCommit },
       )}\n`
     }
   }
-  return `${formatWpConductorHtml([], decisions, undefined, report.outsideRollup)}\n`
+  return `${formatWpConductorHtml([], decisions, undefined, report.outsideRollup, 'global', { baselineCommit: options.baselineCommit })}\n`
+}
+
+/**
+ * Criterion 10b — THE one command that resolves a short handle (`8.1`, `H.2`, `D3`) back to its item or
+ * dossier. Without it a report the owner can read is a report they cannot act on; with it, no ULID has to
+ * appear in a column to keep a row dispatchable.
+ */
+export function resolveHandle(reader: TrackReader, options: ReportOptions, handle: string): string {
+  const report = reader.report({ ...options, decisions: true, wpTree: true })
+  const view = buildWpConductorView(
+    report.wpTree ?? [], report.decisions ?? [], report.outsideRollup, 'global',
+    { baselineCommit: options.baselineCommit },
+  )
+  const wanted = handle.trim().replace(/^\[|\]$/gu, '').toUpperCase()
+  const hit = view.handles.find((h) => h.handle.toUpperCase() === wanted)
+  if (hit === undefined) {
+    const known = view.handles.map((h) => h.handle).join(' ')
+    return `handle introuvable: ${handle}\nhandles connus: ${known === '' ? '(aucun)' : known}\n`
+  }
+  return `${hit.handle}\t${hit.kind}\t${hit.id}\t${hit.title}${hit.wpLabel === undefined ? '' : `\t${hit.wpLabel}`}\n`
 }
 
 /**
