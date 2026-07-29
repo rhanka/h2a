@@ -91,8 +91,14 @@ The cardinal roles: **PRINCIPAL** (the ultimate human), **EXECUTIF** (overall re
 claude plugin marketplace add rhanka/h2a
 claude plugin install h2a@sentropic
 
+# Codex resolves the same marketplace and the same selector. Never register a
+# build directory (tmp/deploy-*) as a marketplace: it rots with the directory.
+codex plugin marketplace add rhanka/h2a --ref main
+codex plugin add h2a@sentropic
+
 # 2. Update it later — do not install a Track plugin or a second h2a MCP.
 claude plugin update h2a@sentropic
+codex plugin marketplace upgrade && codex plugin add h2a@sentropic  # codex has no `plugin update`
 
 # 3. Bootstrap each host CLI (do this once per machine)
 h2a connect --host claude --root ~/h2a-workspace/.h2a --instance claude:demo
