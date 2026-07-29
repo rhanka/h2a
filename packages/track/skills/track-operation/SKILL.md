@@ -12,7 +12,8 @@ dossier and `propose-workpackages` for backlog restructuring.
 ## Deterministic report/status
 
 For a human-facing report or status, run `track report` from the repository root. It is a deterministic
-conductor over the folded log, with FAIT / À-FAIRE / DÉCISIONS-ACTIONS for text and Markdown. It never
+conductor over the folded log, with exactly four sections — FAIT / À-FAIRE / DÉCISIONS / RECOMMANDATION
+— for text, Markdown and HTML, plus a machine handle-resolution block. It never
 invokes an adapter, gateway, subprocess, or model.
 
 - `track report --format text` is the default conductor.
@@ -35,8 +36,9 @@ lane/concurrency policy, and model/effort policy. If any required input is absen
 recommendation can be made; never infer it from an arbitrary event tail or session memory.
 
 Do not invent options or recommendations for a legacy decision. A decision without recorded structured
-options and recommendation must be rendered in **À INSTRUIRE**, not under **DÉCISIONS**. An owner-ratified
-revision supplies the actual existing `Option { id, title, summary }` objects and recommendation; an owner
+options and recommendation keeps its row in **DÉCISIONS** but reads `à structurer`: it reserves no
+D-number, carries no option letters, and is never offered in the reply line. An owner-ratified revision
+supplies the actual existing `Option { id, title, summary }` objects and recommendation; an owner
 selection is persisted with `track decision select <decisionId> <optionId>`.
 
 ## Contract

@@ -146,17 +146,24 @@ describe('§B — inline render (compact, one-screen)', () => {
 // ---- §C html mode — DS-compatible fragment via the shared presenter --------------------------------
 
 describe('§C — DS-compatible html fragment (shared presenter path)', () => {
-  it('emits a namespaced <article> with sectioned tables and data-* directive variants', () => {
+  it('emits a namespaced <article> with the FOUR sections and the machine resolution footer', () => {
     const w = wp('WP1')
     specified(leaf('todo', w))
     const html = formatWpConductorHtml(tree())
     expect(html.startsWith('<article class="report-document" data-kind="wp-conductor-report"')).toBe(true)
-    expect(html).toContain('<section class="report-section" data-section="done">')
+    // Criterion 2 — exactly four sections, in the same order as text/md/json. The machine directive list
+    // used to be a fifth `<section>`; it is no longer rendered (it stays on the JSON surface).
+    expect([...html.matchAll(/<section class="report-section" data-section="([a-z-]+)">/gu)].map((m) => m[1])).toEqual([
+      'done', 'todo', 'decisions', 'recommendation',
+    ])
     expect(html).toContain('<table class="report-table">')
-    expect(html).toContain('class="report-directive"')
-    expect(html).toContain('data-advice-kind="derivable-next-step"')
-    expect(html).toContain('data-mode="subagent"')
+    expect(html).not.toContain('class="report-directive"')
+    // Criteria 10b/10c — the resolution block is a footer, not a section and not a report-table.
+    expect(html).toContain('<footer class="report-resolution" data-section="resolution">')
+    expect(html).toContain('n’est pas actionnable')
     expect(html).toContain('</article>')
+    // The machine model still carries the directives for the design system.
+    expect(buildWpConductorView(tree()).directives.length).toBeGreaterThan(0)
   })
 
   it('escapes a forged item title (no markup injection, §A4)', () => {
