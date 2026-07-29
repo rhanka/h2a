@@ -122,19 +122,45 @@ The acceptance baseline is **not** a window. Keep the two apart in the sentence,
 **FAIT** — `scope · avancement · dernières actions`. The third column names what was accomplished, not the
 arithmetic: `agrégat de périmètre; pas une action` and `WP clos (état enregistré)` are both forbidden.
 
-**Over a long window, FAIT is a balance sheet, not the latest titles.** Three completions out of
-fifty-four is a *sample*, not a summary, and serving one as the other is what failed the owner's UAT.
-Density follows the window: one day names the facts, five weeks tells a short story — themes, turning
-points, delivered capability.
+**Write each cell by the finality.** Not the mechanism, not the chronology: the capability reached, what
+it enables, what class of problem it closes. A reader who does not know the code must understand what was
+gained. Numbers, versions, dates and identifiers come in support — once or twice, to prove — never as the
+structure of the sentence.
 
-The deterministic projection cannot write that: it carries item titles, not a reading of them. So when a
-scope has more completions than fit, it emits `bilan à écrire — N actions enregistrées, titres seuls dans
-le projeté … échantillon : …`. **That cell is an instruction to you, not a result.** Replace it using
-input 2 — `git log`, merged PRs, releases, tags over the window — and name the provenance. If you do not
-have input 2, leave the cell saying what is missing. Never delete the marker and leave the sample: a
-sample presented as a synthesis is the defect, not the wording.
+What that means concretely, on WP2:
+
+> ❌ *« reach-guard partagé sur les chemins réveil/relance et workspace-id git-dérivé (09/06),
+> `discover --live` classé par confiance (14/06), signal de confiance de connexion honnête + arrêt
+> gracieux et purge de présence fantôme (10/06), `touch()` qui ressuscite une présence balayée (18/06) »*
+>
+> ✅ *« Adresser un agent ne relève plus du pari.
+> La cible est vérifiée avant l'envoi et les sessions mortes cessent de répondre — 337 destinataires
+> annoncés, 3 réellement joignables. »*
+
+The first is a commit list translated into French. What disappears: a parenthesised date on every clause,
+symbol names in series, chronological enumeration. What stays: one or two measures that make the
+capability credible.
+
+**One idea per line.** A cell is written as an editor writes, with a line break between ideas — two to
+four lines per WP on a long window. The renderer honours `\n` in every format, so use it. A cell that
+overflows is enumerating instead of synthesising, which is the same defect again.
+
+**Over a long window the deterministic layer cannot help you here, and it says so.** When a scope has more
+completions than fit, the cell reads `bilan à écrire : N livraisons sur la fenêtre, titres seuls dans le
+projeté. / Écrire par la finalité …`. **That is an instruction, not a result.** It deliberately does *not*
+list the titles: a chronological list of item titles is exactly the shape forbidden above, and the
+renderer will not hand you one to paste. Get the material from input 2 — `git log`, merged PRs, releases,
+tags over the window — plus `track query --bucket DONE` for the item set, and name the provenance. If you
+do not have input 2, leave the cell saying what is missing.
 
 **The global row is an aggregate: never turn its count into an accomplishment sentence.**
+
+**Stop at the WP on a long window.** A sub-WP is implementation detail; beside its own parent it inflates
+the table, repeats the parent's information and blurs the reading by theme. On a window of two weeks or
+more the renderer aggregates sub-levels into their parent — their leaves, deliveries and directives merge
+upward, nothing is lost — and the header declares how many (`8 sous-WP agrégés dans leur parent`). Do not
+re-expand them. They come back on a short window, or on the owner's explicit request
+(`track report --sub-wp`).
 
 **À-FAIRE** — exactly five columns: `WP · av. · à faire · bloqué · prochaine action`. There is no
 `cible action` column; a DONE item carrying acceptance debt is named inside `à faire` with its bucket.
@@ -149,6 +175,10 @@ Print the line `ordre = priorité ; les cinq premiers sont le focus` under the h
 - A row gated on a pending dossier has **no** next action until the decision lands — that is the only
   case where `—` is correct there.
 - WP labels are short human names (`WP2 · Addressing`), never the full stored title.
+- One item per line, and an item's recorded body excerpt on its own line beneath it
+  (`↳ extrait : …`) — a supporting clause, never a paragraph appended to the title. The excerpt comes
+  from the log and costs no investigation; a bare title means the log records only a title, and that is
+  a different kind of emptiness from a row nobody has looked at yet. Keep the two distinguishable.
 
 **DÉCISIONS** — a drawn table `# · sujet · alternatives · préco`, numbered `D1…Dn`, each recommendation on
 the line of its own option. The renderer already draws it; `formatWpConductor` adds no fence in `text`, and

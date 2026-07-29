@@ -79,12 +79,19 @@ export function handleTokenRegex(): RegExp {
  * machine-generated handle token passed through verbatim so all three formats yield the SAME handle set.
  */
 export function displayCell(s: string, format: Format): string {
-  const t = cleanDisplayText(s)
-  if (format !== 'md') return t
-  return t
-    .split(new RegExp(`(${HANDLE_TOKEN_SOURCE})`, 'u'))
-    .map((part, index) => (index % 2 === 1 ? part : escapeMdMeta(part)))
-    .join('')
+  // Criterion 27 — an explicit `\n` is an EDITORIAL break (one idea per line) and survives to the
+  // renderer; every other control character still collapses to a space.
+  return s
+    .split('\n')
+    .map((line) => {
+      const t = cleanDisplayText(line)
+      if (format !== 'md') return t
+      return t
+        .split(new RegExp(`(${HANDLE_TOKEN_SOURCE})`, 'u'))
+        .map((part, index) => (index % 2 === 1 ? part : escapeMdMeta(part)))
+        .join('')
+    })
+    .join('\n')
 }
 
 function clean(s: string): string {
@@ -243,7 +250,13 @@ function table(
   // No ellipsis: long content wraps inside the column so the report stays readable and complete enough.
   const caps = headers.map((h, i) => capOverrides?.[i] ?? defaultCap(h))
   const head = headers.map((h, i) => cell(h).slice(0, caps[i]!))
-  const wrappedRows = rows.map((row) => headers.map((_, i) => wrapCell(row[i] ?? '', caps[i]!)))
+  // Criterion 27 — a cell is written like an editor writes: one idea per line. An explicit `\n` is a
+  // break the reader asked for; wrapping only handles what overflows a line.
+  const wrappedRows = rows.map((row) =>
+    headers.map((_, i) =>
+      (row[i] ?? '').split('\n').flatMap((line) => (line.trim() === '' ? [''] : wrapCell(line, caps[i]!))),
+    ),
+  )
   const widths = head.map((h, i) => Math.min(caps[i]!, Math.max(h.length, ...wrappedRows.flatMap((r) => r[i]!).map((v) => v.length))))
   // Padding aligns interior columns; remove only terminal padding so reports and committed fixtures do not
   // carry invisible trailing whitespace.
@@ -586,6 +599,12 @@ export interface ReportCoverage {
   projected: number
   rendered: number
   omitted: readonly ReportOmission[]
+  /**
+   * Criterion 25 — sub-WPs whose content was merged into their parent row. They are RENDERED (their
+   * leaves and directives are in the parent), not omitted; naming the count keeps the compression
+   * declared rather than silent.
+   */
+  aggregated: readonly string[]
 }
 
 /**
@@ -715,19 +734,22 @@ function recentDoneLeaves(node: WpNode): WpNode['leaves'] {
 const LAST_ACTIONS_SHOWN = 3
 
 /**
- * FAIT's third column (criteria 3/4/22). When the scope's completions fit, they ARE the statement and are
- * listed in full. When they do not, three of fifty-four is a SAMPLE, not a summary — and the previous
- * rendering presented it as one, which is what failed UAT. The deterministic projection carries item
- * titles, not a reading of them, so it cannot produce a balance sheet: it says so, names what it would
- * take (input 2, the repository history over the window), and labels the titles it does show as a sample.
+ * FAIT's third column (criteria 3/4/22/26/27).
+ *
+ * When the scope's completions fit, they ARE the statement — one per line (27), not a `·`-joined block.
+ *
+ * When they do not, the renderer must NOT emit the titles: a chronological list of item titles is a
+ * commit log translated into French, which is precisely the shape criterion 26 forbids. It has no reading
+ * of them to offer, so it says what it owes and what writing it takes — three lines, one idea each. That
+ * cell is an instruction to the agent, never a result.
  */
 function lastActionsCell(titles: readonly string[]): string {
   if (titles.length === 0) return 'aucune action enregistrée'
-  if (titles.length <= LAST_ACTIONS_SHOWN) return titles.join(' · ')
-  return (
-    `bilan à écrire — ${titles.length} actions enregistrées, titres seuls dans le projeté ` +
-    `(requiert l’historique du dépôt sur la fenêtre) · échantillon : ${titles.slice(0, LAST_ACTIONS_SHOWN).join(' · ')}`
-  )
+  if (titles.length <= LAST_ACTIONS_SHOWN) return titles.join('\n')
+  return [
+    `bilan à écrire : ${titles.length} livraisons sur la fenêtre, titres seuls dans le projeté.`,
+    'Écrire par la finalité — la capacité atteinte, la classe de problème fermée ; chiffres en appui.',
+  ].join('\n')
 }
 
 // ---- `prochaine action` (criterion 20) -----------------------------------------------------------
@@ -747,6 +769,38 @@ const NEXT_ACTION_NOT_INSTRUCTED = 'non instruite'
 const NEXT_ACTION_STRUCTURE_DOSSIER = 'à structurer : enregistrer options + recommandation'
 /** How many leading rows are the focus — the same five the À-FAIRE ordering line already names. */
 const FOCUS_ROWS = 5
+
+/**
+ * Criterion 25 — beyond this many days the window is LONG, and the WP is the unit of reading: a sub-WP is
+ * implementation detail that inflates the table and blurs the reading by theme. Sub-levels are aggregated
+ * into their parent, never listed beside it. They come back on a short window or on explicit owner
+ * request (`--sub-wp`).
+ */
+const LONG_WINDOW_DAYS = 14
+
+function windowDays(period: ReportPeriod): number | undefined {
+  if (period.from === undefined || period.to === undefined) return undefined
+  const from = Date.parse(period.from)
+  const to = Date.parse(period.to)
+  return Number.isNaN(from) || Number.isNaN(to) ? undefined : Math.round((to - from) / 86_400_000)
+}
+
+/**
+ * How much of an item's RECORDED body the `à faire` cell shows. Tight on purpose: one clause, enough to
+ * tell the owner what the row is about, cut at a word boundary and always marked `extrait :` so nobody
+ * reads it as the full record — the same honesty the old `extrait` column applied.
+ */
+const TODO_EXCERPT_MAX = 100
+
+/** `undefined` for an absent/blank body — a bare title is then the HONEST render, not a gap to fill. */
+export function todoExcerpt(body: string | undefined): string | undefined {
+  const cleaned = body === undefined ? undefined : clean(body)
+  if (cleaned === undefined || cleaned === '') return undefined
+  if (cleaned.length <= TODO_EXCERPT_MAX) return cleaned
+  const cut = cleaned.slice(0, TODO_EXCERPT_MAX)
+  const boundary = cut.lastIndexOf(' ')
+  return `${(boundary > TODO_EXCERPT_MAX / 2 ? cut.slice(0, boundary) : cut).trimEnd()}…`
+}
 
 /** The `prochaine action` values this renderer may emit. A test pins that no gate clause joins them. */
 export const DETERMINISTIC_NEXT_ACTIONS: readonly string[] = [
@@ -848,6 +902,11 @@ export interface ConductorMeta {
    * (same pattern as `workspace-activity --now`). Present ⇒ the window's upper bound is `now`.
    */
   now?: string
+  /**
+   * Criterion 25 — the EXPLICIT owner request for sub-WP detail. Absent, the reading unit follows the
+   * window: sub-levels are aggregated into their parent on a long window, listed on a short one.
+   */
+  subWp?: boolean
 }
 
 export function buildWpConductorView(
@@ -867,6 +926,27 @@ export function buildWpConductorView(
     }
   }
   collectWpNodes(tree)
+
+  // ---- criterion 25: the reading unit ---------------------------------------------------------------
+  // On a long window the WP is the unit and a sub-WP is implementation detail. Sub-levels are AGGREGATED
+  // into their root — their leaves already roll up (`openLeaves`/`recentDoneLeaves` walk children), so
+  // nothing is lost; only their row disappears. The aggregation is DECLARED in the header, like every
+  // other compression in this report.
+  const period = buildPeriod(meta)
+  const days = windowDays(period)
+  const subWpDetail = meta.subWp === true || (days !== undefined && days < LONG_WINDOW_DAYS)
+  const rowNodes = subWpDetail ? wpNodes : [...tree]
+  const subNodes = wpNodes.filter((n) => !rowNodes.includes(n))
+  /** Every node whose content merges into `n` when sub-levels are aggregated (`n` itself included). */
+  const branchOf = (n: WpNode): WpNode[] => {
+    const out: WpNode[] = []
+    const walk = (node: WpNode): void => {
+      out.push(node)
+      for (const child of node.children) walk(child)
+    }
+    walk(n)
+    return subWpDetail ? [n] : out
+  }
 
   const directives = buildDirectives(tree, decisions)
   const dispatchQueue = dispatchQueueOf(directives)
@@ -908,7 +988,10 @@ export function buildWpConductorView(
           .map((l) => clean(l.title)),
       ),
     },
-    ...wpNodes
+    // Criterion 25 — one row per READING unit: the WP on a long window, the sub-level only when the
+    // window is short or the owner asked. `recentDoneLeaves` already walks children, so a root's row
+    // carries its sub-levels' deliveries rather than losing them.
+    ...rowNodes
       .filter((n) => n.done > 0)
       .map((n) => ({
         scope: wpName(n),
@@ -980,7 +1063,7 @@ export function buildWpConductorView(
     [...new Set(attached.map((d) => gatePhraseFr(d.gate)).filter((p): p is string => p !== undefined))].join(' / ')
 
   /** One actionable item inside an À-FAIRE row — its handle is assigned once the rows are ordered. */
-  interface TodoItem { id: string; title: string; note?: string }
+  interface TodoItem { id: string; title: string; note?: string; excerpt?: string }
   interface TodoDraft {
     wp: string
     progress: string
@@ -995,16 +1078,29 @@ export function buildWpConductorView(
     order: string
   }
 
-  const wpTodoDrafts: TodoDraft[] = wpNodes
-    .filter((n) => openLeaves(n).length > 0 || directivesByWpId.has(n.id))
+  const wpTodoDrafts: TodoDraft[] = rowNodes
+    .filter((n) => openLeaves(n).length > 0 || branchOf(n).some((b) => directivesByWpId.has(b.id)))
     .map((n) => {
-      const attached = directivesByWpId.get(n.id) ?? []
-      const items: TodoItem[] = openLeaves(n).map((l) => ({ id: l.id, title: clean(l.title) }))
+      // Criterion 25 — a sub-level's directives merge UPWARD with its leaves; they are not dropped.
+      const attached = branchOf(n).flatMap((b) => directivesByWpId.get(b.id) ?? [])
+      // The item's recorded body is ALREADY in the log; surfacing it costs no investigation and is what
+      // makes a `non instruite` row still say something (or admit that the log says nothing).
+      const items: TodoItem[] = openLeaves(n).map((l) => ({
+        id: l.id,
+        title: clean(l.title),
+        ...(todoExcerpt(l.summary) !== undefined ? { excerpt: todoExcerpt(l.summary)! } : {}),
+      }))
       // A directive may target a DONE leaf with acceptance debt: name it here (with its own handle)
       // instead of exiling it to a `cible action` column the owner never asked for.
       for (const d of attached) {
         if (d.target.kind === 'decision' || items.some((i) => i.id === d.target.id)) continue
-        items.push({ id: d.target.id, title: clean(d.target.title ?? d.target.id), note: d.facts.bucket.toLowerCase() })
+        const debtLeaf = wpNodes.flatMap((node) => node.leaves).find((l) => l.id === d.target.id)
+        items.push({
+          id: d.target.id,
+          title: clean(d.target.title ?? d.target.id),
+          note: d.facts.bucket.toLowerCase(),
+          ...(todoExcerpt(debtLeaf?.summary) !== undefined ? { excerpt: todoExcerpt(debtLeaf?.summary)! } : {}),
+        })
       }
       const gated = gatedOnPendingDecision(attached)
       return {
@@ -1037,7 +1133,17 @@ export function buildWpConductorView(
     horsWpDrafts.push({
       wp: 'hors WP · dossiers à structurer',
       progress: 'n/a',
-      items: toStructure.map((d) => ({ id: d.target.id, title: clean(d.target.title ?? d.target.id) })),
+      // A dossier with no stored options says nothing by its title alone. Its prose context is recorded:
+      // show it as an EXCERPT — never as options, which is what `unstructured` forbids (criterion 16).
+      items: toStructure.map((d) => {
+        const ref = d.gate?.ref ?? d.target.id
+        const excerpt = todoExcerpt(decisions.find((row) => row.id === ref)?.contextExcerpt)
+        return {
+          id: d.target.id,
+          title: clean(d.target.title ?? d.target.id),
+          ...(excerpt !== undefined ? { excerpt } : {}),
+        }
+      }),
       // Criterion 19 — a gate IS recorded, so this is never `—`; and it names the actual blockage rather
       // than pointing back at the row's own dossiers.
       blocked: 'options non enregistrées',
@@ -1053,7 +1159,11 @@ export function buildWpConductorView(
     horsWpDrafts.push({
       wp: 'hors WP · items',
       progress: 'n/a',
-      items: outsideOpen.map((r) => ({ id: r.id, title: clean(r.title) })),
+      items: outsideOpen.map((r) => ({
+        id: r.id,
+        title: clean(r.title),
+        ...(todoExcerpt(r.detail.summary) !== undefined ? { excerpt: todoExcerpt(r.detail.summary)! } : {}),
+      })),
       blocked: NO_GATE,
       gatedOnDecision: false,
       directiveIds: '',
@@ -1078,7 +1188,11 @@ export function buildWpConductorView(
         handle, kind: 'item', id: item.id, title: item.title,
         ...(wpLabel === undefined ? {} : { wpLabel }),
       })
-      return `[${handle}] ${item.title}${item.note === undefined ? '' : ` (${item.note})`}`
+      // Criterion 27 — one idea per line: the item on its line, and its recorded excerpt as a
+      // SUBORDINATE clause on its own, never a paragraph appended to the title.
+      const note = item.note === undefined ? '' : ` (${item.note})`
+      const excerpt = item.excerpt === undefined ? '' : `\n↳ extrait : ${item.excerpt}`
+      return `[${handle}] ${item.title}${note}${excerpt}`
     })
     const nextAction =
       draft.fixedNextAction ??
@@ -1090,7 +1204,7 @@ export function buildWpConductorView(
     return {
       wp: draft.wp,
       progress: draft.progress,
-      todo: cells.join(' / '),
+      todo: cells.join('\n'),
       blocked: draft.blocked,
       nextAction,
       directiveIds: draft.directiveIds,
@@ -1191,9 +1305,14 @@ export function buildWpConductorView(
   // Criteria 17/24 — compression is allowed, silence is not, and every omission NAMES ITS REASON.
   // Criterion 18 is what keeps this safe: a WP carrying open work, and every dossier the owner can still
   // answer, are in the rendered lists above and can never fall here.
+  const empty = (n: WpNode): boolean =>
+    n.done === 0 && openLeaves(n).length === 0 && !directivesByWpId.has(n.id)
+  // Criterion 25 — a sub-level that CARRIES something is restituted inside its parent, so it is neither
+  // rendered as a row nor omitted: it is aggregated, and the header says how many.
+  const aggregated = subNodes.filter((n) => !empty(n)).map(wpName)
   const omitted: ReportOmission[] = [
     ...wpNodes
-      .filter((n) => n.done === 0 && openLeaves(n).length === 0 && !directivesByWpId.has(n.id))
+      .filter(empty)
       .map((n) => ({ label: wpName(n), reason: 'WP sans item ouvert, sans blocage et sans livraison' })),
     ...settledDecisions.map((d) => ({
       label: shortDecisionSubject(d.title),
@@ -1214,6 +1333,7 @@ export function buildWpConductorView(
     projected: projectedRows,
     rendered: projectedRows - omitted.length,
     omitted,
+    aggregated,
   }
 
   const header: ReportHeader = {
@@ -1221,7 +1341,7 @@ export function buildWpConductorView(
     progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`,
     ...(meta.baselineCommit !== undefined ? { baselineCommit: meta.baselineCommit.slice(0, 12) } : {}),
     // Criterion 21 — the window is measured in the log, so it is always stated, always with dates.
-    period: buildPeriod(meta),
+    period,
     sources: ['projection déterministe du journal (track report --wp --decisions)'],
     coverage,
     handleCommand: 'track report --resolve <handle>',
@@ -1300,7 +1420,11 @@ export function shortDecisionSubject(storedTitle: string): string {
  * "Omitted" without a why is the silence the criterion exists to forbid.
  */
 export function coverageLine(coverage: ReportCoverage): string {
-  const head = `couverture : ${coverage.projected} lignes projetées · ${coverage.rendered} rendues`
+  const merged =
+    coverage.aggregated.length > 0
+      ? ` · ${coverage.aggregated.length} sous-WP agrégés dans leur parent`
+      : ''
+  const head = `couverture : ${coverage.projected} lignes projetées · ${coverage.rendered} rendues${merged}`
   if (coverage.omitted.length === 0) return `${head} · aucune omission`
   const byReason = new Map<string, number>()
   for (const omission of coverage.omitted) byReason.set(omission.reason, (byReason.get(omission.reason) ?? 0) + 1)

@@ -2,29 +2,27 @@
 TRACK REPORT — global · 3/5 (60%)
 période : journal vide (aucun événement enregistré)
 baseline d’acceptance : non résolue
-couverture : 5 lignes projetées · 4 rendues · 1 omise : 1 WP sans item ouvert, sans blocage et sans livraison
+couverture : 5 lignes projetées · 4 rendues · 2 sous-WP agrégés dans leur parent · 1 omise : 1 WP sans item ouvert, sans blocage et sans livraison
 sources : projection déterministe du journal (track report --wp --decisions)
 
 FAIT
-scope           avancement   dernières actions
-─────────────   ──────────   ────────────────────────
-global          3/5 (60%)    b-done · p-done · a-done
+scope         avancement   dernières actions
+───────────   ──────────   ─────────────────
+global        3/5 (60%)    b-done
+                           p-done
+                           a-done
 
-WP1 · Alpha     2/4 (50%)    p-done · a-done
+WP1 · Alpha   2/4 (50%)    p-done
+                           a-done
 
-WP1.1 · Phase   1/1 (100%)   p-done
-
-WP2 · Beta      1/1 (100%)   b-done
+WP2 · Beta    1/1 (100%)   b-done
 
 À-FAIRE
 ordre = priorité ; les cinq premiers sont le focus
-WP            av.   à faire                       bloqué   prochaine action
-───────────   ───   ───────────────────────────   ──────   ────────────────────────────────────────
-WP1 · Alpha   50%   [1.1] a-todo / [1.2] s-todo   spec     à instruire : ouvrir l’item et nommer le
-                                                           geste
-
-WP1.2 · Sub   0%    [2.1] s-todo                  spec     à instruire : ouvrir l’item et nommer le
-                                                           geste
+WP            av.   à faire        bloqué   prochaine action
+───────────   ───   ────────────   ──────   ────────────────────────────────────────
+WP1 · Alpha   50%   [1.1] a-todo   spec     à instruire : ouvrir l’item et nommer le
+                    [1.2] s-todo            geste
 
 DÉCISIONS
 ┌───┬─────────────────────────────────────────┬──────────────────┬───────┐
@@ -35,7 +33,7 @@ DÉCISIONS
 └───┴─────────────────────────────────────────┴──────────────────┴───────┘
 
 RECOMMANDATION
-Sans décision : WP1, WP1.2 peuvent démarrer — le geste concret reste à instruire par ligne.
+Sans décision : WP1 peuvent démarrer — le geste concret reste à instruire par ligne.
 Aucun D# disponible : aucun dossier structuré sélectionnable dans le journal.
 Réponds « vas y » pour lancer les lanes sans décision.
 
@@ -44,7 +42,6 @@ handles positionnels, valables pour CE rapport uniquement : une réponse qui cit
 commande : track report --resolve <handle>
 1.1	id-0007	a-todo
 1.2	id-0017	s-todo
-2.1	id-0017	s-todo
 
 === formatWpTree(md) ===
 - **WP1 · Alpha** (2/4, 50%)
