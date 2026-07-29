@@ -67,8 +67,8 @@
 - [x] Pin names, version, schema, mapper coverage, facade guards, LWW replacement, CLI behavior, and pre-change-log fold additivity.
 - [x] Reproduce and record the pre-existing `h2a-runtime` build failure on the `origin/main`-based runtime source.
 - [x] Run `cd packages/track && npx vitest run`; investigate any test-count gap before claiming the suite result.
-- [ ] Inspect scope and diff; commit scoped files, push branch, and open a PR against `main`.
-- [ ] Write `tmp/report-to-track.md` with observed counts, boundary, and out-of-scope findings; request independent owner-dispatched review.
+- [x] Inspect scope and diff; commit scoped files, push branch, and open a PR against `main`.
+- [x] Write `tmp/report-to-track.md` with observed counts, boundary, and out-of-scope findings; request independent owner-dispatched review.
 
 ## Feedback Loop
 
