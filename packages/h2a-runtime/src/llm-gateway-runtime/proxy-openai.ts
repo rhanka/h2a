@@ -991,10 +991,12 @@ export function translateCodexStreamToAnthropic(
       const emit = (s: string) => controller.enqueue(enc.encode(s));
 
       let nextBlockIdx = 0;
-      // output_index → {type, idx}
+      // output_index → {type, idx}. `argsStreamed` records that the upstream
+      // already sent argument deltas for a tool block, so the terminal
+      // arguments are not appended a second time.
       const blockMap = new Map<
         number,
-        { type: "text" | "tool"; idx: number }
+        { type: "text" | "tool"; idx: number; argsStreamed?: boolean }
       >();
       let textBlockOpen = false;
       let outputTokens = 0;
@@ -1107,6 +1109,7 @@ export function translateCodexStreamToAnthropic(
                 if (!delta) break;
                 const fBlock = blockMap.get(outputIndex);
                 if (fBlock?.type === "tool") {
+                  fBlock.argsStreamed = true;
                   emit(
                     sseEvent("content_block_delta", {
                       type: "content_block_delta",
@@ -1120,7 +1123,31 @@ export function translateCodexStreamToAnthropic(
 
               case "response.output_item.done": {
                 const block = blockMap.get(outputIndex);
+                const item = data.item as Record<string, unknown> | undefined;
                 if (block) {
+                  // The Codex Responses upstream delivers function-call
+                  // arguments ONLY here, as one complete string — it never emits
+                  // response.function_call_arguments.delta. Relaying them as an
+                  // input_json_delta before closing the block is what lets a
+                  // client reconstruct the tool input; without it every tool
+                  // call reaches the client with an empty input.
+                  if (
+                    block.type === "tool" &&
+                    !block.argsStreamed &&
+                    typeof item?.arguments === "string" &&
+                    item.arguments !== ""
+                  ) {
+                    emit(
+                      sseEvent("content_block_delta", {
+                        type: "content_block_delta",
+                        index: block.idx,
+                        delta: {
+                          type: "input_json_delta",
+                          partial_json: item.arguments,
+                        },
+                      }),
+                    );
+                  }
                   emit(
                     sseEvent("content_block_stop", {
                       type: "content_block_stop",
@@ -1129,7 +1156,6 @@ export function translateCodexStreamToAnthropic(
                   );
                   if (block.type === "text") textBlockOpen = false;
                 }
-                const item = data.item as Record<string, unknown> | undefined;
                 if (item?.type === "function_call") stopReason = "tool_use";
                 break;
               }
