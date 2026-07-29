@@ -67,6 +67,7 @@ type Flags = Record<string, string | true>
 const USAGE = `usage: track <command>
   --help | help
   global read/store override: --track-dir <directory-containing-events.jsonl> (or TRACK_DIR)
+    may appear before or after the command; it redirects reads AND writes to that directory
   --version | -v
   init
   item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] [--engagement-ref <e>]
