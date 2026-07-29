@@ -13,6 +13,16 @@ single retained counterweight to that ownership and is **not optional**.
 Machine form: [`org.h2a.yaml`](../../org.h2a.yaml) at the repo root — `h2a org show`,
 `h2a org validate`, `h2a org diff`.
 
+> **Two citations in this document do not resolve at this commit**, and that is stated here
+> rather than discovered at merge. `docs/agents/RECALL.md` (cited for DOC-06, the twelve-actor
+> roster) lands with `memory`'s PR 90; `docs/specs/2026-07-29-ARCH_raci-visa-and-wp7-arbitration.md`
+> (the architect's advice artefact) lives on the architect's own branch. Merging this document
+> first leaves both dangling. The substance of the architect's advice is reproduced in the track
+> decision that carries this RACI, so the *record* does not depend on the file — but the
+> *citations* do, and this repo has paid three times for citing an uncommitted document as a
+> mandate. Found by the third review leg; the ordering is a merge-sequence question for the
+> owner, not something to paper over.
+
 ---
 
 ## What the letters mean here
@@ -103,7 +113,9 @@ actor named here wins.
 | Change what the required test gate covers | `harness` | `harness` | `cyber` **and** `arch` — two named independent legs, see the exclusion below | all |
 | Command a remote session: back-channel, lifecycle, launch option | `runtime` | `runtime` | `portal` | `cond` |
 | Expose a session, a UAT or a decision dossier to sentropic — indifferent to where it runs | `portal` | `portal` | `runtime`, `arch` | `cond` |
-| Ship a security fix or a vulnerable-dependency bump | `cyber` | `cyber` | owning lane — informed, **not** blocking | `cond`, `harness` |
+| Ship a security fix or a vulnerable-dependency bump | `cyber` | `cyber` | — | owning lane, `cond`, `harness` |
+| Waive an acceptance criterion (`track accept waive`) | owner | `track` (mechanism) | owning lane, `harness` | `cond` |
+| Offboard an NHI — revoke every active key and subagent, write the tombstone | `arch` | `arch` | `cyber`, affected actor, owner | `cond` |
 | Set the sandbox / greywall policy | `cyber` | `cyber` | `runtime` (executes it) | `cond` |
 | Declare an item `done` | owner (UAT) | owning lane | — | `cond`, `track` |
 | Reopen an item closed without validation | owning lane | `track` (mechanism) | — | `cond`, owner |
@@ -175,10 +187,21 @@ DOC-06 states. The enumeration is authoritative; the count in the title is off b
 ## Where this stops
 
 On the enforceability ladder — **structural > test > spec line > habit** — this file is
-a **spec line**. `org.h2a.yaml` raises the *roster* to structural (a total validator
-refuses an invalid org), and a test pins the two together. The **A/R/C/I assignments
-themselves remain a spec line**: nothing in the code refuses an act performed by the
-wrong actor. Five measurements say exactly how far the machine is from this paper.
+a **spec line**, and the roster sits one rung above it at **test**, not at structural.
+
+That distinction is a correction, not a nuance. An earlier version of this section called the
+roster structural on the strength of `validateOrgManifest`. The third review leg checked what
+that validator actually pins: a non-empty unique instance id, a canonical role, at least one
+scope, at least one PRINCIPAL, and edges referencing declared instances. It does **not** pin
+the twelve actors, nor a single CONDUCTOR, nor membership of the root scope, nor the WP map.
+Every property this document depends on is held by
+`packages/h2a/test/org-manifest-committed.test.js` alone — so the roster is exactly as strong
+as that test, and the same leg found a hole in it (a WP named twice in table A passed green;
+now closed and re-falsified). A gate is worth what its last falsification proved, not what its
+title says.
+
+The **A/R/C/I assignments remain a spec line**: nothing in the code refuses an act performed by
+the wrong actor. Five measurements say exactly how far the machine is from this paper.
 
 **Status of the gate itself, stated precisely.** The test lives in `packages/h2a/test`,
 which the required `build-and-test` check runs on `main` under `enforce_admins`, and
@@ -208,8 +231,17 @@ as a mandate.
 
 3. **Per-item RACI cannot be back-filled.** `track` persists `accountable` /
    `responsible` **only at item creation** (`track item new --accountable/--responsible`);
-   there is no command to set them on an existing item, and 115 items already exist. So
-   the ownership table above cannot yet be projected onto the backlog it governs.
+   there is no command to set them on an existing item, and the backlog already holds well
+   over a hundred. So the ownership table above cannot yet be projected onto the backlog it
+   governs.
+
+   *On the counts in this section:* an earlier version wrote "115 items", and "2 items versus
+   119" in measurement 5. Neither reproduces from this commit — the third review leg measured
+   113 and 110 at the head. The journal is append-only and **mutable between reads**: twelve
+   actors were writing to it while these lines were drafted, so any absolute count is a
+   timestamp, not a fact about the repository. The measurements that carry this document are the
+   *ratios and the causes*, which do reproduce; the raw totals are dated observations and are
+   marked as such rather than being re-pinned to numbers that will drift again by morning.
 
 4. **Routing to an actor is a convention.** Multi-namespace target resolution (DOC-03)
    is decided and not wired. Until it is, a dispatch addressed to `runtime` is a name
@@ -244,14 +276,29 @@ provision the ratified manifest so roles exist in the registry; give `track` a w
 set `accountable`/`responsible` on an existing item; then gate the acts in table B on
 the actor's registered role, reusing the clearance gate rather than goodwill.
 
-**One correction on provisioning, because the earlier wording was too pessimistic.** This
-manifest binds durable launch names, and `h2a org provision` only augments an *already
-registered* instance — so provisioning **this manifest as written** grants nothing. That is a
-statement about the form, not about the mechanism: `harness` measured that `graphify` already
-carries **five roles provisioned on doublet ids**, which demonstrates a working shape. So the
-blocker is not "wait for multi-namespace resolution"; it is "bind each actor's durable name to
-a keyed instance, in the shape that already works elsewhere". A narrower claim, and a cheaper
-path.
+**Provisioning: two of my successive claims were wrong, in opposite directions.** For the
+record, because the corrections matter more than the conclusion.
+
+I first wrote that provisioning "requires the owner's ratification". False: the third review
+leg on PR 84 measured that `h2a org provision` accepts any file passing `validateOrgManifest`
+and, on a control registry, granted CONDUCTOR plus two scopes to `cond` with **no signature,
+no `org-ratified` envelope and no key**. The propose/ratify lifecycle exists in the code and
+provisioning never checks it. There is no ratification boundary — only the fact that nobody
+has typed the command.
+
+I then narrowed it to "provisioning this manifest grants nothing, and `graphify` shows the
+shape that works". Also unsafe: the same leg could **not** reproduce the `graphify` evidence in
+any registry it read, and — decisively — on the **real** shared registry `org diff` and
+`org provision` do not run at all, throwing `TypeError: r.roles is not iterable` on a legacy
+row whose `role`/`scope` are scalars rather than arrays. A claim about what provisioning would
+grant presumes it reaches the granting step; here it does not.
+
+What is actually established: `provision` matches a declared `instance` against the registry by
+**exact string equality** (`org.ts`), reads no `name` field, and resolves no launch name. So
+"bind each durable name to a keyed instance" is a direction, **not an implemented path** — and
+the honest state of this row is that the mechanism must be measured before anyone decides
+anything about it. That is why the ratification decision carrying this document was withdrawn
+rather than defended.
 
 ---
 

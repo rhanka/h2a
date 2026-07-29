@@ -50,14 +50,22 @@ const DOMAIN = [
 function wpOwnersFromRaci() {
   const md = readFileSync(join(REPO_ROOT, "docs", "governance", "RACI.md"), "utf8");
   const owners = new Map();
+  const duplicates = [];
   for (const line of md.split("\n")) {
     const row = /^\|\s*WP(\d+)\s*\|[^|]*\|([^|]*)\|/.exec(line);
     if (!row) continue;
     const actor = /`([^`]+)`/.exec(row[2]);
     if (!actor) continue;
-    owners.set(Number(row[1]), actor[1]);
+    const wp = Number(row[1]);
+    // A `Map.set` here would let a SECOND row for the same WP silently overwrite the first, so a
+    // document naming two different owners for one WP would still agree with a manifest matching
+    // whichever came last — and the suite would go green on a document that contradicts itself.
+    // The second review leg found exactly that hole by duplicating a row, so the duplicate is now
+    // collected and surfaced instead of swallowed.
+    if (owners.has(wp)) duplicates.push(`WP${wp}: "${owners.get(wp)}" then "${actor[1]}"`);
+    owners.set(wp, actor[1]);
   }
-  return owners;
+  return { owners, duplicates };
 }
 
 function committedManifest() {
@@ -122,7 +130,14 @@ test("every WP is owned by exactly one actor — the invariant, not one particul
   }
 
   // And the manifest must agree with the document, in both directions, so neither can drift alone.
-  const fromRaci = wpOwnersFromRaci();
+  const { owners: fromRaci, duplicates } = wpOwnersFromRaci();
+  // The document must not contradict ITSELF either. Agreeing with the manifest is not enough: a
+  // table naming two owners for one WP is already unanswerable, whichever one the manifest matches.
+  assert.deepEqual(
+    duplicates,
+    [],
+    `docs/governance/RACI.md table A names a WP more than once — ${duplicates.join("; ")}`
+  );
   assert.ok(fromRaci.size > 0, "no WP row could be parsed out of docs/governance/RACI.md table A");
   for (const [wp, owner] of fromRaci) {
     assert.deepEqual(
