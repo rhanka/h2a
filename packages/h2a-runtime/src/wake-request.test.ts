@@ -170,7 +170,7 @@ function arrangeSession(
     const sub = Array.isArray(args) ? String(args[0]) : "";
     if (sub === "-V") return { status: 0, stdout: "tmux 3.4\n" };
     if (sub === "list-sessions") {
-      // Format: name\tattached\tpath\t@profile\t@display_name
+      // Format: session_id\tsession_created\tpid\tsocket_path\tname\tattached\tpath\t@profile\t@display_name
       return {
         status: 0,
         stdout: `$1\t1700000001\t4201\t/tmp/tmux-1000/default\tremote-${label}\t0\t/home/u/src/${label}\t${host}\t\n`,
