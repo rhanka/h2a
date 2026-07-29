@@ -63,9 +63,16 @@ describe('track-report skill — the compact route is named, not implied', () =>
 
   it('tells the reader what the compact route actually drops', () => {
     const skill = readSkill()
-    for (const dropped of ['HORS ROLLUP', 'ACTIONS DÉRIVÉES', '+N autres', 'PRÉCO']) {
-      expect(skill).toContain(dropped)
+    // The four-section rewrite (spec 2026-07-29) changed WHAT the compact route drops: `HORS ROLLUP` and
+    // `ACTIONS DÉRIVÉES` are no longer sections of any report, so naming them would be stale. The warning
+    // must name the sections that exist and that `--inline` still omits.
+    const paragraph = readSkill()
+      .split(/\n\s*\n/u)
+      .find((p) => p.includes('--inline') && p.includes('compact'))!
+    for (const dropped of ['DÉCISIONS', 'RECOMMANDATION', '+N autres', 'PRÉCO']) {
+      expect(paragraph, `the compact-route warning does not name ${dropped}`).toContain(dropped)
     }
+    expect(skill).not.toMatch(/^\s*\*\*(HORS ROLLUP|ACTIONS DÉRIVÉES)\*\*/mu)
   })
 
   it('scopes the honesty rules to the complete route instead of stating them unconditionally', () => {
