@@ -170,14 +170,26 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
     expect(text).toContain('1/3 (33%)')
   })
 
-  it('renders every nested WP as its own conductor row', () => {
+  it('renders a nested WP as its own row on a SHORT window, and merges it upward on a long one', () => {
     const root = t.createItem({ kind: 'chore', title: 'WP1 — Root', workspace: 'ws', role: 'workpackage' })
     const child = t.createItem({ kind: 'chore', title: 'Child', workspace: 'ws', role: 'workpackage', parentId: root })
     t.createItem({ kind: 'feature', title: 'child work', workspace: 'ws', parentId: child })
+    const tree = computeWpTree(t.state(), cfg)
 
-    const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text')
-    expect(text).toContain('WP1 · Root')
-    expect(text).toContain('WP1.1 · Child')
+    // Criterion 25 — the WP is the reading unit of a long report; the sub-level is implementation detail.
+    const short = formatWpConductor(tree, 'text', [], [], 'global', { logFrom: '2026-06-01', now: '2026-06-05' })
+    expect(short).toContain('WP1 · Root')
+    expect(short).toContain('WP1.1 · Child')
+
+    const long = formatWpConductor(tree, 'text', [], [], 'global', { logFrom: '2026-06-01', now: '2026-07-20' })
+    expect(long).toContain('WP1 · Root')
+    expect(long).not.toContain('WP1.1 · Child')
+    expect(long).toContain('child work') // the content merged upward — it is not lost
+    expect(long).toContain('1 sous-WP agrégé') // ...and the merge is declared
+
+    // The owner can always ask for the detail back.
+    const asked = formatWpConductor(tree, 'text', [], [], 'global', { logFrom: '2026-06-01', now: '2026-07-20', subWp: true })
+    expect(asked).toContain('WP1.1 · Child')
   })
 
   it('an AWAITED leaf appears in À-FAIRE gated on the D-number that answers it', () => {
