@@ -8,7 +8,8 @@
 // 2.1.0 — one ADDITIVE WorkEvent kind `item.set-raci` → the persisted `item.raci-assigned` event, which sets or
 // replaces the creation-payload RACI fields on an existing item. It is a binding governance write
 // (`settles:'always'`): changing who is accountable/responsible requires auth ∈ {local-user, signed}.
-// MINOR bump: the kind is optional for producers; no kind or existing field is removed/changed.
+// MINOR bump: the kind is optional for producers; no kind or existing field is removed/changed. `item.create`
+// payload acceptance is unchanged from 2.0.x; this round's normalisation is write-time, write-path-only trimming.
 // 2.0.0 — decision.outcome is now defer-only. Any new go/no-go settlement must use decision.select so a
 // native selected option is recorded atomically; legacy historical outcomes remain readable in the fold.
 // This narrows an existing producer payload enum and is therefore a MAJOR contract change.

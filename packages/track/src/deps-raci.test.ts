@@ -162,16 +162,20 @@ describe('RACI assignment on an existing item', () => {
     expect(updated.responsible).toEqual(['human:carol'])
   })
 
-  it('rejects empty/blank accountable or responsible on item creation', () => {
-    expect(() =>
-      t.createItem({ kind: 'feature', title: 'X', workspace: 'ws', accountable: '   ' }),
-    ).toThrow()
-    expect(() =>
-      t.createItem({ kind: 'feature', title: 'X', workspace: 'ws', accountable: 'human:alice', responsible: ['agent:codex', ''] }),
-    ).toThrow()
-    expect(() =>
-      t.createItem({ kind: 'feature', title: 'X', workspace: 'ws', responsible: ['   '] }),
-    ).toThrow()
+  it('keeps pre-existing item.create acceptance while trimming actor fields', () => {
+    const id1 = t.createItem({ kind: 'feature', title: 'X', workspace: 'ws', accountable: '   ' })
+    expect(t.state().items.get(id1)?.accountable).toBe('')
+
+    const id2 = t.createItem({
+      kind: 'feature',
+      title: 'Y',
+      workspace: 'ws',
+      responsible: ['  agent:codex ', ''],
+    })
+    expect(t.state().items.get(id2)?.responsible).toEqual(['agent:codex', ''])
+
+    const id3 = t.createItem({ kind: 'feature', title: 'Z', workspace: 'ws', responsible: ['   '] })
+    expect(t.state().items.get(id3)?.responsible).toEqual([''])
   })
 
   it('rejects an unknown item and an empty update before append', () => {
@@ -413,6 +417,16 @@ describe('Lot A — CLI flags', () => {
     expect(item.engagementRef).toBe('eng-7')
   })
 
+  it('track item new keeps legacy responsible-member elision on spaced input', () => {
+    const out: string[] = []
+    const io: CliIO = { cwd: dir, out: (s) => out.push(s), err: (s) => out.push(s) }
+    expect(runCli(['init'], io)).toBe(0)
+    expect(runCli(['item', 'new', '--kind', 'feature', '--title', 'X', '--workspace', 'ws', '--responsible', 'agent:codex,   '], io)).toBe(0)
+    const id = out[out.length - 1]!.trim()
+    const item = new Track(new EventStore(join(dir, '.track', 'events.jsonl'))).state().items.get(id)!
+    expect(item.responsible).toEqual(['agent:codex'])
+  })
+
   it('track item set-raci updates an already-created item without recreating it', () => {
     const out: string[] = []
     const io: CliIO = { cwd: dir, out: (s) => out.push(s), err: (s) => out.push(s) }
@@ -454,6 +468,10 @@ describe('Lot A — CLI flags', () => {
 
     out.length = 0
     expect(runCli(['item', 'set-raci', id, '--responsible', ','], io)).toBe(1)
+    expect(out.join('')).toContain('requires accountable and/or responsible')
+
+    out.length = 0
+    expect(runCli(['item', 'set-raci', id, '--responsible', 'agent:codex,   '], io)).toBe(1)
     expect(out.join('')).toContain('requires accountable and/or responsible')
 
     out.length = 0

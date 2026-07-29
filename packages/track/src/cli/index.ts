@@ -70,9 +70,9 @@ const USAGE = `usage: track <command>
     may appear before or after the command; it redirects reads AND writes to that directory
   --version | -v
   init
-  item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] [--engagement-ref <e>]
+  item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] (trim actor IDs; blank responsible members are dropped)
   item reparent <itemId> [--parent <pid>] [--detach]
-  item set-raci <itemId> [--accountable <a>] [--responsible <a,a>] [--client-token <t>]
+  item set-raci <itemId> [--accountable <a>] [--responsible <a,a>] [--client-token <t>] (trimmed blank members are rejected, unlike item new)
   item set-role <itemId> <workpackage|stream>
   item scope-declare <itemId> [--allowed <glob,glob>] [--forbidden <...>] [--conditional <...>] [--scope <json>]
   item spec-amend <itemId> --base-hash <h> --result-hash <h> --patch <json> [--decision-id <id>] [--live-doc-ref <r>] [--proposal-ref <r>] [--summary <s>] [--client-token <t>]

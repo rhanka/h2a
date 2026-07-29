@@ -281,18 +281,23 @@ export class Track {
     }
   }
 
-  private normalizeActor(input: string, onBlank: string): string {
+  // RACI normalisation is intentionally minimal:
+  // - trim only: we keep backward-compatible acceptance on create (legacy payloads remain accepted),
+  // - apply strict blank/empty checks only where the new update verb requires it (setRaci),
+  // - never rewrite historical events at fold/read time (legacy padded spellings already in the log remain as written),
+  // - trim is not canonicalisation: invisible codepoints like U+200B are preserved.
+  private normalizeActor(input: string, onBlank?: string): string {
     const normalized = input.trim()
-    if (normalized === '') {
+    if (onBlank !== undefined && normalized === '') {
       throw new DomainError(onBlank)
     }
     return normalized
   }
 
-  private normalizeActors(input: string[] | undefined, onBlank: string): string[] | undefined {
+  private normalizeActors(input: string[] | undefined, onBlank?: string): string[] | undefined {
     if (input === undefined) return undefined
-    const normalized = input.map((actor) => actor.trim())
-    if (normalized.length === 0 || normalized.some((actor) => actor.length === 0)) {
+    const normalized = input.map((actor) => this.normalizeActor(actor, onBlank))
+    if (onBlank !== undefined && (normalized.length === 0 || normalized.some((actor) => actor.length === 0))) {
       throw new DomainError(onBlank)
     }
     return normalized
@@ -312,8 +317,8 @@ export class Track {
       if (parent !== undefined) assertRoleNesting(input.role, parent.role, '<new>', input.parentId)
     }
     const itemId = this.newId()
-    const accountable = input.accountable !== undefined ? this.normalizeActor(input.accountable, 'item.create requires accountable and responsible fields to be non-blank when provided') : undefined
-    const responsible = this.normalizeActors(input.responsible, 'item.create requires accountable and responsible fields to be non-blank when provided')
+    const accountable = input.accountable !== undefined ? this.normalizeActor(input.accountable) : undefined
+    const responsible = this.normalizeActors(input.responsible)
     // Result id = the PERSISTED event's aggregateId. On a fresh append that IS `itemId`; on a concurrent-
     // retry dedup it is the ORIGINAL persisted item's id (the under-lock hook re-minted-aggregateId-blind),
     // so a racing create-retry returns the first writer's id, never this attempt's never-persisted one.
