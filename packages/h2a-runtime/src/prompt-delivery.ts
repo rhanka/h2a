@@ -157,7 +157,12 @@ export function collapsedPasteMatches(
   if (marker.kind === "chars") {
     const codePoints = [...prompt].length;
     const bytes = Buffer.byteLength(prompt, "utf8");
-    const tolerance = Math.max(4, Math.round(codePoints * 0.02));
+    // ABSOLUTE, and small. A proportional tolerance was a hole: 2% of a 10000
+    // character brief accepted a 200-character truncation — and the missing 200
+    // characters are the END of the brief, which is where its instructions sit.
+    // Both counting conventions are compared exactly; the slack only absorbs a
+    // host counting a trailing newline differently.
+    const tolerance = 8;
     return (
       Math.abs(marker.value - codePoints) <= tolerance ||
       Math.abs(marker.value - bytes) <= tolerance
@@ -366,11 +371,14 @@ function waitUntilReady(
           // host steadily burning most of a core is BUSY, not waiting for input,
           // and typing into it is how an Enter gets swallowed. Measured spread:
           // a booting TUI runs near a full core, an idle one near zero.
+          // 10%, not 25%: a quarter is wide enough for a host whose burn is
+          // still DRIFTING downward out of startup to read as level, and typing
+          // into it is how an Enter gets swallowed.
           if (
             rate <= options.maxIdleRate &&
             previousRate !== undefined &&
             Math.abs(rate - previousRate) <=
-              0.25 * Math.max(rate, previousRate, Number.EPSILON)
+              0.1 * Math.max(rate, previousRate, Number.EPSILON)
           ) {
             // Keep the HIGHER of the two: an over-estimated idle rate risks a
             // refusal, an under-estimated one manufactures a false "working".
@@ -444,6 +452,11 @@ export function deliverInitialPrompt(
 
   // 3. Type once, as one bracketed block.
   const baseline = probes.map((probe) => countOccurrences(before, probe));
+  // A marker ALREADY on screen belongs to an earlier paste. Left unrecorded it
+  // cuts both ways: one whose size happens to match would prove a delivery that
+  // never happened, and one that does not match would condemn a perfectly good
+  // paste. Only a marker that is NEW, or one that changed, is evidence.
+  const markerBefore = detectCollapsedPaste(before);
   deps.clearComposer(pane);
   if (!deps.pasteBlock(pane, prompt)) {
     return {
@@ -482,12 +495,17 @@ export function deliverInitialPrompt(
     // Fingerprints are a fallback, and only when no marker is on screen: a short
     // probe can otherwise match a word inside the marker itself.
     const marker = detectCollapsedPaste(after);
-    if (marker) {
+    const markerIsStale =
+      marker !== undefined &&
+      markerBefore !== undefined &&
+      marker.kind === markerBefore.kind &&
+      marker.value === markerBefore.value;
+    if (marker && !markerIsStale) {
       if (collapsedPasteMatches(marker, prompt)) {
         landed = true;
         collapsed = marker;
       }
-    } else {
+    } else if (marker === undefined) {
       landed = probes.some(
         (probe, index) => countOccurrences(after, probe) > baseline[index]!,
       );
