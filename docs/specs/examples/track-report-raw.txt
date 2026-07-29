@@ -1,86 +1,648 @@
-TRACK REPORT GOLDEN INPUT
-source commit: 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
-explicit event window: #1..#568 (state folded through cursor count:568)
-workspace: ws:89c45cc3e040949f1a1a034529722ee877150fd2a0e3da16a7f6e9d8e27f495d
+TRACK REPORT — sortie brute, avant toute interprétation
 
-Fixture reproduction (not the live-report default; use the same three report reads with an explicit store and baseline):
-  export TMPDIR=/tmp
-  npm ci
-  npm run build -w @sentropic/track
-  track_bin="$(pwd -P)/packages/track/dist/cli/bin.js"
-  test -f "$track_bin"
-  golden_track_dir="$(mktemp -d)"
-  git show 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5:.track/events.jsonl > "$golden_track_dir/events.jsonl"
-  node "$track_bin" --track-dir "$golden_track_dir" report --raw --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
-  node "$track_bin" --track-dir "$golden_track_dir" report --wp --decisions --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
-  node "$track_bin" --track-dir "$golden_track_dir" decision ls --outcome pending --format json --commit 9b4efbcc039ac5f393cf1d35c51c3b2d9452f0d5
-`--commit` selects the acceptance baseline; `--track-dir` pins the 568-event input.
+baseline: 5fa272e (le commit du rapport contextualisé validé, track-report-contextual.md)
+journal:  566 événements, l'intégralité de .track/events.jsonl à ce commit
 
-WP ROWS (label | title | done/active | pct)
-S1 | WP-C Keepalive, presence & infra | 0/0 | n/a
-S2 | WP-E EVO roadmap | 0/0 | n/a
-S3 | WP-MIG Migration track+remote → h2a (CLI unique) | 1/1 | 100
-WP1 | Protocol & envelopes | 1/1 | 100
-WP2 | Addressing & presence | 11/14 | 79
-WP3 | Coordination & loop | 10/12 | 83
-WP4 | Governance & RACI | 5/8 | 63
-WP5 | Execution & runtime | 6/7 | 86
-WP6 | Identity, auth & NHI | 4/5 | 80
-WP7 | Infra, deploy & MCP | 4/9 | 44
-WP8 | Tracking & record | 2/2 | 100
-WP9 | Method & harness | 2/4 | 50
-WP10 | Distribution, CLI & packaging | 8/9 | 89
-WP11 | Memory & context | 0/1 | 0
-S4 | Passerelle LLM : permettre à Hermes (et tout hôte) d'en profiter | 0/0 | n/a
-WP14 | Spec EVO-4b: unified local decision cockpit (double-consensus GO) | 0/0 | n/a
-WP15 | Spec: h2a<->sentropic enrollment (design + dossier, double-consensus GO) | 0/0 | n/a
-WP12 | MCP connector brokering & sharing — h2a as connector hub: register MCP connectors (gmail, …), share-or-keep-private per identity/workspace, broadcast to connected agents/CLIs (claude.ai-style) | 0/1 | 0
-WP13 | Native h2a agent runtime via sentropic — main loop managed by sentropic (potentially refactored); each h2a session runs local / remote-k8s / in-sentropic (native orchestrator) | 0/1 | 0
-WP16 | WP: Native-plugin control plane — wake, launch, and CLI harness guard | 0/0 | n/a
-WP17 | Fix: tmux status surface renders canonical session, subagents, gateway and configured value | 0/0 | n/a
-WP18 | WP Host operator capability parity & gap governance | 0/7 | 0
+Reproduction depuis un clone neuf :
 
-DECISION RECORDS (id | historical outcome | native options | native recommendation)
-01KTSDXPY1F0S3PZSXHM9T2WJA | go | 0 | none
-01KTSDXX77YGH3KGW3TN5ED1EM | go | 0 | none
-01KTT31B9KWF68E0NSQDJRYJ1Q | deferred | 0 | none
-01KWAVZZ1NB0DKQQ0AP1BFHJQM | go | 0 | none
-01KWAW375CPJ9FDTZPNKVA37DT | go | 0 | none
-01KWB13M2FZ9QE88GRT6BNTT7P | go | 0 | none
-01KXC2PNENYM96ZFC3FJNEACVC | go | 0 | none
-01KY65RNV7GWCXV787PJW5FYQ1 | pending | 0 | none
-01KY66FTP7Y4W214SADDWKHT15 | pending | 0 | none
-01KY66FV4W1JKHBZ2MW44P9EP6 | pending | 0 | none
-01KY66FVKFFVKRDXY9PFGEF4RD | pending | 0 | none
-01KY66FW260Q5TV1DVR6ZPH891 | pending | 0 | none
-01KY66FWJ4MYNJMDDJXA54G3FD | pending | 0 | none
-01KY66FX0PFH958103YVQWRBQZ | pending | 0 | none
-01KY66T2F35VNZP6FHFAVVBGH0 | pending | 0 | none
+  npm ci && npm run build -w @sentropic/track
+  d=$(mktemp -d)
+  git show 5fa272e:.track/events.jsonl > "$d/events.jsonl"
+  node packages/track/dist/cli/bin.js --track-dir "$d" \
+       report --wp --decisions --format text --commit 5fa272e
 
-FOCUS PROSE CAPTURES (verbatim source material; not native Option records)
+C'est cette sortie que le skill harness/track-report prend en entrée.
+Le rapport validé qui en découle est track-report-contextual.md.
 
-[01KY65RNV7GWCXV787PJW5FYQ1]
-Décision produit requise avant les prochains lots parallèles. Problème observé : un nom tmux, un PID ou une présence MCP peuvent rester visibles alors que l’agent est terminé, remplacé ou occupé par un humain. Choix A (recommandé) : priorité à la sécurité — un alias sert d’abord à retrouver/afficher une session ; si H2A ne peut pas prouver une cible unique et disponible, il n’envoie rien et explique pourquoi. Choix B : priorité à la fluidité — H2A choisit automatiquement la session la plus récente et peut la réveiller. Choix C : intermédiaire — H2A propose la cible choisie et attend une confirmation humaine avant l’envoi. Conséquences : A évite les commandes au mauvais terminal mais demande parfois une étape explicite ; B est plus rapide mais peut perturber une session humaine ou une nouvelle session homonyme ; C est sûr mais ajoute une interaction. Cette décision fixe aussi la base des tracks adressage, liveness et tmux. Le moteur natif restera une fondation interne, sans remplacer h2a run, tant que cette sécurité n’est pas prouvée.
+────────────────────────────────────────────────────────────────────────
 
-[01KY66FTP7Y4W214SADDWKHT15]
-Choix A : le nom sert seulement à retrouver et afficher une session ; H2A demande ensuite une cible vérifiée. Choix B : le nom peut envoyer directement une commande. Recommandation : A — un nom peut être réutilisé ou ambigu. Effet : débloque le lot adressage sûr.
+FAIT
+scope                                      avancement    constat
+────────────────────────────────────────   ───────────   ─────────────────────
+global                                     57/89 (64%)   agrégat de périmètre;
+                                                         pas une action
 
-[01KY66FV4W1JKHBZ2MW44P9EP6]
-Choix A : non par défaut ; H2A garde une trace et demande une réattribution explicite. Choix B : oui immédiatement. Recommandation : A — évite qu’un ancien lien pointe silencieusement vers une nouvelle session. Effet : fixe la conservation des noms et l’historique.
+S3 · WP-MIG Migration track+remote → h2a   1/1 (100%)    WP clos (état
+(CLI unique)                                             enregistré)
 
-[01KY66FVKFFVKRDXY9PFGEF4RD]
-Choix A : il refuse d’agir et affiche les candidates. Choix B : il choisit automatiquement la plus récente. Choix C : il envoie à toutes. Recommandation : A — ni la date ni le nom ne prouvent la bonne cible. Effet : débloque l’adressage multi-session et le wake.
+WP1 · Protocol & envelopes                 1/1 (100%)    WP clos (état
+                                                         enregistré)
 
-[01KY66FW260Q5TV1DVR6ZPH891]
-Choix A : une fenêtre tmux visible suffit. Choix B : un processus vivant suffit. Choix C : l’agent doit confirmer qu’il peut recevoir l’instruction. Recommandation : C — fenêtre et processus peuvent survivre après la fin de l’agent. Effet : fixe le statut liveness.
+WP2.1 · WP-A Addressing & routing          6/6 (100%)    WP clos (état
+                                                         enregistré)
 
-[01KY66FWJ4MYNJMDDJXA54G3FD]
-Choix A : non ; si le terminal peut être humain ou incertain, H2A ne frappe rien. Choix B : oui après confirmation humaine. Choix C : oui automatiquement. Recommandation : A — protège le travail humain ; une confirmation peut venir dans un lot ultérieur. Effet : fixe la sécurité de wake tmux.
+WP5 · Execution & runtime                  6/6 (100%)    WP clos (état
+                                                         enregistré)
 
-[01KY66FX0PFH958103YVQWRBQZ]
-Choix A : construire d’abord le moteur en parallèle, sans modifier h2a run actuel, puis proposer un pilote. Choix B : remplacer progressivement h2a run dès le premier lot. Choix C : remplacer tmux immédiatement. Recommandation : A — permet de prouver la reprise après crash et la sécurité avant bascule. Effet : fixe le plan du moteur natif.
+WP6.1 · WP-B Identity & workspace          3/3 (100%)    WP clos (état
+                                                         enregistré)
 
-[01KY66T2F35VNZP6FHFAVVBGH0]
-Constat : le report Focus est fait pour suivre le travail, pas pour faire trancher une question. Le détour actuel (créer une décision Track, l’afficher dans le report, injecter une CLI) masque les options et crée du bruit. Proposition recommandée : ajouter une voie directe et stable « décision dossier » : création avec un schéma structuré (contexte, question, options, recommandation, impacts), URL dédiée, lecture centrée sur le dossier, choix humain durable/audité quand ce sera implémenté ; le report Track reste inchangé. Alternative : continuer à enrichir les cartes du report. Cette décision ne tranche pas les six choix de sessions ; elle tranche le produit Focus qui doit les présenter.
+WP8 · Tracking & record                    2/2 (100%)    WP clos (état
+                                                         enregistré)
 
-Every capture above reports PENDING and has no amendment trace at cursor count:568.
+À-FAIRE
+WP                                           avancement    à faire                                                                    bloqué                     prochaine action           cible action
+──────────────────────────────────────────   ───────────   ────────────────────────────────────────────────────────────────────────   ────────────────────────   ────────────────────────   ────────────────────────
+S1 · WP-C Keepalive, presence & infra        0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+
+S2 · WP-E EVO roadmap                        0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+
+S3 · WP-MIG Migration track+remote → h2a     1/1 (100%)    aucun item ouvert direct                                                   Vérification à refaire     action (subagent):         01KXHGD1ET2BKJ74C1TP6FQ6
+(CLI unique)                                                                                                                                                     Relancer la vérification   5R · Eradiquer le CLI
+                                                                                                                                                                 sur le commit courant      remote legacy et
+                                                                                                                                                                                            canoniser h2a run [DONE]
+
+WP1.1 · P1.b golden de forme des             0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+enveloppes (inbox/presence/negotiation,
+redacté)
+
+WP2 · Addressing & presence                  11/14 (79%)   EVO-10 availability worker / busy-on-user presence / Instance steering:    À spécifier avant de       action (subagent):         01KTQC2JFGDCTBV8W2FMT63X
+                                                           distinguish human-facing h2a run sessions from background/restored         démarrer                   Rédiger la spécification   NX · EVO-10 availability
+                                                           agents; restore must not relaunch fake/bg agents / Phase 2a                                                                      worker / busy-on-user
+                                                           observabilite (livree): lastMcpActivityAt (touche sur chaque ligne MCP,                                                          presence [TO-DO]
+                                                           flush au heartbeat) + label connectionConfidence
+                                                           active¦idle-uncertain¦unknown dans discover_sessions +
+                                                           recipientConfidence dans le retour put ; READ-ONLY/advisory, marge de
+                                                           skew mirrored, env H2A_ACTIVITY_WINDOW_MS
+
+WP2.2 · WP-F MCP-disconnect / false-live     2/3 (67%)     Phase 2a observabilite (livree): lastMcpActivityAt (touche sur chaque      En attente d’une           décision (owner):          01KTT31AZVYPVH9VGRN7PVAY
+remediation                                                ligne MCP, flush au heartbeat) + label connectionConfidence                décision : « Cabler le     Instruire le dossier       DF · Phase 2a
+                                                           active¦idle-uncertain¦unknown dans discover_sessions +                     routage h2a sur            puis trancher              observabilite (livree):
+                                                           recipientConfidence dans le retour put ; READ-ONLY/advisory, marge de      connectionConfidence                                  lastMcpActivityAt
+                                                           skew mirrored, env H2A_ACTIVITY_WINDOW_MS                                  (resolveRecipient                                     (touche sur chaque ligne
+                                                                                                                                      prefere active /                                      MCP, flush au heartbeat)
+                                                                                                                                      wake-confirm                                          + label
+                                                                                                                                      idle-uncertain) ? »                                   connectionConfidence
+                                                                                                                                                                                            active¦idle-uncertain¦un
+                                                                                                                                                                                            known dans
+                                                                                                                                                                                            discover_sessions +
+                                                                                                                                                                                            recipientConfidence dans
+                                                                                                                                                                                            le retour put ;
+                                                                                                                                                                                            READ-ONLY/advisory,
+                                                                                                                                                                                            marge de skew mirrored,
+                                                                                                                                                                                            env
+                                                                                                                                                                                            H2A_ACTIVITY_WINDOW_MS
+                                                                                                                                                                                            [AWAITED]
+
+WP3 · Coordination & loop                    10/12 (83%)   EVO-4 decision support / situation presentation / EVO-3 D6 — per-host      En attente d’une           décision (owner):          01KTQC2JH9G7JNJXAH2BY1BH
+                                                           wake command in each plugin                                                décision : « 3/6 — Quand   Instruire le dossier       GK · EVO-3 D6 — per-host
+                                                                                                                                      plusieurs sessions         puis trancher / action     wake command in each
+                                                                                                                                      correspondent, que fait    (subagent): Relancer la    plugin [AWAITED] /
+                                                                                                                                      H2A ? » / Vérification à   vérification sur le        01KWKX7MXN0P0SVG21V1NNDH
+                                                                                                                                      refaire                    commit courant             6G · Foundation:
+                                                                                                                                                                                            functional
+                                                                                                                                                                                            objective-loop (h2a
+                                                                                                                                                                                            loop) [DONE]
+
+WP4 · Governance & RACI                      5/8 (63%)     EVO-9 remaining — VALEUR / ATTENTION / MUTUALISATION / Specify host        À spécifier avant de       action (subagent):         01KTQC2JDS7NYSZEQ4VQHF50
+                                                           capability contract and gap states / Activity-growth suggestion ladder     démarrer                   Rédiger la spécification   NK · EVO-9 remaining —
+                                                           (graphify/track/harness)                                                                                                         VALEUR / ATTENTION /
+                                                                                                                                                                                            MUTUALISATION [TO-DO]
+
+WP4.1 · WP-D Governance (RACI / conductor)   3/4 (75%)     Activity-growth suggestion ladder (graphify/track/harness)                 À spécifier avant de       action (subagent):         01KTQC2GSSXZXK7FWATW6MX5
+                                                                                                                                      démarrer                   Rédiger la spécification   DV · Activity-growth
+                                                                                                                                                                                            suggestion ladder
+                                                                                                                                                                                            (graphify/track/harness)
+                                                                                                                                                                                            [TO-DO]
+
+WP5 · Execution & runtime                    6/6 (100%)    aucun item ouvert direct                                                   Vérification à refaire     action (subagent):         01KWKX7V5HAZV29TW701DXDS
+                                                                                                                                                                 Relancer la vérification   G1 · remote to h2a
+                                                                                                                                                                 sur le commit courant      parity (fallback
+                                                                                                                                                                                            routing) [DONE]
+
+WP5.1 · P5 remote préparé sans bascule:      0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+handlers→h2a-cli, enveloppe en lib feuille
+(anti-cycle)
+
+WP5.2 · P6 compat remote: binaire remote =   0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+shim → h2a, alias maintenus, warn doux
+
+WP5.3 · P7 canary runtime: remote/h2a        0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+listent/attachent/reprennent les mêmes
+sessions
+
+WP5.4 · P8 dépréciation par fenêtre          0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(retrait shims) — APRÈS matrice verte +
+décision humaine
+
+WP5.5 · P5.a anti-cycle vérifié              0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(core=feuille, remote-cli→gateway only) +
+garde CI
+
+WP5.6 · P5.b carte de merge                  0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+remote-cli→h2a-cli (groupes→lib déléguée,
+anti-cycle-safe)
+
+WP5.7 · P5.c re-sync remote (delta:          0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+layout/decide/conduct/restore-gw/gc/link/l
+ineage) — carte affinée, pas de mutation
+(remote pas stabilisé)
+
+WP5.8 · P5.1 remote-protocol (feuille)       0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+rapatrié + wiré, build vert, h2a reste
+léger
+
+WP5.9 · P5.2 4 libs protocol-only            0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+rapatriées, build vert, h2a léger
+
+WP5.10 · P5.3 libs lourdes                   0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(k8s/session-agent) rapatriées, deps
+natives confinées, h2a léger (règle d'or
+vérifiée)
+
+WP5.11 · P5.4 remote-cli→remote-runtime      0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(dispatch, sans bin), build vert, 8/8
+packages remote rapatriés, h2a léger
+
+WP5.12 · P5.5 verbes remote                  0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(run/attach/stop/logs/workspace/resume)
+wirés en lazy dans h2a, règle d'or testée
+
+WP5.13 · P5 RÉDUIT: réutilise                0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+@sentropic/remote-cli (pas de nouveau
+package), retire 7 libs Pod-side
+non-utilisées par le CLI
+
+WP5.14 · OPTIM runtime: alléger/remplacer    0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+node-pty + aws-sdk (demande Fabien
+2026-06-30)
+
+WP5.15 · P5: remote-cli renommé              0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+@sentropic/h2a-runtime (plus de 'remote'),
+lib lazy, build vert
+
+WP5.16 · WP-CLI — Support                    0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+Hermes/OpenCode/etc comme CLIs h2a
+
+WP6 · Identity, auth & NHI                   4/5 (80%)     EVO-5 NHI control work from nhi.md gaps                                    À spécifier avant de       action (subagent):         01KTQC2JBZ9VFEXMQH7QYS2M
+                                                                                                                                      démarrer                   Rédiger la spécification   YC · EVO-5 NHI control
+                                                                                                                                                                                            work from nhi.md gaps
+                                                                                                                                                                                            [TO-DO]
+
+WP7 · Infra, deploy & MCP                    4/9 (44%)     Sweep 6 leftover repo-local .h2a buses once agents reconnect / EVO-13      En attente d’une           décision (owner):          01KWVM4Z972ZAFK6TKW753ZB
+                                                           k8s ingester MCP-pod sidecar (RWX constraint) / x2 — Bug gateway/Claude    décision : « Comment H2A   Instruire le dossier       R1 · x4 — h2a mcp pour
+                                                           si le proxy des subagents ne fonctionne pas / x4 — h2a mcp pour            doit-il éviter d’envoyer   puis trancher / action     enregistrer les
+                                                           enregistrer les connecteurs MCP aux CLIs / h2a resource governance:        une commande à la          (subagent): Terminer       connecteurs MCP aux CLIs
+                                                           cgroups + prioritisation/escalation of sessions + child processes          mauvaise session ? » /     l’incrément en cours       [AWAITED] /
+                                                           (anti-OOM)                                                                 Aucun blocage enregistré                              01KWVM4Z0AWMM4MS2SE76ZHH
+                                                                                                                                                                                            G5 · x2 — Bug
+                                                                                                                                                                                            gateway/Claude si le
+                                                                                                                                                                                            proxy des subagents ne
+                                                                                                                                                                                            fonctionne pas [TO-DO]
+
+WP8 · Tracking & record                      2/2 (100%)    aucun item ouvert direct                                                   Vérification à refaire     action (subagent):         01KX7G7QPAER84JCMFZKMXAA
+                                                                                                                                                                 Relancer la vérification   N2 · Focus app:
+                                                                                                                                                                 sur le commit courant      injection live-session +
+                                                                                                                                                                                            i18n + filtre/tri WP +
+                                                                                                                                                                                            détail + période
+                                                                                                                                                                                            depuis-dev [DONE]
+
+WP8.1 · P3 track re-owné: republish          0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+@sentropic/track + façade h2a
+decision/report (shim track)
+
+WP8.2 · P4 record-only verrouillé            0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(append-only strict, écritures via API
+track)
+
+WP8.3 · P3.a design façade h2a→track         0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(mapping 1:1, pass-through, record-only,
+pont add-artifact)
+
+WP8.4 · HOLD P3 (track): attendre            0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+finalisation de l'évol track en cours —
+reprendre quand track > 0.23.0 (Fabien
+2026-06-29). Remote a aussi évolué:
+re-sync avant P5/P6.
+
+WP8.5 · P3 DÉBLOQUÉ: track passé à 0.24.0    0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(>0.23.0) — re-sync surface track au
+prochain cycle avant façade
+
+WP8.6 · P3.b re-sync façade sur track        0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+0.24.0 (Lot A/B LOCKED): + item
+assign-code/report--active-roster/branch/f
+ocus/ingest/restructure
+
+WP8.7 · P3.c mécanisme façade FIGÉ:          0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+shell-out vers bin track (single-writer) +
+dép @sentropic/track@^0.24.0 (publié). P3
+republish déjà satisfait.
+
+WP8.8 · P3.d façade track IMPLÉMENTÉE: 12    0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+verbes délégués shell-out vers bin track +
+3 tests (CI-sim vert)
+
+WP8.9 · P3.e façade documentée (h2a          0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+--help) + test 12 verbes délégués
+(durcissement P2)
+
+WP8.10 · x8 / WP-ROADMAP — Étude de          0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+restructuration des WP h2a en thèmes
+produit pérennes
+
+WP9 · Method & harness                       2/3 (67%)     Harness/worktree placement: forbid /tmp worktrees and heavy scratch; use   Aucun blocage enregistré   action (subagent):         01KXG8BX68TY4Z5GQY5TMXCR
+                                                           workspace-local/repo-local runtime dirs                                                               Terminer l’incrément en    B3 · Harness/worktree
+                                                                                                                                                                 cours                      placement: forbid /tmp
+                                                                                                                                                                                            worktrees and heavy
+                                                                                                                                                                                            scratch; use
+                                                                                                                                                                                            workspace-local/repo-loc
+                                                                                                                                                                                            al runtime dirs [TO-DO]
+
+WP9.1 · P2.d garde du contrat câblée en CI   0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(ci.yml, Linux) via dist local
+
+WP10 · Distribution, CLI & packaging         8/9 (89%)     x5 — Intégration h2a à Sentropic et alignement workspaces                  Vérification à refaire     action (subagent):         01KX9FPSTFJF5PSP6W3R1BWW
+                                                           locaux/Sentropic                                                                                      Relancer la vérification   QX · Committable
+                                                                                                                                                                 sur le commit courant      tooling:
+                                                                                                                                                                                            consensus-review +
+                                                                                                                                                                                            track-trace scripts
+                                                                                                                                                                                            [DONE]
+
+WP10.1 · P1 Figer contrats (mapping 255 +    0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+clé bus + enveloppes) + golden-fixtures
+bus
+
+WP10.2 · P2 Tests compat: contract-tests     0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+CLI↔lib + version-matrix + smoke live-bus
+
+WP10.3 · P1.a golden-fixtures surface        0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+gelée (29 outils MCP + 90 verbes CLI) +
+README usage CI
+
+WP10.4 · Mapping CLI h2a FINALISÉ + validé   0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+Fabien (255 cmds, statut ligne-à-ligne,
+focus livré, committé main)
+
+WP10.5 · P2.a script de garde du contrat     0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+public (diff surface live vs golden =
+échec)
+
+WP10.6 · P2.b version-matrix baseline        0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(h2a-cli 0.75 ↔ h2a/track/remote/libs)
+
+WP10.7 · P2.c smoke live-bus (gate           0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+read-only: doctor + surface MCP +
+discover)
+
+WP10.8 · A1 exécuté: fusion code dans        0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+@sentropic/h2a (bin h2a), h2a-cli=stub
+déprécié — build vert + 1043 tests pass
+
+WP10.9 · A1 PUBLIÉ: release 0.76.0 poussée   0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(tag v0.76.0 → CI publie @sentropic/h2a +
+h2a-cli stub). Reste: npm deprecate
+h2a-cli.
+
+WP10.10 · Fix CI publish: tests déplacés     0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+vers packages/h2a/test (../dist/*
+résolvait vers stub vide en CI).
+Re-release 0.77.0. h2a-cli déprécié sur
+npm.
+
+WP10.11 · Fix CI #2: run-tests scanne        0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+h2a/test seul + skip dossier absent.
+Cause: dir h2a-cli/test vide non suivi par
+git -> ENOENT en CI. Re-release 0.78.0
+(CI-sim local OK).
+
+WP10.12 · A1 LIVRÉ: @sentropic/h2a 0.78.0    0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+PUBLIÉ + h2a-cli déprécié (CI vert)
+
+WP10.13 · P5 BLOQUÉ publish remote-cli: ni   0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+CI (trusted-publishing non configuré) ni
+local (npm auth perdue). h2a+h2a-cli
+0.81.0 publiés. Action Fabien requise.
+
+WP11 · Memory & context                      0/1 (0%)      x7 — Contexte et mémoire centralisée des agents pérennes                   En attente d’une           décision (owner):          01KWVM4ZM1TP1R70MB0Q597C
+                                                           multi-session/multi-CLI                                                    décision : « 6/6 —         Instruire le dossier       E1 · x7 — Contexte et
+                                                                                                                                      Comment lancer le moteur   puis trancher              mémoire centralisée des
+                                                                                                                                      natif H2A ? »                                         agents pérennes
+                                                                                                                                                                                            multi-session/multi-CLI
+                                                                                                                                                                                            [AWAITED]
+
+S4 · Passerelle LLM : permettre à Hermes     0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(et tout hôte) d'en profiter
+
+WP14 · Spec EVO-4b: unified local decision   0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+cockpit (double-consensus GO)
+
+WP15 · Spec: h2a<->sentropic enrollment      0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+(design + dossier, double-consensus GO)
+
+WP12 · MCP connector brokering & sharing —   0/1 (0%)      EVO-12 gateway broker — deploy + go-live (client seeded by sentropic)      À spécifier avant de       action (subagent):         01KTQC2JK2Y3T7R8GQ6EQNHS
+h2a as connector hub: register MCP                                                                                                    démarrer                   Rédiger la spécification   J5 · EVO-12 gateway
+connectors (gmail, …),                                                                                                                                                                      broker — deploy +
+share-or-keep-private per                                                                                                                                                                   go-live (client seeded
+identity/workspace, broadcast to connected                                                                                                                                                  by sentropic) [TO-DO]
+agents/CLIs (claude.ai-style)
+
+WP13 · Native h2a agent runtime via          0/1 (0%)      x9 — Lancer notre propre CLI / gateway broker conçu avec architecte        À spécifier avant de       action (subagent):         01KWVNYNHVJGA8CCW566PG4W
+sentropic — main loop managed by sentropic                                                                                            démarrer                   Rédiger la spécification   MH · x9 — Lancer notre
+(potentially refactored); each h2a session                                                                                                                                                  propre CLI / gateway
+runs local / remote-k8s / in-sentropic                                                                                                                                                      broker conçu avec
+(native orchestrator)                                                                                                                                                                       architecte [TO-DO]
+
+WP16 · WP: Native-plugin control plane —     0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+wake, launch, and CLI harness guard
+
+WP17 · Fix: tmux status surface renders      0/0 (n/a)     aucun item ouvert direct                                                   Aucun blocage enregistré   Aucune directive directe   -
+canonical session, subagents, gateway and
+configured value
+
+WP18 · WP Host operator capability parity    0/7 (0%)      Write cross-host capability contract and gap lifecycle / Publish host      À spécifier avant de       action (subagent):         01KY7CBBRAAKXJBQ3DJNR2CV
+& gap governance                                           adapter development guide and conformance tests / Probe manual h2a CLI     démarrer                   Rédiger la spécification   XC · Write cross-host
+                                                           enforcement for Codex Hermes and OpenCode / Codex: enforce manual h2a                                                            capability contract and
+                                                           CLI guard via verified pre-tool adapter / OpenCode: enforce manual h2a                                                           gap lifecycle [TO-DO]
+                                                           CLI guard via verified pre-tool adapter / Hermes: enforce manual h2a CLI
+                                                           guard via verified pre-tool adapter / agy: enforce manual h2a CLI guard
+                                                           via verified pre-tool adapter
+
+À-FAIRE SANS WP
+WP        avancement   à faire                                                                bloqué                     prochaine action           cible action
+───────   ──────────   ────────────────────────────────────────────────────────────────────   ────────────────────────   ────────────────────────   ────────────────────────
+sans WP   -            1/6 — Un nom de session peut-il envoyer une commande ?                 En attente d’une           décision (human:rhanka):   01KY66FTP7Y4W214SADDWKHT
+                                                                                              décision : « 1/6 — Un      Instruire le dossier       15 · 1/6 — Un nom de
+                                                                                              nom de session peut-il     puis trancher              session peut-il envoyer
+                                                                                              envoyer une commande ? »                              une commande ? [AWAITED]
+
+sans WP   -            2/6 — Après suppression, peut-on réutiliser le même nom ?              En attente d’une           décision (human:rhanka):   01KY66FV4W1JKHBZ2MW44P9E
+                                                                                              décision : « 2/6 — Après   Instruire le dossier       P6 · 2/6 — Après
+                                                                                              suppression, peut-on       puis trancher              suppression, peut-on
+                                                                                              réutiliser le même nom ?                              réutiliser le même nom ?
+                                                                                              »                                                     [AWAITED]
+
+sans WP   -            4/6 — Quelle preuve faut-il avant de dire « agent disponible » ?       En attente d’une           décision (human:rhanka):   01KY66FW260Q5TV1DVR6ZPH8
+                                                                                              décision : « 4/6 —         Instruire le dossier       91 · 4/6 — Quelle preuve
+                                                                                              Quelle preuve faut-il      puis trancher              faut-il avant de dire «
+                                                                                              avant de dire « agent                                 agent disponible » ?
+                                                                                              disponible » ? »                                      [AWAITED]
+
+sans WP   -            5/6 — H2A peut-il écrire dans un terminal ambigu ?                     En attente d’une           décision (human:rhanka):   01KY66FWJ4MYNJMDDJXA54G3
+                                                                                              décision : « 5/6 — H2A     Instruire le dossier       FD · 5/6 — H2A peut-il
+                                                                                              peut-il écrire dans un     puis trancher              écrire dans un terminal
+                                                                                              terminal ambigu ? »                                   ambigu ? [AWAITED]
+
+sans WP   -            Focus doit-il avoir une voie directe « décision dossier » séparée du   En attente d’une           décision (human:rhanka):   01KY66T2F35VNZP6FHFAVVBG
+                       report ?                                                               décision : « Focus         Instruire le dossier       H0 · Focus doit-il avoir
+                                                                                              doit-il avoir une voie     puis trancher              une voie directe «
+                                                                                              directe « décision                                    décision dossier »
+                                                                                              dossier » séparée du                                  séparée du report ?
+                                                                                              report ? »                                            [AWAITED]
+
+HORS ROLLUP
+id                         workspace                  rattachement          état      item                       recette               extrait
+────────────────────────   ────────────────────────   ───────────────────   ───────   ────────────────────────   ───────────────────   ────────────────────────
+01KY66T20YS7JEQP73999VPV   ws:89c45cc3e040949f1a1a0   sans WP               AWAITED   Focus: créer et            recette non évaluée   —
+FJ                         34529722ee877150fd2a0e3d                                   présenter directement
+                           a16a7f6e9d8e27f495d                                        des décision dossiers ad
+                                                                                      hoc (sans passer par le
+                                                                                      report Track)
+
+01KWKX7Y3BT7TX0DCB2EP4HB   ws:89c45cc3e040949f1a1a0   intermédiaire · WP8   DONE      Decisional web canvas      recette obsolète (à   Decisional web canvas:
+1E                         34529722ee877150fd2a0e3d                                   (read-only aggregator +    rejouer)              read-only aggregator +
+                           a16a7f6e9d8e27f495d                                        Hono server + swipe UI)                          Hono server on 127.0.0.1
+                                                                                                                                       + web UI (swipe /
+                                                                                                                                       session view) +
+                                                                                                                                       reply-bridge write path
+                                                                                                                                       gated by token /
+                                                                                                                                       idempotent /
+                                                                                                                                       local-human. Commits:
+                                                                                                                                       fd66dff, 4a766da, …
+
+01KXBZ9XYPE2T7PYBBQF2NXA   ws:4471ea0ce44cda345ef05   sans WP               DONE      Enrollment Lot 0:          recette obsolète (à   Lot 0 du build
+42                         3f51773215a5b6f0f09aa9f5                                   a2a-cli client             rejouer)              enrollment
+                           05bef086751f50fb8d2                                        foundation (auth-token +                         h2a<->sentropic (spec
+                                                                                      enroll-flow +                                    2026-07-11 double-GO +
+                                                                                      bind-decision)                                   §11 + PLAN). Modules
+                                                                                                                                       purs derrière des seams
+                                                                                                                                       IO: auth-token (fichier
+                                                                                                                                       0600 per-server +
+                                                                                                                                       assertServerBound
+                                                                                                                                       anti-exfil), enroll-flo…
+
+01KXDNP6TX1A09QTDPW9T9XZ   ws:89c45cc3e040949f1a1a0   sans WP               DONE      WP7-x1 doctor              recette obsolète (à   —
+3F                         34529722ee877150fd2a0e3d                                   --scan/--prune: gate       rejouer)
+                           a16a7f6e9d8e27f495d                                        stray-bus sweep on live
+                                                                                      presence (never wipe a
+                                                                                      live bus)
+
+01KWN09E7QE1ACJZVG2Z54MK   ws:test                    sans WP               TO-DO     seed A                     recette non évaluée   —
+5R
+
+01KWVM4ZGG24C6YQCXH8QHSN   ws:89c45cc3e040949f1a1a0   intermédiaire · WP5   TO-DO     x6 — Greywall              recette non évaluée   x6 j'ai demandé
+TQ                         34529722ee877150fd2a0e3d                                   transparent autour des                           d'intégrer le concept de
+                           a16a7f6e9d8e27f495d                                        CLIs avec policy                                 greywall en wrapping des
+                                                                                      secure/transparent/adapt                         cli (comme une option
+                                                                                      ative                                            transparente) de base
+                                                                                                                                       toutes les clis seront
+                                                                                                                                       wrappées par ce mode de
+                                                                                                                                       container en
+                                                                                                                                       transparent, et la
+                                                                                                                                       policy ass…
+
+01KY7JYETQVYWDNNQVNZT875   ws:89c45cc3e040949f1a1a0   sans WP               TO-DO     H2A: intent-based Terra    recette non évaluée   Recurring operator
+FF                         34529722ee877150fd2a0e3d                                   xhigh launch preset for                          failure: H2A requires
+                           a16a7f6e9d8e27f495d                                        Geo and Immo jobs                                provider-shaped model
+                                                                                                                                       IDs despite Geo/Immo
+                                                                                                                                       needing the same default
+                                                                                                                                       (Terra 5.6 xhigh).
+                                                                                                                                       Deliver a stable
+                                                                                                                                       semantic preset,
+                                                                                                                                       discoverability at
+                                                                                                                                       launch, determinis…
+
+01KY7K95K4Y24ZQKTXQDD1EM   ws:89c45cc3e040949f1a1a0   sans WP               TO-DO     Semantic model presets:    recette non évaluée   Implement one
+NH                         34529722ee877150fd2a0e3d                                   Terra xhigh for run,                             human-stable preset
+                           a16a7f6e9d8e27f495d                                        delegate, and subagent                           (initial: terra-xhigh)
+                                                                                      launch                                           usable by h2a run, h2a
+                                                                                                                                       delegate, MCP h2a_run,
+                                                                                                                                       loop launch and subagent
+                                                                                                                                       launch. Resolve
+                                                                                                                                       host-specific
+                                                                                                                                       argv/gateway mapping
+                                                                                                                                       centrally; explicit …
+
+01KY7K95S9SVRENWZC6T6XQY   ws:89c45cc3e040949f1a1a0   sans WP               TO-DO     Tmux: diagnose and         recette non évaluée   User reports tmux still
+2A                         34529722ee877150fd2a0e3d                                   restore visible                                  provides no usable
+                           a16a7f6e9d8e27f495d                                        managed-session workflow                         result. Establish
+                                                                                      for Geo and Immo                                 current
+                                                                                                                                       installed/runtime
+                                                                                                                                       evidence, reproduce a
+                                                                                                                                       managed h2a
+                                                                                                                                       run/delegate, identify
+                                                                                                                                       the break (availability,
+                                                                                                                                       session creation,
+                                                                                                                                       attach, pane…
+
+À INSTRUIRE
+dossier legacy             disposition sûre
+────────────────────────   ────────────────────────
+01KY65RNV7GWCXV787PJW5FY   alternatives et
+Q1 — Comment H2A doit-il   recommandation non
+éviter d’envoyer une       enregistrées; réviser
+commande à la mauvaise     avec track decision
+session ?                  dossier
+                           01KY65RNV7GWCXV787PJW5FY
+                           Q1
+
+01KY66FTP7Y4W214SADDWKHT   alternatives et
+15 — 1/6 — Un nom de       recommandation non
+session peut-il envoyer    enregistrées; réviser
+une commande ?             avec track decision
+                           dossier
+                           01KY66FTP7Y4W214SADDWKHT
+                           15
+
+01KY66FV4W1JKHBZ2MW44P9E   alternatives et
+P6 — 2/6 — Après           recommandation non
+suppression, peut-on       enregistrées; réviser
+réutiliser le même nom ?   avec track decision
+                           dossier
+                           01KY66FV4W1JKHBZ2MW44P9E
+                           P6
+
+01KY66FVKFFVKRDXY9PFGEF4   alternatives et
+RD — 3/6 — Quand           recommandation non
+plusieurs sessions         enregistrées; réviser
+correspondent, que fait    avec track decision
+H2A ?                      dossier
+                           01KY66FVKFFVKRDXY9PFGEF4
+                           RD
+
+01KY66FW260Q5TV1DVR6ZPH8   alternatives et
+91 — 4/6 — Quelle preuve   recommandation non
+faut-il avant de dire «    enregistrées; réviser
+agent disponible » ?       avec track decision
+                           dossier
+                           01KY66FW260Q5TV1DVR6ZPH8
+                           91
+
+01KY66FWJ4MYNJMDDJXA54G3   alternatives et
+FD — 5/6 — H2A peut-il     recommandation non
+écrire dans un terminal    enregistrées; réviser
+ambigu ?                   avec track decision
+                           dossier
+                           01KY66FWJ4MYNJMDDJXA54G3
+                           FD
+
+01KY66FX0PFH958103YVQWRB   alternatives et
+QZ — 6/6 — Comment         recommandation non
+lancer le moteur natif     enregistrées; réviser
+H2A ?                      avec track decision
+                           dossier
+                           01KY66FX0PFH958103YVQWRB
+                           QZ
+
+01KY66T2F35VNZP6FHFAVVBG   alternatives et
+H0 — Focus doit-il avoir   recommandation non
+une voie directe «         enregistrées; réviser
+décision dossier »         avec track decision
+séparée du report ?        dossier
+                           01KY66T2F35VNZP6FHFAVVBG
+                           H0
+
+HISTORIQUE NON STRUCTURÉ
+dossier legacy             constat
+────────────────────────   ──────────────────────
+01KTSDXPY1F0S3PZSXHM9T2W   outcome historique:go;
+JA — Politique de spawn    aucune option
+du lancement-conductor :   sélectionnée n'est
+seuil de stalled,          attestée
+cooldown anti-boucle,
+cap, qui declenche —
+requis avant de cabler
+le spawn via remote
+
+01KTSDXX77YGH3KGW3TN5ED1   outcome historique:go;
+EM — Garder ou couper      aucune option
+les 2 items                sélectionnée n'est
+faible-valeur :            attestée
+conductor-mailbox +
+suggestion-ladder
+(reversibles)
+
+01KTT31B9KWF68E0NSQDJRYJ   outcome
+1Q — Cabler le routage     historique:deferred;
+h2a sur                    aucune option
+connectionConfidence       sélectionnée n'est
+(resolveRecipient          attestée
+prefere active /
+wake-confirm
+idle-uncertain) ?
+
+01KWAVZZ1NB0DKQQ0AP1BFHJ   outcome historique:go;
+QM — Migration:            aucune option
+dépréciation               sélectionnée n'est
+parity-triggered (A2),     attestée
+reprise sessions remote
+(C6), frontière CLI↔libs
+(C7)
+
+01KWAW375CPJ9FDTZPNKVA37   outcome historique:go;
+DT — A1: fusionner le      aucune option
+domaine @sentropic/h2a     sélectionnée n'est
+dans h2a-cli + extraire    attestée
+feuille
+@sentropic/h2a-protocol
+(option c, double
+consensus)
+
+01KWB13M2FZ9QE88GRT6BNTT   outcome historique:go;
+7P — A1 RÉORIENTÉ          aucune option
+(Fabien): tout fusionner   sélectionnée n'est
+dans @sentropic/h2a        attestée
+(keystone, bin h2a) ;
+@sentropic/h2a-cli =
+stub déprécié + redirect
++ npm deprecate
+
+01KXC2PNENYM96ZFC3FJNEAC   outcome historique:go;
+VC — §10 enrollment: key   aucune option
+custody = recovery-code    sélectionnée n'est
++ opt-in escrow; resume    attestée
+= blob-first per-host
+matrix
+
+ACTIONS DÉRIVÉES
+scope/gate         sujet                                                                      préconisation
+────────────────   ────────────────────────────────────────────────────────────────────────   ─────────────────────────────────────────────────────────
+decision-pending   Phase 2a observabilite (livree): lastMcpActivityAt (touche sur chaque      décision (owner): Instruire le dossier puis trancher
+                   ligne MCP, flush au heartbeat) + label connectionConfidence
+                   active¦idle-uncertain¦unknown dans discover_sessions +
+                   recipientConfidence dans le retour put ; READ-ONLY/advisory, marge de
+                   skew mirrored, env H2A_ACTIVITY_WINDOW_MS
+
+WP7                x2 — Bug gateway/Claude si le proxy des subagents ne fonctionne pas        action (subagent): Terminer l’incrément en cours
+
+WP9                Harness/worktree placement: forbid /tmp worktrees and heavy scratch; use   action (subagent): Terminer l’incrément en cours
+                   workspace-local/repo-local runtime dirs
+
+acceptance-stale   Eradiquer le CLI remote legacy et canoniser h2a run                        action (subagent): Relancer la vérification sur le commit
+                                                                                              courant
+
+acceptance-stale   Foundation: functional objective-loop (h2a loop)                           action (subagent): Relancer la vérification sur le commit
+                                                                                              courant
+
+acceptance-stale   remote to h2a parity (fallback routing)                                    action (subagent): Relancer la vérification sur le commit
+                                                                                              courant
+
+acceptance-stale   Focus app: injection live-session + i18n + filtre/tri WP + détail +        action (subagent): Relancer la vérification sur le commit
+                   période depuis-dev                                                         courant
+
+acceptance-stale   Committable tooling: consensus-review + track-trace scripts                action (subagent): Relancer la vérification sur le commit
+                                                                                              courant
+
+spec-not-ready     Activity-growth suggestion ladder (graphify/track/harness)                 action (subagent): Rédiger la spécification
+
+spec-not-ready     EVO-10 availability worker / busy-on-user presence                         action (subagent): Rédiger la spécification
+
+spec-not-ready     EVO-9 remaining — VALEUR / ATTENTION / MUTUALISATION                       action (subagent): Rédiger la spécification
+
+spec-not-ready     EVO-5 NHI control work from nhi.md gaps                                    action (subagent): Rédiger la spécification
+
+spec-not-ready     EVO-12 gateway broker — deploy + go-live (client seeded by sentropic)      action (subagent): Rédiger la spécification
+
+spec-not-ready     x9 — Lancer notre propre CLI / gateway broker conçu avec architecte        action (subagent): Rédiger la spécification
+
+spec-not-ready     Write cross-host capability contract and gap lifecycle                     action (subagent): Rédiger la spécification
