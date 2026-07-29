@@ -7,12 +7,20 @@
 > baseline »). Ne pas le rejouer comme sortie attendue ; l'entrée déterministe
 > reproductible est `track-report-raw.txt`.
 >
-> Deux écarts assumés par rapport à ce que le moteur produit aujourd'hui :
-> l'en-tête ne nomme **plus** de fenêtre (`journée du 28/07`) tant que
-> `--since`/`--until`/`--period` n'existent pas (critère 1 tel que borné), et une
-> cellule `bloqué` vide signifie « aucun blocage enregistré » — un gate enregistré
-> rendu `—` est un défaut (critère 19), ce que ce rapport fait encore pour WP4,
-> WP6, WP7 et WP9.
+> Ce qu'il fait **mieux** que le rendu déterministe, et qui est exactement ce que
+> l'UAT du 29/07 a exigé :
+> - `prochaine action` y nomme un geste concret (« Préflight contre `/v1/models` »,
+>   « Créer WP Intégration, rétrograder WP12→18 »), pas une classe de travail
+>   (critère 20) ;
+> - FAIT y énonce un bilan (« 15 PR mergées · release 0.86.0 publiée et installée ·
+>   file 22 → 4 »), pas un échantillon de titres (critère 22) ;
+> - l'en-tête y porte une **période bornée** — ce que le critère 21 rend
+>   obligatoire, et qui n'était interdit que tant qu'aucune borne n'était mesurée ;
+> - DÉCISIONS n'y contient que des dossiers en attente (critère 23).
+>
+> Un seul écart subsiste : une cellule `bloqué` vide signifie « aucun blocage
+> enregistré » — un gate enregistré rendu `—` est un défaut (critère 19), ce que ce
+> rapport fait encore pour WP4, WP6, WP7 et WP9.
 
 # TRACK REPORT — h2a
 *période : journée du 28/07/2026, depuis `5fa272e` · 54/84 (64%)*

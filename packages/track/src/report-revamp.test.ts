@@ -127,9 +127,12 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
     // exactly four sections, and ACTIONS DÉRIVÉES is not one of them).
     expect(text).not.toContain('ACTIONS DÉRIVÉES')
     expect(text).not.toContain('DÉCISIONS/ACTIONS')
-    expect(text).toMatch(/(action|décision) \(/)
-    // Unified lexicon (spec 2026-07-11): the préconisation clause is the shared canonical action wording.
-    expect(text).toMatch(/trancher|rédiger|relancer|corriger|démarrer|inspecter/i)
+    // Criterion 20 — the gate CLASS is no longer served as a `prochaine action`. It survives as the
+    // machine-only `gateStep` property, where it is honestly labelled a class, and in `bloqué`.
+    expect(text).not.toMatch(/action \(subagent\): (Rédiger|Relancer|Terminer|Démarrer)/u)
+    const view = buildWpConductorView(computeWpTree(t.state(), cfg), [])
+    const steps = view.tables.find((tb) => tb.id === 'todo')!.rows.map((r) => r['gateStep']).join(' ')
+    expect(steps).toMatch(/trancher|rédiger|relancer|corriger|démarrer|inspecter/i)
   })
 
   it('report --flat keeps the legacy flat-bucket behavior (deprecated back-compat)', () => {
@@ -365,16 +368,20 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
       id: 'legacy-1', title: 'Unstructured legacy choice', workspace: 'ws',
       decisionKind: 'orientation', realization: 'to-do', outcome: 'pending', structured: false,
     }
-    // Criterion 16 — an unstructured dossier keeps its row in DÉCISIONS (criterion 18: a pending dossier
-    // is never omitted) but it reserves NO D-number, carries NO letters, and reads `à structurer`.
+    // Criteria 16/24 — an unstructured PENDING dossier cannot be answered, so DÉCISIONS does not offer
+    // it. It is real open work and appears in À-FAIRE with what would make it answerable.
     const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text', [legacy])
     expect(text).not.toContain('À INSTRUIRE')
     expect(text).toContain('Unstructured')
     expect(text).toContain('choice')
+    const todoSection = text.slice(text.indexOf('À-FAIRE'), text.indexOf('DÉCISIONS'))
+    expect(todoSection).toContain('dossiers à') // the cell wraps: `hors WP · dossiers à / structurer`
+    expect(todoSection).toContain('structurer')
+    expect(todoSection).toContain('enregistrer options +')
+    expect(todoSection).toContain('recommandation')
     const decisionsSection = text.slice(text.indexOf('DÉCISIONS'), text.indexOf('RECOMMANDATION'))
-    expect(decisionsSection).toContain('à structurer')
-    expect(decisionsSection).toContain('non enregistrées')
     expect(decisionsSection).not.toMatch(/│ D1\b/u)
+    expect(decisionsSection).toContain('aucun dossier en attente')
     expect(text).toContain('Aucun D# disponible : aucun dossier structuré sélectionnable dans le journal.')
   })
 
@@ -385,15 +392,18 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
       id: 'legacy-settled', title: 'Historical outcome without options', workspace: 'ws',
       decisionKind: 'orientation', realization: 'done', outcome: 'go', structured: false,
     }
+    // Criterion 23 — a settled dossier leaves the report entirely. It is not history the owner has to
+    // scroll past on the surface where they decide; it is counted among the omissions, WITH its reason.
+    const view = buildWpConductorView(computeWpTree(t.state(), cfg), [legacy])
     const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text', [legacy])
     expect(text).not.toContain('HISTORIQUE NON STRUCTURÉ')
-    expect(text).toContain('Historical outcome')
-    expect(text).toContain('without options')
-    expect(text).toContain('réglé (go)')
-    // Terminal cells wrap; assert the fragments rather than assuming they stay adjacent.
-    expect(text).toContain('aucune option')
-    expect(text).toContain('attestée')
+    expect(text).not.toContain('Historical outcome')
     expect(text).not.toContain('À INSTRUIRE')
+    expect(view.coverage.omitted).toContainEqual({
+      label: 'Historical outcome without options',
+      reason: 'décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre)',
+    })
+    expect(text).toContain('décision déjà tranchée')
   })
 
   it('renders only validated native alternatives in DÉCISIONS', () => {
