@@ -58,7 +58,7 @@ import { buildSnapshot, type SnapshotOptions, type SnapshotV1 } from '../report/
  * shapes it returns may only GROW (new methods / new optional fields); nothing is removed or
  * repurposed without a major bump. Consumers gate on `reader.contractVersion`.
  */
-export const READ_CONTRACT_VERSION = '1.20.0' // +decisionDossiers: uncapped one-fold decision+dossier projection (additive)
+export const READ_CONTRACT_VERSION = '1.21.0' // +logWindow: the period bounds the log itself carries (additive)
 
 /** Provenance of the last `branch.imported` for a locator (drawn from the raw event log). */
 export interface BranchProvenance {
@@ -633,6 +633,23 @@ export class TrackReader {
   /** Bucketed backlog report (SPEC §7). */
   report(options: ReportOptions): Report {
     return buildReport(fold(this.events()), options)
+  }
+
+  /**
+   * The window the LOG ITSELF carries: first recorded event → last recorded event (criterion 21). Both
+   * bounds are in the log and need no selector — "the whole log" IS a window, and a report that says
+   * `aucune fenêtre` is describing the absence of a flag, not the absence of a period. PURE (no clock):
+   * a caller that wants `now` as the upper bound injects it at its own boundary.
+   */
+  logWindow(): { from?: string; to?: string; events: number } {
+    const events = this.events()
+    const first = events[0]?.at
+    const last = events[events.length - 1]?.at
+    return {
+      ...(first !== undefined ? { from: first } : {}),
+      ...(last !== undefined ? { to: last } : {}),
+      events: events.length,
+    }
   }
 
   /**

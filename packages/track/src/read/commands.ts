@@ -5,6 +5,7 @@
 
 import { buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, wpTotals, type Format, type InlineOptions } from '../report/format.js'
 import { formatWpConductorHtml } from '../report/html.js'
+import type { ConductorMeta } from '../report/format.js'
 import type { QueryFilter, ReportOptions } from '../report/build.js'
 import type { StatusLevel } from '../report/status-by-level.js'
 import type { TrackReader } from './contract.js'
@@ -21,8 +22,29 @@ import type { TrackReader } from './contract.js'
  * (so existing machine consumers keep working), PLUS an OPTIONAL `view` field carrying the conductor view
  * model (for presentation skills). If no WP forest exists, text/md falls back to the deterministic action view.
  */
-export function reportText(reader: TrackReader, options: ReportOptions, format: Format): string {
+/**
+ * Criterion 21 — the window bounds the LOG carries, plus the caller's clock when it injected one. This
+ * module is the boundary: the renderer stays clockless, so the same log and the same `now` always render
+ * the same bytes.
+ */
+function conductorMeta(reader: TrackReader, options: ReportOptions, now?: string): ConductorMeta {
+  const window = reader.logWindow()
+  return {
+    baselineCommit: options.baselineCommit,
+    ...(window.from !== undefined ? { logFrom: window.from } : {}),
+    ...(window.to !== undefined ? { logTo: window.to } : {}),
+    ...(now !== undefined ? { now } : {}),
+  }
+}
+
+export function reportText(
+  reader: TrackReader,
+  options: ReportOptions,
+  format: Format,
+  now?: string,
+): string {
   const report = reader.report(options)
+  const meta = conductorMeta(reader, options, now)
 
   if (options.wpTree && report.wpTree !== undefined) {
     if (format === 'json') {
@@ -30,7 +52,7 @@ export function reportText(reader: TrackReader, options: ReportOptions, format: 
       // A3: `--active-roster` is a HUMAN-render option only — JSON ALWAYS carries the full forest (every node
       // + its `terminal` flag) so a machine consumer filters terminal roots itself.
       const view = report.wpTree.length > 0
-        ? buildWpConductorView(report.wpTree, report.decisions ?? [], report.outsideRollup, 'global', { baselineCommit: options.baselineCommit })
+        ? buildWpConductorView(report.wpTree, report.decisions ?? [], report.outsideRollup, 'global', meta)
         : undefined
       return `${JSON.stringify({ ...report, wpTotals: wpTotals(report.wpTree, report.outsideRollup), ...(view !== undefined ? { view } : {}) }, null, 2)}\n`
     }
@@ -42,7 +64,7 @@ export function reportText(reader: TrackReader, options: ReportOptions, format: 
       return formatWpConductor(
         roster, format, report.decisions, report.outsideRollup,
         options.activeRoster === true ? 'roster actif (terminal exclu)' : 'global',
-        { baselineCommit: options.baselineCommit },
+        meta,
       )
     }
     // No WP containers yet (or every root filtered out): keep the report action-oriented, not a flat dump.
@@ -78,8 +100,9 @@ export function reportInline(reader: TrackReader, options: ReportOptions, inline
  * contract (the same path focus's `renderHtml` uses) over the SAME `ReportView` the JSON path exposes. A
  * WP-less repo still yields a valid (empty-state) fragment via the same presenter.
  */
-export function reportHtml(reader: TrackReader, options: ReportOptions): string {
+export function reportHtml(reader: TrackReader, options: ReportOptions, now?: string): string {
   const report = reader.report(options)
+  const meta = conductorMeta(reader, options, now)
   const decisions = report.decisions ?? []
   if (report.wpTree !== undefined && report.wpTree.length > 0) {
     const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
@@ -87,11 +110,11 @@ export function reportHtml(reader: TrackReader, options: ReportOptions): string 
       return `${formatWpConductorHtml(
         roster, decisions, undefined, report.outsideRollup,
         options.activeRoster === true ? 'roster actif (terminal exclu)' : 'global',
-        { baselineCommit: options.baselineCommit },
+        meta,
       )}\n`
     }
   }
-  return `${formatWpConductorHtml([], decisions, undefined, report.outsideRollup, 'global', { baselineCommit: options.baselineCommit })}\n`
+  return `${formatWpConductorHtml([], decisions, undefined, report.outsideRollup, 'global', meta)}\n`
 }
 
 /**
@@ -103,7 +126,7 @@ export function resolveHandle(reader: TrackReader, options: ReportOptions, handl
   const report = reader.report({ ...options, decisions: true, wpTree: true })
   const view = buildWpConductorView(
     report.wpTree ?? [], report.decisions ?? [], report.outsideRollup, 'global',
-    { baselineCommit: options.baselineCommit },
+    conductorMeta(reader, options),
   )
   const wanted = handle.trim().replace(/^\[|\]$/gu, '').toUpperCase()
   const hit = view.handles.find((h) => h.handle.toUpperCase() === wanted)

@@ -103,7 +103,7 @@ afterEach(() => {
 
 describe('read contract — version + curated surface (snapshot gate)', () => {
   it('exposes a stable semver and the documented read methods', () => {
-    expect(READ_CONTRACT_VERSION).toBe('1.20.0') // +decisionDossiers: uncapped one-fold decision+dossier projection (additive)
+    expect(READ_CONTRACT_VERSION).toBe('1.21.0') // +logWindow: the period bounds the log itself carries (additive)
     expect(reader.contractVersion).toBe(READ_CONTRACT_VERSION)
     expect(typeof trackObjectiveRef).toBe('function')
     expect(typeof parseTrackObjectiveRef).toBe('function')

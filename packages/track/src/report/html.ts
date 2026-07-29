@@ -7,6 +7,7 @@
 
 import {
   buildWpConductorView,
+  coverageLine,
   resolutionLines,
   type ConductorMeta,
   type ReportView,
@@ -57,14 +58,11 @@ function renderHeader(view: ReportView): string {
     k !== undefined
       ? ` · <span class="report-keystone" data-blocks="${escapeHtml(String(k.blocks))}">goulot: ${escapeHtml(k.title)} (bloque ${escapeHtml(String(k.blocks))})</span>`
       : ''
-  const omitted =
-    h.coverage.omitted.length > 0
-      ? ` · ${escapeHtml(String(h.coverage.omitted.length))} omise${h.coverage.omitted.length > 1 ? 's' : ''} (aucun travail ouvert, aucun blocage enregistré)`
-      : ''
   return (
     `<header class="report-header"><h1>TRACK REPORT — ${escapeHtml(h.scope)} · ${escapeHtml(h.progress)}</h1>` +
-    `<p class="report-meta">baseline d’acceptance : <code>${escapeHtml(h.baselineCommit ?? 'non résolue')}</code> · ${escapeHtml(h.window)}${keystone}</p>` +
-    `<p class="report-coverage">couverture : ${escapeHtml(String(h.coverage.projected))} lignes projetées · ${escapeHtml(String(h.coverage.rendered))} rendues${omitted}</p>` +
+    `<p class="report-period">${escapeHtml(h.period.label)}${keystone}</p>` +
+    `<p class="report-meta">baseline d’acceptance : <code>${escapeHtml(h.baselineCommit ?? 'non résolue')}</code></p>` +
+    `<p class="report-coverage">${escapeHtml(coverageLine(h.coverage))}</p>` +
     `<p class="report-sources">sources : ${escapeHtml(h.sources.join(' ; '))}</p></header>`
   )
 }

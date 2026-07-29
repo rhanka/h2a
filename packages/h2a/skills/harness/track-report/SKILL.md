@@ -107,18 +107,34 @@ Render exactly four sections, in this order, and nothing else: **FAIT**, **À-FA
 `HORS ROLLUP`, no `À INSTRUIRE`, no `HISTORIQUE NON STRUCTURÉ`, no `ACTIONS DÉRIVÉES`: what those tables
 carried is folded into the four, and what they carried that does not matter is not printed.
 
-The header carries the **acceptance baseline** and states that the report covers the whole log. It carries
-no bucket counters. **Do not name a window** — `--since`/`--until`/`--period` do not exist yet, so
-`journée du 28/07` is a claim nothing can support. The header also carries the two coverage counts; keep
-them.
+The header carries the **period**, the **acceptance baseline** and the two coverage counts. It carries no
+bucket counters.
+
+**There is always a window, and it always has bounds.** "The whole log" *is* a window: first recorded
+event → now. Both bounds are in the log and need no selector, so the header always reads
+`période : 2026-06-09 → 2026-07-29 (intégralité du journal)`. The phrase `aucune fenêtre` is wrong — it
+described the absence of a flag, not the absence of a period. What is still forbidden is announcing a
+window nothing supports: `--since`/`--until`/`--period` do not exist, so a window you did not measure in
+the log is invented. `--now <iso>` pins the upper bound when you need a reproducible render.
+
+The acceptance baseline is **not** a window. Keep the two apart in the sentence, as the renderer does.
 
 **FAIT** — `scope · avancement · dernières actions`. The third column names what was accomplished, not the
 arithmetic: `agrégat de périmètre; pas une action` and `WP clos (état enregistré)` are both forbidden.
-The renderer fills it with the last recorded completions of that scope, most recent first, and declares
-its own compression (`3 des 8 actions enregistrées`). Enrich it from input 2 when you have input 2, and
-say so. **The global row is an aggregate: never turn its count into an accomplishment sentence.** Over a
-long window, compress FAIT to themes and turning points and declare the compression — over the whole
-project it is a short history, not a changelog.
+
+**Over a long window, FAIT is a balance sheet, not the latest titles.** Three completions out of
+fifty-four is a *sample*, not a summary, and serving one as the other is what failed the owner's UAT.
+Density follows the window: one day names the facts, five weeks tells a short story — themes, turning
+points, delivered capability.
+
+The deterministic projection cannot write that: it carries item titles, not a reading of them. So when a
+scope has more completions than fit, it emits `bilan à écrire — N actions enregistrées, titres seuls dans
+le projeté … échantillon : …`. **That cell is an instruction to you, not a result.** Replace it using
+input 2 — `git log`, merged PRs, releases, tags over the window — and name the provenance. If you do not
+have input 2, leave the cell saying what is missing. Never delete the marker and leave the sample: a
+sample presented as a synthesis is the defect, not the wording.
+
+**The global row is an aggregate: never turn its count into an accomplishment sentence.**
 
 **À-FAIRE** — exactly five columns: `WP · av. · à faire · bloqué · prochaine action`. There is no
 `cible action` column; a DONE item carrying acceptance debt is named inside `à faire` with its bucket.
@@ -128,22 +144,30 @@ Print the line `ordre = priorité ; les cinq premiers sont le focus` under the h
   `recette`, `dépendance`, `h2a`, `priorité`). It never restates the question.
 - **An empty `bloqué` means no blockage is recorded.** A recorded gate rendered `—` is a failure, not a
   clean cell. The machine-only `gateDetail` property carries the precise gate phrase if you need it.
-- `prochaine action` names the routing executor. A row gated on a decision has **no** next action until
-  the decision lands — that is the only case where `—` is correct there.
+- `prochaine action` names **the concrete next gesture on that item** — the file, the function, the
+  question to settle, the command to run. See the section below: this is the criterion that failed UAT.
+- A row gated on a pending dossier has **no** next action until the decision lands — that is the only
+  case where `—` is correct there.
 - WP labels are short human names (`WP2 · Addressing`), never the full stored title.
 
 **DÉCISIONS** — a drawn table `# · sujet · alternatives · préco`, numbered `D1…Dn`, each recommendation on
 the line of its own option. The renderer already draws it; `formatWpConductor` adds no fence in `text`, and
 fences it in `md`.
 
-- **A `D` number is reserved for a dossier whose options AND recommendation are stored.** An unstructured
-  dossier keeps its row, carries a `Q` handle instead, reads `à structurer`, carries **no letters**, and is
-  **not** offered in the reply line. A report that prints alternatives absent from the log fails, however
-  plausible they are.
+**DÉCISIONS carries only pending dossiers the owner can answer now. Nothing else.**
+
+- **A `D` number is reserved for a dossier whose options AND recommendation are stored.** A report that
+  prints alternatives absent from the log fails, however plausible they are.
+- **A settled dossier leaves the report.** It has nothing left to answer, it crowds out the dossiers that
+  are still waiting, and it is already visible where it counts: in the freed `bloqué` cell of the row it
+  used to gate, or in FAIT if it produced something. It is counted among the omitted rows, with its
+  reason. Do not render it as history.
+- **A pending dossier with no stored options cannot be answered either**, so it is not offered here.
+  `non enregistrées — à structurer` teaches nothing and cannot be replied to. It belongs in À-FAIRE as
+  the work of making it answerable: record its options and recommendation
+  (`track decision dossier <id>`), then it earns a `D` number.
 - Never infer choices by parsing a prose `context` field. There is no machine-readable effect field; do not
   invent one.
-- A settled dossier is rendered as history (`réglé (go)`), keeps its selected option when one is attested,
-  and receives no reply number.
 - For a single structured dossier, use the exact workspace from `decision ls`:
   `node "$track_bin" focus <decision-id> --workspace <workspace-from-decision-ls>`. `--workspace` is
   required; a mismatched workspace is an error. Never substitute `track workspace-id` or a workspace
@@ -157,6 +181,33 @@ that case; name only recorded non-decision directives that can start now, and na
 dossier as the prerequisite to a selectable decision. If no non-decision directive exists, say that no
 executable lane is attested.
 
+## `prochaine action` is investigated, not derived
+
+This is the criterion the owner's UAT rejected, and it is the one that matters most.
+
+The gate of a directive gives you `Terminer l'incrément en cours`, `Rédiger la spécification`,
+`Relancer la vérification`. Those name the **class** of the work, never the work. Twenty rows, five
+distinct sentences, zero information: that is a template, not a recommendation. The renderer no longer
+serves them as next actions — it keeps the class on a machine-only `gateStep` property, and the class is
+in any case what the `bloqué` column already says.
+
+What the report must carry instead, **for every focus row**: the concrete next gesture on *that* item —
+the file to change, the function, the question to settle, the command to run. You get it by **opening the
+item**: its body, its acceptance criteria, the commits and the code it references. That is investigation,
+not a rewording of the gate. `track report --resolve <handle>` gives you the id to open.
+
+It costs real per-row work, so it is **bounded to the focus rows** — the five the ordering line names.
+The renderer marks them `à instruire : ouvrir l'item et nommer le geste`; you must replace every one of
+those markers before serving the report. Every other row keeps `non instruite`, which says plainly that
+the action has not been instructed — that is honest, and it is what you leave there.
+
+Checkable, and to be run before serving: `auditNextActions(values, gateClauses)` from
+`@sentropic/track` returns `{ uninstructed, repeated, gateClauses, ok }`. `uninstructed > 0` means focus
+rows still carry the renderer's marker — finish them. `ok === false` means a substantive action repeats
+on three or more rows, or equals a gate clause: in both cases it names a class, not a gesture. Not
+checkable, and the part that actually failed the UAT: whether the sentence is *right*. The owner judges
+that, and no green test substitutes for it.
+
 ## Compress, but never hide
 
 The report is a decision surface, not an inventory. Compressing the projection is the work, not a defect —
@@ -169,7 +220,15 @@ the validated report renders 15 À-FAIRE rows against a raw projection of 64. Tw
   every shape criterion while deleting 44 of 48 rows and inventing the decisions it kept; these two rules
   exist because of it.
 
-What may be omitted: a WP with no open work, no recorded gate and no recorded completion. Nothing else.
+What may be omitted: a WP with no open work, no recorded gate and no recorded completion; and a settled
+dossier, which has nothing left to answer. **Every omission names its reason** — the header groups them
+(`60 omises : 47 WP sans item ouvert… · 13 décision déjà tranchée…`). An omission without a why is the
+silence this rule exists to forbid.
+
+**If you cannot make a row intelligible, do not serve it as it is.** `non enregistrées · aucune option
+attestée` describes the state of a datum, not a situation to act on. Either instruct the row — say what
+would make it answerable, what it would take to act — or count it among the omissions and say why. Those
+are the only two outcomes. Serving the obscure verbatim is the third, and it is the one the UAT rejected.
 
 ## Handles, and what they are worth
 
