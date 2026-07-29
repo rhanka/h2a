@@ -31,7 +31,41 @@ So the subcontractor's memory lives in two places, neither of them the subcontra
 preamble the delegating actor prepends, and the gate the return passes through. Block 1 is
 composed per task from `RECALL.md`; blocks 2 and 3 are fixed and copied verbatim.
 
-### Deliver the preamble as a file, and verify it landed
+## The preamble — paste this at the head of a subcontractor prompt
+
+Self-contained, thirteen lines, no pointer to any document. A subcontractor that must read
+three files before starting reads none of them. **Ordered deliberately**: if the channel
+fragments the prompt (see below), line 1 arrives first and already carries the hard stop.
+
+```
+Before you start, and these override any instinct you have about this repo:
+1. Report nothing you did not see printed. If you did not run it, write "not measured".
+2. Every claim names the artefact that would falsify it: file:line, command and output,
+   commit, or event id. A claim with no locator is rejected, not corrected.
+3. Say where your guarantee stops. "The tests pass" is not "the code is covered".
+4. Never claim done, and never offer a green suite as acceptance. Only the owner accepts.
+5. "Fixed on a branch" is not fixed. Name the branch and say whether it is merged.
+6. The required gate does NOT cover packages/h2a-runtime: 73 test files there never run.
+   A test you add there will not run. Put gated tests in packages/h2a/test.
+7. A capability recorded as delivered may be unreachable. Before citing one, find the
+   code path that switches it on.
+8. An id you read in this working tree may not exist for anyone else: 264 of 785 journal
+   events are uncommitted. Check origin/main before citing an item or decision id.
+9. Work in an isolated git worktree based on origin/main, and run
+   git branch --show-current before any commit: twelve actors share one checkout.
+10. Do not widen the scope. Report other defects you find; do not fix them.
+11. Never invoke the h2a CLI from a shell; a PreToolUse hook blocks it. Use MCP tools.
+12. No Co-Authored-By or AI-attribution trailer. No backticks or $(...) in a git -m
+    string; use -F file.
+13. If your task needs any statement above to be false, stop and say so.
+```
+
+Lines 6 to 8 are the three hypotheses a fresh model re-proposes most reliably here, and
+line 13 is what converts the list from advice into a stop. Compose nothing else per task
+unless `RECALL.md` holds a `REF-*` entry that touches the task directly — then add it as a
+fourteenth line, in the same imperative form.
+
+### Deliver the preamble as a file when the channel fragments
 
 Measured while delegating this lane's first subcontract, on the installed 0.88.0: a launch
 prompt is typed into the pane **without a submit**. A multi-line prompt therefore
@@ -39,11 +73,14 @@ self-submits on its own newlines and arrives as *N separate messages* — the su
 starts acting on fragment 1, before it has seen the task. A single-line prompt is never
 submitted at all: `state: "started"`, 0 s of CPU, the prompt sitting in the input box.
 
-So the preamble goes in a **file inside the subcontractor's worktree**, and the launch
-prompt is one line pointing at it. This is not a retreat to "reference a document and hope":
-the launch prompt is the one thing the subcontractor cannot skip, and it is generated per
-task, so it is never a stale copy — the two properties that made an extract of `RECALL.md`
-the wrong shape still hold.
+**Which form to use, and when.** Paste the thirteen lines above whenever the channel
+delivers a prompt intact — any harness, any agent tool, any hand-started session. That is
+the default. Use a **file plus a one-line launch prompt** only for `h2a run` on 0.88.0,
+whose delivery fragments as described: there, put the preamble and the task in a file in the
+subcontractor's worktree and point at it in one line. It is not a retreat to "reference a
+document and hope" — the launch prompt is the one thing a subcontractor cannot skip, and it
+is written per task, so it is never a stale copy. When
+`fix/h2a-run-prompt-delivery` merges, the paste form becomes correct there too.
 
 Then **verify, before you consider the work started**: CPU time greater than zero on the
 child process, and a visible working indicator. A launch that reports `started` is not a
