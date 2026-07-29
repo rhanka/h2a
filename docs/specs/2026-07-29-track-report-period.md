@@ -520,3 +520,71 @@ sort du rapport.
 La règle générale, qui vaut au-delà de ces lignes : **si l'agent ne peut pas
 rendre une ligne intelligible, il ne la sert pas telle quelle.** Il l'instruit,
 ou il la compte parmi les omissions en disant pourquoi.
+
+---
+
+## UAT — 2026-07-29, deuxième passe. Verdict : mieux, pas bon
+
+Trois constats sur le rendu froid à `88d460c`. Ils portent tous sur la même
+faute : **le rapport énumère des livrables techniques au lieu de dire ce que le
+produit sait faire maintenant.** C'est un compte rendu d'atelier, pas un rapport
+d'avancement.
+
+### 25 — Sur une fenêtre longue, on ne descend pas sous le WP
+
+Rendu observé : `WP2.1 · WP-A Routing`, `WP2.2 · WP-F False-live`,
+`WP4.1 · WP-D Conductor`, `WP5.17 · Parité`, `WP6.1 · WP-B Workspace`,
+`WP8.10 · Restructuration` — six sous-niveaux mêlés aux WP racines, dont
+plusieurs répètent la même information que leur parent.
+
+Sur un rapport long, le sous-WP est du détail d'implémentation : il gonfle le
+tableau et brouille la lecture par thème. Le WP est l'unité de lecture.
+
+Exigence : sur une fenêtre longue, FAIT et À-FAIRE s'arrêtent au WP. Les
+sous-niveaux sont agrégés dans leur parent, jamais listés à côté de lui. Ils ne
+réapparaissent que sur une fenêtre courte, ou sur demande explicite de l'owner.
+
+### 26 — Le bénéfice porte la rédaction ; la métrique l'illustre
+
+Rendu observé, sur WP2 : *« reach-guard partagé sur les chemins réveil/relance
+et workspace-id git-dérivé (09/06), `discover --live` classé par confiance
+(14/06), signal de confiance de connexion honnête + arrêt gracieux et purge de
+présence fantôme (10/06), `touch()` qui ressuscite une présence balayée
+(18/06)… »*
+
+C'est une liste de commits traduite en français. Elle nomme des mécanismes, des
+dates et des identifiants ; elle ne dit à aucun moment **ce que le produit sait
+faire qu'il ne savait pas faire avant**.
+
+Ce que la même chose devrait dire : *« Adresser un agent ne relève plus du pari.
+La cible est vérifiée avant l'envoi et les sessions mortes cessent de répondre —
+337 destinataires annoncés, 3 réellement joignables. »*
+
+Exigence : chaque cellule de FAIT est écrite **par la finalité** — la capacité
+atteinte, ce qu'elle permet, ce qu'elle ferme comme classe de problème. Les
+chiffres, versions, dates et identifiants viennent en appui, une ou deux fois,
+pour prouver ; jamais comme structure du propos. Un lecteur qui ne connaît pas
+le code doit comprendre ce qui a été gagné.
+
+Ce qui disparaît : les dates entre parenthèses sur chaque clause, les noms de
+symboles en série, l'énumération chronologique. Ce qui reste : une ou deux
+mesures qui rendent la capacité crédible.
+
+### 27 — Une cellule n'est pas un paragraphe monolithique
+
+Rendu observé : des cellules de huit à douze lignes en un seul bloc, sans
+respiration, où le lecteur perd le fil avant la fin.
+
+Exigence : la cellule est rédigée comme l'écrirait un rédacteur — une idée par
+ligne, retour à la ligne entre les idées. Le rendu dessiné le permet déjà
+(l'à-FAIRE le fait pour ses items) ; FAIT doit en faire autant.
+
+Concrètement : une capacité par ligne, deux à quatre lignes par WP sur une
+fenêtre longue. Si une cellule dépasse, c'est qu'elle énumère au lieu de
+synthétiser — voir 26.
+
+### Ce que ces trois-là disent ensemble
+
+Le rapport a cessé de mentir (critères 20–24). Il doit maintenant cesser d'être
+illisible. Un rapport d'avancement se lit par ce qu'il apporte, pas par ce qu'il
+a coûté — et un owner doit pouvoir en tirer une décision sans ouvrir le code.
