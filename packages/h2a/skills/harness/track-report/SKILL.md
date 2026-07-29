@@ -59,8 +59,10 @@ above.
 
 `--track-dir <directory-containing-events.jsonl>` is a documented global override: it may appear before or
 after the command, and `TRACK_DIR` is its environment equivalent. Confirm its spelling with
-`node "$track_bin" --help` or `node "$track_bin" report --help`; it selects a fixture store and does not
-write one.
+`node "$track_bin" --help` or `node "$track_bin" report --help`. It redirects the whole **store**, reads and
+writes alike — a write verb run under `--track-dir` appends to that directory. Point it at a copy, never at
+a log you are not the designated writer for. The report commands above are read-only by themselves; the
+override does not make an arbitrary command read-only.
 
 Do not use `track report --flat` to recover omitted conductor rows: it is a deterministic flat diagnostic,
 not an emergency route. The conductor projection above is complete. Do not use `track report --level wp`
@@ -181,10 +183,21 @@ what each answer unblocks, and where executor context is still required. The own
 unrecorded choice exists. This is conversational prose, not `view.generalRecommendation`: that field does
 not exist and no deterministic renderer writes this section.
 
-`track report --inline` is a compact terminal summary, not the complete report route: it may summarize a
-tail with an explicit count. Do not use it to satisfy the four sections above or to recover HORS ROLLUP rows.
+`--inline` **and `--width <40..240>`** both select the same compact terminal summary — passing a width turns
+inline on, whether or not you wrote `--inline`. That route is not the complete report: at every width it
+drops HORS ROLLUP and ACTIONS DÉRIVÉES, collapses a tail into “+N autres”, and prints its own deterministic
+`PRÉCO` block. Never use either flag to satisfy the sections above, and do not quote a `PRÉCO` line as the
+report's recommendation. The three read commands at the top of this file carry no width and must not be
+given one.
+
+`--decisions` changes the emitted JSON payload; it does not gate the DÉCISIONS section in text, Markdown, or
+HTML, which render structured dossiers whenever the log holds any. Passing it is still correct — just do not
+conclude from a missing section that the flag failed.
 
 ## Honesty rules
+
+These describe the three read commands above. They are guarantees of that route only; `--inline`/`--width`
+truncates by design and `--flat` is a different projection.
 
 - Every conductor row, pending decision, and outside-rollup item appears. Never summarize a hidden tail as
   “+N autres”.
