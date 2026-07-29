@@ -44,13 +44,47 @@ export function cleanDisplayText(s: string): string {
   return out.trim()
 }
 
+/** Backslash-escape every markdown metacharacter. Does NOT trim — the caller owns normalization. */
+function escapeMdMeta(s: string): string {
+  let out = ''
+  for (const ch of s) out += MD_META.has(ch) ? BACKSLASH + ch : ch
+  return out
+}
+
 /** A display-safe title: control-normalized for text, plus markdown-metacharacter-escaped for md. */
 export function displayText(s: string, format: Format): string {
   const t = cleanDisplayText(s)
+  return format === 'md' ? escapeMdMeta(t) : t
+}
+
+/**
+ * The row handle token `[n.m]` — ONE definition, three consumers: the builder emits it, the renderer
+ * keeps it OUT of the markdown-escaped span, and the parity test extracts it. It is exempt from escaping
+ * because it is MACHINE-GENERATED, never user content: `track report --resolve <handle>` is the documented
+ * path from a rendered row to an action, and a handle a machine has to unescape first is a handle that
+ * breaks that path in exactly one of the three formats.
+ *
+ * The exemption cannot become an injection route: only the literal token matches, and every other
+ * character around it — including the `(` `)` a markdown link would need — is still escaped.
+ */
+export const HANDLE_TOKEN_SOURCE = String.raw`\[\d+\.\d+\]`
+
+/** Fresh instance per call: a shared `g`-flagged regex carries `lastIndex` state between callers. */
+export function handleTokenRegex(): RegExp {
+  return new RegExp(HANDLE_TOKEN_SOURCE, 'gu')
+}
+
+/**
+ * A display-safe TABLE CELL. Same guarantee as `displayText` for every user-originated fragment, with the
+ * machine-generated handle token passed through verbatim so all three formats yield the SAME handle set.
+ */
+export function displayCell(s: string, format: Format): string {
+  const t = cleanDisplayText(s)
   if (format !== 'md') return t
-  let out = ''
-  for (const ch of t) out += MD_META.has(ch) ? BACKSLASH + ch : ch
-  return out
+  return t
+    .split(new RegExp(`(${HANDLE_TOKEN_SOURCE})`, 'u'))
+    .map((part, index) => (index % 2 === 1 ? part : escapeMdMeta(part)))
+    .join('')
 }
 
 function clean(s: string): string {
@@ -1137,8 +1171,9 @@ function renderReportView(view: ReportView, format: Format): string {
   if (format === 'json') return JSON.stringify(view, null, 2) + '\n'
   // User-originated cell content (titles) is escaped per-format: `md` escapes markdown metacharacters so a
   // crafted item title cannot inject formatting (parity with the legacy `formatReport`/`title` path); `text`
-  // is clean. The view model itself stays RAW (escaping is a render-only concern).
-  const esc = (s: string): string => title(s, format)
+  // is clean. The view model itself stays RAW (escaping is a render-only concern). `displayCell` keeps the
+  // machine-generated `[n.m]` handle out of that escaped span so the three formats agree on it.
+  const esc = (s: string): string => displayCell(s, format)
   const h = (label: string): string => (format === 'md' ? `## ${label}` : label)
   const lines: string[] = headerLines(view, format)
   for (const section of view.tables) {
@@ -1155,9 +1190,10 @@ function renderReportView(view: ReportView, format: Format): string {
         DECISION_CAPS,
         [false, false, false, true],
       )
-      if (format === 'md') lines.push('```')
+      const fence = fenceFor(drawn)
+      if (format === 'md') lines.push(fence)
       lines.push(...drawn)
-      if (format === 'md') lines.push('```')
+      if (format === 'md') lines.push(fence)
     } else {
       if (section.id === 'todo') lines.push(format === 'md' ? `*${TODO_ORDER_NOTE}*` : TODO_ORDER_NOTE)
       lines.push(
@@ -1169,10 +1205,25 @@ function renderReportView(view: ReportView, format: Format): string {
     }
     lines.push('')
   }
-  if (format === 'md') lines.push('```')
-  lines.push(...resolutionLines(view))
-  if (format === 'md') lines.push('```')
+  const resolution = resolutionLines(view)
+  const resolutionFence = fenceFor(resolution)
+  if (format === 'md') lines.push(resolutionFence)
+  lines.push(...resolution)
+  if (format === 'md') lines.push(resolutionFence)
   return lines.join('\n').trimEnd() + '\n'
+}
+
+/**
+ * A fence long enough to contain `lines` (CommonMark: an opening fence must be longer than any backtick
+ * run inside it). Without this, a single item title carrying ``` would close the fence early and let the
+ * rest of a MACHINE block — the drawn table, the handle→id map — render as markdown.
+ */
+function fenceFor(lines: readonly string[]): string {
+  let longest = 0
+  for (const line of lines) {
+    for (const run of line.match(/`+/gu) ?? []) longest = Math.max(longest, run.length)
+  }
+  return '`'.repeat(Math.max(3, longest + 1))
 }
 
 /** Like `clean`, but PRESERVES the explicit `\n` line breaks a drawn cell uses to align its options. */
