@@ -526,6 +526,27 @@ describe("deliverInitialPrompt", () => {
     expect(result.cpuDeltaMs).toBe(0);
   });
 
+  it("detects real work even when the host's own idle burn is not negligible", () => {
+    // MEASURED FALSE NEGATIVE, on this branch's own review launch: the agent was
+    // demonstrably working (12.2s of tree CPU, visibly reading the PR) but a
+    // CUMULATIVE idle budget over 30s had grown larger than the work burst, so
+    // delivery reported "submitted-idle" — which, in a real launch, KILLS a
+    // perfectly good lane. Rates over one window, not totals.
+    const { deps } = fakePane({
+      idleCpuPerSec: 63, // the host is never truly at zero
+      workCpuPerSec: 800, // and then it actually works
+    });
+
+    const result = deliverInitialPrompt("%1", "the brief", deps, {
+      quietMs: 1_000,
+      quietCpuMs: 10, // force the "stable burn" calibration path
+      activityMs: 30_000,
+      pollMs: 500,
+    });
+
+    expect(result.state).toBe("working");
+  });
+
   it("does not read a host's OWN idle burn as work", () => {
     // MEASURED: an idling codex burned 420ms over 30s. A flat threshold called
     // that "working" while nothing had been submitted at all.
