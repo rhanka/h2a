@@ -32,23 +32,33 @@ const DOMAIN = [
   "agents",
   "gateway"
 ];
-/** WP → the single actor accountable for it, per docs/governance/RACI.md table A. */
-const WP_OWNER = {
-  1: "coop",
-  2: "coop",
-  3: "coop",
-  4: "cond",
-  5: "runtime",
-  6: "arch",
-  7: "runtime",
-  8: "track",
-  9: "harness",
-  10: "plugins",
-  11: "memory",
-  12: "portal",
-  13: "agents",
-  14: "gateway"
-};
+/**
+ * WP → the single actor accountable for it, **derived from `docs/governance/RACI.md` table A and
+ * never duplicated here**. A copy would have to be edited in lockstep with the document, and the
+ * first time someone forgot, this file would pin yesterday's map while claiming to check today's.
+ * Deriving makes the document the single source; this file only enforces the invariant over it.
+ *
+ * That distinction is what keeps a ratified change from becoming a test failure: when the owner
+ * dissolves WP7, the document and the manifest change and this test follows — it does not have to
+ * be edited, and it does not turn an arbitration into a red build for the lane that loses the WP.
+ *
+ * Table A row shape: `| WP7 | Infra, deploy & MCP | \`runtime\` — **provisional** | … | … |`.
+ * The accountable actor is the FIRST backticked token of column 3; a trailing marker or note is
+ * deliberately ignored. Rows whose first column is not `WP<n>` — the WP-less security row — carry
+ * no WP and are skipped.
+ */
+function wpOwnersFromRaci() {
+  const md = readFileSync(join(REPO_ROOT, "docs", "governance", "RACI.md"), "utf8");
+  const owners = new Map();
+  for (const line of md.split("\n")) {
+    const row = /^\|\s*WP(\d+)\s*\|[^|]*\|([^|]*)\|/.exec(line);
+    if (!row) continue;
+    const actor = /`([^`]+)`/.exec(row[2]);
+    if (!actor) continue;
+    owners.set(Number(row[1]), actor[1]);
+  }
+  return owners;
+}
 
 function committedManifest() {
   const source = readFileSync(join(REPO_ROOT, H2A_ORG_MANIFEST_FILENAME), "utf8");
@@ -88,7 +98,7 @@ test("the twelve durable actors are all declared, and nothing else is an actor",
   assert.deepEqual(extra, [], "an undeclared actor appeared — amend the RACI, not just the manifest");
 });
 
-test("every WP is owned by exactly one actor, and every actor's WP is declared", () => {
+test("every WP is owned by exactly one actor — the invariant, not one particular map", () => {
   const manifest = committedManifest();
   const owners = new Map(); // wp number → [instances holding org:h2a/wpN]
   for (const inst of manifest.instances) {
@@ -99,14 +109,33 @@ test("every WP is owned by exactly one actor, and every actor's WP is declared",
       owners.set(wp, [...(owners.get(wp) ?? []), inst.instance]);
     }
   }
-  for (const [wp, owner] of Object.entries(WP_OWNER)) {
-    assert.deepEqual(
-      owners.get(Number(wp)),
-      [owner],
-      `WP${wp} must be owned by exactly one actor (${owner})`
+
+  // THE invariant: a WP is answerable to exactly one actor. Two owners make "who arbitrates"
+  // unanswerable; zero makes the work nobody's. This is what must never drift — the identity of
+  // the owner is the document's business, and it may change by ratified decision at any time.
+  for (const [wp, holders] of owners) {
+    assert.equal(
+      holders.length,
+      1,
+      `WP${wp} is claimed by ${holders.length} actors (${holders.join(", ")}) — exactly one must be accountable`
     );
   }
-  assert.equal(owners.size, Object.keys(WP_OWNER).length, "a WP scope exists with no entry in the RACI");
+
+  // And the manifest must agree with the document, in both directions, so neither can drift alone.
+  const fromRaci = wpOwnersFromRaci();
+  assert.ok(fromRaci.size > 0, "no WP row could be parsed out of docs/governance/RACI.md table A");
+  for (const [wp, owner] of fromRaci) {
+    assert.deepEqual(
+      owners.get(wp),
+      [owner],
+      `RACI.md table A gives WP${wp} to "${owner}"; org.h2a.yaml disagrees`
+    );
+  }
+  assert.deepEqual(
+    [...owners.keys()].sort((a, b) => a - b),
+    [...fromRaci.keys()].sort((a, b) => a - b),
+    "org.h2a.yaml and RACI.md table A do not cover the same set of WPs"
+  );
 });
 
 test("every declared instance sits in the root scope", () => {
