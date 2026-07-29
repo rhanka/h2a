@@ -215,6 +215,7 @@ describe("handleClaudeHook — P3 job.done on claude-end for a delegated job", (
         kind: "local-tmux",
         cwd: "/work",
         source: "run",
+        sessionClass: "background",
         role: "job",
         jobState: "running",
         callbackTo: "claude:parent:1",
@@ -253,6 +254,7 @@ describe("handleClaudeHook — P3 job.done on claude-end for a delegated job", (
         kind: "local-tmux",
         cwd: "/work",
         source: "run",
+        sessionClass: "background",
         role: "job",
         jobState: "running",
         callbackTo: "p",
@@ -278,7 +280,7 @@ describe("handleClaudeHook — P3 job.done on claude-end for a delegated job", (
 
   it("a non-job session end is untouched (no callback field)", () => {
     enroll(
-      { id: "plain-1", tool: "claude", kind: "local", cwd: "/work", source: "hook" },
+      { id: "plain-1", tool: "claude", kind: "local", cwd: "/work", source: "hook", sessionClass: "human" },
       regPath,
     );
     const r = handleClaudeHook(
@@ -302,6 +304,9 @@ describe("H1 — job resolved by REMOTE_JOB_ID / convId, not session_id slug", (
         kind: "local-tmux",
         cwd: "/work",
         source: "run",
+        // A delegated job never had a human in front of it; enrollment refuses
+        // role:"job" under any other class.
+        sessionClass: "background",
         role: "job",
         jobState: "running",
         callbackTo: "claude:parent:1",
