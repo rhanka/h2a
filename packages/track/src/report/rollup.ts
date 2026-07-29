@@ -32,6 +32,36 @@ export interface WpLeafBlocker {
   reason: string
 }
 
+export const BODY_EXCERPT_MAX = 200
+
+/**
+ * A cleaned, one-line, capped excerpt of an item body: collapse every control char / whitespace run to a
+ * single space, trim, then cap at `BODY_EXCERPT_MAX` with a trailing ellipsis. `undefined` for an
+ * absent/blank body (drop-when-absent). Lives HERE because both the flat row projection (`build.ts`) and
+ * the WP leaf projection need it, and `build.ts` already depends on this module.
+ */
+export function bodyExcerpt(body: string | undefined): string | undefined {
+  if (body === undefined) return undefined
+  let out = ''
+  let prevSpace = false
+  for (const ch of body) {
+    const code = ch.codePointAt(0) ?? 0
+    const isSpace = code < 0x20 || code === 0x7f || code === 0x2028 || code === 0x2029 || ch === ' '
+    if (isSpace) {
+      if (!prevSpace) {
+        out += ' '
+        prevSpace = true
+      }
+    } else {
+      out += ch
+      prevSpace = false
+    }
+  }
+  const trimmed = out.trim()
+  if (trimmed.length === 0) return undefined
+  return trimmed.length <= BODY_EXCERPT_MAX ? trimmed : `${trimmed.slice(0, BODY_EXCERPT_MAX - 1)}…`
+}
+
 /** A rolled-up leaf under a WP — its bucket drives both the % counts and the `[x]/[ ]` checkbox. */
 export interface WpLeaf {
   id: ItemId
@@ -53,6 +83,12 @@ export interface WpLeaf {
   engagementRef?: string
   /** An open blocker on this leaf is `kind:'decision'` ⇒ an owner decision is pending (ATTENDUS). */
   awaitedOnDecision?: boolean
+  /**
+   * A cleaned, capped excerpt of the item's RECORDED body — drop-when-absent. The conductor's `à faire`
+   * cell shows it beside the title: it is already in the log, costs no investigation to surface, and it
+   * is what separates "nobody has looked at this row yet" from "the log records only a title".
+   */
+  summary?: string
 }
 
 /** Project an open `BlockerState` onto the leaf's `openBlockers[]` (drop-absent ⇒ minimal shape). */
@@ -93,6 +129,7 @@ export function buildWpLeaf(state: State, item: ItemState, config: ReportConfig)
     ...(item.accountable !== undefined ? { accountable: item.accountable } : {}),
     ...(item.engagementRef !== undefined ? { engagementRef: item.engagementRef } : {}),
     ...(awaitedOnDecision ? { awaitedOnDecision: true } : {}),
+    ...(bodyExcerpt(item.body) !== undefined ? { summary: bodyExcerpt(item.body)! } : {}),
   }
 }
 

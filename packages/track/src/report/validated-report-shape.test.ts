@@ -23,6 +23,7 @@ import {
   DETERMINISTIC_NEXT_ACTIONS,
   formatWpConductor,
   handleTokenRegex,
+  todoExcerpt,
   type ReportView,
 } from './format.js'
 
@@ -60,8 +61,8 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
 const wp = (title: string, parentId?: string): string =>
   t.createItem({ kind: 'chore', title, workspace: 'ws', role: 'workpackage', ...(parentId !== undefined ? { parentId } : {}) })
-const leaf = (title: string, parentId: string): string =>
-  t.createItem({ kind: 'chore', title, workspace: 'ws', parentId })
+const leaf = (title: string, parentId: string, body?: string): string =>
+  t.createItem({ kind: 'chore', title, workspace: 'ws', parentId, ...(body !== undefined ? { body } : {}) })
 const done = (id: string): string => {
   t.setRealization(id, 'in-progress')
   t.setRealization(id, 'done')
@@ -100,7 +101,9 @@ function seed(): { blocked: string; structuredId: string } {
   })
 
   const wp3 = wp('WP3 — Spec')
-  leaf('à spécifier', wp3)
+  // A recorded body: already in the log, so the row can say what it is without any investigation.
+  leaf('à spécifier', wp3, 'Owner request 2026-07-14: interdire les worktrees sous /tmp, y compris en tmpfs.')
+  leaf('sans corps enregistré', wp3) // ...and one with none, which must render as a BARE title
 
   wp('WP4 — Empty') // no leaf, no directive, no completion: the omission candidate
 
@@ -214,15 +217,22 @@ describe('criteria 3/4 — FAIT names the last recorded actions, and declares it
     expect(cell).not.toMatch(/\d+ des \d+ actions enregistrées/u)
     expect(cell).toContain('bilan à écrire')
     expect(cell).toContain('titres seuls dans le projeté')
-    expect(cell).toContain('historique du dépôt sur la fenêtre')
-    expect(cell).toContain('échantillon :') // the titles it does show are LABELLED a sample
+    // Criterion 26 — and it hands over NO chronological list of titles to paste: a commit log
+    // translated into French is exactly the shape the owner rejected.
+    expect(cell).not.toContain('échantillon')
+    expect(cell).not.toContain('a5')
+    expect(cell).toContain('Écrire par la finalité')
+    // Criterion 27 — one idea per line, two to four lines.
+    const lines = cell.split('\n')
+    expect(lines.length).toBeGreaterThanOrEqual(2)
+    expect(lines.length).toBeLessThanOrEqual(4)
   })
 
   it('lists the completions in full when they fit — that is a statement, not a sample', () => {
     const w = wp('WP1 — Few')
     for (const n of ['a1', 'a2']) done(leaf(n, w))
     const cell = section(buildWpConductorView(computeWpTree(t.state(), cfg)), 'done').rows[1]!['lastActions']!
-    expect(cell).toBe('a2 · a1')
+    expect(cell).toBe('a2\na1') // criterion 27 — one per line, not a `·`-joined block
     expect(cell).not.toContain('échantillon')
     expect(cell).not.toContain('bilan à écrire')
   })
@@ -526,6 +536,72 @@ describe('criteria 10b/10c — the identifier is relocated, not removed', () => 
   })
 })
 
+describe('the recorded body is surfaced — a row that says nothing vs a log that holds nothing', () => {
+  it('`à faire` carries a marked excerpt of the item body when the log records one', () => {
+    seed()
+    const row = section(view(), 'todo').rows.find((r) => (r['todo'] ?? '').includes('à spécifier'))!
+    // Criterion 27 — the excerpt is a SUBORDINATE clause on its own line, not a paragraph appended.
+    expect(row['todo']).toContain('\n↳ extrait : Owner request 2026-07-14: interdire les worktrees sous /tmp')
+    // ...and a bare title when the log holds only a title. The two emptinesses must look different.
+    expect(row['todo']).toMatch(/\[\d+\.\d+\] sans corps enregistré(?:\n|$)/u)
+    for (const rendered of [text(), md(), html()]) expect(rendered).toContain('extrait :')
+  })
+
+  it('surfacing it costs no investigation: the excerpt comes from the leaf, not from a file read', () => {
+    seed()
+    const report = new TrackReader(eventsPath).report(base)
+    const leafWithBody = (report.wpTree ?? [])
+      .flatMap((n) => n.leaves)
+      .find((l) => l.title === 'à spécifier')
+    expect(leafWithBody?.summary).toContain('Owner request 2026-07-14')
+  })
+
+  it('the excerpt is tight, cut at a word boundary, and never passed off as the full record', () => {
+    expect(todoExcerpt(undefined)).toBeUndefined()
+    expect(todoExcerpt('   ')).toBeUndefined()
+    expect(todoExcerpt('court')).toBe('court')
+    const long = todoExcerpt('mot '.repeat(80))!
+    expect(long.length).toBeLessThanOrEqual(101)
+    expect(long.endsWith('…')).toBe(true)
+    expect(long).not.toMatch(/\s…$/u) // cut at a boundary, no dangling space before the ellipsis
+    // Multi-line bodies collapse to one line: a cell is one line of record, not the record.
+    expect(todoExcerpt('ligne 1\nligne 2')).toBe('ligne 1 ligne 2')
+  })
+
+  it('an unanswerable dossier shows its recorded context as an EXCERPT, never as options', () => {
+    const w = wp('WP1')
+    leaf('travail', w)
+    // A prose-only dossier cannot be created through the native API (it validates options), which is
+    // exactly why the ones in the log are legacy events. Project the row the fold produces for them.
+    const prose: DecisionRow = {
+      id: 'legacy-prose', title: 'Dossier en prose', workspace: 'ws', decisionKind: 'orientation',
+      realization: 'to-do', outcome: 'pending', structured: false, structure: 'unstructured',
+      contextExcerpt: 'Le contexte enregistré dit ceci, et il ne contient aucune option structurée.',
+    }
+    const v = buildWpConductorView(computeWpTree(t.state(), cfg), [prose])
+    const row = section(v, 'todo').rows.find((r) => (r['todo'] ?? '').includes('Dossier en prose'))!
+    expect(row['todo']).toContain('\n↳ extrait : Le contexte enregistré dit ceci')
+    // Criterion 16 is untouched: the prose is shown, never mined for alternatives.
+    expect(row['nextAction']).toBe('à structurer : enregistrer options + recommandation')
+    expect(section(v, 'decisions').rows.every((r) => r['subject'] !== 'Dossier en prose')).toBe(true)
+  })
+
+  it('build.ts exposes that context excerpt from the stored dossier, so the render is not inventing it', () => {
+    const w = wp('WP1')
+    const target = leaf('cible', w)
+    t.createDecision({
+      decisionKind: 'orientation', title: 'Dossier structuré', workspace: 'ws', targets: [target],
+      dossier: {
+        context: 'Contexte enregistré du dossier.',
+        options: [{ id: 'a', title: 'A', summary: 'un' }, { id: 'b', title: 'B', summary: 'deux' }],
+        qa: [], recommendation: { optionId: 'a', rationale: 'raison' },
+      },
+    })
+    const row = new TrackReader(eventsPath).report(base).decisions!.find((d) => d.title === 'Dossier structuré')!
+    expect(row.contextExcerpt).toBe('Contexte enregistré du dossier.')
+  })
+})
+
 describe('criteria 11/12 — subjects and WP labels are short, and never a stored title pasted whole', () => {
   it('drops the enumeration counter a stored decision title carries', () => {
     seed()
@@ -721,12 +797,28 @@ describe('the skill instructs the shape this renderer emits', () => {
     expect(s).toContain('a window you did not measure in\nthe log is invented')
   })
 
-  it('criterion 22 — FAIT is a balance sheet over a long window, never a sample', () => {
+  it('criteria 22/26 — FAIT is written by the finality, never as a commit list', () => {
     const s = skill()
-    expect(s).toContain('**Over a long window, FAIT is a balance sheet, not the latest titles.**')
-    expect(s).toContain('is a *sample*, not a summary')
-    expect(s).toContain('That cell is an instruction to you, not a result.')
-    expect(s).toContain('Never delete the marker and leave the sample')
+    expect(s).toContain('**Write each cell by the finality.**')
+    expect(s).toContain('the capability reached, what\nit enables, what class of problem it closes')
+    expect(s).toContain('a commit list translated into French')
+    expect(s).toContain('a parenthesised date on every clause,\nsymbol names in series, chronological enumeration')
+    expect(s).toContain('**That is an instruction, not a result.**')
+    expect(s).toContain('the\nrenderer will not hand you one to paste')
+  })
+
+  it('criterion 25 — the WP is the reading unit of a long report', () => {
+    const s = skill()
+    expect(s).toContain('**Stop at the WP on a long window.**')
+    expect(s).toContain('their leaves, deliveries and directives merge\nupward, nothing is lost')
+    expect(s).toContain('track report --sub-wp')
+  })
+
+  it('criterion 27 — one idea per line, and the excerpt is a subordinate clause', () => {
+    const s = skill()
+    expect(s).toContain('**One idea per line.**')
+    expect(s).toContain('two to\nfour lines per WP on a long window')
+    expect(s).toContain('a supporting clause, never a paragraph appended to the title')
   })
 
   it('criteria 23/24 — DÉCISIONS is pending-and-answerable only, and the obscure is not served', () => {
@@ -823,6 +915,16 @@ describe('the committed examples stay aligned with the renderer', () => {
     // Criterion 20 — the fixture carries the instruction marker, never a gate clause as an action.
     expect(raw).toContain('à instruire : ouvrir l’item et nommer le') // the cell wraps before `geste`
     expect(raw).not.toMatch(/action \(subagent\): (Terminer|Rédiger|Relancer)/u)
+    // Criterion 25 — a 50-day window, so the reading unit is the WP and the merge is declared.
+    expect(raw).toContain('sous-WP agrégés dans leur parent')
+    for (const sub of ['WP2.1 ·', 'WP2.2 ·', 'WP4.1 ·', 'WP6.1 ·', 'WP8.10 ·']) {
+      expect(raw.slice(raw.indexOf('\nFAIT\n'))).not.toContain(sub)
+    }
+    // Criteria 26/27 — no chronological title list in FAIT, and the cell breathes.
+    expect(raw).toContain('Écrire par la finalité')
+    expect(raw).not.toContain('échantillon :')
+    // Criterion 27 — an item's recorded excerpt is its own subordinate line.
+    expect(raw).toContain('↳ extrait : ')
     const body = raw.slice(raw.indexOf('\nFAIT\n'), raw.indexOf('RÉSOLUTION DES HANDLES'))
     expect(ULID.test(body)).toBe(false)
   })
