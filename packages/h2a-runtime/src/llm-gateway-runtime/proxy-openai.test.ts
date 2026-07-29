@@ -373,6 +373,69 @@ describe("h2a runtime Codex gateway", () => {
     expect(JSON.parse(partial)).toEqual({ a: 2, b: 3 });
   });
 
+  it("completes PARTIAL Codex tool argument deltas from the terminal value", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    // Mixed upstream: it streams only the BEGINNING of the arguments as deltas,
+    // then delivers the complete value in output_item.done. Skipping the
+    // terminal value because "some delta arrived" would hand the client a
+    // silently truncated input, so the missing suffix must be relayed.
+    const upstream = [
+      "event: response.output_item.added",
+      'data: {"type":"response.output_item.added","output_index":0,' +
+        '"item":{"type":"function_call","call_id":"call_x3","name":"add"}}',
+      "",
+      "event: response.function_call_arguments.delta",
+      'data: {"type":"response.function_call_arguments.delta","output_index":0,' +
+        '"delta":"{\\"a\\":2,"}',
+      "",
+      "event: response.output_item.done",
+      'data: {"type":"response.output_item.done","output_index":0,' +
+        '"item":{"type":"function_call","call_id":"call_x3","name":"add",' +
+        '"arguments":"{\\"a\\":2,\\"b\\":3}"}}',
+      "",
+      "event: response.completed",
+      'data: {"type":"response.completed","response":{"usage":{"output_tokens":7}}}',
+      "",
+    ].join("\n");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(streamFrom(upstream), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        }),
+      ),
+    );
+
+    const res = await codexApp().fetch(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-opus-4-8",
+          max_tokens: 128,
+          stream: true,
+          messages: [{ role: "user", content: "Add 2 and 3 using the tool." }],
+        }),
+      }),
+    );
+
+    const events = parseSse(await res.text());
+    const partial = events
+      .filter(
+        (e) =>
+          e.type === "content_block_delta" &&
+          (e.delta as { type?: string } | undefined)?.type ===
+            "input_json_delta",
+      )
+      .map((e) => (e.delta as { partial_json: string }).partial_json)
+      .join("");
+    // Concatenating every relayed fragment must yield the complete arguments,
+    // exactly once — neither truncated nor duplicated.
+    expect(JSON.parse(partial)).toEqual({ a: 2, b: 3 });
+    expect(partial).toBe('{"a":2,"b":3}');
+  });
+
   it("returns a gateway error instead of 500 when Codex OAuth refresh cannot retry", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const fetchMock = vi.fn().mockResolvedValue(
