@@ -8,7 +8,7 @@ import {
   type ReportRow,
 } from './build.js'
 import { buildDirectives } from './directive.js'
-import { directivePhrase, wpTotals, type WpTotals } from './format.js'
+import { buildWpConductorView, directivePhrase, wpTotals, type ReportCoverage, type WpTotals } from './format.js'
 import type { WpLeaf, WpLeafBlocker, WpNode } from './rollup.js'
 
 export const SNAPSHOT_SCHEMA = 'track.snapshot/v1' as const
@@ -88,6 +88,12 @@ export interface SnapshotV1 {
   baseline: { input: string; resolvedCommit: string }
   report: SnapshotReport
   wpTotals: WpTotals
+  /**
+   * Criterion 17 — the SAME projected/rendered accounting the conductor prints in its header, computed
+   * from the SAME builder so the raw layer and the report can never disagree about how much the report
+   * compressed. Reading `report --raw` is therefore enough to check the header's two counts.
+   */
+  coverage: ReportCoverage
   directives: SnapshotDirective[]
   directivesProjection: SnapshotDirectivesProjection
   recentEvents: SnapshotRecentEvent[]
@@ -264,11 +270,17 @@ export function buildSnapshot(events: readonly TrackEvent[], options: SnapshotOp
     }))
     .sort((a, b) => ordinalCompare(a.aggregateId ?? '', b.aggregateId ?? '') || ordinalCompare(a.id, b.id))
 
+  const coverage = buildWpConductorView(
+    report.wpTree ?? [], report.decisions ?? [], report.outsideRollup, 'global',
+    { baselineCommit: options.resolvedCommit },
+  ).coverage
+
   return {
     schema: SNAPSHOT_SCHEMA,
     baseline: { input: options.baselineInput, resolvedCommit: options.resolvedCommit },
     report: projectReport(report),
     wpTotals: wpTotals(report.wpTree ?? [], report.outsideRollup),
+    coverage,
     directives,
     directivesProjection: { kind: 'rule-derived-facts', order: 'aggregate-id-then-id' },
     recentEvents: recentEvents(events),
@@ -301,6 +313,9 @@ export function snapshotDiagnostic(snapshot: SnapshotV1, format: 'text' | 'md'):
     '',
     h('BUCKETS'),
     `AWAITED ${snapshot.report.buckets.AWAITED.length} · DROPPED ${snapshot.report.buckets.DROPPED.length} · DONE ${snapshot.report.buckets.DONE.length} · TO-DO ${snapshot.report.buckets['TO-DO'].length}`,
+    '',
+    h('COUVERTURE (ce que le rapport rend de cette projection)'),
+    `${snapshot.coverage.projected} lignes projetées · ${snapshot.coverage.rendered} rendues · ${snapshot.coverage.omitted.length} omise${snapshot.coverage.omitted.length > 1 ? 's' : ''}`,
     '',
     h('RULE-DERIVED FACTS (NOT AI ADVICE)'),
   ]
