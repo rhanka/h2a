@@ -39,38 +39,38 @@
 ## DÉCISIONS
 
 ```
-┌────┬──────────────────────────────────┬─────────────────────────────────────────────┬───────┐
-│ #  │ sujet                            │ alternatives                                │ préco │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D1 │ Un nom seul peut-il commander ?  │ A  Jamais : (racine, instance) résolue      │       │
-│    │                                  │    et vivante                               │   A   │
-│    │                                  │ B  Oui si la résolution est unique          │       │
-│    │                                  │ C  Oui, avec confirmation si ambigu         │       │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D2 │ Un nom supprimé est-il           │ A  Jamais, le nom est brûlé                 │       │
-│    │ réutilisable ?                   │ B  Après quarantaine de 24 h                │   B   │
-│    │                                  │ C  Immédiatement — statu quo                │       │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D3 │ Plusieurs sessions               │ A  Refuser                                  │ A écr │
-│    │ correspondent ?                  │ B  Lister et demander                       │ B lir │
-│    │                                  │ C  Prendre la plus récente                  │       │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D4 │ Preuve avant                     │ A  Heartbeat seul — statu quo               │       │
-│    │ « agent disponible » ?           │ B  Heartbeat + activité MCP récente         │   B   │
-│    │                                  │ C  Aller-retour réel avant de déclarer      │       │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D5 │ Écrire dans un terminal          │ A  Refuser                                  │       │
-│    │ ambigu ?                         │ B  Écrire au plus probable                  │   A   │
-│    │                                  │ C  Demander                                 │       │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D6 │ Comment lance-t-on le            │ A  Processus local piloté par h2a           │       │
-│    │ moteur natif ?                   │ B  Orchestré par sentropic                  │   A   │
-│    │                                  │ C  Les deux, par configuration              │       │
-├────┼──────────────────────────────────┼─────────────────────────────────────────────┼───────┤
-│ D7 │ CLI native : quelle étude        │ A  18/07 — agent natif + moteur de session  │       │
-│    │ fait foi ?                       │ B  17/07 — surface CLI et couture           │   A   │
-│    │                                  │ C  Les fusionner                            │       │
-└────┴──────────────────────────────────┴─────────────────────────────────────────────┴───────┘
+┌──────┬─────────────────────────────────────┬────────────────────────────────────────────┬────────────┐
+│ #    │ sujet                               │ alternatives                               │   préco    │
+├──────┼─────────────────────────────────────┼────────────────────────────────────────────┼────────────┤
+│ D1   │ Un nom seul peut-il commander ?     │ A  Jamais : (racine, instance)             │     A      │
+│      │                                     │    résolue et vivante                      │            │
+│      │                                     │ B  Oui si la résolution est unique         │            │
+│      │                                     │ C  Oui, avec confirmation si ambigu        │            │
+├──────┼─────────────────────────────────────┼────────────────────────────────────────────┼────────────┤
+│ D2   │ Un nom supprimé est-il              │ A  Jamais, le nom est brûlé                │            │
+│      │ réutilisable ?                      │ B  Après quarantaine de 24 h               │     B      │
+│      │                                     │ C  Immédiatement — statu quo               │            │
+├──────┼─────────────────────────────────────┼────────────────────────────────────────────┼────────────┤
+│ D3   │ Plusieurs sessions                  │ A  Refuser                                 │  A écrire  │
+│      │ correspondent ?                     │ B  Lister et demander                      │   B lire   │
+│      │                                     │ C  Prendre la plus récente                 │            │
+├──────┼─────────────────────────────────────┼────────────────────────────────────────────┼────────────┤
+│ D4   │ Preuve avant                        │ A  Heartbeat seul — statu quo              │            │
+│      │ « agent disponible » ?              │ B  Heartbeat + activité MCP récente        │     B      │
+│      │                                     │ C  Aller-retour réel avant de déclarer     │            │
+├──────┼─────────────────────────────────────┼────────────────────────────────────────────┼────────────┤
+│ D5   │ Écrire dans un terminal             │ A  Refuser                                 │     A      │
+│      │ ambigu ?                            │ B  Écrire au plus probable                 │            │
+│      │                                     │ C  Demander                                │            │
+├──────┼─────────────────────────────────────┼────────────────────────────────────────────┼────────────┤
+│ D6   │ Comment lance-t-on le               │ A  Processus local piloté par h2a          │     A      │
+│      │ moteur natif ?                      │ B  Orchestré par sentropic                 │            │
+│      │                                     │ C  Les deux, par configuration             │            │
+├──────┼─────────────────────────────────────┼────────────────────────────────────────────┼────────────┤
+│ D7   │ CLI native : quelle étude           │ A  18/07 — agent natif + moteur de session │     A      │
+│      │ fait foi ?                          │ B  17/07 — surface CLI et couture          │            │
+│      │                                     │ C  Les fusionner                           │            │
+└──────┴─────────────────────────────────────┴────────────────────────────────────────────┴────────────┘
 ```
 
 ## RECOMMANDATION
