@@ -630,6 +630,8 @@ export interface ReportPeriod {
  */
 export interface ReportHeader {
   scope: string
+  /** Present only on `report --scope`; text keeps it in the existing header's sources line. */
+  scopeProjection?: ReportScopeProjection
   progress: string
   baselineCommit?: string
   period: ReportPeriod
@@ -907,6 +909,17 @@ export interface ConductorMeta {
    * window: sub-levels are aggregated into their parent on a long window, listed on a short one.
    */
   subWp?: boolean
+  /** A read-only workpackage projection, present only for `report --scope`. */
+  scopeProjection?: ReportScopeProjection
+}
+
+/** Additive machine-readable scope boundary for a scoped conductor report. */
+export interface ReportScopeProjection {
+  selector: string
+  id: string
+  label: string
+  includes: 'subtree'
+  excludedProjectionRows: number
 }
 
 export function buildWpConductorView(
@@ -1093,7 +1106,10 @@ export function buildWpConductorView(
       // A directive may target a DONE leaf with acceptance debt: name it here (with its own handle)
       // instead of exiling it to a `cible action` column the owner never asked for.
       for (const d of attached) {
-        if (d.target.kind === 'decision' || items.some((i) => i.id === d.target.id)) continue
+        // An engagement/blockage directive points at its own actionable ref (for example a thread),
+        // while its title deliberately names the already-listed target leaf. Adding it made a title-twin
+        // sibling row. Only an item directive can introduce a missing DONE acceptance debt.
+        if (d.target.kind !== 'item' || items.some((i) => i.id === d.target.id)) continue
         const debtLeaf = wpNodes.flatMap((node) => node.leaves).find((l) => l.id === d.target.id)
         items.push({
           id: d.target.id,
@@ -1338,11 +1354,19 @@ export function buildWpConductorView(
 
   const header: ReportHeader = {
     scope: totalScope,
+    ...(meta.scopeProjection !== undefined ? { scopeProjection: meta.scopeProjection } : {}),
     progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`,
     ...(meta.baselineCommit !== undefined ? { baselineCommit: meta.baselineCommit.slice(0, 12) } : {}),
     // Criterion 21 — the window is measured in the log, so it is always stated, always with dates.
     period,
-    sources: ['projection déterministe du journal (track report --wp --decisions)'],
+    sources: [
+      'projection déterministe du journal (track report --wp --decisions)',
+      ...(meta.scopeProjection === undefined
+        ? []
+        : [
+            `scope : ${meta.scopeProjection.label} et son sous-arbre inclus ; ${meta.scopeProjection.excludedProjectionRows} lignes hors scope exclues`,
+          ]),
+    ],
     coverage,
     handleCommand: 'track report --resolve <handle>',
   }
