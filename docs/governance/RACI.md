@@ -65,10 +65,19 @@ to it have already left — toward three different packages, none of them WP5. D
 it changes a **ratified** decision (option A gives `runtime` WP5 *and* WP7), so it is the
 owner's act, neither the architect's nor mine. Until the owner decides, this table
 records today's state. Amendment trigger: the owner selecting the dissolution option.
-When that happens, `org.h2a.yaml`, this table and
-`packages/h2a/test/org-manifest-committed.test.js` — which pins WP7 → `runtime` — change
-in the **same commit**. The gate refusing a half-applied split is the point, not an
-obstacle to the arbitration.
+
+Two facts arrived after this row was written, and both matter more than the marker. First,
+**WP7 is now empty and not cancelled**: the architect applied eight reparentings on the
+owner's go, and the leaves went to five destinations across four actors. So this row names an
+accountable actor for an empty container — any percentage it reports is meaningless, and
+saying so is exactly what the marker is for.
+
+Second, on the gate: `packages/h2a/test/org-manifest-committed.test.js` **derives** table A
+instead of copying it. Dissolving WP7 in this table *and* in `org.h2a.yaml` therefore keeps
+the suite green — proven by mutation, not asserted. What the test refuses is **drift**: change
+one side only and it fails, naming the disagreement. That distinction is `harness`'s
+correction to an earlier version of this document, and it is the difference between a gate
+that protects an arbitration and a gate that punishes the lane losing the WP.
 
 `cyber` is the only actor without a WP while it ships code. Its discipline currently
 lives as an item inside WP9 (`01KYJVQM5JMJ49MTKR2H4K12NK`). Whether it gets a WP of
@@ -91,7 +100,9 @@ actor named here wins.
 | Resolve two lanes that contradict each other | `arch` | affected lanes | `cond` | owner |
 | Merge a branch | owning lane | owning lane | `harness` (gate), 2 review legs ≠ author | `cond` |
 | Cut and publish a release | `plugins` | `plugins` | `cond` (tempo), `harness` (gate) | all |
-| Change what the required test gate covers | `harness` | `harness` | `cyber` — independent leg, see the exclusion below | all |
+| Change what the required test gate covers | `harness` | `harness` | `cyber` **and** `arch` — two named independent legs, see the exclusion below | all |
+| Command a remote session: back-channel, lifecycle, launch option | `runtime` | `runtime` | `portal` | `cond` |
+| Expose a session, a UAT or a decision dossier to sentropic — indifferent to where it runs | `portal` | `portal` | `runtime`, `arch` | `cond` |
 | Ship a security fix or a vulnerable-dependency bump | `cyber` | `cyber` | owning lane — informed, **not** blocking | `cond`, `harness` |
 | Set the sandbox / greywall policy | `cyber` | `cyber` | `runtime` (executes it) | `cond` |
 | Declare an item `done` | owner (UAT) | owning lane | — | `cond`, `track` |
@@ -126,9 +137,11 @@ it: an unconsulted CONTROL is worth less than an AGENTS whose advice cannot be s
 ### Exclusion — the owner of a gate is not the reviewer of its repair
 
 When `harness` ships code that changes the required test gate, `harness` is **neither of
-the two review legs nor the verifier** of that change; `cyber` (CONTROL, `gate-audit`) is
-the independent leg, and a green suite produced by `harness` is not the evidence. This is
-rule 2 of this document — the builder is never a review leg — applied to the gate itself.
+the two review legs nor the verifier** of that change. The two named independent legs are
+`cyber` (CONTROL, `gate-audit`) and `arch`, and a green suite produced by `harness` is not
+the evidence. This is rule 2 of this document — the builder is never a review leg — applied
+to the gate itself. Naming *two* legs rather than one is `harness`'s own request: a single
+named leg makes the exclusion unenforceable the day that leg is unavailable.
 
 It is not hypothetical: item `01KYPZA14CRATVDSSZ6V6HDPCZ` measured the required gate blind
 to the `h2a-runtime` tests — `harness` owns the gate *and* has to deliver its own repair,
@@ -230,6 +243,15 @@ What would raise the A/R/C/I rung from spec line to structural, in order of cost
 provision the ratified manifest so roles exist in the registry; give `track` a way to
 set `accountable`/`responsible` on an existing item; then gate the acts in table B on
 the actor's registered role, reusing the clearance gate rather than goodwill.
+
+**One correction on provisioning, because the earlier wording was too pessimistic.** This
+manifest binds durable launch names, and `h2a org provision` only augments an *already
+registered* instance — so provisioning **this manifest as written** grants nothing. That is a
+statement about the form, not about the mechanism: `harness` measured that `graphify` already
+carries **five roles provisioned on doublet ids**, which demonstrates a working shape. So the
+blocker is not "wait for multi-namespace resolution"; it is "bind each actor's durable name to
+a keyed instance, in the shape that already works elsewhere". A narrower claim, and a cheaper
+path.
 
 ---
 
