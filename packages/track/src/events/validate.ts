@@ -33,6 +33,7 @@ export type IntegrityFinding =
   | { kind: 'truncation'; expected: number; actual: number }
   | { kind: 'head-mismatch'; index: number; expected: Sha256 | null; actual: Sha256 }
   | { kind: 'blocker-scope'; index: number; eventId: string; reason: string }
+  | { kind: 'reopen-motive'; index: number; eventId: string; reason: string }
 
 export interface IntegrityResult {
   ok: boolean
@@ -141,6 +142,7 @@ export function validate(
 
   findings.push(...validateBatches(events))
   findings.push(...validateBlockerScope(events))
+  findings.push(...validateReopenMotive(events))
   findings.push(...validateHead(events, head))
 
   return { ok: findings.length === 0, findings }
@@ -174,6 +176,35 @@ function validateBlockerScope(events: ReadonlyArray<TrackEvent>): IntegrityFindi
       }
     }
     if (reason !== undefined) findings.push({ kind: 'blocker-scope', index: i, eventId: e.id, reason })
+  }
+  return findings
+}
+
+/**
+ * Regression expression — the fail-closed sibling of `validateBlockerScope`, for the same reason: `reopenItem`
+ * enforces the motive at write time, but a self-consistent (valid-hash) `realization.reopened` from a future
+ * writer / a hand-edit / a direct append must NOT fold into a state where a delivered capability was reopened
+ * with NOTHING said about why. The whole value of the 2026-07-29 ruling is that the log carries the motive, so
+ * an event that lacks it is an integrity finding, not a silent reopening.
+ *
+ * The accepted values are inlined here (as in `validateBlockerScope`) to keep the frozen event core free of a
+ * runtime dependency on the model layer; `reopen.test.ts` gates the two lists against drift behaviorally.
+ */
+const REOPEN_MOTIVES_ACCEPTED: ReadonlySet<string> = new Set(['closed-without-owner-uat', 'regression-observed'])
+
+function validateReopenMotive(events: ReadonlyArray<TrackEvent>): IntegrityFinding[] {
+  const findings: IntegrityFinding[] = []
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i]!
+    if (e.type !== 'realization.reopened') continue
+    const p = e.payload as { motive?: unknown; reason?: unknown }
+    let reason: string | undefined
+    if (typeof p.motive !== 'string' || !REOPEN_MOTIVES_ACCEPTED.has(p.motive)) {
+      reason = `a reopening requires one of the declared motives (${[...REOPEN_MOTIVES_ACCEPTED].join('|')})`
+    } else if (typeof p.reason !== 'string' || p.reason.trim().length === 0) {
+      reason = 'a reopening requires a non-empty reason'
+    }
+    if (reason !== undefined) findings.push({ kind: 'reopen-motive', index: i, eventId: e.id, reason })
   }
   return findings
 }

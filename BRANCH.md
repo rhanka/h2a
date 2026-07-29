@@ -1,68 +1,85 @@
-# Fix: isolate Google pool and refresh Gemini OAuth
+# Fix: track can express a regression — reopen a closed item with a recorded motive
 
 ## Objective
 
-- [x] Prevent Google/Gemini accounts from being selected for Codex model routes.
-- [x] Refresh an expired Google OAuth access token during local enrollment without re-login.
-- [ ] Replace the runtime Gemini transport only after llm-mesh ships the complete Antigravity transport contract.
+- [x] A `done` or `cancelled` item can be REOPENED, so a workpackage percentage can recede to the truth.
+- [x] Every reopening carries its motive (`closed-without-owner-uat` / `regression-observed`) and a reason.
+- [x] The ordinary `item realize` verb keeps `done`/`cancelled` terminal — a reopening is never accidental.
+- [x] The reopening is a TRANSITION in the append-only log, never a mutation: closure, reopening and motive all survive.
+
+Mandate: item `01KYQ5KM21KEGWXTEAGRYB4STD` (WP8), decision `01KYQ5RRN67190YMZ08EGGBSBT` — owner GO on option A
+(2026-07-29): "done -> in-progress et cancelled -> in-progress redeviennent legales. L'evenement de reouverture
+porte son motif."
 
 ## Scope
 
 **Allowed Paths (implementation scope)**
   - `BRANCH.md`
-  - `packages/h2a-runtime/src/index.ts`
-  - `packages/h2a-runtime/src/llm-mesh.ts`
-  - `packages/h2a-runtime/src/llm-mesh.test.ts`
-  - `packages/h2a-runtime/src/llm-gateway-runtime/model-catalog.ts`
-  - `packages/h2a-runtime/src/llm-gateway-runtime/model-catalog.test.ts`
-  - `packages/h2a-runtime/src/llm-gateway-runtime/proxy-anthropic.ts`
-  - `packages/h2a-runtime/src/llm-gateway-runtime/proxy-anthropic.test.ts`
+  - `packages/track/src/model/item.ts`
+  - `packages/track/src/model/item.test.ts`
+  - `packages/track/src/events/types.ts`
+  - `packages/track/src/events/validate.ts`
+  - `packages/track/src/events/validate.test.ts`
+  - `packages/track/src/state/fold.ts`
+  - `packages/track/src/track.ts`
+  - `packages/track/src/ingest/contract.ts`
+  - `packages/track/src/ingest/map.ts`
+  - `packages/track/src/ingest/ingest.ts`
+  - `packages/track/src/cli/index.ts`
+  - `packages/track/src/reopen.test.ts`
+  - `packages/track/src/cli.test.ts`
+  - `packages/track/src/ingest/contract.test.ts`
+  - `packages/track/src/ingest/map.test.ts`
+  - `packages/track/src/ingest/demand-ingest.test.ts`
+  - `packages/track/src/ingest/export.test.ts`
+  - `packages/track/src/ingest/focus-l4.test.ts`
+  - `packages/track/src/ingest/seam-v0.test.ts`
+  - `packages/track/src/code-assign.test.ts`
+  - `packages/track/src/a2-stream-role.test.ts`
 
 **Forbidden Paths**
-  - `packages/h2a-runtime/.test-scratch/**`
-  - `.test-scratch/**`
-  - `.cache/**`
-  - `free-tmpfs-now.sh`
-  - `apps/focus/src/routes/proposal/**`
-  - `Makefile`
-  - `docker-compose*.yml`
-  - `.cursor/rules/**`
   - `.track/**`
+  - `packages/track/src/report/format.ts`
+  - `packages/h2a/**`
+  - `packages/h2a-runtime/**`
+  - `packages/h2a-cli/**`
+  - `apps/**`
+  - `.test-scratch/**`
 
 **Conditional Paths**
-  - `packages/h2a-runtime/src/llm-gateway-runtime/proxy-gemini.ts` — unchanged until the mesh replacement is available.
+  - `packages/track/src/report/**` — READ ONLY for this lot: the owner-validated report shape
+    (`docs/specs/examples/track-report-contextual.md`) is not renegotiated here. A reopened item recedes out of
+    DONE through the existing `bucketOf`; rendering the "reopened" marker in the human report is a separate item.
 
-## Lot 1 — Google pool isolation
+## Lot 1 — The reopening event and its legality
 
-- [x] Add a distinct `google` account pool.
-- [x] Map `google`, `gemini`, `gcp`, and `gemini-code-assist` only to that pool.
-- [x] Reject a Codex model route bound to a Google session before network dispatch.
-- [x] Preflight the local session provider before spawn; prefer Codex and never bind Google implicitly.
-- [x] Test: `model-catalog.test.ts`.
-- [x] Test: `proxy-anthropic.test.ts`.
-- [x] Gate: Google never silently executes a Codex route.
+- [x] `realization.reopened` event type, payload `{itemId, motive, reason}`.
+- [x] `assertReopenTransition`: legal only from `done` / `cancelled`; `rejected` refused (a no-go decision owns it).
+- [x] `REALIZATION_TRANSITIONS` stays terminal — `item realize <id> in-progress` on a closed item still fails.
+- [x] Fold: realization becomes `in-progress`, and the item carries its `reopenings[]` trace (from/motive/reason/at/by).
+- [x] `validate`: a foreign/hand-written `realization.reopened` without a legal motive is an integrity finding.
+- [x] Test: `reopen.test.ts` — model legality, fold, facade guards, bucket regression.
 
-## Lot 2 — Google OAuth refresh
+## Lot 2 — The surfaces
 
-- [x] Treat `expiresAt` as authoritative for opaque Google access tokens.
-- [x] Use the official Gemini CLI OAuth client identity for the refresh-token grant.
-- [x] Refresh during `llm-mesh enroll google` before persisting the account.
-- [x] Keep refresh tokens provider-bound and exclude stale credentials from the gateway process.
-- [x] Test: `llm-mesh.test.ts`.
-- [x] Gate: live enrollment refreshes the existing credential without re-login.
-- [x] Gate: `llm-mesh status` reports Codex and Google credentials as unexpired.
+- [x] Facade `Track.reopenItem(itemId, {motive, reason}, clientToken?)`.
+- [x] Ingest kind `item.reopen` (`settles: 'always'` — a reopening moves a WP percentage), contract MINOR bump.
+- [x] CLI `track item reopen <itemId> --motive <m> --reason <r> [--client-token <t>]` + usage line.
+- [x] `track item show` reads the reopening trace (motive + reason + previous realization) off the item.
+- [x] Test: contract surface pins, ingest binding gate, CLI round-trip.
 
-## Lot 3 — Verification and mesh sequencing
+## Lot 3 — Verification and boundary
 
-- [x] Keep `proxy-gemini.ts` present and unchanged.
-- [x] Run focused unit tests for pool, refresh, guard, and existing Gemini translation.
-- [x] Run the TypeScript build.
-- [x] Run scoped runtime tests and final harness verification.
-- [x] Obtain two-peer review consensus and reconcile every blocking finding.
-- [ ] Open the micro-PR without publishing npm.
+- [x] Run the track suite (`npm test -w @sentropic/track`) and the TypeScript build.
+- [x] Gate: a reopened item leaves the DONE bucket, and its workpackage percentage recedes.
+- [x] Gate: an unauthenticated ingest channel cannot reopen.
+- [x] State where the guarantee STOPS: the motive is RECORDED, not verified — track has no owner-UAT marker
+      today, so it cannot prove that a closure lacked one. That marker is item `01KYQ5KM99FDGN1PZVFXR8PRVJ` (WP9).
+- [ ] Two-peer review consensus, then micro-PR. No npm publish, no `done` without the owner's UAT.
 
 ## Feedback Loop
 
-- [ ] AWAITED: `claude:llm-mesh:e5f8b95941e9` delivers the complete Antigravity transport, project discovery, and Code Assist metadata contract.
-- [x] Decision: h2a lands only non-breaking pool, refresh, and guard corrections before that dependency.
-- [x] Escalation: report the sequencing dependency asynchronously to `claude:a2a-cli:d36d7390005e`; do not escalate it to the owner.
+- [ ] Traced, not done here: render the "reopened" marker in the human report (WP8, separate item).
+- [ ] Traced, not done here: project the reopening into `lifecycleTrace` (a READ contract bump of its own).
+- [ ] Traced, not done here: acceptance does not regress with the item — a reopened item keeps its passing
+      criteria, so `--require-accepted` still reads them as accepted.

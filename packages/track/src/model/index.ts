@@ -1,7 +1,10 @@
 // Domain model: Item, Decision, Blocker, AcceptanceCriterion, PriorityAssessment (SPEC §2).
 export {
   DomainError,
+  REOPEN_MOTIVES,
   assertRealizationTransition,
+  assertReopenPayload,
+  assertReopenTransition,
   assertRoleNesting,
   assertScopeDecl,
   assertSpecTransition,
@@ -17,6 +20,10 @@ export {
   type Link,
   type Realization,
   type RealizationCause,
+  type ReopenableRealization,
+  type ReopenMotive,
+  type ReopenPayload,
+  type ReopenRecord,
   type ScopeDecl,
   type SpecStatus,
 } from './item.js'

@@ -12,7 +12,7 @@ import { initTrackDir, resolveTrackDir, resolveTrackDirOrNull } from './resolve.
 import type { EvidenceKind, RunResult } from '../model/acceptance.js'
 import type { BlockerKind, BlockerScope, ResolutionRule } from '../model/blocker.js'
 import type { DecisionKind, Dossier, DossierArtifact, Outcome } from '../model/decision.js'
-import { DomainError, type Disposition, type Gate, type ItemKind, type ItemRole, type Realization, type ScopeDecl, type SpecStatus } from '../model/item.js'
+import { DomainError, type Disposition, type Gate, type ItemKind, type ItemRole, type Realization, type ReopenMotive, type ScopeDecl, type SpecStatus } from '../model/item.js'
 import type { Bucket } from '../report/buckets.js'
 import { displayText, formatRows, type Format } from '../report/format.js'
 import { Track } from '../track.js'
@@ -27,6 +27,7 @@ import {
   ITEM_KINDS,
   ITEM_ROLES,
   REALIZE_TARGETS,
+  REOPEN_MOTIVE_VALUES,
   RESOLUTION_RULES,
   RESULTS,
   ROLE_CHANGE_TARGETS,
@@ -77,6 +78,7 @@ const USAGE = `usage: track <command>
   item spec-amend <itemId> --base-hash <h> --result-hash <h> --patch <json> [--decision-id <id>] [--live-doc-ref <r>] [--proposal-ref <r>] [--summary <s>] [--client-token <t>]
   item spec <itemId> <to-specify|specified>
   item realize <itemId> <in-progress|done|cancelled>
+  item reopen <itemId> --motive <closed-without-owner-uat|regression-observed> --reason <r> [--client-token <t>]
   item assign-code <itemId> --code <c> [--client-token <t>]
   item show <itemId>
   item ls [--workspace <w>] [--kind <feature|bug|chore>] [--format json|text|md]
@@ -661,6 +663,23 @@ function cmdItem(args: string[], ctx: Ctx): number {
   if (sub === 'realize') {
     track.setRealization(positional[0]!, oneOf(positional[1], REALIZE_TARGETS, 'realize') as Realization)
     io.out('ok\n')
+    return 0
+  }
+  if (sub === 'reopen') {
+    // Regression expression — reopen a terminally-closed item (done/cancelled → in-progress) WITH its motive.
+    // Deliberately a SEPARATE verb from `item realize`, which keeps done/cancelled terminal. `--client-token`
+    // gives append-once idempotency at the CLI boundary (mirrors `assign-code`/`spec-amend`): without it a
+    // retry would hit "not closed" — the item is already reopened — instead of reading as the no-op it is.
+    const itemId = positional[0]!
+    const motive = oneOf(req(flags, 'motive'), REOPEN_MOTIVE_VALUES, '--motive') as ReopenMotive
+    const reason = req(flags, 'reason')
+    const clientToken = opt(flags, 'client-token')
+    if (clientToken !== undefined && store(ctx).readAll().some((e) => e.clientToken === clientToken)) {
+      io.out('no-op: client-token already applied\n')
+      return 0
+    }
+    track.reopenItem(itemId, { motive, reason }, clientToken)
+    io.out(`reopened ${itemId} (${motive})\n`)
     return 0
   }
   if (sub === 'assign-code') {

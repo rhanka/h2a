@@ -41,6 +41,8 @@ import {
 } from './model/decision.js'
 import {
   assertRealizationTransition,
+  assertReopenPayload,
+  assertReopenTransition,
   assertRoleNesting,
   assertScopeDecl,
   assertSpecTransition,
@@ -55,6 +57,7 @@ import {
   type ItemState,
   type Link,
   type Realization,
+  type ReopenMotive,
   type ScopeDecl,
   type SpecStatus,
 } from './model/item.js'
@@ -560,6 +563,43 @@ export class Track {
       return
     }
     throw new DomainError(`unknown item ${itemId}`)
+  }
+
+  /**
+   * Regression expression (decision 01KYQ5RRN67190YMZ08EGGBSBT, owner GO on option A, 2026-07-29) — REOPEN a
+   * terminally-closed item by appending ONE `realization.reopened{itemId, motive, reason}` on the EXISTING
+   * item aggregate (next seq, no recreate; existing hashes untouched). The item goes back to `in-progress`
+   * and the reopening is recorded with WHY, so the journal can finally say that a delivered capability is
+   * broken — and a workpackage percentage can recede to the truth.
+   *
+   * APPEND-ONLY, not a mutation: the closure this corrects stays in the log, and so does every prior
+   * reopening. Guards (all reject with DomainError BEFORE any append): the item exists AND is a real item
+   * (a decision has a prep axis, no delivered capability to regress); it is terminally closed (`done` /
+   * `cancelled` — `rejected` belongs to its `no-go` decision); the payload carries a declared motive and a
+   * non-blank reason. Binding at the ingest seam (`settles:'always'`) — a reopening moves a WP percentage,
+   * so an unauthenticated channel may not write one. `clientToken`-stamped via `withClientToken`.
+   *
+   * WHERE THE GUARANTEE STOPS: the motive is RECORDED, never verified. Track has no owner-UAT marker today,
+   * so it cannot prove that a closure lacked one — it can only refuse a reopening that says nothing.
+   */
+  reopenItem(itemId: ItemId, reopening: { motive: ReopenMotive; reason: string }, clientToken?: string): void {
+    const state = this.state()
+    const item = state.items.get(itemId)
+    if (!item) {
+      if (state.decisions.has(itemId)) {
+        throw new DomainError(
+          `${itemId} is a decision — a decision is settled or deferred, it has no delivered capability to reopen`,
+        )
+      }
+      throw new DomainError(`unknown item ${itemId}`)
+    }
+    const validated = assertReopenPayload(reopening)
+    assertReopenTransition(item)
+    const emit = (): void => {
+      this.emit('item', itemId, 'realization.reopened', { itemId, ...validated })
+    }
+    if (clientToken !== undefined) this.withClientToken(clientToken, emit)
+    else emit()
   }
 
   /**
