@@ -27,7 +27,7 @@ import {
 import { basename, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 
-import { readProcessTreeCpuMs } from "./proc-cpu.js";
+import { readProcessTreeCpuMs, readWorkerPid } from "./proc-cpu.js";
 
 import {
   LAUNCH_OPTION_PREFIX,
@@ -1957,7 +1957,25 @@ export function capturePaneVisible(pane: string): string | undefined {
 export function paneTreeCpuMs(pane: string): number | undefined {
   const pid = localSessionPanePid(pane);
   if (pid === undefined) return undefined;
-  return readProcessTreeCpuMs(pid, {
+  return readProcessTreeCpuMs(pid, procReaderDeps());
+}
+
+/**
+ * The pid actually doing the work behind a pane.
+ *
+ * The pane's own pid is the launch WRAPPER: measured 2026-07-29, it reported 0s
+ * of CPU after 37s while its `codex` child had burned 13s. Anything that judges
+ * a lane by the reported pid alone — a supervisor, a status bar, a conductor —
+ * is reading the wrong process, and gets a false answer in both directions.
+ */
+export function paneWorkerPid(pane: string): number | undefined {
+  const pid = localSessionPanePid(pane);
+  if (pid === undefined) return undefined;
+  return readWorkerPid(pid, procReaderDeps());
+}
+
+function procReaderDeps() {
+  return {
     listPids: () => {
       try {
         return readdirSync("/proc")
@@ -1967,14 +1985,14 @@ export function paneTreeCpuMs(pane: string): number | undefined {
         return [];
       }
     },
-    readStat: (target) => {
+    readStat: (target: number) => {
       try {
         return readFileSync(`/proc/${target}/stat`, "utf8");
       } catch {
         return undefined;
       }
     },
-  });
+  };
 }
 
 /**
