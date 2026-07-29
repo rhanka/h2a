@@ -1,0 +1,126 @@
+# Wake recall — what a durable actor re-reads before its first action
+
+WP11 · Memory & context. Owner-facing state: **not accepted** (no UAT).
+
+This is not a summary of the project, and it is not a store. It is the shortest text
+that stops a waking actor from redoing what has already been done, or from re-asserting
+what has already been refuted.
+
+## How to read it
+
+1. Read it before your first action, after `COMMON.md` and your own `BRIEF-<you>.md`.
+2. **Every entry names its locator.** Re-check the locator before you rely on the entry.
+3. **An entry whose locator does not resolve is quarantined, not true.** Move it to
+   QUARANTINE and say so. A recalled claim that cannot be re-verified is worse than no
+   memory: it produces confident wrong action.
+4. Each entry carries its rung on the enforceability ladder —
+   `structural > test > spec line > habit`. The rung tells you how much the entry can
+   carry. A `habit` entry is a lead, not a guarantee.
+5. **A count over a shared, append-only artefact must name the state it was measured at**,
+   or it cannot be reproduced. Twelve actors append to one `.track/events.jsonl`: it went
+   from 669 to 725 events inside one session of this lane. "185 items" without "at 669
+   events" is not a fact anyone can re-derive.
+6. **Verify against `origin/main`, not against the shared checkout.** See INC-03: the
+   tree's local `main` had diverged from `origin/main` by 3 local-only and 195 missing
+   commits. Every locator below was re-checked against `origin/main` at `1906942`.
+
+Baseline for the journal counts below: `.track/events.jsonl` read from the shared tree at
+**669 events**, verified with `track events-contains` to be a proper superset of the 667
+events on `origin/main` (no fork).
+
+---
+
+## SETTLED DOCTRINE
+
+Decided and recorded as a selected option in the journal. Rung: **structural** — the
+question, the chosen option and its rationale are all retrievable with
+`track item show` / `track decision ls`, keyed by the ULID below. All six were confirmed
+present on `origin/main` as `decision.created` + `decision.option-selected`. Do not
+reopen these without a new decision.
+
+| id | rule | locator (decision ULID) | settled |
+|---|---|---|---|
+| DOC-01 | Several candidates match a target → **h2a refuses and prints the list**. It does not pick. | `01KY66FVKFFVKRDXY9PFGEF4RD` | 2026-07-28 |
+| DOC-02 | "Agent available" requires **three** facts together: the tmux pane exists, the agent process runs, and there was recent MCP activity. | `01KY66FW260Q5TV1DVR6ZPH891` | 2026-07-28 |
+| DOC-03 | A name resolves in **one pass** against four namespaces — h2a role, `run --name`, CLI-native name, tmux session name — and h2a shows which one matched. | `01KYNGMC6979YKMXV8MQQ8A16H` | 2026-07-28 |
+| DOC-04 | Known prefixes (`remote-`, `h2a-`) are **stripped before comparison**; nothing is renamed. | `01KYNGMCB0Z7ESGYJKFVCTW8MH` | 2026-07-28 |
+| DOC-05 | An item closed without human validation **can be reopened**: `done → in-progress` and `cancelled → in-progress` become legal, the reopening event carries its reason, nothing is erased. *Decided, not yet implemented — see REC-05.* | `01KYQ5RRN67190YMZ08EGGBSBT` | 2026-07-29 |
+| DOC-06 | Twelve durable actors: four transverse (`architect` WP6, `conductor` WP4, `harness` WP9, `cyber` no WP) and eight domain lanes (`coop` WP1-3, `runtime` WP5+7, `track` WP8, `plugins` WP10, `memory` WP11, `portal` WP12, `agents` WP13, `gateway` WP14). | `01KYQ89WANWD257Y3GCW7YM8BZ` | 2026-07-29 |
+
+**Under review, not doctrine:** PR 84 (`docs/governance/RACI.md`, `org.h2a.yaml`, plus a
+test in the required gate) assigns accountability per act — for this file, A and R sit
+with `memory`, all actors consulted. It is **a map, not an authorization**: every actor is
+registered under role `AGENTS` and `h2a_conductor` returns null. Do not cite it as
+settled until it merges.
+
+---
+
+## REFUTED
+
+Tested and failed. Re-proposing one of these without new evidence is the single most
+expensive mistake this repo makes.
+
+| id | refuted claim | how it failed | rung |
+|---|---|---|---|
+| REF-01 | *The objective loop relaunches an idle agent.* | Six items were closed `DONE` on this claim. The owner observes it does not relaunch. Re-raised as item `01KYQ5KHZG7QBGGE91CV7XYDG1` ("RECURRENCE — …"), 2026-07-29. | habit (free-text title marker) |
+| REF-02 | *A green suite is an owner acceptance.* | The six closures above each had a passing technical recipe and none had a UAT. Recorded in the dossier context of `01KYQ5RRN67190YMZ08EGGBSBT`. | structural (dossier) |
+| REF-03 | *The local gateway can carry a Claude session.* | It exposes GPT models only; a Claude session routed through it dies on `API Error: 400 unsupported model: claude-opus-5`. Reported measured 2026-07-29. | habit — comment in `tmp/agents/launch.sh`, a git-ignored file. **Not re-measured by this memory.** |
+| REF-04 | *A live PID proves an agent is working.* | One lane showed 1 s of CPU over 33 min. Liveness is CPU time, not the PID. Source: `COMMON.md`. | habit — git-ignored file. **Not re-measured by this memory.** |
+
+---
+
+## RECURRENT DEFECTS
+
+| id | defect | evidence | rung |
+|---|---|---|---|
+| REC-01 | **A claim wider than its proof.** The repo's signature failure. "The tests pass" is true; "the code is covered" is not. | REC-02, REC-06, and the QUARANTINE section — which was produced by applying this rule to this memory's own initial content. | habit |
+| REC-02 | **The required gate does not reach `h2a-runtime`.** On `origin/main`, `scripts/run-tests.mjs` gates two Node directories (`packages/h2a/test`, `packages/focus-interactive/test` → 202 files) plus exactly one Vitest suite (`packages/track` → 86 files). The **73** `.test.ts`/`.spec.ts` files under `packages/h2a-runtime/src` are never executed, and `.github/workflows/ci.yml` runs nothing else. Any statement of the form "the gate is green, therefore the runtime is covered" is false by construction. **A fix exists and is not merged** (`harness/test-gate-runtime` at `3d3c8d4`; also `fix/npm-test-runs-all-gates`) — so "it was fixed on 2026-07-29" is true of a branch and false of `main`. Verify the branch, not the claim. | `origin/main:scripts/run-tests.mjs` (`NODE_TEST_DIRS`, `VITEST_SUITES`), `origin/main:.github/workflows/ci.yml` | **structural** |
+| REC-03 | **A problem is re-raised under new wording, so no mechanical check can find it.** 185 `item.created`, 185 distinct titles, **zero** exact duplicates — yet two items created on 2026-07-29 are explicitly titled `RECURRENCE — …`. Exact-match dedup is blind here; the only signal is a free-text prefix an author may or may not type. | `.track/events.jsonl` at 669 events | habit |
+| REC-04 | **The journal cannot say which actor did anything.** All **669/669** events are signed `by: human:fabien.antoine@m4x.org`, including those an agent wrote. Provenance of a lesson, a closure or a cancellation is therefore unattributable. | `.track/events.jsonl`, field `by` | structural absence |
+| REC-05 | **Track has no record type for three of the four things worth remembering.** The journal has 18 event types. Settled doctrine maps to `decision.created` + `decision.option-selected`. A refuted hypothesis, a recurrent defect and an incident map to nothing — they survive only as prose in a title or a dossier. DOC-05 is decided but not implemented, so a WP percentage can still be wrong in its own favour. | 18 event types in `.track/events.jsonl`; `track --help` write surface | structural absence |
+| REC-06 | **A documented guarantee narrower than its name — and the failure is silent.** `track workspace-id` returns `ws:4471ea0c…` in this repo, but the WP1-WP14 referential is filed under `ws:89c45cc3…` (measured: 2 items under the CLI's id, 119 under the referential's). The write **succeeds**, `track validate` says nothing, and `report` does not filter by workspace — so the item simply is not in the referential. Root cause, computed independently by `architect` and `conductor`: the id is `sha256(sorted root commits, comma-joined + newline + worktree name)`, and this repo has **two** root commits — `ce2f385` (h2a init) and `e195823` (`@sentropic/track` init, absorbed by a `git subtree add` on 2026-07-04); both verified present. **Always pass `--workspace ws:89c45cc3e040949f1a1a034529722ee877150fd2a0e3da16a7f6e9d8e27f495d` explicitly.** The general lesson, and the reason this entry belongs here: "salted only by what travels with the repo" is durable under a move or a clone and **false under history absorption** — and h2a absorbs. Drift fix belongs to `architect` (WP6); do not open a duplicate. | `git rev-list --max-parents=0`, item counts per workspace | **structural** |
+
+---
+
+## INCIDENTS
+
+| id | incident | evidence |
+|---|---|---|
+| INC-01 | **The twelve actors' wake memory lives in a git-ignored directory.** `.gitignore` matches `tmp/`, and `tmp/agents/launch.sh` hard-codes `tmp/agents/BRIEF-$agent.md`; `git log --all -- tmp/agents` is empty. The initial memory of every actor survives neither a clone, nor a worktree, nor a `tmp/` cleanup. This file exists in `docs/` for that reason. | `.gitignore`, `tmp/agents/launch.sh`, git log |
+| INC-02 | **Nine cancellations, none carrying a reason field.** At least one — the tmux status surface — described word for word a still-active request, and drove decision DOC-05. | 9 `realization.transition → cancelled` events |
+| INC-03 | **Twelve actors share one checkout, and nothing warns them.** Measured 2026-07-29: this lane switched `/home/antoinefa/src/h2a` from `main` to a feature branch while `conductor` was working in it; `conductor` found out only by checking before committing, and a commit at that moment would have landed its delivery in this lane's PR. Measured the same day: the shared tree's local `main` had **diverged** from `origin/main` — 3 local-only commits, 195 missing — so work based on the tree's `main` is based on a phantom baseline, as this lane's own first commit was. **Check `git branch --show-current` before any commit, and deliver from an isolated worktree based on `origin/main`.** | this session; `git rev-list --left-right --count main...origin/main`; traced as item `01KYQXJ13H5ZEMK2KX86YVF7RC` |
+
+---
+
+## QUARANTINE — claims that circulate and did not reproduce
+
+These were handed to this lane as memory. Each was checked against the artefact it cites
+and **did not reproduce**. They are listed so nobody re-asserts them, and so nobody
+mistakes this list for a refutation of the underlying concern.
+
+| id | claim | check | result |
+|---|---|---|---|
+| Q-01 | "The same five items were recreated twice, two days running." | 185 `item.created`, 185 distinct titles, 0 duplicate titles. The only near-duplicates (Jaccard ≥ 0.45) are six intentional per-host siblings (`Codex`/`OpenCode`/`Hermes`/`agy`, same day) and one theme rename (`WP-D Governance` → `Governance & RACI`). | **not reproducible.** The real, narrower defect is REC-03. |
+| Q-02 | "The journal forked at the same event." | 669 events: `prevHash` chain continuous, zero chain break, zero duplicate `prevHash`. `track events-contains` confirms the working journal is a proper superset of `origin/main`'s 667. | **not reproducible.** No locator was given; may have concerned a copy since discarded. |
+| Q-03 | "`--rebase` broke tag `v0.86.0` (`506e976` → `c3b78d3`)." | `v0.86.0` → `2605e808`. `506e976` exists; `c3b78d3` is not a valid object. | **not reproducible as stated.** The merge policy in `COMMON.md` stands on its own; this particular proof does not. |
+| Q-04 | "1138 runtime tests are outside the gate." | The **exclusion** is verified and structural (REC-02). The **number** is not: the 73 excluded files are never executed, so no count was measured here. | **exclusion confirmed, count unfounded.** |
+
+---
+
+## Where this contract stops
+
+This file is prose, maintained by hand. Nothing forces an entry to be written when a
+doctrine is settled, and nothing re-checks the locators. It sits one rung above the
+briefs for two reasons only: it is committed, and every entry names the evidence that
+would falsify it.
+
+To go higher, one of two things has to happen, and neither is this lane acting alone:
+
+- **Projection.** Generate the DOCTRINE section from the journal, so it cannot drift from
+  `decision.option-selected`. Derivable today with no new record type.
+- **Record types** for refuted / recurrent / incident, plus the DOC-05 reopening
+  transition. That is track's write surface — WP8's lane, not WP11's. Traced, not taken.
+
+Until then: an actor that reads this file knows what was settled and what was refuted. It
+does **not** have a guarantee that everything settled or refuted since the last edit is
+in here.
