@@ -77,11 +77,21 @@ function fakePane(options: {
   pasteDiscarded?: boolean;
   /** Captures after the paste that still show an empty composer (render lag). */
   renderLagCaptures?: number;
+  /** cpuMs() returns undefined from the Nth call onwards (unreadable tree). */
+  cpuUnreadableFromCall?: number;
+  /** CPU ms subtracted once the quiet window ends (a child left the tree). */
+  cpuDropAfterQuiet?: number;
   pasteFails?: boolean;
   submitFails?: boolean;
   captureFails?: boolean;
 }) {
-  const calls = { captures: 0, clears: 0, pastes: [] as string[], submits: 0 };
+  const calls = {
+    captures: 0,
+    clears: 0,
+    pastes: [] as string[],
+    submits: 0,
+    cpuReads: 0,
+  };
   let composer = "";
   let submittedAt: number | undefined;
   let clock = 0;
@@ -122,12 +132,25 @@ function fakePane(options: {
       return true;
     },
     cpuMs: () => {
+      calls.cpuReads += 1;
+      if (
+        options.cpuUnreadableFromCall !== undefined &&
+        calls.cpuReads >= options.cpuUnreadableFromCall
+      ) {
+        return undefined; // tree unreadable: unknown, NOT zero
+      }
       const idle = ((options.idleCpuPerSec ?? 0) * clock) / 1000;
       const work =
         submittedAt === undefined
           ? 0
           : ((options.workCpuPerSec ?? 0) * (clock - submittedAt)) / 1000;
-      return 10 + idle + work;
+      // A live-descendant total is NOT monotonic: when a child exits, the total
+      // falls. `10 +` stands for the long-lived process's own lifetime CPU.
+      const drop =
+        options.cpuDropAfterQuiet !== undefined && calls.cpuReads > 2
+          ? options.cpuDropAfterQuiet
+          : 0;
+      return 10 + idle + work - drop;
     },
     sleep: (ms) => {
       clock += ms;
@@ -370,6 +393,69 @@ describe("deliverInitialPrompt", () => {
 
     expect(result.state).toBe("undelivered");
     expect(calls.submits).toBe(0); // never submit a partial brief
+  });
+
+  it("refuses when the pre-submit CPU baseline is unreadable", () => {
+    // REVIEW FINDING 1, confirmed: coercing an unreadable sample to zero turned
+    // the process's whole lifetime CPU into a post-submit delta, reporting
+    // "working" over a brief that was still sitting unsent.
+    const { deps, calls } = fakePane({
+      idleCpuPerSec: 0,
+      workCpuPerSec: 0,
+      cpuUnreadableFromCall: 3, // readable for readiness, unreadable at submit
+    });
+
+    const result = deliverInitialPrompt("%1", "the brief", deps, {
+      quietMs: 1_000,
+      timeoutMs: 8_000,
+      pollMs: 500,
+    });
+
+    expect(result.state).not.toBe("working");
+    if (result.state === "undelivered") {
+      expect(result.reason).toMatch(/CPU could not be read|never finished/);
+    }
+    expect(calls.submits).toBe(0);
+  });
+
+  it("does not read a SHRINKING process tree as quiet, nor its leftover CPU as work", () => {
+    // REVIEW FINDING 2, confirmed: only live descendants are counted, so the
+    // total falls when a bootstrap child exits. A negative delta passed the quiet
+    // test, clamped the idle rate to zero, and let remaining startup CPU pass the
+    // activity gate — "working" with nothing submitted.
+    const { deps } = fakePane({
+      idleCpuPerSec: 400, // still busy booting
+      cpuDropAfterQuiet: 1_800, // a child leaves the tree
+      workCpuPerSec: 0, // and no real work ever happens
+    });
+
+    const result = deliverInitialPrompt("%1", "the brief", deps, {
+      quietMs: 1_000,
+      timeoutMs: 6_000,
+      pollMs: 500,
+    });
+
+    expect(result.state).not.toBe("working");
+  });
+
+  it("calibrates a host that idles at a steady few percent of a core", () => {
+    // REVIEW FINDING 3, confirmed: an absolute quiet threshold could never admit
+    // a host burning 25ms/s, so it was refused after the whole budget without a
+    // single paste. What matters is that the burn is LEVEL.
+    const { deps, calls } = fakePane({
+      idleCpuPerSec: 25,
+      workCpuPerSec: 1_000,
+    });
+
+    const result = deliverInitialPrompt("%1", "the brief", deps, {
+      quietMs: 1_000,
+      quietCpuMs: 10, // deliberately below the host's own idle burn
+      timeoutMs: 30_000,
+      pollMs: 500,
+    });
+
+    expect(result.state).toBe("working");
+    expect(calls.pastes).toHaveLength(1);
   });
 
   it("reports a discarded paste WITHOUT retyping it", () => {
