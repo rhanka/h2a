@@ -1,33 +1,47 @@
 === formatWpConductor(text) ===
+TRACK REPORT — global · 3/5 (60%)
+période : journal vide (aucun événement enregistré)
+baseline d’acceptance : non résolue
+couverture : 5 lignes projetées · 4 rendues · 2 sous-WP agrégés dans leur parent · 1 omise : 1 WP sans item ouvert, sans blocage et sans livraison
+sources : projection déterministe du journal (track report --wp --decisions)
+
 FAIT
-scope           avancement   constat
-─────────────   ──────────   ─────────────────────
-global          3/5 (60%)    agrégat de périmètre;
-                             pas une action
+scope         avancement   dernières actions
+───────────   ──────────   ─────────────────
+global        3/5 (60%)    b-done
+                           p-done
+                           a-done
 
-WP1.1 · Phase   1/1 (100%)   WP clos (état
-                             enregistré)
+WP1 · Alpha   2/4 (50%)    p-done
+                           a-done
 
-WP2 · Beta      1/1 (100%)   WP clos (état
-                             enregistré)
+WP2 · Beta    1/1 (100%)   b-done
 
 À-FAIRE
-WP            avancement   à faire                    bloqué                     prochaine action           cible action
-───────────   ──────────   ────────────────────────   ────────────────────────   ────────────────────────   ────────────────────────
-WP1 · Alpha   2/4 (50%)    a-todo / s-todo            À spécifier avant de       action (subagent):         id-0007 · a-todo [TO-DO]
-                                                      démarrer                   Rédiger la spécification
+ordre = priorité ; les cinq premiers sont le focus
+WP            av.   à faire        bloqué   prochaine action
+───────────   ───   ────────────   ──────   ────────────────────────────────────────
+WP1 · Alpha   50%   [1.1] a-todo   spec     à instruire : ouvrir l’item et nommer le
+                    [1.2] s-todo            geste
 
-WP1.2 · Sub   0/1 (0%)     s-todo                     À spécifier avant de       action (subagent):         id-0017 · s-todo [TO-DO]
-                                                      démarrer                   Rédiger la spécification
+DÉCISIONS
+┌───┬─────────────────────────────────────────┬──────────────────┬───────┐
+│ # │ sujet                                   │ alternatives     │ préco │
+├───┼─────────────────────────────────────────┼──────────────────┼───────┤
+│ — │ aucun dossier en attente que tu puisses │ non enregistrées │   —   │
+│   │ trancher maintenant                     │                  │       │
+└───┴─────────────────────────────────────────┴──────────────────┴───────┘
 
-WP3 · Gamma   0/0 (n/a)    aucun item ouvert direct   Aucun blocage enregistré   Aucune directive directe   -
+RECOMMANDATION
+Sans décision : WP1 peuvent démarrer — le geste concret reste à instruire par ligne.
+Aucun D# disponible : aucun dossier structuré sélectionnable dans le journal.
+Réponds « vas y » pour lancer les lanes sans décision.
 
-ACTIONS DÉRIVÉES
-scope/gate       sujet    préconisation
-──────────────   ──────   ───────────────────────────────────────────
-spec-not-ready   a-todo   action (subagent): Rédiger la spécification
-
-spec-not-ready   s-todo   action (subagent): Rédiger la spécification
+RÉSOLUTION DES HANDLES (bloc machine — pas une table à lire)
+handles positionnels, valables pour CE rapport uniquement : une réponse qui cite un handle sans son rapport n’est pas actionnable.
+commande : track report --resolve <handle>
+1.1	id-0007	a-todo
+1.2	id-0017	s-todo
 
 === formatWpTree(md) ===
 - **WP1 · Alpha** (2/4, 50%)

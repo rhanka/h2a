@@ -5,72 +5,76 @@
 // SAME `ReportView` the JSON path exposes (tables + directives + keystone), so the HTML and the table render
 // share one derived model. The design system supplies the CSS/tokens and embeds the fragment.
 
-import { buildWpConductorView, directivePhrase, type ReportView, type ReportViewTable } from './format.js'
+import {
+  buildWpConductorView,
+  coverageLine,
+  resolutionLines,
+  type ConductorMeta,
+  type ReportView,
+  type ReportViewTable,
+} from './format.js'
 import type { DecisionRow, ReportRow } from './build.js'
-import type { Directive } from './directive.js'
 import type { WpNode } from './rollup.js'
 import { escapeHtml, IDENTITY_HOOKS, type DsFragmentHooks, type DsFragmentPresenter } from './present.js'
 
-/** One conductor table → a `<section>` with a `<table class="report-table">`; cells escaped (§A4). */
+/** The À-FAIRE ordering rule, stated on screen exactly as the terminal states it (criterion 6). */
+const TODO_ORDER_NOTE = 'ordre = priorité ; les cinq premiers sont le focus'
+
+/**
+ * One conductor section → a `<section>`: a `<table class="report-table">` for the grid sections, an
+ * ordered prose block for RECOMMANDATION. Cells are escaped (§A4); a cell's explicit `\n` line breaks
+ * (the DÉCISIONS alternatives, one per line) become `<br>` so an option and its recommendation stay
+ * on the same visual line as they do in the terminal.
+ */
 function renderTable(t: ReportViewTable): string {
+  const open = `<section class="report-section" data-section="${escapeHtml(t.id)}"><h2>${escapeHtml(t.title)}</h2>`
+  if (t.render === 'prose') {
+    const body = (t.lines ?? []).map((line) => `<p class="report-line">${escapeHtml(line)}</p>`).join('')
+    return `${open}${body}</section>`
+  }
+  const note = t.id === 'todo' ? `<p class="report-note">${escapeHtml(TODO_ORDER_NOTE)}</p>` : ''
+  const multiline = (value: string): string => escapeHtml(value).split('\n').join('<br>')
   const head = t.columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join('')
   const body = t.rows
-    .map((row) => `<tr>${t.columns.map((c) => `<td>${escapeHtml(row[c.id] ?? '')}</td>`).join('')}</tr>`)
+    .map((row) => `<tr>${t.columns.map((c) => `<td>${multiline(row[c.id] ?? '')}</td>`).join('')}</tr>`)
     .join('')
   return (
-    `<section class="report-section" data-section="${escapeHtml(t.id)}">` +
-    `<h2>${escapeHtml(t.title)}</h2>` +
+    `${open}${note}` +
     `<table class="report-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` +
     `</section>`
   )
 }
 
 /**
- * The machine-attributed directive list — the DS-consumable variant surface (mirrors focus's
- * `data-annotation`/`data-modality` convention): each `<li>` carries `data-mode`, `data-advice-kind`,
- * `data-rank`, `data-step`, and (when present) `data-gate`/`data-blocked-by`/`data-fan-in`, so the design
- * system styles chips WITHOUT parsing the phrase. The rendered phrase reuses `directivePhrase` (same bytes
- * as the table). Every interpolated title/ref is escaped.
+ * The header carries the ACCEPTANCE BASELINE, the honest statement that the report covers the whole log
+ * (criterion 1, as scoped), and the projected/rendered row accounting (criterion 17). It carries NO bucket
+ * counters. The machine directive list is NOT a section: the four sections are FAIT, À-FAIRE, DÉCISIONS,
+ * RECOMMANDATION and nothing else — `view.directives` remains available on the JSON surface for the DS.
  */
-function renderDirectives(dirs: readonly Directive[]): string {
-  if (dirs.length === 0) return ''
-  const items = dirs
-    .map((d) => {
-      const g = d.gate
-      const attrs = [
-        `data-mode="${escapeHtml(d.mode)}"`,
-        `data-advice-kind="${escapeHtml(d.adviceKind)}"`,
-        `data-rank="${escapeHtml(d.rank)}"`,
-        `data-step="${escapeHtml(d.step.code)}"`,
-        ...(g?.code !== undefined ? [`data-gate="${escapeHtml(g.code)}"`] : []),
-        ...(g?.blockedBy !== undefined ? [`data-blocked-by="${escapeHtml(g.blockedBy)}"`] : []),
-        ...(d.facts.fanIn !== undefined ? [`data-fan-in="${escapeHtml(String(d.facts.fanIn))}"`] : []),
-      ].join(' ')
-      const subject = escapeHtml(d.target.title ?? d.target.id)
-      const blocker =
-        g?.blockedByTitle !== undefined
-          ? ` <span class="report-directive-blocker">bloqué par « ${escapeHtml(g.blockedByTitle)} »</span>`
-          : ''
-      return (
-        `<li class="report-directive" ${attrs}>` +
-        `<strong class="report-directive-subject">${subject}</strong> — ` +
-        `<span class="report-directive-phrase">${escapeHtml(directivePhrase(d))}</span>${blocker}</li>`
-      )
-    })
-    .join('')
-  return `<section class="report-section" data-section="directives"><h2>Directives</h2><ul class="report-directives">${items}</ul></section>`
-}
-
 function renderHeader(view: ReportView): string {
+  const h = view.header
   const k = view.keystone
   const keystone =
     k !== undefined
-      ? ` · <span class="report-keystone" data-keystone-id="${escapeHtml(k.id)}" data-blocks="${escapeHtml(String(k.blocks))}">goulot: ${escapeHtml(k.title)} (bloque ${escapeHtml(String(k.blocks))})</span>`
+      ? ` · <span class="report-keystone" data-blocks="${escapeHtml(String(k.blocks))}">goulot: ${escapeHtml(k.title)} (bloque ${escapeHtml(String(k.blocks))})</span>`
       : ''
   return (
-    `<header class="report-header"><h1>Report — conducteur</h1>` +
-    `<p class="report-meta">vue: <code>${escapeHtml(view.kind)}</code> · locale: ${escapeHtml(view.locale)}${keystone}</p></header>`
+    `<header class="report-header"><h1>TRACK REPORT — ${escapeHtml(h.scope)} · ${escapeHtml(h.progress)}</h1>` +
+    `<p class="report-period">${escapeHtml(h.period.label)}${keystone}</p>` +
+    `<p class="report-meta">baseline d’acceptance : <code>${escapeHtml(h.baselineCommit ?? 'non résolue')}</code></p>` +
+    `<p class="report-coverage">${escapeHtml(coverageLine(h.coverage))}</p>` +
+    `<p class="report-sources">sources : ${escapeHtml(h.sources.join(' ; '))}</p></header>`
   )
+}
+
+/**
+ * Criteria 10b/10c — the resolution block. A `<footer>`, deliberately NOT a `<section>` and NOT a
+ * `report-table`: it is the machine's half of the page, and the only place an item id appears.
+ */
+function renderResolution(view: ReportView): string {
+  const [title, ...rest] = resolutionLines(view)
+  const body = rest.map((line) => `<p>${escapeHtml(line)}</p>`).join('')
+  return `<footer class="report-resolution" data-section="resolution"><h2>${escapeHtml(title ?? '')}</h2>${body}</footer>`
 }
 
 /** Render a `ReportView` to a sanitized, DS-styled `<article>` fragment (the shared presenter, §C). */
@@ -79,7 +83,7 @@ export const renderReportHtml: DsFragmentPresenter<ReportView> = (view, hooks = 
     `<article class="report-document" data-kind="${escapeHtml(view.kind)}" data-locale="${escapeHtml(view.locale)}">` +
     renderHeader(view) +
     view.tables.map(renderTable).join('') +
-    renderDirectives(view.directives) +
+    renderResolution(view) +
     `</article>`
   return hooks.sanitizeHtml(html)
 }
@@ -91,6 +95,7 @@ export function formatWpConductorHtml(
   hooks: DsFragmentHooks = IDENTITY_HOOKS,
   outsideRollup: readonly ReportRow[] = [],
   totalScope = 'global',
+  meta: ConductorMeta = {},
 ): string {
-  return renderReportHtml(buildWpConductorView(tree, decisions, outsideRollup, totalScope), hooks)
+  return renderReportHtml(buildWpConductorView(tree, decisions, outsideRollup, totalScope, meta), hooks)
 }

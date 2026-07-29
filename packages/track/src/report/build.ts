@@ -5,7 +5,7 @@ import { isStructuredDossier, type DecisionKind, type DossierArtifact, type Opti
 import { isRoleContainer, type ItemId, type ItemKind, type ItemRole, type ItemState, type Realization } from '../model/item.js'
 import type { State } from '../state/fold.js'
 import { BUCKETS, bucketOf, type Bucket, type ReportConfig } from './buckets.js'
-import { computeWpTree, type WpNode } from './rollup.js'
+import { bodyExcerpt, computeWpTree, type WpNode } from './rollup.js'
 
 /**
  * focus-wp-enrichment (additive) — a short per-item DETAIL block for the focus card. It carries what a
@@ -67,6 +67,12 @@ export interface DecisionRow {
    * Existing prose-only dossiers are deliberately `unstructured`: the reader must not invent alternatives.
    */
   structure?: 'structured' | 'unstructured'
+  /**
+   * A cleaned, capped EXCERPT of the dossier's prose context — drop-when-absent. It is shown as an
+   * excerpt beside an unanswerable dossier so the row says something; it is NEVER a source of options.
+   * Reading choices out of this string is exactly what `structure: 'unstructured'` forbids.
+   */
+  contextExcerpt?: string
   options?: Option[]
   recommendation?: { optionId: string; rationale: string }
   selectedOptionId?: string
@@ -113,35 +119,6 @@ const ACCEPTANCE_FR: Record<AcceptanceStatus, string> = {
   waived: 'recette dérogée',
   unknown: 'recette non évaluée',
   'n/a': 'sans recette',
-}
-
-const BODY_EXCERPT_MAX = 200
-
-/**
- * focus-wp-enrichment — a cleaned, one-line, capped excerpt of an item body: collapse every control char /
- * whitespace run to a single space, trim, then cap at `BODY_EXCERPT_MAX` with a trailing ellipsis. Returns
- * `undefined` for an absent/blank body (drop-when-absent on `detail.summary`). Local (no render-layer import).
- */
-function bodyExcerpt(body: string | undefined): string | undefined {
-  if (body === undefined) return undefined
-  let out = ''
-  let prevSpace = false
-  for (const ch of body) {
-    const code = ch.codePointAt(0) ?? 0
-    const isSpace = code < 0x20 || code === 0x7f || code === 0x2028 || code === 0x2029 || ch === ' '
-    if (isSpace) {
-      if (!prevSpace) {
-        out += ' '
-        prevSpace = true
-      }
-    } else {
-      out += ch
-      prevSpace = false
-    }
-  }
-  const trimmed = out.trim()
-  if (trimmed.length === 0) return undefined
-  return trimmed.length <= BODY_EXCERPT_MAX ? trimmed : `${trimmed.slice(0, BODY_EXCERPT_MAX - 1)}…`
 }
 
 /**
@@ -277,6 +254,7 @@ export function buildReport(
         optionCount: d.dossier.options.length,
         openQuestionCount: d.dossier.qa.filter((q) => q.answer === undefined || q.answer.trim() === '').length,
         hasRecommendation: d.dossier.recommendation !== undefined,
+        ...(bodyExcerpt(d.dossier.context) !== undefined ? { contextExcerpt: bodyExcerpt(d.dossier.context)! } : {}),
         ...(structured
           ? {
               options: d.dossier.options,
