@@ -68,6 +68,8 @@ function registryEntry(project: string, over: Partial<RegistryEntry> = {}): Regi
     enrolledAt: now,
     lastSeenAt: now,
     source: "run",
+    // restore() admits human dev sessions only (isHumanFacingSession).
+    sessionClass: "human",
     ...over,
   };
 }

@@ -25,8 +25,21 @@ function registryEntry(
     enrolledAt: now,
     lastSeenAt: now,
     source: "run",
+    // restore() admits human dev sessions only (isHumanFacingSession).
+    sessionClass: "human",
     ...over,
   };
+}
+
+/**
+ * Strip the class entirely, rather than setting it to undefined: this models a
+ * row written to registry.json BEFORE enrollment demanded a sessionClass, which
+ * is the shape restore must still refuse. `exactOptionalPropertyTypes` makes the
+ * difference between "absent" and "undefined" a real one.
+ */
+function withoutSessionClass(entry: RegistryEntry): RegistryEntry {
+  const { sessionClass: _dropped, ...rest } = entry;
+  return rest;
 }
 
 describe("h2a restore — human-facing session preservation (defect repro)", () => {
@@ -83,8 +96,11 @@ describe("h2a restore — human-facing session preservation (defect repro)", () 
   it("DEFECT #2: excludes delegated role:'job' workers from human restore", () => {
     const entries: RegistryEntry[] = [
       registryEntry("human", { sessionClass: "human" }),
-      // A delegated job: role 'job', NO sessionClass set (as delegate enrolls it).
-      registryEntry("worker", { role: "job", jobState: "running" }),
+      // A LEGACY registry row: role 'job' with NO sessionClass, as delegate
+      // enrolled it before enrollment began demanding the class. Enrollment now
+      // refuses to write this shape, but rows like it survive in registry files
+      // on disk, so restore must still exclude them.
+      withoutSessionClass(registryEntry("worker", { role: "job", jobState: "running" })),
     ];
     const projects = registrySessions(HOME, entries).map((s) => s.project);
     expect(projects).toEqual(["human"]);

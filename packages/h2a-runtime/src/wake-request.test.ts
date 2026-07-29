@@ -173,7 +173,7 @@ function arrangeSession(
       // Format: name\tattached\tpath\t@profile\t@display_name
       return {
         status: 0,
-        stdout: `remote-${label}\t0\t/home/u/src/${label}\t${host}\t\n`,
+        stdout: `$1\t1700000001\t4201\t/tmp/tmux-1000/default\tremote-${label}\t0\t/home/u/src/${label}\t${host}\t\n`,
       };
     }
     if (sub === "show-options") {
