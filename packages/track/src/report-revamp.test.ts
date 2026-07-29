@@ -123,7 +123,9 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
   it('the conductor view renders rule-derived actions with an execution mode, not as decisions', () => {
     seed()
     const text = reportText(new TrackReader(eventsPath), { ...base, wpTree: true }, 'text')
-    expect(text).toContain('ACTIONS DÉRIVÉES')
+    // The rule-derived actions are now the `prochaine action` column of À-FAIRE (spec 2026-07-29:
+    // exactly four sections, and ACTIONS DÉRIVÉES is not one of them).
+    expect(text).not.toContain('ACTIONS DÉRIVÉES')
     expect(text).not.toContain('DÉCISIONS/ACTIONS')
     expect(text).toMatch(/(action|décision) \(/)
     // Unified lexicon (spec 2026-07-11): the préconisation clause is the shared canonical action wording.
@@ -153,12 +155,13 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
     expect(text).not.toContain('DÉCISIONS/ACTIONS')
   })
 
-  it('FAIT / À-FAIRE / ATTENDUS sections are present with correct membership', () => {
+  it('FAIT / À-FAIRE / DÉCISIONS / RECOMMANDATION are present with correct membership', () => {
     seed()
     const text = reportText(new TrackReader(eventsPath), { ...base, wpTree: true }, 'text')
     expect(text).toContain('FAIT')
     expect(text).toContain('À-FAIRE')
-    expect(text).toContain('ACTIONS DÉRIVÉES')
+    expect(text).toContain('DÉCISIONS')
+    expect(text).toContain('RECOMMANDATION')
     expect(text).toContain('WP1 · Done WP')
     // global total = sum of all WP leaves (1 done of 3 active: d1 + open-todo + awaited-leaf) ⇒ 1/3, 33%
     expect(text).toContain('1/3 (33%)')
@@ -174,15 +177,16 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
     expect(text).toContain('WP1.1 · Child')
   })
 
-  it('an AWAITED leaf lands in ATTENDUS with a derived disposition', () => {
+  it('an AWAITED leaf appears in À-FAIRE gated on the D-number that answers it', () => {
     seed()
-    const text = reportText(new TrackReader(eventsPath), { ...base, wpTree: true }, 'text')
+    const text = reportText(new TrackReader(eventsPath), { ...base, wpTree: true, decisions: true }, 'text')
     expect(text).toContain('awaited-leaf')
-    // AWAITED-on-a-decision ⇒ decision recommendation, not a passive blocker line
-    expect(text).toContain('décision')
-    // Unified lexicon (spec 2026-07-11): settle-decision now reads "Trancher la décision" (was
-    // "trancher outcome") — the shared canonical wording the cockpit uses.
-    expect(text).toContain('Trancher la décision')
+    // Criterion 7 — `bloqué` points at the ANSWER (D1), not at a restatement of the question.
+    const todo = text.slice(text.indexOf('À-FAIRE'), text.indexOf('DÉCISIONS'))
+    expect(todo).toMatch(/\bD1\b/u)
+    expect(todo).not.toContain('En attente d’une décision')
+    // The dossier itself is a numbered row of DÉCISIONS with its stored alternatives.
+    expect(text).toContain('gate awaited-leaf')
   })
 
   it('an open OPEN (TO-DO) leaf appears under its WP in À-FAIRE', () => {
@@ -246,12 +250,15 @@ describe('report-revamp — json path keeps the machine contract + additive view
       detail: { acceptanceLabel: 'recette non évaluée' },
     }
     const view = buildWpConductorView(computeWpTree(t.state(), cfg), decisions, [outside])
-    expect(view.tables.map((table) => table.id)).toEqual([
-      'done', 'todo', 'todo-unscoped', 'outside-rollup', 'decisions', 'prepare', 'legacy-history', 'rule-derived-actions',
-    ])
+    // Criterion 2 — EXACTLY four sections, always present, always in this order.
+    expect(view.tables.map((table) => table.id)).toEqual(['done', 'todo', 'decisions', 'recommendation'])
+    expect(view.tables.map((table) => table.title)).toEqual(['FAIT', 'À-FAIRE', 'DÉCISIONS', 'RECOMMANDATION'])
     const doneTable = view.tables[0]!
-    expect(doneTable.columns.map((column) => column.id)).toEqual(['scope', 'progress', 'completion'])
-    expect(doneTable.rows[0]!['completion']).toBe('agrégat de périmètre; pas une action')
+    // Criterion 3 — the third column is `dernières actions`, not `constat`.
+    expect(doneTable.columns.map((column) => column.id)).toEqual(['scope', 'progress', 'lastActions'])
+    expect(doneTable.columns[2]!.label).toBe('dernières actions')
+    expect(doneTable.rows[0]!['lastActions']).not.toBe('agrégat de périmètre; pas une action')
+    expect(doneTable.rows[0]!['lastActions']).toContain('done leaf')
     expect(JSON.stringify(view)).not.toContain('generalRecommendation')
   })
 })
@@ -305,18 +312,17 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     expect(outside.map((row) => row.title)).toEqual(expect.arrayContaining(['orphan done A', 'orphan done B', 'orphan pending decision']))
     expect(outside.every((row) => row.wpId === undefined)).toBe(true)
 
+    // HORS ROLLUP is no longer a top-level section (criterion 2): its rows are folded INTO the four —
+    // completed ones into FAIT, open ones into À-FAIRE — and none of them disappears (criterion 18).
     const rendered = reportText(reader, { ...base, decisions: true, wpTree: true }, 'text')
-    expect(rendered).toContain('HORS ROLLUP')
+    expect(rendered).not.toContain('HORS ROLLUP')
+    expect(rendered).toContain('hors WP')
     for (const row of outside) expect(rendered).toContain(row.title)
 
     const view = JSON.parse(reportText(reader, { ...base, decisions: true, wpTree: true }, 'json')) as {
       view: { tables: Array<{ id: string; rows: Record<string, string>[] }> }
     }
-    const outsideRows = view.view.tables.find((table) => table.id === 'outside-rollup')!.rows
-    for (const row of outside) {
-      expect(outsideRows).toContainEqual(expect.objectContaining({ id: row.id, workspace: row.workspace, item: row.title, acceptance: row.detail.acceptanceLabel }))
-    }
-    expect(outsideRows).toContainEqual(expect.objectContaining({ id: orphanDoneA, summary: 'outside rollup detail' }))
+    expect(view.view.tables.map((table) => table.id)).toEqual(['done', 'todo', 'decisions', 'recommendation'])
 
     const json = JSON.parse(reportText(reader, { ...base, decisions: true, wpTree: true }, 'json')) as {
       buckets: Record<string, unknown[]>
@@ -332,7 +338,7 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     done(orphanB)
 
     const html = reportHtml(new TrackReader(eventsPath), { ...base, decisions: true, wpTree: true })
-    expect(html).toContain('HORS ROLLUP')
+    expect(html).not.toContain('HORS ROLLUP')
     expect(html).toContain('orphan A')
     expect(html).toContain('orphan B')
     expect(html).not.toContain('report-recommendation')
@@ -359,13 +365,17 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
       id: 'legacy-1', title: 'Unstructured legacy choice', workspace: 'ws',
       decisionKind: 'orientation', realization: 'to-do', outcome: 'pending', structured: false,
     }
+    // Criterion 16 — an unstructured dossier keeps its row in DÉCISIONS (criterion 18: a pending dossier
+    // is never omitted) but it reserves NO D-number, carries NO letters, and reads `à structurer`.
     const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text', [legacy])
-    expect(text).toContain('À INSTRUIRE')
-    // Terminal tables can wrap within a title column; preserve both fragments rather than assuming adjacency.
+    expect(text).not.toContain('À INSTRUIRE')
     expect(text).toContain('Unstructured')
     expect(text).toContain('choice')
-    const decisionsSection = text.slice(text.indexOf('DÉCISIONS'))
-    expect(decisionsSection).not.toContain('Unstructured legacy')
+    const decisionsSection = text.slice(text.indexOf('DÉCISIONS'), text.indexOf('RECOMMANDATION'))
+    expect(decisionsSection).toContain('à structurer')
+    expect(decisionsSection).toContain('non enregistrées')
+    expect(decisionsSection).not.toMatch(/│ D1\b/u)
+    expect(text).toContain('Aucun D# disponible : aucun dossier structuré sélectionnable dans le journal.')
   })
 
   it('keeps a settled legacy outcome as history without pretending an option was selected', () => {
@@ -376,11 +386,13 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
       decisionKind: 'orientation', realization: 'done', outcome: 'go', structured: false,
     }
     const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text', [legacy])
-    expect(text).toContain('HISTORIQUE NON STRUCTURÉ')
+    expect(text).not.toContain('HISTORIQUE NON STRUCTURÉ')
     expect(text).toContain('Historical outcome')
     expect(text).toContain('without options')
-    expect(text).toContain('outcome historique:go')
+    expect(text).toContain('réglé (go)')
+    // Terminal cells wrap; assert the fragments rather than assuming they stay adjacent.
     expect(text).toContain('aucune option')
+    expect(text).toContain('attestée')
     expect(text).not.toContain('À INSTRUIRE')
   })
 
@@ -395,8 +407,15 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     }
     const text = formatWpConductor(computeWpTree(t.state(), cfg), 'text', [structured])
     expect(text).toContain('DÉCISIONS')
-    expect(text).toContain('a: Safe route')
-    expect(text).toContain('recommandée:a')
+    // Criterion 9/16 — a drawn table numbered D1…Dn, options lettered, the recommendation in `préco`.
+    expect(text).toContain('┌')
+    expect(text).toMatch(/│ D1\s+│/u)
+    expect(text).toContain('A Safe route — Require proof')
+    expect(text).toContain('B Fast route — Use the alias')
+    const decisionsSection = text.slice(text.indexOf('DÉCISIONS'), text.indexOf('RECOMMANDATION'))
+    const optionLine = decisionsSection.split('\n').find((line) => line.includes('A Safe route'))!
+    expect(optionLine.trimEnd().endsWith('│')).toBe(true)
+    expect(optionLine).toMatch(/A\s+│$/u) // the préco letter sits on the line of its own option
   })
 
   it('md render escapes markdown metacharacters in a crafted item title (no injection)', () => {

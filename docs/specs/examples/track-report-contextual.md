@@ -1,3 +1,19 @@
+> **Référence de FORME, pas de contenu.** Ce rapport est l'artefact validé par
+> l'owner : il fixe les quatre sections, les colonnes, la table DÉCISIONS dessinée
+> et la ligne de réponse unique. Il **précède** la baseline `d01368f` où les
+> dossiers sont structurés : à sa propre baseline `5fa272e` le journal ne portait
+> **aucun** dossier structuré, donc ses alternatives D1–D7 n'étaient pas dérivables
+> (spec 2026-07-29, « The golden's DÉCISIONS table was not derivable at its own
+> baseline »). Ne pas le rejouer comme sortie attendue ; l'entrée déterministe
+> reproductible est `track-report-raw.txt`.
+>
+> Deux écarts assumés par rapport à ce que le moteur produit aujourd'hui :
+> l'en-tête ne nomme **plus** de fenêtre (`journée du 28/07`) tant que
+> `--since`/`--until`/`--period` n'existent pas (critère 1 tel que borné), et une
+> cellule `bloqué` vide signifie « aucun blocage enregistré » — un gate enregistré
+> rendu `—` est un défaut (critère 19), ce que ce rapport fait encore pour WP4,
+> WP6, WP7 et WP9.
+
 # TRACK REPORT — h2a
 *période : journée du 28/07/2026, depuis `5fa272e` · 54/84 (64%)*
 

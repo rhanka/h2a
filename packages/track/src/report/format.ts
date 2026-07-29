@@ -7,6 +7,7 @@ import {
   dispatchQueueOf,
   keystoneOf,
   type Directive,
+  type DirectiveGateCode,
   type Keystone,
 } from './directive.js'
 // Unified report presentation (spec 2026-07-11) — the SINGLE enum→French lexicon the cockpit shares, so
@@ -185,17 +186,28 @@ function wrapCell(s: string, width: number): string[] {
   return lines
 }
 
-function table(headers: readonly string[], rows: readonly (readonly string[])[]): string[] {
+function defaultCap(header: string): number {
+  const k = header.toLowerCase()
+  if (k.includes('sujet') || k.includes('items') || k.includes('à faire')) return 72
+  if (k.includes('préconisation') || k.includes('dernières actions')) return 64
+  if (k.includes('prochaine action')) return 44
+  if (k.includes('complexité') || k.includes('notes') || k.includes('dropped')) return 38
+  if (k.includes('scope')) return 42
+  if (k === 'wp') return 30
+  if (k.includes('wp')) return 42
+  if (k === 'av.') return 6
+  if (k.includes('bloqué')) return 18
+  return 24
+}
+
+function table(
+  headers: readonly string[],
+  rows: readonly (readonly string[])[],
+  capOverrides?: readonly (number | undefined)[],
+): string[] {
   // Terminal-first padded table: aligned columns, bounded width, MULTI-LINE cells.
   // No ellipsis: long content wraps inside the column so the report stays readable and complete enough.
-  const caps = headers.map((h) => {
-    const k = h.toLowerCase()
-    if (k.includes('sujet') || k.includes('items') || k.includes('à faire')) return 72
-    if (k.includes('préconisation') || k.includes('dernières actions')) return 64
-    if (k.includes('complexité') || k.includes('notes') || k.includes('dropped')) return 38
-    if (k.includes('scope') || k.includes('wp')) return 42
-    return 24
-  })
+  const caps = headers.map((h, i) => capOverrides?.[i] ?? defaultCap(h))
   const head = headers.map((h, i) => cell(h).slice(0, caps[i]!))
   const wrappedRows = rows.map((row) => headers.map((_, i) => wrapCell(row[i] ?? '', caps[i]!)))
   const widths = head.map((h, i) => Math.min(caps[i]!, Math.max(h.length, ...wrappedRows.flatMap((r) => r[i]!).map((v) => v.length))))
@@ -209,6 +221,43 @@ function table(headers: readonly string[], rows: readonly (readonly string[])[])
     out.push('') // breathing room between logical rows
   }
   if (out[out.length - 1] === '') out.pop()
+  return out
+}
+
+/**
+ * A BOX-DRAWN table (the shape the owner validated for DÉCISIONS). Cells may carry explicit `\n`
+ * line breaks — one alternative per line — so a recommendation can sit on the line of its own option.
+ * Deterministic: widths are derived from the content, capped per column, and long lines wrap.
+ */
+function drawTable(
+  headers: readonly string[],
+  rows: readonly (readonly string[])[],
+  caps: readonly number[],
+  center: readonly boolean[] = [],
+): string[] {
+  const split = (value: string, width: number): string[] =>
+    value.split('\n').flatMap((line) => (line.trim() === '' ? [''] : wrapCell(line, width)))
+  const wrapped = rows.map((row) => headers.map((_, i) => split(row[i] ?? '', caps[i]!)))
+  const widths = headers.map((h, i) =>
+    Math.min(caps[i]!, Math.max(cell(h).length, ...wrapped.flatMap((r) => r[i]!).map((v) => v.length), 1)),
+  )
+  const pad = (value: string, i: number): string =>
+    center[i] === true
+      ? ' '.repeat(Math.floor((widths[i]! - value.length) / 2)) +
+        value +
+        ' '.repeat(widths[i]! - value.length - Math.floor((widths[i]! - value.length) / 2))
+      : value.padEnd(widths[i]!)
+  const rule = (left: string, mid: string, right: string): string =>
+    left + widths.map((w) => '─'.repeat(w + 2)).join(mid) + right
+  const line = (cells: readonly string[]): string =>
+    '│ ' + cells.map((v, i) => pad(v, i)).join(' │ ') + ' │'
+  const out: string[] = [rule('┌', '┬', '┐'), line(headers.map((h) => cell(h))), rule('├', '┼', '┤')]
+  wrapped.forEach((row, index) => {
+    const height = Math.max(...row.map((cellLines) => cellLines.length))
+    for (let y = 0; y < height; y++) out.push(line(row.map((cellLines) => cellLines[y] ?? '')))
+    if (index < wrapped.length - 1) out.push(rule('├', '┼', '┤'))
+  })
+  out.push(rule('└', '┴', '┘'))
   return out
 }
 
@@ -451,6 +500,13 @@ export interface ReportViewTable {
   title: string
   columns: readonly { id: string; label: string }[]
   rows: readonly Record<string, string>[]
+  /**
+   * How the section is rendered: `padded` = the aligned terminal table (default), `drawn` = the
+   * box-drawn table the owner validated for DÉCISIONS, `prose` = `lines` instead of rows.
+   */
+  render?: 'padded' | 'drawn' | 'prose'
+  /** Prose sections (RECOMMANDATION) carry ordered lines rather than a grid. */
+  lines?: readonly string[]
 }
 
 /** Makes the two public `directives` arrays self-describing instead of relying on their JSON path. */
@@ -466,10 +522,55 @@ export interface DispatchQueueProjection {
   modes: readonly ('subagent' | 'local')[]
 }
 
+/**
+ * Criterion 10b — a short, stable handle for one actionable row. Derived from the WP position (`8.1` =
+ * the first open item of WP8), so it is identical across two runs over the same log, and it carries NO
+ * ULID (criterion 10a). `track report --resolve <handle>` is the one command that resolves it.
+ */
+export interface ReportHandle {
+  handle: string
+  kind: 'item' | 'decision'
+  id: string
+  title: string
+  wpLabel?: string
+}
+
+/**
+ * Criterion 17 (as reconciled) — compactness accounting. `projected` counts the rows the deterministic
+ * projection carries (WP nodes + hors-rollup rows + unscoped rows + dossiers); `rendered` counts the rows
+ * the four sections actually print. Compression is legitimate — a report is a decision surface, not an
+ * inventory — but it must be DECLARED, never silent. `omitted` names what was dropped; by construction it
+ * only ever holds WPs with no open work and no recorded gate (criterion 18 protects the rest).
+ */
+export interface ReportCoverage {
+  projected: number
+  rendered: number
+  omitted: readonly string[]
+}
+
+/**
+ * Criterion 1 (as scoped by the 2026-07-29 correction) — the header carries the ACCEPTANCE BASELINE and
+ * states that the report covers the whole log. It must NOT name a window: `--since`/`--until`/`--period`
+ * do not exist yet, so a named window would be a claim nothing can support.
+ */
+export interface ReportHeader {
+  scope: string
+  progress: string
+  baselineCommit?: string
+  window: string
+  sources: readonly string[]
+  coverage: ReportCoverage
+  handleCommand: string
+}
+
 export interface ReportView {
   kind: 'wp-conductor-report'
   locale: 'fr'
+  header: ReportHeader
   tables: readonly ReportViewTable[]
+  /** Criterion 10b — every actionable row's handle, and what it resolves to. */
+  handles: readonly ReportHandle[]
+  coverage: ReportCoverage
   /**
    * The actionable directives rendered by this conductor. `directivesProjection` names their meaning and
    * canonical urgency ordering so they cannot be confused with SnapshotV1's rule-derived fact projection.
@@ -521,11 +622,90 @@ export function directivePhrase(d: Directive): string {
   return `action (${mode}): ${stepActionFr(d.step.code)}${suffix}`
 }
 
+// ---- the four owner-facing sections (spec 2026-07-29) ----------------------------------------------
+// FAIT · À-FAIRE · DÉCISIONS · RECOMMANDATION. Nothing else is a top-level section: what mattered in the
+// old `À-FAIRE SANS WP` / `HORS ROLLUP` / `À INSTRUIRE` / `HISTORIQUE NON STRUCTURÉ` / `ACTIONS DÉRIVÉES`
+// tables is folded INTO the four, by title — never deleted (criteria 17/18).
+
+/** No blockage is RECORDED. Never emitted when a gate exists (criterion 19). */
+const NO_GATE = '—'
+/** No next action, and none is owed: the row is gated on a decision (criterion 14, as scoped). */
+const NO_ACTION = '—'
+
+/** A gate → the SHORT token `bloqué` carries. A decision gate is replaced by its D/Q number. */
+const GATE_TOKEN: Record<DirectiveGateCode, string> = {
+  'decision-pending': 'décision',
+  'engagement-pending': 'h2a',
+  'external-dependency': 'dépendance',
+  'linked-dependency': 'dépendance',
+  'manual-blocker': 'blocage',
+  'spec-not-ready': 'spec',
+  'acceptance-failed': 'recette KO',
+  'acceptance-stale': 'recette',
+  'priority-missing': 'priorité',
+}
+
+/** DONE leaves under a node, most recent first (ULIDs sort by time), for FAIT's `dernières actions`. */
+function recentDoneLeaves(node: WpNode): WpNode['leaves'] {
+  const out: WpNode['leaves'] = []
+  const walk = (n: WpNode): void => {
+    for (const l of n.leaves) if (l.bucket === 'DONE') out.push(l)
+    for (const c of n.children) walk(c)
+  }
+  walk(node)
+  return out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+}
+
+const LAST_ACTIONS_SHOWN = 3
+
+/**
+ * FAIT's third column (criterion 3/4): the LAST RECORDED ACTIONS of that scope — never a restatement of
+ * the arithmetic. When the scope carries more completions than fit, the compression is DECLARED rather
+ * than hidden behind a silent tail.
+ */
+function lastActionsCell(titles: readonly string[]): string {
+  if (titles.length === 0) return 'aucune action enregistrée'
+  const shown = titles.slice(0, LAST_ACTIONS_SHOWN)
+  const suffix = titles.length > shown.length ? ` — ${shown.length} des ${titles.length} actions enregistrées` : ''
+  return shown.join(' · ') + suffix
+}
+
+const OPTION_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+const optionLetter = (index: number): string => OPTION_LETTERS[index] ?? `#${index + 1}`
+
+/**
+ * The DÉCISIONS column widths, SHARED between the builder and the renderer. The builder wraps the
+ * `alternatives` cell itself so it can emit the `préco` cell with exactly matching blank lines: that is
+ * what puts each recommendation ON THE LINE OF ITS OWN OPTION instead of on some continuation line.
+ */
+const DECISION_CAPS = [6, 40, 46, 14] as const
+
+/** `[1,2,3,5]` → `D1–D3 · D5`: the compact form the validated report uses for a run of decisions. */
+function compactRefs(refs: readonly string[]): string {
+  const uniq = [...new Set(refs)]
+  const numeric = uniq.filter((r) => /^D\d+$/u.test(r)).map((r) => Number(r.slice(1))).sort((a, b) => a - b)
+  const other = uniq.filter((r) => !/^D\d+$/u.test(r))
+  const parts: string[] = []
+  for (let i = 0; i < numeric.length; ) {
+    let j = i
+    while (j + 1 < numeric.length && numeric[j + 1] === numeric[j]! + 1) j++
+    parts.push(j - i >= 2 ? `D${numeric[i]}–D${numeric[j]}` : numeric.slice(i, j + 1).map((n) => `D${n}`).join(' · '))
+    i = j + 1
+  }
+  return [...parts, ...other].join(' · ')
+}
+
+export interface ConductorMeta {
+  /** The acceptance baseline the report is judged against — NOT a reporting window (criterion 1). */
+  baselineCommit?: string
+}
+
 export function buildWpConductorView(
   tree: readonly WpNode[],
   decisions: readonly DecisionRow[] = [],
   outsideRollup: readonly ReportRow[] = [],
   totalScope = 'global',
+  meta: ConductorMeta = {},
 ): ReportView {
   const wpName = (n: WpNode): string => `${n.label} · ${clean(stripWpPrefix(n.title))}`
   const totals = wpTotals(tree, outsideRollup)
@@ -538,30 +718,70 @@ export function buildWpConductorView(
   }
   collectWpNodes(tree)
 
-  // The rule-derived action table is derived from the directive set (each directive ⇒ one row, phrase
-  // rendered, never stored). It deliberately has no decision label: native decision dossiers have their
-  // own `DÉCISIONS` table below.
   const directives = buildDirectives(tree, decisions)
   const dispatchQueue = dispatchQueueOf(directives)
   const keystone = keystoneOf(tree)
   const { structured: structuredDecisions, legacyPending, legacySettled } = classifyDecisions(decisions)
-  const legacyIds = new Set(legacyPending.map((d) => d.id))
-  // A legacy dossier may still have a decision blocker on a leaf. Its directive is deliberately
-  // withheld from the owner-facing decision section: it belongs in À INSTRUIRE until the recorded
-  // option/recommendation model is populated by an authenticated revision.
-  const displayDirectives = directives.filter((d) => !legacyIds.has(d.gate?.ref ?? ''))
-  const humanDecisions = displayDirectives.filter((d) => d.mode === 'human-decision')
-  const focusNeeded = humanDecisions.filter((d) => d.step.code === 'focus-decision').length
 
+  // ---- decision numbering (criterion 16) ----------------------------------------------------------
+  // A D-number is RESERVED for a dossier whose options AND recommendation are stored and still pending:
+  // those are the only ones an owner can answer with a letter. Everything else keeps a `Q` handle so it
+  // stays addressable (10b) without ever being offered in the reply line.
+  const structuredPending = structuredDecisions.filter((d) => d.outcome === 'pending')
+  const decisionOrder = [
+    ...structuredPending,
+    ...structuredDecisions.filter((d) => d.outcome !== 'pending'),
+    ...legacyPending,
+    ...legacySettled,
+  ]
+  const decisionRef = new Map<string, string>()
+  structuredPending.forEach((d, i) => decisionRef.set(d.id, `D${i + 1}`))
+  let qCounter = 0
+  for (const d of decisionOrder) if (!decisionRef.has(d.id)) decisionRef.set(d.id, `Q${++qCounter}`)
+
+  // ---- handles (criteria 10b/10c) -----------------------------------------------------------------
+  // Handles are POSITIONAL WITHIN THIS REPORT (`[row.item]`), assigned AFTER À-FAIRE is ordered. Leg A
+  // established that no content-derived handle can be stable across runs — ordering, titles and WP
+  // membership all move — so the identifier is RELOCATED, not invented: the resolution block at the end
+  // of the page maps every emitted handle to its item id, and no ULID enters a column the owner reads.
+  const handles: ReportHandle[] = []
+
+  // ---- FAIT ---------------------------------------------------------------------------------------
+  const outsideDone = outsideRollup.filter((r) => r.bucket === 'DONE' || r.bucket === 'DROPPED')
   const doneRows: Record<string, string>[] = [
-    { scope: totalScope, progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`, completion: 'agrégat de périmètre; pas une action' },
-    ...wpNodes.filter((n) => n.pct === 100).map((n) => ({ scope: wpName(n), progress: `${n.done}/${n.active} (100%)`, completion: 'WP clos (état enregistré)' })),
+    {
+      scope: totalScope,
+      progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`,
+      lastActions: lastActionsCell(
+        wpNodes
+          .flatMap((n) => n.leaves.filter((l) => l.bucket === 'DONE'))
+          .sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+          .map((l) => clean(l.title)),
+      ),
+    },
+    ...wpNodes
+      .filter((n) => n.done > 0)
+      .map((n) => ({
+        scope: wpName(n),
+        progress: `${n.done}/${n.active} (${pctStr(n.pct)})`,
+        lastActions: lastActionsCell(recentDoneLeaves(n).map((l) => clean(l.title))),
+      })),
+    ...(outsideDone.length > 0
+      ? [{
+          scope: 'hors WP',
+          progress: (() => {
+            const done = outsideRollup.filter((r) => r.bucket === 'DONE').length
+            const active = outsideRollup.filter((r) => r.bucket !== 'DROPPED').length
+            return `${done}/${active} (${pctStr(active === 0 ? 'n/a' : Math.round((done / active) * 100))})`
+          })(),
+          lastActions: outsideDone
+            .map((r) => `${clean(r.title)}${r.bucket === 'DROPPED' ? ' (abandonné)' : ''}`)
+            .join(' · '),
+        }]
+      : []),
   ]
 
-  // À-FAIRE is a ready-to-render projection.  A consumer MUST NOT join `tables.todo` back to
-  // `directives`: directives with no WP scope (notably standalone pending decisions) have no
-  // `scope.wpLabel`, and WP labels are presentation text rather than an identity key.  We attach by
-  // `scope.wpId` here, then retain the directive ids as an auditable machine-only row property.
+  // ---- À-FAIRE ------------------------------------------------------------------------------------
   const directivesByWpId = new Map<string, Directive[]>()
   for (const directive of directives) {
     const wpId = directive.scope.wpId
@@ -570,122 +790,347 @@ export function buildWpConductorView(
     if (attached === undefined) directivesByWpId.set(wpId, [directive])
     else attached.push(directive)
   }
-  const noGate = 'Aucun blocage enregistré'
-  const noDirectAction = 'Aucune directive directe'
-  const blocked = (attached: readonly Directive[]): string =>
-    attached.map((directive) => gatePhraseFr(directive.gate) ?? noGate).join(' / ') || noGate
-  const nextAction = (attached: readonly Directive[]): string =>
-    attached.map(directivePhrase).join(' / ') || noDirectAction
-  const directiveIds = (attached: readonly Directive[]): string => attached.map((directive) => directive.id).join(',')
-  // A directive may target a DONE item with acceptance debt while the row's open-work list is empty. This
-  // explicit field makes that intentional cross-bucket relationship visible without a consumer-side join.
-  const actionTargets = (attached: readonly Directive[]): string =>
-    attached.map((directive) => `${directive.target.id} · ${clean(directive.target.title ?? directive.target.id)} [${directive.facts.bucket}]`).join(' / ') || '-'
+  const urgencyIndex = new Map(directives.map((d, i) => [d.id, i]))
 
-  // A completed WP can still carry a stale/failed acceptance directive, so retain it whenever a
-  // directive is attached even when its rollup percentage is 100.
-  const todoRows = wpNodes.filter((n) => n.pct !== 100 || directivesByWpId.has(n.id)).map((n) => {
-    const open = openLeaves(n)
-    const listed = open.map((l) => clean(l.title)).join(' / ')
-    const attached = directivesByWpId.get(n.id) ?? []
+  /**
+   * Criterion 7 + 19 — `bloqué` names the ANSWER that unblocks (a D-number) when the gate is a dossier,
+   * and a short gate token otherwise. It renders `—` ONLY when no gate is recorded at all.
+   */
+  const blockedCell = (attached: readonly Directive[]): string => {
+    const refs: string[] = []
+    for (const d of attached) {
+      const gate = d.gate
+      if (gate === undefined) continue
+      const dossier = gate.code === 'decision-pending' ? decisionRef.get(gate.ref ?? '') : undefined
+      refs.push(dossier ?? GATE_TOKEN[gate.code] ?? 'blocage')
+    }
+    return refs.length === 0 ? NO_GATE : compactRefs(refs)
+  }
+  const nextActionCell = (attached: readonly Directive[]): string => {
+    const phrases = attached.filter((d) => d.mode !== 'human-decision').map(directivePhrase)
+    return phrases.length === 0 ? NO_ACTION : [...new Set(phrases)].join(' / ')
+  }
+  const directiveIds = (attached: readonly Directive[]): string => attached.map((d) => d.id).join(',')
+  // Machine-only audit properties (NOT declared columns, so no renderer ever prints them): the precise
+  // gate phrase the short `bloqué` token compacts, kept so nothing is lost from the projection.
+  const gateDetail = (attached: readonly Directive[]): string =>
+    [...new Set(attached.map((d) => gatePhraseFr(d.gate)).filter((p): p is string => p !== undefined))].join(' / ')
+
+  /** One actionable item inside an À-FAIRE row — its handle is assigned once the rows are ordered. */
+  interface TodoItem { id: string; title: string; note?: string }
+  interface TodoDraft {
+    wp: string
+    progress: string
+    items: TodoItem[]
+    blocked: string
+    nextAction: string
+    directiveIds: string
+    gateDetail: string
+    order: string
+  }
+
+  const wpTodoDrafts: TodoDraft[] = wpNodes
+    .filter((n) => openLeaves(n).length > 0 || directivesByWpId.has(n.id))
+    .map((n) => {
+      const attached = directivesByWpId.get(n.id) ?? []
+      const items: TodoItem[] = openLeaves(n).map((l) => ({ id: l.id, title: clean(l.title) }))
+      // A directive may target a DONE leaf with acceptance debt: name it here (with its own handle)
+      // instead of exiling it to a `cible action` column the owner never asked for.
+      for (const d of attached) {
+        if (d.target.kind === 'decision' || items.some((i) => i.id === d.target.id)) continue
+        items.push({ id: d.target.id, title: clean(d.target.title ?? d.target.id), note: d.facts.bucket.toLowerCase() })
+      }
+      return {
+        wp: wpName(n),
+        progress: pctStr(n.pct),
+        items,
+        blocked: blockedCell(attached),
+        nextAction: nextActionCell(attached),
+        directiveIds: directiveIds(attached),
+        gateDetail: gateDetail(attached),
+        order: String(Math.min(...attached.map((d) => urgencyIndex.get(d.id) ?? 9999), 9999)).padStart(5, '0'),
+      }
+    })
+
+  // A pending dossier with no WP ancestor is still open work the owner must see: it lands in À-FAIRE
+  // (criterion 2 — it is not a top-level section of its own), one row, gated on its own D/Q number.
+  const unscopedDirectives = directives.filter((d) => d.scope.wpId === undefined)
+  const outsideOpen = outsideRollup.filter(
+    (r) => (r.bucket === 'TO-DO' || r.bucket === 'AWAITED') && !unscopedDirectives.some((d) => d.target.id === r.id),
+  )
+  const horsWpDrafts: TodoDraft[] = []
+  if (unscopedDirectives.length > 0) {
+    horsWpDrafts.push({
+      wp: 'hors WP · dossiers',
+      progress: 'n/a',
+      items: unscopedDirectives.map((d) => ({ id: d.target.id, title: clean(d.target.title ?? d.target.id) })),
+      blocked: blockedCell(unscopedDirectives),
+      nextAction: nextActionCell(unscopedDirectives),
+      directiveIds: directiveIds(unscopedDirectives),
+      gateDetail: gateDetail(unscopedDirectives),
+      order: String(Math.min(...unscopedDirectives.map((d) => urgencyIndex.get(d.id) ?? 9999))).padStart(5, '0'),
+    })
+  }
+  if (outsideOpen.length > 0) {
+    horsWpDrafts.push({
+      wp: 'hors WP · items',
+      progress: 'n/a',
+      items: outsideOpen.map((r) => ({ id: r.id, title: clean(r.title) })),
+      blocked: NO_GATE,
+      nextAction: `action (subagent): ${stepActionFr('inspect-fallback')}`,
+      directiveIds: '',
+      gateDetail: '',
+      order: '09998',
+    })
+  }
+
+  // Criterion 17 — compression is allowed, silence is not. A WP with NO open work, NO recorded gate and
+  // NO recorded completion appears in neither FAIT nor À-FAIRE: it is omitted, and DECLARED in the header
+  // count. Criterion 18 is what keeps that safe: a WP that carries open work, and every pending dossier,
+  // is in the rendered lists above and can never fall here.
+  const omitted = wpNodes
+    .filter((n) => n.done === 0 && openLeaves(n).length === 0 && !directivesByWpId.has(n.id))
+    .map(wpName)
+
+  const orderedDrafts = [...wpTodoDrafts, ...horsWpDrafts].sort((a, b) =>
+    a.order === b.order ? a.wp.localeCompare(b.wp) : a.order.localeCompare(b.order),
+  )
+
+  // Handles are assigned HERE, once the order is final: `[row.item]`, both 1-based (criterion 10b/10c).
+  const orderedTodo: Record<string, string>[] = orderedDrafts.map((draft, rowIndex) => {
+    const cells = draft.items.map((item, itemIndex) => {
+      const handle = `${rowIndex + 1}.${itemIndex + 1}`
+      const wpLabel = draft.wp.split(' · ')[0]
+      handles.push({
+        handle, kind: 'item', id: item.id, title: item.title,
+        ...(wpLabel === undefined ? {} : { wpLabel }),
+      })
+      return `[${handle}] ${item.title}${item.note === undefined ? '' : ` (${item.note})`}`
+    })
     return {
-      wp: wpName(n),
-      progress: `${n.done}/${n.active} (${pctStr(n.pct)})`,
-      todo: listed || 'aucun item ouvert direct',
-      blocked: blocked(attached),
-      nextAction: nextAction(attached),
-      actionTarget: actionTargets(attached),
-      directiveIds: directiveIds(attached),
+      wp: draft.wp,
+      progress: draft.progress,
+      todo: cells.join(' / '),
+      blocked: draft.blocked,
+      nextAction: draft.nextAction,
+      directiveIds: draft.directiveIds,
+      gateDetail: draft.gateDetail,
     }
   })
+  for (const d of decisionOrder) {
+    handles.push({ handle: decisionRef.get(d.id)!, kind: 'decision', id: d.id, title: clean(d.title) })
+  }
 
-  // A pending decision may be a real directive without a WP ancestor.  It is not a HORS ROLLUP item,
-  // so give it an explicit same-shape table rather than silently assigning it to a similarly named WP.
-  const unscopedTodoRows = directives.filter((directive) => directive.scope.wpId === undefined).map((directive) => ({
-    wp: 'sans WP',
-    progress: '-',
-    todo: clean(directive.target.title ?? directive.target.id),
-    blocked: blocked([directive]),
-    nextAction: nextAction([directive]),
-    actionTarget: actionTargets([directive]),
-    directiveIds: directive.id,
-  }))
+  const todoRows = orderedTodo.length > 0
+    ? orderedTodo
+    : [{ wp: '—', progress: 'n/a', todo: 'aucun WP ouvert', blocked: NO_GATE, nextAction: NO_ACTION, directiveIds: '' }]
 
-  // Rule-derived action rows. Native decision dossiers are rendered only in the separate DÉCISIONS table.
-  // This is deliberately exhaustive: a conductor table is the deterministic route to every open row.
-  const actionRows: Record<string, string>[] = []
-  if (focusNeeded >= 2 || humanDecisions.length >= 4) {
-    actionRows.push({ scope: '-', subject: 'décisions accumulées', recommendation: 'focus (lecture): instruire le dossier, puis enregistrer le choix avec track decision select' })
+  // ---- DÉCISIONS ----------------------------------------------------------------------------------
+  const decisionRows: Record<string, string>[] = []
+  for (const d of decisionOrder) {
+    const ref = decisionRef.get(d.id)!
+    const options = d.options ?? []
+    const letterOf = new Map(options.map((option, i) => [option.id, optionLetter(i)]))
+    // Criterion 16 — the recommendation sits on the LINE OF ITS OWN OPTION, and an unstructured dossier
+    // carries no letter at all rather than being dressed up as an owner choice.
+    const altLines: string[] = []
+    const precoLines: string[] = []
+    const recommended = d.recommendation === undefined ? undefined : letterOf.get(d.recommendation.optionId)
+    const selected = d.selectedOptionId === undefined ? undefined : letterOf.get(d.selectedOptionId)
+    options.forEach((option, i) => {
+      const letter = optionLetter(i)
+      const wrapped = wrapCell(`${letter} ${clean(option.title)} — ${clean(option.summary)}`, DECISION_CAPS[2])
+      const marks: string[] = []
+      if (letter === recommended) marks.push(letter)
+      if (letter === selected) marks.push('retenu')
+      altLines.push(...wrapped)
+      precoLines.push(marks.join(' '), ...Array<string>(wrapped.length - 1).fill(''))
+    })
+    if (d.outcome !== 'pending') precoLines.push(`réglé (${d.outcome})`)
+    const alternatives = options.length > 0 ? altLines.join('\n') : 'non enregistrées'
+    let preco = options.length > 0
+      ? precoLines.join('\n')
+      : d.outcome === 'pending'
+        ? 'à structurer'
+        : `réglé (${d.outcome}) · aucune option attestée`
+    if (preco.trim() === '') preco = '—'
+    decisionRows.push({ n: ref, subject: shortDecisionSubject(d.title), alternatives, preco })
   }
-  for (const d of humanDecisions) {
-    actionRows.push({ scope: directiveScopeLabel(d), subject: clean(d.target.title ?? d.target.id), recommendation: directivePhrase(d) })
+  if (decisionRows.length === 0) {
+    decisionRows.push({ n: '—', subject: 'aucun dossier enregistré', alternatives: 'non enregistrées', preco: '—' })
   }
-  for (const d of displayDirectives.filter((x) => x.mode !== 'human-decision')) {
-    actionRows.push({ scope: directiveScopeLabel(d), subject: clean(d.target.title ?? d.target.id), recommendation: directivePhrase(d) })
+
+  // ---- RECOMMANDATION ------------------------------------------------------------------------------
+  const startable = orderedTodo.filter(
+    (row) => row['nextAction'] !== NO_ACTION && !/^D\d/u.test(row['blocked'] ?? ''),
+  )
+  const unlockedBy = (ref: string): string[] =>
+    orderedTodo.filter((row) => (row['blocked'] ?? '').includes(ref)).map((row) => (row['wp'] ?? '').split(' · ')[0]!)
+  const recommendationLines: string[] = []
+  recommendationLines.push(
+    startable.length === 0
+      ? 'Sans décision : aucune lane exécutable sans réponse n’est attestée dans le journal.'
+      : `Sans décision : ${startable
+          .slice(0, 3)
+          .map((row) => `${(row['wp'] ?? '').split(' · ')[0]} — ${row['nextAction']}`)
+          .join(' ; ')}.`,
+  )
+  if (structuredPending.length === 0) {
+    recommendationLines.push('Aucun D# disponible : aucun dossier structuré sélectionnable dans le journal.')
+  } else {
+    for (const d of structuredPending) {
+      const ref = decisionRef.get(d.id)!
+      const letter = d.recommendation === undefined
+        ? undefined
+        : optionLetter((d.options ?? []).findIndex((o) => o.id === d.recommendation!.optionId))
+      const targets = unlockedBy(ref)
+      recommendationLines.push(
+        `${ref}${letter === undefined ? '' : ` ${letter}`} → débloque ${targets.length > 0 ? [...new Set(targets)].join(', ') : 'le dossier lui-même'}.`,
+      )
+    }
   }
-  const outsideRows = outsideRollup.map((row) => ({
-    id: row.id,
-    workspace: row.workspace,
-    scope: row.wpId === undefined ? 'sans WP' : `intermédiaire · ${row.wpLabel ?? '-'}`,
-    progress: row.bucket,
-    item: clean(row.title),
-    acceptance: row.detail.acceptanceLabel,
-    summary: row.detail.summary ?? '—',
-  }))
+  const replyLine = structuredPending.length === 0
+    ? 'Réponds « vas y » pour lancer les lanes sans décision.'
+    : `Réponds « vas y » (les lanes sans décision) ou « ${structuredPending
+        .map((d) => {
+          const ref = decisionRef.get(d.id)!
+          const letter = d.recommendation === undefined
+            ? 'A'
+            : optionLetter((d.options ?? []).findIndex((o) => o.id === d.recommendation!.optionId))
+          return `${ref} ${letter}`
+        })
+        .join(' · ')} » (tout débloquer).`
+  recommendationLines.push(replyLine)
+
+  // ---- coverage (criteria 17/18) --------------------------------------------------------------------
+  // 17 — the report STATES both counts, so omission is a declared act rather than a silent one. Both
+  // numbers count the SAME unit: rows of the deterministic projection. `rendered` is therefore always a
+  // subset of `projected`, and `projected - rendered === omitted.length`.
+  // 18 — the two classes that may never be omitted (a WP carrying open work, a pending dossier) are
+  // structurally in the rendered lists above, whatever the compression ratio.
+  const projectedRows = wpNodes.length + outsideRollup.length + unscopedDirectives.length + decisions.length
+  const coverage: ReportCoverage = {
+    projected: projectedRows,
+    rendered: projectedRows - omitted.length,
+    omitted,
+  }
+
+  const header: ReportHeader = {
+    scope: totalScope,
+    progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`,
+    ...(meta.baselineCommit !== undefined ? { baselineCommit: meta.baselineCommit.slice(0, 12) } : {}),
+    // Criterion 1, as scoped: no `--since`/`--until`/`--period` exists yet, so no window may be named.
+    window: 'couvre l’intégralité du journal (aucune fenêtre de période)',
+    sources: ['projection déterministe du journal (track report --wp --decisions)'],
+    coverage,
+    handleCommand: 'track report --resolve <handle>',
+  }
 
   return {
     kind: 'wp-conductor-report',
     locale: 'fr',
+    header,
     tables: [
-      { id: 'done', title: 'FAIT', columns: [{ id: 'scope', label: 'scope' }, { id: 'progress', label: 'avancement' }, { id: 'completion', label: 'constat' }], rows: doneRows },
+      {
+        id: 'done',
+        title: 'FAIT',
+        columns: [
+          { id: 'scope', label: 'scope' },
+          { id: 'progress', label: 'avancement' },
+          { id: 'lastActions', label: 'dernières actions' },
+        ],
+        rows: doneRows,
+      },
       {
         id: 'todo',
         title: 'À-FAIRE',
         columns: [
           { id: 'wp', label: 'WP' },
-          { id: 'progress', label: 'avancement' },
+          { id: 'progress', label: 'av.' },
           { id: 'todo', label: 'à faire' },
           { id: 'blocked', label: 'bloqué' },
           { id: 'nextAction', label: 'prochaine action' },
-          { id: 'actionTarget', label: 'cible action' },
         ],
-        rows: todoRows.length > 0
-          ? todoRows
-          : [{ wp: '-', progress: '-', todo: 'aucun WP ouvert', blocked: noGate, nextAction: noDirectAction, actionTarget: '-', directiveIds: '' }],
+        rows: todoRows,
       },
-      ...(unscopedTodoRows.length > 0
-        ? [{
-            id: 'todo-unscoped',
-            title: 'À-FAIRE SANS WP',
-            columns: [
-              { id: 'wp', label: 'WP' },
-              { id: 'progress', label: 'avancement' },
-              { id: 'todo', label: 'à faire' },
-              { id: 'blocked', label: 'bloqué' },
-              { id: 'nextAction', label: 'prochaine action' },
-              { id: 'actionTarget', label: 'cible action' },
-            ],
-            rows: unscopedTodoRows,
-          }]
-        : []),
-      ...(outsideRows.length > 0
-        ? [{ id: 'outside-rollup', title: 'HORS ROLLUP', columns: [{ id: 'id', label: 'id' }, { id: 'workspace', label: 'workspace' }, { id: 'scope', label: 'rattachement' }, { id: 'progress', label: 'état' }, { id: 'item', label: 'item' }, { id: 'acceptance', label: 'recette' }, { id: 'summary', label: 'extrait' }], rows: outsideRows }]
-        : []),
-      ...(structuredDecisions.length > 0 ? [{ id: 'decisions', title: 'DÉCISIONS', columns: [{ id: 'decision', label: 'dossier' }, { id: 'alternatives', label: 'alternatives enregistrées' }, { id: 'recommendation', label: 'recommandation / règlement' }], rows: structuredDecisions.map((d) => ({
-        decision: `${d.id} — ${clean(d.title)} (${d.outcome})`,
-        alternatives: d.options!.map((option) => `${option.id}: ${clean(option.title)} — ${clean(option.summary)}`).join(' / '),
-        recommendation: `recommandée:${d.recommendation!.optionId} — ${clean(d.recommendation!.rationale)}${d.selectedOptionId !== undefined ? `; sélectionnée:${d.selectedOptionId}` : ''}`,
-      })) }] : []),
-      ...(legacyPending.length > 0 ? [{ id: 'prepare', title: 'À INSTRUIRE', columns: [{ id: 'decision', label: 'dossier legacy' }, { id: 'action', label: 'disposition sûre' }], rows: legacyPending.map((d) => ({ decision: `${d.id} — ${clean(d.title)}`, action: legacyRevisionAction(d) })) }] : []),
-      ...(legacySettled.length > 0 ? [{ id: 'legacy-history', title: 'HISTORIQUE NON STRUCTURÉ', columns: [{ id: 'decision', label: 'dossier legacy' }, { id: 'record', label: 'constat' }], rows: legacySettled.map((d) => ({ decision: `${d.id} — ${clean(d.title)}`, record: legacyHistoryNote(d) })) }] : []),
-      { id: 'rule-derived-actions', title: 'ACTIONS DÉRIVÉES', columns: [{ id: 'scope', label: 'scope/gate' }, { id: 'subject', label: 'sujet' }, { id: 'recommendation', label: 'préconisation' }], rows: actionRows.length > 0 ? actionRows : [{ scope: '-', subject: 'aucune action ouverte dans les WP actifs', recommendation: '-' }] },
+      {
+        id: 'decisions',
+        title: 'DÉCISIONS',
+        render: 'drawn',
+        columns: [
+          { id: 'n', label: '#' },
+          { id: 'subject', label: 'sujet' },
+          { id: 'alternatives', label: 'alternatives' },
+          { id: 'preco', label: 'préco' },
+        ],
+        rows: decisionRows,
+      },
+      {
+        id: 'recommendation',
+        title: 'RECOMMANDATION',
+        render: 'prose',
+        columns: [],
+        rows: [],
+        lines: recommendationLines,
+      },
     ],
+    handles,
+    coverage,
     directives,
     directivesProjection: { kind: 'conductor-action-directives', order: 'canonical-urgency' },
     dispatchQueue,
     dispatchQueueProjection: { kind: 'delegable-directive-ids', order: 'canonical-urgency', modes: ['subagent', 'local'] },
     ...(keystone !== undefined ? { keystone } : {}),
   }
+}
+
+/**
+ * Criterion 11 — a decision SUBJECT, not the stored title pasted verbatim. Deterministic and lossless of
+ * meaning: it drops a leading enumeration counter (`1/6 — `, `x7 — `) that carries no question. Turning
+ * the remainder into a short question is a synthesis act and belongs to the skill, not to this renderer:
+ * inventing a shorter wording here would be fabrication.
+ */
+export function shortDecisionSubject(storedTitle: string): string {
+  return clean(storedTitle).replace(/^(?:\d+\s*\/\s*\d+|x\d+|§\d+)\s*[—–-]\s*/u, '')
+}
+
+/** The À-FAIRE ordering rule, printed so the owner knows why the rows are in this order (criterion 6). */
+const TODO_ORDER_NOTE = 'ordre = priorité ; les cinq premiers sont le focus'
+
+function headerLines(view: ReportView, format: Format): string[] {
+  const h = view.header
+  const em = (s: string): string => (format === 'md' ? `*${s}*` : s)
+  const lines = [
+    format === 'md'
+      ? `# TRACK REPORT — ${h.scope} · ${h.progress}`
+      : `TRACK REPORT — ${h.scope} · ${h.progress}`,
+    em(
+      `baseline d’acceptance : ${h.baselineCommit ?? 'non résolue'} · ${h.window}`,
+    ),
+    em(`couverture : ${h.coverage.projected} lignes projetées · ${h.coverage.rendered} rendues${h.coverage.omitted.length > 0 ? ` · ${h.coverage.omitted.length} omise${h.coverage.omitted.length > 1 ? 's' : ''} (aucun travail ouvert, aucun blocage enregistré)` : ''}`),
+    em(`sources : ${h.sources.join(' ; ')}`),
+    '',
+  ]
+  return lines
+}
+
+/**
+ * Criteria 10b/10c — the machine's half of the page. It is NOT a fifth section and NOT a table the owner
+ * reads: it is the block that makes a handle actionable, and the place the ULID is allowed to live. It
+ * states plainly that handles are positional and per-report, so a reply quoting `[3.2]` without the report
+ * it came from is not actionable.
+ */
+export const RESOLUTION_TITLE = 'RÉSOLUTION DES HANDLES (bloc machine — pas une table à lire)'
+
+export function resolutionLines(view: ReportView): string[] {
+  const lines = [
+    RESOLUTION_TITLE,
+    'handles positionnels, valables pour CE rapport uniquement : une réponse qui cite un handle sans son rapport n’est pas actionnable.',
+    `commande : ${view.header.handleCommand}`,
+  ]
+  for (const h of view.handles) lines.push(`${h.handle}\t${h.id}\t${h.title}`)
+  if (view.handles.length === 0) lines.push('(aucun handle émis)')
+  return lines
 }
 
 function renderReportView(view: ReportView, format: Format): string {
@@ -695,13 +1140,44 @@ function renderReportView(view: ReportView, format: Format): string {
   // is clean. The view model itself stays RAW (escaping is a render-only concern).
   const esc = (s: string): string => title(s, format)
   const h = (label: string): string => (format === 'md' ? `## ${label}` : label)
-  const lines: string[] = []
+  const lines: string[] = headerLines(view, format)
   for (const section of view.tables) {
     lines.push(h(section.title))
-    lines.push(...table(section.columns.map((c) => c.label), section.rows.map((row) => section.columns.map((c) => esc(row[c.id] ?? '')))))
+    if (section.render === 'prose') {
+      // Renderer-authored French sentences interpolating only derived labels, handles and D-numbers —
+      // never a raw user title, so there is nothing to escape and nothing to inject.
+      lines.push(...(section.lines ?? []))
+    } else if (section.render === 'drawn') {
+      // The box-drawn table is emitted verbatim; `md` fences it so the alignment survives.
+      const drawn = drawTable(
+        section.columns.map((c) => c.label),
+        section.rows.map((row) => section.columns.map((c) => clean0(row[c.id] ?? ''))),
+        DECISION_CAPS,
+        [false, false, false, true],
+      )
+      if (format === 'md') lines.push('```')
+      lines.push(...drawn)
+      if (format === 'md') lines.push('```')
+    } else {
+      if (section.id === 'todo') lines.push(format === 'md' ? `*${TODO_ORDER_NOTE}*` : TODO_ORDER_NOTE)
+      lines.push(
+        ...table(
+          section.columns.map((c) => c.label),
+          section.rows.map((row) => section.columns.map((c) => esc(row[c.id] ?? ''))),
+        ),
+      )
+    }
     lines.push('')
   }
+  if (format === 'md') lines.push('```')
+  lines.push(...resolutionLines(view))
+  if (format === 'md') lines.push('```')
   return lines.join('\n').trimEnd() + '\n'
+}
+
+/** Like `clean`, but PRESERVES the explicit `\n` line breaks a drawn cell uses to align its options. */
+function clean0(s: string): string {
+  return s.split('\n').map((line) => cell(line)).join('\n')
 }
 
 export function formatWpConductor(
@@ -710,8 +1186,9 @@ export function formatWpConductor(
   decisions: readonly DecisionRow[] = [],
   outsideRollup: readonly ReportRow[] = [],
   totalScope = 'global',
+  meta: ConductorMeta = {},
 ): string {
-  return renderReportView(buildWpConductorView(tree, decisions, outsideRollup, totalScope), format)
+  return renderReportView(buildWpConductorView(tree, decisions, outsideRollup, totalScope, meta), format)
 }
 
 // ---- INLINE mode (report-revamp §B) ----------------------------------------------------------------
