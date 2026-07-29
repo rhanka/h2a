@@ -229,6 +229,19 @@ describe("detectCollapsedPaste / collapsedPasteMatches", () => {
     expect(collapsedPasteMatches({ kind: "lines", value: 71 }, brief)).toBe(true);
   });
 
+  it("REJECTS a truncation that a proportional tolerance would have waved through", () => {
+    // SECOND REVIEW FINDING: a 2% tolerance accepted 200 missing characters out
+    // of 10000 — and the missing characters are the END of the brief, where its
+    // instructions sit. The tolerance is now absolute and small.
+    const long = "x".repeat(10_000);
+    expect(collapsedPasteMatches({ kind: "chars", value: 9_800 }, long)).toBe(
+      false,
+    );
+    expect(collapsedPasteMatches({ kind: "chars", value: 10_000 }, long)).toBe(
+      true,
+    );
+  });
+
   it("REJECTS a marker that accounts for less than what was sent", () => {
     // This is the truncation cond measured: the host held only part of the
     // brief. Accepting it would ship a silently amputated brief.
@@ -379,6 +392,26 @@ describe("deliverInitialPrompt", () => {
     expect(calls.submits).toBe(1);
   });
 
+  it("does not accept a STALE marker from an earlier paste as evidence", () => {
+    // SECOND REVIEW FINDING: a marker already on screen belongs to an earlier
+    // paste. If its size happens to match, it proves a delivery that never
+    // happened. Here the pane shows the same marker before AND after, and the
+    // host discarded the new paste — that must not read as delivered.
+    const brief = Array.from({ length: 72 }, (_, i) => `line ${i}`).join("\n");
+    const stale = `${COMPOSER}\n❯ [Pasted text #1 +71 lines]`;
+    const { deps, calls } = fakePane({
+      screen: stale, // present BEFORE the paste
+      screenAfterPaste: stale, // and unchanged after it
+      pasteDiscarded: true,
+      workCpuPerSec: 1000,
+    });
+
+    const result = deliverInitialPrompt("%1", brief, deps, { landedMs: 2_000 });
+
+    expect(result.state).toBe("undelivered");
+    expect(calls.submits).toBe(0);
+  });
+
   it("REFUSES a collapsed marker that accounts for less than the brief", () => {
     // cond measured a 5500-char brief landing as "[Pasted Content 1155 chars]":
     // the agent started on a TRUNCATED brief and nothing said so. A plausible,
@@ -436,6 +469,36 @@ describe("deliverInitialPrompt", () => {
     });
 
     expect(result.state).not.toBe("working");
+  });
+
+  it("does not read a host whose burn is still DRIFTING as ready", () => {
+    // SECOND REVIEW FINDING: a 25% stability tolerance let a 24.1% drift pass for
+    // level, so a host still coming out of startup was typed into. Drift below
+    // the ceiling but above the tolerance must keep waiting.
+    let call = 0;
+    const rates = [200, 152, 116, 88, 67]; // ~24% down each window
+    const { deps, calls } = fakePane({ workCpuPerSec: 1000 });
+    const base = deps.cpuMs;
+    let total = 10;
+    const drifting: typeof deps = {
+      ...deps,
+      cpuMs: () => {
+        // Emulate a decaying burn: each observation adds a smaller amount.
+        total += rates[Math.min(call++, rates.length - 1)]!;
+        return total;
+      },
+    };
+    void base;
+
+    const result = deliverInitialPrompt("%1", "the brief", drifting, {
+      quietMs: 1_000,
+      quietCpuMs: 10,
+      timeoutMs: 4_000,
+      pollMs: 500,
+    });
+
+    expect(result.state).toBe("undelivered");
+    expect(calls.pastes).toHaveLength(0);
   });
 
   it("calibrates a host that idles at a steady few percent of a core", () => {
