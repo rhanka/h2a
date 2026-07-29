@@ -22,6 +22,22 @@ function streamFrom(text: string): ReadableStream<Uint8Array> {
   });
 }
 
+/** Collect the JSON payload of every `data:` line, in order. */
+function parseSse(text: string): Array<Record<string, unknown>> {
+  const events: Array<Record<string, unknown>> = [];
+  for (const line of text.split("\n")) {
+    if (!line.startsWith("data: ")) continue;
+    const raw = line.slice(6).trim();
+    if (!raw || raw === "[DONE]") continue;
+    try {
+      events.push(JSON.parse(raw) as Record<string, unknown>);
+    } catch {
+      // a non-JSON data line is not an event we assert on
+    }
+  }
+  return events;
+}
+
 function codexApp(): Hono {
   const app = new Hono();
   app.post("/v1/messages", (c) =>
@@ -202,6 +218,159 @@ describe("h2a runtime Codex gateway", () => {
         ),
       }),
     ]);
+  });
+
+  it("streams Codex tool arguments that arrive only in output_item.done", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    // Shape captured live from the Codex Responses upstream: the function-call
+    // arguments are delivered ONLY in the terminal output_item.done event, never
+    // as response.function_call_arguments.delta.
+    const upstream = [
+      "event: response.output_item.added",
+      'data: {"type":"response.output_item.added","output_index":0,' +
+        '"item":{"type":"function_call","call_id":"call_x1","name":"add"}}',
+      "",
+      "event: response.output_item.done",
+      'data: {"type":"response.output_item.done","output_index":0,' +
+        '"item":{"type":"function_call","call_id":"call_x1","name":"add",' +
+        '"arguments":"{\\"a\\":2,\\"b\\":3}"}}',
+      "",
+      "event: response.completed",
+      'data: {"type":"response.completed","response":{"usage":{"output_tokens":7}}}',
+      "",
+    ].join("\n");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(streamFrom(upstream), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        }),
+      ),
+    );
+
+    const res = await codexApp().fetch(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-opus-4-8",
+          max_tokens: 128,
+          stream: true,
+          tools: [
+            {
+              name: "add",
+              description: "Add two numbers",
+              input_schema: {
+                type: "object",
+                properties: { a: { type: "number" }, b: { type: "number" } },
+                required: ["a", "b"],
+              },
+            },
+          ],
+          messages: [{ role: "user", content: "Add 2 and 3 using the tool." }],
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const events = parseSse(await res.text());
+
+    // A client must be able to reconstruct the tool input from the stream.
+    const start = events.find(
+      (e) =>
+        e.type === "content_block_start" &&
+        (e.content_block as { type?: string } | undefined)?.type === "tool_use",
+    );
+    expect(start).toBeDefined();
+    const toolIndex = start!.index as number;
+    const partial = events
+      .filter(
+        (e) =>
+          e.type === "content_block_delta" &&
+          e.index === toolIndex &&
+          (e.delta as { type?: string } | undefined)?.type ===
+            "input_json_delta",
+      )
+      .map((e) => (e.delta as { partial_json: string }).partial_json)
+      .join("");
+    expect(partial).not.toBe("");
+    expect(JSON.parse(partial)).toEqual({ a: 2, b: 3 });
+
+    // The arguments must land before the block is closed.
+    const deltaPos = events.findIndex(
+      (e) =>
+        e.type === "content_block_delta" &&
+        (e.delta as { type?: string } | undefined)?.type ===
+          "input_json_delta",
+    );
+    const stopPos = events.findIndex(
+      (e) => e.type === "content_block_stop" && e.index === toolIndex,
+    );
+    expect(deltaPos).toBeGreaterThanOrEqual(0);
+    expect(deltaPos).toBeLessThan(stopPos);
+  });
+
+  it("does not duplicate Codex tool arguments already streamed as deltas", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    // Upstreams that DO stream argument deltas must not get the terminal
+    // arguments appended on top, which would corrupt the JSON.
+    const upstream = [
+      "event: response.output_item.added",
+      'data: {"type":"response.output_item.added","output_index":0,' +
+        '"item":{"type":"function_call","call_id":"call_x2","name":"add"}}',
+      "",
+      "event: response.function_call_arguments.delta",
+      'data: {"type":"response.function_call_arguments.delta","output_index":0,' +
+        '"delta":"{\\"a\\":2,"}',
+      "",
+      "event: response.function_call_arguments.delta",
+      'data: {"type":"response.function_call_arguments.delta","output_index":0,' +
+        '"delta":"\\"b\\":3}"}',
+      "",
+      "event: response.output_item.done",
+      'data: {"type":"response.output_item.done","output_index":0,' +
+        '"item":{"type":"function_call","call_id":"call_x2","name":"add",' +
+        '"arguments":"{\\"a\\":2,\\"b\\":3}"}}',
+      "",
+      "event: response.completed",
+      'data: {"type":"response.completed","response":{"usage":{"output_tokens":7}}}',
+      "",
+    ].join("\n");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(streamFrom(upstream), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        }),
+      ),
+    );
+
+    const res = await codexApp().fetch(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-opus-4-8",
+          max_tokens: 128,
+          stream: true,
+          messages: [{ role: "user", content: "Add 2 and 3 using the tool." }],
+        }),
+      }),
+    );
+
+    const events = parseSse(await res.text());
+    const partial = events
+      .filter(
+        (e) =>
+          e.type === "content_block_delta" &&
+          (e.delta as { type?: string } | undefined)?.type ===
+            "input_json_delta",
+      )
+      .map((e) => (e.delta as { partial_json: string }).partial_json)
+      .join("");
+    expect(JSON.parse(partial)).toEqual({ a: 2, b: 3 });
   });
 
   it("returns a gateway error instead of 500 when Codex OAuth refresh cannot retry", async () => {
