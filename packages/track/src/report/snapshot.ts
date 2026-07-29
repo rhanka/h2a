@@ -14,6 +14,19 @@ import type { WpLeaf, WpLeafBlocker, WpNode } from './rollup.js'
 export const SNAPSHOT_SCHEMA = 'track.snapshot/v1' as const
 export const SNAPSHOT_EVENT_LIMIT = 200
 
+/** Explains the otherwise similarly named top-level snapshot `directives` array. */
+export interface SnapshotDirectivesProjection {
+  kind: 'rule-derived-facts'
+  order: 'aggregate-id-then-id'
+}
+
+/** Explains the bounded bare event projection without exposing event payload prose. */
+export interface RecentEventsProjection {
+  limit: typeof SNAPSHOT_EVENT_LIMIT
+  order: 'append-order'
+  content: 'position-event-id-kind-aggregate-id'
+}
+
 export interface SnapshotDirective {
   id: string
   source: 'rule-derived'
@@ -76,7 +89,9 @@ export interface SnapshotV1 {
   report: SnapshotReport
   wpTotals: WpTotals
   directives: SnapshotDirective[]
+  directivesProjection: SnapshotDirectivesProjection
   recentEvents: SnapshotRecentEvent[]
+  recentEventsProjection: RecentEventsProjection
 }
 
 export interface SnapshotOptions {
@@ -247,7 +262,7 @@ export function buildSnapshot(events: readonly TrackEvent[], options: SnapshotOp
       aggregateId: directive.target.id,
       text: directivePhrase(directive),
     }))
-    .sort((a, b) => ordinalCompare(a.id, b.id))
+    .sort((a, b) => ordinalCompare(a.aggregateId ?? '', b.aggregateId ?? '') || ordinalCompare(a.id, b.id))
 
   return {
     schema: SNAPSHOT_SCHEMA,
@@ -255,7 +270,9 @@ export function buildSnapshot(events: readonly TrackEvent[], options: SnapshotOp
     report: projectReport(report),
     wpTotals: wpTotals(report.wpTree ?? [], report.outsideRollup),
     directives,
+    directivesProjection: { kind: 'rule-derived-facts', order: 'aggregate-id-then-id' },
     recentEvents: recentEvents(events),
+    recentEventsProjection: { limit: SNAPSHOT_EVENT_LIMIT, order: 'append-order', content: 'position-event-id-kind-aggregate-id' },
   }
 }
 

@@ -12,7 +12,7 @@ import {
 // Unified report presentation (spec 2026-07-11) — the SINGLE enum→French lexicon the cockpit shares, so
 // the two surfaces can never re-word apart. The terminal composes its own `<nature> (<actor>): <clause>`
 // sentence but sources the canonical action clause + scope label from here.
-import { directiveScopeLabelFr as directiveScopeLabel, stepActionFr } from './friendly.js'
+import { directiveScopeLabelFr as directiveScopeLabel, gatePhraseFr, stepActionFr } from './friendly.js'
 
 export type Format = 'json' | 'text' | 'md'
 
@@ -154,14 +154,6 @@ function actionDisposition(r: ReportRow): string {
   return 'exécuter prochain incrément'
 }
 
-function decisionDisposition(d: { id: string; workspace: string; decisionKind: string; optionCount?: number; openQuestionCount?: number; artifacts?: readonly unknown[]; hasRecommendation?: boolean }): string {
-  if (decisionNeedsFocus(d)) {
-    return `focus décision HTML conseillé: track focus ${d.id} --workspace ${d.workspace} --format html`
-  }
-  if ((d.openQuestionCount ?? 0) > 0) return 'répondre aux questions ouvertes puis trancher'
-  return `choisir une option enregistrée puis la régler durablement avec track decision select ${d.id} <option-id> --outcome <go|no-go>`
-}
-
 function cell(s: string): string {
   return clean(s).replaceAll('|', '¦')
 }
@@ -222,7 +214,7 @@ function table(headers: readonly string[], rows: readonly (readonly string[])[])
 
 /**
  * Directive fallback for repos that have no WP containers yet. This is intentionally NOT the exhaustive
- * flat dump: it keeps the “decision/action recommendation” spirit while `--flat` remains available for
+ * flat dump: it keeps deterministic action guidance while `--flat` remains available for
  * the full bucket listing.
  */
 export function formatActionReport(report: Report, format: Format): string {
@@ -241,19 +233,12 @@ export function formatActionReport(report: Report, format: Format): string {
   lines.push(...table(['fait', 'à-faire', 'attendus', 'dropped', 'décisions pending'], [[String(done.length), String(todo.length), String(awaited.length), String(dropped.length), String(pendingDecisions.length)]]))
   lines.push('')
 
-  lines.push(h('DÉCISIONS/ACTIONS'))
+  lines.push(h('ACTIONS DÉRIVÉES'))
   const candidates = [...awaited, ...todo]
   const actionRows: string[][] = []
   const focusCount = pendingDecisions.filter(decisionNeedsFocus).length
   if (focusCount >= 2 || pendingDecisions.length >= 4) {
     actionRows.push(['focus', 'décisions accumulées', 'focus (humain): lancer focus HTML local; régler toute option choisie avec track decision select'])
-  }
-  for (const d of pendingDecisions) {
-    actionRows.push([
-      d.decisionKind,
-      title(d.title, format),
-      `décision (${d.accountable ?? 'owner'}): ${decisionDisposition(d)}`,
-    ])
   }
   for (const r of candidates) {
     actionRows.push([
@@ -262,7 +247,7 @@ export function formatActionReport(report: Report, format: Format): string {
       `action (${r.engagementRef !== undefined ? 'h2a/subagent' : 'local/subagent'}): ${actionDisposition(r)}`,
     ])
   }
-  lines.push(...table(['scope/gate', 'sujet', 'préconisation'], actionRows.length > 0 ? actionRows : [['-', 'aucune décision/action ouverte', '-']]))
+  lines.push(...table(['scope/gate', 'sujet', 'préconisation'], actionRows.length > 0 ? actionRows : [['-', 'aucune action dérivée ouverte', '-']]))
   lines.push('')
 
   if (structured.length > 0) {
@@ -272,7 +257,7 @@ export function formatActionReport(report: Report, format: Format): string {
       structured.map((d) => [
         `${d.id} — ${title(d.title, format)} (${d.outcome})`,
         d.options?.map((option) => `${option.id}: ${title(option.title, format)} — ${title(option.summary, format)}`).join(' / ') ?? '-',
-        `recommandée:${d.recommendation?.optionId ?? '-'}${d.selectedOptionId !== undefined ? `; sélectionnée:${d.selectedOptionId}` : ''}`,
+        `recommandée:${d.recommendation?.optionId ?? '-'}${d.selectedOptionId !== undefined ? `; sélectionnée:${d.selectedOptionId}` : d.outcome === 'pending' ? `; régler avec track decision select ${d.id} <option-id> --outcome <go|no-go>` : ''}`,
       ]),
     ))
     lines.push('')
@@ -468,18 +453,32 @@ export interface ReportViewTable {
   rows: readonly Record<string, string>[]
 }
 
+/** Makes the two public `directives` arrays self-describing instead of relying on their JSON path. */
+export interface DirectivesProjection {
+  kind: 'conductor-action-directives'
+  order: 'canonical-urgency'
+}
+
+/** Makes the flat directive-id queue self-describing instead of requiring a consumer-side filter. */
+export interface DispatchQueueProjection {
+  kind: 'delegable-directive-ids'
+  order: 'canonical-urgency'
+  modes: readonly ('subagent' | 'local')[]
+}
+
 export interface ReportView {
   kind: 'wp-conductor-report'
   locale: 'fr'
   tables: readonly ReportViewTable[]
-  generalRecommendation: string
   /**
-   * preconisation-actionnable (DESIGN §4) — the langue-neutre DIRECTIVES the tables are DERIVED from
-   * (machine surface). `dispatchQueue` is the flat, prioritized list of SUBAGENT directive ids (the real
-   * delegation payload). Both are additive; the rendered tables + `generalRecommendation` stay back-compat.
+   * The actionable directives rendered by this conductor. `directivesProjection` names their meaning and
+   * canonical urgency ordering so they cannot be confused with SnapshotV1's rule-derived fact projection.
    */
   directives: readonly Directive[]
+  directivesProjection: DirectivesProjection
+  /** The flat, prioritized ids of the directive subset executable by a local/subagent lane. */
   dispatchQueue: readonly string[]
+  dispatchQueueProjection: DispatchQueueProjection
   /**
    * ADDITIVE (report-revamp §A5) — the keystone item (max 1-hop fan-in, tie-break ULID): the single item
    * whose completion unblocks the most others. Present iff ≥1 open dependency exists. Drop-when-absent.
@@ -539,9 +538,9 @@ export function buildWpConductorView(
   }
   collectWpNodes(tree)
 
-  // preconisation-actionnable (DESIGN §4): the DÉCISIONS/ACTIONS table + generalRecommendation are now
-  // DERIVED from the directive set (each directive ⇒ one row, phrase rendered, never stored). FAIT/À-FAIRE
-  // stay the same rollup-driven tables (unchanged back-compat).
+  // The rule-derived action table is derived from the directive set (each directive ⇒ one row, phrase
+  // rendered, never stored). It deliberately has no decision label: native decision dossiers have their
+  // own `DÉCISIONS` table below.
   const directives = buildDirectives(tree, decisions)
   const dispatchQueue = dispatchQueueOf(directives)
   const keystone = keystoneOf(tree)
@@ -553,22 +552,66 @@ export function buildWpConductorView(
   const displayDirectives = directives.filter((d) => !legacyIds.has(d.gate?.ref ?? ''))
   const humanDecisions = displayDirectives.filter((d) => d.mode === 'human-decision')
   const focusNeeded = humanDecisions.filter((d) => d.step.code === 'focus-decision').length
-  const generalRecommendation = focusNeeded >= 2 || humanDecisions.length >= 4
-    ? 'Prévoir un temps de focus HTML pour trancher les décisions accumulées, puis reprendre les WP par premier item ouvert.'
-    : 'Avancer par premier item ouvert, enregistrer preuve/acceptance, et escalader uniquement les décisions réellement bloquantes.'
 
   const doneRows: Record<string, string>[] = [
-    { scope: totalScope, progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`, lastActions: `${totals.done} items faits; poursuivre les WP ouverts` },
-    ...wpNodes.filter((n) => n.pct === 100).map((n) => ({ scope: wpName(n), progress: `${n.done}/${n.active} (100%)`, lastActions: 'WP clos; preuve/acceptance enregistrée' })),
+    { scope: totalScope, progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`, completion: 'agrégat de périmètre; pas une action' },
+    ...wpNodes.filter((n) => n.pct === 100).map((n) => ({ scope: wpName(n), progress: `${n.done}/${n.active} (100%)`, completion: 'WP clos (état enregistré)' })),
   ]
 
-  const todoRows = wpNodes.filter((n) => n.pct !== 100).map((n) => {
+  // À-FAIRE is a ready-to-render projection.  A consumer MUST NOT join `tables.todo` back to
+  // `directives`: directives with no WP scope (notably standalone pending decisions) have no
+  // `scope.wpLabel`, and WP labels are presentation text rather than an identity key.  We attach by
+  // `scope.wpId` here, then retain the directive ids as an auditable machine-only row property.
+  const directivesByWpId = new Map<string, Directive[]>()
+  for (const directive of directives) {
+    const wpId = directive.scope.wpId
+    if (wpId === undefined) continue
+    const attached = directivesByWpId.get(wpId)
+    if (attached === undefined) directivesByWpId.set(wpId, [directive])
+    else attached.push(directive)
+  }
+  const noGate = 'Aucun blocage enregistré'
+  const noDirectAction = 'Aucune directive directe'
+  const blocked = (attached: readonly Directive[]): string =>
+    attached.map((directive) => gatePhraseFr(directive.gate) ?? noGate).join(' / ') || noGate
+  const nextAction = (attached: readonly Directive[]): string =>
+    attached.map(directivePhrase).join(' / ') || noDirectAction
+  const directiveIds = (attached: readonly Directive[]): string => attached.map((directive) => directive.id).join(',')
+  // A directive may target a DONE item with acceptance debt while the row's open-work list is empty. This
+  // explicit field makes that intentional cross-bucket relationship visible without a consumer-side join.
+  const actionTargets = (attached: readonly Directive[]): string =>
+    attached.map((directive) => `${directive.target.id} · ${clean(directive.target.title ?? directive.target.id)} [${directive.facts.bucket}]`).join(' / ') || '-'
+
+  // A completed WP can still carry a stale/failed acceptance directive, so retain it whenever a
+  // directive is attached even when its rollup percentage is 100.
+  const todoRows = wpNodes.filter((n) => n.pct !== 100 || directivesByWpId.has(n.id)).map((n) => {
     const open = openLeaves(n)
     const listed = open.map((l) => clean(l.title)).join(' / ')
-    return { wp: wpName(n), progress: `${n.done}/${n.active} (${pctStr(n.pct)})`, todo: listed || 'aucun item ouvert direct' }
+    const attached = directivesByWpId.get(n.id) ?? []
+    return {
+      wp: wpName(n),
+      progress: `${n.done}/${n.active} (${pctStr(n.pct)})`,
+      todo: listed || 'aucun item ouvert direct',
+      blocked: blocked(attached),
+      nextAction: nextAction(attached),
+      actionTarget: actionTargets(attached),
+      directiveIds: directiveIds(attached),
+    }
   })
 
-  // DÉCISIONS/ACTIONS rows — derived from the directives. Decisions first, then engagement/work directives.
+  // A pending decision may be a real directive without a WP ancestor.  It is not a HORS ROLLUP item,
+  // so give it an explicit same-shape table rather than silently assigning it to a similarly named WP.
+  const unscopedTodoRows = directives.filter((directive) => directive.scope.wpId === undefined).map((directive) => ({
+    wp: 'sans WP',
+    progress: '-',
+    todo: clean(directive.target.title ?? directive.target.id),
+    blocked: blocked([directive]),
+    nextAction: nextAction([directive]),
+    actionTarget: actionTargets([directive]),
+    directiveIds: directive.id,
+  }))
+
+  // Rule-derived action rows. Native decision dossiers are rendered only in the separate DÉCISIONS table.
   // This is deliberately exhaustive: a conductor table is the deterministic route to every open row.
   const actionRows: Record<string, string>[] = []
   if (focusNeeded >= 2 || humanDecisions.length >= 4) {
@@ -581,19 +624,52 @@ export function buildWpConductorView(
     actionRows.push({ scope: directiveScopeLabel(d), subject: clean(d.target.title ?? d.target.id), recommendation: directivePhrase(d) })
   }
   const outsideRows = outsideRollup.map((row) => ({
+    id: row.id,
+    workspace: row.workspace,
     scope: row.wpId === undefined ? 'sans WP' : `intermédiaire · ${row.wpLabel ?? '-'}`,
     progress: row.bucket,
     item: clean(row.title),
+    acceptance: row.detail.acceptanceLabel,
+    summary: row.detail.summary ?? '—',
   }))
 
   return {
     kind: 'wp-conductor-report',
     locale: 'fr',
     tables: [
-      { id: 'done', title: 'FAIT', columns: [{ id: 'scope', label: 'scope' }, { id: 'progress', label: 'avancement' }, { id: 'lastActions', label: 'dernières actions' }], rows: doneRows },
-      { id: 'todo', title: 'À-FAIRE', columns: [{ id: 'wp', label: 'WP' }, { id: 'progress', label: 'avancement' }, { id: 'todo', label: 'à faire' }], rows: todoRows.length > 0 ? todoRows : [{ wp: '-', progress: '-', todo: 'aucun WP ouvert' }] },
+      { id: 'done', title: 'FAIT', columns: [{ id: 'scope', label: 'scope' }, { id: 'progress', label: 'avancement' }, { id: 'completion', label: 'constat' }], rows: doneRows },
+      {
+        id: 'todo',
+        title: 'À-FAIRE',
+        columns: [
+          { id: 'wp', label: 'WP' },
+          { id: 'progress', label: 'avancement' },
+          { id: 'todo', label: 'à faire' },
+          { id: 'blocked', label: 'bloqué' },
+          { id: 'nextAction', label: 'prochaine action' },
+          { id: 'actionTarget', label: 'cible action' },
+        ],
+        rows: todoRows.length > 0
+          ? todoRows
+          : [{ wp: '-', progress: '-', todo: 'aucun WP ouvert', blocked: noGate, nextAction: noDirectAction, actionTarget: '-', directiveIds: '' }],
+      },
+      ...(unscopedTodoRows.length > 0
+        ? [{
+            id: 'todo-unscoped',
+            title: 'À-FAIRE SANS WP',
+            columns: [
+              { id: 'wp', label: 'WP' },
+              { id: 'progress', label: 'avancement' },
+              { id: 'todo', label: 'à faire' },
+              { id: 'blocked', label: 'bloqué' },
+              { id: 'nextAction', label: 'prochaine action' },
+              { id: 'actionTarget', label: 'cible action' },
+            ],
+            rows: unscopedTodoRows,
+          }]
+        : []),
       ...(outsideRows.length > 0
-        ? [{ id: 'outside-rollup', title: 'HORS ROLLUP', columns: [{ id: 'scope', label: 'rattachement' }, { id: 'progress', label: 'état' }, { id: 'item', label: 'item' }], rows: outsideRows }]
+        ? [{ id: 'outside-rollup', title: 'HORS ROLLUP', columns: [{ id: 'id', label: 'id' }, { id: 'workspace', label: 'workspace' }, { id: 'scope', label: 'rattachement' }, { id: 'progress', label: 'état' }, { id: 'item', label: 'item' }, { id: 'acceptance', label: 'recette' }, { id: 'summary', label: 'extrait' }], rows: outsideRows }]
         : []),
       ...(structuredDecisions.length > 0 ? [{ id: 'decisions', title: 'DÉCISIONS', columns: [{ id: 'decision', label: 'dossier' }, { id: 'alternatives', label: 'alternatives enregistrées' }, { id: 'recommendation', label: 'recommandation / règlement' }], rows: structuredDecisions.map((d) => ({
         decision: `${d.id} — ${clean(d.title)} (${d.outcome})`,
@@ -602,11 +678,12 @@ export function buildWpConductorView(
       })) }] : []),
       ...(legacyPending.length > 0 ? [{ id: 'prepare', title: 'À INSTRUIRE', columns: [{ id: 'decision', label: 'dossier legacy' }, { id: 'action', label: 'disposition sûre' }], rows: legacyPending.map((d) => ({ decision: `${d.id} — ${clean(d.title)}`, action: legacyRevisionAction(d) })) }] : []),
       ...(legacySettled.length > 0 ? [{ id: 'legacy-history', title: 'HISTORIQUE NON STRUCTURÉ', columns: [{ id: 'decision', label: 'dossier legacy' }, { id: 'record', label: 'constat' }], rows: legacySettled.map((d) => ({ decision: `${d.id} — ${clean(d.title)}`, record: legacyHistoryNote(d) })) }] : []),
-      { id: 'decisions-actions', title: 'DÉCISIONS/ACTIONS', columns: [{ id: 'scope', label: 'scope/gate' }, { id: 'subject', label: 'sujet' }, { id: 'recommendation', label: 'préconisation' }], rows: actionRows.length > 0 ? actionRows : [{ scope: '-', subject: 'aucune action ouverte dans les WP actifs', recommendation: '-' }] },
+      { id: 'rule-derived-actions', title: 'ACTIONS DÉRIVÉES', columns: [{ id: 'scope', label: 'scope/gate' }, { id: 'subject', label: 'sujet' }, { id: 'recommendation', label: 'préconisation' }], rows: actionRows.length > 0 ? actionRows : [{ scope: '-', subject: 'aucune action ouverte dans les WP actifs', recommendation: '-' }] },
     ],
-    generalRecommendation,
     directives,
+    directivesProjection: { kind: 'conductor-action-directives', order: 'canonical-urgency' },
     dispatchQueue,
+    dispatchQueueProjection: { kind: 'delegable-directive-ids', order: 'canonical-urgency', modes: ['subagent', 'local'] },
     ...(keystone !== undefined ? { keystone } : {}),
   }
 }
@@ -624,8 +701,6 @@ function renderReportView(view: ReportView, format: Format): string {
     lines.push(...table(section.columns.map((c) => c.label), section.rows.map((row) => section.columns.map((c) => esc(row[c.id] ?? '')))))
     lines.push('')
   }
-  lines.push(h('RECOMMANDATION'))
-  lines.push(esc(view.generalRecommendation))
   return lines.join('\n').trimEnd() + '\n'
 }
 
