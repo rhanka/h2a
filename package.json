@@ -9,7 +9,7 @@
     "!apps/focus"
   ],
   "scripts": {
-    "build": "npm run build -w @sentropic/track && tsc -b",
+    "build": "npm run build -w @sentropic/track && npm run build -w @sentropic/remote-protocol && npm run build -w @sentropic/remote-k8s-orchestrator && tsc -b",
     "build:h2a": "tsc -b",
     "clean": "tsc -b --clean",
     "pack:h2a": "npm pack --dry-run --workspace @sentropic/h2a",

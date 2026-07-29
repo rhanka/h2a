@@ -33,10 +33,22 @@ function runEntry(over: Partial<RegistryEntry> = {}): RegistryEntry {
     kind: "local-tmux",
     cwd: join(HOME, "src", "sentropic"),
     source: "run",
+    sessionClass: "human",
     enrolledAt: now,
     lastSeenAt: now,
     ...over,
   };
+}
+
+/**
+ * Strip the class entirely, rather than setting it to undefined: this models a
+ * row written to registry.json BEFORE enrollment demanded a sessionClass, which
+ * is the shape restore must still refuse. `exactOptionalPropertyTypes` makes the
+ * difference between "absent" and "undefined" a real one.
+ */
+function withoutSessionClass(entry: RegistryEntry): RegistryEntry {
+  const { sessionClass: _dropped, ...rest } = entry;
+  return rest;
 }
 
 function hookEntry(convId: string, over: Partial<RegistryEntry> = {}): RegistryEntry {
@@ -47,6 +59,7 @@ function hookEntry(convId: string, over: Partial<RegistryEntry> = {}): RegistryE
     kind: "local",
     cwd: join(HOME, "src", "sentropic"),
     source: "hook",
+    sessionClass: "human",
     convId,
     enrolledAt: now,
     lastSeenAt: now,
@@ -120,7 +133,9 @@ describe("reconcileRunConvIds — run↔hook join", () => {
 
   it("does NOT reconcile delegated jobs / background launches", () => {
     const entries: RegistryEntry[] = [
-      runEntry({ id: "job", label: "job", convId: "job", role: "job", jobState: "running" }),
+      // A LEGACY row (role 'job', no sessionClass) and an explicit background
+      // launch: reconciliation must skip BOTH discriminators, not just one.
+      withoutSessionClass(runEntry({ id: "job", label: "job", convId: "job", role: "job", jobState: "running" })),
       runEntry({ id: "bg", label: "bg", convId: "bg", sessionClass: "background" }),
     ];
     const r = reconcileRunConvIds(entries, titleReader({}));
@@ -217,7 +232,7 @@ describe("persistReconciledConvIds — writeback", () => {
   it("rewrites the run entry convId to the resolved uuid, idempotently", () => {
     const now = new Date().toISOString();
     const seed: RegistryEntry[] = [
-      { id: "llm-mesh", tool: "claude", kind: "local-tmux", cwd: join(HOME, "src", "sentropic"), source: "run", label: "llm-mesh", convId: "llm-mesh", tmuxSession: "h2a-llm-mesh", enrolledAt: now, lastSeenAt: now },
+      { id: "llm-mesh", tool: "claude", kind: "local-tmux", cwd: join(HOME, "src", "sentropic"), source: "run", sessionClass: "human", label: "llm-mesh", convId: "llm-mesh", tmuxSession: "h2a-llm-mesh", enrolledAt: now, lastSeenAt: now },
     ];
     writeFileSync(regPath, JSON.stringify({ version: 1, entries: seed }, null, 2), "utf8");
 
