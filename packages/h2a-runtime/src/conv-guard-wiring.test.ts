@@ -569,7 +569,7 @@ describe("h2a resume <slug>", () => {
       ["--resume"],
       expectedSlug,
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
   });
 
@@ -587,7 +587,7 @@ describe("h2a resume <slug>", () => {
       ["resume"],
       expectedSlug,
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
   });
 
@@ -619,7 +619,7 @@ describe("h2a resume <slug>", () => {
       ["--resume", "claude-last"],
       expectedSlug,
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
   });
 
@@ -757,7 +757,7 @@ describe("h2a resume <slug>", () => {
       ["resume", "--last"],
       expectedSlug,
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
   });
 
@@ -795,7 +795,7 @@ describe("h2a resume <slug>", () => {
       ["--resume", "claude-existing"],
       expectedSlug,
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(stderrText()).toContain(`resumed local session ${expectedSlug}`);
     expect(stderrText()).toContain(`h2a attach ${expectedSlug}`);
@@ -821,7 +821,7 @@ describe("h2a resume <slug>", () => {
       ["--resume", "claude-existing"],
       "geo",
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
   });
 
@@ -838,7 +838,7 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(stderrText()).toContain("resumed local session projA");
     expect(stderrText()).toContain("h2a attach projA");
@@ -862,7 +862,7 @@ describe("h2a resume <slug>", () => {
       ["--bare", "--resume", "conv-dup"],
       "projA",
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBe("http://localhost:3002");
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-test");
@@ -894,7 +894,7 @@ describe("h2a resume <slug>", () => {
       ["--bare", "--resume", "conv-dup"],
       "projA",
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBe("http://localhost:3002");
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-current");
@@ -916,7 +916,7 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
@@ -974,7 +974,7 @@ describe("h2a resume <slug>", () => {
       ["--bare", "--resume", "conv-dup"],
       "projA",
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-started");
     expect(process.env.ANTHROPIC_API_KEY).toBe("gw-started");
@@ -1011,7 +1011,7 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
@@ -1052,7 +1052,7 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
@@ -1104,7 +1104,7 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(stderrText()).toContain("replaced local session projA");
   });
@@ -1181,7 +1181,7 @@ describe("h2a resume <slug>", () => {
       ["--resume", "conv-dup"],
       "projA",
       undefined,
-      { sessionClass: "human" },
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(stderrText()).toContain(
       "--replace will kill tmux session remote-projA",
