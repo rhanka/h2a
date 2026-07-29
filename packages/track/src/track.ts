@@ -281,6 +281,23 @@ export class Track {
     }
   }
 
+  private normalizeActor(input: string, onBlank: string): string {
+    const normalized = input.trim()
+    if (normalized === '') {
+      throw new DomainError(onBlank)
+    }
+    return normalized
+  }
+
+  private normalizeActors(input: string[] | undefined, onBlank: string): string[] | undefined {
+    if (input === undefined) return undefined
+    const normalized = input.map((actor) => actor.trim())
+    if (normalized.length === 0 || normalized.some((actor) => actor.length === 0)) {
+      throw new DomainError(onBlank)
+    }
+    return normalized
+  }
+
   createItem(input: ItemCreatedPayload): ItemId {
     if (input.kind === 'decision') {
       throw new DomainError('use createDecision for kind:"decision" (Lot 3) — it needs targets, a dossier, and an atomic blocker batch (SPEC §2.5)')
@@ -295,10 +312,16 @@ export class Track {
       if (parent !== undefined) assertRoleNesting(input.role, parent.role, '<new>', input.parentId)
     }
     const itemId = this.newId()
+    const accountable = input.accountable !== undefined ? this.normalizeActor(input.accountable, 'item.create requires accountable and responsible fields to be non-blank when provided') : undefined
+    const responsible = this.normalizeActors(input.responsible, 'item.create requires accountable and responsible fields to be non-blank when provided')
     // Result id = the PERSISTED event's aggregateId. On a fresh append that IS `itemId`; on a concurrent-
     // retry dedup it is the ORIGINAL persisted item's id (the under-lock hook re-minted-aggregateId-blind),
     // so a racing create-retry returns the first writer's id, never this attempt's never-persisted one.
-    const [persisted] = this.emit('item', itemId, 'item.created', { ...input })
+    const [persisted] = this.emit('item', itemId, 'item.created', {
+      ...input,
+      ...(accountable !== undefined ? { accountable } : {}),
+      ...(responsible !== undefined ? { responsible } : {}),
+    })
     return (persisted?.aggregateId as ItemId) ?? itemId
   }
 
@@ -456,15 +479,9 @@ export class Track {
    */
   setRaci(itemId: ItemId, update: ItemRaciUpdate, clientToken?: string): void {
     if (!this.state().items.has(itemId)) throw new DomainError(`unknown item ${itemId}`)
-    const accountable = update.accountable !== undefined ? update.accountable.trim() : undefined
-    const responsible = update.responsible !== undefined ? update.responsible.map((actor) => actor.trim()) : undefined
+    const accountable = update.accountable !== undefined ? this.normalizeActor(update.accountable, 'setRaci requires accountable and/or responsible') : undefined
+    const responsible = this.normalizeActors(update.responsible, 'setRaci requires accountable and/or responsible')
 
-    if (accountable === '') {
-      throw new DomainError('setRaci requires accountable and/or responsible')
-    }
-    if (responsible !== undefined && (responsible.length === 0 || responsible.some((actor) => actor.length === 0))) {
-      throw new DomainError('setRaci requires accountable and/or responsible')
-    }
     if (accountable === undefined && responsible === undefined) {
       throw new DomainError('setRaci requires accountable and/or responsible')
     }
