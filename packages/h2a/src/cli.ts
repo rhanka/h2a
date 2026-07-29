@@ -120,6 +120,10 @@ import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_AGY_HOST } from "./hosts/agy.js";
 import { H2A_HERMES_HOST } from "./hosts/hermes.js";
 import { H2A_OPENCODE_HOST } from "./hosts/opencode.js";
+import {
+  doctorHostInstallations,
+  findLiveSessionsPredatingHostConfig
+} from "./hosts/installation-doctor.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 import {
   renderStopHook,
@@ -407,7 +411,7 @@ export function renderCliHelp(): string {
     "  h2a conductor [--workspace <id|path>] [--root <path>]   (who is the live conductor/owner of a workspace — derived from presence; conductor=role CONDUCTOR if set, else null; candidates=in-workspace live agents)",
     "  h2a conductor-launch-check [--workspace <id|path>] [--root <path>] [--idle-ms <ms>]   (DRY-RUN: polls track workspace-activity; recommends launching a conductor if work is stalled and none is live — h2a does NOT spawn; launch parked pending spawn policy + remote)",
     "  h2a conductor-launch --workspace <id|path> [--root <path>] [--idle-ms <ms>] [--confirm] [--remote <instance>] [--instance <self>]   (D3 EMIT: if stalled+no conductor, emits a launch-REQUEST envelope to a live remote agent — gated by --confirm + 1/30min/workspace cap; h2a NEVER spawns; remote does the actual spawn)",
-    "  h2a doctor [--root <path>] [--scan <dir>] [--prune]   (--prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
+    "  h2a doctor [--root <path>] [--scan <dir>] [--prune] [--repair]   (--repair converges Claude/Codex plugin installs; --prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
     "  h2a keepalive [--root <path>] [--interval <ms>] [--once]   (external keepalive prober — refreshes presence for agents whose tmux pane is still alive)",
     "  h2a rename --instance <id> --name <name> [--root <path>]   (set a live session's display name so peers can find it via discover --name)",
     "  h2a status [--root <path>] [--scope <s>] [--instance <i>]",
@@ -5137,6 +5141,68 @@ function cmdDoctor(
 
   // 4. h2a binary reachable (self-check via existing API)
   checks.cliBinary = { ok: true };
+
+  // 5. `doctor` remains the non-mutating bus-health probe used by automation.
+  // `--repair` is the single explicit host-installation convergence action: it
+  // is allowed to touch host configuration/caches and invoke native host CLIs.
+  // That keeps an ordinary isolated-bus probe independent of the operator's
+  // personal Claude/Codex setup while retaining a fail-closed repair surface.
+  if (flags.repair === "true") {
+    const hostInstallations = doctorHostInstallations({ repair: true });
+    checks.hostInstallations = hostInstallations;
+    if (!hostInstallations.ok) {
+      report.ok = false;
+      report.unrepaired = hostInstallations.hosts.flatMap((host) =>
+        host.unrepaired.length > 0 ? host.unrepaired : host.findings
+      );
+    }
+
+    // Config changes apply only when the host creates a new MCP stdio child.
+    // Presence gives doctor the only reliable local proof of an already-running
+    // H2A session. A session opened before its host config changed remains
+    // explicitly unrepaired until restart; never report it as clean.
+    try {
+      const liveHostSessions = findLiveSessionsPredatingHostConfig(
+        listPresence(root, { sweep: false }),
+        hostInstallations.hosts
+      );
+      checks.liveHostSessions = {
+        ok: liveHostSessions.length === 0,
+        restartRequired: liveHostSessions
+      };
+      if (liveHostSessions.length > 0) {
+        report.ok = false;
+        const unrepaired = (report.unrepaired as Array<Record<string, unknown>> | undefined) ?? [];
+        unrepaired.push(
+          ...liveHostSessions.map((session) => ({
+            code: "live-session-restart-required",
+            message: session.message,
+            host: session.host,
+            sessionId: session.sessionId
+          }))
+        );
+        report.unrepaired = unrepaired;
+      }
+    } catch (error) {
+      report.ok = false;
+      checks.liveHostSessions = {
+        ok: false,
+        message: `cannot verify live host sessions: ${(error as Error).message}`
+      };
+      const unrepaired = (report.unrepaired as Array<Record<string, unknown>> | undefined) ?? [];
+      unrepaired.push({
+        code: "live-session-check-unavailable",
+        message: `cannot verify live host sessions: ${(error as Error).message}`
+      });
+      report.unrepaired = unrepaired;
+    }
+  } else {
+    checks.hostInstallations = {
+      ok: true,
+      skipped: true,
+      message: "pass --repair to detect and converge Claude/Codex host installation drift"
+    };
+  }
 
   // ── Warning checks (do NOT flip report.ok) ──────────────────────────────
 
