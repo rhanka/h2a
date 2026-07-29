@@ -4,8 +4,27 @@
 # with `h2a org validate`, measure the drift against the live registry with
 # `h2a org diff`.
 #
-# STATUS: PROPOSED. Ratification is the PRINCIPAL's signature (`h2a coach ratify`);
-# only a ratified manifest is provisioned. Nothing here grants anything yet.
+# STATUS: PROPOSED. Nothing here grants anything yet — but only because nobody has
+# run `h2a org provision`, which is a far weaker guarantee than this header claimed.
+#
+# THE RATIFICATION BOUNDARY DOES NOT EXIST. An earlier version of this file said
+# "only a ratified manifest is provisioned". That is FALSE, and it was measured false
+# by the third review leg on PR 84: `h2a org provision` accepts any file that passes
+# `validateOrgManifest`. On a control registry it granted CONDUCTOR and two scopes to
+# `cond` with no signature, no `org-ratified` envelope, and no key at all. The
+# propose/ratify lifecycle does exist in the code (`h2a coach propose` / `ratify`),
+# but provisioning never checks that it happened.
+#
+# So the only thing between this file and a live role grant is that nobody typed the
+# command. That is a habit, not a boundary — and describing it as a boundary was a
+# claim wider than its proof, in the document whose job is to bound its own claims.
+#
+# ALSO MEASURED, same leg: on the real shared registry `h2a org diff` and
+# `h2a org provision` do not run at all — they throw `TypeError: r.roles is not
+# iterable` on a legacy row that carries `role`/`scope` as scalars instead of arrays.
+# So the mechanism this file is written for is currently broken on the estate it
+# describes, and any plan that assumes provisioning "would grant nothing" is assuming
+# an outcome the command never reaches.
 #
 # WHY `instance:` CARRIES A BARE NAME. The org model keys an actor on an
 # `instance` id, but an h2a instance id (`claude:h2a:c18853e319ea`) is minted per
