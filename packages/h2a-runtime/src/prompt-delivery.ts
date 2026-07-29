@@ -278,6 +278,17 @@ const DEFAULTS = {
 } as const;
 
 /**
+ * Highest idle rate allowed to EXCUSE missing work (ms of CPU per ms of clock).
+ *
+ * Readiness may admit a host burning up to `maxIdleRate` steadily, because a
+ * level burn still means it is drawn and accepting input. But that same rate
+ * must not then be used to explain away silence: a host genuinely waiting for
+ * input burns a few percent of a core (measured ~0 to 2.5%), so anything higher
+ * is startup, and startup may never stand in for an answer.
+ */
+const IDLE_RATE_CAP = 0.05;
+
+/**
  * Sleep without spinning. `Atomics.wait` on a private SharedArrayBuffer is the
  * repo's synchronous-wait primitive (same as the local-files lock), so delivery
  * stays synchronous instead of rippling async through the launch path.
@@ -525,6 +536,19 @@ export function deliverInitialPrompt(
   const evidence: LandedEvidence = collapsed
     ? "collapsed-paste"
     : "composer-text";
+  // Work is CPU the host's idling cannot explain. Two measured failures shaped
+  // this, one on each side:
+  //  - an idle host still burns a little, so a bare threshold called it working
+  //    (an idling codex reached 420ms over 30s with nothing submitted);
+  //  - and subtracting an idle budget built from the CALIBRATED rate called a
+  //    working agent idle, because a host still finishing its startup calibrates
+  //    as a "stable burn" far above real idle. Measured on this branch's own
+  //    review launch: an agent visibly reading the PR, 12.2s of tree CPU,
+  //    reported "submitted-idle" — which in a real launch kills a good lane.
+  // So the idle rate used to excuse missing work is CAPPED: a host that is truly
+  // waiting for input burns a few percent of a core at most (measured ~0 to 2.5%),
+  // and anything above that is startup, which must never excuse silence.
+  const idleRateForWork = Math.min(ready.idleRate, IDLE_RATE_CAP);
   const activityDeadline = submittedAt + activityMs;
   let cpuDeltaMs = 0;
   for (;;) {
@@ -536,7 +560,7 @@ export function deliverInitialPrompt(
     if (cpuNow !== undefined && cpuNow - cpuBefore > cpuDeltaMs) {
       cpuDeltaMs = cpuNow - cpuBefore;
     }
-    const idleBudget = ready.idleRate * (deps.now() - submittedAt);
+    const idleBudget = idleRateForWork * (deps.now() - submittedAt);
     if (cpuDeltaMs - idleBudget >= activityCpuMs) {
       return {
         state: "working",
