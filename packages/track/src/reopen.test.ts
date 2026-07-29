@@ -14,6 +14,7 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import { acceptanceStatus } from './accept/status.js'
 import { runCli, type CliIO } from './cli/index.js'
 import { readHead } from './events/head.js'
 import { EventStore } from './events/store.js'
@@ -25,8 +26,10 @@ import { INGEST_CONTRACT_VERSION, WORK_EVENT_KINDS, WORK_EVENT_SCHEMA, type Work
 import { ingest, type IngestContext } from './ingest/ingest.js'
 import { mapWorkEvent } from './ingest/map.js'
 import { DomainError, REOPEN_MOTIVES } from './model/item.js'
+import { TrackReader } from './read/contract.js'
 import { bucketOf } from './report/buckets.js'
 import { computeWpTree } from './report/rollup.js'
+import { fold } from './state/fold.js'
 import { Track } from './track.js'
 
 let dir: string
@@ -268,6 +271,50 @@ describe('reopen — a linked-done dependency re-blocks what depended on the reo
     // the regression propagates: the derived openness is revocable, so the dependent is AWAITED again
     expect(bucketOf(t.state(), t.state().items.get(dependent)!, cfg)).toBe('AWAITED')
   })
+
+  // Review leg A (2026-07-29): `linked-accepted` derived its openness from acceptance ALONE, and acceptance is
+  // deliberately historical (a reopening does not retract a pass run) — so an accepted-then-reopened
+  // prerequisite kept the gate CLOSED while `linked-done` re-opened. The two rules disagreed about an
+  // explicitly regressed prerequisite; the reopened item was known broken and its dependent read as ready.
+  it('re-blocks a linked-accepted dependent too, even though acceptance stays historical', () => {
+    const dep = item('the accepted capability')
+    const dependent = item('work that needs it')
+    const criterion = t.addCriterion(dep, 'it works')
+    const evidence = t.linkEvidence(criterion, 'unit', 'suite#it-works')
+    t.openBlocker({
+      targetId: dependent,
+      kind: 'dependency',
+      ref: dep,
+      reason: 'needs the accepted capability',
+      resolutionRule: 'linked-accepted',
+    })
+    closeDone(dep)
+    t.recordRun(evidence, { commit: 'c1', env: 'ci', runner: 'vitest', result: 'pass' })
+    expect(bucketOf(t.state(), t.state().items.get(dependent)!, cfg)).toBe('TO-DO')
+
+    t.reopenItem(dep, { motive: 'regression-observed', reason: 'accepted once, broken now' })
+    // acceptance is untouched by design — the realization axis is what regressed
+    expect(acceptanceStatus(t.state(), dep, cfg.baselineCommit)).toBe('pass')
+    expect(bucketOf(t.state(), t.state().items.get(dependent)!, cfg)).toBe('AWAITED')
+  })
+})
+
+// ---- 4c. the reopening is readable through the READ contract, not only via item show -------------
+
+describe('reopen — lifecycleTrace carries the reopening', () => {
+  it('projects the closure AND its correction', () => {
+    const id = item()
+    closeDone(id)
+    t.reopenItem(id, { motive: 'closed-without-owner-uat', reason: 'never seen by the owner' })
+    const reader = new TrackReader(eventsPath)
+    const kinds = reader.lifecycleTrace({ kind: 'item', id }).map((s) => s.kind)
+    expect(kinds).toEqual([
+      'item.created',
+      'realization.transition',
+      'realization.transition',
+      'realization.reopened',
+    ])
+  })
 })
 
 // ---- 5. integrity: a hand-written reopening must carry a legal motive ---------------------------
@@ -312,6 +359,83 @@ describe('reopen — validate rejects a motive-less reopening from a foreign wri
       expect(res.ok).toBe(false)
       expect(res.findings.some((f) => f.kind === 'reopen-motive')).toBe(true)
     }
+  })
+
+  it('flags a payload itemId that does not address the reopened aggregate', () => {
+    const res = validate(chain([reopened({ itemId: 'item-OTHER', motive: 'regression-observed', reason: 'r' })]))
+    expect(res.ok).toBe(false)
+    expect(res.findings.some((f) => f.kind === 'reopen-illegal')).toBe(true)
+  })
+})
+
+// ---- 5b. a motivated reopening of something that was never closed is ILLEGAL, not a shortcut ----
+//
+// Review leg A (2026-07-29) broke the first cut here: a well-formed foreign reopening on a `to-do` item was
+// accepted by validate AND advanced the item to in-progress WITHOUT recording a trace — a half-application
+// that let an out-of-facade writer push work forward and left the state unable to say a reopening happened.
+
+describe('reopen — a well-formed reopening of a never-closed item changes NOTHING and is reported', () => {
+  const created = (id: string, seqBase: number): EventCore => ({
+    id: `evt-c${seqBase}`,
+    type: 'item.created',
+    aggregate: 'item',
+    aggregateId: id,
+    at: '2026-07-29T11:00:00.000Z',
+    by: 'human:owner',
+    payload: { kind: 'feature', title: 'never closed', workspace: 'ws' },
+  })
+  const reopenEvent = (id: string): EventCore => ({
+    id: 'evt-r1',
+    type: 'realization.reopened',
+    aggregate: 'item',
+    aggregateId: id,
+    at: '2026-07-29T12:00:00.000Z',
+    by: 'foreign-writer',
+    payload: { itemId: id, motive: 'regression-observed', reason: 'hand-written' },
+  })
+  const chained = (cores: EventCore[]): TrackEvent[] => {
+    let prevHash: Sha256 | null = null
+    const seqByAgg = new Map<string, number>()
+    return cores.map((core) => {
+      const seq = (seqByAgg.get(core.aggregateId) ?? 0) + 1
+      seqByAgg.set(core.aggregateId, seq)
+      const contentHash = contentHashOf(core)
+      const ev: TrackEvent = { ...core, seq, prevHash, contentHash }
+      prevHash = contentHash
+      return ev
+    })
+  }
+
+  it('leaves the item to-do with no reopening trace (all-or-nothing fold)', () => {
+    const events = chained([created('item-N', 1), reopenEvent('item-N')])
+    const item = fold(events).items.get('item-N')!
+    expect(item.realization).toBe('to-do')
+    expect(item.reopenings).toBeUndefined()
+  })
+
+  it('is an integrity finding, so the log says so too', () => {
+    const res = validate(chained([created('item-N', 1), reopenEvent('item-N')]))
+    expect(res.ok).toBe(false)
+    const illegal = res.findings.filter((f) => f.kind === 'reopen-illegal')
+    expect(illegal).toHaveLength(1)
+    expect(illegal[0]).toMatchObject({ reason: expect.stringContaining('nothing to reopen') })
+  })
+
+  it('still accepts a LEGAL reopening after a real closure, and a second one after re-closing', () => {
+    const id = 'item-L'
+    const transition = (to: string, n: number): EventCore => ({
+      id: `evt-t${n}`,
+      type: 'realization.transition',
+      aggregate: 'item',
+      aggregateId: id,
+      at: `2026-07-29T11:0${n}:00.000Z`,
+      by: 'human:owner',
+      payload: { to },
+    })
+    const res = validate(
+      chained([created(id, 1), transition('in-progress', 1), transition('done', 2), reopenEvent(id), transition('done', 3), { ...reopenEvent(id), id: 'evt-r2' }]),
+    )
+    expect(res.findings.filter((f) => f.kind === 'reopen-illegal' || f.kind === 'reopen-motive')).toEqual([])
   })
 })
 

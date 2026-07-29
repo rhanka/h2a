@@ -332,8 +332,9 @@ export function assertReopenPayload(input: unknown): { motive: ReopenMotive; rea
 /**
  * Regression expression — the reopening transition, checked BEFORE any append. Legal ONLY from a terminal
  * closure (`done` / `cancelled`), and it lands on `in-progress` (the owner-selected option A: the item goes
- * back to being work in flight, distinguishable from a never-started TO-DO). Returns the corrected `from`
- * so the caller/fold can record it.
+ * back to being work in flight, distinguishable from a never-started TO-DO). Returns the corrected `from` for
+ * a caller that wants it; the FOLD does not use the return — it re-derives `from` off its own state, so the
+ * recorded trace can never contradict the log.
  *   - `rejected` is refused: it is the consequence of a `no-go` Decision, undone by revising that decision;
  *   - `to-do` / `in-progress` are refused: there is no closure to correct.
  */

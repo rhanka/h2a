@@ -34,6 +34,7 @@ export type IntegrityFinding =
   | { kind: 'head-mismatch'; index: number; expected: Sha256 | null; actual: Sha256 }
   | { kind: 'blocker-scope'; index: number; eventId: string; reason: string }
   | { kind: 'reopen-motive'; index: number; eventId: string; reason: string }
+  | { kind: 'reopen-illegal'; index: number; eventId: string; reason: string }
 
 export interface IntegrityResult {
   ok: boolean
@@ -142,7 +143,7 @@ export function validate(
 
   findings.push(...validateBatches(events))
   findings.push(...validateBlockerScope(events))
-  findings.push(...validateReopenMotive(events))
+  findings.push(...validateReopen(events))
   findings.push(...validateHead(events, head))
 
   return { ok: findings.length === 0, findings }
@@ -192,19 +193,62 @@ function validateBlockerScope(events: ReadonlyArray<TrackEvent>): IntegrityFindi
  */
 const REOPEN_MOTIVES_ACCEPTED: ReadonlySet<string> = new Set(['closed-without-owner-uat', 'regression-observed'])
 
-function validateReopenMotive(events: ReadonlyArray<TrackEvent>): IntegrityFinding[] {
+/**
+ * A reopening is also checked for LEGALITY, not only for shape (`reopen-illegal`). A motivated reopening on an
+ * item that was never closed is not a reopening at all — it would be an out-of-facade way to push work forward.
+ * The fold refuses to apply it (all-or-nothing), so the state stays truthful; this makes the LOG say so too.
+ * Realization is replayed in stream order from the same three facts the fold uses (`item.created` ⇒ `to-do`,
+ * `realization.transition` ⇒ its `to`, a LEGAL `realization.reopened` ⇒ `in-progress`). An aggregate never seen
+ * in the stream is NOT judged (the fold no-ops on it anyway) — silence beats a false positive.
+ */
+function validateReopen(events: ReadonlyArray<TrackEvent>): IntegrityFinding[] {
   const findings: IntegrityFinding[] = []
+  const realizationOf = new Map<string, string>()
   for (let i = 0; i < events.length; i++) {
     const e = events[i]!
-    if (e.type !== 'realization.reopened') continue
-    const p = e.payload as { motive?: unknown; reason?: unknown }
-    let reason: string | undefined
-    if (typeof p.motive !== 'string' || !REOPEN_MOTIVES_ACCEPTED.has(p.motive)) {
-      reason = `a reopening requires one of the declared motives (${[...REOPEN_MOTIVES_ACCEPTED].join('|')})`
-    } else if (typeof p.reason !== 'string' || p.reason.trim().length === 0) {
-      reason = 'a reopening requires a non-empty reason'
+    if (e.type === 'item.created') {
+      realizationOf.set(e.aggregateId, 'to-do')
+      continue
     }
-    if (reason !== undefined) findings.push({ kind: 'reopen-motive', index: i, eventId: e.id, reason })
+    if (e.type === 'realization.transition') {
+      const to = (e.payload as { to?: unknown }).to
+      if (typeof to === 'string') realizationOf.set(e.aggregateId, to)
+      continue
+    }
+    if (e.type !== 'realization.reopened') continue
+
+    const p = e.payload as { itemId?: unknown; motive?: unknown; reason?: unknown }
+    let shape: string | undefined
+    if (typeof p.motive !== 'string' || !REOPEN_MOTIVES_ACCEPTED.has(p.motive)) {
+      shape = `a reopening requires one of the declared motives (${[...REOPEN_MOTIVES_ACCEPTED].join('|')})`
+    } else if (typeof p.reason !== 'string' || p.reason.trim().length === 0) {
+      shape = 'a reopening requires a non-empty reason'
+    }
+    if (shape !== undefined) findings.push({ kind: 'reopen-motive', index: i, eventId: e.id, reason: shape })
+
+    // The payload must address the aggregate it lands on, or the recorded fact names one item while it moves
+    // another (the fold keys off `aggregateId`, so a divergent `itemId` is a lie in the record).
+    if (p.itemId !== undefined && p.itemId !== e.aggregateId) {
+      findings.push({
+        kind: 'reopen-illegal',
+        index: i,
+        eventId: e.id,
+        reason: `payload.itemId "${String(p.itemId)}" does not address the reopened aggregate "${e.aggregateId}"`,
+      })
+    }
+
+    const current = realizationOf.get(e.aggregateId)
+    if (current === undefined) continue // not an item this stream created — nothing to judge
+    if (current === 'done' || current === 'cancelled') {
+      realizationOf.set(e.aggregateId, 'in-progress')
+    } else {
+      findings.push({
+        kind: 'reopen-illegal',
+        index: i,
+        eventId: e.id,
+        reason: `nothing to reopen: the item is ${current}, not done/cancelled (a reopening corrects a closure)`,
+      })
+    }
   }
   return findings
 }
