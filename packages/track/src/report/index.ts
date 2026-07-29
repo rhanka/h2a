@@ -10,12 +10,23 @@ export {
   type ReportRow,
 } from './build.js'
 export {
+  auditNextActions,
+  coverageLine,
+  DETERMINISTIC_NEXT_ACTIONS,
   formatReport,
   formatRows,
   formatWpConductor,
   formatWpTree,
+  resolutionLines,
   wpTotals,
+  type ConductorMeta,
   type Format,
+  type NextActionAudit,
+  type ReportCoverage,
+  type ReportHandle,
+  type ReportHeader,
+  type ReportOmission,
+  type ReportPeriod,
   type WpTotals,
 } from './format.js'
 // Workpackages §2 — the %-by-WP rollup forest (pure).
