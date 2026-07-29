@@ -119,7 +119,8 @@ export function mapWorkEvent(ev: WorkEvent): MappedCommand {
       break
     case 'item.set-raci':
       // setRaci(itemId, {accountable?, responsible?}) — the partial object uses the creation-payload
-      // field names exactly; the facade rejects an empty update. clientToken is threaded by ingest.
+      // field names exactly; the facade rejects empty payloads and blank-value axes after normalisation.
+      // Omitted axes are preserved by design.
       args = [p['itemId'], { ...opt('accountable'), ...opt('responsible') }]
       break
     case 'item.reparent':

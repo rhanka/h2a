@@ -449,18 +449,29 @@ export class Track {
    * Set one or both RACI fields on an existing item. Appends `item.raci-assigned` on the item's existing
    * aggregate (next seq; no recreation, so prior responsibility remains auditable). This is a partial,
    * field-wise LWW update: absent fields remain unchanged; clearing an assignment is intentionally not
-   * part of this narrow command. Guards reject an unknown item or an empty update before append. The optional
-   * `clientToken` is stamped via `withClientToken`, matching the other binding item mutations.
+   * part of this narrow command. The payload is fail-closed after normalisation: blank `accountable` and
+   * blank/empty `responsible` entries are rejected. Guards reject an unknown item or an empty update before
+   * append. The optional `clientToken` is stamped via `withClientToken`, matching the other binding item
+   * mutations.
    */
   setRaci(itemId: ItemId, update: ItemRaciUpdate, clientToken?: string): void {
     if (!this.state().items.has(itemId)) throw new DomainError(`unknown item ${itemId}`)
-    if (update.accountable === undefined && update.responsible === undefined) {
+    const accountable = update.accountable !== undefined ? update.accountable.trim() : undefined
+    const responsible = update.responsible !== undefined ? update.responsible.map((actor) => actor.trim()) : undefined
+
+    if (accountable === '') {
+      throw new DomainError('setRaci requires accountable and/or responsible')
+    }
+    if (responsible !== undefined && (responsible.length === 0 || responsible.some((actor) => actor.length === 0))) {
+      throw new DomainError('setRaci requires accountable and/or responsible')
+    }
+    if (accountable === undefined && responsible === undefined) {
       throw new DomainError('setRaci requires accountable and/or responsible')
     }
     const emit = (): void => {
       this.emit('item', itemId, 'item.raci-assigned', {
-        ...(update.accountable !== undefined ? { accountable: update.accountable } : {}),
-        ...(update.responsible !== undefined ? { responsible: update.responsible } : {}),
+        ...(accountable !== undefined ? { accountable } : {}),
+        ...(responsible !== undefined ? { responsible } : {}),
       })
     }
     if (clientToken !== undefined) this.withClientToken(clientToken, emit)

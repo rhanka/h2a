@@ -141,12 +141,13 @@ function applyEvent(state: State, event: TrackEvent): void {
         ...(payload.sourceKey !== undefined ? { sourceKey: payload.sourceKey } : {}),
         ...(payload.body !== undefined ? { body: payload.body } : {}),
         ...(payload.links !== undefined ? { links: payload.links } : {}),
+        ...(payload.accountable !== undefined ? { accountable: payload.accountable } : {}),
+        ...(payload.responsible !== undefined ? { responsible: payload.responsible } : {}),
         ...(payload.engagementRef !== undefined ? { engagementRef: payload.engagementRef } : {}),
         // Demand lifecycle (Mode A, additive) — the parent demand back-link, set ONLY by the atomic
         // agreeDemand promotion batch; absent on a directly-created item (drop-when-absent).
         ...(payload.demandId !== undefined ? { demandId: payload.demandId } : {}),
       }
-      applyItemRaci(item, payload)
       state.items.set(item.id, item)
       break
     }

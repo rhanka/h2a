@@ -589,7 +589,7 @@ function cmdItem(args: string[], ctx: Ctx): number {
     track.setRaci(positional[0]!, {
       ...(accountable !== undefined ? { accountable } : {}),
       ...(responsible !== undefined
-        ? { responsible: responsible.split(',').map((s) => s.trim()).filter(Boolean) }
+        ? { responsible: responsible.split(',').map((s) => s.trim()) }
         : {}),
     }, clientToken)
     io.out('ok\n')

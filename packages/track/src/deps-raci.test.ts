@@ -94,6 +94,32 @@ describe('RACI assignment on an existing item', () => {
     expect(JSON.stringify(preRaciLog)).toBe(serializedLog)
   })
 
+  it('folds an item-created log with legacy RACI payload keys in origin/main key order', () => {
+    const id = t.createItem({
+      kind: 'feature',
+      title: 'Created with legacy RACI fields',
+      workspace: 'ws',
+      accountable: 'human:alice',
+      responsible: ['agent:codex', 'human:bob'],
+      engagementRef: 'eng-123',
+    })
+    const preRaciLog = store.readAll()
+    const item = fold(preRaciLog).items.get(id)!
+    const mainShape = {
+      id,
+      kind: 'feature',
+      title: 'Created with legacy RACI fields',
+      workspace: 'ws',
+      specStatus: 'to-specify',
+      realization: 'to-do',
+      disposition: { orientation: 'required', commitment: 'required' },
+      accountable: 'human:alice',
+      responsible: ['agent:codex', 'human:bob'],
+      engagementRef: 'eng-123',
+    }
+    expect(JSON.stringify(item)).toBe(JSON.stringify(mainShape))
+  })
+
   it('updates supplied fields while preserving the others, with a durable item event', () => {
     const id = t.createItem({
       kind: 'feature',
@@ -122,6 +148,14 @@ describe('RACI assignment on an existing item', () => {
     const id = t.createItem({ kind: 'feature', title: 'X', workspace: 'ws' })
     expect(() => t.setRaci('NOPE', { accountable: 'human:alice' })).toThrow(/unknown item NOPE/)
     expect(() => t.setRaci(id, {})).toThrow(/requires accountable and\/or responsible/)
+    expect(store.readAll()).toHaveLength(1)
+  })
+
+  it('rejects empty and blank-value set-raci updates (fail-closed, no clear)', () => {
+    const id = t.createItem({ kind: 'feature', title: 'X', workspace: 'ws' })
+    expect(() => t.setRaci(id, { responsible: [] })).toThrow(/requires accountable and\/or responsible/)
+    expect(() => t.setRaci(id, { accountable: '' })).toThrow(/requires accountable and\/or responsible/)
+    expect(() => t.setRaci(id, { responsible: ['agent:codex', ''] })).toThrow(/requires accountable and\/or responsible/)
     expect(store.readAll()).toHaveLength(1)
   })
 })
@@ -221,6 +255,26 @@ describe('Lot A — the WorkEvent ingest path carries the new fields', () => {
       ingest([{ v: 1, kind: 'item.set-raci', payload: { itemId: id, accountable: 'human:bob' } }], { ...ctx, workspace: 'other' }, store),
     ).toThrow(/belongs to workspace "ws"/)
     expect(t.state().items.get(id)!.accountable).toBe('human:alice')
+  })
+
+  it('rejects blank/empty set-raci payloads at ingest (accountable or responsible)', () => {
+    const id = ingest(
+      [{ v: 1, kind: 'item.create', payload: { kind: 'feature', title: 'X', workspace: 'ws', accountable: 'human:alice' } }],
+      ctx,
+      store,
+    ).ids[0]!
+    const preCount = store.readAll().length
+
+    expect(() => ingest([{ v: 1, kind: 'item.set-raci', payload: { itemId: id, responsible: [] } }], ctx, store)).toThrow(
+      /requires accountable and\/or responsible/,
+    )
+    expect(() => ingest([{ v: 1, kind: 'item.set-raci', payload: { itemId: id, accountable: '' } }], ctx, store)).toThrow(
+      /requires accountable and\/or responsible/,
+    )
+    expect(() =>
+      ingest([{ v: 1, kind: 'item.set-raci', payload: { itemId: id, responsible: ['agent:codex', ''] } }], ctx, store),
+    ).toThrow(/requires accountable and\/or responsible/)
+    expect(store.readAll()).toHaveLength(preCount)
   })
 
   it('ingests an extra-scope dependency blocker', () => {
@@ -348,6 +402,26 @@ describe('Lot A — CLI flags', () => {
 
     expect(runCli(['item', 'set-raci', id], io)).toBe(1)
     expect(out.join('')).toContain('requires --accountable and/or --responsible')
+  })
+
+  it('track item set-raci rejects blank/empty values with explicit commands', () => {
+    const out: string[] = []
+    const io: CliIO = { cwd: dir, out: (s) => out.push(s), err: (s) => out.push(s) }
+    expect(runCli(['init'], io)).toBe(0)
+    expect(runCli(['item', 'new', '--kind', 'feature', '--title', 'X', '--workspace', 'ws'], io)).toBe(0)
+    const id = out[out.length - 1]!.trim()
+
+    out.length = 0
+    expect(runCli(['item', 'set-raci', id, '--responsible', ','], io)).toBe(1)
+    expect(out.join('')).toContain('requires accountable and/or responsible')
+
+    out.length = 0
+    expect(runCli(['item', 'set-raci', id, '--responsible', ''], io)).toBe(1)
+    expect(out.join('')).toContain('requires accountable and/or responsible')
+
+    out.length = 0
+    expect(runCli(['item', 'set-raci', id, '--accountable', ''], io)).toBe(1)
+    expect(out.join('')).toContain('requires accountable and/or responsible')
   })
 })
 
