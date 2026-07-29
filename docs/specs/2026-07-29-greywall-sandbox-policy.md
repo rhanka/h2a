@@ -59,16 +59,35 @@ The Codex network case was treated as *the* cause of those nine verdicts. On
 producing the same outcome on its own. That is why this invariant is stated
 independently of any one capability:
 
+Each row states whose measurement it is. None of them is reproduced here, and
+this table is not a second confirmation of any of them — it is a citation, so a
+reader can go and re-run the one they need.
+
 | Mechanism | Measured signature | Measured by |
 |---|---|---|
 | Sandbox denies network / npm cache | tool fails, agent narrates the outcome | cyber (root cause of the nine) |
 | Gateway strips tool-call arguments | 81 consecutive HTTP 200 in 5 min, no usable `tool_use`, agent loops | gateway lane, tap in front of the proxy |
-| Subcontractor brief silently truncated | 10 977 chars folded by both hosts, 9 830 pass whole; the tail carrying the honesty rules never arrives | conductor and runtime lanes |
+| Subcontractor brief delivered but never submitted | brief arrives whole, in ~1 KB chunks, **into the composer**; chunks stack for tens of minutes and no `Enter` is ever sent. 4 600-char brief at launch → 47 min later: zero artefact, 53 s CPU, composer still holding `[Pasted Content …]` | agents lane |
 
-The third is the sharpest illustration of the rule, because nothing failed: the
-brief was accepted, the agent ran, and only the *end* of its instructions —
-the part telling it not to fabricate — was missing. A truncation that announces
-nothing is indistinguishable from a complete brief.
+The third is the sharpest illustration of the rule, because nothing failed and
+nothing was even lost. The brief arrived complete. The agent read the *beginning*
+of it, never reached the rendering rules or the honesty rules that sat at the end,
+produced a genuine analysis in its pane, and wrote no file at all: a verdict
+narrated, an artefact absent.
+
+It also defeats the liveness check twice over. The process is alive, and CPU time
+advances — 8 s of CPU in 37 s was measured, and it was the host *starting up*, not
+working. So neither the PID nor the CPU curve distinguishes this from a working
+agent; only an empty composer plus a visible `Working` does.
+
+An earlier version of this table recorded that third mechanism as *silent
+truncation*, on a byte-count measurement (10 977 folded / 9 830 whole) taken by
+another lane. That characterisation was refuted the same night by the agents
+lane. It is corrected here rather than quietly dropped, because the way it got in
+is itself the failure this policy is about: it was adopted from a lane that had
+measured something real, without being re-measured, and the write-up turned a
+citation into a fact. Two agents agreeing is not a measurement — it can be one
+claim travelling twice.
 
 None of the three is a sandbox bug in the narrow sense. All three are a
 capability quietly reduced below what the caller assumed, and in all three the
