@@ -30,13 +30,18 @@ import {
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
-/** Expand the root `workspaces` globs into concrete package directories. */
+/**
+ * Expand the root `workspaces` globs into concrete package directories.
+ *
+ * A `!`-excluded entry is still RETURNED. Skipping it would reproduce the very
+ * blind spot this file exists to close: `apps/focus` is excluded from the
+ * workspaces, so it would never reach the coverage comparison and could start
+ * carrying tests unseen. Being outside the workspaces is a packaging decision,
+ * not a licence to hold untested tests.
+ */
 function workspacePackages() {
   const root = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
   const patterns = root.workspaces ?? [];
-  const excluded = new Set(
-    patterns.filter((p) => p.startsWith("!")).map((p) => p.slice(1)),
-  );
   const dirs = [];
   for (const pattern of patterns) {
     if (pattern.startsWith("!")) continue;
@@ -53,9 +58,7 @@ function workspacePackages() {
     }
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const rel = `${parent}/${entry.name}`;
-      if (excluded.has(rel)) continue;
-      dirs.push(rel);
+      dirs.push(`${parent}/${entry.name}`);
     }
   }
   return dirs.sort();
