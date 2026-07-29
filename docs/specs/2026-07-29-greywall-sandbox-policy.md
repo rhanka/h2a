@@ -52,6 +52,29 @@ The lesson of that incident is not "constrain less". It is that a constraint
 which fails quietly is worse than no constraint: it produces confident,
 unfounded output. A sandbox that silently degrades manufactures fabrication.
 
+### Three measured mechanisms, one shape
+
+The Codex network case was treated as *the* cause of those nine verdicts. On
+2026-07-29 two more mechanisms were measured, by other lanes, each capable of
+producing the same outcome on its own. That is why this invariant is stated
+independently of any one capability:
+
+| Mechanism | Measured signature | Measured by |
+|---|---|---|
+| Sandbox denies network / npm cache | tool fails, agent narrates the outcome | cyber (root cause of the nine) |
+| Gateway strips tool-call arguments | 81 consecutive HTTP 200 in 5 min, no usable `tool_use`, agent loops | gateway lane, tap in front of the proxy |
+| Subcontractor brief silently truncated | 10 977 chars folded by both hosts, 9 830 pass whole; the tail carrying the honesty rules never arrives | conductor and runtime lanes |
+
+The third is the sharpest illustration of the rule, because nothing failed: the
+brief was accepted, the agent ran, and only the *end* of its instructions —
+the part telling it not to fabricate — was missing. A truncation that announces
+nothing is indistinguishable from a complete brief.
+
+None of the three is a sandbox bug in the narrow sense. All three are a
+capability quietly reduced below what the caller assumed, and in all three the
+observable result was work that looked finished. Hence: this policy does not
+protect a boundary, it protects the honesty of what crosses it.
+
 Consequences, binding on any implementation:
 
 - A denial names the capability, the profile that withheld it, and the process
@@ -60,6 +83,11 @@ Consequences, binding on any implementation:
   empty list, or a default value.
 - No component may catch a denial and continue with a fallback. Failing closed
   and loudly is the contract.
+- Liveness is not productivity. This repository already moved its liveness check
+  from "the PID exists" to "CPU time advances", after a lane showed one second of
+  CPU in thirty-three minutes. The gateway mechanism above defeats even that: the
+  agent genuinely burns CPU and genuinely cannot act. A capability check must
+  therefore be a *probe of the capability*, never an inference from activity.
 - The absence of a denial is not evidence a capability was granted. Probe the
   capability, do not infer it from silence.
 
