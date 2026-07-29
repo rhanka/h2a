@@ -205,3 +205,136 @@ RECOMMANDATION. The previous round's ten criteria were all green against those
 outputs, because they were written from the same session that wrote the code.
 That is the failure this list exists to prevent: a criterion set must be
 derived from the approved artefact, not from the implementation.
+
+---
+
+## Correction after the double consensus — 2026-07-29
+
+An adversarial review leg returned NO-GO on the criteria above. Three of its
+findings were re-measured independently and hold. They are recorded here before
+any implementation resumes, because two of them invalidate claims this document
+makes about its own reference artefacts.
+
+### The raw fixture does not produce the contextual one
+
+Measured on the committed pair:
+
+| | `track-report-contextual.md` | `track-report-raw.txt` |
+|---|---|---|
+| total | `54/84 (64%)` | `57/89 (64%)` |
+| WP1 Protocol | `1/2 (50%)` | `1/1 (100%)` |
+| a `DÉCISIONS` section | D1–D7 with alternatives | **0 occurrences** |
+| `0.86.0`, `15 PR`, `37 → 52`, `18/07` | cited in FAIT | **0 occurrences** |
+
+So criterion 15 — "the two committed examples remain reproducible from a fresh
+clone at `5fa272e`" — is false against its own reference. The reproduction
+recipe in `track-report-raw.txt` does not reproduce the contextual report, and
+never could: the validated report is a synthesis over **three** inputs, only one
+of which was written down.
+
+**The contextual report's inputs are, and must be enumerated as:**
+
+1. the deterministic projection (`track report --wp --decisions`) — structure,
+   percentages, blockers, dossiers;
+2. **the repository history over the window** — `git log`, merged PRs, releases,
+   tags. This is where `15 PR mergées`, `release 0.86.0`, `#53`, `37 → 52` come
+   from. No amount of reading `.track` yields them;
+3. owner/session context — the executor model (`sol xhigh`, `terra xhigh`), and
+   which objectives the owner considers the focus.
+
+A criterion demanding byte-reproduction of the contextual report from the raw
+alone is unsatisfiable. What *is* verifiable, and what replaces criterion 15:
+
+- **15a** — the deterministic raw is reproducible from a fresh clone at a named
+  commit, byte for byte.
+- **15b** — every factual claim in FAIT is traceable to input 1 or input 2, and
+  the report names which. A claim traceable to neither is a fabrication.
+- **15c** — the contextual report declares its three inputs and the window they
+  were read over.
+
+### The golden's DÉCISIONS table was not derivable at its own baseline
+
+At `5fa272e` the log carried **zero** structured dossiers: the eight pending
+ones had no stored options and no stored recommendation, and the shipped skill
+says in terms that such a dossier must be listed as *à structurer*, never
+"presented as an owner choice with invented alternatives". The golden
+nonetheless renders D1–D6 with three alternatives each, and D7 (`CLI native :
+quelle étude fait foi ? A 18/07 · B 17/07`) has no source row anywhere.
+
+This is not a defect of the *shape* the owner validated — that shape is right,
+and is what this spec targets. It is a defect of the **pairing**: a report
+produced from a live session was filed against a log that could not produce it.
+
+Since `#76` the same table is derivable without inventing anything: the log now
+carries **10 structured dossiers** (options and recommendation stored), 6 pending
+and 4 settled with a selected option. The correct fix is therefore to regenerate
+the raw fixture at a baseline where the dossiers are structured, and to keep the
+validated report as the shape reference it is.
+
+**16** — a D-number is reserved for a dossier whose options **and**
+recommendation are stored. An unstructured dossier appears as *à structurer*,
+carries no letters, and is not offered in the reply line. A report that prints
+alternatives absent from the log fails, regardless of how plausible they are.
+
+### Banning every identifier removes the ability to act
+
+Criterion 10 forbids ULIDs everywhere. In the raw, the per-row `ULID · title ·
+[STATE]` field is the only handle a row carries; the golden has none. So an
+owner reading `WP8 · Tracking — Restructuration WP tranchée, non appliquée` and
+wanting to dispatch it has nothing to dispatch: no ULID, no stable title, and
+`WP8` in the raw is `2/2 (100%)` with no open item, so the title does not
+resolve either.
+
+"The identifier does not interest the owner" is not "the report must contain no
+identifier". Criterion 10 is therefore split:
+
+- **10a** — no ULID appears in any column the owner reads. Checkable by
+  `[0-9A-HJKMNP-TV-Z]{26}` over the rendered body, in all four formats.
+- **10b** — every actionable row carries a short stable handle (`[8.1]`), and
+  the report documents the one command that resolves a handle to its item. A
+  report you cannot act on is a newsletter.
+
+### The set constrains shape, never content
+
+The review constructed a report that satisfies all fifteen criteria while
+deleting 44 of 48 rows — including the owner's three declared priorities — and
+inventing the decisions it keeps. Nothing fired. The set has no completeness
+rule and no traceability rule, so an implementer may delete anything and invent
+anything.
+
+- **17** — no row present in the deterministic projection may vanish without
+  appearing, by title, inside one of the four sections. The report states the
+  raw row count and the rendered row count.
+- **18** — every WP carrying open work appears, and every pending dossier
+  appears. Deleting a row is never a way to turn a criterion green.
+- **19** — `bloqué` empty means *no blockage is recorded*. A recorded gate that
+  renders as `—` is a failure, not a clean cell.
+
+### Criteria contradicted by their own reference
+
+- **14** as written is universal ("every WP row that carries open work carries a
+  `prochaine action`") but the golden violates it: `WP3 · Coordination | 83% |
+  Réveil par hôte dans chaque plugin | D1–D5 | —`. Either the rule is universal
+  and the golden is corrected, or the rule is scoped and says so. It is scoped:
+  a row blocked on a decision has no next action until the decision lands, and
+  its `bloqué` cell carries the D-number that unblocks it.
+- **1** demands a period in the header while `--since`/`--until`/`--period` do
+  not exist yet. Until they ship, the header carries the acceptance baseline and
+  states that the report covers the whole log. **A named window
+  (`journée du 28/07`) is forbidden until the selectors exist** — otherwise
+  criterion 1 mandates a claim nothing can support.
+- **2** says `main` produces nine sections; the committed raw has seven, and
+  `ACTIONS DÉRIVÉES` — 15 rows, including 5 acceptance re-verification prompts —
+  is named neither among the four kept nor the four removed. Its rows land in
+  À-FAIRE as open work, which is what they are.
+
+### What this means for the skill
+
+`packages/h2a/skills/harness/track-report/SKILL.md` currently mandates the
+opposite of several criteria above: `constat` rather than `dernières actions`,
+canonical-urgency order rather than priority, the global row never turned into
+an accomplishment, and a fixed executor string with no model. The skill is
+rewritten in the same increment as the renderer. Where they conflict, this
+document wins — and the anti-fabrication clauses of the skill (no invented
+alternatives, no unsourced period, no hidden row) are **kept**, because criteria
+16, 17 and 15b restate them rather than repeal them.
