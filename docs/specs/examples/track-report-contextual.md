@@ -1,5 +1,5 @@
 # TRACK REPORT — h2a
-*baseline `5fa272e` · 54/84 (64%) · DONE 57 · TO-DO 29 · AWAITED 5 · DROPPED 2*
+*période : journée du 28/07/2026, depuis `5fa272e` · 54/84 (64%)*
 
 ## FAIT
 
