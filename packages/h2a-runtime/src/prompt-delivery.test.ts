@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   captureTail,
+  collapsedPasteMatches,
   countOccurrences,
   deliverInitialPrompt,
+  detectCollapsedPaste,
   detectHostModal,
   paneHasDrawnUi,
   promptProbes,
@@ -167,6 +169,66 @@ describe("promptProbes", () => {
   });
 });
 
+describe("detectCollapsedPaste / collapsedPasteMatches", () => {
+  // VERBATIM: a 10977-character, 72-line brief pasted into each host. The
+  // brief's own words appear NOWHERE — only the marker does. A fingerprint-only
+  // proof would therefore reject every long brief, and lane briefs are long.
+  const CODEX_COLLAPSED = "› [Pasted Content 10977 chars]\n  gpt-5.6-terra xhigh fast";
+  const CLAUDE_COLLAPSED = "❯ [Pasted text #1 +71 lines]\n  paste again to expand";
+
+  const brief = (() => {
+    const lines = ["head"];
+    for (let i = 0; i < 70; i += 1) lines.push(`filler ${i}`);
+    lines.push("tail");
+    return lines.join("\n");
+  })();
+
+  it("reads the char count codex reports", () => {
+    expect(detectCollapsedPaste(CODEX_COLLAPSED)).toEqual({
+      kind: "chars",
+      value: 10977,
+    });
+  });
+
+  it("reads the added-line count claude reports", () => {
+    expect(detectCollapsedPaste(CLAUDE_COLLAPSED)).toEqual({
+      kind: "lines",
+      value: 71,
+    });
+  });
+
+  it("is absent on an ordinary composer", () => {
+    expect(detectCollapsedPaste(COMPOSER)).toBeUndefined();
+  });
+
+  it("accepts a line count that accounts for the brief", () => {
+    // 72 lines sent, reported as "+71 lines".
+    expect(collapsedPasteMatches({ kind: "lines", value: 71 }, brief)).toBe(true);
+  });
+
+  it("REJECTS a marker that accounts for less than what was sent", () => {
+    // This is the truncation cond measured: the host held only part of the
+    // brief. Accepting it would ship a silently amputated brief.
+    expect(collapsedPasteMatches({ kind: "lines", value: 12 }, brief)).toBe(false);
+    expect(collapsedPasteMatches({ kind: "chars", value: 1155 }, brief)).toBe(
+      false,
+    );
+  });
+
+  it("tolerates the byte-vs-codepoint difference on accented text", () => {
+    const accented = "réveille la lane, vérifie l'état, puis arrête-toi";
+    const bytes = Buffer.byteLength(accented, "utf8");
+    const points = [...accented].length;
+    expect(bytes).not.toBe(points); // the two really do differ here
+    expect(collapsedPasteMatches({ kind: "chars", value: bytes }, accented)).toBe(
+      true,
+    );
+    expect(
+      collapsedPasteMatches({ kind: "chars", value: points }, accented),
+    ).toBe(true);
+  });
+});
+
 describe("countOccurrences", () => {
   it("matches across a soft-wrapped composer", () => {
     expect(countOccurrences("mark\ner-token here", "mark er-token")).toBe(1);
@@ -275,6 +337,39 @@ describe("deliverInitialPrompt", () => {
     expect(result.state).toBe("working");
     expect(calls.pastes).toHaveLength(1); // waited by LOOKING again, not typing
     expect(calls.submits).toBe(1);
+  });
+
+  it("accepts a LONG brief the host collapsed into a marker", () => {
+    // Both hosts collapse a long paste, so the brief's words are never visible.
+    // Rejecting that would refuse exactly the briefs lanes actually use.
+    const brief = Array.from({ length: 72 }, (_, i) => `line ${i}`).join("\n");
+    const { deps, calls } = fakePane({
+      screenAfterPaste: `${COMPOSER}\n❯ [Pasted text #1 +71 lines]`,
+      workCpuPerSec: 1000,
+    });
+
+    const result = deliverInitialPrompt("%1", brief, deps);
+
+    expect(result.state).toBe("working");
+    if (result.state !== "working") return;
+    expect(result.evidence).toBe("collapsed-paste");
+    expect(calls.submits).toBe(1);
+  });
+
+  it("REFUSES a collapsed marker that accounts for less than the brief", () => {
+    // cond measured a 5500-char brief landing as "[Pasted Content 1155 chars]":
+    // the agent started on a TRUNCATED brief and nothing said so. A plausible,
+    // amputated answer is worse than a refused launch.
+    const brief = Array.from({ length: 72 }, (_, i) => `line ${i}`).join("\n");
+    const { deps, calls } = fakePane({
+      screenAfterPaste: `${COMPOSER}\n❯ [Pasted Content 1155 chars]`,
+      workCpuPerSec: 1000,
+    });
+
+    const result = deliverInitialPrompt("%1", brief, deps, { landedMs: 2_000 });
+
+    expect(result.state).toBe("undelivered");
+    expect(calls.submits).toBe(0); // never submit a partial brief
   });
 
   it("reports a discarded paste WITHOUT retyping it", () => {
