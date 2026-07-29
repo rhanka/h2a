@@ -87,7 +87,9 @@ describe('deterministic report CLI', () => {
     expect(text.out).toContain('FAIT')
     expect(text.out).toContain('À-FAIRE')
     expect(text.out).toContain('DÉCISIONS')
-    expect(text.out).toContain('a: Safe route')
+    // The DÉCISIONS table is the drawn one the owner validated: options are lettered A/B/C, and the
+    // recommendation sits in the `préco` column on the line of its own option.
+    expect(text.out).toContain('A Safe route')
     expect(text.out).not.toMatch(/^AWAITED \(/m)
 
     const md = run(['report', '--format', 'md', '--commit', 'c1'])
