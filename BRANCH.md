@@ -51,5 +51,5 @@
 
 - [x] Run focused tests and the complete `packages/track` Vitest suite.
 - [x] Confirm the origin/main Track test-file count and inspect golden-file changes.
-- [ ] Commit the scoped implementation, push the branch, and open a draft PR to `main`.
-- [ ] Write the bounded execution report for the accountable track lane.
+- [x] Commit the scoped implementation, push the branch, and open a draft PR to `main`.
+- [x] Write the bounded execution report for the accountable track lane.
