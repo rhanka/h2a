@@ -436,6 +436,72 @@ describe("h2a runtime Codex gateway", () => {
     expect(partial).toBe('{"a":2,"b":3}');
   });
 
+  it("announces irreconcilable Codex tool arguments instead of dropping them silently", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    // Deltas that are NOT a prefix of the authoritative terminal value. An
+    // append-only stream cannot retract what was relayed, so nothing more is
+    // emitted — but the client then holds an input that contradicts upstream,
+    // which must be announced rather than absorbed.
+    const upstream = [
+      "event: response.output_item.added",
+      'data: {"type":"response.output_item.added","output_index":0,' +
+        '"item":{"type":"function_call","call_id":"call_x4","name":"add"}}',
+      "",
+      "event: response.function_call_arguments.delta",
+      'data: {"type":"response.function_call_arguments.delta","output_index":0,' +
+        '"delta":"{\\"zzz\\":9}"}',
+      "",
+      "event: response.output_item.done",
+      'data: {"type":"response.output_item.done","output_index":0,' +
+        '"item":{"type":"function_call","call_id":"call_x4","name":"add",' +
+        '"arguments":"{\\"a\\":2,\\"b\\":3}"}}',
+      "",
+      "event: response.completed",
+      'data: {"type":"response.completed","response":{"usage":{"output_tokens":7}}}',
+      "",
+    ].join("\n");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(streamFrom(upstream), {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        }),
+      ),
+    );
+
+    const res = await codexApp().fetch(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-opus-4-8",
+          max_tokens: 128,
+          stream: true,
+          messages: [{ role: "user", content: "Add 2 and 3 using the tool." }],
+        }),
+      }),
+    );
+
+    const events = parseSse(await res.text());
+    const partial = events
+      .filter(
+        (e) =>
+          e.type === "content_block_delta" &&
+          (e.delta as { type?: string } | undefined)?.type ===
+            "input_json_delta",
+      )
+      .map((e) => (e.delta as { partial_json: string }).partial_json)
+      .join("");
+    // The terminal value is NOT appended: that would corrupt the JSON.
+    expect(partial).toBe('{"zzz":9}');
+    // And the operator is told, with the call identity, so it is attributable.
+    const warned = warn.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(warned).toContain("could not be reconciled");
+    expect(warned).toContain("call_x4");
+  });
+
   it("returns a gateway error instead of 500 when Codex OAuth refresh cannot retry", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const fetchMock = vi.fn().mockResolvedValue(
