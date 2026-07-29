@@ -338,3 +338,81 @@ rewritten in the same increment as the renderer. Where they conflict, this
 document wins — and the anti-fabrication clauses of the skill (no invented
 alternatives, no unsourced period, no hidden row) are **kept**, because criteria
 16, 17 and 15b restate them rather than repeal them.
+
+---
+
+## Reconciliation — 2026-07-29, after both review legs
+
+Two independent legs returned NO-GO from different angles. They converge on one
+conflict this document created, and it is settled here.
+
+### Compactness wins over completeness
+
+Criterion 17 was added to stop an implementer turning criteria green by deletion.
+As written it demands that no projected row vanish. But the validated golden
+renders **15 À-FAIRE rows against the raw's 64** — so the artefact the owner
+approved fails the criterion written to protect it.
+
+The golden is right. A report the owner reads is a decision surface, not an
+inventory; compressing 64 rows to the 15 that matter is the work, not a defect.
+Criterion 17 is therefore replaced:
+
+- **17** — the report states both counts (`64 lignes projetées, 15 rendues`).
+  Omission is a declared act, never a silent one. What is omitted is omitted
+  because it carries no open work and no recorded gate — never because it was
+  inconvenient.
+- **18** stands unchanged and is what makes 17 safe: every WP carrying open work
+  appears, and every pending dossier appears. Those two classes are never
+  omitted, whatever the compression ratio.
+
+Between them: an implementer may compress, and may not hide. The deletion attack
+fails on 18; the golden passes on 17.
+
+### The handle cannot avoid the identifier — only move it
+
+Criterion 10b asked for a short stable handle. Leg A established it is not
+derivable: ordering, titles and WP membership all change between runs, and the
+only stable per-item identity is the ULID the owner does not want to read.
+
+So the identifier is not removed, it is **relocated**:
+
+- **10a** — no ULID in any column the owner reads. Checkable by
+  `[0-9A-HJKMNP-TV-Z]{26}` over the rendered table bodies, in every format.
+- **10b** — each actionable row carries `[n.m]`, positional within the report.
+  The report ends with a compact resolution block mapping every emitted handle
+  to its item id, and names the one command that acts on it. The block is not a
+  table the owner reads; it is the machine's half of the page.
+- **10c** — handles are per-report and positional. Two reports over the same log
+  may number differently. The resolution block is what makes a reply
+  unambiguous, so a reply that cites handles without its report is not
+  actionable, and the report says so.
+
+### Reproducibility, stated honestly
+
+Acceptance item 9 of section 1–4 ("the two committed examples remain
+reproducible from a fresh clone at `5fa272e`") is **withdrawn**. It was measured
+false and 15a/15b/15c replace it. The raw is reproducible; the contextual report
+is a synthesis over three inputs and is not.
+
+15b is narrowed to what a test can reach: every **structured** claim in FAIT — a
+count, a version, a PR number, a percentage — carries its provenance and is
+recomputable from input 1 or input 2. Free prose is not machine-checkable and
+the spec stops claiming it is.
+
+### Delivery boundary
+
+This increment ships: the four-section renderer, the five À-FAIRE columns, the
+DÉCISIONS drawn table with D-numbers, RECOMMANDATION, 10a/10b/10c, 16, 17, 18,
+19, and the rewritten skill. Text, Markdown, HTML and JSON all agree on section
+set and order.
+
+This increment does **not** ship: `--since`/`--until`/`--period` (sections 1–4),
+the period block in the payload, and the focus `brut`/`synthèse` split. Until
+the selectors exist the header carries the acceptance baseline and states that
+the report covers the whole log — **a named window such as
+`journée du 28/07` is forbidden**, because nothing can yet support it.
+
+The fixture pair is regenerated at a baseline where the dossiers are structured,
+so the DÉCISIONS table is derivable without inventing an alternative. The
+validated report stays in the repository as the shape reference it is, with a
+note saying it predates that baseline.
