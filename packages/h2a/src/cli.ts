@@ -246,6 +246,7 @@ import {
 import {
   createObjectiveLoop,
   declareObjectiveLoopDone,
+  enableObjectiveLoopAutoTick,
   joinObjectiveLoop,
   listLoopEvents,
   listObjectiveLoops,
@@ -431,7 +432,8 @@ export function renderCliHelp(): string {
     "  h2a install-skills --host <claude|codex|gemini|agy> [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
-    "  h2a loop create --name <n> --goal <text> [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement> [--launch-stdin]] [--root <path>]",
+    "  h2a loop create --name <n> --goal <text> [--auto-tick] [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement> [--launch-stdin]] [--root <path>]",
+    "  h2a loop enable-auto-tick <loopId> [--root <path>]",
     "  h2a loop join <loopId> --instance <id> [--agent-id <id>] [--role <role>] [--launch-stdin] [--root <path>]",
     "  h2a loop report <loopId> --note <text> [--instance <id>] [--agent-id <id>] [--auto-join] [--root <path>]",
     "  h2a loop done <loopId> [--note <text>] [--instance <id>] [--agent-id <id>] [--root <path>]",
@@ -2360,8 +2362,20 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
         goal: flags.goal,
         repos,
         refs,
-        agents
+        agents,
+        ...(flags["auto-tick"] === "true" ? { policy: { autoTick: true } } : {})
       });
+      streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);
+      return 0;
+    }
+
+    if (sub === "enable-auto-tick") {
+      const loopId = argv[1];
+      if (!loopId || loopId.startsWith("--")) {
+        streams.stderr.write("h2a loop enable-auto-tick: <loopId> is required\n");
+        return 1;
+      }
+      const loop = enableObjectiveLoopAutoTick(root, loopId);
       streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);
       return 0;
     }
@@ -2490,7 +2504,7 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
     return classifyStoreError((error as Error).message);
   }
 
-  streams.stderr.write("h2a loop: subcommand required (create, join, report, done, stop, list, status, agents, attach, logs, tick, watch/run, supervise)\n");
+  streams.stderr.write("h2a loop: subcommand required (create, enable-auto-tick, join, report, done, stop, list, status, agents, attach, logs, tick, watch/run, supervise)\n");
   return 1;
 }
 
