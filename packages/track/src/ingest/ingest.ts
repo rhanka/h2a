@@ -106,6 +106,9 @@ function resolveWorkspace(cmd: MappedCommand, state: State): { create: boolean; 
       // setRealization resolves items ∪ decisions (a decision has a prep/realization axis); resolving
       // only against items would leave a foreign-workspace DECISION reachable — a containment bypass.
       return { create: false, workspace: item(p['itemId']) ?? state.decisions.get(p['itemId'] as ItemId)?.workspace }
+    case 'item.set-raci':
+      // RACI is set on the named existing item; a W-pinned channel cannot change accountability on a V item.
+      return { create: false, workspace: item(p['itemId']) }
     case 'item.reparent':
       // The CHILD item is the mutated aggregate; the new parent is checked via affectedTargetWorkspaces.
       return { create: false, workspace: item(p['itemId']) }
@@ -276,6 +279,11 @@ function applyCommand(track: Track, cmd: MappedCommand, ctx: IngestContext): str
   switch (cmd.kind) {
     case 'item.create':
       return track.createItem(a[0] as ItemCreatedPayload)
+    case 'item.set-raci':
+      // setRaci(itemId, {accountable?, responsible?}) — the clientToken is already in scope via the
+      // ingest seam's withClientToken. The payload uses the creation-payload field names unchanged.
+      track.setRaci(a[0] as ItemId, a[1] as Parameters<Track['setRaci']>[1])
+      return undefined
     case 'item.reparent':
       track.reparentItem(a[0] as ItemId, a[1] as ItemId | undefined)
       return undefined

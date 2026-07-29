@@ -134,6 +134,13 @@ export interface ItemCreatedPayload {
 }
 
 /**
+ * The RACI subset of `ItemCreatedPayload`, reused verbatim for an existing-item update. An omitted axis
+ * means "no assertion about that axis", so it is preserved rather than cleared; a clear needs an explicit,
+ * unambiguous future wire shape instead of silently deleting a recorded governance assignment.
+ */
+export type ItemRaciUpdate = Pick<ItemCreatedPayload, 'accountable' | 'responsible'>
+
+/**
  * Demand lifecycle (Mode A, additive) — the optional WHO-is-handling fields carried on a spec/realization
  * transition payload. `handler` = the h2a instance id (DISTINCT from the channel `by`/`prov.principal`);
  * `leaseId` correlates to the ephemeral lease (Build 2). Both drop-when-absent ⇒ a pre-demand transition

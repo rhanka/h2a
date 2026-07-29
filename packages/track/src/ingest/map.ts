@@ -117,6 +117,11 @@ export function mapWorkEvent(ev: WorkEvent): MappedCommand {
       // createItem(ItemCreatedPayload) — validated payload already IS the (links-free) shape.
       args = [{ ...p }]
       break
+    case 'item.set-raci':
+      // setRaci(itemId, {accountable?, responsible?}) — the partial object uses the creation-payload
+      // field names exactly; the facade rejects an empty update. clientToken is threaded by ingest.
+      args = [p['itemId'], { ...opt('accountable'), ...opt('responsible') }]
+      break
     case 'item.reparent':
       // reparentItem(itemId, parentId?) — parentId is undefined when absent (detach to root).
       args = [p['itemId'], p['parentId']]

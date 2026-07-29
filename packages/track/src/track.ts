@@ -51,6 +51,7 @@ import {
   type Gate,
   type ItemCreatedPayload,
   type ItemId,
+  type ItemRaciUpdate,
   type ItemRole,
   type ItemState,
   type Link,
@@ -442,6 +443,28 @@ export class Track {
       if (clientToken !== undefined) this.withClientToken(clientToken, emit)
       else emit()
     })
+  }
+
+  /**
+   * Set one or both RACI fields on an existing item. Appends `item.raci-assigned` on the item's existing
+   * aggregate (next seq; no recreation, so prior responsibility remains auditable). This is a partial,
+   * field-wise LWW update: absent fields remain unchanged; clearing an assignment is intentionally not
+   * part of this narrow command. Guards reject an unknown item or an empty update before append. The optional
+   * `clientToken` is stamped via `withClientToken`, matching the other binding item mutations.
+   */
+  setRaci(itemId: ItemId, update: ItemRaciUpdate, clientToken?: string): void {
+    if (!this.state().items.has(itemId)) throw new DomainError(`unknown item ${itemId}`)
+    if (update.accountable === undefined && update.responsible === undefined) {
+      throw new DomainError('setRaci requires accountable and/or responsible')
+    }
+    const emit = (): void => {
+      this.emit('item', itemId, 'item.raci-assigned', {
+        ...(update.accountable !== undefined ? { accountable: update.accountable } : {}),
+        ...(update.responsible !== undefined ? { responsible: update.responsible } : {}),
+      })
+    }
+    if (clientToken !== undefined) this.withClientToken(clientToken, emit)
+    else emit()
   }
 
   /**

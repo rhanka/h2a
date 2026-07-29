@@ -13,6 +13,7 @@ import { ingest, type IngestContext } from './ingest/ingest.js'
 import { DomainError } from './model/item.js'
 import { TrackReader } from './read/contract.js'
 import { reportText } from './read/commands.js'
+import { fold } from './state/fold.js'
 import { Track } from './track.js'
 import { runCli, type CliIO } from './cli/index.js'
 
@@ -72,6 +73,56 @@ describe('Lot A — RACI fields on items & decisions (additive)', () => {
     expect('responsible' in payload).toBe(false)
     expect('engagementRef' in payload).toBe(false)
     expect(integral()).toBe(true)
+  })
+})
+
+describe('RACI assignment on an existing item', () => {
+  it('folds a pre-RACI item-created log to its established state without adding RACI fields', () => {
+    const id = t.createItem({ kind: 'feature', title: 'Created before RACI', workspace: 'ws' })
+    const preRaciLog = store.readAll()
+    const serializedLog = JSON.stringify(preRaciLog)
+
+    expect(fold(preRaciLog).items.get(id)).toEqual({
+      id,
+      kind: 'feature',
+      title: 'Created before RACI',
+      workspace: 'ws',
+      specStatus: 'to-specify',
+      realization: 'to-do',
+      disposition: { orientation: 'required', commitment: 'required' },
+    })
+    expect(JSON.stringify(preRaciLog)).toBe(serializedLog)
+  })
+
+  it('updates supplied fields while preserving the others, with a durable item event', () => {
+    const id = t.createItem({
+      kind: 'feature',
+      title: 'X',
+      workspace: 'ws',
+      accountable: 'human:alice',
+      responsible: ['agent:codex'],
+    })
+
+    t.setRaci(id, { responsible: ['agent:gemini', 'human:bob'] }, 'raci-1')
+    t.setRaci(id, { accountable: 'human:carol' })
+
+    const item = t.state().items.get(id)!
+    expect(item.accountable).toBe('human:carol')
+    expect(item.responsible).toEqual(['agent:gemini', 'human:bob'])
+    const events = store.readAll().filter((event) => event.aggregateId === id)
+    expect(events.map((event) => event.type)).toEqual(['item.created', 'item.raci-assigned', 'item.raci-assigned'])
+    expect(events.map((event) => event.seq)).toEqual([1, 2, 3])
+    expect(events[1]!.aggregateId).toBe(id)
+    expect(events[1]!.payload).toEqual({ responsible: ['agent:gemini', 'human:bob'] })
+    expect(events[1]!.clientToken).toBe('raci-1')
+    expect(integral()).toBe(true)
+  })
+
+  it('rejects an unknown item and an empty update before append', () => {
+    const id = t.createItem({ kind: 'feature', title: 'X', workspace: 'ws' })
+    expect(() => t.setRaci('NOPE', { accountable: 'human:alice' })).toThrow(/unknown item NOPE/)
+    expect(() => t.setRaci(id, {})).toThrow(/requires accountable and\/or responsible/)
+    expect(store.readAll()).toHaveLength(1)
   })
 })
 
@@ -141,6 +192,35 @@ describe('Lot A — the WorkEvent ingest path carries the new fields', () => {
     expect(item.accountable).toBe('human:a')
     expect(item.responsible).toEqual(['agent:c'])
     expect(item.engagementRef).toBe('eng-1')
+  })
+
+  it('ingests RACI updates on an existing item through the authenticated, workspace-pinned seam', () => {
+    const id = ingest(
+      [{ v: 1, kind: 'item.create', payload: { kind: 'feature', title: 'X', workspace: 'ws', accountable: 'human:alice' } }],
+      ctx,
+      store,
+    ).ids[0]!
+
+    ingest(
+      [{ v: 1, kind: 'item.set-raci', payload: { itemId: id, responsible: ['agent:codex'] } }],
+      ctx,
+      store,
+    )
+    const item = t.state().items.get(id)!
+    expect(item.accountable).toBe('human:alice')
+    expect(item.responsible).toEqual(['agent:codex'])
+
+    const unauthenticated: IngestContext = {
+      ...ctx,
+      prov: { transport: 'http', proposed: true, auth: 'unauthenticated' },
+    }
+    expect(() =>
+      ingest([{ v: 1, kind: 'item.set-raci', payload: { itemId: id, accountable: 'human:bob' } }], unauthenticated, store),
+    ).toThrow(/binding write/)
+    expect(() =>
+      ingest([{ v: 1, kind: 'item.set-raci', payload: { itemId: id, accountable: 'human:bob' } }], { ...ctx, workspace: 'other' }, store),
+    ).toThrow(/belongs to workspace "ws"/)
+    expect(t.state().items.get(id)!.accountable).toBe('human:alice')
   })
 
   it('ingests an extra-scope dependency blocker', () => {
@@ -236,6 +316,38 @@ describe('Lot A — CLI flags', () => {
     expect(item.accountable).toBe('human:a')
     expect(item.responsible).toEqual(['agent:c', 'human:b'])
     expect(item.engagementRef).toBe('eng-7')
+  })
+
+  it('track item set-raci updates an already-created item without recreating it', () => {
+    const out: string[] = []
+    const io: CliIO = { cwd: dir, out: (s) => out.push(s), err: (s) => out.push(s) }
+    expect(runCli(['init'], io)).toBe(0)
+    expect(runCli(['item', 'new', '--kind', 'feature', '--title', 'X', '--workspace', 'ws'], io)).toBe(0)
+    const id = out[out.length - 1]!.trim()
+
+    const update = ['item', 'set-raci', id, '--accountable', 'human:alice', '--responsible', 'agent:codex, human:bob', '--client-token', 'raci-1']
+    expect(runCli(update, io)).toBe(0)
+    out.length = 0
+    expect(runCli(update, io)).toBe(0)
+    expect(out.join('')).toContain('no-op: client-token already applied')
+
+    const events = new EventStore(join(dir, '.track', 'events.jsonl')).readAll()
+    const item = new Track(new EventStore(join(dir, '.track', 'events.jsonl'))).state().items.get(id)!
+    expect(events.filter((event) => event.aggregateId === id).map((event) => event.type)).toEqual(['item.created', 'item.raci-assigned'])
+    expect(item.accountable).toBe('human:alice')
+    expect(item.responsible).toEqual(['agent:codex', 'human:bob'])
+  })
+
+  it('track item set-raci requires at least one RACI field', () => {
+    const out: string[] = []
+    const io: CliIO = { cwd: dir, out: (s) => out.push(s), err: (s) => out.push(s) }
+    expect(runCli(['init'], io)).toBe(0)
+    expect(runCli(['item', 'new', '--kind', 'feature', '--title', 'X', '--workspace', 'ws'], io)).toBe(0)
+    const id = out[out.length - 1]!.trim()
+    out.length = 0
+
+    expect(runCli(['item', 'set-raci', id], io)).toBe(1)
+    expect(out.join('')).toContain('requires --accountable and/or --responsible')
   })
 })
 

@@ -40,7 +40,7 @@ const RAISE = { type: 'feature', raw: { text: 'add X' }, source: { kind: 'human'
 
 describe('demand ingest — contract version bump (additive minor)', () => {
   it('INGEST_CONTRACT_VERSION retains the post-demand evolution', () => {
-    expect(INGEST_CONTRACT_VERSION).toBe('2.0.0') // 2.0.0: decision.outcome is defer-only
+    expect(INGEST_CONTRACT_VERSION).toBe('2.1.0') // 2.1.0: item.set-raci is additive; 2.0.0 narrowed decision.outcome
   })
 })
 

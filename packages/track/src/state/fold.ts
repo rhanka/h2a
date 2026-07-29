@@ -21,6 +21,7 @@ import type {
   Gate,
   ItemCreatedPayload,
   ItemId,
+  ItemRaciUpdate,
   ItemRole,
   ItemState,
   Realization,
@@ -113,6 +114,15 @@ export function openBlockersForItem(state: State, itemId: ItemId): BlockerState[
   return openBlockers(state).filter((b) => b.targetId === itemId)
 }
 
+/**
+ * Apply the creation-payload RACI subset. An omitted axis preserves the current value because the shared
+ * optional payload shape cannot distinguish omission from a request to clear; clearing must be explicit.
+ */
+function applyItemRaci(item: ItemState, payload: ItemRaciUpdate): void {
+  if (payload.accountable !== undefined) item.accountable = payload.accountable
+  if (payload.responsible !== undefined) item.responsible = payload.responsible
+}
+
 function applyEvent(state: State, event: TrackEvent): void {
   switch (event.type) {
     case 'item.created': {
@@ -131,13 +141,12 @@ function applyEvent(state: State, event: TrackEvent): void {
         ...(payload.sourceKey !== undefined ? { sourceKey: payload.sourceKey } : {}),
         ...(payload.body !== undefined ? { body: payload.body } : {}),
         ...(payload.links !== undefined ? { links: payload.links } : {}),
-        ...(payload.accountable !== undefined ? { accountable: payload.accountable } : {}),
-        ...(payload.responsible !== undefined ? { responsible: payload.responsible } : {}),
         ...(payload.engagementRef !== undefined ? { engagementRef: payload.engagementRef } : {}),
         // Demand lifecycle (Mode A, additive) — the parent demand back-link, set ONLY by the atomic
         // agreeDemand promotion batch; absent on a directly-created item (drop-when-absent).
         ...(payload.demandId !== undefined ? { demandId: payload.demandId } : {}),
       }
+      applyItemRaci(item, payload)
       state.items.set(item.id, item)
       break
     }
@@ -194,6 +203,14 @@ function applyEvent(state: State, event: TrackEvent): void {
       // bucket/ref logic. An old reader without this case hits `default` and ignores the event (fail-safe).
       const item = state.items.get(event.aggregateId)
       if (item) item.code = (event.payload as { code: string }).code
+      break
+    }
+
+    case 'item.raci-assigned': {
+      // RACI assignment on an existing item is field-wise LWW: an omitted field is not a clear and stays
+      // untouched. Append-time guards ensure the target exists and that at least one field was supplied.
+      const item = state.items.get(event.aggregateId)
+      if (item) applyItemRaci(item, event.payload as ItemRaciUpdate)
       break
     }
 
