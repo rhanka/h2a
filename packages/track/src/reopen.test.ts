@@ -248,6 +248,28 @@ describe('reopen — a workpackage percentage can recede to the truth', () => {
   })
 })
 
+// ---- 4b. the regression propagates to what depended on the reopened capability -----------------
+
+describe('reopen — a linked-done dependency re-blocks what depended on the reopened item', () => {
+  it('sends the dependent item back to AWAITED', () => {
+    const dep = item('the capability others depend on')
+    const dependent = item('work that needs it')
+    t.openBlocker({
+      targetId: dependent,
+      kind: 'dependency',
+      ref: dep,
+      reason: 'needs the capability',
+      resolutionRule: 'linked-done',
+    })
+    closeDone(dep)
+    // the dependency is delivered ⇒ the derived blocker clears, the dependent is no longer AWAITED
+    expect(bucketOf(t.state(), t.state().items.get(dependent)!, cfg)).toBe('TO-DO')
+    t.reopenItem(dep, { motive: 'regression-observed', reason: 'the capability regressed' })
+    // the regression propagates: the derived openness is revocable, so the dependent is AWAITED again
+    expect(bucketOf(t.state(), t.state().items.get(dependent)!, cfg)).toBe('AWAITED')
+  })
+})
+
 // ---- 5. integrity: a hand-written reopening must carry a legal motive ---------------------------
 
 describe('reopen — validate rejects a motive-less reopening from a foreign writer', () => {
