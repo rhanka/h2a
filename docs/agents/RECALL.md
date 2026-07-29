@@ -36,20 +36,32 @@ events on `origin/main` (no fork).
 ## SETTLED DOCTRINE
 
 Decided and recorded as a selected option in the journal. Rung: **structural** — the
-question, the chosen option and its rationale are all retrievable with
-`track item show` / `track decision ls`, keyed by the ULID below. All six were confirmed
-present on `origin/main` as `decision.created` + `decision.option-selected`. Do not
-reopen these without a new decision.
+question, selected option and its recorded summary are retrievable by the decision ULID.
+`node scripts/generate-recall-doctrine.mjs` reads `.track/events.jsonl` and replaces only
+the content bounded by the `DOCTRINE-PROJECTION:START` and `DOCTRINE-PROJECTION:END` HTML
+comments below. `--check` fails when that bounded projection is stale.
 
-| id | rule | locator (decision ULID) | settled |
-|---|---|---|---|
-| DOC-01 | Several candidates match a target → **h2a refuses and prints the list**. It does not pick. | `01KY66FVKFFVKRDXY9PFGEF4RD` | 2026-07-28 |
-| DOC-02 | "Agent available" requires **three** facts together: the tmux pane exists, the agent process runs, and there was recent MCP activity. | `01KY66FW260Q5TV1DVR6ZPH891` | 2026-07-28 |
-| DOC-03 | A name resolves in **one pass** against four namespaces — h2a role, `run --name`, CLI-native name, tmux session name — and h2a shows which one matched. | `01KYNGMC6979YKMXV8MQQ8A16H` | 2026-07-28 |
-| DOC-04 | Known prefixes (`remote-`, `h2a-`) are **stripped before comparison**; nothing is renamed. | `01KYNGMCB0Z7ESGYJKFVCTW8MH` | 2026-07-28 |
-| DOC-05 | An item closed without human validation **can be reopened**: `done → in-progress` and `cancelled → in-progress` become legal, the reopening event carries its reason, nothing is erased. *Decided; implementation in flight on `fix/track-reopen-closed-item`, **not merged** into `origin/main` — so a WP percentage can still be wrong in its own favour. See REC-05.* | `01KYQ5RRN67190YMZ08EGGBSBT` | 2026-07-29 |
-| DOC-07 | **Durable actor memory lives at the tracked path `docs/agents/`.** `tmp/` stays ignored — the test runner writes `tmp/test-runtime` and worktrees live under `tmp/worktrees`, so un-ignoring it would version scratch. The briefs and `COMMON.md` join `RECALL.md` and `DELEGATION.md` there. **Constraint: the move and the launch-path repoint must land together** — a tracked copy that goes stale while `launch.sh` still reads the ignored one would look versioned and be wrong, which is worse than today. Sequencing is the conductor's to diffuse. | `01KYQZXCEZJXYAJ04YB5YMEWK0` | 2026-07-29 |
-| DOC-06 | Twelve durable actors: four transverse (`architect` WP6, `conductor` WP4, `harness` WP9, `cyber` no WP) and eight domain lanes (`coop` WP1-3, `runtime` WP5+7, `track` WP8, `plugins` WP10, `memory` WP11, `portal` WP12, `agents` WP13, `gateway` WP14). | `01KYQ89WANWD257Y3GCW7YM8BZ` | 2026-07-29 |
+The `selected option (journal)` column is always generated from the selected option id and
+the latest `dossier.options[].summary`. An `editorial rule` is distinguished by a DOC id:
+it is the preserved hand-written wording for that exact decision ULID, kept where it is
+sharper than the raw summary. A row without such wording shows `—`; its cells are wholly
+generated. Any legacy wording whose decision has no selection event is also generated
+below the table as explicitly **not doctrine**, rather than silently dropped.
+
+<!-- DOCTRINE-PROJECTION:START -->
+| id | question | selected option (journal) | editorial rule (hand-written where sharper) | locator (decision ULID) | settled |
+|---|---|---|---|---|---|
+| DOC-01 | 3/6 — Quand plusieurs sessions correspondent, que fait H2A ? | `A` — Plusieurs candidats : h2a refuse et affiche la liste. | Several candidates match a target → **h2a refuses and prints the list**. It does not pick. | `01KY66FVKFFVKRDXY9PFGEF4RD` | 2026-07-28 |
+| DOC-02 | 4/6 — Quelle preuve faut-il avant de dire « agent disponible » ? | `A` — Disponible = le pane tmux existe ET le processus de l'agent tourne ET il y a eu une activite MCP recente. | "Agent available" requires **three** facts together: the tmux pane exists, the agent process runs, and there was recent MCP activity. | `01KY66FW260Q5TV1DVR6ZPH891` | 2026-07-28 |
+| DOC-03 | Sur quels espaces de noms resoudre une cible ? | `A` — Un nom est resolu contre le role H2A, le --name de la commande run, le nom natif de la CLI et le nom de session tmux, en une seule passe, et H2A montre lequel a matche. | A name resolves in **one pass** against four namespaces — h2a role, `run --name`, CLI-native name, tmux session name — and h2a shows which one matched. | `01KYNGMC6979YKMXV8MQQ8A16H` | 2026-07-28 |
+| DOC-04 | Prefixe remote- sur les sessions tmux : que fait la resolution ? | `A` — H2A denude les prefixes connus (remote-, h2a-) avant de comparer, sans rien renommer. | Known prefixes (`remote-`, `h2a-`) are **stripped before comparison**; nothing is renamed. | `01KYNGMCB0Z7ESGYJKFVCTW8MH` | 2026-07-28 |
+| DOC-05 | Un item clos sans validation humaine peut-il etre rouvert ? | `A` — done -> in-progress et cancelled -> in-progress redeviennent legales. L'evenement de reouverture porte son motif : cloture sans UAT owner, ou regression constatee. Rien n'est efface : c'est une transition de plus dans un journal append-only. | An item closed without human validation **can be reopened**: `done → in-progress` and `cancelled → in-progress` become legal, the reopening event carries its reason, nothing is erased. *Decided; implementation in flight on `fix/track-reopen-closed-item`, **not merged** into `origin/main` — so a WP percentage can still be wrong in its own favour. See REC-05.* | `01KYQ5RRN67190YMZ08EGGBSBT` | 2026-07-29 |
+| DOC-06 | Modele d'acteurs durables : roles transverses et lanes de domaine | `A` — architect (WP6), conductor (WP4), harness (WP9), cyber (sans WP) ; coop (WP1-3), runtime (WP5,7), track (WP8), plugins (WP10), memory (WP11), portal (WP12), agents (WP13), gateway (WP14). Le conducteur definit le RACI sur avis de l'architecte. | Twelve durable actors: four transverse (`architect` WP6, `conductor` WP4, `harness` WP9, `cyber` no WP) and eight domain lanes (`coop` WP1-3, `runtime` WP5+7, `track` WP8, `plugins` WP10, `memory` WP11, `portal` WP12, `agents` WP13, `gateway` WP14). | `01KYQ89WANWD257Y3GCW7YM8BZ` | 2026-07-29 |
+
+**Unprojected legacy rules — not doctrine.** They remain visible so a missing journal event cannot silently erase their phrasing; if the event arrives, the generator moves the rule into the table.
+
+- `DOC-07` is not a doctrine row because `01KYQZXCEZJXYAJ04YB5YMEWK0` has no `decision.option-selected` event in this journal. Its preserved hand-written wording is: **Durable actor memory lives at the tracked path `docs/agents/`.** `tmp/` stays ignored — the test runner writes `tmp/test-runtime` and worktrees live under `tmp/worktrees`, so un-ignoring it would version scratch. The briefs and `COMMON.md` join `RECALL.md` and `DELEGATION.md` there. **Constraint: the move and the launch-path repoint must land together** — a tracked copy that goes stale while `launch.sh` still reads the ignored one would look versioned and be wrong, which is worse than today. Sequencing is the conductor's to diffuse.
+<!-- DOCTRINE-PROJECTION:END -->
 
 **An open decision contradicts a settled design, and it is filed against this WP.** The
 track report carries D5 "Comment lancer le moteur natif H2A ?" with recommendation A —
