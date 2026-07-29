@@ -569,29 +569,51 @@ export interface ReportHandle {
   wpLabel?: string
 }
 
+/** Criterion 24 — an omission is a declared act WITH A REASON, never a silent drop. */
+export interface ReportOmission {
+  label: string
+  reason: string
+}
+
 /**
  * Criterion 17 (as reconciled) — compactness accounting. `projected` counts the rows the deterministic
- * projection carries (WP nodes + hors-rollup rows + unscoped rows + dossiers); `rendered` counts the rows
- * the four sections actually print. Compression is legitimate — a report is a decision surface, not an
- * inventory — but it must be DECLARED, never silent. `omitted` names what was dropped; by construction it
- * only ever holds WPs with no open work and no recorded gate (criterion 18 protects the rest).
+ * projection carries (WP nodes + hors-rollup rows + dossiers); `rendered` counts how many of those the
+ * four sections actually restitute. Compression is legitimate — a report is a decision surface, not an
+ * inventory — but it must be DECLARED, never silent. Criterion 24 adds the WHY: every omission names its
+ * reason. Criterion 18 still protects the two classes that may never be omitted.
  */
 export interface ReportCoverage {
   projected: number
   rendered: number
-  omitted: readonly string[]
+  omitted: readonly ReportOmission[]
 }
 
 /**
- * Criterion 1 (as scoped by the 2026-07-29 correction) — the header carries the ACCEPTANCE BASELINE and
- * states that the report covers the whole log. It must NOT name a window: `--since`/`--until`/`--period`
- * do not exist yet, so a named window would be a claim nothing can support.
+ * Criterion 21 — the window ALWAYS exists and always has bounds. "The whole log" IS a window: first
+ * recorded event → now. Both bounds are readable without any selector, so the header always carries
+ * dates. This LIFTS criterion 1's constraint rather than breaking it: a window MEASURED IN THE LOG is not
+ * an invented one. What stays forbidden is announcing a window nothing supports.
+ */
+export interface ReportPeriod {
+  /** ISO date (UTC) of the first recorded event; absent only for an empty log. */
+  from?: string
+  /** ISO date (UTC) of the upper bound — `now` when the caller injects a clock, else the last event. */
+  to?: string
+  /** How the upper bound was obtained, so the header never overstates it. */
+  toSource: 'now' | 'last-event' | 'unknown'
+  /** The rendered French line: `période : … → … (intégralité du journal)`. */
+  label: string
+}
+
+/**
+ * The header carries the ACCEPTANCE BASELINE (which is NOT a window) and the period (which is). It never
+ * carries bucket counters.
  */
 export interface ReportHeader {
   scope: string
   progress: string
   baselineCommit?: string
-  window: string
+  period: ReportPeriod
   sources: readonly string[]
   coverage: ReportCoverage
   handleCommand: string
@@ -693,15 +715,100 @@ function recentDoneLeaves(node: WpNode): WpNode['leaves'] {
 const LAST_ACTIONS_SHOWN = 3
 
 /**
- * FAIT's third column (criterion 3/4): the LAST RECORDED ACTIONS of that scope — never a restatement of
- * the arithmetic. When the scope carries more completions than fit, the compression is DECLARED rather
- * than hidden behind a silent tail.
+ * FAIT's third column (criteria 3/4/22). When the scope's completions fit, they ARE the statement and are
+ * listed in full. When they do not, three of fifty-four is a SAMPLE, not a summary — and the previous
+ * rendering presented it as one, which is what failed UAT. The deterministic projection carries item
+ * titles, not a reading of them, so it cannot produce a balance sheet: it says so, names what it would
+ * take (input 2, the repository history over the window), and labels the titles it does show as a sample.
  */
 function lastActionsCell(titles: readonly string[]): string {
   if (titles.length === 0) return 'aucune action enregistrée'
-  const shown = titles.slice(0, LAST_ACTIONS_SHOWN)
-  const suffix = titles.length > shown.length ? ` — ${shown.length} des ${titles.length} actions enregistrées` : ''
-  return shown.join(' · ') + suffix
+  if (titles.length <= LAST_ACTIONS_SHOWN) return titles.join(' · ')
+  return (
+    `bilan à écrire — ${titles.length} actions enregistrées, titres seuls dans le projeté ` +
+    `(requiert l’historique du dépôt sur la fenêtre) · échantillon : ${titles.slice(0, LAST_ACTIONS_SHOWN).join(' · ')}`
+  )
+}
+
+// ---- `prochaine action` (criterion 20) -----------------------------------------------------------
+// The gate-derived clause (`Terminer l'incrément en cours`, `Rédiger la spécification`) names the CLASS of
+// the work, never the work. Twenty rows, five distinct sentences, zero information — that is a template,
+// not a recommendation, and this renderer must stop presenting one as the other. The class is not lost: it
+// is exactly what the `bloqué` column already says, under a label that is honest about being a class.
+//
+// So the deterministic layer emits a marker that CANNOT be mistaken for a recommendation, and the skill
+// makes the agent replace it — on the focus rows only, by opening the item — with the concrete gesture.
+
+/** A focus row: the agent MUST open the item and name the gesture before this report is served. */
+const NEXT_ACTION_TO_INSTRUCT = 'à instruire : ouvrir l’item et nommer le geste'
+/** A non-focus row: the report says plainly that the action was not instructed, rather than faking one. */
+const NEXT_ACTION_NOT_INSTRUCTED = 'non instruite'
+/** Criterion 24 — what would make an unanswerable dossier answerable. Specific, not a gate class. */
+const NEXT_ACTION_STRUCTURE_DOSSIER = 'à structurer : enregistrer options + recommandation'
+/** How many leading rows are the focus — the same five the À-FAIRE ordering line already names. */
+const FOCUS_ROWS = 5
+
+/** The `prochaine action` values this renderer may emit. A test pins that no gate clause joins them. */
+export const DETERMINISTIC_NEXT_ACTIONS: readonly string[] = [
+  NEXT_ACTION_TO_INSTRUCT, NEXT_ACTION_NOT_INSTRUCTED, NEXT_ACTION_STRUCTURE_DOSSIER, '—',
+]
+
+export interface NextActionAudit {
+  /** Rows still carrying a renderer marker — the work criterion 20 asks the agent to do. */
+  uninstructed: number
+  /** A substantive action served on 3+ rows: by construction it names a class, not a gesture. */
+  repeated: readonly string[]
+  /** A substantive action equal to a gate clause: the exact template criterion 20 rejects. */
+  gateClauses: readonly string[]
+  ok: boolean
+}
+
+/**
+ * Criterion 20, made checkable. The owner's judgement — is the sentence RIGHT — is out of reach of any
+ * test; these two mechanical failures are not. A contextual report passes when every focus row has been
+ * instructed AND no substantive action repeats more than twice or equals a gate clause.
+ *
+ * The renderer's own markers are counted as `uninstructed`, never as violations: they are the honest
+ * statement that the work is still owed, which is exactly what the report must say until it is done.
+ */
+export function auditNextActions(values: readonly string[], gateClauses: readonly string[]): NextActionAudit {
+  const marker = new Set<string>(DETERMINISTIC_NEXT_ACTIONS)
+  const substantive = values.filter((value) => !marker.has(value))
+  const counts = new Map<string, number>()
+  for (const value of substantive) counts.set(value, (counts.get(value) ?? 0) + 1)
+  const repeated = [...counts.entries()].filter(([, n]) => n > 2).map(([value]) => value)
+  const bare = (value: string): string => value.replace(/^(?:action|engagement|décision) \([^)]*\)\s*:\s*/u, '')
+  const gates = new Set(gateClauses)
+  const hits = substantive.filter((value) => gates.has(bare(value)))
+  const uninstructed = values.filter((value) => value === NEXT_ACTION_TO_INSTRUCT).length
+  return { uninstructed, repeated, gateClauses: [...new Set(hits)], ok: repeated.length === 0 && hits.length === 0 }
+}
+
+/** `2026-07-29T11:02:03.000Z` → `2026-07-29`. UTC, so the header is TZ-independent and reproducible. */
+function isoDate(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString().slice(0, 10)
+}
+
+/** Criterion 21 — the period, always bounded, always read from the log (plus the caller's clock). */
+function buildPeriod(meta: ConductorMeta): ReportPeriod {
+  const from = isoDate(meta.logFrom)
+  const now = isoDate(meta.now)
+  const last = isoDate(meta.logTo)
+  const to = now ?? last
+  const toSource: ReportPeriod['toSource'] = now !== undefined ? 'now' : last !== undefined ? 'last-event' : 'unknown'
+  const suffix = toSource === 'last-event' ? ' (intégralité du journal, borne haute = dernier événement)' : ' (intégralité du journal)'
+  const label =
+    from === undefined || to === undefined
+      ? 'période : journal vide (aucun événement enregistré)'
+      : `période : ${from} → ${to}${suffix}`
+  return {
+    ...(from !== undefined ? { from } : {}),
+    ...(to !== undefined ? { to } : {}),
+    toSource,
+    label,
+  }
 }
 
 const OPTION_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
@@ -732,6 +839,15 @@ function compactRefs(refs: readonly string[]): string {
 export interface ConductorMeta {
   /** The acceptance baseline the report is judged against — NOT a reporting window (criterion 1). */
   baselineCommit?: string
+  /** ISO timestamp of the FIRST recorded event — the window's lower bound (criterion 21). */
+  logFrom?: string
+  /** ISO timestamp of the LAST recorded event — the fallback upper bound when no clock is injected. */
+  logTo?: string
+  /**
+   * The caller's clock, injected at ITS boundary so this module stays clockless and byte-reproducible
+   * (same pattern as `workspace-activity --now`). Present ⇒ the window's upper bound is `now`.
+   */
+  now?: string
 }
 
 export function buildWpConductorView(
@@ -755,23 +871,22 @@ export function buildWpConductorView(
   const directives = buildDirectives(tree, decisions)
   const dispatchQueue = dispatchQueueOf(directives)
   const keystone = keystoneOf(tree)
-  const { structured: structuredDecisions, legacyPending, legacySettled } = classifyDecisions(decisions)
+  const { structured: structuredDecisions, legacyPending } = classifyDecisions(decisions)
 
-  // ---- decision numbering (criterion 16) ----------------------------------------------------------
-  // A D-number is RESERVED for a dossier whose options AND recommendation are stored and still pending:
-  // those are the only ones an owner can answer with a letter. Everything else keeps a `Q` handle so it
-  // stays addressable (10b) without ever being offered in the reply line.
+  // ---- decision numbering (criteria 16/23/24) ------------------------------------------------------
+  // 16 — a D-number is RESERVED for a dossier whose options AND recommendation are stored and still
+  //      pending: those are the only ones an owner can answer with a letter.
+  // 23 — DÉCISIONS is the surface where the owner DECIDES. A settled dossier has nothing to answer; it
+  //      crowds out the ones still waiting and is already visible where it counts (a freed `bloqué`
+  //      cell, or FAIT if it produced something). It leaves the report and is counted among omissions.
+  // 24 — a pending dossier with no stored options cannot be answered either. It is not dressed up as a
+  //      choice: it appears in À-FAIRE as the work of making it answerable.
   const structuredPending = structuredDecisions.filter((d) => d.outcome === 'pending')
-  const decisionOrder = [
-    ...structuredPending,
-    ...structuredDecisions.filter((d) => d.outcome !== 'pending'),
-    ...legacyPending,
-    ...legacySettled,
-  ]
+  const settledDecisions = decisions.filter((d) => d.outcome !== 'pending')
   const decisionRef = new Map<string, string>()
   structuredPending.forEach((d, i) => decisionRef.set(d.id, `D${i + 1}`))
-  let qCounter = 0
-  for (const d of decisionOrder) if (!decisionRef.has(d.id)) decisionRef.set(d.id, `Q${++qCounter}`)
+  legacyPending.forEach((d, i) => decisionRef.set(d.id, `Q${i + 1}`))
+  const isPending = new Set(decisions.filter((d) => d.outcome === 'pending').map((d) => d.id))
 
   // ---- handles (criteria 10b/10c) -----------------------------------------------------------------
   // Handles are POSITIONAL WITHIN THIS REPORT (`[row.item]`), assigned AFTER À-FAIRE is ordered. Leg A
@@ -835,15 +950,29 @@ export function buildWpConductorView(
     for (const d of attached) {
       const gate = d.gate
       if (gate === undefined) continue
-      const dossier = gate.code === 'decision-pending' ? decisionRef.get(gate.ref ?? '') : undefined
-      refs.push(dossier ?? GATE_TOKEN[gate.code] ?? 'blocage')
+      if (gate.code !== 'decision-pending') {
+        refs.push(GATE_TOKEN[gate.code] ?? 'blocage')
+        continue
+      }
+      const ref = gate.ref ?? ''
+      const number = decisionRef.get(ref)
+      // A blocker still open against a dossier that has ALREADY been settled is an anomaly the owner
+      // should see, not a number pointing at a row this report no longer carries (criterion 23).
+      refs.push(number ?? (ref !== '' && !isPending.has(ref) ? 'décision réglée' : 'décision'))
     }
     return refs.length === 0 ? NO_GATE : compactRefs(refs)
   }
-  const nextActionCell = (attached: readonly Directive[]): string => {
-    const phrases = attached.filter((d) => d.mode !== 'human-decision').map(directivePhrase)
-    return phrases.length === 0 ? NO_ACTION : [...new Set(phrases)].join(' / ')
-  }
+  /**
+   * Criterion 20 — the gate CLASS, kept as a machine-only property. It is what the old `prochaine action`
+   * printed; it is legitimate as a starting point for the agent's investigation and illegitimate as a
+   * recommendation, so it is carried and never rendered.
+   */
+  const gateStepClass = (attached: readonly Directive[]): string =>
+    [...new Set(attached.filter((d) => d.mode !== 'human-decision').map((d) => directivePhrase(d)))].join(' / ')
+  /** Does this row wait on a dossier the owner can answer? Then it owes no next action (criterion 14). */
+  const gatedOnPendingDecision = (attached: readonly Directive[]): boolean =>
+    attached.length > 0 &&
+    attached.every((d) => d.mode === 'human-decision' && isPending.has(d.gate?.ref ?? ''))
   const directiveIds = (attached: readonly Directive[]): string => attached.map((d) => d.id).join(',')
   // Machine-only audit properties (NOT declared columns, so no renderer ever prints them): the precise
   // gate phrase the short `bloqué` token compacts, kept so nothing is lost from the projection.
@@ -857,9 +986,12 @@ export function buildWpConductorView(
     progress: string
     items: TodoItem[]
     blocked: string
-    nextAction: string
+    /** Fixed only for the rows whose next action is NOT a per-row investigation (criterion 20). */
+    fixedNextAction?: string
+    gatedOnDecision: boolean
     directiveIds: string
     gateDetail: string
+    gateStep: string
     order: string
   }
 
@@ -874,35 +1006,47 @@ export function buildWpConductorView(
         if (d.target.kind === 'decision' || items.some((i) => i.id === d.target.id)) continue
         items.push({ id: d.target.id, title: clean(d.target.title ?? d.target.id), note: d.facts.bucket.toLowerCase() })
       }
+      const gated = gatedOnPendingDecision(attached)
       return {
         wp: wpName(n),
         progress: pctStr(n.pct),
         items,
         blocked: blockedCell(attached),
-        nextAction: nextActionCell(attached),
+        gatedOnDecision: gated,
+        ...(gated ? { fixedNextAction: NO_ACTION } : {}),
         directiveIds: directiveIds(attached),
         gateDetail: gateDetail(attached),
+        gateStep: gateStepClass(attached),
         order: String(Math.min(...attached.map((d) => urgencyIndex.get(d.id) ?? 9999), 9999)).padStart(5, '0'),
       }
     })
 
-  // A pending dossier with no WP ancestor is still open work the owner must see: it lands in À-FAIRE
-  // (criterion 2 — it is not a top-level section of its own), one row, gated on its own D/Q number.
+  // Criterion 24 — a PENDING dossier with no stored options cannot be answered, so it is not offered as a
+  // choice in DÉCISIONS. It is real open work: it appears here, with what would make it answerable.
+  // A structured pending dossier needs no À-FAIRE row — DÉCISIONS is where the owner answers it.
   const unscopedDirectives = directives.filter((d) => d.scope.wpId === undefined)
+  const toStructure = unscopedDirectives.filter((d) => {
+    const ref = d.gate?.ref ?? d.target.id
+    return decisionRef.get(ref)?.startsWith('Q') === true
+  })
   const outsideOpen = outsideRollup.filter(
     (r) => (r.bucket === 'TO-DO' || r.bucket === 'AWAITED') && !unscopedDirectives.some((d) => d.target.id === r.id),
   )
   const horsWpDrafts: TodoDraft[] = []
-  if (unscopedDirectives.length > 0) {
+  if (toStructure.length > 0) {
     horsWpDrafts.push({
-      wp: 'hors WP · dossiers',
+      wp: 'hors WP · dossiers à structurer',
       progress: 'n/a',
-      items: unscopedDirectives.map((d) => ({ id: d.target.id, title: clean(d.target.title ?? d.target.id) })),
-      blocked: blockedCell(unscopedDirectives),
-      nextAction: nextActionCell(unscopedDirectives),
-      directiveIds: directiveIds(unscopedDirectives),
-      gateDetail: gateDetail(unscopedDirectives),
-      order: String(Math.min(...unscopedDirectives.map((d) => urgencyIndex.get(d.id) ?? 9999))).padStart(5, '0'),
+      items: toStructure.map((d) => ({ id: d.target.id, title: clean(d.target.title ?? d.target.id) })),
+      // Criterion 19 — a gate IS recorded, so this is never `—`; and it names the actual blockage rather
+      // than pointing back at the row's own dossiers.
+      blocked: 'options non enregistrées',
+      fixedNextAction: NEXT_ACTION_STRUCTURE_DOSSIER,
+      gatedOnDecision: false,
+      directiveIds: directiveIds(toStructure),
+      gateDetail: gateDetail(toStructure),
+      gateStep: gateStepClass(toStructure),
+      order: String(Math.min(...toStructure.map((d) => urgencyIndex.get(d.id) ?? 9999))).padStart(5, '0'),
     })
   }
   if (outsideOpen.length > 0) {
@@ -911,26 +1055,21 @@ export function buildWpConductorView(
       progress: 'n/a',
       items: outsideOpen.map((r) => ({ id: r.id, title: clean(r.title) })),
       blocked: NO_GATE,
-      nextAction: `action (subagent): ${stepActionFr('inspect-fallback')}`,
+      gatedOnDecision: false,
       directiveIds: '',
       gateDetail: '',
+      gateStep: '',
       order: '09998',
     })
   }
-
-  // Criterion 17 — compression is allowed, silence is not. A WP with NO open work, NO recorded gate and
-  // NO recorded completion appears in neither FAIT nor À-FAIRE: it is omitted, and DECLARED in the header
-  // count. Criterion 18 is what keeps that safe: a WP that carries open work, and every pending dossier,
-  // is in the rendered lists above and can never fall here.
-  const omitted = wpNodes
-    .filter((n) => n.done === 0 && openLeaves(n).length === 0 && !directivesByWpId.has(n.id))
-    .map(wpName)
 
   const orderedDrafts = [...wpTodoDrafts, ...horsWpDrafts].sort((a, b) =>
     a.order === b.order ? a.wp.localeCompare(b.wp) : a.order.localeCompare(b.order),
   )
 
   // Handles are assigned HERE, once the order is final: `[row.item]`, both 1-based (criterion 10b/10c).
+  // `prochaine action` is decided here too, because whether a row is FOCUS depends on that same order
+  // (criterion 20: the per-row investigation is bounded to the five rows the ordering line names).
   const orderedTodo: Record<string, string>[] = orderedDrafts.map((draft, rowIndex) => {
     const cells = draft.items.map((item, itemIndex) => {
       const handle = `${rowIndex + 1}.${itemIndex + 1}`
@@ -941,17 +1080,26 @@ export function buildWpConductorView(
       })
       return `[${handle}] ${item.title}${item.note === undefined ? '' : ` (${item.note})`}`
     })
+    const nextAction =
+      draft.fixedNextAction ??
+      (draft.items.length === 0
+        ? NO_ACTION
+        : rowIndex < FOCUS_ROWS
+          ? NEXT_ACTION_TO_INSTRUCT
+          : NEXT_ACTION_NOT_INSTRUCTED)
     return {
       wp: draft.wp,
       progress: draft.progress,
       todo: cells.join(' / '),
       blocked: draft.blocked,
-      nextAction: draft.nextAction,
+      nextAction,
       directiveIds: draft.directiveIds,
       gateDetail: draft.gateDetail,
+      gateStep: draft.gateStep,
+      focus: rowIndex < FOCUS_ROWS ? 'true' : 'false',
     }
   })
-  for (const d of decisionOrder) {
+  for (const d of [...structuredPending, ...legacyPending]) {
     handles.push({ handle: decisionRef.get(d.id)!, kind: 'decision', id: d.id, title: clean(d.title) })
   }
 
@@ -960,8 +1108,9 @@ export function buildWpConductorView(
     : [{ wp: '—', progress: 'n/a', todo: 'aucun WP ouvert', blocked: NO_GATE, nextAction: NO_ACTION, directiveIds: '' }]
 
   // ---- DÉCISIONS ----------------------------------------------------------------------------------
+  // Criterion 23 — pending, answerable dossiers ONLY. Nothing else.
   const decisionRows: Record<string, string>[] = []
-  for (const d of decisionOrder) {
+  for (const d of structuredPending) {
     const ref = decisionRef.get(d.id)!
     const options = d.options ?? []
     const letterOf = new Map(options.map((option, i) => [option.id, optionLetter(i)]))
@@ -980,34 +1129,37 @@ export function buildWpConductorView(
       altLines.push(...wrapped)
       precoLines.push(marks.join(' '), ...Array<string>(wrapped.length - 1).fill(''))
     })
-    if (d.outcome !== 'pending') precoLines.push(`réglé (${d.outcome})`)
     const alternatives = options.length > 0 ? altLines.join('\n') : 'non enregistrées'
-    let preco = options.length > 0
-      ? precoLines.join('\n')
-      : d.outcome === 'pending'
-        ? 'à structurer'
-        : `réglé (${d.outcome}) · aucune option attestée`
+    let preco = precoLines.join('\n')
     if (preco.trim() === '') preco = '—'
     decisionRows.push({ n: ref, subject: shortDecisionSubject(d.title), alternatives, preco })
   }
   if (decisionRows.length === 0) {
-    decisionRows.push({ n: '—', subject: 'aucun dossier enregistré', alternatives: 'non enregistrées', preco: '—' })
+    decisionRows.push({
+      n: '—',
+      subject: 'aucun dossier en attente que tu puisses trancher maintenant',
+      alternatives: 'non enregistrées',
+      preco: '—',
+    })
   }
 
   // ---- RECOMMANDATION ------------------------------------------------------------------------------
   const startable = orderedTodo.filter(
-    (row) => row['nextAction'] !== NO_ACTION && !/^D\d/u.test(row['blocked'] ?? ''),
+    (row) => row['nextAction'] !== NO_ACTION && !/(^|[^A-Z])D\d/u.test(row['blocked'] ?? ''),
   )
+  // Word-boundary match: `includes('D1')` also matches `D10`, which would credit the wrong dossier.
   const unlockedBy = (ref: string): string[] =>
-    orderedTodo.filter((row) => (row['blocked'] ?? '').includes(ref)).map((row) => (row['wp'] ?? '').split(' · ')[0]!)
+    orderedTodo
+      .filter((row) => new RegExp(`(^|[^0-9A-Z])${ref}([^0-9]|$)`, 'u').test(row['blocked'] ?? ''))
+      .map((row) => (row['wp'] ?? '').split(' · ')[0]!)
   const recommendationLines: string[] = []
   recommendationLines.push(
     startable.length === 0
       ? 'Sans décision : aucune lane exécutable sans réponse n’est attestée dans le journal.'
       : `Sans décision : ${startable
           .slice(0, 3)
-          .map((row) => `${(row['wp'] ?? '').split(' · ')[0]} — ${row['nextAction']}`)
-          .join(' ; ')}.`,
+          .map((row) => (row['wp'] ?? '').split(' · ')[0])
+          .join(', ')} peuvent démarrer — le geste concret reste à instruire par ligne.`,
   )
   if (structuredPending.length === 0) {
     recommendationLines.push('Aucun D# disponible : aucun dossier structuré sélectionnable dans le journal.')
@@ -1036,13 +1188,28 @@ export function buildWpConductorView(
         .join(' · ')} » (tout débloquer).`
   recommendationLines.push(replyLine)
 
+  // Criteria 17/24 — compression is allowed, silence is not, and every omission NAMES ITS REASON.
+  // Criterion 18 is what keeps this safe: a WP carrying open work, and every dossier the owner can still
+  // answer, are in the rendered lists above and can never fall here.
+  const omitted: ReportOmission[] = [
+    ...wpNodes
+      .filter((n) => n.done === 0 && openLeaves(n).length === 0 && !directivesByWpId.has(n.id))
+      .map((n) => ({ label: wpName(n), reason: 'WP sans item ouvert, sans blocage et sans livraison' })),
+    ...settledDecisions.map((d) => ({
+      label: shortDecisionSubject(d.title),
+      reason: 'décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre)',
+    })),
+  ]
+
   // ---- coverage (criteria 17/18) --------------------------------------------------------------------
   // 17 — the report STATES both counts, so omission is a declared act rather than a silent one. Both
   // numbers count the SAME unit: rows of the deterministic projection. `rendered` is therefore always a
   // subset of `projected`, and `projected - rendered === omitted.length`.
   // 18 — the two classes that may never be omitted (a WP carrying open work, a pending dossier) are
   // structurally in the rendered lists above, whatever the compression ratio.
-  const projectedRows = wpNodes.length + outsideRollup.length + unscopedDirectives.length + decisions.length
+  // An unscoped directive always TARGETS a dossier already counted in `decisions`, so counting it again
+  // would inflate the denominator against itself.
+  const projectedRows = wpNodes.length + outsideRollup.length + decisions.length
   const coverage: ReportCoverage = {
     projected: projectedRows,
     rendered: projectedRows - omitted.length,
@@ -1053,8 +1220,8 @@ export function buildWpConductorView(
     scope: totalScope,
     progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`,
     ...(meta.baselineCommit !== undefined ? { baselineCommit: meta.baselineCommit.slice(0, 12) } : {}),
-    // Criterion 1, as scoped: no `--since`/`--until`/`--period` exists yet, so no window may be named.
-    window: 'couvre l’intégralité du journal (aucune fenêtre de période)',
+    // Criterion 21 — the window is measured in the log, so it is always stated, always with dates.
+    period: buildPeriod(meta),
     sources: ['projection déterministe du journal (track report --wp --decisions)'],
     coverage,
     handleCommand: 'track report --resolve <handle>',
@@ -1128,6 +1295,19 @@ export function shortDecisionSubject(storedTitle: string): string {
   return clean(storedTitle).replace(/^(?:\d+\s*\/\s*\d+|x\d+|§\d+)\s*[—–-]\s*/u, '')
 }
 
+/**
+ * Criteria 17/24 — both counts AND the reason for every omission, grouped so the line stays readable.
+ * "Omitted" without a why is the silence the criterion exists to forbid.
+ */
+export function coverageLine(coverage: ReportCoverage): string {
+  const head = `couverture : ${coverage.projected} lignes projetées · ${coverage.rendered} rendues`
+  if (coverage.omitted.length === 0) return `${head} · aucune omission`
+  const byReason = new Map<string, number>()
+  for (const omission of coverage.omitted) byReason.set(omission.reason, (byReason.get(omission.reason) ?? 0) + 1)
+  const detail = [...byReason.entries()].map(([reason, count]) => `${count} ${reason}`).join(' · ')
+  return `${head} · ${coverage.omitted.length} omise${coverage.omitted.length > 1 ? 's' : ''} : ${detail}`
+}
+
 /** The À-FAIRE ordering rule, printed so the owner knows why the rows are in this order (criterion 6). */
 const TODO_ORDER_NOTE = 'ordre = priorité ; les cinq premiers sont le focus'
 
@@ -1138,10 +1318,9 @@ function headerLines(view: ReportView, format: Format): string[] {
     format === 'md'
       ? `# TRACK REPORT — ${h.scope} · ${h.progress}`
       : `TRACK REPORT — ${h.scope} · ${h.progress}`,
-    em(
-      `baseline d’acceptance : ${h.baselineCommit ?? 'non résolue'} · ${h.window}`,
-    ),
-    em(`couverture : ${h.coverage.projected} lignes projetées · ${h.coverage.rendered} rendues${h.coverage.omitted.length > 0 ? ` · ${h.coverage.omitted.length} omise${h.coverage.omitted.length > 1 ? 's' : ''} (aucun travail ouvert, aucun blocage enregistré)` : ''}`),
+    em(h.period.label),
+    em(`baseline d’acceptance : ${h.baselineCommit ?? 'non résolue'}`),
+    em(coverageLine(h.coverage)),
     em(`sources : ${h.sources.join(' ; ')}`),
     '',
   ]

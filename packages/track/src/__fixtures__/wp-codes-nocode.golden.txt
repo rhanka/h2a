@@ -1,7 +1,8 @@
 === formatWpConductor(text) ===
 TRACK REPORT — global · 3/5 (60%)
-baseline d’acceptance : non résolue · couvre l’intégralité du journal (aucune fenêtre de période)
-couverture : 5 lignes projetées · 4 rendues · 1 omise (aucun travail ouvert, aucun blocage enregistré)
+période : journal vide (aucun événement enregistré)
+baseline d’acceptance : non résolue
+couverture : 5 lignes projetées · 4 rendues · 1 omise : 1 WP sans item ouvert, sans blocage et sans livraison
 sources : projection déterministe du journal (track report --wp --decisions)
 
 FAIT
@@ -18,20 +19,23 @@ WP2 · Beta      1/1 (100%)   b-done
 À-FAIRE
 ordre = priorité ; les cinq premiers sont le focus
 WP            av.   à faire                       bloqué   prochaine action
-───────────   ───   ───────────────────────────   ──────   ───────────────────────────────────────────
-WP1 · Alpha   50%   [1.1] a-todo / [1.2] s-todo   spec     action (subagent): Rédiger la spécification
+───────────   ───   ───────────────────────────   ──────   ────────────────────────────────────────
+WP1 · Alpha   50%   [1.1] a-todo / [1.2] s-todo   spec     à instruire : ouvrir l’item et nommer le
+                                                           geste
 
-WP1.2 · Sub   0%    [2.1] s-todo                  spec     action (subagent): Rédiger la spécification
+WP1.2 · Sub   0%    [2.1] s-todo                  spec     à instruire : ouvrir l’item et nommer le
+                                                           geste
 
 DÉCISIONS
-┌───┬──────────────────────────┬──────────────────┬───────┐
-│ # │ sujet                    │ alternatives     │ préco │
-├───┼──────────────────────────┼──────────────────┼───────┤
-│ — │ aucun dossier enregistré │ non enregistrées │   —   │
-└───┴──────────────────────────┴──────────────────┴───────┘
+┌───┬─────────────────────────────────────────┬──────────────────┬───────┐
+│ # │ sujet                                   │ alternatives     │ préco │
+├───┼─────────────────────────────────────────┼──────────────────┼───────┤
+│ — │ aucun dossier en attente que tu puisses │ non enregistrées │   —   │
+│   │ trancher maintenant                     │                  │       │
+└───┴─────────────────────────────────────────┴──────────────────┴───────┘
 
 RECOMMANDATION
-Sans décision : WP1 — action (subagent): Rédiger la spécification ; WP1.2 — action (subagent): Rédiger la spécification.
+Sans décision : WP1, WP1.2 peuvent démarrer — le geste concret reste à instruire par ligne.
 Aucun D# disponible : aucun dossier structuré sélectionnable dans le journal.
 Réponds « vas y » pour lancer les lanes sans décision.
 

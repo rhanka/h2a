@@ -17,11 +17,26 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { EventStore } from '../events/store.js'
 import { Track } from '../track.js'
 import type { DecisionRow, ReportRow } from './build.js'
-import { buildWpConductorView, formatWpConductor, handleTokenRegex, type ReportView } from './format.js'
+import {
+  auditNextActions,
+  buildWpConductorView,
+  DETERMINISTIC_NEXT_ACTIONS,
+  formatWpConductor,
+  handleTokenRegex,
+  type ReportView,
+} from './format.js'
+
+const STEP_CODES: DirectiveStepCode[] = [
+  'focus-decision', 'settle-decision', 'resume-engagement', 'resolve-external-blocker', 'amend-spec',
+  'fix-acceptance', 'rerun-acceptance', 'finish-increment', 'start-increment', 'prioritize-backlog',
+  'inspect-fallback',
+]
 import { formatWpConductorHtml } from './html.js'
 import { computeWpTree } from './rollup.js'
+import { stepActionFr } from './friendly.js'
+import type { DirectiveStepCode } from './directive.js'
 import { renderSnapshot } from './snapshot.js'
-import { reportText, resolveHandle } from '../read/commands.js'
+import { reportHtml, reportText, resolveHandle } from '../read/commands.js'
 import { TrackReader } from '../read/contract.js'
 import { runCli } from '../cli/index.js'
 
@@ -94,32 +109,55 @@ function seed(): { blocked: string; structuredId: string } {
   return { blocked, structuredId }
 }
 
+/** The caller's clock, PINNED: the window's upper bound is injected at the boundary, never read here. */
+const NOW = '2026-07-30T00:00:00.000Z'
+
 const view = (): ReportView => {
-  const report = new TrackReader(eventsPath).report(base)
+  const reader = new TrackReader(eventsPath)
+  const report = reader.report(base)
+  const window = reader.logWindow()
   return buildWpConductorView(report.wpTree ?? [], report.decisions ?? [], report.outsideRollup, 'global', {
     baselineCommit: 'c0ffee1234567890',
+    ...(window.from !== undefined ? { logFrom: window.from } : {}),
+    ...(window.to !== undefined ? { logTo: window.to } : {}),
+    now: NOW,
   })
 }
-const text = (): string => reportText(new TrackReader(eventsPath), base, 'text')
-const md = (): string => reportText(new TrackReader(eventsPath), base, 'md')
-const html = (): string => {
-  const report = new TrackReader(eventsPath).report(base)
-  return formatWpConductorHtml(report.wpTree ?? [], report.decisions ?? [], undefined, report.outsideRollup)
-}
+const text = (): string => reportText(new TrackReader(eventsPath), base, 'text', NOW)
+const md = (): string => reportText(new TrackReader(eventsPath), base, 'md', NOW)
+const html = (): string => reportHtml(new TrackReader(eventsPath), base, NOW)
 const section = (v: ReportView, id: string) => v.tables.find((table) => table.id === id)!
 
-describe('criterion 1 — the header carries the acceptance baseline, and no window it cannot support', () => {
-  it('names the baseline, says the report covers the whole log, and never invents a period', () => {
+describe('criteria 1/21 — the header carries the baseline, and a window MEASURED in the log', () => {
+  it('always states a bounded period, with dates, read from the log', () => {
     seed()
     const header = view().header
     expect(header.baselineCommit).toBe('c0ffee123456')
-    expect(header.window).toContain('intégralité du journal')
-    const rendered = formatWpConductor(computeWpTree(t.state(), cfg), 'text', [], [], 'global', {
-      baselineCommit: 'c0ffee1234567890',
+    // Criterion 21 — "the whole log" IS a window. `aucune fenêtre` described the absence of a flag.
+    expect(header.period.from).toBe('2026-07-29')
+    expect(header.period.to).toBe('2026-07-30')
+    expect(header.period.toSource).toBe('now')
+    expect(header.period.label).toBe('période : 2026-07-29 → 2026-07-30 (intégralité du journal)')
+    expect(JSON.stringify(header)).not.toContain('aucune fenêtre')
+    for (const rendered of [text(), md(), html()]) {
+      expect(rendered).toMatch(/période : \d{4}-\d{2}-\d{2} → \d{4}-\d{2}-\d{2}/u)
+      expect(rendered).not.toContain('aucune fenêtre')
+    }
+  })
+
+  it('says so when the upper bound is the last event rather than a clock, instead of implying "now"', () => {
+    seed()
+    const withoutClock = buildWpConductorView(computeWpTree(t.state(), cfg), [], [], 'global', {
+      logFrom: '2026-06-01T00:00:00.000Z', logTo: '2026-07-28T00:00:00.000Z',
     })
-    expect(rendered).toContain('baseline d’acceptance : c0ffee123456')
-    // `--since`/`--until`/`--period` do not ship in this increment, so no named window may appear.
-    expect(rendered).not.toMatch(/journée du|semaine du|période :/u)
+    expect(withoutClock.header.period.toSource).toBe('last-event')
+    expect(withoutClock.header.period.label).toBe(
+      'période : 2026-06-01 → 2026-07-28 (intégralité du journal, borne haute = dernier événement)',
+    )
+  })
+
+  it('states an empty log as an empty log, not as a window it cannot measure', () => {
+    expect(buildWpConductorView([]).header.period.label).toBe('période : journal vide (aucun événement enregistré)')
   })
 
   it('carries no bucket counters', () => {
@@ -167,11 +205,26 @@ describe('criteria 3/4 — FAIT names the last recorded actions, and declares it
     expect(fait.rows.map((r) => r['lastActions']).join(' ')).toContain('livraison enregistrée')
   })
 
-  it('declares the compression instead of hiding a tail', () => {
+  it('criterion 22 — refuses to pass a sample off as a summary, and names what a balance sheet needs', () => {
     const w = wp('WP1 — Many')
     for (const n of ['a1', 'a2', 'a3', 'a4', 'a5']) done(leaf(n, w))
-    const fait = section(buildWpConductorView(computeWpTree(t.state(), cfg)), 'done')
-    expect(fait.rows[1]!['lastActions']).toMatch(/3 des 5 actions enregistrées/u)
+    const cell = section(buildWpConductorView(computeWpTree(t.state(), cfg)), 'done').rows[1]!['lastActions']!
+    // The old rendering read `a5 · a4 · a3 — 3 des 5 actions enregistrées`: three out of five presented
+    // as a synthesis. It must now say a balance sheet is OWED and what it would take.
+    expect(cell).not.toMatch(/\d+ des \d+ actions enregistrées/u)
+    expect(cell).toContain('bilan à écrire')
+    expect(cell).toContain('titres seuls dans le projeté')
+    expect(cell).toContain('historique du dépôt sur la fenêtre')
+    expect(cell).toContain('échantillon :') // the titles it does show are LABELLED a sample
+  })
+
+  it('lists the completions in full when they fit — that is a statement, not a sample', () => {
+    const w = wp('WP1 — Few')
+    for (const n of ['a1', 'a2']) done(leaf(n, w))
+    const cell = section(buildWpConductorView(computeWpTree(t.state(), cfg)), 'done').rows[1]!['lastActions']!
+    expect(cell).toBe('a2 · a1')
+    expect(cell).not.toContain('échantillon')
+    expect(cell).not.toContain('bilan à écrire')
   })
 })
 
@@ -218,13 +271,60 @@ describe('criteria 7/19 — `bloqué` points at the answer, and is empty ONLY wh
   })
 })
 
-describe('criterion 8 — `prochaine action` names its executor', () => {
-  it('carries the routing executor; the model comes from owner context, which the log does not hold', () => {
+describe('criteria 8/20 — the renderer stops serving a gate class as a recommendation', () => {
+  it('no `prochaine action` is a gate clause — the class lives in `bloqué` and in a machine property', () => {
     seed()
-    const acting = section(view(), 'todo').rows.filter((row) => row['nextAction'] !== '—')
-    expect(acting.length).toBeGreaterThan(0)
-    for (const row of acting) expect(row['nextAction']).toMatch(/^(action|engagement) \((subagent|local|h2a)\)/u)
-    // The log records no model or reasoning effort; the renderer must not invent one.
+    const rows = section(view(), 'todo').rows
+    const gateClauses = new Set(STEP_CODES.map((code) => stepActionFr(code)))
+    for (const row of rows) {
+      const next = row['nextAction']!
+      expect(DETERMINISTIC_NEXT_ACTIONS, `unexpected prochaine action: ${next}`).toContain(next)
+      for (const clause of gateClauses) expect(next, `gate clause served as an action`).not.toContain(clause)
+    }
+    // ...and the class is not lost: it is carried, labelled a class, on a property no renderer prints.
+    expect(rows.some((row) => gateClauses.has(row['gateStep']!.replace(/^action \([a-z]+\): /u, '')))).toBe(true)
+  })
+
+  it('bounds the per-row investigation to the five focus rows, and says so for the others', () => {
+    seed()
+    const rows = section(view(), 'todo').rows
+    const focus = rows.filter((row) => row['focus'] === 'true')
+    expect(focus.length).toBeLessThanOrEqual(5)
+    for (const row of rows) {
+      if (row['nextAction'] === '—' || row['nextAction'] === 'à structurer : enregistrer options + recommandation') continue
+      expect(row['nextAction']).toBe(
+        row['focus'] === 'true' ? 'à instruire : ouvrir l’item et nommer le geste' : 'non instruite',
+      )
+    }
+  })
+
+  it('exposes the mechanical half of criterion 20 as a check the agent must run before serving', () => {
+    seed()
+    const clauses = STEP_CODES.map((code) => stepActionFr(code))
+    const rows = section(view(), 'todo').rows.map((row) => row['nextAction']!)
+
+    // On the deterministic render the check is NOT vacuous: it reports the rows still owed.
+    const before = auditNextActions(rows, clauses)
+    expect(before.uninstructed).toBeGreaterThan(0)
+    expect(before.ok).toBe(true) // markers are honest, not violations
+
+    // A report that reintroduced the template fails on both counts.
+    const templated = ['action (subagent): Rédiger la spécification', 'action (subagent): Rédiger la spécification', 'action (subagent): Rédiger la spécification']
+    const after = auditNextActions(templated, clauses)
+    expect(after.ok).toBe(false)
+    expect(after.repeated).toEqual(['action (subagent): Rédiger la spécification'])
+    expect(after.gateClauses).toEqual(['action (subagent): Rédiger la spécification'])
+
+    // A properly instructed report passes with nothing owed.
+    const instructed = auditNextActions(
+      ['Ajouter le préflight /v1/models dans run.ts', 'Trancher la question du fallback dans DEC-118'],
+      clauses,
+    )
+    expect(instructed).toEqual({ uninstructed: 0, repeated: [], gateClauses: [], ok: true })
+  })
+
+  it('names no model: the log records none, so inventing one would be fabrication', () => {
+    seed()
     expect(JSON.stringify(section(view(), 'todo').rows)).not.toMatch(/xhigh|sol |terra /u)
   })
 })
@@ -256,7 +356,7 @@ describe('criteria 9/16 — DÉCISIONS is a drawn, numbered table and never inve
     expect(otherLine).not.toMatch(/\b[AB]\s+│$/u)
   })
 
-  it('an unstructured dossier reserves no D-number, carries no letters, and reads `à structurer`', () => {
+  it('criterion 24 — an unanswerable dossier is not offered in DÉCISIONS; it lands in À-FAIRE, instructed', () => {
     seed()
     const report = new TrackReader(eventsPath).report(base)
     const unstructured: DecisionRow = {
@@ -264,12 +364,31 @@ describe('criteria 9/16 — DÉCISIONS is a drawn, numbered table and never inve
       realization: 'to-do', outcome: 'pending', structured: false,
     }
     const v = buildWpConductorView(report.wpTree ?? [], [...(report.decisions ?? []), unstructured], report.outsideRollup)
-    const legacy = section(v, 'decisions').rows.find((row) => row['subject'] === 'Dossier sans options')!
-    expect(legacy['n']).toMatch(/^Q\d+$/u)
-    expect(legacy['alternatives']).toBe('non enregistrées')
-    expect(legacy['preco']).toBe('à structurer')
+    expect(section(v, 'decisions').rows.some((row) => row['subject'] === 'Dossier sans options')).toBe(false)
+    const row = section(v, 'todo').rows.find((r) => (r['todo'] ?? '').includes('Dossier sans options'))!
+    expect(row['wp']).toBe('hors WP · dossiers à structurer')
+    expect(row['blocked']).toBe('options non enregistrées') // criterion 19: a gate IS recorded
+    expect(row['nextAction']).toBe('à structurer : enregistrer options + recommandation')
     // ...and it is NOT offered in the reply line.
-    expect(section(v, 'recommendation').lines!.at(-1)).not.toContain(legacy['n']!)
+    expect(section(v, 'recommendation').lines!.at(-1)).not.toContain('Q1')
+  })
+
+  it('criterion 23 — a settled dossier leaves DÉCISIONS and is counted, with its reason, among omissions', () => {
+    seed()
+    const report = new TrackReader(eventsPath).report(base)
+    const settled: DecisionRow = {
+      id: 'settled-1', title: 'Déjà tranché', workspace: 'ws', decisionKind: 'orientation',
+      realization: 'done', outcome: 'go', structured: true,
+      options: [{ id: 'a', title: 'A', summary: 'un' }, { id: 'b', title: 'B', summary: 'deux' }],
+      recommendation: { optionId: 'a', rationale: 'raison' }, selectedOptionId: 'a',
+    }
+    const v = buildWpConductorView(report.wpTree ?? [], [...(report.decisions ?? []), settled], report.outsideRollup)
+    expect(section(v, 'decisions').rows.every((row) => row['subject'] !== 'Déjà tranché')).toBe(true)
+    expect(v.coverage.omitted).toContainEqual({
+      label: 'Déjà tranché',
+      reason: 'décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre)',
+    })
+    expect(section(v, 'decisions').rows.every((row) => !(row['preco'] ?? '').includes('réglé'))).toBe(true)
   })
 
   it('with zero structured pending dossiers, RECOMMANDATION says so verbatim and invites no letter', () => {
@@ -472,14 +591,21 @@ describe('criteria 17/18 — compression is declared; open work and pending doss
     // The coverage line is machine-facing too: it must read the same, unescaped, in all three formats.
     for (const rendered of [text(), md(), html()]) {
       expect(rendered).toMatch(/couverture : \d+ lignes projetées · \d+ rendues/u)
-      expect(rendered).toMatch(/\d+ omise/u)
+      expect(rendered).toMatch(/\d+ omises? : /u)
     }
   })
 
-  it('only omits a WP with no open work, no recorded gate and no recorded completion', () => {
+  it('every omission names its reason (criterion 24), and the WP class is the narrow one', () => {
     seed()
     const v = view()
-    expect(v.coverage.omitted).toEqual(['WP4 · Empty'])
+    expect(v.coverage.omitted).toContainEqual({
+      label: 'WP4 · Empty',
+      reason: 'WP sans item ouvert, sans blocage et sans livraison',
+    })
+    for (const omission of v.coverage.omitted) expect(omission.reason).not.toBe('')
+    for (const rendered of [text(), md(), html()]) {
+      expect(rendered).toContain('WP sans item ouvert, sans blocage et sans livraison')
+    }
   })
 
   it('every WP carrying open work appears, and every pending dossier appears', () => {
@@ -538,7 +664,7 @@ describe('an empty log still renders the four sections', () => {
   it('never crashes and never claims a dossier it does not have', () => {
     const rendered = formatWpConductor([], 'text')
     for (const title of ['FAIT', 'À-FAIRE', 'DÉCISIONS', 'RECOMMANDATION']) expect(rendered).toContain(title)
-    expect(rendered).toContain('aucun dossier enregistré')
+    expect(rendered).toContain('aucun dossier en attente')
     expect(rendered).toContain('Aucun D# disponible')
     expect(ULID.test(rendered)).toBe(false)
   })
@@ -575,6 +701,44 @@ describe('the skill instructs the shape this renderer emits', () => {
     expect(s).toContain('never turn its count into an accomplishment sentence')
   })
 
+  it('criterion 20 — instructs the per-row investigation and forbids serving the gate class', () => {
+    const s = skill()
+    expect(s).toContain('## `prochaine action` is investigated, not derived')
+    expect(s).toContain('name the **class** of the work, never the work')
+    expect(s).toContain('by **opening the\nitem**')
+    expect(s).toContain('bounded to the focus rows')
+    expect(s).toContain('you must replace every one of')
+    expect(s).toContain('auditNextActions(values, gateClauses)')
+    expect(s).toContain('a substantive action repeats\non three or more rows, or equals a gate clause')
+    expect(s).toContain('whether the sentence is *right*. The owner judges\nthat, and no green test substitutes for it.')
+  })
+
+  it('criterion 21 — the window always exists and always has bounds', () => {
+    const s = skill()
+    expect(s).toContain('**There is always a window, and it always has bounds.**')
+    expect(s).toContain('période : 2026-06-09 → 2026-07-29 (intégralité du journal)')
+    expect(s).toContain('The phrase `aucune fenêtre` is wrong')
+    expect(s).toContain('a window you did not measure in\nthe log is invented')
+  })
+
+  it('criterion 22 — FAIT is a balance sheet over a long window, never a sample', () => {
+    const s = skill()
+    expect(s).toContain('**Over a long window, FAIT is a balance sheet, not the latest titles.**')
+    expect(s).toContain('is a *sample*, not a summary')
+    expect(s).toContain('That cell is an instruction to you, not a result.')
+    expect(s).toContain('Never delete the marker and leave the sample')
+  })
+
+  it('criteria 23/24 — DÉCISIONS is pending-and-answerable only, and the obscure is not served', () => {
+    const s = skill()
+    expect(s).toContain('**DÉCISIONS carries only pending dossiers the owner can answer now. Nothing else.**')
+    expect(s).toContain('**A settled dossier leaves the report.**')
+    expect(s).toContain('Do not render it as history.')
+    expect(s).toContain('**A pending dossier with no stored options cannot be answered either**')
+    expect(s).toContain('**If you cannot make a row intelligible, do not serve it as it is.**')
+    expect(s).toContain('**Every omission names its reason**')
+  })
+
   it('states the five À-FAIRE columns, the ordering line, and the `bloqué` rule', () => {
     const s = skill()
     expect(s).toContain('`WP · av. · à faire · bloqué · prochaine action`')
@@ -589,7 +753,7 @@ describe('the skill instructs the shape this renderer emits', () => {
     // 16 — no invented alternative.
     expect(s).toContain('A `D` number is reserved for a dossier whose options AND recommendation are stored')
     expect(s).toContain('à structurer')
-    expect(s).toContain('A report that prints alternatives absent from the log fails')
+    expect(s).toContain('A report that\n  prints alternatives absent from the log fails')
     // 17/18 — compress, never hide.
     expect(s).toContain('State both counts.')
     expect(s).toContain('every WP carrying open work, and every pending dossier')
@@ -601,7 +765,9 @@ describe('the skill instructs the shape this renderer emits', () => {
 
   it('forbids a named window and states the handle contract (10a/10b/10c)', () => {
     const s = skill()
-    expect(s).toContain('**Do not name a window**')
+    // Criterion 21 replaced the blanket ban with the honest rule: a window MEASURED in the log is fine.
+    expect(s).toContain('a window you did not measure in\nthe log is invented')
+    expect(s).not.toContain('Do not name a window')
     expect(s).toContain('**No ULID appears in any column the owner reads.**')
     expect(s).toContain('[0-9A-HJKMNP-TV-Z]{26}')
     expect(s).toContain('report --resolve <handle>')
@@ -637,13 +803,26 @@ describe('the committed examples stay aligned with the renderer', () => {
   it('the raw example is the four-section deterministic report, with both counts and no ULID in a body', () => {
     const raw = example('track-report-raw.txt')
     expect(raw).toContain('report --wp --decisions --format text --commit d01368f')
+    // Criterion 21 + 15a — the window's upper bound is a clock, so the fixture PINS it; otherwise the
+    // committed bytes would drift every day and the reproduction recipe would be a lie.
+    expect(raw).toContain('--now 2026-07-29T12:00:00Z')
+    expect(raw).toMatch(/période : \d{4}-\d{2}-\d{2} → 2026-07-29 \(intégralité du journal\)/u)
+    expect(raw).not.toContain('aucune fenêtre')
     for (const title of ['FAIT', 'À-FAIRE', 'DÉCISIONS', 'RECOMMANDATION']) expect(raw).toContain(`\n${title}\n`)
     for (const removed of ['\nHORS ROLLUP\n', '\nÀ INSTRUIRE\n', '\nACTIONS DÉRIVÉES\n']) {
       expect(raw).not.toContain(removed)
     }
     expect(raw).toMatch(/couverture : \d+ lignes projetées · \d+ rendues/u)
-    expect(raw).toContain('couvre l’intégralité du journal')
     expect(raw).toMatch(/│ D1\s+│/u) // the dossiers ARE structured at this baseline (criterion 16)
+    // Criteria 23/24 — no settled dossier, and nothing unanswerable, on the surface where the owner decides.
+    const decisions = raw.slice(raw.indexOf('\nDÉCISIONS\n'), raw.indexOf('\nRECOMMANDATION\n'))
+    expect(decisions).not.toContain('réglé')
+    expect(decisions).not.toContain('aucune option attestée')
+    expect(decisions).not.toMatch(/│ Q\d/u)
+    expect(raw).toContain('décision déjà tranchée') // ...they are counted, with their reason
+    // Criterion 20 — the fixture carries the instruction marker, never a gate clause as an action.
+    expect(raw).toContain('à instruire : ouvrir l’item et nommer le') // the cell wraps before `geste`
+    expect(raw).not.toMatch(/action \(subagent\): (Terminer|Rédiger|Relancer)/u)
     const body = raw.slice(raw.indexOf('\nFAIT\n'), raw.indexOf('RÉSOLUTION DES HANDLES'))
     expect(ULID.test(body)).toBe(false)
   })
@@ -653,6 +832,10 @@ describe('the committed examples stay aligned with the renderer', () => {
     expect(contextual).toContain('Référence de FORME, pas de contenu.')
     expect(contextual).toContain('aucun** dossier structuré')
     expect(contextual).toContain('critère 19')
+    // The UAT criteria the validated artefact already satisfies, named so nobody "fixes" it back.
+    expect(contextual).toContain('pas une classe de travail')
+    expect(contextual).toContain('pas un échantillon de titres')
+    expect(contextual).toContain('période bornée')
     // Its four sections are the ones this renderer emits.
     for (const title of ['## FAIT', '## À-FAIRE', '## DÉCISIONS', '## RECOMMANDATION']) {
       expect(contextual).toContain(title)
