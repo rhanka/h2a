@@ -81,7 +81,7 @@ describe('directive selector — distinctness (DESIGN §9, grief regression)', (
     expect(new Set(phrases).size).toBe(6)
   })
 
-  it('renders 6 distinct préconisations in the rule-derived action table (no constant column)', () => {
+  it('renders 6 distinct `prochaine action` cells in À-FAIRE (no constant column)', () => {
     staleDone(leaf('stale', wp('WP1')))
     failing(leaf('fail', wp('WP2')))
     t.setRealization(specified(leaf('wip', wp('WP3'))), 'in-progress')
@@ -89,8 +89,11 @@ describe('directive selector — distinctness (DESIGN §9, grief regression)', (
     specified(leaf('unprioritized', wp('WP5')))
     t.assessPriority(specified(leaf('valued', wp('WP6'))), { userBusinessValue: 5, timeCriticality: 1, riskReductionOpportunityEnablement: 1, jobSize: 1 })
 
+    // The report has four sections (spec 2026-07-29); the rule-derived action table is gone and its
+    // content lives in À-FAIRE's `prochaine action`. The distinctness guarantee moves with it.
     const view = buildWpConductorView(computeWpTree(t.state(), cfg))
-    const recos = view.tables.find((tb) => tb.id === 'rule-derived-actions')!.rows.map((r) => r['recommendation'])
+    const recos = view.tables.find((tb) => tb.id === 'todo')!.rows.map((r) => r['nextAction'])
+    expect(recos).toHaveLength(6)
     expect(new Set(recos).size).toBe(recos.length) // all distinct — no constant préconisation
   })
 })
@@ -350,7 +353,7 @@ describe('view — additive directives + dispatchQueue (DESIGN §4)', () => {
     for (const qid of view.dispatchQueue) expect(humanIds.has(qid)).toBe(false)
   })
 
-  it('projects the action target with each todo row without a consumer join and keeps scope-less decisions separate', () => {
+  it('names the action target inside `à faire` (no `cible action` column) and keeps scope-less dossiers in À-FAIRE', () => {
     const stale = staleDone(leaf('stale acceptance', wp('WP stale')))
     const spec = leaf('needs specification', wp('WP spec'))
     const wip = specified(leaf('active work', wp('WP wip')))
@@ -362,31 +365,35 @@ describe('view — additive directives + dispatchQueue (DESIGN §4)', () => {
 
     const view = buildWpConductorView(computeWpTree(t.state(), cfg), [standalone])
     const todo = view.tables.find((table) => table.id === 'todo')!
-    expect(todo.columns.map((column) => column.id)).toEqual(['wp', 'progress', 'todo', 'blocked', 'nextAction', 'actionTarget'])
+    // Criterion 5 — exactly five columns; `actionTarget` is gone, it injected a ULID into the owner's view.
+    expect(todo.columns.map((column) => column.id)).toEqual(['wp', 'progress', 'todo', 'blocked', 'nextAction'])
 
     const staleRow = todo.rows.find((row) => row['directiveIds'] === `item:${stale}`)!
-    expect(staleRow['blocked']).toBe('Vérification à refaire')
+    // Criterion 7/19 — `bloqué` is a short handle on the answer, never a restated question, never `—`
+    // when a gate IS recorded. The precise gate phrase stays as a machine-only audit property.
+    expect(staleRow['blocked']).toBe('recette')
+    expect(staleRow['gateDetail']).toBe('Vérification à refaire')
     expect(staleRow['nextAction']).toContain('action (subagent): Relancer la vérification')
-    expect(staleRow['actionTarget']).toContain(`${stale} · stale acceptance [DONE]`)
+    // The DONE item carrying acceptance debt is NAMED in `à faire` with its handle and its bucket.
+    expect(staleRow['todo']).toMatch(/^\[\d+\.1\] stale acceptance \(done\)$/u)
 
     const specRow = todo.rows.find((row) => row['directiveIds'] === `item:${spec}`)!
-    expect(specRow['blocked']).toBe('À spécifier avant de démarrer')
+    expect(specRow['blocked']).toBe('spec')
+    expect(specRow['gateDetail']).toBe('À spécifier avant de démarrer')
 
     const wipRow = todo.rows.find((row) => row['todo'].includes('active work'))!
-    expect(wipRow['blocked']).toBe('Aucun blocage enregistré')
+    expect(wipRow['blocked']).toBe('—') // criterion 19 — empty means NO blockage is recorded
+    expect(wipRow['gateDetail']).toBe('')
 
-    const unscoped = view.tables.find((table) => table.id === 'todo-unscoped')!
-    expect(unscoped.columns.map((column) => column.id)).toEqual(['wp', 'progress', 'todo', 'blocked', 'nextAction', 'actionTarget'])
-    expect(unscoped.rows).toHaveLength(1)
-    expect(unscoped.rows[0]).toMatchObject({
-      wp: 'sans WP',
-      todo: 'standalone decision',
-      blocked: 'En attente d’une décision : « standalone decision »',
-      directiveIds: 'decision:decision-without-wp',
-    })
+    // Criterion 2 — a scope-less dossier is not a top-level section; it is a row of À-FAIRE, gated on the
+    // number that answers it. Criterion 18 — a pending dossier is never omitted.
+    const unscopedRow = todo.rows.find((row) => row['wp'] === 'hors WP · dossiers')!
+    expect(unscopedRow['todo']).toContain('standalone decision')
+    expect(unscopedRow['blocked']).toBe('Q1') // unstructured ⇒ no D-number (criterion 16)
+    expect(unscopedRow['directiveIds']).toBe('decision:decision-without-wp')
+    expect(view.tables.map((table) => table.id)).not.toContain('todo-unscoped')
 
-    const emittedIds = [todo, unscoped]
-      .flatMap((table) => table.rows)
+    const emittedIds = todo.rows
       .flatMap((row) => (row['directiveIds'] ?? '').split(','))
       .filter((id) => id !== '')
     expect(emittedIds).toHaveLength(view.directives.length)
