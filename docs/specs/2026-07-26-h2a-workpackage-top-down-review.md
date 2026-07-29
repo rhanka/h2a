@@ -143,7 +143,7 @@ That is **7 action findings**, not 6. The five empty WPs are:
 | `01KWVNY117D60MY6YWNN78Y60X` | WP-ROADMAP study |
 
 The two orphans are `01KY66T20YS7JEQP73999VPVFJ` and
-`01KY7JXXGXTWC0VVVDKS5XSE7K`.
+`01KY7JYETQVYWDNNQVNZT875FF`.
 
 [FACT] I could not establish a sixth current `empty-wp`. The supplied “six” must not be silently repeated
 as if verified. The wider empty-container count is 48 because the audit intentionally does not detect empty
