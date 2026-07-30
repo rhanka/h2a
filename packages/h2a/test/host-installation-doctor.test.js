@@ -554,8 +554,53 @@ test("doctor repair never targets third-party or canonical plugin caches for del
     });
     assert.equal(report.ok, true, JSON.stringify(report, null, 2));
     for (const path of protectedPaths) assert.equal(existsSync(path), true, path);
+    const uninstalls = calls.filter((call) => call[0] === "claude" && call[1] === "plugin" && call[2] === "uninstall");
+    assert.ok(uninstalls.length > 0, JSON.stringify(calls, null, 2));
+    assert.ok(
+      uninstalls.every(([, , , selector]) => /^h2a(?:-local-|@sentropic-local-)/i.test(selector)),
+      `only an h2a-owned selector may be an uninstall candidate: ${JSON.stringify(uninstalls)}`
+    );
     assert.equal(calls.some((call) => call.join(" ") === "claude plugin uninstall h2a@sentropic"), false);
     assert.equal(calls.some((call) => call.join(" ") === "claude plugin uninstall openai-h2a-local-fixture"), false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor --repair never uninstalls third-party selectors with a sentropic-local suffix", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const root = join(home, "bus");
+  const protectedThirdPartySelectors = ["openai@sentropic-local-fixture"];
+  try {
+    const installedPath = join(home, ".claude", "plugins", "installed_plugins.json");
+    const installed = JSON.parse(readFileSync(installedPath, "utf8"));
+    for (const selector of protectedThirdPartySelectors) installed.plugins[selector] = [];
+    writeJson(installedPath, installed);
+
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const calls = [];
+    const io = streams(home);
+    const exitCode = runCli(["doctor", "--root", root, "--repair"], io, {
+      doctorHostInstallations: () => doctorHostInstallations({
+        home,
+        version,
+        repair: true,
+        runHostCommand: (command, args) => {
+          calls.push([command, ...args]);
+          return { ok: true };
+        }
+      })
+    });
+    const report = JSON.parse(io.stdoutText);
+    const uninstalls = calls.filter((call) => call[0] === "claude" && call[1] === "plugin" && call[2] === "uninstall");
+
+    assert.deepEqual(uninstalls, [], JSON.stringify(calls, null, 2));
+    assert.ok(
+      uninstalls.every(([, , , selector]) => /^h2a(?:-local-|@sentropic-local-)/i.test(selector)),
+      `only an h2a-owned selector may be an uninstall candidate: ${JSON.stringify(uninstalls)}`
+    );
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
