@@ -12,7 +12,10 @@ h2a original-spec baseline: then-local `origin/main` and starting `HEAD`
 `815e0880796f5599f7fcf3bc8c73f5e13e4f8aee`; `git merge-base HEAD origin/main`
 still printed `af9e8e4c…`, and `git rev-list --left-right --count HEAD...origin/main`
 printed `1 13` before the amendment commit. This lane did not fetch, merge or
-rebase. `git diff --name-status af9e8e4c..815e0880 --` for the cited h2a
+rebase. During the Addendum 2 pass, the already-local `origin/main` ref had
+advanced again to `2d586c7c2749727ae9745e11e7211c18f2a90f70`; merge-base still
+printed `af9e8e4c…`, and the left/right count printed `2 26` before this amendment
+commit. `git diff --name-status af9e8e4c..2d586c7c --` for the cited h2a
 architecture, decision, journal and gate files printed no changes; the cited
 track IDs were re-found in current local `origin/main`.
 
@@ -24,12 +27,15 @@ citation, and renderer files cited below. Neither local remote-tracking ref was
 refreshed by this lane; graphify `origin/main` still printed `54d771ae…` during
 the addendum pass.
 
-This document uses five evidence labels:
+This document uses six evidence labels:
 
 - **MANDATED** — fixed by the commissioning brief; this spec does not reopen it.
 - **VERIFIED** — observed in the named file, commit, event, command, or test output.
-- **RELAYED** — measured by the named graphify conductor and preserved verbatim in
-  `tmp/ADDENDUM-1-substrate-not-serving.md`; it was not re-measured in this lane.
+- **GRAPHIFY-MEASURED** — measured directly by `graphify-knowledge` and preserved
+  in `tmp/ADDENDUM-2-retraction.md`; source or data rechecked here is named
+  separately.
+- **RETRACTED** — appeared in commit `e74c4bd8` from superseded Addendum 1 and is
+  explicitly not evidence or a requirement in this version.
 - **REQUIRED** — proposed seam behavior, not present behavior. The named refusal
   and conformance test are what would falsify an implementation claim.
 - **OPEN** — agreement is required from `graphify-knowledge` or another named
@@ -40,6 +46,41 @@ does not establish implementation, deployment, owner acceptance, live-Postgres
 behavior, latency, RAM/OOM behavior, privacy authorization, or cross-host
 continuity.
 
+## 0. Retraction record
+
+`tmp/ADDENDUM-2-retraction.md:1-20` supersedes Addendum 1. This document retracts
+the following claims and requirements introduced in commit `e74c4bd8`. The
+superseding addendum identifies the false premise as a commissioning-side error,
+not a graphify failure:
+
+1. **RETRACTED — “the Postgres temporal feed is missing and serves nothing
+   end-to-end.”** The measured chain is complete. The 8,919-node inspected
+   `graph.json` legitimately returned an empty temporal window because no node
+   carried numeric `t`, not because push or query was disconnected. This lane
+   rechecked `nodes: 8919` and zero numeric `"t"` occurrences in the inspected
+   graphify worktree; graphify-knowledge measured the complete push/query chain
+   (`tmp/ADDENDUM-2-retraction.md:8-20`).
+2. **RETRACTED — `FEED_NOT_READY`, a graphify ingestion delivery gate, the
+   “missing-feed” delivery sequence, and OPEN-Q17 as an ingestion question.** No
+   ingestion-side build is required. The missing component is a not-yet-ratified
+   authored-memory producer that emits temporal attributes before the existing
+   push (`tmp/ADDENDUM-2-retraction.md:18-26`).
+3. **RETRACTED — caller selection of a graphify `memory_target` namespace.** The
+   namespace is one store-configured string; T6 exposes no caller selector, and
+   adding one is inside graphify's principal gate
+   (`tmp/ADDENDUM-2-retraction.md:31-40`).
+4. **RETRACTED — any implication that citation grounding validates a lesson's
+   truth or catches a free-form identifier.** `verifyVerbatim` proves only that a
+   structured quoted string occurs in its named normalized source. A free field
+   bypasses that guarantee (`tmp/ADDENDUM-2-retraction.md:48-59`).
+5. **RETRACTED — the description of the anti-cycle as architectural text plus
+   negative scans only.** Graphify-knowledge verified a concrete, fail-closed
+   workspace-local file contact on its current branch; branch/merge status and
+   the still-missing prospective CI import gate are stated separately below
+   (`tmp/ADDENDUM-2-retraction.md:74-78`).
+
+No section below relies on Addendum 1 as current evidence.
+
 ## 1. What is settled, and how far it is settled
 
 ### 1.1 Boundary ruling
@@ -48,10 +89,10 @@ continuity.
 does not build a store. The mandate is the commissioning brief at
 `tmp/BRIEF-graphify-seam-spec.md:28-31`.
 
-**RELAYED cross-repository limit:** this is the h2a owner's architecture
+**GRAPHIFY-MEASURED cross-repository limit:** this is the h2a owner's architecture
 direction, not a graphify-side decision. The graphify conductor names its
 principal as `human:rhanka` and reports that nothing has been ruled on that side
-(`tmp/ADDENDUM-1-substrate-not-serving.md:57-62`). This specification is written
+(`tmp/ADDENDUM-2-retraction.md:90-95`). This specification is written
 to the h2a direction, but graphify's ownership of the proposed seam remains a
 cross-repository commitment pending that principal. It is not settled by this
 document.
@@ -119,25 +160,17 @@ only `origin/memory/wake-recall-main`, and `gh pr view 90` printed
 `state:"OPEN"`, `mergeStateStatus:"CLEAN"`, head `9c45dc2…`. REC-07 is therefore
 evidence on an open, unmerged branch, not behavior merged into h2a main.
 
-**RELAYED simultaneous partition:** the same tmux session was observed through
-two disjoint bus roots, `/home/antoinefa/src/a2a-cli/` and
-`/home/antoinefa/h2a-workspace/.h2a/`. Each root minted a different UUID for the
-same live `knowledge` role:
-`claude:graphify:32ae534a470e` and `claude:graphify:d613c9cb8c9e`
-(`tmp/ADDENDUM-1-substrate-not-serving.md:42-55`). This was not re-measured here.
-It makes a durable key necessary but insufficient: presence and addressing can
-be partitioned across roots, so an actor may be reachable through one root and
-invisible through another at the same instant. These are h2a bus/address-plane
-roots, not evidenced graphify storage roots. Before graphify dispatch, h2a must
-therefore select one authoritative bus root or an explicit bus federation and
-refuse a write intent resolved through the wrong or ambiguous address plane.
-Graphify receives only the resulting durable-subject envelope under a neutral
-contract; it never imports or owns h2a bus topology. Ownership of that resolution
-and handoff proof is **OPEN-Q18**.
+**GRAPHIFY-MEASURED root boundary:** a bus root is a deployment accident and
+must not enter the record key. Graphify neither knows nor prevents h2a
+wrong-root dispatch; prevention belongs to h2a before dispatch. Graphify can
+carry the selected root only as provenance, making a wrong-root record
+detectable after the fact, not prevented
+(`tmp/ADDENDUM-2-retraction.md:42-46`). The h2a resolver/owner remains
+**OPEN-Q18**; graphify never imports h2a bus topology.
 
 ## 2. Substrate evidence, including its stopping point
 
-### 2.1 Temporal storage, its missing feed, and the laptop path
+### 2.1 Temporal storage, complete chain, and the stamping boundary
 
 **VERIFIED by source and targeted test:** in the inspected storage-provider
 source on graphify `origin/main`, `git grep -n 'queryWindow' origin/main --
@@ -160,19 +193,48 @@ the live-Postgres malformed-row guard conditional on
 `GRAPHIFY_TEST_POSTGRES_URL` (`:388-426`). Live PostgreSQL behavior is therefore
 **not measured** here.
 
-**RELAYED correction — implemented and tested is not serving:** after the brief
-was written, the graphify conductor measured the Postgres-backed window path on
-its real bundle of 47,762 nodes. It returned **0 nodes / 0 edges** because push
-reads `graph.json` while positions live in `scene.json`; the end-to-end feed into
-`queryWindow` does not yet exist
-(`tmp/ADDENDUM-1-substrate-not-serving.md:8-13`). This lane did not re-run that
-measurement. The targeted test above establishes the conditional semantics
-`queryWindow` would provide if correctly fed; it does **not** establish a usable
-current read path or delivery readiness. The addendum identifies this as the
-REF-05 failure family, “a capability recorded as delivered is not thereby
-reachable” (`tmp/ADDENDUM-1-substrate-not-serving.md:17-20`;
-`memory/wake-recall-main:docs/agents/RECALL.md:135-140`, open PR 90). No read path
-in this specification may assume that the window currently serves data.
+**VERIFIED chain and corrected empty-result explanation:** the inspected
+`.graphify/graph.json` command
+`jq '{nodes:(.nodes|length), edges:(.edges|length), numeric_t_occurrences:([.. | objects | select(has("t") and (.t|type == "number"))] | length)}'`
+printed `nodes: 8919`, `edges: 0`, and `numeric_t_occurrences: 0`. Postgres
+serializes non-schema attributes into `props` unchanged
+(`graphify/src/storage/postgres.ts:169-178`), keys nodes by
+`(city_slug,id)`, retains `t`/`t_end` in JSONB, and creates numeric expression
+indexes (`:285-304,327-352,439-451`). `pushGraph` builds node/edge rows and
+transactionally upserts them (`:900-951`); `queryWindow` reads the same temporal
+properties (`:1151-1205`). Graphify-knowledge also measured the round trip and
+states explicitly that the chain is complete
+(`tmp/ADDENDUM-2-retraction.md:8-20,24-26`). An empty query over the current
+documentary/ontological graph is therefore legitimate: its producer emitted no
+temporal anchors. It is not evidence of a missing feed.
+
+**REQUIRED temporal producer semantics:** a future authored-memory producer must
+emit numeric epoch-ms `t`, optional numeric epoch-ms `t_end`, and string
+provenance `t_src` according to one fixed contract:
+
+- absent `t` means timeless and never appears in temporal recall;
+- absent `t_end` means an **OPEN** interval and remains visible at later instants;
+- `t_end === t` means a **POINT**, used for a dated closed lesson;
+- any other valid `t_end >= t` means a closed span.
+
+These meanings are verified in the shared predicate and agent-stats comments
+(`graphify/src/temporal-recall.ts:133-151`;
+`graphify/src/agent-stats/project-graph.ts:293-315,581-590` on graphify branch
+`feat/aclp-ontology-studio`) and are graphify-knowledge's measured Q1 answer
+(`tmp/ADDENDUM-2-retraction.md:24-29`). The branch-only agent-stats producer is
+not a MemoryNote writer and is not merged into inspected graphify `origin/main`;
+that distinction is recorded in §10.
+
+**REQUIRED ordering choice:** perennial memory uses **receiver-stamped time**.
+The accepting memory producer, not the author/agent, sets `t` to its
+`received-at` instant and `t_src` to the exact derivation identifier
+`received-at`. An author-supplied timestamp is retained separately as
+`authored_at` and cannot control ordering. This adopts graphify-knowledge Q7
+after it measured an envelope post-dated by about twelve minutes
+(`tmp/ADDENDUM-2-retraction.md:80-88`). Graphify merely passes `t_src` through;
+it does not verify that provenance claim. Therefore the accepting producer must
+refuse a caller-supplied `t`/`t_src` masquerading as receiver time. Multi-host
+receiver-clock authority and monotonic sequencing remain **OPEN-Q7**.
 
 **VERIFIED correction to the broad Postgres claim:** graphify's higher-level
 `recallAsOf` reads `graph.json` directly when no store is selected, applying the
@@ -190,11 +252,14 @@ recall does not inherently require Postgres; `GRAPHIFY_STORE=file` is not that
 path, because a selected file store lacks `queryWindow`. The local path is an
 explicit graph source or no selected store.
 
-That direct-file chronological path does not repair the missing authored-memory
-feed: it reads an already-produced `graph.json`, while the conductor's
-measurement says the real Postgres window projection is not populated from the
-current bundle layout. Ingestion is therefore a design dependency, not an
-implementation detail (**OPEN-Q17**).
+The file path is a real existing degraded mode, not a missing-feed workaround.
+It always reports `freshness: "unverified"`, and node/edge membership is
+deliberately independent, so the result is not necessarily an induced subgraph
+(`graphify/src/temporal-recall.ts:243-271,357-383,386-404`).
+Graphify-knowledge's fixture returned an edge whose source node was absent
+(`tmp/ADDENDUM-2-retraction.md:61-72`). A memory consumer must therefore reject
+or remove any edge whose two endpoints are not both present; it must never
+fabricate the missing node.
 
 **Stopping point:** T6 explicitly models neither authored memory nor semantic
 relevance (`graphify/src/temporal-recall.ts:1-8`). Every file/store result says
@@ -205,8 +270,9 @@ partition rather than authorization, and does not verify provenance, freshness,
 authorship, integrity or trust
 (`graphify/spec/SPEC_AGENTSTATS_TIMEORIENTED.md:183-188,241-271,280-296`). It
 also says h2a has no ratified versioned MemoryNote/persona/knowledge body or
-read/write command (`:285-296`). Current T6 is therefore useful evidence and a
-possible lower-level primitive, not the perennial-memory seam.
+read/write command (`:285-296`). Current T6 plus `store push` is therefore a
+reachable lower-level primitive, not a ratified authored-memory schema,
+producer, or h2a write seam.
 
 ### 2.2 Canonical data, citations, and the graph renderer
 
@@ -223,30 +289,56 @@ still says `(proposal)`, `Draft / proposal (no implementation)`, and retains
 `graph.json` as canonical. That status does not itself prove the state of the
 implemented temporal files above.
 
-**VERIFIED citation primitives and genuine refusal:** graphify has deterministic
+**VERIFIED citation refusal, with its exact limit:** graphify has deterministic
 citation identity, union and top-K selection
-(`graphify/src/citations.ts:1-12,39-100`). Its corpus-aware policy controls the
-description and inline citation caps
-(`graphify/src/citation-policy.ts:1-24,39-56,136-159`). More importantly, both
-emission helpers in the grounding path call the shared `verifyVerbatim` hard gate
-before either `out.push`; every producer in `groundNodeCitations` routes through
-one of those helpers, and term-mismatched quotes are also rejected
-(`graphify/src/cite-grounding.ts:202-289,290-391`;
-`graphify/src/source-grounding.ts:315-320`). The cited-source validator separately
-requires a locator, modality-appropriate anchor and evidence text
-(`graphify/src/cited-source-refs.ts:111-141`). This is a mechanical refusal, not
-a documentation convention, and is the strongest verified reason to rest the
-memory evidence boundary on graphify. It still does not prove that authored
-memory reaches durable ingest or that wake uses the gate; those bindings are
-**OPEN-Q13,Q17**.
+(`graphify/src/citations.ts:1-12,39-100`). Its grounding helpers call
+`verifyVerbatim`, which normalizes a quote and returns true only when that string
+occurs in the normalized source; non-verbatim and term-mismatched emissions are
+dropped (`graphify/src/source-grounding.ts:315-320`;
+`graphify/src/cite-grounding.ts:202-289,370-391`). The cited-source validator
+separately requires a locator, modality-appropriate anchor and evidence text
+(`graphify/src/cited-source-refs.ts:111-141`).
+
+**REQUIRED answer to graphify-knowledge:** an agent-memory entry carries a
+**structured artefact citation**, never a free evidence field. The structure has
+a named source/locator, exact quoted string, positional anchor where applicable,
+and source revision/digest. If a ULID or other identifier is evidence, the exact
+identifier must appear as the quoted string in the named artefact. A free-form
+ULID field is rejected by the memory schema before grounding because it bypasses
+`verifyVerbatim` (`tmp/ADDENDUM-2-retraction.md:48-59,97-104`).
+
+The mechanical guarantee stops at **source inclusion**: the quote really occurs
+in the normalized named source. It does not establish that the memory assertion
+is true, that the source is authoritative, or that `t_src` is honest. Binding
+this reusable gate to a future graphify MemoryNote producer remains pending
+`human:rhanka`, not implemented behavior (**OPEN-Q13**).
 
 **VERIFIED package boundary:** `@sentropic/graph` calls itself rendering-first
 and exports buffers, layouts, matrices, positions, geometry and renderers
 (`graphify/packages/graph/README.md:1-16` and
 `graphify/packages/graph/src/index.ts:1-19`). It is not the memory store; the
-storage and citation substrate inspected above lives under graphify `src/`. The
-graphify conductor independently confirmed that boundary
-(`tmp/ADDENDUM-1-substrate-not-serving.md:33-38`).
+storage and citation substrate inspected above lives under graphify `src/`.
+
+### 2.3 Graphify-knowledge's seven measured answers
+
+These answers supersede the corresponding assumptions in `e74c4bd8`. “Measured”
+does not mean graphify's principal ratified the cross-repository contract.
+
+| Point | Measured answer adopted here | Remaining gate |
+|---|---|---|
+| Q1 — write path | `store push` already carries stamped `t`/`t_end`/`t_src` through JSONB into `queryWindow`; absent `t_end` is OPEN and `t_end === t` is POINT | authored-memory producer/schema is pending `human:rhanka` |
+| Q2 — key | store-configured namespace carries `workspace_uid`; node ID carries `record_uid`; host, role and durable subject are node attributes | namespace is a data partition, not authorization; caller selection is forbidden by the current seam |
+| Q3 — roots | root never enters the key; h2a prevents wrong-root dispatch, while graphify may retain root only as provenance for after-the-fact detection | h2a resolver/topology owner remains OPEN-Q18 |
+| Q4 — citations | memory evidence is structured named-source + verbatim quote; the gate proves inclusion only, never assertion truth | MemoryNote binding/approval remains OPEN-Q13 and pending principal |
+| Q5 — offline | `recall --as-of … --graph … --json` exists; file freshness is always unverified; edges may lack returned endpoints; file GraphStore has no `queryWindow` | h2a must degrade explicitly and refuse dangling-edge inference |
+| Q6 — anti-cycle | no h2a/a2a dependency or source import was found; graphify's only contact reads the exact workspace-local registry file and fails closed on path/symlink mismatch | strict reader is branch-only at `a7d605a6`; prospective CI import refusal remains OPEN-Q15 |
+| Q7 — clock | author-stamped ordering silently inverts under skew; this spec chooses receiver-stamped `t` and retains author time separately | receiver clock authority/monotonic ordering remains OPEN-Q7 |
+
+Evidence: `tmp/ADDENDUM-2-retraction.md:22-88`. The strict registry reader is at
+`graphify/src/agent-stats/registry.ts:71-116` on graphify branch
+`feat/aclp-ontology-studio`; `git merge-base --is-ancestor HEAD origin/main`
+exited 1, no remote branch contained that HEAD, and `gh pr list --head
+feat/aclp-ontology-studio` printed `[]`.
 
 ## 3. Seam boundary
 
@@ -255,14 +347,15 @@ about current code.
 
 | Concern | h2a | graphify | What must refuse |
 |---|---|---|---|
-| Authored record | Builds a graphify-versioned request from the actor's candidate and dispatches it; writes no local memory copy | Owns schema validation, durable acceptance, journal/store, reconciliation, projection and receipt | h2a refuses to say “persisted” without a graphify durable receipt; graphify refuses invalid/unauthorized/unapproved writes |
-| Durable subject | Resolves exactly one stable workspace+subject address from h2a governance context | Stores and echoes that typed address; remains usable by direct graphify callers | h2a refuses zero/multiple/ambiguous/mismatched addresses |
-| Bus/address-plane resolution | Resolves through one authoritative h2a bus root or explicit bus federation, then emits a neutral durable-subject proof; passes no bus UUID/path as identity | Consumes only the neutral typed subject/proof contract; owns no h2a bus discovery, path or federation | h2a refuses zero/multiple/wrong bus roots before invoking graphify; the graphify mock must observe zero calls on refusal |
-| Graphify memory target | Selects one configured graphify endpoint/store namespace after subject resolution; does not implement it | Owns endpoint/store identity, namespace authority and the echo in write/read receipts | graphify refuses unknown/unauthorized namespaces or a mismatched target; h2a refuses a receipt that echoes another target |
-| Substrate ingestion | Dispatches only; it neither transforms graphify bundle files nor populates a projection | Owns the authored append/feed from accepted record through canonical substrate to queryable projection, plus readiness proof | graphify returns `FEED_NOT_READY` until a deployed feed attests projection coverage through the independently expected head; h2a never treats an empty bundle or capability bit as readiness |
-| Read at wake | Sends the exact address and freshness/completeness requirement; validates the returned receipt before prompt injection | Selects, reconciles and returns the bounded memory bundle plus proof metadata | h2a refuses injection of stale, partial, misaddressed, unverified or unsupported results |
-| Offline operation | Selects a graphify-owned local mode explicitly or declares documentary degradation | Owns any embedded/file journal, local projection and later reconciliation | neither side silently changes source after a remote store was selected |
-| Anti-cycle | Depends on the graphify binary/API or a graphify-owned neutral data contract | Imports no h2a package, type, runtime, config or CLI code | a graphify CI import/dependency gate and joint contract fixtures must exit nonzero on the forbidden edge |
+| Authored record | May validate and dispatch only a graphify-principal-ratified contract; writes no local memory copy | Would own the MemoryNote/producer schema; current `store push` already ingests any stamped graph node | h2a refuses an invented/unratified envelope or success without graphify durability; authored-memory acceptance remains pending `human:rhanka` |
+| Durable subject | Resolves exactly one stable workspace+subject from governance context | Stores subject, host and role as node attributes, not namespace components | h2a refuses zero/multiple/ambiguous/session-derived subjects |
+| Bus/address plane | Prevents wrong-root dispatch before graphify and supplies root only as provenance | Knows no h2a roots; may preserve root provenance for detection, not prevention | h2a refuses ambiguous/wrong-root dispatch; graphify cannot provide that refusal and must not be credited with it |
+| Namespace | Uses the graphify deployment already configured for one workspace; never chooses a namespace per request | Store config maps `workspace_uid` to one `city_slug`/namespace; namespace partitions data but does not authorize it | the h2a surface exposes no namespace selector; any future caller selection waits for graphify-principal ratification |
+| Temporal producer | Does not accept author-controlled ordering; preserves author time separately | Future ratified producer stamps receiver-controlled `t`, `t_src=received-at`, and POINT/OPEN `t_end` semantics | producer refuses author-supplied receiver stamps, malformed/inverted bounds and unstructured evidence |
+| Substrate ingestion | Dispatches only; builds no feed, projection or shadow store | Existing `graph.json` → `store push` → JSONB/index → `queryWindow` chain is complete | no invented `FEED_NOT_READY` gate; ordinary push/query errors are surfaced without h2a fallback |
+| Read at wake | Uses the deployment-configured source, treats unverified freshness as degraded, and rejects dangling-edge inference | Returns temporal nodes and edges under existing T6 semantics; file/store results remain freshness-unverified | h2a refuses `MEMORY_VERIFIED` from current T6 and refuses any edge whose endpoint is absent |
+| Offline operation | Selects `--graph <file>` explicitly or declares documentary degradation | Existing file as-of path reads stamped graph data; file GraphStore has no `queryWindow` | neither side silently changes source after a store was selected; offline output is never called attested |
+| Anti-cycle | Depends on graphify's CLI/API or neutral contract only | Imports no h2a package/runtime; branch-only agent-stats reads one exact workspace-local file path, non-symlinked and fail-closed | current path filter returns no evidence on mismatch; a future graphify CI dependency/import gate must still fail the forbidden edge |
 
 The h2a-side conformance artifact must be a top-level JavaScript test under
 `packages/h2a/test`, because the required root gate discovers that directory and
@@ -272,108 +365,104 @@ does not discover `packages/h2a-runtime`
 fixtures belong under graphify `tests/`, beside the three targeted suites above.
 Those tests do not exist and were not run.
 
-The existing h2a anti-cycle check is not this refusal: it only rejects selected
-dependency-name substrings from `packages/h2a/package.json`
-(`scripts/check-public-contract.sh:30-36`). In the graphify checkout, `jq` over
-the five dependency maps in `package.json` printed no h2a package, a bounded
-import scan for `@sentropic/h2a`, `from …h2a`, `require(…h2a` or `import(…h2a`
-under `src`, `packages`, `scripts`, `.github` and `package.json` printed no
-matches, and a bounded gate scan for `anti-cycle`, `forbid/deny/refus … h2a`,
-`no-restricted-imports`, dependency-cruiser or madge printed no matches in those
-paths. Those negative scans establish neither repository-wide absence nor a
-refusal mechanism. The required one-way edge is presently architectural text
-plus no dependency/import found by those bounded scans.
+The existing h2a anti-cycle check only rejects selected h2a-core dependency-name
+substrings (`scripts/check-public-contract.sh:30-36`). Graphify-knowledge verified
+no h2a/a2a dependency or source import and one file-only contact
+(`tmp/ADDENDUM-2-retraction.md:74-78`). The inspected strict reader resolves
+`<project-root>/.h2a/registry/instances.jsonl`, refuses symlink/path escape and
+filters records to the exact workspace
+(`graphify/src/agent-stats/registry.ts:71-116`, branch
+`feat/aclp-ontology-studio`, commit `a7d605a6`, not on inspected
+`origin/main`). That is verified present behavior on the named branch. It is not
+a prospective CI mechanism that would refuse a newly added import; **OPEN-Q15**
+retains that separate gate.
 
 ## 4. Record key and address
 
 ### 4.1 Primary key
 
-**Proposed answer, pending graphify agreement in OPEN-Q2..Q4 and address-plane
-agreement in OPEN-Q18:** separate record identity, durable-subject identity,
-h2a bus resolution, and the graphify memory target.
+**Adopted mapping from graphify-knowledge Q2, with semantic identity details
+still OPEN-Q2..Q4:** workspace is the configured graphify namespace; host and
+role are queryable node attributes, not namespace components.
 
 ```text
-physical record PK = record_uid
-subject_ref = (workspace_uid, subject_uid[, host_partition_uid])
-logical record locator = (subject_ref, record_uid)
+store-config namespace/city_slug = workspace_uid
+physical graph-node PK = (workspace_uid, record_uid)
+subject_ref = (workspace_uid, subject_uid)
+logical record locator = (workspace_uid, record_uid)
+node attrs include subject_uid, host, role, root_provenance, t, t_end?, t_src
 address-plane context = one bus_root_ref OR bus_federation_ref (h2a-side only)
-memory_target = graphify endpoint/store namespace (not part of record identity)
 ```
 
-- `workspace_uid` is an immutable logical-project identifier carried across a
-  repo rename or checkout move. It is not a path, basename, current branch,
-  session ID, or mutable remote name.
+- `workspace_uid` is serialized as the single namespace chosen in graphify store
+  config. Postgres keys nodes by `(city_slug,id)`
+  (`graphify/src/storage/postgres.ts:285-304,327-352`). It is not selected by a
+  read/write caller, and namespace is partition, not authorization
+  (`tmp/ADDENDUM-2-retraction.md:31-40`).
 - `subject_uid` is an immutable durable-subject identifier. Whether the subject
   is one role-shared memory or one durable actor occupying a role is OPEN-Q4;
   the current role slug is a mutable alias, not identity.
-- `record_uid` is an immutable opaque record identifier. It distinguishes many
-  memories for one subject. Whether graphify makes it globally unique or scopes
-  its physical key by namespace is OPEN-Q2.
-- `operation_id` is separate from the record key and makes retries idempotent.
+- `record_uid` is the graph node `id`, unique inside the configured workspace
+  namespace. It distinguishes many records for one subject. Minting and alias
+  rules remain OPEN-Q2.
+- host and current role slug are attributes. They support `(host,role)` queries
+  without multiplying store partitions and never become record identity.
+- root is an optional provenance attribute only. Graphify can expose a
+  wrong-root stamp for detection but cannot refuse the original h2a dispatch.
+- a future `operation_id` is separate from the graph-node key and would make a
+  ratified authored-write retry idempotent; that write contract remains OPEN-Q6.
 - `bus_root_ref`/`bus_federation_ref` is h2a address-plane context, not a
   graphify store ID and not a session-minted actor UUID. It is never folded into
-  `subject_ref`. h2a must reduce it to one durable-subject result or refuse
-  before dispatch; graphify receives a neutral typed proof, not h2a paths or bus
-  internals. Owner and proof semantics are **OPEN-Q18**.
-- `memory_target` selects a graphify-owned endpoint/store namespace after h2a
-  address resolution. It is echoed in graphify receipts but does not change the
-  logical record locator. Endpoint and namespace semantics are **OPEN-Q1,Q13**.
-- CLI provider, h2a instance/session IDs, tmux name, role display name, checkout
-  path and branch are provenance or aliases only. Host is provenance by default;
-  an intentional stable host partition may enter `subject_ref` only if
-  graphify-knowledge selects and defines it in OPEN-Q4.
+  `subject_ref`. h2a must reduce it to one result or refuse before dispatch;
+  graphify sees only the provenance attribute emitted by the eventual producer.
+  Owner semantics are **OPEN-Q18**.
+- CLI provider, h2a instance/session IDs, tmux name, checkout path and branch are
+  provenance or aliases only and never key components.
 - `workspace_uid` and `subject_uid` travel in a typed identity envelope with an
-  issuer/kind that graphify can validate. Opaque strings alone cannot let
-  graphify distinguish a durable subject from a session ID; issuer, credential
-  and validation rules are OPEN-Q2..Q4.
+  issuer/kind once graphify's principal ratifies a MemoryNote schema. Opaque
+  strings alone cannot distinguish a durable subject from a session ID; issuer,
+  credential and validation rules are OPEN-Q2..Q4.
 
-The physical-PK versus namespaced-locator composition, UID authority,
-serialization, global-versus-namespaced uniqueness, typed issuer/credential and
-alias migration are **OPEN-Q2..Q4**. A content hash alone is not recommended as
+UID authority, workspace serialization, typed issuer/credential and alias
+migration are **OPEN-Q2..Q4**. A content hash alone is not recommended as
 identity because correction, contradiction and supersession need distinct
-append-only records; exact graphify semantics are **OPEN-Q8**.
+records; exact lifecycle semantics are **OPEN-Q8**.
 
 The key cannot cure an h2a routing partition. Before graphify dispatch, the h2a
 address plane must resolve one authoritative bus root or one explicitly
-federated bus view and bind its neutral result to `subject_ref`. An envelope
-written to an unselected bus root that the intended actor does not read is not a
-successful memory dispatch, even if the bus reports delivery. Separately,
-graphify binds its write/read receipt to `memory_target` and refuses an unknown
-or unauthorized namespace. This separation preserves the anti-cycle: graphify
-does not learn how h2a presence or bus paths are laid out.
+federated bus view. Graphify records only the chosen root provenance after the
+fact. This is deliberately asymmetric: h2a prevention, graphify detection.
+Graphify does not learn how h2a presence or bus paths are laid out.
 
 The agreed key is falsified by
 `packages/h2a/test/perennial-memory-seam.test.js` if changing a session loses an
 otherwise unchanged subject's records, if a declared alias migration loses or
 crosses records, or if two records in one subject scope collide. Host changes
-must preserve records only when OPEN-Q4 selects host-independent memory; a
-deliberate host partition must instead prove separation. The graphify fixture
-must refuse an idempotency collision whose `operation_id` repeats with different
-content and a typed identity whose issuer/kind is not an accepted durable-subject
-authority. The h2a fixture must also model both relayed bus roots live at once:
-the address resolver must either produce one `subject_ref` through the agreed
-bus federation or return a typed address-plane refusal before the graphify mock
-is invoked. A separate graphify fixture refuses an unknown/unauthorized
-`memory_target` namespace.
+must preserve records because host is an attribute, not identity. The h2a
+fixture must model an ambiguous/wrong root and observe refusal before graphify
+dispatch. A graphify fixture must instead prove that the selected root survives
+only as queryable provenance. No fixture may expose a caller-chosen namespace.
 
 ### 4.2 Evaluation of `(host, workspace, role)`
 
-The proposed `(host, workspace, role)` tuple is a serious **collection address**
-because it omits session identity (`tmp/BRIEF-graphify-seam-spec.md:73-75`). It is
-not a record primary key because it has no component that distinguishes two
-records for the same subject.
+The proposed `(host, workspace, role)` tuple does **not** align directly with
+graphify storage. Graphify-knowledge's measured model has one store-configured
+namespace string, not a per-record composite
+(`tmp/ADDENDUM-2-retraction.md:31-40`). This spec adopts its recommended
+translation: `workspace_uid` is the namespace; host and role are node
+attributes; `record_uid` is the node ID.
 
 | Change/case | What the tuple survives | Where it fails |
 |---|---|---|
-| New session/instance | Yes, if none of the three fields is derived from session state | Any hidden use of a presence/bus/instance ID repeats REC-07 |
-| Two simultaneous bus roots | The tuple can name the same logical subject only after the h2a address plane selects one root or explicitly federates them | Without that resolution, the same live role has two disjoint addresses; h2a must refuse before graphify dispatch rather than write an unread bus envelope |
-| Repo rename | Only if `workspace` is an opaque stable UID | A repo name, basename or remote-derived key changes |
-| Workspace move | Only if the UID is independent of the path | A cwd/path key changes |
-| Role rename | No, if `role` is the slug | An immutable `subject_uid` plus alias/migration is required |
-| Two repos each with `architect` | Yes only if their workspace UIDs are distinct | Clone/fork/logical-project semantics are not yet agreed |
-| Host rename, reinstall or another machine | No, if host is identity | Perennial cross-host memory fragments unless OPEN-Q4 intentionally selects a stable host partition |
-| Two records for one actor | No | `record_uid` is required |
-| Two actors sharing one role in one workspace | No | graphify must decide role-shared versus actor-owned memory |
+| New session/instance | Yes: no session value enters namespace or node identity | Any hidden use of a presence/bus/instance ID repeats REC-07 and must be refused |
+| Ambiguous/wrong bus root | Key remains unchanged; h2a refuses before dispatch | Graphify can only detect emitted root provenance after the fact |
+| Repo rename | Only if `workspace_uid` is an opaque stable configured namespace | A repo name, basename or mutable remote-derived namespace changes |
+| Workspace move | Yes if namespace is independent of path | A path-derived namespace changes |
+| Role rename | Record remains under the workspace namespace | Role attribute and durable-subject alias require migration; slug is not identity |
+| Two repos each with `architect` | Yes when their configured workspace namespaces differ | Clone/fork/logical-project semantics remain OPEN-Q3 |
+| Host rename, reinstall or another machine | Record remains because host is an attribute | Provenance/queries change; alias/history policy remains OPEN-Q4 |
+| Two records for one actor | Yes through distinct `record_uid` node IDs | Collision inside one workspace namespace must refuse |
+| Two actors sharing one role in one workspace | Only if distinct `subject_uid` attributes are ratified | Role alone cannot distinguish them |
 
 The current track workspace key must not be reused by assumption. REC-06 reports
 a history-absorption failure for that key
@@ -383,64 +472,48 @@ logical workspace is **OPEN-Q3**.
 
 ## 5. Write path
 
-All field names in this section are a proposed minimum; graphify owns the final
-schema (**OPEN-Q1**). This is a required future path, not a description of a
-working one: the relayed real-bundle measurement says the feed into the current
-Postgres window path does not exist (**OPEN-Q17**).
+### 5.1 Existing graphify infrastructure path
 
-1. The actor produces a candidate carrying schema version, the logical record
-   locator, `operation_id`, memory kind, assertion/body, observed/valid times,
-   evidence locators and source revision/digest, author/provenance, enforcement
-   rung, review state, sensitivity class, and explicit
-   `supersedes`/`contradicts` links.
-2. The h2a address plane resolves one typed durable-subject address through one
-   authoritative bus root or explicit bus federation. It refuses before
-   graphify dispatch if the result is absent, ambiguous, derived from a
-   session/instance, outside the authorized workspace, or visible only through
-   an unselected root. It emits the neutral subject/proof and separately selects
-   one configured graphify `memory_target`; it does not persist graph internals.
-3. h2a dispatches the graphify-owned request through the independently released
-   graphify surface. The transport may be process JSON, API, or an explicit
-   write-capable service; selection is **OPEN-Q1**. A read-only MCP surface is not
-   silently treated as writable.
-4. graphify validates `memory_target`/namespace authority, the neutral subject
-   issuer/proof, approval state, schema, idempotency, citations/locators,
-   temporal fields and concurrency preconditions; durably appends the accepted
-   or pending candidate to the agreed canonical substrate; then ingests/folds it
-   into the queryable projection under graphify's contradiction model. It does
-   not inspect h2a bus roots. The append-to-projection feed and its
-   deployment/readiness test are first-class graphify deliverables, not an
-   assumed internal detail.
-5. graphify returns a durable receipt echoing `memory_target` and the subject
-   address, `record_uid`, `operation_id`, content digest, accepted/pending state,
-   committed revision or high-water mark, ingestion revision, and projection
-   status. h2a reports persistence only after validating the durable-append
-   receipt; it does not report the record wake-readable until graphify proves the
-   corresponding ingestion/projection revision ready.
+No ingestion component is missing:
 
-The outcomes are deliberately distinct:
+1. A graph producer emits a node into `graph.json`, including numeric `t`,
+   optional `t_end`, `t_src`, and arbitrary semantic/provenance attributes.
+2. Store configuration fixes the one workspace namespace. The caller does not
+   select it.
+3. `graphify store push` reads the graph and preserves non-schema attributes in
+   JSONB `props`; the temporal expression indexes make those values queryable.
+4. `queryWindow` returns stamped nodes/edges under POINT/OPEN/span semantics.
 
-- `ADDRESS_DOMAIN_UNRESOLVED` is an h2a pre-dispatch refusal for zero, multiple,
-  wrong or unfederated bus roots. The graphify endpoint must not be called.
-- `NOT_PERSISTED` is returned only when graphify authoritatively rejects before
-  durable append, including an unknown/unauthorized `memory_target`, or when h2a
-  can prove the endpoint was never reached. If the connection disappears after
-  dispatch and commit state is unknowable, h2a returns `PERSISTENCE_UNKNOWN` and
-  retries with the same `operation_id`; it must not assert non-persistence.
-- `PERSISTED_NOT_PROJECTED` means the append receipt is durable but its
-  ingestion/projection is failed or behind. The write remains persisted, wake
-  returns `FEED_NOT_READY`, and an idempotent retry must not create a second
-  record.
+This path is current graphify infrastructure, verified in §2.1 and measured by
+graphify-knowledge. A producer that fails to stamp `t` produces a legitimately
+timeless record. Building another feed, queue or projection is expressly outside
+this seam.
 
-None of these outcomes creates an h2a `.h2a` memory WAL, queue, cache, shadow
-graph, or automatic file fallback. If graphify later supplies an embedded
-writer, it remains graphify storage and must be selected explicitly;
-remote/local reconciliation is **OPEN-Q9..Q10**, while h2a bus-root resolution
-and its neutral handoff remain **OPEN-Q18**. `RECALL.md` is a read/bootstrap
-fallback, never a hidden write outbox. The refusal is falsified if the h2a
-conformance test can bypass address-plane refusal, report persistence without a
-durable graphify receipt, misreport a committed append as `NOT_PERSISTED`, or
-find newly persisted memory under `.h2a`.
+### 5.2 Future authored-memory producer — pending graphify principal
+
+Graphify has no ratified MemoryNote schema or h2a write surface. The fields and
+transport therefore remain **OPEN-Q1,Q6**; this specification does not invent an
+envelope inside graphify's hard gate
+(`tmp/ADDENDUM-2-retraction.md:90-95`). It fixes only the seam invariants that a
+future ratified producer must satisfy:
+
+1. h2a resolves one durable subject and refuses a missing, ambiguous,
+   session-derived or wrong-root address before dispatch. It stores no memory.
+2. The candidate's evidence is a structured named-source/verbatim citation. A
+   free evidence field is refused before graphify grounding.
+3. The accepting producer stamps `t=received-at` and `t_src=received-at`; it
+   keeps author time in `authored_at`, applies the POINT/OPEN rule in §2.1, and
+   records the selected h2a root only as provenance.
+4. The producer writes the node into the workspace-configured graph/namespace
+   and invokes the existing push path. Host, role and subject remain attributes.
+5. h2a may report durability only from graphify's eventual ratified success
+   result. If graphify is unavailable or commit status is unknown, h2a reports
+   exactly that uncertainty; it never claims persistence, switches namespace,
+   or writes an `.h2a` WAL, queue, cache, shadow graph or automatic fallback.
+
+Exact idempotency, receipt and failure-code semantics remain **OPEN-Q6** rather
+than the invented `FEED_NOT_READY`/projection protocol retracted in §0.
+`RECALL.md` is a read/bootstrap fallback, never a hidden write outbox.
 
 ## 6. Read path at wake
 
@@ -462,41 +535,23 @@ only inspected form that carries those reading rules. Whether graphify generates
 and commits that projection, merely complements it, or eventually replaces it is
 **OPEN-Q14**.
 
-### 6.2 Required wake receipt
+### 6.2 Current temporal read surface and its limit
 
-Before first-action prompt construction, the h2a address plane resolves the
-exact subject or refuses; h2a then requests it from the selected graphify
-`memory_target` with a declared freshness/completeness policy. This contract
-does not call `queryWindow` usable merely because its capability bit exists. A
-graphify response eligible for injection must include at least:
+Before first-action prompt construction, h2a resolves the exact durable subject
+or refuses. It then invokes graphify against the deployment-configured source;
+it does not choose a namespace. Current T6 returns source kind, configured
+namespace for a store, snapshot metadata when available,
+`freshness: "unverified"`, and `unpaged: true`
+(`graphify/src/temporal-recall.ts:304-383`). With stamped data this is a reachable
+chronological read. It is not an attested authored-memory response.
 
-- supported schema version and exact echoed workspace/subject address;
-- source kind and selected namespace;
-- exact echoed `memory_target` and a neutral durable-subject proof identifier and
-  issuer; no h2a bus path or session-minted UUID;
-- feed identity/version, last accepted ingestion revision, projection revision,
-  and a machine-decidable ready/not-ready result;
-- journal/commit high-water mark and projection high-water mark;
-- an expected-head anchor independent of the serving replica/projection, such as
-  a graphify-owned signed receipt pinned in the committed bootstrap or supplied
-  by an agreed external authority; h2a reads this anchor but does not store
-  memory content;
-- authoritative journal range/root commitment plus atomic snapshot/bundle ID,
-  record count, content digest, query/selection manifest and completion marker;
-- built/committed/source-cutoff times and a machine-decidable freshness result;
-- pagination cursor state or an explicit complete/untruncated marker;
-- accepted, pending and quarantined record sets kept distinct;
-- per-record evidence locator, source revision/digest and locator-validation
-  result.
-
-The anchor owner/location, exact fields and scale contract are
-**OPEN-Q11..Q13,Q15,Q17..Q18**. A serving replica's own internally consistent revision,
-count and digest are not independent proof of freshness or semantic
-completeness. Current T6's
-`unpaged: true` proves it does not deliberately paginate its chronological
-snapshot; it does not prove semantic completeness, current locators, authored
-truth, or projection freshness
-(`graphify/spec/SPEC_AGENTSTATS_TIMEORIENTED.md:263-271`).
+Graphify's principal has not ratified MemoryNote/Persona semantics, an h2a write
+or response envelope, caller namespace selection, cross-workspace reads, or
+pagination/cursors (`tmp/ADDENDUM-2-retraction.md:90-95`). Therefore this spec
+does not prescribe those fields. Independent freshness, completeness,
+authorization, bounded semantic selection and any future receipt remain
+**OPEN-Q11..Q15**. A self-consistent snapshot digest alone would still not prove
+that an independently expected head was served.
 
 ### 6.3 What refuses
 
@@ -504,48 +559,47 @@ truth, or projection freshness
 |---|---|
 | Wrong or ambiguous actor | h2a durable-address resolver refuses zero/multiple matches; response address must match byte-for-byte; it never picks the first candidate |
 | Wrong or ambiguous h2a bus root | h2a address resolver refuses zero/multiple roots unless an agreed bus federation produces one subject; graphify is not invoked and does not import bus topology |
-| Wrong graphify memory target | graphify refuses an unknown/unauthorized store namespace; h2a refuses unless the receipt's `memory_target` matches byte-for-byte |
-| Capability exists but feed is absent | graphify returns `FEED_NOT_READY` unless a deployed feed identifies itself and proves projection coverage through the independently expected head; h2a refuses a capability bit, `0 nodes / 0 edges`, or an empty bundle without that proof |
-| Unsupported schema | h2a receipt validator refuses before prompt injection; graphify refuses unsupported write bodies |
-| Stale or unverifiable snapshot | graphify returns a typed stale/unverified outcome when below an independently anchored expected head/minimum revision; h2a rejects a self-reported-only head, `freshness: unverified`, missing/incomparable anchor or revision, and `snapshot: null` |
-| Partial/corrupt result | graphify commits the authoritative journal range/root separately from its projection, publishes atomic bundles, and binds the selection manifest to that root; h2a refuses a head/root mismatch, unexplained journal gap/omission, missing pages, nonterminal cursor, truncation, manifest absence, or count/digest mismatch |
+| Caller-selected namespace | h2a exposes no selector and uses only store configuration; any future selector is refused until `human:rhanka` ratifies it |
+| Unratified authored-memory schema | h2a refuses dynamic write or verified-memory interpretation; existing T6 data remains generic temporal graph data |
+| Stale or unverifiable snapshot | current `freshness: unverified` or `snapshot: null` can only yield degraded temporal context, never `MEMORY_VERIFIED`; future independent proof is OPEN-Q11 |
+| Dangling temporal edge | h2a rejects/removes the edge unless both source and target nodes are present; it never invents an endpoint or treats current output as induced |
 | Store unavailable | retain graphify's existing no-post-selection-fallback behavior; a local source is used only when chosen before the request |
-| Unresolved evidence | graphify citation/locator validator quarantines the record; h2a excludes quarantined records from asserted memory and discloses the count/reasons |
+| Unstructured or non-verbatim evidence | h2a rejects a free evidence field; graphify `verifyVerbatim` rejects a structured quote absent from the named normalized source |
+| Citation present but assertion false | neither citation gate may label the assertion true; approval/truth policy remains OPEN-Q8,Q13 |
+| Missing `t` | current temporal recall legitimately omits the record; the future memory producer refuses an authored temporal record before push if its receiver stamp is absent |
+| Author-controlled ordering time | the accepting producer overwrites/refuses caller `t`/`t_src` and stamps receiver time; graphify pass-through alone is not truth verification |
 | Pending/unapproved record | graphify keeps state machine-readable; h2a never mixes it silently with accepted memory |
-| Unauthorized namespace/workspace | graphify authorization refuses; h2a also rejects a mismatched echo. Current T6 namespace partition is explicitly not authorization |
+| Unauthorized workspace | namespace partition is not authorization, so no current T6 response is promoted to authorized memory by namespace alone |
 | Session/instance-derived key | h2a resolver refuses the address; graphify refuses an identity envelope whose kind/issuer/credential is not an accepted durable-subject authority |
 
 “Refuse memory injection” and “refuse the actor launch/first action” are separate
 policies. The mechanical states are proposed as `MEMORY_VERIFIED`,
-`DEGRADED_BOOTSTRAP` and `MEMORY_UNAVAILABLE`. `DEGRADED_BOOTSTRAP` requires a
-successful read plus a receipt naming the bootstrap path, commit/blob digest,
-validation result and source revision; absent, unreadable, untracked or drifted
-bootstrap data yields `MEMORY_UNAVAILABLE`, never degraded success. Which state
-blocks launch, whether `required` or `best-effort`
-is the default, and the auditable break-glass behavior are **OPEN-Q16**. No mode
-may convert stale/partial data into verified memory.
+`DEGRADED_TEMPORAL`, `DEGRADED_BOOTSTRAP` and `MEMORY_UNAVAILABLE`. Current T6
+can produce only `DEGRADED_TEMPORAL` because freshness is always unverified; the
+consumer must disclose that status and remove dangling edges.
+`DEGRADED_BOOTSTRAP` requires a successful read plus a receipt naming the
+bootstrap path, commit/blob digest, validation result and source revision;
+absent, unreadable, untracked or drifted bootstrap data yields
+`MEMORY_UNAVAILABLE`. Which state blocks launch, whether `required` or
+`best-effort` is the default, and auditable break-glass behavior are
+**OPEN-Q16**. No mode may convert unverified data into verified memory.
 
 The h2a conformance test must mutate every row above and observe a refusal, not a
-warning count. Required cases include wrong address, multiple aliases, revision
-behind an independently anchored expected head, `snapshot:null`, missing
-manifest, count/digest mismatch, a journal record removed before projection,
-truncated response, unresolved locator, pending state, unsupported version,
-unavailable graphify, an absent/unreadable/drifted bootstrap, and session-ID
-churn, two simultaneous unfederated bus roots with an assertion that graphify
-was not invoked, a mismatched graphify `memory_target`, and an empty response
-from an unready feed. A legitimately empty subject may pass only when the independent head,
-ingestion range, projection coverage and selection manifest jointly prove that
-zero records—not a missing feed—is the complete result. None is implemented or
-measured here.
+warning count. Required cases include wrong address, ambiguous root with zero
+graphify dispatch, attempted namespace selection, `snapshot:null`, unverified
+freshness, dangling edge, free-form ULID evidence, invented verbatim quote,
+author-stamped `t`, missing `t`, malformed POINT/OPEN bounds, unavailable store,
+an absent/unreadable/drifted bootstrap, and session-ID churn. None of these h2a
+conformance tests exists or was run here.
 
 ## 7. What survives graphify or Postgres being absent
 
 | Environment | Current evidence | Required seam posture |
 |---|---|---|
-| Postgres absent; graphify present; no store selected or explicit graph source | T6 can recall a local `graph.json`, but only as freshness-unverified chronological graph data (`graphify/src/temporal-recall.ts:357-398`; targeted 12/12 tests above) | graphify must provide a local authored-memory writer/reader with the same receipts as the remote backend; until then this is not verified perennial memory |
-| Postgres reachable; current real bundle | **RELAYED, not re-measured:** the window path returned 0 nodes / 0 edges on 47,762 nodes because its feed is absent (`tmp/ADDENDUM-1-substrate-not-serving.md:8-13`) | report `FEED_NOT_READY`; do not present the tested capability or empty result as a serving perennial-memory path |
+| Postgres absent; graphify present; explicit graph source | Existing `recall --as-of … --graph … --json` returns POINT and OPEN stamped data, omits untimed data, reports `freshness: unverified`, and may return dangling edges (`graphify/src/temporal-recall.ts:243-271,357-404`; graphify-measured fixture at `tmp/ADDENDUM-2-retraction.md:61-72`) | expose only `DEGRADED_TEMPORAL`; remove dangling edges and never call the source attested |
+| Postgres reachable; inspected 8,919-node graph | The graph printed zero numeric `t`, so an empty temporal result is legitimate; source and graphify-knowledge measurements show the push/query chain is complete (§2.1) | a future ratified memory producer stamps data; no ingestion project or feed-readiness error is introduced |
 | Postgres selected but unreachable | The error is surfaced and no file fallback occurs (`:317-355`; `graphify/tests/cli-temporal-recall.test.ts:250-285`) | retain refusal; any change to local mode is explicit and reconciliation-aware |
-| File GraphStore selected | It lacks `queryWindow` and is refused for T6 (`graphify/tests/storage-postgres-time-window.test.ts:249-264`) | graphify decides whether to extend it or ship another embedded backend |
+| File GraphStore selected | It declares `query:false` and lacks `queryWindow` (`graphify/src/storage/file.ts:58-67`; `graphify/tests/storage-postgres-time-window.test.ts:249-264`) | use the explicit `--graph` as-of path instead; do not pretend file GraphStore supports window queries |
 | graphify absent | h2a source files and committed dossiers remain; `RECALL.md` would remain only if PR 90 or a successor merges. It is absent from inspected `origin/main` | no dynamic read or durable write; `DEGRADED_BOOTSTRAP` only after a successful read and commit/blob/validation receipt, otherwise `MEMORY_UNAVAILABLE`; never a claim of current/full memory |
 
 A perennial-memory design that requires reachable Postgres is **not acceptable**
@@ -553,59 +607,48 @@ as the laptop baseline. That judgment follows the mandate's explicit laptop
 question (`tmp/BRIEF-graphify-seam-spec.md:84-87`) and the owner's unratified but
 clear local-first direction
 (`docs/decisions/2026-07-25-agent-memory-owner-answers.md:15-20,48-50`).
-Explicit documentary degradation is acceptable only when it is named, refuses
-new durable writes, does not inject stale/partial data as true, and never reports
-verified perennial memory. A graphify-owned embedded mode with parity is needed
-for the full local-first requirement; its backend and reconciliation remain
-**OPEN-Q9..Q10**.
+Explicit temporal degradation is acceptable when it is named, removes dangling
+edges, refuses new durable writes when graphify is absent, and never reports
+verified memory. The existing file as-of path satisfies the read primitive for
+a laptop; what remains unratified is authored-memory production and attestation,
+not an embedded query backend (**OPEN-Q9..Q11**).
 
-### 7.1 Delivery sequence imposed by the missing feed
+### 7.1 What can proceed now, and what waits
 
-The memory lane can ship only refusal-safe and documentary pieces before a
-graphify feed exists:
+1. **May proceed without graphify-principal expansion:** h2a address/root
+   refusal, tests for the existing `store push` temporal round trip, a degraded
+   `--graph` reader that strips dangling edges, structured-citation validation,
+   receiver-time skew tests, and a commit/blob-validated `RECALL.md` bootstrap.
+2. **Must wait for `human:rhanka`:** MemoryNote/Persona semantics, an authored
+   graph producer or h2a write surface, the final envelope/receipt, caller
+   namespace selection, cross-workspace reads, and pagination/cursors.
+3. **Must wait for independent proofs:** any `MEMORY_VERIFIED` claim,
+   authorization by workspace, bounded semantic completeness, and replacement
+   of `RECALL.md`.
 
-1. **May proceed independently:** finalize the neutral contract, a fail-closed
-   address-plane interface, and fixtures for both observed bus roots; implement
-   receipt validation and the `FEED_NOT_READY`/`MEMORY_UNAVAILABLE` states; and
-   preserve a commit/blob-validated `RECALL.md` bootstrap if PR 90 or a successor
-   is accepted. Actual single-root selection or federation implementation waits
-   for OPEN-Q18's topology and owner decision. A dispatcher may exist behind
-   those refusals, but it must not claim dynamic memory is serving.
-2. **Graphify feed gate:** graphify must own and deliver an authored append from
-   accepted record to canonical substrate, projection population,
-   `memory_target`/namespace authority, and a readiness receipt. A
-   production-shaped seeded end-to-end fixture using the real
-   `graph.json`/`scene.json` split must append known records and retrieve those
-   same records; replaying only the current unit/fake `queryWindow` tests does
-   not cross this gate. This commitment is pending `human:rhanka`.
-3. **Must wait for that gate:** enabling dynamic wake injection, calling a
-   persisted record wake-readable, advertising remote or embedded perennial
-   memory, and replacing `RECALL.md`. Provider parity, independent freshness and
-   completeness proofs, and the h2a refusal mutations must then pass before any
-   `MEMORY_VERIFIED` claim.
-
-This order deliberately permits useful contract/refusal work without producing
-a day-one design that looks complete and returns empty. The exact ingestion path
-and exit evidence are **OPEN-Q17**; h2a bus-root topology and the neutral handoff
-are **OPEN-Q18**.
+There is no feed gate in this sequence. OPEN-Q17 is retracted; OPEN-Q18 remains
+an h2a address-plane question.
 
 ## 8. Consensus questions for `graphify-knowledge`
 
-Every question below is **OPEN**. An answer changes the seam and must be recorded
-before implementation. **OPEN-Q17 is the first delivery gate and OPEN-Q18 is the
-first routing gate despite their stable identifiers; neither may be deferred as
-an implementation detail.**
+Graphify-knowledge's measured answers to the seven questions in Addendum 2 are
+recorded in §2.3 and are not reopened here. The remaining questions below are
+**OPEN** unless explicitly marked **RETRACTED**. Every cross-repository
+commitment remains pending `human:rhanka`; an answer from h2a's owner alone does
+not ratify graphify behavior (`tmp/ADDENDUM-2-retraction.md:90-95`).
 
 1. **OPEN-Q1 — Contract ownership and transport.** Will graphify own and version
-   the neutral authored-memory read/write request, receipt and error schemas,
+   the neutral authored-memory producer, read request, receipt and error schemas,
    with h2a limited to durable-address resolution and dispatch? Is the supported
-   transport process JSON, a write-capable API/MCP service, or both? Will
-   graphify accept a CI gate that refuses every h2a import/dependency?
+   transport process JSON, a write-capable API/MCP service, or both? Will its
+   principal ratify a prospective CI gate that refuses every h2a import and
+   dependency?
 2. **OPEN-Q2 — Record identity and idempotency.** Is `record_uid` alone the
-   physical primary key, or is the physical key namespaced/composite while the
-   subject remains a separate address? Is it minted by the caller or graphify,
-   globally unique or namespace-scoped, and what exact `operation_id`
-   collision/retry rules refuse two different writes under one idempotency key?
+   caller-visible identity within the workspace namespace, and who mints it?
+   What exact `operation_id` collision/retry rules refuse two different writes
+   under one idempotency key? The existing physical store key is already
+   `(city_slug, id)`, with `city_slug = workspace_uid`; this question must not
+   redesign it as `(host, workspace, role)`.
 3. **OPEN-Q3 — Workspace identity.** Does `workspace_uid` mean logical project,
    git repository, clone, fork or linked worktree? What survives repo/remote
    rename, path move, history absorption and multiple clones, and which alias
@@ -614,29 +657,31 @@ an implementation detail.**
    shared by a role or owned by a durable actor occupying it? What typed
    subject kind, issuer or credential lets graphify refuse a session ID disguised
    as an opaque UID? How do role rename/split/merge and two same-role actors
-   migrate? Is host provenance or intentional partition, and what durable host
-   UID would survive rename/reinstall if partitioned?
+   migrate? `host` and `role` are node attributes, not namespace components;
+   which values and migration rules make those provenance attributes durable?
 5. **OPEN-Q5 — Canonical store.** Does perennial memory make an append journal
    authoritative with the graph as projection, following owner direction D12,
    or retain current graphify `graph.json` authority with DB projections? What
    mechanism refuses journal/graph projection drift?
 6. **OPEN-Q6 — Authored write surface and receipt.** What command/API appends one
-   memory record, and what atomic receipt proves durability: address, record and
-   operation IDs, content digest, committed revision, projection cursor and
-   accepted/pending state? Which exact protocol distinguishes authoritative
-   pre-append `NOT_PERSISTED`, indeterminate `PERSISTENCE_UNKNOWN`, and durable
-   `PERSISTED_NOT_PROJECTED`, and how does an idempotent retry recover each?
+   stamped memory record, and what atomic receipt proves durability? What are
+   the ratified retry, idempotency and failure semantics? This spec does not
+   invent an h2a envelope, projection receipt or failure-code vocabulary.
 7. **OPEN-Q7 — Concurrency.** Is V1 single-writer+namespace, optimistic append,
    or concurrent multi-writer? What revision precondition, conflict response and
-   retry rule apply across Claude/Codex/Gemini/Hermes sessions?
+   retry rule apply across Claude/Codex/Gemini/Hermes sessions? Receiver-stamped
+   `t` is fixed for ordering; what receiver clock authority, multi-host skew
+   bound and equal-time tie-breaker make that ordering reliable?
 8. **OPEN-Q8 — Approval, contradiction and lifecycle.** Which memory kinds may be
    automatic, pending, double-consensus-reviewed or human-approved? How are
    observed time, valid time, contradiction, supersession, correction,
    tombstone, retention, deletion, privacy and `/rewind` represented without
    destructive mutation?
-9. **OPEN-Q9 — Local-first backend.** Which graphify-owned embedded/file backend
-   supplies authored writes and freshness-aware reads without Postgres, with
-   semantic parity to the server backend and acceptable RAM/OOM bounds?
+9. **OPEN-Q9 — Local-first authored production.** The existing
+   `recall --as-of <t> --graph <file> --json` path supplies the degraded offline
+   read primitive. What graphify-owned offline producer/durability mechanism,
+   if any, supplies authored writes without Postgres, and what RAM/OOM bounds
+   apply? File freshness remains unverified rather than inferred.
 10. **OPEN-Q10 — Remote/local failure and reconciliation.** After a remote store
     is selected, may failure ever switch to local? If yes, only by which explicit
     policy, and how are the two journals reconciled without split-brain or h2a
@@ -648,15 +693,17 @@ an implementation detail.**
     condition returns `STALE` instead of today's
     `freshness: unverified`/`snapshot:null` success?
 12. **OPEN-Q12 — Completeness and retrieval scale.** What atomic
-    authoritative-journal range/root commitment, selection manifest,
-    count/digest and cursor proves a bundle complete against an independently
-    anchored head—not merely self-consistent? How are bounded semantic selection
-    and pagination implemented without omitted records becoming silent partial
-    memory or overflowing the wake context?
-13. **OPEN-Q13 — Evidence and authorization.** Which citations/locators are
-    mandatory, when are they revalidated/quarantined, and how is an authenticated
-    workspace+subject bound to a namespace that is currently only a partition?
-    Who may read, write, approve, supersede and delete each memory kind?
+   authoritative-journal range/root commitment, selection manifest,
+   count/digest and cursor proves a bundle complete against an independently
+   anchored head—not merely self-consistent? How are bounded semantic selection
+   and pagination implemented—if graphify's principal ratifies pagination—without
+   omitted records becoming silent partial memory or overflowing wake context?
+13. **OPEN-Q13 — Evidence truth and authorization.** The citation shape is fixed:
+   a quoted string plus named artefact, checked by literal normalized inclusion.
+   When is the named artefact revalidated or quarantined, who evaluates the
+   lesson's truth, and how is an authenticated workspace+subject bound to a
+   namespace that is only a data partition? Who may read, write, approve,
+   supersede and delete each memory kind?
 14. **OPEN-Q14 — `RECALL.md` relationship.** Does graphify complement it,
     deterministically generate a committed bootstrap projection, or eventually
     replace it? What parity criteria cover doctrine, refutations, recurrent
@@ -664,29 +711,32 @@ an implementation detail.**
     What path/commit/blob/validation receipt makes a degraded bootstrap real
     rather than a label?
 15. **OPEN-Q15 — Version and contract gates.** Which golden fixtures, supported
-    version ranges and ownership rules jointly gate graphify providers and the
-    h2a dispatcher? What fails release when schemas, refusal codes or local/server
-    semantics diverge?
+   version ranges and ownership rules jointly gate graphify providers and the
+   h2a dispatcher? What fails release when schemas, refusal codes or local/server
+   semantics diverge? Graphify measured the present anti-cycle and its branch
+   has a strict file reader; which prospective CI gate and versioned fixtures
+   make those properties durable?
 16. **OPEN-Q16 — Wake degradation policy.** Which failures refuse only memory
-    injection and which refuse launch/first action? Is `required` or
-    `best-effort` the default for durable actors, and what explicit audited
-    break-glass is allowed when graphify and a receipt-validated committed
-    bootstrap are absent?
-17. **OPEN-Q17 — Substrate ingestion and reachability (first delivery gate).**
-    What graphify-owned path writes one accepted authored-memory record into the
-    canonical substrate and then into each queryable projection? Does any such
-    end-to-end path exist today? Which feed identity, ingestion/projection
-    watermarks and readiness receipt distinguish a legitimately empty result
-    from the relayed 0-node/0-edge unfed result? What representative seeded test
-    must pass before h2a may enable dynamic writes or wake reads?
+   injection and which refuse launch/first action? Is `required` or
+   `best-effort` the default for durable actors, and what explicit audited
+   break-glass is allowed when graphify and a receipt-validated committed
+   bootstrap are absent? The policy must name current T6 file/store reads
+   `DEGRADED_TEMPORAL`, preserve `freshness: unverified`, and remove dangling
+   edges before any memory reaches a prompt.
+17. **RETRACTED-Q17 — Substrate ingestion and reachability.** This is not an open
+    question. Addendum 2 refuted the missing-feed premise: `graph.json` →
+    `store push` → JSONB/index → `queryWindow` is complete. The remaining work is
+    an authorized producer that stamps temporal attributes, not an ingestion
+    project (`tmp/ADDENDUM-2-retraction.md:8-20,24-29`).
 18. **OPEN-Q18 — Address-plane topology, owner and neutral handoff (first routing
     gate).** Must h2a addressing use one authoritative bus root, or will an
-    explicitly named h2a owner federate the two simultaneously observed paths?
+    explicitly named h2a owner define federation?
     What pre-dispatch mechanism refuses an unknown, wrong or ambiguous bus root,
     and how does it prove one durable `subject_ref` without using either
     session-minted UUID? Which neutral proof/issuer may graphify validate without
-    importing h2a or learning its bus topology? Separately, which graphify-owned
-    endpoint/store-namespace identifier is echoed as `memory_target`?
+    importing h2a or learning its bus topology? Root may be stored only as
+    provenance for after-the-fact detection; graphify does not prevent h2a
+    routing mistakes (`tmp/ADDENDUM-2-retraction.md:42-46`).
 
 ## 9. Refusal-oriented acceptance requirements
 
@@ -695,53 +745,57 @@ No requirement below is implemented by this document.
 1. Changing only an h2a session/instance ID preserves the resolved subject address
    and recalled records; introducing a session ID into an identity slot is
    refused.
-2. Two records under one subject do not collide; two different workspaces with an
-   `architect` do not cross-read; ambiguous aliases refuse.
-3. A write is called durable only after a receipt with matching address,
-   operation ID, record ID, digest and committed revision.
-4. An authoritative pre-append rejection or a graphify endpoint proven not
-   reached produces `NOT_PERSISTED`; an indeterminate post-dispatch disconnect
-   produces `PERSISTENCE_UNKNOWN`; durable append followed by feed/projection
-   failure produces `PERSISTED_NOT_PROJECTED` plus `FEED_NOT_READY`. Every retry
-   uses the same `operation_id`, creates no duplicate and creates no h2a spool.
-5. Wrong address, a head behind the independent anchor, `snapshot:null`,
-   unsupported schema, missing journal-root/selection manifest, unexplained
-   journal omission, count/digest mismatch, nonterminal cursor, truncation,
-   unresolved locator and unapproved state all refuse verified prompt injection.
-6. Local and Postgres providers run the same authored-memory golden fixture and
-   either return semantically identical receipts/bundles or a named unsupported
-   capability; no silent fallback is accepted. The fixture begins with an
-   authored append through a production-shaped `graph.json`/`scene.json` bundle
-   and proves that known seeded records reach the queried projection; a passing
-   isolated `queryWindow` suite is insufficient.
-7. A graphify source or package that imports h2a fails graphify CI; h2a only
-   consumes the graphify-owned contract.
-8. The h2a refusal mutations live in
+2. Store configuration maps `workspace_uid` to the single `city_slug`
+   namespace; `host` and `role` remain attributes. A reader has no caller-chosen
+   namespace selector, and the namespace is never treated as authorization.
+3. A production-shaped node carrying `t`, optional `t_end`, and `t_src` passes
+   through existing `store push`, retains those attributes in Postgres props,
+   and is retrieved by the temporal query at its eligible instant.
+4. Temporal fixtures prove all four states: missing `t` never surfaces;
+   `t_end === t` is a POINT visible at that instant only; absent `t_end` is OPEN
+   and remains visible later; `t < t_end` is a bounded span. Malformed bounds are
+   rejected rather than silently reinterpreted.
+5. The authorized producer stamps `t` at receipt and `t_src = received-at`,
+   preserves an untrusted author time separately as `authored_at`, and refuses
+   an author-supplied value masquerading as receiver time. Multi-receiver clock
+   behavior remains gated by OPEN-Q7.
+6. Every evidence-bearing entry uses a structured citation with a verbatim quote
+   and named artefact. A fabricated ULID in a free field is rejected; a quoted
+   ULID absent from the named source fails grounding. A successful inclusion
+   check never labels the lesson true.
+7. The offline file fixture proves POINT/OPEN/missing-`t` behavior, reports
+   `source.kind = file` and `freshness: unverified`, and strips any edge whose
+   endpoint is absent from returned nodes before h2a consumes the result.
+8. Postgres failure does not silently select the file backend. File
+   `GraphStore` window queries remain unsupported (`query:false`); only the
+   explicit file as-of command is the offline read primitive.
+9. An unknown, wrong or ambiguous h2a root refuses at dispatch and records zero
+   graphify calls. Graphify may detect mismatched root provenance afterward but
+   is never credited with preventing the dispatch.
+10. A graphify source or package that imports h2a fails the prospective graphify
+    CI gate; the exact, non-symlinked, fail-closed registry file reader remains a
+    data-file boundary rather than an h2a import.
+11. The h2a refusal mutations live in
    `packages/h2a/test/perennial-memory-seam.test.js`, so the required root gate
    reaches them. Tests placed only in `packages/h2a-runtime` do not satisfy this
    requirement (`scripts/run-tests.mjs:10-19,29-58`).
-9. `DEGRADED_BOOTSTRAP` requires a readable bootstrap plus matching path,
+12. `DEGRADED_BOOTSTRAP` requires a readable bootstrap plus matching path,
    commit/blob digest and validation receipt; absence, unreadability or drift
-   yields `MEMORY_UNAVAILABLE`.
-10. With both relayed h2a bus-root shapes represented concurrently, the
-    address-plane fixture either selects/federates one durable subject or returns
-    `ADDRESS_DOMAIN_UNRESOLVED`; on refusal the graphify mock records zero calls.
-    A separate provider fixture refuses an unknown/unauthorized
-    `memory_target` namespace.
-11. A capability-present but feed-absent provider returns `FEED_NOT_READY`. An
-    empty `MEMORY_VERIFIED` bundle is accepted only with independent head,
-    ingestion coverage, projection coverage and selection-manifest proof.
+   refuses memory injection. `DEGRADED_TEMPORAL` is allowed for a successful
+   current T6 file or store result only when the source was selected before the
+   request, unverified freshness is disclosed, and dangling edges are removed.
+   The explicit file path in requirement 7 is the only offline case. Neither
+   state reports verified memory.
 
 ## 10. Defects and gaps observed but deliberately not fixed
 
-1. **Anti-cycle is not mechanically enforced across the seam.** The architecture
-   calls the edge hard, but h2a's inspected gate only checks selected h2a-core
-   dependency substrings (`scripts/check-public-contract.sh:30-36`). Graphify's
-   five printed dependency maps contained no h2a package, and the bounded import
-   and gate-pattern scans described at §3 printed no matches. These scans do not
-   establish repository-wide absence; they found no mechanism that refuses the
-   forbidden edge in the inspected paths. This spec adds a requirement and does
-   not edit either gate.
+1. **The measured anti-cycle and strict reader are not yet a durable cross-repo
+   contract.** Graphify measured no h2a/a2a dependency or import. Its current
+   feature branch reads only the exact non-symlinked
+   `<project-root>/.h2a/registry/instances.jsonl` path and fails closed, but the
+   agent-stats changes are branch-only, have no PR, and are not in graphify
+   `origin/main`. No prospective graphify CI gate yet refuses future h2a imports.
+   This spec edits neither repository's gate (`tmp/ADDENDUM-2-retraction.md:74-78`).
 2. **Graph backend proposal status is at least narrower than the implemented
    temporal tree.** `graphify/spec/SPEC_GRAPH_DB_BACKENDS.md:1-13` says
    proposal/no implementation for its proposed read/aggregation projection,
@@ -766,24 +820,27 @@ No requirement below is implemented by this document.
    `01KW9SYS9260VJHWMWSJ7T90CE` and `01KX944X2B7CC0E6D4BR41E03Q`, each naming a
    missing referenced specification. This task did not create either journal
    item and did not repair or write `.track/`.
-7. **The implemented/tested Postgres window is not an end-to-end serving path.**
-   The graphify conductor relayed 0 nodes / 0 edges on its 47,762-node real
-   bundle and attributed it to the absent feed between `graph.json`/`scene.json`
-   and `queryWindow` (`tmp/ADDENDUM-1-substrate-not-serving.md:8-13`). This lane
-   did not re-measure or fix graphify; the missing ingestion path remains
-   **OPEN-Q17**.
-8. **Two live bus roots partition the same actor's addressing.** The graphify
-   conductor relayed distinct simultaneous UUIDs for the same `knowledge` role
-   under two disjoint h2a bus roots
-   (`tmp/ADDENDUM-1-substrate-not-serving.md:42-55`). These are not evidenced as
-   graphify storage roots. This lane did not consolidate h2a address stores or
-   assign a federation owner; pre-dispatch topology, neutral handoff and refusal
-   remain **OPEN-Q18**.
+7. **Production-time memory stamping is absent.** The inspected
+   `.graphify/graph.json` has 8,919 nodes and no numeric `t`; such nodes correctly
+   do not surface in a temporal window. The ingestion chain is complete. What is
+   absent is a principal-ratified authored-memory producer that stamps `t`,
+   optional `t_end`, and `t_src` when producing a memory node
+   (`tmp/ADDENDUM-2-retraction.md:8-20`).
+8. **Author time is demonstrably unsafe as the ordering coordinate.** Addendum 2
+   records an h2a envelope post-dated by about twelve minutes because the sender
+   hand-wrote `createdAt`. Receiver-stamped `t` is selected here, but a shared
+   receiver clock authority and multi-host ordering rule remain OPEN-Q7
+   (`tmp/ADDENDUM-2-retraction.md:80-88`).
 9. **The cross-repository majority-layer commitment is not ratified by
    graphify.** The h2a owner direction is the mandate for this document, while
-   the graphify conductor reports no decision by its principal `human:rhanka`
-   (`tmp/ADDENDUM-1-substrate-not-serving.md:57-62`). This spec does not record a
-   decision on that principal's behalf.
+   authored MemoryNote/Persona semantics, any h2a write shape, caller namespace,
+   cross-workspace reads and pagination remain unratified by graphify principal
+   `human:rhanka` (`tmp/ADDENDUM-2-retraction.md:90-95`). This spec does not
+   record a decision on that principal's behalf.
+10. **H2a root refusal is not implemented by this specification.** Root is not a
+    graphify key. H2a still needs an authoritative address-plane rule and
+    pre-dispatch refusal; graphify can retain root provenance only for detection
+    after the fact (`tmp/ADDENDUM-2-retraction.md:42-46`).
 
 ## 11. Guarantee boundary
 
@@ -800,23 +857,31 @@ The following were measured in this work:
   `src/storage/postgres.ts`;
 - graphify's citation-policy, `verifyVerbatim`, grounding-emission and
   cited-source validation source lines named in §2.2;
+- the inspected `.graphify/graph.json`: 8,919 nodes and zero numeric `t`
+  attributes;
+- the existing Postgres pass-through, temporal indexes, `store push` transaction,
+  `queryWindow` reader, file temporal predicate and independent node/edge
+  filtering paths cited in §2;
+- the graphify feature-branch diff/status for its agent-stats temporal stamping
+  and strict h2a registry-file reader, including that it is not merged and has
+  no PR;
 - h2a `track validate`: `INVALID: 0 integrity + 2 desync finding(s)`, with the
   two item IDs recorded in §10.
 
-The following were **relayed by the graphify conductor and not re-measured in
-this lane**: the real 47,762-node bundle returning 0 nodes / 0 edges through the
-Postgres-backed window because its feed is absent; the two simultaneous bus
-roots and UUIDs for the same live role; and the absence of a graphify-side
-decision by principal `human:rhanka`. Their preserved locator is
-`tmp/ADDENDUM-1-substrate-not-serving.md:8-13,42-55,57-62`.
+The following were **measured by graphify-knowledge and recorded by Addendum 2,
+but not independently rerun in this lane**: all 58 agent-stats stamping sites;
+the exact offline fixture outputs for POINT, OPEN, missing-`t` and the dangling
+edge; the repository-wide anti-cycle scan; the approximately twelve-minute h2a
+author-clock skew; `t_src` pass-through; and the graphify principal's unratified
+status (`tmp/ADDENDUM-2-retraction.md:8-20,61-95`).
 
-The following were **not measured**: a live PostgreSQL query, an authored-memory
-write, an end-to-end substrate feed, any accepted record schema, wake injection,
-local/server reconciliation,
+The following were **not measured**: a live PostgreSQL round trip in this lane,
+an authored-memory write, any accepted authored record schema, wake injection,
+verified freshness, local/server reconciliation,
 concurrent multi-CLI writes, cross-host identity, authorization/privacy policy,
 latency, memory footprint, OOM behavior, full h2a root test gate, graphify full
 test gate, deployment, or owner UAT.
 
 This branch can only propose and preserve the seam. Only the owner can accept it,
-and agreement on every `OPEN-Q` belongs in the graphify-knowledge consensus
-record before implementation.
+and agreement on every remaining `OPEN-Q` belongs in the graphify-knowledge
+consensus record before implementation. RETRACTED-Q17 is not such a gate.
