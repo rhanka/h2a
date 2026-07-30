@@ -42,6 +42,7 @@ import { runCli } from '../cli/index.js'
 
 /** The ULID shape criterion 10a forbids in any column the owner reads. */
 const ULID = /[0-9A-HJKMNP-TV-Z]{26}/u
+const SEEDED_OWNER_ULID = '01KYSEEDSSBBBBBBBBBBBBBBBB'
 
 let dir: string
 let eventsPath: string
@@ -84,15 +85,15 @@ function seed(): { blocked: string; structuredId: string } {
   done(leaf('livraison enregistrée', wp1))
 
   const wp2 = wp('WP2 — Gated')
-  const blocked = t.createItem({ kind: 'feature', title: 'travail bloqué', workspace: 'ws', parentId: wp2 })
+  const blocked = t.createItem({ kind: 'feature', title: `travail bloqué ${SEEDED_OWNER_ULID}`, workspace: 'ws', parentId: wp2 })
   const structuredId = t.createDecision({
     decisionKind: 'commitment',
-    title: '1/6 — Un nom de session peut-il envoyer une commande ?',
+    title: `1/6 — ${SEEDED_OWNER_ULID} Un nom de session peut-il envoyer une commande ?`,
     workspace: 'ws',
     targets: [blocked],
     dossier: dossier(
       [
-        { id: 'never', title: 'Jamais', summary: 'racine résolue et vivante' },
+        { id: 'never', title: 'Jamais', summary: `racine résolue et vivante ${SEEDED_OWNER_ULID}` },
         { id: 'unique', title: 'Oui si unique', summary: 'la résolution suffit' },
       ],
       'never',
@@ -127,6 +128,7 @@ const view = (): ReportView => {
 }
 const text = (): string => reportText(new TrackReader(eventsPath), base, 'text', NOW)
 const md = (): string => reportText(new TrackReader(eventsPath), base, 'md', NOW)
+const jsonView = (): ReportView => (JSON.parse(reportText(new TrackReader(eventsPath), base, 'json', NOW)) as { view: ReportView }).view
 const section = (v: ReportView, id: string) => v.tables.find((table) => table.id === id)!
 
 describe('criteria 1/21 — the header carries the baseline, and a window MEASURED in the log', () => {
@@ -417,15 +419,19 @@ describe('criterion 10a — no ULID in any column the owner reads', () => {
     }
   })
 
-  it('every declared column value of the JSON view is ULID-free', () => {
+  it('redacts a seeded ULID from every declared JSON owner cell', () => {
     seed()
-    for (const table of view().tables) {
+    const report = jsonView()
+    for (const table of report.tables) {
       for (const row of table.rows) {
         for (const column of table.columns) {
           expect(ULID.test(row[column.id] ?? ''), `${table.id}.${column.id}`).toBe(false)
         }
       }
     }
+    expect(section(report, 'todo').rows.flatMap((row) => Object.values(row)).join(' ')).toContain('référence interne')
+    expect(section(report, 'decisions').rows[0]!['subject']).toContain('référence interne')
+    expect(section(report, 'decisions').rows[0]!['alternatives']).toMatch(/référence\s+interne/u)
   })
 })
 
@@ -596,7 +602,7 @@ describe('criteria 11/12 — subjects and WP labels are short, and never a store
   it('drops the enumeration counter a stored decision title carries', () => {
     seed()
     const subjects = section(view(), 'decisions').rows.map((row) => row['subject'])
-    expect(subjects).toContain('Un nom de session peut-il envoyer une commande ?')
+    expect(subjects.some((subject) => subject?.includes('Un nom de session peut-il envoyer une commande ?'))).toBe(true)
     expect(subjects.join(' ')).not.toContain('1/6 —')
   })
 
