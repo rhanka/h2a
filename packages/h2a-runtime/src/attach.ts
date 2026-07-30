@@ -17,6 +17,35 @@ export type AttachOptions = {
   readonly stderr?: NodeJS.WriteStream;
   readonly fetchImpl?: typeof fetch;
   readonly inputRetry?: InputRetryOptions;
+  readonly reconnect?: ReconnectOptions;
+};
+
+/**
+ * Pacing for the reconnect CYCLE, not for the retry inside one outage.
+ *
+ * Measured on a required CI job: 3 982 276 "connection lost" lines in ten
+ * minutes, ~6670 per second, until SIGKILL. The retry path already waited a
+ * second between FAILED attempts, but a SUCCESSFUL reopen broke out with no
+ * delay — so a stream that closed the instant it opened was reopened forever at
+ * zero cost, flooding stderr and burning a core while the attach looked alive.
+ * The 120-attempt ceiling did not bound it either: it is per outage, and every
+ * successful reopen reset it.
+ */
+export type ReconnectOptions = {
+  /** Below this lifetime, a stream counts as "closed immediately". */
+  readonly minStreamMs?: number;
+  /** First backoff after a short-lived stream; doubles per consecutive one. */
+  readonly baseDelayMs?: number;
+  readonly maxDelayMs?: number;
+  /** Consecutive short-lived streams tolerated before giving up. */
+  readonly maxShortCycles?: number;
+};
+
+const DEFAULT_RECONNECT: Required<ReconnectOptions> = {
+  minStreamMs: 1000,
+  baseDelayMs: 250,
+  maxDelayMs: 8000,
+  maxShortCycles: 10,
 };
 
 const DEFAULT_INPUT_RETRY: Required<InputRetryOptions> = {
@@ -66,6 +95,15 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
   const stdout = options.stdout ?? process.stdout;
   const stderr = options.stderr ?? process.stderr;
   const doFetch = options.fetchImpl ?? fetch;
+  const reconnectCfg = { ...DEFAULT_RECONNECT, ...(options.reconnect ?? {}) };
+  // Lifetime of the stream currently being read, so the CYCLE can be paced.
+  let streamOpenedAt = Date.now();
+  let streamProgressed = false;
+  // TWO counters, because pacing and giving up are two different questions and
+  // sharing one made useful output poison the future give-up budget: after enough
+  // productive short streams, the FIRST later empty one gave up at once.
+  let pacingStreak = 0; // consecutive short cycles, whatever they delivered
+  let futileCycles = 0; // consecutive short cycles that delivered NOTHING
 
   const controller = new AbortController();
   const sseResponse = await doFetch(
@@ -268,6 +306,10 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
           buffer += decoder.decode(value, { stream: true });
           const { events, rest } = parseSseEvents(buffer);
           buffer = rest;
+          // NOTE: progress is recorded further down, only for frames that
+          // survive the name filter AND JSON.parse. Counting raw frames here made
+          // six bytes enough to disarm the bound — and the control plane REPLAYS
+          // its backlog to every new subscriber, so every reopen delivered one.
           for (const ev of events) {
             if (
               ev.event &&
@@ -279,8 +321,14 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
               const envelope = JSON.parse(ev.data) as RemoteEventEnvelope;
               if (envelope.type === "terminal.output") {
                 const payload = envelope.payload as { data?: string };
-                if (typeof payload.data === "string")
+                if (typeof payload.data === "string") {
                   stdout.write(payload.data);
+                  // USEFUL progress: terminal bytes actually reached the operator.
+                  // Recorded here, not on the raw frame count, so a replayed
+                  // backlog, an unparseable frame, or a filtered lifecycle event
+                  // cannot pass for work the user can see.
+                  streamProgressed = true;
+                }
               } else if (envelope.type === "terminal.exited") {
                 await close();
                 return;
@@ -294,6 +342,49 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
         // stream aborted or network error -> reconnect below (or exit if closed)
       }
       if (closed) return;
+
+      // Pace the CYCLE, not just the retry. A stream that ends almost as soon as
+      // it opened means reconnecting is not helping, and reopening it at zero
+      // delay is what produced millions of reconnections in ten minutes.
+      // A cycle only counts as futile when the stream produced NOTHING. Counting
+      // short-but-productive streams terminated a healthy attach: measured, eleven
+      // consecutive 900ms streams each delivering valid terminal.output hit the
+      // bound and gave up, and retrying could not recover because it reset the
+      // same counter. The livelock being bounded here is the EMPTY stream.
+      const lifetimeMs = Date.now() - streamOpenedAt;
+      if (lifetimeMs < reconnectCfg.minStreamMs) {
+        // PACING is unconditional for a short cycle. Making it conditional on "no
+        // progress" is what restored the livelock: measured against the real
+        // control plane, whose SSE route replays a 128-event backlog on every
+        // subscribe, 501 reopens landed in 105ms and the backoff never engaged.
+        // A reconnect rate is not a content question.
+        pacingStreak += 1;
+        // GIVING UP counts only CONSECUTIVE futile cycles, and useful output
+        // resets that budget: a short stream that delivered real output is a slow
+        // link, and killing it was the first leg's confirmed false negative.
+        if (streamProgressed) futileCycles = 0;
+        else futileCycles += 1;
+        if (futileCycles > reconnectCfg.maxShortCycles) {
+          stderr.write(
+            `\r\n[h2a] the event stream keeps closing immediately ` +
+              `(${futileCycles} times in a row, last one after ${lifetimeMs}ms) — giving up ` +
+              `instead of reconnecting in a loop. The session may still be alive: ` +
+              `retry with h2a attach ${sessionId}.\r\n`,
+          );
+          await close();
+          return;
+        }
+        const backoff = Math.min(
+          reconnectCfg.maxDelayMs,
+          reconnectCfg.baseDelayMs * 2 ** (pacingStreak - 1),
+        );
+        await new Promise((r) => setTimeout(r, backoff));
+        if (closed) return;
+      } else {
+        // A stream that actually lived resets BOTH budgets.
+        pacingStreak = 0;
+        futileCycles = 0;
+      }
 
       // Reconnect: heal the tunnel and reopen the events stream.
       stderr.write("\r\n[h2a] connection lost — reconnecting…\r\n");
@@ -317,6 +408,8 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
           if (resp.ok && resp.body) {
             reader = resp.body.getReader();
             reopened = true;
+            streamOpenedAt = Date.now(); // start of THIS stream's lifetime
+            streamProgressed = false; // and it has delivered nothing yet
             stderr.write("[h2a] reconnected\r\n");
             break;
           }
