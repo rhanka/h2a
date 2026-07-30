@@ -65,9 +65,21 @@ affirmation plus large que ses preuves.
 
 ## Ta première action
 
-Lis `BRIEF-<toi>.md`, puis lance un rapport track pour voir ton périmètre réel :
+Lis `BRIEF-<toi>.md`, puis **`RECALL.md`**, puis lance un rapport track pour voir ton
+périmètre réel :
 
     track report --wp --decisions --format text
 
 Ne commence rien avant d'avoir lu ce que ton WP porte déjà. Plusieurs items
 décrivent exactement ce qu'on s'apprête à redemander.
+
+`RECALL.md` n'est pas de la documentation, c'est la liste de ce qui a déjà été tranché,
+réfuté, ou payé deux fois. Sa règle de lecture 8 est celle qui te coûtera le plus cher si
+tu l'ignores : **demande ce qui refuse.** Compter n'est pas refuser, détecter n'est pas
+refuser, documenter n'est pas refuser. Si aucun mécanisme ne décline la chose interdite,
+tu as une intention, pas une garantie. Six dispositifs de ce dépôt ont été mesurés comme
+des conventions déguisées en garanties en une seule nuit — dont ce fichier-ci.
+
+Si tu délègues à un sous-traitant, `DELEGATION.md` porte le préambule à coller en tête de
+son prompt : il démarre vierge, il va reproposer une hypothèse réfutée, et il rendra un
+résultat plausible.
