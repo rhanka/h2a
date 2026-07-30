@@ -904,13 +904,14 @@ test("doctor removes the source-deleted legacy Codex marketplace table after ver
     assert.match(repairedConfig, new RegExp(`\\[plugins\\."${legacyPlugin}"\\]\\nenabled = false`));
     assert.doesNotMatch(repairedConfig, new RegExp(`\\[marketplaces\\.${legacyMarketplace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`));
     assert.ok(
-      codex?.plannedActions.includes(`set Codex legacy plugin ${legacyPlugin} enabled = false (was true)`),
+      codex?.plannedActions.includes(`disable Codex legacy plugin ${legacyPlugin} (previous value redacted)`),
       JSON.stringify(codex, null, 2)
     );
     assert.ok(
       codex?.plannedActions.some((action) =>
         action.startsWith(`remove Codex legacy marketplace ${legacyMarketplace} table (was `) &&
-        action.includes('source = "/deleted/tmp/deploy-08518"')
+        action.includes("source = <redacted>") &&
+        !action.includes("/deleted/tmp/deploy-08518")
       ),
       JSON.stringify(codex, null, 2)
     );
@@ -923,6 +924,176 @@ test("doctor removes the source-deleted legacy Codex marketplace table after ver
     );
     assert.equal(codex?.findings.some((entry) => entry.code === "plugin-stale"), false, JSON.stringify(codex, null, 2));
   } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor leaves an inaccessible legacy Codex marketplace config byte-identical", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const legacyMarketplace = "sentropic-local-inaccessible";
+  const legacyPlugin = "h2a-local-inaccessible@sentropic-local-inaccessible";
+  const inaccessibleParent = join(home, "inaccessible-marketplace-parent");
+  const inaccessibleSource = join(inaccessibleParent, "marketplace");
+  let restricted = false;
+  try {
+    mkdirSync(inaccessibleSource, { recursive: true });
+    const config = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n` +
+      `[marketplaces.${legacyMarketplace}]\n` +
+      'source_type = "local"\n' +
+      `source = "${inaccessibleSource}"\n` +
+      'private_metadata = "must-remain-private"\n\n' +
+      `[plugins."${legacyPlugin}"]\n` +
+      "enabled = true\n";
+    writeFileSync(codexPath, config);
+    chmodSync(inaccessibleParent, 0o000);
+    restricted = true;
+
+    const report = doctorHostInstallations({
+      home,
+      version,
+      repair: true,
+      runHostCommand: () => ({ ok: true })
+    });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    // This exercises configuration state, not what the native Codex CLI serves.
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(readFileSync(codexPath, "utf8"), config);
+    assert.ok(
+      codex?.unrepaired.some((entry) =>
+        entry.code === "ownership-unverified" && /cannot be verified absent \(EACCES\)/.test(entry.message)
+      ),
+      JSON.stringify(codex, null, 2)
+    );
+    assert.equal(codex?.plannedActions.some((action) => action.includes(legacyMarketplace)), false);
+    assert.equal(codex?.plannedActions.some((action) => action.includes(legacyPlugin)), false);
+  } finally {
+    if (restricted) chmodSync(inaccessibleParent, 0o700);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor revalidates a legacy Codex marketplace immediately before atomic replacement", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const legacyMarketplace = "sentropic-local-race";
+  const legacyPlugin = "h2a-local-race@sentropic-local-race";
+  const raceParent = join(home, "marketplace-race-parent");
+  const raceSource = join(raceParent, "marketplace");
+  let restricted = false;
+  try {
+    const config = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n` +
+      `[marketplaces.${legacyMarketplace}]\n` +
+      'source_type = "local"\n' +
+      `source = "${raceSource}"\n\n` +
+      `[plugins."${legacyPlugin}"]\n` +
+      "enabled = true\n";
+    writeFileSync(codexPath, config);
+
+    const report = doctorHostInstallations({
+      home,
+      version,
+      repair: true,
+      runHostCommand: () => ({ ok: true }),
+      testConfigurationWrite: {
+        beforeRename: (path) => {
+          if (path !== codexPath) return;
+          mkdirSync(raceSource, { recursive: true });
+          chmodSync(raceParent, 0o000);
+          restricted = true;
+        }
+      }
+    });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(readFileSync(codexPath, "utf8"), config);
+    assert.ok(
+      codex?.unrepaired.some((entry) =>
+        entry.code === "ownership-unverified" && /cannot be verified absent \(EACCES\)/.test(entry.message)
+      ),
+      JSON.stringify(codex, null, 2)
+    );
+  } finally {
+    if (restricted) chmodSync(raceParent, 0o700);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+function installCanonicalClaudeRoot(root, version) {
+  const pluginPath = join(root, "plugins", "cache", "sentropic", "h2a", version);
+  copyShippedFile(".claude-plugin/plugin.json", join(pluginPath, ".claude-plugin", "plugin.json"));
+  currentMarketplace(join(root, "plugins", "marketplaces", "sentropic"));
+  writeJson(join(root, "plugins", "known_marketplaces.json"), {
+    sentropic: {
+      source: { source: "github", repo: "rhanka/h2a" },
+      installLocation: join(root, "plugins", "marketplaces", "sentropic")
+    }
+  });
+  writeJson(join(root, "plugins", "installed_plugins.json"), {
+    version: 2,
+    plugins: {
+      "h2a@sentropic": [{ scope: "user", installPath: pluginPath, version }]
+    }
+  });
+}
+
+test("doctor finds a configured Claude bare MCP entry in both native config locations", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const configuredClaude = join(home, "configured-claude");
+  const defaultClaudeConfig = join(home, ".claude.json");
+  const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  try {
+    installCanonicalClaudeRoot(configuredClaude, version);
+    writeJson(defaultClaudeConfig, { mcpServers: { defaultMarker: { command: "other", args: [] } } });
+    process.env.CLAUDE_CONFIG_DIR = configuredClaude;
+    for (const configPath of [
+      join(configuredClaude, ".claude.json"),
+      join(configuredClaude, ".config", "claude", "mcp.json")
+    ]) {
+      writeJson(configPath, { mcpServers: { h2a: { command: "h2a", args: ["mcp-serve"] } } });
+      const report = doctorHostInstallations({ home, version, repair: true, dryRun: true });
+      const claude = report.hosts.find((host) => host.host === "claude");
+      const endpointCount = claude?.findings.find((entry) => entry.code === "h2a-endpoint-count");
+
+      // This asserts doctor reads the native configuration state; the host
+      // serving oracle remains docs/uat/probe-oracle.sh.
+      assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+      assert.match(endpointCount?.message ?? "", /Claude exposes 2 H2A endpoints/);
+      assert.ok(claude?.coherencePaths.includes(configPath), JSON.stringify(claude, null, 2));
+      assert.equal(claude?.coherencePaths.includes(defaultClaudeConfig), false, JSON.stringify(claude, null, 2));
+      rmSync(configPath, { force: true });
+    }
+  } finally {
+    if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor keeps detecting a bare Claude MCP entry at the default root", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  try {
+    delete process.env.CLAUDE_CONFIG_DIR;
+    for (const configPath of [
+      join(home, ".claude.json"),
+      join(home, ".config", "claude", "mcp.json")
+    ]) {
+      writeJson(configPath, { mcpServers: { h2a: { command: "h2a", args: ["mcp-serve"] } } });
+      const report = doctorHostInstallations({ home, version, repair: true, dryRun: true });
+      const claude = report.hosts.find((host) => host.host === "claude");
+      const endpointCount = claude?.findings.find((entry) => entry.code === "h2a-endpoint-count");
+
+      assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+      assert.match(endpointCount?.message ?? "", /Claude exposes 2 H2A endpoints/);
+      assert.ok(claude?.coherencePaths.includes(configPath), JSON.stringify(claude, null, 2));
+      rmSync(configPath, { force: true });
+    }
+  } finally {
+    if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
     rmSync(home, { recursive: true, force: true });
   }
 });
