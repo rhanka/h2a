@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { serve } from "@hono/node-server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { WebSocket } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 
 import { createControlPlane } from "./index.js";
 
@@ -45,8 +45,13 @@ async function startControlPlane(): Promise<{
   close: () => Promise<void>;
 }> {
   const app = createControlPlane();
-  const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" });
-  app.injectWebSocket(server);
+  // v2 takes the ws server at serve() time; there is no post-hoc injection.
+  const server = serve({
+    fetch: app.fetch,
+    port: 0,
+    hostname: "127.0.0.1",
+    websocket: { server: new WebSocketServer({ noServer: true }) },
+  });
 
   const port = await new Promise<number>((resolve, reject) => {
     const settle = () => {
