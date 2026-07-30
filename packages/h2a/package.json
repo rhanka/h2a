@@ -45,6 +45,7 @@
     "h2a": "dist/bin.js"
   },
   "scripts": {
+    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force",
     "prepack": "node ../../scripts/check-focus-app.mjs && chmod +x dist/bin.js"
   },
   "dependencies": {
