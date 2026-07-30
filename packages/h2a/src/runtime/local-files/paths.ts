@@ -287,7 +287,7 @@ export function resolveRecipient(opts: {
   const hostQualifiedAlias =
     parts.length === 2 && parts[0].length > 0 && parts[1].length > 0;
   const aliasKey = hostQualifiedAlias ? hostLabelKey(target) : undefined;
-  const nameKey = target.includes(":") ? undefined : targetNameKey;
+  const nameKey = targetNameKey.includes(":") ? undefined : targetNameKey;
   const liveMatches: Array<{
     instance: string;
     matchedAlias: boolean;
@@ -309,14 +309,17 @@ export function resolveRecipient(opts: {
     }
   }
 
+  const aliasMatches = liveMatches.filter((match) => match.matchedAlias);
+  const resolvedLiveMatches = aliasMatches.length > 0 ? aliasMatches : liveMatches;
+
   const registeredMatches = hostQualifiedAlias
     ? registeredInstances.filter((inst) => hostLabelKey(inst) === aliasKey)
     : [];
 
-  if (liveMatches.length > 1) {
-    const candidates = liveMatches.map((match) => match.instance);
+  if (resolvedLiveMatches.length > 1) {
+    const candidates = resolvedLiveMatches.map((match) => match.instance);
     const reason =
-      `'${target}' is ambiguous — ${liveMatches.length} live agents share it; address the exact one (resolve via discover).`;
+      `'${target}' is ambiguous — ${resolvedLiveMatches.length} live agents share it; address the exact one (resolve via discover).`;
     if (operation === "read") {
       return { kind: "list", reason, candidates };
     }
@@ -327,8 +330,8 @@ export function resolveRecipient(opts: {
     };
   }
 
-  if (liveMatches.length === 1) {
-    const liveMatch = liveMatches[0];
+  if (resolvedLiveMatches.length === 1) {
+    const liveMatch = resolvedLiveMatches[0];
     if (liveMatch.matchedName && !liveMatch.matchedAlias) {
       return {
         kind: "deliver-resolved",
@@ -345,8 +348,9 @@ export function resolveRecipient(opts: {
     };
   }
 
-  // A bare or malformed host-less token had no display-name match. Its caller's
-  // host-qualified-address guard remains the fail-closed authority.
+  // A bare or malformed host-less token had no display-name match. The write
+  // caller applies the host-qualified-address guard; the read caller does not
+  // apply an equivalent guard and keeps the pass-through behavior.
   if (!hostQualifiedAlias) return { kind: "deliver" };
 
   // 0 live
