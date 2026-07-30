@@ -85,6 +85,58 @@ describe("attach — reconnect livelock", () => {
     expect(stderr.text()).toMatch(/closing immediately|giving up/i);
   });
 
+  it("does not give up on SHORT streams that are still delivering output", async () => {
+    // REVIEW FINDING on PR 100, confirmed: bounding on lifetime alone terminated a
+    // healthy attach. Eleven consecutive 900ms streams, each carrying a valid
+    // terminal.output, hit the bound and resolved through "giving up" — and
+    // retrying could not recover, because it reset the same counter. A stream that
+    // DELIVERED something is not a dead stream, however short-lived; the livelock
+    // being bounded is the EMPTY one.
+    let eventOpens = 0;
+    const stderr = collectingStderr();
+
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/events")) {
+        eventOpens += 1;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            async start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  'event: terminal.output\ndata: {"type":"terminal.output","payload":{"data":"x"}}\n\n',
+                ),
+              );
+              await new Promise((r) => setTimeout(r, 5));
+              controller.close(); // short, but it DID deliver
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const session = await attach({
+      baseUrl: "http://127.0.0.1:1",
+      sessionId: "sess-flaky-but-useful",
+      stderr: stderr.stream,
+      fetchImpl,
+      reconnect: { minStreamMs: 1000, baseDelayMs: 1, maxDelayMs: 2, maxShortCycles: 3 },
+    });
+
+    // Let it cycle well past the bound, then close it ourselves.
+    await new Promise((r) => setTimeout(r, 300));
+    const opensBeforeClose = eventOpens;
+    await session.close();
+    await session.finished;
+
+    // It kept reconnecting past maxShortCycles instead of declaring the session
+    // dead, and it never printed the give-up message.
+    expect(opensBeforeClose).toBeGreaterThan(4);
+    expect(stderr.text()).not.toMatch(/giving up/i);
+  });
+
   it("does not count a healthy long-lived stream against the short-cycle bound", async () => {
     let eventOpens = 0;
     const stderr = collectingStderr();
