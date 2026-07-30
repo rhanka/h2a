@@ -302,9 +302,10 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
           buffer += decoder.decode(value, { stream: true });
           const { events, rest } = parseSseEvents(buffer);
           buffer = rest;
-          // A stream that DELIVERED something is not a dead stream, however
-          // short-lived. Lifetime alone cannot tell a livelock from a slow link.
-          if (events.length > 0) streamProgressed = true;
+          // NOTE: progress is recorded further down, only for frames that
+          // survive the name filter AND JSON.parse. Counting raw frames here made
+          // six bytes enough to disarm the bound — and the control plane REPLAYS
+          // its backlog to every new subscriber, so every reopen delivered one.
           for (const ev of events) {
             if (
               ev.event &&
@@ -316,8 +317,14 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
               const envelope = JSON.parse(ev.data) as RemoteEventEnvelope;
               if (envelope.type === "terminal.output") {
                 const payload = envelope.payload as { data?: string };
-                if (typeof payload.data === "string")
+                if (typeof payload.data === "string") {
                   stdout.write(payload.data);
+                  // USEFUL progress: terminal bytes actually reached the operator.
+                  // Recorded here, not on the raw frame count, so a replayed
+                  // backlog, an unparseable frame, or a filtered lifecycle event
+                  // cannot pass for work the user can see.
+                  streamProgressed = true;
+                }
               } else if (envelope.type === "terminal.exited") {
                 await close();
                 return;
@@ -341,9 +348,17 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
       // bound and gave up, and retrying could not recover because it reset the
       // same counter. The livelock being bounded here is the EMPTY stream.
       const lifetimeMs = Date.now() - streamOpenedAt;
-      if (lifetimeMs < reconnectCfg.minStreamMs && !streamProgressed) {
+      if (lifetimeMs < reconnectCfg.minStreamMs) {
+        // PACING is unconditional for a short cycle. Making it conditional on "no
+        // progress" is what restored the livelock: measured against the real
+        // control plane, whose SSE route replays a 128-event backlog on every
+        // subscribe, 501 reopens landed in 105ms and the backoff never engaged.
+        // A reconnect rate is not a content question.
         shortCycles += 1;
-        if (shortCycles > reconnectCfg.maxShortCycles) {
+        // GIVING UP, in contrast, must stay conditional: a short stream that
+        // delivered real output is a slow link, and killing it was the first
+        // leg's confirmed false negative.
+        if (!streamProgressed && shortCycles > reconnectCfg.maxShortCycles) {
           stderr.write(
             `\r\n[h2a] the event stream keeps closing immediately ` +
               `(${shortCycles} times in a row, last one after ${lifetimeMs}ms) — giving up ` +
