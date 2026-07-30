@@ -1588,3 +1588,66 @@ test("doctor reports clean on the state a successful v1 repair leaves (v1 accept
   assert.equal(report.ok, true, `an orphan cache v1 deliberately keeps must not break ok: ${JSON.stringify(report, null, 2)}`);
   assert.equal(exitCode, 0);
 });
+
+test("doctor keeps orphan caches informational and gives their exact manual removal command", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const orphan = join(home, ".codex", "plugins", "cache", "sentropic-local-codex-08518");
+  try {
+    currentPlugin(join(orphan, "h2a-local-codex-08518", "0.85.18"));
+
+    const report = doctorHostInstallations({ home, version });
+    const codex = report.hosts.find((host) => host.host === "codex");
+    const orphanFinding = codex?.findings.find((entry) => entry.code === "orphan-cache");
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(
+      orphanFinding?.message,
+      `Codex has orphan H2A cache directories: sentropic-local-codex-08518. Remove them manually with: rm -rf -- '${orphan}'`
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor reads disabled Claude plugins and dead marketplaces from both Claude registries", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const settingsPath = join(home, ".claude", "settings.json");
+  const knownPath = join(home, ".claude", "plugins", "known_marketplaces.json");
+  const installedPath = join(home, ".claude", "plugins", "installed_plugins.json");
+  const legacyPlugin = "h2a-local-claude-08518@sentropic-local-claude-08518";
+  const legacyMarketplace = "sentropic-local-claude-08518";
+  try {
+    const installed = JSON.parse(readFileSync(installedPath, "utf8"));
+    installed.plugins[legacyPlugin] = [{ scope: "user", version: "0.85.18" }];
+    writeJson(installedPath, installed);
+    writeJson(settingsPath, {
+      enabledPlugins: { [legacyPlugin]: false },
+      extraKnownMarketplaces: {
+        [legacyMarketplace]: { source: { source: "directory", path: "/deleted/tmp/deploy-08518" } }
+      }
+    });
+
+    const fromSettings = doctorHostInstallations({ home, version }).hosts.find((host) => host.host === "claude");
+    assert.equal(fromSettings?.findings.some((entry) => entry.code === "plugin-stale"), false, JSON.stringify(fromSettings, null, 2));
+    assert.equal(
+      fromSettings?.findings.find((entry) => entry.code === "marketplace-stale")?.path,
+      settingsPath,
+      JSON.stringify(fromSettings, null, 2)
+    );
+
+    const known = JSON.parse(readFileSync(knownPath, "utf8"));
+    known[legacyMarketplace] = { source: { source: "directory", path: "/deleted/tmp/deploy-08518" } };
+    writeJson(knownPath, known);
+    writeJson(settingsPath, { enabledPlugins: { [legacyPlugin]: false } });
+
+    const fromKnown = doctorHostInstallations({ home, version }).hosts.find((host) => host.host === "claude");
+    assert.equal(fromKnown?.findings.some((entry) => entry.code === "plugin-stale"), false, JSON.stringify(fromKnown, null, 2));
+    assert.equal(
+      fromKnown?.findings.find((entry) => entry.code === "marketplace-stale")?.path,
+      knownPath,
+      JSON.stringify(fromKnown, null, 2)
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
