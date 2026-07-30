@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +15,8 @@ import test from "node:test";
 import {
   doctorHostInstallations,
   findLiveSessionsPredatingHostConfig,
-  runCli
+  runCli,
+  writePresence
 } from "../dist/index.js";
 
 const VERSION = "9.8.7";
@@ -96,6 +99,54 @@ function fixtureHome() {
     }
   });
   return home;
+}
+
+function cacheVersionDriftHome() {
+  const home = join(tmpdir(), `h2a-host-doctor-cache-drift-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const codex = join(home, ".codex");
+  const configPath = join(codex, "config.toml");
+  const claudePluginPath = join(home, ".claude", "plugins", "cache", "sentropic", "h2a", VERSION);
+  mkdirSync(codex, { recursive: true });
+  writeFileSync(
+    configPath,
+    [
+      '[plugins."h2a@sentropic"]',
+      "enabled = true",
+      "",
+      "[marketplaces.sentropic]",
+      'source_type = "git"',
+      'source = "https://github.com/rhanka/h2a.git"',
+      'ref = "main"',
+      ""
+    ].join("\n")
+  );
+  const beforeRepair = new Date("2000-01-01T00:00:00.000Z");
+  utimesSync(configPath, beforeRepair, beforeRepair);
+  currentPlugin(join(codex, "plugins", "cache", "sentropic", "h2a", "0.87.0"));
+  const marketplacePath = join(codex, ".tmp", "marketplaces", "sentropic");
+  currentMarketplace(marketplacePath);
+  utimesSync(marketplacePath, beforeRepair, beforeRepair);
+  currentPlugin(claudePluginPath);
+  writeJson(join(home, ".claude", "plugins", "known_marketplaces.json"), {
+    sentropic: { source: { source: "github", repo: "rhanka/h2a" } }
+  });
+  writeJson(join(home, ".claude", "plugins", "installed_plugins.json"), {
+    version: 2,
+    plugins: {
+      "h2a@sentropic": [{ scope: "user", installPath: claudePluginPath, version: VERSION }]
+    }
+  });
+  return home;
+}
+
+function snapshotTree(path) {
+  const entries = [];
+  for (const entry of readdirSync(path, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    const entryPath = join(path, entry.name);
+    if (entry.isDirectory()) entries.push([entry.name, snapshotTree(entryPath)]);
+    else entries.push([entry.name, readFileSync(entryPath, "utf8")]);
+  }
+  return entries;
 }
 
 function repairRunner(home, calls) {
@@ -216,17 +267,31 @@ test("doctor treats a cached enabled Codex plugin from a vanished marketplace as
 test("doctor leaves a native-host command failure explicitly unrepaired", () => {
   const home = fixtureHome();
   try {
+    const calls = [];
     const report = doctorHostInstallations({
       home,
       version: VERSION,
       repair: true,
-      runHostCommand: () => ({ ok: false, message: "host CLI unavailable" })
+      runHostCommand: (command, args) => {
+        calls.push([command, ...args]);
+        return { ok: false, message: "host CLI unavailable" };
+      }
     });
     assert.equal(report.ok, false);
-    assert.ok(
-      report.hosts.some((host) => host.unrepaired.some((entry) => entry.code === "host-command-failed")),
-      JSON.stringify(report, null, 2)
-    );
+    const failures = report.hosts
+      .flatMap((host) => host.unrepaired)
+      .filter((entry) => entry.code === "host-command-failed");
+    const commands = calls.map(([command, ...args]) => `${command} ${args.join(" ")}`);
+    assert.ok(commands.length > 1, "the fixture must require multiple native-host calls");
+    assert.equal(new Set(commands).size, commands.length, "the fixture commands must be unique");
+    assert.equal(failures.length, commands.length, JSON.stringify(report, null, 2));
+    for (const command of commands) {
+      assert.equal(
+        failures.filter((entry) => entry.message.startsWith(`${command} failed:`)).length,
+        1,
+        `every failed native-host command must have exactly one unrepaired finding: ${command}`
+      );
+    }
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -239,11 +304,19 @@ test("h2a doctor remains a bus-only health probe until the explicit repair actio
   try {
     process.env.HOME = home;
     assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const before = snapshotTree(home);
     const io = streams(home);
-    assert.equal(runCli(["doctor", "--root", root], io), 0, io.stderrText);
+    assert.equal(
+      runCli(["doctor", "--root", root], io, {
+        doctorHostInstallations: () => assert.fail("doctor without --repair must not invoke a native host installation check")
+      }),
+      0,
+      io.stderrText
+    );
     const report = JSON.parse(io.stdoutText);
     assert.equal(report.ok, true);
     assert.equal(report.checks.hostInstallations.skipped, true);
+    assert.deepEqual(snapshotTree(home), before, "doctor without --repair must not change the host or bus state");
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
@@ -275,6 +348,53 @@ test("doctor requires restart when a live session predates a host repair", () =>
     );
     assert.equal(live.length, 1);
     assert.match(live[0].message, /must be restarted/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor --repair exits 2 when a live Codex session predates a cache version repair", () => {
+  const home = cacheVersionDriftHome();
+  const root = join(home, "bus");
+  try {
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    writePresence(root, {
+      sessionId: "sess-before-cache-repair",
+      instance: "codex:plugins:123456789abc",
+      host: "codex",
+      startedAt: "2020-01-01T00:00:00.000Z",
+      heartbeatAt: new Date().toISOString(),
+      state: "live",
+      interests: { scopes: [], negotiations: [] },
+      subscribedTopics: []
+    });
+    const before = doctorHostInstallations({ home, version: VERSION });
+    const codexBefore = before.hosts.find((host) => host.host === "codex");
+    assert.deepEqual(codexBefore?.findings.map((entry) => entry.code), ["version-skew", "orphan-cache"]);
+
+    const calls = [];
+    const io = streams(home);
+    const exitCode = runCli(["doctor", "--root", root, "--repair"], io, {
+      doctorHostInstallations: () => doctorHostInstallations({
+        home,
+        version: VERSION,
+        repair: true,
+        runHostCommand: repairRunner(home, calls)
+      })
+    });
+    const report = JSON.parse(io.stdoutText);
+    const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false);
+    assert.equal(codex.ok, true, JSON.stringify(report, null, 2));
+    assert.deepEqual(codex.changed, [join(home, ".codex", "plugins", "cache", "sentropic", "h2a", "0.87.0")]);
+    assert.ok(calls.some((call) => call.join(" ") === "codex plugin marketplace upgrade"));
+    assert.ok(calls.some((call) => call.join(" ") === "codex plugin add h2a@sentropic"));
+    assert.deepEqual(
+      report.checks.liveHostSessions.restartRequired.map((entry) => entry.sessionId),
+      ["sess-before-cache-repair"]
+    );
+    assert.ok(report.unrepaired.some((entry) => entry.code === "live-session-restart-required"));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
