@@ -30,7 +30,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 
 import type { H2ASession } from "../session.js";
 import { resolveHostConfigCompanionBase, resolveHostConfigRoot } from "../runtime/host-config-root.js";
@@ -65,6 +65,8 @@ export interface HostInstallationDoctorOptions {
   readonly version?: string;
   /** Injectable for hermetic tests; production invokes the native host CLI. */
   readonly runHostCommand?: HostCommandRunner;
+  /** Test-only host-CLI presence override; an injected command runner otherwise represents a reachable test host. */
+  readonly testHostCliReachable?: (host: Host) => boolean;
   /** Injectable for hermetic tests; production writes the durable repair marker. */
   readonly writeRepairMarker?: (path: string, content: string) => void;
   /** Report host repair findings and planned actions without mutating the host. */
@@ -92,6 +94,8 @@ export interface HostInstallationFinding {
     | "standalone-track-mcp"
     | "host-command-failed"
     | "host-command-refused"
+    | "host-cli-unreachable"
+    | "host-not-installed"
     | "ownership-unverified"
     | "repair-marker-unavailable"
     | "runtime-artifact-unavailable";
@@ -190,7 +194,7 @@ function finding(
 }
 
 function isBlockingFinding(entry: HostInstallationFinding): boolean {
-  return entry.code !== "orphan-cache";
+  return entry.code !== "orphan-cache" && entry.code !== "host-not-installed";
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -652,6 +656,65 @@ function claudeSettingsPath(home: string): string {
 function claudeConfigPaths(home: string): string[] {
   const base = resolveHostConfigCompanionBase("claude", home);
   return [join(base, ".claude.json"), join(base, ".config", "claude", "mcp.json")].filter(existsSync);
+}
+
+function hostConfigurationArtifacts(home: string, host: Host): string[] {
+  if (host === "codex") {
+    return [codexRoot(home), codexConfigPath(home)].filter(existsSync);
+  }
+  const base = resolveHostConfigCompanionBase("claude", home);
+  return [
+    claudeRoot(home),
+    join(base, ".claude.json"),
+    join(base, ".config", "claude", "mcp.json")
+  ].filter(existsSync);
+}
+
+function hostCliIsReachable(
+  host: Host,
+  hasInjectedRunner: boolean,
+  testHostCliReachable: HostInstallationDoctorOptions["testHostCliReachable"]
+): boolean {
+  if (testHostCliReachable) return testHostCliReachable(host);
+  // A runner is the hermetic test double for a reachable native CLI. Production
+  // never supplies one, so it always resolves the actual executable on PATH.
+  if (hasInjectedRunner) return true;
+  return (process.env.PATH ?? "").split(delimiter).some((directory) => {
+    if (directory.length === 0) return false;
+    try {
+      const metadata = statSync(join(directory, host));
+      return metadata.isFile() && (metadata.mode & 0o111) !== 0;
+    } catch {
+      return false;
+    }
+  });
+}
+
+function unavailableHostReport(home: string, host: Host, artifacts: readonly string[]): MutableHostReport {
+  const hostName = host === "claude" ? "Claude" : "Codex";
+  const report: MutableHostReport = {
+    host,
+    findings: [],
+    diagnostics: [],
+    changed: [],
+    unrepaired: [],
+    coherencePaths: [],
+    plannedActions: [],
+    repairMarkerPath: repairMarkerPath(home, host)
+  };
+  if (artifacts.length === 0) {
+    report.findings.push(finding(
+      "host-not-installed",
+      `${hostName} is not installed: its CLI is absent from PATH and no host configuration artifacts were found.`
+    ));
+    return report;
+  }
+  report.findings.push(finding(
+    "host-cli-unreachable",
+    `${hostName} CLI could not be reached on PATH although host configuration artifacts remain: ${artifacts.join(", ")}.`,
+    artifacts[0]
+  ));
+  return report;
 }
 
 function claudeEnabledPlugins(settings: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -1818,12 +1881,20 @@ export function doctorHostInstallations(
   const dryRun = options.dryRun === true;
   const runner = options.runHostCommand ?? defaultHostCommand;
   const writeMarker = options.writeRepairMarker ?? ((path: string, content: string) => writeFileSync(path, content));
-  const mutable = repair
-    ? [
-      repairClaude(home, version, runner, writeMarker, dryRun, options.testClaudePluginUninstalls ?? [], options.testConfigurationWrite),
-      repairCodex(home, version, runner, writeMarker, dryRun, options.testConfigurationWrite)
-    ]
-    : [inspectClaude(home, version), inspectCodex(home, version)];
+  const inspectOrRepair = (host: Host): MutableHostReport => {
+    if (!hostCliIsReachable(host, options.runHostCommand !== undefined, options.testHostCliReachable)) {
+      return unavailableHostReport(home, host, hostConfigurationArtifacts(home, host));
+    }
+    if (host === "claude") {
+      return repair
+        ? repairClaude(home, version, runner, writeMarker, dryRun, options.testClaudePluginUninstalls ?? [], options.testConfigurationWrite)
+        : inspectClaude(home, version);
+    }
+    return repair
+      ? repairCodex(home, version, runner, writeMarker, dryRun, options.testConfigurationWrite)
+      : inspectCodex(home, version);
+  };
+  const mutable = [inspectOrRepair("claude"), inspectOrRepair("codex")];
   const hosts = mutable.map(freezeReport);
   return {
     ok: hosts.every((host) => host.ok),
