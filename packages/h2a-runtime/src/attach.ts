@@ -98,6 +98,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
   const reconnectCfg = { ...DEFAULT_RECONNECT, ...(options.reconnect ?? {}) };
   // Lifetime of the stream currently being read, so the CYCLE can be paced.
   let streamOpenedAt = Date.now();
+  let streamProgressed = false;
   let shortCycles = 0;
 
   const controller = new AbortController();
@@ -301,6 +302,9 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
           buffer += decoder.decode(value, { stream: true });
           const { events, rest } = parseSseEvents(buffer);
           buffer = rest;
+          // A stream that DELIVERED something is not a dead stream, however
+          // short-lived. Lifetime alone cannot tell a livelock from a slow link.
+          if (events.length > 0) streamProgressed = true;
           for (const ev of events) {
             if (
               ev.event &&
@@ -331,8 +335,13 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
       // Pace the CYCLE, not just the retry. A stream that ends almost as soon as
       // it opened means reconnecting is not helping, and reopening it at zero
       // delay is what produced millions of reconnections in ten minutes.
+      // A cycle only counts as futile when the stream produced NOTHING. Counting
+      // short-but-productive streams terminated a healthy attach: measured, eleven
+      // consecutive 900ms streams each delivering valid terminal.output hit the
+      // bound and gave up, and retrying could not recover because it reset the
+      // same counter. The livelock being bounded here is the EMPTY stream.
       const lifetimeMs = Date.now() - streamOpenedAt;
-      if (lifetimeMs < reconnectCfg.minStreamMs) {
+      if (lifetimeMs < reconnectCfg.minStreamMs && !streamProgressed) {
         shortCycles += 1;
         if (shortCycles > reconnectCfg.maxShortCycles) {
           stderr.write(
@@ -377,6 +386,7 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
             reader = resp.body.getReader();
             reopened = true;
             streamOpenedAt = Date.now(); // start of THIS stream's lifetime
+            streamProgressed = false; // and it has delivered nothing yet
             stderr.write("[h2a] reconnected\r\n");
             break;
           }
