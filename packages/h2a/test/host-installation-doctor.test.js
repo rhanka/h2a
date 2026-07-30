@@ -826,6 +826,23 @@ test("doctor --repair exits 2 when a live Codex session has no repair marker", (
   }
 });
 
+test("doctor --repair fails closed when a live Codex session timestamp is invalid", () => {
+  const { home } = cleanCodexHomeWithoutMarker();
+  const root = join(home, "bus");
+  try {
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    writeLiveCodexSession(root, "sess-with-invalid-started-at", "not-a-timestamp");
+    const { exitCode, io, report } = runRepairDoctor(home, root);
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false);
+    assert.equal(report.checks.liveSessions.count, 1);
+    assert.equal(report.checks.liveHostSessions.restartRequired.length, 1);
+    assert.match(report.checks.liveHostSessions.restartRequired[0].message, /cannot verify.*start/i);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor states that an external runtime overwrite is outside its restart guarantee", () => {
   const { home, manifestPath, loadedCodePath } = cleanCodexHomeWithoutMarker();
   const root = join(home, "bus");
