@@ -82,6 +82,15 @@
 - [x] Test: selector resolution, mutual exclusion, format parity, full-fold containment, FAIT windowing, and unchanged open-work projection.
 - [x] Gate: a short period with no `done` transition reports no deliveries without losing its workpackage tree.
 
+## Lot 6 — close review findings and reduce report surfaces
+
+- [x] Remove the report HTML renderer and reject `track report --format html` loudly; retain Focus HTML.
+- [x] Remove the now-unused shared report DS-fragment contract and update direct operator documentation.
+- [x] Reject a foreign reopening with an absent payload `itemId` and keep folded closure state unchanged.
+- [x] Reject a `--since` selector later than its implicit journal-head upper bound.
+- [x] Test: rejected HTML format, missing-`itemId` append/fold integrity, and reversed implicit period.
+- [x] Gate: owner reports have only JSON and text/Markdown paths, and no rendered period has reversed bounds.
+
 ## Feedback Loop
 
 - [ ] Owner UAT remains required before any item is claimed done.

@@ -1,7 +1,7 @@
-// report-revamp — the additive CONTENT (§A) + the two render modes (§B inline, §C DS html). STRICT TDD:
+// report-revamp — the additive CONTENT (§A) + the compact inline mode (§B). STRICT TDD:
 // the machine `directives[]` schema grows ADDITIVELY (adviceKind, gate.blockedBy, facts.fanIn, keystone)
-// while the inline/html renders reuse the SAME directive set (no second engine). Escaping + cohort-collapse
-// are proven render-only.
+// while the inline renderer reuses the SAME directive set (no second engine). Cohort-collapse is proven
+// render-only.
 
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -17,7 +17,6 @@ import {
   collapseLeafCohorts,
   formatWpConductorInline,
 } from './format.js'
-import { formatWpConductorHtml, renderReportHtml } from './html.js'
 import { computeWpTree } from './rollup.js'
 
 const now = (): string => '2026-07-10T00:00:00.000Z'
@@ -140,44 +139,5 @@ describe('§B — inline render (compact, one-screen)', () => {
     t.openBlocker({ targetId: dep, kind: 'dependency', ref: keystone, reason: 'needs X' })
     const out = formatWpConductorInline(tree(), [], { width: 100 })
     expect(out).toMatch(/PRÉCO\s+\(goulot: X keystone bloque 1\)/)
-  })
-})
-
-// ---- §C html mode — DS-compatible fragment via the shared presenter --------------------------------
-
-describe('§C — DS-compatible html fragment (shared presenter path)', () => {
-  it('emits a namespaced <article> with the FOUR sections and the machine resolution footer', () => {
-    const w = wp('WP1')
-    specified(leaf('todo', w))
-    const html = formatWpConductorHtml(tree())
-    expect(html.startsWith('<article class="report-document" data-kind="wp-conductor-report"')).toBe(true)
-    // Criterion 2 — exactly four sections, in the same order as text/md/json. The machine directive list
-    // used to be a fifth `<section>`; it is no longer rendered (it stays on the JSON surface).
-    expect([...html.matchAll(/<section class="report-section" data-section="([a-z-]+)">/gu)].map((m) => m[1])).toEqual([
-      'done', 'todo', 'decisions', 'recommendation',
-    ])
-    expect(html).toContain('<table class="report-table">')
-    expect(html).not.toContain('class="report-directive"')
-    // Criteria 10b/10c — the resolution block is a footer, not a section and not a report-table.
-    expect(html).toContain('<footer class="report-resolution" data-section="resolution">')
-    expect(html).toContain('n’est pas actionnable')
-    expect(html).toContain('</article>')
-    // The machine model still carries the directives for the design system.
-    expect(buildWpConductorView(tree()).directives.length).toBeGreaterThan(0)
-  })
-
-  it('escapes a forged item title (no markup injection, §A4)', () => {
-    const w = wp('WP1')
-    leaf('<img src=x onerror=alert(1)>', w)
-    const html = formatWpConductorHtml(tree())
-    expect(html).not.toContain('<img src=x')
-    expect(html).toContain('&lt;img src=x')
-  })
-
-  it('runs the whole fragment through the host sanitizeHtml hook', () => {
-    const w = wp('WP1')
-    specified(leaf('todo', w))
-    const wrapped = renderReportHtml(buildWpConductorView(tree()), { sanitizeHtml: (h) => `<!--sane-->${h}` })
-    expect(wrapped.startsWith('<!--sane--><article class="report-document"')).toBe(true)
   })
 })
