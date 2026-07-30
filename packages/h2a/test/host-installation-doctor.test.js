@@ -5,6 +5,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   utimesSync,
   writeFileSync
 } from "node:fs";
@@ -139,6 +140,57 @@ function cacheVersionDriftHome() {
   return home;
 }
 
+function inPlaceCacheVersionDriftHome() {
+  const home = join(tmpdir(), `h2a-host-doctor-in-place-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const codex = join(home, ".codex");
+  const configPath = join(codex, "config.toml");
+  const cacheRoot = join(codex, "plugins", "cache");
+  const pluginRoot = join(cacheRoot, "sentropic", "h2a", VERSION);
+  const manifestPath = join(pluginRoot, ".codex-plugin", "plugin.json");
+  const loadedCodePath = join(pluginRoot, "loaded-runtime.js");
+  const marketplacePath = join(codex, ".tmp", "marketplaces", "sentropic");
+  const beforeRepair = new Date("2000-01-01T00:00:00.000Z");
+  mkdirSync(codex, { recursive: true });
+  writeFileSync(
+    configPath,
+    [
+      '[plugins."h2a@sentropic"]',
+      "enabled = true",
+      "",
+      "[marketplaces.sentropic]",
+      'source_type = "git"',
+      'source = "https://github.com/rhanka/h2a.git"',
+      'ref = "main"',
+      ""
+    ].join("\n")
+  );
+  currentPlugin(pluginRoot);
+  writeJson(manifestPath, { name: "h2a", version: "0.87.0" });
+  writeFileSync(loadedCodePath, "export const loadedVersion = '0.87.0';\n");
+  currentMarketplace(marketplacePath);
+  for (const path of [configPath, cacheRoot, join(cacheRoot, "sentropic"), join(cacheRoot, "sentropic", "h2a"), pluginRoot, marketplacePath, manifestPath, loadedCodePath]) {
+    utimesSync(path, beforeRepair, beforeRepair);
+  }
+
+  const claudePluginPath = join(home, ".claude", "plugins", "cache", "sentropic", "h2a", VERSION);
+  const claudeMarketplacePath = join(home, ".claude", "plugins", "marketplaces", "sentropic");
+  currentPlugin(claudePluginPath);
+  currentMarketplace(claudeMarketplacePath);
+  writeJson(join(home, ".claude", "plugins", "known_marketplaces.json"), {
+    sentropic: {
+      source: { source: "github", repo: "rhanka/h2a" },
+      installLocation: claudeMarketplacePath
+    }
+  });
+  writeJson(join(home, ".claude", "plugins", "installed_plugins.json"), {
+    version: 2,
+    plugins: {
+      "h2a@sentropic": [{ scope: "user", installPath: claudePluginPath, version: VERSION }]
+    }
+  });
+  return { home, manifestPath, loadedCodePath };
+}
+
 function snapshotTree(path) {
   const entries = [];
   for (const entry of readdirSync(path, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
@@ -180,6 +232,18 @@ function repairRunner(home, calls) {
         "h2a@sentropic": [{ scope: "user", installPath: pluginPath, version: VERSION }]
       }
     });
+    return { ok: true };
+  };
+}
+
+function inPlaceRepairRunner(home, calls) {
+  const base = repairRunner(home, calls);
+  return (command, args) => {
+    if (command !== "codex") return base(command, args);
+    calls.push([command, ...args]);
+    const pluginRoot = join(home, ".codex", "plugins", "cache", "sentropic", "h2a", VERSION);
+    writeJson(join(pluginRoot, ".codex-plugin", "plugin.json"), { name: "h2a", version: VERSION });
+    writeFileSync(join(pluginRoot, "loaded-runtime.js"), "export const loadedVersion = '9.8.7';\n");
     return { ok: true };
   };
 }
@@ -387,7 +451,10 @@ test("doctor --repair exits 2 when a live Codex session predates a cache version
     assert.equal(exitCode, 2, io.stderrText);
     assert.equal(report.ok, false);
     assert.equal(codex.ok, true, JSON.stringify(report, null, 2));
-    assert.deepEqual(codex.changed, [join(home, ".codex", "plugins", "cache", "sentropic", "h2a", "0.87.0")]);
+    assert.deepEqual(codex.changed, [
+      join(home, ".codex", "plugins", "cache", "sentropic", "h2a", "0.87.0"),
+      join(home, ".codex", "h2a-repair.json")
+    ]);
     assert.ok(calls.some((call) => call.join(" ") === "codex plugin marketplace upgrade"));
     assert.ok(calls.some((call) => call.join(" ") === "codex plugin add h2a@sentropic"));
     assert.deepEqual(
@@ -395,6 +462,104 @@ test("doctor --repair exits 2 when a live Codex session predates a cache version
       ["sess-before-cache-repair"]
     );
     assert.ok(report.unrepaired.some((entry) => entry.code === "live-session-restart-required"));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor --repair exits 2 when an existing Codex plugin directory is overwritten in place", () => {
+  const { home, manifestPath, loadedCodePath } = inPlaceCacheVersionDriftHome();
+  const root = join(home, "bus");
+  try {
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    writePresence(root, {
+      sessionId: "sess-before-in-place-repair",
+      instance: "codex:plugins:123456789abc",
+      host: "codex",
+      startedAt: "2020-01-01T00:00:00.000Z",
+      heartbeatAt: new Date().toISOString(),
+      state: "live",
+      interests: { scopes: [], negotiations: [] },
+      subscribedTopics: []
+    });
+    const before = doctorHostInstallations({ home, version: VERSION });
+    const codexBefore = before.hosts.find((host) => host.host === "codex");
+    assert.deepEqual(codexBefore?.findings.map((entry) => entry.code), ["version-skew"]);
+    assert.ok(codexBefore?.coherencePaths.every((path) => statSync(path).mtimeMs < Date.parse("2020-01-01T00:00:00.000Z")));
+    assert.ok(statSync(manifestPath).mtimeMs < Date.parse("2020-01-01T00:00:00.000Z"));
+    assert.ok(statSync(loadedCodePath).mtimeMs < Date.parse("2020-01-01T00:00:00.000Z"));
+
+    const calls = [];
+    const io = streams(home);
+    const exitCode = runCli(["doctor", "--root", root, "--repair"], io, {
+      doctorHostInstallations: () => doctorHostInstallations({
+        home,
+        version: VERSION,
+        repair: true,
+        runHostCommand: inPlaceRepairRunner(home, calls)
+      })
+    });
+    const report = JSON.parse(io.stdoutText);
+    const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false);
+    assert.equal(codex.ok, true, JSON.stringify(report, null, 2));
+    assert.deepEqual(codex.changed, [join(home, ".codex", "h2a-repair.json")]);
+    assert.equal(codex.repairMarker.path, join(home, ".codex", "h2a-repair.json"));
+    assert.ok(Date.parse(codex.repairMarker.repairedAt) > Date.parse("2020-01-01T00:00:00.000Z"));
+    assert.ok(calls.some((call) => call.join(" ") === "codex plugin marketplace upgrade"));
+    assert.ok(calls.some((call) => call.join(" ") === "codex plugin add h2a@sentropic"));
+    assert.ok(statSync(manifestPath).mtimeMs > Date.parse("2020-01-01T00:00:00.000Z"));
+    assert.ok(statSync(loadedCodePath).mtimeMs > Date.parse("2020-01-01T00:00:00.000Z"));
+    assert.deepEqual(
+      report.checks.liveHostSessions.restartRequired.map((entry) => entry.sessionId),
+      ["sess-before-in-place-repair"]
+    );
+    assert.ok(report.unrepaired.some((entry) => entry.code === "live-session-restart-required"));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails closed when an existing Codex repair marker cannot be read", () => {
+  const { home } = inPlaceCacheVersionDriftHome();
+  const markerPath = join(home, ".codex", "h2a-repair.json");
+  try {
+    currentPlugin(join(home, ".codex", "plugins", "cache", "sentropic", "h2a", VERSION));
+    writeFileSync(markerPath, "not JSON\n");
+    const report = doctorHostInstallations({ home, version: VERSION });
+    const codex = report.hosts.find((host) => host.host === "codex");
+    assert.equal(report.ok, false);
+    assert.equal(codex?.ok, false);
+    assert.ok(
+      codex?.findings.some((entry) => entry.code === "repair-marker-unavailable" && entry.path === markerPath),
+      JSON.stringify(report, null, 2)
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails closed when a Codex repair marker cannot be written", () => {
+  const { home } = inPlaceCacheVersionDriftHome();
+  const markerPath = join(home, ".codex", "h2a-repair.json");
+  try {
+    mkdirSync(markerPath);
+    const report = doctorHostInstallations({
+      home,
+      version: VERSION,
+      repair: true,
+      runHostCommand: inPlaceRepairRunner(home, [])
+    });
+    const codex = report.hosts.find((host) => host.host === "codex");
+    assert.equal(report.ok, false);
+    assert.equal(codex?.ok, false);
+    assert.ok(
+      codex?.unrepaired.some((entry) =>
+        entry.code === "repair-marker-unavailable" && /cannot write host repair marker/.test(entry.message)
+      ),
+      JSON.stringify(report, null, 2)
+    );
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
