@@ -344,6 +344,16 @@ function isLegacyH2aPlugin(name: string | undefined): boolean {
   return Boolean(name && (/^h2a-local-/i.test(name) || /^h2a@sentropic-local-/i.test(name)));
 }
 
+function isAuthorizedClaudePluginUninstall(name: string | undefined): boolean {
+  return Boolean(
+    name && (
+      /^h2a-local-/i.test(name) ||
+      /^h2a@sentropic-local-/i.test(name) ||
+      /^track@sentropic$/i.test(name)
+    )
+  );
+}
+
 function isDirectH2aMcp(name: string | undefined, table: TomlTable): boolean {
   if (name && /^h2a(?:[-_.]|$)/i.test(name)) return true;
   const command = tomlValue(table, "command");
@@ -757,6 +767,12 @@ function runCommand(
   args: readonly string[],
   dryRun: boolean
 ): boolean {
+  if (
+    command === "claude" &&
+    args[0] === "plugin" &&
+    args[1] === "uninstall" &&
+    !isAuthorizedClaudePluginUninstall(args[2])
+  ) return false;
   if (dryRun) {
     planAction(report, `${command} ${args.join(" ")}`);
     return true;
