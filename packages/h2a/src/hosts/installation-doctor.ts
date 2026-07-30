@@ -20,6 +20,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync
 } from "node:fs";
 import { homedir } from "node:os";
@@ -53,6 +54,8 @@ export interface HostInstallationDoctorOptions {
   readonly version?: string;
   /** Injectable for hermetic tests; production invokes the native host CLI. */
   readonly runHostCommand?: HostCommandRunner;
+  /** Injectable for hermetic tests; production writes the durable repair marker. */
+  readonly writeRepairMarker?: (path: string, content: string) => void;
 }
 
 export interface HostInstallationFinding {
@@ -75,6 +78,8 @@ export interface HostInstallationFinding {
 export interface HostRepairMarker {
   readonly path: string;
   readonly repairedAt: string;
+  /** Concrete paths that a completed repair changed or revalidated. */
+  readonly repairedPaths: readonly string[];
 }
 
 export interface HostInstallationReport {
@@ -83,8 +88,10 @@ export interface HostInstallationReport {
   readonly findings: readonly HostInstallationFinding[];
   readonly changed: readonly string[];
   readonly unrepaired: readonly HostInstallationFinding[];
-  /** Legacy diagnostic paths; live-session freshness uses repairMarker instead. */
+  /** Regular host/runtime files checked for external changes after a live session started. */
   readonly coherencePaths: readonly string[];
+  /** Expected durable repair-marker location, whether or not it currently exists. */
+  readonly repairMarkerPath: string;
   /** Durable fact recorded after this host installation was repaired. */
   readonly repairMarker?: HostRepairMarker;
 }
@@ -110,8 +117,8 @@ interface MutableHostReport {
   changed: string[];
   unrepaired: HostInstallationFinding[];
   coherencePaths: string[];
+  repairMarkerPath: string;
   repairMarker?: HostRepairMarker;
-  repairPerformed: boolean;
 }
 
 interface TomlTable {
@@ -180,6 +187,25 @@ function listDirectories(path: string): string[] {
   } catch {
     return [];
   }
+}
+
+function listFilesRecursively(path: string): string[] {
+  try {
+    const entry = statSync(path);
+    if (entry.isFile()) return [path];
+    if (!entry.isDirectory()) return [];
+    return readdirSync(path, { withFileTypes: true }).flatMap((child) => {
+      const childPath = join(path, child.name);
+      if (child.isFile()) return [childPath];
+      return child.isDirectory() ? listFilesRecursively(childPath) : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function coherenceFiles(...paths: readonly string[]): string[] {
+  return [...new Set(paths.flatMap(listFilesRecursively))];
 }
 
 function parseTomlTables(content: string): TomlTable[] {
@@ -348,10 +374,17 @@ function readRepairMarker(path: string): { marker?: HostRepairMarker; error?: st
   try {
     const value = JSON.parse(readFileSync(path, "utf8"));
     const repairedAt = isPlainObject(value) ? value.repairedAt : undefined;
-    if (typeof repairedAt !== "string" || !Number.isFinite(Date.parse(repairedAt))) {
-      return { error: "missing a valid repairedAt timestamp" };
+    const repairedPaths = isPlainObject(value) ? value.repairedPaths : undefined;
+    if (
+      typeof repairedAt !== "string" ||
+      !Number.isFinite(Date.parse(repairedAt)) ||
+      !Array.isArray(repairedPaths) ||
+      repairedPaths.length === 0 ||
+      !repairedPaths.every((entry): entry is string => typeof entry === "string" && entry.length > 0)
+    ) {
+      return { error: "missing a valid repairedAt timestamp or repairedPaths" };
     }
-    return { marker: { path, repairedAt } };
+    return { marker: { path, repairedAt, repairedPaths } };
   } catch (error) {
     return { error: (error as Error).message };
   }
@@ -359,26 +392,31 @@ function readRepairMarker(path: string): { marker?: HostRepairMarker; error?: st
 
 function inspectRepairMarker(home: string, report: MutableHostReport): void {
   const path = repairMarkerPath(home, report.host);
+  report.repairMarkerPath = path;
   const result = readRepairMarker(path);
   if (result.marker) {
     report.repairMarker = result.marker;
-    pushUnique(report.coherencePaths, path);
   } else if (result.error) {
     report.findings.push(finding("repair-marker-unavailable", `cannot read host repair marker: ${result.error}`, path));
   }
 }
 
-function recordRepairMarker(home: string, report: MutableHostReport): void {
-  if (!report.repairPerformed && report.changed.length === 0) return;
+function recordRepairMarker(
+  home: string,
+  report: MutableHostReport,
+  repairedPaths: readonly string[],
+  writeMarker: (path: string, content: string) => void
+): void {
+  const uniquePaths = [...new Set(repairedPaths)];
+  if (uniquePaths.length === 0) return;
   const path = repairMarkerPath(home, report.host);
   const repairedAt = new Date().toISOString();
   try {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify({ repairedAt })}\n`);
+    writeMarker(path, `${JSON.stringify({ repairedAt, repairedPaths: uniquePaths })}\n`);
     const result = readRepairMarker(path);
     if (!result.marker) throw new Error(result.error ?? "marker disappeared after write");
     report.repairMarker = result.marker;
-    pushUnique(report.coherencePaths, path);
     pushUnique(report.changed, path);
   } catch (error) {
     report.unrepaired.push(
@@ -391,13 +429,14 @@ function inspectCodex(home: string, version: string): MutableHostReport {
   const configPath = codexConfigPath(home);
   const cachePath = join(home, ".codex", "plugins", "cache");
   const currentCachePath = join(cachePath, H2A_MARKETPLACE_NAME, "h2a", version);
+  const marketplacePath = join(home, ".codex", ".tmp", "marketplaces", H2A_MARKETPLACE_NAME);
   const report: MutableHostReport = {
     host: "codex",
     findings: [],
     changed: [],
     unrepaired: [],
-    coherencePaths: [configPath],
-    repairPerformed: false
+    coherencePaths: coherenceFiles(configPath, join(cachePath, H2A_MARKETPLACE_NAME, "h2a"), marketplacePath),
+    repairMarkerPath: repairMarkerPath(home, "codex")
   };
   let raw = "";
   try {
@@ -464,8 +503,8 @@ function inspectClaude(home: string, version: string): MutableHostReport {
     findings: [],
     changed: [],
     unrepaired: [],
-    coherencePaths: [knownPath, installedPath, ...claudeConfigPaths(home)],
-    repairPerformed: false
+    coherencePaths: [],
+    repairMarkerPath: repairMarkerPath(home, "claude")
   };
   const known = readJson(knownPath);
   if (known.error) {
@@ -521,6 +560,13 @@ function inspectClaude(home: string, version: string): MutableHostReport {
   if (directTrack > 0) {
     report.findings.push(finding("standalone-track-mcp", "Claude has a standalone track-mcp endpoint; track_* must be served by h2a."));
   }
+  report.coherencePaths.push(...coherenceFiles(
+    knownPath,
+    installedPath,
+    ...claudeConfigPaths(home),
+    join(home, ".claude", "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a"),
+    ...canonicalEntries.flatMap((entry) => typeof entry.installPath === "string" ? [entry.installPath] : [])
+  ));
   inspectRepairMarker(home, report);
   return report;
 }
@@ -622,17 +668,28 @@ function runCommand(
   args: readonly string[]
 ): boolean {
   const result = runner(command, args);
-  if (result.ok) {
-    report.repairPerformed = true;
-    return true;
-  }
+  if (result.ok) return true;
   report.unrepaired.push(
     finding("host-command-failed", `${command} ${args.join(" ")} failed: ${result.message ?? "unknown error"}`)
   );
   return false;
 }
 
-function repairCodex(home: string, version: string, runner: HostCommandRunner): MutableHostReport {
+function actualRepairPaths(before: MutableHostReport, after: MutableHostReport): string[] {
+  const remainingCodes = new Set(after.findings.map((entry) => entry.code));
+  const nativeRepairWasObserved = before.findings.some((entry) => !remainingCodes.has(entry.code));
+  return [
+    ...before.changed,
+    ...(nativeRepairWasObserved ? after.coherencePaths : [])
+  ];
+}
+
+function repairCodex(
+  home: string,
+  version: string,
+  runner: HostCommandRunner,
+  writeMarker: (path: string, content: string) => void
+): MutableHostReport {
   const before = inspectCodex(home, version);
   // A vanished local marketplace is a distinct recovery case. Codex reports
   // `plugin marketplace upgrade` success with "No configured Git marketplaces
@@ -684,11 +741,17 @@ function repairCodex(home: string, version: string, runner: HostCommandRunner): 
       catch (error) { before.unrepaired.push(finding("orphan-cache", `cannot remove ${path}: ${(error as Error).message}`, path)); }
     }
   }
-  recordRepairMarker(home, before);
+  const afterNativeRepair = inspectCodex(home, version);
+  recordRepairMarker(home, before, actualRepairPaths(before, afterNativeRepair), writeMarker);
   return combineAfterRepair(before, inspectCodex(home, version));
 }
 
-function repairClaude(home: string, version: string, runner: HostCommandRunner): MutableHostReport {
+function repairClaude(
+  home: string,
+  version: string,
+  runner: HostCommandRunner,
+  writeMarker: (path: string, content: string) => void
+): MutableHostReport {
   const before = inspectClaude(home, version);
   repairClaudeMcpConfigs(home, before);
   const knownPath = join(home, ".claude", "plugins", "known_marketplaces.json");
@@ -723,7 +786,8 @@ function repairClaude(home: string, version: string, runner: HostCommandRunner):
       catch (error) { before.unrepaired.push(finding("orphan-cache", `cannot remove ${path}: ${(error as Error).message}`, path)); }
     }
   }
-  recordRepairMarker(home, before);
+  const afterNativeRepair = inspectClaude(home, version);
+  recordRepairMarker(home, before, actualRepairPaths(before, afterNativeRepair), writeMarker);
   return combineAfterRepair(before, inspectClaude(home, version));
 }
 
@@ -734,8 +798,7 @@ function combineAfterRepair(before: MutableHostReport, after: MutableHostReport)
     changed: before.changed,
     unrepaired,
     coherencePaths: [...new Set([...before.coherencePaths, ...after.coherencePaths])],
-    repairMarker: after.repairMarker ?? before.repairMarker,
-    repairPerformed: before.repairPerformed || after.repairPerformed
+    repairMarker: after.repairMarker ?? before.repairMarker
   };
 }
 
@@ -747,6 +810,7 @@ function freezeReport(report: MutableHostReport): HostInstallationReport {
     changed: report.changed,
     unrepaired: report.unrepaired,
     coherencePaths: report.coherencePaths,
+    repairMarkerPath: report.repairMarkerPath,
     ...(report.repairMarker ? { repairMarker: report.repairMarker } : {})
   };
 }
@@ -759,8 +823,9 @@ export function doctorHostInstallations(
   const version = options.version ?? currentCliVersion();
   const repair = options.repair === true;
   const runner = options.runHostCommand ?? defaultHostCommand;
+  const writeMarker = options.writeRepairMarker ?? ((path: string, content: string) => writeFileSync(path, content));
   const mutable = repair
-    ? [repairClaude(home, version, runner), repairCodex(home, version, runner)]
+    ? [repairClaude(home, version, runner, writeMarker), repairCodex(home, version, runner, writeMarker)]
     : [inspectClaude(home, version), inspectCodex(home, version)];
   const hosts = mutable.map(freezeReport);
   return { ok: hosts.every((host) => host.ok), repair, version, hosts };
@@ -768,8 +833,9 @@ export function doctorHostInstallations(
 
 /**
  * A host repair cannot rewire an already-open stdio connection. A recorded
- * repair marker is the authoritative fact: if a session predates it, doctor
- * must explicitly require a restart instead of certifying that session clean.
+ * repair marker is authoritative for our repairs; recursive runtime-file mtimes
+ * detect external changes that the marker cannot observe. Missing evidence is
+ * fail-closed for a live session.
  */
 export function findLiveSessionsPredatingHostConfig(
   sessions: readonly H2ASession[],
@@ -785,7 +851,19 @@ export function findLiveSessionsPredatingHostConfig(
     const startedAt = Date.parse(session.startedAt);
     if (!Number.isFinite(startedAt)) continue;
     const marker = report.repairMarker;
-    if (!marker) continue;
+    if (!marker) {
+      const markerState = existsSync(report.repairMarkerPath) ? "unavailable" : "missing";
+      findings.push({
+        host,
+        sessionId: session.sessionId,
+        startedAt: session.startedAt,
+        configPath: report.repairMarkerPath,
+        message:
+          `cannot verify host repair marker ${report.repairMarkerPath}: it is ${markerState}; ` +
+          `live ${host} session ${session.sessionId} must be restarted.`
+      });
+      continue;
+    }
     const repairedAt = Date.parse(marker.repairedAt);
     if (!Number.isFinite(repairedAt)) {
       findings.push({
@@ -807,6 +885,27 @@ export function findLiveSessionsPredatingHostConfig(
           `live ${host} session ${session.sessionId} started before repair marker ${marker.path}; ` +
           "it may still run the pre-repair H2A/Track MCP set and must be restarted."
       });
+      continue;
+    }
+    for (const path of report.coherencePaths) {
+      try {
+        const metadata = statSync(path);
+        if (metadata.isFile() && metadata.mtimeMs > startedAt) {
+          findings.push({
+            host,
+            sessionId: session.sessionId,
+            startedAt: session.startedAt,
+            configPath: path,
+            message:
+              `live ${host} session ${session.sessionId} started before ${path} changed externally; ` +
+              "it may still run the pre-change H2A/Track MCP set and must be restarted."
+          });
+          break;
+        }
+      } catch {
+        // Inspection only includes files that existed at inspection time. A
+        // vanished file cannot prove the live runtime is fresh.
+      }
     }
   }
   return findings;
