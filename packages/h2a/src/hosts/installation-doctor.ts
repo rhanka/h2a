@@ -15,13 +15,18 @@
 
 import { spawnSync } from "node:child_process";
 import {
+  closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
+  renameSync,
   rmSync,
   statSync,
+  unlinkSync,
   writeFileSync
 } from "node:fs";
 import { homedir } from "node:os";
@@ -63,6 +68,12 @@ export interface HostInstallationDoctorOptions {
   readonly dryRun?: boolean;
   /** Test-only Claude uninstall requests used to exercise the native-command boundary. */
   readonly testClaudePluginUninstalls?: readonly string[];
+  /** Test-only fault injection for the atomic configuration-write boundary. */
+  readonly testConfigurationWrite?: {
+    readonly mutateRendered?: (path: string, format: "json" | "toml", rendered: string) => string;
+    readonly beforeRename?: (path: string, temporaryPath: string) => void;
+    readonly rename?: (temporaryPath: string, path: string) => void;
+  };
 }
 
 export interface HostInstallationFinding {
@@ -195,6 +206,128 @@ function writeJson(path: string, value: Record<string, unknown>): string | undef
     return undefined;
   } catch (error) {
     return (error as Error).message;
+  }
+}
+
+type ConfigurationFormat = "json" | "toml";
+
+type TestConfigurationWrite = NonNullable<HostInstallationDoctorOptions["testConfigurationWrite"]>;
+
+function validateRenderedToml(raw: string): string | undefined {
+  const headers = new Set<string>();
+  const delimiters: string[] = [];
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+  const scanValue = (value: string, line: number): string | undefined => {
+    let hasValue = quote !== undefined || delimiters.length > 0;
+    for (const character of value) {
+      if (quote) {
+        hasValue = true;
+        if (quote === '"' && escaped) {
+          escaped = false;
+          continue;
+        }
+        if (quote === '"' && character === "\\") {
+          escaped = true;
+          continue;
+        }
+        if (character === quote) quote = undefined;
+        continue;
+      }
+      if (character === "#") break;
+      if (!/\s/.test(character)) hasValue = true;
+      if (character === '"' || character === "'") quote = character;
+      else if (character === "[") delimiters.push("]");
+      else if (character === "{") delimiters.push("}");
+      else if (character === "]" || character === "}") {
+        if (delimiters.pop() !== character) return `line ${line} has unbalanced TOML delimiters`;
+      }
+    }
+    return hasValue ? undefined : `line ${line} has no TOML value`;
+  };
+  for (const [index, line] of raw.split(/\r?\n/).entries()) {
+    const trimmed = line.trim();
+    if (quote || delimiters.length > 0) {
+      const valueError = scanValue(line, index + 1);
+      if (valueError) return valueError;
+      continue;
+    }
+    if (trimmed.length === 0 || trimmed.startsWith("#")) continue;
+    if (trimmed.startsWith("[")) {
+      const header = /^\[([^\]\r\n]+)\]\s*(?:#.*)?$/.exec(trimmed);
+      if (!header) return `line ${index + 1} has an invalid table header`;
+      if (headers.has(header[1])) return `line ${index + 1} repeats table ${header[1]}`;
+      headers.add(header[1]);
+      continue;
+    }
+    if (!/^(?:[A-Za-z0-9_-]+|"(?:\\.|[^"\\])+")(?:\.(?:[A-Za-z0-9_-]+|"(?:\\.|[^"\\])+"))*\s*=/.test(trimmed)) {
+      return `line ${index + 1} is not a TOML key/value assignment`;
+    }
+    const valueError = scanValue(trimmed.slice(trimmed.indexOf("=") + 1), index + 1);
+    if (valueError) return valueError;
+  }
+  if (quote) return "TOML has an unterminated string";
+  if (delimiters.length > 0) return "TOML has unclosed array or inline-table delimiters";
+  return undefined;
+}
+
+function validateRenderedConfiguration(raw: string, format: ConfigurationFormat): string | undefined {
+  if (format === "toml") return validateRenderedToml(raw);
+  try {
+    if (!isPlainObject(JSON.parse(raw))) return "JSON root is not an object";
+    return undefined;
+  } catch (error) {
+    return (error as Error).message;
+  }
+}
+
+function atomicConfigurationWrite(
+  path: string,
+  original: string,
+  rendered: string,
+  format: ConfigurationFormat,
+  testHooks?: TestConfigurationWrite
+): string | undefined {
+  let temporaryPath: string | undefined;
+  let descriptor: number | undefined;
+  try {
+    const candidate = testHooks?.mutateRendered?.(path, format, rendered) ?? rendered;
+    const validationError = validateRenderedConfiguration(candidate, format);
+    if (validationError) return `rendered ${format.toUpperCase()} cannot be parsed: ${validationError}`;
+
+    mkdirSync(dirname(path), { recursive: true });
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const candidatePath = join(dirname(path), `.${path.split("/").pop()}.h2a-${process.pid}-${Date.now()}-${attempt}.tmp`);
+      try {
+        descriptor = openSync(candidatePath, "wx", 0o600);
+        temporaryPath = candidatePath;
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+    }
+    if (descriptor === undefined || temporaryPath === undefined) throw new Error("cannot allocate an atomic temporary file");
+    writeFileSync(descriptor, candidate, "utf8");
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = undefined;
+
+    testHooks?.beforeRename?.(path, temporaryPath);
+    const current = existsSync(path) ? readFileSync(path, "utf8") : "";
+    if (current !== original) throw new Error("configuration changed concurrently before atomic rename");
+    if (testHooks?.rename) testHooks.rename(temporaryPath, path);
+    else renameSync(temporaryPath, path);
+    temporaryPath = undefined;
+    return undefined;
+  } catch (error) {
+    return (error as Error).message;
+  } finally {
+    if (descriptor !== undefined) {
+      try { closeSync(descriptor); } catch { /* preserve the original write error */ }
+    }
+    if (temporaryPath !== undefined) {
+      try { unlinkSync(temporaryPath); } catch { /* cleanup must not hide the original write error */ }
+    }
   }
 }
 
@@ -366,8 +499,13 @@ function isDirectH2aMcp(table: TomlTable): boolean {
 
 function isDirectTrackMcp(table: TomlTable): boolean {
   const command = tomlValue(table, "command") ?? "";
-  const args = tomlValue(table, "args") ?? "";
-  return command === "track-mcp" || /(?:^|[\\/])track-mcp(?:\.cmd|\.exe)?$/i.test(command) || /track-mcp/.test(args);
+  const rawArgs = tomlValue(table, "args") ?? "";
+  try {
+    const args = JSON.parse(rawArgs);
+    return command === "h2a" && Array.isArray(args) && args.includes("track-mcp");
+  } catch {
+    return false;
+  }
 }
 
 function isOwnedMarketplace(location: string): boolean {
@@ -723,7 +861,7 @@ function isH2aJsonMcp(value: unknown): boolean {
 
 function isTrackJsonMcp(value: unknown): boolean {
   if (!isPlainObject(value) || typeof value.command !== "string") return false;
-  return value.command === "track-mcp" || /[\\/]track-mcp(?:\.cmd|\.exe)?$/i.test(value.command) || jsonArgs(value).includes("track-mcp");
+  return value.command === "h2a" && jsonArgs(value).includes("track-mcp");
 }
 
 interface JsonObjectProperty {
@@ -877,7 +1015,7 @@ function reportUnverifiedOwnership(report: MutableHostReport, path: string, arti
 function repairCodexConfig(
   home: string,
   report: MutableHostReport,
-  options: { readonly dryRun: boolean }
+  options: { readonly dryRun: boolean; readonly testConfigurationWrite?: TestConfigurationWrite }
 ): void {
   const path = codexConfigPath(home);
   let raw = "";
@@ -972,15 +1110,27 @@ function repairCodexConfig(
     return;
   }
   try {
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, rendered.endsWith("\n") ? rendered : `${rendered}\n`);
+    const error = atomicConfigurationWrite(
+      path,
+      raw,
+      rendered.endsWith("\n") ? rendered : `${rendered}\n`,
+      "toml",
+      options.testConfigurationWrite
+    );
+    if (error) throw new Error(error);
     pushUnique(report.changed, path);
   } catch (error) {
     report.unrepaired.push(finding("config-invalid", `cannot write Codex config: ${(error as Error).message}`, path));
   }
 }
 
-function repairClaudeMcpConfigs(home: string, report: MutableHostReport, dryRun: boolean): void {
+function repairClaudeMcpConfigs(
+  home: string,
+  report: MutableHostReport,
+  dryRun: boolean,
+  testConfigurationWrite?: TestConfigurationWrite
+): boolean {
+  let failed = false;
   for (const path of claudeConfigPaths(home)) {
     let raw: string;
     try {
@@ -989,11 +1139,13 @@ function repairClaudeMcpConfigs(home: string, report: MutableHostReport, dryRun:
       if (!isPlainObject(value)) throw new Error("JSON root is not an object");
     } catch (error) {
       report.unrepaired.push(finding("config-invalid", `cannot parse Claude MCP config for repair: ${(error as Error).message}`, path));
+      failed = true;
       continue;
     }
     const rendered = removeOwnedJsonMcpEntries(raw);
     if (rendered === undefined) {
       report.unrepaired.push(finding("config-invalid", "cannot locate Claude MCP entries for safe repair", path));
+      failed = true;
       continue;
     }
     if (rendered === raw) continue;
@@ -1002,12 +1154,15 @@ function repairClaudeMcpConfigs(home: string, report: MutableHostReport, dryRun:
       continue;
     }
     try {
-      writeFileSync(path, rendered);
+      const error = atomicConfigurationWrite(path, raw, rendered, "json", testConfigurationWrite);
+      if (error) throw new Error(error);
       pushUnique(report.changed, path);
     } catch (error) {
+      failed = true;
       report.unrepaired.push(finding("config-invalid", `cannot write Claude MCP config: ${(error as Error).message}`, path));
     }
   }
+  return failed;
 }
 
 // runCommand contains the installation doctor's only native runner invocation.
@@ -1125,7 +1280,8 @@ function repairCodex(
   version: string,
   runner: HostCommandRunner,
   writeMarker: (path: string, content: string) => void,
-  dryRun: boolean
+  dryRun: boolean,
+  testConfigurationWrite?: TestConfigurationWrite
 ): MutableHostReport {
   const before = inspectCodex(home, version);
   const beforeArtifacts = artifactSnapshots(before.coherencePaths);
@@ -1175,7 +1331,7 @@ function repairCodex(
     }
     return combineAfterRepair(before, inspectCodex(home, version));
   }
-  repairCodexConfig(home, before, { dryRun });
+  repairCodexConfig(home, before, { dryRun, testConfigurationWrite });
   if (before.unrepaired.some((entry) => entry.code === "config-invalid")) {
     return combineAfterRepair(before, inspectCodex(home, version));
   }
@@ -1205,7 +1361,8 @@ function repairClaude(
   runner: HostCommandRunner,
   writeMarker: (path: string, content: string) => void,
   dryRun: boolean,
-  testClaudePluginUninstalls: readonly string[]
+  testClaudePluginUninstalls: readonly string[],
+  testConfigurationWrite?: TestConfigurationWrite
 ): MutableHostReport {
   const before = inspectClaude(home, version);
   const beforeArtifacts = artifactSnapshots(before.coherencePaths);
@@ -1244,7 +1401,9 @@ function repairClaude(
     return combineAfterRepair(before, inspectClaude(home, version));
   }
 
-  repairClaudeMcpConfigs(home, before, dryRun);
+  if (repairClaudeMcpConfigs(home, before, dryRun, testConfigurationWrite)) {
+    return combineAfterRepair(before, inspectClaude(home, version));
+  }
   const repairedKnown = readJson(knownPath).value ?? {};
   const repairedInstalled = readJson(installedPath).value ?? {};
   for (const marketplace of Object.keys(repairedKnown).filter(isLegacySentropicName)) {
@@ -1324,8 +1483,8 @@ export function doctorHostInstallations(
   const writeMarker = options.writeRepairMarker ?? ((path: string, content: string) => writeFileSync(path, content));
   const mutable = repair
     ? [
-      repairClaude(home, version, runner, writeMarker, dryRun, options.testClaudePluginUninstalls ?? []),
-      repairCodex(home, version, runner, writeMarker, dryRun)
+      repairClaude(home, version, runner, writeMarker, dryRun, options.testClaudePluginUninstalls ?? [], options.testConfigurationWrite),
+      repairCodex(home, version, runner, writeMarker, dryRun, options.testConfigurationWrite)
     ]
     : [inspectClaude(home, version), inspectCodex(home, version)];
   const hosts = mutable.map(freezeReport);
