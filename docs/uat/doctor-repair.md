@@ -49,7 +49,7 @@ celle que tu es en train de valider.
 
 ```bash
 git rev-parse --short HEAD          # note-le : c'est le candidat que tu recettes
-npm run build:h2a
+npm run build                       # PAS build:h2a : sur une extraction propre il sort 2, @sentropic/track manquant
 export DOCTOR="node $PWD/packages/h2a/dist/bin.js"
 ```
 
@@ -140,7 +140,12 @@ peut pas observer complètement.
 
 ## Scénario 3 — ta vraie installation, en lecture d'abord
 
+> **Avant ce scénario, libère les racines épinglées** — sinon doctor inspecte ta vraie installation
+> pendant que les CLIs visent encore l'arbre jetable, et tu recettes deux installations différentes.
+> Une revue indépendante a mesuré exactement cet écart dans ma version précédente.
+
 ```bash
+unset CODEX_HOME CLAUDE_CONFIG_DIR
 cp -p ~/.codex/config.toml ~/.codex/config.toml.bak.uat-$(date +%Y%m%d-%H%M)
 cp -p ~/.claude/plugins/known_marketplaces.json ~/.claude/plugins/known_marketplaces.json.bak.uat-$(date +%Y%m%d-%H%M) 2>/dev/null
 
