@@ -222,13 +222,14 @@ function liveName(candidate: LiveRecipient): string | undefined {
   return typeof candidate === "string" ? undefined : candidate.name;
 }
 
-/**
- * Display names used to be exposed with an `h2a:` prefix. Strip it only while
- * comparing names: presence records remain as their owners wrote them, and
- * instance addresses keep their existing canonicalization rules.
- */
-function displayNameKey(value: string): string {
+/** Target-side display-name key; strip the legacy `h2a:` marker only here. */
+function targetDisplayNameKey(value: string): string {
   return value.trim().replace(/^h2a:/i, "").trim().toLowerCase();
+}
+
+/** Presence-side display-name key; preserve any prefix owned by the presence. */
+function presenceDisplayNameKey(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 /**
@@ -275,10 +276,18 @@ export function resolveRecipient(opts: {
 
   // 5. Resolve instance aliases and presence names together. A matching name
   // always yields its recorded instance; it never becomes an inbox key itself.
+  const targetNameKey = targetDisplayNameKey(target);
+  if (targetNameKey.length === 0) {
+    return {
+      kind: "refuse",
+      reason: `'${target}' has an empty display-name key — provide a non-empty display name or an exact instance address.`
+    };
+  }
+
   const hostQualifiedAlias =
     parts.length === 2 && parts[0].length > 0 && parts[1].length > 0;
   const aliasKey = hostQualifiedAlias ? hostLabelKey(target) : undefined;
-  const nameKey = displayNameKey(target);
+  const nameKey = target.includes(":") ? undefined : targetNameKey;
   const liveMatches: Array<{
     instance: string;
     matchedAlias: boolean;
@@ -289,7 +298,12 @@ export function resolveRecipient(opts: {
     const instance = liveInstance(candidate);
     const matchedAlias = aliasKey !== undefined && hostLabelKey(instance) === aliasKey;
     const name = liveName(candidate);
-    const matchedName = name !== undefined && displayNameKey(name) === nameKey;
+    const presenceNameKey = name === undefined ? undefined : presenceDisplayNameKey(name);
+    const matchedName =
+      nameKey !== undefined &&
+      presenceNameKey !== undefined &&
+      presenceNameKey.length > 0 &&
+      presenceNameKey === nameKey;
     if (matchedAlias || matchedName) {
       liveMatches.push({ instance, matchedAlias, matchedName });
     }
