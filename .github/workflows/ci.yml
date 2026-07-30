@@ -50,6 +50,17 @@ jobs:
           unset CODEX_HOME CLAUDE_CONFIG_DIR
           bash docs/uat/probe-oracle.sh
 
+      # "An error is not an absence" has been closed once and came back twice through
+      # different doors — the marketplace probe, then the artifact-based presence rule.
+      # Closing it a third time guarantees nothing, so the two review legs' manual
+      # attacks are pinned here as a matrix, positive control included. It runs no
+      # native CLI: it lays down host-CLI presence itself rather than inheriting it.
+      - name: An error is not an absence
+        run: |
+          set -euo pipefail
+          unset CODEX_HOME CLAUDE_CONFIG_DIR
+          bash docs/uat/probe-presence.sh
+
   build-and-test:
     runs-on: ${{ matrix.os }}
     # DEC-061: a leaked subprocess (e.g. an mcp-serve sidecar in a
