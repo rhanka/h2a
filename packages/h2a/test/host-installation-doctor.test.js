@@ -643,6 +643,7 @@ test("doctor --repair reports a refused Claude plugin uninstall", () => {
     const dryRun = runRepair(true);
     const dryClaude = dryRun.report.checks.hostInstallations.hosts.find((host) => host.host === "claude");
     const refusals = (actual.report.unrepaired ?? []).filter((entry) => entry.code === "host-command-refused");
+    const dryRunRefusals = (dryRun.report.unrepaired ?? []).filter((entry) => entry.code === "host-command-refused");
 
     assert.equal(actual.calls.some((call) => call.join(" ") === `claude plugin uninstall ${selector}`), false);
     assert.equal(dryRun.calls.some((call) => call.join(" ") === `claude plugin uninstall ${selector}`), false);
@@ -651,6 +652,9 @@ test("doctor --repair reports a refused Claude plugin uninstall", () => {
     assert.match(refusals[0].message, /claude plugin uninstall openai@sentropic-local-x/);
     assert.equal(actual.report.ok, false, JSON.stringify(actual.report, null, 2));
     assert.equal(actual.exitCode, 2);
+    assert.equal(dryRunRefusals.length, 1, JSON.stringify(dryRun.report, null, 2));
+    assert.equal(dryRun.report.ok, false, JSON.stringify(dryRun.report, null, 2));
+    assert.equal(dryRun.exitCode, 2);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
