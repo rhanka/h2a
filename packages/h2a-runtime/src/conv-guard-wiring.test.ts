@@ -136,6 +136,12 @@ vi.mock("./tmux.js", () => ({
     return base || "session";
   },
   runLocalCliForeground,
+  // The in-place resume path persists its launch context through tmux session
+  // options. The mock lacked the export, so the test died ON THE MOCK rather than
+  // on an assertion — and a missing stub reads exactly like a product failure.
+  // Stubbed as a no-op deliberately: this file drives WIRING, and what the launch
+  // context should contain is asserted where that is the subject.
+  persistLaunchContext: () => {},
 }));
 
 vi.mock("./migrate.js", () => ({
