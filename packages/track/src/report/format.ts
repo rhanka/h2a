@@ -793,10 +793,12 @@ function windowDays(period: ReportPeriod): number | undefined {
  * reads it as the full record — the same honesty the old `extrait` column applied.
  */
 const TODO_EXCERPT_MAX = 100
+const ULID = /[0-9A-HJKMNP-TV-Z]{26}/gu
 
 /** `undefined` for an absent/blank body — a bare title is then the HONEST render, not a gap to fill. */
 export function todoExcerpt(body: string | undefined): string | undefined {
-  const cleaned = body === undefined ? undefined : clean(body)
+  // Owner-facing excerpts can mention a record, but the record's ULID belongs in the machine-only handle block.
+  const cleaned = body === undefined ? undefined : clean(body.replace(ULID, 'référence interne'))
   if (cleaned === undefined || cleaned === '') return undefined
   if (cleaned.length <= TODO_EXCERPT_MAX) return cleaned
   const cut = cleaned.slice(0, TODO_EXCERPT_MAX)
@@ -899,6 +901,8 @@ export interface ConductorMeta {
   logFrom?: string
   /** ISO timestamp of the LAST recorded event — the fallback upper bound when no clock is injected. */
   logTo?: string
+  /** Stable journal cursor for the projection; it distinguishes reports rendered at different log heads. */
+  journalRevision?: { events: number; head: string | null }
   /**
    * The caller's clock, injected at ITS boundary so this module stays clockless and byte-reproducible
    * (same pattern as `workspace-activity --now`). Present ⇒ the window's upper bound is `now`.
@@ -920,6 +924,10 @@ export interface ReportScopeProjection {
   label: string
   includes: 'subtree'
   excludedProjectionRows: number
+}
+
+function shellArgument(value: string): string {
+  return /^[A-Za-z0-9_./:-]+$/u.test(value) ? value : `'${value.replace(/'/gu, "'\"'\"'")}'`
 }
 
 export function buildWpConductorView(
@@ -1361,6 +1369,9 @@ export function buildWpConductorView(
     period,
     sources: [
       'projection déterministe du journal (track report --wp --decisions)',
+      ...(meta.journalRevision === undefined
+        ? []
+        : [`révision du journal : ${meta.journalRevision.events} événements ; tête : ${meta.journalRevision.head ?? 'aucune'}`]),
       ...(meta.scopeProjection === undefined
         ? []
         : [
@@ -1368,7 +1379,9 @@ export function buildWpConductorView(
           ]),
     ],
     coverage,
-    handleCommand: 'track report --resolve <handle>',
+    handleCommand: meta.scopeProjection === undefined
+      ? 'track report --resolve <handle>'
+      : `track report --scope ${shellArgument(meta.scopeProjection.selector)} --resolve <handle>`,
   }
 
   return {

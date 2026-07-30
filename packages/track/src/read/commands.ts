@@ -36,10 +36,12 @@ function conductorMeta(
   scopeProjection?: ReportScopeProjection,
 ): ConductorMeta {
   const window = reader.logWindow()
+  const revision = reader.cursor()
   return {
     baselineCommit: options.baselineCommit,
     ...(window.from !== undefined ? { logFrom: window.from } : {}),
     ...(window.to !== undefined ? { logTo: window.to } : {}),
+    journalRevision: { events: revision.count, head: revision.head },
     ...(now !== undefined ? { now } : {}),
     ...(subWp === true ? { subWp } : {}),
     ...(scopeProjection !== undefined ? { scopeProjection } : {}),
@@ -70,8 +72,9 @@ export function projectReportScope(report: Report, selector: string): ScopedRepo
   const tree = report.wpTree ?? []
   const allNodes = flattenWpTree(tree)
   const needle = selector.trim()
-  if (needle === '') throw new Error('scope selector must not be empty')
-  const matches = allNodes.filter((node) => node.id === needle || node.code === needle || node.label === needle)
+  const exactCodeMatches = allNodes.filter((node) => node.code === selector)
+  if (needle === '' && exactCodeMatches.length === 0) throw new Error('scope selector must not be empty')
+  const matches = allNodes.filter((node) => node.id === needle || node.code === selector || node.label === needle)
   if (matches.length === 0) {
     throw new Error(`unknown scope selector: ${selector} (use an exact container id, assigned code, or derived label)`)
   }
@@ -102,7 +105,7 @@ export function projectReportScope(report: Report, selector: string): ScopedRepo
       wpTree: [selected],
     },
     scope: {
-      selector: needle,
+      selector: exactCodeMatches.includes(selected) ? selector : needle,
       id: selected.id,
       label: selected.label,
       includes: 'subtree',
