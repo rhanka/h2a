@@ -991,7 +991,18 @@ export function findLiveSessionsPredatingHostConfig(
     const report = byHost.get(host);
     if (!report) continue;
     const startedAt = Date.parse(session.startedAt);
-    if (!Number.isFinite(startedAt)) continue;
+    if (!Number.isFinite(startedAt)) {
+      findings.push({
+        host,
+        sessionId: session.sessionId,
+        startedAt: session.startedAt,
+        configPath: report.repairMarkerPath,
+        message:
+          `cannot verify when live ${host} session ${session.sessionId} started; ` +
+          "its temporal order relative to host repairs is unknown and it must be restarted."
+      });
+      continue;
+    }
     const marker = report.repairMarker;
     if (!marker) {
       const markerState = existsSync(report.repairMarkerPath) ? "unavailable" : "missing";
