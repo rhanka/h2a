@@ -19,6 +19,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync
@@ -56,6 +57,8 @@ export interface HostInstallationDoctorOptions {
   readonly runHostCommand?: HostCommandRunner;
   /** Injectable for hermetic tests; production writes the durable repair marker. */
   readonly writeRepairMarker?: (path: string, content: string) => void;
+  /** Report host repair findings and planned actions without mutating the host. */
+  readonly dryRun?: boolean;
 }
 
 export interface HostInstallationFinding {
@@ -70,7 +73,8 @@ export interface HostInstallationFinding {
     | "h2a-endpoint-count"
     | "standalone-track-mcp"
     | "host-command-failed"
-    | "repair-marker-unavailable";
+    | "repair-marker-unavailable"
+    | "runtime-artifact-unavailable";
   readonly message: string;
   readonly path?: string;
 }
@@ -88,8 +92,10 @@ export interface HostInstallationReport {
   readonly findings: readonly HostInstallationFinding[];
   readonly changed: readonly string[];
   readonly unrepaired: readonly HostInstallationFinding[];
-  /** Regular host/runtime files checked for external changes after a live session started. */
+  /** Declared load-bearing host/runtime files checked for external changes after a live session started. */
   readonly coherencePaths: readonly string[];
+  /** Host changes that --repair --dry-run would perform. */
+  readonly plannedActions: readonly string[];
   /** Expected durable repair-marker location, whether or not it currently exists. */
   readonly repairMarkerPath: string;
   /** Durable fact recorded after this host installation was repaired. */
@@ -99,6 +105,7 @@ export interface HostInstallationReport {
 export interface HostInstallationDoctorReport {
   readonly ok: boolean;
   readonly repair: boolean;
+  readonly dryRun: boolean;
   readonly version: string;
   readonly hosts: readonly HostInstallationReport[];
 }
@@ -117,6 +124,7 @@ interface MutableHostReport {
   changed: string[];
   unrepaired: HostInstallationFinding[];
   coherencePaths: string[];
+  plannedActions: string[];
   repairMarkerPath: string;
   repairMarker?: HostRepairMarker;
 }
@@ -189,23 +197,79 @@ function listDirectories(path: string): string[] {
   }
 }
 
-function listFilesRecursively(path: string): string[] {
-  try {
-    const entry = statSync(path);
-    if (entry.isFile()) return [path];
-    if (!entry.isDirectory()) return [];
-    return readdirSync(path, { withFileTypes: true }).flatMap((child) => {
-      const childPath = join(path, child.name);
-      if (child.isFile()) return [childPath];
-      return child.isDirectory() ? listFilesRecursively(childPath) : [];
-    });
-  } catch {
-    return [];
-  }
-}
+function loadBearingArtifacts(
+  report: MutableHostReport,
+  roots: readonly string[],
+  hostConfigPaths: readonly string[]
+): string[] {
+  const declared = new Set(hostConfigPaths.filter(existsSync));
+  const inspectedMcpConfigs = new Set<string>();
 
-function coherenceFiles(...paths: readonly string[]): string[] {
-  return [...new Set(paths.flatMap(listFilesRecursively))];
+  const inspectMcpConfig = (path: string): void => {
+    if (inspectedMcpConfigs.has(path)) return;
+    inspectedMcpConfigs.add(path);
+    declared.add(path);
+    if (!existsSync(path)) return;
+    const config = readJson(path);
+    if (config.error) {
+      report.findings.push(finding("runtime-artifact-unavailable", `cannot inspect load-bearing MCP config: ${config.error}`, path));
+      return;
+    }
+    const servers = isPlainObject(config.value?.mcpServers) ? config.value.mcpServers : {};
+    for (const entry of Object.values(servers)) {
+      if (!isPlainObject(entry)) continue;
+      for (const candidate of [entry.command, ...jsonArgs(entry)]) {
+        if (typeof candidate === "string" && candidate.startsWith(".")) {
+          declared.add(join(dirname(path), candidate));
+        }
+      }
+    }
+  };
+
+  for (const root of roots) {
+    for (const manifestPath of [
+      join(root, ".codex-plugin", "plugin.json"),
+      join(root, ".claude-plugin", "plugin.json")
+    ]) {
+      if (!existsSync(manifestPath)) continue;
+      declared.add(manifestPath);
+      const manifest = readJson(manifestPath);
+      if (manifest.error) {
+        report.findings.push(finding("runtime-artifact-unavailable", `cannot inspect plugin manifest: ${manifest.error}`, manifestPath));
+        continue;
+      }
+      const mcpServers = manifest.value?.mcpServers;
+      if (typeof mcpServers === "string" && mcpServers.startsWith(".")) {
+        inspectMcpConfig(join(dirname(manifestPath), mcpServers));
+      } else if (isPlainObject(mcpServers)) {
+        for (const entry of Object.values(mcpServers)) {
+          if (!isPlainObject(entry)) continue;
+          for (const candidate of [entry.command, ...jsonArgs(entry)]) {
+            if (typeof candidate === "string" && candidate.startsWith(".")) {
+              declared.add(join(dirname(manifestPath), candidate));
+            }
+          }
+        }
+      }
+    }
+    const conventionalMcpConfig = join(root, ".mcp.json");
+    if (existsSync(conventionalMcpConfig)) inspectMcpConfig(conventionalMcpConfig);
+  }
+
+  const resolved: string[] = [];
+  for (const path of declared) {
+    try {
+      const target = realpathSync(path);
+      const metadata = statSync(target);
+      if (!metadata.isFile()) throw new Error("not a regular file");
+      pushUnique(resolved, target);
+    } catch (error) {
+      report.findings.push(
+        finding("runtime-artifact-unavailable", `cannot inspect load-bearing artifact: ${(error as Error).message}`, path),
+      );
+    }
+  }
+  return resolved;
 }
 
 function parseTomlTables(content: string): TomlTable[] {
@@ -365,6 +429,10 @@ function pushUnique(values: string[], value: string): void {
   if (!values.includes(value)) values.push(value);
 }
 
+function planAction(report: MutableHostReport, action: string): void {
+  pushUnique(report.plannedActions, action);
+}
+
 function repairMarkerPath(home: string, host: Host): string {
   return join(home, host === "codex" ? ".codex" : ".claude", "h2a-repair.json");
 }
@@ -429,13 +497,13 @@ function inspectCodex(home: string, version: string): MutableHostReport {
   const configPath = codexConfigPath(home);
   const cachePath = join(home, ".codex", "plugins", "cache");
   const currentCachePath = join(cachePath, H2A_MARKETPLACE_NAME, "h2a", version);
-  const marketplacePath = join(home, ".codex", ".tmp", "marketplaces", H2A_MARKETPLACE_NAME);
   const report: MutableHostReport = {
     host: "codex",
     findings: [],
     changed: [],
     unrepaired: [],
-    coherencePaths: coherenceFiles(configPath, join(cachePath, H2A_MARKETPLACE_NAME, "h2a"), marketplacePath),
+    coherencePaths: [],
+    plannedActions: [],
     repairMarkerPath: repairMarkerPath(home, "codex")
   };
   let raw = "";
@@ -491,6 +559,7 @@ function inspectCodex(home: string, version: string): MutableHostReport {
   if (directTrack.length > 0) {
     report.findings.push(finding("standalone-track-mcp", "Codex has a standalone track-mcp endpoint; track_* must be served by h2a.", configPath));
   }
+  report.coherencePaths.push(...loadBearingArtifacts(report, [currentCachePath], [configPath]));
   inspectRepairMarker(home, report);
   return report;
 }
@@ -504,6 +573,7 @@ function inspectClaude(home: string, version: string): MutableHostReport {
     changed: [],
     unrepaired: [],
     coherencePaths: [],
+    plannedActions: [],
     repairMarkerPath: repairMarkerPath(home, "claude")
   };
   const known = readJson(knownPath);
@@ -560,12 +630,10 @@ function inspectClaude(home: string, version: string): MutableHostReport {
   if (directTrack > 0) {
     report.findings.push(finding("standalone-track-mcp", "Claude has a standalone track-mcp endpoint; track_* must be served by h2a."));
   }
-  report.coherencePaths.push(...coherenceFiles(
-    knownPath,
-    installedPath,
-    ...claudeConfigPaths(home),
-    join(home, ".claude", "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a"),
-    ...canonicalEntries.flatMap((entry) => typeof entry.installPath === "string" ? [entry.installPath] : [])
+  report.coherencePaths.push(...loadBearingArtifacts(
+    report,
+    canonicalEntries.flatMap((entry) => typeof entry.installPath === "string" ? [entry.installPath] : []),
+    claudeConfigPaths(home)
   ));
   inspectRepairMarker(home, report);
   return report;
@@ -591,7 +659,7 @@ function isTrackJsonMcp(value: unknown): boolean {
 function repairCodexConfig(
   home: string,
   report: MutableHostReport,
-  options: { readonly removeInvalidCanonicalMarketplace: boolean }
+  options: { readonly removeInvalidCanonicalMarketplace: boolean; readonly dryRun: boolean }
 ): void {
   const path = codexConfigPath(home);
   let raw = "";
@@ -633,6 +701,10 @@ function repairCodexConfig(
     ...tomlTable(`plugins.\"${H2A_PLUGIN_SELECTOR}\"`, ["enabled = true"])
   ].join("\n").replace(/^\n+/, "");
   if (rendered === raw) return;
+  if (options.dryRun) {
+    planAction(report, `rewrite ${path}`);
+    return;
+  }
   try {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, rendered.endsWith("\n") ? rendered : `${rendered}\n`);
@@ -642,7 +714,7 @@ function repairCodexConfig(
   }
 }
 
-function repairClaudeMcpConfigs(home: string, report: MutableHostReport): void {
+function repairClaudeMcpConfigs(home: string, report: MutableHostReport, dryRun: boolean): void {
   for (const path of claudeConfigPaths(home)) {
     const config = readJson(path);
     if (config.error) {
@@ -655,6 +727,10 @@ function repairClaudeMcpConfigs(home: string, report: MutableHostReport): void {
       Object.entries(servers).filter(([name, entry]) => !isH2aJsonMcp(name, entry) && !isTrackJsonMcp(entry))
     );
     if (Object.keys(retained).length === Object.keys(servers).length) continue;
+    if (dryRun) {
+      planAction(report, `rewrite ${path}`);
+      continue;
+    }
     const error = writeJson(path, { ...original, mcpServers: retained });
     if (error) report.unrepaired.push(finding("config-invalid", `cannot write Claude MCP config: ${error}`, path));
     else pushUnique(report.changed, path);
@@ -665,8 +741,13 @@ function runCommand(
   report: MutableHostReport,
   runner: HostCommandRunner,
   command: "claude" | "codex",
-  args: readonly string[]
+  args: readonly string[],
+  dryRun: boolean
 ): boolean {
+  if (dryRun) {
+    planAction(report, `${command} ${args.join(" ")}`);
+    return true;
+  }
   const result = runner(command, args);
   if (result.ok) return true;
   report.unrepaired.push(
@@ -675,22 +756,45 @@ function runCommand(
   return false;
 }
 
-function actualRepairPaths(before: MutableHostReport, after: MutableHostReport): string[] {
-  const remainingCodes = new Set(after.findings.map((entry) => entry.code));
-  const nativeRepairWasObserved = before.findings.some((entry) => !remainingCodes.has(entry.code));
-  return [
-    ...before.changed,
-    ...(nativeRepairWasObserved ? after.coherencePaths : [])
-  ];
+function artifactSnapshots(paths: readonly string[]): Map<string, string> {
+  const snapshots = new Map<string, string>();
+  for (const path of paths) {
+    try {
+      const metadata = statSync(path);
+      snapshots.set(path, `${metadata.dev}:${metadata.ino}:${metadata.size}:${metadata.mtimeMs}`);
+    } catch {
+      // The host inspection already carries an unavailable load-bearing artifact.
+    }
+  }
+  return snapshots;
+}
+
+function actualRepairPaths(
+  before: MutableHostReport,
+  after: MutableHostReport,
+  beforeArtifacts: ReadonlyMap<string, string>
+): string[] {
+  const rewrittenArtifacts = after.coherencePaths.filter((path) => {
+    try {
+      const metadata = statSync(path);
+      const current = `${metadata.dev}:${metadata.ino}:${metadata.size}:${metadata.mtimeMs}`;
+      return beforeArtifacts.get(path) !== current;
+    } catch {
+      return false;
+    }
+  });
+  return [...before.changed, ...rewrittenArtifacts];
 }
 
 function repairCodex(
   home: string,
   version: string,
   runner: HostCommandRunner,
-  writeMarker: (path: string, content: string) => void
+  writeMarker: (path: string, content: string) => void,
+  dryRun: boolean
 ): MutableHostReport {
   const before = inspectCodex(home, version);
+  const beforeArtifacts = artifactSnapshots(before.coherencePaths);
   // A vanished local marketplace is a distinct recovery case. Codex reports
   // `plugin marketplace upgrade` success with "No configured Git marketplaces
   // to upgrade", leaving the dead source and its cached plugin untouched.
@@ -706,7 +810,7 @@ function repairCodex(
   } catch {
     // repairCodexConfig below records the unreadable config as unrepaired.
   }
-  repairCodexConfig(home, before, { removeInvalidCanonicalMarketplace: sourceRecovery });
+  repairCodexConfig(home, before, { removeInvalidCanonicalMarketplace: sourceRecovery, dryRun });
   if (before.unrepaired.some((entry) => entry.code === "config-invalid")) {
     return combineAfterRepair(before, inspectCodex(home, version));
   }
@@ -721,28 +825,34 @@ function repairCodex(
       H2A_MARKETPLACE_REPOSITORY,
       "--ref",
       "main"
-    ]);
+    ], dryRun);
   } else if (needsPlugin) {
-    runCommand(before, runner, "codex", ["plugin", "marketplace", "upgrade"]);
+    runCommand(before, runner, "codex", ["plugin", "marketplace", "upgrade"], dryRun);
   }
   if (needsPlugin) {
-    runCommand(before, runner, "codex", ["plugin", "add", H2A_PLUGIN_SELECTOR]);
+    runCommand(before, runner, "codex", ["plugin", "add", H2A_PLUGIN_SELECTOR], dryRun);
   }
   const cache = join(home, ".codex", "plugins", "cache");
   if (cacheVersionMatches(join(home, ".codex", "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a", version), version)) {
     for (const stale of codexCacheVersions(home).filter((entry) => entry !== version)) {
       const path = join(cache, H2A_MARKETPLACE_NAME, "h2a", stale);
+      if (dryRun) { planAction(before, `remove ${path}`); continue; }
       try { rmSync(path, { recursive: true, force: true }); pushUnique(before.changed, path); }
       catch (error) { before.unrepaired.push(finding("orphan-cache", `cannot remove ${path}: ${(error as Error).message}`, path)); }
     }
     for (const legacy of listDirectories(cache).filter(isLegacySentropicName)) {
       const path = join(cache, legacy);
+      if (dryRun) { planAction(before, `remove ${path}`); continue; }
       try { rmSync(path, { recursive: true, force: true }); pushUnique(before.changed, path); }
       catch (error) { before.unrepaired.push(finding("orphan-cache", `cannot remove ${path}: ${(error as Error).message}`, path)); }
     }
   }
   const afterNativeRepair = inspectCodex(home, version);
-  recordRepairMarker(home, before, actualRepairPaths(before, afterNativeRepair), writeMarker);
+  if (dryRun) {
+    if (before.plannedActions.length > 0) planAction(before, `record repair marker after verified mutation at ${repairMarkerPath(home, "codex")}`);
+  } else {
+    recordRepairMarker(home, before, actualRepairPaths(before, afterNativeRepair, beforeArtifacts), writeMarker);
+  }
   return combineAfterRepair(before, inspectCodex(home, version));
 }
 
@@ -750,44 +860,52 @@ function repairClaude(
   home: string,
   version: string,
   runner: HostCommandRunner,
-  writeMarker: (path: string, content: string) => void
+  writeMarker: (path: string, content: string) => void,
+  dryRun: boolean
 ): MutableHostReport {
   const before = inspectClaude(home, version);
-  repairClaudeMcpConfigs(home, before);
+  const beforeArtifacts = artifactSnapshots(before.coherencePaths);
+  repairClaudeMcpConfigs(home, before, dryRun);
   const knownPath = join(home, ".claude", "plugins", "known_marketplaces.json");
   const installedPath = join(home, ".claude", "plugins", "installed_plugins.json");
   const known = readJson(knownPath).value ?? {};
   const installed = readJson(installedPath).value ?? {};
   for (const marketplace of Object.keys(known).filter(isLegacySentropicName)) {
-    runCommand(before, runner, "claude", ["plugin", "marketplace", "remove", marketplace]);
+    runCommand(before, runner, "claude", ["plugin", "marketplace", "remove", marketplace], dryRun);
   }
   const plugins = isPlainObject(installed.plugins) ? installed.plugins : {};
   for (const plugin of Object.keys(plugins).filter((name) => isLegacyH2aPlugin(name) || /^track@sentropic$/i.test(name))) {
-    runCommand(before, runner, "claude", ["plugin", "uninstall", plugin]);
+    runCommand(before, runner, "claude", ["plugin", "uninstall", plugin], dryRun);
   }
   if (before.findings.some((entry) => ["marketplace-missing", "marketplace-stale"].includes(entry.code))) {
-    runCommand(before, runner, "claude", ["plugin", "marketplace", "add", H2A_MARKETPLACE_REPOSITORY]);
+    runCommand(before, runner, "claude", ["plugin", "marketplace", "add", H2A_MARKETPLACE_REPOSITORY], dryRun);
   }
   const canonical = h2aPluginEntries(plugins[H2A_PLUGIN_SELECTOR]);
   const action = canonical.length === 0 ? "install" : "update";
   if (before.findings.some((entry) => ["plugin-missing", "version-skew", "plugin-stale"].includes(entry.code))) {
-    runCommand(before, runner, "claude", ["plugin", action, H2A_PLUGIN_SELECTOR]);
+    runCommand(before, runner, "claude", ["plugin", action, H2A_PLUGIN_SELECTOR], dryRun);
   }
   const cache = join(home, ".claude", "plugins", "cache");
   if (cacheVersionMatches(join(home, ".claude", "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a", version), version)) {
     for (const stale of claudeCacheVersions(home).filter((entry) => entry !== version)) {
       const path = join(cache, H2A_MARKETPLACE_NAME, "h2a", stale);
+      if (dryRun) { planAction(before, `remove ${path}`); continue; }
       try { rmSync(path, { recursive: true, force: true }); pushUnique(before.changed, path); }
       catch (error) { before.unrepaired.push(finding("orphan-cache", `cannot remove ${path}: ${(error as Error).message}`, path)); }
     }
     for (const legacy of listDirectories(cache).filter(isLegacySentropicName)) {
       const path = join(cache, legacy);
+      if (dryRun) { planAction(before, `remove ${path}`); continue; }
       try { rmSync(path, { recursive: true, force: true }); pushUnique(before.changed, path); }
       catch (error) { before.unrepaired.push(finding("orphan-cache", `cannot remove ${path}: ${(error as Error).message}`, path)); }
     }
   }
   const afterNativeRepair = inspectClaude(home, version);
-  recordRepairMarker(home, before, actualRepairPaths(before, afterNativeRepair), writeMarker);
+  if (dryRun) {
+    if (before.plannedActions.length > 0) planAction(before, `record repair marker after verified mutation at ${repairMarkerPath(home, "claude")}`);
+  } else {
+    recordRepairMarker(home, before, actualRepairPaths(before, afterNativeRepair, beforeArtifacts), writeMarker);
+  }
   return combineAfterRepair(before, inspectClaude(home, version));
 }
 
@@ -798,6 +916,7 @@ function combineAfterRepair(before: MutableHostReport, after: MutableHostReport)
     changed: before.changed,
     unrepaired,
     coherencePaths: [...new Set([...before.coherencePaths, ...after.coherencePaths])],
+    plannedActions: [...new Set([...before.plannedActions, ...after.plannedActions])],
     repairMarker: after.repairMarker ?? before.repairMarker
   };
 }
@@ -810,6 +929,7 @@ function freezeReport(report: MutableHostReport): HostInstallationReport {
     changed: report.changed,
     unrepaired: report.unrepaired,
     coherencePaths: report.coherencePaths,
+    plannedActions: report.plannedActions,
     repairMarkerPath: report.repairMarkerPath,
     ...(report.repairMarker ? { repairMarker: report.repairMarker } : {})
   };
@@ -822,13 +942,14 @@ export function doctorHostInstallations(
   const home = options.home ?? homedir();
   const version = options.version ?? currentCliVersion();
   const repair = options.repair === true;
+  const dryRun = options.dryRun === true;
   const runner = options.runHostCommand ?? defaultHostCommand;
   const writeMarker = options.writeRepairMarker ?? ((path: string, content: string) => writeFileSync(path, content));
   const mutable = repair
-    ? [repairClaude(home, version, runner, writeMarker), repairCodex(home, version, runner, writeMarker)]
+    ? [repairClaude(home, version, runner, writeMarker, dryRun), repairCodex(home, version, runner, writeMarker, dryRun)]
     : [inspectClaude(home, version), inspectCodex(home, version)];
   const hosts = mutable.map(freezeReport);
-  return { ok: hosts.every((host) => host.ok), repair, version, hosts };
+  return { ok: hosts.every((host) => host.ok), repair, dryRun, version, hosts };
 }
 
 /**
@@ -850,6 +971,19 @@ export function findLiveSessionsPredatingHostConfig(
     if (!report) continue;
     const startedAt = Date.parse(session.startedAt);
     if (!Number.isFinite(startedAt)) continue;
+    const unavailableArtifact = report.findings.find((entry) => entry.code === "runtime-artifact-unavailable");
+    if (unavailableArtifact) {
+      findings.push({
+        host,
+        sessionId: session.sessionId,
+        startedAt: session.startedAt,
+        configPath: unavailableArtifact.path ?? report.repairMarkerPath,
+        message:
+          `cannot verify load-bearing ${host} artifact ${unavailableArtifact.path ?? ""}: ${unavailableArtifact.message}; ` +
+          `live ${host} session ${session.sessionId} must be restarted.`
+      });
+      continue;
+    }
     const marker = report.repairMarker;
     if (!marker) {
       const markerState = existsSync(report.repairMarkerPath) ? "unavailable" : "missing";
