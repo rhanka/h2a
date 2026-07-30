@@ -520,6 +520,7 @@ export {
   type HostInstallationDoctorReport,
   type HostInstallationFinding,
   type HostInstallationReport,
+  type HostRepairMarker,
   type LiveHostSessionFinding
 } from "./hosts/installation-doctor.js";
 
