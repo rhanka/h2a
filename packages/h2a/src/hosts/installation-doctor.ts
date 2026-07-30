@@ -33,7 +33,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { H2ASession } from "../session.js";
-import { resolveHostConfigRoot } from "../runtime/host-config-root.js";
+import { resolveHostConfigCompanionBase, resolveHostConfigRoot } from "../runtime/host-config-root.js";
 import { currentCliVersion } from "../runtime/upgrade/index.js";
 
 export const H2A_PLUGIN_SELECTOR = "h2a@sentropic";
@@ -295,7 +295,8 @@ function atomicConfigurationWrite(
   original: string,
   rendered: string,
   format: ConfigurationFormat,
-  testHooks?: TestConfigurationWrite
+  testHooks?: TestConfigurationWrite,
+  beforeReplace?: () => string | undefined
 ): string | undefined {
   let temporaryPath: string | undefined;
   let descriptor: number | undefined;
@@ -324,6 +325,8 @@ function atomicConfigurationWrite(
     testHooks?.beforeRename?.(path, temporaryPath);
     const current = existsSync(path) ? readFileSync(path, "utf8") : "";
     if (current !== original) throw new Error("configuration changed concurrently before atomic rename");
+    const replacementError = beforeReplace?.();
+    if (replacementError) throw new Error(replacementError);
     if (testHooks?.rename) testHooks.rename(temporaryPath, path);
     else renameSync(temporaryPath, path);
     temporaryPath = undefined;
@@ -647,7 +650,8 @@ function claudeSettingsPath(home: string): string {
 }
 
 function claudeConfigPaths(home: string): string[] {
-  return [join(home, ".claude.json"), join(home, ".config", "claude", "mcp.json")].filter(existsSync);
+  const base = resolveHostConfigCompanionBase("claude", home);
+  return [join(base, ".claude.json"), join(base, ".config", "claude", "mcp.json")].filter(existsSync);
 }
 
 function claudeEnabledPlugins(settings: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -1122,14 +1126,43 @@ function isOwnedLegacyCodexMarketplace(table: TomlTable): boolean {
   return typeof source === "string" && isOwnedMarketplace(source);
 }
 
-function hasAbsentLocalLegacyCodexMarketplaceTarget(table: TomlTable): boolean {
+interface LegacyCodexMarketplaceAuthorization {
+  readonly removable: boolean;
+  readonly unavailable?: string;
+}
+
+function legacyCodexMarketplaceAuthorization(table: TomlTable): LegacyCodexMarketplaceAuthorization {
+  if (isOwnedLegacyCodexMarketplace(table)) return { removable: true };
   const source = tomlValue(table, "source");
-  return tomlValue(table, "source_type") === "local" && typeof source === "string" && !existsSync(source);
+  if (tomlValue(table, "source_type") !== "local" || typeof source !== "string") return { removable: false };
+  try {
+    // statSync follows links, matching the path resolution used by Codex.
+    // An inaccessible path is not evidence that the target is gone.
+    statSync(source);
+    return { removable: false };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR"
+      ? { removable: true }
+      : { removable: false, unavailable: code ?? (error as Error).message };
+  }
+}
+
+function redactTomlTableValues(table: TomlTable): string {
+  return table.lines
+    .map((line, index) => {
+      if (index === 0) return line.trim();
+      if (line.trim().length === 0) return undefined;
+      const assignment = /^(\s*[^#=\s][^=]*?)=/.exec(line);
+      return assignment ? `${assignment[1].trimEnd()} = <redacted>` : "<redacted>";
+    })
+    .filter((line): line is string => line !== undefined)
+    .join("; ");
 }
 
 function legacyCodexMarketplaceRemoveAction(table: TomlTable): string {
   const marketplace = tomlQuotedName(table.header, "marketplaces");
-  const previous = table.lines.join("").trimEnd().replace(/\r?\n/g, "; ");
+  const previous = redactTomlTableValues(table);
   return `remove Codex legacy marketplace ${marketplace ?? "<missing>"} table (was ${previous})`;
 }
 
@@ -1140,9 +1173,33 @@ function isEnabledLegacyCodexPlugin(table: TomlTable): boolean {
 
 function legacyCodexPluginDisableAction(table: TomlTable): string {
   const plugin = tomlQuotedName(table.header, "plugins");
-  const enabled = tomlBoolean(table, "enabled");
-  const previous = enabled === undefined ? "unset (defaults to true)" : String(enabled);
-  return `set Codex legacy plugin ${plugin ?? "<missing>"} enabled = false (was ${previous})`;
+  return `disable Codex legacy plugin ${plugin ?? "<missing>"} (previous value redacted)`;
+}
+
+function legacyCodexPluginMarketplace(table: TomlTable): string | undefined {
+  const plugin = tomlQuotedName(table.header, "plugins");
+  const separator = plugin?.lastIndexOf("@");
+  const marketplace = separator === undefined || separator < 0 ? undefined : plugin?.slice(separator + 1);
+  return marketplace && isLegacySentropicName(marketplace) ? marketplace.toLowerCase() : undefined;
+}
+
+function reportLegacyMarketplaceAuthorizationFailure(
+  report: MutableHostReport,
+  path: string,
+  marketplace: string | undefined,
+  authorization: LegacyCodexMarketplaceAuthorization
+): void {
+  if (!authorization.unavailable) {
+    reportUnverifiedOwnership(report, path, `legacy marketplace ${marketplace}`);
+    return;
+  }
+  report.unrepaired.push(
+    finding(
+      "ownership-unverified",
+      `cannot remove legacy marketplace ${marketplace}: its local target cannot be verified absent (${authorization.unavailable}).`,
+      path
+    )
+  );
 }
 
 function reportUnverifiedOwnership(report: MutableHostReport, path: string, artifact: string): void {
@@ -1189,31 +1246,52 @@ function repairCodexConfig(
     reportUnverifiedOwnership(report, path, `plugin ${H2A_PLUGIN_SELECTOR}`);
     return;
   }
+  const legacyMarketplaceTables = tables.filter((table) =>
+    isLegacySentropicName(tomlQuotedName(table.header, "marketplaces"))
+  );
+  const marketplaceAuthorizations = new Map(
+    legacyMarketplaceTables.map((table) => [table.header, legacyCodexMarketplaceAuthorization(table)])
+  );
+  const unavailableMarketplace = legacyMarketplaceTables.find(
+    (table) => marketplaceAuthorizations.get(table.header)?.unavailable !== undefined
+  );
+  if (unavailableMarketplace) {
+    reportLegacyMarketplaceAuthorizationFailure(
+      report,
+      path,
+      tomlQuotedName(unavailableMarketplace.header, "marketplaces"),
+      marketplaceAuthorizations.get(unavailableMarketplace.header) ?? { removable: false }
+    );
+    return;
+  }
   const legacyMarketplacesToRemove = new Set(
-    tables
-      .filter((table) => isLegacySentropicName(tomlQuotedName(table.header, "marketplaces")))
-      .filter((table) => isOwnedLegacyCodexMarketplace(table) || hasAbsentLocalLegacyCodexMarketplaceTarget(table))
+    legacyMarketplaceTables
+      .filter((table) => marketplaceAuthorizations.get(table.header)?.removable === true)
       .map((table) => table.header)
   );
+  const authorizedLegacyMarketplaceNames = new Set(
+    legacyMarketplaceTables
+      .filter((table) => legacyMarketplacesToRemove.has(table.header))
+      .map((table) => tomlQuotedName(table.header, "marketplaces")?.toLowerCase())
+      .filter((name): name is string => name !== undefined)
+  );
   // This is a reversible configuration change, not a deletion: once the
-  // canonical replacement is verified by repairCodex, every active legacy
-  // plugin in our namespace is neutralised even when its vanished source can
-  // no longer prove ownership by content.
+  // canonical replacement is verified by repairCodex, an active legacy plugin
+  // is neutralised only when its own legacy marketplace is authorised too.
   const legacyPluginsToDisable = new Set(
     tables
       .filter(isEnabledLegacyCodexPlugin)
+      .filter((table) => authorizedLegacyMarketplaceNames.has(legacyCodexPluginMarketplace(table) ?? ""))
       .map((table) => table.header)
   );
-  for (const table of tables.filter((table) => legacyPluginsToDisable.has(table.header))) {
-    planAction(report, legacyCodexPluginDisableAction(table));
-  }
-  for (const table of tables.filter((table) => legacyMarketplacesToRemove.has(table.header))) {
-    planAction(report, legacyCodexMarketplaceRemoveAction(table));
-  }
-  for (const table of tables) {
-    const marketplace = tomlQuotedName(table.header, "marketplaces");
-    if (isLegacySentropicName(marketplace) && !legacyMarketplacesToRemove.has(table.header)) {
-      reportUnverifiedOwnership(report, path, `legacy marketplace ${marketplace}`);
+  for (const table of legacyMarketplaceTables) {
+    if (!legacyMarketplacesToRemove.has(table.header)) {
+      reportLegacyMarketplaceAuthorizationFailure(
+        report,
+        path,
+        tomlQuotedName(table.header, "marketplaces"),
+        marketplaceAuthorizations.get(table.header) ?? { removable: false }
+      );
     }
   }
   const needsConfigRepair = tables.some((table) => {
@@ -1252,8 +1330,61 @@ function repairCodexConfig(
     : `${next.trimEnd()}\n\n${additions.join("")}`.replace(/^\n+/, "");
   if (rendered === raw) return;
   if (options.dryRun) {
+    for (const table of tables.filter((table) => legacyPluginsToDisable.has(table.header))) {
+      planAction(report, legacyCodexPluginDisableAction(table));
+    }
+    for (const table of legacyMarketplaceTables.filter((table) => legacyMarketplacesToRemove.has(table.header))) {
+      planAction(report, legacyCodexMarketplaceRemoveAction(table));
+    }
     planAction(report, `rewrite ${path}`);
     return;
+  }
+  const revalidateLegacyMarketplacesBeforeReplace = (): string | undefined => {
+    const revalidatedAuthorizations = new Map(
+      legacyMarketplaceTables.map((table) => [table.header, legacyCodexMarketplaceAuthorization(table)])
+    );
+    const revalidatedUnavailableMarketplace = legacyMarketplaceTables.find(
+      (table) => revalidatedAuthorizations.get(table.header)?.unavailable !== undefined
+    );
+    if (revalidatedUnavailableMarketplace) {
+      reportLegacyMarketplaceAuthorizationFailure(
+        report,
+        path,
+        tomlQuotedName(revalidatedUnavailableMarketplace.header, "marketplaces"),
+        revalidatedAuthorizations.get(revalidatedUnavailableMarketplace.header) ?? { removable: false }
+      );
+      return "legacy marketplace target became unavailable before atomic rename";
+    }
+    const revalidatedMarketplacesToRemove = new Set(
+      legacyMarketplaceTables
+        .filter((table) => revalidatedAuthorizations.get(table.header)?.removable === true)
+        .map((table) => table.header)
+    );
+    if (
+      [...legacyMarketplacesToRemove].some((header) => !revalidatedMarketplacesToRemove.has(header)) ||
+      [...revalidatedMarketplacesToRemove].some((header) => !legacyMarketplacesToRemove.has(header))
+    ) {
+      for (const table of legacyMarketplaceTables) {
+        const initial = marketplaceAuthorizations.get(table.header);
+        const revalidated = revalidatedAuthorizations.get(table.header);
+        if (initial?.removable === true && revalidated?.removable !== true) {
+          reportLegacyMarketplaceAuthorizationFailure(
+            report,
+            path,
+            tomlQuotedName(table.header, "marketplaces"),
+            revalidated ?? { removable: false }
+          );
+        }
+      }
+      return "legacy marketplace authorization changed before atomic rename";
+    }
+    return undefined;
+  };
+  for (const table of tables.filter((table) => legacyPluginsToDisable.has(table.header))) {
+    planAction(report, legacyCodexPluginDisableAction(table));
+  }
+  for (const table of legacyMarketplaceTables.filter((table) => legacyMarketplacesToRemove.has(table.header))) {
+    planAction(report, legacyCodexMarketplaceRemoveAction(table));
   }
   try {
     const error = atomicConfigurationWrite(
@@ -1261,7 +1392,8 @@ function repairCodexConfig(
       raw,
       rendered.endsWith("\n") ? rendered : `${rendered}\n`,
       "toml",
-      options.testConfigurationWrite
+      options.testConfigurationWrite,
+      revalidateLegacyMarketplacesBeforeReplace
     );
     if (error) throw new Error(error);
     pushUnique(report.changed, path);
