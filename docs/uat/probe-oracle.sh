@@ -102,11 +102,25 @@ node -e '
   const fs = require("node:fs");
   let r; try { r = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); }
   catch { console.log("  rapport JSON ............... ILLISIBLE (voir err.txt)"); process.exit(0); }
-  console.log("  report.ok .................. " + r.ok);
+  // report.ok est GLOBAL : il couvre TOUS les hotes. Sur une machine sans `claude`, il est faux
+  // a cause d-un hote absent, ce qui n-a rien a voir avec le sujet de ce probe (codex). Afficher
+  // les deux, sinon un lecteur du log CI conclut que la porte est cassee alors qu-elle mesure juste.
+  console.log("  report.ok (TOUS hotes) ..... " + r.ok);
+  const hosts = (r.checks && r.checks.hostInstallations && r.checks.hostInstallations.hosts) || [];
+  const codex = hosts.find((h) => h.host === "codex");
+  if (codex) {
+    const codes = (codex.findings || []).map((f) => f.code);
+    console.log("  hote CODEX, sujet du probe . " + (codes.length ? codes.join(", ") : "aucun finding"));
+  }
   const codes = (r.unrepaired || []).map((u) => u.code);
   console.log("  unrepaired ................. " + (codes.length ? codes.join(", ") : "(aucun)"));
   // Imprimer les MESSAGES, pas seulement les codes. Un `host-command-failed` sans sa commande
   // dit qu-une commande hote a echoue sans dire laquelle : le rapport le plus inutile possible.
+  // DEFAUT CONNU, mesure le 2026-07-30 : un hote NON INSTALLE est rapporte comme casse.
+  // Sur un PATH sans `claude`, doctor sort 2 avec version-skew et plugin-missing sur un hote
+  // qui n-existe pas. Un utilisateur qui n-a que codex ne peut donc JAMAIS atteindre ok=true.
+  // Si les lignes ci-dessous ne parlent que de Claude sur un runner sans Claude, c-est ce
+  // defaut-la que tu lis, pas un echec de la reparation codex.
   for (const u of r.unrepaired || []) {
     console.log("    - " + u.code + " : " + String(u.message || "").replace(/\s+/g, " ").slice(0, 300));
   }
