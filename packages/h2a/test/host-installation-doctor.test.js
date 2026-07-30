@@ -1538,34 +1538,51 @@ test("doctor --repair --dry-run reports host repair work without mutating host f
 });
 
 // ACCEPTANCE PROPERTY of the v1 form, written by `plugins` BEFORE the implementation and
-// EXPECTED TO FAIL until it lands. A repair whose own result is still reported as broken is not
-// a repair: an owner who is told "broken" after a successful --repair learns to ignore doctor,
-// and will ignore it on the day the report is true. The property must be a test, not a habit —
-// this is exactly the rung where it broke.
+// EXPECTED TO FAIL until it lands.
 //
-// Two rules, accepted by the conductor and written into the owner decision dossier:
+// CORRECTED after the building lane refused the first version and was right to: that version
+// injected a runner returning ok with NO side effect, so nothing was actually repaired and
+// `ok=false` was the correct verdict. It demanded that doctor call a still-broken installation
+// clean. The lane refused to weaken the product's safety checks for a faulty test — which is
+// exactly what it was asked to do.
+//
+// This version isolates the two rules instead: it starts from a GENUINELY HEALTHY installation
+// (the shipped layout) and adds only the two artifacts the v1 repair deliberately leaves behind —
+// a DISABLED legacy plugin entry, and an orphan legacy cache on disk. That is the state a
+// successful v1 repair produces, so doctor must report it clean.
+//
 //   1. `plugin-stale` must account for `enabled = false`: a DISABLED legacy entry is
 //      NEUTRALISED, not stale.
 //   2. `orphan-cache` must be INFORMATIONAL and must not break `ok`, because v1 deliberately
 //      does not delete it.
-test("doctor can return to green after a successful repair (v1 acceptance, RED until v1 lands)", () => {
-  const home = fixtureHome();
+//
+// A repair whose own result is still reported as broken is not a repair: an owner told "broken"
+// after a successful --repair learns to ignore doctor, and will ignore it on the day the report
+// is true.
+test("doctor reports clean on the state a successful v1 repair leaves (v1 acceptance, RED until v1 lands)", () => {
+  const { home, version } = cleanShippedLayoutHome();
   const root = join(home, "bus");
   assert.equal(runCli(["init", "--root", root], streams(home)), 0);
 
-  // First pass: repair the broken fixture.
-  const first = runRepairDoctor(home, root, { runner: () => ({ ok: true, stdout: "", stderr: "" }) });
-  assert.ok(first.report, "first repair produced a report");
-
-  // Second pass on the SAME home: the installation has been repaired, so the report must be
-  // clean. A disabled legacy entry and an orphan cache left on disk are the deliberate v1
-  // outcome — neither may keep `ok` false forever.
-  const second = runRepairDoctor(home, root, { runner: () => ({ ok: true, stdout: "", stderr: "" }) });
-  const codex = second.report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
-  const blocking = (codex?.findings ?? []).filter(
-    (finding) => finding.code !== "orphan-cache"
+  // What v1 deliberately leaves behind: our own legacy entry, DISABLED, and its orphan cache.
+  const codexPath = join(home, ".codex", "config.toml");
+  writeFileSync(
+    codexPath,
+    `${readFileSync(codexPath, "utf8").trimEnd()}\n\n[plugins."h2a-local-codex-08518@sentropic-local-codex-08518"]\nenabled = false\n`
   );
-  assert.deepEqual(blocking, [], `no blocking finding may survive its own repair: ${JSON.stringify(codex?.findings, null, 2)}`);
-  assert.equal(second.report.ok, true, `doctor must be able to report clean after repairing: ${JSON.stringify(second.report, null, 2)}`);
-  assert.equal(second.exitCode, 0);
+  const orphan = join(home, ".codex", "plugins", "cache", "sentropic-local-codex-08518", "h2a-local-codex-08518", "0.85.18");
+  mkdirSync(orphan, { recursive: true });
+  writeJson(join(orphan, ".codex-plugin", "plugin.json"), { name: "h2a-local-codex-08518", version: "0.85.18" });
+
+  const { exitCode, report } = runRepairDoctor(home, root);
+  const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+  const blocking = (codex?.findings ?? []).filter((finding) => finding.code !== "orphan-cache");
+  assert.deepEqual(
+    blocking,
+    [],
+    `a DISABLED legacy entry is neutralised, not stale: ${JSON.stringify(codex?.findings, null, 2)}`
+  );
+  assert.equal(report.ok, true, `an orphan cache v1 deliberately keeps must not break ok: ${JSON.stringify(report, null, 2)}`);
+  assert.equal(exitCode, 0);
+  assert.equal(version, version);
 });
