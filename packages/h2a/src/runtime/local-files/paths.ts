@@ -177,21 +177,29 @@ export function outboxDirRaw(paths: LocalStorePaths, actor: string): string {
 /**
  * The outcome of resolving a send target BEFORE depositing (WP-2).
  *
- * - `deliver`        — full id / subagent / unambiguous bare alias with no live session
- *                      hint: just put (legacy path).
+ * - `deliver`        — full id / subagent / an upstream-rejected bare label.
  * - `deliver-dormant` — bare alias, 0 live but ≥1 registered instance exists.
  * - `deliver-hint`   — bare alias with exactly 1 live full-id match; deposit to bare
  *                      dir (UNCHANGED destination), surface the uuid to the caller.
- * - `refuse`         — phantom (0 live, 0 registered) | ambiguous (>1 live) | malformed.
+ * - `deliver-resolved` — a unique live display name, addressed as its instance.
+ * - `list`           — a read found several live candidates.
+ * - `refuse`         — phantom (0 live, 0 registered) | ambiguous write | malformed.
  *
- * SAFETY: this function NEVER changes the delivery destination.
- * Auto-routing to a live uuid is an interception risk and is explicitly PARKED.
+ * SAFETY: only a unique display name is translated to its recorded instance.
+ * Existing instance aliases retain their original destination.
  */
 export type RecipientResolution =
   | { kind: "deliver"; reason?: string }
   | { kind: "deliver-dormant"; reason: string }
   | { kind: "deliver-hint"; liveCandidate: string; reason: string }
+  | { kind: "deliver-resolved"; recipient: string; reason: string }
+  | { kind: "list"; candidates: string[]; reason: string }
   | { kind: "refuse"; reason: string; candidates?: string[] };
+
+/** A live presence can contribute both its stable instance and display name. */
+export type LiveRecipient =
+  | string
+  | { readonly instance: string; readonly name?: string };
 
 /** Pattern for a valid 12-hex UUID segment (case-insensitive). */
 const UUID12_PATTERN = /^[0-9a-f]{12}$/i;
@@ -206,31 +214,48 @@ function hostLabelKey(addr: string): string {
   return `${parts[0]}:${parts[1]}`;
 }
 
+function liveInstance(candidate: LiveRecipient): string {
+  return typeof candidate === "string" ? candidate : candidate.instance;
+}
+
+function liveName(candidate: LiveRecipient): string | undefined {
+  return typeof candidate === "string" ? undefined : candidate.name;
+}
+
+/**
+ * Display names used to be exposed with an `h2a:` prefix. Strip it only while
+ * comparing names: presence records remain as their owners wrote them, and
+ * instance addresses keep their existing canonicalization rules.
+ */
+function displayNameKey(value: string): string {
+  return value.trim().replace(/^h2a:/i, "").trim().toLowerCase();
+}
+
 /**
  * Resolve how a SEND to `target` should be handled.
  *
- * Does NOT deliver — the caller delivers. Never changes the destination.
- * The `liveInstances` list comes from `listPresence(root).map(s => s.instance)`.
+ * Does NOT deliver — the caller delivers. A unique display name resolves to
+ * the recorded full instance; existing instance aliases keep their destination.
+ * The `liveInstances` list comes from `listPresence(root)` so display names are
+ * available alongside their immutable instance ids. Strings remain accepted for
+ * callers that only need instance-id resolution.
  * The `registeredInstances` list comes from `store.listInstances().map(i => i.instance ?? i.id)`.
  */
 export function resolveRecipient(opts: {
   target: string;
-  liveInstances: readonly string[];
+  liveInstances: readonly LiveRecipient[];
   registeredInstances: readonly string[];
+  operation?: "read" | "write";
 }): RecipientResolution {
-  const { target, liveInstances, registeredInstances } = opts;
+  const { target, liveInstances, registeredInstances, operation = "write" } = opts;
 
   // 1. Subagent (contains `~`) — pass through unchanged.
   if (target.includes("~")) {
     return { kind: "deliver" };
   }
 
-  // 2. Split on `:`. Fewer than 2 segments or empty host/label should already
-  //    be rejected by isHostQualifiedAddress upstream — don't double-gate.
+  // 2. Split on `:`.
   const parts = target.split(":");
-  if (parts.length < 2 || parts[0].length === 0 || parts[1].length === 0) {
-    return { kind: "deliver" };
-  }
 
   // 3. Full id: exactly 3 segments where seg3 is 12-hex.
   if (parts.length === 3 && UUID12_PATTERN.test(parts[2])) {
@@ -248,28 +273,56 @@ export function resolveRecipient(opts: {
     };
   }
 
-  // 5. Bare alias (exactly 2 segments).
-  const key = hostLabelKey(target);
+  // 5. Resolve instance aliases and presence names together. A matching name
+  // always yields its recorded instance; it never becomes an inbox key itself.
+  const hostQualifiedAlias =
+    parts.length === 2 && parts[0].length > 0 && parts[1].length > 0;
+  const aliasKey = hostQualifiedAlias ? hostLabelKey(target) : undefined;
+  const nameKey = displayNameKey(target);
+  const liveMatches: Array<{
+    instance: string;
+    matchedAlias: boolean;
+    matchedName: boolean;
+  }> = [];
 
-  const liveMatches = liveInstances.filter(
-    (inst) => hostLabelKey(inst) === key
-  );
+  for (const candidate of liveInstances) {
+    const instance = liveInstance(candidate);
+    const matchedAlias = aliasKey !== undefined && hostLabelKey(instance) === aliasKey;
+    const name = liveName(candidate);
+    const matchedName = name !== undefined && displayNameKey(name) === nameKey;
+    if (matchedAlias || matchedName) {
+      liveMatches.push({ instance, matchedAlias, matchedName });
+    }
+  }
 
-  const registeredMatches = registeredInstances.filter(
-    (inst) => hostLabelKey(inst) === key
-  );
+  const registeredMatches = hostQualifiedAlias
+    ? registeredInstances.filter((inst) => hostLabelKey(inst) === aliasKey)
+    : [];
 
   if (liveMatches.length > 1) {
+    const candidates = liveMatches.map((match) => match.instance);
+    const reason =
+      `'${target}' is ambiguous — ${liveMatches.length} live agents share it; address the exact one (resolve via discover).`;
+    if (operation === "read") {
+      return { kind: "list", reason, candidates };
+    }
     return {
       kind: "refuse",
-      reason:
-        `'${target}' is ambiguous — ${liveMatches.length} live agents share it; address the exact one (resolve via discover).`,
-      candidates: liveMatches
+      reason,
+      candidates
     };
   }
 
   if (liveMatches.length === 1) {
-    const liveCandidate = liveMatches[0];
+    const liveMatch = liveMatches[0];
+    if (liveMatch.matchedName && !liveMatch.matchedAlias) {
+      return {
+        kind: "deliver-resolved",
+        recipient: liveMatch.instance,
+        reason: `display name resolved to ${liveMatch.instance}.`
+      };
+    }
+    const liveCandidate = liveMatch.instance;
     return {
       kind: "deliver-hint",
       liveCandidate,
@@ -277,6 +330,10 @@ export function resolveRecipient(opts: {
         `bare alias resolved to 1 live agent; deposited to the channel — prefer re-sending to ${liveCandidate} for direct delivery.`
     };
   }
+
+  // A bare or malformed host-less token had no display-name match. Its caller's
+  // host-qualified-address guard remains the fail-closed authority.
+  if (!hostQualifiedAlias) return { kind: "deliver" };
 
   // 0 live
   if (registeredMatches.length > 0) {
@@ -310,10 +367,10 @@ export function resolveRecipient(opts: {
  */
 export function reachGuard(opts: {
   target: string;
-  liveInstances: readonly string[];
+  liveInstances: readonly LiveRecipient[];
   registeredInstances: readonly string[];
 }): { ok: true } | { ok: false; reason: string; kind: string } {
-  const r = resolveRecipient(opts);
+  const r = resolveRecipient({ ...opts, operation: "write" });
   if (r.kind === "refuse") {
     return { ok: false, reason: r.reason, kind: r.kind };
   }

@@ -33,7 +33,7 @@ function captureStreams(cwd) {
   };
 }
 
-function makePresence(instance, sessionId) {
+function makePresence(instance, sessionId, name) {
   return {
     sessionId,
     instance,
@@ -41,7 +41,8 @@ function makePresence(instance, sessionId) {
     heartbeatAt: new Date().toISOString(),
     state: "live",
     interests: { scopes: ["scope:default"], negotiations: [] },
-    subscribedTopics: []
+    subscribedTopics: [],
+    ...(name ? { name } : {})
   };
 }
 
@@ -338,4 +339,96 @@ test("MCP handleInbox put bare alias to 1-live → ok:true, liveCandidate presen
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ─── DOC-03: presence-name resolution ───────────────────────────────────────
+
+test("resolveRecipient: a presence name resolves to its live instance", () => {
+  const instance = "claude:h2a:345c97408069";
+  const result = resolveRecipient({
+    target: "agents",
+    liveInstances: [makePresence(instance, "sess:name-1", "agents")],
+    registeredInstances: [instance]
+  });
+  assert.equal(result.kind, "deliver-resolved");
+  assert.equal(result.recipient, instance);
+});
+
+test("MCP handleInbox put resolves a presence name to the instance, never to a bare-name inbox", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doc03-name-put-"));
+  const root = join(dir, ".h2a");
+  const instance = "claude:h2a:345c97408069";
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(makeRegistration(instance));
+    writePresence(root, makePresence(instance, "sess:name-put", "agents"));
+
+    const result = handleInbox(store, {
+      action: "put",
+      instance: "agents",
+      envelope: makeEnvelopeObj("env-doc03-name-put")
+    });
+
+    assert.equal(result.ok, true, `expected a resolved write, got: ${JSON.stringify(result)}`);
+    assert.equal(store.readInbox(instance).length, 1, "the resolved instance receives the envelope");
+    assert.equal(store.readInbox("agents").length, 0, "a bare display name is never an inbox address");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP handleInbox put refuses an ambiguous presence name", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doc03-name-write-ambiguous-"));
+  const root = join(dir, ".h2a");
+  const first = "claude:h2a:111111111111";
+  const second = "codex:h2a:222222222222";
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(makeRegistration(first));
+    store.registerInstance(makeRegistration(second));
+    writePresence(root, makePresence(first, "sess:name-write-a", "agents"));
+    writePresence(root, makePresence(second, "sess:name-write-b", "agents"));
+
+    const result = handleInbox(store, {
+      action: "put",
+      instance: "agents",
+      envelope: makeEnvelopeObj("env-doc03-name-ambiguous")
+    });
+
+    assert.match(result.error, /ambiguous/);
+    assert.deepEqual(result.candidates, [first, second]);
+    assert.equal(store.readInbox(first).length, 0);
+    assert.equal(store.readInbox(second).length, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP handleInbox read lists candidates for an ambiguous presence name", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doc03-name-read-ambiguous-"));
+  const root = join(dir, ".h2a");
+  const first = "claude:h2a:111111111111";
+  const second = "codex:h2a:222222222222";
+  try {
+    const store = createLocalStore({ root });
+    writePresence(root, makePresence(first, "sess:name-read-a", "agents"));
+    writePresence(root, makePresence(second, "sess:name-read-b", "agents"));
+
+    const result = handleInbox(store, { action: "read", instance: "agents" });
+
+    assert.deepEqual(result.candidates, [first, second]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveRecipient: strips the legacy h2a: display-name prefix without changing presence", () => {
+  const instance = "claude:h2a:345c97408069";
+  const result = resolveRecipient({
+    target: "agents",
+    liveInstances: [makePresence(instance, "sess:legacy-name", "h2a:agents")],
+    registeredInstances: [instance]
+  });
+  assert.equal(result.kind, "deliver-resolved");
+  assert.equal(result.recipient, instance);
 });

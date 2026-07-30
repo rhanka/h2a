@@ -789,33 +789,38 @@ function cmdMailbox(
       streams.stderr.write(`h2a ${mailbox} put: invalid JSON (${(error as Error).message})\n`);
       return 1;
     }
+    let inboxRecipient = flags.instance;
+    let inboxResolution: ReturnType<typeof resolveRecipient> | undefined;
     if (mailbox === "inbox") {
-      try {
-        assertHostQualifiedAddress(flags.instance, "recipient");
-      } catch (error) {
-        streams.stderr.write(`\n${(error as Error).message}\n`);
-        return 1;
-      }
-      // WP-2: resolve-before-send — legibility gate (does NOT change destination).
+      // WP-2/DOC-03: a display name resolves only to the presence's full
+      // instance; a bare display name is never an inbox destination.
       const root = resolveRoot(flags, streams.cwd ?? (() => process.cwd()));
-      const liveSessions = listPresence(root).map((s) => s.instance);
+      const liveSessions = listPresence(root);
       const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
-      const resolution = resolveRecipient({
+      inboxResolution = resolveRecipient({
         target: flags.instance,
         liveInstances: liveSessions,
         registeredInstances: registeredIds
       });
-      if (resolution.kind === "refuse") {
+      if (inboxResolution.kind === "refuse") {
         streams.stderr.write(
-          `\nh2a: ${resolution.reason}${resolution.candidates ? `\ncandidates: ${resolution.candidates.join(", ")}` : ""}\n`
+          `\nh2a: ${inboxResolution.reason}${inboxResolution.candidates ? `\ncandidates: ${inboxResolution.candidates.join(", ")}` : ""}\n`
         );
         return 1;
       }
-      // deliver / deliver-dormant / deliver-hint → proceed with put below.
+      if (inboxResolution.kind === "deliver-resolved") {
+        inboxRecipient = inboxResolution.recipient;
+      }
+      try {
+        assertHostQualifiedAddress(inboxRecipient, "recipient");
+      } catch (error) {
+        streams.stderr.write(`\n${(error as Error).message}\n`);
+        return 1;
+      }
     }
     try {
       if (mailbox === "inbox") {
-        store.putInboxMessage(flags.instance, envelope);
+        store.putInboxMessage(inboxRecipient, envelope);
       } else {
         store.putOutboxMessage(flags.instance, envelope);
       }
@@ -824,28 +829,21 @@ function cmdMailbox(
       const recipientLive =
         mailbox === "inbox"
           ? listPresence(store.paths.root).some(
-              (s) => canonicalAddress(s.instance) === canonicalAddress(flags.instance)
+              (s) => canonicalAddress(s.instance) === canonicalAddress(inboxRecipient)
             )
           : undefined;
       // WP-2: enrich stdout with resolution metadata.
       let resolutionMeta: Record<string, unknown> = {};
-      if (mailbox === "inbox") {
-        const root2 = resolveRoot(flags, streams.cwd ?? (() => process.cwd()));
-        const liveSessions2 = listPresence(root2).map((s) => s.instance);
-        const registeredIds2 = store.listInstances().map((i) => i.instance ?? i.id);
-        const resolution2 = resolveRecipient({
-          target: flags.instance,
-          liveInstances: liveSessions2,
-          registeredInstances: registeredIds2
-        });
+      if (inboxResolution) {
         resolutionMeta = {
-          resolution: resolution2.kind,
-          ...(resolution2.kind === "deliver-hint" ? { liveCandidate: resolution2.liveCandidate, reason: resolution2.reason } : {}),
-          ...(resolution2.kind === "deliver-dormant" ? { reason: resolution2.reason, dormant: true } : {})
+          resolution: inboxResolution.kind,
+          ...(inboxResolution.kind === "deliver-hint" ? { liveCandidate: inboxResolution.liveCandidate, reason: inboxResolution.reason } : {}),
+          ...(inboxResolution.kind === "deliver-resolved" ? { recipient: inboxResolution.recipient, reason: inboxResolution.reason } : {}),
+          ...(inboxResolution.kind === "deliver-dormant" ? { reason: inboxResolution.reason, dormant: true } : {})
         };
       }
       streams.stdout.write(
-        `${JSON.stringify({ ok: true, id: envelope.id, mailbox, instance: flags.instance, ...(recipientLive !== undefined ? { recipientLive } : {}), ...resolutionMeta }, null, 2)}\n`
+        `${JSON.stringify({ ok: true, id: envelope.id, mailbox, instance: mailbox === "inbox" ? inboxRecipient : flags.instance, ...(recipientLive !== undefined ? { recipientLive } : {}), ...resolutionMeta }, null, 2)}\n`
       );
       return 0;
     } catch (error) {
@@ -859,8 +857,32 @@ function cmdMailbox(
   }
 
   if (sub === "read") {
+    let recipient = flags.instance;
+    if (mailbox === "inbox") {
+      const liveSessions = listPresence(root);
+      const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
+      const resolution = resolveRecipient({
+        target: flags.instance,
+        liveInstances: liveSessions,
+        registeredInstances: registeredIds,
+        operation: "read"
+      });
+      if (resolution.kind === "list") {
+        streams.stdout.write(`${JSON.stringify({ candidates: resolution.candidates, reason: resolution.reason }, null, 2)}\n`);
+        return 0;
+      }
+      if (resolution.kind === "refuse") {
+        streams.stderr.write(
+          `\nh2a: ${resolution.reason}${resolution.candidates ? `\ncandidates: ${resolution.candidates.join(", ")}` : ""}\n`
+        );
+        return 1;
+      }
+      if (resolution.kind === "deliver-resolved") {
+        recipient = resolution.recipient;
+      }
+    }
     const messages =
-      mailbox === "inbox" ? store.readInbox(flags.instance) : store.readOutbox(flags.instance);
+      mailbox === "inbox" ? store.readInbox(recipient) : store.readOutbox(flags.instance);
     streams.stdout.write(`${JSON.stringify(messages, null, 2)}\n`);
     return 0;
   }
@@ -870,7 +892,22 @@ function cmdMailbox(
       streams.stderr.write("h2a inbox pop: --envelope <id> required\n");
       return 1;
     }
-    const popped = store.popInboxMessage(flags.instance, flags.envelope);
+    const liveSessions = listPresence(root);
+    const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
+    const resolution = resolveRecipient({
+      target: flags.instance,
+      liveInstances: liveSessions,
+      registeredInstances: registeredIds
+    });
+    if (resolution.kind === "refuse") {
+      streams.stderr.write(
+        `\nh2a: ${resolution.reason}${resolution.candidates ? `\ncandidates: ${resolution.candidates.join(", ")}` : ""}\n`
+      );
+      return 1;
+    }
+    const recipient =
+      resolution.kind === "deliver-resolved" ? resolution.recipient : flags.instance;
+    const popped = store.popInboxMessage(recipient, flags.envelope);
     if (!popped) {
       streams.stderr.write(`h2a inbox pop: no such envelope ${flags.envelope}\n`);
       // State conflict against the local store (the envelope is not where the
