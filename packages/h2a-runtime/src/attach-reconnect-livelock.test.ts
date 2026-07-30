@@ -85,6 +85,56 @@ describe("attach — reconnect livelock", () => {
     expect(stderr.text()).toMatch(/closing immediately|giving up/i);
   });
 
+  it("paces a stream that REPLAYS a backlog and then dies immediately", async () => {
+    // SECOND REVIEW LEG, confirmed against the real control plane: its SSE route
+    // replays a 128-event backlog to every new subscriber, so EVERY reopen
+    // delivers a frame before any new event exists. With progress gating the
+    // backoff, that measured 501 reopens in 105ms (~4771/s) and "giving up" was
+    // never printed — the livelock restored. Pacing must not be a content
+    // question; only GIVING UP may depend on progress.
+    let eventOpens = 0;
+    const stderr = collectingStderr();
+
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/events")) {
+        eventOpens += 1;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              // The replayed backlog: a lifecycle frame the output filter drops.
+              controller.enqueue(
+                new TextEncoder().encode(
+                  'event: session.created\ndata: {"type":"session.created"}\n\n',
+                ),
+              );
+              controller.close(); // and the stream dies at once
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const session = await attach({
+      baseUrl: "http://127.0.0.1:1",
+      sessionId: "sess-replay-then-die",
+      stderr: stderr.stream,
+      fetchImpl,
+      reconnect: { minStreamMs: 1000, baseDelayMs: 20, maxDelayMs: 80, maxShortCycles: 3 },
+    });
+
+    await new Promise((r) => setTimeout(r, 250));
+    const opens = eventOpens;
+    await session.close();
+    await session.finished;
+
+    // PACED: hundreds of reopens in 105ms was the defect. With a 20ms floor that
+    // doubles, a quarter of a second cannot fit more than a handful.
+    expect(opens).toBeLessThan(12);
+  });
+
   it("does not give up on SHORT streams that are still delivering output", async () => {
     // REVIEW FINDING on PR 100, confirmed: bounding on lifetime alone terminated a
     // healthy attach. Eleven consecutive 900ms streams, each carrying a valid
