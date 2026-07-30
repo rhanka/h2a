@@ -37,11 +37,11 @@ what has already been refuted.
    you have an intention, not a guarantee — say so, and expect it to be exceeded exactly
    when it matters.
 
-### The recurring shape — four instances in one night
+## A property of this system, not a list of accidents
 
-`conductor` named it after the third: **a device named as a guarantee while carrying only
-the force of a convention.** Four instances measured on 2026-07-29, and they are not four
-incidents, they are one shape:
+`conductor` named the shape after the third case and handed over the fifth, which was its
+own: **a device named as a guarantee while carrying only the force of a convention.** Six
+independent instances were measured inside a single night, 2026-07-29:
 
 - the required gate, titled as covering the repo, excluding 73 test files — and its own
   guard passing 6/6 green on the mutation its title forbids (REC-02, REC-16);
@@ -49,11 +49,21 @@ incidents, they are one shape:
   granted `CONDUCTOR` with no signature and no key (REF-06);
 - a three-step launch check named as verification, one step of which cannot distinguish
   *submitted* from *never arrived* (REC-17);
-- an owner cap of twelve subcontractors, held by hand, reaching nineteen (REC-19).
+- an owner cap of twelve subcontractors, held by hand, reaching nineteen (REC-19);
+- the conductor's hourly cadence, described as cron-carried, delivering three iterations of
+  five (REC-20);
+- **this file**, which nobody is forced to open (see "The surface this file does not cover").
 
-**This file is a fifth instance, and pretending otherwise would be the same error.** It is a
-document nobody is forced to open; only its generated doctrine table refuses to drift. See
-"The surface this file does not cover".
+Six is no longer a pattern. **Treat it as the system's default state, and carry the burden of
+proof the other way: assume a named guarantee is a convention until you have found what
+refuses.** The useful question is therefore not *is this guaranteed?* but **what refuses,
+and when did it last refuse?** A device that has never refused anything has never been
+tested — ask for the last refusal, with its date.
+
+That this file is on the list is not modesty. A memory dossier that exempted itself from its
+own test would be the worst specimen of the class it documents. Only its generated doctrine
+table actually refuses: `--check` fails. The rest has conventional force.
+
 
 Baseline for the journal counts below: `.track/events.jsonl` read from the shared tree at
 **669 events**, verified with `track events-contains` to be a proper superset of the 667
@@ -145,6 +155,7 @@ expensive mistake this repo makes.
 | REC-17 | **Delegation through the launcher is not autonomous, and no single launch check is sufficient.** `track` measured **eleven** launches in one night and **zero** that worked without manual intervention. Three distinct delivery failures now exist: the prompt fragmented across N messages, the prompt never submitted, and — third, measured by `track` — the prompt delivered **before the TUI exists**, which leaves no trace in the composer at all. So an empty composer is ambiguous between *submitted* and *never arrived*, and a recall entry saying "check the composer" is **false by omission**. Verify all four together: composer at placeholder, a visible "Working", non-flat CPU on the **child** (`ps --ppid`), and the **last line** of the brief visible in the transcript. Budget a keystroke and a check per delegation. | `track`'s measurement of 11 launches *(relayed)*; two of the three modes reproduced here | **structural** |
 | REC-18 | **The coordination channel fails under the load it exists to carry.** `h2a_inbox read` now returns **431 000 characters** — past the token ceiling, so the conductor cannot open its own inbox. There is no pagination and no filter. Measured the same night: `h2a_discover_instances` returns 70 609 characters, likewise unreadable in one call. The surface degrades precisely when twelve lanes make coordination matter most, and it degrades **silently** — the call succeeds, the reader just cannot receive it. **Consequence for this lane: any diffusion path that assumes an actor can read its inbox is unreliable, which is a second argument for putting standing rules in a replaying prompt rather than a message.** Not this lane's to fix — protocol and bus are `coop` (WP1-3). | `conductor`'s measurement; `discover_instances` measured here | **structural** |
 | REC-19 | **A cap no mechanism refuses is not a cap, it is an intention — and it is exceeded exactly when it matters.** The owner set twelve parallel subcontractors on 2026-07-29 and made `conductor` accountable for it. `conductor` said at its first iteration that the cap was held **by hand** and that nothing would refuse a thirteenth. Three hours later: **19 alive**, seven of them appearing inside 22 minutes, at 322 node/codex processes and 34.7 GB resident with 17 GB free of 57 — on a machine that has already taken OOM kills. It could not prevent it, could not attribute it (presence carries no launch name — REC-07), and could not detect it before the next iteration. **What would falsify this entry: a launch the tool refuses past the threshold.** The guarantee stops at counting. | `conductor`'s measurement *(relayed)*; this lane returned its own subcontractor's 265 MB on request and did not replace it | **habit** — and named as one |
+| REC-20 | **No supervisory beat is guaranteed, so nothing may depend on one arriving.** `conductor` withdrew its own claim that its hourly iteration is cron-carried and "fires as soon as I stop": over five hours the cron delivered **three iterations of five**, and the 03:07 slot was missed while it had been idle since 02:43 — so neither the periodicity nor the explanation held. The cron is intra-session, not persisted, and fires on conditions it does not control and had not measured. The cadence is **real but irregular**. **Consequence: a subcontractor cannot count on "the conductor will come by within the hour", which is why its start-up text must be self-sufficient rather than a pointer** (`DELEGATION.md`). And a cadence recorded as running while nothing executes it is the same family as `autoTick: false` (REF-01). | `conductor`'s measurement of its own cadence *(relayed)* | **habit** — and named as one |
 | REC-10 | **`state: "started"` is not proof that a subcontractor received its brief.** Reproduced here on the installed 0.88.0, both failure modes from one mechanism: the prompt is typed into the pane without a submit, so a **multi-line** prompt self-submits on its own newlines and arrives as N separate messages (the agent starts acting on fragment 1), while a **single-line** prompt is never submitted at all — 0 s CPU, prompt sitting in the box, launch still reported `started`. **Always brief a subcontractor from a file** with a one-line launch prompt, then verify: CPU time > 0 on the child process and a visible working indicator. Liveness is CPU, not the PID (REF-04). A fix already exists — `fix/h2a-run-prompt-delivery` (`bf641f2d`) adds `pasteLiteralBlock`, `submitPane`, CPU probing and a `submitted-idle` state — authored by the `runtime` lane and **not merged**. Do not re-diagnose this; do not open a duplicate of item `01KYNVJ9SNN7HG43EWG0ZX5BVS`. | reproduced here; `origin/main..fix/h2a-run-prompt-delivery` | **structural** (fix unmerged) |
 | REC-11 | **Two unmerged fixes have a merge order, and getting it wrong hides 559 lines of tests.** The prompt-delivery fix above ships its tests in `packages/h2a-runtime/src/{prompt-delivery,proc-cpu,tmux}.test.ts` — precisely the directory the required gate never runs (REC-02). So `harness/test-gate-runtime` must merge **before or with** `fix/h2a-run-prompt-delivery`, or the launch fix lands with its entire test suite invisible to CI. Generalise it: **a fix whose tests live outside the gate is unguarded no matter how well tested it looks.** Check where a fix's tests live before trusting them. | `git diff --stat origin/main...fix/h2a-run-prompt-delivery`; `scripts/run-tests.mjs` | **structural** |
 | REC-12 | **Tonight's entire record is unversioned, so every id cited tonight dangles.** Measured 2026-07-29 22:5x: `.track/events.jsonl` in the shared tree holds **785** events of which **264 are uncommitted** relative to its own HEAD — 78 `item.created`, 22 `decision.created`, 27 `blocker.opened`, 26 realization transitions. `origin/main` carries 667. So the twelve lanes' whole evening — items, decisions, acceptance criteria — exists in one working directory, and one `git checkout -- .track` erases it. Every item and decision ULID quoted tonight in a message, a committed document or a PR body **does not resolve for anyone else**, including DOC-07 above, which this lane wrote and cited in the same hour. This is the "citation to an uncommitted artefact" defect, one level up: not one dangling citation, but the evening's entire evidence base. **Before citing an id, check it is in `origin/main`'s journal, not just in the tree you are standing in.** Found because a subcontractor refused to project DOC-07 rather than manufacture its evidence — the return gate working in the opposite direction. **Two counts, both correct, and this is rule 5 in action:** 264 relative to the shared HEAD (521), and `conductor`'s 151 relative to `origin/main` (667, tree at 818). Neither is "the right number" — a count without its reference point is not a fact. **Resolved by `conductor` in PR 91**, after verifying pure-append against `origin/main` and an unbroken chain over 818 events; the designated-writer question stays open. | `git show HEAD:.track/events.jsonl` vs `.track/events.jsonl`; measured here | **structural** |
