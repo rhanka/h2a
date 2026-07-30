@@ -165,8 +165,15 @@ fonctionnement.**
 `codex plugin marketplace list` échouant. Dans ce cas c'est le rapport qui a tort, pas l'hôte —
 même si doctor annonce `ok=true`.
 
-**État mesuré sur la branche au moment où j'écris** : oracle 1 passe, oracle 2 **échoue** encore
-(le marketplace mort n'est pas retiré). Je ne te donne pas cette recette comme verte.
+**État mesuré sur la branche** : les **deux** oracles passent désormais, sur `55f6066a`, rebuild propre
+(`dist` **et** `*.tsbuildinfo` supprimés avant — un `tsc` composite sort 0 sans émettre et rend un `dist`
+mélangé). Quand j'ai écrit ce scénario, l'oracle 2 échouait encore ; `a64e1dc8` l'a fermé.
+
+Ce scénario tourne aussi **en CI** sous le nom `host-oracle` : le job installe codex et exécute cette
+sonde sur racines jetables, verdict porté par le code de sortie. Il est vert sur ce SHA.
+**Où cette garantie s'arrête** : codex seulement, racines jetables seulement, Linux seulement, et le job
+**n'est pas encore un check requis** — l'ajouter à la protection de branche est ta décision, pas la
+mienne, donc aujourd'hui il peut échouer sans bloquer une fusion.
 
 ---
 
@@ -194,10 +201,14 @@ pas historique.
 endpoints là où un seul est requis.
 
 **Ce qui invaliderait** : `--repair --dry-run` qui ne nomme pas ce doublon. Le code émet bien ce
-finding pour Claude comme pour Codex, mais je n'ai **pas** pu le vérifier sur un binaire citable —
-mon `dist` était un mélange de deux états (`bin.js` de la veille, un module compilé du jour :
-le piège `tsc` composite, qui sort en succès sans émettre). Je préfère te donner une prédiction
-non vérifiée et le dire, plutôt qu'un chiffre produit par une configuration que je ne peux pas citer.
+finding pour Claude comme pour Codex, et **je l'ai depuis vérifié** sur un binaire citable : fixture ne
+portant que ce défaut → `h2a-endpoint-count : Claude exposes 2 H2A endpoints; exactly one plugin
+endpoint is required.` Vérifié aussi avec `CLAUDE_CONFIG_DIR` posé, où doctor rendait auparavant **zéro
+finding** — un faux-propre, fermé par `0e56ed2a`.
+
+Quand j'ai écrit ce paragraphe la prédiction était **non vérifiée** et je l'avais dit, parce que mon
+`dist` était alors un mélange de deux états (le point d'entrée de la veille à côté d'un module compilé
+du jour : le piège `tsc` composite, qui sort en succès sans émettre). C'est désormais mesuré, pas prédit.
 
 **Ne répare pas ce doublon depuis cette recette.** Retirer une entrée de `.claude.json` touche ta
 configuration quotidienne au-delà de cette PR. Constate, et décide séparément.
