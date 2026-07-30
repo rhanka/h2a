@@ -61,7 +61,7 @@ describe('WP-codes A1 — contract pins', () => {
   it('pins the new event-type + work-event-kind names and the INGEST minor bump', () => {
     expect(EVENT_TYPES).toContain('item.code-assigned')
     expect([...WORK_EVENT_KINDS]).toContain('item.assign-code')
-    expect(INGEST_CONTRACT_VERSION).toBe('2.1.0')
+    expect(INGEST_CONTRACT_VERSION).toBe('2.2.0')
   })
 })
 

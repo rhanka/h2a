@@ -71,8 +71,9 @@ const USAGE = `usage: track <command>
     may appear before or after the command; it redirects reads AND writes to that directory
   --version | -v
   init
-  item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] [--engagement-ref <e>]
+  item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] (trim actor IDs; blank responsible members are dropped)
   item reparent <itemId> [--parent <pid>] [--detach]
+  item set-raci <itemId> [--accountable <a>] [--responsible <a,a>] [--client-token <t>] (trimmed blank members are rejected, unlike item new)
   item set-role <itemId> <workpackage|stream>
   item scope-declare <itemId> [--allowed <glob,glob>] [--forbidden <...>] [--conditional <...>] [--scope <json>]
   item spec-amend <itemId> --base-hash <h> --result-hash <h> --patch <json> [--decision-id <id>] [--live-doc-ref <r>] [--proposal-ref <r>] [--summary <s>] [--client-token <t>]
@@ -576,6 +577,26 @@ function cmdItem(args: string[], ctx: Ctx): number {
     io.out('ok\n')
     return 0
   }
+  if (sub === 'set-raci') {
+    const accountable = opt(flags, 'accountable')
+    const responsible = opt(flags, 'responsible')
+    if (accountable === undefined && responsible === undefined) {
+      throw new DomainError('item set-raci requires --accountable and/or --responsible')
+    }
+    const clientToken = opt(flags, 'client-token')
+    if (clientToken !== undefined && store(ctx).readAll().some((event) => event.clientToken === clientToken)) {
+      io.out('no-op: client-token already applied\n')
+      return 0
+    }
+    track.setRaci(positional[0]!, {
+      ...(accountable !== undefined ? { accountable } : {}),
+      ...(responsible !== undefined
+        ? { responsible: responsible.split(',').map((s) => s.trim()) }
+        : {}),
+    }, clientToken)
+    io.out('ok\n')
+    return 0
+  }
   if (sub === 'scope-declare') {
     // Scope §B(a) — declare INERT path-scope globs on a WP/spec-phase. A comma-separated glob list per
     // axis (`--allowed`/`--forbidden`/`--conditional`), OR a `--scope <json>` object; the two are
@@ -712,7 +733,7 @@ function cmdItem(args: string[], ctx: Ctx): number {
     rowsOut(rows, fmt(flags), io)
     return 0
   }
-  io.err('usage: track item <new|reparent|set-role|scope-declare|spec-amend|spec|realize|assign-code|show|ls>\n')
+  io.err('usage: track item <new|reparent|set-raci|set-role|scope-declare|spec-amend|spec|realize|assign-code|show|ls>\n')
   return 2
 }
 

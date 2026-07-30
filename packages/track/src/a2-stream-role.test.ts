@@ -75,7 +75,7 @@ describe('A2 — contract pins', () => {
   it('pins the new event-type + work-event-kind + the INGEST/READ minor bumps', () => {
     expect(EVENT_TYPES).toContain('item.role-changed')
     expect([...WORK_EVENT_KINDS]).toContain('item.set-role')
-    expect(INGEST_CONTRACT_VERSION).toBe('2.1.0')
+    expect(INGEST_CONTRACT_VERSION).toBe('2.2.0')
     expect(READ_CONTRACT_VERSION).toBe('1.22.0')
   })
   it('isRoleContainer treats a stream as a container', () => {

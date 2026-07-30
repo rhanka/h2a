@@ -5,6 +5,11 @@
 // One WorkEvent ⇒ one Track command. This module is the SINGLE SOURCE of the write enums (so the CLI's
 // `oneOf` checks and the mapper cannot diverge on accepted values) and of the per-kind payload schema.
 
+// 2.2.0 — one ADDITIVE WorkEvent kind `item.set-raci` → the persisted `item.raci-assigned` event, which sets or
+// replaces the creation-payload RACI fields on an existing item. It is a binding governance write
+// (`settles:'always'`): changing who is accountable/responsible requires auth ∈ {local-user, signed}.
+// MINOR bump: the kind is optional for producers; no kind or existing field is removed/changed. `item.create`
+// payload acceptance is unchanged from 2.1.x; normalisation is write-time, write-path-only trimming.
 // 2.1.0 — regression expression (decision 01KYQ5RRN67190YMZ08EGGBSBT, owner GO option A): one ADDITIVE new
 // WorkEvent kind `item.reopen` → the persisted `realization.reopened` event (reopen a terminally-closed item
 // with its MOTIVE; `settles:'always'` — a reopening moves a workpackage percentage). MINOR bump (a new optional
@@ -37,7 +42,7 @@
 // removed, no required field added, envelope keys unchanged; old producers never send them and still validate).
 // 1.1.0 — seam v0 FREEZE: two ADDITIVE optional producer fields (artifactLocator on scope.verification,
 // caller-supplied evidenceId on acceptance.link).
-export const INGEST_CONTRACT_VERSION = '2.1.0'
+export const INGEST_CONTRACT_VERSION = '2.2.0'
 
 // --- write enums (shared with src/cli/index.ts) ------------------------------------------------------
 export const ITEM_KINDS = ['feature', 'bug', 'chore'] as const
@@ -67,6 +72,7 @@ export const DISPOSITION_OUTCOMES = ['rejected', 'duplicate', 'parked'] as const
 // --- kinds -------------------------------------------------------------------------------------------
 export const WORK_EVENT_KINDS = [
   'item.create',
+  'item.set-raci', // Set/replace accountable/responsible on an existing item (→ item.raci-assigned)
   'item.reparent',
   'item.spec',
   'item.realize',
@@ -182,6 +188,13 @@ export const WORK_EVENT_SCHEMA: Record<WorkEventKind, KindSchema> = {
       responsible: { type: 'string[]', required: false },
       engagementRef: str(false),
     },
+  },
+  'item.set-raci': {
+    // Governance binding: the partial RACI payload uses the SAME accountable/responsible fields as
+    // item.create; the facade rejects an empty update. Existing-item containment is resolved in ingest.
+    method: 'setRaci',
+    settles: 'always',
+    fields: { itemId: str(true), accountable: str(false), responsible: { type: 'string[]', required: false } },
   },
   'item.reparent': {
     // Workpackages §2 — move/detach an item. Binding (`always`): moving work between WPs is
