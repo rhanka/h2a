@@ -125,6 +125,26 @@ describe('report period — project the complete fold, never a truncated journal
     expect(longScopes.some((scope) => scope.includes('WP1'))).toBe(true)
   })
 
+  it('uses instant duration, not UTC date labels, at the fourteen-day reading boundary', () => {
+    let root = ''
+    let nested = ''
+    at('2026-07-01T23:59:00.000Z', () => {
+      root = track.createItem({ kind: 'chore', title: 'Boundary parent', workspace: 'ws', role: 'workpackage' })
+      nested = track.createItem({ kind: 'chore', title: 'Boundary child', workspace: 'ws', parentId: root, role: 'workpackage' })
+      track.createItem({ kind: 'feature', title: 'Boundary work', workspace: 'ws', parentId: nested })
+    })
+    const from = '2026-07-01T23:59:00.000Z'
+    const justUnder = '2026-07-15T00:00:00.000Z'
+    const justOver = '2026-07-16T00:00:00.000Z'
+    const scopes = (value: Record<string, unknown>): string[] =>
+      table(value, 'todo').rows.map((row) => row['wp']).filter((scope): scope is string => scope !== undefined)
+
+    expect(Date.parse(justUnder) - Date.parse(from)).toBeLessThan(14 * 86_400_000)
+    expect(Date.parse(justOver) - Date.parse(from)).toBeGreaterThan(14 * 86_400_000)
+    expect(scopes(jsonFor(selection(from, justUnder))).some((scope) => scope.includes('WP1.1'))).toBe(true)
+    expect(scopes(jsonFor(selection(from, justOver))).some((scope) => scope.includes('WP1.1'))).toBe(false)
+  })
+
   it('uses one resolved header across JSON, text, and Markdown', () => {
     seed()
     const period = selection('2026-07-03T00:00:00.000Z', '2026-07-03T23:59:59.999Z')
@@ -198,10 +218,16 @@ describe('report period — CLI boundary', () => {
 
     const beforeJournal = cli(['report', '--now', '2026-06-30T12:00:00.000Z', '--format', 'json'])
     expect(beforeJournal.code).toBe(0)
-    expect((JSON.parse(beforeJournal.out) as { period: Record<string, unknown> }).period).toMatchObject({
+    const preJournalPeriod = (JSON.parse(beforeJournal.out) as { period: Record<string, unknown> }).period
+    expect(preJournalPeriod).toMatchObject({
       requested: null,
       to: '2026-06-30T12:00:00.000Z',
+      eventsInWindow: 0,
     })
+    expect(Date.parse(preJournalPeriod['from'] as string)).toBeLessThanOrEqual(Date.parse(preJournalPeriod['to'] as string))
+
+    expect(() => jsonFor(selection('2026-07-04T00:00:00.000Z', '2026-07-03T00:00:00.000Z')))
+      .toThrow('resolved report period must not end before it begins')
 
     const html = cli(['report', '--format', 'html'])
     expect(html.code).toBe(1)
