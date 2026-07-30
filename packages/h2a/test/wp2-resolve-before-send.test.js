@@ -422,6 +422,47 @@ test("MCP handleInbox read lists candidates for an ambiguous presence name", () 
   }
 });
 
+test("CLI inbox read serves a declared-but-never-live host:label while put remains refused", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doc03-read-phantom-"));
+  const root = join(dir, ".h2a");
+  const instance = "codex:dev-1";
+  const envelope = makeEnvelopeObj("env-doc03-read-phantom");
+  try {
+    const store = createLocalStore({ root });
+    store.putInboxMessage(instance, envelope);
+
+    const readStreams = captureStreams(dir);
+    const readRc = runCli(["inbox", "read", "--root", root, "--instance", instance], readStreams);
+    assert.equal(readRc, 0, `expected an orphan inbox read, got: ${readStreams.stderrText}`);
+    assert.deepEqual(JSON.parse(readStreams.stdoutText), [envelope]);
+
+    const putStreams = captureStreams(dir);
+    const putRc = runCli(
+      ["inbox", "put", "--root", root, "--instance", instance, "--json", makeEnvelope("env-doc03-write-phantom")],
+      putStreams
+    );
+    assert.equal(putRc, 1, `phantom write must remain refused, got: ${putStreams.stdoutText}`);
+    assert.match(putStreams.stderrText, /no live or registered agent/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP inbox read refuses a malformed third segment", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doc03-read-malformed-third-segment-"));
+  const root = join(dir, ".h2a");
+  try {
+    const result = handleInbox(createLocalStore({ root }), {
+      action: "read",
+      instance: "claude:agents:not-a-uuid"
+    });
+    assert.ok(typeof result.error === "string", `expected read refusal, got: ${JSON.stringify(result)}`);
+    assert.match(result.error, /3rd segment that is not a uuid/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("MCP handleInbox put refuses h2a: when a live presence has an empty name", () => {
   const dir = mkdtempSync(join(tmpdir(), "doc03-empty-name-h2a-prefix-"));
   const root = join(dir, ".h2a");
@@ -478,7 +519,7 @@ test("resolveRecipient refuses empty display-name keys before caller-specific gu
   }
 });
 
-test("MCP inbox read and pop refuse empty display-name keys without touching a live inbox", () => {
+test("MCP inbox read refuses every empty display-name key without touching a live inbox", () => {
   const dir = mkdtempSync(join(tmpdir(), "doc03-empty-name-read-pop-"));
   const root = join(dir, ".h2a");
   const instance = "claude:h2a:111111111111";
@@ -489,8 +530,13 @@ test("MCP inbox read and pop refuse empty display-name keys without touching a l
     writePresence(root, makePresence(instance, "sess:empty-name-read-pop", ""));
     store.putInboxMessage(instance, envelope);
 
-    const readResult = handleInbox(store, { action: "read", instance: "h2a:" });
-    assert.ok(typeof readResult.error === "string", `expected read refusal, got: ${JSON.stringify(readResult)}`);
+    for (const target of ["h2a:", "   ", "\t", ""]) {
+      const readResult = handleInbox(store, { action: "read", instance: target });
+      assert.ok(
+        typeof readResult.error === "string",
+        `expected ${JSON.stringify(target)} read refusal, got: ${JSON.stringify(readResult)}`
+      );
+    }
 
     const popResult = handleInbox(store, {
       action: "pop",
