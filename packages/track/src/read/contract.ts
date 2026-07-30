@@ -58,7 +58,7 @@ import { buildSnapshot, type SnapshotOptions, type SnapshotV1 } from '../report/
  * shapes it returns may only GROW (new methods / new optional fields); nothing is removed or
  * repurposed without a major bump. Consumers gate on `reader.contractVersion`.
  */
-export const READ_CONTRACT_VERSION = '1.21.0' // +logWindow: the period bounds the log itself carries (additive)
+export const READ_CONTRACT_VERSION = '1.22.0' // +realization.reopened in the item lifecycle trace (additive)
 
 /** Provenance of the last `branch.imported` for a locator (drawn from the raw event log). */
 export interface BranchProvenance {
@@ -548,6 +548,10 @@ const ITEM_LIFECYCLE_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
   'spec.abandoned',
   'spec.transition',
   'realization.transition',
+  // Regression expression — a reopening is a lifecycle FACT (a closure was corrected, with its motive), so the
+  // trace that already carries the closure must carry its correction too; a trace that showed the `done` and
+  // hid the reopening would be exactly the assertion-wider-than-its-evidence the 2026-07-29 ruling attacks.
+  'realization.reopened',
 ])
 
 /** Origin of a lifecycle step's write — `'agent'` iff `prov.proposed` (an AI proposal), else `'human'`. */

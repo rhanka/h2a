@@ -24,6 +24,7 @@ import type {
   ItemRole,
   ItemState,
   Realization,
+  ReopenPayload,
   ScopeDecl,
   SpecStatus,
 } from '../model/item.js'
@@ -239,6 +240,33 @@ function applyEvent(state: State, event: TrackEvent): void {
     case 'realization.transition': {
       const target = state.items.get(event.aggregateId) ?? state.decisions.get(event.aggregateId)
       if (target) target.realization = (event.payload as { to: Realization }).to
+      break
+    }
+
+    case 'realization.reopened': {
+      // Regression expression — a closed item goes back to `in-progress` AND records WHY. Restricted to a real
+      // ITEM at append (Track.reopenItem), so this is a no-op for an unknown/decision aggregate. Legality (the
+      // item was terminally closed, the motive is declared, the reason is non-blank) is asserted AT APPEND,
+      // NEVER here (the established pattern) — the fold takes the event at face value in stream order. `from`
+      // is DERIVED here rather than trusted from the payload, so the trace can never contradict the log.
+      const item = state.items.get(event.aggregateId)
+      if (item) {
+        const p = event.payload as unknown as ReopenPayload
+        const from = item.realization
+        // ALL OR NOTHING. A reopening is only applied when there IS a closure to correct, and then BOTH the
+        // realization and the trace move together. A foreign writer that appends a well-formed reopening on a
+        // `to-do`/`in-progress`/`rejected` item therefore changes NOTHING here — instead of the half-application
+        // (realization advanced, trace absent) that would let an out-of-facade event push work forward while
+        // leaving the state unable to say a reopening happened. `validate` reports such an event as a
+        // `reopen-illegal` finding; the fold stays non-throwing and fail-safe.
+        if (from === 'done' || from === 'cancelled') {
+          item.reopenings = [
+            ...(item.reopenings ?? []),
+            { from, motive: p.motive, reason: p.reason, at: event.at, by: event.by },
+          ]
+          item.realization = 'in-progress'
+        }
+      }
       break
     }
 
