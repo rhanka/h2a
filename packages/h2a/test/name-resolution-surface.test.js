@@ -108,27 +108,55 @@ test("a plain display name still resolves to its instance", () => {
   assert.equal(result.recipient, "claude:alice:dddddddddddd");
 });
 
-test("the legacy h2a:<name> form is NOT a supported address", () => {
-  // This assertion was the reverse until the owning lane argued it down, and the
-  // argument that turned it is a rung argument, not a usage count: a SUPPRESSED
-  // feature cannot be re-claimed, whereas a REPAIRED dead guard can be listed as
-  // a guard again by the next reader — as it already had been. Suppressing moves
-  // up a rung (structurally absent) instead of sideways (test-guarded).
+test("the legacy h2a:<name> form stays ADDRESSABLE", () => {
+  // Flipped to a refusal for one round, on an argument the conductor lane then
+  // RETRACTED: a requirement carried by a gate test is specified, not dead, so
+  // dropping it would be a gate change rather than a builder's call. Restored
+  // here rather than left inverted — the assertion follows the decision.
   //
-  // The usage evidence offered alongside it (zero occurrences of this form across
-  // presences, docs and a historical envelope sample) was NOT reproduced by the
-  // cyber lane and is not what this test rests on. It rests on the rung.
-  //
-  // Do not read this as "an aliased form is unsupported": the two-segment
-  // `host:label` form below is used and must keep working.
+  // A test asserting only "not ambiguous" is satisfied by a refusal, which is
+  // how this form became unaddressable while a guard claimed to protect it. So
+  // it asserts the DESTINATION.
   const result = resolve("h2a:agents", [
     { instance: "claude:agents:ffffffffffff", name: "agents" },
   ]);
   assert.equal(
     result.kind,
-    "refuse",
-    "h2a:<name> is deliberately unsupported — see the host:label tests below",
+    "deliver-resolved",
+    "h2a:agents must remain addressable, not merely unambiguous",
   );
+  assert.equal(result.recipient, "claude:agents:ffffffffffff");
+});
+
+test("h2a:claude:victim does NOT re-open the capture through the prefix", () => {
+  // Handed to the owning lane BEFORE it wrote the repair. Stripping the legacy
+  // prefix first is exactly what can hand a host:label pair back to the
+  // display-name space — the one path by which the fix could re-open the very
+  // capture it closes.
+  const result = resolve("h2a:claude:victim", [IMPOSTER]);
+  assert.notEqual(
+    result.recipient,
+    IMPOSTER.instance,
+    "stripping the legacy prefix must not hand a host:label back to name matching",
+  );
+});
+
+test("h2a:h2a: is not stripped repeatedly", () => {
+  assert.equal(resolve("h2a:h2a:", VICTIM_BLANK_NAME).kind, "refuse");
+});
+
+test("H2A:agents is stripped case-insensitively", () => {
+  const result = resolve("H2A:agents", [
+    { instance: "claude:agents:ffffffffffff", name: "agents" },
+  ]);
+  assert.equal(result.recipient, "claude:agents:ffffffffffff");
+});
+
+test("a padded h2a: prefix is stripped despite surrounding blanks", () => {
+  const result = resolve(" h2a:agents ", [
+    { instance: "claude:agents:ffffffffffff", name: "agents" },
+  ]);
+  assert.equal(result.recipient, "claude:agents:ffffffffffff");
 });
 
 // ---------------------------------------------------------------------------
