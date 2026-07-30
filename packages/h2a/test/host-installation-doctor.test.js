@@ -1574,7 +1574,10 @@ test("doctor reports clean on the state a successful v1 repair leaves (v1 accept
   mkdirSync(orphan, { recursive: true });
   writeJson(join(orphan, ".codex-plugin", "plugin.json"), { name: "h2a-local-codex-08518", version: "0.85.18" });
 
-  const { exitCode, report } = runRepairDoctor(home, root);
+  // The fixture builds the cache at the SHIPPED version, so doctor must be told that version —
+  // otherwise it reports a spurious version-skew against the test placeholder. Found by the
+  // building lane, second defect it caught in this test of mine.
+  const { exitCode, report } = runRepairDoctor(home, root, { version });
   const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
   const blocking = (codex?.findings ?? []).filter((finding) => finding.code !== "orphan-cache");
   assert.deepEqual(
@@ -1584,5 +1587,4 @@ test("doctor reports clean on the state a successful v1 repair leaves (v1 accept
   );
   assert.equal(report.ok, true, `an orphan cache v1 deliberately keeps must not break ok: ${JSON.stringify(report, null, 2)}`);
   assert.equal(exitCode, 0);
-  assert.equal(version, version);
 });
