@@ -1536,3 +1536,36 @@ test("doctor --repair --dry-run reports host repair work without mutating host f
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+// ACCEPTANCE PROPERTY of the v1 form, written by `plugins` BEFORE the implementation and
+// EXPECTED TO FAIL until it lands. A repair whose own result is still reported as broken is not
+// a repair: an owner who is told "broken" after a successful --repair learns to ignore doctor,
+// and will ignore it on the day the report is true. The property must be a test, not a habit —
+// this is exactly the rung where it broke.
+//
+// Two rules, accepted by the conductor and written into the owner decision dossier:
+//   1. `plugin-stale` must account for `enabled = false`: a DISABLED legacy entry is
+//      NEUTRALISED, not stale.
+//   2. `orphan-cache` must be INFORMATIONAL and must not break `ok`, because v1 deliberately
+//      does not delete it.
+test("doctor can return to green after a successful repair (v1 acceptance, RED until v1 lands)", () => {
+  const home = fixtureHome();
+  const root = join(home, "bus");
+  assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+
+  // First pass: repair the broken fixture.
+  const first = runRepairDoctor(home, root, { runner: () => ({ ok: true, stdout: "", stderr: "" }) });
+  assert.ok(first.report, "first repair produced a report");
+
+  // Second pass on the SAME home: the installation has been repaired, so the report must be
+  // clean. A disabled legacy entry and an orphan cache left on disk are the deliberate v1
+  // outcome — neither may keep `ok` false forever.
+  const second = runRepairDoctor(home, root, { runner: () => ({ ok: true, stdout: "", stderr: "" }) });
+  const codex = second.report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+  const blocking = (codex?.findings ?? []).filter(
+    (finding) => finding.code !== "orphan-cache"
+  );
+  assert.deepEqual(blocking, [], `no blocking finding may survive its own repair: ${JSON.stringify(codex?.findings, null, 2)}`);
+  assert.equal(second.report.ok, true, `doctor must be able to report clean after repairing: ${JSON.stringify(second.report, null, 2)}`);
+  assert.equal(second.exitCode, 0);
+});
