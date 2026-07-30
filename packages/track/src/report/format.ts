@@ -630,6 +630,10 @@ export interface ReportPeriod {
  */
 export interface ReportHeader {
   scope: string
+  /** Present only on `report --scope`; text keeps it in the existing header's sources line. */
+  scopeProjection?: ReportScopeProjection
+  /** Cursor derived from the same event snapshot as this view's rows. */
+  journalRevision?: { events: number; head: string | null }
   progress: string
   baselineCommit?: string
   period: ReportPeriod
@@ -791,10 +795,22 @@ function windowDays(period: ReportPeriod): number | undefined {
  * reads it as the full record — the same honesty the old `extrait` column applied.
  */
 const TODO_EXCERPT_MAX = 100
+const ULID = /[0-9A-HJKMNP-TV-Z]{26}/gu
+
+/**
+ * The owner-facing conductor never prints aggregate identifiers. This is deliberately the final render
+ * boundary, after every title, decision subject, option summary, excerpt, and generated prose have joined
+ * the view: scrubbing one source field is not an invariant. The machine-only handle-resolution block keeps
+ * its ids intact so the report remains actionable.
+ */
+function redactOwnerText(value: string): string {
+  return value.replace(ULID, 'référence interne')
+}
 
 /** `undefined` for an absent/blank body — a bare title is then the HONEST render, not a gap to fill. */
 export function todoExcerpt(body: string | undefined): string | undefined {
-  const cleaned = body === undefined ? undefined : clean(body)
+  // Owner-facing excerpts can mention a record, but the record's ULID belongs in the machine-only handle block.
+  const cleaned = body === undefined ? undefined : clean(redactOwnerText(body))
   if (cleaned === undefined || cleaned === '') return undefined
   if (cleaned.length <= TODO_EXCERPT_MAX) return cleaned
   const cut = cleaned.slice(0, TODO_EXCERPT_MAX)
@@ -897,6 +913,8 @@ export interface ConductorMeta {
   logFrom?: string
   /** ISO timestamp of the LAST recorded event — the fallback upper bound when no clock is injected. */
   logTo?: string
+  /** Stable journal cursor for the projection; it distinguishes reports rendered at different log heads. */
+  journalRevision?: { events: number; head: string | null }
   /**
    * The caller's clock, injected at ITS boundary so this module stays clockless and byte-reproducible
    * (same pattern as `workspace-activity --now`). Present ⇒ the window's upper bound is `now`.
@@ -907,6 +925,21 @@ export interface ConductorMeta {
    * window: sub-levels are aggregated into their parent on a long window, listed on a short one.
    */
   subWp?: boolean
+  /** A read-only workpackage projection, present only for `report --scope`. */
+  scopeProjection?: ReportScopeProjection
+}
+
+/** Additive machine-readable scope boundary for a scoped conductor report. */
+export interface ReportScopeProjection {
+  selector: string
+  id: string
+  label: string
+  includes: 'subtree'
+  excludedProjectionRows: number
+}
+
+function shellArgument(value: string): string {
+  return /^[A-Za-z0-9_./:-]+$/u.test(value) ? value : `'${value.replace(/'/gu, "'\"'\"'")}'`
 }
 
 export function buildWpConductorView(
@@ -1093,7 +1126,10 @@ export function buildWpConductorView(
       // A directive may target a DONE leaf with acceptance debt: name it here (with its own handle)
       // instead of exiling it to a `cible action` column the owner never asked for.
       for (const d of attached) {
-        if (d.target.kind === 'decision' || items.some((i) => i.id === d.target.id)) continue
+        // An engagement/blockage directive points at its own actionable ref (for example a thread),
+        // while its title deliberately names the already-listed target leaf. Adding it made a title-twin
+        // sibling row. Only an item directive can introduce a missing DONE acceptance debt.
+        if (d.target.kind !== 'item' || items.some((i) => i.id === d.target.id)) continue
         const debtLeaf = wpNodes.flatMap((node) => node.leaves).find((l) => l.id === d.target.id)
         items.push({
           id: d.target.id,
@@ -1338,13 +1374,27 @@ export function buildWpConductorView(
 
   const header: ReportHeader = {
     scope: totalScope,
+    ...(meta.scopeProjection !== undefined ? { scopeProjection: meta.scopeProjection } : {}),
+    ...(meta.journalRevision !== undefined ? { journalRevision: meta.journalRevision } : {}),
     progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`,
     ...(meta.baselineCommit !== undefined ? { baselineCommit: meta.baselineCommit.slice(0, 12) } : {}),
     // Criterion 21 — the window is measured in the log, so it is always stated, always with dates.
     period,
-    sources: ['projection déterministe du journal (track report --wp --decisions)'],
+    sources: [
+      'projection déterministe du journal (track report --wp --decisions)',
+      ...(meta.journalRevision === undefined
+        ? []
+        : [`révision du journal : ${meta.journalRevision.events} événements ; tête : ${meta.journalRevision.head ?? 'aucune'}`]),
+      ...(meta.scopeProjection === undefined
+        ? []
+        : [
+            `scope : ${meta.scopeProjection.label} et son sous-arbre inclus ; ${meta.scopeProjection.excludedProjectionRows} lignes hors scope exclues`,
+          ]),
+    ],
     coverage,
-    handleCommand: 'track report --resolve <handle>',
+    handleCommand: meta.scopeProjection === undefined
+      ? 'track report --resolve <handle>'
+      : `track report --scope ${shellArgument(meta.scopeProjection.selector)} --resolve <handle>`,
   }
 
   return {
@@ -1448,7 +1498,7 @@ function headerLines(view: ReportView, format: Format): string[] {
     em(`sources : ${h.sources.join(' ; ')}`),
     '',
   ]
-  return lines
+  return lines.map(redactOwnerText)
 }
 
 /**
@@ -1476,7 +1526,7 @@ function renderReportView(view: ReportView, format: Format): string {
   // crafted item title cannot inject formatting (parity with the legacy `formatReport`/`title` path); `text`
   // is clean. The view model itself stays RAW (escaping is a render-only concern). `displayCell` keeps the
   // machine-generated `[n.m]` handle out of that escaped span so the three formats agree on it.
-  const esc = (s: string): string => displayCell(s, format)
+  const esc = (s: string): string => displayCell(redactOwnerText(s), format)
   const h = (label: string): string => (format === 'md' ? `## ${label}` : label)
   const lines: string[] = headerLines(view, format)
   for (const section of view.tables) {
@@ -1484,12 +1534,12 @@ function renderReportView(view: ReportView, format: Format): string {
     if (section.render === 'prose') {
       // Renderer-authored French sentences interpolating only derived labels, handles and D-numbers —
       // never a raw user title, so there is nothing to escape and nothing to inject.
-      lines.push(...(section.lines ?? []))
+      lines.push(...(section.lines ?? []).map(redactOwnerText))
     } else if (section.render === 'drawn') {
       // The box-drawn table is emitted verbatim; `md` fences it so the alignment survives.
       const drawn = drawTable(
         section.columns.map((c) => c.label),
-        section.rows.map((row) => section.columns.map((c) => clean0(row[c.id] ?? ''))),
+        section.rows.map((row) => section.columns.map((c) => redactOwnerText(clean0(row[c.id] ?? '')))),
         DECISION_CAPS,
         [false, false, false, true],
       )
@@ -1562,7 +1612,7 @@ export interface InlineOptions {
 
 /** Clean + hard-truncate a line to `width` with a trailing ellipsis (never a silent cut mid-report). */
 function truncateLine(s: string, width: number): string {
-  const c = clean(s)
+  const c = redactOwnerText(clean(s))
   return c.length <= width ? c : `${c.slice(0, Math.max(1, width - 1))}…`
 }
 
@@ -1575,7 +1625,7 @@ function fitMiddle(head: string, mid: string, tail: string, width: number): stri
   const budget = width - head.length - tail.length
   if (budget < 8) return truncateLine(head + mid + tail, width)
   const m = mid.length <= budget ? mid : `${mid.slice(0, Math.max(1, budget - 1))}…`
-  return head + m + tail
+  return redactOwnerText(head + m + tail)
 }
 
 export function formatWpConductorInline(
