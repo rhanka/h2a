@@ -67,6 +67,27 @@ function retryAfterMs(response: Response, nowMs = Date.now()): number | undefine
   return Number.isFinite(at) ? Math.max(0, at - nowMs) : undefined;
 }
 
+/**
+ * Pool identity for the quota-refusal comparison, fail-CLOSED on an unknown
+ * provider.
+ *
+ * accountPoolForProvider only knows the recognised pools and returns undefined
+ * for anything else. Comparing its results directly meant two UNKNOWN providers
+ * compared as `undefined !== undefined`, i.e. EQUAL, so the cross-pool refusal
+ * did not fire and the session was rebound across providers anyway. Measured on
+ * a hand-written GATEWAY_ACCOUNTS with providers outside the union: an exhausted
+ * account was rebound to a foreign one. Nothing validates that field, so a
+ * hand-edited account list reaches this path.
+ *
+ * Falling back to the normalised provider name makes an unrecognised provider
+ * its OWN pool: two different unknown providers now differ (refused), while the
+ * same unknown provider still matches, which preserves the intra-pool failover
+ * the owner ratified.
+ */
+function quotaPoolKey(provider: string): string {
+  return accountPoolForProvider(provider) ?? provider.trim().toLowerCase();
+}
+
 async function rebindAfterQuotaResponse(
   gatewayToken: string,
   session: SessionEntry,
@@ -91,8 +112,7 @@ async function rebindAfterQuotaResponse(
   if (!fallback) return undefined;
   if (
     response.status === 429 &&
-    accountPoolForProvider(fallback.provider) !==
-      accountPoolForProvider(session.provider)
+    quotaPoolKey(fallback.provider) !== quotaPoolKey(session.provider)
   ) {
     return undefined;
   }

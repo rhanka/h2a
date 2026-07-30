@@ -178,6 +178,54 @@ describe("proxy-anthropic quota fallback", () => {
     });
   });
 
+  it("refuses an un-routed 429 across UNRECOGNISED providers", async () => {
+    // Neither provider is in a recognised pool, so both mapped to undefined and
+    // the cross-pool comparison saw them as EQUAL — the refusal did not fire and
+    // the session was rebound across providers. Nothing validates this field, so
+    // a hand-written GATEWAY_ACCOUNTS reaches this path.
+    const { app, gatewayToken } = await appWithSession([
+      {
+        id: "azure-sticky",
+        provider: "azure-openai",
+        label: "Azure sticky",
+        token: "azure-token",
+      },
+      {
+        id: "vertex-other",
+        provider: "vertex",
+        label: "Vertex other",
+        token: "vertex-token",
+      },
+    ]);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: "usage limit reached" }), {
+        status: 429,
+        headers: { "retry-after": "30", "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await app.fetch(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${gatewayToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(REQUEST_BODY),
+      }),
+    );
+
+    expect(res.status).toBe(429);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(readFileSync(stickyPath, "utf8")).not.toContain("vertex-other");
+    const { lookupToken } = await import("./sticky.js");
+    await expect(lookupToken(gatewayToken)).resolves.toMatchObject({
+      accountId: "azure-sticky",
+      provider: "azure-openai",
+    });
+  });
+
   it("rebinds an un-routed 429 to a same-pool Anthropic account", async () => {
     const { app, gatewayToken } = await appWithSession([
       {
