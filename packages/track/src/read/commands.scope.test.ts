@@ -9,7 +9,7 @@ import { EventStore } from '../events/store.js'
 import { buildWpConductorView } from '../report/format.js'
 import { Track } from '../track.js'
 import { TrackReader } from './contract.js'
-import { projectReportScope, reportText } from './commands.js'
+import { projectReportScope, reportHtml, reportInline, reportText } from './commands.js'
 
 let dir: string
 let eventsPath: string
@@ -195,12 +195,21 @@ describe('report --scope', () => {
 
   it('keeps ULIDs out of the owner-facing sections while retaining machine handles', () => {
     seed()
-    const rendered = reportText(new TrackReader(eventsPath), options, 'text', NOW, false, 'TRACK')
-    const ownerSections = rendered.split('RÉSOLUTION DES HANDLES')[0]!
+    const text = reportText(new TrackReader(eventsPath), options, 'text', NOW, false, 'TRACK')
+    const markdown = reportText(new TrackReader(eventsPath), options, 'md', NOW, false, 'TRACK')
+    const html = reportHtml(new TrackReader(eventsPath), options, NOW)
+    const inline = reportInline(new TrackReader(eventsPath), options)
+    const ownerSections = [
+      text.split('RÉSOLUTION DES HANDLES')[0]!,
+      markdown.split('RÉSOLUTION DES HANDLES')[0]!,
+      html.slice(0, html.indexOf('<footer')),
+      inline,
+    ]
 
-    expect(ownerSections).not.toMatch(/[0-9A-HJKMNP-TV-Z]{26}/u)
-    expect(rendered).toContain('référence interne')
-    expect(rendered.slice(rendered.indexOf('RÉSOLUTION DES HANDLES'))).toMatch(/[0-9A-HJKMNP-TV-Z]{26}/u)
+    for (const section of ownerSections) expect(section).not.toMatch(/[0-9A-HJKMNP-TV-Z]{26}/u)
+    expect(text).toContain('référence interne')
+    expect(text.slice(text.indexOf('RÉSOLUTION DES HANDLES'))).toMatch(/[0-9A-HJKMNP-TV-Z]{26}/u)
+    expect(html.slice(html.indexOf('<footer'))).toMatch(/[0-9A-HJKMNP-TV-Z]{26}/u)
   })
 
   it('matches an assigned code exactly, including its recorded whitespace', () => {
