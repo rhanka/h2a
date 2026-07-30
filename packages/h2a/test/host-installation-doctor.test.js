@@ -30,9 +30,9 @@ function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function currentPlugin(path) {
+function currentPlugin(path, version = VERSION) {
   mkdirSync(join(path, ".codex-plugin"), { recursive: true });
-  writeJson(join(path, ".codex-plugin", "plugin.json"), { name: "h2a", version: VERSION });
+  writeJson(join(path, ".codex-plugin", "plugin.json"), { name: "h2a", version });
 }
 
 function currentMarketplace(path) {
@@ -320,7 +320,7 @@ function snapshotTreeBytes(path) {
   return entries;
 }
 
-function repairRunner(home, calls) {
+function repairRunner(home, calls, version = VERSION) {
   return (command, args) => {
     calls.push([command, ...args]);
     if (command === "codex") {
@@ -331,12 +331,12 @@ function repairRunner(home, calls) {
           `${readFileSync(configPath, "utf8").trimEnd()}\n\n[marketplaces.sentropic]\nsource_type = "git"\nsource = "https://github.com/rhanka/h2a.git"\nref = "main"\n`
         );
       }
-      currentPlugin(join(home, ".codex", "plugins", "cache", "sentropic", "h2a", VERSION));
+      currentPlugin(join(home, ".codex", "plugins", "cache", "sentropic", "h2a", version), version);
       currentMarketplace(join(home, ".codex", ".tmp", "marketplaces", "sentropic"));
       return { ok: true };
     }
-    const pluginPath = join(home, ".claude", "plugins", "cache", "sentropic", "h2a", VERSION);
-    currentPlugin(pluginPath);
+    const pluginPath = join(home, ".claude", "plugins", "cache", "sentropic", "h2a", version);
+    currentPlugin(pluginPath, version);
     const marketplacePath = join(home, ".claude", "plugins", "marketplaces", "sentropic");
     currentMarketplace(marketplacePath);
     writeJson(join(home, ".claude", "plugins", "known_marketplaces.json"), {
@@ -348,7 +348,7 @@ function repairRunner(home, calls) {
     writeJson(join(home, ".claude", "plugins", "installed_plugins.json"), {
       version: 2,
       plugins: {
-        "h2a@sentropic": [{ scope: "user", installPath: pluginPath, version: VERSION }]
+        "h2a@sentropic": [{ scope: "user", installPath: pluginPath, version }]
       }
     });
     return { ok: true };
@@ -914,6 +914,10 @@ test("doctor repair never targets third-party or canonical plugin caches for del
     join(home, ".claude", "plugins", "cache", name)
   ]);
   const thirdPartyCachePath = join(home, ".codex", "plugins", "cache", "sentropic-local-third-party");
+  const thirdPartyVersionPaths = [
+    join(home, ".codex", "plugins", "cache", "sentropic", "h2a", "third-party-keep"),
+    join(home, ".claude", "plugins", "cache", "sentropic", "h2a", "third-party-keep")
+  ];
   try {
     const staleClaudeCanonicalPath = join(home, ".claude", "plugins", "cache", "sentropic", "h2a", "0.85.18");
     const currentClaudeCanonicalPath = join(home, ".claude", "plugins", "cache", "sentropic", "h2a", VERSION);
@@ -925,6 +929,10 @@ test("doctor repair never targets third-party or canonical plugin caches for del
     }
     mkdirSync(thirdPartyCachePath, { recursive: true });
     writeFileSync(join(thirdPartyCachePath, "third-party.txt"), "must never be attributed to H2A\n");
+    for (const path of thirdPartyVersionPaths) {
+      mkdirSync(path, { recursive: true });
+      writeFileSync(join(path, "third-party.txt"), "must never be attributed to H2A\n");
+    }
     const installedPath = join(home, ".claude", "plugins", "installed_plugins.json");
     const installed = JSON.parse(readFileSync(installedPath, "utf8"));
     installed.plugins["h2a@sentropic"] = [{ scope: "user", installPath: currentClaudeCanonicalPath, version: VERSION }];
@@ -932,6 +940,7 @@ test("doctor repair never targets third-party or canonical plugin caches for del
     writeJson(installedPath, installed);
     const protectedContents = new Map(protectedPaths.map((path) => [path, snapshotTreeBytes(path)]));
     const thirdPartyContents = snapshotTreeBytes(thirdPartyCachePath);
+    const thirdPartyVersionContents = new Map(thirdPartyVersionPaths.map((path) => [path, snapshotTreeBytes(path)]));
 
     const calls = [];
     const report = doctorHostInstallations({
@@ -944,12 +953,22 @@ test("doctor repair never targets third-party or canonical plugin caches for del
     assert.deepEqual(report.hosts.flatMap((host) => host.unrepaired), [], JSON.stringify(report, null, 2));
     for (const path of protectedPaths) assert.deepEqual(snapshotTreeBytes(path), protectedContents.get(path), path);
     assert.deepEqual(snapshotTreeBytes(thirdPartyCachePath), thirdPartyContents, thirdPartyCachePath);
+    for (const path of thirdPartyVersionPaths) assert.deepEqual(snapshotTreeBytes(path), thirdPartyVersionContents.get(path), path);
     assert.equal(calls.some((call) => call.join(" ") === "claude plugin uninstall h2a@sentropic"), false);
     assert.equal(calls.some((call) => call.join(" ") === "claude plugin uninstall openai-h2a-local-fixture"), false);
     assert.equal(calls.some((call) => call.join(" ").includes(thirdPartyCachePath)), false);
-    assert.equal(report.hosts.flatMap((host) => host.plannedActions).some((action) => action.includes(thirdPartyCachePath)), false);
     assert.equal(
-      report.hosts.flatMap((host) => host.findings).some((entry) => entry.message.includes(thirdPartyCachePath)),
+      calls.some((call) => [thirdPartyCachePath, ...thirdPartyVersionPaths].some((path) => call.join(" ").includes(path))),
+      false
+    );
+    assert.equal(
+      report.hosts.flatMap((host) => host.plannedActions).some((action) => [thirdPartyCachePath, ...thirdPartyVersionPaths].some((path) => action.includes(path))),
+      false
+    );
+    assert.equal(
+      report.hosts.flatMap((host) => host.findings).some(
+        (entry) => [thirdPartyCachePath, ...thirdPartyVersionPaths].some((path) => entry.message.includes(path))
+      ),
       false,
       "an unproven third-party cache must not receive a manual removal command"
     );
@@ -1731,6 +1750,47 @@ test("doctor reads disabled Claude plugins and dead marketplaces from both Claud
       knownPath,
       JSON.stringify(fromKnown, null, 2)
     );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor repair removes an owned stale Claude marketplace present only in settings", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const settingsPath = join(home, ".claude", "settings.json");
+  const legacyMarketplace = "sentropic-local-settings-only";
+  const legacyMarketplacePath = join(home, ".claude", "plugins", "marketplaces", legacyMarketplace);
+  try {
+    currentMarketplace(legacyMarketplacePath);
+    writeJson(settingsPath, {
+      custom: "preserve",
+      extraKnownMarketplaces: {
+        [legacyMarketplace]: {
+          source: { source: "directory", path: legacyMarketplacePath },
+          installLocation: legacyMarketplacePath
+        }
+      }
+    });
+
+    const calls = [];
+    const repaired = doctorHostInstallations({
+      home,
+      version,
+      repair: true,
+      runHostCommand: repairRunner(home, calls, version)
+    });
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+    const rerun = doctorHostInstallations({ home, version });
+
+    assert.equal(repaired.ok, true, JSON.stringify(repaired, null, 2));
+    assert.deepEqual(repaired.hosts.flatMap((host) => host.unrepaired), [], JSON.stringify(repaired, null, 2));
+    assert.equal(settings.custom, "preserve");
+    assert.equal(Object.hasOwn(settings.extraKnownMarketplaces, legacyMarketplace), false);
+    assert.ok(
+      calls.some((call) => call.join(" ") === "claude plugin marketplace add rhanka/h2a"),
+      JSON.stringify(calls, null, 2)
+    );
+    assert.equal(rerun.ok, true, JSON.stringify(rerun, null, 2));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
