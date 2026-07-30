@@ -5094,9 +5094,9 @@ function cmdDoctor(
     }
 
     // Config changes apply only when the host creates a new MCP stdio child.
-    // Presence gives doctor the only reliable local proof of an already-running
-    // H2A session. A session opened before its host config changed remains
-    // explicitly unrepaired until restart; never report it as clean.
+    // Presence can prove that an existing session predates a repair marker;
+    // that is the complete restart guarantee, not an attempted reconstruction
+    // of every artifact an external process may have loaded.
     try {
       const liveHostSessions = findLiveSessionsPredatingHostConfig(
         listPresence(root, { sweep: false }),
