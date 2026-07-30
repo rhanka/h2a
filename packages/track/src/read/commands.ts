@@ -3,12 +3,75 @@
 // the adapter supplying `baselineCommit` (CLI from git HEAD, MCP from a tool argument). This is what
 // makes CLI≡MCP parity STRUCTURAL (one layer), not coincidental.
 
-import { buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, wpTotals, type Format, type InlineOptions } from '../report/format.js'
-import { formatWpConductorHtml } from '../report/html.js'
+import { assertReportFormat, buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, reportPeriod, reportPeriodPayload, wpTotals, type Format, type InlineOptions, type ReportPeriodPayload, type ReportScopeProjection } from '../report/format.js'
 import type { ConductorMeta } from '../report/format.js'
-import type { QueryFilter, ReportOptions } from '../report/build.js'
+import type { QueryFilter, Report, ReportOptions } from '../report/build.js'
 import type { StatusLevel } from '../report/status-by-level.js'
-import type { TrackReader } from './contract.js'
+import type { WpNode } from '../report/rollup.js'
+import type { ReportSnapshot, TrackReader } from './contract.js'
+
+/** A CLI-resolved selector. Dates are already absolute instants; refs are full commit ids when applicable. */
+export interface ReportPeriodSelection {
+  requested: string
+  from?: string
+  to?: string
+  fromRef: string | null
+  toRef: string | null
+}
+
+interface ReportPeriodProjection {
+  payload: ReportPeriodPayload
+  deliveredItemIds: ReadonlySet<string>
+}
+
+/**
+ * Project a requested time interval from the COMPLETE snapshot. The report's state was folded before this
+ * runs; filtering events here can therefore change FAIT but never make a container or open work disappear.
+ */
+function periodProjection(
+  snapshot: ReportSnapshot,
+  selection: ReportPeriodSelection | undefined,
+  now?: string,
+): ReportPeriodProjection {
+  const selected = selection !== undefined
+  let from = selection?.from ?? snapshot.logWindow.from
+  const to = selection?.to ?? (selected ? snapshot.logWindow.to : now ?? snapshot.logWindow.to)
+  let fromMs = from === undefined ? undefined : Date.parse(from)
+  const toMs = to === undefined ? undefined : Date.parse(to)
+  // Every resolved period is ordered at this one boundary. A caller-pinned clock before the journal makes
+  // an honest empty whole-log interval; an explicit reversed selector remains invalid.
+  if (fromMs !== undefined && toMs !== undefined && fromMs > toMs) {
+    if (selection === undefined && now !== undefined) {
+      from = to
+      fromMs = toMs
+    } else if (selection?.from !== undefined && selection.to === undefined) {
+      throw new Error('--since must not be after the journal head')
+    } else {
+      throw new Error('resolved report period must not end before it begins')
+    }
+  }
+  const events = snapshot.events.filter((event) => {
+    const at = Date.parse(event.at)
+    return (fromMs === undefined || at >= fromMs) && (toMs === undefined || at <= toMs)
+  })
+  const deliveredItemIds = new Set(
+    events
+      .filter((event) => event.aggregate === 'item' && event.type === 'realization.transition' && event.payload['to'] === 'done')
+      .map((event) => event.aggregateId),
+  )
+  return {
+    payload: {
+      requested: selection?.requested ?? null,
+      ...(from !== undefined ? { from } : {}),
+      ...(to !== undefined ? { to } : {}),
+      fromRef: selection?.fromRef ?? null,
+      toRef: selection?.toRef ?? null,
+      eventsInWindow: events.length,
+      eventsTotal: snapshot.events.length,
+    },
+    deliveredItemIds,
+  }
+}
 
 /**
  * `report` rendered exactly as the CLI renders it (SPEC §7).
@@ -28,18 +91,92 @@ import type { TrackReader } from './contract.js'
  * the same bytes.
  */
 function conductorMeta(
-  reader: TrackReader,
   options: ReportOptions,
+  snapshot: ReportSnapshot,
   now?: string,
   subWp?: boolean,
+  scopeProjection?: ReportScopeProjection,
+  period?: ReportPeriodProjection,
+  windowedDeliveries = false,
 ): ConductorMeta {
-  const window = reader.logWindow()
+  const window = snapshot.logWindow
+  const revision = snapshot.cursor
   return {
     baselineCommit: options.baselineCommit,
     ...(window.from !== undefined ? { logFrom: window.from } : {}),
     ...(window.to !== undefined ? { logTo: window.to } : {}),
+    journalRevision: { events: revision.count, head: revision.head },
     ...(now !== undefined ? { now } : {}),
     ...(subWp === true ? { subWp } : {}),
+    ...(scopeProjection !== undefined ? { scopeProjection } : {}),
+    ...(period !== undefined ? { periodWindow: period.payload } : {}),
+    ...(windowedDeliveries ? { deliveredItemIds: period?.deliveredItemIds ?? new Set<string>() } : {}),
+  }
+}
+
+export interface ScopedReportProjection {
+  report: Report
+  scope: ReportScopeProjection
+}
+
+function flattenWpTree(nodes: readonly WpNode[]): WpNode[] {
+  const flat: WpNode[] = []
+  const walk = (node: WpNode): void => {
+    flat.push(node)
+    for (const child of node.children) walk(child)
+  }
+  for (const node of nodes) walk(node)
+  return flat
+}
+
+/**
+ * Read-only `report --scope` projection. A selector is exact and may name a container id, assigned
+ * code, or derived label; a match against more than one container fails rather than drifting after a
+ * positional-label renumbering. The selected root carries its complete nested subtree.
+ */
+export function projectReportScope(report: Report, selector: string): ScopedReportProjection {
+  const tree = report.wpTree ?? []
+  const allNodes = flattenWpTree(tree)
+  const needle = selector.trim()
+  const exactCodeMatches = allNodes.filter((node) => node.code === selector)
+  if (needle === '' && exactCodeMatches.length === 0) throw new Error('scope selector must not be empty')
+  const matches = allNodes.filter((node) => node.id === needle || node.code === selector || node.label === needle)
+  if (matches.length === 0) {
+    throw new Error(`unknown scope selector: ${selector} (use an exact container id, assigned code, or derived label)`)
+  }
+  if (matches.length > 1) {
+    throw new Error(`ambiguous scope selector: ${selector} (${matches.map((node) => `${node.label} (${node.id})`).join(', ')})`)
+  }
+  const selected = matches[0]!
+  const selectedNodes = flattenWpTree([selected])
+  const leafIds = new Set(selectedNodes.flatMap((node) => node.leaves.map((leaf) => leaf.id)))
+  const decisionRefs = new Set(
+    selectedNodes.flatMap((node) => node.leaves.flatMap((leaf) => leaf.openBlockers))
+      .filter((blocker) => blocker.kind === 'decision' && blocker.ref !== undefined)
+      .map((blocker) => blocker.ref!),
+  )
+  const decisions = report.decisions?.filter((decision) => decisionRefs.has(decision.id))
+  const buckets = {
+    AWAITED: report.buckets.AWAITED.filter((row) => leafIds.has(row.id)),
+    DROPPED: report.buckets.DROPPED.filter((row) => leafIds.has(row.id)),
+    DONE: report.buckets.DONE.filter((row) => leafIds.has(row.id)),
+    'TO-DO': report.buckets['TO-DO'].filter((row) => leafIds.has(row.id)),
+  }
+  const projectedRows = allNodes.length + (report.outsideRollup?.length ?? 0) + (report.decisions?.length ?? 0)
+  const scopedRows = selectedNodes.length + (decisions?.length ?? 0)
+  return {
+    report: {
+      buckets,
+      ...(decisions !== undefined ? { decisions } : {}),
+      wpTree: [selected],
+    },
+    scope: {
+      selector: exactCodeMatches.includes(selected) ? selector : needle,
+      id: selected.id,
+      label: selected.label,
+      includes: 'subtree',
+      excludedProjectionRows: projectedRows - scopedRows,
+    },
   }
 }
 
@@ -49,9 +186,18 @@ export function reportText(
   format: Format,
   now?: string,
   subWp?: boolean,
+  scopeSelector?: string,
+  periodSelection?: ReportPeriodSelection,
 ): string {
-  const report = reader.report(options)
-  const meta = conductorMeta(reader, options, now, subWp)
+  assertReportFormat(format)
+  const snapshot = reader.reportSnapshot(options)
+  const globalReport = snapshot.report
+  const scoped = scopeSelector === undefined ? undefined : projectReportScope(globalReport, scopeSelector)
+  const report = scoped?.report ?? globalReport
+  const projection = periodProjection(snapshot, periodSelection, now)
+  const meta = conductorMeta(options, snapshot, now, subWp, scoped?.scope, projection, periodSelection !== undefined)
+  const period = reportPeriod(meta)
+  const payload = reportPeriodPayload(meta)
 
   if (options.wpTree && report.wpTree !== undefined) {
     if (format === 'json') {
@@ -59,9 +205,15 @@ export function reportText(
       // A3: `--active-roster` is a HUMAN-render option only — JSON ALWAYS carries the full forest (every node
       // + its `terminal` flag) so a machine consumer filters terminal roots itself.
       const view = report.wpTree.length > 0
-        ? buildWpConductorView(report.wpTree, report.decisions ?? [], report.outsideRollup, 'global', meta)
+        ? buildWpConductorView(
+            report.wpTree,
+            report.decisions ?? [],
+            report.outsideRollup,
+            scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
+            meta,
+          )
         : undefined
-      return `${JSON.stringify({ ...report, wpTotals: wpTotals(report.wpTree, report.outsideRollup), ...(view !== undefined ? { view } : {}) }, null, 2)}\n`
+      return `${JSON.stringify({ ...report, period: payload, wpTotals: wpTotals(report.wpTree, report.outsideRollup), ...(view !== undefined ? { view } : {}) }, null, 2)}\n`
     }
     // text/md: the rendered conductor tables when there is an actual WP forest. WP-codes A3 (DESIGN §A3) —
     // `--active-roster` OMITS terminal (DROPPED) ROOTS from the rendered roster. The ordinals were assigned in
@@ -70,15 +222,16 @@ export function reportText(
     if (roster.length > 0) {
       return formatWpConductor(
         roster, format, report.decisions, report.outsideRollup,
-        options.activeRoster === true ? 'roster actif (terminal exclu)' : 'global',
+        options.activeRoster === true ? 'roster actif (terminal exclu)' : scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
         meta,
       )
     }
     // No WP containers yet (or every root filtered out): keep the report action-oriented, not a flat dump.
-    return formatActionReport(report, format)
+    return `${period.label}\n\n${formatActionReport(report, format)}\n`
   }
 
-  return formatReport(report, format)
+  if (format === 'json') return `${JSON.stringify({ ...report, period: payload }, null, 2)}\n`
+  return `${period.label}\n\n${formatReport(report, format)}`
 }
 
 /**
@@ -86,8 +239,17 @@ export function reportText(
  * `reportText`; only the presentation differs (cohort-collapse + width truncation live in the renderer). A
  * WP-less repo falls back to the concise action report (never a flat dump).
  */
-export function reportInline(reader: TrackReader, options: ReportOptions, inline: InlineOptions = {}): string {
-  const report = reader.report(options)
+export function reportInline(
+  reader: TrackReader,
+  options: ReportOptions,
+  inline: InlineOptions = {},
+  now?: string,
+  periodSelection?: ReportPeriodSelection,
+): string {
+  const snapshot = reader.reportSnapshot(options)
+  const report = snapshot.report
+  const projection = periodProjection(snapshot, periodSelection, now)
+  const meta = conductorMeta(options, snapshot, now, undefined, undefined, projection, periodSelection !== undefined)
   if (report.wpTree !== undefined && report.wpTree.length > 0) {
     const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
     if (roster.length > 0) {
@@ -96,37 +258,11 @@ export function reportInline(reader: TrackReader, options: ReportOptions, inline
         report.decisions ?? [],
         { ...inline, ...(options.activeRoster === true ? { totalScope: 'roster actif (terminal exclu)' } : {}) },
         report.outsideRollup,
+        meta,
       )
     }
   }
-  return formatActionReport(report, 'text')
-}
-
-/**
- * report-revamp §C — the DS-compatible HTML FRAGMENT render (`--format html`). Reuses the SHARED presenter
- * contract (the same path focus's `renderHtml` uses) over the SAME `ReportView` the JSON path exposes. A
- * WP-less repo still yields a valid (empty-state) fragment via the same presenter.
- */
-export function reportHtml(
-  reader: TrackReader,
-  options: ReportOptions,
-  now?: string,
-  subWp?: boolean,
-): string {
-  const report = reader.report(options)
-  const meta = conductorMeta(reader, options, now, subWp)
-  const decisions = report.decisions ?? []
-  if (report.wpTree !== undefined && report.wpTree.length > 0) {
-    const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
-    if (roster.length > 0) {
-      return `${formatWpConductorHtml(
-        roster, decisions, undefined, report.outsideRollup,
-        options.activeRoster === true ? 'roster actif (terminal exclu)' : 'global',
-        meta,
-      )}\n`
-    }
-  }
-  return `${formatWpConductorHtml([], decisions, undefined, report.outsideRollup, 'global', meta)}\n`
+  return `${reportPeriod(meta).label}\n\n${formatActionReport(report, 'text')}\n`
 }
 
 /**
@@ -134,11 +270,15 @@ export function reportHtml(
  * dossier. Without it a report the owner can read is a report they cannot act on; with it, no ULID has to
  * appear in a column to keep a row dispatchable.
  */
-export function resolveHandle(reader: TrackReader, options: ReportOptions, handle: string): string {
-  const report = reader.report({ ...options, decisions: true, wpTree: true })
+export function resolveHandle(reader: TrackReader, options: ReportOptions, handle: string, scopeSelector?: string): string {
+  const snapshot = reader.reportSnapshot({ ...options, decisions: true, wpTree: true })
+  const globalReport = snapshot.report
+  const scoped = scopeSelector === undefined ? undefined : projectReportScope(globalReport, scopeSelector)
+  const report = scoped?.report ?? globalReport
   const view = buildWpConductorView(
-    report.wpTree ?? [], report.decisions ?? [], report.outsideRollup, 'global',
-    conductorMeta(reader, options),
+    report.wpTree ?? [], report.decisions ?? [], report.outsideRollup,
+    scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
+    conductorMeta(options, snapshot, undefined, undefined, scoped?.scope),
   )
   const wanted = handle.trim().replace(/^\[|\]$/gu, '').toUpperCase()
   const hit = view.handles.find((h) => h.handle.toUpperCase() === wanted)
