@@ -688,7 +688,7 @@ export interface ReportView {
 export function directivePhrase(d: Directive): string {
   // §A6 — a directive renders a CONCRETE next move + the actor, and NAMES what blocks (the info the
   // `sujet` column does NOT already carry). All interpolated titles/refs are RAW here — the render layer
-  // (table `esc`, inline `clean`, html `escapeHtml`) escapes them (§A4). A decision surfaces as a "décision"
+  // (table `esc`, inline `clean`) escapes them (§A4). A decision surfaces as a "décision"
   // line ONLY when it genuinely blocks (mode `human-decision`); otherwise the phrase préconise a step.
   //
   // Unified presentation (spec 2026-07-11) — the action CLAUSE is the shared canonical `stepActionFr`, so
