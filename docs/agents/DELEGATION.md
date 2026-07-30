@@ -88,13 +88,22 @@ document and hope" — the launch prompt is the one thing a subcontractor cannot
 is written per task, so it is never a stale copy. When
 `fix/h2a-run-prompt-delivery` merges, the paste form becomes correct there too.
 
-Then **verify, before you consider the work started** — three checks, in this order:
+Then **verify, before you consider the work started.** All four together, because no single
+check is sufficient — `track` measured eleven launches in one night and **not one worked
+without manual intervention**:
 
-1. The **composer is empty**. A prompt still sitting in the input box was never submitted.
-2. The **child** process burns CPU — `ps --ppid <session.pid>`. `session.pid` is the wrapper
+1. The composer sits at its **placeholder**. On its own this proves nothing: a prompt
+   delivered before the TUI existed leaves **no trace in the composer either**, so an empty
+   box is ambiguous between *submitted* and *never arrived*. This is why the list is
+   conjunctive.
+2. A visible **"Working"** indicator.
+3. The **child** process burns CPU — `ps --ppid <session.pid>`. `session.pid` is the wrapper
    and reads 0 s no matter what; measuring it proves nothing.
-3. The last line of your preamble is visible in the transcript. If line 13 is missing, the
+4. The **last line** of your preamble appears in the transcript. If line 13 is missing, the
    prompt was truncated and the rules at the end never arrived.
+
+Expect to intervene. Delegation through the launcher is not autonomous today: budget a
+keystroke and a check, not a fire-and-forget.
 
 A launch that reports `started` is not a launch that ran (RECALL.md REC-10, REC-14). And
 never infer the routing from what you requested: read what the launch returned — `required`
