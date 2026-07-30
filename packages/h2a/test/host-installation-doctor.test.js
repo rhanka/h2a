@@ -507,7 +507,8 @@ test("doctor repairs a cached enabled Codex plugin from an owned legacy marketpl
     const codex = readFileSync(join(home, ".codex", "config.toml"), "utf8");
     assert.match(codex, /\[plugins\."h2a@sentropic"\]/);
     assert.match(codex, /source = "https:\/\/github\.com\/rhanka\/h2a\.git"/);
-    assert.doesNotMatch(codex, /sentropic-local|\[mcp_servers\.(h2a|track)\]/);
+    assert.doesNotMatch(codex, /\[marketplaces\.sentropic-local|\[mcp_servers\.(h2a|track)\]/);
+    assert.match(codex, /\[plugins\."h2a-local-codex-08518@sentropic-local-codex-08518"\]\nenabled = false/);
     assert.ok(existsSync(join(home, ".codex", "plugins", "cache", "sentropic", "h2a", VERSION)));
     assert.ok(existsSync(codexLegacyCacheRoot), "v1 retains the owned Codex legacy cache as an informational orphan");
 
@@ -857,44 +858,63 @@ test("doctor leaves an unproven canonical Codex marketplace untouched", () => {
   }
 });
 
-test("doctor keeps a vanished unproven legacy Codex mirror blocking and byte-identical", () => {
+test("doctor disables a source-deleted legacy Codex plugin after verifying the canonical replacement", () => {
   const { home, version } = cleanShippedLayoutHome();
   const codexPath = join(home, ".codex", "config.toml");
   const legacyPlugin = "h2a-local-codex-08518@sentropic-local-codex-08518";
   const legacyMarketplace = "sentropic-local-codex-08518";
+  const legacyCache = join(home, ".codex", "plugins", "cache", legacyMarketplace, "h2a-local-codex-08518", "0.85.18");
   try {
+    rmSync(join(home, ".codex", "plugins", "cache", "sentropic"), { recursive: true, force: true });
+    rmSync(join(home, ".codex", ".tmp", "marketplaces", "sentropic"), { recursive: true, force: true });
     writeFileSync(
       codexPath,
-      `${readFileSync(codexPath, "utf8").trimEnd()}\n\n` +
-        `[plugins."${legacyPlugin}"]\n` +
-        "enabled = true\n\n" +
-        `[marketplaces.${legacyMarketplace}]\n` +
+      `[marketplaces.${legacyMarketplace}]\n` +
         'source_type = "local"\n' +
-        'source = "/deleted/tmp/deploy-08518"\n'
+        'source = "/deleted/tmp/deploy-08518"\n\n' +
+        `[plugins."${legacyPlugin}"]\n` +
+        "enabled = true\n"
     );
-    const before = readFileSync(codexPath, "utf8");
+    mkdirSync(join(legacyCache, ".codex-plugin"), { recursive: true });
+    writeJson(join(legacyCache, ".codex-plugin", "plugin.json"), { name: "h2a-local-codex-08518", version: "0.85.18" });
+    writeJson(join(legacyCache, ".mcp.json"), {
+      mcpServers: { h2a: { command: "node", args: ["/deleted/tmp/deploy-08518/old-mcp.js"] } }
+    });
     const calls = [];
     const report = doctorHostInstallations({
       home,
       version,
       repair: true,
-      runHostCommand: (command, args) => {
-        calls.push([command, ...args]);
-        return { ok: true };
-      }
+      runHostCommand: repairRunner(home, calls, version)
     });
     const codex = report.hosts.find((host) => host.host === "codex");
+    const repairedConfig = readFileSync(codexPath, "utf8");
     const ownershipRefusals = (codex?.unrepaired ?? []).filter((entry) => entry.code === "ownership-unverified");
 
     assert.equal(report.ok, false, JSON.stringify(report, null, 2));
-    assert.equal(ownershipRefusals.length, 2, JSON.stringify(report, null, 2));
-    assert.deepEqual(
-      ownershipRefusals.map((entry) => entry.message.match(/legacy (marketplace|plugin)/)?.[1]).sort(),
-      ["marketplace", "plugin"]
+    assert.ok(
+      calls.some((call) => call.join(" ") === "codex plugin marketplace add rhanka/h2a --ref main"),
+      JSON.stringify(calls, null, 2)
     );
-    assert.equal(readFileSync(codexPath, "utf8"), before, "unproven legacy tables must remain byte-identical");
-    assert.deepEqual(codex?.changed, [], JSON.stringify(report, null, 2));
-    assert.equal(calls.some((call) => call.includes("remove") || call.includes("uninstall")), false);
+    assert.ok(calls.some((call) => call.join(" ") === "codex plugin add h2a@sentropic"), JSON.stringify(calls, null, 2));
+    assert.match(repairedConfig, new RegExp(`\\[plugins\\."${legacyPlugin}"\\]\\nenabled = false`));
+    assert.match(repairedConfig, new RegExp(`\\[marketplaces\\.${legacyMarketplace.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`));
+    assert.ok(
+      codex?.plannedActions.includes(`set Codex legacy plugin ${legacyPlugin} enabled = false (was true)`),
+      JSON.stringify(codex, null, 2)
+    );
+    assert.ok(existsSync(legacyCache), "the legacy cache must not be deleted without content proof");
+    assert.ok(
+      codex?.unrepaired.some((entry) => entry.code === "ownership-unverified" && /legacy marketplace/.test(entry.message)),
+      JSON.stringify(codex, null, 2)
+    );
+    assert.equal(ownershipRefusals.length, 1, JSON.stringify(codex, null, 2));
+    assert.equal(
+      codex?.unrepaired.some((entry) => entry.code === "ownership-unverified" && /legacy plugin/.test(entry.message)),
+      false,
+      JSON.stringify(codex, null, 2)
+    );
+    assert.equal(codex?.findings.some((entry) => entry.code === "plugin-stale"), false, JSON.stringify(codex, null, 2));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
