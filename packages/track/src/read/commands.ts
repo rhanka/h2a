@@ -3,13 +3,64 @@
 // the adapter supplying `baselineCommit` (CLI from git HEAD, MCP from a tool argument). This is what
 // makes CLI≡MCP parity STRUCTURAL (one layer), not coincidental.
 
-import { buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, wpTotals, type Format, type InlineOptions, type ReportScopeProjection } from '../report/format.js'
+import { buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, reportPeriod, reportPeriodPayload, wpTotals, type Format, type InlineOptions, type ReportPeriodPayload, type ReportScopeProjection } from '../report/format.js'
 import { formatWpConductorHtml } from '../report/html.js'
 import type { ConductorMeta } from '../report/format.js'
 import type { QueryFilter, Report, ReportOptions } from '../report/build.js'
 import type { StatusLevel } from '../report/status-by-level.js'
 import type { WpNode } from '../report/rollup.js'
 import type { ReportSnapshot, TrackReader } from './contract.js'
+
+/** A CLI-resolved selector. Dates are already absolute instants; refs are full commit ids when applicable. */
+export interface ReportPeriodSelection {
+  requested: string
+  from?: string
+  to?: string
+  fromRef: string | null
+  toRef: string | null
+}
+
+interface ReportPeriodProjection {
+  payload: ReportPeriodPayload
+  deliveredItemIds: ReadonlySet<string>
+}
+
+/**
+ * Project a requested time interval from the COMPLETE snapshot. The report's state was folded before this
+ * runs; filtering events here can therefore change FAIT but never make a container or open work disappear.
+ */
+function periodProjection(
+  snapshot: ReportSnapshot,
+  selection: ReportPeriodSelection | undefined,
+  now?: string,
+): ReportPeriodProjection {
+  const selected = selection !== undefined
+  const from = selection?.from ?? snapshot.logWindow.from
+  const to = selection?.to ?? (selected ? snapshot.logWindow.to : now ?? snapshot.logWindow.to)
+  const fromMs = from === undefined ? undefined : Date.parse(from)
+  const toMs = to === undefined ? undefined : Date.parse(to)
+  const events = snapshot.events.filter((event) => {
+    const at = Date.parse(event.at)
+    return (fromMs === undefined || at >= fromMs) && (toMs === undefined || at <= toMs)
+  })
+  const deliveredItemIds = new Set(
+    events
+      .filter((event) => event.aggregate === 'item' && event.type === 'realization.transition' && event.payload['to'] === 'done')
+      .map((event) => event.aggregateId),
+  )
+  return {
+    payload: {
+      requested: selection?.requested ?? null,
+      ...(from !== undefined ? { from } : {}),
+      ...(to !== undefined ? { to } : {}),
+      fromRef: selection?.fromRef ?? null,
+      toRef: selection?.toRef ?? null,
+      eventsInWindow: events.length,
+      eventsTotal: snapshot.events.length,
+    },
+    deliveredItemIds,
+  }
+}
 
 /**
  * `report` rendered exactly as the CLI renders it (SPEC §7).
@@ -34,6 +85,8 @@ function conductorMeta(
   now?: string,
   subWp?: boolean,
   scopeProjection?: ReportScopeProjection,
+  period?: ReportPeriodProjection,
+  windowedDeliveries = false,
 ): ConductorMeta {
   const window = snapshot.logWindow
   const revision = snapshot.cursor
@@ -45,6 +98,8 @@ function conductorMeta(
     ...(now !== undefined ? { now } : {}),
     ...(subWp === true ? { subWp } : {}),
     ...(scopeProjection !== undefined ? { scopeProjection } : {}),
+    ...(period !== undefined ? { periodWindow: period.payload } : {}),
+    ...(windowedDeliveries ? { deliveredItemIds: period?.deliveredItemIds ?? new Set<string>() } : {}),
   }
 }
 
@@ -121,12 +176,16 @@ export function reportText(
   now?: string,
   subWp?: boolean,
   scopeSelector?: string,
+  periodSelection?: ReportPeriodSelection,
 ): string {
   const snapshot = reader.reportSnapshot(options)
   const globalReport = snapshot.report
   const scoped = scopeSelector === undefined ? undefined : projectReportScope(globalReport, scopeSelector)
   const report = scoped?.report ?? globalReport
-  const meta = conductorMeta(options, snapshot, now, subWp, scoped?.scope)
+  const projection = periodProjection(snapshot, periodSelection, now)
+  const meta = conductorMeta(options, snapshot, now, subWp, scoped?.scope, projection, periodSelection !== undefined)
+  const period = reportPeriod(meta)
+  const payload = reportPeriodPayload(meta)
 
   if (options.wpTree && report.wpTree !== undefined) {
     if (format === 'json') {
@@ -142,7 +201,7 @@ export function reportText(
             meta,
           )
         : undefined
-      return `${JSON.stringify({ ...report, wpTotals: wpTotals(report.wpTree, report.outsideRollup), ...(view !== undefined ? { view } : {}) }, null, 2)}\n`
+      return `${JSON.stringify({ ...report, period: payload, wpTotals: wpTotals(report.wpTree, report.outsideRollup), ...(view !== undefined ? { view } : {}) }, null, 2)}\n`
     }
     // text/md: the rendered conductor tables when there is an actual WP forest. WP-codes A3 (DESIGN §A3) —
     // `--active-roster` OMITS terminal (DROPPED) ROOTS from the rendered roster. The ordinals were assigned in
@@ -156,10 +215,11 @@ export function reportText(
       )
     }
     // No WP containers yet (or every root filtered out): keep the report action-oriented, not a flat dump.
-    return formatActionReport(report, format)
+    return `${period.label}\n\n${formatActionReport(report, format)}\n`
   }
 
-  return formatReport(report, format)
+  if (format === 'json') return `${JSON.stringify({ ...report, period: payload }, null, 2)}\n`
+  return `${period.label}\n\n${formatReport(report, format)}`
 }
 
 /**
@@ -167,8 +227,17 @@ export function reportText(
  * `reportText`; only the presentation differs (cohort-collapse + width truncation live in the renderer). A
  * WP-less repo falls back to the concise action report (never a flat dump).
  */
-export function reportInline(reader: TrackReader, options: ReportOptions, inline: InlineOptions = {}): string {
-  const report = reader.report(options)
+export function reportInline(
+  reader: TrackReader,
+  options: ReportOptions,
+  inline: InlineOptions = {},
+  now?: string,
+  periodSelection?: ReportPeriodSelection,
+): string {
+  const snapshot = reader.reportSnapshot(options)
+  const report = snapshot.report
+  const projection = periodProjection(snapshot, periodSelection, now)
+  const meta = conductorMeta(options, snapshot, now, undefined, undefined, projection, periodSelection !== undefined)
   if (report.wpTree !== undefined && report.wpTree.length > 0) {
     const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
     if (roster.length > 0) {
@@ -177,10 +246,11 @@ export function reportInline(reader: TrackReader, options: ReportOptions, inline
         report.decisions ?? [],
         { ...inline, ...(options.activeRoster === true ? { totalScope: 'roster actif (terminal exclu)' } : {}) },
         report.outsideRollup,
+        meta,
       )
     }
   }
-  return formatActionReport(report, 'text')
+  return `${reportPeriod(meta).label}\n\n${formatActionReport(report, 'text')}\n`
 }
 
 /**
@@ -193,10 +263,12 @@ export function reportHtml(
   options: ReportOptions,
   now?: string,
   subWp?: boolean,
+  periodSelection?: ReportPeriodSelection,
 ): string {
   const snapshot = reader.reportSnapshot(options)
   const report = snapshot.report
-  const meta = conductorMeta(options, snapshot, now, subWp)
+  const projection = periodProjection(snapshot, periodSelection, now)
+  const meta = conductorMeta(options, snapshot, now, subWp, undefined, projection, periodSelection !== undefined)
   const decisions = report.decisions ?? []
   if (report.wpTree !== undefined && report.wpTree.length > 0) {
     const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree

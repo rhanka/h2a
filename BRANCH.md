@@ -71,6 +71,17 @@
 - [x] Test: persisted owner, trimming, and blank-value rejection.
 - [x] Gate: `blocker raise --owner` records the supplied counterparty.
 
+## Lot 5 — answer the report about a period
+
+- [x] Accept `--since`, `--until`, and `--period today|week|month|all`; reject `--since` with `--period`.
+- [x] Resolve date and commit bounds at the CLI boundary while retaining `--commit` solely as the acceptance baseline.
+- [x] Fold the complete event log and filter only the report projection; never truncate the log or remove containers.
+- [x] Restitute requested and absolute bounds, refs, and in-window/total event counts in every report format.
+- [x] Make the existing short- and long-window contextual branches reachable; keep À-FAIRE independent of the period.
+- [x] Preserve the validated report shape and named golden files.
+- [x] Test: selector resolution, mutual exclusion, format parity, full-fold containment, FAIT windowing, and unchanged open-work projection.
+- [x] Gate: a short period with no `done` transition reports no deliveries without losing its workpackage tree.
+
 ## Feedback Loop
 
 - [ ] Owner UAT remains required before any item is claimed done.

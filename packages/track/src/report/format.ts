@@ -625,6 +625,20 @@ export interface ReportPeriod {
 }
 
 /**
+ * The additive JSON contract for a requested report window. Unlike the compact human header, this keeps
+ * absolute instants and full commit identities so another consumer can reproduce the exact projection.
+ */
+export interface ReportPeriodPayload {
+  requested: string | null
+  from?: string
+  to?: string
+  fromRef: string | null
+  toRef: string | null
+  eventsInWindow: number
+  eventsTotal: number
+}
+
+/**
  * The header carries the ACCEPTANCE BASELINE (which is NOT a window) and the period (which is). It never
  * carries bucket counters.
  */
@@ -730,6 +744,23 @@ function recentDoneLeaves(node: WpNode): WpNode['leaves'] {
   const walk = (n: WpNode): void => {
     for (const l of n.leaves) if (l.bucket === 'DONE') out.push(l)
     for (const c of n.children) walk(c)
+  }
+  walk(node)
+  return out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+}
+
+/**
+ * A period is a projection over the already-folded log, not a second state fold. When one is selected,
+ * FAIT names precisely the leaves that emitted `realization.transition → done` inside it. This deliberately
+ * includes a delivery subsequently reopened: the delivery happened during the asked period even though the
+ * item's current bucket is no longer DONE.
+ */
+function periodDoneLeaves(node: WpNode, deliveredItemIds: ReadonlySet<string> | undefined): WpNode['leaves'] {
+  if (deliveredItemIds === undefined) return recentDoneLeaves(node)
+  const out: WpNode['leaves'] = []
+  const walk = (n: WpNode): void => {
+    for (const leaf of n.leaves) if (deliveredItemIds.has(leaf.id)) out.push(leaf)
+    for (const child of n.children) walk(child)
   }
   walk(node)
   return out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
@@ -862,7 +893,27 @@ function isoDate(value: string | undefined): string | undefined {
 }
 
 /** Criterion 21 — the period, always bounded, always read from the log (plus the caller's clock). */
-function buildPeriod(meta: ConductorMeta): ReportPeriod {
+export function reportPeriod(meta: ConductorMeta): ReportPeriod {
+  if (meta.periodWindow !== undefined) {
+    const period = meta.periodWindow
+    const from = isoDate(period.from)
+    const to = isoDate(period.to)
+    if (period.requested === null) {
+      const toSource: ReportPeriod['toSource'] = meta.now !== undefined ? 'now' : meta.logTo !== undefined ? 'last-event' : 'unknown'
+      const suffix = toSource === 'last-event' ? ' (intégralité du journal, borne haute = dernier événement)' : ' (intégralité du journal)'
+      const label =
+        from === undefined || to === undefined
+          ? 'période : journal vide (aucun événement enregistré)'
+          : `période : ${from} → ${to}${suffix}`
+      return { ...(from !== undefined ? { from } : {}), ...(to !== undefined ? { to } : {}), toSource, label }
+    }
+    const selector = period.requested === 'all' ? 'intégralité du journal' : `sélecteur : ${period.requested ?? 'intégralité du journal'}`
+    const label =
+      from === undefined || to === undefined
+        ? 'période : journal vide (aucun événement enregistré)'
+        : `période : ${from} → ${to} (${selector}; ${period.eventsInWindow}/${period.eventsTotal} événements)`
+    return { ...(from !== undefined ? { from } : {}), ...(to !== undefined ? { to } : {}), toSource: 'unknown', label }
+  }
   const from = isoDate(meta.logFrom)
   const now = isoDate(meta.now)
   const last = isoDate(meta.logTo)
@@ -878,6 +929,23 @@ function buildPeriod(meta: ConductorMeta): ReportPeriod {
     ...(to !== undefined ? { to } : {}),
     toSource,
     label,
+  }
+}
+
+/** The raw period payload mirrors `reportPeriod` without reducing instants to calendar dates. */
+export function reportPeriodPayload(meta: ConductorMeta): ReportPeriodPayload {
+  if (meta.periodWindow !== undefined) return meta.periodWindow
+  const from = meta.logFrom
+  const to = meta.now ?? meta.logTo
+  const events = meta.journalRevision?.events ?? 0
+  return {
+    requested: null,
+    ...(from !== undefined ? { from } : {}),
+    ...(to !== undefined ? { to } : {}),
+    fromRef: null,
+    toRef: null,
+    eventsInWindow: events,
+    eventsTotal: events,
   }
 }
 
@@ -915,6 +983,10 @@ export interface ConductorMeta {
   logTo?: string
   /** Stable journal cursor for the projection; it distinguishes reports rendered at different log heads. */
   journalRevision?: { events: number; head: string | null }
+  /** Resolved period bounds and projection coverage, all derived from the same report snapshot. */
+  periodWindow?: ReportPeriodPayload
+  /** Item ids with a `realization.transition → done` inside `periodWindow`; absent preserves legacy FAIT. */
+  deliveredItemIds?: ReadonlySet<string>
   /**
    * The caller's clock, injected at ITS boundary so this module stays clockless and byte-reproducible
    * (same pattern as `workspace-activity --now`). Present ⇒ the window's upper bound is `now`.
@@ -965,7 +1037,7 @@ export function buildWpConductorView(
   // into their root — their leaves already roll up (`openLeaves`/`recentDoneLeaves` walk children), so
   // nothing is lost; only their row disappears. The aggregation is DECLARED in the header, like every
   // other compression in this report.
-  const period = buildPeriod(meta)
+  const period = reportPeriod(meta)
   const days = windowDays(period)
   const subWpDetail = meta.subWp === true || (days !== undefined && days < LONG_WINDOW_DAYS)
   const rowNodes = subWpDetail ? wpNodes : [...tree]
@@ -1009,14 +1081,17 @@ export function buildWpConductorView(
   const handles: ReportHandle[] = []
 
   // ---- FAIT ---------------------------------------------------------------------------------------
-  const outsideDone = outsideRollup.filter((r) => r.bucket === 'DONE' || r.bucket === 'DROPPED')
+  const outsideDone = meta.deliveredItemIds === undefined
+    ? outsideRollup.filter((r) => r.bucket === 'DONE' || r.bucket === 'DROPPED')
+    : outsideRollup.filter((r) => meta.deliveredItemIds!.has(r.id))
+  const periodLeaves = (node: WpNode): WpNode['leaves'] => periodDoneLeaves(node, meta.deliveredItemIds)
   const doneRows: Record<string, string>[] = [
     {
       scope: totalScope,
       progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`,
       lastActions: lastActionsCell(
         wpNodes
-          .flatMap((n) => n.leaves.filter((l) => l.bucket === 'DONE'))
+          .flatMap((n) => meta.deliveredItemIds === undefined ? n.leaves.filter((l) => l.bucket === 'DONE') : n.leaves.filter((l) => meta.deliveredItemIds!.has(l.id)))
           .sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
           .map((l) => clean(l.title)),
       ),
@@ -1025,17 +1100,19 @@ export function buildWpConductorView(
     // window is short or the owner asked. `recentDoneLeaves` already walks children, so a root's row
     // carries its sub-levels' deliveries rather than losing them.
     ...rowNodes
-      .filter((n) => n.done > 0)
+      .filter((n) => periodLeaves(n).length > 0)
       .map((n) => ({
         scope: wpName(n),
         progress: `${n.done}/${n.active} (${pctStr(n.pct)})`,
-        lastActions: lastActionsCell(recentDoneLeaves(n).map((l) => clean(l.title))),
+        lastActions: lastActionsCell(periodLeaves(n).map((l) => clean(l.title))),
       })),
     ...(outsideDone.length > 0
       ? [{
           scope: 'hors WP',
           progress: (() => {
-            const done = outsideRollup.filter((r) => r.bucket === 'DONE').length
+            const done = meta.deliveredItemIds === undefined
+              ? outsideRollup.filter((r) => r.bucket === 'DONE').length
+              : outsideRollup.filter((r) => meta.deliveredItemIds!.has(r.id)).length
             const active = outsideRollup.filter((r) => r.bucket !== 'DROPPED').length
             return `${done}/${active} (${pctStr(active === 0 ? 'n/a' : Math.round((done / active) * 100))})`
           })(),
@@ -1633,10 +1710,11 @@ export function formatWpConductorInline(
   decisions: readonly DecisionRow[] = [],
   opts: InlineOptions = {},
   outsideRollup: readonly ReportRow[] = [],
+  meta?: ConductorMeta,
 ): string {
   const width = Math.min(240, Math.max(40, opts.width ?? 80))
   const maxDir = Math.max(1, opts.maxDirectives ?? 10)
-  const view = buildWpConductorView(tree, decisions, outsideRollup)
+  const view = buildWpConductorView(tree, decisions, outsideRollup, 'global', meta)
   const totals = wpTotals(tree, outsideRollup)
   const wpName = (n: WpNode): string => `${n.label} · ${clean(stripWpPrefix(n.title))}`
   const wpNodes: WpNode[] = []
@@ -1648,6 +1726,10 @@ export function formatWpConductorInline(
   }
   collectWpNodes(tree)
   const lines: string[] = []
+
+  // INLINE is still a report rendering. The CLI supplies meta and therefore names the exact period; direct
+  // presenter callers that have no reporting context retain their existing compact-only contract.
+  if (meta !== undefined) lines.push(truncateLine(view.header.period.label, width))
 
   // FAIT — one line: global progress + the closed WPs (by label).
   const closed = wpNodes.filter((n) => n.pct === 100).map((n) => n.label)

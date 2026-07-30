@@ -58,7 +58,7 @@ import { buildSnapshot, type SnapshotOptions, type SnapshotV1 } from '../report/
  * shapes it returns may only GROW (new methods / new optional fields); nothing is removed or
  * repurposed without a major bump. Consumers gate on `reader.contractVersion`.
  */
-export const READ_CONTRACT_VERSION = '1.23.0' // +reportSnapshot: rows and journal revision share one log snapshot
+export const READ_CONTRACT_VERSION = '1.24.0' // +reportSnapshot.events: window projection shares the complete folded log
 
 /** Provenance of the last `branch.imported` for a locator (drawn from the raw event log). */
 export interface BranchProvenance {
@@ -306,6 +306,8 @@ export interface ReportSnapshot {
   report: Report
   logWindow: { from?: string; to?: string; events: number }
   cursor: Cursor
+  /** The complete immutable log used for `report`; period filters project this, never truncate the fold. */
+  events: readonly TrackEvent[]
 }
 
 /** Origin of a write, DERIVED PURELY from `prov.proposed` (true ⇒ machine/LLM-proposed; false ⇒ human). */
@@ -663,6 +665,7 @@ export class TrackReader {
         events: events.length,
       },
       cursor: { head: last?.contentHash ?? null, count: events.length },
+      events,
     }
   }
 
