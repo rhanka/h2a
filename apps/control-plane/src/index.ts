@@ -1,5 +1,5 @@
-import { serve } from "@hono/node-server";
-import { createNodeWebSocket } from "@hono/node-ws";
+import { serve, upgradeWebSocket } from "@hono/node-server";
+import { WebSocketServer } from "ws";
 import {
   DockerSessionProvisioner,
   InMemoryProvisioner,
@@ -62,14 +62,9 @@ export type ControlPlaneOptions = {
   llmGatewayUrl?: string;
 };
 
-type InjectWebSocket = ReturnType<
-  typeof createNodeWebSocket
->["injectWebSocket"];
-
 type StorageAccessMode = "ReadWriteOnce" | "ReadWriteMany";
 
 export type ControlPlaneApp = Hono<{ Variables: ValidationVars }> & {
-  injectWebSocket: InjectWebSocket;
   /** Test seam: build the wired agent-socket events (sharing the live store +
    * reconcile hook) so a `session.announce` can be driven without a real WS
    * upgrade. `userId` defaults to off-mode "default". */
@@ -104,7 +99,6 @@ export function createControlPlane(
   }
   const tenantProvisioner =
     options.tenantProvisioner ?? tenantProvisionerFromEnv();
-  const nodeWs = createNodeWebSocket({ app });
 
   // Permissive CORS for the POC operator-UI. Tighten origin allowlist before
   // exposing the control-plane to a public Ingress.
@@ -153,7 +147,7 @@ export function createControlPlane(
 
   app.get(
     "/sessions/:id/agent",
-    nodeWs.upgradeWebSocket(async (c) => {
+    upgradeWebSocket(async (c) => {
       const id = c.req.param("id") ?? "";
       // Derive the announce owner from the WS upgrade's auth context. Off-mode
       // → "default". TODO(bearer-ws-auth): the session-agent does not yet send
@@ -185,7 +179,7 @@ export function createControlPlane(
   // /agent is handled (both bypass the HTTP-layer requireAuth middleware).
   app.get(
     "/sessions/:id/terminal",
-    nodeWs.upgradeWebSocket(async (c) => {
+    upgradeWebSocket(async (c) => {
       const id = c.req.param("id") ?? "";
       const ctx = await resolveTerminalContext(c.req.raw, id, {
         store,
@@ -237,7 +231,6 @@ export function createControlPlane(
 
   app.route("/lineage-leases", createLineageLeasesRouter({ ajv }));
 
-  app.injectWebSocket = nodeWs.injectWebSocket;
   app.buildAgentSocketEvents = (sessionId: string, userId = "default") => {
     const socketDeps: AgentSocketDeps = {
       store,
@@ -360,8 +353,14 @@ export async function startControlPlane(): Promise<void> {
   const port = Number(process.env.PORT ?? "8080");
   const hostname = process.env.HOST ?? "0.0.0.0";
 
-  const server = serve({ fetch: app.fetch, port, hostname });
-  app.injectWebSocket(server);
+  // @hono/node-server v2 owns the upgrade: the ws server is passed at serve()
+  // time instead of being injected into the listener afterwards.
+  serve({
+    fetch: app.fetch,
+    port,
+    hostname,
+    websocket: { server: new WebSocketServer({ noServer: true }) },
+  });
 }
 
 if (process.env.NODE_ENV !== "test") {
