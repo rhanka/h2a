@@ -786,7 +786,9 @@ function inspectCodex(home: string, version: string): MutableHostReport {
   if (!versions.includes(version) || !cacheVersionMatches(currentCachePath, version)) {
     report.findings.push(finding("version-skew", `Codex h2a cache is not at npm CLI version ${version}.`, cachePath));
   }
-  const staleVersions = versions.filter((entry) => entry !== version);
+  const staleVersions = versions.filter(
+    (entry) => entry !== version && isOwnedPlugin(join(cachePath, H2A_MARKETPLACE_NAME, "h2a", entry))
+  );
   const legacyCaches = listDirectories(cachePath).filter(
     (entry) => isLegacySentropicName(entry) && isOwnedLegacyCacheRoot(join(cachePath, entry))
   );
@@ -874,7 +876,9 @@ function inspectClaude(home: string, version: string): MutableHostReport {
   }
   const cacheVersions = claudeCacheVersions(home);
   const cacheRoot = join(home, ".claude", "plugins", "cache");
-  const staleVersions = cacheVersions.filter((entry) => entry !== version);
+  const staleVersions = cacheVersions.filter(
+    (entry) => entry !== version && isOwnedPlugin(join(cacheRoot, H2A_MARKETPLACE_NAME, "h2a", entry))
+  );
   const legacyCaches = listDirectories(cacheRoot).filter(
     (entry) => isLegacySentropicName(entry) && isOwnedLegacyCacheRoot(join(cacheRoot, entry))
   );
@@ -1041,6 +1045,45 @@ function removeOwnedJsonMcpEntries(raw: string): string | undefined {
     start = end + 1;
   }
   return ranges.reverse().reduce((rendered, [start, end]) => rendered.slice(0, start) + rendered.slice(end), raw);
+}
+
+function removeOwnedClaudeMarketplaceEntries(raw: string): { readonly rendered: string; readonly unverified: string[] } | undefined {
+  const root = jsonObjectProperties(raw, skipJsonWhitespace(raw, 0));
+  const extraKnownMarketplaces = root?.find((property) => property.key === "extraKnownMarketplaces");
+  if (!extraKnownMarketplaces) return { rendered: raw, unverified: [] };
+  if (raw[extraKnownMarketplaces.valueStart] !== "{") return undefined;
+  const marketplaces = jsonObjectProperties(raw, extraKnownMarketplaces.valueStart);
+  if (!marketplaces) return undefined;
+  const removals: number[] = [];
+  const unverified: string[] = [];
+  for (const [index, property] of marketplaces.entries()) {
+    if (!isLegacySentropicName(property.key)) continue;
+    try {
+      if (claudeMarketplaceIsOwned(JSON.parse(raw.slice(property.valueStart, property.valueEnd)))) removals.push(index);
+      else unverified.push(property.key);
+    } catch {
+      return undefined;
+    }
+  }
+  if (removals.length === 0) return { rendered: raw, unverified };
+
+  const ranges: Array<readonly [number, number]> = [];
+  for (let start = 0; start < removals.length;) {
+    let end = start;
+    while (end + 1 < removals.length && removals[end + 1] === removals[end] + 1) end++;
+    const first = removals[start];
+    const last = removals[end];
+    ranges.push(last < marketplaces.length - 1
+      ? [marketplaces[first].start, marketplaces[last + 1].start]
+      : first === 0
+        ? [marketplaces[first].start, marketplaces[last].end]
+        : [marketplaces[first - 1].end, marketplaces[last].end]);
+    start = end + 1;
+  }
+  return {
+    rendered: ranges.reverse().reduce((rendered, [start, end]) => rendered.slice(0, start) + rendered.slice(end), raw),
+    unverified
+  };
 }
 
 function setTomlValue(table: TomlTable, key: string, value: string): string[] {
@@ -1241,6 +1284,46 @@ function repairClaudeMcpConfigs(
   return failed;
 }
 
+function repairClaudeSettingsMarketplaces(
+  home: string,
+  report: MutableHostReport,
+  dryRun: boolean,
+  testConfigurationWrite?: TestConfigurationWrite
+): boolean {
+  const path = claudeSettingsPath(home);
+  if (!existsSync(path)) return false;
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+    if (!isPlainObject(JSON.parse(raw))) throw new Error("JSON root is not an object");
+  } catch (error) {
+    report.unrepaired.push(finding("config-invalid", `cannot parse Claude settings for repair: ${(error as Error).message}`, path));
+    return true;
+  }
+  const result = removeOwnedClaudeMarketplaceEntries(raw);
+  if (!result) {
+    report.unrepaired.push(finding("config-invalid", "cannot locate Claude settings marketplaces for safe repair", path));
+    return true;
+  }
+  for (const marketplace of result.unverified) {
+    reportUnverifiedOwnership(report, path, `legacy marketplace ${marketplace}`);
+  }
+  if (result.rendered === raw) return false;
+  if (dryRun) {
+    planAction(report, `rewrite ${path}`);
+    return false;
+  }
+  try {
+    const error = atomicConfigurationWrite(path, raw, result.rendered, "json", testConfigurationWrite);
+    if (error) throw new Error(error);
+    pushUnique(report.changed, path);
+    return false;
+  } catch (error) {
+    report.unrepaired.push(finding("config-invalid", `cannot write Claude settings: ${(error as Error).message}`, path));
+    return true;
+  }
+}
+
 // runCommand contains the installation doctor's only native runner invocation.
 // Claude's native uninstall argv is exactly ["plugin", "uninstall", selector], with no preceding flags.
 // Codex has no native uninstall path; its repair rewrites its own configuration and cache.
@@ -1415,7 +1498,9 @@ function repairCodex(
   // the canonical, verified cache remains part of the normal version repair.
   const cache = join(home, ".codex", "plugins", "cache");
   if (cacheVersionMatches(join(cache, H2A_MARKETPLACE_NAME, "h2a", version), version)) {
-    for (const stale of codexCacheVersions(home).filter((entry) => entry !== version)) {
+    for (const stale of codexCacheVersions(home).filter(
+      (entry) => entry !== version && isOwnedPlugin(join(cache, H2A_MARKETPLACE_NAME, "h2a", entry))
+    )) {
       const path = join(cache, H2A_MARKETPLACE_NAME, "h2a", stale);
       removeOwnedCache(before, path, `Codex cache ${path}`, isOwnedPlugin(path), dryRun);
     }
@@ -1476,7 +1561,10 @@ function repairClaude(
     return combineAfterRepair(before, inspectClaude(home, version));
   }
 
-  if (repairClaudeMcpConfigs(home, before, dryRun, testConfigurationWrite)) {
+  if (
+    repairClaudeMcpConfigs(home, before, dryRun, testConfigurationWrite) ||
+    repairClaudeSettingsMarketplaces(home, before, dryRun, testConfigurationWrite)
+  ) {
     return combineAfterRepair(before, inspectClaude(home, version));
   }
   const repairedKnown = readJson(knownPath).value ?? {};
@@ -1507,7 +1595,9 @@ function repairClaude(
   // the canonical, verified cache remains part of the normal version repair.
   const cache = join(home, ".claude", "plugins", "cache");
   if (cacheVersionMatches(join(cache, H2A_MARKETPLACE_NAME, "h2a", version), version)) {
-    for (const stale of claudeCacheVersions(home).filter((entry) => entry !== version)) {
+    for (const stale of claudeCacheVersions(home).filter(
+      (entry) => entry !== version && isOwnedPlugin(join(cache, H2A_MARKETPLACE_NAME, "h2a", entry))
+    )) {
       const path = join(cache, H2A_MARKETPLACE_NAME, "h2a", stale);
       removeOwnedCache(before, path, `Claude cache ${path}`, isOwnedPlugin(path), dryRun);
     }
