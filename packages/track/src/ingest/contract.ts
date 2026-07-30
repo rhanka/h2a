@@ -5,6 +5,12 @@
 // One WorkEvent ⇒ one Track command. This module is the SINGLE SOURCE of the write enums (so the CLI's
 // `oneOf` checks and the mapper cannot diverge on accepted values) and of the per-kind payload schema.
 
+// 2.1.0 — regression expression (decision 01KYQ5RRN67190YMZ08EGGBSBT, owner GO option A): one ADDITIVE new
+// WorkEvent kind `item.reopen` → the persisted `realization.reopened` event (reopen a terminally-closed item
+// with its MOTIVE; `settles:'always'` — a reopening moves a workpackage percentage). MINOR bump (a new optional
+// kind; no kind removed, no required field added to an existing kind, envelope keys unchanged; old producers
+// never send it and still validate). NOTE: `item.realize` is UNCHANGED — `done`/`cancelled` stay terminal there,
+// so a reopening can never be an accidental side effect of the ordinary realize verb.
 // 2.0.0 — decision.outcome is now defer-only. Any new go/no-go settlement must use decision.select so a
 // native selected option is recorded atomically; legacy historical outcomes remain readable in the fold.
 // This narrows an existing producer payload enum and is therefore a MAJOR contract change.
@@ -31,12 +37,15 @@
 // removed, no required field added, envelope keys unchanged; old producers never send them and still validate).
 // 1.1.0 — seam v0 FREEZE: two ADDITIVE optional producer fields (artifactLocator on scope.verification,
 // caller-supplied evidenceId on acceptance.link).
-export const INGEST_CONTRACT_VERSION = '2.0.0'
+export const INGEST_CONTRACT_VERSION = '2.1.0'
 
 // --- write enums (shared with src/cli/index.ts) ------------------------------------------------------
 export const ITEM_KINDS = ['feature', 'bug', 'chore'] as const
 export const SPEC_TARGETS = ['to-specify', 'specified'] as const
 export const REALIZE_TARGETS = ['in-progress', 'done', 'cancelled'] as const
+// Regression expression — the two owner-ratified reopening motives (mirrors REOPEN_MOTIVES in model/item.ts,
+// which is the domain home; the facade re-asserts the value fail-closed via assertReopenPayload).
+export const REOPEN_MOTIVE_VALUES = ['closed-without-owner-uat', 'regression-observed'] as const
 export const DECISION_KINDS = ['orientation', 'commitment'] as const
 export const OUTCOMES = ['go', 'no-go', 'deferred'] as const
 export const GATES = ['orientation', 'commitment'] as const
@@ -61,6 +70,7 @@ export const WORK_EVENT_KINDS = [
   'item.reparent',
   'item.spec',
   'item.realize',
+  'item.reopen', // Regression expression — reopen a terminally-closed item WITH its motive (→ realization.reopened)
   'decision.create',
   'decision.dossier',
   'decision.select',
@@ -189,6 +199,15 @@ export const WORK_EVENT_SCHEMA: Record<WorkEventKind, KindSchema> = {
     method: 'setRealization',
     settles: 'realize-terminal',
     fields: { itemId: str(true), to: str(true, REALIZE_TARGETS) },
+  },
+  'item.reopen': {
+    // Regression expression — reopen a terminally-closed item (done/cancelled → in-progress). Binding
+    // (`always`, NOT `realize-terminal`): a reopening moves a workpackage percentage and corrects an owner-
+    // facing claim, so it requires auth ∈ {local-user, signed}. Both fields are REQUIRED — the facade
+    // re-asserts the motive enum + a non-blank reason fail-closed (assertReopenPayload).
+    method: 'reopenItem',
+    settles: 'always',
+    fields: { itemId: str(true), motive: str(true, REOPEN_MOTIVE_VALUES), reason: str(true) },
   },
   'decision.create': {
     method: 'createDecision',
