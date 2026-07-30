@@ -33,6 +33,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { H2ASession } from "../session.js";
+import { resolveHostConfigRoot } from "../runtime/host-config-root.js";
 import { currentCliVersion } from "../runtime/upgrade/index.js";
 
 export const H2A_PLUGIN_SELECTOR = "h2a@sentropic";
@@ -542,7 +543,7 @@ function canonicalMarketplace(value: unknown): boolean {
 function canonicalCodexMarketplace(table: TomlTable | undefined, home: string): boolean {
   return Boolean(
     canonicalCodexMarketplaceConfig(table) &&
-      isOwnedMarketplace(join(home, ".codex", ".tmp", "marketplaces", H2A_MARKETPLACE_NAME))
+      isOwnedMarketplace(join(codexRoot(home), ".tmp", "marketplaces", H2A_MARKETPLACE_NAME))
   );
 }
 
@@ -551,7 +552,7 @@ function isOwnedCodexMarketplace(table: TomlTable, home: string): boolean {
 }
 
 function hasOwnedCanonicalCodexPlugin(home: string): boolean {
-  const cache = join(home, ".codex", "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a");
+  const cache = join(codexRoot(home), "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a");
   return listDirectories(cache).some((version) => isOwnedPlugin(join(cache, version)));
 }
 
@@ -622,19 +623,27 @@ function cacheVersionMatches(path: string, version: string): boolean {
 }
 
 function codexCacheVersions(home: string): string[] {
-  return listDirectories(join(home, ".codex", "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a"));
+  return listDirectories(join(codexRoot(home), "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a"));
 }
 
 function claudeCacheVersions(home: string): string[] {
-  return listDirectories(join(home, ".claude", "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a"));
+  return listDirectories(join(claudeRoot(home), "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a"));
+}
+
+function codexRoot(home: string): string {
+  return resolveHostConfigRoot("codex", home);
+}
+
+function claudeRoot(home: string): string {
+  return resolveHostConfigRoot("claude", home);
 }
 
 function codexConfigPath(home: string): string {
-  return join(home, ".codex", "config.toml");
+  return join(codexRoot(home), "config.toml");
 }
 
 function claudeSettingsPath(home: string): string {
-  return join(home, ".claude", "settings.json");
+  return join(claudeRoot(home), "settings.json");
 }
 
 function claudeConfigPaths(home: string): string[] {
@@ -675,7 +684,7 @@ function planAction(report: MutableHostReport, action: string): void {
 }
 
 function repairMarkerPath(home: string, host: Host): string {
-  return join(home, host === "codex" ? ".codex" : ".claude", "h2a-repair.json");
+  return join(host === "codex" ? codexRoot(home) : claudeRoot(home), "h2a-repair.json");
 }
 
 function readRepairMarker(path: string): { marker?: HostRepairMarker; error?: string } {
@@ -736,7 +745,7 @@ function recordRepairMarker(
 
 function inspectCodex(home: string, version: string): MutableHostReport {
   const configPath = codexConfigPath(home);
-  const cachePath = join(home, ".codex", "plugins", "cache");
+  const cachePath = join(codexRoot(home), "plugins", "cache");
   const currentCachePath = join(cachePath, H2A_MARKETPLACE_NAME, "h2a", version);
   const report: MutableHostReport = {
     host: "codex",
@@ -823,8 +832,8 @@ function inspectCodex(home: string, version: string): MutableHostReport {
 }
 
 function inspectClaude(home: string, version: string): MutableHostReport {
-  const knownPath = join(home, ".claude", "plugins", "known_marketplaces.json");
-  const installedPath = join(home, ".claude", "plugins", "installed_plugins.json");
+  const knownPath = join(claudeRoot(home), "plugins", "known_marketplaces.json");
+  const installedPath = join(claudeRoot(home), "plugins", "installed_plugins.json");
   const settingsPath = claudeSettingsPath(home);
   const report: MutableHostReport = {
     host: "claude",
@@ -879,7 +888,7 @@ function inspectClaude(home: string, version: string): MutableHostReport {
     report.findings.push(finding("plugin-stale", `Claude has stale Sentropic plugin entries: ${stalePlugins.join(", ")}.`, installedPath));
   }
   const cacheVersions = claudeCacheVersions(home);
-  const cacheRoot = join(home, ".claude", "plugins", "cache");
+  const cacheRoot = join(claudeRoot(home), "plugins", "cache");
   const staleVersions = cacheVersions.filter(
     (entry) => entry !== version && isOwnedPlugin(join(cacheRoot, H2A_MARKETPLACE_NAME, "h2a", entry))
   );
@@ -1113,6 +1122,17 @@ function isOwnedLegacyCodexMarketplace(table: TomlTable): boolean {
   return typeof source === "string" && isOwnedMarketplace(source);
 }
 
+function hasAbsentLocalLegacyCodexMarketplaceTarget(table: TomlTable): boolean {
+  const source = tomlValue(table, "source");
+  return tomlValue(table, "source_type") === "local" && typeof source === "string" && !existsSync(source);
+}
+
+function legacyCodexMarketplaceRemoveAction(table: TomlTable): string {
+  const marketplace = tomlQuotedName(table.header, "marketplaces");
+  const previous = table.lines.join("").trimEnd().replace(/\r?\n/g, "; ");
+  return `remove Codex legacy marketplace ${marketplace ?? "<missing>"} table (was ${previous})`;
+}
+
 function isEnabledLegacyCodexPlugin(table: TomlTable): boolean {
   const plugin = tomlQuotedName(table.header, "plugins");
   return Boolean(plugin && isLegacyH2aPlugin(plugin) && tomlBoolean(table, "enabled") !== false);
@@ -1169,10 +1189,10 @@ function repairCodexConfig(
     reportUnverifiedOwnership(report, path, `plugin ${H2A_PLUGIN_SELECTOR}`);
     return;
   }
-  const ownedLegacyMarketplaces = new Set(
+  const legacyMarketplacesToRemove = new Set(
     tables
       .filter((table) => isLegacySentropicName(tomlQuotedName(table.header, "marketplaces")))
-      .filter(isOwnedLegacyCodexMarketplace)
+      .filter((table) => isOwnedLegacyCodexMarketplace(table) || hasAbsentLocalLegacyCodexMarketplaceTarget(table))
       .map((table) => table.header)
   );
   // This is a reversible configuration change, not a deletion: once the
@@ -1187,15 +1207,18 @@ function repairCodexConfig(
   for (const table of tables.filter((table) => legacyPluginsToDisable.has(table.header))) {
     planAction(report, legacyCodexPluginDisableAction(table));
   }
+  for (const table of tables.filter((table) => legacyMarketplacesToRemove.has(table.header))) {
+    planAction(report, legacyCodexMarketplaceRemoveAction(table));
+  }
   for (const table of tables) {
     const marketplace = tomlQuotedName(table.header, "marketplaces");
-    if (isLegacySentropicName(marketplace) && !ownedLegacyMarketplaces.has(table.header)) {
+    if (isLegacySentropicName(marketplace) && !legacyMarketplacesToRemove.has(table.header)) {
       reportUnverifiedOwnership(report, path, `legacy marketplace ${marketplace}`);
     }
   }
   const needsConfigRepair = tables.some((table) => {
     const marketplace = tomlQuotedName(table.header, "marketplaces");
-    if (isLegacySentropicName(marketplace) && ownedLegacyMarketplaces.has(table.header)) return true;
+    if (isLegacySentropicName(marketplace) && legacyMarketplacesToRemove.has(table.header)) return true;
     if (marketplace === H2A_MARKETPLACE_NAME && !canonicalCodexMarketplaceConfig(table)) return true;
     const plugin = tomlQuotedName(table.header, "plugins");
     if (plugin && legacyPluginsToDisable.has(table.header)) return true;
@@ -1207,7 +1230,7 @@ function repairCodexConfig(
   if (!needsConfigRepair) return;
   const next = rewriteTomlTables(raw, (table) => {
     const marketplace = tomlQuotedName(table.header, "marketplaces");
-    if (isLegacySentropicName(marketplace) && ownedLegacyMarketplaces.has(table.header)) return undefined;
+    if (isLegacySentropicName(marketplace) && legacyMarketplacesToRemove.has(table.header)) return undefined;
     if (marketplace === H2A_MARKETPLACE_NAME) return canonicalCodexMarketplaceLines(table);
     const plugin = tomlQuotedName(table.header, "plugins");
     if (plugin === H2A_PLUGIN_SELECTOR) return setTomlValue(table, "enabled", "true");
@@ -1419,8 +1442,8 @@ function removeOwnedCache(
 
 function codexReplacementIsReady(home: string, version: string): boolean {
   return (
-    cacheVersionMatches(join(home, ".codex", "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a", version), version) &&
-    isOwnedMarketplace(join(home, ".codex", ".tmp", "marketplaces", H2A_MARKETPLACE_NAME))
+    cacheVersionMatches(join(codexRoot(home), "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a", version), version) &&
+    isOwnedMarketplace(join(codexRoot(home), ".tmp", "marketplaces", H2A_MARKETPLACE_NAME))
   );
 }
 
@@ -1440,8 +1463,8 @@ function claudeSettingsMarketplaceIsOwned(value: unknown): boolean {
 }
 
 function claudeReplacementIsReady(home: string, version: string): boolean {
-  const known = readJson(join(home, ".claude", "plugins", "known_marketplaces.json")).value;
-  const installed = readJson(join(home, ".claude", "plugins", "installed_plugins.json")).value;
+  const known = readJson(join(claudeRoot(home), "plugins", "known_marketplaces.json")).value;
+  const installed = readJson(join(claudeRoot(home), "plugins", "installed_plugins.json")).value;
   const plugins = isPlainObject(installed?.plugins) ? installed.plugins : {};
   return (
     canonicalMarketplace(known?.[H2A_MARKETPLACE_NAME]) &&
@@ -1511,7 +1534,7 @@ function repairCodex(
   }
   // v1 deliberately retains legacy orphan caches. A stale version underneath
   // the canonical, verified cache remains part of the normal version repair.
-  const cache = join(home, ".codex", "plugins", "cache");
+  const cache = join(codexRoot(home), "plugins", "cache");
   if (cacheVersionMatches(join(cache, H2A_MARKETPLACE_NAME, "h2a", version), version)) {
     for (const stale of codexCacheVersions(home).filter(
       (entry) => entry !== version && isOwnedPlugin(join(cache, H2A_MARKETPLACE_NAME, "h2a", entry))
@@ -1540,8 +1563,8 @@ function repairClaude(
 ): MutableHostReport {
   const before = inspectClaude(home, version);
   const beforeArtifacts = artifactSnapshots(before.coherencePaths);
-  const knownPath = join(home, ".claude", "plugins", "known_marketplaces.json");
-  const installedPath = join(home, ".claude", "plugins", "installed_plugins.json");
+  const knownPath = join(claudeRoot(home), "plugins", "known_marketplaces.json");
+  const installedPath = join(claudeRoot(home), "plugins", "installed_plugins.json");
   const known = readJson(knownPath).value ?? {};
   const installed = readJson(installedPath).value ?? {};
   const initialPlugins = isPlainObject(installed.plugins) ? installed.plugins : {};
@@ -1608,7 +1631,7 @@ function repairClaude(
   }
   // v1 deliberately retains legacy orphan caches. A stale version underneath
   // the canonical, verified cache remains part of the normal version repair.
-  const cache = join(home, ".claude", "plugins", "cache");
+  const cache = join(claudeRoot(home), "plugins", "cache");
   if (cacheVersionMatches(join(cache, H2A_MARKETPLACE_NAME, "h2a", version), version)) {
     for (const stale of claudeCacheVersions(home).filter(
       (entry) => entry !== version && isOwnedPlugin(join(cache, H2A_MARKETPLACE_NAME, "h2a", entry))
