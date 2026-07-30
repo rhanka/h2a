@@ -99,7 +99,11 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
   // Lifetime of the stream currently being read, so the CYCLE can be paced.
   let streamOpenedAt = Date.now();
   let streamProgressed = false;
-  let shortCycles = 0;
+  // TWO counters, because pacing and giving up are two different questions and
+  // sharing one made useful output poison the future give-up budget: after enough
+  // productive short streams, the FIRST later empty one gave up at once.
+  let pacingStreak = 0; // consecutive short cycles, whatever they delivered
+  let futileCycles = 0; // consecutive short cycles that delivered NOTHING
 
   const controller = new AbortController();
   const sseResponse = await doFetch(
@@ -354,14 +358,16 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
         // control plane, whose SSE route replays a 128-event backlog on every
         // subscribe, 501 reopens landed in 105ms and the backoff never engaged.
         // A reconnect rate is not a content question.
-        shortCycles += 1;
-        // GIVING UP, in contrast, must stay conditional: a short stream that
-        // delivered real output is a slow link, and killing it was the first
-        // leg's confirmed false negative.
-        if (!streamProgressed && shortCycles > reconnectCfg.maxShortCycles) {
+        pacingStreak += 1;
+        // GIVING UP counts only CONSECUTIVE futile cycles, and useful output
+        // resets that budget: a short stream that delivered real output is a slow
+        // link, and killing it was the first leg's confirmed false negative.
+        if (streamProgressed) futileCycles = 0;
+        else futileCycles += 1;
+        if (futileCycles > reconnectCfg.maxShortCycles) {
           stderr.write(
             `\r\n[h2a] the event stream keeps closing immediately ` +
-              `(${shortCycles} times in a row, last one after ${lifetimeMs}ms) — giving up ` +
+              `(${futileCycles} times in a row, last one after ${lifetimeMs}ms) — giving up ` +
               `instead of reconnecting in a loop. The session may still be alive: ` +
               `retry with h2a attach ${sessionId}.\r\n`,
           );
@@ -370,12 +376,14 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
         }
         const backoff = Math.min(
           reconnectCfg.maxDelayMs,
-          reconnectCfg.baseDelayMs * 2 ** (shortCycles - 1),
+          reconnectCfg.baseDelayMs * 2 ** (pacingStreak - 1),
         );
         await new Promise((r) => setTimeout(r, backoff));
         if (closed) return;
       } else {
-        shortCycles = 0; // a stream that actually lived resets the budget
+        // A stream that actually lived resets BOTH budgets.
+        pacingStreak = 0;
+        futileCycles = 0;
       }
 
       // Reconnect: heal the tunnel and reopen the events stream.

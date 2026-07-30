@@ -85,6 +85,55 @@ describe("attach — reconnect livelock", () => {
     expect(stderr.text()).toMatch(/closing immediately|giving up/i);
   });
 
+  it("does not let useful output poison the later give-up budget", async () => {
+    // THIRD REVIEW LEG, confirmed: pacing and giving up shared one counter, so a
+    // productive short stream consumed the give-up budget without triggering it.
+    // With maxShortCycles 3, four useful short streams then empty ones gave up at
+    // 5 opens (4 useful + the FIRST empty) instead of 8 (4 useful + 4 empty).
+    // Give-up must count CONSECUTIVE futile cycles only.
+    let eventOpens = 0;
+    const stderr = collectingStderr();
+    const USEFUL = 4;
+
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/events")) {
+        eventOpens += 1;
+        const useful = eventOpens <= USEFUL;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              if (useful) {
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    'event: terminal.output\ndata: {"type":"terminal.output","payload":{"data":"x"}}\n\n',
+                  ),
+                );
+              }
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const session = await attach({
+      baseUrl: "http://127.0.0.1:1",
+      sessionId: "sess-useful-then-empty",
+      stderr: stderr.stream,
+      fetchImpl,
+      reconnect: { minStreamMs: 1000, baseDelayMs: 1, maxDelayMs: 4, maxShortCycles: 3 },
+    });
+
+    await session.finished;
+
+    // 4 useful + 4 empty: the futile budget is spent by empty cycles only.
+    expect(eventOpens).toBe(USEFUL + 4);
+    expect(stderr.text()).toMatch(/giving up/i);
+  });
+
   it("paces a stream that REPLAYS a backlog and then dies immediately", async () => {
     // SECOND REVIEW LEG, confirmed against the real control plane: its SSE route
     // replays a 128-event backlog to every new subscriber, so EVERY reopen
