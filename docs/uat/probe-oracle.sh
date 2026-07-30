@@ -68,6 +68,7 @@ mkdir -p "$CODEX_HOME"
 # ---- l'incident owner, reconstitue -------------------------------------------------------------
 # Un marketplace legacy dont la source est un repertoire de build SUPPRIME, son entree de plugin
 # encore active, et son cache encore sur disque declarant un serveur MCP nomme `h2a`.
+mkdir -p "$HOME_DIR"
 LEGACY_CACHE="$CODEX_HOME/plugins/cache/sentropic-local-codex-99999/h2a-local-codex-99999/0.85.18"
 mkdir -p "$LEGACY_CACHE/.codex-plugin"
 printf '{"name":"h2a-local-codex-99999","version":"0.85.18"}\n' > "$LEGACY_CACHE/.codex-plugin/plugin.json"
@@ -87,9 +88,9 @@ echo "  plugin legacy ....... enabled = true"
 echo "  cache legacy ........ present, .mcp.json declarant le serveur 'h2a'"
 echo
 echo "  codex mcp list :"
-timeout 60 codex mcp list 2>&1 | sans_bruit | sed 's/^/    /' | head -6
+HOME="$HOME_DIR" timeout 60 codex mcp list 2>&1 | sans_bruit | sed 's/^/    /' | head -6
 echo "  codex plugin marketplace list :"
-timeout 60 codex plugin marketplace list 2>&1 | sans_bruit | sed 's/^/    /' | head -6
+HOME="$HOME_DIR" timeout 60 codex plugin marketplace list 2>&1 | sans_bruit | sed 's/^/    /' | head -6
 
 # ---- la reparation ------------------------------------------------------------------------------
 echo
@@ -110,13 +111,13 @@ node -e '
 echo
 echo "=== ORACLE 1 — quel serveur MCP h2a codex sert-il VRAIMENT ? ============="
 MCP_OUT="$PROBE/mcp.txt"
-timeout 60 codex mcp list 2>&1 | sans_bruit > "$MCP_OUT"
+HOME="$HOME_DIR" timeout 60 codex mcp list 2>&1 | sans_bruit > "$MCP_OUT"
 sed 's/^/  /' "$MCP_OUT" | head -8
 
 echo
 echo "=== ORACLE 2 — le sous-systeme marketplace de codex repond-il ? =========="
 MKT_OUT="$PROBE/mkt.txt"
-timeout 60 codex plugin marketplace list 2>&1 | sans_bruit > "$MKT_OUT"
+HOME="$HOME_DIR" timeout 60 codex plugin marketplace list 2>&1 | sans_bruit > "$MKT_OUT"
 sed 's/^/  /' "$MKT_OUT" | head -8
 
 # ---- lecture ------------------------------------------------------------------------------------
@@ -124,26 +125,38 @@ echo
 echo "  (un avertissement codex d'alias PATH, benin, a ete filtre de ces sorties)"
 echo
 echo "=== comment conclure ====================================================="
+# L'assertion doit porter sur LA LIGNE du serveur nomme exactement `h2a`, pas sur la sortie
+# entiere : un grep global rendrait VALIDE si n'importe quelle autre ligne contenait mcp-serve.
+LIGNE_H2A=$(awk '$1 == "h2a" { $1=""; print; exit }' "$MCP_OUT")
 SERT_ANCIEN=0; SERT_CANONIQUE=0; MKT_MORT=0
-grep -q "ANCIEN-mcp.js" "$MCP_OUT" && SERT_ANCIEN=1
-grep -q "mcp-serve" "$MCP_OUT" && SERT_CANONIQUE=1
+case "$LIGNE_H2A" in
+  *ANCIEN-mcp.js*) SERT_ANCIEN=1;;
+esac
+case "$LIGNE_H2A" in
+  *mcp-serve*) SERT_CANONIQUE=1;;
+esac
 grep -qi "failed to load marketplace\|^Error" "$MKT_OUT" && MKT_MORT=1
+VERDICT=0   # 0 = concluant et valide ; 1 = invalide ou inconcluant
 
 if [ "$SERT_ANCIEN" = "1" ]; then
+  VERDICT=1
   echo "  INVALIDE : codex sert encore ANCIEN-mcp.js apres la reparation."
   echo "             C'est le symptome d'origine, reproduit par l'outil cense le fermer."
 elif [ "$SERT_CANONIQUE" = "1" ]; then
   echo "  Oracle 1 OK : codex sert le canonique (h2a mcp-serve)."
 else
+  VERDICT=1
   echo "  INVALIDE : codex ne sert AUCUN serveur h2a reconnaissable — lis la sortie ci-dessus."
 fi
 
 if [ "$MKT_MORT" = "1" ]; then
+  VERDICT=1
   echo "  INVALIDE : 'codex plugin marketplace list' ECHOUE encore. Aucun plugin n'est"
   echo "             listable, installable ni upgradable — l'incoherence n.1 de ce dossier."
 elif ! grep -qi "MARKETPLACE\|sentropic" "$MKT_OUT"; then
   # Sans cette branche, une sortie VIDE (timeout, binaire tue) se lisait "OK" : un oracle
   # fail-open, c'est-a-dire exactement le defaut que cet oracle existe pour attraper.
+  VERDICT=1
   echo "  INCONCLUSIF : 'codex plugin marketplace list' n'a rien rendu d'exploitable."
   echo "                Ne conclus PAS que le sous-systeme est sain — il n'a pas repondu."
 else
@@ -157,3 +170,14 @@ echo "  qui est arrive le 2026-07-30, sous deux verdicts GO independants."
 echo
 echo "  Ta vraie installation n'a pas ete touchee : HOME et CODEX_HOME sont jetables et ce probe"
 echo "  refuse de tourner si une racine hote pointe hors de son arbre."
+
+# ECHOUER FERME sur sa propre conclusion. Une revue independante a mesure que ce probe sortait 0
+# apres avoir imprime INVALIDE : un oracle fail-open sur son propre verdict, c'est-a-dire le defaut
+# meme qu'il existe pour attraper. Troisieme fois que je livre cette classe sur cette branche.
+if [ "$VERDICT" != "0" ]; then
+  echo
+  echo "  CODE DE SORTIE 1 : au moins une conclusion ci-dessus est INVALIDE ou INCONCLUSIVE."
+  exit 1
+fi
+echo
+echo "  CODE DE SORTIE 0 : les deux oracles concluent, et concluent valide."
