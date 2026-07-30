@@ -21,6 +21,35 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run audit:security
 
+  host-oracle:
+    # The two independent review legs of PR #94 converged on this: configuration tests
+    # cannot prove what the HOST serves. Both of that PR's real defects — codex still
+    # serving the pre-repair MCP server, and a dead marketplace root killing the whole
+    # plugin subsystem — passed a green suite and two GO verdicts. The only thing that
+    # caught them was asking codex itself.
+    #
+    # WHERE THIS GUARANTEE STOPS, stated because a guard whose limits are unstated
+    # manufactures assurance: this job exercises CODEX only, on throwaway roots, on
+    # Linux. It does not exercise Claude, it does not exercise any real installation,
+    # and it is not a substitute for the owner's UAT.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install the codex CLI — it is the oracle, not a convenience
+        run: npm i -g @openai/codex
+      - name: Ask the host what it serves
+        run: |
+          set -euo pipefail
+          unset CODEX_HOME CLAUDE_CONFIG_DIR
+          bash docs/uat/probe-oracle.sh
+
   build-and-test:
     runs-on: ${{ matrix.os }}
     # DEC-061: a leaked subprocess (e.g. an mcp-serve sidecar in a
