@@ -497,6 +497,130 @@ test("doctor reports a configured broken host when its CLI is absent from PATH",
   }
 });
 
+test("doctor fails closed when configured roots are broken symlinks", () => {
+  const home = join(tmpdir(), `h2a-host-doctor-broken-root-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const root = join(home, "bus");
+  try {
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    symlinkSync(join(home, "missing-claude-root"), join(home, ".claude"));
+    symlinkSync(join(home, "missing-codex-root"), join(home, ".codex"));
+    const { exitCode, io, report } = withoutHostCliOnPath(home, () => runRepairDoctorWithActualHostPresence(home, root));
+
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    for (const host of report.checks.hostInstallations.hosts) {
+      assert.equal(host.findings.some((entry) => entry.code === "host-not-installed"), false, JSON.stringify(host, null, 2));
+      assert.ok(host.findings.some((entry) => entry.code === "host-config-unavailable"), JSON.stringify(host, null, 2));
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails closed when an explicitly configured host root is inaccessible", () => {
+  const home = join(tmpdir(), `h2a-host-doctor-inaccessible-root-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const parent = join(home, "inaccessible-parent");
+  const configuredRoot = join(parent, "codex");
+  const previousCodexRoot = process.env.CODEX_HOME;
+  let restricted = false;
+  try {
+    mkdirSync(configuredRoot, { recursive: true });
+    chmodSync(parent, 0o000);
+    restricted = true;
+    process.env.CODEX_HOME = configuredRoot;
+    const report = productionDoctorHostInstallations({ home, version: VERSION, repair: true, testHostCliReachable: () => false });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
+    assert.equal(codex?.findings.some((entry) => entry.code === "host-not-installed"), false, JSON.stringify(codex, null, 2));
+    assert.ok(codex?.findings.some((entry) => entry.code === "host-config-unavailable" && /EACCES/.test(entry.message)), JSON.stringify(codex, null, 2));
+  } finally {
+    if (previousCodexRoot === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexRoot;
+    if (restricted) chmodSync(parent, 0o700);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor inspects a visible empty configured root even when its CLI is unavailable", () => {
+  const home = join(tmpdir(), `h2a-host-doctor-empty-root-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  try {
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    const report = productionDoctorHostInstallations({ home, version: VERSION, repair: true, testHostCliReachable: () => false });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.deepEqual(
+      codex?.findings.map((entry) => entry.code),
+      ["marketplace-missing", "plugin-missing", "version-skew", "h2a-endpoint-count"],
+      JSON.stringify(codex, null, 2)
+    );
+    assert.ok(codex?.unrepaired.some((entry) => entry.code === "host-command-unavailable"), JSON.stringify(codex, null, 2));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor repairs local endpoints when the native CLI is unavailable", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const calls = [];
+  try {
+    writeFileSync(
+      codexPath,
+      `${readFileSync(codexPath, "utf8").trimEnd()}\n\n[mcp_servers.local-h2a]\ncommand = "h2a"\nargs = ["mcp-serve"]\n`
+    );
+    const report = productionDoctorHostInstallations({
+      home,
+      version,
+      repair: true,
+      testHostCliReachable: () => false,
+      runHostCommand: (command, args) => {
+        calls.push([command, ...args]);
+        throw new Error("native CLI must not be called");
+      }
+    });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.deepEqual(calls, []);
+    assert.doesNotMatch(readFileSync(codexPath, "utf8"), /\[mcp_servers\.local-h2a\]/);
+    assert.ok(codex?.diagnostics.some((entry) => entry.code === "host-cli-unreachable"), JSON.stringify(codex, null, 2));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor preserves a visible single-quoted local Codex marketplace", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const marketplace = "sentropic-local-single-quoted";
+  const plugin = "h2a-local-single-quoted@sentropic-local-single-quoted";
+  const source = join(home, "visible-single-quoted-marketplace");
+  try {
+    mkdirSync(source, { recursive: true });
+    const config = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n` +
+      `[marketplaces.${marketplace}]\n` +
+      "source_type = 'local'\n" +
+      `source = '${source}'\n` +
+      "private_metadata = 'must-remain-private'\n\n" +
+      `[plugins."${plugin}"]\n` +
+      "enabled = true\n";
+    writeFileSync(codexPath, config);
+
+    const report = doctorHostInstallations({ home, version, repair: true, runHostCommand: repairRunner(home, []) });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(readFileSync(codexPath, "utf8"), config);
+    assert.ok(codex?.unrepaired.some((entry) => entry.code === "ownership-unverified"), JSON.stringify(codex, null, 2));
+    assert.match(readFileSync(codexPath, "utf8"), /private_metadata = 'must-remain-private'/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor keeps a coherent configured host clean when its native CLI is unavailable", () => {
   const { home, version } = cleanShippedLayoutHome();
   const root = join(home, "bus");
@@ -1911,7 +2035,7 @@ test("doctor requires restart from a repair marker even when every declared runt
   }
 });
 
-test("doctor reports an unreadable declared runtime diagnostically without a restart verdict", () => {
+test("doctor fails closed when a declared runtime artifact is unreadable", () => {
   const { home } = cleanCodexHomeWithoutMarker();
   const root = join(home, "bus");
   const pluginRoot = join(home, ".codex", "plugins", "cache", "sentropic", "h2a", VERSION);
@@ -1930,12 +2054,12 @@ test("doctor reports an unreadable declared runtime diagnostically without a res
     assert.equal(runCli(["init", "--root", root], streams(home)), 0);
     writeLiveCodexSession(root, "sess-before-unreadable-runtime");
     const { exitCode, io, report } = runRepairDoctor(home, root);
-    assert.equal(exitCode, 0, io.stderrText);
-    assert.equal(report.ok, true);
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false);
     assert.ok(
       report.checks.hostInstallations.hosts
         .find((host) => host.host === "codex")
-        .diagnostics.some((entry) => entry.code === "runtime-artifact-unavailable" && entry.path === runtimePath),
+        .findings.some((entry) => entry.code === "runtime-artifact-unavailable" && entry.path === runtimePath),
       JSON.stringify(report, null, 2)
     );
     assert.deepEqual(report.checks.liveHostSessions.restartRequired, []);
@@ -1945,7 +2069,7 @@ test("doctor reports an unreadable declared runtime diagnostically without a res
   }
 });
 
-test("doctor reports a missing declared runtime diagnostically without a restart verdict", () => {
+test("doctor fails closed when a declared runtime artifact is missing", () => {
   const { home, loadedCodePath } = cleanCodexHomeWithoutMarker();
   const root = join(home, "bus");
   try {
@@ -1954,12 +2078,12 @@ test("doctor reports a missing declared runtime diagnostically without a restart
     assert.equal(runCli(["init", "--root", root], streams(home)), 0);
     writeLiveCodexSession(root, "sess-before-deleted-runtime");
     const { exitCode, io, report } = runRepairDoctor(home, root);
-    assert.equal(exitCode, 0, io.stderrText);
-    assert.equal(report.ok, true);
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false);
     assert.ok(
       report.checks.hostInstallations.hosts
         .find((host) => host.host === "codex")
-        .diagnostics.some((entry) => entry.code === "runtime-artifact-unavailable" && entry.path === loadedCodePath),
+        .findings.some((entry) => entry.code === "runtime-artifact-unavailable" && entry.path === loadedCodePath),
       JSON.stringify(report, null, 2)
     );
     assert.deepEqual(report.checks.liveHostSessions.restartRequired, []);

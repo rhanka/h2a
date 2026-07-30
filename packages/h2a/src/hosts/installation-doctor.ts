@@ -18,6 +18,7 @@ import {
   closeSync,
   existsSync,
   fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -94,7 +95,9 @@ export interface HostInstallationFinding {
     | "standalone-track-mcp"
     | "host-command-failed"
     | "host-command-refused"
+    | "host-command-unavailable"
     | "host-cli-unreachable"
+    | "host-config-unavailable"
     | "host-not-installed"
     | "ownership-unverified"
     | "repair-marker-unavailable"
@@ -372,7 +375,7 @@ function loadBearingArtifacts(
     if (!existsSync(path)) return;
     const config = readJson(path);
     if (config.error) {
-      report.diagnostics.push(finding("runtime-artifact-unavailable", `cannot inspect declared MCP config: ${config.error}`, path));
+      report.findings.push(finding("runtime-artifact-unavailable", `cannot inspect declared MCP config: ${config.error}`, path));
       return;
     }
     const servers = isPlainObject(config.value?.mcpServers) ? config.value.mcpServers : {};
@@ -395,7 +398,7 @@ function loadBearingArtifacts(
       declared.add(manifestPath);
       const manifest = readJson(manifestPath);
       if (manifest.error) {
-        report.diagnostics.push(finding("runtime-artifact-unavailable", `cannot inspect plugin manifest: ${manifest.error}`, manifestPath));
+        report.findings.push(finding("runtime-artifact-unavailable", `cannot inspect plugin manifest: ${manifest.error}`, manifestPath));
         continue;
       }
       const pluginRoot = dirname(dirname(manifestPath));
@@ -425,7 +428,7 @@ function loadBearingArtifacts(
       if (!metadata.isFile()) throw new Error("not a regular file");
       pushUnique(resolved, target);
     } catch (error) {
-      report.diagnostics.push(
+      report.findings.push(
         finding("runtime-artifact-unavailable", `cannot inspect declared artifact: ${(error as Error).message}`, path),
       );
     }
@@ -463,7 +466,9 @@ function tomlValue(table: TomlTable, key: string): string | undefined {
   if (!line) return undefined;
   const value = line.slice(line.indexOf("=") + 1).trim().replace(/\s+#.*$/, "");
   const quoted = /^"((?:\\.|[^"\\])*)"$/.exec(value);
-  return quoted ? quoted[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\") : value;
+  if (quoted) return quoted[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  const literal = /^'([^']*)'$/.exec(value);
+  return literal ? literal[1] : value;
 }
 
 function tomlBoolean(table: TomlTable, key: string): boolean | undefined {
@@ -658,16 +663,51 @@ function claudeConfigPaths(home: string): string[] {
   return [join(base, ".claude.json"), join(base, ".config", "claude", "mcp.json")].filter(existsSync);
 }
 
-function hostConfigurationArtifacts(home: string, host: Host): string[] {
-  if (host === "codex") {
-    return [codexRoot(home), codexConfigPath(home)].filter(existsSync);
+type HostConfigurationArtifactState = "absent" | "present" | "unavailable";
+
+interface HostConfigurationArtifacts {
+  readonly present: readonly string[];
+  readonly unavailable: readonly { readonly path: string; readonly reason: string }[];
+}
+
+function isProvenAbsentFilesystemError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+function hostConfigurationArtifactState(path: string): { readonly state: HostConfigurationArtifactState; readonly reason?: string } {
+  try {
+    lstatSync(path);
+  } catch (error) {
+    return isProvenAbsentFilesystemError(error)
+      ? { state: "absent" }
+      : { state: "unavailable", reason: (error as NodeJS.ErrnoException).code ?? (error as Error).message };
   }
-  const base = resolveHostConfigCompanionBase("claude", home);
-  return [
-    claudeRoot(home),
-    join(base, ".claude.json"),
-    join(base, ".config", "claude", "mcp.json")
-  ].filter(existsSync);
+  try {
+    statSync(path);
+    return { state: "present" };
+  } catch (error) {
+    // lstat succeeded, so ENOENT here is a broken symlink, not proof of absence.
+    return { state: "unavailable", reason: (error as NodeJS.ErrnoException).code ?? (error as Error).message };
+  }
+}
+
+function hostConfigurationArtifacts(home: string, host: Host): HostConfigurationArtifacts {
+  const candidates = host === "codex"
+    ? [codexRoot(home), codexConfigPath(home)]
+    : [
+      claudeRoot(home),
+      join(resolveHostConfigCompanionBase("claude", home), ".claude.json"),
+      join(resolveHostConfigCompanionBase("claude", home), ".config", "claude", "mcp.json")
+    ];
+  const present: string[] = [];
+  const unavailable: Array<{ path: string; reason: string }> = [];
+  for (const path of candidates) {
+    const result = hostConfigurationArtifactState(path);
+    if (result.state === "present") present.push(path);
+    if (result.state === "unavailable") unavailable.push({ path, reason: result.reason ?? "unknown error" });
+  }
+  return { present, unavailable };
 }
 
 function hostCliCanRunNativeRepair(
@@ -705,6 +745,30 @@ function absentHostReport(home: string, host: Host): MutableHostReport {
   report.findings.push(finding(
     "host-not-installed",
     `${hostName} is not installed: its CLI is absent from PATH and no host configuration artifacts were found.`
+  ));
+  return report;
+}
+
+function unavailableHostConfigurationReport(
+  home: string,
+  host: Host,
+  unavailable: HostConfigurationArtifacts["unavailable"]
+): MutableHostReport {
+  const hostName = host === "claude" ? "Claude" : "Codex";
+  const report: MutableHostReport = {
+    host,
+    findings: [],
+    diagnostics: [],
+    changed: [],
+    unrepaired: [],
+    coherencePaths: [],
+    plannedActions: [],
+    repairMarkerPath: repairMarkerPath(home, host)
+  };
+  report.findings.push(finding(
+    "host-config-unavailable",
+    `${hostName} configuration cannot be inspected safely: ${unavailable.map((entry) => `${entry.path} (${entry.reason})`).join(", ")}.`,
+    unavailable[0]?.path
   ));
   return report;
 }
@@ -1555,7 +1619,8 @@ function runCommand(
   runner: HostCommandRunner,
   command: "claude" | "codex",
   args: readonly string[],
-  dryRun: boolean
+  dryRun: boolean,
+  nativeCliReachable: boolean
 ): boolean {
   if (
     command === "claude" &&
@@ -1568,6 +1633,12 @@ function runCommand(
         "host-command-refused",
         `refused native command: ${command} ${args.join(" ")}; selector ${args[2] ?? "<missing>"} is not authorized for uninstall.`
       )
+    );
+    return false;
+  }
+  if (!nativeCliReachable) {
+    report.unrepaired.push(
+      finding("host-command-unavailable", `cannot run ${command} ${args.join(" ")}: the native ${command} CLI is unavailable.`)
     );
     return false;
   }
@@ -1674,7 +1745,8 @@ function repairCodex(
   runner: HostCommandRunner,
   writeMarker: (path: string, content: string) => void,
   dryRun: boolean,
-  testConfigurationWrite?: TestConfigurationWrite
+  testConfigurationWrite?: TestConfigurationWrite,
+  nativeCliReachable: boolean = true
 ): MutableHostReport {
   const before = inspectCodex(home, version);
   const beforeArtifacts = artifactSnapshots(before.coherencePaths);
@@ -1705,12 +1777,12 @@ function repairCodex(
       H2A_MARKETPLACE_REPOSITORY,
       "--ref",
       "main"
-    ], dryRun);
+    ], dryRun, nativeCliReachable);
   } else if (needsPlugin) {
-    replacementCommandsSucceeded = runCommand(before, runner, "codex", ["plugin", "marketplace", "upgrade"], dryRun);
+    replacementCommandsSucceeded = runCommand(before, runner, "codex", ["plugin", "marketplace", "upgrade"], dryRun, nativeCliReachable);
   }
   if (needsPlugin && replacementCommandsSucceeded) {
-    replacementCommandsSucceeded = runCommand(before, runner, "codex", ["plugin", "add", H2A_PLUGIN_SELECTOR], dryRun);
+    replacementCommandsSucceeded = runCommand(before, runner, "codex", ["plugin", "add", H2A_PLUGIN_SELECTOR], dryRun, nativeCliReachable);
   }
   const replacementReady = dryRun
     ? replacementCommandsSucceeded
@@ -1755,7 +1827,8 @@ function repairClaude(
   writeMarker: (path: string, content: string) => void,
   dryRun: boolean,
   testClaudePluginUninstalls: readonly string[],
-  testConfigurationWrite?: TestConfigurationWrite
+  testConfigurationWrite?: TestConfigurationWrite,
+  nativeCliReachable: boolean = true
 ): MutableHostReport {
   const before = inspectClaude(home, version);
   const beforeArtifacts = artifactSnapshots(before.coherencePaths);
@@ -1774,13 +1847,14 @@ function repairClaude(
       runner,
       "claude",
       ["plugin", "marketplace", "add", H2A_MARKETPLACE_REPOSITORY],
-      dryRun
+      dryRun,
+      nativeCliReachable
     );
   }
   const canonical = h2aPluginEntries(initialPlugins[H2A_PLUGIN_SELECTOR]);
   const action = canonical.length === 0 ? "install" : "update";
   if (needsPlugin && replacementCommandsSucceeded) {
-    replacementCommandsSucceeded = runCommand(before, runner, "claude", ["plugin", action, H2A_PLUGIN_SELECTOR], dryRun);
+    replacementCommandsSucceeded = runCommand(before, runner, "claude", ["plugin", action, H2A_PLUGIN_SELECTOR], dryRun, nativeCliReachable);
   }
   const replacementReady = dryRun
     ? replacementCommandsSucceeded
@@ -1808,7 +1882,7 @@ function repairClaude(
       reportUnverifiedOwnership(before, knownPath, `legacy marketplace ${marketplace}`);
       continue;
     }
-    runCommand(before, runner, "claude", ["plugin", "marketplace", "remove", marketplace], dryRun);
+    runCommand(before, runner, "claude", ["plugin", "marketplace", "remove", marketplace], dryRun, nativeCliReachable);
   }
   const plugins = isPlainObject(repairedInstalled.plugins) ? repairedInstalled.plugins : {};
   for (const plugin of Object.keys(plugins).filter(
@@ -1820,10 +1894,10 @@ function repairClaude(
       reportUnverifiedOwnership(before, installedPath, `legacy plugin ${plugin}`);
       continue;
     }
-    runCommand(before, runner, "claude", ["plugin", "uninstall", plugin], dryRun);
+    runCommand(before, runner, "claude", ["plugin", "uninstall", plugin], dryRun, nativeCliReachable);
   }
   for (const plugin of testClaudePluginUninstalls) {
-    runCommand(before, runner, "claude", ["plugin", "uninstall", plugin], dryRun);
+    runCommand(before, runner, "claude", ["plugin", "uninstall", plugin], dryRun, nativeCliReachable);
   }
   // v1 deliberately retains legacy orphan caches. A stale version underneath
   // the canonical, verified cache remains part of the normal version repair.
@@ -1885,20 +1959,32 @@ export function doctorHostInstallations(
   const inspectOrRepair = (host: Host): MutableHostReport => {
     const artifacts = hostConfigurationArtifacts(home, host);
     const cliReachable = hostCliCanRunNativeRepair(host, options.runHostCommand !== undefined, options.testHostCliReachable);
-    if (!cliReachable && artifacts.length === 0) {
+    if (artifacts.unavailable.length > 0) {
+      return unavailableHostConfigurationReport(home, host, artifacts.unavailable);
+    }
+    if (!cliReachable && artifacts.present.length === 0) {
       return absentHostReport(home, host);
     }
     let report: MutableHostReport;
     if (host === "claude") {
-      report = cliReachable && repair
-        ? repairClaude(home, version, runner, writeMarker, dryRun, options.testClaudePluginUninstalls ?? [], options.testConfigurationWrite)
+      report = repair
+        ? repairClaude(
+          home,
+          version,
+          runner,
+          writeMarker,
+          dryRun,
+          options.testClaudePluginUninstalls ?? [],
+          options.testConfigurationWrite,
+          cliReachable
+        )
         : inspectClaude(home, version);
     } else {
-      report = cliReachable && repair
-        ? repairCodex(home, version, runner, writeMarker, dryRun, options.testConfigurationWrite)
+      report = repair
+        ? repairCodex(home, version, runner, writeMarker, dryRun, options.testConfigurationWrite, cliReachable)
         : inspectCodex(home, version);
     }
-    if (!cliReachable) report.diagnostics.push(unreachableHostCliDiagnostic(host, artifacts));
+    if (!cliReachable) report.diagnostics.push(unreachableHostCliDiagnostic(host, artifacts.present));
     return report;
   };
   const mutable = [inspectOrRepair("claude"), inspectOrRepair("codex")];
