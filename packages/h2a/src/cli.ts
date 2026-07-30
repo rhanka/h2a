@@ -72,6 +72,7 @@ import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 // skill copies committed here; SOURCE UNIQUE = the installed npm package).
 import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 import { renderCommandMap } from "./cli-command-map.js";
+import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
@@ -5918,7 +5919,7 @@ function targetSpecFor(
   if (host === "claude") {
     return {
       host: "claude",
-      userBase: join(homedir(), ".claude", "skills"),
+      userBase: join(resolveHostConfigRoot("claude"), "skills"),
       projectBase: join(cwd, ".claude", "skills"),
       extension: "SKILL.md",
       write: (base, skillName, _parsed, raw) => {
@@ -5940,7 +5941,9 @@ function targetSpecFor(
     const projectDir = host === "codex" ? ".codex" : host === "hermes" ? ".hermes" : ".opencode";
     return {
       host,
-      userBase: join(homedir(), homeDir, "skills"),
+      userBase: host === "codex"
+        ? join(resolveHostConfigRoot("codex"), "skills")
+        : join(homedir(), homeDir, "skills"),
       projectBase: join(cwd, projectDir, "skills"),
       extension: "SKILL.md",
       write: (base, skillName, _parsed, raw) => {
