@@ -115,6 +115,10 @@ function resolveWorkspace(cmd: MappedCommand, state: State): { create: boolean; 
       // planHash is the authorization scope the apply verifies edge-by-edge. So `item.restructure` does NOT
       // appear in affectedTargetWorkspaces (unlike item.reparent, whose parent must be same-workspace).
       return { create: false, workspace: item(p['itemId']) }
+    case 'item.reopen':
+      // Regression expression — reopenItem mutates the named ITEM aggregate (a decision is refused in the
+      // facade), so containment is the item's workspace: a W-pinned channel can never reopen a V item.
+      return { create: false, workspace: item(p['itemId']) }
     case 'item.spec':
     case 'acceptance.criterion':
     case 'priority.assess':
@@ -289,6 +293,11 @@ function applyCommand(track: Track, cmd: MappedCommand, ctx: IngestContext): str
       return undefined
     case 'item.realize':
       track.setRealization(a[0] as ItemId, a[1] as Realization)
+      return undefined
+    case 'item.reopen':
+      // reopenItem(itemId, {motive, reason}) — the clientToken is already in scope via the ingest seam's
+      // withClientToken (do not double-pass). Regression expression.
+      track.reopenItem(a[0] as ItemId, a[1] as Parameters<Track['reopenItem']>[1])
       return undefined
     case 'decision.create':
       return track.createDecision(a[0] as DecisionCreatedPayload)

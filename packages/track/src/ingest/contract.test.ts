@@ -6,12 +6,14 @@ import { INGEST_CONTRACT_VERSION, WORK_EVENT_KINDS, WORK_EVENT_SCHEMA } from './
 // required field) MUST fail here — this is the contract's snapshot gate (v2.3b-DESIGN.md §6/§7).
 describe('WorkEvent contract surface', () => {
   it('pins the contract version and the kind list', () => {
-    expect(INGEST_CONTRACT_VERSION).toBe('2.0.0') // decision.outcome is defer-only; go/no-go requires decision.select
+    expect(INGEST_CONTRACT_VERSION).toBe('2.1.0') // + item.reopen (2.1.0); decision.outcome defer-only, go/no-go requires decision.select (2.0.0)
     expect([...WORK_EVENT_KINDS]).toEqual([
       'item.create',
       'item.reparent',
       'item.spec',
       'item.realize',
+      // Regression expression (decision 01KYQ5RRN67190YMZ08EGGBSBT) — 2.1.0 additive kind.
+      'item.reopen',
       'decision.create',
       'decision.dossier',
       'decision.select',
@@ -63,6 +65,9 @@ describe('WorkEvent contract surface', () => {
       'item.reparent': { method: 'reparentItem', settles: 'always', required: ['itemId'] },
       'item.spec': { method: 'setSpec', settles: 'never', required: ['itemId', 'to'] },
       'item.realize': { method: 'setRealization', settles: 'realize-terminal', required: ['itemId', 'to'] },
+      // Regression expression — BINDING (not realize-terminal): a reopening always settles, and both the
+      // motive and the reason are REQUIRED, so a reopening can never be motive-less on the wire.
+      'item.reopen': { method: 'reopenItem', settles: 'always', required: ['itemId', 'motive', 'reason'] },
       'decision.create': {
         method: 'createDecision',
         settles: 'never',

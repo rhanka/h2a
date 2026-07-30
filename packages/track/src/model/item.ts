@@ -57,6 +57,41 @@ export interface RealizationCause {
   decisionId: ItemId
 }
 
+/**
+ * Regression expression (decision 01KYQ5RRN67190YMZ08EGGBSBT, owner GO on option A, 2026-07-29) — WHY a
+ * closed item is being reopened. The two motives are the two ways a closure can be wrong:
+ *   - `closed-without-owner-uat` — the closure rested on a technical recipe the owner never validated;
+ *   - `regression-observed`      — the capability WAS delivered and is now broken.
+ * The motive is RECORDED, never verified: track has no owner-UAT marker today, so it cannot prove a closure
+ * lacked one (that marker is a separate item). The guarantee here is that a reopening cannot be MOTIVE-LESS.
+ */
+export const REOPEN_MOTIVES = ['closed-without-owner-uat', 'regression-observed'] as const
+export type ReopenMotive = (typeof REOPEN_MOTIVES)[number]
+
+/** The two terminal realizations a reopening corrects. `rejected` is NOT one of them — it is the
+ *  consequence of a `no-go` Decision, so it is undone by revising that decision, never by a reopening. */
+export type ReopenableRealization = Extract<Realization, 'done' | 'cancelled'>
+
+/**
+ * One recorded reopening, folded onto the item in stream order (the trace IS the value — nothing is
+ * erased: the closure it corrects stays in the log, and so does every prior reopening). `from` is the
+ * terminal realization this reopening corrected; `at`/`by` come from the event frame, not the payload.
+ */
+export interface ReopenRecord {
+  from: ReopenableRealization
+  motive: ReopenMotive
+  reason: string
+  at: string
+  by: ActorId
+}
+
+/** The `realization.reopened` payload (the WHAT; `at`/`by`/`from` are not producer-supplied). */
+export interface ReopenPayload {
+  itemId: ItemId
+  motive: ReopenMotive
+  reason: string
+}
+
 export interface ItemState {
   id: ItemId
   kind: ItemKind
@@ -100,6 +135,12 @@ export interface ItemState {
    * for the demand→item read trace.
    */
   demandId?: Ulid // = DemandId; kept as the foundational Ulid to avoid an item↔demand model import cycle
+  /**
+   * Regression expression — every recorded reopening of this item, in stream order (see {@link ReopenRecord}).
+   * Drop-when-absent: an item that was never reopened carries no field, so a pre-reopen log folds
+   * byte-identically. READ-ONLY detail: the realization axis itself is folded by the reopening event.
+   */
+  reopenings?: ReopenRecord[]
 }
 
 /**
@@ -222,6 +263,11 @@ const SPEC_TRANSITIONS: Record<SpecStatus, ReadonlyArray<SpecStatus>> = {
 
 // Realization forward transitions (SPEC §2.3). `rejected` is handled separately — it is only
 // reachable from a `no-go` Decision (with a cause), never a manual transition.
+//
+// `done` and `cancelled` stay TERMINAL here ON PURPOSE, after the 2026-07-29 ruling that a wrongly-closed
+// item must be reopenable: reopening is a DISTINCT, MOTIVATED command (`realization.reopened` /
+// `assertReopenTransition`), never a side effect of the ordinary `item realize` verb. So `item realize <id>
+// in-progress` on a closed item still fails, and no import/replay path can reopen work by accident.
 const REALIZATION_TRANSITIONS: Record<Realization, ReadonlyArray<Realization>> = {
   'to-do': ['in-progress', 'cancelled'],
   'in-progress': ['done', 'cancelled'],
@@ -260,4 +306,49 @@ export function assertRealizationTransition(
       `illegal realization transition ${item.realization} -> ${to} (item ${item.id})`,
     )
   }
+}
+
+/**
+ * Regression expression — fail-closed validation of a reopening payload (mirrors {@link assertScopeDecl}).
+ * A reopening MUST carry one of the declared motives and a non-blank reason: the whole point of the 2026-07-29
+ * ruling is that the log says WHY a closure was wrong, so a motive-less reopening is refused BEFORE any append.
+ */
+export function assertReopenPayload(input: unknown): { motive: ReopenMotive; reason: string } {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw new DomainError('item.reopen: the reopening must be an object')
+  }
+  const a = input as Record<string, unknown>
+  if (typeof a['motive'] !== 'string' || !REOPEN_MOTIVES.includes(a['motive'] as ReopenMotive)) {
+    throw new DomainError(
+      `item.reopen: motive must be one of ${REOPEN_MOTIVES.join('|')} (got ${JSON.stringify(a['motive'])})`,
+    )
+  }
+  if (typeof a['reason'] !== 'string' || a['reason'].trim().length === 0) {
+    throw new DomainError('item.reopen: reason must be a non-empty string (the log must say why)')
+  }
+  return { motive: a['motive'] as ReopenMotive, reason: a['reason'] }
+}
+
+/**
+ * Regression expression — the reopening transition, checked BEFORE any append. Legal ONLY from a terminal
+ * closure (`done` / `cancelled`), and it lands on `in-progress` (the owner-selected option A: the item goes
+ * back to being work in flight, distinguishable from a never-started TO-DO). Returns the corrected `from` for
+ * a caller that wants it; the FOLD does not use the return — it re-derives `from` off its own state, so the
+ * recorded trace can never contradict the log.
+ *   - `rejected` is refused: it is the consequence of a `no-go` Decision, undone by revising that decision;
+ *   - `to-do` / `in-progress` are refused: there is no closure to correct.
+ */
+export function assertReopenTransition(item: {
+  id: ItemId
+  realization: Realization
+}): ReopenableRealization {
+  if (item.realization === 'done' || item.realization === 'cancelled') return item.realization
+  if (item.realization === 'rejected') {
+    throw new DomainError(
+      `item ${item.id} is rejected — that is the consequence of a no-go decision, so revise the decision instead of reopening the item`,
+    )
+  }
+  throw new DomainError(
+    `item ${item.id} is not closed (realization ${item.realization}) — there is no closure to reopen`,
+  )
 }
