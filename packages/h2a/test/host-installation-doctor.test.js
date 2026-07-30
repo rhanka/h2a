@@ -96,6 +96,8 @@ function fixtureHome() {
   const home = join(tmpdir(), `h2a-host-doctor-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const codex = join(home, ".codex");
   const claude = join(home, ".claude");
+  const codexLegacyMarketplacePath = join(codex, ".tmp", "marketplaces", "sentropic-local-codex-08518");
+  const claudeLegacyMarketplacePath = join(claude, "plugins", "marketplaces", "sentropic-local-claude-08518");
   mkdirSync(codex, { recursive: true });
   mkdirSync(claude, { recursive: true });
   writeFileSync(
@@ -117,23 +119,25 @@ function fixtureHome() {
       "",
       "[marketplaces.sentropic-local-codex-08518]",
       'source_type = "local"',
-      'source = "/deleted/tmp/deploy-08518"',
+      `source = "${codexLegacyMarketplacePath}"`,
       ""
     ].join("\n")
   );
   // `codex mcp list` may still show this cached enabled plugin even though its
-  // only marketplace was a deleted local directory. A current cache therefore
+  // only marketplace is an obsolete local source. A current cache therefore
   // cannot certify the installation by itself.
   currentPlugin(join(codex, "plugins", "cache", "sentropic", "h2a", VERSION));
   currentPlugin(join(codex, "plugins", "cache", "sentropic-local-codex-08518", "h2a", "0.85.18"));
+  currentMarketplace(codexLegacyMarketplacePath);
 
   const claudePluginPath = join(claude, "plugins", "cache", "sentropic", "h2a", "0.85.18");
   currentPlugin(claudePluginPath);
   currentPlugin(join(claude, "plugins", "cache", "sentropic-local-claude-08518", "h2a", "0.85.18"));
+  currentMarketplace(claudeLegacyMarketplacePath);
   writeJson(join(claude, "plugins", "known_marketplaces.json"), {
     "sentropic-local-claude-08518": {
-      source: { source: "directory", path: "/deleted/tmp/deploy-08518" },
-      installLocation: "/deleted/tmp/deploy-08518"
+      source: { source: "directory", path: claudeLegacyMarketplacePath },
+      installLocation: claudeLegacyMarketplacePath
     }
   });
   writeJson(join(claude, "plugins", "installed_plugins.json"), {
@@ -420,7 +424,7 @@ test("doctor names the broken canonical Codex marketplace source", () => {
   }
 });
 
-test("doctor treats a cached enabled Codex plugin from a vanished marketplace as false healthy and repairs it idempotently", () => {
+test("doctor treats a cached enabled Codex plugin from a legacy marketplace as false healthy and repairs it idempotently", () => {
   const home = fixtureHome();
   try {
     const before = doctorHostInstallations({ home, version: VERSION });
@@ -521,6 +525,165 @@ test("doctor leaves a native-host command failure explicitly unrepaired", () => 
   }
 });
 
+test("doctor preserves direct endpoints when replacement commands fail", () => {
+  const home = fixtureHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const claudeMcpPath = join(home, ".config", "claude", "mcp.json");
+  try {
+    const codexBefore = readFileSync(codexPath, "utf8");
+    const claudeBefore = readFileSync(claudeMcpPath, "utf8");
+    const report = doctorHostInstallations({
+      home,
+      version: VERSION,
+      repair: true,
+      runHostCommand: () => ({ ok: false, message: "replacement install failed" })
+    });
+
+    assert.equal(report.ok, false);
+    assert.ok(
+      report.hosts.flatMap((host) => host.unrepaired).some((entry) => entry.code === "host-command-failed"),
+      JSON.stringify(report, null, 2)
+    );
+    assert.equal(readFileSync(codexPath, "utf8"), codexBefore);
+    assert.equal(readFileSync(claudeMcpPath, "utf8"), claudeBefore);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor preserves third-party MCP entries and custom configuration fields", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const claudeMcpPath = join(home, ".config", "claude", "mcp.json");
+  const codexBefore = [
+    '[plugins."h2a@sentropic"]',
+    "enabled = true",
+    'custom_field = "preserve"',
+    "",
+    "[marketplaces.sentropic]",
+    'source_type = "git"',
+    'source = "https://github.com/rhanka/h2a.git"',
+    'ref = "main"',
+    'custom_marketplace_field = "preserve"',
+    "",
+    "[mcp_servers.h2a]",
+    'command = "h2a"',
+    'args = ["mcp-serve"]',
+    "",
+    "[mcp_servers.h2a-helper]",
+    'command = "third-party-mcp"',
+    'args = ["serve"]',
+    'opaque = "preserve"',
+    ""
+  ].join("\n");
+  const codexExpected = [
+    '[plugins."h2a@sentropic"]',
+    "enabled = true",
+    'custom_field = "preserve"',
+    "",
+    "[marketplaces.sentropic]",
+    'source_type = "git"',
+    'source = "https://github.com/rhanka/h2a.git"',
+    'ref = "main"',
+    'custom_marketplace_field = "preserve"',
+    "",
+    "[mcp_servers.h2a-helper]",
+    'command = "third-party-mcp"',
+    'args = ["serve"]',
+    'opaque = "preserve"',
+    ""
+  ].join("\n");
+  const claudeBefore = '{"custom":{"untouched":[1,2]},"mcpServers":{"h2a":{"command":"h2a","args":["mcp-serve"]},"h2a-helper":{"command":"third-party-mcp","args":["serve"],"opaque":{"x":1}}},"tail":"preserve"}\n';
+  const claudeExpected = '{"custom":{"untouched":[1,2]},"mcpServers":{"h2a-helper":{"command":"third-party-mcp","args":["serve"],"opaque":{"x":1}}},"tail":"preserve"}\n';
+  try {
+    writeFileSync(codexPath, codexBefore);
+    mkdirSync(join(claudeMcpPath, ".."), { recursive: true });
+    writeFileSync(claudeMcpPath, claudeBefore);
+
+    const report = doctorHostInstallations({ home, version, repair: true, runHostCommand: repairRunner(home, []) });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(readFileSync(codexPath, "utf8"), codexExpected);
+    assert.equal(readFileSync(claudeMcpPath, "utf8"), claudeExpected);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor reports unverified legacy artifacts without deleting them", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const legacyRoot = join(home, ".codex", "plugins", "cache", "sentropic-local-unverified");
+  const legacyMarketplace = join(home, "unverified-marketplace");
+  try {
+    mkdirSync(join(legacyRoot, "h2a", "0.1.0"), { recursive: true });
+    writeFileSync(join(legacyRoot, "h2a", "0.1.0", "third-party.txt"), "do not delete\n");
+    mkdirSync(legacyMarketplace, { recursive: true });
+    writeFileSync(
+      codexPath,
+      `${readFileSync(codexPath, "utf8").trimEnd()}\n\n` +
+        '[plugins."h2a-local-unverified@sentropic-local-unverified"]\n' +
+        "enabled = true\n\n" +
+        "[marketplaces.sentropic-local-unverified]\n" +
+        'source_type = "local"\n' +
+        `source = "${legacyMarketplace}"\n`
+    );
+
+    const report = doctorHostInstallations({
+      home,
+      version,
+      repair: true,
+      runHostCommand: repairRunner(home, [])
+    });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, false);
+    assert.ok(existsSync(legacyRoot));
+    assert.ok(
+      codex?.unrepaired.some((entry) => entry.code === "ownership-unverified" && /unverified/.test(entry.message)),
+      JSON.stringify(report, null, 2)
+    );
+    assert.match(readFileSync(codexPath, "utf8"), /sentropic-local-unverified/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor leaves an unproven canonical Codex marketplace untouched", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const config = [
+    '[plugins."h2a@sentropic"]',
+    "enabled = true",
+    'custom_plugin_field = "third-party"',
+    "",
+    "[marketplaces.sentropic]",
+    'source_type = "local"',
+    'source = "/third-party/sentropic"',
+    'opaque = "preserve"',
+    ""
+  ].join("\n");
+  try {
+    writeFileSync(codexPath, config);
+    const report = doctorHostInstallations({
+      home,
+      version,
+      repair: true,
+      runHostCommand: () => ({ ok: true })
+    });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, false);
+    assert.ok(
+      codex?.unrepaired.some((entry) => entry.code === "ownership-unverified" && /marketplace sentropic/.test(entry.message)),
+      JSON.stringify(report, null, 2)
+    );
+    assert.equal(readFileSync(codexPath, "utf8"), config);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor repair never targets third-party or canonical plugin caches for deletion", () => {
   const home = fixtureHome();
   const protectedCacheNames = [
@@ -577,6 +740,14 @@ test("doctor --repair dispatches only the ratified plugin uninstall allowset", (
         installPath: join(home, ".claude", "plugins", "cache", "fixture", selector),
         version: "1.0.0"
       }];
+    }
+    for (const selector of authorizedSelectors) {
+      const installPath = installed.plugins[selector][0].installPath;
+      if (selector === "track@sentropic") {
+        writeJson(join(installPath, ".claude-plugin", "plugin.json"), { name: "track", version: "1.0.0" });
+      } else {
+        currentPlugin(installPath);
+      }
     }
     writeJson(installedPath, installed);
 
