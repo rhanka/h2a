@@ -17,6 +17,13 @@ import { directiveScopeLabelFr as directiveScopeLabel, gatePhraseFr, stepActionF
 
 export type Format = 'json' | 'text' | 'md'
 
+/** Reject stale JavaScript callers rather than treating an unsupported runtime value as text. */
+export function assertReportFormat(format: string): asserts format is Format {
+  if (format !== 'json' && format !== 'text' && format !== 'md') {
+    throw new Error(`unsupported report format: ${format}`)
+  }
+}
+
 const BACKSLASH = String.fromCharCode(92)
 // Markdown metacharacters escaped in `md` titles so a user title can't inject formatting.
 const MD_META = new Set([
@@ -829,13 +836,22 @@ const TODO_EXCERPT_MAX = 100
 const ULID = /[0-9A-HJKMNP-TV-Z]{26}/gu
 
 /**
- * The owner-facing conductor never prints aggregate identifiers. This is deliberately the final render
- * boundary, after every title, decision subject, option summary, excerpt, and generated prose have joined
- * the view: scrubbing one source field is not an invariant. The machine-only handle-resolution block keeps
- * its ids intact so the report remains actionable.
+ * Owner-facing conductor cells never print aggregate identifiers. This runs while the shared view is built,
+ * so JSON, text, and Markdown consume the same redacted cells. The machine-only handle-resolution block
+ * keeps its ids intact so the report remains actionable.
  */
 function redactOwnerText(value: string): string {
   return value.replace(ULID, 'référence interne')
+}
+
+function redactOwnerTable(table: ReportViewTable): ReportViewTable {
+  return {
+    ...table,
+    rows: table.rows.map((row) => Object.fromEntries(
+      Object.entries(row).map(([key, value]) => [key, redactOwnerText(value)]),
+    )),
+    ...(table.lines === undefined ? {} : { lines: table.lines.map(redactOwnerText) }),
+  }
 }
 
 /** `undefined` for an absent/blank body — a bare title is then the HONEST render, not a gap to fill. */
@@ -1349,7 +1365,7 @@ export function buildWpConductorView(
     const selected = d.selectedOptionId === undefined ? undefined : letterOf.get(d.selectedOptionId)
     options.forEach((option, i) => {
       const letter = optionLetter(i)
-      const wrapped = wrapCell(`${letter} ${clean(option.title)} — ${clean(option.summary)}`, DECISION_CAPS[2])
+      const wrapped = wrapCell(`${letter} ${redactOwnerText(clean(option.title))} — ${redactOwnerText(clean(option.summary))}`, DECISION_CAPS[2])
       const marks: string[] = []
       if (letter === recommended) marks.push(letter)
       if (letter === selected) marks.push('retenu')
@@ -1474,11 +1490,7 @@ export function buildWpConductorView(
       : `track report --scope ${shellArgument(meta.scopeProjection.selector)} --resolve <handle>`,
   }
 
-  return {
-    kind: 'wp-conductor-report',
-    locale: 'fr',
-    header,
-    tables: [
+  const tables: ReportViewTable[] = [
       {
         id: 'done',
         title: 'FAIT',
@@ -1521,7 +1533,13 @@ export function buildWpConductorView(
         rows: [],
         lines: recommendationLines,
       },
-    ],
+  ]
+
+  return {
+    kind: 'wp-conductor-report',
+    locale: 'fr',
+    header,
+    tables: tables.map(redactOwnerTable),
     handles,
     coverage,
     directives,
@@ -1598,12 +1616,11 @@ export function resolutionLines(view: ReportView): string[] {
 }
 
 function renderReportView(view: ReportView, format: Format): string {
+  assertReportFormat(format)
   if (format === 'json') return JSON.stringify(view, null, 2) + '\n'
-  // User-originated cell content (titles) is escaped per-format: `md` escapes markdown metacharacters so a
-  // crafted item title cannot inject formatting (parity with the legacy `formatReport`/`title` path); `text`
-  // is clean. The view model itself stays RAW (escaping is a render-only concern). `displayCell` keeps the
-  // machine-generated `[n.m]` handle out of that escaped span so the three formats agree on it.
-  const esc = (s: string): string => displayCell(redactOwnerText(s), format)
+  // The builder already redacts owner cells for every format. Rendering only escapes Markdown metacharacters;
+  // `displayCell` keeps the machine-generated `[n.m]` handle out of that escaped span.
+  const esc = (s: string): string => displayCell(s, format)
   const h = (label: string): string => (format === 'md' ? `## ${label}` : label)
   const lines: string[] = headerLines(view, format)
   for (const section of view.tables) {
@@ -1611,12 +1628,12 @@ function renderReportView(view: ReportView, format: Format): string {
     if (section.render === 'prose') {
       // Renderer-authored French sentences interpolating only derived labels, handles and D-numbers —
       // never a raw user title, so there is nothing to escape and nothing to inject.
-      lines.push(...(section.lines ?? []).map(redactOwnerText))
+      lines.push(...(section.lines ?? []))
     } else if (section.render === 'drawn') {
       // The box-drawn table is emitted verbatim; `md` fences it so the alignment survives.
       const drawn = drawTable(
         section.columns.map((c) => c.label),
-        section.rows.map((row) => section.columns.map((c) => redactOwnerText(clean0(row[c.id] ?? '')))),
+        section.rows.map((row) => section.columns.map((c) => clean0(row[c.id] ?? ''))),
         DECISION_CAPS,
         [false, false, false, true],
       )
