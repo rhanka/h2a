@@ -117,6 +117,23 @@ function makeReaders({ fakeHome = tmpdir(), codexIndexLines = [] } = {}) {
   };
 }
 
+test("default host name reader follows CODEX_HOME", () => {
+  const home = mkdtempSync(join(tmpdir(), "h2a-configured-codex-reader-"));
+  const codexRoot = join(home, "configured-codex");
+  const indexLine = JSON.stringify({ id: "configured-session", thread_name: "Configured Codex" });
+  const previousCodexHome = process.env.CODEX_HOME;
+  try {
+    mkdirSync(codexRoot, { recursive: true });
+    writeFileSync(join(codexRoot, "session_index.jsonl"), `${indexLine}\n`);
+    process.env.CODEX_HOME = codexRoot;
+    assert.deepEqual(defaultHostNameReaders.readCodexSessionIndex(), [indexLine, ""]);
+  } finally {
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 function baseSession(overrides = {}) {
   const now = new Date().toISOString();
   return {

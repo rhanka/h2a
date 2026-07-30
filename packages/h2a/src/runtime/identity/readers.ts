@@ -19,6 +19,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { resolveHostConfigRoot } from "../host-config-root.js";
 import type { ProviderSessionReaders } from "./resolver.js";
 
 /** First newline-delimited line of a (possibly large) file, decoded best-effort. */
@@ -41,7 +42,7 @@ function newestFirst(paths: string[]): string[] {
 
 function codexThreadForCwd(cwd: string): string | undefined {
   try {
-    const base = join(homedir(), ".codex", "sessions");
+    const base = join(resolveHostConfigRoot("codex"), "sessions");
     if (!existsSync(base)) return undefined;
     const files: string[] = [];
     const walk = (dir: string): void => {
@@ -228,7 +229,7 @@ export const defaultHostNameReaders: HostNameReaders = {
   readCodexSessionIndex(): string[] {
     // Tail-bounded: this runs on the heartbeat and the index grows monotonically.
     return defaultHostNameReaders.readTailLines(
-      join(homedir(), ".codex", "session_index.jsonl"),
+      join(resolveHostConfigRoot("codex"), "session_index.jsonl"),
       CODEX_INDEX_TAIL_BYTES
     );
   },
@@ -287,7 +288,7 @@ function findClaudeTranscript(
   // The resolver already locates it via CLAUDE_CODE_SESSION_ID → env reader.
   // Here we use the same scan: look under ~/.claude/projects/ for a file named <sessionId>.jsonl
   try {
-    const projectsBase = join(home, ".claude", "projects");
+    const projectsBase = join(resolveHostConfigRoot("claude", home), "projects");
     if (!existsSync(projectsBase)) return undefined;
     const projectDirs = readdirSync(projectsBase);
     for (const proj of projectDirs) {
