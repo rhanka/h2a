@@ -56,13 +56,13 @@
 
 ## Lot 3 — render one reproducible scope report
 
-- [ ] Resolve role-container selectors by id, assigned code, or derived label and reject unknown/ambiguous selectors loudly.
-- [ ] Project from one event-log snapshot so rows and revision attest the same head.
-- [ ] Render the prescribed FAIT / À-FAIRE / DÉCISIONS / RECOMMANDATION shape and scoped handle command.
-- [ ] Redact every owner-facing string at the rendering boundary and render blockage as a sibling row using its target title.
-- [ ] Preserve report arithmetic and every named golden fixture unchanged.
-- [ ] Test: scope resolution, stable snapshot, no-ULID owner-facing output, blocked-row presentation, command scope, and golden preservation.
-- [ ] Gate: no rendered owner-facing field contains a ULID.
+- [x] Resolve role-container selectors by id, assigned code, or derived label and reject unknown/ambiguous selectors loudly.
+- [x] Project from one event-log snapshot so rows and revision attest the same head.
+- [x] Render the prescribed FAIT / À-FAIRE / DÉCISIONS / RECOMMANDATION shape and scoped handle command.
+- [x] Redact every owner-facing string at the rendering boundary and render blockage as a sibling row using its target title.
+- [x] Preserve report arithmetic and every named golden fixture unchanged.
+- [x] Test: scope resolution, stable snapshot, no-ULID owner-facing output, blocked-row presentation, command scope, and golden preservation.
+- [x] Gate: no rendered owner-facing field contains a ULID.
 
 ## Lot 4 — pass blocker owner through the CLI
 
