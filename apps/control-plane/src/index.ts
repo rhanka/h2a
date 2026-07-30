@@ -1,4 +1,4 @@
-import { serve, upgradeWebSocket } from "@hono/node-server";
+import { serve, upgradeWebSocket, type ServerType } from "@hono/node-server";
 import { WebSocketServer } from "ws";
 import {
   DockerSessionProvisioner,
@@ -348,14 +348,20 @@ function parseNodeSelector(raw: string): Record<string, string> {
   return selector;
 }
 
-export async function startControlPlane(): Promise<void> {
+/**
+ * Returns the listening server so the REAL entrypoint can be exercised and shut
+ * down by a test. It used to return void, which made the production `serve()`
+ * call — the one line the v2 migration is about — impossible to reach except by
+ * recomposing it, and a test that recomposes a wiring verifies its own copy.
+ */
+export async function startControlPlane(): Promise<ServerType> {
   const app = createControlPlane({ provisioner: provisionerFromEnv() });
   const port = Number(process.env.PORT ?? "8080");
   const hostname = process.env.HOST ?? "0.0.0.0";
 
   // @hono/node-server v2 owns the upgrade: the ws server is passed at serve()
   // time instead of being injected into the listener afterwards.
-  serve({
+  return serve({
     fetch: app.fetch,
     port,
     hostname,
