@@ -149,6 +149,51 @@ The third property matters: today the only way to give a Codex lane network
 access is to edit a user-global file, which silently changes every future
 launch. That is a durable grant obtained for a transient need.
 
+### Attribution must be stamped on the process, not recorded beside it
+
+Property 2 above is not enough as written, and the gap is measured rather than
+feared. A declaration filed in a ledger says who asked; it does not let anyone
+holding a *running* process find out who launched it.
+
+Measured on this workstation on 2026-07-30, at a moment when 33 `h2a-` tmux
+sessions and 283 node/codex processes were live (28 GB resident, 22 GB of 57
+still available). Walking up from the largest agent process:
+
+```
+codex-linux-x64                                   ← the agent
+node .../bin/codex -m gpt-5.6-sol …               ← its wrapper
+tmux new-session -d -s remote-geo -c …/src/geo    ← the tmux SERVER, shared
+systemd --user
+```
+
+The chain does not lead to a lane. It leads to the tmux **server**, whose argv
+still names the first session it ever created — `remote-geo`, in an unrelated
+repository. The process is not a `pane_pid` either, so matching pane pids does
+not find it. **There is no path from a running agent to the lane accountable for
+it.**
+
+That is the invariant of §3 turned around. §3 says a denial must be attributable.
+This says the same of a grant: a sandbox that is running with network access and
+writable roots, and that nobody can be traced to, is a capability nobody answers
+for. The consequence is concrete — if one of those processes does something it
+should not have, there is no mechanism that names its owner.
+
+Required, therefore: a sandboxed process carries a durable, machine-readable link
+to the lane that launched it and the work it was launched for. Two constraints on
+how:
+
+- It cannot be *inferred* from the process tree, as measured above. It has to be
+  stamped at launch — environment, cgroup, or a pane-level option — which makes
+  it `runtime`'s execution, not something this policy can implement.
+- It must not be a self-declared **name**. This repository already established
+  that the bus actor field is checked by nothing, so identity by name is
+  forgeable; identity by *owned work* is not. The stamp must reference the run,
+  not an assertion about who is running.
+
+Enforceability today: **nothing** — not a habit, because no mechanism exists to
+carry the link at all. That is worse than the other rows in §6, and it is the
+only row that was measured rather than reasoned.
+
 ## 6. Where this policy stops being enforceable
 
 Per the enforceability ladder — structural > test > spec line > habit — this is
@@ -158,6 +203,7 @@ where each rule currently sits, and it is deliberately unflattering:
 |---|---|---|
 | Secure default profile | **habit** — nothing implements it | structural, once `runtime` builds the profile into launch |
 | Loud denial | **habit** | test, via a launch test asserting a named error on a denied capability |
+| Process → lane attribution | **nothing** — measured absent, no mechanism carries the link | structural, stamped at launch (env/cgroup/pane option) |
 | Scoped declaration | **spec line** — this document | structural |
 | No host-global mutation | **habit** | test, by asserting the host config is unchanged after a run |
 
