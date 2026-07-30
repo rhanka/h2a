@@ -177,4 +177,74 @@ describe("proxy-anthropic quota fallback", () => {
       provider: "anthropic",
     });
   });
+
+  it("rebinds an un-routed 429 to a same-pool Anthropic account", async () => {
+    const { app, gatewayToken } = await appWithSession([
+      {
+        id: "claude-quota",
+        provider: "anthropic",
+        label: "Claude quota",
+        token: "sk-ant-quota",
+      },
+      {
+        id: "claude-backup",
+        provider: "anthropic",
+        label: "Claude backup",
+        token: "sk-ant-backup",
+      },
+    ]);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "usage limit reached" }), {
+          status: 429,
+          headers: { "retry-after": "30", "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "pong" }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await app.fetch(
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${gatewayToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(REQUEST_BODY),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      type: "message",
+      role: "assistant",
+      content: [{ type: "text", text: "pong" }],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const firstInit = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect((firstInit.headers as Record<string, string>)["x-api-key"]).toBe(
+      "sk-ant-quota",
+    );
+    const secondInit = fetchMock.mock.calls[1]![1] as RequestInit;
+    expect((secondInit.headers as Record<string, string>)["x-api-key"]).toBe(
+      "sk-ant-backup",
+    );
+    expect(readFileSync(stickyPath, "utf8")).toContain("claude-backup");
+    const { lookupToken } = await import("./sticky.js");
+    await expect(lookupToken(gatewayToken)).resolves.toMatchObject({
+      accountId: "claude-backup",
+      token: "sk-ant-backup",
+      provider: "anthropic",
+    });
+  });
 });

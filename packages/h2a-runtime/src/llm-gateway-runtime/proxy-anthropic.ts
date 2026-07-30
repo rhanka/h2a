@@ -82,7 +82,6 @@ async function rebindAfterQuotaResponse(
     });
   }
   markAccountExhausted(session.accountId, quotaReason(response));
-  if (response.status === 429) return undefined;
   const fallback = selectFallbackAccount(session.accountId, Date.now(), {
     ...(session.requiredTransport
       ? { requiredTransport: session.requiredTransport }
@@ -90,6 +89,13 @@ async function rebindAfterQuotaResponse(
     ...(route ? { route } : {}),
   });
   if (!fallback) return undefined;
+  if (
+    response.status === 429 &&
+    accountPoolForProvider(fallback.provider) !==
+      accountPoolForProvider(session.provider)
+  ) {
+    return undefined;
+  }
 
   let rebound: SessionEntry | undefined;
   try {
