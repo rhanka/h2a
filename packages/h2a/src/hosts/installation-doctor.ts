@@ -787,7 +787,9 @@ function inspectCodex(home: string, version: string): MutableHostReport {
     report.findings.push(finding("version-skew", `Codex h2a cache is not at npm CLI version ${version}.`, cachePath));
   }
   const staleVersions = versions.filter((entry) => entry !== version);
-  const legacyCaches = listDirectories(cachePath).filter(isLegacySentropicName);
+  const legacyCaches = listDirectories(cachePath).filter(
+    (entry) => isLegacySentropicName(entry) && isOwnedLegacyCacheRoot(join(cachePath, entry))
+  );
   if (staleVersions.length > 0 || legacyCaches.length > 0) {
     report.findings.push(orphanCacheFinding(
       "Codex",
@@ -873,7 +875,9 @@ function inspectClaude(home: string, version: string): MutableHostReport {
   const cacheVersions = claudeCacheVersions(home);
   const cacheRoot = join(home, ".claude", "plugins", "cache");
   const staleVersions = cacheVersions.filter((entry) => entry !== version);
-  const legacyCaches = listDirectories(cacheRoot).filter(isLegacySentropicName);
+  const legacyCaches = listDirectories(cacheRoot).filter(
+    (entry) => isLegacySentropicName(entry) && isOwnedLegacyCacheRoot(join(cacheRoot, entry))
+  );
   if (staleVersions.length > 0 || legacyCaches.length > 0) {
     report.findings.push(orphanCacheFinding(
       "Claude",
