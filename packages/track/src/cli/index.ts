@@ -37,7 +37,7 @@ import {
 import { ingest, type IngestContext } from '../ingest/ingest.js'
 import { applyRestructurePlan, type RestructurePlan } from './restructure-apply.js'
 import { TrackReader } from '../read/contract.js'
-import { queryText, reportHtml, reportInline, reportText, resolveHandle, statusText } from '../read/commands.js'
+import { queryText, reportHtml, reportInline, reportText, resolveHandle, statusText, type ReportPeriodSelection } from '../read/commands.js'
 import { STATUS_LEVELS } from '../report/status-by-level.js'
 import { renderSnapshot } from '../report/snapshot.js'
 import { VERSION } from '../version.js'
@@ -100,7 +100,7 @@ const USAGE = `usage: track <command>
   accept waive <criterionId> --reason <r>
   consolidate --items <id,id> --commit <mergeCommit> [--client-token <t>]
   priority assess <itemId> --ubv <n> --tc <n> --rr <n> --js <n>
-  report [--scope <container-id|code|label>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md|html] [--commit <sha>] [--now <iso>]
+  report [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>]|--period <today|week|month|all>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md|html] [--commit <sha>] [--now <iso>]
   snapshot [--require-accepted] [--format json|text|md] [--commit <sha>]
   export-graph [--repo-key <repo:key>] [--source-id <id>] [--observed-at <iso>]
   query [--kind <k>] [--role <workpackage|spec-phase|stream>] [--workspace <w>] [--bucket <AWAITED|DROPPED|DONE|TO-DO>] [--realization <r>] [--acceptance <a>] [--format json|text|md] [--commit <sha>]
@@ -174,6 +174,96 @@ function resolveCommit(cwd: string, c: string | undefined): string {
     }).trim()
   } catch {
     return c
+  }
+}
+
+interface ReportBoundary {
+  at: string
+  ref: string | null
+}
+
+/** A calendar date is a local civil day at the CLI boundary, then emitted as an absolute instant. */
+function resolveReportDate(raw: string, upper: boolean): string | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(raw)
+  if (match === null) return undefined
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const value = new Date(year, month - 1, day, upper ? 23 : 0, upper ? 59 : 0, upper ? 59 : 0, upper ? 999 : 0)
+  if (value.getFullYear() !== year || value.getMonth() !== month - 1 || value.getDate() !== day) return undefined
+  return value.toISOString()
+}
+
+/** Resolve a date or commit selector strictly: period bounds must never silently degrade into a literal. */
+function resolveReportBoundary(cwd: string, raw: string, flag: '--since' | '--until'): ReportBoundary {
+  const date = resolveReportDate(raw, flag === '--until')
+  if (date !== undefined) return { at: date, ref: null }
+  try {
+    const ref = execFileSync('git', ['rev-parse', '--verify', '--end-of-options', `${raw}^{commit}`], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    const at = execFileSync('git', ['show', '-s', '--format=%cI', ref], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    if (Number.isNaN(Date.parse(at))) throw new Error('invalid committer date')
+    return { at, ref }
+  } catch {
+    throw new DomainError(`${flag} must be a YYYY-MM-DD date or a resolvable commit`)
+  }
+}
+
+function localDayStart(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate())
+}
+
+function localDayEnd(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 23, 59, 59, 999)
+}
+
+function namedReportPeriod(raw: string, now: string): ReportPeriodSelection {
+  const clock = new Date(now)
+  if (Number.isNaN(clock.getTime())) throw new DomainError('--now must be an ISO timestamp')
+  if (raw === 'all') return { requested: raw, fromRef: null, toRef: null }
+  let from: Date
+  let to: Date
+  if (raw === 'today') {
+    from = localDayStart(clock)
+    to = localDayEnd(clock)
+  } else if (raw === 'week') {
+    const start = localDayStart(clock)
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7)) // Monday, in local time
+    from = start
+    to = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6, 23, 59, 59, 999)
+  } else {
+    from = new Date(clock.getFullYear(), clock.getMonth(), 1)
+    to = new Date(clock.getFullYear(), clock.getMonth() + 1, 0, 23, 59, 59, 999)
+  }
+  return { requested: raw, from: from.toISOString(), to: to.toISOString(), fromRef: null, toRef: null }
+}
+
+function resolveReportPeriod(flags: Flags, cwd: string, now: string): ReportPeriodSelection | undefined {
+  const since = opt(flags, 'since')
+  const until = opt(flags, 'until')
+  const named = opt(flags, 'period')
+  if (since !== undefined && named !== undefined) throw new DomainError('--since and --period are mutually exclusive')
+  if (until !== undefined && since === undefined) throw new DomainError('--until requires --since')
+  if (named !== undefined) return namedReportPeriod(oneOf(named, ['today', 'week', 'month', 'all'], '--period'), now)
+  if (since === undefined) return undefined
+  const lower = resolveReportBoundary(cwd, since, '--since')
+  const upper = until === undefined ? undefined : resolveReportBoundary(cwd, until, '--until')
+  if (upper !== undefined && Date.parse(lower.at) > Date.parse(upper.at)) {
+    throw new DomainError('--since must not be after --until')
+  }
+  return {
+    requested: until === undefined ? since : `${since}..${until}`,
+    from: lower.at,
+    ...(upper !== undefined ? { to: upper.at } : {}),
+    fromRef: lower.ref,
+    toRef: upper?.ref ?? null,
   }
 }
 
@@ -350,7 +440,7 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
-const REPORT_USAGE = `usage: track report [--scope <container-id|code|label>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md|html] [--track-dir <directory-containing-events.jsonl>]
+const REPORT_USAGE = `usage: track report [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md|html] [--track-dir <directory-containing-events.jsonl>]
 
 --scope selects one exact role-container by its id, durable assigned code, or current derived label. The selected container and all descendants are rendered through the same four-section report; unknown or ambiguous selectors fail loudly.
 
@@ -358,7 +448,9 @@ const REPORT_USAGE = `usage: track report [--scope <container-id|code|label>] [-
 
 --sub-wp lists sub-WP rows beside their parent. Without it, sub-levels are aggregated into their parent on a long window (>= 14 days) and listed on a short one — the WP is the reading unit of a long report.
 
---now <iso> pins the window's upper bound (default: the wall clock). The report's period always runs from the first recorded event to that bound; pin it to reproduce a committed fixture byte for byte.
+--now <iso> pins the clock used by a named period and, without a selector, the whole-log upper bound. Without it, whole-log and --since reports stop at the journal head.
+
+--since accepts a local YYYY-MM-DD date or a git commit (using its committer date); --until closes a --since range. --period today|week|month|all is the named alternative. --since and --period are mutually exclusive. A selected period changes FAIT only: À-FAIRE remains the full current open-work projection.
 
 --track-dir is a global override and may appear before or after the command. It selects the directory that contains events.jsonl; it is especially useful for a read-only fixture. TRACK_DIR is the environment equivalent.
 `
@@ -1043,7 +1135,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   const { io } = ctx
   const { positional, flags } = parseFlags(args)
   if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
-  for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope']) assertValueFlag(flags, name)
+  for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope', 'since', 'until', 'period']) assertValueFlag(flags, name)
   const scope = opt(flags, 'scope')
   // Criterion 10b — the one documented command that turns a short report handle back into an item.
   if (opt(flags, 'resolve') !== undefined) {
@@ -1086,7 +1178,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   assertOnlyFlags(flags, [
     'commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'inline', 'width', 'format', 'now',
-    'sub-wp', 'scope',
+    'sub-wp', 'scope', 'since', 'until', 'period',
   ])
   const rawFormat = opt(flags, 'format')
   if (rawFormat !== undefined && !['json', 'text', 'md', 'html'].includes(rawFormat)) {
@@ -1131,24 +1223,25 @@ function cmdReport(args: string[], ctx: Ctx): number {
     wpTree: scope !== undefined || wp || (!flat && format !== 'json'),
     activeRoster,
   }
-  // Criterion 21 — the report's window runs from the first recorded event to NOW. The clock is injected
-  // HERE (the same boundary pattern as `workspace-activity --now`) so the library stays clockless and a
-  // committed fixture stays byte-reproducible by pinning `--now`.
+  // Criterion 21 — with no selector the report runs from the first event to the journal head; an injected
+  // clock is an explicit reproducible upper bound. Named calendar periods use the wall clock only to turn
+  // `today`/`week`/`month` into absolute local-time bounds, while the library itself remains clockless.
   const nowArg = opt(flags, 'now')
   if (nowArg !== undefined && Number.isNaN(new Date(nowArg).getTime())) {
     throw new DomainError('--now must be an ISO timestamp')
   }
-  const now = nowArg ?? new Date().toISOString()
+  const periodClock = nowArg ?? new Date().toISOString()
+  const period = resolveReportPeriod(flags, io.cwd, periodClock)
   // Criterion 25 — the EXPLICIT owner request for sub-WP rows. Without it the reading unit follows the
   // window: the WP on a long one, the sub-level on a short one.
   const subWp = assertBooleanFlag(flags, 'sub-wp')
   const reader = new TrackReader(ctx.eventsPath)
   if (inline) {
-    io.out(reportInline(reader, options, width === undefined ? {} : { width }))
+    io.out(reportInline(reader, options, width === undefined ? {} : { width }, nowArg, period))
   } else if (format === 'html') {
-    io.out(reportHtml(reader, options, now, subWp))
+    io.out(reportHtml(reader, options, nowArg, subWp, period))
   } else {
-    io.out(reportText(reader, options, format, now, subWp, scope))
+    io.out(reportText(reader, options, format, nowArg, subWp, scope, period))
   }
   return 0
 }
