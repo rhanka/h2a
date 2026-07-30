@@ -27,10 +27,20 @@ if [ ! -f "$DOCTOR_BIN" ]; then
   exit 1
 fi
 
+# The native CLIs honour CODEX_HOME and CLAUDE_CONFIG_DIR, and the production runner uses spawnSync,
+# which INHERITS the whole environment. A throwaway HOME alone therefore does NOT keep them away from
+# your real installation — my earlier claim that it did was false, and an independent review measured it.
+# Pin both roots inside the throwaway tree, and refuse to run if anything still points outside it.
 PROBE=$(mktemp -d "${TMPDIR:-/tmp}/uat-probe-XXXXXX")
 trap 'rm -rf "$PROBE"' EXIT
 HOME_DIR="$PROBE/home"
 BUS="$PROBE/bus"
+export CODEX_HOME="$HOME_DIR/.codex"
+export CLAUDE_CONFIG_DIR="$HOME_DIR/.claude"
+case "$CODEX_HOME:$CLAUDE_CONFIG_DIR" in
+  "$HOME_DIR"/*:"$HOME_DIR"/*) ;;
+  *) echo "ABANDON : une racine hote pointe hors du HOME jetable." >&2; exit 1;;
+esac
 CACHE="$HOME_DIR/.codex/plugins/cache/sentropic/h2a"
 
 mkdir -p "$CACHE/0.87.0/.codex-plugin" "$HOME_DIR/.codex"
@@ -89,6 +99,13 @@ node -e '
   }
   const unrepaired = (r.unrepaired || []).map((u) => u.code);
   if (unrepaired.length) console.log("  unrepaired .......... " + unrepaired.join(", "));
+  if (unrepaired.includes("host-command-failed")) {
+    console.log("");
+    console.log("  >>> INCONCLUSIF : une commande hote NATIVE a ECHOUE pendant ce probe.");
+    console.log("      Le code 2 et le motif de redemarrage ne valident alors RIEN : la reparation");
+    console.log("      peut etre partielle, et doctor ne defait pas ce que la CLI a deja change.");
+    console.log("      Verifie ton installation avant de conclure, puis relance le probe.");
+  }
 ' "$OUT"
 
 echo
