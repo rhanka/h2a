@@ -587,3 +587,51 @@ test("CLI inbox put keeps bare labels and malformed third segments fail-closed",
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Legacy-prefix ordering regressions: strip exactly one leading `h2a:` marker,
+// then apply the colon guard to the remaining name key.
+
+test("resolveRecipient: h2a:claude:victim stays ineligible after one legacy strip", () => {
+  const result = resolveRecipient({
+    target: "h2a:claude:victim",
+    liveInstances: [
+      makePresence("codex:other:222222222222", "sess:legacy-b-capture", "claude:victim")
+    ],
+    registeredInstances: ["codex:other:222222222222"]
+  });
+  assert.equal(result.kind, "refuse");
+});
+
+test("resolveRecipient: h2a:h2a: strips only the leading marker", () => {
+  const result = resolveRecipient({
+    target: "h2a:h2a:",
+    liveInstances: [
+      makePresence("claude:other:333333333333", "sess:legacy-a-capture", "h2a:")
+    ],
+    registeredInstances: ["claude:other:333333333333"]
+  });
+  assert.equal(result.kind, "refuse");
+});
+
+test("resolveRecipient: h2a: uses the empty-key guard after stripping", () => {
+  const result = resolveRecipient({
+    target: "h2a:",
+    liveInstances: [makePresence("claude:empty:444444444444", "sess:legacy-c-empty", "")],
+    registeredInstances: ["claude:empty:444444444444"]
+  });
+  assert.equal(result.kind, "refuse");
+  assert.match(result.reason, /empty display-name key/);
+});
+
+for (const target of ["H2A:agents", " h2a:agents "]) {
+  test(`resolveRecipient: ${JSON.stringify(target)} resolves case- and whitespace-insensitively`, () => {
+    const instance = "claude:agents:555555555555";
+    const result = resolveRecipient({
+      target,
+      liveInstances: [makePresence(instance, `sess:legacy-d-${target.length}`, "agents")],
+      registeredInstances: [instance]
+    });
+    assert.equal(result.kind, "deliver-resolved");
+    assert.equal(result.recipient, instance);
+  });
+}
