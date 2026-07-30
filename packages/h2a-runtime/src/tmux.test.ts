@@ -35,6 +35,9 @@ import {
   buildSessionWindowArgs,
   buildStructuredSessionWindowArgs,
   buildTmuxGlobalOptions,
+  capturePaneVisible,
+  clearPaneComposer,
+  pasteLiteralBlock,
   cleanupHeadlessPromptFile,
   ensureManagedTmuxProfile,
   existingLocalSessionSlugs,
@@ -634,6 +637,67 @@ describe("sendKeysLiteral", () => {
     expect(sendKeysLiteral("%1", "prompt")).toBe(false);
     expect(tmuxCalls("paste-buffer")).toHaveLength(0);
     expect(tmuxCalls("send-keys")).toHaveLength(0);
+  });
+
+  it("keeps the throttle-nudge path UNbracketed (single lines, unchanged)", () => {
+    spawnSyncMock.mockReturnValue({ status: 0 });
+    sendKeysLiteral("%1", "nudge");
+    expect(tmuxCalls("paste-buffer")[0]?.[1]).not.toContain("-p");
+  });
+});
+
+describe("pasteLiteralBlock", () => {
+  it("uses bracketed paste so a multi-line brief is not submitted line by line", () => {
+    // Measured on Claude Code 2.1.220: without -p, line 1 of a 2-line brief was
+    // sent as its own request and line 2 was left sitting in the composer.
+    const brief = "line one\nline two";
+    spawnSyncMock.mockReturnValue({ status: 0 });
+
+    expect(pasteLiteralBlock("%1", brief)).toBe(true);
+
+    expect(tmuxCalls("paste-buffer")[0]![1] as string[]).toContain("-p");
+    expect(tmuxCalls("load-buffer")[0]![2]).toMatchObject({ input: brief });
+    // It must NOT submit: the caller proves the text landed first.
+    expect(tmuxCalls("send-keys")).toHaveLength(0);
+    const allArgv = spawnSyncMock.mock.calls
+      .map((call) => (Array.isArray(call[1]) ? call[1].join(" ") : ""))
+      .join("\n");
+    expect(allArgv).not.toContain(brief);
+  });
+
+  it("drops the private buffer when the paste fails", () => {
+    spawnSyncMock
+      .mockReturnValueOnce({ status: 0 }) // load-buffer
+      .mockReturnValueOnce({ status: 1 }); // paste-buffer
+
+    expect(pasteLiteralBlock("%1", "brief")).toBe(false);
+    expect(tmuxCalls("delete-buffer")).toHaveLength(1);
+  });
+});
+
+describe("capturePaneVisible", () => {
+  it("returns undefined when tmux cannot be read, so unreadable is not empty", () => {
+    spawnSyncMock.mockReturnValue({ status: 1, stdout: undefined });
+    expect(capturePaneVisible("%1")).toBeUndefined();
+  });
+
+  it("returns the pane text on success", () => {
+    spawnSyncMock.mockReturnValue({ status: 0, stdout: "> composer\n" });
+    expect(capturePaneVisible("%1")).toBe("> composer\n");
+  });
+});
+
+describe("clearPaneComposer", () => {
+  it("sends Ctrl-U repeatedly, because one only clears the CURRENT line", () => {
+    // Measured: a single C-u left a multi-line brief in place, and retrying the
+    // paste then stacked twelve copies of it into one composer.
+    spawnSyncMock.mockReturnValue({ status: 0 });
+
+    expect(clearPaneComposer("%7")).toBe(true);
+
+    const sends = tmuxCalls("send-keys");
+    expect(sends.length).toBeGreaterThan(1);
+    expect(sends[0]?.[1]).toEqual(["send-keys", "-t", "%7", "C-u"]);
   });
 });
 
