@@ -17,7 +17,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
-  doctorHostInstallations,
+  doctorHostInstallations as productionDoctorHostInstallations,
   findLiveSessionsPredatingHostConfig,
   H2A_CLI_VERB_CONTRACTS,
   runCli,
@@ -25,6 +25,13 @@ import {
 } from "../dist/index.js";
 
 const VERSION = "9.8.7";
+const fixtureHostCliReachable = () => true;
+
+// Fixtures model installed hosts; presence is an explicit test input rather
+// than a fact inherited from the developer or CI runner PATH.
+function doctorHostInstallations(options = {}) {
+  return productionDoctorHostInstallations({ testHostCliReachable: fixtureHostCliReachable, ...options });
+}
 
 function writeJson(path, value) {
   mkdirSync(join(path, ".."), { recursive: true });
@@ -405,6 +412,14 @@ function runRepairDoctor(home, root, options = {}) {
   return { exitCode, io, report: JSON.parse(io.stdoutText) };
 }
 
+function runRepairDoctorWithActualHostPresence(home, root, options = {}) {
+  const io = streams(home);
+  const exitCode = runCli(["doctor", "--root", root, "--repair"], io, {
+    doctorHostInstallations: () => productionDoctorHostInstallations({ home, version: VERSION, repair: true, ...options })
+  });
+  return { exitCode, io, report: JSON.parse(io.stdoutText) };
+}
+
 function withoutHostCliOnPath(home, callback) {
   const previousPath = process.env.PATH;
   const previousClaudeRoot = process.env.CLAUDE_CONFIG_DIR;
@@ -431,7 +446,7 @@ test("doctor treats unused hosts absent from PATH as informational", () => {
   const root = join(home, "bus");
   try {
     assert.equal(runCli(["init", "--root", root], streams(home)), 0);
-    const { exitCode, io, report } = withoutHostCliOnPath(home, () => runRepairDoctor(home, root));
+    const { exitCode, io, report } = withoutHostCliOnPath(home, () => runRepairDoctorWithActualHostPresence(home, root));
 
     assert.equal(exitCode, 0, io.stderrText);
     assert.equal(report.ok, true, JSON.stringify(report, null, 2));
@@ -447,7 +462,7 @@ test("doctor treats unused hosts absent from PATH as informational", () => {
   }
 });
 
-test("doctor fails closed when configured host CLI is absent from PATH", () => {
+test("doctor reports a configured broken host when its CLI is absent from PATH", () => {
   const home = join(tmpdir(), `h2a-host-doctor-unreachable-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const root = join(home, "bus");
   const calls = [];
@@ -457,7 +472,7 @@ test("doctor fails closed when configured host CLI is absent from PATH", () => {
     const result = withoutHostCliOnPath(home, () => {
       const io = streams(home);
       const exitCode = runCli(["doctor", "--root", root, "--repair"], io, {
-        doctorHostInstallations: () => doctorHostInstallations({
+        doctorHostInstallations: () => productionDoctorHostInstallations({
           home,
           version: VERSION,
           repair: true,
@@ -474,10 +489,35 @@ test("doctor fails closed when configured host CLI is absent from PATH", () => {
 
     assert.equal(result.exitCode, 2, result.io.stderrText);
     assert.equal(result.report.ok, false, JSON.stringify(result.report, null, 2));
-    assert.match(claude?.findings.find((entry) => entry.code === "host-cli-unreachable")?.message ?? "", /Claude CLI could not be reached/);
+    assert.match(claude?.diagnostics.find((entry) => entry.code === "host-cli-unreachable")?.message ?? "", /Claude CLI could not be reached/);
     assert.deepEqual(calls, [], "an unreachable configured host must not receive native repair commands");
-    for (const code of ["marketplace-missing", "version-skew", "plugin-missing", "h2a-endpoint-count"]) {
-      assert.equal(claude?.findings.some((entry) => entry.code === code), false, JSON.stringify(claude, null, 2));
+    assert.ok(claude?.findings.some((entry) => entry.code === "plugin-missing"), JSON.stringify(claude, null, 2));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor keeps a coherent configured host clean when its native CLI is unavailable", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const root = join(home, "bus");
+  const calls = [];
+  try {
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const { exitCode, io, report } = withoutHostCliOnPath(home, () => runRepairDoctorWithActualHostPresence(home, root, {
+      version,
+      testHostCliReachable: () => false,
+      runHostCommand: (command, args) => {
+        calls.push([command, ...args]);
+        return { ok: true };
+      }
+    }));
+
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.deepEqual(calls, [], "a clean configured host without a reachable CLI needs no native repair");
+    for (const host of report.checks.hostInstallations.hosts) {
+      assert.ok(host.diagnostics.some((entry) => entry.code === "host-cli-unreachable"), JSON.stringify(host, null, 2));
+      assert.deepEqual(host.findings, [], JSON.stringify(host, null, 2));
     }
   } finally {
     rmSync(home, { recursive: true, force: true });
