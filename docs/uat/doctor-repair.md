@@ -172,6 +172,38 @@ même si doctor annonce `ok=true`.
 
 ## Scénario 3 — ta vraie installation, en lecture d'abord
 
+### Une prédiction, mesurée sur ta machine le 2026-07-30 avant que tu lances quoi que ce soit
+
+C'est la forme la plus forte que je puisse te donner : je te dis **d'avance** ce que doctor doit
+nommer, et tu vérifies. S'il ne le nomme pas, la détection ne mord pas sur le cas réel.
+
+Mesuré en interrogeant l'hôte, pas l'outil — `claude mcp list` sur ta configuration :
+
+```
+plugin:h2a:h2a: h2a mcp-serve --host claude --wake local-tmux --auto-open --auto-upgrade  ✔ Connected
+h2a:            h2a mcp-serve --auto-open --host claude ... --root /home/antoinefa/src/a2a-cli  ✔ Connected
+```
+
+**Deux endpoints h2a connectés en même temps**, sur deux racines de bus différentes. Le second est
+une déclaration globale dans `/home/antoinefa/.claude.json` (`mcpServers.h2a`) qui pointe encore
+`src/a2a-cli` — l'ancien nom de travail du dépôt. Le chemin existe toujours, donc ce n'est pas un
+pointeur mort : c'est un **second bus**. C'est l'incohérence n°5 de ce dossier, et elle est vivante,
+pas historique.
+
+**Ce que doctor doit dire** : un finding `h2a-endpoint-count` sur l'hôte `claude`, annonçant 2
+endpoints là où un seul est requis.
+
+**Ce qui invaliderait** : `--repair --dry-run` qui ne nomme pas ce doublon. Le code émet bien ce
+finding pour Claude comme pour Codex, mais je n'ai **pas** pu le vérifier sur un binaire citable —
+mon `dist` était un mélange de deux états (`bin.js` de la veille, un module compilé du jour :
+le piège `tsc` composite, qui sort en succès sans émettre). Je préfère te donner une prédiction
+non vérifiée et le dire, plutôt qu'un chiffre produit par une configuration que je ne peux pas citer.
+
+**Ne répare pas ce doublon depuis cette recette.** Retirer une entrée de `.claude.json` touche ta
+configuration quotidienne au-delà de cette PR. Constate, et décide séparément.
+
+
+
 > **⚠️ CE SCÉNARIO EST INVALIDE SI TU UTILISES DES RACINES PERSONNALISÉES, et c'est un défaut du
 > PRODUIT, pas de cette recette.** Mesuré le 2026-07-30 : `CODEX_HOME` et `CLAUDE_CONFIG_DIR`
 > apparaissent **0 fois** dans `packages/h2a/src`. Doctor **lit** toujours `$HOME/.codex`, alors que
