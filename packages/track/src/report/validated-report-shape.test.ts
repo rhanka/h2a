@@ -784,9 +784,14 @@ describe('the skill instructs the shape this renderer emits', () => {
   it('criterion 21 — the window always exists and always has bounds', () => {
     const s = skill()
     expect(s).toContain('**There is always a window, and it always has bounds.**')
-    expect(s).toContain('période : 2026-06-09 → 2026-07-29 (intégralité du journal)')
+    expect(s).toContain('période : <date du premier événement> → <date du dernier événement>')
+    expect(s).not.toMatch(/période : 20\d{2}-\d{2}-\d{2} → 20\d{2}-\d{2}-\d{2}/u)
     expect(s).toContain('The phrase `aucune fenêtre` is wrong')
-    expect(s).toContain('a window you did not measure in\nthe log is invented')
+    expect(s).toContain('track report --period today|week|month|all')
+    expect(s).toContain('track report --since <YYYY-MM-DD|commit> [--until <YYYY-MM-DD|commit>]')
+    expect(s).toContain('`--since` and `--period` are mutually exclusive')
+    expect(s).toContain('`--until` requires `--since`')
+    expect(s).toContain('after `--until` nor after the journal head')
   })
 
   it('criteria 22/26 — FAIT is written by the finality, never as a commit list', () => {
@@ -847,15 +852,15 @@ describe('the skill instructs the shape this renderer emits', () => {
     expect(s).toContain('A claim traceable to neither is a\nfabrication')
   })
 
-  it('forbids a named window and states the handle contract (10a/10b/10c)', () => {
+  it('supports measured windows and states the handle contract (10a/10b/10c)', () => {
     const s = skill()
-    // Criterion 21 replaced the blanket ban with the honest rule: a window MEASURED in the log is fine.
-    expect(s).toContain('a window you did not measure in\nthe log is invented')
     expect(s).not.toContain('Do not name a window')
+    expect(s).not.toContain('`--since`/`--until`/`--period` do not exist')
     expect(s).toContain('**No ULID appears in any column the owner reads.**')
     expect(s).toContain('[0-9A-HJKMNP-TV-Z]{26}')
     expect(s).toContain('report --resolve <handle>')
-    expect(s).toContain('verbatim in text, Markdown and HTML')
+    expect(s).toContain('verbatim in text and Markdown')
+    expect(s).not.toContain('Markdown and HTML')
     expect(s).toContain('Handles are **per-report and positional**')
     expect(s).toContain('is not actionable')
   })

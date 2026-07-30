@@ -111,11 +111,20 @@ The header carries the **period**, the **acceptance baseline** and the two cover
 bucket counters.
 
 **There is always a window, and it always has bounds.** "The whole log" *is* a window: first recorded
-event → now. Both bounds are in the log and need no selector, so the header always reads
-`période : 2026-06-09 → 2026-07-29 (intégralité du journal)`. The phrase `aucune fenêtre` is wrong — it
-described the absence of a flag, not the absence of a period. What is still forbidden is announcing a
-window nothing supports: `--since`/`--until`/`--period` do not exist, so a window you did not measure in
-the log is invented. `--now <iso>` pins the upper bound when you need a reproducible render.
+event → journal head. With no selector, a self-evident header example is
+`période : <date du premier événement> → <date du dernier événement> (intégralité du journal, borne haute = dernier événement)`.
+The phrase `aucune fenêtre` is wrong — it described the absence of a flag, not the absence of a period.
+
+Scope the report to a measured period rather than filtering it by hand:
+
+- `track report --period today|week|month|all` selects a named window.
+- `track report --since <YYYY-MM-DD|commit> [--until <YYYY-MM-DD|commit>]` selects an explicit one; each
+  bound must be a calendar date or a resolvable commit, never a literal that silently degrades.
+- `--since` and `--period` are mutually exclusive, `--until` requires `--since`, and `--since` must not be
+  after `--until` nor after the journal head.
+
+`--now <iso>` pins the clock used by a named calendar period and, without a selector, the whole-log upper
+bound. Without it, whole-log and open-ended `--since` reports stop at the journal head.
 
 The acceptance baseline is **not** a window. Keep the two apart in the sentence, as the renderer does.
 
@@ -269,9 +278,10 @@ Each actionable row carries a positional handle `[n.m]` — row `n`, item `m` �
 node "$track_bin" report --resolve <handle>
 ```
 
-The handle token `[n.m]` is emitted **verbatim in text, Markdown and HTML** — it is machine-generated, so
-it is exempt from the Markdown escaping applied to user-originated titles, and the three formats yield the
-same handle set. Copy a handle straight from any rendering into `--resolve`; never unescape it first.
+The handle token `[n.m]` is emitted **verbatim in text and Markdown** — the two human report renderings.
+It is machine-generated, so it is exempt from the Markdown escaping applied to user-originated titles,
+and both renderings yield the same handle set. Copy a handle straight from either rendering into
+`--resolve`; never unescape it first.
 
 Handles are **per-report and positional**. Two reports over the same log may number differently; the
 resolution block is what makes a reply unambiguous. A reply quoting `[3.2]` without the report it came
@@ -279,7 +289,7 @@ from is not actionable, and the report says so. The resolution block is the mach
 not a table the owner reads — it is also the only place an item id appears.
 
 **No ULID appears in any column the owner reads.** Not in À-FAIRE, not as decision identity, not in FAIT.
-This is checkable by `[0-9A-HJKMNP-TV-Z]{26}` over the rendered table bodies, in every format.
+This is checkable by `[0-9A-HJKMNP-TV-Z]{26}` over the rendered table bodies in both human formats.
 
 ## The executor, and what the log does not record
 
@@ -304,8 +314,8 @@ and prints its own deterministic `PRÉCO` block. Never use either flag to satisf
 not quote a `PRÉCO` line as the report's recommendation. The three read commands at the top of this file
 carry no width and must not be given one.
 
-`--decisions` changes the emitted JSON payload; it does not gate the DÉCISIONS section in text, Markdown, or
-HTML, which render dossiers whenever the log holds any. Passing it is still correct — just do not conclude
+`--decisions` changes the emitted JSON payload; it does not gate the DÉCISIONS section in text or Markdown,
+which render dossiers whenever the log holds any. Passing it is still correct — just do not conclude
 from a missing section that the flag failed.
 
 ## Honesty rules

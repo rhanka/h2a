@@ -200,7 +200,6 @@ const CORE_GROUP_BY_FIRST_WORD: Readonly<Record<string, H2ACommandGroupId>> = {
   // Work — study row "Read or record work | `h2a report` / `h2a decision …` |
   // Curated Track lifts". The Track façade verbs are added separately below.
   "report-context": "WORK",
-  "report-ai": "WORK",
 
   // Set up — study rows "Connect this host", "Diagnose".
   init: "SET_UP",
