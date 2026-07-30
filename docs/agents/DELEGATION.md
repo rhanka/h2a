@@ -36,6 +36,12 @@ composed per task from `RECALL.md`; blocks 2 and 3 are fixed and copied verbatim
 Self-contained, thirteen lines, no pointer to any document. A subcontractor that must read
 three files before starting reads none of them.
 
+**Self-sufficient is a requirement, not a courtesy.** No supervisory beat is guaranteed:
+`conductor` measured its own hourly iteration delivering three of five, missing a slot while
+idle (RECALL.md REC-20). So a subcontractor cannot be given a partial brief on the
+assumption that someone will come by within the hour to complete or correct it. Whatever it
+needs in order to refuse a bad task has to be in front of it at the start.
+
 **Short is a measured constraint, not a style.** `h2a run` truncates a long prompt silently:
 `runtime` measured 10 977 characters cut by both hosts and 9 830 passing whole; `gateway` lost
 the tail of both its subcontract briefs, and `conductor` lost the tail of a review brief —
