@@ -1063,7 +1063,7 @@ function removeOwnedClaudeMarketplaceEntries(raw: string): { readonly rendered: 
   for (const [index, property] of marketplaces.entries()) {
     if (!isLegacySentropicName(property.key)) continue;
     try {
-      if (claudeMarketplaceIsOwned(JSON.parse(raw.slice(property.valueStart, property.valueEnd)))) removals.push(index);
+      if (claudeSettingsMarketplaceIsOwned(JSON.parse(raw.slice(property.valueStart, property.valueEnd)))) removals.push(index);
       else unverified.push(property.key);
     } catch {
       return undefined;
@@ -1424,8 +1424,19 @@ function codexReplacementIsReady(home: string, version: string): boolean {
   );
 }
 
-function claudeMarketplaceIsOwned(value: unknown): boolean {
+function claudeKnownMarketplaceIsOwned(value: unknown): boolean {
   return isPlainObject(value) && typeof value.installLocation === "string" && isOwnedMarketplace(value.installLocation);
+}
+
+function claudeSettingsMarketplaceIsOwned(value: unknown): boolean {
+  if (!isPlainObject(value)) return false;
+  const source = value.source;
+  return (
+    isPlainObject(source) &&
+    source.source === "directory" &&
+    typeof source.path === "string" &&
+    isOwnedMarketplace(source.path)
+  );
 }
 
 function claudeReplacementIsReady(home: string, version: string): boolean {
@@ -1574,7 +1585,7 @@ function repairClaude(
   const repairedKnown = readJson(knownPath).value ?? {};
   const repairedInstalled = readJson(installedPath).value ?? {};
   for (const marketplace of Object.keys(repairedKnown).filter(isLegacySentropicName)) {
-    if (!claudeMarketplaceIsOwned(repairedKnown[marketplace])) {
+    if (!claudeKnownMarketplaceIsOwned(repairedKnown[marketplace])) {
       reportUnverifiedOwnership(before, knownPath, `legacy marketplace ${marketplace}`);
       continue;
     }
