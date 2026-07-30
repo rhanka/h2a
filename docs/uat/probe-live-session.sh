@@ -35,12 +35,24 @@ PROBE=$(mktemp -d "${TMPDIR:-/tmp}/uat-probe-XXXXXX")
 trap 'rm -rf "$PROBE"' EXIT
 HOME_DIR="$PROBE/home"
 BUS="$PROBE/bus"
+# Read the INHERITED values FIRST and refuse on them. My previous version exported before checking,
+# so the check compared the values it had just written: a guard that could not fire. An independent
+# review measured that, and it is the same defect this whole PR exists to hunt.
+INHERITED_CODEX_HOME="${CODEX_HOME-}"
+INHERITED_CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR-}"
+for pair in "CODEX_HOME=$INHERITED_CODEX_HOME" "CLAUDE_CONFIG_DIR=$INHERITED_CLAUDE_CONFIG_DIR"; do
+  name="${pair%%=*}"; value="${pair#*=}"
+  [ -z "$value" ] && continue
+  case "$value" in
+    "$PROBE"/*) ;;
+    *) echo "ABANDON : $name est defini a '$value', hors du HOME jetable de ce probe." >&2
+       echo "          Les CLIs natifs honorent cette racine : le probe pourrait viser ta VRAIE" >&2
+       echo "          installation. Lance 'unset $name' puis relance." >&2
+       exit 1;;
+  esac
+done
 export CODEX_HOME="$HOME_DIR/.codex"
 export CLAUDE_CONFIG_DIR="$HOME_DIR/.claude"
-case "$CODEX_HOME:$CLAUDE_CONFIG_DIR" in
-  "$HOME_DIR"/*:"$HOME_DIR"/*) ;;
-  *) echo "ABANDON : une racine hote pointe hors du HOME jetable." >&2; exit 1;;
-esac
 CACHE="$HOME_DIR/.codex/plugins/cache/sentropic/h2a"
 
 mkdir -p "$CACHE/0.87.0/.codex-plugin" "$HOME_DIR/.codex"
@@ -137,11 +149,17 @@ node -e '
 
 echo
 echo "=== comment conclure ====================================================="
+if grep -q '"host-command-failed"' "$OUT" 2>/dev/null; then
+  echo "  INCONCLUSIF : une commande hote native a ECHOUE. Ne conclus PAS."
+  echo "  La regle VALIDE ci-dessous ne s'applique pas : la reparation peut etre partielle,"
+  echo "  et doctor ne defait pas ce que la CLI a deja change. Verifie ton installation."
+else
 echo "  VALIDE    si : code 2, report.ok false, ET au moins un motif de redemarrage nomme."
 echo "  INVALIDE  si : code 0 ou report.ok true — une session vivante serait declaree propre"
 echo "                 alors qu'elle fait tourner l'ancien code. C'est le defaut exact que"
 echo "                 trois revues independantes ont trouve, chacune par un chemin different."
 echo
+fi
 echo "  Rapport complet : $OUT (efface a la sortie ; copie-le si tu veux le garder)."
 echo "  Ta vraie installation n'a pas ete touchee : HOME et bus sont jetables."
 echo "  MAIS les vrais CLIs natifs codex/claude ONT ete executes deux fois contre ce HOME jetable,"
