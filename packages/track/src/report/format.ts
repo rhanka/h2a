@@ -17,6 +17,13 @@ import { directiveScopeLabelFr as directiveScopeLabel, gatePhraseFr, stepActionF
 
 export type Format = 'json' | 'text' | 'md'
 
+/** Reject stale JavaScript callers rather than treating an unsupported runtime value as text. */
+export function assertReportFormat(format: string): asserts format is Format {
+  if (format !== 'json' && format !== 'text' && format !== 'md') {
+    throw new Error(`unsupported report format: ${format}`)
+  }
+}
+
 const BACKSLASH = String.fromCharCode(92)
 // Markdown metacharacters escaped in `md` titles so a user title can't inject formatting.
 const MD_META = new Set([
@@ -625,11 +632,29 @@ export interface ReportPeriod {
 }
 
 /**
+ * The additive JSON contract for a requested report window. Unlike the compact human header, this keeps
+ * absolute instants and full commit identities so another consumer can reproduce the exact projection.
+ */
+export interface ReportPeriodPayload {
+  requested: string | null
+  from?: string
+  to?: string
+  fromRef: string | null
+  toRef: string | null
+  eventsInWindow: number
+  eventsTotal: number
+}
+
+/**
  * The header carries the ACCEPTANCE BASELINE (which is NOT a window) and the period (which is). It never
  * carries bucket counters.
  */
 export interface ReportHeader {
   scope: string
+  /** Present only on `report --scope`; text keeps it in the existing header's sources line. */
+  scopeProjection?: ReportScopeProjection
+  /** Cursor derived from the same event snapshot as this view's rows. */
+  journalRevision?: { events: number; head: string | null }
   progress: string
   baselineCommit?: string
   period: ReportPeriod
@@ -670,7 +695,7 @@ export interface ReportView {
 export function directivePhrase(d: Directive): string {
   // §A6 — a directive renders a CONCRETE next move + the actor, and NAMES what blocks (the info the
   // `sujet` column does NOT already carry). All interpolated titles/refs are RAW here — the render layer
-  // (table `esc`, inline `clean`, html `escapeHtml`) escapes them (§A4). A decision surfaces as a "décision"
+  // (table `esc`, inline `clean`) escapes them (§A4). A decision surfaces as a "décision"
   // line ONLY when it genuinely blocks (mode `human-decision`); otherwise the phrase préconise a step.
   //
   // Unified presentation (spec 2026-07-11) — the action CLAUSE is the shared canonical `stepActionFr`, so
@@ -731,6 +756,23 @@ function recentDoneLeaves(node: WpNode): WpNode['leaves'] {
   return out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
 }
 
+/**
+ * A period is a projection over the already-folded log, not a second state fold. When one is selected,
+ * FAIT names precisely the leaves that emitted `realization.transition → done` inside it. This deliberately
+ * includes a delivery subsequently reopened: the delivery happened during the asked period even though the
+ * item's current bucket is no longer DONE.
+ */
+function periodDoneLeaves(node: WpNode, deliveredItemIds: ReadonlySet<string> | undefined): WpNode['leaves'] {
+  if (deliveredItemIds === undefined) return recentDoneLeaves(node)
+  const out: WpNode['leaves'] = []
+  const walk = (n: WpNode): void => {
+    for (const leaf of n.leaves) if (deliveredItemIds.has(leaf.id)) out.push(leaf)
+    for (const child of n.children) walk(child)
+  }
+  walk(node)
+  return out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+}
+
 const LAST_ACTIONS_SHOWN = 3
 
 /**
@@ -778,11 +820,32 @@ const FOCUS_ROWS = 5
  */
 const LONG_WINDOW_DAYS = 14
 
-function windowDays(period: ReportPeriod): number | undefined {
-  if (period.from === undefined || period.to === undefined) return undefined
-  const from = Date.parse(period.from)
-  const to = Date.parse(period.to)
-  return Number.isNaN(from) || Number.isNaN(to) ? undefined : Math.round((to - from) / 86_400_000)
+/**
+ * The ordering invariant of a RENDERED period — BRANCH gate: no rendered period carries reversed bounds.
+ * `periodProjection` (read/commands.ts) holds it for every RESOLVED period, which covers every report route
+ * (CLI, MCP, library `reportText`/`reportInline`). It cannot cover a caller that BUILDS a `periodWindow`
+ * itself and hands it to the public presenter exports — so the presenter asserts the same invariant here,
+ * at the single funnel every rendered view crosses. One rule, two boundaries: a later narrowing on one side
+ * cannot re-open the other.
+ */
+export function assertOrderedPeriodWindow(meta: ConductorMeta): void {
+  const window = meta.periodWindow
+  if (window === undefined) return
+  const fromMs = window.from === undefined ? undefined : Date.parse(window.from)
+  const toMs = window.to === undefined ? undefined : Date.parse(window.to)
+  if (fromMs === undefined || toMs === undefined || Number.isNaN(fromMs) || Number.isNaN(toMs)) return
+  if (fromMs > toMs) {
+    throw new Error('resolved report period must not end before it begins')
+  }
+}
+
+function windowDays(meta: ConductorMeta): number | undefined {
+  const from = meta.periodWindow?.from ?? meta.logFrom
+  const to = meta.periodWindow?.to ?? meta.now ?? meta.logTo
+  if (from === undefined || to === undefined) return undefined
+  const fromMs = Date.parse(from)
+  const toMs = Date.parse(to)
+  return Number.isNaN(fromMs) || Number.isNaN(toMs) ? undefined : (toMs - fromMs) / 86_400_000
 }
 
 /**
@@ -791,10 +854,32 @@ function windowDays(period: ReportPeriod): number | undefined {
  * reads it as the full record — the same honesty the old `extrait` column applied.
  */
 const TODO_EXCERPT_MAX = 100
+const ULID = /[0-9A-HJKMNP-TV-Z]{26}/gu
+
+/**
+ * Owner-facing conductor cells never print aggregate identifiers. This runs while the shared view is built,
+ * so JSON, text, and Markdown consume the same redacted cells. The machine-only handle-resolution block
+ * keeps its ids intact so the report remains actionable.
+ */
+function redactOwnerText(value: string): string {
+  return value.replace(ULID, 'référence interne')
+}
+
+function redactOwnerTable(table: ReportViewTable): ReportViewTable {
+  const ownerColumns = new Set(table.columns.map((column) => column.id))
+  return {
+    ...table,
+    rows: table.rows.map((row) => Object.fromEntries(
+      Object.entries(row).map(([key, value]) => [key, ownerColumns.has(key) ? redactOwnerText(value) : value]),
+    )),
+    ...(table.lines === undefined ? {} : { lines: table.lines.map(redactOwnerText) }),
+  }
+}
 
 /** `undefined` for an absent/blank body — a bare title is then the HONEST render, not a gap to fill. */
 export function todoExcerpt(body: string | undefined): string | undefined {
-  const cleaned = body === undefined ? undefined : clean(body)
+  // Owner-facing excerpts can mention a record, but the record's ULID belongs in the machine-only handle block.
+  const cleaned = body === undefined ? undefined : clean(redactOwnerText(body))
   if (cleaned === undefined || cleaned === '') return undefined
   if (cleaned.length <= TODO_EXCERPT_MAX) return cleaned
   const cut = cleaned.slice(0, TODO_EXCERPT_MAX)
@@ -846,7 +931,27 @@ function isoDate(value: string | undefined): string | undefined {
 }
 
 /** Criterion 21 — the period, always bounded, always read from the log (plus the caller's clock). */
-function buildPeriod(meta: ConductorMeta): ReportPeriod {
+export function reportPeriod(meta: ConductorMeta): ReportPeriod {
+  if (meta.periodWindow !== undefined) {
+    const period = meta.periodWindow
+    const from = isoDate(period.from)
+    const to = isoDate(period.to)
+    if (period.requested === null) {
+      const toSource: ReportPeriod['toSource'] = meta.now !== undefined ? 'now' : meta.logTo !== undefined ? 'last-event' : 'unknown'
+      const suffix = toSource === 'last-event' ? ' (intégralité du journal, borne haute = dernier événement)' : ' (intégralité du journal)'
+      const label =
+        from === undefined || to === undefined
+          ? 'période : journal vide (aucun événement enregistré)'
+          : `période : ${from} → ${to}${suffix}`
+      return { ...(from !== undefined ? { from } : {}), ...(to !== undefined ? { to } : {}), toSource, label }
+    }
+    const selector = period.requested === 'all' ? 'intégralité du journal' : `sélecteur : ${period.requested ?? 'intégralité du journal'}`
+    const label =
+      from === undefined || to === undefined
+        ? 'période : journal vide (aucun événement enregistré)'
+        : `période : ${from} → ${to} (${selector}; ${period.eventsInWindow}/${period.eventsTotal} événements)`
+    return { ...(from !== undefined ? { from } : {}), ...(to !== undefined ? { to } : {}), toSource: 'unknown', label }
+  }
   const from = isoDate(meta.logFrom)
   const now = isoDate(meta.now)
   const last = isoDate(meta.logTo)
@@ -862,6 +967,23 @@ function buildPeriod(meta: ConductorMeta): ReportPeriod {
     ...(to !== undefined ? { to } : {}),
     toSource,
     label,
+  }
+}
+
+/** The raw period payload mirrors `reportPeriod` without reducing instants to calendar dates. */
+export function reportPeriodPayload(meta: ConductorMeta): ReportPeriodPayload {
+  if (meta.periodWindow !== undefined) return meta.periodWindow
+  const from = meta.logFrom
+  const to = meta.now ?? meta.logTo
+  const events = meta.journalRevision?.events ?? 0
+  return {
+    requested: null,
+    ...(from !== undefined ? { from } : {}),
+    ...(to !== undefined ? { to } : {}),
+    fromRef: null,
+    toRef: null,
+    eventsInWindow: events,
+    eventsTotal: events,
   }
 }
 
@@ -897,6 +1019,12 @@ export interface ConductorMeta {
   logFrom?: string
   /** ISO timestamp of the LAST recorded event — the fallback upper bound when no clock is injected. */
   logTo?: string
+  /** Stable journal cursor for the projection; it distinguishes reports rendered at different log heads. */
+  journalRevision?: { events: number; head: string | null }
+  /** Resolved period bounds and projection coverage, all derived from the same report snapshot. */
+  periodWindow?: ReportPeriodPayload
+  /** Item ids with a `realization.transition → done` inside `periodWindow`; absent preserves legacy FAIT. */
+  deliveredItemIds?: ReadonlySet<string>
   /**
    * The caller's clock, injected at ITS boundary so this module stays clockless and byte-reproducible
    * (same pattern as `workspace-activity --now`). Present ⇒ the window's upper bound is `now`.
@@ -907,6 +1035,21 @@ export interface ConductorMeta {
    * window: sub-levels are aggregated into their parent on a long window, listed on a short one.
    */
   subWp?: boolean
+  /** A read-only workpackage projection, present only for `report --scope`. */
+  scopeProjection?: ReportScopeProjection
+}
+
+/** Additive machine-readable scope boundary for a scoped conductor report. */
+export interface ReportScopeProjection {
+  selector: string
+  id: string
+  label: string
+  includes: 'subtree'
+  excludedProjectionRows: number
+}
+
+function shellArgument(value: string): string {
+  return /^[A-Za-z0-9_./:-]+$/u.test(value) ? value : `'${value.replace(/'/gu, "'\"'\"'")}'`
 }
 
 export function buildWpConductorView(
@@ -916,6 +1059,7 @@ export function buildWpConductorView(
   totalScope = 'global',
   meta: ConductorMeta = {},
 ): ReportView {
+  assertOrderedPeriodWindow(meta)
   const wpName = (n: WpNode): string => `${n.label} · ${clean(stripWpPrefix(n.title))}`
   const totals = wpTotals(tree, outsideRollup)
   const wpNodes: WpNode[] = []
@@ -932,8 +1076,8 @@ export function buildWpConductorView(
   // into their root — their leaves already roll up (`openLeaves`/`recentDoneLeaves` walk children), so
   // nothing is lost; only their row disappears. The aggregation is DECLARED in the header, like every
   // other compression in this report.
-  const period = buildPeriod(meta)
-  const days = windowDays(period)
+  const period = reportPeriod(meta)
+  const days = windowDays(meta)
   const subWpDetail = meta.subWp === true || (days !== undefined && days < LONG_WINDOW_DAYS)
   const rowNodes = subWpDetail ? wpNodes : [...tree]
   const subNodes = wpNodes.filter((n) => !rowNodes.includes(n))
@@ -976,14 +1120,17 @@ export function buildWpConductorView(
   const handles: ReportHandle[] = []
 
   // ---- FAIT ---------------------------------------------------------------------------------------
-  const outsideDone = outsideRollup.filter((r) => r.bucket === 'DONE' || r.bucket === 'DROPPED')
+  const outsideDone = meta.deliveredItemIds === undefined
+    ? outsideRollup.filter((r) => r.bucket === 'DONE' || r.bucket === 'DROPPED')
+    : outsideRollup.filter((r) => meta.deliveredItemIds!.has(r.id))
+  const periodLeaves = (node: WpNode): WpNode['leaves'] => periodDoneLeaves(node, meta.deliveredItemIds)
   const doneRows: Record<string, string>[] = [
     {
       scope: totalScope,
       progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`,
       lastActions: lastActionsCell(
         wpNodes
-          .flatMap((n) => n.leaves.filter((l) => l.bucket === 'DONE'))
+          .flatMap((n) => meta.deliveredItemIds === undefined ? n.leaves.filter((l) => l.bucket === 'DONE') : n.leaves.filter((l) => meta.deliveredItemIds!.has(l.id)))
           .sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
           .map((l) => clean(l.title)),
       ),
@@ -992,17 +1139,19 @@ export function buildWpConductorView(
     // window is short or the owner asked. `recentDoneLeaves` already walks children, so a root's row
     // carries its sub-levels' deliveries rather than losing them.
     ...rowNodes
-      .filter((n) => n.done > 0)
+      .filter((n) => periodLeaves(n).length > 0)
       .map((n) => ({
         scope: wpName(n),
         progress: `${n.done}/${n.active} (${pctStr(n.pct)})`,
-        lastActions: lastActionsCell(recentDoneLeaves(n).map((l) => clean(l.title))),
+        lastActions: lastActionsCell(periodLeaves(n).map((l) => clean(l.title))),
       })),
     ...(outsideDone.length > 0
       ? [{
           scope: 'hors WP',
           progress: (() => {
-            const done = outsideRollup.filter((r) => r.bucket === 'DONE').length
+            const done = meta.deliveredItemIds === undefined
+              ? outsideRollup.filter((r) => r.bucket === 'DONE').length
+              : outsideRollup.filter((r) => meta.deliveredItemIds!.has(r.id)).length
             const active = outsideRollup.filter((r) => r.bucket !== 'DROPPED').length
             return `${done}/${active} (${pctStr(active === 0 ? 'n/a' : Math.round((done / active) * 100))})`
           })(),
@@ -1093,7 +1242,10 @@ export function buildWpConductorView(
       // A directive may target a DONE leaf with acceptance debt: name it here (with its own handle)
       // instead of exiling it to a `cible action` column the owner never asked for.
       for (const d of attached) {
-        if (d.target.kind === 'decision' || items.some((i) => i.id === d.target.id)) continue
+        // An engagement/blockage directive points at its own actionable ref (for example a thread),
+        // while its title deliberately names the already-listed target leaf. Adding it made a title-twin
+        // sibling row. Only an item directive can introduce a missing DONE acceptance debt.
+        if (d.target.kind !== 'item' || items.some((i) => i.id === d.target.id)) continue
         const debtLeaf = wpNodes.flatMap((node) => node.leaves).find((l) => l.id === d.target.id)
         items.push({
           id: d.target.id,
@@ -1236,7 +1388,7 @@ export function buildWpConductorView(
     const selected = d.selectedOptionId === undefined ? undefined : letterOf.get(d.selectedOptionId)
     options.forEach((option, i) => {
       const letter = optionLetter(i)
-      const wrapped = wrapCell(`${letter} ${clean(option.title)} — ${clean(option.summary)}`, DECISION_CAPS[2])
+      const wrapped = wrapCell(`${letter} ${redactOwnerText(clean(option.title))} — ${redactOwnerText(clean(option.summary))}`, DECISION_CAPS[2])
       const marks: string[] = []
       if (letter === recommended) marks.push(letter)
       if (letter === selected) marks.push('retenu')
@@ -1338,20 +1490,30 @@ export function buildWpConductorView(
 
   const header: ReportHeader = {
     scope: totalScope,
+    ...(meta.scopeProjection !== undefined ? { scopeProjection: meta.scopeProjection } : {}),
+    ...(meta.journalRevision !== undefined ? { journalRevision: meta.journalRevision } : {}),
     progress: `${totals.done}/${totals.active} (${pctStr(totals.pct)})`,
     ...(meta.baselineCommit !== undefined ? { baselineCommit: meta.baselineCommit.slice(0, 12) } : {}),
     // Criterion 21 — the window is measured in the log, so it is always stated, always with dates.
     period,
-    sources: ['projection déterministe du journal (track report --wp --decisions)'],
+    sources: [
+      'projection déterministe du journal (track report --wp --decisions)',
+      ...(meta.journalRevision === undefined
+        ? []
+        : [`révision du journal : ${meta.journalRevision.events} événements ; tête : ${meta.journalRevision.head ?? 'aucune'}`]),
+      ...(meta.scopeProjection === undefined
+        ? []
+        : [
+            `scope : ${meta.scopeProjection.label} et son sous-arbre inclus ; ${meta.scopeProjection.excludedProjectionRows} lignes hors scope exclues`,
+          ]),
+    ],
     coverage,
-    handleCommand: 'track report --resolve <handle>',
+    handleCommand: meta.scopeProjection === undefined
+      ? 'track report --resolve <handle>'
+      : `track report --scope ${shellArgument(meta.scopeProjection.selector)} --resolve <handle>`,
   }
 
-  return {
-    kind: 'wp-conductor-report',
-    locale: 'fr',
-    header,
-    tables: [
+  const tables: ReportViewTable[] = [
       {
         id: 'done',
         title: 'FAIT',
@@ -1394,7 +1556,13 @@ export function buildWpConductorView(
         rows: [],
         lines: recommendationLines,
       },
-    ],
+  ]
+
+  return {
+    kind: 'wp-conductor-report',
+    locale: 'fr',
+    header,
+    tables: tables.map(redactOwnerTable),
     handles,
     coverage,
     directives,
@@ -1448,7 +1616,7 @@ function headerLines(view: ReportView, format: Format): string[] {
     em(`sources : ${h.sources.join(' ; ')}`),
     '',
   ]
-  return lines
+  return lines.map(redactOwnerText)
 }
 
 /**
@@ -1471,11 +1639,10 @@ export function resolutionLines(view: ReportView): string[] {
 }
 
 function renderReportView(view: ReportView, format: Format): string {
+  assertReportFormat(format)
   if (format === 'json') return JSON.stringify(view, null, 2) + '\n'
-  // User-originated cell content (titles) is escaped per-format: `md` escapes markdown metacharacters so a
-  // crafted item title cannot inject formatting (parity with the legacy `formatReport`/`title` path); `text`
-  // is clean. The view model itself stays RAW (escaping is a render-only concern). `displayCell` keeps the
-  // machine-generated `[n.m]` handle out of that escaped span so the three formats agree on it.
+  // The builder already redacts owner cells for every format. Rendering only escapes Markdown metacharacters;
+  // `displayCell` keeps the machine-generated `[n.m]` handle out of that escaped span.
   const esc = (s: string): string => displayCell(s, format)
   const h = (label: string): string => (format === 'md' ? `## ${label}` : label)
   const lines: string[] = headerLines(view, format)
@@ -1562,7 +1729,7 @@ export interface InlineOptions {
 
 /** Clean + hard-truncate a line to `width` with a trailing ellipsis (never a silent cut mid-report). */
 function truncateLine(s: string, width: number): string {
-  const c = clean(s)
+  const c = redactOwnerText(clean(s))
   return c.length <= width ? c : `${c.slice(0, Math.max(1, width - 1))}…`
 }
 
@@ -1575,7 +1742,7 @@ function fitMiddle(head: string, mid: string, tail: string, width: number): stri
   const budget = width - head.length - tail.length
   if (budget < 8) return truncateLine(head + mid + tail, width)
   const m = mid.length <= budget ? mid : `${mid.slice(0, Math.max(1, budget - 1))}…`
-  return head + m + tail
+  return redactOwnerText(head + m + tail)
 }
 
 export function formatWpConductorInline(
@@ -1583,10 +1750,11 @@ export function formatWpConductorInline(
   decisions: readonly DecisionRow[] = [],
   opts: InlineOptions = {},
   outsideRollup: readonly ReportRow[] = [],
+  meta?: ConductorMeta,
 ): string {
   const width = Math.min(240, Math.max(40, opts.width ?? 80))
   const maxDir = Math.max(1, opts.maxDirectives ?? 10)
-  const view = buildWpConductorView(tree, decisions, outsideRollup)
+  const view = buildWpConductorView(tree, decisions, outsideRollup, 'global', meta)
   const totals = wpTotals(tree, outsideRollup)
   const wpName = (n: WpNode): string => `${n.label} · ${clean(stripWpPrefix(n.title))}`
   const wpNodes: WpNode[] = []
@@ -1598,6 +1766,10 @@ export function formatWpConductorInline(
   }
   collectWpNodes(tree)
   const lines: string[] = []
+
+  // INLINE is still a report rendering. The CLI supplies meta and therefore names the exact period; direct
+  // presenter callers that have no reporting context retain their existing compact-only contract.
+  if (meta !== undefined) lines.push(truncateLine(view.header.period.label, width))
 
   // FAIT — one line: global progress + the closed WPs (by label).
   const closed = wpNodes.filter((n) => n.pct === 100).map((n) => n.label)
