@@ -192,7 +192,7 @@ export function formatReport(report: Report, format: Format): string {
       }
     }
   }
-  return lines.join('\n').trimEnd() + '\n'
+  return redactOwnerText(lines.join('\n').trimEnd()) + '\n'
 }
 
 function actionDisposition(r: ReportRow): string {
@@ -386,7 +386,7 @@ export function formatActionReport(report: Report, format: Format): string {
   for (const r of dropped) doneRows.push(['dropped', title(r.title, format), r.acceptance])
   lines.push(...table(['type', 'sujet', 'acceptance'], doneRows.length > 0 ? doneRows : [['-', 'aucun repère récent', '-']]))
 
-  return lines.join('\n').trimEnd() + '\n'
+  return redactOwnerText(lines.join('\n').trimEnd()) + '\n'
 }
 
 const pctStr = (p: number | 'n/a'): string => (p === 'n/a' ? 'n/a' : `${p}%`)
@@ -423,7 +423,7 @@ export function formatWpTree(tree: readonly WpNode[], format: Format = 'md'): st
     for (const child of node.children) render(child, depth + 1)
   }
   for (const node of tree) render(node, 0)
-  return lines.join('\n') + (lines.length > 0 ? '\n' : '')
+  return redactOwnerText(lines.join('\n')) + (lines.length > 0 ? '\n' : '')
 }
 
 /**
@@ -1708,13 +1708,13 @@ export function formatWpConductorInline(
 export function formatRows(rows: ReportRow[], format: Format): string {
   if (format === 'json') return JSON.stringify(rows, null, 2)
   if (rows.length === 0) return ''
-  return (
+  return redactOwnerText(
     rows
       .map((r) =>
         format === 'md'
           ? `- **${title(r.title, format)}** — ${r.bucket} · ${r.realization} · ${r.acceptance}`
           : `  - ${title(r.title, format)} [${r.bucket}, ${r.realization}, ${r.acceptance}]`,
       )
-      .join('\n') + '\n'
-  )
+      .join('\n'),
+  ) + '\n'
 }

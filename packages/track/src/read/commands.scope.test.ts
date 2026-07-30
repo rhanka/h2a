@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { runCli } from '../cli/index.js'
 import { EventStore } from '../events/store.js'
-import { buildWpConductorView } from '../report/format.js'
+import { buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpTree } from '../report/format.js'
 import { Track } from '../track.js'
 import { TrackReader } from './contract.js'
 import { projectReportScope, reportHtml, reportInline, reportText } from './commands.js'
@@ -199,11 +199,16 @@ describe('report --scope', () => {
     const markdown = reportText(new TrackReader(eventsPath), options, 'md', NOW, false, 'TRACK')
     const html = reportHtml(new TrackReader(eventsPath), options, NOW)
     const inline = reportInline(new TrackReader(eventsPath), options)
+    const report = new TrackReader(eventsPath).report(options)
     const ownerSections = [
       text.split('RÉSOLUTION DES HANDLES')[0]!,
       markdown.split('RÉSOLUTION DES HANDLES')[0]!,
       html.slice(0, html.indexOf('<footer')),
       inline,
+      formatReport(report, 'text'),
+      formatActionReport(report, 'text'),
+      formatWpTree(report.wpTree ?? [], 'text'),
+      formatRows(Object.values(report.buckets).flat(), 'text'),
     ]
 
     for (const section of ownerSections) expect(section).not.toMatch(/[0-9A-HJKMNP-TV-Z]{26}/u)
