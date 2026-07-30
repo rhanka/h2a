@@ -116,6 +116,8 @@ function fixtureHome() {
   const home = join(tmpdir(), `h2a-host-doctor-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const codex = join(home, ".codex");
   const claude = join(home, ".claude");
+  const codexLegacyMarketplacePath = join(codex, ".tmp", "marketplaces", "sentropic-local-codex-08518");
+  const claudeLegacyMarketplacePath = join(claude, "plugins", "marketplaces", "sentropic-local-claude-08518");
   mkdirSync(codex, { recursive: true });
   mkdirSync(claude, { recursive: true });
   writeFileSync(
@@ -137,23 +139,25 @@ function fixtureHome() {
       "",
       "[marketplaces.sentropic-local-codex-08518]",
       'source_type = "local"',
-      'source = "/deleted/tmp/deploy-08518"',
+      `source = "${codexLegacyMarketplacePath}"`,
       ""
     ].join("\n")
   );
   // `codex mcp list` may still show this cached enabled plugin even though its
-  // only marketplace was a deleted local directory. A current cache therefore
+  // only marketplace is an obsolete local source. A current cache therefore
   // cannot certify the installation by itself.
   currentPlugin(join(codex, "plugins", "cache", "sentropic", "h2a", VERSION));
   currentPlugin(join(codex, "plugins", "cache", "sentropic-local-codex-08518", "h2a", "0.85.18"));
+  currentMarketplace(codexLegacyMarketplacePath);
 
   const claudePluginPath = join(claude, "plugins", "cache", "sentropic", "h2a", "0.85.18");
   currentPlugin(claudePluginPath);
   currentPlugin(join(claude, "plugins", "cache", "sentropic-local-claude-08518", "h2a", "0.85.18"));
+  currentMarketplace(claudeLegacyMarketplacePath);
   writeJson(join(claude, "plugins", "known_marketplaces.json"), {
     "sentropic-local-claude-08518": {
-      source: { source: "directory", path: "/deleted/tmp/deploy-08518" },
-      installLocation: "/deleted/tmp/deploy-08518"
+      source: { source: "directory", path: claudeLegacyMarketplacePath },
+      installLocation: claudeLegacyMarketplacePath
     }
   });
   writeJson(join(claude, "plugins", "installed_plugins.json"), {
@@ -306,6 +310,16 @@ function snapshotTree(path) {
   return entries;
 }
 
+function snapshotTreeBytes(path) {
+  const entries = [];
+  for (const entry of readdirSync(path, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    const entryPath = join(path, entry.name);
+    if (entry.isDirectory()) entries.push([entry.name, snapshotTreeBytes(entryPath)]);
+    else entries.push([entry.name, readFileSync(entryPath)]);
+  }
+  return entries;
+}
+
 function repairRunner(home, calls) {
   return (command, args) => {
     calls.push([command, ...args]);
@@ -440,8 +454,10 @@ test("doctor names the broken canonical Codex marketplace source", () => {
   }
 });
 
-test("doctor treats a cached enabled Codex plugin from a legacy marketplace as false healthy and repairs it idempotently", () => {
+test("doctor repairs a cached enabled Codex plugin from an owned legacy marketplace idempotently", () => {
   const home = fixtureHome();
+  const codexLegacyCacheRoot = join(home, ".codex", "plugins", "cache", "sentropic-local-codex-08518");
+  const claudeLegacyCacheRoot = join(home, ".claude", "plugins", "cache", "sentropic-local-claude-08518");
   try {
     const before = doctorHostInstallations({ home, version: VERSION });
     assert.equal(before.ok, false, "the deliberately incoherent installation must fail before repair");
@@ -456,7 +472,7 @@ test("doctor treats a cached enabled Codex plugin from a legacy marketplace as f
     assert.equal(
       codexBefore?.findings.some((entry) => entry.code === "version-skew"),
       false,
-      "a current Codex cache must still be unhealthy when its marketplace source disappeared"
+      "a current Codex cache must still be unhealthy while an owned legacy marketplace remains configured"
     );
     for (const host of before.hosts) {
       assert.ok(host.findings.some((entry) => entry.code === "orphan-cache"));
@@ -472,14 +488,18 @@ test("doctor treats a cached enabled Codex plugin from a legacy marketplace as f
       runHostCommand: repairRunner(home, calls)
     });
     assert.equal(repaired.ok, true, JSON.stringify(repaired, null, 2));
+    assert.deepEqual(repaired.hosts.flatMap((host) => host.unrepaired), [], JSON.stringify(repaired, null, 2));
+    for (const host of repaired.hosts) {
+      assert.deepEqual(host.findings.map((entry) => entry.code), ["orphan-cache"], JSON.stringify(host, null, 2));
+    }
     assert.ok(
       calls.some((call) => call.join(" ") === "codex plugin marketplace add rhanka/h2a --ref main"),
-      "a disappeared local source requires a native Git marketplace add"
+      "an owned legacy local source requires a native Git marketplace add"
     );
     assert.equal(
       calls.some((call) => call.join(" ") === "codex plugin marketplace upgrade"),
       false,
-      "marketplace upgrade is a no-op for a vanished local source, never its repair"
+      "marketplace upgrade is a no-op for an owned legacy local source, never its repair"
     );
     assert.ok(calls.some((call) => call[0] === "claude" && (call.includes("install") || call.includes("update"))));
 
@@ -488,10 +508,12 @@ test("doctor treats a cached enabled Codex plugin from a legacy marketplace as f
     assert.match(codex, /source = "https:\/\/github\.com\/rhanka\/h2a\.git"/);
     assert.doesNotMatch(codex, /sentropic-local|\[mcp_servers\.(h2a|track)\]/);
     assert.ok(existsSync(join(home, ".codex", "plugins", "cache", "sentropic", "h2a", VERSION)));
+    assert.ok(existsSync(codexLegacyCacheRoot), "v1 retains the owned Codex legacy cache as an informational orphan");
 
     const claudeMcp = JSON.parse(readFileSync(join(home, ".config", "claude", "mcp.json"), "utf8"));
     assert.deepEqual(claudeMcp.mcpServers, { other: { command: "other-mcp", args: ["serve"] } });
     assert.equal(existsSync(join(home, ".claude", "plugins", "cache", "sentropic", "h2a", "0.85.18")), false);
+    assert.ok(existsSync(claudeLegacyCacheRoot), "v1 retains the owned Claude legacy cache as an informational orphan");
 
     const secondCalls = [];
     const rerun = doctorHostInstallations({
@@ -834,6 +856,49 @@ test("doctor leaves an unproven canonical Codex marketplace untouched", () => {
   }
 });
 
+test("doctor keeps a vanished unproven legacy Codex mirror blocking and byte-identical", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const legacyPlugin = "h2a-local-codex-08518@sentropic-local-codex-08518";
+  const legacyMarketplace = "sentropic-local-codex-08518";
+  try {
+    writeFileSync(
+      codexPath,
+      `${readFileSync(codexPath, "utf8").trimEnd()}\n\n` +
+        `[plugins."${legacyPlugin}"]\n` +
+        "enabled = true\n\n" +
+        `[marketplaces.${legacyMarketplace}]\n` +
+        'source_type = "local"\n' +
+        'source = "/deleted/tmp/deploy-08518"\n'
+    );
+    const before = readFileSync(codexPath, "utf8");
+    const calls = [];
+    const report = doctorHostInstallations({
+      home,
+      version,
+      repair: true,
+      runHostCommand: (command, args) => {
+        calls.push([command, ...args]);
+        return { ok: true };
+      }
+    });
+    const codex = report.hosts.find((host) => host.host === "codex");
+    const ownershipRefusals = (codex?.unrepaired ?? []).filter((entry) => entry.code === "ownership-unverified");
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(ownershipRefusals.length, 2, JSON.stringify(report, null, 2));
+    assert.deepEqual(
+      ownershipRefusals.map((entry) => entry.message.match(/legacy (marketplace|plugin)/)?.[1]).sort(),
+      ["marketplace", "plugin"]
+    );
+    assert.equal(readFileSync(codexPath, "utf8"), before, "unproven legacy tables must remain byte-identical");
+    assert.deepEqual(codex?.changed, [], JSON.stringify(report, null, 2));
+    assert.equal(calls.some((call) => call.includes("remove") || call.includes("uninstall")), false);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor repair never targets third-party or canonical plugin caches for deletion", () => {
   const home = fixtureHome();
   const protectedCacheNames = [
@@ -848,15 +913,25 @@ test("doctor repair never targets third-party or canonical plugin caches for del
     join(home, ".codex", "plugins", "cache", name),
     join(home, ".claude", "plugins", "cache", name)
   ]);
+  const thirdPartyCachePath = join(home, ".codex", "plugins", "cache", "sentropic-local-third-party");
   try {
+    const staleClaudeCanonicalPath = join(home, ".claude", "plugins", "cache", "sentropic", "h2a", "0.85.18");
+    const currentClaudeCanonicalPath = join(home, ".claude", "plugins", "cache", "sentropic", "h2a", VERSION);
+    rmSync(staleClaudeCanonicalPath, { recursive: true, force: true });
+    currentPlugin(currentClaudeCanonicalPath);
     for (const path of protectedPaths) {
       mkdirSync(path, { recursive: true });
       writeFileSync(join(path, "third-party.txt"), "must survive repair\n");
     }
+    mkdirSync(thirdPartyCachePath, { recursive: true });
+    writeFileSync(join(thirdPartyCachePath, "third-party.txt"), "must never be attributed to H2A\n");
     const installedPath = join(home, ".claude", "plugins", "installed_plugins.json");
     const installed = JSON.parse(readFileSync(installedPath, "utf8"));
+    installed.plugins["h2a@sentropic"] = [{ scope: "user", installPath: currentClaudeCanonicalPath, version: VERSION }];
     installed.plugins["openai-h2a-local-fixture"] = [];
     writeJson(installedPath, installed);
+    const protectedContents = new Map(protectedPaths.map((path) => [path, snapshotTreeBytes(path)]));
+    const thirdPartyContents = snapshotTreeBytes(thirdPartyCachePath);
 
     const calls = [];
     const report = doctorHostInstallations({
@@ -866,9 +941,18 @@ test("doctor repair never targets third-party or canonical plugin caches for del
       runHostCommand: repairRunner(home, calls)
     });
     assert.equal(report.ok, true, JSON.stringify(report, null, 2));
-    for (const path of protectedPaths) assert.equal(existsSync(path), true, path);
+    assert.deepEqual(report.hosts.flatMap((host) => host.unrepaired), [], JSON.stringify(report, null, 2));
+    for (const path of protectedPaths) assert.deepEqual(snapshotTreeBytes(path), protectedContents.get(path), path);
+    assert.deepEqual(snapshotTreeBytes(thirdPartyCachePath), thirdPartyContents, thirdPartyCachePath);
     assert.equal(calls.some((call) => call.join(" ") === "claude plugin uninstall h2a@sentropic"), false);
     assert.equal(calls.some((call) => call.join(" ") === "claude plugin uninstall openai-h2a-local-fixture"), false);
+    assert.equal(calls.some((call) => call.join(" ").includes(thirdPartyCachePath)), false);
+    assert.equal(report.hosts.flatMap((host) => host.plannedActions).some((action) => action.includes(thirdPartyCachePath)), false);
+    assert.equal(
+      report.hosts.flatMap((host) => host.findings).some((entry) => entry.message.includes(thirdPartyCachePath)),
+      false,
+      "an unproven third-party cache must not receive a manual removal command"
+    );
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -1593,7 +1677,7 @@ test("doctor keeps orphan caches informational and gives their exact manual remo
   const { home, version } = cleanShippedLayoutHome();
   const orphan = join(home, ".codex", "plugins", "cache", "sentropic-local-codex-08518");
   try {
-    currentPlugin(join(orphan, "h2a-local-codex-08518", "0.85.18"));
+    currentPlugin(join(orphan, "h2a", "0.85.18"));
 
     const report = doctorHostInstallations({ home, version });
     const codex = report.hosts.find((host) => host.host === "codex");
