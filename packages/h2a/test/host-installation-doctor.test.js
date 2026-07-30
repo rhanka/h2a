@@ -1410,6 +1410,26 @@ test("doctor states that an external runtime overwrite is outside its restart gu
   }
 });
 
+test("doctor states the native host CLI partial-failure limit", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const root = join(home, "bus");
+  try {
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const io = streams(home);
+    const exitCode = runCli(["doctor", "--root", root, "--repair"], io, {
+      doctorHostInstallations: () => doctorHostInstallations({ home, version, repair: true })
+    });
+    const report = JSON.parse(io.stdoutText);
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(
+      report.checks.hostInstallations.nativeCommandFailureLimit,
+      "If a native host CLI fails after it has already changed the installation, doctor reports the failure as host-command-failed and does not undo what that CLI already did. Doctor's own configuration writes are atomic. It has no snapshot of third-party state and does not simulate one: a partial restore would promise a recovery it cannot deliver. After a reported native failure, verify the host installation before relying on it."
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor does not refresh a Codex repair marker when successful native commands repair nothing", () => {
   const { home } = inPlaceCacheVersionDriftHome();
   const markerPath = join(home, ".codex", "h2a-repair.json");
