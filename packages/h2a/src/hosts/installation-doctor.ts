@@ -332,12 +332,19 @@ function pushUnique(values: string[], value: string): void {
 
 function inspectCodex(home: string, version: string): MutableHostReport {
   const configPath = codexConfigPath(home);
+  const cachePath = join(home, ".codex", "plugins", "cache");
+  const pluginCachePath = join(cachePath, H2A_MARKETPLACE_NAME, "h2a");
+  const currentCachePath = join(pluginCachePath, version);
+  const marketplacePath = join(home, ".codex", ".tmp", "marketplaces", H2A_MARKETPLACE_NAME);
   const report: MutableHostReport = {
     host: "codex",
     findings: [],
     changed: [],
     unrepaired: [],
-    coherencePaths: [configPath]
+    // A live Codex session can keep code loaded from its plugin cache even
+    // when config.toml itself is unchanged. Keep the durable cache, plugin,
+    // and marketplace artifacts in the freshness proof as well as config.
+    coherencePaths: [configPath, cachePath, pluginCachePath, currentCachePath, marketplacePath]
   };
   let raw = "";
   try {
@@ -374,14 +381,13 @@ function inspectCodex(home: string, version: string): MutableHostReport {
     report.findings.push(finding("plugin-stale", `Codex has stale H2A plugin entries: ${stalePlugins.join(", ")}.`, configPath));
   }
   const versions = codexCacheVersions(home);
-  const currentCachePath = join(home, ".codex", "plugins", "cache", H2A_MARKETPLACE_NAME, "h2a", version);
   if (!versions.includes(version) || !cacheVersionMatches(currentCachePath, version)) {
-    report.findings.push(finding("version-skew", `Codex h2a cache is not at npm CLI version ${version}.`, join(home, ".codex", "plugins", "cache")));
+    report.findings.push(finding("version-skew", `Codex h2a cache is not at npm CLI version ${version}.`, cachePath));
   }
   const staleVersions = versions.filter((entry) => entry !== version);
-  const legacyCaches = listDirectories(join(home, ".codex", "plugins", "cache")).filter(isLegacySentropicName);
+  const legacyCaches = listDirectories(cachePath).filter(isLegacySentropicName);
   if (staleVersions.length > 0 || legacyCaches.length > 0) {
-    report.findings.push(finding("orphan-cache", `Codex has orphan H2A cache directories: ${[...staleVersions, ...legacyCaches].join(", ")}.`, join(home, ".codex", "plugins", "cache")));
+    report.findings.push(finding("orphan-cache", `Codex has orphan H2A cache directories: ${[...staleVersions, ...legacyCaches].join(", ")}.`, cachePath));
   }
   const mcp = tables.filter((table) => tomlQuotedName(table.header, "mcp_servers") !== undefined);
   const directH2a = mcp.filter((table) => isDirectH2aMcp(tomlQuotedName(table.header, "mcp_servers"), table));
