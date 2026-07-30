@@ -19,14 +19,26 @@ manuelle de ton installation, redémarre tes sessions.
 
 ---
 
-## Sécurité d'abord — les scénarios 1 et 2 ne touchent pas ta machine
+## Sécurité d'abord — et une correction que je te dois
 
-Ils tournent dans un `HOME` jetable. Seul le scénario 3 lit ta vraie installation, et il
-commence par une sauvegarde.
+Les scénarios 1 et 2 tournent dans un `HOME` jetable. Seul le scénario 3 lit ta vraie installation, et
+il commence par une sauvegarde.
+
+> **Ce que j'avais écrit était faux, et une revue indépendante l'a mesuré.** J'affirmais qu'un `HOME`
+> jetable rendait impossible toute lecture ou écriture de ta vraie installation. Il ne suffit pas : les
+> CLIs natifs honorent `CODEX_HOME` et `CLAUDE_CONFIG_DIR`, et le runner de production utilise
+> `spawnSync`, qui **hérite de tout ton environnement**. Si l'une de ces variables est définie dans ton
+> shell, elle gagne sur le `HOME` jetable.
+>
+> Les commandes ci-dessous les **épinglent** donc explicitement dans l'arbre jetable, et le probe
+> **refuse de démarrer** si l'une d'elles pointe ailleurs. Vérifie-le toi-même avant de lancer quoi que
+> ce soit : `echo "$CODEX_HOME" "$CLAUDE_CONFIG_DIR"`.
 
 ```bash
 cd /home/antoinefa/src/h2a
 export UAT=$(mktemp -d /home/antoinefa/.cache-tmp/uat-doctor-XXXX)
+# epingler les racines hote DANS l arbre jetable : un HOME jetable ne suffit pas
+export CODEX_HOME="$UAT/h1/.codex" CLAUDE_CONFIG_DIR="$UAT/h1/.claude"
 ```
 
 ## Épingler le candidat — sinon tu testes autre chose que cette PR
