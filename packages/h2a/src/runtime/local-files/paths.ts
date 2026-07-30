@@ -362,6 +362,8 @@ export function resolveRecipient(opts: {
     };
   }
 
+  if (operation === "read") return { kind: "deliver" };
+
   return {
     kind: "refuse",
     reason:
