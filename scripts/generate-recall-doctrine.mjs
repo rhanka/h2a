@@ -42,14 +42,14 @@ export const EDITORIAL_RULES = new Map([
     "01KYNGMC6979YKMXV8MQQ8A16H",
     {
       id: "DOC-03",
-      rule: "A name resolves in **one pass** against four namespaces — h2a role, `run --name`, CLI-native name, tmux session name — and h2a shows which one matched."
+      rule: "A name resolves in **one pass** against four namespaces — h2a role, `run --name`, CLI-native name, tmux session name — and h2a shows which one matched. ⚠ **DECIDED, NOT IMPLEMENTED:** `resolveRecipient({ target, liveInstances, registeredInstances })` takes no name and no workspace — it matches a target string against instance-id lists. Verified in `packages/h2a/src/runtime/local-files/paths.ts`. Do not cite this as behaviour."
     }
   ],
   [
     "01KYNGMCB0Z7ESGYJKFVCTW8MH",
     {
       id: "DOC-04",
-      rule: "Known prefixes (`remote-`, `h2a-`) are **stripped before comparison**; nothing is renamed."
+      rule: "Known prefixes (`remote-`, `h2a-`) are **stripped before comparison**; nothing is renamed. ⚠ **DECIDED, NOT IMPLEMENTED:** no prefix logic exists in the resolver (same locator as DOC-03). `graphify` attributed a real cross-repo name collision to this stripping — a mechanism that does not yet exist. Citing a decided-but-unbuilt rule as a cause sends the fix to the wrong place."
     }
   ],
   [
