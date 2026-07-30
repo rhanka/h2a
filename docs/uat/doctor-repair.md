@@ -131,8 +131,8 @@ cp -p ~/.codex/config.toml ~/.codex/config.toml.bak.uat-$(date +%Y%m%d-%H%M)
 cp -p ~/.claude/plugins/known_marketplaces.json ~/.claude/plugins/known_marketplaces.json.bak.uat-$(date +%Y%m%d-%H%M) 2>/dev/null
 
 mkdir -p "$UAT/h3"
-h2a init --root "$UAT/h3/bus"
-h2a doctor --root "$UAT/h3/bus" --repair --dry-run    # inspecte l'installation, ne modifie RIEN
+$DOCTOR init --root "$UAT/h3/bus"
+$DOCTOR doctor --root "$UAT/h3/bus" --repair --dry-run    # inspecte l'installation, ne modifie RIEN
 ```
 
 Lis le rapport. Il doit décrire ton état réel : une seule marketplace `sentropic` par hôte,
@@ -146,7 +146,7 @@ lister ce qu'une réparation changerait.
 Puis, seulement si tu le veux :
 
 ```bash
-h2a doctor --root "$UAT/h3/bus" --repair
+$DOCTOR doctor --root "$UAT/h3/bus" --repair
 ```
 
 **Attendu** : soit « rien à réparer », soit une liste de ce qui a été changé. Jamais un silence.
