@@ -4,7 +4,6 @@
 // makes CLI≡MCP parity STRUCTURAL (one layer), not coincidental.
 
 import { buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, reportPeriod, reportPeriodPayload, wpTotals, type Format, type InlineOptions, type ReportPeriodPayload, type ReportScopeProjection } from '../report/format.js'
-import { formatWpConductorHtml } from '../report/html.js'
 import type { ConductorMeta } from '../report/format.js'
 import type { QueryFilter, Report, ReportOptions } from '../report/build.js'
 import type { StatusLevel } from '../report/status-by-level.js'
@@ -39,6 +38,9 @@ function periodProjection(
   const to = selection?.to ?? (selected ? snapshot.logWindow.to : now ?? snapshot.logWindow.to)
   const fromMs = from === undefined ? undefined : Date.parse(from)
   const toMs = to === undefined ? undefined : Date.parse(to)
+  if (fromMs !== undefined && toMs !== undefined && fromMs > toMs) {
+    throw new Error('--since must not be after the journal head')
+  }
   const events = snapshot.events.filter((event) => {
     const at = Date.parse(event.at)
     return (fromMs === undefined || at >= fromMs) && (toMs === undefined || at <= toMs)
@@ -251,36 +253,6 @@ export function reportInline(
     }
   }
   return `${reportPeriod(meta).label}\n\n${formatActionReport(report, 'text')}\n`
-}
-
-/**
- * report-revamp §C — the DS-compatible HTML FRAGMENT render (`--format html`). Reuses the SHARED presenter
- * contract (the same path focus's `renderHtml` uses) over the SAME `ReportView` the JSON path exposes. A
- * WP-less repo still yields a valid (empty-state) fragment via the same presenter.
- */
-export function reportHtml(
-  reader: TrackReader,
-  options: ReportOptions,
-  now?: string,
-  subWp?: boolean,
-  periodSelection?: ReportPeriodSelection,
-): string {
-  const snapshot = reader.reportSnapshot(options)
-  const report = snapshot.report
-  const projection = periodProjection(snapshot, periodSelection, now)
-  const meta = conductorMeta(options, snapshot, now, subWp, undefined, projection, periodSelection !== undefined)
-  const decisions = report.decisions ?? []
-  if (report.wpTree !== undefined && report.wpTree.length > 0) {
-    const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
-    if (roster.length > 0) {
-      return `${formatWpConductorHtml(
-        roster, decisions, undefined, report.outsideRollup,
-        options.activeRoster === true ? 'roster actif (terminal exclu)' : 'global',
-        meta,
-      )}\n`
-    }
-  }
-  return `${formatWpConductorHtml([], decisions, undefined, report.outsideRollup, 'global', meta)}\n`
 }
 
 /**
