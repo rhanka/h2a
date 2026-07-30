@@ -87,7 +87,7 @@ const USAGE = `usage: track <command>
   decision dossier <decisionId> [--context <c>] [--options-json <json> --recommendation <optionId> --rationale <r>]
   decision disposition <itemId> <orientation|commitment> <required|skipped|not-applicable>
   decision add-artifact <decisionId> --kind <h2a-decision-dossier|rendered-view|mockup> [--negotiation-ref <n>] [--dossier-hash <h>] [--view-ref <v>] [--source-dossier-hash <h>] [--label <l>] [--client-token <t>]
-  blocker raise --target <id> --kind <decision|dependency> [--ref <id>] [--reason <r>] [--rule <linked-done|linked-accepted|manual>] [--scope <intra|extra>] [--engagement-ref <e>]
+  blocker raise --target <id> --kind <decision|dependency> [--ref <id>] [--reason <r>] [--rule <linked-done|linked-accepted|manual>] [--scope <intra|extra>] [--engagement-ref <e>] [--owner <a>]
   blocker resolve <blockerId>
   blocker resolve-external --engagement-ref <e>
   accept criterion <itemId> --statement <s>
@@ -323,6 +323,14 @@ function assertOnlyFlags(flags: Flags, allowed: readonly string[]): void {
 
 function assertValueFlag(flags: Flags, name: string): void {
   if (flags[name] === true) throw new DomainError(`--${name} requires a value`)
+}
+
+function assertNonEmptyTrimmedActor(flags: Flags, name: string): string {
+  const value = req(flags, name).trim()
+  if (value.length === 0) {
+    throw new DomainError(`--${name} must be a non-empty actor id`)
+  }
+  return value
 }
 
 /**
@@ -872,6 +880,7 @@ function cmdBlocker(args: string[], ctx: Ctx): number {
         ? { scope: oneOf(req(flags, 'scope'), BLOCKER_SCOPES, '--scope') as BlockerScope }
         : {}),
       ...(opt(flags, 'engagement-ref') !== undefined ? { engagementRef: req(flags, 'engagement-ref') } : {}),
+      ...(opt(flags, 'owner') !== undefined ? { owner: assertNonEmptyTrimmedActor(flags, 'owner') } : {}),
     })
     io.out(`${id}\n`)
     return 0

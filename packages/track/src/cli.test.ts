@@ -233,6 +233,110 @@ describe('CLI input validation + review fixes (Lot 7)', () => {
     expect(out.join('').trim().length).toBeGreaterThan(0) // a blockerId
   })
 
+  it('blocker raise --owner records actor in payload and folded blocker state', () => {
+    runCli(['init'], io)
+    const target = last(['item', 'new', '--kind', 'feature', '--title', 't', '--workspace', 'ws'])
+    const eventsPath = join(dir, '.track', 'events.jsonl')
+    const blockerId = last([
+      'blocker',
+      'raise',
+      '--target',
+      target,
+      '--kind',
+      'dependency',
+      '--scope',
+      'extra',
+      '--engagement-ref',
+      'eng-1',
+      '--rule',
+      'manual',
+      '--reason',
+      'depends',
+      '--owner',
+      'claude:h2a:runtime',
+    ])
+    const lines = readFileSync(eventsPath, 'utf8').trim().split('\n')
+    const opened = JSON.parse(lines.find((line) => line.includes('"blocker.opened"'))!)
+    expect(opened.payload).toMatchObject({
+      blockerId,
+      targetId: target,
+      kind: 'dependency',
+      scope: 'extra',
+      engagementRef: 'eng-1',
+      reason: 'depends',
+      owner: 'claude:h2a:runtime',
+      resolutionRule: 'manual',
+    })
+    const blockerState = new Track(new EventStore(eventsPath)).state().blockers.get(blockerId)
+    expect(blockerState?.owner).toBe('claude:h2a:runtime')
+  })
+
+  it('rejects a blank --owner and appends nothing', () => {
+    runCli(['init'], io)
+    const target = last(['item', 'new', '--kind', 'feature', '--title', 't', '--workspace', 'ws'])
+    const eventsPath = join(dir, '.track', 'events.jsonl')
+    const before = readFileSync(eventsPath, 'utf8').trim().split('\n').length
+    out.length = 0
+    expect(
+      runCli(
+        [
+          'blocker',
+          'raise',
+          '--target',
+          target,
+          '--kind',
+          'dependency',
+          '--scope',
+          'extra',
+          '--engagement-ref',
+          'eng-2',
+          '--rule',
+          'manual',
+          '--reason',
+          'depends',
+          '--owner',
+          '   ',
+        ],
+        io,
+      ),
+    ).toBe(1)
+    expect(out.join('')).toContain('non-empty actor id')
+    const after = readFileSync(eventsPath, 'utf8').trim().split('\n').length
+    expect(after).toBe(before)
+  })
+
+  it('omits owner from payload when not provided', () => {
+    runCli(['init'], io)
+    const target = last(['item', 'new', '--kind', 'feature', '--title', 't', '--workspace', 'ws'])
+    const blockerId = last([
+      'blocker',
+      'raise',
+      '--target',
+      target,
+      '--kind',
+      'dependency',
+      '--scope',
+      'extra',
+      '--engagement-ref',
+      'eng-3',
+      '--rule',
+      'manual',
+      '--reason',
+      'depends',
+    ])
+    const eventsPath = join(dir, '.track', 'events.jsonl')
+    const opened = JSON.parse(
+      readFileSync(eventsPath, 'utf8')
+        .trim()
+        .split('\n')
+        .find((line) => line.includes('"blocker.opened"'))!,
+    )
+    expect(opened.payload).not.toHaveProperty('owner')
+    expect(opened.payload.owner).toBeUndefined()
+    const blockerState = new Track(new EventStore(eventsPath)).state().blockers.get(blockerId)
+    expect(blockerState?.owner).toBeUndefined()
+  })
+
   it('decision dossier --context merges, preserving existing options', () => {
     runCli(['init'], io)
     const store = new EventStore(join(dir, '.track', 'events.jsonl'))
