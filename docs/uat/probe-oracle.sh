@@ -105,6 +105,11 @@ node -e '
   console.log("  report.ok .................. " + r.ok);
   const codes = (r.unrepaired || []).map((u) => u.code);
   console.log("  unrepaired ................. " + (codes.length ? codes.join(", ") : "(aucun)"));
+  // Imprimer les MESSAGES, pas seulement les codes. Un `host-command-failed` sans sa commande
+  // dit qu-une commande hote a echoue sans dire laquelle : le rapport le plus inutile possible.
+  for (const u of r.unrepaired || []) {
+    console.log("    - " + u.code + " : " + String(u.message || "").replace(/\s+/g, " ").slice(0, 300));
+  }
 ' "$PROBE/r.json"
 
 # ---- l'oracle : on demande a l'hote, pas a l'outil ---------------------------------------------
