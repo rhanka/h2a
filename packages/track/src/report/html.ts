@@ -8,6 +8,7 @@
 import {
   buildWpConductorView,
   coverageLine,
+  ownerFacingReportView,
   resolutionLines,
   type ConductorMeta,
   type ReportView,
@@ -79,10 +80,11 @@ function renderResolution(view: ReportView): string {
 
 /** Render a `ReportView` to a sanitized, DS-styled `<article>` fragment (the shared presenter, §C). */
 export const renderReportHtml: DsFragmentPresenter<ReportView> = (view, hooks = IDENTITY_HOOKS) => {
+  const ownerView = ownerFacingReportView(view)
   const html =
-    `<article class="report-document" data-kind="${escapeHtml(view.kind)}" data-locale="${escapeHtml(view.locale)}">` +
-    renderHeader(view) +
-    view.tables.map(renderTable).join('') +
+    `<article class="report-document" data-kind="${escapeHtml(ownerView.kind)}" data-locale="${escapeHtml(ownerView.locale)}">` +
+    renderHeader(ownerView) +
+    ownerView.tables.map(renderTable).join('') +
     renderResolution(view) +
     `</article>`
   return hooks.sanitizeHtml(html)

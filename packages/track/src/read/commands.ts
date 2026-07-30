@@ -9,7 +9,7 @@ import type { ConductorMeta } from '../report/format.js'
 import type { QueryFilter, Report, ReportOptions } from '../report/build.js'
 import type { StatusLevel } from '../report/status-by-level.js'
 import type { WpNode } from '../report/rollup.js'
-import type { TrackReader } from './contract.js'
+import { journalSnapshotForReport, type TrackReader } from './contract.js'
 
 /**
  * `report` rendered exactly as the CLI renders it (SPEC §7).
@@ -29,14 +29,13 @@ import type { TrackReader } from './contract.js'
  * the same bytes.
  */
 function conductorMeta(
-  reader: TrackReader,
+  report: Report,
   options: ReportOptions,
   now?: string,
   subWp?: boolean,
   scopeProjection?: ReportScopeProjection,
 ): ConductorMeta {
-  const window = reader.logWindow()
-  const revision = reader.cursor()
+  const { window, revision } = journalSnapshotForReport(report)
   return {
     baselineCommit: options.baselineCommit,
     ...(window.from !== undefined ? { logFrom: window.from } : {}),
@@ -125,7 +124,7 @@ export function reportText(
   const globalReport = reader.report(options)
   const scoped = scopeSelector === undefined ? undefined : projectReportScope(globalReport, scopeSelector)
   const report = scoped?.report ?? globalReport
-  const meta = conductorMeta(reader, options, now, subWp, scoped?.scope)
+  const meta = conductorMeta(globalReport, options, now, subWp, scoped?.scope)
 
   if (options.wpTree && report.wpTree !== undefined) {
     if (format === 'json') {
@@ -194,7 +193,7 @@ export function reportHtml(
   subWp?: boolean,
 ): string {
   const report = reader.report(options)
-  const meta = conductorMeta(reader, options, now, subWp)
+  const meta = conductorMeta(report, options, now, subWp)
   const decisions = report.decisions ?? []
   if (report.wpTree !== undefined && report.wpTree.length > 0) {
     const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
@@ -221,7 +220,7 @@ export function resolveHandle(reader: TrackReader, options: ReportOptions, handl
   const view = buildWpConductorView(
     report.wpTree ?? [], report.decisions ?? [], report.outsideRollup,
     scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
-    conductorMeta(reader, options, undefined, undefined, scoped?.scope),
+    conductorMeta(globalReport, options, undefined, undefined, scoped?.scope),
   )
   const wanted = handle.trim().replace(/^\[|\]$/gu, '').toUpperCase()
   const hit = view.handles.find((h) => h.handle.toUpperCase() === wanted)

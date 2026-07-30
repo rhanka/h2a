@@ -301,6 +301,24 @@ export interface CursorDelta {
   count: number
 }
 
+/**
+ * The immutable log facts that accompanied one `report()` projection. This is internal hand-off data for
+ * command renderers: it keeps their revision stamp attached to the very event array that was folded.
+ */
+interface ReportJournalSnapshot {
+  window: { from?: string; to?: string; events: number }
+  revision: Cursor
+}
+
+const reportJournalSnapshots = new WeakMap<Report, ReportJournalSnapshot>()
+
+/** Returns the one-log snapshot captured while this report projection was built. */
+export function journalSnapshotForReport(report: Report): ReportJournalSnapshot {
+  const snapshot = reportJournalSnapshots.get(report)
+  if (snapshot === undefined) throw new Error('report has no journal snapshot')
+  return snapshot
+}
+
 /** Origin of a write, DERIVED PURELY from `prov.proposed` (true ⇒ machine/LLM-proposed; false ⇒ human). */
 export type AmendmentOrigin = 'human' | 'machine'
 
@@ -632,7 +650,19 @@ export class TrackReader {
 
   /** Bucketed backlog report (SPEC §7). */
   report(options: ReportOptions): Report {
-    return buildReport(fold(this.events()), options)
+    const events = this.events()
+    const report = buildReport(fold(events), options)
+    const first = events[0]
+    const last = events.at(-1)
+    reportJournalSnapshots.set(report, {
+      window: {
+        ...(first !== undefined ? { from: first.at } : {}),
+        ...(last !== undefined ? { to: last.at } : {}),
+        events: events.length,
+      },
+      revision: { count: events.length, head: last?.contentHash ?? null },
+    })
+    return report
   }
 
   /**

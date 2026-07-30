@@ -22,6 +22,7 @@ const BACKSLASH = String.fromCharCode(92)
 const MD_META = new Set([
   BACKSLASH, '`', '*', '_', '[', ']', '{', '}', '(', ')', '#', '+', '|', '<', '>', '!', '~', '-',
 ])
+const OWNER_ULID = /[0-9A-HJKMNP-TV-Z]{26}/gu
 
 /** Collapse control characters (newlines, tabs, line separators) to single spaces. */
 export function cleanDisplayText(s: string): string {
@@ -42,6 +43,11 @@ export function cleanDisplayText(s: string): string {
     }
   }
   return out.trim()
+}
+
+/** Redact stored record IDs only when a report crosses into an owner-facing rendering surface. */
+function redactOwnerText(s: string): string {
+  return s.replace(OWNER_ULID, 'référence interne')
 }
 
 /** Backslash-escape every markdown metacharacter. Does NOT trim — the caller owns normalization. */
@@ -665,6 +671,23 @@ export interface ReportView {
 }
 
 /**
+ * One rendering-boundary redaction for every owner-visible value. The handles are intentionally left
+ * untouched: `RÉSOLUTION DES HANDLES` is the machine-only block where record IDs are required.
+ */
+export function ownerFacingReportView(view: ReportView): ReportView {
+  const redact = (value: unknown): unknown => {
+    if (typeof value === 'string') return redactOwnerText(value)
+    if (Array.isArray(value)) return value.map(redact)
+    if (value !== null && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redact(item)]))
+    }
+    return value
+  }
+  const { handles, ...ownerFacing } = view
+  return { ...(redact(ownerFacing) as Omit<ReportView, 'handles'>), handles }
+}
+
+/**
  * Render ONE directive to a human FR phrase — RENDER-ONLY (no phrase is ever stored as data, DESIGN §3).
  * Maps the langue-neutre `(mode, step, gate)` to a sentence. An UNKNOWN `step.code` (a future vocabulary
  * entry this renderer predates) degrades to the `inspect-fallback` phrasing — forward-compat (DESIGN §7).
@@ -793,12 +816,10 @@ function windowDays(period: ReportPeriod): number | undefined {
  * reads it as the full record — the same honesty the old `extrait` column applied.
  */
 const TODO_EXCERPT_MAX = 100
-const ULID = /[0-9A-HJKMNP-TV-Z]{26}/gu
 
 /** `undefined` for an absent/blank body — a bare title is then the HONEST render, not a gap to fill. */
 export function todoExcerpt(body: string | undefined): string | undefined {
-  // Owner-facing excerpts can mention a record, but the record's ULID belongs in the machine-only handle block.
-  const cleaned = body === undefined ? undefined : clean(body.replace(ULID, 'référence interne'))
+  const cleaned = body === undefined ? undefined : clean(body)
   if (cleaned === undefined || cleaned === '') return undefined
   if (cleaned.length <= TODO_EXCERPT_MAX) return cleaned
   const cut = cleaned.slice(0, TODO_EXCERPT_MAX)
@@ -1513,10 +1534,11 @@ function renderReportView(view: ReportView, format: Format): string {
   // crafted item title cannot inject formatting (parity with the legacy `formatReport`/`title` path); `text`
   // is clean. The view model itself stays RAW (escaping is a render-only concern). `displayCell` keeps the
   // machine-generated `[n.m]` handle out of that escaped span so the three formats agree on it.
+  const ownerView = ownerFacingReportView(view)
   const esc = (s: string): string => displayCell(s, format)
   const h = (label: string): string => (format === 'md' ? `## ${label}` : label)
-  const lines: string[] = headerLines(view, format)
-  for (const section of view.tables) {
+  const lines: string[] = headerLines(ownerView, format)
+  for (const section of ownerView.tables) {
     lines.push(h(section.title))
     if (section.render === 'prose') {
       // Renderer-authored French sentences interpolating only derived labels, handles and D-numbers —
@@ -1680,7 +1702,7 @@ export function formatWpConductorInline(
   if (dirs.length > maxDir) {
     lines.push(truncateLine(`  (+${dirs.length - maxDir} autres — track report --format json)`, width))
   }
-  return lines.join('\n') + '\n'
+  return redactOwnerText(lines.join('\n')) + '\n'
 }
 
 export function formatRows(rows: ReportRow[], format: Format): string {

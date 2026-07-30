@@ -39,19 +39,19 @@ function seed(): { root: string; nestedLeaf: string; engagementLeaf: string; out
   const nested = track.createItem({ kind: 'chore', title: 'reporting phase', workspace: 'ws', parentId: root, role: 'spec-phase' })
   const nestedLeaf = track.createItem({
     kind: 'feature',
-    title: 'scoped pending work',
+    title: 'scoped pending work 01KYR161DN1BMPF682QJX3G3BE',
     workspace: 'ws',
     parentId: nested,
     body: 'La référence interne 01KYR161DN1BMPF682QJX3G3BE ne doit pas paraître dans la table propriétaire.',
   })
   track.createDecision({
     decisionKind: 'commitment',
-    title: 'choose scoped path',
+    title: 'choose scoped path 01KYR161DN1BMPF682QJX3G3BE',
     workspace: 'ws',
     targets: [nestedLeaf],
     dossier: {
       context: 'recorded context',
-      options: [{ id: 'a', title: 'A', summary: 'first' }, { id: 'b', title: 'B', summary: 'second' }],
+      options: [{ id: 'a', title: 'A', summary: 'first 01KYR161DN1BMPF682QJX3G3BE' }, { id: 'b', title: 'B', summary: 'second' }],
       qa: [],
       recommendation: { optionId: 'a', rationale: 'first' },
     },
@@ -71,6 +71,39 @@ function seed(): { root: string; nestedLeaf: string; engagementLeaf: string; out
 }
 
 describe('report --scope', () => {
+  it('derives rendered rows and their journal revision from one log snapshot', () => {
+    const { root } = seed()
+    const eventsBefore = new EventStore(eventsPath).readAll()
+    const reportBefore = new TrackReader(eventsPath).report(options)
+    const revisionBefore = {
+      count: eventsBefore.length,
+      head: eventsBefore.at(-1)?.contentHash ?? null,
+    }
+    let appended = false
+    class AppendingReader extends TrackReader {
+      override report(reportOptions: Parameters<TrackReader['report']>[0]) {
+        const report = super.report(reportOptions)
+        if (!appended) {
+          appended = true
+          track.createItem({ kind: 'feature', title: 'appended after projection', workspace: 'ws', parentId: root })
+        }
+        return report
+      }
+    }
+
+    const rendered = JSON.parse(reportText(new AppendingReader(eventsPath), options, 'json')) as {
+      buckets: typeof reportBefore.buckets
+      view: { header: { sources: string[] } }
+    }
+    const fresh = new TrackReader(eventsPath).report(options)
+
+    expect(rendered.buckets).toEqual(reportBefore.buckets)
+    expect(fresh.buckets['TO-DO']).toHaveLength(reportBefore.buckets['TO-DO'].length + 1)
+    expect(rendered.view.header.sources.join(' ')).toContain(
+      `révision du journal : ${revisionBefore.count} événements ; tête : ${revisionBefore.head}`,
+    )
+  })
+
   it('projects one complete subtree with the same rows as the global report and declares exclusions', () => {
     const { root, outsideLeaf } = seed()
     const reader = new TrackReader(eventsPath)
