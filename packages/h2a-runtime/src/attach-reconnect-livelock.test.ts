@@ -85,6 +85,64 @@ describe("attach — reconnect livelock", () => {
     expect(stderr.text()).toMatch(/closing immediately|giving up/i);
   });
 
+  it("treats a REPLAYED terminal.output as the past: no progress, no re-print", async () => {
+    // FOURTH REVIEW LEG, confirmed: the progress signal was terminal.output — and
+    // that is exactly the event class the SSE route REPLAYS on every reopen. So
+    // futileCycles reset every cycle, give-up could never fire, and the operator
+    // got stale output re-printed forever. The envelope's monotonic sequence is the
+    // discriminator that tells the past from work.
+    let eventOpens = 0;
+    const stderr = collectingStderr();
+    const written: string[] = [];
+    const stdout = {
+      write: (chunk: string) => {
+        written.push(chunk);
+        return true;
+      },
+      columns: 80,
+      rows: 24,
+    } as unknown as NodeJS.WriteStream;
+
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/events")) {
+        eventOpens += 1;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              // The SAME envelope, sequence 0, replayed on every reopen.
+              controller.enqueue(
+                new TextEncoder().encode(
+                  'event: terminal.output\ndata: {"type":"terminal.output","sequence":0,"payload":{"data":"OLD"}}\n\n',
+                ),
+              );
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const session = await attach({
+      baseUrl: "http://127.0.0.1:1",
+      sessionId: "sess-replayed-output",
+      stderr: stderr.stream,
+      stdout,
+      fetchImpl,
+      reconnect: { minStreamMs: 1000, baseDelayMs: 1, maxDelayMs: 4, maxShortCycles: 3 },
+    });
+
+    await session.finished;
+
+    // The bound FIRES: a replayed envelope is not progress.
+    expect(stderr.text()).toMatch(/giving up/i);
+    expect(eventOpens).toBeLessThanOrEqual(6);
+    // And the operator sees those bytes ONCE, not once per reopen.
+    expect(written.filter((c) => c.includes("OLD"))).toHaveLength(1);
+  });
+
   it("does not let useful output poison the later give-up budget", async () => {
     // THIRD REVIEW LEG, confirmed: pacing and giving up shared one counter, so a
     // productive short stream consumed the give-up budget without triggering it.
