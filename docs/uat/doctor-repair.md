@@ -27,6 +27,21 @@ cd /home/antoinefa/src/h2a
 export UAT=$(mktemp -d /home/antoinefa/.cache-tmp/uat-doctor-XXXX)
 ```
 
+## Épingler le candidat — sinon tu testes autre chose que cette PR
+
+`h2a` sur ton `PATH` résout vers le paquet **installé globalement**, pas vers cette branche, et
+`packages/h2a/dist` n'est pas versionné. Sans ces deux lignes, tu recetterais une autre version que
+celle que tu es en train de valider.
+
+```bash
+git rev-parse --short HEAD          # note-le : c'est le candidat que tu recettes
+npm run build:h2a
+export DOCTOR="node $PWD/packages/h2a/dist/bin.js"
+```
+
+**Toutes les commandes ci-dessous utilisent `$DOCTOR`, jamais `h2a`.** Si `$DOCTOR` n'existe pas, le
+build a échoué et rien de ce qui suit n'a de valeur.
+
 ---
 
 ## Scénario 1 — la source de marketplace a disparu (le défaut réel du 29 juillet)
@@ -39,9 +54,11 @@ mkdir -p $UAT/h1/.codex
 printf '[marketplaces.sentropic]\nsource_type = "local"\nsource = "%s/disparu"\n' "$UAT" \
   > $UAT/h1/.codex/config.toml
 
-HOME=$UAT/h1 h2a init --root "$UAT/h1/bus"
-HOME=$UAT/h1 h2a doctor --root "$UAT/h1/bus" --repair --dry-run   # inspecte, ne modifie RIEN
-HOME=$UAT/h1 h2a doctor --root "$UAT/h1/bus" --repair             # répare
+HOME=$UAT/h1 $DOCTOR init --root "$UAT/h1/bus"
+HOME=$UAT/h1 $DOCTOR doctor --root "$UAT/h1/bus" --repair --dry-run   # inspecte, ne modifie RIEN
+echo "exit=$?"
+HOME=$UAT/h1 $DOCTOR doctor --root "$UAT/h1/bus" --repair             # répare
+echo "exit=$?"
 ```
 
 **Attendu** : le premier appel **nomme** la source morte (le chemin qui finit par `/disparu`) et
@@ -67,20 +84,32 @@ doctor peut changer le code réellement chargé sans qu'une session déjà déma
 Ce scénario est **déterministe** : le harnais fabrique la présence sur le même bus et dans ses
 propres `HOME` et bus temporaires. Il ne touche pas ta machine.
 
+D'abord la preuve automatisée, qui exerce les cinq variantes :
+
 ```bash
 node --test packages/h2a/test/host-installation-doctor.test.js
 ```
 
-Puis relance exactement le cas d'écrasement en place, la vérification manuelle reproductible :
+**Attendu** : `pass` sur tous les tests, et **exit 0**. C'est un test : il sort 0 quand il réussit.
+
+> **Correction de ma deuxième version de cette recette, et c'est la faute la plus grave que j'y ai
+> faite.** J'écrivais ici « attendu : sortie 2 » en pointant un `node --test` — donc mon document
+> déclarait **invalidante la sortie 0 que produit précisément une implémentation correcte**. Pire,
+> une réexécution de test n'est **pas** une observation : elle absorbe le comportement dans son
+> assertion au lieu de te le montrer. La revue indépendante l'a mesuré littéralement.
+
+Puis **l'observation** — c'est celle-ci qui vaut recette, parce que tu lis le comportement toi-même :
 
 ```bash
-node --test --test-name-pattern='existing Codex plugin directory is overwritten in place' \
-  packages/h2a/test/host-installation-doctor.test.js
+bash docs/uat/probe-live-session.sh          # fabrique le cas, puis lance $DOCTOR et affiche tout
 ```
 
-**Attendu, et c'est le point non négociable** : sortie **2**, `ok=false`, et un motif explicite
-disant qu'une **session vivante doit redémarrer**. La réparation du cache ne suffit pas : la
-session a chargé l'ancien code.
+Le probe imprime, dans cet ordre : le code de sortie, le champ `ok` du rapport JSON, et la liste des
+motifs de redémarrage.
+
+**Attendu, et c'est le point non négociable** : sortie **2**, `ok=false`, et un motif explicite disant
+qu'une **session vivante doit redémarrer**. La réparation du cache ne suffit pas : la session a chargé
+l'ancien code. Tu dois **voir** ces trois valeurs, pas les déduire d'un test vert.
 
 Cette promesse est volontairement bornée :
 
@@ -124,7 +153,17 @@ h2a doctor --root "$UAT/h3/bus" --repair
 Le bus temporaire isole cette recette des sessions de ton bus quotidien ; si doctor a réparé ton
 installation, redémarre toute session que tu sais antérieure à cette réparation.
 
-**Pour revenir en arrière** : `cp ~/.codex/config.toml.bak.uat-… ~/.codex/config.toml`.
+**Pour revenir en arrière, et ce que ça ne couvre PAS** :
+
+```bash
+cp ~/.codex/config.toml.bak.uat-… ~/.codex/config.toml
+```
+
+Cette sauvegarde restaure la **configuration**. Elle ne restaure ni les caches de plugins supprimés,
+ni les entrées de marketplace, ni le marqueur `~/.codex/h2a-repair.json`, ni un plugin désinstallé.
+Si tu veux un retour arrière complet, ne lance pas `--repair` sur ta vraie machine : le scénario 3
+s'arrête au `--dry-run`, qui est prouvé inerte par empreinte dans le probe du scénario 2. Je préfère
+te le dire que te laisser croire qu'une copie de `config.toml` annule tout.
 
 ---
 
