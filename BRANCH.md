@@ -101,6 +101,15 @@
 - [x] Test: adversarial title/decision/summary redaction, runtime unsupported format, future `--since`, and pre-journal `--now`.
 - [x] Gate: owner tables carry no ULIDs in all supported report modes, invalid library formats fail loudly, and `--now` names no absent selector.
 
+## Lot 8 — restore period invariants after guard narrowing
+
+- [x] Enforce `from <= to` once for every resolved period; explicit inverted selections reject.
+- [x] Render a pre-journal `--now` as an ordered empty interval rather than inverted bounds.
+- [x] Choose short versus long presentation from resolved instants, not their UTC date labels.
+- [x] Correct handoff claims about report formats, fixture changes, test observations, and MCP coverage.
+- [x] Test: pre-journal CLI interval ordering, explicit library reversal rejection, and instant durations just under/over fourteen days.
+- [x] Gate: serialized period bounds are never inverted and sub-WP aggregation begins at fourteen elapsed days.
+
 ## Feedback Loop
 
 - [ ] Owner UAT remains required before any item is claimed done.

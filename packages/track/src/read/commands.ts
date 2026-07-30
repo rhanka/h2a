@@ -34,12 +34,21 @@ function periodProjection(
   now?: string,
 ): ReportPeriodProjection {
   const selected = selection !== undefined
-  const from = selection?.from ?? snapshot.logWindow.from
+  let from = selection?.from ?? snapshot.logWindow.from
   const to = selection?.to ?? (selected ? snapshot.logWindow.to : now ?? snapshot.logWindow.to)
-  const fromMs = from === undefined ? undefined : Date.parse(from)
+  let fromMs = from === undefined ? undefined : Date.parse(from)
   const toMs = to === undefined ? undefined : Date.parse(to)
-  if (selection?.from !== undefined && selection.to === undefined && fromMs !== undefined && toMs !== undefined && fromMs > toMs) {
-    throw new Error('--since must not be after the journal head')
+  // Every resolved period is ordered at this one boundary. A caller-pinned clock before the journal makes
+  // an honest empty whole-log interval; an explicit reversed selector remains invalid.
+  if (fromMs !== undefined && toMs !== undefined && fromMs > toMs) {
+    if (selection === undefined && now !== undefined) {
+      from = to
+      fromMs = toMs
+    } else if (selection?.from !== undefined && selection.to === undefined) {
+      throw new Error('--since must not be after the journal head')
+    } else {
+      throw new Error('resolved report period must not end before it begins')
+    }
   }
   const events = snapshot.events.filter((event) => {
     const at = Date.parse(event.at)

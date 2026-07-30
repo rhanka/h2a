@@ -820,11 +820,13 @@ const FOCUS_ROWS = 5
  */
 const LONG_WINDOW_DAYS = 14
 
-function windowDays(period: ReportPeriod): number | undefined {
-  if (period.from === undefined || period.to === undefined) return undefined
-  const from = Date.parse(period.from)
-  const to = Date.parse(period.to)
-  return Number.isNaN(from) || Number.isNaN(to) ? undefined : Math.round((to - from) / 86_400_000)
+function windowDays(meta: ConductorMeta): number | undefined {
+  const from = meta.periodWindow?.from ?? meta.logFrom
+  const to = meta.periodWindow?.to ?? meta.now ?? meta.logTo
+  if (from === undefined || to === undefined) return undefined
+  const fromMs = Date.parse(from)
+  const toMs = Date.parse(to)
+  return Number.isNaN(fromMs) || Number.isNaN(toMs) ? undefined : (toMs - fromMs) / 86_400_000
 }
 
 /**
@@ -1055,7 +1057,7 @@ export function buildWpConductorView(
   // nothing is lost; only their row disappears. The aggregation is DECLARED in the header, like every
   // other compression in this report.
   const period = reportPeriod(meta)
-  const days = windowDays(period)
+  const days = windowDays(meta)
   const subWpDetail = meta.subWp === true || (days !== undefined && days < LONG_WINDOW_DAYS)
   const rowNodes = subWpDetail ? wpNodes : [...tree]
   const subNodes = wpNodes.filter((n) => !rowNodes.includes(n))
