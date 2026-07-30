@@ -90,7 +90,7 @@ const USAGE = `usage: track <command>
   decision dossier <decisionId> [--context <c>] [--options-json <json> --recommendation <optionId> --rationale <r>]
   decision disposition <itemId> <orientation|commitment> <required|skipped|not-applicable>
   decision add-artifact <decisionId> --kind <h2a-decision-dossier|rendered-view|mockup> [--negotiation-ref <n>] [--dossier-hash <h>] [--view-ref <v>] [--source-dossier-hash <h>] [--label <l>] [--client-token <t>]
-  blocker raise --target <id> --kind <decision|dependency> [--ref <id>] [--reason <r>] [--rule <linked-done|linked-accepted|manual>] [--scope <intra|extra>] [--engagement-ref <e>]
+  blocker raise --target <id> --kind <decision|dependency> [--ref <id>] [--reason <r>] [--rule <linked-done|linked-accepted|manual>] [--scope <intra|extra>] [--engagement-ref <e>] [--owner <actor>]
   blocker resolve <blockerId>
   blocker resolve-external --engagement-ref <e>
   accept criterion <itemId> --statement <s>
@@ -902,6 +902,11 @@ function cmdBlocker(args: string[], ctx: Ctx): number {
   const { positional, flags } = parseFlags(args.slice(1))
   const track = writeTrack(ctx)
   if (sub === 'raise') {
+    const rawOwner = opt(flags, 'owner')
+    const owner = rawOwner?.trim()
+    if (rawOwner !== undefined && owner === '') {
+      throw new DomainError('blocker raise: --owner must be a non-empty actor')
+    }
     const id = track.openBlocker({
       targetId: req(flags, 'target'),
       kind: oneOf(req(flags, 'kind'), BLOCKER_KINDS, '--kind') as BlockerKind,
@@ -914,6 +919,7 @@ function cmdBlocker(args: string[], ctx: Ctx): number {
         ? { scope: oneOf(req(flags, 'scope'), BLOCKER_SCOPES, '--scope') as BlockerScope }
         : {}),
       ...(opt(flags, 'engagement-ref') !== undefined ? { engagementRef: req(flags, 'engagement-ref') } : {}),
+      ...(owner !== undefined ? { owner } : {}),
     })
     io.out(`${id}\n`)
     return 0

@@ -66,10 +66,10 @@
 
 ## Lot 4 — pass blocker owner through the CLI
 
-- [ ] Read `--owner`, trim it, reject blank values, and pass it into blocker-open payloads.
-- [ ] Leave general unknown-flag behavior unchanged.
-- [ ] Test: persisted owner, trimming, and blank-value rejection.
-- [ ] Gate: `blocker raise --owner` records the supplied counterparty.
+- [x] Read `--owner`, trim it, reject blank values, and pass it into blocker-open payloads.
+- [x] Leave general unknown-flag behavior unchanged.
+- [x] Test: persisted owner, trimming, and blank-value rejection.
+- [x] Gate: `blocker raise --owner` records the supplied counterparty.
 
 ## Feedback Loop
 
