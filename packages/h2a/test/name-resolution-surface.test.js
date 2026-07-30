@@ -108,20 +108,56 @@ test("a plain display name still resolves to its instance", () => {
   assert.equal(result.recipient, "claude:alice:dddddddddddd");
 });
 
-test("the legacy h2a:<name> form stays ADDRESSABLE", () => {
-  // This is the case a colon-based refusal silently swallows: the whole point of
-  // stripping a leading `h2a:` is that `h2a:agents` reaches a presence named
-  // `agents`. A test asserting only "not ambiguous" is satisfied by a refusal,
-  // which is why it has to assert the destination.
+test("the legacy h2a:<name> form is NOT a supported address", () => {
+  // This assertion was the reverse until the owning lane argued it down, and the
+  // argument that turned it is a rung argument, not a usage count: a SUPPRESSED
+  // feature cannot be re-claimed, whereas a REPAIRED dead guard can be listed as
+  // a guard again by the next reader — as it already had been. Suppressing moves
+  // up a rung (structurally absent) instead of sideways (test-guarded).
+  //
+  // The usage evidence offered alongside it (zero occurrences of this form across
+  // presences, docs and a historical envelope sample) was NOT reproduced by the
+  // cyber lane and is not what this test rests on. It rests on the rung.
+  //
+  // Do not read this as "an aliased form is unsupported": the two-segment
+  // `host:label` form below is used and must keep working.
   const result = resolve("h2a:agents", [
     { instance: "claude:agents:ffffffffffff", name: "agents" },
   ]);
   assert.equal(
     result.kind,
-    "deliver-resolved",
-    "h2a:agents must remain addressable, not merely unambiguous",
+    "refuse",
+    "h2a:<name> is deliberately unsupported — see the host:label tests below",
   );
-  assert.equal(result.recipient, "claude:agents:ffffffffffff");
+});
+
+// ---------------------------------------------------------------------------
+// 3b. The aliased form that IS used must survive
+// ---------------------------------------------------------------------------
+
+// Requested by the owning lane after it measured this two-segment form in real
+// traffic. It exists because a PR sentence saying "the aliased form is not
+// supported" could be read as covering it, and that reading would break live
+// addressing. Verified by the cyber lane on the guard commit.
+for (const [target, instance] of [
+  ["claude:architect", "claude:architect:aaaaaaaaaaaa"],
+  ["claude:geo", "claude:geo:bbbbbbbbbbbb"],
+  ["claude:graphify-cyber", "claude:graphify-cyber:cccccccccccc"],
+  ["codex:sent-tech-design-system", "codex:sent-tech-design-system:dddddddddddd"],
+]) {
+  test(`host:label stays addressable: ${target}`, () => {
+    const result = resolve(target, [{ instance }]);
+    assert.notEqual(
+      result.kind,
+      "refuse",
+      `${target} is a live addressing form and must not be refused`,
+    );
+  });
+}
+
+test("host:label still reaches a registered-but-dormant instance", () => {
+  const result = resolve("claude:architect", [], ["claude:architect:aaaaaaaaaaaa"]);
+  assert.notEqual(result.kind, "refuse");
 });
 
 test("a colon-bearing display name is unreachable by name — declared cost", () => {
