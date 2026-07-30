@@ -92,12 +92,30 @@ function cleanShippedLayoutHome() {
   return { home, version };
 }
 
+function configurationRewriteFixture() {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const claudePath = join(home, ".claude.json");
+  const claudeMcpPath = join(home, ".config", "claude", "mcp.json");
+  const codex = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n[mcp_servers.h2a]\ncommand = "h2a"\nargs = ["mcp-serve"]\n`;
+  const claude = '{"mcpServers":{"h2a":{"command":"h2a","args":["mcp-serve"]}},"scope":"user"}\n';
+  const claudeMcp = '{"mcpServers":{"track":{"command":"h2a","args":["track-mcp"]}},"scope":"project"}\n';
+  writeFileSync(codexPath, codex);
+  writeFileSync(claudePath, claude);
+  mkdirSync(join(claudeMcpPath, ".."), { recursive: true });
+  writeFileSync(claudeMcpPath, claudeMcp);
+  return {
+    home,
+    version,
+    paths: [codexPath, claudePath, claudeMcpPath],
+    original: new Map([[codexPath, codex], [claudePath, claude], [claudeMcpPath, claudeMcp]])
+  };
+}
+
 function fixtureHome() {
   const home = join(tmpdir(), `h2a-host-doctor-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const codex = join(home, ".codex");
   const claude = join(home, ".claude");
-  const codexLegacyMarketplacePath = join(codex, ".tmp", "marketplaces", "sentropic-local-codex-08518");
-  const claudeLegacyMarketplacePath = join(claude, "plugins", "marketplaces", "sentropic-local-claude-08518");
   mkdirSync(codex, { recursive: true });
   mkdirSync(claude, { recursive: true });
   writeFileSync(
@@ -119,25 +137,23 @@ function fixtureHome() {
       "",
       "[marketplaces.sentropic-local-codex-08518]",
       'source_type = "local"',
-      `source = "${codexLegacyMarketplacePath}"`,
+      'source = "/deleted/tmp/deploy-08518"',
       ""
     ].join("\n")
   );
   // `codex mcp list` may still show this cached enabled plugin even though its
-  // only marketplace is an obsolete local source. A current cache therefore
+  // only marketplace was a deleted local directory. A current cache therefore
   // cannot certify the installation by itself.
   currentPlugin(join(codex, "plugins", "cache", "sentropic", "h2a", VERSION));
   currentPlugin(join(codex, "plugins", "cache", "sentropic-local-codex-08518", "h2a", "0.85.18"));
-  currentMarketplace(codexLegacyMarketplacePath);
 
   const claudePluginPath = join(claude, "plugins", "cache", "sentropic", "h2a", "0.85.18");
   currentPlugin(claudePluginPath);
   currentPlugin(join(claude, "plugins", "cache", "sentropic-local-claude-08518", "h2a", "0.85.18"));
-  currentMarketplace(claudeLegacyMarketplacePath);
   writeJson(join(claude, "plugins", "known_marketplaces.json"), {
     "sentropic-local-claude-08518": {
-      source: { source: "directory", path: claudeLegacyMarketplacePath },
-      installLocation: claudeLegacyMarketplacePath
+      source: { source: "directory", path: "/deleted/tmp/deploy-08518" },
+      installLocation: "/deleted/tmp/deploy-08518"
     }
   });
   writeJson(join(claude, "plugins", "installed_plugins.json"), {
@@ -607,6 +623,140 @@ test("doctor preserves third-party MCP entries and custom configuration fields",
     assert.equal(readFileSync(claudeMcpPath, "utf8"), claudeExpected);
   } finally {
     rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor preserves third-party track-mcp arguments when removing its own endpoints", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const claudeMcpPath = join(home, ".config", "claude", "mcp.json");
+  const codexBefore = [
+    '[plugins."h2a@sentropic"]',
+    "enabled = true",
+    "",
+    "[marketplaces.sentropic]",
+    'source_type = "git"',
+    'source = "https://github.com/rhanka/h2a.git"',
+    'ref = "main"',
+    "",
+    "[mcp_servers.track]",
+    'command = "h2a"',
+    'args = ["track-mcp"]',
+    "",
+    "[mcp_servers.h2a-helper]",
+    'command = "third-party-mcp"',
+    'args = ["--profile=track-mcp-helper"]',
+    'opaque = "preserve"',
+    ""
+  ].join("\n");
+  const codexExpected = [
+    '[plugins."h2a@sentropic"]',
+    "enabled = true",
+    "",
+    "[marketplaces.sentropic]",
+    'source_type = "git"',
+    'source = "https://github.com/rhanka/h2a.git"',
+    'ref = "main"',
+    "",
+    "[mcp_servers.h2a-helper]",
+    'command = "third-party-mcp"',
+    'args = ["--profile=track-mcp-helper"]',
+    'opaque = "preserve"',
+    ""
+  ].join("\n");
+  const claudeBefore = '{"mcpServers":{"track":{"command":"h2a","args":["track-mcp"]},"h2a-helper":{"command":"third-party-mcp","args":["track-mcp"],"opaque":"preserve"}},"tail":"preserve"}\n';
+  const claudeExpected = '{"mcpServers":{"h2a-helper":{"command":"third-party-mcp","args":["track-mcp"],"opaque":"preserve"}},"tail":"preserve"}\n';
+  try {
+    writeFileSync(codexPath, codexBefore);
+    mkdirSync(join(claudeMcpPath, ".."), { recursive: true });
+    writeFileSync(claudeMcpPath, claudeBefore);
+
+    const report = doctorHostInstallations({ home, version, repair: true, runHostCommand: repairRunner(home, []) });
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(readFileSync(codexPath, "utf8"), codexExpected);
+    assert.equal(readFileSync(claudeMcpPath, "utf8"), claudeExpected);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor aborts invalid rendered TOML and JSON before replacing host configuration", () => {
+  const fixture = configurationRewriteFixture();
+  try {
+    const report = doctorHostInstallations({
+      home: fixture.home,
+      version: fixture.version,
+      repair: true,
+      testConfigurationWrite: {
+        mutateRendered: (_path, format) => format === "toml" ? 'opaque = "unterminated\n' : "{"
+      }
+    });
+
+    assert.equal(report.ok, false);
+    for (const path of fixture.paths) assert.equal(readFileSync(path, "utf8"), fixture.original.get(path), path);
+    for (const path of fixture.paths) {
+      assert.ok(
+        report.hosts.flatMap((host) => host.unrepaired).some((entry) => entry.path === path && /rendered .* cannot be parsed/.test(entry.message)),
+        JSON.stringify(report, null, 2)
+      );
+    }
+  } finally {
+    rmSync(fixture.home, { recursive: true, force: true });
+  }
+});
+
+test("doctor leaves host configuration byte-identical when atomic rename fails", () => {
+  const fixture = configurationRewriteFixture();
+  try {
+    const report = doctorHostInstallations({
+      home: fixture.home,
+      version: fixture.version,
+      repair: true,
+      testConfigurationWrite: {
+        rename: () => { throw new Error("injected rename failure"); }
+      }
+    });
+
+    assert.equal(report.ok, false);
+    for (const path of fixture.paths) assert.equal(readFileSync(path, "utf8"), fixture.original.get(path), path);
+    for (const path of fixture.paths) {
+      assert.ok(
+        report.hosts.flatMap((host) => host.unrepaired).some((entry) => entry.path === path && /injected rename failure/.test(entry.message)),
+        JSON.stringify(report, null, 2)
+      );
+    }
+  } finally {
+    rmSync(fixture.home, { recursive: true, force: true });
+  }
+});
+
+test("doctor aborts an atomic configuration replacement after a concurrent host edit", () => {
+  const fixture = configurationRewriteFixture();
+  try {
+    const report = doctorHostInstallations({
+      home: fixture.home,
+      version: fixture.version,
+      repair: true,
+      testConfigurationWrite: {
+        beforeRename: (path) => {
+          const concurrent = `${readFileSync(path, "utf8")}${path.endsWith(".toml") ? "# concurrent host edit\n" : "\n"}`;
+          writeFileSync(path, concurrent);
+        }
+      }
+    });
+
+    assert.equal(report.ok, false);
+    for (const path of fixture.paths) {
+      const expected = `${fixture.original.get(path)}${path.endsWith(".toml") ? "# concurrent host edit\n" : "\n"}`;
+      assert.equal(readFileSync(path, "utf8"), expected, path);
+      assert.ok(
+        report.hosts.flatMap((host) => host.unrepaired).some((entry) => entry.path === path && /changed concurrently/.test(entry.message)),
+        JSON.stringify(report, null, 2)
+      );
+    }
+  } finally {
+    rmSync(fixture.home, { recursive: true, force: true });
   }
 });
 
