@@ -52,8 +52,10 @@ celle que tu es en train de valider.
 
 ```bash
 git rev-parse --short HEAD          # note-le : c'est le candidat que tu recettes
+npm ci                              # OBLIGATOIRE : sur une archive vraiment propre, build echoue sans lui
 npm run build                       # PAS build:h2a : sur une extraction propre il sort 2, @sentropic/track manquant
 export DOCTOR="node $PWD/packages/h2a/dist/bin.js"
+[ -f packages/h2a/dist/bin.js ] || { echo "build echoue : rien de ce qui suit n'a de valeur"; }
 ```
 
 **Toutes les commandes ci-dessous utilisent `$DOCTOR`, jamais `h2a`.** Si `$DOCTOR` n'existe pas, le
@@ -143,27 +145,40 @@ peut pas observer complètement.
 
 ## Scénario 3 — ta vraie installation, en lecture d'abord
 
-> **Avant ce scénario, RESTAURE tes racines d'origine** — ne te contente pas de les libérer. Un
-> `unset` ne rend pas tes valeurs : il retombe sur les racines par défaut, qui ne sont pas ton
-> installation si tu utilises `CODEX_HOME` ou `CLAUDE_CONFIG_DIR`. Deux revues indépendantes ont
-> mesuré cet écart, la seconde après ma première correction incomplète.
+> **⚠️ CE SCÉNARIO EST INVALIDE SI TU UTILISES DES RACINES PERSONNALISÉES, et c'est un défaut du
+> PRODUIT, pas de cette recette.** Mesuré le 2026-07-30 : `CODEX_HOME` et `CLAUDE_CONFIG_DIR`
+> apparaissent **0 fois** dans `packages/h2a/src`. Doctor **lit** toujours `$HOME/.codex`, alors que
+> ses commandes natives, elles, honorent `CODEX_HOME`. Preuve avec un marqueur distinct par racine :
+> doctor rapporte `plugin-stale` sur l'entrée de `$HOME/.codex` et reste **aveugle** à celle de
+> `$CODEX_HOME`. **Il diagnostique une racine et répare l'autre.** Aucune gymnastique de shell ne
+> peut corriger ça depuis une recette — donc ce scénario refuse de tourner plutôt que de te donner
+> un résultat sur une installation que tu n'utilises pas.
+>
+> Trois versions successives de cette recette ont tenté de compenser (épingler, puis `unset`, puis
+> restaurer). Les trois avaient tort : ce n'était pas à la recette de le résoudre.
 
 ```bash
 # restaurer exactement ce que tu avais, y compris l'absence de variable
 [ "${UAT_ORIG_CODEX_HOME:-__unset__}" = "__unset__" ] && unset CODEX_HOME || export CODEX_HOME="$UAT_ORIG_CODEX_HOME"
 [ "${UAT_ORIG_CLAUDE_CONFIG_DIR:-__unset__}" = "__unset__" ] && unset CLAUDE_CONFIG_DIR || export CLAUDE_CONFIG_DIR="$UAT_ORIG_CLAUDE_CONFIG_DIR"
-echo "racines du scenario 3 : ${CODEX_HOME:-(defaut ~/.codex)} ${CLAUDE_CONFIG_DIR:-(defaut ~/.claude)}"
-# sauvegarder les racines REELLEMENT actives, pas les racines par defaut : si tu utilises
-# CODEX_HOME/CLAUDE_CONFIG_DIR, une sauvegarde de ~/.codex copierait un fichier inutilise.
-CODEX_ROOT="${CODEX_HOME:-$HOME/.codex}"
-CLAUDE_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-STAMP=$(date +%Y%m%d-%H%M)
-cp -p "$CODEX_ROOT/config.toml" "$CODEX_ROOT/config.toml.bak.uat-$STAMP"
-cp -p "$CLAUDE_ROOT/plugins/known_marketplaces.json" "$CLAUDE_ROOT/plugins/known_marketplaces.json.bak.uat-$STAMP" 2>/dev/null
+# ECHOUER FERME : le produit ne partage pas le contrat de racine des CLI natives.
+if [ -n "${CODEX_HOME-}" ] || [ -n "${CLAUDE_CONFIG_DIR-}" ]; then
+  echo "SCENARIO 3 REFUSE : tu utilises CODEX_HOME='${CODEX_HOME-}' CLAUDE_CONFIG_DIR='${CLAUDE_CONFIG_DIR-}'."
+  echo "Doctor lirait \$HOME/.codex, pas ta racine. Le resultat porterait sur une autre installation."
+  echo "Note-le comme NON RECETTE et exige le correctif produit (partager le contrat, ou refuser)."
+else
+  # TOUT le scenario vit DANS cette branche : un simple message de refus serait fail-open,
+  # exactement le defaut que ce refus existe pour eviter. La structure refuse, pas la prose.
+  CODEX_ROOT="$HOME/.codex"
+  CLAUDE_ROOT="$HOME/.claude"
+  STAMP=$(date +%Y%m%d-%H%M)
+  cp -p "$CODEX_ROOT/config.toml" "$CODEX_ROOT/config.toml.bak.uat-$STAMP"
+  cp -p "$CLAUDE_ROOT/plugins/known_marketplaces.json" "$CLAUDE_ROOT/plugins/known_marketplaces.json.bak.uat-$STAMP" 2>/dev/null
 
-mkdir -p "$UAT/h3"
-$DOCTOR init --root "$UAT/h3/bus"
-$DOCTOR doctor --root "$UAT/h3/bus" --repair --dry-run    # inspecte l'installation, ne modifie RIEN
+  mkdir -p "$UAT/h3"
+  $DOCTOR init --root "$UAT/h3/bus"
+  $DOCTOR doctor --root "$UAT/h3/bus" --repair --dry-run  # inspecte l'installation, ne modifie RIEN
+fi
 ```
 
 Lis le rapport. Il doit décrire ton état réel : une seule marketplace `sentropic` par hôte,
