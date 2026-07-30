@@ -1,68 +1,78 @@
-# Fix: isolate Google pool and refresh Gemini OAuth
+# Track: reopen lifecycle, persisted RACI, scoped report, blocker owner
 
 ## Objective
 
-- [x] Prevent Google/Gemini accounts from being selected for Codex model routes.
-- [x] Refresh an expired Google OAuth access token during local enrollment without re-login.
-- [ ] Replace the runtime Gemini transport only after llm-mesh ships the complete Antigravity transport contract.
+- [ ] Deliver four additive Track capabilities in one draft pull request.
+- [ ] Preserve append-only event history and every existing producer contract outside the declared new verbs.
 
-## Scope
+## Scope / Guardrails
 
-**Allowed Paths (implementation scope)**
-  - `BRANCH.md`
-  - `packages/h2a-runtime/src/index.ts`
-  - `packages/h2a-runtime/src/llm-mesh.ts`
-  - `packages/h2a-runtime/src/llm-mesh.test.ts`
-  - `packages/h2a-runtime/src/llm-gateway-runtime/model-catalog.ts`
-  - `packages/h2a-runtime/src/llm-gateway-runtime/model-catalog.test.ts`
-  - `packages/h2a-runtime/src/llm-gateway-runtime/proxy-anthropic.ts`
-  - `packages/h2a-runtime/src/llm-gateway-runtime/proxy-anthropic.test.ts`
+**Allowed Paths**
+
+- `BRANCH.md`
+- `tmp/report-to-track.md`
+- `packages/track/src/cli/**`
+- `packages/track/src/events/**`
+- `packages/track/src/ingest/**`
+- `packages/track/src/model/**`
+- `packages/track/src/read/**`
+- `packages/track/src/report/**`
+- `packages/track/src/state/**`
+- `packages/track/src/track.ts`
+- `packages/track/src/*.{test.ts,ts}` only where each lot needs its regression coverage.
 
 **Forbidden Paths**
-  - `packages/h2a-runtime/.test-scratch/**`
-  - `.test-scratch/**`
-  - `.cache/**`
-  - `free-tmpfs-now.sh`
-  - `apps/focus/src/routes/proposal/**`
-  - `Makefile`
-  - `docker-compose*.yml`
-  - `.cursor/rules/**`
-  - `.track/**`
+
+- `.track/**`
+- `Makefile`
+- `docker-compose*.yml`
+- `.cursor/rules/**`
+- any package outside `packages/track`
 
 **Conditional Paths**
-  - `packages/h2a-runtime/src/llm-gateway-runtime/proxy-gemini.ts` — unchanged until the mesh replacement is available.
 
-## Lot 1 — Google pool isolation
+- `package-lock.json` only if a command proves this package’s declared dependencies require a lock update; otherwise unchanged.
 
-- [x] Add a distinct `google` account pool.
-- [x] Map `google`, `gemini`, `gcp`, and `gemini-code-assist` only to that pool.
-- [x] Reject a Codex model route bound to a Google session before network dispatch.
-- [x] Preflight the local session provider before spawn; prefer Codex and never bind Google implicitly.
-- [x] Test: `model-catalog.test.ts`.
-- [x] Test: `proxy-anthropic.test.ts`.
-- [x] Gate: Google never silently executes a Codex route.
+## Lot 1 — reopen a closed item
 
-## Lot 2 — Google OAuth refresh
+- [x] Add an additive reopening event with declared motive and non-blank reason; reject rejected items.
+- [x] Derive the prior realization from folded state and apply reopening atomically only to a correctable closure.
+- [x] Re-block only dependents whose reference was reopened and not delivered again; preserve acceptance-driven behavior otherwise.
+- [x] Record reopening in the lifecycle trace and document that motive is recorded, not verifiable without an owner-UAT marker.
+- [x] Add ingest kind, binding, workspace-contained contract-minor bump and honest pinned-gate updates.
+- [x] Add `item reopen` and show the trace through `item show`.
+- [x] Test: malformed, foreign, unclosed, and valid reopening; dependent projection; event/fold/CLI/ingest contracts.
+- [x] Gate: illegal reopening changes neither realization nor trace.
 
-- [x] Treat `expiresAt` as authoritative for opaque Google access tokens.
-- [x] Use the official Gemini CLI OAuth client identity for the refresh-token grant.
-- [x] Refresh during `llm-mesh enroll google` before persisting the account.
-- [x] Keep refresh tokens provider-bound and exclude stale credentials from the gateway process.
-- [x] Test: `llm-mesh.test.ts`.
-- [x] Gate: live enrollment refreshes the existing credential without re-login.
-- [x] Gate: `llm-mesh status` reports Codex and Google credentials as unexpired.
+## Lot 2 — assign RACI on an existing item
 
-## Lot 3 — Verification and mesh sequencing
+- [ ] Add a past-tense RACI event with last-write-wins folding and an additive CLI write path.
+- [ ] Preserve omitted axes and expose no clear operation.
+- [ ] Trim at every write path; reject empty, whitespace-only, and separator-only assignment values in the shared facade.
+- [ ] Preserve legacy state key ordering and padded legacy actor values during replay.
+- [ ] Keep `item.create` producer compatibility, including its pre-existing blank-actor acceptance.
+- [ ] Test: direct ingest, CLI, facade, ordering, trim, and legacy replay contracts.
+- [ ] Gate: an attempted blank assignment cannot alter an existing assignment.
 
-- [x] Keep `proxy-gemini.ts` present and unchanged.
-- [x] Run focused unit tests for pool, refresh, guard, and existing Gemini translation.
-- [x] Run the TypeScript build.
-- [x] Run scoped runtime tests and final harness verification.
-- [x] Obtain two-peer review consensus and reconcile every blocking finding.
-- [ ] Open the micro-PR without publishing npm.
+## Lot 3 — render one reproducible scope report
+
+- [ ] Resolve role-container selectors by id, assigned code, or derived label and reject unknown/ambiguous selectors loudly.
+- [ ] Project from one event-log snapshot so rows and revision attest the same head.
+- [ ] Render the prescribed FAIT / À-FAIRE / DÉCISIONS / RECOMMANDATION shape and scoped handle command.
+- [ ] Redact every owner-facing string at the rendering boundary and render blockage as a sibling row using its target title.
+- [ ] Preserve report arithmetic and every named golden fixture unchanged.
+- [ ] Test: scope resolution, stable snapshot, no-ULID owner-facing output, blocked-row presentation, command scope, and golden preservation.
+- [ ] Gate: no rendered owner-facing field contains a ULID.
+
+## Lot 4 — pass blocker owner through the CLI
+
+- [ ] Read `--owner`, trim it, reject blank values, and pass it into blocker-open payloads.
+- [ ] Leave general unknown-flag behavior unchanged.
+- [ ] Test: persisted owner, trimming, and blank-value rejection.
+- [ ] Gate: `blocker raise --owner` records the supplied counterparty.
 
 ## Feedback Loop
 
-- [ ] AWAITED: `claude:llm-mesh:e5f8b95941e9` delivers the complete Antigravity transport, project discovery, and Code Assist metadata contract.
-- [x] Decision: h2a lands only non-breaking pool, refresh, and guard corrections before that dependency.
-- [x] Escalation: report the sequencing dependency asynchronously to `claude:a2a-cli:d36d7390005e`; do not escalate it to the owner.
+- [ ] Owner UAT remains required before any item is claimed done.
+- [ ] Review is delegated by the owner to two independent legs after this branch is ready.
+- [ ] Report unrelated findings without adding them to this diff.

@@ -127,6 +127,11 @@ export function mapWorkEvent(ev: WorkEvent): MappedCommand {
     case 'item.realize':
       args = [p['itemId'], p['to']]
       break
+    case 'item.reopen':
+      // reopenItem(itemId, {motive, reason}) — the facade re-asserts the pair fail-closed
+      // (assertReopenPayload). clientToken is threaded by `ingest` via withClientToken, not as an arg.
+      args = [p['itemId'], { motive: p['motive'], reason: p['reason'] }]
+      break
     case 'decision.create':
       args = [{ ...p }]
       break
