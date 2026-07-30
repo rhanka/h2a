@@ -57,6 +57,31 @@ test("readInstalledSkillVersion: reads the version stamp from the installed host
   rmSync(unstamped, { recursive: true, force: true });
 });
 
+test("readInstalledSkillVersion follows configured Codex and Claude roots", () => {
+  const home = mkdtempSync(join(tmpdir(), "h2a-configured-home-"));
+  const codexRoot = join(home, "configured-codex");
+  const claudeRoot = join(home, "configured-claude");
+  const previousCodexHome = process.env.CODEX_HOME;
+  const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  try {
+    mkdirSync(join(codexRoot, "skills", "h2a"), { recursive: true });
+    mkdirSync(join(claudeRoot, "skills", "h2a"), { recursive: true });
+    writeFileSync(join(codexRoot, "skills", "h2a", "SKILL.md"), "version: 1.2.3\n");
+    writeFileSync(join(claudeRoot, "skills", "h2a", "SKILL.md"), "version: 4.5.6\n");
+    process.env.CODEX_HOME = codexRoot;
+    process.env.CLAUDE_CONFIG_DIR = claudeRoot;
+
+    assert.equal(readInstalledSkillVersion("codex", home), "1.2.3");
+    assert.equal(readInstalledSkillVersion("claude", home), "4.5.6");
+  } finally {
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("agentVersion: stamps the running cli + the installed skill version", () => {
   const home = homeWithSkill("claude", "---\nname: h2a\nversion: 7.7.7\ndescription: x\n---\nb");
   const v = agentVersion("claude", home);
