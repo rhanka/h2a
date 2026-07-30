@@ -149,6 +149,7 @@ export type RemoteCliConfig = {
   defaultTarget?: string;
   /** Tool CLIs whose auth to bundle into deported sessions by default (scw, gh, …). */
   defaultTools?: string[];
+  defaultGateway?: "auto" | "gateway" | "direct";
   /** `remote restore` layout (windows/tabs from recent local sessions). */
   layout?: Partial<LayoutConfig>;
   /** Plugins installed via `remote plugin add` (synced to Pods via `remote plugin sync`). */
@@ -388,6 +389,12 @@ export function readRemoteConfig(): RemoteCliConfig {
       if (typeof parsed.defaultTarget === "string")
         config.defaultTarget = parsed.defaultTarget;
       if (
+        parsed.defaultGateway === "auto" ||
+        parsed.defaultGateway === "gateway" ||
+        parsed.defaultGateway === "direct"
+      )
+        config.defaultGateway = parsed.defaultGateway;
+      if (
         Array.isArray(parsed.defaultTools) &&
         parsed.defaultTools.every((t: unknown) => typeof t === "string")
       ) {
@@ -456,6 +463,28 @@ export function setDefaultTarget(value: string): void {
 
 export function getDefaultTools(): string[] {
   return readRemoteConfig().defaultTools ?? [];
+}
+
+/**
+ * Default gateway posture for a launch when NO flag is given.
+ *
+ * Measured 2026-07-29: the local gateway serves five GPT ids and no `claude-*`
+ * id at all (it does carry claude ALIASES, but not `claude-opus-5`), so a claude
+ * session launched in "auto" dies on `400 unsupported model`. The owner asked for
+ * the default to be OFF and, more importantly, for it to be CONFIGURABLE rather
+ * than another hardcoded constant.
+ *
+ * Precedence is flag > config > wired default, and the wired default is
+ * "direct" — never start a session in a posture nobody chose.
+ */
+export function getDefaultGatewayMode(): "auto" | "gateway" | "direct" {
+  return readRemoteConfig().defaultGateway ?? "direct";
+}
+
+export function setDefaultGatewayMode(
+  mode: "auto" | "gateway" | "direct",
+): void {
+  writeRemoteConfig({ ...readRemoteConfig(), defaultGateway: mode });
 }
 
 export function setDefaultTools(tools: string[]): void {

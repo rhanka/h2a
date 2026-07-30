@@ -19,7 +19,7 @@ export type H2aRunRequest = {
   workspace: string;
   prompt: string;
   background: true;
-  gateway: H2aRunGateway;
+  gateway?: H2aRunGateway;
   headless: boolean;
   h2aSidecar: boolean;
   model?: string;
@@ -121,10 +121,17 @@ export function validateH2aRunRequest(
     throw new Error("h2a_run: durable agent workspaces may not be under the OS temporary directory");
   }
 
-  const gateway = args.gateway ?? "auto";
+  // NO hardcoded default here. When the caller does not name a posture, this
+  // surface passes NO flag and lets the CLI apply the CONFIGURED default
+  // (config.json defaultGateway, wired fallback "direct"). Translating a default
+  // across the two vocabularies — MCP auto|required|off against CLI
+  // auto|gateway|direct — is exactly how a default ends up true in one entry
+  // point and false in the other.
+  const gateway = args.gateway;
   if (
-    typeof gateway !== "string" ||
-    !(H2A_RUN_GATEWAYS as readonly string[]).includes(gateway)
+    gateway !== undefined &&
+    (typeof gateway !== "string" ||
+      !(H2A_RUN_GATEWAYS as readonly string[]).includes(gateway))
   ) {
     throw new Error("h2a_run: 'gateway' must be auto|required|off");
   }
@@ -164,7 +171,7 @@ export function validateH2aRunRequest(
     workspace,
     prompt,
     background: true,
-    gateway: gateway as H2aRunGateway,
+    ...(gateway !== undefined ? { gateway: gateway as H2aRunGateway } : {}),
     headless,
     h2aSidecar,
     ...(model !== undefined ? { model } : {}),

@@ -36,6 +36,7 @@ import {
   clearDefaultRemote,
   getDefaultRemote,
   getDefaultTarget,
+  getDefaultGatewayMode,
   getDefaultTools,
   getH2aConfig,
   getJobMaxAgeHours,
@@ -1890,7 +1891,10 @@ function gatewayModeFromOptions(opts: {
   }
   if (wantsGateway) return "gateway";
   if (wantsDirect) return "direct";
-  return "auto";
+  // No flag: the CONFIGURED default decides, not a constant buried here. Same
+  // resolver as the MCP surface — a default that is true in one entry point and
+  // false in the other is the defect class this repo has already paid for.
+  return getDefaultGatewayMode();
 }
 
 function shouldUseClaudeBare(profile: string): boolean {
