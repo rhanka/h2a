@@ -366,6 +366,40 @@ describe('reopen — validate rejects a motive-less reopening from a foreign wri
     expect(res.ok).toBe(false)
     expect(res.findings.some((f) => f.kind === 'reopen-illegal')).toBe(true)
   })
+
+  it('rejects an absent payload itemId and does not reopen a closed item from a foreign event', () => {
+    const id = item()
+    closeDone(id)
+    const foreign: EventCore = {
+      id: 'evt-foreign-missing-item-id',
+      type: 'realization.reopened',
+      aggregate: 'item',
+      aggregateId: id,
+      at: now(),
+      by: 'foreign-writer',
+      payload: { motive: 'regression-observed', reason: 'foreign event omitted its required identity' },
+    }
+
+    // The normal append gate refuses the malformed command before it reaches the durable journal.
+    expect(() => store.appendCommand([foreign])).toThrow(/reopen-illegal/)
+
+    // A foreign log can still contain a self-consistent frame, so validation and replay must independently
+    // reject it and retain the closure rather than treating aggregateId as a substitute for payload.itemId.
+    const existing = store.readAll()
+    const last = existing[existing.length - 1]
+    const event: TrackEvent = {
+      ...foreign,
+      seq: existing.filter((candidate) => candidate.aggregateId === id).length + 1,
+      prevHash: last?.contentHash ?? null,
+      contentHash: contentHashOf(foreign),
+    }
+    const events = [...existing, event]
+
+    const res = validate(events)
+    expect(res.ok).toBe(false)
+    expect(res.findings.some((f) => f.kind === 'reopen-illegal' && f.reason.includes('itemId is required'))).toBe(true)
+    expect(fold(events).items.get(id)?.realization).toBe('done')
+  })
 })
 
 // ---- 5b. a motivated reopening of something that was never closed is ILLEGAL, not a shortcut ----

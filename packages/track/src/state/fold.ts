@@ -270,6 +270,9 @@ function applyEvent(state: State, event: TrackEvent): void {
       const item = state.items.get(event.aggregateId)
       if (item) {
         const p = event.payload as unknown as ReopenPayload
+        // A foreign event without the required identity (or naming a different aggregate) is not allowed to
+        // move the current item. `validate` reports the malformed record; the fold stays fail-safe as well.
+        if (p.itemId !== event.aggregateId) break
         const from = item.realization
         // ALL OR NOTHING. A reopening is only applied when there IS a closure to correct, and then BOTH the
         // realization and the trace move together. A foreign writer that appends a well-formed reopening on a

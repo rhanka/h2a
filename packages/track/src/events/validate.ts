@@ -226,16 +226,23 @@ function validateReopen(events: ReadonlyArray<TrackEvent>): IntegrityFinding[] {
     }
     if (shape !== undefined) findings.push({ kind: 'reopen-motive', index: i, eventId: e.id, reason: shape })
 
-    // The payload must address the aggregate it lands on, or the recorded fact names one item while it moves
-    // another (the fold keys off `aggregateId`, so a divergent `itemId` is a lie in the record).
-    if (p.itemId !== undefined && p.itemId !== e.aggregateId) {
+    // The payload must name the aggregate it lands on. `itemId` is required by ReopenPayload: absent or
+    // divergent identity would let a foreign event move work without carrying the declared subject.
+    const addressesAggregate = typeof p.itemId === 'string' && p.itemId === e.aggregateId
+    if (!addressesAggregate) {
       findings.push({
         kind: 'reopen-illegal',
         index: i,
         eventId: e.id,
-        reason: `payload.itemId "${String(p.itemId)}" does not address the reopened aggregate "${e.aggregateId}"`,
+        reason: p.itemId === undefined
+          ? `payload.itemId is required to address the reopened aggregate "${e.aggregateId}"`
+          : `payload.itemId "${String(p.itemId)}" does not address the reopened aggregate "${e.aggregateId}"`,
       })
     }
+
+    // Do not advance the validator's lifecycle model for a malformed address. A later event must be checked
+    // against the same closure the fold retains, not against a reopening this event was never allowed to name.
+    if (!addressesAggregate) continue
 
     const current = realizationOf.get(e.aggregateId)
     if (current === undefined) continue // not an item this stream created — nothing to judge
