@@ -405,6 +405,85 @@ function runRepairDoctor(home, root, options = {}) {
   return { exitCode, io, report: JSON.parse(io.stdoutText) };
 }
 
+function withoutHostCliOnPath(home, callback) {
+  const previousPath = process.env.PATH;
+  const previousClaudeRoot = process.env.CLAUDE_CONFIG_DIR;
+  const previousCodexRoot = process.env.CODEX_HOME;
+  const emptyBin = join(home, "no-host-cli-bin");
+  mkdirSync(emptyBin, { recursive: true });
+  process.env.PATH = emptyBin;
+  delete process.env.CLAUDE_CONFIG_DIR;
+  delete process.env.CODEX_HOME;
+  try {
+    return callback();
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousClaudeRoot === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previousClaudeRoot;
+    if (previousCodexRoot === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexRoot;
+  }
+}
+
+test("doctor treats unused hosts absent from PATH as informational", () => {
+  const home = join(tmpdir(), `h2a-host-doctor-absent-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const root = join(home, "bus");
+  try {
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const { exitCode, io, report } = withoutHostCliOnPath(home, () => runRepairDoctor(home, root));
+
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    for (const host of report.checks.hostInstallations.hosts) {
+      assert.equal(host.ok, true, JSON.stringify(host, null, 2));
+      assert.ok(host.findings.some((entry) => entry.code === "host-not-installed"), JSON.stringify(host, null, 2));
+      for (const code of ["marketplace-missing", "version-skew", "plugin-missing", "h2a-endpoint-count"]) {
+        assert.equal(host.findings.some((entry) => entry.code === code), false, JSON.stringify(host, null, 2));
+      }
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails closed when configured host CLI is absent from PATH", () => {
+  const home = join(tmpdir(), `h2a-host-doctor-unreachable-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const root = join(home, "bus");
+  const calls = [];
+  try {
+    writeJson(join(home, ".claude.json"), { mcpServers: {} });
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const result = withoutHostCliOnPath(home, () => {
+      const io = streams(home);
+      const exitCode = runCli(["doctor", "--root", root, "--repair"], io, {
+        doctorHostInstallations: () => doctorHostInstallations({
+          home,
+          version: VERSION,
+          repair: true,
+          testHostCliReachable: () => false,
+          runHostCommand: (command, args) => {
+            calls.push([command, ...args]);
+            return { ok: true };
+          }
+        })
+      });
+      return { exitCode, io, report: JSON.parse(io.stdoutText) };
+    });
+    const claude = result.report.checks.hostInstallations.hosts.find((host) => host.host === "claude");
+
+    assert.equal(result.exitCode, 2, result.io.stderrText);
+    assert.equal(result.report.ok, false, JSON.stringify(result.report, null, 2));
+    assert.match(claude?.findings.find((entry) => entry.code === "host-cli-unreachable")?.message ?? "", /Claude CLI could not be reached/);
+    assert.deepEqual(calls, [], "an unreachable configured host must not receive native repair commands");
+    for (const code of ["marketplace-missing", "version-skew", "plugin-missing", "h2a-endpoint-count"]) {
+      assert.equal(claude?.findings.some((entry) => entry.code === code), false, JSON.stringify(claude, null, 2));
+    }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor accepts the exact shipped plugin layouts as clean", () => {
   const { home, version } = cleanShippedLayoutHome();
   const root = join(home, "bus");
