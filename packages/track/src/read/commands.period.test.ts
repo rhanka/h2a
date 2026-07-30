@@ -10,6 +10,7 @@ import { EventStore } from '../events/store.js'
 import { Track } from '../track.js'
 import { TrackReader } from './contract.js'
 import { reportText, type ReportPeriodSelection } from './commands.js'
+import { formatWpConductor, formatWpConductorInline } from '../report/format.js'
 
 let dir: string
 let eventsPath: string
@@ -253,5 +254,42 @@ describe('report period — CLI boundary', () => {
     const period = (JSON.parse(result.out) as { period: Record<string, unknown> }).period
     expect(period).toMatchObject({ requested: ref.slice(0, 10), from: committedAt, fromRef: ref, toRef: null })
     expect(period['to']).toBe(new TrackReader(eventsPath).logWindow().to)
+  })
+})
+
+// The ordering invariant is a property of a RENDERED period, not only of a resolved one: a consumer of
+// `@sentropic/track` can build a `periodWindow` itself and hand it to the public presenter exports, which no
+// resolver sees. Asserting it at BOTH boundaries is what stops a later narrowing on one side from re-opening
+// the other — the defect that came back three times on this branch.
+describe('the presenter refuses a reversed period window', () => {
+  const reversed = {
+    periodWindow: {
+      requested: 'direct-presenter',
+      from: '2026-07-04T00:00:00.000Z',
+      to: '2026-07-03T00:00:00.000Z',
+      fromRef: null,
+      toRef: null,
+      eventsInWindow: 0,
+      eventsTotal: 0,
+    },
+  } as const
+
+  it('rejects reversed bounds through formatWpConductor, on every format', () => {
+    for (const format of ['json', 'text', 'md'] as const) {
+      expect(() => formatWpConductor([], format, [], [], 'global', reversed)).toThrow(
+        /must not end before it begins/,
+      )
+    }
+  })
+
+  it('rejects reversed bounds through the inline presenter too', () => {
+    expect(() => formatWpConductorInline([], [], [], 'global', reversed)).toThrow(
+      /must not end before it begins/,
+    )
+  })
+
+  it('accepts an ordered window, including a zero-length one', () => {
+    const ordered = { periodWindow: { ...reversed.periodWindow, from: '2026-07-03T00:00:00.000Z' } }
+    expect(() => formatWpConductor([], 'json', [], [], 'global', ordered)).not.toThrow()
   })
 })
