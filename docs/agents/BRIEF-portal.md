@@ -1,7 +1,10 @@
 # portal — acteur durable h2a
 
-**Lis d'abord `COMMON.md`, dans ce même répertoire.** Il porte les règles de
-travail de l'owner et les défauts que ce dépôt reproduit quand on les oublie.
+**Lis d'abord `COMMON.md`, puis `RECALL.md`, dans ce même répertoire.** `COMMON.md`
+porte les règles de travail de l'owner. `RECALL.md` porte ce qui a déjà été tranché,
+réfuté ou payé cher — le lire avant ta première action est ce qui t'évite de
+reproposer du déjà-mort. Si tu délègues, `DELEGATION.md` porte le préambule à coller
+en tête du prompt de ton sous-traitant.
 
 ## Ton périmètre
 
