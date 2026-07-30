@@ -91,6 +91,16 @@
 - [x] Test: rejected HTML format, missing-`itemId` append/fold integrity, and reversed implicit period.
 - [x] Gate: owner reports have only JSON and text/Markdown paths, and no rendered period has reversed bounds.
 
+## Lot 7 — close closure-check regressions
+
+- [x] Redact record-shaped ULIDs in shared owner-view table cells before JSON, text, or Markdown rendering.
+- [x] Reject unsupported report formats at public library boundaries instead of silently rendering text.
+- [x] Restrict the implicit journal-head guard to an explicit `--since` without `--until`, leaving `--now` reproducible.
+- [x] Preserve machine handle-resolution ids and Focus HTML while removing no non-HTML test coverage.
+- [x] Merge the current `origin/main` with a merge commit; do not rebase this branch.
+- [x] Test: adversarial title/decision/summary redaction, runtime unsupported format, future `--since`, and pre-journal `--now`.
+- [x] Gate: owner tables carry no ULIDs in all supported report modes, invalid library formats fail loudly, and `--now` names no absent selector.
+
 ## Feedback Loop
 
 - [ ] Owner UAT remains required before any item is claimed done.
