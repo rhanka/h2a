@@ -41,6 +41,8 @@ export const H2A_MARKETPLACE_REPOSITORY = "rhanka/h2a";
 export const H2A_MARKETPLACE_GIT_URL = "https://github.com/rhanka/h2a.git";
 export const HOST_REPAIR_FRESHNESS_GUARANTEE =
   "doctor guarantees the coherence of the repairs it performed. It does not detect installation changes made by other tools; after changing your installation by hand, restart your sessions.";
+export const HOST_REPAIR_NATIVE_COMMAND_FAILURE_LIMIT =
+  "If a native host CLI fails after it has already changed the installation, doctor reports the failure as host-command-failed and does not undo what that CLI already did. Doctor's own configuration writes are atomic. It has no snapshot of third-party state and does not simulate one: a partial restore would promise a recovery it cannot deliver. After a reported native failure, verify the host installation before relying on it.";
 
 type Host = "claude" | "codex";
 
@@ -127,6 +129,8 @@ export interface HostInstallationDoctorReport {
   readonly dryRun: boolean;
   /** Exact boundary of the live-session restart guarantee. */
   readonly sessionFreshnessGuarantee: string;
+  /** Exact boundary of recovery from a native host CLI failure. */
+  readonly nativeCommandFailureLimit: string;
   readonly version: string;
   readonly hosts: readonly HostInstallationReport[];
 }
@@ -1660,6 +1664,7 @@ export function doctorHostInstallations(
     repair,
     dryRun,
     sessionFreshnessGuarantee: HOST_REPAIR_FRESHNESS_GUARANTEE,
+    nativeCommandFailureLimit: HOST_REPAIR_NATIVE_COMMAND_FAILURE_LIMIT,
     version,
     hosts
   };
