@@ -13,17 +13,27 @@ dossier and `propose-workpackages` for backlog restructuring.
 
 For a human-facing report or status, run `track report` from the repository root. It is a deterministic
 conductor over the folded log, with exactly four sections — FAIT / À-FAIRE / DÉCISIONS / RECOMMANDATION
-— for text, Markdown and HTML, plus a machine handle-resolution block. It never
+— for text and Markdown, plus a machine handle-resolution block. It never
 invokes an adapter, gateway, subprocess, or model.
 
 - `track report --format text` is the default conductor.
 - `track report --format md` is the same deterministic view in Markdown.
-- `track report --format html` is the deterministic DS fragment.
 - `track report --flat` explicitly requests the legacy bucket dump.
 - `track report --format json` is the flat machine contract; add `--wp` to carry the additive conductor
   view model. Do not pass `--flat` with JSON.
 - `track snapshot` or `track report --raw` is a factual diagnostic projection, not a reporting-period
   cursor or an executable plan.
+
+There is no HTML surface. `track report --format html` is rejected; the DS fragment is focus's own
+renderer, not the report's.
+
+Scope the report to a period rather than asking a reader to filter it:
+
+- `track report --period today|week|month|all` selects a named window.
+- `track report --since <YYYY-MM-DD|commit> [--until <YYYY-MM-DD|commit>]` selects an explicit one; each
+  bound must be a calendar date or a resolvable commit, never a literal that silently degrades.
+- `--since` and `--period` are mutually exclusive, `--until` requires `--since`, and `--since` must not be
+  after `--until` nor after the journal head.
 
 Paste deterministic command output verbatim when that is what was requested. Do not call it
 AI-prepared, cited AI, or adapter-backed.
