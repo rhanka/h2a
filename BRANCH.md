@@ -46,13 +46,13 @@
 
 ## Lot 2 — assign RACI on an existing item
 
-- [ ] Add a past-tense RACI event with last-write-wins folding and an additive CLI write path.
-- [ ] Preserve omitted axes and expose no clear operation.
-- [ ] Trim at every write path; reject empty, whitespace-only, and separator-only assignment values in the shared facade.
-- [ ] Preserve legacy state key ordering and padded legacy actor values during replay.
-- [ ] Keep `item.create` producer compatibility, including its pre-existing blank-actor acceptance.
-- [ ] Test: direct ingest, CLI, facade, ordering, trim, and legacy replay contracts.
-- [ ] Gate: an attempted blank assignment cannot alter an existing assignment.
+- [x] Add a past-tense RACI event with last-write-wins folding and an additive CLI write path.
+- [x] Preserve omitted axes and expose no clear operation.
+- [x] Trim at every write path; reject empty, whitespace-only, and separator-only assignment values in the shared facade.
+- [x] Preserve legacy state key ordering and padded legacy actor values during replay.
+- [x] Keep `item.create` producer compatibility, including its pre-existing blank-actor acceptance.
+- [x] Test: direct ingest, CLI, facade, ordering, trim, and legacy replay contracts.
+- [x] Gate: an attempted blank assignment cannot alter an existing assignment.
 
 ## Lot 3 — render one reproducible scope report
 
