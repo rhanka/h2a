@@ -3,7 +3,7 @@
 // the adapter supplying `baselineCommit` (CLI from git HEAD, MCP from a tool argument). This is what
 // makes CLI≡MCP parity STRUCTURAL (one layer), not coincidental.
 
-import { buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, reportPeriod, reportPeriodPayload, wpTotals, type Format, type InlineOptions, type ReportPeriodPayload, type ReportScopeProjection } from '../report/format.js'
+import { assertReportFormat, buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, reportPeriod, reportPeriodPayload, wpTotals, type Format, type InlineOptions, type ReportPeriodPayload, type ReportScopeProjection } from '../report/format.js'
 import type { ConductorMeta } from '../report/format.js'
 import type { QueryFilter, Report, ReportOptions } from '../report/build.js'
 import type { StatusLevel } from '../report/status-by-level.js'
@@ -38,7 +38,7 @@ function periodProjection(
   const to = selection?.to ?? (selected ? snapshot.logWindow.to : now ?? snapshot.logWindow.to)
   const fromMs = from === undefined ? undefined : Date.parse(from)
   const toMs = to === undefined ? undefined : Date.parse(to)
-  if (fromMs !== undefined && toMs !== undefined && fromMs > toMs) {
+  if (selection?.from !== undefined && selection.to === undefined && fromMs !== undefined && toMs !== undefined && fromMs > toMs) {
     throw new Error('--since must not be after the journal head')
   }
   const events = snapshot.events.filter((event) => {
@@ -180,6 +180,7 @@ export function reportText(
   scopeSelector?: string,
   periodSelection?: ReportPeriodSelection,
 ): string {
+  assertReportFormat(format)
   const snapshot = reader.reportSnapshot(options)
   const globalReport = snapshot.report
   const scoped = scopeSelector === undefined ? undefined : projectReportScope(globalReport, scopeSelector)
