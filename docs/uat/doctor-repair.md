@@ -15,12 +15,7 @@ prouve pas un comportement vérifié.
 Il ne détecte pas les changements d'installation faits par un autre outil ; après une modification
 manuelle de ton installation, redémarre tes sessions.
 
-**Limite explicite — échec d'une commande native** : si le CLI d'un hôte échoue après avoir déjà
-modifié l'installation, doctor signale l'échec comme `host-command-failed` et ne défait pas ce que
-ce CLI a déjà fait. Les écritures de configuration de doctor sont atomiques. Doctor n'a pas de
-copie de l'état tiers et n'en simule pas : une restauration partielle promettrait un retour arrière
-qu'il ne peut pas garantir. Après un échec natif signalé, vérifie l'installation de l'hôte avant de
-t'y fier.
+**Explicit limit — native command failure**: If a native host CLI fails after it has already changed the installation, doctor reports the failure as host-command-failed and does not undo what that CLI already did. Doctor's own configuration writes are atomic. It has no snapshot of third-party state and does not simulate one: a partial restore would promise a recovery it cannot deliver. After a reported native failure, verify the host installation before relying on it.
 
 ---
 
