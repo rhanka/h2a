@@ -7,8 +7,14 @@
 # the restart reasons.
 #
 # It deliberately asserts nothing. A test absorbs the behaviour into its assertion and exits 0 when
-# it passes; a UAT has to let you SEE the behaviour. Everything happens in a throwaway HOME and bus:
-# your real installation is never touched, and no native codex/claude CLI is ever executed.
+# it passes; a UAT has to let you SEE the behaviour.
+#
+# WHAT IT TOUCHES, corrected after an independent review measured my earlier claim as FALSE:
+#   - HOME and the bus are throwaway; your real installation is never read or written.
+#   - BUT --repair goes through the PRODUCTION runner, so the real `codex` and `claude` native CLIs
+#     ARE executed, twice, against that throwaway HOME. They may hit the network and your auth.
+#     My earlier header said "no native CLI is ever executed". That was wrong, and it mattered:
+#     you would have run something whose blast radius I had understated.
 #
 # Usage, from the repo root, after `npm run build:h2a`:
 #   bash docs/uat/probe-live-session.sh
@@ -120,4 +126,6 @@ echo "                 alors qu'elle fait tourner l'ancien code. C'est le defaut
 echo "                 trois revues independantes ont trouve, chacune par un chemin different."
 echo
 echo "  Rapport complet : $OUT (efface a la sortie ; copie-le si tu veux le garder)."
-echo "  Ta vraie installation n'a pas ete touchee, aucun CLI natif n'a ete execute."
+echo "  Ta vraie installation n'a pas ete touchee : HOME et bus sont jetables."
+echo "  MAIS les vrais CLIs natifs codex/claude ONT ete executes deux fois contre ce HOME jetable,"
+echo "  avec acces reseau et a ton auth. C'est le runner de production, pas un simulateur."
