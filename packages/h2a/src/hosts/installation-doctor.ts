@@ -341,7 +341,7 @@ function isLegacySentropicName(name: string | undefined): boolean {
 }
 
 function isLegacyH2aPlugin(name: string | undefined): boolean {
-  return Boolean(name && (/^h2a-local-/i.test(name) || /@sentropic-local-/i.test(name)));
+  return Boolean(name && (/^h2a-local-/i.test(name) || /^h2a@sentropic-local-/i.test(name)));
 }
 
 function isDirectH2aMcp(name: string | undefined, table: TomlTable): boolean {
