@@ -16,13 +16,13 @@
 #     My earlier header said "no native CLI is ever executed". That was wrong, and it mattered:
 #     you would have run something whose blast radius I had understated.
 #
-# Usage, from the repo root, after `npm run build:h2a`:
+# Usage, from the repo root, after `npm run build`:
 #   bash docs/uat/probe-live-session.sh
 set -uo pipefail
 
 DOCTOR_BIN="${DOCTOR_BIN:-$PWD/packages/h2a/dist/bin.js}"
 if [ ! -f "$DOCTOR_BIN" ]; then
-  echo "ABANDON : $DOCTOR_BIN absent. Lance 'npm run build:h2a' d'abord — sans le candidat construit," >&2
+  echo "ABANDON : $DOCTOR_BIN absent. Lance 'npm run build' d'abord — sans le candidat construit," >&2
   echo "          tu testerais le paquet installe globalement, pas cette PR." >&2
   exit 1
 fi
