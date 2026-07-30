@@ -143,6 +143,33 @@ peut pas observer complètement.
 
 ---
 
+## Scénario 0 — l'oracle, à faire AVANT tous les autres
+
+```bash
+bash docs/uat/probe-oracle.sh
+```
+
+**Fais celui-ci d'abord**, parce qu'il est le seul qui n'interroge pas doctor. Il reconstruit la forme
+réelle de ton incident — marketplace legacy dont la source est supprimée, entrée de plugin encore
+active, cache encore sur disque déclarant un serveur MCP `h2a` — puis il pose deux questions à
+**codex lui-même** : quel serveur h2a sers-tu vraiment (`codex mcp list`), et ton sous-système
+marketplace répond-il (`codex plugin marketplace list`).
+
+**Pourquoi il existe** : le 2026-07-30, `--repair` portait DEUX verdicts GO indépendants alors qu'il
+laissait codex servir l'ANCIEN serveur MCP. Aucune des deux revues n'était en faute — aucune n'avait
+mandat de lancer une CLI hôte. Ni la suite de tests ni l'autre probe ne l'ont vu, parce que tous deux
+lisent le rapport de doctor. **L'auto-rapport d'un outil ne peut pas être l'oracle de son propre
+fonctionnement.**
+
+**Ce qui invaliderait** : `codex mcp list` rendant autre chose que `h2a mcp-serve`, ou
+`codex plugin marketplace list` échouant. Dans ce cas c'est le rapport qui a tort, pas l'hôte —
+même si doctor annonce `ok=true`.
+
+**État mesuré sur la branche au moment où j'écris** : oracle 1 passe, oracle 2 **échoue** encore
+(le marketplace mort n'est pas retiré). Je ne te donne pas cette recette comme verte.
+
+---
+
 ## Scénario 3 — ta vraie installation, en lecture d'abord
 
 > **⚠️ CE SCÉNARIO EST INVALIDE SI TU UTILISES DES RACINES PERSONNALISÉES, et c'est un défaut du
