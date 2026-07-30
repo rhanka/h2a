@@ -79,6 +79,16 @@ export const EVENT_TYPES = [
   // Folds `item.realizedCommit` (a READ DETAIL — does NOT touch AcceptanceStatus/buckets/gates). Additive:
   // absent on every pre-anchor event ⇒ zero hash/seq/bucket change; the anchor is purely the freshness anchor.
   'realization.anchored',
+  // Regression expression (decision 01KYQ5RRN67190YMZ08EGGBSBT, owner GO option A, 2026-07-29) — REOPEN a
+  // terminally-closed item (`done`/`cancelled`) on the EXISTING item aggregate (next seq, no recreate). A
+  // DISTINCT event, not a `realization.transition`: the ordinary realize verb keeps `done`/`cancelled`
+  // terminal, so reopening is deliberate and always carries its MOTIVE (`{itemId, motive, reason}`).
+  // Folds the realization to `in-progress` AND appends to `item.reopenings` (the trace IS the value —
+  // the closure it corrects stays in the log). Legality is asserted AT APPEND in the facade, NEVER in the
+  // fold (the established pattern); a foreign motive-less event is caught by `validate` (`reopen-motive`).
+  // Additive: absent on every pre-reopen log ⇒ zero hash/seq/bucket change; an old reader hits `default`
+  // (fail-safe: it keeps reading the item as closed, which is what its own code already believed).
+  'realization.reopened',
   // Demand lifecycle (Mode A) — the `demand` aggregate's persisted lifecycle facts + the spec-attempt facts
   // (DESIGN demand-lifecycle-modeA §Events). A `demand` is RAISED (issue), CLAIMED into qualifying, then
   // either AGREED (the PIVOT — promotes to item(s) in one atomic batch) or DISPOSED (rejected/duplicate/

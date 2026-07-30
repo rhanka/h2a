@@ -47,11 +47,11 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 const VRUN = { runId: 'vr-1', runner: 'stp-scope', commit: 'c1', verdict: 'clean' as const }
 
 describe('seam v0 — contract version bumps (additive, backward-compatible)', () => {
-  it('INGEST_CONTRACT_VERSION ≥ seam-v0 1.1.0 (now 2.0.0 — decision outcome narrowed to defer-only)', () => {
-    expect(INGEST_CONTRACT_VERSION).toBe('2.0.0')
+  it('INGEST_CONTRACT_VERSION ≥ seam-v0 1.1.0 (now 2.1.0 — additive item.reopen)', () => {
+    expect(INGEST_CONTRACT_VERSION).toBe('2.1.0')
   })
-  it('READ_CONTRACT_VERSION ≥ seam-v0 1.9.0 (now 1.21.0 — additive log-window surface, still MINOR)', () => {
-    expect(READ_CONTRACT_VERSION).toBe('1.21.0')
+  it('READ_CONTRACT_VERSION ≥ seam-v0 1.9.0 (now 1.22.0 — additive reopening in the lifecycle trace, still MINOR)', () => {
+    expect(READ_CONTRACT_VERSION).toBe('1.22.0')
   })
 })
 
