@@ -13,12 +13,13 @@ import { join } from "node:path";
 
 import type { H2AAgentVersion } from "@sentropic/h2a";
 
+import { resolveHostConfigRoot } from "../host-config-root.js";
 import { currentCliVersion } from "../upgrade/index.js";
 
 /** Where each host's installed h2a skill file lives, relative to a home dir. */
 const HOST_SKILL_FILE: Record<string, (home: string) => string> = {
-  claude: (home) => join(home, ".claude", "skills", "h2a", "SKILL.md"),
-  codex: (home) => join(home, ".codex", "skills", "h2a", "SKILL.md"),
+  claude: (home) => join(resolveHostConfigRoot("claude", home), "skills", "h2a", "SKILL.md"),
+  codex: (home) => join(resolveHostConfigRoot("codex", home), "skills", "h2a", "SKILL.md"),
   gemini: (home) => join(home, ".gemini", "commands", "h2a.toml"),
   agy: (home) => join(home, ".gemini", "commands", "h2a.toml"),
   hermes: (home) => join(home, ".hermes", "skills", "h2a", "SKILL.md"),
