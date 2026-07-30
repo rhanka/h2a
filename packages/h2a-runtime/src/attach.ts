@@ -104,12 +104,6 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
   // productive short streams, the FIRST later empty one gave up at once.
   let pacingStreak = 0; // consecutive short cycles, whatever they delivered
   let futileCycles = 0; // consecutive short cycles that delivered NOTHING
-  // Highest envelope sequence already seen. The SSE route REPLAYS its backlog on
-  // every reopen, and a replayed terminal.output is indistinguishable from a live
-  // one by content alone — which is why counting bytes as progress let the bound
-  // reset every cycle AND re-printed stale output to the operator forever. The
-  // envelope's own monotonic sequence is the discriminator, and it is already there.
-  let lastSequence = -1;
 
   const controller = new AbortController();
   const sseResponse = await doFetch(
@@ -325,19 +319,14 @@ export async function attach(options: AttachOptions): Promise<AttachResult> {
               continue;
             try {
               const envelope = JSON.parse(ev.data) as RemoteEventEnvelope;
-              const seq =
-                typeof envelope.sequence === "number"
-                  ? envelope.sequence
-                  : undefined;
-              // Already-seen sequence = replayed backlog. Neither re-print it nor
-              // count it as progress: it is the past, not work.
-              const isReplay = seq !== undefined && seq <= lastSequence;
-              if (seq !== undefined && seq > lastSequence) lastSequence = seq;
               if (envelope.type === "terminal.output") {
                 const payload = envelope.payload as { data?: string };
-                if (typeof payload.data === "string" && !isReplay) {
+                if (typeof payload.data === "string") {
                   stdout.write(payload.data);
-                  // Progress means NEW terminal bytes reached the operator.
+                  // USEFUL progress: terminal bytes actually reached the operator.
+                  // Recorded here, not on the raw frame count, so a replayed
+                  // backlog, an unparseable frame, or a filtered lifecycle event
+                  // cannot pass for work the user can see.
                   streamProgressed = true;
                 }
               } else if (envelope.type === "terminal.exited") {
