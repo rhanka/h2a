@@ -115,7 +115,7 @@ export interface HostInstallationReport {
   readonly unrepaired: readonly HostInstallationFinding[];
   /** Declared artifacts retained for diagnostics and to determine precisely what a repair rewrote. */
   readonly coherencePaths: readonly string[];
-  /** Host changes that --repair --dry-run would perform. */
+  /** Host actions proposed by doctor; legacy-plugin transitions retain their prior value. */
   readonly plannedActions: readonly string[];
   /** Expected durable repair-marker location, whether or not it currently exists. */
   readonly repairMarkerPath: string;
@@ -1113,16 +1113,16 @@ function isOwnedLegacyCodexMarketplace(table: TomlTable): boolean {
   return typeof source === "string" && isOwnedMarketplace(source);
 }
 
-function isOwnedLegacyCodexPlugin(plugin: string, tables: readonly TomlTable[]): boolean {
-  const marketplace = plugin.slice(plugin.lastIndexOf("@") + 1);
-  if (marketplace === plugin) return false;
-  const table = tables.find((candidate) => tomlQuotedName(candidate.header, "marketplaces") === marketplace);
-  return Boolean(table && isOwnedLegacyCodexMarketplace(table));
-}
-
 function isEnabledLegacyCodexPlugin(table: TomlTable): boolean {
   const plugin = tomlQuotedName(table.header, "plugins");
   return Boolean(plugin && isLegacyH2aPlugin(plugin) && tomlBoolean(table, "enabled") !== false);
+}
+
+function legacyCodexPluginDisableAction(table: TomlTable): string {
+  const plugin = tomlQuotedName(table.header, "plugins");
+  const enabled = tomlBoolean(table, "enabled");
+  const previous = enabled === undefined ? "unset (defaults to true)" : String(enabled);
+  return `set Codex legacy plugin ${plugin ?? "<missing>"} enabled = false (was ${previous})`;
 }
 
 function reportUnverifiedOwnership(report: MutableHostReport, path: string, artifact: string): void {
@@ -1175,22 +1175,22 @@ function repairCodexConfig(
       .filter(isOwnedLegacyCodexMarketplace)
       .map((table) => table.header)
   );
-  const ownedLegacyPlugins = new Set(
+  // This is a reversible configuration change, not a deletion: once the
+  // canonical replacement is verified by repairCodex, every active legacy
+  // plugin in our namespace is neutralised even when its vanished source can
+  // no longer prove ownership by content.
+  const legacyPluginsToDisable = new Set(
     tables
-      .filter((table) => {
-        const plugin = tomlQuotedName(table.header, "plugins");
-        return Boolean(plugin && isEnabledLegacyCodexPlugin(table) && isOwnedLegacyCodexPlugin(plugin, tables));
-      })
+      .filter(isEnabledLegacyCodexPlugin)
       .map((table) => table.header)
   );
+  for (const table of tables.filter((table) => legacyPluginsToDisable.has(table.header))) {
+    planAction(report, legacyCodexPluginDisableAction(table));
+  }
   for (const table of tables) {
     const marketplace = tomlQuotedName(table.header, "marketplaces");
     if (isLegacySentropicName(marketplace) && !ownedLegacyMarketplaces.has(table.header)) {
       reportUnverifiedOwnership(report, path, `legacy marketplace ${marketplace}`);
-    }
-    const plugin = tomlQuotedName(table.header, "plugins");
-    if (plugin && isEnabledLegacyCodexPlugin(table) && !ownedLegacyPlugins.has(table.header)) {
-      reportUnverifiedOwnership(report, path, `legacy plugin ${plugin}`);
     }
   }
   const needsConfigRepair = tables.some((table) => {
@@ -1198,7 +1198,7 @@ function repairCodexConfig(
     if (isLegacySentropicName(marketplace) && ownedLegacyMarketplaces.has(table.header)) return true;
     if (marketplace === H2A_MARKETPLACE_NAME && !canonicalCodexMarketplaceConfig(table)) return true;
     const plugin = tomlQuotedName(table.header, "plugins");
-    if (plugin && isEnabledLegacyCodexPlugin(table) && ownedLegacyPlugins.has(table.header)) return true;
+    if (plugin && legacyPluginsToDisable.has(table.header)) return true;
     const mcp = tomlQuotedName(table.header, "mcp_servers");
     return mcp !== undefined && (isDirectH2aMcp(table) || isDirectTrackMcp(table));
   }) ||
@@ -1211,7 +1211,7 @@ function repairCodexConfig(
     if (marketplace === H2A_MARKETPLACE_NAME) return canonicalCodexMarketplaceLines(table);
     const plugin = tomlQuotedName(table.header, "plugins");
     if (plugin === H2A_PLUGIN_SELECTOR) return setTomlValue(table, "enabled", "true");
-    if (plugin && isEnabledLegacyCodexPlugin(table) && ownedLegacyPlugins.has(table.header)) return undefined;
+    if (plugin && legacyPluginsToDisable.has(table.header)) return setTomlValue(table, "enabled", "false");
     const mcp = tomlQuotedName(table.header, "mcp_servers");
     if (mcp !== undefined && (isDirectH2aMcp(table) || isDirectTrackMcp(table))) return undefined;
     return table.lines;
