@@ -122,7 +122,9 @@ import { H2A_HERMES_HOST } from "./hosts/hermes.js";
 import { H2A_OPENCODE_HOST } from "./hosts/opencode.js";
 import {
   doctorHostInstallations,
-  findLiveSessionsPredatingHostConfig
+  findLiveSessionsPredatingHostConfig,
+  type HostInstallationDoctorOptions,
+  type HostInstallationDoctorReport
 } from "./hosts/installation-doctor.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 import {
@@ -314,6 +316,13 @@ export interface H2ACliStreams {
   stdout: Pick<typeof process.stdout, "write">;
   cwd?: () => string;
   stdinText?: string | (() => string);
+}
+
+/** Injectable only for embedders that need hermetic host-installation checks. */
+export interface H2ACliOptions {
+  readonly doctorHostInstallations?: (
+    options: HostInstallationDoctorOptions
+  ) => HostInstallationDoctorReport;
 }
 
 const CLI_HOSTS = [
@@ -5077,7 +5086,8 @@ export function cmdConductorLaunch(
 
 function cmdDoctor(
   flags: Record<string, string>,
-  streams: H2ACliStreams
+  streams: H2ACliStreams,
+  options: H2ACliOptions = {}
 ): number {
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
@@ -5148,7 +5158,7 @@ function cmdDoctor(
   // That keeps an ordinary isolated-bus probe independent of the operator's
   // personal Claude/Codex setup while retaining a fail-closed repair surface.
   if (flags.repair === "true") {
-    const hostInstallations = doctorHostInstallations({ repair: true });
+    const hostInstallations = (options.doctorHostInstallations ?? doctorHostInstallations)({ repair: true });
     checks.hostInstallations = hostInstallations;
     if (!hostInstallations.ok) {
       report.ok = false;
@@ -6828,7 +6838,8 @@ export function runCli(
   streams: H2ACliStreams = {
     stdout: process.stdout,
     stderr: process.stderr
-  }
+  },
+  options: H2ACliOptions = {}
 ): number {
   const { command, flags } = parseFlags(argv);
 
@@ -6942,7 +6953,7 @@ export function runCli(
   if (command === "thread") return cmdThread(flags, streams);
   if (command === "sessions") return cmdSessions(flags, streams);
   if (command === "status") return cmdStatus(flags, streams);
-  if (command === "doctor") return cmdDoctor(flags, streams);
+  if (command === "doctor") return cmdDoctor(flags, streams, options);
   if (command === "presence-reap") return cmdPresenceReap(flags, streams);
   if (command === "connect") return cmdConnect(flags, streams);
   if (command === "conductor") return cmdConductor(argv.slice(1), streams);
