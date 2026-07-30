@@ -19,6 +19,7 @@ import test from "node:test";
 import {
   doctorHostInstallations,
   findLiveSessionsPredatingHostConfig,
+  H2A_CLI_VERB_CONTRACTS,
   runCli,
   writePresence
 } from "../dist/index.js";
@@ -1421,10 +1422,14 @@ test("doctor states the native host CLI partial-failure limit", () => {
     });
     const report = JSON.parse(io.stdoutText);
     assert.equal(exitCode, 0, io.stderrText);
+    const nativeCommandFailureLimit = report.checks.hostInstallations.nativeCommandFailureLimit;
     assert.equal(
-      report.checks.hostInstallations.nativeCommandFailureLimit,
+      nativeCommandFailureLimit,
       "If a native host CLI fails after it has already changed the installation, doctor reports the failure as host-command-failed and does not undo what that CLI already did. Doctor's own configuration writes are atomic. It has no snapshot of third-party state and does not simulate one: a partial restore would promise a recovery it cannot deliver. After a reported native failure, verify the host installation before relying on it."
     );
+    const doctorContract = H2A_CLI_VERB_CONTRACTS.find((contract) => contract.verb === "doctor");
+    assert.ok(doctorContract?.description.includes(nativeCommandFailureLimit));
+    assert.ok(readFileSync(new URL("../../../docs/uat/doctor-repair.md", import.meta.url), "utf8").includes(nativeCommandFailureLimit));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -1786,8 +1791,7 @@ test("doctor repair removes an owned stale Claude marketplace present only in se
       custom: "preserve",
       extraKnownMarketplaces: {
         [legacyMarketplace]: {
-          source: { source: "directory", path: legacyMarketplacePath },
-          installLocation: legacyMarketplacePath
+          source: { source: "directory", path: legacyMarketplacePath }
         }
       }
     });
@@ -1811,6 +1815,38 @@ test("doctor repair removes an owned stale Claude marketplace present only in se
       JSON.stringify(calls, null, 2)
     );
     assert.equal(rerun.ok, true, JSON.stringify(rerun, null, 2));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor leaves an unproven stale Claude settings-only marketplace byte-identical", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const settingsPath = join(home, ".claude", "settings.json");
+  const legacyMarketplace = "sentropic-local-unproven-settings-only";
+  const settings = `${JSON.stringify({
+    custom: "preserve",
+    extraKnownMarketplaces: {
+      [legacyMarketplace]: { source: { source: "directory", path: "/deleted/tmp/deploy-08518" } }
+    }
+  }, null, 2)}\n`;
+  try {
+    writeFileSync(settingsPath, settings);
+
+    const repaired = doctorHostInstallations({
+      home,
+      version,
+      repair: true,
+      runHostCommand: repairRunner(home, [], version)
+    });
+    const claude = repaired.hosts.find((host) => host.host === "claude");
+
+    assert.equal(repaired.ok, false, JSON.stringify(repaired, null, 2));
+    assert.ok(
+      claude?.unrepaired.some((entry) => entry.code === "ownership-unverified" && entry.path === settingsPath),
+      JSON.stringify(claude, null, 2)
+    );
+    assert.equal(readFileSync(settingsPath, "utf8"), settings);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
