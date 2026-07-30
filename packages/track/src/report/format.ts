@@ -845,10 +845,11 @@ function redactOwnerText(value: string): string {
 }
 
 function redactOwnerTable(table: ReportViewTable): ReportViewTable {
+  const ownerColumns = new Set(table.columns.map((column) => column.id))
   return {
     ...table,
     rows: table.rows.map((row) => Object.fromEntries(
-      Object.entries(row).map(([key, value]) => [key, redactOwnerText(value)]),
+      Object.entries(row).map(([key, value]) => [key, ownerColumns.has(key) ? redactOwnerText(value) : value]),
     )),
     ...(table.lines === undefined ? {} : { lines: table.lines.map(redactOwnerText) }),
   }
