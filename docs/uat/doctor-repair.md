@@ -37,6 +37,9 @@ il commence par une sauvegarde.
 ```bash
 cd /home/antoinefa/src/h2a
 export UAT=$(mktemp -d /home/antoinefa/.cache-tmp/uat-doctor-XXXX)
+# MEMORISER tes valeurs avant de les remplacer : les oublier ferait viser les racines par
+# defaut au scenario 3, qui ne sont PAS ton installation si tu utilises ces variables.
+export UAT_ORIG_CODEX_HOME="${CODEX_HOME-__unset__}" UAT_ORIG_CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR-__unset__}"
 # epingler les racines hote DANS l arbre jetable : un HOME jetable ne suffit pas
 export CODEX_HOME="$UAT/h1/.codex" CLAUDE_CONFIG_DIR="$UAT/h1/.claude"
 ```
@@ -140,14 +143,23 @@ peut pas observer complètement.
 
 ## Scénario 3 — ta vraie installation, en lecture d'abord
 
-> **Avant ce scénario, libère les racines épinglées** — sinon doctor inspecte ta vraie installation
-> pendant que les CLIs visent encore l'arbre jetable, et tu recettes deux installations différentes.
-> Une revue indépendante a mesuré exactement cet écart dans ma version précédente.
+> **Avant ce scénario, RESTAURE tes racines d'origine** — ne te contente pas de les libérer. Un
+> `unset` ne rend pas tes valeurs : il retombe sur les racines par défaut, qui ne sont pas ton
+> installation si tu utilises `CODEX_HOME` ou `CLAUDE_CONFIG_DIR`. Deux revues indépendantes ont
+> mesuré cet écart, la seconde après ma première correction incomplète.
 
 ```bash
-unset CODEX_HOME CLAUDE_CONFIG_DIR
-cp -p ~/.codex/config.toml ~/.codex/config.toml.bak.uat-$(date +%Y%m%d-%H%M)
-cp -p ~/.claude/plugins/known_marketplaces.json ~/.claude/plugins/known_marketplaces.json.bak.uat-$(date +%Y%m%d-%H%M) 2>/dev/null
+# restaurer exactement ce que tu avais, y compris l'absence de variable
+[ "${UAT_ORIG_CODEX_HOME:-__unset__}" = "__unset__" ] && unset CODEX_HOME || export CODEX_HOME="$UAT_ORIG_CODEX_HOME"
+[ "${UAT_ORIG_CLAUDE_CONFIG_DIR:-__unset__}" = "__unset__" ] && unset CLAUDE_CONFIG_DIR || export CLAUDE_CONFIG_DIR="$UAT_ORIG_CLAUDE_CONFIG_DIR"
+echo "racines du scenario 3 : ${CODEX_HOME:-(defaut ~/.codex)} ${CLAUDE_CONFIG_DIR:-(defaut ~/.claude)}"
+# sauvegarder les racines REELLEMENT actives, pas les racines par defaut : si tu utilises
+# CODEX_HOME/CLAUDE_CONFIG_DIR, une sauvegarde de ~/.codex copierait un fichier inutilise.
+CODEX_ROOT="${CODEX_HOME:-$HOME/.codex}"
+CLAUDE_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+STAMP=$(date +%Y%m%d-%H%M)
+cp -p "$CODEX_ROOT/config.toml" "$CODEX_ROOT/config.toml.bak.uat-$STAMP"
+cp -p "$CLAUDE_ROOT/plugins/known_marketplaces.json" "$CLAUDE_ROOT/plugins/known_marketplaces.json.bak.uat-$STAMP" 2>/dev/null
 
 mkdir -p "$UAT/h3"
 $DOCTOR init --root "$UAT/h3/bus"
@@ -175,11 +187,11 @@ installation, redémarre toute session que tu sais antérieure à cette réparat
 **Pour revenir en arrière, et ce que ça ne couvre PAS** :
 
 ```bash
-cp ~/.codex/config.toml.bak.uat-… ~/.codex/config.toml
+cp "$CODEX_ROOT/config.toml.bak.uat-$STAMP" "$CODEX_ROOT/config.toml"
 ```
 
 Cette sauvegarde restaure la **configuration**. Elle ne restaure ni les caches de plugins supprimés,
-ni les entrées de marketplace, ni le marqueur `~/.codex/h2a-repair.json`, ni un plugin désinstallé.
+ni les entrées de marketplace, ni le marqueur `h2a-repair.json` de ta racine codex, ni un plugin désinstallé.
 Si tu veux un retour arrière complet, ne lance pas `--repair` sur ta vraie machine : le scénario 3
 s'arrête au `--dry-run`, qui est prouvé inerte par empreinte dans le probe du scénario 2. Je préfère
 te le dire que te laisser croire qu'une copie de `config.toml` annule tout.
