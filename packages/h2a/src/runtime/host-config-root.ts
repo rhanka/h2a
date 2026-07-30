@@ -19,3 +19,12 @@ export function resolveHostConfigRoot(host: ConfigurableHost, home: string = hom
   const configured = process.env[HOST_ROOT_ENVIRONMENT[host]];
   return configured && configured.length > 0 ? configured : join(home, `.${host}`);
 }
+
+/**
+ * Resolve the base for host configuration files that live next to the default
+ * host root but move inside an explicitly configured host root.
+ */
+export function resolveHostConfigCompanionBase(host: ConfigurableHost, home: string = homedir()): string {
+  const configured = process.env[HOST_ROOT_ENVIRONMENT[host]];
+  return configured && configured.length > 0 ? configured : home;
+}
