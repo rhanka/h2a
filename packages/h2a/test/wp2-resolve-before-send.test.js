@@ -42,7 +42,7 @@ function makePresence(instance, sessionId, name) {
     state: "live",
     interests: { scopes: ["scope:default"], negotiations: [] },
     subscribedTopics: [],
-    ...(name ? { name } : {})
+    ...(name !== undefined ? { name } : {})
   };
 }
 
@@ -422,13 +422,168 @@ test("MCP handleInbox read lists candidates for an ambiguous presence name", () 
   }
 });
 
-test("resolveRecipient: strips the legacy h2a: display-name prefix without changing presence", () => {
-  const instance = "claude:h2a:345c97408069";
+test("MCP handleInbox put refuses h2a: when a live presence has an empty name", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doc03-empty-name-h2a-prefix-"));
+  const root = join(dir, ".h2a");
+  const instance = "claude:h2a:111111111111";
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(makeRegistration(instance));
+    writePresence(root, makePresence(instance, "sess:empty-name-h2a-prefix", ""));
+
+    const result = handleInbox(store, {
+      action: "put",
+      instance: "h2a:",
+      envelope: makeEnvelopeObj("env-doc03-empty-name-h2a-prefix")
+    });
+
+    assert.ok(typeof result.error === "string", `expected refusal, got: ${JSON.stringify(result)}`);
+    assert.equal(store.readInbox(instance).length, 0, "an empty name must never receive h2a: traffic");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI inbox put refuses whitespace when a live presence has an empty name", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doc03-empty-name-whitespace-"));
+  const root = join(dir, ".h2a");
+  const instance = "claude:h2a:111111111111";
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(makeRegistration(instance));
+    writePresence(root, makePresence(instance, "sess:empty-name-whitespace", ""));
+
+    const streams = captureStreams(dir);
+    const rc = runCli(
+      ["inbox", "put", "--root", root, "--instance", "   ", "--json", makeEnvelope("env-doc03-empty-name-whitespace")],
+      streams
+    );
+
+    assert.equal(rc, 1, `expected refusal, got stdout: ${streams.stdoutText}`);
+    assert.equal(store.readInbox(instance).length, 0, "an empty name must never receive whitespace traffic");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveRecipient refuses empty display-name keys before caller-specific guards", () => {
+  const instance = "claude:h2a:111111111111";
+  for (const target of ["h2a:", "   "]) {
+    const result = resolveRecipient({
+      target,
+      liveInstances: [makePresence(instance, "sess:empty-name-pure", "")],
+      registeredInstances: [instance]
+    });
+    assert.equal(result.kind, "refuse", `expected ${JSON.stringify(target)} to refuse, got: ${JSON.stringify(result)}`);
+  }
+});
+
+test("MCP inbox read and pop refuse empty display-name keys without touching a live inbox", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doc03-empty-name-read-pop-"));
+  const root = join(dir, ".h2a");
+  const instance = "claude:h2a:111111111111";
+  const envelope = makeEnvelopeObj("env-doc03-empty-name-read-pop");
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(makeRegistration(instance));
+    writePresence(root, makePresence(instance, "sess:empty-name-read-pop", ""));
+    store.putInboxMessage(instance, envelope);
+
+    const readResult = handleInbox(store, { action: "read", instance: "h2a:" });
+    assert.ok(typeof readResult.error === "string", `expected read refusal, got: ${JSON.stringify(readResult)}`);
+
+    const popResult = handleInbox(store, {
+      action: "pop",
+      instance: "   ",
+      envelopeId: envelope.id
+    });
+    assert.ok(typeof popResult.error === "string", `expected pop refusal, got: ${JSON.stringify(popResult)}`);
+    assert.equal(store.readInbox(instance).length, 1, "read/pop by an empty key must not touch the live inbox");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP handleInbox put refuses a host-qualified target matching only another presence name", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doc03-host-label-name-capture-"));
+  const root = join(dir, ".h2a");
+  const impostor = "codex:other:222222222222";
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(makeRegistration(impostor));
+    writePresence(root, makePresence(impostor, "sess:host-label-name-capture", "claude:victim"));
+
+    const result = handleInbox(store, {
+      action: "put",
+      instance: "claude:victim",
+      envelope: makeEnvelopeObj("env-doc03-host-label-name-capture")
+    });
+
+    assert.ok(typeof result.error === "string", `expected refusal, got: ${JSON.stringify(result)}`);
+    assert.match(result.error, /phantom\/invented id|no live or registered/);
+    assert.equal(store.readInbox(impostor).length, 0, "a display name must not capture host-qualified traffic");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolveRecipient: h2a:agents alias is not made ambiguous by display names", () => {
+  const instance = "h2a:agents:111111111111";
+  const other = "codex:other:222222222222";
   const result = resolveRecipient({
-    target: "agents",
-    liveInstances: [makePresence(instance, "sess:legacy-name", "h2a:agents")],
-    registeredInstances: [instance]
+    target: "h2a:agents",
+    liveInstances: [
+      makePresence(instance, "sess:literal-h2a-name", "h2a:agents"),
+      makePresence(other, "sess:plain-name", "agents")
+    ],
+    registeredInstances: [instance, other]
   });
-  assert.equal(result.kind, "deliver-resolved");
-  assert.equal(result.recipient, instance);
+  assert.equal(result.kind, "deliver-hint", `expected the alias only, got: ${JSON.stringify(result)}`);
+  assert.equal(result.liveCandidate, instance);
+});
+
+test("CLI inbox put resolves a unique presence name to its instance", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doc03-cli-unique-name-"));
+  const root = join(dir, ".h2a");
+  const instance = "claude:h2a:345c97408069";
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(makeRegistration(instance));
+    writePresence(root, makePresence(instance, "sess:cli-unique-name", "agents"));
+
+    const streams = captureStreams(dir);
+    const rc = runCli(
+      ["inbox", "put", "--root", root, "--instance", "agents", "--json", makeEnvelope("env-doc03-cli-unique-name")],
+      streams
+    );
+
+    assert.equal(rc, 0, `expected resolved delivery, got stderr: ${streams.stderrText}`);
+    const out = JSON.parse(streams.stdoutText);
+    assert.equal(out.resolution, "deliver-resolved");
+    assert.equal(out.instance, instance);
+    assert.equal(store.readInbox(instance).length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI inbox put keeps bare labels and malformed third segments fail-closed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "doc03-cli-fail-closed-"));
+  const root = join(dir, ".h2a");
+  try {
+    createLocalStore({ root });
+    for (const [target, envelopeId] of [
+      ["agents", "env-doc03-bare-label"],
+      ["claude:victim:not-a-uuid", "env-doc03-malformed-third-segment"]
+    ]) {
+      const streams = captureStreams(dir);
+      const rc = runCli(
+        ["inbox", "put", "--root", root, "--instance", target, "--json", makeEnvelope(envelopeId)],
+        streams
+      );
+      assert.equal(rc, 1, `expected ${target} to be refused, got stdout: ${streams.stdoutText}`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
