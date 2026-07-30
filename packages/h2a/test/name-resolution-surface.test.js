@@ -109,10 +109,14 @@ test("a plain display name still resolves to its instance", () => {
 });
 
 test("the legacy h2a:<name> form stays ADDRESSABLE", () => {
-  // This is the case a colon-based refusal silently swallows: the whole point of
-  // stripping a leading `h2a:` is that `h2a:agents` reaches a presence named
-  // `agents`. A test asserting only "not ambiguous" is satisfied by a refusal,
-  // which is why it has to assert the destination.
+  // Flipped to a refusal for one round, on an argument the conductor lane then
+  // RETRACTED: a requirement carried by a gate test is specified, not dead, so
+  // dropping it would be a gate change rather than a builder's call. Restored
+  // here rather than left inverted — the assertion follows the decision.
+  //
+  // A test asserting only "not ambiguous" is satisfied by a refusal, which is
+  // how this form became unaddressable while a guard claimed to protect it. So
+  // it asserts the DESTINATION.
   const result = resolve("h2a:agents", [
     { instance: "claude:agents:ffffffffffff", name: "agents" },
   ]);
@@ -122,6 +126,66 @@ test("the legacy h2a:<name> form stays ADDRESSABLE", () => {
     "h2a:agents must remain addressable, not merely unambiguous",
   );
   assert.equal(result.recipient, "claude:agents:ffffffffffff");
+});
+
+test("h2a:claude:victim does NOT re-open the capture through the prefix", () => {
+  // Handed to the owning lane BEFORE it wrote the repair. Stripping the legacy
+  // prefix first is exactly what can hand a host:label pair back to the
+  // display-name space — the one path by which the fix could re-open the very
+  // capture it closes.
+  const result = resolve("h2a:claude:victim", [IMPOSTER]);
+  assert.notEqual(
+    result.recipient,
+    IMPOSTER.instance,
+    "stripping the legacy prefix must not hand a host:label back to name matching",
+  );
+});
+
+test("h2a:h2a: is not stripped repeatedly", () => {
+  assert.equal(resolve("h2a:h2a:", VICTIM_BLANK_NAME).kind, "refuse");
+});
+
+test("H2A:agents is stripped case-insensitively", () => {
+  const result = resolve("H2A:agents", [
+    { instance: "claude:agents:ffffffffffff", name: "agents" },
+  ]);
+  assert.equal(result.recipient, "claude:agents:ffffffffffff");
+});
+
+test("a padded h2a: prefix is stripped despite surrounding blanks", () => {
+  const result = resolve(" h2a:agents ", [
+    { instance: "claude:agents:ffffffffffff", name: "agents" },
+  ]);
+  assert.equal(result.recipient, "claude:agents:ffffffffffff");
+});
+
+// ---------------------------------------------------------------------------
+// 3b. The aliased form that IS used must survive
+// ---------------------------------------------------------------------------
+
+// Requested by the owning lane after it measured this two-segment form in real
+// traffic. It exists because a PR sentence saying "the aliased form is not
+// supported" could be read as covering it, and that reading would break live
+// addressing. Verified by the cyber lane on the guard commit.
+for (const [target, instance] of [
+  ["claude:architect", "claude:architect:aaaaaaaaaaaa"],
+  ["claude:geo", "claude:geo:bbbbbbbbbbbb"],
+  ["claude:graphify-cyber", "claude:graphify-cyber:cccccccccccc"],
+  ["codex:sent-tech-design-system", "codex:sent-tech-design-system:dddddddddddd"],
+]) {
+  test(`host:label stays addressable: ${target}`, () => {
+    const result = resolve(target, [{ instance }]);
+    assert.notEqual(
+      result.kind,
+      "refuse",
+      `${target} is a live addressing form and must not be refused`,
+    );
+  });
+}
+
+test("host:label still reaches a registered-but-dormant instance", () => {
+  const result = resolve("claude:architect", [], ["claude:architect:aaaaaaaaaaaa"]);
+  assert.notEqual(result.kind, "refuse");
 });
 
 test("a colon-bearing display name is unreachable by name — declared cost", () => {
