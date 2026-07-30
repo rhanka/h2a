@@ -100,7 +100,7 @@ const USAGE = `usage: track <command>
   accept waive <criterionId> --reason <r>
   consolidate --items <id,id> --commit <mergeCommit> [--client-token <t>]
   priority assess <itemId> --ubv <n> --tc <n> --rr <n> --js <n>
-  report [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md|html] [--commit <sha>] [--now <iso>]
+  report [--scope <container-id|code|label>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md|html] [--commit <sha>] [--now <iso>]
   snapshot [--require-accepted] [--format json|text|md] [--commit <sha>]
   export-graph [--repo-key <repo:key>] [--source-id <id>] [--observed-at <iso>]
   query [--kind <k>] [--role <workpackage|spec-phase|stream>] [--workspace <w>] [--bucket <AWAITED|DROPPED|DONE|TO-DO>] [--realization <r>] [--acceptance <a>] [--format json|text|md] [--commit <sha>]
@@ -350,7 +350,9 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
-const REPORT_USAGE = `usage: track report [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md|html] [--track-dir <directory-containing-events.jsonl>]
+const REPORT_USAGE = `usage: track report [--scope <container-id|code|label>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md|html] [--track-dir <directory-containing-events.jsonl>]
+
+--scope selects one exact role-container by its id, durable assigned code, or current derived label. The selected container and all descendants are rendered through the same four-section report; unknown or ambiguous selectors fail loudly.
 
 --resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
 
@@ -1035,10 +1037,11 @@ function cmdReport(args: string[], ctx: Ctx): number {
   const { io } = ctx
   const { positional, flags } = parseFlags(args)
   if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
-  for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now']) assertValueFlag(flags, name)
+  for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope']) assertValueFlag(flags, name)
+  const scope = opt(flags, 'scope')
   // Criterion 10b — the one documented command that turns a short report handle back into an item.
   if (opt(flags, 'resolve') !== undefined) {
-    assertOnlyFlags(flags, ['resolve', 'commit', 'require-accepted'])
+    assertOnlyFlags(flags, ['resolve', 'scope', 'commit', 'require-accepted'])
     io.out(
       resolveHandle(
         new TrackReader(ctx.eventsPath),
@@ -1047,6 +1050,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
           requireAccepted: assertBooleanFlag(flags, 'require-accepted'),
         },
         req(flags, 'resolve'),
+        scope,
       ),
     )
     return 0
@@ -1076,7 +1080,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   assertOnlyFlags(flags, [
     'commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'inline', 'width', 'format', 'now',
-    'sub-wp',
+    'sub-wp', 'scope',
   ])
   const rawFormat = opt(flags, 'format')
   if (rawFormat !== undefined && !['json', 'text', 'md', 'html'].includes(rawFormat)) {
@@ -1095,11 +1099,17 @@ function cmdReport(args: string[], ctx: Ctx): number {
   if (wp && flat) throw new DomainError('--wp and --flat are mutually exclusive')
   if (format === 'json' && flat) throw new DomainError('--flat is only meaningful for text or md reports')
   if (format === 'html' && flat) throw new DomainError('--format html is always the deterministic conductor and rejects --flat')
+  if (scope !== undefined && flat) throw new DomainError('--scope requires the four-section conductor and rejects --flat')
+  if (scope !== undefined && activeRoster) throw new DomainError('--scope includes the complete subtree and rejects --active-roster')
   let width: number | undefined
   if (widthArg !== undefined) {
     if (!/^\d+$/u.test(widthArg)) throw new DomainError('--width must be an integer in [40,240]')
     width = Number(widthArg)
     if (width < 40 || width > 240) throw new DomainError('--width must be an integer in [40,240]')
+  }
+  if (scope !== undefined && inline) throw new DomainError('--scope preserves the validated report shape and rejects --inline/--width')
+  if (scope !== undefined && (format === 'md' || format === 'html')) {
+    throw new DomainError('--scope currently supports the owner text report and JSON projection only')
   }
   // Every format is a deterministic read over the folded log. The default human view is
   // the conductor; --flat explicitly requests the legacy bucket projection. JSON preserves
@@ -1111,8 +1121,8 @@ function cmdReport(args: string[], ctx: Ctx): number {
     requireAccepted,
     // The owner-facing conductor always classifies decision dossiers. JSON keeps its
     // established opt-in decision payload, while --flat retains the legacy opt-in.
-    decisions: requestedDecisions || (!flat && format !== 'json'),
-    wpTree: wp || (!flat && format !== 'json'),
+    decisions: scope !== undefined || requestedDecisions || (!flat && format !== 'json'),
+    wpTree: scope !== undefined || wp || (!flat && format !== 'json'),
     activeRoster,
   }
   // Criterion 21 — the report's window runs from the first recorded event to NOW. The clock is injected
@@ -1132,7 +1142,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   } else if (format === 'html') {
     io.out(reportHtml(reader, options, now, subWp))
   } else {
-    io.out(reportText(reader, options, format, now, subWp))
+    io.out(reportText(reader, options, format, now, subWp, scope))
   }
   return 0
 }
