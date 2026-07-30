@@ -58,7 +58,7 @@ import { buildSnapshot, type SnapshotOptions, type SnapshotV1 } from '../report/
  * shapes it returns may only GROW (new methods / new optional fields); nothing is removed or
  * repurposed without a major bump. Consumers gate on `reader.contractVersion`.
  */
-export const READ_CONTRACT_VERSION = '1.22.0' // +realization.reopened in the item lifecycle trace (additive)
+export const READ_CONTRACT_VERSION = '1.23.0' // +reportSnapshot: rows and journal revision share one log snapshot
 
 /** Provenance of the last `branch.imported` for a locator (drawn from the raw event log). */
 export interface BranchProvenance {
@@ -299,6 +299,13 @@ export interface CursorDelta {
   changed: boolean
   head: Sha256 | null
   count: number
+}
+
+/** One report projection and every provenance fact rendered beside it, derived from the SAME event snapshot. */
+export interface ReportSnapshot {
+  report: Report
+  logWindow: { from?: string; to?: string; events: number }
+  cursor: Cursor
 }
 
 /** Origin of a write, DERIVED PURELY from `prov.proposed` (true ⇒ machine/LLM-proposed; false ⇒ human). */
@@ -636,7 +643,27 @@ export class TrackReader {
 
   /** Bucketed backlog report (SPEC §7). */
   report(options: ReportOptions): Report {
-    return buildReport(fold(this.events()), options)
+    return this.reportSnapshot(options).report
+  }
+
+  /**
+   * A reproducible report read: the rows, period bounds, and journal cursor are all derived from ONE
+   * `readAll()` result. A renderer must use this instead of composing `report()` with `logWindow()` or
+   * `cursor()`, which would let an intervening append attest a head the rendered rows never represented.
+   */
+  reportSnapshot(options: ReportOptions): ReportSnapshot {
+    const events = this.events()
+    const first = events[0]?.at
+    const last = events.at(-1)
+    return {
+      report: buildReport(fold(events), options),
+      logWindow: {
+        ...(first !== undefined ? { from: first } : {}),
+        ...(last?.at !== undefined ? { to: last.at } : {}),
+        events: events.length,
+      },
+      cursor: { head: last?.contentHash ?? null, count: events.length },
+    }
   }
 
   /**
