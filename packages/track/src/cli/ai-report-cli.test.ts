@@ -59,7 +59,6 @@ describe('deterministic report CLI', () => {
     for (const args of [
       ['report'],
       ['report', '--format', 'md'],
-      ['report', '--format', 'html'],
       ['report', '--inline', '--width', '40'],
       ['report', '--flat'],
       ['report', '--format', 'json', '--wp', '--decisions'],
@@ -104,7 +103,7 @@ describe('deterministic report CLI', () => {
     expect(flat.out).not.toMatch(/^FAIT$/m)
   })
 
-  it('uses deterministic renderers for json, html, and inline output without invoking an adapter', () => {
+  it('uses deterministic renderers for json and inline output without invoking an adapter', () => {
     seed()
 
     const json = run(['report', '--format', 'json', '--commit', 'c1'])
@@ -115,11 +114,6 @@ describe('deterministic report CLI', () => {
     expect(jsonWp.code, jsonWp.err).toBe(0)
     expect(JSON.parse(jsonWp.out)).toHaveProperty('wpTree')
 
-    const html = run(['report', '--format', 'html', '--commit', 'c1'])
-    expect(html.code, html.err).toBe(0)
-    expect(html.out).toContain('<article class="report-document"')
-    expect(html.out).toContain('data-section="done"')
-
     const inline = run(['report', '--inline', '--width', '40', '--commit', 'c1'])
     expect(inline.code, inline.err).toBe(0)
     expect(inline.out.split('\n').filter(Boolean).every((line) => line.length <= 40)).toBe(true)
@@ -129,9 +123,7 @@ describe('deterministic report CLI', () => {
     for (const args of [
       ['report', '--wp', '--flat'],
       ['report', '--format', 'json', '--flat'],
-      ['report', '--format', 'html', '--flat'],
       ['report', '--inline', '--format', 'md'],
-      ['report', '--format', 'html', '--width', '80'],
       ['report', '--width', '39'],
       ['report', '--width', '241'],
       ['report', '--width', 'wide'],

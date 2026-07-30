@@ -37,7 +37,7 @@ import {
 import { ingest, type IngestContext } from '../ingest/ingest.js'
 import { applyRestructurePlan, type RestructurePlan } from './restructure-apply.js'
 import { TrackReader } from '../read/contract.js'
-import { queryText, reportHtml, reportInline, reportText, resolveHandle, statusText, type ReportPeriodSelection } from '../read/commands.js'
+import { queryText, reportInline, reportText, resolveHandle, statusText, type ReportPeriodSelection } from '../read/commands.js'
 import { STATUS_LEVELS } from '../report/status-by-level.js'
 import { renderSnapshot } from '../report/snapshot.js'
 import { VERSION } from '../version.js'
@@ -100,7 +100,7 @@ const USAGE = `usage: track <command>
   accept waive <criterionId> --reason <r>
   consolidate --items <id,id> --commit <mergeCommit> [--client-token <t>]
   priority assess <itemId> --ubv <n> --tc <n> --rr <n> --js <n>
-  report [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>]|--period <today|week|month|all>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md|html] [--commit <sha>] [--now <iso>]
+  report [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>]|--period <today|week|month|all>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md] [--commit <sha>] [--now <iso>]
   snapshot [--require-accepted] [--format json|text|md] [--commit <sha>]
   export-graph [--repo-key <repo:key>] [--source-id <id>] [--observed-at <iso>]
   query [--kind <k>] [--role <workpackage|spec-phase|stream>] [--workspace <w>] [--bucket <AWAITED|DROPPED|DONE|TO-DO>] [--realization <r>] [--acceptance <a>] [--format json|text|md] [--commit <sha>]
@@ -440,7 +440,7 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
-const REPORT_USAGE = `usage: track report [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md|html] [--track-dir <directory-containing-events.jsonl>]
+const REPORT_USAGE = `usage: track report [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
 
 --scope selects one exact role-container by its id, durable assigned code, or current derived label. The selected container and all descendants are rendered through the same four-section report; unknown or ambiguous selectors fail loudly.
 
@@ -1181,13 +1181,13 @@ function cmdReport(args: string[], ctx: Ctx): number {
     'sub-wp', 'scope', 'since', 'until', 'period',
   ])
   const rawFormat = opt(flags, 'format')
-  if (rawFormat !== undefined && !['json', 'text', 'md', 'html'].includes(rawFormat)) {
-    throw new DomainError('--format must be one of: json|text|md|html')
+  if (rawFormat !== undefined && !['json', 'text', 'md'].includes(rawFormat)) {
+    throw new DomainError('--format must be one of: json|text|md')
   }
   const widthArg = opt(flags, 'width')
   const inlineFlag = assertBooleanFlag(flags, 'inline')
   const inline = inlineFlag || widthArg !== undefined
-  const format = oneOf(rawFormat ?? 'text', ['json', 'text', 'md', 'html'], '--format')
+  const format = oneOf(rawFormat ?? 'text', ['json', 'text', 'md'], '--format')
   if (inline && format !== 'text') throw new DomainError('--inline/--width accepts no --format, or --format text')
   const requireAccepted = assertBooleanFlag(flags, 'require-accepted')
   const requestedDecisions = assertBooleanFlag(flags, 'decisions')
@@ -1196,7 +1196,6 @@ function cmdReport(args: string[], ctx: Ctx): number {
   const flat = assertBooleanFlag(flags, 'flat')
   if (wp && flat) throw new DomainError('--wp and --flat are mutually exclusive')
   if (format === 'json' && flat) throw new DomainError('--flat is only meaningful for text or md reports')
-  if (format === 'html' && flat) throw new DomainError('--format html is always the deterministic conductor and rejects --flat')
   if (scope !== undefined && flat) throw new DomainError('--scope requires the four-section conductor and rejects --flat')
   if (scope !== undefined && activeRoster) throw new DomainError('--scope includes the complete subtree and rejects --active-roster')
   let width: number | undefined
@@ -1206,7 +1205,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
     if (width < 40 || width > 240) throw new DomainError('--width must be an integer in [40,240]')
   }
   if (scope !== undefined && inline) throw new DomainError('--scope preserves the validated report shape and rejects --inline/--width')
-  if (scope !== undefined && (format === 'md' || format === 'html')) {
+  if (scope !== undefined && format === 'md') {
     throw new DomainError('--scope currently supports the owner text report and JSON projection only')
   }
   // Every format is a deterministic read over the folded log. The default human view is
@@ -1238,8 +1237,6 @@ function cmdReport(args: string[], ctx: Ctx): number {
   const reader = new TrackReader(ctx.eventsPath)
   if (inline) {
     io.out(reportInline(reader, options, width === undefined ? {} : { width }, nowArg, period))
-  } else if (format === 'html') {
-    io.out(reportHtml(reader, options, nowArg, subWp, period))
   } else {
     io.out(reportText(reader, options, format, nowArg, subWp, scope, period))
   }

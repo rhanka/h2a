@@ -9,7 +9,7 @@ import { runCli, type CliIO } from '../cli/index.js'
 import { EventStore } from '../events/store.js'
 import { Track } from '../track.js'
 import { TrackReader } from './contract.js'
-import { reportHtml, reportText, type ReportPeriodSelection } from './commands.js'
+import { reportText, type ReportPeriodSelection } from './commands.js'
 
 let dir: string
 let eventsPath: string
@@ -120,14 +120,13 @@ describe('report period — project the complete fold, never a truncated journal
     expect(longScopes.some((scope) => scope.includes('WP1'))).toBe(true)
   })
 
-  it('uses one resolved header across JSON, text, Markdown and HTML', () => {
+  it('uses one resolved header across JSON, text, and Markdown', () => {
     seed()
     const period = selection('2026-07-03T00:00:00.000Z', '2026-07-03T23:59:59.999Z')
     const rendered = [
       JSON.stringify((jsonFor(period)['view'] as { header: { period: { label: string } } }).header.period.label),
       reportText(new TrackReader(eventsPath), options, 'text', NOW, false, undefined, period),
       reportText(new TrackReader(eventsPath), options, 'md', NOW, false, undefined, period),
-      reportHtml(new TrackReader(eventsPath), options, NOW, false, period),
     ]
     for (const output of rendered) {
       expect(output).toContain('période : 2026-07-03 → 2026-07-03')
@@ -187,6 +186,14 @@ describe('report period — CLI boundary', () => {
     const untilOnly = cli(['report', '--until', '2026-07-03'])
     expect(untilOnly.code).toBe(1)
     expect(untilOnly.err).toContain('--until requires --since')
+
+    const reversed = cli(['report', '--since', '2099-01-01', '--commit', 'c1', '--wp'])
+    expect(reversed.code).toBe(1)
+    expect(reversed.err).toContain('--since must not be after the journal head')
+
+    const html = cli(['report', '--format', 'html'])
+    expect(html.code).toBe(1)
+    expect(html.err).toContain('--format must be one of: json|text|md')
   })
 
   it('resolves SHA bounds by their committer timestamps and returns their full refs', () => {
