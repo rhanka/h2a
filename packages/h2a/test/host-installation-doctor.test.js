@@ -614,6 +614,48 @@ test("doctor --repair dispatches only the ratified plugin uninstall allowset", (
   }
 });
 
+test("doctor --repair reports a refused Claude plugin uninstall", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const root = join(home, "bus");
+  const selector = "openai@sentropic-local-x";
+  try {
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const runRepair = (dryRun) => {
+      const calls = [];
+      const io = streams(home);
+      const exitCode = runCli(["doctor", "--root", root, "--repair", ...(dryRun ? ["--dry-run"] : [])], io, {
+        doctorHostInstallations: (options) => doctorHostInstallations({
+          home,
+          version,
+          repair: options.repair,
+          dryRun: options.dryRun,
+          testClaudePluginUninstalls: [selector],
+          runHostCommand: (command, args) => {
+            calls.push([command, ...args]);
+            return { ok: true };
+          }
+        })
+      });
+      return { calls, exitCode, report: JSON.parse(io.stdoutText) };
+    };
+
+    const actual = runRepair(false);
+    const dryRun = runRepair(true);
+    const dryClaude = dryRun.report.checks.hostInstallations.hosts.find((host) => host.host === "claude");
+    const refusals = (actual.report.unrepaired ?? []).filter((entry) => entry.code === "host-command-refused");
+
+    assert.equal(actual.calls.some((call) => call.join(" ") === `claude plugin uninstall ${selector}`), false);
+    assert.equal(dryRun.calls.some((call) => call.join(" ") === `claude plugin uninstall ${selector}`), false);
+    assert.deepEqual(dryClaude.plannedActions, []);
+    assert.equal(refusals.length, 1, JSON.stringify(actual.report, null, 2));
+    assert.match(refusals[0].message, /claude plugin uninstall openai@sentropic-local-x/);
+    assert.equal(actual.report.ok, false, JSON.stringify(actual.report, null, 2));
+    assert.equal(actual.exitCode, 2);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("h2a doctor remains a bus-only health probe until the explicit repair action", () => {
   const home = fixtureHome();
   const root = join(home, "bus");

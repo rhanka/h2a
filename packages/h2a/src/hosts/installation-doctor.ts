@@ -61,6 +61,8 @@ export interface HostInstallationDoctorOptions {
   readonly writeRepairMarker?: (path: string, content: string) => void;
   /** Report host repair findings and planned actions without mutating the host. */
   readonly dryRun?: boolean;
+  /** Test-only Claude uninstall requests used to exercise the native-command boundary. */
+  readonly testClaudePluginUninstalls?: readonly string[];
 }
 
 export interface HostInstallationFinding {
@@ -75,6 +77,7 @@ export interface HostInstallationFinding {
     | "h2a-endpoint-count"
     | "standalone-track-mcp"
     | "host-command-failed"
+    | "host-command-refused"
     | "repair-marker-unavailable"
     | "runtime-artifact-unavailable";
   readonly message: string;
@@ -760,6 +763,9 @@ function repairClaudeMcpConfigs(home: string, report: MutableHostReport, dryRun:
   }
 }
 
+// runCommand contains the installation doctor's only native runner invocation.
+// Claude's native uninstall argv is exactly ["plugin", "uninstall", selector], with no preceding flags.
+// Codex has no native uninstall path; its repair rewrites its own configuration and cache.
 function runCommand(
   report: MutableHostReport,
   runner: HostCommandRunner,
@@ -772,7 +778,15 @@ function runCommand(
     args[0] === "plugin" &&
     args[1] === "uninstall" &&
     !isAuthorizedClaudePluginUninstall(args[2])
-  ) return false;
+  ) {
+    report.unrepaired.push(
+      finding(
+        "host-command-refused",
+        `refused native command: ${command} ${args.join(" ")}; selector ${args[2] ?? "<missing>"} is not authorized for uninstall.`
+      )
+    );
+    return false;
+  }
   if (dryRun) {
     planAction(report, `${command} ${args.join(" ")}`);
     return true;
@@ -890,7 +904,8 @@ function repairClaude(
   version: string,
   runner: HostCommandRunner,
   writeMarker: (path: string, content: string) => void,
-  dryRun: boolean
+  dryRun: boolean,
+  testClaudePluginUninstalls: readonly string[]
 ): MutableHostReport {
   const before = inspectClaude(home, version);
   const beforeArtifacts = artifactSnapshots(before.coherencePaths);
@@ -904,6 +919,9 @@ function repairClaude(
   }
   const plugins = isPlainObject(installed.plugins) ? installed.plugins : {};
   for (const plugin of Object.keys(plugins).filter((name) => isLegacyH2aPlugin(name) || /^track@sentropic$/i.test(name))) {
+    runCommand(before, runner, "claude", ["plugin", "uninstall", plugin], dryRun);
+  }
+  for (const plugin of testClaudePluginUninstalls) {
     runCommand(before, runner, "claude", ["plugin", "uninstall", plugin], dryRun);
   }
   if (before.findings.some((entry) => ["marketplace-missing", "marketplace-stale"].includes(entry.code))) {
@@ -976,7 +994,10 @@ export function doctorHostInstallations(
   const runner = options.runHostCommand ?? defaultHostCommand;
   const writeMarker = options.writeRepairMarker ?? ((path: string, content: string) => writeFileSync(path, content));
   const mutable = repair
-    ? [repairClaude(home, version, runner, writeMarker, dryRun), repairCodex(home, version, runner, writeMarker, dryRun)]
+    ? [
+      repairClaude(home, version, runner, writeMarker, dryRun, options.testClaudePluginUninstalls ?? []),
+      repairCodex(home, version, runner, writeMarker, dryRun)
+    ]
     : [inspectClaude(home, version), inspectCodex(home, version)];
   const hosts = mutable.map(freezeReport);
   return {
