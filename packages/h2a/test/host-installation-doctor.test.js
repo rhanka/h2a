@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
+  unlinkSync,
   utimesSync,
   writeFileSync
 } from "node:fs";
@@ -165,6 +168,9 @@ function inPlaceCacheVersionDriftHome() {
     ].join("\n")
   );
   currentPlugin(pluginRoot);
+  writeJson(join(pluginRoot, ".mcp.json"), {
+    mcpServers: { h2a: { command: "node", args: ["./loaded-runtime.js"] } }
+  });
   writeJson(manifestPath, { name: "h2a", version: "0.87.0" });
   writeFileSync(loadedCodePath, "export const loadedVersion = '0.87.0';\n");
   currentMarketplace(marketplacePath);
@@ -289,6 +295,31 @@ function streams(cwd) {
   };
 }
 
+function writeLiveCodexSession(root, sessionId, startedAt = "2020-01-01T00:00:00.000Z") {
+  writePresence(root, {
+    sessionId,
+    instance: "codex:plugins:123456789abc",
+    host: "codex",
+    startedAt,
+    heartbeatAt: new Date().toISOString(),
+    state: "live",
+    interests: { scopes: [], negotiations: [] },
+    subscribedTopics: []
+  });
+}
+
+function writeRepairMarker(home, repairedPaths, repairedAt = "2010-01-01T00:00:00.000Z") {
+  writeJson(join(home, ".codex", "h2a-repair.json"), { repairedAt, repairedPaths });
+}
+
+function runRepairDoctor(home, root, options = {}) {
+  const io = streams(home);
+  const exitCode = runCli(["doctor", "--root", root, "--repair"], io, {
+    doctorHostInstallations: () => doctorHostInstallations({ home, version: VERSION, repair: true, ...options })
+  });
+  return { exitCode, io, report: JSON.parse(io.stdoutText) };
+}
+
 test("doctor treats a cached enabled Codex plugin from a vanished marketplace as false healthy and repairs it idempotently", () => {
   const home = fixtureHome();
   try {
@@ -385,6 +416,46 @@ test("doctor leaves a native-host command failure explicitly unrepaired", () => 
         `every failed native-host command must have exactly one unrepaired finding: ${command}`
       );
     }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor repair never targets third-party or canonical plugin caches for deletion", () => {
+  const home = fixtureHome();
+  const protectedCacheNames = [
+    "openai-curated",
+    "claude-plugins-official",
+    "openai-codex",
+    "sentropic",
+    "h2a@sentropic",
+    "openai-sentropic-local-fixture"
+  ];
+  const protectedPaths = protectedCacheNames.flatMap((name) => [
+    join(home, ".codex", "plugins", "cache", name),
+    join(home, ".claude", "plugins", "cache", name)
+  ]);
+  try {
+    for (const path of protectedPaths) {
+      mkdirSync(path, { recursive: true });
+      writeFileSync(join(path, "third-party.txt"), "must survive repair\n");
+    }
+    const installedPath = join(home, ".claude", "plugins", "installed_plugins.json");
+    const installed = JSON.parse(readFileSync(installedPath, "utf8"));
+    installed.plugins["openai-h2a-local-fixture"] = [];
+    writeJson(installedPath, installed);
+
+    const calls = [];
+    const report = doctorHostInstallations({
+      home,
+      version: VERSION,
+      repair: true,
+      runHostCommand: repairRunner(home, calls)
+    });
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    for (const path of protectedPaths) assert.equal(existsSync(path), true, path);
+    assert.equal(calls.some((call) => call.join(" ") === "claude plugin uninstall h2a@sentropic"), false);
+    assert.equal(calls.some((call) => call.join(" ") === "claude plugin uninstall openai-h2a-local-fixture"), false);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -538,6 +609,11 @@ test("doctor --repair exits 2 when an existing Codex plugin directory is overwri
     assert.ok(Date.parse(codex.repairMarker.repairedAt) > Date.parse("2020-01-01T00:00:00.000Z"));
     assert.ok(codex.repairMarker.repairedPaths.includes(manifestPath));
     assert.ok(codex.repairMarker.repairedPaths.includes(loadedCodePath));
+    assert.equal(codex.repairMarker.repairedPaths.includes(join(home, ".codex", "config.toml")), false);
+    assert.equal(
+      codex.repairMarker.repairedPaths.includes(join(home, ".codex", ".tmp", "marketplaces", "sentropic", ".claude-plugin", "marketplace.json")),
+      false
+    );
     assert.ok(calls.some((call) => call.join(" ") === "codex plugin marketplace upgrade"));
     assert.ok(calls.some((call) => call.join(" ") === "codex plugin add h2a@sentropic"));
     assert.ok(statSync(manifestPath).mtimeMs > Date.parse("2020-01-01T00:00:00.000Z"));
@@ -736,6 +812,176 @@ test("doctor fails closed when a post-write repair marker re-read is invalid", (
       JSON.stringify(report, null, 2)
     );
     assert.equal(readFileSync(markerPath, "utf8"), "truncated marker\n");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor identifies an existing but unavailable repair marker for a live Codex session", () => {
+  const { home } = cleanCodexHomeWithoutMarker();
+  const root = join(home, "bus");
+  const markerPath = join(home, ".codex", "h2a-repair.json");
+  try {
+    mkdirSync(markerPath);
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    writeLiveCodexSession(root, "sess-with-unavailable-marker");
+    const { exitCode, io, report } = runRepairDoctor(home, root);
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false);
+    assert.match(report.checks.liveHostSessions.restartRequired[0].message, /it is unavailable/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor requires restart from a repair marker even when every declared runtime artifact predates the session", () => {
+  const { home, loadedCodePath } = cleanCodexHomeWithoutMarker();
+  const root = join(home, "bus");
+  const markerPath = join(home, ".codex", "h2a-repair.json");
+  try {
+    writeRepairMarker(home, [loadedCodePath], "2021-01-01T00:00:00.000Z");
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    writeLiveCodexSession(root, "sess-before-marker-only-repair");
+    const { exitCode, io, report } = runRepairDoctor(home, root);
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false);
+    assert.deepEqual(
+      report.checks.liveHostSessions.restartRequired.map((entry) => entry.configPath),
+      [markerPath]
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails closed when a declared runtime under an unreadable directory cannot be inspected", () => {
+  const { home } = cleanCodexHomeWithoutMarker();
+  const root = join(home, "bus");
+  const pluginRoot = join(home, ".codex", "plugins", "cache", "sentropic", "h2a", VERSION);
+  const privateDirectory = join(pluginRoot, "private-runtime");
+  const runtimePath = join(privateDirectory, "runtime.js");
+  try {
+    mkdirSync(privateDirectory);
+    writeFileSync(runtimePath, "export const runtime = 'private';\n");
+    writeJson(join(pluginRoot, ".mcp.json"), {
+      mcpServers: { h2a: { command: "node", args: ["./private-runtime/runtime.js"] } }
+    });
+    const beforeSession = new Date("2000-01-01T00:00:00.000Z");
+    utimesSync(join(pluginRoot, ".mcp.json"), beforeSession, beforeSession);
+    writeRepairMarker(home, [runtimePath]);
+    chmodSync(privateDirectory, 0o000);
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    writeLiveCodexSession(root, "sess-before-unreadable-runtime");
+    const { exitCode, io, report } = runRepairDoctor(home, root);
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false);
+    assert.ok(
+      report.checks.liveHostSessions.restartRequired.some((entry) => entry.configPath === runtimePath),
+      JSON.stringify(report, null, 2)
+    );
+  } finally {
+    chmodSync(privateDirectory, 0o700);
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails closed when a tracked declared runtime disappears", () => {
+  const { home, loadedCodePath } = cleanCodexHomeWithoutMarker();
+  const root = join(home, "bus");
+  try {
+    writeRepairMarker(home, [loadedCodePath]);
+    unlinkSync(loadedCodePath);
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    writeLiveCodexSession(root, "sess-before-deleted-runtime");
+    const { exitCode, io, report } = runRepairDoctor(home, root);
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false);
+    assert.ok(
+      report.checks.liveHostSessions.restartRequired.some((entry) => entry.configPath === loadedCodePath),
+      JSON.stringify(report, null, 2)
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor resolves a symlinked declared runtime before comparing its mtime", () => {
+  const { home, loadedCodePath } = cleanCodexHomeWithoutMarker();
+  const root = join(home, "bus");
+  const runtimeTarget = join(home, "external-runtime.js");
+  try {
+    writeFileSync(runtimeTarget, "export const runtime = 'external';\n");
+    const externalUpdate = new Date("2021-01-01T00:00:00.000Z");
+    utimesSync(runtimeTarget, externalUpdate, externalUpdate);
+    unlinkSync(loadedCodePath);
+    symlinkSync(runtimeTarget, loadedCodePath);
+    writeRepairMarker(home, [loadedCodePath]);
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    writeLiveCodexSession(root, "sess-before-symlink-runtime-update");
+    const { exitCode, io, report } = runRepairDoctor(home, root);
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false);
+    assert.deepEqual(
+      report.checks.liveHostSessions.restartRequired.map((entry) => entry.configPath),
+      [runtimeTarget]
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor ignores non-load-bearing plugin cache files changed after a live session", () => {
+  const { home, loadedCodePath } = cleanCodexHomeWithoutMarker();
+  const root = join(home, "bus");
+  const pluginRoot = join(home, ".codex", "plugins", "cache", "sentropic", "h2a", VERSION);
+  try {
+    const noise = [
+      join(pluginRoot, "diagnostic.log"),
+      join(pluginRoot, "tmp", "download.tmp"),
+      join(pluginRoot, "docs-not-loaded", "notes.txt")
+    ];
+    for (const path of noise) {
+      mkdirSync(join(path, ".."), { recursive: true });
+      writeFileSync(path, "not runtime code\n");
+      const externalUpdate = new Date("2021-01-01T00:00:00.000Z");
+      utimesSync(path, externalUpdate, externalUpdate);
+    }
+    writeRepairMarker(home, [loadedCodePath]);
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    writeLiveCodexSession(root, "sess-before-cache-noise");
+    const { exitCode, io, report } = runRepairDoctor(home, root);
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.deepEqual(report.checks.liveHostSessions.restartRequired, []);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor --repair --dry-run reports host repair work without mutating host files", () => {
+  const home = fixtureHome();
+  const root = join(home, "bus");
+  const calls = [];
+  try {
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    writeLiveCodexSession(root, "sess-before-dry-run");
+    const before = snapshotTree(home);
+    const io = streams(home);
+    const exitCode = runCli(["doctor", "--root", root, "--repair", "--dry-run"], io, {
+      doctorHostInstallations: (options) => doctorHostInstallations({
+        ...options,
+        home,
+        version: VERSION,
+        runHostCommand: repairRunner(home, calls)
+      })
+    });
+    const report = JSON.parse(io.stdoutText);
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false);
+    assert.equal(report.checks.hostInstallations.dryRun, true);
+    assert.ok(report.checks.hostInstallations.hosts.some((host) => host.plannedActions.length > 0));
+    assert.deepEqual(calls, []);
+    assert.deepEqual(snapshotTree(home), before);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
