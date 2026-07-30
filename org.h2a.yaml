@@ -78,7 +78,7 @@ instances:
     scopes: [org:h2a, org:h2a/wp1, org:h2a/wp2, org:h2a/wp3]
   - instance: runtime
     role: AGENTS
-    scopes: [org:h2a, org:h2a/wp5, org:h2a/wp7]
+    scopes: [org:h2a, org:h2a/wp5]
   - instance: track
     role: AGENTS
     scopes: [org:h2a, org:h2a/wp8]

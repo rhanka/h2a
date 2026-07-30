@@ -57,7 +57,6 @@ conflict-of-interest purposes.
 | WP4 | Governance & RACI | `cond` | `arch` (mandatory) | owner |
 | WP5 | Execution & runtime | `runtime` | `coop` (addressing doctrine), `cyber` (sandbox policy) | `cond` |
 | WP6 | Identity, auth & NHI | `arch` | `cyber`, `coop` — an identity that cannot be resolved cannot be bound | `cond` |
-| WP7 | Infra, deploy & MCP | `runtime` — **provisional** | `portal` (its MCP part), `arch` | `cond` |
 | WP8 | Tracking & record | `track` | `cond` | all |
 | WP9 | Method & harness | `harness` | `cyber` (security discipline), `arch` | all |
 | WP10 | Distribution, CLI & packaging | `plugins` | `harness` (gate), `cond` (tempo) | all |
@@ -67,27 +66,26 @@ conflict-of-interest purposes.
 | WP14 | Gateway — routing, pools, loop | `gateway` | `runtime` | `cond` |
 | — | security policy, vulnerability register, audit gate | `cyber` | owning lane | `cond`, `harness` |
 
-**WP7 is provisional, and says so on purpose.** The architect's arbitration
-(`docs/specs/2026-07-29-ARCH_raci-visa-and-wp7-arbitration.md`) recommends dissolving
-WP7 by leaf destination rather than splitting it in two: measured, its eight open leaves
-have five destinations across four actors, and three of the eleven leaves ever parented
-to it have already left — toward three different packages, none of them WP5. Dissolving
-it changes a **ratified** decision (option A gives `runtime` WP5 *and* WP7), so it is the
-owner's act, neither the architect's nor mine. Until the owner decides, this table
-records today's state. Amendment trigger: the owner selecting the dissolution option.
+**WP7 is gone from this table, and that is deliberate.** The owner selected dissolution on
+2026-07-29 at 22:02Z; the architect applied eight reparentings, and the leaves went to five
+destinations across four actors — WP2 ×3, WP5 ×2, WP9, WP12, WP14. An earlier version of this
+row carried `runtime` with a *provisional* marker; keeping it would have named an accountable
+actor for a container with no leaves, and any percentage it reported would have been
+meaningless.
 
-Two facts arrived after this row was written, and both matter more than the marker. First,
-**WP7 is now empty and not cancelled**: the architect applied eight reparentings on the
-owner's go, and the leaves went to five destinations across four actors. So this row names an
-accountable actor for an empty container — any percentage it reports is meaningless, and
-saying so is exactly what the marker is for.
+**The container is empty and NOT cancelled, on purpose.** The architect's reason, recorded
+here so nobody "repairs" a deliberate hole: positional derivation counts cancelled containers,
+and WP7 carries no stored code, so the code stays re-assignable. It will be cancelled once
+reopening exists. A gap in a numbered series that carries no explanation is exactly what caused
+two WPs to be cancelled by mistake the previous morning.
 
-Second, on the gate: `packages/h2a/test/org-manifest-committed.test.js` **derives** table A
-instead of copying it. Dissolving WP7 in this table *and* in `org.h2a.yaml` therefore keeps
-the suite green — proven by mutation, not asserted. What the test refuses is **drift**: change
-one side only and it fails, naming the disagreement. That distinction is `harness`'s
-correction to an earlier version of this document, and it is the difference between a gate
-that protects an arbitration and a gate that punishes the lane losing the WP.
+**Why the row and the manifest had to change in the same commit.** The test derives table A
+rather than copying it, and it checks the WP sets of the document and of `org.h2a.yaml` agree
+**in both directions**. So removing this row while leaving `org:h2a/wp7` on `runtime` in the
+manifest turns the suite red — and the test would be right. The architect caught exactly that
+before it happened, from a tree 195 commits behind, by reading the assertion instead of my
+sentence. What the test refuses is **drift**; a coherently applied arbitration keeps it green,
+which is the property `harness` asked for and the reason the map is derived at all.
 
 `cyber` is the only actor without a WP while it ships code. Its discipline currently
 lives as an item inside WP9 (`01KYJVQM5JMJ49MTKR2H4K12NK`). Whether it gets a WP of
