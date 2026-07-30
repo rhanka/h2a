@@ -66,6 +66,12 @@ export const EVENT_TYPES = [
   // (LWW); DISPLAY-ONLY (touches NO realization/bucket logic, and is NEVER an identity/ref). Additive:
   // absent on every pre-codes event ⇒ zero hash/seq/bucket change; an old reader ignores it (fail-safe).
   'item.code-assigned',
+  // RACI assignment — set one or both responsibility fields on an EXISTING item aggregate (next seq,
+  // no recreate). Past-tense persisted name, mirroring `item.set-raci`→`item.raci-assigned`, like
+  // `item.assign-code`→`item.code-assigned`. The WorkEvent carries `itemId` to route the command; the
+  // persisted event uses its aggregateId as the canonical identity, so it does not duplicate itemId in the
+  // payload. Additive: absent on every older log ⇒ zero hash/seq/bucket change; an old reader ignores it.
+  'item.raci-assigned',
   // A2 (DESIGN wp-codes-and-stream-role §A2) — a BOUNDED container↔container role mutation
   // (`workpackage↔stream`) on the EXISTING item aggregate (next seq, no recreate). Past-tense persisted
   // name, mirroring `item.reparent`→`item.reparented` (WorkEvent kind `item.set-role`). Folds `item.role`
