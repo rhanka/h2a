@@ -42,6 +42,56 @@ function currentMarketplace(path) {
   });
 }
 
+function readShippedJson(path) {
+  return JSON.parse(readFileSync(new URL(`../${path}`, import.meta.url), "utf8"));
+}
+
+function copyShippedFile(source, destination) {
+  mkdirSync(join(destination, ".."), { recursive: true });
+  writeFileSync(destination, readFileSync(new URL(`../${source}`, import.meta.url)));
+}
+
+function cleanShippedLayoutHome() {
+  const home = join(tmpdir(), `h2a-host-doctor-shipped-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const version = readShippedJson(".codex-plugin/plugin.json").version;
+  const codexPluginPath = join(home, ".codex", "plugins", "cache", "sentropic", "h2a", version);
+  const claudePluginPath = join(home, ".claude", "plugins", "cache", "sentropic", "h2a", version);
+
+  mkdirSync(join(home, ".codex"), { recursive: true });
+  writeFileSync(
+    join(home, ".codex", "config.toml"),
+    [
+      '[plugins."h2a@sentropic"]',
+      "enabled = true",
+      "",
+      "[marketplaces.sentropic]",
+      'source_type = "git"',
+      'source = "https://github.com/rhanka/h2a.git"',
+      'ref = "main"',
+      ""
+    ].join("\n")
+  );
+  copyShippedFile(".codex-plugin/plugin.json", join(codexPluginPath, ".codex-plugin", "plugin.json"));
+  copyShippedFile(".mcp.json", join(codexPluginPath, ".mcp.json"));
+  currentMarketplace(join(home, ".codex", ".tmp", "marketplaces", "sentropic"));
+
+  copyShippedFile(".claude-plugin/plugin.json", join(claudePluginPath, ".claude-plugin", "plugin.json"));
+  writeJson(join(home, ".claude", "plugins", "known_marketplaces.json"), {
+    sentropic: {
+      source: { source: "github", repo: "rhanka/h2a" },
+      installLocation: join(home, ".claude", "plugins", "marketplaces", "sentropic")
+    }
+  });
+  currentMarketplace(join(home, ".claude", "plugins", "marketplaces", "sentropic"));
+  writeJson(join(home, ".claude", "plugins", "installed_plugins.json"), {
+    version: 2,
+    plugins: {
+      "h2a@sentropic": [{ scope: "user", installPath: claudePluginPath, version }]
+    }
+  });
+  return { home, version };
+}
+
 function fixtureHome() {
   const home = join(tmpdir(), `h2a-host-doctor-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const codex = join(home, ".codex");
@@ -320,6 +370,56 @@ function runRepairDoctor(home, root, options = {}) {
   return { exitCode, io, report: JSON.parse(io.stdoutText) };
 }
 
+test("doctor accepts the exact shipped plugin layouts as clean", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const root = join(home, "bus");
+  try {
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const io = streams(home);
+    const exitCode = runCli(["doctor", "--root", root, "--repair"], io, {
+      doctorHostInstallations: () => doctorHostInstallations({ home, version, repair: true })
+    });
+    const report = JSON.parse(io.stdoutText);
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.deepEqual(
+      report.checks.hostInstallations.hosts.flatMap((host) => host.diagnostics),
+      [],
+      JSON.stringify(report, null, 2)
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor names the broken canonical Codex marketplace source", () => {
+  const home = join(tmpdir(), `h2a-host-doctor-marketplace-source-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const deadSource = join(home, "deleted-marketplace");
+  try {
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(
+      join(home, ".codex", "config.toml"),
+      [
+        '[plugins."h2a@sentropic"]',
+        "enabled = true",
+        "",
+        "[marketplaces.sentropic]",
+        'source_type = "local"',
+        `source = "${deadSource}"`,
+        ""
+      ].join("\n")
+    );
+    currentPlugin(join(home, ".codex", "plugins", "cache", "sentropic", "h2a", VERSION));
+    const codex = doctorHostInstallations({ home, version: VERSION }).hosts.find((host) => host.host === "codex");
+    assert.match(
+      codex?.findings.find((entry) => entry.code === "marketplace-missing")?.message ?? "",
+      new RegExp(deadSource.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor treats a cached enabled Codex plugin from a vanished marketplace as false healthy and repairs it idempotently", () => {
   const home = fixtureHome();
   try {
@@ -497,6 +597,9 @@ test("doctor requires restart when a live session predates a host repair", () =>
       repair: true,
       runHostCommand: repairRunner(home, [])
     });
+    const codex = repaired.hosts.find((host) => host.host === "codex");
+    assert.ok(codex?.repairMarker, JSON.stringify(repaired, null, 2));
+    assert.ok(codex.changed.length > 0, JSON.stringify(repaired, null, 2));
     const live = findLiveSessionsPredatingHostConfig(
       [{
         sessionId: "sess-before-repair",
@@ -723,7 +826,7 @@ test("doctor --repair exits 2 when a live Codex session has no repair marker", (
   }
 });
 
-test("doctor --repair exits 2 when an external runtime overwrite postdates a live Codex session", () => {
+test("doctor states that an external runtime overwrite is outside its restart guarantee", () => {
   const { home, manifestPath, loadedCodePath } = cleanCodexHomeWithoutMarker();
   const root = join(home, "bus");
   const markerPath = join(home, ".codex", "h2a-repair.json");
@@ -755,12 +858,13 @@ test("doctor --repair exits 2 when an external runtime overwrite postdates a liv
       doctorHostInstallations: () => doctorHostInstallations({ home, version: VERSION, repair: true })
     });
     const report = JSON.parse(io.stdoutText);
-    assert.equal(exitCode, 2, io.stderrText);
-    assert.equal(report.ok, false);
-    assert.deepEqual(
-      report.checks.liveHostSessions.restartRequired.map((entry) => entry.configPath),
-      [loadedCodePath]
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true);
+    assert.equal(
+      report.checks.hostInstallations.sessionFreshnessGuarantee,
+      "doctor guarantees the coherence of the repairs it performed. It does not detect installation changes made by other tools; after changing your installation by hand, restart your sessions."
     );
+    assert.deepEqual(report.checks.liveHostSessions.restartRequired, []);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -854,7 +958,7 @@ test("doctor requires restart from a repair marker even when every declared runt
   }
 });
 
-test("doctor fails closed when a declared runtime under an unreadable directory cannot be inspected", () => {
+test("doctor reports an unreadable declared runtime diagnostically without a restart verdict", () => {
   const { home } = cleanCodexHomeWithoutMarker();
   const root = join(home, "bus");
   const pluginRoot = join(home, ".codex", "plugins", "cache", "sentropic", "h2a", VERSION);
@@ -873,19 +977,22 @@ test("doctor fails closed when a declared runtime under an unreadable directory 
     assert.equal(runCli(["init", "--root", root], streams(home)), 0);
     writeLiveCodexSession(root, "sess-before-unreadable-runtime");
     const { exitCode, io, report } = runRepairDoctor(home, root);
-    assert.equal(exitCode, 2, io.stderrText);
-    assert.equal(report.ok, false);
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true);
     assert.ok(
-      report.checks.liveHostSessions.restartRequired.some((entry) => entry.configPath === runtimePath),
+      report.checks.hostInstallations.hosts
+        .find((host) => host.host === "codex")
+        .diagnostics.some((entry) => entry.code === "runtime-artifact-unavailable" && entry.path === runtimePath),
       JSON.stringify(report, null, 2)
     );
+    assert.deepEqual(report.checks.liveHostSessions.restartRequired, []);
   } finally {
     chmodSync(privateDirectory, 0o700);
     rmSync(home, { recursive: true, force: true });
   }
 });
 
-test("doctor fails closed when a tracked declared runtime disappears", () => {
+test("doctor reports a missing declared runtime diagnostically without a restart verdict", () => {
   const { home, loadedCodePath } = cleanCodexHomeWithoutMarker();
   const root = join(home, "bus");
   try {
@@ -894,18 +1001,21 @@ test("doctor fails closed when a tracked declared runtime disappears", () => {
     assert.equal(runCli(["init", "--root", root], streams(home)), 0);
     writeLiveCodexSession(root, "sess-before-deleted-runtime");
     const { exitCode, io, report } = runRepairDoctor(home, root);
-    assert.equal(exitCode, 2, io.stderrText);
-    assert.equal(report.ok, false);
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true);
     assert.ok(
-      report.checks.liveHostSessions.restartRequired.some((entry) => entry.configPath === loadedCodePath),
+      report.checks.hostInstallations.hosts
+        .find((host) => host.host === "codex")
+        .diagnostics.some((entry) => entry.code === "runtime-artifact-unavailable" && entry.path === loadedCodePath),
       JSON.stringify(report, null, 2)
     );
+    assert.deepEqual(report.checks.liveHostSessions.restartRequired, []);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
 });
 
-test("doctor resolves a symlinked declared runtime before comparing its mtime", () => {
+test("doctor resolves a symlinked declared runtime only for repair provenance", () => {
   const { home, loadedCodePath } = cleanCodexHomeWithoutMarker();
   const root = join(home, "bus");
   const runtimeTarget = join(home, "external-runtime.js");
@@ -919,12 +1029,15 @@ test("doctor resolves a symlinked declared runtime before comparing its mtime", 
     assert.equal(runCli(["init", "--root", root], streams(home)), 0);
     writeLiveCodexSession(root, "sess-before-symlink-runtime-update");
     const { exitCode, io, report } = runRepairDoctor(home, root);
-    assert.equal(exitCode, 2, io.stderrText);
-    assert.equal(report.ok, false);
-    assert.deepEqual(
-      report.checks.liveHostSessions.restartRequired.map((entry) => entry.configPath),
-      [runtimeTarget]
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true);
+    assert.ok(
+      report.checks.hostInstallations.hosts
+        .find((host) => host.host === "codex")
+        .coherencePaths.includes(runtimeTarget),
+      JSON.stringify(report, null, 2)
     );
+    assert.deepEqual(report.checks.liveHostSessions.restartRequired, []);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

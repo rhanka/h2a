@@ -11,6 +11,10 @@ manuelle**, et qu'elle ne se déclare **jamais** propre quand elle ne l'est pas.
 pas la suite runtime (73 fichiers `.test.ts` hors garde), donc une installation vérifiée ne
 prouve pas un comportement vérifié.
 
+**Limite explicite** : doctor garantit la cohérence des réparations qu'il a lui-même effectuées.
+Il ne détecte pas les changements d'installation faits par un autre outil ; après une modification
+manuelle de ton installation, redémarre tes sessions.
+
 ---
 
 ## Sécurité d'abord — les scénarios 1 et 2 ne touchent pas ta machine
@@ -35,13 +39,14 @@ mkdir -p $UAT/h1/.codex
 printf '[marketplaces.sentropic]\nsource_type = "local"\nsource = "%s/disparu"\n' "$UAT" \
   > $UAT/h1/.codex/config.toml
 
-HOME=$UAT/h1 h2a doctor --repair --dry-run   # inspecte, ne modifie RIEN
-HOME=$UAT/h1 h2a doctor --repair             # répare
+HOME=$UAT/h1 h2a init --root "$UAT/h1/bus"
+HOME=$UAT/h1 h2a doctor --root "$UAT/h1/bus" --repair --dry-run   # inspecte, ne modifie RIEN
+HOME=$UAT/h1 h2a doctor --root "$UAT/h1/bus" --repair             # répare
 ```
 
-**Attendu** : le premier appel **nomme** la source morte et dit ce qu'il ferait, sans rien
-changer. Le second la remplace par la source git `rhanka/h2a` et installe `h2a@sentropic`.
-Aucune question posée, aucun geste de ta part.
+**Attendu** : le premier appel **nomme** la source morte (le chemin qui finit par `/disparu`) et
+dit ce qu'il ferait, sans rien changer. Le second la remplace par la source git `rhanka/h2a` et
+installe `h2a@sentropic`. Aucune question posée, aucun geste de ta part.
 
 **Ce qui invaliderait** : un rapport « propre » au premier appel, ou une réparation qui te
 demande de faire quelque chose.
@@ -54,44 +59,39 @@ demande de faire quelque chose.
 
 ---
 
-## Scénario 2 — une session vivante tourne sur l'ancien code
+## Scénario 2 — une session vivante doit redémarrer après une réparation réelle
 
-Le cœur du sujet, et ce qui a fait échouer **trois** revues indépendantes. Une réparation
-peut changer le code réellement chargé sans qu'une session déjà démarrée le sache.
+Le cœur du sujet, et ce qui a fait échouer **trois** revues indépendantes. Une réparation faite par
+doctor peut changer le code réellement chargé sans qu'une session déjà démarrée le sache.
 
-Ce scénario doit être **déterministe** : ma première version disait « lance une session codex dans
-un autre terminal », ce qui ne vérifie même pas que sa présence est sur le **même bus** — la
-recette aurait pu passer pour la mauvaise raison. La revue l'a relevé.
-
-Le harnais qui fabrique la présence sur le bus et joue les cinq variantes est livré **avec le
-correctif**, comme régression au niveau CLI ; il n'existe pas encore au moment où j'écris ceci, et
-je ne te donne donc pas une commande qui échouerait. Tu le lanceras ainsi :
+Ce scénario est **déterministe** : le harnais fabrique la présence sur le même bus et dans ses
+propres `HOME` et bus temporaires. Il ne touche pas ta machine.
 
 ```bash
-node --test packages/h2a/test/host-installation-doctor.test.js   # les cinq variantes
+node --test packages/h2a/test/host-installation-doctor.test.js
 ```
 
-Puis **une** vérification à la main, sur la variante qui compte le plus — l'écrasement en place —
-pour ne pas te reposer uniquement sur un test que nous avons écrit nous-mêmes.
+Puis relance exactement le cas d'écrasement en place, la vérification manuelle reproductible :
+
+```bash
+node --test --test-name-pattern='existing Codex plugin directory is overwritten in place' \
+  packages/h2a/test/host-installation-doctor.test.js
+```
 
 **Attendu, et c'est le point non négociable** : sortie **2**, `ok=false`, et un motif explicite
 disant qu'une **session vivante doit redémarrer**. La réparation du cache ne suffit pas : la
 session a chargé l'ancien code.
 
-Le script couvre **cinq** variantes, parce que quatre revues successives ont montré qu'une seule
-ne suffit pas :
+Cette promesse est volontairement bornée :
 
 | variante | ce qu'elle piège |
 |---|---|
-| écrasement du runtime **en place** | le mtime du répertoire parent ne change pas |
-| **suppression** du runtime après démarrage | l'absence lue comme un silence |
-| runtime atteint par **lien symbolique** | les liens ignorés par la marche |
-| sous-répertoire en `chmod 000` | l'erreur d'inspection lue comme « rien n'a changé » |
-| création d'un `diagnostic.log` **non chargé** | le bruit : un redémarrage exigé pour rien |
+| réparation doctor avec écrasement **en place** | une session qui a démarré avant le marqueur doit redémarrer |
+| `codex plugin add`, réinstallation npm ou autre modification manuelle | hors garantie de doctor : redémarre la session toi-même |
 
-**Ce qui invaliderait** : sortie 0 sur l'une des quatre premières (faux-propre), **ou** sortie 2
-sur la cinquième (bruit). Les deux sont des échecs symétriques : une garantie qui ne se déclenche
-jamais et une garantie qui se déclenche toujours sont également inutiles.
+**Ce qui invaliderait** : sortie 0 sur le premier cas. Le second n'est pas une recette de détection
+automatique : prétendre le contraire reviendrait à certifier un graphe de chargement que doctor ne
+peut pas observer complètement.
 
 ---
 
@@ -101,7 +101,9 @@ jamais et une garantie qui se déclenche toujours sont également inutiles.
 cp -p ~/.codex/config.toml ~/.codex/config.toml.bak.uat-$(date +%Y%m%d-%H%M)
 cp -p ~/.claude/plugins/known_marketplaces.json ~/.claude/plugins/known_marketplaces.json.bak.uat-$(date +%Y%m%d-%H%M) 2>/dev/null
 
-h2a doctor --repair --dry-run    # inspecte l'installation, ne modifie RIEN
+mkdir -p "$UAT/h3"
+h2a init --root "$UAT/h3/bus"
+h2a doctor --root "$UAT/h3/bus" --repair --dry-run    # inspecte l'installation, ne modifie RIEN
 ```
 
 Lis le rapport. Il doit décrire ton état réel : une seule marketplace `sentropic` par hôte,
@@ -115,12 +117,12 @@ lister ce qu'une réparation changerait.
 Puis, seulement si tu le veux :
 
 ```bash
-h2a doctor --repair
+h2a doctor --root "$UAT/h3/bus" --repair
 ```
 
 **Attendu** : soit « rien à réparer », soit une liste de ce qui a été changé. Jamais un silence.
-Et si une de tes sessions codex/claude est ouverte depuis avant une réparation, il doit te dire
-de la redémarrer.
+Le bus temporaire isole cette recette des sessions de ton bus quotidien ; si doctor a réparé ton
+installation, redémarre toute session que tu sais antérieure à cette réparation.
 
 **Pour revenir en arrière** : `cp ~/.codex/config.toml.bak.uat-… ~/.codex/config.toml`.
 

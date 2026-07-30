@@ -34,6 +34,8 @@ export const H2A_PLUGIN_SELECTOR = "h2a@sentropic";
 export const H2A_MARKETPLACE_NAME = "sentropic";
 export const H2A_MARKETPLACE_REPOSITORY = "rhanka/h2a";
 export const H2A_MARKETPLACE_GIT_URL = "https://github.com/rhanka/h2a.git";
+export const HOST_REPAIR_FRESHNESS_GUARANTEE =
+  "doctor guarantees the coherence of the repairs it performed. It does not detect installation changes made by other tools; after changing your installation by hand, restart your sessions.";
 
 type Host = "claude" | "codex";
 
@@ -82,7 +84,7 @@ export interface HostInstallationFinding {
 export interface HostRepairMarker {
   readonly path: string;
   readonly repairedAt: string;
-  /** Concrete paths that a completed repair changed or revalidated. */
+  /** Concrete paths that a completed repair actually changed. */
   readonly repairedPaths: readonly string[];
 }
 
@@ -90,9 +92,11 @@ export interface HostInstallationReport {
   readonly host: Host;
   readonly ok: boolean;
   readonly findings: readonly HostInstallationFinding[];
+  /** Non-blocking inspection notes; never a host-health or session-freshness verdict. */
+  readonly diagnostics: readonly HostInstallationFinding[];
   readonly changed: readonly string[];
   readonly unrepaired: readonly HostInstallationFinding[];
-  /** Declared load-bearing host/runtime files checked for external changes after a live session started. */
+  /** Declared artifacts retained for diagnostics and to determine precisely what a repair rewrote. */
   readonly coherencePaths: readonly string[];
   /** Host changes that --repair --dry-run would perform. */
   readonly plannedActions: readonly string[];
@@ -106,6 +110,8 @@ export interface HostInstallationDoctorReport {
   readonly ok: boolean;
   readonly repair: boolean;
   readonly dryRun: boolean;
+  /** Exact boundary of the live-session restart guarantee. */
+  readonly sessionFreshnessGuarantee: string;
   readonly version: string;
   readonly hosts: readonly HostInstallationReport[];
 }
@@ -121,6 +127,7 @@ export interface LiveHostSessionFinding {
 interface MutableHostReport {
   host: Host;
   findings: HostInstallationFinding[];
+  diagnostics: HostInstallationFinding[];
   changed: string[];
   unrepaired: HostInstallationFinding[];
   coherencePaths: string[];
@@ -212,7 +219,7 @@ function loadBearingArtifacts(
     if (!existsSync(path)) return;
     const config = readJson(path);
     if (config.error) {
-      report.findings.push(finding("runtime-artifact-unavailable", `cannot inspect load-bearing MCP config: ${config.error}`, path));
+      report.diagnostics.push(finding("runtime-artifact-unavailable", `cannot inspect declared MCP config: ${config.error}`, path));
       return;
     }
     const servers = isPlainObject(config.value?.mcpServers) ? config.value.mcpServers : {};
@@ -235,18 +242,19 @@ function loadBearingArtifacts(
       declared.add(manifestPath);
       const manifest = readJson(manifestPath);
       if (manifest.error) {
-        report.findings.push(finding("runtime-artifact-unavailable", `cannot inspect plugin manifest: ${manifest.error}`, manifestPath));
+        report.diagnostics.push(finding("runtime-artifact-unavailable", `cannot inspect plugin manifest: ${manifest.error}`, manifestPath));
         continue;
       }
+      const pluginRoot = dirname(dirname(manifestPath));
       const mcpServers = manifest.value?.mcpServers;
       if (typeof mcpServers === "string" && mcpServers.startsWith(".")) {
-        inspectMcpConfig(join(dirname(manifestPath), mcpServers));
+        inspectMcpConfig(join(pluginRoot, mcpServers));
       } else if (isPlainObject(mcpServers)) {
         for (const entry of Object.values(mcpServers)) {
           if (!isPlainObject(entry)) continue;
           for (const candidate of [entry.command, ...jsonArgs(entry)]) {
             if (typeof candidate === "string" && candidate.startsWith(".")) {
-              declared.add(join(dirname(manifestPath), candidate));
+              declared.add(join(pluginRoot, candidate));
             }
           }
         }
@@ -264,8 +272,8 @@ function loadBearingArtifacts(
       if (!metadata.isFile()) throw new Error("not a regular file");
       pushUnique(resolved, target);
     } catch (error) {
-      report.findings.push(
-        finding("runtime-artifact-unavailable", `cannot inspect load-bearing artifact: ${(error as Error).message}`, path),
+      report.diagnostics.push(
+        finding("runtime-artifact-unavailable", `cannot inspect declared artifact: ${(error as Error).message}`, path),
       );
     }
   }
@@ -500,6 +508,7 @@ function inspectCodex(home: string, version: string): MutableHostReport {
   const report: MutableHostReport = {
     host: "codex",
     findings: [],
+    diagnostics: [],
     changed: [],
     unrepaired: [],
     coherencePaths: [],
@@ -517,9 +526,12 @@ function inspectCodex(home: string, version: string): MutableHostReport {
   const marketplaceTables = tables.filter((table) => tomlQuotedName(table.header, "marketplaces") !== undefined);
   const canonical = marketplaceTables.find((table) => tomlQuotedName(table.header, "marketplaces") === H2A_MARKETPLACE_NAME);
   if (!canonicalCodexMarketplace(canonical, home)) {
+    const configuredSource = canonical ? tomlValue(canonical, "source") : undefined;
     report.findings.push(finding(
       "marketplace-missing",
-      "Codex lacks the canonical sentropic Git marketplace; an enabled h2a MCP/plugin cache alone is an orphaned false-healthy signal.",
+      configuredSource
+        ? `Codex lacks the canonical sentropic Git marketplace: configured source ${configuredSource} is not the canonical Git source; an enabled h2a MCP/plugin cache alone is an orphaned false-healthy signal.`
+        : "Codex lacks the canonical sentropic Git marketplace; an enabled h2a MCP/plugin cache alone is an orphaned false-healthy signal.",
       configPath
     ));
   }
@@ -570,6 +582,7 @@ function inspectClaude(home: string, version: string): MutableHostReport {
   const report: MutableHostReport = {
     host: "claude",
     findings: [],
+    diagnostics: [],
     changed: [],
     unrepaired: [],
     coherencePaths: [],
@@ -926,6 +939,7 @@ function freezeReport(report: MutableHostReport): HostInstallationReport {
     host: report.host,
     ok: report.unrepaired.length === 0 && report.findings.length === 0,
     findings: report.findings,
+    diagnostics: report.diagnostics,
     changed: report.changed,
     unrepaired: report.unrepaired,
     coherencePaths: report.coherencePaths,
@@ -949,14 +963,21 @@ export function doctorHostInstallations(
     ? [repairClaude(home, version, runner, writeMarker, dryRun), repairCodex(home, version, runner, writeMarker, dryRun)]
     : [inspectClaude(home, version), inspectCodex(home, version)];
   const hosts = mutable.map(freezeReport);
-  return { ok: hosts.every((host) => host.ok), repair, dryRun, version, hosts };
+  return {
+    ok: hosts.every((host) => host.ok),
+    repair,
+    dryRun,
+    sessionFreshnessGuarantee: HOST_REPAIR_FRESHNESS_GUARANTEE,
+    version,
+    hosts
+  };
 }
 
 /**
  * A host repair cannot rewire an already-open stdio connection. A recorded
- * repair marker is authoritative for our repairs; recursive runtime-file mtimes
- * detect external changes that the marker cannot observe. Missing evidence is
- * fail-closed for a live session.
+ * repair marker is authoritative for our repairs. Doctor does not infer the
+ * complete runtime load graph, so externally modified artifacts are diagnostic
+ * only and never become a live-session freshness verdict.
  */
 export function findLiveSessionsPredatingHostConfig(
   sessions: readonly H2ASession[],
@@ -971,19 +992,6 @@ export function findLiveSessionsPredatingHostConfig(
     if (!report) continue;
     const startedAt = Date.parse(session.startedAt);
     if (!Number.isFinite(startedAt)) continue;
-    const unavailableArtifact = report.findings.find((entry) => entry.code === "runtime-artifact-unavailable");
-    if (unavailableArtifact) {
-      findings.push({
-        host,
-        sessionId: session.sessionId,
-        startedAt: session.startedAt,
-        configPath: unavailableArtifact.path ?? report.repairMarkerPath,
-        message:
-          `cannot verify load-bearing ${host} artifact ${unavailableArtifact.path ?? ""}: ${unavailableArtifact.message}; ` +
-          `live ${host} session ${session.sessionId} must be restarted.`
-      });
-      continue;
-    }
     const marker = report.repairMarker;
     if (!marker) {
       const markerState = existsSync(report.repairMarkerPath) ? "unavailable" : "missing";
@@ -1020,26 +1028,6 @@ export function findLiveSessionsPredatingHostConfig(
           "it may still run the pre-repair H2A/Track MCP set and must be restarted."
       });
       continue;
-    }
-    for (const path of report.coherencePaths) {
-      try {
-        const metadata = statSync(path);
-        if (metadata.isFile() && metadata.mtimeMs > startedAt) {
-          findings.push({
-            host,
-            sessionId: session.sessionId,
-            startedAt: session.startedAt,
-            configPath: path,
-            message:
-              `live ${host} session ${session.sessionId} started before ${path} changed externally; ` +
-              "it may still run the pre-change H2A/Track MCP set and must be restarted."
-          });
-          break;
-        }
-      } catch {
-        // Inspection only includes files that existed at inspection time. A
-        // vanished file cannot prove the live runtime is fresh.
-      }
     }
   }
   return findings;
