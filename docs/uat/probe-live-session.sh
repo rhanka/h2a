@@ -31,7 +31,14 @@ fi
 # which INHERITS the whole environment. A throwaway HOME alone therefore does NOT keep them away from
 # your real installation — my earlier claim that it did was false, and an independent review measured it.
 # Pin both roots inside the throwaway tree, and refuse to run if anything still points outside it.
-PROBE=$(mktemp -d "${TMPDIR:-/tmp}/uat-probe-XXXXXX")
+PROBE=$(mktemp -d "${TMPDIR:-/tmp}/uat-probe-XXXXXX") || {
+  echo "ABANDON : mktemp -d a echoue. Sans arbre jetable ce probe ecrirait ailleurs." >&2; exit 1; }
+# Sans cette verification, un PROBE vide donnerait HOME_DIR=/home, BUS=/bus et un `rm -rf ""` au
+# piege de sortie. Une revue independante a mesure exactement ce fail-open.
+case "$PROBE" in
+  /*/*) [ -d "$PROBE" ] || { echo "ABANDON : '$PROBE' n'est pas un repertoire." >&2; exit 1; };;
+  *) echo "ABANDON : mktemp a rendu un chemin inattendu ('$PROBE')." >&2; exit 1;;
+esac
 trap 'rm -rf "$PROBE"' EXIT
 HOME_DIR="$PROBE/home"
 BUS="$PROBE/bus"
@@ -122,10 +129,20 @@ node -e '
 
 echo
 echo "=== inertie du dry-run, prouvee par empreinte ============================"
-BEFORE=$(cd "$HOME_DIR" && find . -type f -printf '%p %s %T@\n' 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
+# L'empreinte doit ECHOUER FERME : si find -printf ou sha256sum manquent, les deux cotes valent
+# la meme chaine vide et la comparaison rend IDENTIQUE sans avoir rien observe. Mesure par une revue.
+for tool in find sha256sum sort; do
+  command -v "$tool" >/dev/null || { echo "ABANDON : $tool absent, l'empreinte serait vide des deux cotes." >&2; exit 1; }
+done
+if ! find . -maxdepth 0 -printf '' 2>/dev/null; then
+  echo "ABANDON : ce find ne supporte pas -printf ; l'empreinte serait vide des deux cotes." >&2; exit 1
+fi
+empreinte() { (cd "$1" && find . -type f -printf '%p %s %T@\n' | sort | sha256sum | cut -d' ' -f1); }
+BEFORE=$(empreinte "$HOME_DIR")
+[ -n "$BEFORE" ] || { echo "ABANDON : empreinte initiale vide, rien a comparer." >&2; exit 1; }
 HOME="$HOME_DIR" node "$DOCTOR_BIN" doctor --root "$BUS" --repair --dry-run --format json > "$PROBE/dry.json" 2>/dev/null
 DRYCODE=$?
-AFTER=$(cd "$HOME_DIR" && find . -type f -printf '%p %s %T@\n' 2>/dev/null | sort | sha256sum | cut -d' ' -f1)
+AFTER=$(empreinte "$HOME_DIR")
 echo "  code de sortie ...... $DRYCODE      <-- doit rester 2 : l'installation est toujours cassee"
 if [ "$BEFORE" = "$AFTER" ]; then
   echo "  empreinte HOME ...... IDENTIQUE avant/apres  <-- le dry-run n'a RIEN modifie"
