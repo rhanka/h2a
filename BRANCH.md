@@ -110,6 +110,16 @@
 - [x] Test: pre-journal CLI interval ordering, explicit library reversal rejection, and instant durations just under/over fourteen days.
 - [x] Gate: serialized period bounds are never inverted and sub-WP aggregation begins at fourteen elapsed days.
 
+## Lot 9 — the ordering invariant at both boundaries
+
+- [x] `assertOrderedPeriodWindow` asserts that a RENDERED period never carries reversed bounds, called from
+      `buildWpConductorView` — the single funnel every rendered view crosses.
+- [x] The resolver (`periodProjection`) keeps the same rule for every resolved period; one rule, two
+      boundaries, so a narrowing on one side cannot re-open the other.
+- [x] Test: `formatWpConductor` on json/text/md and `formatWpConductorInline` refuse reversed bounds; an
+      ordered window, including a zero-length one, is accepted.
+- [x] Gate: no public export of `@sentropic/track` can render a period whose start follows its end.
+
 ## Feedback Loop
 
 - [ ] Owner UAT remains required before any item is claimed done.

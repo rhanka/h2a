@@ -820,6 +820,25 @@ const FOCUS_ROWS = 5
  */
 const LONG_WINDOW_DAYS = 14
 
+/**
+ * The ordering invariant of a RENDERED period — BRANCH gate: no rendered period carries reversed bounds.
+ * `periodProjection` (read/commands.ts) holds it for every RESOLVED period, which covers every report route
+ * (CLI, MCP, library `reportText`/`reportInline`). It cannot cover a caller that BUILDS a `periodWindow`
+ * itself and hands it to the public presenter exports — so the presenter asserts the same invariant here,
+ * at the single funnel every rendered view crosses. One rule, two boundaries: a later narrowing on one side
+ * cannot re-open the other.
+ */
+export function assertOrderedPeriodWindow(meta: ConductorMeta): void {
+  const window = meta.periodWindow
+  if (window === undefined) return
+  const fromMs = window.from === undefined ? undefined : Date.parse(window.from)
+  const toMs = window.to === undefined ? undefined : Date.parse(window.to)
+  if (fromMs === undefined || toMs === undefined || Number.isNaN(fromMs) || Number.isNaN(toMs)) return
+  if (fromMs > toMs) {
+    throw new Error('resolved report period must not end before it begins')
+  }
+}
+
 function windowDays(meta: ConductorMeta): number | undefined {
   const from = meta.periodWindow?.from ?? meta.logFrom
   const to = meta.periodWindow?.to ?? meta.now ?? meta.logTo
@@ -1040,6 +1059,7 @@ export function buildWpConductorView(
   totalScope = 'global',
   meta: ConductorMeta = {},
 ): ReportView {
+  assertOrderedPeriodWindow(meta)
   const wpName = (n: WpNode): string => `${n.label} · ${clean(stripWpPrefix(n.title))}`
   const totals = wpTotals(tree, outsideRollup)
   const wpNodes: WpNode[] = []
