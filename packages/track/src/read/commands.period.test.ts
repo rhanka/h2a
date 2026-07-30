@@ -73,6 +73,11 @@ function cli(args: string[]): { code: number; out: string; err: string } {
 }
 
 describe('report period — project the complete fold, never a truncated journal', () => {
+  it('rejects an unsupported library format instead of silently falling back to text', () => {
+    seed()
+    expect(() => reportText(new TrackReader(eventsPath), options, 'html' as never, NOW)).toThrow('unsupported report format: html')
+  })
+
   it('keeps the current WP tree and À-FAIRE while an empty short window says no delivery', () => {
     const { open } = seed()
     const all = jsonFor()
@@ -190,6 +195,13 @@ describe('report period — CLI boundary', () => {
     const reversed = cli(['report', '--since', '2099-01-01', '--commit', 'c1', '--wp'])
     expect(reversed.code).toBe(1)
     expect(reversed.err).toContain('--since must not be after the journal head')
+
+    const beforeJournal = cli(['report', '--now', '2026-06-30T12:00:00.000Z', '--format', 'json'])
+    expect(beforeJournal.code).toBe(0)
+    expect((JSON.parse(beforeJournal.out) as { period: Record<string, unknown> }).period).toMatchObject({
+      requested: null,
+      to: '2026-06-30T12:00:00.000Z',
+    })
 
     const html = cli(['report', '--format', 'html'])
     expect(html.code).toBe(1)
