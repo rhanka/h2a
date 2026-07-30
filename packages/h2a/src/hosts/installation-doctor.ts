@@ -65,7 +65,7 @@ export interface HostInstallationDoctorOptions {
   readonly version?: string;
   /** Injectable for hermetic tests; production invokes the native host CLI. */
   readonly runHostCommand?: HostCommandRunner;
-  /** Test-only host-CLI presence override; an injected command runner otherwise represents a reachable test host. */
+  /** Test-only native-CLI reachability override; configuration artifacts decide host installation. */
   readonly testHostCliReachable?: (host: Host) => boolean;
   /** Injectable for hermetic tests; production writes the durable repair marker. */
   readonly writeRepairMarker?: (path: string, content: string) => void;
@@ -194,7 +194,7 @@ function finding(
 }
 
 function isBlockingFinding(entry: HostInstallationFinding): boolean {
-  return entry.code !== "orphan-cache" && entry.code !== "host-not-installed";
+  return entry.code !== "orphan-cache" && entry.code !== "host-not-installed" && entry.code !== "host-cli-unreachable";
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -670,7 +670,7 @@ function hostConfigurationArtifacts(home: string, host: Host): string[] {
   ].filter(existsSync);
 }
 
-function hostCliIsReachable(
+function hostCliCanRunNativeRepair(
   host: Host,
   hasInjectedRunner: boolean,
   testHostCliReachable: HostInstallationDoctorOptions["testHostCliReachable"]
@@ -690,7 +690,7 @@ function hostCliIsReachable(
   });
 }
 
-function unavailableHostReport(home: string, host: Host, artifacts: readonly string[]): MutableHostReport {
+function absentHostReport(home: string, host: Host): MutableHostReport {
   const hostName = host === "claude" ? "Claude" : "Codex";
   const report: MutableHostReport = {
     host,
@@ -702,19 +702,20 @@ function unavailableHostReport(home: string, host: Host, artifacts: readonly str
     plannedActions: [],
     repairMarkerPath: repairMarkerPath(home, host)
   };
-  if (artifacts.length === 0) {
-    report.findings.push(finding(
-      "host-not-installed",
-      `${hostName} is not installed: its CLI is absent from PATH and no host configuration artifacts were found.`
-    ));
-    return report;
-  }
   report.findings.push(finding(
-    "host-cli-unreachable",
-    `${hostName} CLI could not be reached on PATH although host configuration artifacts remain: ${artifacts.join(", ")}.`,
-    artifacts[0]
+    "host-not-installed",
+    `${hostName} is not installed: its CLI is absent from PATH and no host configuration artifacts were found.`
   ));
   return report;
+}
+
+function unreachableHostCliDiagnostic(host: Host, artifacts: readonly string[]): HostInstallationFinding {
+  const hostName = host === "claude" ? "Claude" : "Codex";
+  return finding(
+    "host-cli-unreachable",
+    `${hostName} CLI could not be reached on PATH; native repair is unavailable while configuration artifacts remain: ${artifacts.join(", ")}.`,
+    artifacts[0]
+  );
 }
 
 function claudeEnabledPlugins(settings: Record<string, unknown> | undefined): Record<string, unknown> {
@@ -1882,17 +1883,23 @@ export function doctorHostInstallations(
   const runner = options.runHostCommand ?? defaultHostCommand;
   const writeMarker = options.writeRepairMarker ?? ((path: string, content: string) => writeFileSync(path, content));
   const inspectOrRepair = (host: Host): MutableHostReport => {
-    if (!hostCliIsReachable(host, options.runHostCommand !== undefined, options.testHostCliReachable)) {
-      return unavailableHostReport(home, host, hostConfigurationArtifacts(home, host));
+    const artifacts = hostConfigurationArtifacts(home, host);
+    const cliReachable = hostCliCanRunNativeRepair(host, options.runHostCommand !== undefined, options.testHostCliReachable);
+    if (!cliReachable && artifacts.length === 0) {
+      return absentHostReport(home, host);
     }
+    let report: MutableHostReport;
     if (host === "claude") {
-      return repair
+      report = cliReachable && repair
         ? repairClaude(home, version, runner, writeMarker, dryRun, options.testClaudePluginUninstalls ?? [], options.testConfigurationWrite)
         : inspectClaude(home, version);
+    } else {
+      report = cliReachable && repair
+        ? repairCodex(home, version, runner, writeMarker, dryRun, options.testConfigurationWrite)
+        : inspectCodex(home, version);
     }
-    return repair
-      ? repairCodex(home, version, runner, writeMarker, dryRun, options.testConfigurationWrite)
-      : inspectCodex(home, version);
+    if (!cliReachable) report.diagnostics.push(unreachableHostCliDiagnostic(host, artifacts));
+    return report;
   };
   const mutable = [inspectOrRepair("claude"), inspectOrRepair("codex")];
   const hosts = mutable.map(freezeReport);
