@@ -38,9 +38,11 @@ const listWorkspaces = vi.fn();
 const deleteWorkspace = vi.fn();
 const readWorkspaceMarker = vi.fn();
 const writeWorkspaceMarker = vi.fn();
+const getH2aConfig = vi.hoisted(() => vi.fn());
 const ensureManagedTmuxProfile = vi.hoisted(() => vi.fn());
 const tmuxAvailable = vi.hoisted(() => vi.fn(() => true));
 const startLocalSession = vi.hoisted(() => vi.fn());
+const startH2aWindow = vi.hoisted(() => vi.fn());
 const attachLocalSession = vi.hoisted(() => vi.fn());
 const findLocalSession = vi.hoisted(() => vi.fn());
 const resolveLocalSession = vi.hoisted(() => vi.fn());
@@ -81,10 +83,7 @@ vi.mock("./config.js", () => ({
   setDefaultTools: () => {},
   getPlugins: () => [],
   setPlugins: () => {},
-  getH2aConfig: () => ({
-    enabled: false,
-    command: "h2a mcp-serve --wake local-tmux",
-  }),
+  getH2aConfig,
   setH2aConfig: () => {},
   getLayoutConfig: () => ({
     maxAgeHours: 48,
@@ -148,6 +147,7 @@ vi.mock("./tmux.js", async (importOriginal) => {
     ensureManagedTmuxProfile,
     tmuxAvailable,
     startLocalSession,
+    startH2aWindow,
     attachLocalSession,
     findLocalSession,
     killLocalSession,
@@ -208,6 +208,8 @@ describe("main", () => {
     tmuxAvailable.mockReturnValue(true);
     startLocalSession.mockReset();
     startLocalSession.mockReturnValue({ name: "h2a-proj", slug: "proj" });
+    startH2aWindow.mockReset();
+    startH2aWindow.mockReturnValue(true);
     attachLocalSession.mockReset();
     attachLocalSession.mockReturnValue(0);
     killLocalSession.mockReset();
@@ -221,6 +223,11 @@ describe("main", () => {
     });
     capturePane.mockReset();
     capturePane.mockReturnValue("");
+    getH2aConfig.mockReset();
+    getH2aConfig.mockReturnValue({
+      enabled: false,
+      command: "h2a mcp-serve --wake local-tmux",
+    });
     readWorkspaceMarker.mockReturnValue(undefined);
     createWorkspace.mockResolvedValue({ id: "ws-new", createdAt: "now" });
     listWorkspaces.mockResolvedValue([]);
@@ -363,6 +370,50 @@ describe("main", () => {
     expect(attachLocalSession).not.toHaveBeenCalled();
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).toContain(
       "attach with: h2a attach proj",
+    );
+  });
+
+  it("forwards `h2a run --name` to the sidecar as launch context", async () => {
+    const exitCode = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      LOCAL_PROJECT_DIR,
+      "--name",
+      "launched-lane",
+      "--h2a",
+      "--no-attach",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(startH2aWindow).toHaveBeenCalledWith(
+      "h2a-proj",
+      LOCAL_PROJECT_DIR,
+      "h2a mcp-serve --wake local-tmux",
+      undefined,
+      { launchLabel: "launched-lane" },
+    );
+  });
+
+  it("keeps an unlabelled h2a run sidecar launch context empty", async () => {
+    const exitCode = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      LOCAL_PROJECT_DIR,
+      "--h2a",
+      "--no-attach",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(startH2aWindow).toHaveBeenCalledWith(
+      "h2a-proj",
+      LOCAL_PROJECT_DIR,
+      "h2a mcp-serve --wake local-tmux",
+      undefined,
+      {},
     );
   });
 

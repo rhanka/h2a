@@ -5845,6 +5845,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           let h2aSidecarStarted = false;
           if (h2aSidecar) {
+            const launchLabel = opts.name === undefined ? undefined : label;
+            const sidecarLaunchOptions =
+              launchLabel === undefined ? {} : { launchLabel };
             if (structuredLaunch) {
               try {
                 h2aSidecarStarted = Boolean(
@@ -5853,6 +5856,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                     cwd,
                     h2a.command,
                     agentPane!,
+                    undefined,
+                    sidecarLaunchOptions,
                   ),
                 );
               } catch (error) {
@@ -5862,7 +5867,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 h2aSidecarStarted = false;
               }
             } else {
-              h2aSidecarStarted = startH2aWindow(name, cwd, h2a.command);
+              h2aSidecarStarted = startH2aWindow(
+                name,
+                cwd,
+                h2a.command,
+                undefined,
+                sidecarLaunchOptions,
+              );
             }
             if (!h2aSidecarStarted && structuredLaunch) {
               cleanupHeadlessPromptFile(promptFile);
