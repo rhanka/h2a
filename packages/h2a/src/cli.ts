@@ -615,6 +615,11 @@ function cmdRegister(
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
   const store = createLocalStore({ root });
+  if (store.findInstance(registration.id)) {
+    const message = `Instance already registered: ${registration.id}`;
+    streams.stderr.write(`h2a register: ${message}\n`);
+    return classifyStoreError(message);
+  }
   try {
     store.registerInstance(registration);
   } catch (error) {
