@@ -55,6 +55,7 @@
   "loop agents",
   "loop attach",
   "loop create",
+  "loop enable-auto-tick",
   "loop list",
   "loop logs",
   "loop status",
