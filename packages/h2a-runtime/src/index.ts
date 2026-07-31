@@ -75,6 +75,7 @@ import {
   currentTmuxSessionName,
   currentTmuxSessionIs,
   ensureManagedTmuxProfile,
+  ensureHeadlessTerminal,
   existingLocalSessionSlugs,
   fanoutLabels,
   findLocalSession,
@@ -1555,7 +1556,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         argv.args,
         job.id,
         undefined,
-        { sessionClass: "background" },
+        { sessionClass: "background", attachedTerminal: true },
       );
       tmuxSession = launched.name;
       agentPane = launched.agentPane;
@@ -5285,7 +5286,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           args,
           resumeSlug,
           undefined,
-          { sessionClass: "human" },
+          { sessionClass: "human", attachedTerminal: true },
         );
         enrollFromRun({
           profile,
@@ -5318,6 +5319,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option(
       "--no-attach",
       "start detached and print the attach command instead (for scripts / fan-out orchestration)",
+    )
+    .option(
+      "--no-attached-terminal",
+      "disable the persistent headless tmux client (legacy compatibility; cannot be used with --prompt-stdin)",
     )
     .option(
       "-r, --resume <convId>",
@@ -5371,6 +5376,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         path: string | undefined,
         opts: {
           attach?: boolean;
+          attachedTerminal?: boolean;
           resume?: string;
           force?: boolean;
           name?: string;
@@ -5432,6 +5438,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         if (opts.promptStdin && process.stdin.isTTY) {
           process.stderr.write("[h2a] --prompt-stdin requires piped stdin\n");
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.promptStdin && opts.attachedTerminal === false) {
+          process.stderr.write(
+            "[h2a] --prompt-stdin requires the attached terminal; remove --no-attached-terminal.\n",
+          );
           process.exitCode = 2;
           return;
         }
@@ -5698,6 +5711,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   ? { terminateOnAgentExit: true }
                   : {}),
                 ...(structuredLaunch ? { refuseExisting: true } : {}),
+                attachedTerminal: opts.attachedTerminal !== false,
                 sessionClass,
               },
             ));
@@ -8343,11 +8357,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "force the legacy WS/SSE attach (control-plane proxy) instead of exec",
     )
     .option("--local", "force local tmux lookup")
+    .option(
+      "--headless-terminal",
+      "attach a persistent 160x48 PTY client without taking over this terminal (local sessions only)",
+    )
     .action(
       async (
         first: string,
         second: string | undefined,
-        opts: { exec?: boolean; ws?: boolean; local?: boolean },
+        opts: {
+          exec?: boolean;
+          ws?: boolean;
+          local?: boolean;
+          headlessTerminal?: boolean;
+        },
       ) => {
         // Local tmux session? (unless an explicit URL/sessionId pair is given).
         if (second === undefined && !looksLikeUrl(first)) {
@@ -8373,6 +8396,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 `[h2a] no local session "${first}" (see: h2a ls)\n`,
               );
               process.exitCode = 1;
+              return;
+            }
+            if (opts.headlessTerminal) {
+              const terminal = ensureHeadlessTerminal(localName);
+              if (terminal.state === "unavailable") {
+                process.stderr.write(
+                  `[h2a] could not attach a persistent terminal to ${first}: ${terminal.reason}\n`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+              process.stderr.write(
+                `[h2a] persistent terminal ${terminal.state} for ${first} (${terminal.attachedClients} attached client(s))\n`,
+              );
               return;
             }
             process.exitCode = attachLocalSession(localName);
