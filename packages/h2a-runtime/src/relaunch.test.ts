@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { CLAUDE_LONG_CONTEXT_CONFIRM_REASON } from "./prompt-delivery.js";
+import {
+  CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
+  deliverInitialPrompt,
+  type PromptDeliveryDeps,
+} from "./prompt-delivery.js";
 import {
   decideRelaunchSafety,
   isRelaunchKillable,
@@ -65,6 +69,83 @@ describe("wakeRelaunchedSession", () => {
     expect(result.confirmation).toBe("auto-passed");
     expect(submitConfirmation).toHaveBeenCalledTimes(1);
     expect(deliverContinuation).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits through summary compaction before submitting the continuation", () => {
+    let now = 0;
+    let confirmed = false;
+    let captureReadsAfterConfirm = 0;
+    let composer = "";
+    let submitted = false;
+    let pastedWhileBlocking = false;
+    let continuationSubmits = 0;
+
+    const capturePane = () => {
+      if (!confirmed) return exactModal.capture;
+      captureReadsAfterConfirm += 1;
+      if (captureReadsAfterConfirm <= 4) {
+        return `* Compacting conversation…
+  ▰▰▰▰▰▱▱▱ 50%
+  ❯ Continue working autonomously
+❯ Press up to edit queued messages`;
+      }
+      return `Claude Code
+Resume summary ready
+❯ ${composer}
+status: idle`;
+    };
+
+    const deliveryDeps: PromptDeliveryDeps = {
+      capturePane,
+      clearComposer: () => {
+        composer = "";
+        return true;
+      },
+      pasteBlock: (_pane, prompt) => {
+        pastedWhileBlocking = captureReadsAfterConfirm <= 4;
+        composer = prompt;
+        return true;
+      },
+      submit: () => {
+        continuationSubmits += 1;
+        submitted = true;
+        composer = "";
+        return true;
+      },
+      cpuMs: () => (submitted ? now : 0),
+      sleep: (ms) => {
+        now += ms;
+      },
+      now: () => now,
+    };
+
+    const result = wakeRelaunchedSession("continue now", {
+      deliverContinuation: (prompt) =>
+        deliverInitialPrompt("%1", prompt, deliveryDeps, {
+          timeoutMs: 5_000,
+          pollMs: 100,
+          quietMs: 100,
+          quietCpuMs: 1,
+          activityMs: 1_000,
+          activityCpuMs: 100,
+          landedMs: 1_000,
+        }),
+      submitConfirmation: () => {
+        confirmed = true;
+        return true;
+      },
+      capturePane,
+      sleep: (ms) => {
+        now += ms;
+      },
+      now: () => now,
+    });
+
+    expect(result.state).toBe("working");
+    expect(result.confirmation).toBe("auto-passed");
+    expect(captureReadsAfterConfirm).toBeGreaterThan(4);
+    expect(pastedWhileBlocking).toBe(false);
+    expect(continuationSubmits).toBe(1);
   });
 
   it("never sends Enter for a different host modal", () => {
