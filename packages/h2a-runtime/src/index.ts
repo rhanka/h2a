@@ -128,9 +128,14 @@ import {
   isAgentLaunchProfile,
   type AgentLaunchEffort,
 } from "./agent-launch-args.js";
-import { isRelaunchKillable, planRelaunch } from "./relaunch.js";
 import { deriveSessionClass } from "./session-class.js";
 import type { ProcView } from "./proc-cpu.js";
+import {
+  isRelaunchKillable,
+  planRelaunch,
+  relaunchContinuationPrompt,
+  wakeRelaunchedSession,
+} from "./relaunch.js";
 import {
   isHumanFacingSession,
   legacySessionEvidence,
@@ -7741,14 +7746,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             entry.gatewayMode ?? "auto",
           );
           await injectLlmMeshGatewayEnv(gatewayMode, true, localSessionName(action.slug));
-          const { name } = startLocalSession(
+          const { name, agentPane } = startLocalSession(
             action.profile,
             action.command,
             entry.cwd,
             action.args,
             action.slug,
             undefined,
-            { sessionClass },
+            {
+              sessionClass,
+              resumeId: action.convId,
+              attachedTerminal: true,
+            },
           );
           enrollFromRun({
             profile: action.profile,
@@ -7761,8 +7770,42 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               ? { gatewayMode: entry.gatewayMode }
               : {}),
           });
+          const wake = wakeRelaunchedSession(
+            relaunchContinuationPrompt(entry.task),
+            {
+              deliverContinuation: (prompt) =>
+                deliverInitialPrompt(agentPane!, prompt, {
+                  capturePane: capturePaneVisible,
+                  clearComposer: clearPaneComposer,
+                  pasteBlock: pasteLiteralBlock,
+                  submit: submitPane,
+                  cpuMs: paneTreeCpuMs,
+                  sleep: sleepSync,
+                  now: () => Date.now(),
+                }),
+              submitConfirmation: () => submitPane(agentPane!),
+              capturePane: () => capturePaneVisible(agentPane!),
+              sleep: sleepSync,
+              now: () => Date.now(),
+            },
+          );
+          if (wake.confirmation === "auto-passed") {
+            process.stderr.write(
+              `[h2a] ${action.slug}: Claude stale-session confirmation auto-passed once\n`,
+            );
+          }
+          if (wake.state !== "working") {
+            process.stderr.write(
+              `[h2a] FAILED to wake ${action.slug} after resume: ${wake.reason}\n` +
+                (wake.capture ? `[h2a] last screen:\n${wake.capture}\n` : ""),
+            );
+            continue;
+          }
           ok += 1;
-          process.stderr.write(`[h2a] force-restarted ${action.slug}: ${action.cmd}\n`);
+          process.stderr.write(
+            `[h2a] force-restarted ${action.slug}: ${action.cmd}; objective re-injected; agent WORKING ` +
+              `(${Math.round(wake.delivery.cpuDeltaMs)}ms CPU, ${wake.delivery.evidence})\n`,
+          );
         } catch (error) {
           process.stderr.write(
             `[h2a] FAILED to force-restart ${action.slug} after killing ${action.name}: ${(error as Error).message}\n`,
