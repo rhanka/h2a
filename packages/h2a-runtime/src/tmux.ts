@@ -1097,6 +1097,19 @@ function exactSessionTarget(session: string): string {
   return session.startsWith("=") ? session : `=${session}`;
 }
 
+/**
+ * Session target for `set-option`, which — unlike `show-options` — REJECTS the
+ * `=` exact-match prefix: on tmux 3.6, `set-option -t =<session>` fails with
+ * "no such session" because `-t` there resolves a PANE, not a session, and a
+ * bare session name is required. Measured: the status-surface install aborted on
+ * its very first set and rolled back silently, so no session ever got the bar.
+ * The other session-scoped set callers (@profile) already use the bare name;
+ * these two were the outliers.
+ */
+function bareSessionTarget(session: string): string {
+  return session.startsWith("=") ? session.slice(1) : session;
+}
+
 function readSessionOption(
   session: string,
   option: string,
@@ -1131,7 +1144,7 @@ function setSessionOption(
 ): boolean {
   return spawnSync(
     TMUX,
-    ["set-option", "-t", exactSessionTarget(session), option, value],
+    ["set-option", "-t", bareSessionTarget(session), option, value],
     {
       stdio: "ignore",
     },
@@ -1141,7 +1154,7 @@ function setSessionOption(
 function unsetSessionOption(session: string, option: string): boolean {
   return spawnSync(
     TMUX,
-    ["set-option", "-u", "-t", exactSessionTarget(session), option],
+    ["set-option", "-u", "-t", bareSessionTarget(session), option],
     { stdio: "ignore" },
   ).status === 0;
 }
