@@ -12,7 +12,11 @@ import { dirname, join } from "node:path";
 // Mock child_process at the module boundary so NOTHING here ever talks to the
 // user's real tmux server (or shells out at all).
 const spawnSyncMock = vi.hoisted(() => vi.fn());
-vi.mock("node:child_process", () => ({ spawnSync: spawnSyncMock }));
+const spawnMock = vi.hoisted(() => vi.fn());
+vi.mock("node:child_process", () => ({
+  spawn: spawnMock,
+  spawnSync: spawnSyncMock,
+}));
 const tmuxProfileConfigMock = vi.hoisted(() =>
   vi.fn(() => ({ profile: "remote" })),
 );
@@ -37,6 +41,7 @@ import {
   buildTmuxGlobalOptions,
   capturePaneVisible,
   clearPaneComposer,
+  ensureHeadlessTerminal,
   pasteLiteralBlock,
   cleanupHeadlessPromptFile,
   ensureManagedTmuxProfile,
@@ -78,6 +83,7 @@ const ORIGINAL_ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
 
 beforeEach(() => {
   spawnSyncMock.mockReset();
+  spawnMock.mockReset();
   tmuxProfileConfigMock.mockReset();
   tmuxProfileConfigMock.mockReturnValue({ profile: REMOTE_TMUX_PROFILE_NAME });
 });
@@ -123,6 +129,22 @@ function fakeStderr(): { write: (s: string) => boolean; text: () => string } {
   };
 }
 
+/**
+ * The current `list-sessions` projection deliberately includes identity and
+ * server fields before the managed-session fields.  Keep fixtures shaped like
+ * the real tmux format so managed-session resolution is exercised rather than
+ * silently filtered as a malformed row.
+ */
+function tmuxSessionRow(
+  name: string,
+  attached: number,
+  path: string,
+  profile: string,
+  displayName = "",
+): string {
+  return `$1\t1710000000\t1234\t/tmp/tmux-1000/default\t${name}\t${attached}\t${path}\t${profile}\t${displayName}\n`;
+}
+
 describe("attachLocalSession", () => {
   it("uses tmux attach-session outside tmux", () => {
     delete process.env.TMUX;
@@ -155,6 +177,81 @@ describe("attachLocalSession", () => {
       ["switch-client", "-t", "=remote-projA"],
       { stdio: "inherit" },
     ]);
+  });
+});
+
+describe("ensureHeadlessTerminal", () => {
+  it("starts a persistent fixed-size PTY client and proves tmux sees it attached", () => {
+    let attachedReads = 0;
+    const unref = vi.fn();
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "display") {
+        attachedReads += 1;
+        return { status: 0, stdout: attachedReads === 1 ? "0\n" : "1\n" };
+      }
+      if (cmd === "bash") return { status: 0, stdout: "" };
+      return { status: 0, stdout: "" };
+    });
+    spawnMock.mockReturnValue({ on: vi.fn(), unref });
+
+    expect(ensureHeadlessTerminal("h2a-agent")).toEqual({
+      state: "headless-attached",
+      attachedClients: 1,
+      cols: 160,
+      rows: 48,
+    });
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      "/bin/sh",
+      [
+        "-c",
+        expect.stringMatching(/tail -f \/dev\/null \| script -qefc.*stty cols 160 rows 48/),
+      ],
+      expect.objectContaining({
+        detached: true,
+        stdio: "ignore",
+        env: expect.objectContaining({
+          H2A_HEADLESS_TARGET: "=h2a-agent:",
+        }),
+      }),
+    );
+    expect(unref).toHaveBeenCalledOnce();
+    expect(tmuxCalls("set-option")).toContainEqual([
+      "tmux",
+      [
+        "set-option",
+        "-t",
+        "=h2a-agent:",
+        "@h2a_attached_terminal",
+        "headless:160x48",
+      ],
+      { stdio: "ignore" },
+    ]);
+  });
+
+  it("keeps an existing human terminal and does not spawn a second client", () => {
+    spawnSyncMock.mockReturnValue({ status: 0, stdout: "2\n" });
+
+    expect(ensureHeadlessTerminal("h2a-agent")).toEqual({
+      state: "already-attached",
+      attachedClients: 2,
+    });
+    expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a new client never becomes attached", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "display") {
+        return { status: 0, stdout: "0\n" };
+      }
+      return { status: 0, stdout: "" };
+    });
+    spawnMock.mockReturnValue({ on: vi.fn(), unref: vi.fn() });
+
+    expect(ensureHeadlessTerminal("h2a-agent", { timeoutMs: 0 })).toEqual({
+      state: "unavailable",
+      reason: "tmux client did not attach within 0ms",
+    });
   });
 });
 
@@ -390,14 +487,63 @@ describe("startLocalSession agent pane metadata", () => {
     ]);
   });
 
+  it("attaches the PTY before respawning a structured agent into its pane", () => {
+    let attachedReads = 0;
+    spawnSyncMock.mockImplementation((cmd: string, argv: string[]) => {
+      if (cmd === "tmux" && argv[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && argv[0] === "list-sessions") {
+        return { status: 1, stdout: "" };
+      }
+      if (cmd === "tmux" && argv[0] === "new-session") {
+        return { status: 0, stdout: "%17\n" };
+      }
+      if (cmd === "tmux" && argv[0] === "display") {
+        attachedReads += 1;
+        return { status: 0, stdout: attachedReads === 1 ? "0\n" : "1\n" };
+      }
+      if (cmd === "bash") return { status: 0, stdout: "" };
+      return { status: 0, stdout: "" };
+    });
+    spawnMock.mockReturnValue({ on: vi.fn(), unref: vi.fn() });
+
+    startLocalSession(
+      "codex",
+      "codex",
+      "/home/u/src/remote",
+      ["--model", "gpt-5.6"],
+      "worker",
+      "remote",
+      { terminateOnAgentExit: true, attachedTerminal: true },
+    );
+
+    const newSession = tmuxCalls("new-session")[0]![1] as string[];
+    expect(newSession).toContain("exec sleep 86400");
+    expect(newSession).not.toContain(STRUCTURED_LOCAL_WRAPPER);
+    const respawn = tmuxCalls("respawn-pane")[0]![1] as string[];
+    expect(respawn.slice(0, 6)).toEqual([
+      "respawn-pane",
+      "-k",
+      "-t",
+      "%17",
+      "-c",
+      "/home/u/src/remote",
+    ]);
+    expect(respawn).toContain(STRUCTURED_LOCAL_WRAPPER);
+    expect(respawn.slice(-4)).toEqual([
+      STRUCTURED_LOCAL_WRAPPER,
+      "codex",
+      "--model",
+      "gpt-5.6",
+    ]);
+  });
+
   it("refuses a structured duplicate inside startLocalSession without effects", () => {
     spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
       if (cmd === "tmux" && args[0] === "list-sessions") {
         return {
           status: 0,
-          stdout:
-            "remote-worker\t0\t/home/u/src/remote\tclaude\tworker\n",
+          stdout: tmuxSessionRow("remote-worker", 0, "/home/u/src/remote", "claude", "worker"),
         };
       }
       return { status: 0, stdout: "" };
@@ -423,7 +569,7 @@ describe("startLocalSession agent pane metadata", () => {
       if (cmd === "tmux" && args[0] === "list-sessions") {
         return {
           status: 0,
-          stdout: "remote-worker\t0\t/home/u/src/repo\tclaude\t\n",
+          stdout: tmuxSessionRow("remote-worker", 0, "/home/u/src/repo", "claude"),
         };
       }
       if (cmd === "tmux" && args[0] === "show-options") {
@@ -448,7 +594,8 @@ describe("startLocalSession agent pane metadata", () => {
         return {
           status: 0,
           stdout:
-            "h2a-worker\t0\t/home/u/src/repo\tclaude\t\nremote-worker\t0\t/home/u/src/repo\tclaude\t\n",
+            tmuxSessionRow("h2a-worker", 0, "/home/u/src/repo", "claude") +
+            tmuxSessionRow("remote-worker", 0, "/home/u/src/repo", "claude"),
         };
       }
       return { status: 0, stdout: "" };
@@ -466,8 +613,7 @@ describe("startLocalSession agent pane metadata", () => {
       if (cmd === "tmux" && args[0] === "list-sessions") {
         return {
           status: 0,
-          stdout:
-            "remote-worker\t0\t/home/u/src/remote\tcodex\tworker\n",
+          stdout: tmuxSessionRow("remote-worker", 0, "/home/u/src/remote", "codex", "worker"),
         };
       }
       return { status: 0, stdout: "" };
@@ -593,8 +739,7 @@ describe("existingLocalSessionSlugs", () => {
       if (cmd === "tmux" && args[0] === "list-sessions") {
         return {
           status: 0,
-          stdout:
-            "remote-existing\t0\t/home/u/src/repo\tcodex\texisting\n",
+          stdout: tmuxSessionRow("remote-existing", 0, "/home/u/src/repo", "codex", "existing"),
         };
       }
       return { status: 0, stdout: "" };
@@ -1473,14 +1618,13 @@ describe("listLocalSessions", () => {
       if (cmd === "tmux" && args[0] === "list-sessions") {
         return {
           status: 0,
-          stdout:
-            "remote-parent\t2\t/home/u/src/remote\tclaude\tParent session\n",
+          stdout: tmuxSessionRow("remote-parent", 2, "/home/u/src/remote", "claude", "Parent session"),
         };
       }
       return { status: 1, stdout: "" };
     });
 
-    expect(listLocalSessions()).toEqual([
+    expect(listLocalSessions()).toMatchObject([
       {
         name: "remote-parent",
         slug: "parent",
@@ -1552,7 +1696,8 @@ describe("managed tmux name resolution", () => {
         return {
           status: 0,
           stdout:
-            "h2a-current\t0\t/repo/current\tclaude\t\nremote-legacy\t0\t/repo/legacy\tcodex\t\n",
+            tmuxSessionRow("h2a-current", 0, "/repo/current", "claude") +
+            tmuxSessionRow("remote-legacy", 0, "/repo/legacy", "codex"),
         };
       }
       return { status: 1, stdout: "" };
@@ -1571,14 +1716,14 @@ describe("sessionAttachedCount (the detached-only HARD guard source)", () => {
   it("returns 0 for a detached session", () => {
     spawnSyncMock.mockReturnValue({ status: 0, stdout: "0\n" });
     expect(sessionAttachedCount("remote-a")).toBe(0);
-    // It must query #{session_attached} with an EXACT (=) target.
+    // It must query #{session_attached} with tmux 3.6's exact SESSION target.
     const call = spawnSyncMock.mock.calls[0]!;
     expect(call[0]).toBe("tmux");
     expect(call[1]).toEqual([
       "display",
       "-p",
       "-t",
-      "=remote-a",
+      "=remote-a:",
       "#{session_attached}",
     ]);
   });
@@ -1683,7 +1828,7 @@ describe("resolveAgentPaneForInstance", () => {
         if (sub === "list-sessions") {
           return {
             status: 0,
-            stdout: `remote-${label}\t0\t/home/u/src/${label}\t${host}\t\n`,
+            stdout: tmuxSessionRow(`remote-${label}`, 0, `/home/u/src/${label}`, host),
           };
         }
         // show-options: return different values for different options
@@ -1716,7 +1861,7 @@ describe("resolveAgentPaneForInstance", () => {
       const sub = Array.isArray(args) ? args[0] : "";
       if (sub === "-V") return { status: 0, stdout: "tmux 3.4\n" };
       if (sub === "list-sessions")
-        return { status: 0, stdout: "remote-other\t0\t/tmp\tcodex\t\n" };
+        return { status: 0, stdout: tmuxSessionRow("remote-other", 0, "/tmp", "codex") };
       if (sub === "show-options") return { status: 0, stdout: "\n" };
       return { status: 0, stdout: "" };
     });
@@ -1730,7 +1875,7 @@ describe("resolveAgentPaneForInstance", () => {
       const sub = Array.isArray(args) ? args[0] : "";
       if (sub === "-V") return { status: 0, stdout: "tmux 3.4\n" };
       if (sub === "list-sessions")
-        return { status: 0, stdout: "remote-remote\t0\t/tmp\tclaude\t\n" };
+        return { status: 0, stdout: tmuxSessionRow("remote-remote", 0, "/tmp", "claude") };
       if (sub === "show-options") {
         const option = (args as string[])[args.length - 1];
         if (option === "@remote_agent_host")
