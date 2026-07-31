@@ -865,6 +865,65 @@ test("resolveAutoOpen: installs a title refresher only when --name was NOT given
   }
 });
 
+test("resolveAutoOpen: a launch label is an effective --name and remains fixed across heartbeats", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "lane-addr-launch-label-cwd-"));
+  const root = join(mkdtempSync(join(tmpdir(), "lane-addr-launch-label-root-")), ".h2a");
+  const previousSessionId = process.env.CLAUDE_CODE_SESSION_ID;
+  const previousLaunchLabel = process.env.H2A_LAUNCH_LABEL;
+  process.env.CLAUDE_CODE_SESSION_ID = "lane-addr-session";
+  process.env.H2A_LAUNCH_LABEL = "launched-lane";
+  try {
+    const autoOpen = resolveAutoOpen(
+      { "auto-open": "true", host: "claude", root },
+      () => cwd
+    );
+    assert.equal(autoOpen.name, "launched-lane", "the sidecar label must reach session-open");
+
+    const registry = new SessionRegistry(root, { autoHeartbeat: false });
+    const opened = registry.open(autoOpen);
+    // This is the session-open seam: the old implicit path installs a resolver,
+    // whose next heartbeat follows a host title. A launch label must suppress it.
+    if (autoOpen.refreshDisplayName) {
+      registry.setDisplayNameResolver(opened.sessionId, () => "host-title");
+    }
+    const touched = registry.touch(opened.sessionId);
+    assert.equal(touched.name, "launched-lane");
+    assert.equal(readPresence(root, opened.sessionId).name, "launched-lane");
+    registry.close(opened.sessionId);
+  } finally {
+    if (previousSessionId === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
+    else process.env.CLAUDE_CODE_SESSION_ID = previousSessionId;
+    if (previousLaunchLabel === undefined) delete process.env.H2A_LAUNCH_LABEL;
+    else process.env.H2A_LAUNCH_LABEL = previousLaunchLabel;
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("resolveAutoOpen: an explicit --name takes precedence over a launch label", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "lane-addr-explicit-name-cwd-"));
+  const root = join(mkdtempSync(join(tmpdir(), "lane-addr-explicit-name-root-")), ".h2a");
+  const previousSessionId = process.env.CLAUDE_CODE_SESSION_ID;
+  const previousLaunchLabel = process.env.H2A_LAUNCH_LABEL;
+  process.env.CLAUDE_CODE_SESSION_ID = "lane-addr-session";
+  process.env.H2A_LAUNCH_LABEL = "launched-lane";
+  try {
+    const autoOpen = resolveAutoOpen(
+      { "auto-open": "true", host: "claude", root, name: "operator-name" },
+      () => cwd
+    );
+    assert.equal(autoOpen.name, "operator-name");
+    assert.equal(autoOpen.refreshDisplayName, undefined);
+  } finally {
+    if (previousSessionId === undefined) delete process.env.CLAUDE_CODE_SESSION_ID;
+    else process.env.CLAUDE_CODE_SESSION_ID = previousSessionId;
+    if (previousLaunchLabel === undefined) delete process.env.H2A_LAUNCH_LABEL;
+    else process.env.H2A_LAUNCH_LABEL = previousLaunchLabel;
+    rmSync(cwd, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 const RLO_LITERAL = "\u202E";
 const PDF_LITERAL = "\u202C";
 const BEL_LITERAL = "\u0007";
