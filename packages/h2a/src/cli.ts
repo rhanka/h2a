@@ -1593,18 +1593,25 @@ export function resolveAutoOpen(
   delegationEligible?: true;
 } | undefined {
   if (flags["auto-open"] === undefined) return undefined;
-  const host = flags.host;
+  // `h2a run --name` reaches its sidecar through tmux's environment. Promote
+  // that launch context to the same flag consumed by session-open, but only
+  // when the sidecar operator did not provide their own --name.
+  const sessionFlags =
+    flags.name === undefined && process.env.H2A_LAUNCH_LABEL !== undefined
+      ? { ...flags, name: process.env.H2A_LAUNCH_LABEL }
+      : flags;
+  const host = sessionFlags.host;
   const identity = resolveLiveIdentity({
-    root: resolveRoot(flags, cwd),
+    root: resolveRoot(sessionFlags, cwd),
     host: host ?? "agent",
     cwd: cwd(),
     // Declared DISPLAY list only, never an authorization input (feed contract
     // ratification condition #3). Lands in the registration's
     // `declaredCapabilities`, never in the authority-bearing `capabilities`.
     declaredCapabilities: H2A_CLI_DECLARED_CAPABILITIES,
-    ...(flags.instance !== undefined ? { explicitInstance: flags.instance } : {}),
-    ...(flags.name !== undefined ? { name: flags.name } : {}),
-    ...(flags.scope !== undefined ? { scopes: [flags.scope] } : {})
+    ...(sessionFlags.instance !== undefined ? { explicitInstance: sessionFlags.instance } : {}),
+    ...(sessionFlags.name !== undefined ? { name: sessionFlags.name } : {}),
+    ...(sessionFlags.scope !== undefined ? { scopes: [sessionFlags.scope] } : {})
   });
   // §D1b: only follow the host title when the operator left the name implicit,
   // and only when a real provider session id was readable (the synthetic
@@ -1620,7 +1627,7 @@ export function resolveAutoOpen(
   // pretend to a capability the reader does not have.
   const refreshableHost = host === "claude" || host === "codex";
   const refreshDisplayName =
-    flags.name === undefined &&
+    sessionFlags.name === undefined &&
     identity.providerSessionId !== undefined &&
     refreshableHost
       ? createHostSessionNameRefresher({
@@ -1635,7 +1642,7 @@ export function resolveAutoOpen(
     ...(identity.workspace !== undefined ? { workspace: identity.workspace } : {}),
     ...(identity.name !== undefined ? { name: identity.name } : {}),
     ...(refreshDisplayName ? { refreshDisplayName } : {}),
-    ...(flags.scope ? { scopes: [flags.scope] } : {}),
+    ...(sessionFlags.scope ? { scopes: [sessionFlags.scope] } : {}),
     ...(identity.migrationNotice !== undefined
       ? { migrationNotice: identity.migrationNotice }
       : {}),
@@ -1645,7 +1652,7 @@ export function resolveAutoOpen(
     // An explicit --instance is an operator-provided label, not an identity
     // derived and owned by this sidecar. It may open presence, but it cannot
     // cause h2a_run to be attributed to that claimed owner in the status bar.
-    ...(flags.instance === undefined ? { delegationEligible: true as const } : {})
+    ...(sessionFlags.instance === undefined ? { delegationEligible: true as const } : {})
   };
 }
 

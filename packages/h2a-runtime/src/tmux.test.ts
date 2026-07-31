@@ -1030,6 +1030,37 @@ describe("startH2aWindow", () => {
     );
   });
 
+  it("forwards the launch label into the sidecar environment", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "bash") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-windows")
+        return { status: 0, stdout: "claude\n" };
+      if (cmd === "tmux" && args[0] === "show-options")
+        return { status: 0, stdout: "%11\n" };
+      return { status: 0 };
+    });
+
+    const ok = startH2aWindow(
+      "remote-surch",
+      "/home/u/src/surch",
+      H2A_CMD,
+      fakeStderr(),
+      { launchLabel: "launched-lane" },
+    );
+
+    expect(ok).toBe(true);
+    expect(tmuxCalls("new-window")[0]?.[1]).toEqual(
+      buildSessionWindowArgs(
+        "remote-surch",
+        H2A_WINDOW_NAME,
+        "/home/u/src/surch",
+        H2A_CMD,
+        "%11",
+        "launched-lane",
+      ),
+    );
+  });
+
   it('is idempotent but warns when an existing "h2a" window may have a stale wake target', () => {
     spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === "bash") return { status: 0 };

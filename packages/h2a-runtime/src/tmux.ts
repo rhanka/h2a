@@ -212,6 +212,7 @@ const H2A_STATUS_RESTORED = "restored";
 const AGENT_PANE_OPTION = "@remote_agent_pane";
 const AGENT_HOST_OPTION = "@remote_agent_host";
 const AGENT_CWD_OPTION = "@remote_agent_cwd";
+const H2A_LAUNCH_LABEL_ENV = "H2A_LAUNCH_LABEL";
 const H2A_MCP_READY_FILE_ENV = "H2A_MCP_READY_FILE";
 const H2A_MCP_READY_NONCE_ENV = "H2A_MCP_READY_NONCE";
 const H2A_MCP_READY_KIND = "h2a.mcp.ready";
@@ -1219,10 +1220,14 @@ export function buildSessionWindowArgs(
   cwd: string,
   commandLine: string,
   agentPane?: string,
+  launchLabel?: string,
 ): string[] {
   return [
     "new-window",
     "-d",
+    ...(launchLabel !== undefined
+      ? ["-e", `${H2A_LAUNCH_LABEL_ENV}=${launchLabel}`]
+      : []),
     "-t",
     session,
     "-n",
@@ -1249,6 +1254,7 @@ export function buildStructuredSessionWindowArgs(
   commandLine: string,
   agentPane: string,
   readiness: { readonly file: string; readonly nonce: string },
+  launchLabel?: string,
 ): string[] {
   return [
     "new-window",
@@ -1260,6 +1266,9 @@ export function buildStructuredSessionWindowArgs(
     `${H2A_MCP_READY_FILE_ENV}=${readiness.file}`,
     "-e",
     `${H2A_MCP_READY_NONCE_ENV}=${readiness.nonce}`,
+    ...(launchLabel !== undefined
+      ? ["-e", `${H2A_LAUNCH_LABEL_ENV}=${launchLabel}`]
+      : []),
     "-t",
     session,
     "-n",
@@ -1293,14 +1302,27 @@ export function addSessionWindow(
   cwd: string,
   commandLine: string,
   agentPane?: string,
+  launchLabel?: string,
 ): boolean {
   const r = spawnSync(
     TMUX,
-    buildSessionWindowArgs(session, windowName, cwd, commandLine, agentPane),
+    buildSessionWindowArgs(
+      session,
+      windowName,
+      cwd,
+      commandLine,
+      agentPane,
+      launchLabel,
+    ),
     { stdio: "ignore" },
   );
   return r.status === 0;
 }
+
+export type H2aSidecarLaunchOptions = {
+  /** The explicit `h2a run --name` label to forward into session-open. */
+  readonly launchLabel?: string;
+};
 
 /** Is `cmd` resolvable in PATH (login shell, same as the tmux windows use)? */
 export function commandAvailable(cmd: string): boolean {
@@ -1832,6 +1854,7 @@ export function startH2aWindow(
   cwd: string,
   commandLine: string,
   stderr: { write(chunk: string): unknown } = process.stderr,
+  options: H2aSidecarLaunchOptions = {},
 ): boolean {
   const bin = commandLine.trim().split(/\s+/)[0] ?? "";
   if (!bin || !commandAvailable(bin)) {
@@ -1857,7 +1880,14 @@ export function startH2aWindow(
     return false;
   }
   if (
-    !addSessionWindow(session, H2A_WINDOW_NAME, cwd, commandLine, agentPane)
+    !addSessionWindow(
+      session,
+      H2A_WINDOW_NAME,
+      cwd,
+      commandLine,
+      agentPane,
+      options.launchLabel,
+    )
   ) {
     stderr.write(
       `[h2a] h2a window failed to start (tmux new-window error on ${session})\n`,
@@ -1876,6 +1906,8 @@ export type StructuredSidecarVerificationOptions = {
   intervalMs?: number;
   /** Test seam; production defaults to a real timer. */
   delay?: (ms: number) => Promise<void>;
+  /** The explicit `h2a run --name` label to forward into session-open. */
+  launchLabel?: string;
 };
 
 export type StructuredH2aWindow = {
@@ -1996,6 +2028,7 @@ export async function startH2aWindowVerified(
         commandLine,
         agentPane,
         challenge,
+        options.launchLabel,
       ),
       {
         encoding: "utf8",
