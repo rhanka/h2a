@@ -1,6 +1,6 @@
 ---
 name: track-operation
-description: "Use when the user asks for a track report, status, or advancement/progress report — run the CLI `track report` from the repo root and return its deterministic conductor. Contextual synthesis is advisory agent behaviour, not a machine-enforced report path. Also use when an agent needs to read, update, import, or verify track state; when a BRANCH.md or plan/NN-BRANCH_*.md changed; or when deciding between Track MCP and CLI. MCP remains read-only, writes/imports use the CLI, and .track is append-only/single-writer."
+description: "Use for operational Track hygiene: read, write, import, or verify state; handle BRANCH.md or plan/NN-BRANCH_*.md imports; and decide between Track MCP and CLI. For an owner-facing contextual report, load `harness/track-report`. MCP remains read-only, writes/imports use the CLI, and .track is append-only/single-writer."
 ---
 
 # Track Operation
@@ -9,9 +9,11 @@ Use this for track hygiene: reading status, importing BRANCH files, recording an
 owner-ratified decision, and verifying the sidecar. Use `present-decision` for an owner decision
 dossier and `propose-workpackages` for backlog restructuring.
 
-## Deterministic report/status
+## Deterministic operational projection
 
-For a human-facing report or status, run `track report` from the repository root. It is a deterministic
+For an operational deterministic projection—not an owner-facing contextual report—run `track report` from
+the repository root. An owner-facing contextual report belongs to `harness/track-report`, which bootstraps
+this checkout's `track` binary. The command below is a deterministic
 conductor over the folded log, with exactly four sections — FAIT / À-FAIRE / DÉCISIONS / RECOMMANDATION
 — for text and Markdown, plus a machine handle-resolution block. It never
 invokes an adapter, gateway, subprocess, or model.
