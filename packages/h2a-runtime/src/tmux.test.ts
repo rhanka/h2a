@@ -57,6 +57,7 @@ import {
   setLocalSessionDisplayName,
   startLocalSession,
   startHeadlessSession,
+  installH2aStatusSurface,
   startH2aWindow,
   startH2aWindowVerified,
   validateManagedTmuxProfile,
@@ -301,13 +302,13 @@ describe("startLocalSession agent pane metadata", () => {
       )
       .map((c) => (c[1] as string[]).join(" "));
     expect(setOpt).toContain(
-      "set-option -t =h2a-remote @remote_launch_profile claude",
+      "set-option -t h2a-remote @remote_launch_profile claude",
     );
     expect(setOpt).toContain(
-      "set-option -t =h2a-remote @remote_launch_gateway on",
+      "set-option -t h2a-remote @remote_launch_gateway on",
     );
     expect(setOpt).toContain(
-      "set-option -t =h2a-remote @remote_launch_gateway_base_url http://localhost:3002",
+      "set-option -t h2a-remote @remote_launch_gateway_base_url http://localhost:3002",
     );
     // the auth token is never read, so it can never land in a stored option
     expect(setOpt.join("\n")).not.toContain("sk-should-never-be-stored");
@@ -551,12 +552,12 @@ describe("startLocalSession agent pane metadata", () => {
     });
     expect(spawnSyncMock.mock.calls).toContainEqual([
       "tmux",
-      ["set-option", "-t", "=h2a-h2a-target", "@remote_agent_pane", "%7"],
+      ["set-option", "-t", "h2a-h2a-target", "@remote_agent_pane", "%7"],
       { stdio: "ignore" },
     ]);
     expect(spawnSyncMock.mock.calls).toContainEqual([
       "tmux",
-      ["set-option", "-t", "=h2a-h2a-target", "@remote_agent_host", "codex"],
+      ["set-option", "-t", "h2a-h2a-target", "@remote_agent_host", "codex"],
       { stdio: "ignore" },
     ]);
     expect(spawnSyncMock.mock.calls).toContainEqual([
@@ -564,7 +565,7 @@ describe("startLocalSession agent pane metadata", () => {
       [
         "set-option",
         "-t",
-        "=h2a-h2a-target",
+        "h2a-h2a-target",
         "@remote_agent_cwd",
         "/home/u/src/remote",
       ],
@@ -1750,5 +1751,37 @@ describe("resolveAgentPaneForInstance", () => {
   it("returns undefined when tmux is not available", () => {
     spawnSyncMock.mockReturnValue({ status: 1, stdout: "" });
     expect(resolveAgentPaneForInstance("codex:remote:abc")).toBeUndefined();
+  });
+});
+
+describe("session-option targets (tmux 3.6 regression)", () => {
+  it("never targets a session option with the =prefix, which set-option rejects", () => {
+    // Measured on tmux 3.6: `set-option -t =<session>` fails with
+    // "no such session" because -t there resolves a PANE, not a session, and a
+    // bare name is required. show-options TOLERATES the =prefix, which is why the
+    // bug hid: reads worked, writes silently failed, and the status surface never
+    // installed on any session. This pins that every set-option target is bare.
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions")
+        return { status: 0, stdout: "h2a-worker remote-worker claude 1\n" };
+      if (cmd === "tmux" && args[0] === "show-options")
+        return { status: 0, stdout: "" };
+      return { status: 0, stdout: "" };
+    });
+
+    installH2aStatusSurface("h2a-worker");
+
+    const badTargets = spawnSyncMock.mock.calls
+      .filter(
+        (c) =>
+          c[0] === "tmux" && Array.isArray(c[1]) && c[1][0] === "set-option",
+      )
+      .map((c) => c[1] as string[])
+      .filter((argv) => {
+        const t = argv.indexOf("-t");
+        return t >= 0 && (argv[t + 1] ?? "").startsWith("=");
+      });
+    expect(badTargets).toEqual([]);
   });
 });
