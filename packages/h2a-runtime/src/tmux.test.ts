@@ -129,6 +129,22 @@ function fakeStderr(): { write: (s: string) => boolean; text: () => string } {
   };
 }
 
+/**
+ * The current `list-sessions` projection deliberately includes identity and
+ * server fields before the managed-session fields.  Keep fixtures shaped like
+ * the real tmux format so managed-session resolution is exercised rather than
+ * silently filtered as a malformed row.
+ */
+function tmuxSessionRow(
+  name: string,
+  attached: number,
+  path: string,
+  profile: string,
+  displayName = "",
+): string {
+  return `$1\t1710000000\t1234\t/tmp/tmux-1000/default\t${name}\t${attached}\t${path}\t${profile}\t${displayName}\n`;
+}
+
 describe("attachLocalSession", () => {
   it("uses tmux attach-session outside tmux", () => {
     delete process.env.TMUX;
@@ -527,8 +543,7 @@ describe("startLocalSession agent pane metadata", () => {
       if (cmd === "tmux" && args[0] === "list-sessions") {
         return {
           status: 0,
-          stdout:
-            "remote-worker\t0\t/home/u/src/remote\tclaude\tworker\n",
+          stdout: tmuxSessionRow("remote-worker", 0, "/home/u/src/remote", "claude", "worker"),
         };
       }
       return { status: 0, stdout: "" };
@@ -554,7 +569,7 @@ describe("startLocalSession agent pane metadata", () => {
       if (cmd === "tmux" && args[0] === "list-sessions") {
         return {
           status: 0,
-          stdout: "remote-worker\t0\t/home/u/src/repo\tclaude\t\n",
+          stdout: tmuxSessionRow("remote-worker", 0, "/home/u/src/repo", "claude"),
         };
       }
       if (cmd === "tmux" && args[0] === "show-options") {
@@ -579,7 +594,8 @@ describe("startLocalSession agent pane metadata", () => {
         return {
           status: 0,
           stdout:
-            "h2a-worker\t0\t/home/u/src/repo\tclaude\t\nremote-worker\t0\t/home/u/src/repo\tclaude\t\n",
+            tmuxSessionRow("h2a-worker", 0, "/home/u/src/repo", "claude") +
+            tmuxSessionRow("remote-worker", 0, "/home/u/src/repo", "claude"),
         };
       }
       return { status: 0, stdout: "" };
@@ -597,8 +613,7 @@ describe("startLocalSession agent pane metadata", () => {
       if (cmd === "tmux" && args[0] === "list-sessions") {
         return {
           status: 0,
-          stdout:
-            "remote-worker\t0\t/home/u/src/remote\tcodex\tworker\n",
+          stdout: tmuxSessionRow("remote-worker", 0, "/home/u/src/remote", "codex", "worker"),
         };
       }
       return { status: 0, stdout: "" };
@@ -724,8 +739,7 @@ describe("existingLocalSessionSlugs", () => {
       if (cmd === "tmux" && args[0] === "list-sessions") {
         return {
           status: 0,
-          stdout:
-            "remote-existing\t0\t/home/u/src/repo\tcodex\texisting\n",
+          stdout: tmuxSessionRow("remote-existing", 0, "/home/u/src/repo", "codex", "existing"),
         };
       }
       return { status: 0, stdout: "" };
@@ -1604,14 +1618,13 @@ describe("listLocalSessions", () => {
       if (cmd === "tmux" && args[0] === "list-sessions") {
         return {
           status: 0,
-          stdout:
-            "remote-parent\t2\t/home/u/src/remote\tclaude\tParent session\n",
+          stdout: tmuxSessionRow("remote-parent", 2, "/home/u/src/remote", "claude", "Parent session"),
         };
       }
       return { status: 1, stdout: "" };
     });
 
-    expect(listLocalSessions()).toEqual([
+    expect(listLocalSessions()).toMatchObject([
       {
         name: "remote-parent",
         slug: "parent",
@@ -1683,7 +1696,8 @@ describe("managed tmux name resolution", () => {
         return {
           status: 0,
           stdout:
-            "h2a-current\t0\t/repo/current\tclaude\t\nremote-legacy\t0\t/repo/legacy\tcodex\t\n",
+            tmuxSessionRow("h2a-current", 0, "/repo/current", "claude") +
+            tmuxSessionRow("remote-legacy", 0, "/repo/legacy", "codex"),
         };
       }
       return { status: 1, stdout: "" };
@@ -1814,7 +1828,7 @@ describe("resolveAgentPaneForInstance", () => {
         if (sub === "list-sessions") {
           return {
             status: 0,
-            stdout: `remote-${label}\t0\t/home/u/src/${label}\t${host}\t\n`,
+            stdout: tmuxSessionRow(`remote-${label}`, 0, `/home/u/src/${label}`, host),
           };
         }
         // show-options: return different values for different options
@@ -1847,7 +1861,7 @@ describe("resolveAgentPaneForInstance", () => {
       const sub = Array.isArray(args) ? args[0] : "";
       if (sub === "-V") return { status: 0, stdout: "tmux 3.4\n" };
       if (sub === "list-sessions")
-        return { status: 0, stdout: "remote-other\t0\t/tmp\tcodex\t\n" };
+        return { status: 0, stdout: tmuxSessionRow("remote-other", 0, "/tmp", "codex") };
       if (sub === "show-options") return { status: 0, stdout: "\n" };
       return { status: 0, stdout: "" };
     });
@@ -1861,7 +1875,7 @@ describe("resolveAgentPaneForInstance", () => {
       const sub = Array.isArray(args) ? args[0] : "";
       if (sub === "-V") return { status: 0, stdout: "tmux 3.4\n" };
       if (sub === "list-sessions")
-        return { status: 0, stdout: "remote-remote\t0\t/tmp\tclaude\t\n" };
+        return { status: 0, stdout: tmuxSessionRow("remote-remote", 0, "/tmp", "claude") };
       if (sub === "show-options") {
         const option = (args as string[])[args.length - 1];
         if (option === "@remote_agent_host")

@@ -340,7 +340,7 @@ describe("main", () => {
       expect.any(Array),
       undefined,
       "remote",
-      {},
+      { attachedTerminal: true, sessionClass: "human" },
     );
     expect(attachLocalSession).toHaveBeenCalledWith("h2a-proj");
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).not.toContain(
@@ -798,6 +798,8 @@ describe("main", () => {
       process.cwd(),
       expect.any(Array),
       "proj",
+      undefined,
+      { attachedTerminal: true, sessionClass: "human" },
     );
   });
 
