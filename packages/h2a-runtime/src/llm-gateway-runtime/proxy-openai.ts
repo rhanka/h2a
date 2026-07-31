@@ -991,10 +991,12 @@ export function translateCodexStreamToAnthropic(
       const emit = (s: string) => controller.enqueue(enc.encode(s));
 
       let nextBlockIdx = 0;
-      // output_index → {type, idx}
+      // output_index → {type, idx}. `argsSent` accumulates the tool-argument
+      // JSON already relayed to the client, so the terminal arguments can be
+      // reconciled against it rather than blindly appended or blindly skipped.
       const blockMap = new Map<
         number,
-        { type: "text" | "tool"; idx: number }
+        { type: "text" | "tool"; idx: number; argsSent?: string }
       >();
       let textBlockOpen = false;
       let outputTokens = 0;
@@ -1107,6 +1109,7 @@ export function translateCodexStreamToAnthropic(
                 if (!delta) break;
                 const fBlock = blockMap.get(outputIndex);
                 if (fBlock?.type === "tool") {
+                  fBlock.argsSent = (fBlock.argsSent ?? "") + delta;
                   emit(
                     sseEvent("content_block_delta", {
                       type: "content_block_delta",
@@ -1120,7 +1123,61 @@ export function translateCodexStreamToAnthropic(
 
               case "response.output_item.done": {
                 const block = blockMap.get(outputIndex);
+                const item = data.item as Record<string, unknown> | undefined;
                 if (block) {
+                  // The Codex Responses upstream delivers function-call
+                  // arguments here, as one complete string; today it never emits
+                  // response.function_call_arguments.delta. Relaying them as an
+                  // input_json_delta before closing the block is what lets a
+                  // client reconstruct the tool input; without it every tool
+                  // call reaches the client with an empty input.
+                  //
+                  // The terminal value is authoritative, so it is reconciled
+                  // against what was already relayed instead of being skipped
+                  // whenever any delta arrived: an upstream that streamed only
+                  // PART of the arguments would otherwise leave the client with
+                  // a silently truncated input. Only the missing suffix is sent.
+                  // If what we relayed is not a prefix of the terminal value the
+                  // two cannot be reconciled inside an append-only stream, so
+                  // nothing is emitted rather than corrupting the JSON.
+                  if (
+                    block.type === "tool" &&
+                    typeof item?.arguments === "string" &&
+                    item.arguments !== ""
+                  ) {
+                    const sent = block.argsSent ?? "";
+                    if (item.arguments.startsWith(sent)) {
+                      const remainder = item.arguments.slice(sent.length);
+                      if (remainder !== "") {
+                        emit(
+                          sseEvent("content_block_delta", {
+                            type: "content_block_delta",
+                            index: block.idx,
+                            delta: {
+                              type: "input_json_delta",
+                              partial_json: remainder,
+                            },
+                          }),
+                        );
+                      }
+                    } else {
+                      // Irreconcilable: what was relayed is not a prefix of the
+                      // authoritative terminal value, and an append-only stream
+                      // cannot retract it. Emitting anything would corrupt the
+                      // JSON, so nothing is emitted — but the client is then
+                      // holding a tool input that CONTRADICTS the upstream, and
+                      // that must never be a silent outcome. Announce it, with
+                      // the call identity, so it is attributable in a log.
+                      console.warn(
+                        `[llm-gateway] tool-call arguments could not be reconciled for ` +
+                          `${(item.name as string | undefined) ?? "?"} ` +
+                          `(${(item.call_id as string | undefined) ?? "?"}): ` +
+                          `${sent.length} relayed chars are not a prefix of the ` +
+                          `${item.arguments.length}-char terminal value; the client ` +
+                          `input differs from upstream`,
+                      );
+                    }
+                  }
                   emit(
                     sseEvent("content_block_stop", {
                       type: "content_block_stop",
@@ -1129,7 +1186,6 @@ export function translateCodexStreamToAnthropic(
                   );
                   if (block.type === "text") textBlockOpen = false;
                 }
-                const item = data.item as Record<string, unknown> | undefined;
                 if (item?.type === "function_call") stopReason = "tool_use";
                 break;
               }
