@@ -186,24 +186,40 @@ export function handleInbox(
   if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
     return { error: "h2a_inbox: missing 'instance'" };
   }
-  // Narrowed once here so the type survives into the filter closures below.
-  const instance: string = args.instance;
   try {
     switch (args.action) {
-      case "read":
-        return { envelopes: store.readInbox(args.instance) };
-      case "put": {
-        if (!args.envelope) return { error: "h2a_inbox put: missing 'envelope'" };
-        if (!isHostQualifiedAddress(args.instance)) {
+      case "read": {
+        const liveSessions = listPresence(store.paths.root);
+        const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
+        const resolution = resolveRecipient({
+          target: args.instance,
+          liveInstances: liveSessions,
+          registeredInstances: registeredIds,
+          operation: "read"
+        });
+        if (resolution.kind === "list") {
+          return { candidates: resolution.candidates, reason: resolution.reason };
+        }
+        if (resolution.kind === "refuse") {
           return {
-            error: `h2a: recipient "${args.instance}" is not host-qualified — address it as <host>:<label> (e.g. claude:${String(args.instance).replace(/^:+/, "") || "agent"}). A bare label is ambiguous (the same label can exist on several hosts) and routes to an orphan inbox nobody reads. Resolve the exact peer via discover.`
+            error: resolution.reason,
+            ...(resolution.candidates ? { candidates: resolution.candidates } : {})
           };
         }
-        // WP-2: resolve-before-send legibility gate (does NOT change destination).
+        const recipient =
+          resolution.kind === "deliver-resolved" ? resolution.recipient : args.instance;
+        return { envelopes: store.readInbox(recipient) };
+      }
+      case "put": {
+        if (!args.envelope) return { error: "h2a_inbox put: missing 'envelope'" };
+        // WP-2/DOC-03: resolve-before-send legibility gate. A human display
+        // name may become only the recorded full instance, never an inbox key.
+        let recipient = args.instance;
+        let resolution: ReturnType<typeof resolveRecipient>;
         {
-          const liveSessions = listPresence(store.paths.root).map((s) => s.instance);
+          const liveSessions = listPresence(store.paths.root);
           const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
-          const resolution = resolveRecipient({
+          resolution = resolveRecipient({
             target: args.instance,
             liveInstances: liveSessions,
             registeredInstances: registeredIds
@@ -214,9 +230,16 @@ export function handleInbox(
               ...(resolution.candidates ? { candidates: resolution.candidates } : {})
             };
           }
-          // deliver / deliver-dormant / deliver-hint → proceed with put.
+          if (resolution.kind === "deliver-resolved") {
+            recipient = resolution.recipient;
+          }
         }
-        store.putInboxMessage(args.instance, args.envelope);
+        if (!isHostQualifiedAddress(recipient)) {
+          return {
+            error: `h2a: recipient "${args.instance}" is not host-qualified — address it as <host>:<label> (e.g. claude:${String(args.instance).replace(/^:+/, "") || "agent"}). A bare label is ambiguous (the same label can exist on several hosts) and routes to an orphan inbox nobody reads. Resolve the exact peer via discover.`
+          };
+        }
+        store.putInboxMessage(recipient, args.envelope);
         // Bug-2 backstop: report whether the recipient actually has a fresh
         // session. The write always succeeds (a dormant deposit-for-wake is
         // legitimate), but the caller must know live vs dormant rather than
@@ -224,7 +247,7 @@ export function handleInbox(
         // its full perennial id; the bare channel/alias form reads as dormant.
         const allFresh = listPresence(store.paths.root);
         const matchingFresh = allFresh.filter(
-          (s) => canonicalAddress(s.instance) === canonicalAddress(instance)
+          (s) => canonicalAddress(s.instance) === canonicalAddress(recipient)
         );
         const freshSessions = matchingFresh.length;
         // WP-F: honest at-send connection confidence for the recipient —
@@ -234,30 +257,38 @@ export function handleInbox(
         // recipientLive is true. Advisory — the put still delivers (dormant
         // deposit-for-wake stays legitimate).
         const recipientConfidence = bestConfidence(matchingFresh, Date.now());
-        // WP-2: enrich return with resolution metadata.
-        const liveSessions2 = allFresh.map((s) => s.instance);
-        const registeredIds2 = store.listInstances().map((i) => i.instance ?? i.id);
-        const resolution2 = resolveRecipient({
-          target: args.instance,
-          liveInstances: liveSessions2,
-          registeredInstances: registeredIds2
-        });
         return {
           ok: true,
           envelopeId: args.envelope.id,
           recipientLive: freshSessions > 0,
           freshSessions,
           ...(recipientConfidence ? { recipientConfidence } : {}),
-          resolution: resolution2.kind,
-          ...(resolution2.kind === "deliver-hint" ? { liveCandidate: resolution2.liveCandidate, reason: resolution2.reason } : {}),
-          ...(resolution2.kind === "deliver-dormant" ? { reason: resolution2.reason, dormant: true } : {})
+          resolution: resolution.kind,
+          ...(resolution.kind === "deliver-hint" ? { liveCandidate: resolution.liveCandidate, reason: resolution.reason } : {}),
+          ...(resolution.kind === "deliver-resolved" ? { recipient: resolution.recipient, reason: resolution.reason } : {}),
+          ...(resolution.kind === "deliver-dormant" ? { reason: resolution.reason, dormant: true } : {})
         };
       }
       case "pop": {
         if (typeof args.envelopeId !== "string" || args.envelopeId.length === 0) {
           return { error: "h2a_inbox pop: missing 'envelopeId'" };
         }
-        const envelope = store.popInboxMessage(args.instance, args.envelopeId);
+        const liveSessions = listPresence(store.paths.root);
+        const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
+        const resolution = resolveRecipient({
+          target: args.instance,
+          liveInstances: liveSessions,
+          registeredInstances: registeredIds
+        });
+        if (resolution.kind === "refuse") {
+          return {
+            error: resolution.reason,
+            ...(resolution.candidates ? { candidates: resolution.candidates } : {})
+          };
+        }
+        const recipient =
+          resolution.kind === "deliver-resolved" ? resolution.recipient : args.instance;
+        const envelope = store.popInboxMessage(recipient, args.envelopeId);
         if (!envelope) {
           return { error: `h2a_inbox pop: no envelope ${args.envelopeId} for ${args.instance}` };
         }
