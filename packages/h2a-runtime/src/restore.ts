@@ -173,14 +173,33 @@ export function discoverSessions(
 }
 
 /**
- * Positive restore gate: only an explicitly human, non-ended registry record
- * may become a dev tab. Legacy records and raw transcript scans have no such
- * marker, so they fail closed instead of reviving a job as a human session.
+ * Restore gate: may this registry record become a dev tab?
+ *
+ * An ended record never can. A record carrying an explicit class is judged on
+ * that class — which is the whole point of stamping it, and keeps a background
+ * launch or a delegated job out.
+ *
+ * A record with NO class is a LEGACY record, and this is where the gate has to
+ * be careful in both directions. Enrollment has required a class since the
+ * classification landed (registry.ts refuses an enrollment without one), so an
+ * unclassified record can only predate it. Judging those closed took out every
+ * session enrolled before that day: measured, restore returned an EMPTY list for
+ * three live named sessions of one repo, which is exactly what the owner
+ * observed as "restore does not restore my multi-session projects" — the filter
+ * was tightened to opt-in while nothing back-filled the class.
+ *
+ * So legacy records fall back to the discriminator that existed when they were
+ * written: a delegated job is never human, anything else was a session someone
+ * launched. That is narrower than it looks — it cannot readmit a NEW background
+ * session, because a new record always carries its class.
  */
 export function isHumanFacingSession(
-  e: Pick<RegistryEntry, "sessionClass" | "endedAt">,
+  e: Pick<RegistryEntry, "sessionClass" | "endedAt" | "role">,
 ): boolean {
-  return e.sessionClass === "human" && e.endedAt === undefined;
+  if (e.endedAt !== undefined) return false;
+  if (e.sessionClass === "human") return true;
+  if (e.sessionClass === "background") return false;
+  return e.role !== "job";
 }
 
 /**

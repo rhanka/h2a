@@ -686,8 +686,8 @@ test("the golden verb SET matches the contract and `expected[]`, not merely its 
   // WHY THIS EXISTS, and what the previous guard could not see. The count guard
   // asserts cardinality: len(golden) === len(contract), plus the two prose
   // numbers. Cardinality is blind to the mutations that keep it constant —
-  // SWAP one verb for another, or DUPLICATE one while DROPPING another, and 99
-  // stays 99. `expected[]` was not compared against the golden by anything at
+  // SWAP one verb for another, or DUPLICATE one while DROPPING another, and 100
+  // stays 100. `expected[]` was not compared against the golden by anything at
   // all: cli-contract.test.js compares it to the contract, and nothing closed
   // the third edge of the triangle.
   //
