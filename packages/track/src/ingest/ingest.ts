@@ -106,6 +106,9 @@ function resolveWorkspace(cmd: MappedCommand, state: State): { create: boolean; 
       // setRealization resolves items ∪ decisions (a decision has a prep/realization axis); resolving
       // only against items would leave a foreign-workspace DECISION reachable — a containment bypass.
       return { create: false, workspace: item(p['itemId']) ?? state.decisions.get(p['itemId'] as ItemId)?.workspace }
+    case 'item.set-raci':
+      // RACI is set on the named existing item; a W-pinned channel cannot change accountability on a V item.
+      return { create: false, workspace: item(p['itemId']) }
     case 'item.reparent':
       // The CHILD item is the mutated aggregate; the new parent is checked via affectedTargetWorkspaces.
       return { create: false, workspace: item(p['itemId']) }
@@ -114,6 +117,10 @@ function resolveWorkspace(cmd: MappedCommand, state: State): { create: boolean; 
       // PARENT is INTENTIONALLY NOT gated (it may be cross-workspace — the whole point of a restructure). The
       // planHash is the authorization scope the apply verifies edge-by-edge. So `item.restructure` does NOT
       // appear in affectedTargetWorkspaces (unlike item.reparent, whose parent must be same-workspace).
+      return { create: false, workspace: item(p['itemId']) }
+    case 'item.reopen':
+      // Regression expression — reopenItem mutates the named ITEM aggregate (a decision is refused in the
+      // facade), so containment is the item's workspace: a W-pinned channel can never reopen a V item.
       return { create: false, workspace: item(p['itemId']) }
     case 'item.spec':
     case 'acceptance.criterion':
@@ -276,6 +283,11 @@ function applyCommand(track: Track, cmd: MappedCommand, ctx: IngestContext): str
   switch (cmd.kind) {
     case 'item.create':
       return track.createItem(a[0] as ItemCreatedPayload)
+    case 'item.set-raci':
+      // setRaci(itemId, {accountable?, responsible?}) — the clientToken is already in scope via the
+      // ingest seam's withClientToken. The payload uses the creation-payload field names unchanged.
+      track.setRaci(a[0] as ItemId, a[1] as Parameters<Track['setRaci']>[1])
+      return undefined
     case 'item.reparent':
       track.reparentItem(a[0] as ItemId, a[1] as ItemId | undefined)
       return undefined
@@ -289,6 +301,11 @@ function applyCommand(track: Track, cmd: MappedCommand, ctx: IngestContext): str
       return undefined
     case 'item.realize':
       track.setRealization(a[0] as ItemId, a[1] as Realization)
+      return undefined
+    case 'item.reopen':
+      // reopenItem(itemId, {motive, reason}) — the clientToken is already in scope via the ingest seam's
+      // withClientToken (do not double-pass). Regression expression.
+      track.reopenItem(a[0] as ItemId, a[1] as Parameters<Track['reopenItem']>[1])
       return undefined
     case 'decision.create':
       return track.createDecision(a[0] as DecisionCreatedPayload)
