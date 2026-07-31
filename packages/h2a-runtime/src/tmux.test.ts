@@ -57,6 +57,7 @@ import {
   setLocalSessionDisplayName,
   startLocalSession,
   startHeadlessSession,
+  installH2aStatusSurface,
   startH2aWindow,
   startH2aWindowVerified,
   validateManagedTmuxProfile,
@@ -164,7 +165,7 @@ describe("killLocalSession", () => {
     expect(killLocalSession("h2a-proj")).toBe(true);
     expect(spawnSyncMock).toHaveBeenCalledWith(
       "tmux",
-      ["kill-session", "-t", "=h2a-proj"],
+      ["kill-session", "-t", "=h2a-proj:"],
       { stdio: "ignore" },
     );
   });
@@ -301,13 +302,13 @@ describe("startLocalSession agent pane metadata", () => {
       )
       .map((c) => (c[1] as string[]).join(" "));
     expect(setOpt).toContain(
-      "set-option -t =h2a-remote @remote_launch_profile claude",
+      "set-option -t =h2a-remote: @remote_launch_profile claude",
     );
     expect(setOpt).toContain(
-      "set-option -t =h2a-remote @remote_launch_gateway on",
+      "set-option -t =h2a-remote: @remote_launch_gateway on",
     );
     expect(setOpt).toContain(
-      "set-option -t =h2a-remote @remote_launch_gateway_base_url http://localhost:3002",
+      "set-option -t =h2a-remote: @remote_launch_gateway_base_url http://localhost:3002",
     );
     // the auth token is never read, so it can never land in a stored option
     expect(setOpt.join("\n")).not.toContain("sk-should-never-be-stored");
@@ -551,12 +552,12 @@ describe("startLocalSession agent pane metadata", () => {
     });
     expect(spawnSyncMock.mock.calls).toContainEqual([
       "tmux",
-      ["set-option", "-t", "=h2a-h2a-target", "@remote_agent_pane", "%7"],
+      ["set-option", "-t", "=h2a-h2a-target:", "@remote_agent_pane", "%7"],
       { stdio: "ignore" },
     ]);
     expect(spawnSyncMock.mock.calls).toContainEqual([
       "tmux",
-      ["set-option", "-t", "=h2a-h2a-target", "@remote_agent_host", "codex"],
+      ["set-option", "-t", "=h2a-h2a-target:", "@remote_agent_host", "codex"],
       { stdio: "ignore" },
     ]);
     expect(spawnSyncMock.mock.calls).toContainEqual([
@@ -564,7 +565,7 @@ describe("startLocalSession agent pane metadata", () => {
       [
         "set-option",
         "-t",
-        "=h2a-h2a-target",
+        "=h2a-h2a-target:",
         "@remote_agent_cwd",
         "/home/u/src/remote",
       ],
@@ -1610,7 +1611,7 @@ describe("setLocalSessionDisplayName / getLocalSessionDisplayName (R1 — allow-
     // Must use set-option with the exact session target and @display_name key.
     expect(spawnSyncMock.mock.calls).toContainEqual([
       "tmux",
-      ["set-option", "-t", "=remote-surch", "@display_name", "My Project"],
+      ["set-option", "-t", "=remote-surch:", "@display_name", "My Project"],
       { stdio: "ignore" },
     ]);
     // Must NEVER call rename-window (which would disable allow-rename per-window).
@@ -1634,7 +1635,7 @@ describe("setLocalSessionDisplayName / getLocalSessionDisplayName (R1 — allow-
     expect(v).toBe("My Project");
     expect(spawnSyncMock.mock.calls[0]).toEqual([
       "tmux",
-      ["show-options", "-qv", "-t", "=remote-surch", "@display_name"],
+      ["show-options", "-qv", "-t", "=remote-surch:", "@display_name"],
       { encoding: "utf8" },
     ]);
   });
@@ -1655,7 +1656,7 @@ describe("setLocalSessionDisplayName / getLocalSessionDisplayName (R1 — allow-
     const call = spawnSyncMock.mock.calls[0]!;
     // exactSessionTarget must NOT double-prefix with ==
     // args: ["set-option", "-t", <target>, "@display_name", <value>]
-    expect((call[1] as string[])[2]).toBe("=remote-surch");
+    expect((call[1] as string[])[2]).toBe("=remote-surch:");
   });
 });
 
@@ -1750,5 +1751,42 @@ describe("resolveAgentPaneForInstance", () => {
   it("returns undefined when tmux is not available", () => {
     spawnSyncMock.mockReturnValue({ status: 1, stdout: "" });
     expect(resolveAgentPaneForInstance("codex:remote:abc")).toBeUndefined();
+  });
+});
+
+describe("session-option targets (tmux 3.6 regression)", () => {
+  it("uses an exact session target for every status-surface option access", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd !== "tmux") return { status: 0, stdout: "" };
+      if (args[0] === "list-sessions") {
+        return {
+          status: 0,
+          stdout:
+            "$1\t1710000000\t1234\t/tmp/tmux-1000/default\th2a-worker\t0\t/work\tclaude\t\n",
+        };
+      }
+      return { status: 0, stdout: "" };
+    });
+
+    expect(installH2aStatusSurface("h2a-worker")).toBe(true);
+
+    const sessionOptionCalls = spawnSyncMock.mock.calls
+      .filter(
+        (call) =>
+          call[0] === "tmux" &&
+          Array.isArray(call[1]) &&
+          (["set-option", "show-options"] as string[]).includes(call[1][0]),
+      )
+      .map((call) => call[1] as string[]);
+
+    expect(sessionOptionCalls.some((args) => args[0] === "set-option")).toBe(
+      true,
+    );
+    expect(sessionOptionCalls.some((args) => args[0] === "show-options")).toBe(
+      true,
+    );
+    for (const args of sessionOptionCalls) {
+      expect(args[args.indexOf("-t") + 1]).toBe("=h2a-worker:");
+    }
   });
 });
