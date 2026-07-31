@@ -12,6 +12,7 @@ export {
   reachGuard,
   resolveRecipient,
   safePathSegment,
+  type LiveRecipient,
   type LocalStorePaths,
   type RecipientResolution
 } from "./paths.js";
