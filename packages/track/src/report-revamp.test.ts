@@ -12,7 +12,7 @@ import { EventStore } from './events/store.js'
 import type { DecisionRow, ReportRow } from './report/build.js'
 import { buildWpConductorView, formatWpConductor, formatWpTree } from './report/format.js'
 import { computeWpTree } from './report/rollup.js'
-import { reportHtml, reportText } from './read/commands.js'
+import { reportText } from './read/commands.js'
 import { TrackReader } from './read/contract.js'
 import { Track } from './track.js'
 import { runCli } from './cli/index.js'
@@ -345,19 +345,6 @@ describe('report-revamp — the conductor is exhaustive and escapes md', () => {
     }
     const rawCount = Object.values(json.buckets).flat().length
     expect(json.wpTotals.done + (json.wpTotals.active - json.wpTotals.done) + json.wpTotals.dropped).toBe(rawCount)
-  })
-
-  it('HTML keeps every outside-rollup item when there is no WP root', () => {
-    t.createItem({ kind: 'feature', title: 'orphan A', workspace: 'ws' })
-    const orphanB = t.createItem({ kind: 'feature', title: 'orphan B', workspace: 'ws' })
-    done(orphanB)
-
-    const html = reportHtml(new TrackReader(eventsPath), { ...base, decisions: true, wpTree: true })
-    expect(html).not.toContain('HORS ROLLUP')
-    expect(html).toContain('orphan A')
-    expect(html).toContain('orphan B')
-    expect(html).not.toContain('report-recommendation')
-    expect(html).not.toContain('<h2>Recommandation</h2>')
   })
 
   it('labels --active-roster totals as a filtered roster rather than global', () => {

@@ -316,6 +316,9 @@ export function selectFallbackAccount(
     return sameFamily[0] ?? samePoolTransport[0];
   }
 
+  // An attested session must refuse rather than downgrade its transport.
+  if (options.requiredTransport) return undefined;
+
   // 2. Same-pool candidates relaxing requiredTransport
   const samePoolAnyTransport = accounts.filter(
     (a) =>
