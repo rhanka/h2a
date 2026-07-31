@@ -23,6 +23,7 @@ import {
   nhiTrustBundle,
   signCanonical,
   signEnvelope,
+  slugify,
   type H2AActorRegistration,
   type H2AActorRef,
   type H2AEnvelope,
@@ -820,9 +821,15 @@ export function handleSessionClose(
   }
 }
 
+function discoveryNameKey(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? slugify(trimmed) : undefined;
+}
+
 export function handleDiscoverSessions(
   sessions: SessionRegistry,
-  args: { scope?: string; instance?: string; name?: string } | undefined
+  args: { scope?: string; instance?: string; name?: string } | undefined,
+  nativeInstances: readonly Pick<H2AActorRegistration, "instance" | "name">[] = []
 ): McpToolResult | McpErrorResult {
   try {
     let fresh = sessions.scanFresh();
@@ -837,12 +844,22 @@ export function handleDiscoverSessions(
       fresh = fresh.filter((session) => session.instance === wanted);
     }
     if (args?.name && typeof args.name === "string" && args.name.length > 0) {
-      const needle = args.name.toLowerCase();
-      fresh = fresh.filter(
-        (session) =>
-          typeof session.name === "string" &&
-          session.name.toLowerCase().includes(needle)
-      );
+      const needle = discoveryNameKey(args.name);
+      if (!needle) {
+        fresh = [];
+      } else {
+        const nativeNameByInstance = new Map(
+          nativeInstances
+            .filter((instance) => typeof instance.name === "string")
+            .map((instance) => [canonicalAddress(instance.instance), instance.name])
+        );
+        fresh = fresh.filter(
+          (session) =>
+            [session.name, nativeNameByInstance.get(canonicalAddress(session.instance))].some(
+              (name) => typeof name === "string" && discoveryNameKey(name)?.includes(needle)
+            )
+        );
+      }
     }
     // WP-F: surface connection-confidence per session (advisory). "active" =
     // the MCP channel carried traffic within the window; "idle-uncertain" =
