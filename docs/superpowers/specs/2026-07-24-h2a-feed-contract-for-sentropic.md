@@ -101,7 +101,7 @@ interface SessionDescriptor {
   product-wide property, and must not be quoted as one. Other egress paths in the
   same monorepo do send paths and file content today: `packages/h2a-runtime`'s
   `h2a-bridge.ts` relays files base64-encoded to remote pods and `h2a sync`
-  transfers workspace content; and `report-ai` posts
+  transfers workspace content; and the now-removed `report-ai` path posted
   `H2AReportContextEntry.workspace` — an **absolute realpath** — to a loopback
   gateway that proxies **upstream**. Each is a deliberate, separately-owned
   channel with its own rationale; none is covered by this boundary. The honest
