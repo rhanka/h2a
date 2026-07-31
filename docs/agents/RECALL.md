@@ -80,8 +80,11 @@ events on `origin/main` (no fork).
 
 Decided and recorded as a selected option in the journal. Rung: **structural as a RECORD,
 which is not the same as a guarantee that code behaves this way.** The question, the selected
-option and its summary are retrievable by the decision ULID and cannot drift — that is what
-is structural. Whether anything implements the rule is a separate fact, and rows carry it:
+option and its summary live in the append-only journal, so the RECORD they come from cannot
+drift — that is what is structural. The rendered table CELL is regenerated from that record,
+and a hand-edit CAN drift it: the gate enforces only that each table locator resolves to a
+selected decision, not that a cell still matches the journal (that is `--check` at generation
+time plus human review). Whether anything implements the rule is a separate fact, and rows carry it:
 **DOC-03 and DOC-04 are decided and NOT implemented**, DOC-05 is decided and unmerged.
 Applying reading rule 8 to this very table: what refuses **in the gate** is the ULID-resolution
 test — a table locator that is not a selected decision fails CI. `--check` refuses a drifted
@@ -232,8 +235,11 @@ would falsify it.
 
 To go higher, one of two things has to happen, and neither is this lane acting alone:
 
-- **Projection.** Generate the DOCTRINE section from the journal, so it cannot drift from
-  `decision.option-selected`. Derivable today with no new record type.
+- **Projection.** Generate the DOCTRINE section from the journal so the RECORD it draws from
+  cannot drift (the journal is append-only), and the gate enforces that each table locator
+  resolves to a `decision.option-selected`. This does NOT guarantee a hand-edited CELL still
+  matches the journal — that stays a generation-time `--check` / human-review concern.
+  Derivable today with no new record type.
 - **Record types** for refuted / recurrent / incident, plus the DOC-05 reopening
   transition. That is track's write surface — WP8's lane, not WP11's. Traced, not taken.
 
