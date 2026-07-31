@@ -278,10 +278,6 @@ function buildHappyArgv(verb, ctx) {
       return ["mcp-tools"];
     case "report-context":
       return ["report-context", "--workspace-root", join(root, ".."), "--root", root];
-    case "report-ai":
-    case "report-ai install-track-config":
-      // Async gateway adapter and user-XDG installer have hermetic dedicated tests.
-      return null;
     case "init":
       // Fresh sub-root so we don't collide with the bootstrap.
       return ["init", "--root", join(root, "..", "init-sub")];
@@ -331,6 +327,9 @@ function buildHappyArgv(verb, ctx) {
         "--agent",
         "claude:conductor:local"
       ];
+    case "loop enable-auto-tick":
+      ensureContractLoop(root);
+      return ["loop", "enable-auto-tick", "loop-contract", "--root", root];
     case "loop list":
       ensureContractLoop(root);
       return ["loop", "list", "--root", root];
@@ -861,8 +860,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
   const expected = [
     "--help",
     // 2026-07-25: public-contract addition. This branch was written against a
-    // 97-verb main; PR #30 landed `keys prove-control` first, so the reconciled
-    // count is 99, not 98. Kept in exact sync with
+    // 97-verb main; PR #30 landed `keys prove-control` first, then `explain`,
+    // and `loop enable-auto-tick` raised the reconciled count to 100. Kept in exact sync with
     // docs/contracts/golden/cli-verbs.json — by `scripts/check-public-contract.sh`
     // (which diffs the golden against the built H2A_CLI_VERB_CONTRACTS) and by
     // the count guard in test/cli-command-map.test.js, which additionally covers
@@ -871,12 +870,11 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "hosts",
     "mcp-tools",
     "report-context",
-    "report-ai",
-    "report-ai install-track-config",
     "init",
     "register",
     "discover",
     "loop create",
+    "loop enable-auto-tick",
     "loop list",
     "loop status",
     "loop agents",
