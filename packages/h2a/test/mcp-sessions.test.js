@@ -113,6 +113,95 @@ test("h2a_discover_sessions returns peers from disk and filters by scope/instanc
   }
 });
 
+test("h2a_discover_sessions matches native or presence names case-insensitively and slug-stably", () => {
+  const root = makeRoot("discover-name");
+  const nativeInstance = "claude:alpha:111111111111";
+  const presenceInstance = "codex:beta:222222222222";
+  const at = new Date().toISOString();
+  try {
+    const store = createLocalStore({ root });
+    const server = createMcpServer({ root, store });
+    store.registerInstance({
+      id: nativeInstance,
+      instance: nativeInstance,
+      roles: ["AGENTS"],
+      scopes: ["scope:default"],
+      capabilities: [],
+      endpoints: [],
+      publicKeys: [],
+      acceptedPolicies: [],
+      createdAt: at,
+      name: "Sentropic Runner"
+    });
+    store.registerInstance({
+      id: presenceInstance,
+      instance: presenceInstance,
+      roles: ["AGENTS"],
+      scopes: ["scope:default"],
+      capabilities: [],
+      endpoints: [],
+      publicKeys: [],
+      acceptedPolicies: [],
+      createdAt: at,
+      name: "another native name"
+    });
+    writePresence(root, {
+      sessionId: "sess:native-name",
+      instance: nativeInstance,
+      host: "claude",
+      name: "a different presence name",
+      startedAt: at,
+      heartbeatAt: at,
+      state: "live",
+      interests: { scopes: ["scope:default"], negotiations: [] },
+      subscribedTopics: [],
+      workspace: { id: "ws:native", path: "/work/native", host: "claude", label: "native" }
+    });
+    writePresence(root, {
+      sessionId: "sess:presence-name",
+      instance: presenceInstance,
+      host: "codex",
+      name: "sentropic-runner",
+      startedAt: at,
+      heartbeatAt: at,
+      state: "live",
+      interests: { scopes: ["scope:default"], negotiations: [] },
+      subscribedTopics: [],
+      workspace: { id: "ws:presence", path: "/work/presence", host: "codex", label: "presence" }
+    });
+
+    const result = server.callTool("h2a_discover_sessions", { name: "SENTROPIC RUNNER" });
+
+    assert.equal(result.error, undefined, JSON.stringify(result));
+    assert.deepEqual(
+      result.sessions
+        .map(({ instance, workspace, host, heartbeatAt }) => ({
+          fullId: instance,
+          workspace: workspace.path,
+          host,
+          lastBeat: heartbeatAt
+        }))
+        .sort((a, b) => a.fullId.localeCompare(b.fullId)),
+      [
+        {
+          fullId: nativeInstance,
+          workspace: "/work/native",
+          host: "claude",
+          lastBeat: at
+        },
+        {
+          fullId: presenceInstance,
+          workspace: "/work/presence",
+          host: "codex",
+          lastBeat: at
+        }
+      ].sort((a, b) => a.fullId.localeCompare(b.fullId))
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("h2a_session_close deletes the presence file and stops the heartbeat", () => {
   const root = makeRoot("close");
   try {

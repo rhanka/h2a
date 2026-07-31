@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import {
   createObjectiveLoop,
+  appendLoopEvent,
   listLoopEvents,
   readObjectiveLoop,
   updateObjectiveLoopStatus
@@ -145,7 +146,8 @@ test("buildActionSink.close ferme le loop puis skip ; wake/launch inconnus reste
     assert.equal(await sink.close({ type: "close", reason: "x" }, ctx), "done");
     assert.equal(readObjectiveLoop(root, loop.id).status, "done");
     assert.equal(await sink.close({ type: "close", reason: "x" }, ctx), "skipped");
-    assert.equal(await sink.wake({ type: "wake", agentId: "a1", reason: "x" }, ctx), "skipped");
+    const outcome = await sink.wake({ type: "wake", agentId: "a1", reason: "x" }, ctx);
+    assert.equal(typeof outcome === "string" ? outcome : outcome.outcome, "skipped");
     assert.deepEqual(
       await sink.requestLaunch({ type: "request-launch", agentId: "a1", reason: "x" }, ctx),
       { outcome: "skipped", detail: "unknown-agent" }
@@ -154,3 +156,78 @@ test("buildActionSink.close ferme le loop puis skip ; wake/launch inconnus reste
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+for (const [reason, variant] of Object.entries({
+  "no-h2a-instance": {
+    now: 10_000_000,
+    createLoop: (root) => createObjectiveLoop(root, {
+      name: "t",
+      goal: "g",
+      agents: [{ id: "a1", role: "impl", placement: "local", status: "running" }]
+    }),
+    expectedDetail: "no-h2a-instance"
+  },
+  "max-relaunches": {
+    now: 10_000_000,
+    createLoop: (root) => createObjectiveLoop(root, {
+      name: "t",
+      goal: "g",
+      policy: { maxRelaunches: 0 },
+      agents: [{ id: "a1", role: "impl", placement: "local", status: "running", h2aInstance: "inst-1" }]
+    }),
+    expectedDetail: "max-relaunches"
+  },
+  cooldown: {
+    now: 10_000_000,
+    createLoop: (root, now) => {
+      const loop = createObjectiveLoop(root, {
+        name: "t",
+        goal: "g",
+        agents: [{ id: "a1", role: "impl", placement: "local", status: "running", h2aInstance: "inst-1" }]
+      });
+      appendLoopEvent(root, {
+        type: "loop.action.applied",
+        loopId: loop.id,
+        at: new Date(now - 120_000).toISOString(),
+        payload: { action: "wake", key: "wake:a1" }
+      });
+      return loop;
+    },
+    expectedDetail: "cooldown"
+  },
+  "no-fresh-tmux-session": {
+    now: 10_000_000,
+    createLoop: (root) => createObjectiveLoop(root, {
+      name: "t",
+      goal: "g",
+      agents: [{ id: "a1", role: "impl", placement: "local", status: "running", h2aInstance: "inst-1" }]
+    }),
+    expectedDetail: "no-fresh-tmux-session"
+  }
+})) {
+  test(`wake skip (${reason}) : loop.action.skipped contient le detail`, async () => {
+    const root = freshRoot();
+    try {
+      const loop = variant.createLoop(root, variant.now);
+      const report = await executePlan(
+        root,
+        loop.id,
+        {
+          loopId: loop.id,
+          degraded: false,
+          outcome: "waiting-agent",
+          close: false,
+          actions: [{ type: "wake", agentId: "a1", reason: "presence live" }],
+          reasons: []
+        },
+        buildActionSink(),
+        variant.now
+      );
+      const skipped = listLoopEvents(root, loop.id).filter((event) => event.type === "loop.action.skipped").at(-1);
+      assert.equal(report.results[0].outcome, "skipped");
+      assert.equal(skipped?.payload?.detail, variant.expectedDetail);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}

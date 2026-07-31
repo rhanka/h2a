@@ -567,6 +567,35 @@ function writeLoopState(root: string, loop: H2AObjectiveLoop): H2AObjectiveLoop 
   return loop;
 }
 
+/** Explicitly opt one persisted loop into durable supervisor ticks. */
+export function enableObjectiveLoopAutoTick(
+  root: string,
+  loopId: string,
+  now: number = Date.now()
+): H2AObjectiveLoop {
+  const loop = readObjectiveLoop(root, loopId);
+  if (loop.policy?.autoTick === true) return loop;
+  const at = new Date(now).toISOString();
+  const next: H2AObjectiveLoop = {
+    ...loop,
+    policy: {
+      ...H2A_DEFAULT_LOOP_POLICY,
+      ...loop.policy,
+      autoTick: true,
+      requireHumanTypingGuard: true
+    },
+    updatedAt: at
+  };
+  writeLoopState(root, next);
+  appendLoopEvent(root, {
+    type: "loop.auto-tick-enabled",
+    loopId,
+    at,
+    payload: { autoTick: true }
+  });
+  return next;
+}
+
 function resolveAgent(loop: H2AObjectiveLoop, input: { readonly instance?: string; readonly agentId?: string }): H2ALoopAgent | undefined {
   if (input.agentId) return loop.agents.find((a) => a.id === input.agentId);
   if (!input.instance) return undefined;

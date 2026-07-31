@@ -30,11 +30,9 @@ test("createLocalStore({lockMode:'lease'}) registers + reads back through the le
     const found = store.findInstance("conductor:lease-1");
     assert.ok(found);
     assert.equal(found.id, "conductor:lease-1");
-    // dup guard still works under the lease lock
-    assert.throws(
-      () => store.registerInstance(registration("conductor:lease-1")),
-      /already registered/
-    );
+    // Idempotence also holds through the lease lock.
+    store.registerInstance(registration("conductor:lease-1"));
+    assert.equal(store.listInstances().length, 1);
     // the lease lock file is released after each section
     assert.equal(existsSync(join(root, "registry", ".lock")), false);
   } finally {
