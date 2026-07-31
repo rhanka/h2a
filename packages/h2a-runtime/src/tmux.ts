@@ -18,6 +18,7 @@ import { getTmuxProfileConfig } from "./config.js";
 import {
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -25,6 +26,8 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
+
+import { readProcessTreeCpuMs, readWorkerPid } from "./proc-cpu.js";
 
 import {
   LAUNCH_OPTION_PREFIX,
@@ -1090,8 +1093,25 @@ function validTmuxPaneId(value: string | undefined): value is string {
   return value !== undefined && /^%\d+$/.test(value);
 }
 
+/**
+ * Exact, fail-closed SESSION target for `-t`, for both `show-options` and
+ * `set-option`.
+ *
+ * Measured on tmux 3.6:
+ *   -t <name>     bare  -> resolves exact THEN unique-PREFIX, so `set-option -t
+ *                          h2a-foo` mutates `h2a-foobar` when h2a-foo is gone.
+ *   -t =<name>          -> `=` marks a PANE target here; both commands miss the
+ *                          session, and `-q` swallows the error so a read returns
+ *                          "" — which is why the status surface silently never
+ *                          installed on this tmux.
+ *   -t =<name>:         -> `=` exact + trailing `:` (the session's target):
+ *                          resolves the EXACT session, fails closed when it is
+ *                          absent, and works for read and write alike.
+ * So the correct exact-session form is `=<name>:`.
+ */
 function exactSessionTarget(session: string): string {
-  return session.startsWith("=") ? session : `=${session}`;
+  const bare = session.replace(/^=/, "").replace(/:$/, "");
+  return `=${bare}:`;
 }
 
 function readSessionOption(
@@ -1857,10 +1877,18 @@ export function sessionAttached(name: string): boolean {
  * Paste a LITERAL line into a session's main pane, then submit it with a real
  * Enter key event. Content reaches `tmux load-buffer -` on stdin, then a named
  * buffer is pasted: arbitrary text is never interpreted by a shell and never
- * appears in a process argv. Enter is a separate key-name event. Used both for
- * initial prompts and interactive throttle nudges.
+ * appears in a process argv. Enter is a separate key-name event. Used for
+ * interactive throttle nudges (single lines).
  */
 export function sendKeysLiteral(name: string, keys: string): boolean {
+  if (!loadAndPaste(name, keys, false)) return false;
+  const enter = spawnSync(TMUX, ["send-keys", "-t", name, "Enter"], {
+    stdio: "ignore",
+  });
+  return enter.status === 0;
+}
+
+function loadAndPaste(name: string, keys: string, bracketed: boolean): boolean {
   const buffer = `h2a-${process.pid}-${randomUUID()}`;
   const loaded = spawnSync(TMUX, ["load-buffer", "-b", buffer, "-"], {
     input: keys,
@@ -1870,17 +1898,118 @@ export function sendKeysLiteral(name: string, keys: string): boolean {
   if (loaded.status !== 0) return false;
   const pasted = spawnSync(
     TMUX,
-    ["paste-buffer", "-b", buffer, "-d", "-t", name],
+    [
+      "paste-buffer",
+      ...(bracketed ? ["-p"] : []),
+      "-b",
+      buffer,
+      "-d",
+      "-t",
+      name,
+    ],
     { stdio: "ignore" },
   );
   if (pasted.status !== 0) {
     spawnSync(TMUX, ["delete-buffer", "-b", buffer], { stdio: "ignore" });
     return false;
   }
-  const enter = spawnSync(TMUX, ["send-keys", "-t", name, "Enter"], {
+  return true;
+}
+
+/**
+ * Paste text as ONE block, WITHOUT submitting it.
+ *
+ * `-p` wraps the payload in bracketed-paste markers. Measured 2026-07-29 on
+ * Claude Code 2.1.220: without `-p`, a multi-line brief is submitted line by
+ * line — line 1 left as its own request while line 2 stayed in the composer.
+ * With `-p` the whole block lands as a single entry that one Enter submits.
+ */
+export function pasteLiteralBlock(name: string, keys: string): boolean {
+  return loadAndPaste(name, keys, true);
+}
+
+/** Submit whatever the composer currently holds (one real Enter key event). */
+export function submitPane(name: string): boolean {
+  const r = spawnSync(TMUX, ["send-keys", "-t", name, "Enter"], {
     stdio: "ignore",
   });
-  return enter.status === 0;
+  return r.status === 0;
+}
+
+/**
+ * Best-effort composer wipe. Ctrl-U only kills to the start of the CURRENT
+ * line, so a multi-line composer needs several — measured: one C-u left a
+ * multi-line brief in place, and retrying the paste then STACKED copies.
+ * Delivery never depends on this succeeding; it types only once.
+ */
+export function clearPaneComposer(name: string): boolean {
+  let ok = true;
+  for (let i = 0; i < 4; i += 1) {
+    const r = spawnSync(TMUX, ["send-keys", "-t", name, "C-u"], {
+      stdio: "ignore",
+    });
+    ok = ok && r.status === 0;
+  }
+  return ok;
+}
+
+/**
+ * VISIBLE text of one pane, or undefined when tmux cannot be read — unlike
+ * `capturePane`, which flattens a failure into "". Delivery needs the
+ * difference: an unreadable pane is not an empty one.
+ */
+export function capturePaneVisible(pane: string): string | undefined {
+  const r = spawnSync(TMUX, ["capture-pane", "-p", "-t", pane], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (r.status !== 0 || r.stdout === undefined) return undefined;
+  return r.stdout;
+}
+
+/**
+ * CPU time (ms) of the process tree behind a pane — the liveness signal used to
+ * tell a working agent from one parked on its placeholder.
+ */
+export function paneTreeCpuMs(pane: string): number | undefined {
+  const pid = localSessionPanePid(pane);
+  if (pid === undefined) return undefined;
+  return readProcessTreeCpuMs(pid, procReaderDeps());
+}
+
+/**
+ * The pid actually doing the work behind a pane.
+ *
+ * The pane's own pid is the launch WRAPPER: measured 2026-07-29, it reported 0s
+ * of CPU after 37s while its `codex` child had burned 13s. Anything that judges
+ * a lane by the reported pid alone — a supervisor, a status bar, a conductor —
+ * is reading the wrong process, and gets a false answer in both directions.
+ */
+export function paneWorkerPid(pane: string): number | undefined {
+  const pid = localSessionPanePid(pane);
+  if (pid === undefined) return undefined;
+  return readWorkerPid(pid, procReaderDeps());
+}
+
+function procReaderDeps() {
+  return {
+    listPids: () => {
+      try {
+        return readdirSync("/proc")
+          .map((entry) => Number.parseInt(entry, 10))
+          .filter((value) => Number.isInteger(value) && value > 0);
+      } catch {
+        return [];
+      }
+    },
+    readStat: (target: number) => {
+      try {
+        return readFileSync(`/proc/${target}/stat`, "utf8");
+      } catch {
+        return undefined;
+      }
+    },
+  };
 }
 
 /**

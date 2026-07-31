@@ -12,7 +12,7 @@ import { initTrackDir, resolveTrackDir, resolveTrackDirOrNull } from './resolve.
 import type { EvidenceKind, RunResult } from '../model/acceptance.js'
 import type { BlockerKind, BlockerScope, ResolutionRule } from '../model/blocker.js'
 import type { DecisionKind, Dossier, DossierArtifact, Outcome } from '../model/decision.js'
-import { DomainError, type Disposition, type Gate, type ItemKind, type ItemRole, type Realization, type ScopeDecl, type SpecStatus } from '../model/item.js'
+import { DomainError, type Disposition, type Gate, type ItemKind, type ItemRole, type Realization, type ReopenMotive, type ScopeDecl, type SpecStatus } from '../model/item.js'
 import type { Bucket } from '../report/buckets.js'
 import { displayText, formatRows, type Format } from '../report/format.js'
 import { Track } from '../track.js'
@@ -27,6 +27,7 @@ import {
   ITEM_KINDS,
   ITEM_ROLES,
   REALIZE_TARGETS,
+  REOPEN_MOTIVE_VALUES,
   RESOLUTION_RULES,
   RESULTS,
   ROLE_CHANGE_TARGETS,
@@ -36,7 +37,7 @@ import {
 import { ingest, type IngestContext } from '../ingest/ingest.js'
 import { applyRestructurePlan, type RestructurePlan } from './restructure-apply.js'
 import { TrackReader } from '../read/contract.js'
-import { queryText, reportHtml, reportInline, reportText, resolveHandle, statusText } from '../read/commands.js'
+import { queryText, reportInline, reportText, resolveHandle, statusText, type ReportPeriodSelection } from '../read/commands.js'
 import { STATUS_LEVELS } from '../report/status-by-level.js'
 import { renderSnapshot } from '../report/snapshot.js'
 import { VERSION } from '../version.js'
@@ -70,13 +71,15 @@ const USAGE = `usage: track <command>
     may appear before or after the command; it redirects reads AND writes to that directory
   --version | -v
   init
-  item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] [--engagement-ref <e>]
+  item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] (trim actor IDs; blank responsible members are dropped)
   item reparent <itemId> [--parent <pid>] [--detach]
+  item set-raci <itemId> [--accountable <a>] [--responsible <a,a>] [--client-token <t>] (trimmed blank members are rejected, unlike item new)
   item set-role <itemId> <workpackage|stream>
   item scope-declare <itemId> [--allowed <glob,glob>] [--forbidden <...>] [--conditional <...>] [--scope <json>]
   item spec-amend <itemId> --base-hash <h> --result-hash <h> --patch <json> [--decision-id <id>] [--live-doc-ref <r>] [--proposal-ref <r>] [--summary <s>] [--client-token <t>]
   item spec <itemId> <to-specify|specified>
   item realize <itemId> <in-progress|done|cancelled>
+  item reopen <itemId> --motive <closed-without-owner-uat|regression-observed> --reason <r> [--client-token <t>]
   item assign-code <itemId> --code <c> [--client-token <t>]
   item show <itemId>
   item ls [--workspace <w>] [--kind <feature|bug|chore>] [--format json|text|md]
@@ -87,7 +90,7 @@ const USAGE = `usage: track <command>
   decision dossier <decisionId> [--context <c>] [--options-json <json> --recommendation <optionId> --rationale <r>]
   decision disposition <itemId> <orientation|commitment> <required|skipped|not-applicable>
   decision add-artifact <decisionId> --kind <h2a-decision-dossier|rendered-view|mockup> [--negotiation-ref <n>] [--dossier-hash <h>] [--view-ref <v>] [--source-dossier-hash <h>] [--label <l>] [--client-token <t>]
-  blocker raise --target <id> --kind <decision|dependency> [--ref <id>] [--reason <r>] [--rule <linked-done|linked-accepted|manual>] [--scope <intra|extra>] [--engagement-ref <e>]
+  blocker raise --target <id> --kind <decision|dependency> [--ref <id>] [--reason <r>] [--rule <linked-done|linked-accepted|manual>] [--scope <intra|extra>] [--engagement-ref <e>] [--owner <actor>]
   blocker resolve <blockerId>
   blocker resolve-external --engagement-ref <e>
   accept criterion <itemId> --statement <s>
@@ -97,7 +100,7 @@ const USAGE = `usage: track <command>
   accept waive <criterionId> --reason <r>
   consolidate --items <id,id> --commit <mergeCommit> [--client-token <t>]
   priority assess <itemId> --ubv <n> --tc <n> --rr <n> --js <n>
-  report [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md|html] [--commit <sha>] [--now <iso>]
+  report [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>]|--period <today|week|month|all>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md] [--commit <sha>] [--now <iso>]
   snapshot [--require-accepted] [--format json|text|md] [--commit <sha>]
   export-graph [--repo-key <repo:key>] [--source-id <id>] [--observed-at <iso>]
   query [--kind <k>] [--role <workpackage|spec-phase|stream>] [--workspace <w>] [--bucket <AWAITED|DROPPED|DONE|TO-DO>] [--realization <r>] [--acceptance <a>] [--format json|text|md] [--commit <sha>]
@@ -171,6 +174,96 @@ function resolveCommit(cwd: string, c: string | undefined): string {
     }).trim()
   } catch {
     return c
+  }
+}
+
+interface ReportBoundary {
+  at: string
+  ref: string | null
+}
+
+/** A calendar date is a local civil day at the CLI boundary, then emitted as an absolute instant. */
+function resolveReportDate(raw: string, upper: boolean): string | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(raw)
+  if (match === null) return undefined
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const value = new Date(year, month - 1, day, upper ? 23 : 0, upper ? 59 : 0, upper ? 59 : 0, upper ? 999 : 0)
+  if (value.getFullYear() !== year || value.getMonth() !== month - 1 || value.getDate() !== day) return undefined
+  return value.toISOString()
+}
+
+/** Resolve a date or commit selector strictly: period bounds must never silently degrade into a literal. */
+function resolveReportBoundary(cwd: string, raw: string, flag: '--since' | '--until'): ReportBoundary {
+  const date = resolveReportDate(raw, flag === '--until')
+  if (date !== undefined) return { at: date, ref: null }
+  try {
+    const ref = execFileSync('git', ['rev-parse', '--verify', '--end-of-options', `${raw}^{commit}`], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    const at = execFileSync('git', ['show', '-s', '--format=%cI', ref], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    if (Number.isNaN(Date.parse(at))) throw new Error('invalid committer date')
+    return { at, ref }
+  } catch {
+    throw new DomainError(`${flag} must be a YYYY-MM-DD date or a resolvable commit`)
+  }
+}
+
+function localDayStart(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate())
+}
+
+function localDayEnd(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 23, 59, 59, 999)
+}
+
+function namedReportPeriod(raw: string, now: string): ReportPeriodSelection {
+  const clock = new Date(now)
+  if (Number.isNaN(clock.getTime())) throw new DomainError('--now must be an ISO timestamp')
+  if (raw === 'all') return { requested: raw, fromRef: null, toRef: null }
+  let from: Date
+  let to: Date
+  if (raw === 'today') {
+    from = localDayStart(clock)
+    to = localDayEnd(clock)
+  } else if (raw === 'week') {
+    const start = localDayStart(clock)
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7)) // Monday, in local time
+    from = start
+    to = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6, 23, 59, 59, 999)
+  } else {
+    from = new Date(clock.getFullYear(), clock.getMonth(), 1)
+    to = new Date(clock.getFullYear(), clock.getMonth() + 1, 0, 23, 59, 59, 999)
+  }
+  return { requested: raw, from: from.toISOString(), to: to.toISOString(), fromRef: null, toRef: null }
+}
+
+function resolveReportPeriod(flags: Flags, cwd: string, now: string): ReportPeriodSelection | undefined {
+  const since = opt(flags, 'since')
+  const until = opt(flags, 'until')
+  const named = opt(flags, 'period')
+  if (since !== undefined && named !== undefined) throw new DomainError('--since and --period are mutually exclusive')
+  if (until !== undefined && since === undefined) throw new DomainError('--until requires --since')
+  if (named !== undefined) return namedReportPeriod(oneOf(named, ['today', 'week', 'month', 'all'], '--period'), now)
+  if (since === undefined) return undefined
+  const lower = resolveReportBoundary(cwd, since, '--since')
+  const upper = until === undefined ? undefined : resolveReportBoundary(cwd, until, '--until')
+  if (upper !== undefined && Date.parse(lower.at) > Date.parse(upper.at)) {
+    throw new DomainError('--since must not be after --until')
+  }
+  return {
+    requested: until === undefined ? since : `${since}..${until}`,
+    from: lower.at,
+    ...(upper !== undefined ? { to: upper.at } : {}),
+    fromRef: lower.ref,
+    toRef: upper?.ref ?? null,
   }
 }
 
@@ -347,13 +440,17 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
-const REPORT_USAGE = `usage: track report [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md|html] [--track-dir <directory-containing-events.jsonl>]
+const REPORT_USAGE = `usage: track report [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
+
+--scope selects one exact role-container by its id, durable assigned code, or current derived label. The selected container and all descendants are rendered through the same four-section report; unknown or ambiguous selectors fail loudly.
 
 --resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
 
 --sub-wp lists sub-WP rows beside their parent. Without it, sub-levels are aggregated into their parent on a long window (>= 14 days) and listed on a short one — the WP is the reading unit of a long report.
 
---now <iso> pins the window's upper bound (default: the wall clock). The report's period always runs from the first recorded event to that bound; pin it to reproduce a committed fixture byte for byte.
+--now <iso> pins the clock used by a named period and, without a selector, the whole-log upper bound. Without it, whole-log and --since reports stop at the journal head.
+
+--since accepts a local YYYY-MM-DD date or a git commit (using its committer date); --until closes a --since range. --period today|week|month|all is the named alternative. --since and --period are mutually exclusive. A selected period changes FAIT only: À-FAIRE remains the full current open-work projection.
 
 --track-dir is a global override and may appear before or after the command. It selects the directory that contains events.jsonl; it is especially useful for a read-only fixture. TRACK_DIR is the environment equivalent.
 `
@@ -574,6 +671,26 @@ function cmdItem(args: string[], ctx: Ctx): number {
     io.out('ok\n')
     return 0
   }
+  if (sub === 'set-raci') {
+    const accountable = opt(flags, 'accountable')
+    const responsible = opt(flags, 'responsible')
+    if (accountable === undefined && responsible === undefined) {
+      throw new DomainError('item set-raci requires --accountable and/or --responsible')
+    }
+    const clientToken = opt(flags, 'client-token')
+    if (clientToken !== undefined && store(ctx).readAll().some((event) => event.clientToken === clientToken)) {
+      io.out('no-op: client-token already applied\n')
+      return 0
+    }
+    track.setRaci(positional[0]!, {
+      ...(accountable !== undefined ? { accountable } : {}),
+      ...(responsible !== undefined
+        ? { responsible: responsible.split(',').map((s) => s.trim()) }
+        : {}),
+    }, clientToken)
+    io.out('ok\n')
+    return 0
+  }
   if (sub === 'scope-declare') {
     // Scope §B(a) — declare INERT path-scope globs on a WP/spec-phase. A comma-separated glob list per
     // axis (`--allowed`/`--forbidden`/`--conditional`), OR a `--scope <json>` object; the two are
@@ -663,6 +780,23 @@ function cmdItem(args: string[], ctx: Ctx): number {
     io.out('ok\n')
     return 0
   }
+  if (sub === 'reopen') {
+    // Regression expression — reopen a terminally-closed item (done/cancelled → in-progress) WITH its motive.
+    // Deliberately a SEPARATE verb from `item realize`, which keeps done/cancelled terminal. `--client-token`
+    // gives append-once idempotency at the CLI boundary (mirrors `assign-code`/`spec-amend`): without it a
+    // retry would hit "not closed" — the item is already reopened — instead of reading as the no-op it is.
+    const itemId = positional[0]!
+    const motive = oneOf(req(flags, 'motive'), REOPEN_MOTIVE_VALUES, '--motive') as ReopenMotive
+    const reason = req(flags, 'reason')
+    const clientToken = opt(flags, 'client-token')
+    if (clientToken !== undefined && store(ctx).readAll().some((e) => e.clientToken === clientToken)) {
+      io.out('no-op: client-token already applied\n')
+      return 0
+    }
+    track.reopenItem(itemId, { motive, reason }, clientToken)
+    io.out(`reopened ${itemId} (${motive})\n`)
+    return 0
+  }
   if (sub === 'assign-code') {
     // A1 (wp-codes) — assign a durable, re-assignable display `code` to a workpackage/spec-phase (the
     // canonical write; `assignCode` enforces roster-global uniqueness, re-asserted under the lock).
@@ -693,7 +827,7 @@ function cmdItem(args: string[], ctx: Ctx): number {
     rowsOut(rows, fmt(flags), io)
     return 0
   }
-  io.err('usage: track item <new|reparent|set-role|scope-declare|spec-amend|spec|realize|assign-code|show|ls>\n')
+  io.err('usage: track item <new|reparent|set-raci|set-role|scope-declare|spec-amend|spec|realize|assign-code|show|ls>\n')
   return 2
 }
 
@@ -860,6 +994,11 @@ function cmdBlocker(args: string[], ctx: Ctx): number {
   const { positional, flags } = parseFlags(args.slice(1))
   const track = writeTrack(ctx)
   if (sub === 'raise') {
+    const rawOwner = opt(flags, 'owner')
+    const owner = rawOwner?.trim()
+    if (rawOwner !== undefined && owner === '') {
+      throw new DomainError('blocker raise: --owner must be a non-empty actor')
+    }
     const id = track.openBlocker({
       targetId: req(flags, 'target'),
       kind: oneOf(req(flags, 'kind'), BLOCKER_KINDS, '--kind') as BlockerKind,
@@ -872,6 +1011,7 @@ function cmdBlocker(args: string[], ctx: Ctx): number {
         ? { scope: oneOf(req(flags, 'scope'), BLOCKER_SCOPES, '--scope') as BlockerScope }
         : {}),
       ...(opt(flags, 'engagement-ref') !== undefined ? { engagementRef: req(flags, 'engagement-ref') } : {}),
+      ...(owner !== undefined ? { owner } : {}),
     })
     io.out(`${id}\n`)
     return 0
@@ -995,10 +1135,11 @@ function cmdReport(args: string[], ctx: Ctx): number {
   const { io } = ctx
   const { positional, flags } = parseFlags(args)
   if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
-  for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now']) assertValueFlag(flags, name)
+  for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope', 'since', 'until', 'period']) assertValueFlag(flags, name)
+  const scope = opt(flags, 'scope')
   // Criterion 10b — the one documented command that turns a short report handle back into an item.
   if (opt(flags, 'resolve') !== undefined) {
-    assertOnlyFlags(flags, ['resolve', 'commit', 'require-accepted'])
+    assertOnlyFlags(flags, ['resolve', 'scope', 'commit', 'require-accepted'])
     io.out(
       resolveHandle(
         new TrackReader(ctx.eventsPath),
@@ -1007,6 +1148,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
           requireAccepted: assertBooleanFlag(flags, 'require-accepted'),
         },
         req(flags, 'resolve'),
+        scope,
       ),
     )
     return 0
@@ -1036,16 +1178,16 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   assertOnlyFlags(flags, [
     'commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'inline', 'width', 'format', 'now',
-    'sub-wp',
+    'sub-wp', 'scope', 'since', 'until', 'period',
   ])
   const rawFormat = opt(flags, 'format')
-  if (rawFormat !== undefined && !['json', 'text', 'md', 'html'].includes(rawFormat)) {
-    throw new DomainError('--format must be one of: json|text|md|html')
+  if (rawFormat !== undefined && !['json', 'text', 'md'].includes(rawFormat)) {
+    throw new DomainError('--format must be one of: json|text|md')
   }
   const widthArg = opt(flags, 'width')
   const inlineFlag = assertBooleanFlag(flags, 'inline')
   const inline = inlineFlag || widthArg !== undefined
-  const format = oneOf(rawFormat ?? 'text', ['json', 'text', 'md', 'html'], '--format')
+  const format = oneOf(rawFormat ?? 'text', ['json', 'text', 'md'], '--format')
   if (inline && format !== 'text') throw new DomainError('--inline/--width accepts no --format, or --format text')
   const requireAccepted = assertBooleanFlag(flags, 'require-accepted')
   const requestedDecisions = assertBooleanFlag(flags, 'decisions')
@@ -1054,12 +1196,17 @@ function cmdReport(args: string[], ctx: Ctx): number {
   const flat = assertBooleanFlag(flags, 'flat')
   if (wp && flat) throw new DomainError('--wp and --flat are mutually exclusive')
   if (format === 'json' && flat) throw new DomainError('--flat is only meaningful for text or md reports')
-  if (format === 'html' && flat) throw new DomainError('--format html is always the deterministic conductor and rejects --flat')
+  if (scope !== undefined && flat) throw new DomainError('--scope requires the four-section conductor and rejects --flat')
+  if (scope !== undefined && activeRoster) throw new DomainError('--scope includes the complete subtree and rejects --active-roster')
   let width: number | undefined
   if (widthArg !== undefined) {
     if (!/^\d+$/u.test(widthArg)) throw new DomainError('--width must be an integer in [40,240]')
     width = Number(widthArg)
     if (width < 40 || width > 240) throw new DomainError('--width must be an integer in [40,240]')
+  }
+  if (scope !== undefined && inline) throw new DomainError('--scope preserves the validated report shape and rejects --inline/--width')
+  if (scope !== undefined && format === 'md') {
+    throw new DomainError('--scope currently supports the owner text report and JSON projection only')
   }
   // Every format is a deterministic read over the folded log. The default human view is
   // the conductor; --flat explicitly requests the legacy bucket projection. JSON preserves
@@ -1071,28 +1218,27 @@ function cmdReport(args: string[], ctx: Ctx): number {
     requireAccepted,
     // The owner-facing conductor always classifies decision dossiers. JSON keeps its
     // established opt-in decision payload, while --flat retains the legacy opt-in.
-    decisions: requestedDecisions || (!flat && format !== 'json'),
-    wpTree: wp || (!flat && format !== 'json'),
+    decisions: scope !== undefined || requestedDecisions || (!flat && format !== 'json'),
+    wpTree: scope !== undefined || wp || (!flat && format !== 'json'),
     activeRoster,
   }
-  // Criterion 21 — the report's window runs from the first recorded event to NOW. The clock is injected
-  // HERE (the same boundary pattern as `workspace-activity --now`) so the library stays clockless and a
-  // committed fixture stays byte-reproducible by pinning `--now`.
+  // Criterion 21 — with no selector the report runs from the first event to the journal head; an injected
+  // clock is an explicit reproducible upper bound. Named calendar periods use the wall clock only to turn
+  // `today`/`week`/`month` into absolute local-time bounds, while the library itself remains clockless.
   const nowArg = opt(flags, 'now')
   if (nowArg !== undefined && Number.isNaN(new Date(nowArg).getTime())) {
     throw new DomainError('--now must be an ISO timestamp')
   }
-  const now = nowArg ?? new Date().toISOString()
+  const periodClock = nowArg ?? new Date().toISOString()
+  const period = resolveReportPeriod(flags, io.cwd, periodClock)
   // Criterion 25 — the EXPLICIT owner request for sub-WP rows. Without it the reading unit follows the
   // window: the WP on a long one, the sub-level on a short one.
   const subWp = assertBooleanFlag(flags, 'sub-wp')
   const reader = new TrackReader(ctx.eventsPath)
   if (inline) {
-    io.out(reportInline(reader, options, width === undefined ? {} : { width }))
-  } else if (format === 'html') {
-    io.out(reportHtml(reader, options, now, subWp))
+    io.out(reportInline(reader, options, width === undefined ? {} : { width }, nowArg, period))
   } else {
-    io.out(reportText(reader, options, format, now, subWp))
+    io.out(reportText(reader, options, format, nowArg, subWp, scope, period))
   }
   return 0
 }

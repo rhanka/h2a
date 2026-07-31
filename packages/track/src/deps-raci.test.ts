@@ -13,6 +13,7 @@ import { ingest, type IngestContext } from './ingest/ingest.js'
 import { DomainError } from './model/item.js'
 import { TrackReader } from './read/contract.js'
 import { reportText } from './read/commands.js'
+import { fold } from './state/fold.js'
 import { Track } from './track.js'
 import { runCli, type CliIO } from './cli/index.js'
 
@@ -72,6 +73,124 @@ describe('Lot A — RACI fields on items & decisions (additive)', () => {
     expect('responsible' in payload).toBe(false)
     expect('engagementRef' in payload).toBe(false)
     expect(integral()).toBe(true)
+  })
+})
+
+describe('RACI assignment on an existing item', () => {
+  it('folds a pre-RACI item-created log to its established state without adding RACI fields', () => {
+    const id = t.createItem({ kind: 'feature', title: 'Created before RACI', workspace: 'ws' })
+    const preRaciLog = store.readAll()
+    const serializedLog = JSON.stringify(preRaciLog)
+
+    expect(fold(preRaciLog).items.get(id)).toEqual({
+      id,
+      kind: 'feature',
+      title: 'Created before RACI',
+      workspace: 'ws',
+      specStatus: 'to-specify',
+      realization: 'to-do',
+      disposition: { orientation: 'required', commitment: 'required' },
+    })
+    expect(JSON.stringify(preRaciLog)).toBe(serializedLog)
+  })
+
+  it('folds an item-created log with legacy RACI payload keys in origin/main key order', () => {
+    const id = t.createItem({
+      kind: 'feature',
+      title: 'Created with legacy RACI fields',
+      workspace: 'ws',
+      accountable: 'human:alice',
+      responsible: ['agent:codex', 'human:bob'],
+      engagementRef: 'eng-123',
+    })
+    const preRaciLog = store.readAll()
+    const item = fold(preRaciLog).items.get(id)!
+    const mainShape = {
+      id,
+      kind: 'feature',
+      title: 'Created with legacy RACI fields',
+      workspace: 'ws',
+      specStatus: 'to-specify',
+      realization: 'to-do',
+      disposition: { orientation: 'required', commitment: 'required' },
+      accountable: 'human:alice',
+      responsible: ['agent:codex', 'human:bob'],
+      engagementRef: 'eng-123',
+    }
+    expect(JSON.stringify(item)).toBe(JSON.stringify(mainShape))
+  })
+
+  it('updates supplied fields while preserving the others, with a durable item event', () => {
+    const id = t.createItem({
+      kind: 'feature',
+      title: 'X',
+      workspace: 'ws',
+      accountable: 'human:alice',
+      responsible: ['agent:codex'],
+    })
+
+    t.setRaci(id, { responsible: ['agent:gemini', 'human:bob'] }, 'raci-1')
+    t.setRaci(id, { accountable: 'human:carol' })
+
+    const item = t.state().items.get(id)!
+    expect(item.accountable).toBe('human:carol')
+    expect(item.responsible).toEqual(['agent:gemini', 'human:bob'])
+    const events = store.readAll().filter((event) => event.aggregateId === id)
+    expect(events.map((event) => event.type)).toEqual(['item.created', 'item.raci-assigned', 'item.raci-assigned'])
+    expect(events.map((event) => event.seq)).toEqual([1, 2, 3])
+    expect(events[1]!.aggregateId).toBe(id)
+    expect(events[1]!.payload).toEqual({ responsible: ['agent:gemini', 'human:bob'] })
+    expect(events[1]!.clientToken).toBe('raci-1')
+    expect(integral()).toBe(true)
+  })
+
+  it('normalises padded actor IDs on item creation and set-raci, so both verbs store the same spelling', () => {
+    const id = t.createItem({
+      kind: 'feature',
+      title: 'X',
+      workspace: 'ws',
+      accountable: '  human:spaced ',
+      responsible: ['  agent:codex ', 'human:bob '],
+    })
+    const created = t.state().items.get(id)!
+    expect(created.accountable).toBe('human:spaced')
+    expect(created.responsible).toEqual(['agent:codex', 'human:bob'])
+
+    t.setRaci(id, { accountable: ' human:spaced ', responsible: ['  human:carol '] })
+    const updated = t.state().items.get(id)!
+    expect(updated.accountable).toBe('human:spaced')
+    expect(updated.responsible).toEqual(['human:carol'])
+  })
+
+  it('keeps pre-existing item.create acceptance while trimming actor fields', () => {
+    const id1 = t.createItem({ kind: 'feature', title: 'X', workspace: 'ws', accountable: '   ' })
+    expect(t.state().items.get(id1)?.accountable).toBe('')
+
+    const id2 = t.createItem({
+      kind: 'feature',
+      title: 'Y',
+      workspace: 'ws',
+      responsible: ['  agent:codex ', ''],
+    })
+    expect(t.state().items.get(id2)?.responsible).toEqual(['agent:codex', ''])
+
+    const id3 = t.createItem({ kind: 'feature', title: 'Z', workspace: 'ws', responsible: ['   '] })
+    expect(t.state().items.get(id3)?.responsible).toEqual([''])
+  })
+
+  it('rejects an unknown item and an empty update before append', () => {
+    const id = t.createItem({ kind: 'feature', title: 'X', workspace: 'ws' })
+    expect(() => t.setRaci('NOPE', { accountable: 'human:alice' })).toThrow(/unknown item NOPE/)
+    expect(() => t.setRaci(id, {})).toThrow(/requires accountable and\/or responsible/)
+    expect(store.readAll()).toHaveLength(1)
+  })
+
+  it('rejects empty and blank-value set-raci updates (fail-closed, no clear)', () => {
+    const id = t.createItem({ kind: 'feature', title: 'X', workspace: 'ws' })
+    expect(() => t.setRaci(id, { responsible: [] })).toThrow(/requires accountable and\/or responsible/)
+    expect(() => t.setRaci(id, { accountable: '' })).toThrow(/requires accountable and\/or responsible/)
+    expect(() => t.setRaci(id, { responsible: ['agent:codex', ''] })).toThrow(/requires accountable and\/or responsible/)
+    expect(store.readAll()).toHaveLength(1)
   })
 })
 
@@ -141,6 +260,66 @@ describe('Lot A — the WorkEvent ingest path carries the new fields', () => {
     expect(item.accountable).toBe('human:a')
     expect(item.responsible).toEqual(['agent:c'])
     expect(item.engagementRef).toBe('eng-1')
+  })
+
+  it('ingest item.create normalises padded actor IDs', () => {
+    const r = ingest(
+      [{ v: 1, kind: 'item.create', payload: { kind: 'feature', title: 'X', workspace: 'ws', accountable: '  human:ingest ', responsible: ['  agent:wire '], engagementRef: 'eng-1' } }],
+      ctx,
+      store,
+    )
+    const item = t.state().items.get(r.ids[0]!)!
+    expect(item.accountable).toBe('human:ingest')
+    expect(item.responsible).toEqual(['agent:wire'])
+  })
+
+  it('ingests RACI updates on an existing item through the authenticated, workspace-pinned seam', () => {
+    const id = ingest(
+      [{ v: 1, kind: 'item.create', payload: { kind: 'feature', title: 'X', workspace: 'ws', accountable: 'human:alice' } }],
+      ctx,
+      store,
+    ).ids[0]!
+
+    ingest(
+      [{ v: 1, kind: 'item.set-raci', payload: { itemId: id, responsible: ['agent:codex'] } }],
+      ctx,
+      store,
+    )
+    const item = t.state().items.get(id)!
+    expect(item.accountable).toBe('human:alice')
+    expect(item.responsible).toEqual(['agent:codex'])
+
+    const unauthenticated: IngestContext = {
+      ...ctx,
+      prov: { transport: 'http', proposed: true, auth: 'unauthenticated' },
+    }
+    expect(() =>
+      ingest([{ v: 1, kind: 'item.set-raci', payload: { itemId: id, accountable: 'human:bob' } }], unauthenticated, store),
+    ).toThrow(/binding write/)
+    expect(() =>
+      ingest([{ v: 1, kind: 'item.set-raci', payload: { itemId: id, accountable: 'human:bob' } }], { ...ctx, workspace: 'other' }, store),
+    ).toThrow(/belongs to workspace "ws"/)
+    expect(t.state().items.get(id)!.accountable).toBe('human:alice')
+  })
+
+  it('rejects blank/empty set-raci payloads at ingest (accountable or responsible)', () => {
+    const id = ingest(
+      [{ v: 1, kind: 'item.create', payload: { kind: 'feature', title: 'X', workspace: 'ws', accountable: 'human:alice' } }],
+      ctx,
+      store,
+    ).ids[0]!
+    const preCount = store.readAll().length
+
+    expect(() => ingest([{ v: 1, kind: 'item.set-raci', payload: { itemId: id, responsible: [] } }], ctx, store)).toThrow(
+      /requires accountable and\/or responsible/,
+    )
+    expect(() => ingest([{ v: 1, kind: 'item.set-raci', payload: { itemId: id, accountable: '' } }], ctx, store)).toThrow(
+      /requires accountable and\/or responsible/,
+    )
+    expect(() =>
+      ingest([{ v: 1, kind: 'item.set-raci', payload: { itemId: id, responsible: ['agent:codex', ''] } }], ctx, store),
+    ).toThrow(/requires accountable and\/or responsible/)
+    expect(store.readAll()).toHaveLength(preCount)
   })
 
   it('ingests an extra-scope dependency blocker', () => {
@@ -236,6 +415,106 @@ describe('Lot A — CLI flags', () => {
     expect(item.accountable).toBe('human:a')
     expect(item.responsible).toEqual(['agent:c', 'human:b'])
     expect(item.engagementRef).toBe('eng-7')
+  })
+
+  it('track item new keeps legacy responsible-member elision on spaced input', () => {
+    const out: string[] = []
+    const io: CliIO = { cwd: dir, out: (s) => out.push(s), err: (s) => out.push(s) }
+    expect(runCli(['init'], io)).toBe(0)
+    expect(runCli(['item', 'new', '--kind', 'feature', '--title', 'X', '--workspace', 'ws', '--responsible', 'agent:codex,   '], io)).toBe(0)
+    const id = out[out.length - 1]!.trim()
+    const item = new Track(new EventStore(join(dir, '.track', 'events.jsonl'))).state().items.get(id)!
+    expect(item.responsible).toEqual(['agent:codex'])
+  })
+
+  it('track item set-raci updates an already-created item without recreating it', () => {
+    const out: string[] = []
+    const io: CliIO = { cwd: dir, out: (s) => out.push(s), err: (s) => out.push(s) }
+    expect(runCli(['init'], io)).toBe(0)
+    expect(runCli(['item', 'new', '--kind', 'feature', '--title', 'X', '--workspace', 'ws'], io)).toBe(0)
+    const id = out[out.length - 1]!.trim()
+
+    const update = ['item', 'set-raci', id, '--accountable', 'human:alice', '--responsible', 'agent:codex, human:bob', '--client-token', 'raci-1']
+    expect(runCli(update, io)).toBe(0)
+    out.length = 0
+    expect(runCli(update, io)).toBe(0)
+    expect(out.join('')).toContain('no-op: client-token already applied')
+
+    const events = new EventStore(join(dir, '.track', 'events.jsonl')).readAll()
+    const item = new Track(new EventStore(join(dir, '.track', 'events.jsonl'))).state().items.get(id)!
+    expect(events.filter((event) => event.aggregateId === id).map((event) => event.type)).toEqual(['item.created', 'item.raci-assigned'])
+    expect(item.accountable).toBe('human:alice')
+    expect(item.responsible).toEqual(['agent:codex', 'human:bob'])
+  })
+
+  it('track item set-raci requires at least one RACI field', () => {
+    const out: string[] = []
+    const io: CliIO = { cwd: dir, out: (s) => out.push(s), err: (s) => out.push(s) }
+    expect(runCli(['init'], io)).toBe(0)
+    expect(runCli(['item', 'new', '--kind', 'feature', '--title', 'X', '--workspace', 'ws'], io)).toBe(0)
+    const id = out[out.length - 1]!.trim()
+    out.length = 0
+
+    expect(runCli(['item', 'set-raci', id], io)).toBe(1)
+    expect(out.join('')).toContain('requires --accountable and/or --responsible')
+  })
+
+  it('track item set-raci rejects blank/empty values with explicit commands', () => {
+    const out: string[] = []
+    const io: CliIO = { cwd: dir, out: (s) => out.push(s), err: (s) => out.push(s) }
+    expect(runCli(['init'], io)).toBe(0)
+    expect(runCli(['item', 'new', '--kind', 'feature', '--title', 'X', '--workspace', 'ws'], io)).toBe(0)
+    const id = out[out.length - 1]!.trim()
+
+    out.length = 0
+    expect(runCli(['item', 'set-raci', id, '--responsible', ','], io)).toBe(1)
+    expect(out.join('')).toContain('requires accountable and/or responsible')
+
+    out.length = 0
+    expect(runCli(['item', 'set-raci', id, '--responsible', 'agent:codex,   '], io)).toBe(1)
+    expect(out.join('')).toContain('requires accountable and/or responsible')
+
+    out.length = 0
+    expect(runCli(['item', 'set-raci', id, '--responsible', ''], io)).toBe(1)
+    expect(out.join('')).toContain('requires accountable and/or responsible')
+
+    out.length = 0
+    expect(runCli(['item', 'set-raci', id, '--accountable', ''], io)).toBe(1)
+    expect(out.join('')).toContain('requires accountable and/or responsible')
+  })
+
+  it('post-set-raci accountable updates are visible in report/query/snapshot and item show', () => {
+    const out: string[] = []
+    const io: CliIO = { cwd: dir, out: (s) => out.push(s), err: (s) => out.push(s) }
+    expect(runCli(['init'], io)).toBe(0)
+    expect(
+      runCli(
+        ['item', 'new', '--kind', 'feature', '--title', 'X', '--workspace', 'ws'],
+        io,
+      ),
+    ).toBe(0)
+    const id = out[out.length - 1]!.trim()
+    out.length = 0
+
+    expect(runCli(['item', 'set-raci', id, '--accountable', ' human:roundtripped ', '--responsible', '  agent:wire '], io)).toBe(0)
+    const reader = new TrackReader(eventsPath)
+    const base = { baselineCommit: 'c1' }
+    const reportRow = [...Object.values(reader.report(base).buckets).flat()].find((row) => row.id === id)
+    expect(reportRow).toBeDefined()
+    expect(reportRow!.accountable).toBe('human:roundtripped')
+    const queryRow = reader.query({}, base).find((row) => row.id === id)
+    expect(queryRow).toBeDefined()
+    expect(queryRow!.accountable).toBe('human:roundtripped')
+    const snapshot = reader.snapshot({ baselineInput: 'c1', resolvedCommit: 'c1' })
+    const snapshotRow = [...Object.values(snapshot.report.buckets).flat()].find((row) => row.id === id)
+    expect(snapshotRow).toBeDefined()
+    expect(snapshotRow!.accountable).toBe('human:roundtripped')
+
+    out.length = 0
+    expect(runCli(['item', 'show', id], io)).toBe(0)
+    const shown = JSON.parse(out.join('').trim())
+    expect(shown.accountable).toBe('human:roundtripped')
+    expect(shown.responsible).toEqual(['agent:wire'])
   })
 })
 

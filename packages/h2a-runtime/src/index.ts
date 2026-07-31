@@ -69,6 +69,8 @@ import {
   attachLocalSession,
   attachPodTmux,
   capturePane,
+  capturePaneVisible,
+  clearPaneComposer,
   conductorRunning,
   currentTmuxSessionName,
   currentTmuxSessionIs,
@@ -82,6 +84,10 @@ import {
   localSessionIdle,
   localSessionPanePid,
   localSessionName,
+  paneTreeCpuMs,
+  paneWorkerPid,
+  pasteLiteralBlock,
+  submitPane,
   installH2aStatusSurface,
   managedSessionCandidates,
   parseManagedSessionName,
@@ -106,6 +112,11 @@ import {
   uninstallH2aStatusSurface,
   type LocalSession,
 } from "./tmux.js";
+import {
+  deliverInitialPrompt,
+  sleepSync,
+  type PromptDeliveryResult,
+} from "./prompt-delivery.js";
 import { buildLaunchContext } from "./launch-context.js";
 import { migrateTmuxNames, type TmuxNameMigrationMode } from "./tmux-name-migration.js";
 import { projectStatusForH2a } from "./status-projection.js";
@@ -5453,9 +5464,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           slug: string;
           pane?: string;
           pid?: number;
+          workerPid?: number;
           h2aSidecar: boolean;
           outputLog?: string;
           resultJson?: string;
+          promptDelivery?: PromptDeliveryResult;
         }> = [];
         for (const label of labels) {
           const clientSessionId = localSessionName(slugify(label ?? cwd));
@@ -5523,6 +5536,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let resultJson: string | undefined;
           let agentPane: string | undefined;
           let promptFile: string | undefined;
+          let promptDelivery: PromptDeliveryResult | undefined;
           if (opts.headless) {
             const runDir = join(cwd, ".h2a", "runs", label!);
             mkdirSync(runDir, { recursive: true });
@@ -5607,22 +5621,58 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               );
             }
           }
-          if (
-            !opts.headless &&
-            initialPrompt !== undefined &&
-            !sendKeysLiteral(agentPane!, initialPrompt)
-          ) {
-            cleanupHeadlessPromptFile(promptFile);
-            killLocalSession(name);
-            process.stderr.write(
-              `[h2a] failed to deliver the initial prompt to ${slug}; the partial session was stopped\n`,
-            );
-            process.exitCode = 1;
-            return;
+          if (!opts.headless && initialPrompt !== undefined) {
+            // NEVER paste-and-hope: `tmux new-session -d` returns before the
+            // agent TUI draws anything, and a prompt sent into that window is
+            // echoed by the raw terminal and then discarded. Delivery is
+            // OBSERVED — brief seen in a real composer, then real work — because
+            // reporting "started" over a lost brief is what left a lane inert
+            // for 33 minutes on 2026-07-28.
+            promptDelivery = deliverInitialPrompt(agentPane!, initialPrompt, {
+              capturePane: capturePaneVisible,
+              clearComposer: clearPaneComposer,
+              pasteBlock: pasteLiteralBlock,
+              submit: submitPane,
+              cpuMs: paneTreeCpuMs,
+              sleep: sleepSync,
+              now: () => Date.now(),
+            });
+            if (promptDelivery.state !== "working") {
+              cleanupHeadlessPromptFile(promptFile);
+              // Only claim the session is gone when the kill actually reported
+              // success. "nothing is left running" over an unchecked call is the
+              // same wider-than-its-evidence claim this change exists to remove,
+              // and a surviving partial session is precisely the idle lane the
+              // operator was just told could not happen.
+              const stopped = killLocalSession(name);
+              const detail =
+                promptDelivery.state === "submitted-idle"
+                  ? `the brief was submitted but the agent never started working ` +
+                    `(${Math.round(promptDelivery.cpuDeltaMs)}ms of CPU): it is not "started"`
+                  : promptDelivery.reason;
+              process.stderr.write(
+                `[h2a] the initial prompt did not reach ${slug}: ${detail}\n` +
+                  (promptDelivery.state === "host-modal"
+                    ? `[h2a] fix: ${promptDelivery.hint}\n`
+                    : "") +
+                  (stopped
+                    ? `[h2a] the partial session was stopped, so nothing is left running idle\n`
+                    : `[h2a] WARNING: stopping the partial session FAILED — ${name} may still be alive; ` +
+                      `list it with h2a ls and stop it with h2a stop ${slug} --reason failed-launch\n`) +
+                  (promptDelivery.state !== "submitted-idle" &&
+                  promptDelivery.capture
+                    ? `[h2a] last screen:\n${promptDelivery.capture}\n`
+                    : ""),
+              );
+              process.exitCode = 1;
+              return;
+            }
           }
           const pid = agentPane
             ? localSessionPanePid(agentPane)
             : undefined;
+          const workerPid =
+            agentPane !== undefined ? paneWorkerPid(agentPane) : undefined;
           if (structuredLaunch && pid === undefined) {
             cleanupHeadlessPromptFile(promptFile);
             killLocalSession(name);
@@ -5640,6 +5690,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             slug,
             tmuxSession: name,
             ...(pid !== undefined ? { pid } : {}),
+            ...(workerPid !== undefined ? { workerPid } : {}),
             cwd,
             sessionClass,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
@@ -5653,6 +5704,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(pid !== undefined ? { pid } : {}),
             ...(outputLog !== undefined ? { outputLog } : {}),
             ...(resultJson !== undefined ? { resultJson } : {}),
+            ...(promptDelivery !== undefined ? { promptDelivery } : {}),
           });
         }
         if (count > 1) {
@@ -5683,10 +5735,28 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 h2aSidecar: only.h2aSidecar,
                 ...(only.pane !== undefined ? { pane: only.pane } : {}),
                 ...(only.pid !== undefined ? { pid: only.pid } : {}),
+                // `pid` is the launch WRAPPER. Measured 2026-07-29: it showed 0s
+                // of CPU after 37s while its codex child had burned 13s, so a
+                // liveness check on `pid` alone reports a working agent as dead.
+                // Name the process that actually works, and say it is distinct.
+                ...(only.workerPid !== undefined
+                  ? { workerPid: only.workerPid }
+                  : {}),
               },
               attach: opts.headless
                 ? null
                 : { command: "h2a", args: ["attach", only.slug] },
+              // What was OBSERVED, not what was attempted: the brief was seen in
+              // a real composer, submitted, and the agent's CPU then moved.
+              ...(only.promptDelivery?.state === "working"
+                ? {
+                    prompt: {
+                      delivered: true,
+                      waitedMs: only.promptDelivery.waitedMs,
+                      cpuDeltaMs: Math.round(only.promptDelivery.cpuDeltaMs),
+                    },
+                  }
+                : {}),
               ...(only.outputLog !== undefined
                 ? {
                     logs: { path: only.outputLog },
