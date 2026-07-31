@@ -170,6 +170,7 @@ import {
 import {
   recordStop,
   scanDrumbeat,
+  listDrumbeat,
   clearDrumbeatEntry,
   runDrumbeatWatch as runDrumbeatWatchLoop,
   loggingRelauncher,
@@ -181,6 +182,7 @@ import {
   loggingDecider,
   subagentDecider,
   H2A_DEFAULT_MAX_RELANCES,
+  type H2ADrumbeatEntry,
   type H2ARelauncher,
   type H2ARelauncherKind,
   type ReflexiveDecider
@@ -3531,6 +3533,19 @@ export async function runDrumbeatRelanceInbox(
 }
 
 /**
+ * D4 resume messages can only act on a durable, non-terminal stop record.
+ * Keeping this projection bounded prevents one huge historical registry from
+ * starving every drumbeat tick before its anti-stall scan runs.
+ */
+export function drumbeatResumeInboxTargets(
+  entries: readonly Pick<H2ADrumbeatEntry, "instance" | "workStatus" | "terminal">[]
+): string[] {
+  return entries
+    .filter((entry) => entry.workStatus !== "done" && entry.terminal === undefined)
+    .map((entry) => entry.instance);
+}
+
+/**
  * `h2a drumbeat watch` (DEC-086): long-running anti-stall daemon. Async +
  * blocking, dispatched from bin.ts like mcp-serve. Uses the logging relauncher
  * by default; concrete relaunchers (local-tmux / remote) land in D3/D4.
@@ -3646,7 +3661,16 @@ export async function runDrumbeatWatch(
     ...(flags.instance !== undefined ? { selfInstance: flags.instance } : {}),
     log,
     beforeScan: async () => {
+      // A D4 `drumbeat.resume` is actionable only for an already-recorded,
+      // non-terminal stop entry.  Scanning every registered instance here was
+      // O(registry × inbox) on every beat: a shared bus with tens of thousands
+      // of historical identities never reached its anti-stall scan at all.
+      // Restrict the inbox pass to the bounded stop registry; messages for an
+      // actor without a stop entry cannot be safely relanced and remain in its
+      // inbox for ordinary handling instead of starving the watchdog.
+      const resumeTargets = drumbeatResumeInboxTargets(listDrumbeat(root));
       const result = await relanceFromInbox(root, {
+        instances: resumeTargets,
         relauncher: buildLocalInboxRelauncher(kind, log)
       });
       if (result.relanced.length || result.skipped.length) {
