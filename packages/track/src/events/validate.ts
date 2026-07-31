@@ -33,6 +33,8 @@ export type IntegrityFinding =
   | { kind: 'truncation'; expected: number; actual: number }
   | { kind: 'head-mismatch'; index: number; expected: Sha256 | null; actual: Sha256 }
   | { kind: 'blocker-scope'; index: number; eventId: string; reason: string }
+  | { kind: 'reopen-motive'; index: number; eventId: string; reason: string }
+  | { kind: 'reopen-illegal'; index: number; eventId: string; reason: string }
 
 export interface IntegrityResult {
   ok: boolean
@@ -141,6 +143,7 @@ export function validate(
 
   findings.push(...validateBatches(events))
   findings.push(...validateBlockerScope(events))
+  findings.push(...validateReopen(events))
   findings.push(...validateHead(events, head))
 
   return { ok: findings.length === 0, findings }
@@ -174,6 +177,85 @@ function validateBlockerScope(events: ReadonlyArray<TrackEvent>): IntegrityFindi
       }
     }
     if (reason !== undefined) findings.push({ kind: 'blocker-scope', index: i, eventId: e.id, reason })
+  }
+  return findings
+}
+
+/**
+ * Regression expression — the fail-closed sibling of `validateBlockerScope`, for the same reason: `reopenItem`
+ * enforces the motive at write time, but a self-consistent (valid-hash) `realization.reopened` from a future
+ * writer / a hand-edit / a direct append must NOT fold into a state where a delivered capability was reopened
+ * with NOTHING said about why. The whole value of the 2026-07-29 ruling is that the log carries the motive, so
+ * an event that lacks it is an integrity finding, not a silent reopening.
+ *
+ * The accepted values are inlined here (as in `validateBlockerScope`) to keep the frozen event core free of a
+ * runtime dependency on the model layer; `reopen.test.ts` gates the two lists against drift behaviorally.
+ */
+const REOPEN_MOTIVES_ACCEPTED: ReadonlySet<string> = new Set(['closed-without-owner-uat', 'regression-observed'])
+
+/**
+ * A reopening is also checked for LEGALITY, not only for shape (`reopen-illegal`). A motivated reopening on an
+ * item that was never closed is not a reopening at all — it would be an out-of-facade way to push work forward.
+ * The fold refuses to apply it (all-or-nothing), so the state stays truthful; this makes the LOG say so too.
+ * Realization is replayed in stream order from the same three facts the fold uses (`item.created` ⇒ `to-do`,
+ * `realization.transition` ⇒ its `to`, a LEGAL `realization.reopened` ⇒ `in-progress`). An aggregate never seen
+ * in the stream is NOT judged (the fold no-ops on it anyway) — silence beats a false positive.
+ */
+function validateReopen(events: ReadonlyArray<TrackEvent>): IntegrityFinding[] {
+  const findings: IntegrityFinding[] = []
+  const realizationOf = new Map<string, string>()
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i]!
+    if (e.type === 'item.created') {
+      realizationOf.set(e.aggregateId, 'to-do')
+      continue
+    }
+    if (e.type === 'realization.transition') {
+      const to = (e.payload as { to?: unknown }).to
+      if (typeof to === 'string') realizationOf.set(e.aggregateId, to)
+      continue
+    }
+    if (e.type !== 'realization.reopened') continue
+
+    const p = e.payload as { itemId?: unknown; motive?: unknown; reason?: unknown }
+    let shape: string | undefined
+    if (typeof p.motive !== 'string' || !REOPEN_MOTIVES_ACCEPTED.has(p.motive)) {
+      shape = `a reopening requires one of the declared motives (${[...REOPEN_MOTIVES_ACCEPTED].join('|')})`
+    } else if (typeof p.reason !== 'string' || p.reason.trim().length === 0) {
+      shape = 'a reopening requires a non-empty reason'
+    }
+    if (shape !== undefined) findings.push({ kind: 'reopen-motive', index: i, eventId: e.id, reason: shape })
+
+    // The payload must name the aggregate it lands on. `itemId` is required by ReopenPayload: absent or
+    // divergent identity would let a foreign event move work without carrying the declared subject.
+    const addressesAggregate = typeof p.itemId === 'string' && p.itemId === e.aggregateId
+    if (!addressesAggregate) {
+      findings.push({
+        kind: 'reopen-illegal',
+        index: i,
+        eventId: e.id,
+        reason: p.itemId === undefined
+          ? `payload.itemId is required to address the reopened aggregate "${e.aggregateId}"`
+          : `payload.itemId "${String(p.itemId)}" does not address the reopened aggregate "${e.aggregateId}"`,
+      })
+    }
+
+    // Do not advance the validator's lifecycle model for a malformed address. A later event must be checked
+    // against the same closure the fold retains, not against a reopening this event was never allowed to name.
+    if (!addressesAggregate) continue
+
+    const current = realizationOf.get(e.aggregateId)
+    if (current === undefined) continue // not an item this stream created — nothing to judge
+    if (current === 'done' || current === 'cancelled') {
+      realizationOf.set(e.aggregateId, 'in-progress')
+    } else {
+      findings.push({
+        kind: 'reopen-illegal',
+        index: i,
+        eventId: e.id,
+        reason: `nothing to reopen: the item is ${current}, not done/cancelled (a reopening corrects a closure)`,
+      })
+    }
   }
   return findings
 }

@@ -41,6 +41,8 @@ import {
 } from './model/decision.js'
 import {
   assertRealizationTransition,
+  assertReopenPayload,
+  assertReopenTransition,
   assertRoleNesting,
   assertScopeDecl,
   assertSpecTransition,
@@ -51,10 +53,12 @@ import {
   type Gate,
   type ItemCreatedPayload,
   type ItemId,
+  type ItemRaciUpdate,
   type ItemRole,
   type ItemState,
   type Link,
   type Realization,
+  type ReopenMotive,
   type ScopeDecl,
   type SpecStatus,
 } from './model/item.js'
@@ -280,6 +284,28 @@ export class Track {
     }
   }
 
+  // RACI normalisation is intentionally minimal:
+  // - trim only: we keep backward-compatible acceptance on create (legacy payloads remain accepted),
+  // - apply strict blank/empty checks only where the new update verb requires it (setRaci),
+  // - never rewrite historical events at fold/read time (legacy padded spellings already in the log remain as written),
+  // - trim is not canonicalisation: invisible codepoints like U+200B are preserved.
+  private normalizeActor(input: string, onBlank?: string): string {
+    const normalized = input.trim()
+    if (onBlank !== undefined && normalized === '') {
+      throw new DomainError(onBlank)
+    }
+    return normalized
+  }
+
+  private normalizeActors(input: string[] | undefined, onBlank?: string): string[] | undefined {
+    if (input === undefined) return undefined
+    const normalized = input.map((actor) => this.normalizeActor(actor, onBlank))
+    if (onBlank !== undefined && (normalized.length === 0 || normalized.some((actor) => actor.length === 0))) {
+      throw new DomainError(onBlank)
+    }
+    return normalized
+  }
+
   createItem(input: ItemCreatedPayload): ItemId {
     if (input.kind === 'decision') {
       throw new DomainError('use createDecision for kind:"decision" (Lot 3) — it needs targets, a dossier, and an atomic blocker batch (SPEC §2.5)')
@@ -294,10 +320,16 @@ export class Track {
       if (parent !== undefined) assertRoleNesting(input.role, parent.role, '<new>', input.parentId)
     }
     const itemId = this.newId()
+    const accountable = input.accountable !== undefined ? this.normalizeActor(input.accountable) : undefined
+    const responsible = this.normalizeActors(input.responsible)
     // Result id = the PERSISTED event's aggregateId. On a fresh append that IS `itemId`; on a concurrent-
     // retry dedup it is the ORIGINAL persisted item's id (the under-lock hook re-minted-aggregateId-blind),
     // so a racing create-retry returns the first writer's id, never this attempt's never-persisted one.
-    const [persisted] = this.emit('item', itemId, 'item.created', { ...input })
+    const [persisted] = this.emit('item', itemId, 'item.created', {
+      ...input,
+      ...(accountable !== undefined ? { accountable } : {}),
+      ...(responsible !== undefined ? { responsible } : {}),
+    })
     return (persisted?.aggregateId as ItemId) ?? itemId
   }
 
@@ -335,6 +367,35 @@ export class Track {
       }
     }
     this.emit('item', itemId, 'item.reparented', parentId !== undefined ? { parentId } : {})
+  }
+
+  /**
+   * Set one or both RACI fields on an existing item. Appends `item.raci-assigned` on the item's existing
+   * aggregate (next seq; no recreation, so prior responsibility remains auditable). This is a partial,
+   * field-wise LWW update: absent fields remain unchanged; clearing an assignment is intentionally not
+   * part of this narrow command. The payload is fail-closed after normalisation: blank `accountable` and
+   * blank/empty `responsible` entries are rejected. Guards reject an unknown item or an empty update before
+   * append. The optional `clientToken` is stamped via `withClientToken`, matching the other binding item
+   * mutations.
+   */
+  setRaci(itemId: ItemId, update: ItemRaciUpdate, clientToken?: string): void {
+    if (!this.state().items.has(itemId)) throw new DomainError(`unknown item ${itemId}`)
+    const accountable = update.accountable !== undefined
+      ? this.normalizeActor(update.accountable, 'setRaci requires accountable and/or responsible')
+      : undefined
+    const responsible = this.normalizeActors(update.responsible, 'setRaci requires accountable and/or responsible')
+
+    if (accountable === undefined && responsible === undefined) {
+      throw new DomainError('setRaci requires accountable and/or responsible')
+    }
+    const emit = (): void => {
+      this.emit('item', itemId, 'item.raci-assigned', {
+        ...(accountable !== undefined ? { accountable } : {}),
+        ...(responsible !== undefined ? { responsible } : {}),
+      })
+    }
+    if (clientToken !== undefined) this.withClientToken(clientToken, emit)
+    else emit()
   }
 
   /**
@@ -560,6 +621,43 @@ export class Track {
       return
     }
     throw new DomainError(`unknown item ${itemId}`)
+  }
+
+  /**
+   * Regression expression (decision 01KYQ5RRN67190YMZ08EGGBSBT, owner GO on option A, 2026-07-29) — REOPEN a
+   * terminally-closed item by appending ONE `realization.reopened{itemId, motive, reason}` on the EXISTING
+   * item aggregate (next seq, no recreate; existing hashes untouched). The item goes back to `in-progress`
+   * and the reopening is recorded with WHY, so the journal can finally say that a delivered capability is
+   * broken — and a workpackage percentage can recede to the truth.
+   *
+   * APPEND-ONLY, not a mutation: the closure this corrects stays in the log, and so does every prior
+   * reopening. Guards (all reject with DomainError BEFORE any append): the item exists AND is a real item
+   * (a decision has a prep axis, no delivered capability to regress); it is terminally closed (`done` /
+   * `cancelled` — `rejected` belongs to its `no-go` decision); the payload carries a declared motive and a
+   * non-blank reason. Binding at the ingest seam (`settles:'always'`) — a reopening moves a WP percentage,
+   * so an unauthenticated channel may not write one. `clientToken`-stamped via `withClientToken`.
+   *
+   * WHERE THE GUARANTEE STOPS: the motive is RECORDED, never verified. Track has no owner-UAT marker today,
+   * so it cannot prove that a closure lacked one — it can only refuse a reopening that says nothing.
+   */
+  reopenItem(itemId: ItemId, reopening: { motive: ReopenMotive; reason: string }, clientToken?: string): void {
+    const state = this.state()
+    const item = state.items.get(itemId)
+    if (!item) {
+      if (state.decisions.has(itemId)) {
+        throw new DomainError(
+          `${itemId} is a decision — a decision is settled or deferred, it has no delivered capability to reopen`,
+        )
+      }
+      throw new DomainError(`unknown item ${itemId}`)
+    }
+    const validated = assertReopenPayload(reopening)
+    assertReopenTransition(item)
+    const emit = (): void => {
+      this.emit('item', itemId, 'realization.reopened', { itemId, ...validated })
+    }
+    if (clientToken !== undefined) this.withClientToken(clientToken, emit)
+    else emit()
   }
 
   /**
