@@ -1333,6 +1333,7 @@ export function handleLoopCreate(
     role?: string;
     required?: boolean;
     allowEmpty?: boolean;
+    autoTick?: boolean;
     launch?: unknown;
   } | undefined
 ): McpToolResult | McpErrorResult {
@@ -1347,7 +1348,12 @@ export function handleLoopCreate(
     if (launch !== undefined && (typeof args.instance !== "string" || args.instance.length === 0)) {
       return { error: "h2a_loop_create: launch requires an explicit initial instance" };
     }
-    let loop = createObjectiveLoop(root, { ...(args.id ? { id: args.id } : {}), ...(args.name ? { name: args.name } : {}), goal: args.goal });
+    let loop = createObjectiveLoop(root, {
+      ...(args.id ? { id: args.id } : {}),
+      ...(args.name ? { name: args.name } : {}),
+      goal: args.goal,
+      ...(args.autoTick === true ? { policy: { autoTick: true } } : {})
+    });
     if (typeof args.instance === "string" && args.instance.length > 0) {
       loop = joinObjectiveLoop(root, loop.id, {
         instance: args.instance,
