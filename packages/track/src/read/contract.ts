@@ -58,7 +58,7 @@ import { buildSnapshot, type SnapshotOptions, type SnapshotV1 } from '../report/
  * shapes it returns may only GROW (new methods / new optional fields); nothing is removed or
  * repurposed without a major bump. Consumers gate on `reader.contractVersion`.
  */
-export const READ_CONTRACT_VERSION = '1.21.0' // +logWindow: the period bounds the log itself carries (additive)
+export const READ_CONTRACT_VERSION = '1.24.0' // +reportSnapshot.events: window projection shares the complete folded log
 
 /** Provenance of the last `branch.imported` for a locator (drawn from the raw event log). */
 export interface BranchProvenance {
@@ -299,6 +299,15 @@ export interface CursorDelta {
   changed: boolean
   head: Sha256 | null
   count: number
+}
+
+/** One report projection and every provenance fact rendered beside it, derived from the SAME event snapshot. */
+export interface ReportSnapshot {
+  report: Report
+  logWindow: { from?: string; to?: string; events: number }
+  cursor: Cursor
+  /** The complete immutable log used for `report`; period filters project this, never truncate the fold. */
+  events: readonly TrackEvent[]
 }
 
 /** Origin of a write, DERIVED PURELY from `prov.proposed` (true ⇒ machine/LLM-proposed; false ⇒ human). */
@@ -548,6 +557,10 @@ const ITEM_LIFECYCLE_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
   'spec.abandoned',
   'spec.transition',
   'realization.transition',
+  // Regression expression — a reopening is a lifecycle FACT (a closure was corrected, with its motive), so the
+  // trace that already carries the closure must carry its correction too; a trace that showed the `done` and
+  // hid the reopening would be exactly the assertion-wider-than-its-evidence the 2026-07-29 ruling attacks.
+  'realization.reopened',
 ])
 
 /** Origin of a lifecycle step's write — `'agent'` iff `prov.proposed` (an AI proposal), else `'human'`. */
@@ -632,7 +645,28 @@ export class TrackReader {
 
   /** Bucketed backlog report (SPEC §7). */
   report(options: ReportOptions): Report {
-    return buildReport(fold(this.events()), options)
+    return this.reportSnapshot(options).report
+  }
+
+  /**
+   * A reproducible report read: the rows, period bounds, and journal cursor are all derived from ONE
+   * `readAll()` result. A renderer must use this instead of composing `report()` with `logWindow()` or
+   * `cursor()`, which would let an intervening append attest a head the rendered rows never represented.
+   */
+  reportSnapshot(options: ReportOptions): ReportSnapshot {
+    const events = this.events()
+    const first = events[0]?.at
+    const last = events.at(-1)
+    return {
+      report: buildReport(fold(events), options),
+      logWindow: {
+        ...(first !== undefined ? { from: first } : {}),
+        ...(last?.at !== undefined ? { to: last.at } : {}),
+        events: events.length,
+      },
+      cursor: { head: last?.contentHash ?? null, count: events.length },
+      events,
+    }
   }
 
   /**
