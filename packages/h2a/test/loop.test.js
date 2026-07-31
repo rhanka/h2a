@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { createObjectiveLoop, joinObjectiveLoop, listLoopEvents, listObjectiveLoops, readObjectiveLoop, runCli } from "../dist/index.js";
+import { createObjectiveLoop, joinObjectiveLoop, listAutoTickLoops, listLoopEvents, listObjectiveLoops, readObjectiveLoop, runCli } from "../dist/index.js";
 import { durableTestDir } from "./durable-test-dir.js";
 
 function freshRoot() {
@@ -71,6 +71,48 @@ test("createObjectiveLoop persists state, objective and event journal", () => {
     assert.match(readFileSync(join(root, "loops", "loop-test", "objective.md"), "utf8"), /Keep agents aligned/);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("h2a loop create --auto-tick makes a new loop discoverable by the supervisor", () => {
+  const dir = freshRoot();
+  const root = join(dir, ".h2a");
+  try {
+    const streams = captureStreams(dir);
+    assert.equal(
+      runCli(["loop", "create", "--root", root, "--id", "cli-auto", "--goal", "Ship", "--auto-tick"], streams),
+      0,
+      streams.stderrText
+    );
+    assert.equal(JSON.parse(streams.stdoutText).policy.autoTick, true);
+    assert.deepEqual(listAutoTickLoops(root, {}).map((loop) => loop.id), ["cli-auto"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("h2a loop enable-auto-tick makes an existing loop discoverable by the supervisor", () => {
+  const dir = freshRoot();
+  const root = join(dir, ".h2a");
+  try {
+    const createStreams = captureStreams(dir);
+    assert.equal(
+      runCli(["loop", "create", "--root", root, "--id", "existing", "--goal", "Ship"], createStreams),
+      0,
+      createStreams.stderrText
+    );
+    assert.deepEqual(listAutoTickLoops(root, {}).map((loop) => loop.id), []);
+
+    const enableStreams = captureStreams(dir);
+    assert.equal(
+      runCli(["loop", "enable-auto-tick", "existing", "--root", root], enableStreams),
+      0,
+      enableStreams.stderrText
+    );
+    assert.equal(JSON.parse(enableStreams.stdoutText).policy.autoTick, true);
+    assert.deepEqual(listAutoTickLoops(root, {}).map((loop) => loop.id), ["existing"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

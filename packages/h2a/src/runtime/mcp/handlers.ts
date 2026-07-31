@@ -23,6 +23,7 @@ import {
   nhiTrustBundle,
   signCanonical,
   signEnvelope,
+  slugify,
   type H2AActorRegistration,
   type H2AActorRef,
   type H2AEnvelope,
@@ -100,6 +101,9 @@ export function handleRegisterInstance(
 ): McpToolResult | McpErrorResult {
   if (!args || typeof args.registration !== "object" || args.registration === null) {
     return { error: "h2a_register_instance: missing 'registration' object" };
+  }
+  if (store.findInstance(args.registration.id)) {
+    return { error: `Instance already registered: ${args.registration.id}` };
   }
   try {
     store.registerInstance(args.registration);
@@ -186,24 +190,40 @@ export function handleInbox(
   if (!args || typeof args.instance !== "string" || args.instance.length === 0) {
     return { error: "h2a_inbox: missing 'instance'" };
   }
-  // Narrowed once here so the type survives into the filter closures below.
-  const instance: string = args.instance;
   try {
     switch (args.action) {
-      case "read":
-        return { envelopes: store.readInbox(args.instance) };
-      case "put": {
-        if (!args.envelope) return { error: "h2a_inbox put: missing 'envelope'" };
-        if (!isHostQualifiedAddress(args.instance)) {
+      case "read": {
+        const liveSessions = listPresence(store.paths.root);
+        const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
+        const resolution = resolveRecipient({
+          target: args.instance,
+          liveInstances: liveSessions,
+          registeredInstances: registeredIds,
+          operation: "read"
+        });
+        if (resolution.kind === "list") {
+          return { candidates: resolution.candidates, reason: resolution.reason };
+        }
+        if (resolution.kind === "refuse") {
           return {
-            error: `h2a: recipient "${args.instance}" is not host-qualified — address it as <host>:<label> (e.g. claude:${String(args.instance).replace(/^:+/, "") || "agent"}). A bare label is ambiguous (the same label can exist on several hosts) and routes to an orphan inbox nobody reads. Resolve the exact peer via discover.`
+            error: resolution.reason,
+            ...(resolution.candidates ? { candidates: resolution.candidates } : {})
           };
         }
-        // WP-2: resolve-before-send legibility gate (does NOT change destination).
+        const recipient =
+          resolution.kind === "deliver-resolved" ? resolution.recipient : args.instance;
+        return { envelopes: store.readInbox(recipient) };
+      }
+      case "put": {
+        if (!args.envelope) return { error: "h2a_inbox put: missing 'envelope'" };
+        // WP-2/DOC-03: resolve-before-send legibility gate. A human display
+        // name may become only the recorded full instance, never an inbox key.
+        let recipient = args.instance;
+        let resolution: ReturnType<typeof resolveRecipient>;
         {
-          const liveSessions = listPresence(store.paths.root).map((s) => s.instance);
+          const liveSessions = listPresence(store.paths.root);
           const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
-          const resolution = resolveRecipient({
+          resolution = resolveRecipient({
             target: args.instance,
             liveInstances: liveSessions,
             registeredInstances: registeredIds
@@ -214,9 +234,16 @@ export function handleInbox(
               ...(resolution.candidates ? { candidates: resolution.candidates } : {})
             };
           }
-          // deliver / deliver-dormant / deliver-hint → proceed with put.
+          if (resolution.kind === "deliver-resolved") {
+            recipient = resolution.recipient;
+          }
         }
-        store.putInboxMessage(args.instance, args.envelope);
+        if (!isHostQualifiedAddress(recipient)) {
+          return {
+            error: `h2a: recipient "${args.instance}" is not host-qualified — address it as <host>:<label> (e.g. claude:${String(args.instance).replace(/^:+/, "") || "agent"}). A bare label is ambiguous (the same label can exist on several hosts) and routes to an orphan inbox nobody reads. Resolve the exact peer via discover.`
+          };
+        }
+        store.putInboxMessage(recipient, args.envelope);
         // Bug-2 backstop: report whether the recipient actually has a fresh
         // session. The write always succeeds (a dormant deposit-for-wake is
         // legitimate), but the caller must know live vs dormant rather than
@@ -224,7 +251,7 @@ export function handleInbox(
         // its full perennial id; the bare channel/alias form reads as dormant.
         const allFresh = listPresence(store.paths.root);
         const matchingFresh = allFresh.filter(
-          (s) => canonicalAddress(s.instance) === canonicalAddress(instance)
+          (s) => canonicalAddress(s.instance) === canonicalAddress(recipient)
         );
         const freshSessions = matchingFresh.length;
         // WP-F: honest at-send connection confidence for the recipient —
@@ -234,30 +261,38 @@ export function handleInbox(
         // recipientLive is true. Advisory — the put still delivers (dormant
         // deposit-for-wake stays legitimate).
         const recipientConfidence = bestConfidence(matchingFresh, Date.now());
-        // WP-2: enrich return with resolution metadata.
-        const liveSessions2 = allFresh.map((s) => s.instance);
-        const registeredIds2 = store.listInstances().map((i) => i.instance ?? i.id);
-        const resolution2 = resolveRecipient({
-          target: args.instance,
-          liveInstances: liveSessions2,
-          registeredInstances: registeredIds2
-        });
         return {
           ok: true,
           envelopeId: args.envelope.id,
           recipientLive: freshSessions > 0,
           freshSessions,
           ...(recipientConfidence ? { recipientConfidence } : {}),
-          resolution: resolution2.kind,
-          ...(resolution2.kind === "deliver-hint" ? { liveCandidate: resolution2.liveCandidate, reason: resolution2.reason } : {}),
-          ...(resolution2.kind === "deliver-dormant" ? { reason: resolution2.reason, dormant: true } : {})
+          resolution: resolution.kind,
+          ...(resolution.kind === "deliver-hint" ? { liveCandidate: resolution.liveCandidate, reason: resolution.reason } : {}),
+          ...(resolution.kind === "deliver-resolved" ? { recipient: resolution.recipient, reason: resolution.reason } : {}),
+          ...(resolution.kind === "deliver-dormant" ? { reason: resolution.reason, dormant: true } : {})
         };
       }
       case "pop": {
         if (typeof args.envelopeId !== "string" || args.envelopeId.length === 0) {
           return { error: "h2a_inbox pop: missing 'envelopeId'" };
         }
-        const envelope = store.popInboxMessage(args.instance, args.envelopeId);
+        const liveSessions = listPresence(store.paths.root);
+        const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
+        const resolution = resolveRecipient({
+          target: args.instance,
+          liveInstances: liveSessions,
+          registeredInstances: registeredIds
+        });
+        if (resolution.kind === "refuse") {
+          return {
+            error: resolution.reason,
+            ...(resolution.candidates ? { candidates: resolution.candidates } : {})
+          };
+        }
+        const recipient =
+          resolution.kind === "deliver-resolved" ? resolution.recipient : args.instance;
+        const envelope = store.popInboxMessage(recipient, args.envelopeId);
         if (!envelope) {
           return { error: `h2a_inbox pop: no envelope ${args.envelopeId} for ${args.instance}` };
         }
@@ -789,9 +824,15 @@ export function handleSessionClose(
   }
 }
 
+function discoveryNameKey(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? slugify(trimmed) : undefined;
+}
+
 export function handleDiscoverSessions(
   sessions: SessionRegistry,
-  args: { scope?: string; instance?: string; name?: string } | undefined
+  args: { scope?: string; instance?: string; name?: string } | undefined,
+  nativeInstances: readonly Pick<H2AActorRegistration, "instance" | "name">[] = []
 ): McpToolResult | McpErrorResult {
   try {
     let fresh = sessions.scanFresh();
@@ -806,12 +847,22 @@ export function handleDiscoverSessions(
       fresh = fresh.filter((session) => session.instance === wanted);
     }
     if (args?.name && typeof args.name === "string" && args.name.length > 0) {
-      const needle = args.name.toLowerCase();
-      fresh = fresh.filter(
-        (session) =>
-          typeof session.name === "string" &&
-          session.name.toLowerCase().includes(needle)
-      );
+      const needle = discoveryNameKey(args.name);
+      if (!needle) {
+        fresh = [];
+      } else {
+        const nativeNameByInstance = new Map(
+          nativeInstances
+            .filter((instance) => typeof instance.name === "string")
+            .map((instance) => [canonicalAddress(instance.instance), instance.name])
+        );
+        fresh = fresh.filter(
+          (session) =>
+            [session.name, nativeNameByInstance.get(canonicalAddress(session.instance))].some(
+              (name) => typeof name === "string" && discoveryNameKey(name)?.includes(needle)
+            )
+        );
+      }
     }
     // WP-F: surface connection-confidence per session (advisory). "active" =
     // the MCP channel carried traffic within the window; "idle-uncertain" =
@@ -1333,6 +1384,7 @@ export function handleLoopCreate(
     role?: string;
     required?: boolean;
     allowEmpty?: boolean;
+    autoTick?: boolean;
     launch?: unknown;
   } | undefined
 ): McpToolResult | McpErrorResult {
@@ -1347,7 +1399,12 @@ export function handleLoopCreate(
     if (launch !== undefined && (typeof args.instance !== "string" || args.instance.length === 0)) {
       return { error: "h2a_loop_create: launch requires an explicit initial instance" };
     }
-    let loop = createObjectiveLoop(root, { ...(args.id ? { id: args.id } : {}), ...(args.name ? { name: args.name } : {}), goal: args.goal });
+    let loop = createObjectiveLoop(root, {
+      ...(args.id ? { id: args.id } : {}),
+      ...(args.name ? { name: args.name } : {}),
+      goal: args.goal,
+      ...(args.autoTick === true ? { policy: { autoTick: true } } : {})
+    });
     if (typeof args.instance === "string" && args.instance.length > 0) {
       loop = joinObjectiveLoop(root, loop.id, {
         instance: args.instance,
