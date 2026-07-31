@@ -1093,8 +1093,25 @@ function validTmuxPaneId(value: string | undefined): value is string {
   return value !== undefined && /^%\d+$/.test(value);
 }
 
+/**
+ * Exact, fail-closed SESSION target for `-t`, for both `show-options` and
+ * `set-option`.
+ *
+ * Measured on tmux 3.6:
+ *   -t <name>     bare  -> resolves exact THEN unique-PREFIX, so `set-option -t
+ *                          h2a-foo` mutates `h2a-foobar` when h2a-foo is gone.
+ *   -t =<name>          -> `=` marks a PANE target here; both commands miss the
+ *                          session, and `-q` swallows the error so a read returns
+ *                          "" — which is why the status surface silently never
+ *                          installed on this tmux.
+ *   -t =<name>:         -> `=` exact + trailing `:` (the session's target):
+ *                          resolves the EXACT session, fails closed when it is
+ *                          absent, and works for read and write alike.
+ * So the correct exact-session form is `=<name>:`.
+ */
 function exactSessionTarget(session: string): string {
-  return session.startsWith("=") ? session : `=${session}`;
+  const bare = session.replace(/^=/, "").replace(/:$/, "");
+  return `=${bare}:`;
 }
 
 function readSessionOption(
