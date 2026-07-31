@@ -71,8 +71,25 @@ test("every doctrine ULID cited in RECALL.md resolves in the committed journal",
   const table = legacyAt >= 0 ? block[1].slice(0, legacyAt) : block[1];
   const ulids = [...new Set(table.match(/\b[0-9A-HJKMNP-TV-Z]{26}\b/g) ?? [])];
   assert.ok(ulids.length >= 6, `expected at least the six settled-doctrine ULIDs in the projected table, found ${ulids.length}`);
+  // Resolve against the SELECTED-DECISION set, not a substring of the whole file: a doctrine row
+  // is a decision whose option was selected, so a ULID that is merely present as some other event's
+  // id (or a substring) must NOT count as resolving. Review mutation (c) got a non-decision id past
+  // the earlier `journal.includes(id)` check; this closes it.
   const journal = readFileSync(join(REPO_ROOT, ".track", "events.jsonl"), "utf8");
-  const unresolved = ulids.filter((id) => !journal.includes(id));
+  const selectedDecisionIds = new Set();
+  for (const line of journal.split("\n")) {
+    if (!line.trim()) continue;
+    let ev;
+    try {
+      ev = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (ev.type === "decision.option-selected" && typeof ev.aggregateId === "string") {
+      selectedDecisionIds.add(ev.aggregateId);
+    }
+  }
+  const unresolved = ulids.filter((id) => !selectedDecisionIds.has(id));
   assert.deepEqual(
     unresolved,
     [],
