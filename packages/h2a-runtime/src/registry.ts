@@ -15,19 +15,16 @@
 
 import { spawnSync } from "node:child_process";
 import {
-  closeSync,
   mkdirSync,
-  openSync,
   readFileSync,
   renameSync,
-  rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { uptime } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getLayoutConfig, resolveConfigPath } from "./config.js";
+import { acquireFileLock, releaseFileLock } from "./file-lock.js";
 import {
   managedSessionCandidates,
   parseManagedSessionName,
@@ -320,73 +317,10 @@ function saveRegistry(entries: RegistryEntry[], path: string): void {
 //
 // The registry is LOCAL ONLY (the CLI writes it; pods never touch it — they have
 // no access to ~/.config/.../registry.json), so a LOCAL file lock is sufficient
-// — there is no cross-host writer to coordinate with. We use an exclusive
-// lockfile (`<path>.lock`, O_CREAT|O_EXCL) with a bounded spin and stale-lock
-// takeover, NOT a real OS flock(2): exclusive-create on the SAME local fs is the
-// portable primitive here (Node has no flock), and a crashed holder is recovered
-// by the staleness break below.
+// — there is no cross-host writer to coordinate with. The primitive itself lives
+// in `file-lock.ts` (shared with the session-lease side-store); its bounded,
+// best-effort contract is documented there.
 // ---------------------------------------------------------------------------
-
-/** Spin parameters for the lockfile (bounded — a deadlock must never hang a hook). */
-const LOCK_STALE_MS = 10_000; // a lockfile older than this is assumed orphaned
-const LOCK_SPIN_MS = 5; // busy-wait granularity between acquire attempts
-const LOCK_MAX_WAIT_MS = 4_000; // give up waiting after this (then proceed best-effort)
-
-function lockPath(path: string): string {
-  return `${path}.lock`;
-}
-
-/** Busy-wait `ms` without a timer (we are holding a process-wide critical section). */
-function spinSleep(ms: number): void {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    // tight spin — ms is tiny (LOCK_SPIN_MS); a registry mutation is sub-ms.
-  }
-}
-
-/**
- * Acquire the registry lockfile (exclusive create). Returns the fd on success,
- * or undefined if it could not be acquired within LOCK_MAX_WAIT_MS (the caller
- * then proceeds best-effort — a slow lock must NEVER take down a claude hook).
- * Breaks a STALE lock (holder crashed) by age.
- */
-function acquireLock(path: string): number | undefined {
-  const lp = lockPath(path);
-  mkdirSync(dirname(path), { recursive: true });
-  const deadline = Date.now() + LOCK_MAX_WAIT_MS;
-  for (;;) {
-    try {
-      const fd = openSync(lp, "wx"); // O_CREAT|O_EXCL|O_WRONLY
-      return fd;
-    } catch {
-      // Held — break it if it is stale (a crashed holder left it behind).
-      try {
-        const age = Date.now() - statSync(lp).mtimeMs;
-        if (age > LOCK_STALE_MS) {
-          rmSync(lp, { force: true });
-          continue; // retry the exclusive create immediately
-        }
-      } catch {
-        // raced with the holder releasing it → just retry the create
-      }
-      if (Date.now() >= deadline) return undefined; // give up, proceed best-effort
-      spinSleep(LOCK_SPIN_MS);
-    }
-  }
-}
-
-function releaseLock(fd: number, path: string): void {
-  try {
-    closeSync(fd);
-  } catch {
-    // already closed
-  }
-  try {
-    rmSync(lockPath(path), { force: true });
-  } catch {
-    // already gone
-  }
-}
 
 /**
  * Run `fn` under the registry lock: load the current entries, let `fn` mutate
@@ -407,13 +341,13 @@ export function withRegistryLock<T>(
     save?: boolean;
   },
 ): T {
-  const fd = acquireLock(path);
+  const fd = acquireFileLock(path);
   try {
     const { entries, result, save } = fn(loadRegistry(path));
     if (save !== false) saveRegistry(entries, path);
     return result;
   } finally {
-    if (fd !== undefined) releaseLock(fd, path);
+    if (fd !== undefined) releaseFileLock(fd, path);
   }
 }
 
