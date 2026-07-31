@@ -1,6 +1,6 @@
 ---
 name: track-report
-description: Use when asked for a track report, status, or advancement report. Read the deterministic conductor first; any contextual synthesis is advisory conversation work.
+description: Use when the owner asks for a human contextual track report, status, or advancement (for example, “fais-moi un track report”); bootstrap this checkout's fresh `track` binary and apply the validated four-section format.
 ---
 
 # harness/track-report
