@@ -302,7 +302,8 @@ test("buildActionSink({driver}).wake: no fresh tmux session → skipped, driver 
     const fakeDriver = { drive: () => { called = true; return true; } };
     const sink = buildActionSink({ driver: fakeDriver });
     const outcome = await sink.wake({ type: "wake", agentId: instance, reason: "test" }, { root, loopId: loop.id, now: NOW });
-    assert.equal(outcome, "skipped");
+    assert.equal(typeof outcome === "string" ? outcome : outcome.outcome, "skipped");
+    assert.match(typeof outcome === "string" ? "" : outcome.detail ?? "", /no-fresh-tmux-session/i);
     assert.equal(called, false);
   } finally {
     rmSync(root, { recursive: true, force: true });
