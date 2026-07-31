@@ -34,6 +34,16 @@ export function effectiveBlockerOpen(
   if (blocker.resolvedByEvent) return false
   // `linked-accepted` is intra-only — `ref` is always a local item here; an `extra` dep is `manual`.
   if (blocker.kind === 'dependency' && blocker.resolutionRule === 'linked-accepted' && blocker.ref !== undefined) {
+    // Regression expression — the gate ALSO re-opens on the new EXPLICIT regression signal: the ref was
+    // REOPENED (a closure corrected) and has not been delivered again. Acceptance cannot carry that signal on
+    // its own — it is deliberately historical, since a reopening does not retract a pass run — so without this
+    // an accepted-then-reopened prerequisite would hold the gate CLOSED while `linked-done` re-opened it, and
+    // the dependent of a known-broken capability would read as ready.
+    // NARROW BY CONSTRUCTION: the rule stays purely acceptance-driven (owner policy P3, strict pass-only) for
+    // every item that was never reopened — `reopenings` is absent there, so the projection is unchanged. This
+    // does NOT make `linked-accepted` require `done`: a never-closed ref still clears the gate on acceptance.
+    const ref = state.items.get(blocker.ref)
+    if (ref !== undefined && (ref.reopenings?.length ?? 0) > 0 && ref.realization !== 'done') return true
     return !ACCEPTED_CLOSES.has(acceptanceStatus(state, blocker.ref, baselineCommit))
   }
   return blocker.open
