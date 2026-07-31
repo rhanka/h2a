@@ -8,11 +8,12 @@
 // §5): the host imports `ingest()` directly and CARRIES AUTH via the `IngestContext`. The WHO and the trust
 // level (`by` / `workspace` / `prov.auth` / `prov.proposed` / `prov.principal`) come from the CONTEXT, fixed
 // when the channel opens — NEVER per-event (the neutral WorkEvent envelope rejects any actor/sponsor/trust
-// key fail-closed). A binding ("settling") write — `reparent`, `realize→done/cancelled`, `decision.outcome`,
-// `add-artifact`, `waive`, `blocker.resolve`, `spec-amend`, and the `evidence` kinds — requires an
-// AUTHENTICATED channel (`prov.auth ∈ BINDING_AUTH`, i.e. `{local-user, signed}`); an `unauthenticated`
-// channel may only create/prepare. Workspace containment is verified against folded state (the load-bearing
-// security property): a channel pinned to W can never mutate workspace V.
+// key fail-closed). A binding ("settling") write — `item.set-raci`, `reparent`, `realize→done/cancelled`,
+// `decision.outcome`, `add-artifact`, `waive`, `blocker.resolve`, `spec-amend`, and the `evidence` kinds —
+// requires an AUTHENTICATED channel (`prov.auth ∈ BINDING_AUTH`, i.e. `{local-user, signed}`); an
+// `unauthenticated` channel may only create/prepare. `item.set-raci` keeps omitted axes preserved (no clear
+// shape is defined); partial updates are add-only at the submit surface. Workspace containment is verified
+// against folded state (the load-bearing security property): a channel pinned to W can never mutate workspace V.
 //
 // The HTTP ingest gateway (M3) stays DEFERRED — that is a separate co-versioned package fronting `ingest()`
 // over an authenticated transport; this barrel is the in-process library import that covers the co-located

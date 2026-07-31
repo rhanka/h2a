@@ -400,7 +400,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       registryLock,
       () => {
         if (findInstance(reg.id)) {
-          throw new Error(`Instance already registered: ${reg.id}`);
+          return;
         }
         appendJsonl(paths.instances, reg);
       },

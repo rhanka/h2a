@@ -170,6 +170,7 @@ import {
 import {
   recordStop,
   scanDrumbeat,
+  listDrumbeat,
   clearDrumbeatEntry,
   runDrumbeatWatch as runDrumbeatWatchLoop,
   loggingRelauncher,
@@ -181,6 +182,7 @@ import {
   loggingDecider,
   subagentDecider,
   H2A_DEFAULT_MAX_RELANCES,
+  type H2ADrumbeatEntry,
   type H2ARelauncher,
   type H2ARelauncherKind,
   type ReflexiveDecider
@@ -246,6 +248,7 @@ import {
 import {
   createObjectiveLoop,
   declareObjectiveLoopDone,
+  enableObjectiveLoopAutoTick,
   joinObjectiveLoop,
   listLoopEvents,
   listObjectiveLoops,
@@ -262,11 +265,7 @@ import { runLoopWatch, runTick } from "./runtime/loop/engine/tick.js";
 import { runLoopSupervisor } from "./runtime/loop/supervisor.js";
 import { gatherPendingDecisions } from "./runtime/canevas/gather.js";
 import { runCanevasServe } from "./runtime/canevas/serve.js";
-import {
-  installTrackReportAiConfig,
-  readH2AReportContext,
-  TrackReportAiConfigConflictError
-} from "./runtime/reporting/index.js";
+import { readH2AReportContext } from "./runtime/reporting/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -431,7 +430,8 @@ export function renderCliHelp(): string {
     "  h2a install-skills --host <claude|codex|gemini|agy> [--scope user|project] [--force]",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
-    "  h2a loop create --name <n> --goal <text> [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement> [--launch-stdin]] [--root <path>]",
+    "  h2a loop create --name <n> --goal <text> [--auto-tick] [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement> [--launch-stdin]] [--root <path>]",
+    "  h2a loop enable-auto-tick <loopId> [--root <path>]",
     "  h2a loop join <loopId> --instance <id> [--agent-id <id>] [--role <role>] [--launch-stdin] [--root <path>]",
     "  h2a loop report <loopId> --note <text> [--instance <id>] [--agent-id <id>] [--auto-join] [--root <path>]",
     "  h2a loop done <loopId> [--note <text>] [--instance <id>] [--agent-id <id>] [--root <path>]",
@@ -443,10 +443,8 @@ export function renderCliHelp(): string {
     "  h2a loop logs <loopId> [--agent <selector>] [--root <path>]",
     "  h2a loop supervise [--interval-ms <n>] [--root <path>]",
     "",
-    "Track AI adapters (leaf commands; never call Track report/snapshot):",
+    "Legacy Track context projection (leaf command; never calls Track report/snapshot):",
     "  h2a report-context --workspace-root <absolute-path> [--root <h2a-store>]",
-    "  h2a report-ai --model <model> --effort <low|medium|high|xhigh> --gateway required   (Track context envelope on stdin; one no-tools local-gateway request)",
-    "  h2a report-ai install-track-config [--force]   (atomic user XDG config, mode 0600; preserves overrides by default)",
     "",
     "Focus Web (packaged production app):",
     "  h2a focus serve [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]",
@@ -613,6 +611,11 @@ function cmdRegister(
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
   const store = createLocalStore({ root });
+  if (store.findInstance(registration.id)) {
+    const message = `Instance already registered: ${registration.id}`;
+    streams.stderr.write(`h2a register: ${message}\n`);
+    return classifyStoreError(message);
+  }
   try {
     store.registerInstance(registration);
   } catch (error) {
@@ -789,33 +792,38 @@ function cmdMailbox(
       streams.stderr.write(`h2a ${mailbox} put: invalid JSON (${(error as Error).message})\n`);
       return 1;
     }
+    let inboxRecipient = flags.instance;
+    let inboxResolution: ReturnType<typeof resolveRecipient> | undefined;
     if (mailbox === "inbox") {
-      try {
-        assertHostQualifiedAddress(flags.instance, "recipient");
-      } catch (error) {
-        streams.stderr.write(`\n${(error as Error).message}\n`);
-        return 1;
-      }
-      // WP-2: resolve-before-send — legibility gate (does NOT change destination).
+      // WP-2/DOC-03: a display name resolves only to the presence's full
+      // instance; a bare display name is never an inbox destination.
       const root = resolveRoot(flags, streams.cwd ?? (() => process.cwd()));
-      const liveSessions = listPresence(root).map((s) => s.instance);
+      const liveSessions = listPresence(root);
       const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
-      const resolution = resolveRecipient({
+      inboxResolution = resolveRecipient({
         target: flags.instance,
         liveInstances: liveSessions,
         registeredInstances: registeredIds
       });
-      if (resolution.kind === "refuse") {
+      if (inboxResolution.kind === "refuse") {
         streams.stderr.write(
-          `\nh2a: ${resolution.reason}${resolution.candidates ? `\ncandidates: ${resolution.candidates.join(", ")}` : ""}\n`
+          `\nh2a: ${inboxResolution.reason}${inboxResolution.candidates ? `\ncandidates: ${inboxResolution.candidates.join(", ")}` : ""}\n`
         );
         return 1;
       }
-      // deliver / deliver-dormant / deliver-hint → proceed with put below.
+      if (inboxResolution.kind === "deliver-resolved") {
+        inboxRecipient = inboxResolution.recipient;
+      }
+      try {
+        assertHostQualifiedAddress(inboxRecipient, "recipient");
+      } catch (error) {
+        streams.stderr.write(`\n${(error as Error).message}\n`);
+        return 1;
+      }
     }
     try {
       if (mailbox === "inbox") {
-        store.putInboxMessage(flags.instance, envelope);
+        store.putInboxMessage(inboxRecipient, envelope);
       } else {
         store.putOutboxMessage(flags.instance, envelope);
       }
@@ -824,28 +832,21 @@ function cmdMailbox(
       const recipientLive =
         mailbox === "inbox"
           ? listPresence(store.paths.root).some(
-              (s) => canonicalAddress(s.instance) === canonicalAddress(flags.instance)
+              (s) => canonicalAddress(s.instance) === canonicalAddress(inboxRecipient)
             )
           : undefined;
       // WP-2: enrich stdout with resolution metadata.
       let resolutionMeta: Record<string, unknown> = {};
-      if (mailbox === "inbox") {
-        const root2 = resolveRoot(flags, streams.cwd ?? (() => process.cwd()));
-        const liveSessions2 = listPresence(root2).map((s) => s.instance);
-        const registeredIds2 = store.listInstances().map((i) => i.instance ?? i.id);
-        const resolution2 = resolveRecipient({
-          target: flags.instance,
-          liveInstances: liveSessions2,
-          registeredInstances: registeredIds2
-        });
+      if (inboxResolution) {
         resolutionMeta = {
-          resolution: resolution2.kind,
-          ...(resolution2.kind === "deliver-hint" ? { liveCandidate: resolution2.liveCandidate, reason: resolution2.reason } : {}),
-          ...(resolution2.kind === "deliver-dormant" ? { reason: resolution2.reason, dormant: true } : {})
+          resolution: inboxResolution.kind,
+          ...(inboxResolution.kind === "deliver-hint" ? { liveCandidate: inboxResolution.liveCandidate, reason: inboxResolution.reason } : {}),
+          ...(inboxResolution.kind === "deliver-resolved" ? { recipient: inboxResolution.recipient, reason: inboxResolution.reason } : {}),
+          ...(inboxResolution.kind === "deliver-dormant" ? { reason: inboxResolution.reason, dormant: true } : {})
         };
       }
       streams.stdout.write(
-        `${JSON.stringify({ ok: true, id: envelope.id, mailbox, instance: flags.instance, ...(recipientLive !== undefined ? { recipientLive } : {}), ...resolutionMeta }, null, 2)}\n`
+        `${JSON.stringify({ ok: true, id: envelope.id, mailbox, instance: mailbox === "inbox" ? inboxRecipient : flags.instance, ...(recipientLive !== undefined ? { recipientLive } : {}), ...resolutionMeta }, null, 2)}\n`
       );
       return 0;
     } catch (error) {
@@ -859,8 +860,32 @@ function cmdMailbox(
   }
 
   if (sub === "read") {
+    let recipient = flags.instance;
+    if (mailbox === "inbox") {
+      const liveSessions = listPresence(root);
+      const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
+      const resolution = resolveRecipient({
+        target: flags.instance,
+        liveInstances: liveSessions,
+        registeredInstances: registeredIds,
+        operation: "read"
+      });
+      if (resolution.kind === "list") {
+        streams.stdout.write(`${JSON.stringify({ candidates: resolution.candidates, reason: resolution.reason }, null, 2)}\n`);
+        return 0;
+      }
+      if (resolution.kind === "refuse") {
+        streams.stderr.write(
+          `\nh2a: ${resolution.reason}${resolution.candidates ? `\ncandidates: ${resolution.candidates.join(", ")}` : ""}\n`
+        );
+        return 1;
+      }
+      if (resolution.kind === "deliver-resolved") {
+        recipient = resolution.recipient;
+      }
+    }
     const messages =
-      mailbox === "inbox" ? store.readInbox(flags.instance) : store.readOutbox(flags.instance);
+      mailbox === "inbox" ? store.readInbox(recipient) : store.readOutbox(flags.instance);
     streams.stdout.write(`${JSON.stringify(messages, null, 2)}\n`);
     return 0;
   }
@@ -870,7 +895,22 @@ function cmdMailbox(
       streams.stderr.write("h2a inbox pop: --envelope <id> required\n");
       return 1;
     }
-    const popped = store.popInboxMessage(flags.instance, flags.envelope);
+    const liveSessions = listPresence(root);
+    const registeredIds = store.listInstances().map((i) => i.instance ?? i.id);
+    const resolution = resolveRecipient({
+      target: flags.instance,
+      liveInstances: liveSessions,
+      registeredInstances: registeredIds
+    });
+    if (resolution.kind === "refuse") {
+      streams.stderr.write(
+        `\nh2a: ${resolution.reason}${resolution.candidates ? `\ncandidates: ${resolution.candidates.join(", ")}` : ""}\n`
+      );
+      return 1;
+    }
+    const recipient =
+      resolution.kind === "deliver-resolved" ? resolution.recipient : flags.instance;
+    const popped = store.popInboxMessage(recipient, flags.envelope);
     if (!popped) {
       streams.stderr.write(`h2a inbox pop: no such envelope ${flags.envelope}\n`);
       // State conflict against the local store (the envelope is not where the
@@ -2360,8 +2400,20 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
         goal: flags.goal,
         repos,
         refs,
-        agents
+        agents,
+        ...(flags["auto-tick"] === "true" ? { policy: { autoTick: true } } : {})
       });
+      streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);
+      return 0;
+    }
+
+    if (sub === "enable-auto-tick") {
+      const loopId = argv[1];
+      if (!loopId || loopId.startsWith("--")) {
+        streams.stderr.write("h2a loop enable-auto-tick: <loopId> is required\n");
+        return 1;
+      }
+      const loop = enableObjectiveLoopAutoTick(root, loopId);
       streams.stdout.write(`${JSON.stringify(loop, null, 2)}\n`);
       return 0;
     }
@@ -2490,7 +2542,7 @@ function cmdLoop(argv: readonly string[], streams: H2ACliStreams): number {
     return classifyStoreError((error as Error).message);
   }
 
-  streams.stderr.write("h2a loop: subcommand required (create, join, report, done, stop, list, status, agents, attach, logs, tick, watch/run, supervise)\n");
+  streams.stderr.write("h2a loop: subcommand required (create, enable-auto-tick, join, report, done, stop, list, status, agents, attach, logs, tick, watch/run, supervise)\n");
   return 1;
 }
 
@@ -3475,6 +3527,19 @@ export async function runDrumbeatRelanceInbox(
 }
 
 /**
+ * D4 resume messages can only act on a durable, non-terminal stop record.
+ * Keeping this projection bounded prevents one huge historical registry from
+ * starving every drumbeat tick before its anti-stall scan runs.
+ */
+export function drumbeatResumeInboxTargets(
+  entries: readonly Pick<H2ADrumbeatEntry, "instance" | "workStatus" | "terminal">[]
+): string[] {
+  return entries
+    .filter((entry) => entry.workStatus !== "done" && entry.terminal === undefined)
+    .map((entry) => entry.instance);
+}
+
+/**
  * `h2a drumbeat watch` (DEC-086): long-running anti-stall daemon. Async +
  * blocking, dispatched from bin.ts like mcp-serve. Uses the logging relauncher
  * by default; concrete relaunchers (local-tmux / remote) land in D3/D4.
@@ -3590,7 +3655,16 @@ export async function runDrumbeatWatch(
     ...(flags.instance !== undefined ? { selfInstance: flags.instance } : {}),
     log,
     beforeScan: async () => {
+      // A D4 `drumbeat.resume` is actionable only for an already-recorded,
+      // non-terminal stop entry.  Scanning every registered instance here was
+      // O(registry × inbox) on every beat: a shared bus with tens of thousands
+      // of historical identities never reached its anti-stall scan at all.
+      // Restrict the inbox pass to the bounded stop registry; messages for an
+      // actor without a stop entry cannot be safely relanced and remain in its
+      // inbox for ordinary handling instead of starving the watchdog.
+      const resumeTargets = drumbeatResumeInboxTargets(listDrumbeat(root));
       const result = await relanceFromInbox(root, {
+        instances: resumeTargets,
         relauncher: buildLocalInboxRelauncher(kind, log)
       });
       if (result.relanced.length || result.skipped.length) {
@@ -6578,24 +6652,6 @@ function cmdReportContext(
   }
 }
 
-function cmdInstallTrackReportAiConfig(
-  flags: Record<string, string>,
-  streams: H2ACliStreams
-): number {
-  try {
-    const result = installTrackReportAiConfig({ force: flags.force === "true" });
-    streams.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);
-    return 0;
-  } catch (err) {
-    if (err instanceof TrackReportAiConfigConflictError) {
-      streams.stderr.write(`h2a report-ai install-track-config: ${err.message}\n`);
-      return 2;
-    }
-    streams.stderr.write(`h2a report-ai install-track-config: ${(err as Error).message}\n`);
-    return 3;
-  }
-}
-
 function resolveTrackBin(): string {
   // Le champ `exports` de @sentropic/track bloque l'accès à ./package.json,
   // donc on résout l'entrée puis on remonte jusqu'au package.json du package.
@@ -6773,11 +6829,6 @@ export function runCli(
   }
 
   if (command === "report-context") return cmdReportContext(flags, streams);
-  if (command === "report-ai") {
-    if (argv[1] === "install-track-config") return cmdInstallTrackReportAiConfig(flags, streams);
-    streams.stderr.write("h2a report-ai: async adapter command — run via the h2a binary\n");
-    return 1;
-  }
 
   if (command === "init") return cmdInit(flags, streams);
   if (command === "register") return cmdRegister(flags, streams);

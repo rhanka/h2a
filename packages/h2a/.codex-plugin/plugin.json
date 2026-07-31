@@ -1,6 +1,6 @@
 {
   "name": "h2a",
-  "version": "0.88.0",
+  "version": "0.90.0",
   "description": "Coordinate Claude, Codex and other CLI agents through the local h2a bus, objective loops and track system of record.",
   "author": {
     "name": "Fabien Antoine"
