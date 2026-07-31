@@ -169,9 +169,9 @@ export function mirrorServerForStore(store: LocalStore, options: MirrorServerFor
           enrolledKeys,
           guard,
           // `reg` is an `H2AMirroredRegistration` — narrowed by `ingest.ts`
-          // before it ever reaches this callback. Idempotent for the same reason
-          // `applySubagent` is: a mirror beat re-sends the same registration
-          // every cycle, and `registerInstance` throws on a known id.
+          // before it ever reaches this callback. `registerInstance` is
+          // idempotent because a mirror beat re-sends the same registration
+          // every cycle.
           //
           // RECORDED, NOT FIXED: a no-op means a row a PRE-FIX sender already
           // landed is never replaced by its narrowed version. The registry is
@@ -180,13 +180,7 @@ export function mirrorServerForStore(store: LocalStore, options: MirrorServerFor
           // on read and still sit on disk. Cleaning data already at rest is a
           // separate operation on the hosted store, not something an ingest fix
           // can do. See the PR body and the joint plan § 9.
-          applyRegistration: (reg) => {
-            try {
-              store.registerInstance(reg);
-            } catch (error) {
-              if (!/already registered/i.test((error as Error).message)) throw error;
-            }
-          },
+          applyRegistration: (reg) => store.registerInstance(reg),
           // Re-stamp heartbeatAt with the REMOTE clock → freshness derives from the
           // beat (no local-clock skew, no immortal ghost when the agent dies).
           // Unlike the registry, presence DOES self-heal: this overwrites the

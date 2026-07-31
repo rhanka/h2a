@@ -101,6 +101,9 @@ export function handleRegisterInstance(
   if (!args || typeof args.registration !== "object" || args.registration === null) {
     return { error: "h2a_register_instance: missing 'registration' object" };
   }
+  if (store.findInstance(args.registration.id)) {
+    return { error: `Instance already registered: ${args.registration.id}` };
+  }
   try {
     store.registerInstance(args.registration);
     return { ok: true, instance: args.registration.id };
