@@ -19,8 +19,15 @@ set -euo pipefail
 agent="${1:?agent name required}"
 
 # Resolve the repo from THIS script's location (docs/agents/launch.sh → repo root
-# is two levels up), never a hard-coded path.
-script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# is two levels up), never a hard-coded path — and dereference symlinks first, so a
+# launcher invoked through a symlink resolves the REAL checkout, not the link's dir.
+src="${BASH_SOURCE[0]}"
+while [ -h "$src" ]; do
+  dir=$(cd -P "$(dirname "$src")" && pwd)
+  src=$(readlink "$src")
+  [ "${src#/}" = "$src" ] && src="$dir/$src"
+done
+script_dir=$(cd -P "$(dirname "$src")" && pwd)
 repo=$(cd "$script_dir/../.." && pwd)
 cd "$repo"
 
