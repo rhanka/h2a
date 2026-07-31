@@ -32,17 +32,17 @@ const STEP_CODES: DirectiveStepCode[] = [
   'fix-acceptance', 'rerun-acceptance', 'finish-increment', 'start-increment', 'prioritize-backlog',
   'inspect-fallback',
 ]
-import { formatWpConductorHtml } from './html.js'
 import { computeWpTree } from './rollup.js'
 import { stepActionFr } from './friendly.js'
 import type { DirectiveStepCode } from './directive.js'
 import { renderSnapshot } from './snapshot.js'
-import { reportHtml, reportText, resolveHandle } from '../read/commands.js'
+import { reportText, resolveHandle } from '../read/commands.js'
 import { TrackReader } from '../read/contract.js'
 import { runCli } from '../cli/index.js'
 
 /** The ULID shape criterion 10a forbids in any column the owner reads. */
 const ULID = /[0-9A-HJKMNP-TV-Z]{26}/u
+const SEEDED_OWNER_ULID = '01KYSEEDSSBBBBBBBBBBBBBBBB'
 
 let dir: string
 let eventsPath: string
@@ -85,15 +85,15 @@ function seed(): { blocked: string; structuredId: string } {
   done(leaf('livraison enregistrée', wp1))
 
   const wp2 = wp('WP2 — Gated')
-  const blocked = t.createItem({ kind: 'feature', title: 'travail bloqué', workspace: 'ws', parentId: wp2 })
+  const blocked = t.createItem({ kind: 'feature', title: `travail bloqué ${SEEDED_OWNER_ULID}`, workspace: 'ws', parentId: wp2 })
   const structuredId = t.createDecision({
     decisionKind: 'commitment',
-    title: '1/6 — Un nom de session peut-il envoyer une commande ?',
+    title: `1/6 — ${SEEDED_OWNER_ULID} Un nom de session peut-il envoyer une commande ?`,
     workspace: 'ws',
     targets: [blocked],
     dossier: dossier(
       [
-        { id: 'never', title: 'Jamais', summary: 'racine résolue et vivante' },
+        { id: 'never', title: 'Jamais', summary: `racine résolue et vivante ${SEEDED_OWNER_ULID}` },
         { id: 'unique', title: 'Oui si unique', summary: 'la résolution suffit' },
       ],
       'never',
@@ -128,7 +128,7 @@ const view = (): ReportView => {
 }
 const text = (): string => reportText(new TrackReader(eventsPath), base, 'text', NOW)
 const md = (): string => reportText(new TrackReader(eventsPath), base, 'md', NOW)
-const html = (): string => reportHtml(new TrackReader(eventsPath), base, NOW)
+const jsonView = (): ReportView => (JSON.parse(reportText(new TrackReader(eventsPath), base, 'json', NOW)) as { view: ReportView }).view
 const section = (v: ReportView, id: string) => v.tables.find((table) => table.id === id)!
 
 describe('criteria 1/21 — the header carries the baseline, and a window MEASURED in the log', () => {
@@ -142,7 +142,7 @@ describe('criteria 1/21 — the header carries the baseline, and a window MEASUR
     expect(header.period.toSource).toBe('now')
     expect(header.period.label).toBe('période : 2026-07-29 → 2026-07-30 (intégralité du journal)')
     expect(JSON.stringify(header)).not.toContain('aucune fenêtre')
-    for (const rendered of [text(), md(), html()]) {
+    for (const rendered of [text(), md()]) {
       expect(rendered).toMatch(/période : \d{4}-\d{2}-\d{2} → \d{4}-\d{2}-\d{2}/u)
       expect(rendered).not.toContain('aucune fenêtre')
     }
@@ -165,15 +165,15 @@ describe('criteria 1/21 — the header carries the baseline, and a window MEASUR
 
   it('carries no bucket counters', () => {
     seed()
-    for (const rendered of [text(), md(), html()]) {
+    for (const rendered of [text(), md()]) {
       expect(rendered).not.toMatch(/DONE \d+ · TO-DO \d+/u)
       expect(rendered).not.toMatch(/AWAITED \d+ · DROPPED \d+/u)
     }
   })
 })
 
-describe('criterion 2 — exactly four sections, same set and same order in all four formats', () => {
-  it('json/text/md/html agree on FAIT · À-FAIRE · DÉCISIONS · RECOMMANDATION and carry nothing else', () => {
+describe('criterion 2 — exactly four sections, same set and same order in JSON/text/Markdown', () => {
+  it('json/text/Markdown agree on FAIT · À-FAIRE · DÉCISIONS · RECOMMANDATION and carry nothing else', () => {
     seed()
     const v = view()
     expect(v.tables.map((table) => table.id)).toEqual(['done', 'todo', 'decisions', 'recommendation'])
@@ -184,11 +184,8 @@ describe('criterion 2 — exactly four sections, same set and same order in all 
       titles.filter((title) => rendered.includes(title)).sort((a, b) => rendered.indexOf(a) - rendered.indexOf(b))
     expect(order(text())).toEqual(titles)
     expect(order(md())).toEqual(titles)
-    expect(
-      [...html().matchAll(/<section class="report-section" data-section="([a-z-]+)">/gu)].map((m) => m[1]),
-    ).toEqual(['done', 'todo', 'decisions', 'recommendation'])
 
-    for (const rendered of [text(), md(), html()]) {
+    for (const rendered of [text(), md()]) {
       for (const removed of ['À-FAIRE SANS WP', 'HORS ROLLUP', 'À INSTRUIRE', 'HISTORIQUE NON STRUCTURÉ', 'ACTIONS DÉRIVÉES']) {
         expect(rendered).not.toContain(removed)
       }
@@ -245,12 +242,12 @@ describe('criteria 5/6 — À-FAIRE has five columns, ordered by priority, and s
     expect(todo.columns.map((c) => c.id)).toEqual(['wp', 'progress', 'todo', 'blocked', 'nextAction'])
     expect(todo.columns.map((c) => c.label)).toEqual(['WP', 'av.', 'à faire', 'bloqué', 'prochaine action'])
     expect(todo.columns.map((c) => c.id)).not.toContain('actionTarget')
-    for (const rendered of [text(), md(), html()]) expect(rendered).not.toContain('cible action')
+    for (const rendered of [text(), md()]) expect(rendered).not.toContain('cible action')
   })
 
   it('prints the ordering rule in every rendered format', () => {
     seed()
-    for (const rendered of [text(), md(), html()]) {
+    for (const rendered of [text(), md()]) {
       expect(rendered).toContain('ordre = priorité ; les cinq premiers sont le focus')
     }
   })
@@ -412,25 +409,29 @@ describe('criteria 9/16 — DÉCISIONS is a drawn, numbered table and never inve
   })
 })
 
-describe('criterion 10a — no ULID in any column the owner reads, in every format', () => {
-  it('text, Markdown and HTML table bodies are ULID-free', () => {
+describe('criterion 10a — no ULID in any column the owner reads', () => {
+  it('text and Markdown table bodies are ULID-free', () => {
     seed()
-    for (const [format, rendered] of [['text', text()], ['md', md()], ['html', html()]] as const) {
+    for (const [format, rendered] of [['text', text()], ['md', md()]] as const) {
       // The resolution block is the machine's half of the page (10b) and is the ONE place an id lives.
-      const body = rendered.split(/RÉSOLUTION DES HANDLES|report-resolution/u)[0]!
+      const body = rendered.split(/RÉSOLUTION DES HANDLES/u)[0]!
       expect(ULID.test(body), `${format} body carries a ULID`).toBe(false)
     }
   })
 
-  it('every declared column value of the JSON view is ULID-free', () => {
+  it('redacts a seeded ULID from every declared JSON owner cell', () => {
     seed()
-    for (const table of view().tables) {
+    const report = jsonView()
+    for (const table of report.tables) {
       for (const row of table.rows) {
         for (const column of table.columns) {
           expect(ULID.test(row[column.id] ?? ''), `${table.id}.${column.id}`).toBe(false)
         }
       }
     }
+    expect(section(report, 'todo').rows.flatMap((row) => Object.values(row)).join(' ')).toContain('référence interne')
+    expect(section(report, 'decisions').rows[0]!['subject']).toContain('référence interne')
+    expect(section(report, 'decisions').rows[0]!['alternatives']).toMatch(/référence\s+interne/u)
   })
 })
 
@@ -447,35 +448,30 @@ describe('criteria 10b/10c — the identifier is relocated, not removed', () => 
     seed()
     const v = view()
     expect(v.handles.length).toBeGreaterThan(0)
-    // The block is machine-facing in every format: `md` fences it (no backslash escaping) and `html`
-    // uses ordinary entity encoding, which any HTML consumer decodes. Both are checked, not assumed.
+    // The block is machine-facing in both supported owner renderings; Markdown fences it without escaping.
     for (const [format, rendered] of [['text', text()], ['md', md()]] as const) {
       const block = rendered.slice(rendered.indexOf('RÉSOLUTION DES HANDLES'))
       expect(block, format).toContain('track report --resolve <handle>')
       for (const handle of v.handles) expect(block, format).toContain(`${handle.handle}\t${handle.id}`)
       expect(block, format).not.toMatch(/\\[[\]<>]/u)
     }
-    const htmlBlock = html().slice(html().indexOf('report-resolution'))
-    expect(htmlBlock).toContain('track report --resolve &lt;handle&gt;')
-    for (const handle of v.handles) expect(htmlBlock).toContain(handle.id)
   })
 
-  it('yields the SAME handle set in text, Markdown and HTML — a handle is machine-readable in all three', () => {
+  it('yields the SAME handle set in text and Markdown — a handle is machine-readable in both', () => {
     seed()
     // The defect this pins: `md` escaped every handle to `\\[1.1\\]`, so a consumer parsing the Markdown
-    // for a handle found NONE, while text and html carried 61. It rendered fine and broke the documented
+    // for a handle found NONE, while text carried the handles. It rendered fine and broke the documented
     // report-row → `--resolve` path in exactly one format. Per-format expectations missed it; comparing
     // the formats against EACH OTHER is what catches it.
     const extract = (rendered: string): string[] => {
-      const body = rendered.split(/RÉSOLUTION DES HANDLES|report-resolution/u)[0]!
+      const body = rendered.split(/RÉSOLUTION DES HANDLES/u)[0]!
       return [...body.matchAll(handleTokenRegex())].map((m) => m[0]).sort()
     }
-    const perFormat = { text: extract(text()), md: extract(md()), html: extract(html()) }
+    const perFormat = { text: extract(text()), md: extract(md()) }
     expect(perFormat.text.length).toBeGreaterThan(0)
     expect(perFormat.md).toEqual(perFormat.text)
-    expect(perFormat.html).toEqual(perFormat.text)
     // ...and no format smuggles them in backslash-escaped instead.
-    for (const [format, rendered] of Object.entries({ text: text(), md: md(), html: html() })) {
+    for (const [format, rendered] of Object.entries({ text: text(), md: md() })) {
       expect(rendered, `${format} escapes a handle`).not.toMatch(/\\\[\d+\.\d+\\\]/u)
     }
   })
@@ -513,7 +509,7 @@ describe('criteria 10b/10c — the identifier is relocated, not removed', () => 
 
   it('states that handles are per-report, so a reply quoting one without its report is not actionable', () => {
     seed()
-    for (const rendered of [text(), md(), html()]) {
+    for (const rendered of [text(), md()]) {
       expect(rendered).toContain('n’est pas actionnable')
     }
   })
@@ -544,7 +540,7 @@ describe('the recorded body is surfaced — a row that says nothing vs a log tha
     expect(row['todo']).toContain('\n↳ extrait : Owner request 2026-07-14: interdire les worktrees sous /tmp')
     // ...and a bare title when the log holds only a title. The two emptinesses must look different.
     expect(row['todo']).toMatch(/\[\d+\.\d+\] sans corps enregistré(?:\n|$)/u)
-    for (const rendered of [text(), md(), html()]) expect(rendered).toContain('extrait :')
+    for (const rendered of [text(), md()]) expect(rendered).toContain('extrait :')
   })
 
   it('surfacing it costs no investigation: the excerpt comes from the leaf, not from a file read', () => {
@@ -606,7 +602,7 @@ describe('criteria 11/12 — subjects and WP labels are short, and never a store
   it('drops the enumeration counter a stored decision title carries', () => {
     seed()
     const subjects = section(view(), 'decisions').rows.map((row) => row['subject'])
-    expect(subjects).toContain('Un nom de session peut-il envoyer une commande ?')
+    expect(subjects.some((subject) => subject?.includes('Un nom de session peut-il envoyer une commande ?'))).toBe(true)
     expect(subjects.join(' ')).not.toContain('1/6 —')
   })
 
@@ -628,7 +624,7 @@ describe('criterion 13 — RECOMMANDATION is restored, with a single reply line'
     expect(lines.some((line) => /^D1 A → débloque /u.test(line))).toBe(true)
     expect(lines[lines.length - 1]).toMatch(/^Réponds « vas y »/u)
     expect(lines[lines.length - 1]).toContain('D1 A')
-    for (const rendered of [text(), md(), html()]) expect(rendered).toContain('RECOMMANDATION')
+    for (const rendered of [text(), md()]) expect(rendered).toContain('RECOMMANDATION')
   })
 })
 
@@ -648,13 +644,12 @@ describe('criteria 15a/15c — the deterministic layer is reproducible and decla
     seed()
     expect(text()).toBe(text())
     expect(md()).toBe(md())
-    expect(html()).toBe(html())
   })
 
   it('names the deterministic projection as its source; the other two inputs belong to the synthesis', () => {
     seed()
     expect(view().header.sources).toEqual(['projection déterministe du journal (track report --wp --decisions)'])
-    for (const rendered of [text(), md(), html()]) expect(rendered).toContain('sources : projection déterministe')
+    for (const rendered of [text(), md()]) expect(rendered).toContain('sources : projection déterministe')
   })
 })
 
@@ -665,7 +660,7 @@ describe('criteria 17/18 — compression is declared; open work and pending doss
     expect(v.coverage.projected).toBeGreaterThan(v.coverage.rendered)
     expect(v.coverage.projected - v.coverage.rendered).toBe(v.coverage.omitted.length)
     // The coverage line is machine-facing too: it must read the same, unescaped, in all three formats.
-    for (const rendered of [text(), md(), html()]) {
+    for (const rendered of [text(), md()]) {
       expect(rendered).toMatch(/couverture : \d+ lignes projetées · \d+ rendues/u)
       expect(rendered).toMatch(/\d+ omises? : /u)
     }
@@ -679,7 +674,7 @@ describe('criteria 17/18 — compression is declared; open work and pending doss
       reason: 'WP sans item ouvert, sans blocage et sans livraison',
     })
     for (const omission of v.coverage.omitted) expect(omission.reason).not.toBe('')
-    for (const rendered of [text(), md(), html()]) {
+    for (const rendered of [text(), md()]) {
       expect(rendered).toContain('WP sans item ouvert, sans blocage et sans livraison')
     }
   })
@@ -718,14 +713,11 @@ describe('criteria 17/18 — compression is declared; open work and pending doss
   })
 })
 
-describe('the four formats stay one report', () => {
-  it('a crafted title cannot inject markup into md or html', () => {
+describe('the supported owner renderings stay one report', () => {
+  it('a crafted title remains escaped in Markdown', () => {
     const w = wp('WP1')
     leaf('**gras** [lien](x) <img src=y onerror=z>', w)
     expect(formatWpConductor(computeWpTree(t.state(), cfg), 'md')).toContain('\\*\\*gras\\*\\*')
-    const fragment = formatWpConductorHtml(computeWpTree(t.state(), cfg))
-    expect(fragment).not.toContain('<img src=y')
-    expect(fragment).toContain('&lt;img src=y')
   })
 
   it('an outside-rollup row and a scope-less dossier are folded in, not exiled to their own section', () => {
