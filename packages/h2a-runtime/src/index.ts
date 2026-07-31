@@ -130,6 +130,7 @@ import {
 } from "./agent-launch-args.js";
 import { planRelaunch } from "./relaunch.js";
 import {
+  isHumanFacingSession,
   readLastLayout,
   restore as restoreLayout,
   type RestoreOptions,
@@ -2153,14 +2154,17 @@ function registryEntryForResumeTarget(
       ? [target]
       : managedSessionCandidates(canonicalSlug);
   const matches = loadRegistry().filter((e) => {
-    // Resume is a human-facing operation, not a promotion path.  Keep the
-    // durable class intact by accepting only explicitly human rows; legacy and
-    // background entries fail closed instead of becoming restorable here.
-    if (
-      e.role !== undefined ||
-      e.kind !== "local-tmux" ||
-      e.sessionClass !== "human"
-    ) return false;
+    // Resume is a human-facing operation, not a promotion path: a delegated job
+    // or an explicit background launch must never become resumable here.
+    //
+    // The class test is SHARED with restore rather than written inline, because
+    // written inline it was an opt-in on an explicit class and every record
+    // enrolled before the class existed failed closed — measured as "cannot
+    // resume <slug>: registry has no human session" on entries that are plainly
+    // human sessions. Two gates judging the same question in two ways is how one
+    // of them ends up wrong on its own.
+    if (e.role !== undefined || e.kind !== "local-tmux") return false;
+    if (!isHumanFacingSession(e)) return false;
     // Full managed names are exact targets; never reinterpret one as an id
     // or label that happens to share a prefix-shaped string.
     if (parsedTarget) {
