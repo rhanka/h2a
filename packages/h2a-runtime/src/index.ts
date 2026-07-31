@@ -75,6 +75,7 @@ import {
   currentTmuxSessionName,
   currentTmuxSessionIs,
   ensureManagedTmuxProfile,
+  ensureHeadlessTerminal,
   existingLocalSessionSlugs,
   fanoutLabels,
   findLocalSession,
@@ -96,6 +97,7 @@ import {
   persistLaunchContext,
   readLaunchContext,
   relaunchInSession,
+  resolveAgentPane,
   resolveAgentPaneForInstance,
   resolveLocalSession,
   runLocalCliForeground,
@@ -129,6 +131,7 @@ import {
 } from "./agent-launch-args.js";
 import { planRelaunch } from "./relaunch.js";
 import {
+  isHumanFacingSession,
   readConversationCustomTitle,
   readLastLayout,
   reconcileRunConvIds,
@@ -154,6 +157,15 @@ import {
   type RegistryTool,
   type ThrottleInfo,
 } from "./registry.js";
+import {
+  SessionLeaseStore,
+  decideSessionBeat,
+  isSessionLeaseAbandoned,
+  planLeaseSupervision,
+  reclaimProposals,
+  resolveSessionLeasePath,
+  type SessionLease,
+} from "./session-lease.js";
 import {
   aimdEffectiveCap,
   assertDelegateEffort,
@@ -1519,6 +1531,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
   );
   let tmuxSession: string;
   let workerPid: number | undefined;
+  let agentPane: string | undefined;
   try {
     if (headless) {
       const dir = jobDir(originCwd, job.id);
@@ -1536,6 +1549,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         "background",
       );
       tmuxSession = launched.name;
+      agentPane = launched.agentPane;
       workerPid = launched.agentPane
         ? localSessionPanePid(launched.agentPane)
         : undefined;
@@ -1547,9 +1561,10 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         argv.args,
         job.id,
         undefined,
-        { sessionClass: "background" },
+        { sessionClass: "background", attachedTerminal: true },
       );
       tmuxSession = launched.name;
+      agentPane = launched.agentPane;
       workerPid = launched.agentPane
         ? localSessionPanePid(launched.agentPane)
         : undefined;
@@ -1597,12 +1612,125 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
       ? { delegatorTmuxSession: job.delegatorTmuxSession }
       : {}),
   });
+  // Take the SLOT lease for this session (machine-scoped). From here on the slot
+  // is held only as long as something keeps beating it — a session that finishes
+  // without dying stops beating and its slot is reported reclaimable after one
+  // TTL, instead of the 994 minutes measured on the worst hoarder. Best-effort:
+  // a lease hiccup must never break a launch that already happened.
+  try {
+    acquireSessionLease(job.id, {
+      holder: job.delegatorInstance ?? "h2a:startJob",
+      workspace: runCwd,
+      ...(agentPane !== undefined ? { agentPane } : {}),
+    });
+  } catch {
+    // the store is advisory — the job is running either way
+  }
   mirrorNew();
   return {
     started: true,
     target: "local",
     detail: `${runCwd}${isolated ? " [worktree]" : ""}`,
   };
+}
+
+/**
+ * Open the machine-scoped session-lease store. The clock is injected HERE, at
+ * the call site, and never read inside the store: abandonment stays a reader's
+ * computation against an instant the caller names.
+ */
+function sessionLeaseStore(): SessionLeaseStore {
+  return new SessionLeaseStore(resolveSessionLeasePath(), {
+    now: () => new Date().toISOString(),
+  });
+}
+
+/**
+ * Take the slot lease for a freshly launched session, seeding it with the pane's
+ * current process-tree CPU so the FIRST supervising pass already has a baseline
+ * to compute a rate against.
+ */
+export function acquireSessionLease(
+  sessionId: string,
+  opts: { holder: string; workspace?: string; agentPane?: string },
+): SessionLease | undefined {
+  const cpuMs = opts.agentPane ? paneTreeCpuMs(opts.agentPane) : undefined;
+  return sessionLeaseStore().acquire({
+    sessionId,
+    holder: opts.holder,
+    ...(opts.workspace !== undefined ? { workspace: opts.workspace } : {}),
+    ...(cpuMs !== undefined ? { cpuMs } : {}),
+  });
+}
+
+/** What one supervising pass over the session leases did. */
+export type SessionLeaseSupervision = {
+  beaten: string[];
+  observed: string[];
+  released: string[];
+  /** Sessions whose pane could not be read — NOT beaten, and not judged dead. */
+  unreadable: string[];
+  proposals: ReturnType<typeof reclaimProposals>;
+};
+
+/**
+ * One supervising pass: for every recorded lease, decide from the REGISTRY what
+ * to do, then — for sessions still running — probe the pane's process tree and
+ * beat only what is actually working. Everything else merely records its CPU
+ * reading, so the abandonment clock keeps running.
+ *
+ * This pass NEVER kills, never sends a key, and never frees a slot on its own.
+ * Its only output beyond the store is a list of PROPOSALS.
+ */
+export function superviseSessionLeases(
+  sessions: ReadonlyArray<RegistryEntry>,
+  now: string = new Date().toISOString(),
+): SessionLeaseSupervision {
+  const store = sessionLeaseStore();
+  const result: SessionLeaseSupervision = {
+    beaten: [],
+    observed: [],
+    released: [],
+    unreadable: [],
+    proposals: [],
+  };
+  const leases = store.readAll();
+  const byId = new Map(leases.map((lease) => [lease.sessionId, lease]));
+  for (const step of planLeaseSupervision(leases, sessions)) {
+    const lease = byId.get(step.sessionId);
+    if (lease === undefined) continue;
+    try {
+      if (step.action === "release") {
+        store.release({ sessionId: lease.sessionId, token: lease.token });
+        result.released.push(lease.sessionId);
+        continue;
+      }
+      if (step.action === "leave") continue;
+      const pane = step.tmuxSession ? resolveAgentPane(step.tmuxSession) : undefined;
+      const cpuMsNow = pane ? paneTreeCpuMs(pane) : undefined;
+      const decision = decideSessionBeat({ lease, cpuMsNow, now });
+      if (decision.action === "beat" && cpuMsNow !== undefined) {
+        store.heartbeat({ sessionId: lease.sessionId, token: lease.token, cpuMs: cpuMsNow });
+        result.beaten.push(lease.sessionId);
+      } else if (decision.action === "observe" && cpuMsNow !== undefined) {
+        store.observe({ sessionId: lease.sessionId, token: lease.token, cpuMs: cpuMsNow });
+        result.observed.push(lease.sessionId);
+      } else {
+        result.unreadable.push(lease.sessionId);
+      }
+    } catch {
+      // a rejected write (raced re-acquisition, torn store) must not stop the pass
+    }
+  }
+  result.proposals = reclaimProposals(store.readAll(), now);
+  return result;
+}
+
+/** Human-readable duration for lease reporting ("41m", "2h13m"). */
+function formatIdle(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`;
 }
 
 /**
@@ -2056,14 +2184,11 @@ function registryEntryForResumeTarget(
   local?: LocalSession,
 ): RegistryEntry | undefined {
   const matches = registryEntriesForLocalTmuxTarget(target, local).filter((e) => {
-    // Resume is a human-facing operation, not a promotion path.  Keep the
-    // durable class intact by accepting only explicitly human rows; legacy and
-    // background entries fail closed instead of becoming restorable here.
-    if (
-      e.role !== undefined ||
-      e.sessionClass !== "human"
-    ) return false;
-    return true;
+    // Resume is a human-facing operation, not a promotion path. Share the
+    // durable class test with restore so legacy human rows remain resumable,
+    // while delegated jobs and explicit background launches stay excluded.
+    if (e.role !== undefined) return false;
+    return isHumanFacingSession(e);
   });
   const ids = new Set(matches.map((e) => e.id));
   if (ids.size !== 1) return undefined;
@@ -5191,7 +5316,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           args,
           resumeSlug,
           undefined,
-          { sessionClass: "human" },
+          { sessionClass: "human", attachedTerminal: true },
         );
         enrollFromRun({
           profile,
@@ -5224,6 +5349,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option(
       "--no-attach",
       "start detached and print the attach command instead (for scripts / fan-out orchestration)",
+    )
+    .option(
+      "--no-attached-terminal",
+      "disable the persistent headless tmux client (legacy compatibility; cannot be used with --prompt-stdin)",
     )
     .option(
       "-r, --resume <convId>",
@@ -5277,6 +5406,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         path: string | undefined,
         opts: {
           attach?: boolean;
+          attachedTerminal?: boolean;
           resume?: string;
           force?: boolean;
           name?: string;
@@ -5338,6 +5468,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         if (opts.promptStdin && process.stdin.isTTY) {
           process.stderr.write("[h2a] --prompt-stdin requires piped stdin\n");
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.promptStdin && opts.attachedTerminal === false) {
+          process.stderr.write(
+            "[h2a] --prompt-stdin requires the attached terminal; remove --no-attached-terminal.\n",
+          );
           process.exitCode = 2;
           return;
         }
@@ -5604,6 +5741,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   ? { terminateOnAgentExit: true }
                   : {}),
                 ...(structuredLaunch ? { refuseExisting: true } : {}),
+                attachedTerminal: opts.attachedTerminal !== false,
                 sessionClass,
               },
             ));
@@ -6481,6 +6619,93 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     });
 
   jobsCommand
+    .command("leases")
+    .description(
+      "Session slot leases (machine-scoped): who holds a concurrency slot, when it last proved it was working, and which slots are reclaimable. READ-ONLY — it kills nothing and frees nothing.",
+    )
+    .option(
+      "--probe",
+      "before reporting, run one supervising pass: beat the leases of sessions whose pane is burning CPU, record the others",
+    )
+    .action((opts: { probe?: boolean }) => {
+      const now = new Date().toISOString();
+      if (opts.probe === true) superviseSessionLeases(listJobs(), now);
+      const leases = sessionLeaseStore().readAll();
+      if (leases.length === 0) {
+        process.stdout.write("no session leases\n");
+        return;
+      }
+      const nowMs = Date.parse(now);
+      const rows = leases
+        .slice()
+        .sort((a, b) => Date.parse(a.heartbeatAt) - Date.parse(b.heartbeatAt))
+        .map((lease) => {
+          const idle = nowMs - Date.parse(lease.heartbeatAt);
+          const state = isSessionLeaseAbandoned(lease, now) ? "RECLAIMABLE" : "held";
+          return (
+            `${lease.sessionId.padEnd(24)} ${state.padEnd(12)} ` +
+            `idle ${formatIdle(idle).padEnd(7)} ttl ${formatIdle(lease.ttlMs).padEnd(6)} ` +
+            `holder ${lease.holder}`
+          );
+        });
+      process.stdout.write(`${rows.join("\n")}\n`);
+      const reclaimable = reclaimProposals(leases, now).length;
+      if (reclaimable > 0) {
+        process.stderr.write(
+          `[h2a] ${reclaimable} slot(s) reclaimable — free one with: h2a jobs reclaim <id> ` +
+            "(the session's tmux window is left running and can still be attached)\n",
+        );
+      }
+    });
+
+  jobsCommand
+    .command("reclaim <id>")
+    .description(
+      "Free the concurrency SLOT of a session that stopped working (its lease is abandoned): the job is marked terminal and its lease released. It does NOT kill anything — the tmux session keeps running and stays attachable. Refuses while the lease is still being beaten.",
+    )
+    .action((id: string) => {
+      const now = new Date().toISOString();
+      const store = sessionLeaseStore();
+      const lease = store.forSession(id);
+      if (!lease) {
+        process.stderr.write(
+          `[h2a] no session lease for "${id}" — nothing to reclaim (see: h2a jobs leases)\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      // The one guard that matters: a session still proving it works keeps its
+      // slot, whatever the operator believes. Reclaiming is not arbitration.
+      if (!isSessionLeaseAbandoned(lease, now)) {
+        const idle = Date.parse(now) - Date.parse(lease.heartbeatAt);
+        process.stderr.write(
+          `[h2a] refusing to reclaim ${id}: its lease still beats (last proof of work ` +
+            `${formatIdle(idle)} ago, TTL ${formatIdle(lease.ttlMs)}). It is working.\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const job = listJobs().find((e) => e.id === id);
+      const advanced = job ? advanceJob(id, "failed") : undefined;
+      try {
+        store.release({ sessionId: id, token: lease.token });
+      } catch (err) {
+        process.stderr.write(`[h2a] lease release failed: ${(err as Error).message}\n`);
+      }
+      process.stdout.write(
+        `reclaimed ${id} — slot freed after ` +
+          `${formatIdle(Date.parse(now) - Date.parse(lease.heartbeatAt))} without work\n`,
+      );
+      process.stderr.write(
+        `[h2a] the session was NOT killed: ${job?.tmuxSession ?? "its tmux session"} is still running ` +
+          `(h2a jobs attach ${id}). ` +
+          (advanced === undefined
+            ? "No registry entry to advance — only the lease was released.\n"
+            : "The job is recorded terminal so the conductor can admit queued work.\n"),
+      );
+    });
+
+  jobsCommand
     .command("status <id>")
     .description(
       "Show a job's detail (+ output.log / result.json paths for headless jobs).",
@@ -6837,6 +7062,25 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       process.stderr.write(
         `[h2a] conduct: AIMD breaker — admitting up to ${effectiveCap}/${cap} (rate-limit pressure)\n`,
       );
+    }
+
+    // (a'') SESSION LEASES — beat what is working, and REPORT what has stopped.
+    // A finished-but-alive session is invisible to (a): it is `isJobLive`, so
+    // reconcile and the stale sweep both skip it, and it keeps its slot for as
+    // long as it stays alive. The lease pass is the only thing here that reads
+    // inactivity rather than death. It proposes; it never frees a slot itself.
+    try {
+      const supervision = superviseSessionLeases(refreshed);
+      for (const proposal of supervision.proposals) {
+        process.stderr.write(
+          `[h2a] conduct: ${proposal.sessionId} has held its slot without working for ` +
+            `${formatIdle(proposal.idleMs)} (holder ${proposal.holder}, TTL ${formatIdle(proposal.ttlMs)}). ` +
+            `NOT killed — inspect it with: h2a jobs attach ${proposal.sessionId}   ` +
+            `free the slot with: h2a jobs reclaim ${proposal.sessionId}\n`,
+        );
+      }
+    } catch {
+      // the lease store is advisory: a failure here must not stop the conductor
     }
 
     // (b) start pending jobs under the EFFECTIVE cap (oldest-first FIFO).
@@ -8357,11 +8601,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "force the legacy WS/SSE attach (control-plane proxy) instead of exec",
     )
     .option("--local", "force local tmux lookup")
+    .option(
+      "--headless-terminal",
+      "attach a persistent 160x48 PTY client without taking over this terminal (local sessions only)",
+    )
     .action(
       async (
         first: string,
         second: string | undefined,
-        opts: { exec?: boolean; ws?: boolean; local?: boolean },
+        opts: {
+          exec?: boolean;
+          ws?: boolean;
+          local?: boolean;
+          headlessTerminal?: boolean;
+        },
       ) => {
         // Local tmux session? (unless an explicit URL/sessionId pair is given).
         if (second === undefined && !looksLikeUrl(first)) {
@@ -8387,6 +8640,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 `[h2a] no local session "${first}" (see: h2a ls)\n`,
               );
               process.exitCode = 1;
+              return;
+            }
+            if (opts.headlessTerminal) {
+              const terminal = ensureHeadlessTerminal(localName);
+              if (terminal.state === "unavailable") {
+                process.stderr.write(
+                  `[h2a] could not attach a persistent terminal to ${first}: ${terminal.reason}\n`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+              process.stderr.write(
+                `[h2a] persistent terminal ${terminal.state} for ${first} (${terminal.attachedClients} attached client(s))\n`,
+              );
               return;
             }
             process.exitCode = attachLocalSession(localName);

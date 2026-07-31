@@ -208,7 +208,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       case "h2a_session_close":
         return handleSessionClose(sessions, args as never);
       case "h2a_discover_sessions":
-        return handleDiscoverSessions(sessions, args as never);
+        return handleDiscoverSessions(sessions, args as never, store.listInstances());
       case "h2a_nhi_report":
         return handleNhiReport(store, args as never);
       case "h2a_nhi_inventory":
