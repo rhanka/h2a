@@ -132,7 +132,7 @@ immediately below.
 | D7 | **DECIDED BY THE OWNER** | ActiveMemory/ctx is the referenced `ctx`; it is not the substrate. §4 D7. |
 | D8 | **DECIDED BY THE OWNER** | Graphify is archive and living-memory substrate. §4 D8 and §5.3. |
 | D9 | **DECIDED BY THE OWNER** | Ontology plus bi-temporality with assertion reconciliation. §4 D9 and §5.2. |
-| D10 | **OPEN** | The clicked counter/debounce label is only a candidate; trigger, rewind, and commit articulation remain open. §4 D10 and §9. |
+| D10 | **PARTLY RESOLVED (2026-07-31)** | Decomposed into four choices, answered by the owner: ordering = turn number + date/clock time; location = live graphify + committed recovery copy; rewind = keep, marked no-longer-current; sharing = single unified graph per repo with per-job compartmentalization (owner direction, h2a/harness/graphify ratification pending). The write **trigger** itself, and each answer's mechanism, remain OPEN. See §4 D10 update. |
 | D11 | **DECIDED BY THE OWNER** | Binary gate with high-grade double consensus; detailed promotion semantics remain **OPEN**. §4 D11 and §9. |
 | D12 | **DECIDED BY THE OWNER** | Authoritative journal plus graph projection is the default; Automerge/GUN fallback and fold details remain **OPEN**. §4 D12 and §9. |
 | D13 | **DECIDED BY THE OWNER** | This portable synthesis merges the local design direction without replacing replay artefacts. §4 D13 and §1. |
@@ -278,6 +278,48 @@ deduplication is assertion contradiction.
 **PROPOSED BY THE DESIGN — sequencing only:** A turn counter or silence debounce is the leading candidate
 only. `/rewind`, commit boundaries, committed memory, per-role memories, live-versus-commit
 reconciliation, and an h2a mutualisation layer must be designed together before the trigger is specified.
+
+---
+
+**2026-07-31 UPDATE — D10 decomposed and resolved (except the write trigger itself).**
+
+The single D10 checkbox entangled several distinct questions. After the first re-posing was rejected
+by the owner as unintelligible, a jargon-free re-framing (memory lane, drafted by a `gpt-5.6-sol`
+leg) split D10 into four plain-language choices, re-posed, and answered by the owner on 2026-07-31.
+The original D10 **write trigger** (*when* to save a note — the `compte-de-tours` label above) is
+NOT among them and **remains OPEN**.
+
+- **(a) Ordering coordinate — DECIDED: turn number AND date/clock time.** A note keeps its order
+  within its own conversation (turn number) and also records when it was written, so notes from
+  different agents can be compared and a contradiction can judge which note is newer. Rationale,
+  measured: a turn count orders one conversation only — two agents each have a turn 1 — so a real
+  timestamp is required across agents (graphify-knowledge and the memory lane's review agree, and D9
+  contradiction-detection needs it too). Each note records which coordinate produced its order.
+- **(b) Location — DECIDED: live in graphify for daily work PLUS a smaller committed recovery copy.**
+  The working memory is graphify's always-on store; the project periodically commits a smaller,
+  well-defined copy sufficient to rebuild/recover it, so memory travels with a fresh clone without
+  committing the whole graph. Cost, measured: graphify must gain per-note (element-level) writes — it
+  can only replace the whole graph today — and the recovery-copy contract (what, when, how compared)
+  must be defined; a measured graphify data set already exceeds the size limit (~54 MB vs ~52 MB).
+- **(c) `/rewind` — DECIDED: keep notes from rewound turns but mark them no-longer-current.** Ordinary
+  searches ignore them unless discarded paths are explicitly requested, so history and the explanation
+  of past decisions survive and a rewound note is never treated as current. Consistent with D12 (keep
+  a history of memory changes; silent deletion would be a consequential exception).
+- **(d) Sharing across agent jobs — OWNER DIRECTION, ratification pending.** A **single unified graph
+  per repo** that mutualises common project history, with **per-job compartmentalization kept as a
+  capability** and pruning/query used to avoid saturating each agent. Framed as "common + per-job
+  sections", but the owner requires that *both* underlying properties hold simultaneously: unified
+  management (a single memory somewhere) **and** per-job compartmentalization. Owner notes: the
+  atomicity depends on graphify's capabilities; **cross-repo / cross-workspace** memory sharing will
+  become important; a single prune/queryable graph per repo is a candidate method while performance
+  holds. This is **NOT the owner's decision alone** — h2a (identities/roles), harness (coding jobs)
+  and graphify (storage/access rules, and its own principal for anything that commits graphify) must
+  agree. It aligns with graphify-knowledge's measured recommendation (the store namespace carries the
+  workspace; host and role become node attributes queried within one graph).
+
+**Still OPEN after this update:** the D10 write **trigger** itself (when to save), and the detailed
+mechanisms each answer implies (recovery-copy contract, per-note writes on graphify, the
+no-longer-current marking in search, the sharing labels and access rules).
 
 ### D11 — Pending memory and human review
 
