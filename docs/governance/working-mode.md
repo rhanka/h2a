@@ -12,10 +12,10 @@ haute-coordination — celui-ci est pour le travail multi-gros-repo fortement co
 - **Consensus** (décision réversible-difficile) : `sol` + `fable-5`.
 
 ## Branches & merges
-- **Minimiser le nombre de branches** pour faciliter la validation.
+- **Ouvrir une PR seulement quand la branche est SUFFISAMMENT MÛRE** (pour faciliter sa validation). Pas de PR sur une branche immature.
+- **Plafond PR : ≤ 6 PR concurrentes en cours par repo** (déploiement des plugins inclus, post-merge).
+- **Branches en vol : jusqu'à 12 (voire 24) par repo** — beaucoup de travail parallèle, peu de PR mûres à la fois. (≤ 12 builders codex simultanés/repo ; ≤ 24 sur les 3 repos.)
 - À chaque merge de PR : **rebase la branche sur origin/main puis `git merge`** (merge-commit). Jamais `--rebase`/`--squash` sur une release (réécrit les SHA).
-- **≤ 6 PR concurrentes non mergées par repo** (déploiement des plugins inclus, post-merge).
-- **≤ 12 builders codex simultanés par repo ; ≤ 24 sur les 3 repos.**
 - `.track` committé depuis la RACINE sur une branche dédiée (jamais depuis une feature).
 
 ## Décisions (autonomie maximale)
