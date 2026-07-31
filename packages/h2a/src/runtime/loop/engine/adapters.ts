@@ -714,7 +714,7 @@ export function buildActionSink(opts: {
         ),
         now: ctx.now
       });
-      if (plan.kind === "skip") return "skipped";
+      if (plan.kind === "skip") return { outcome: "skipped", detail: plan.reason };
       // localTmuxDriver ONLY — never chain/headless/auto (RISK #1). It applies the
       // human-typing guard at the last moment and DEFERS (false) if a human is
       // active in the pane; a defer stays pending and re-fires next tick.

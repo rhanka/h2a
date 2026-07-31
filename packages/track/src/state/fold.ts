@@ -21,9 +21,11 @@ import type {
   Gate,
   ItemCreatedPayload,
   ItemId,
+  ItemRaciUpdate,
   ItemRole,
   ItemState,
   Realization,
+  ReopenPayload,
   ScopeDecl,
   SpecStatus,
 } from '../model/item.js'
@@ -113,6 +115,15 @@ export function openBlockersForItem(state: State, itemId: ItemId): BlockerState[
   return openBlockers(state).filter((b) => b.targetId === itemId)
 }
 
+/**
+ * Apply the creation-payload RACI subset. An omitted axis preserves the current value because the shared
+ * optional payload shape cannot distinguish omission from a request to clear; clearing must be explicit.
+ */
+function applyItemRaci(item: ItemState, payload: ItemRaciUpdate): void {
+  if (payload.accountable !== undefined) item.accountable = payload.accountable
+  if (payload.responsible !== undefined) item.responsible = payload.responsible
+}
+
 function applyEvent(state: State, event: TrackEvent): void {
   switch (event.type) {
     case 'item.created': {
@@ -197,6 +208,14 @@ function applyEvent(state: State, event: TrackEvent): void {
       break
     }
 
+    case 'item.raci-assigned': {
+      // RACI assignment on an existing item is field-wise LWW: an omitted field is not a clear and stays
+      // untouched. Append-time guards ensure the target exists and that at least one field was supplied.
+      const item = state.items.get(event.aggregateId)
+      if (item) applyItemRaci(item, event.payload as ItemRaciUpdate)
+      break
+    }
+
     case 'item.role-changed': {
       // A2 (DESIGN wp-codes-and-stream-role §A2) — set the new container role on the EXISTING item aggregate
       // (LWW in stream order). Legality (the item is a mutable container AND the whole-neighborhood
@@ -239,6 +258,36 @@ function applyEvent(state: State, event: TrackEvent): void {
     case 'realization.transition': {
       const target = state.items.get(event.aggregateId) ?? state.decisions.get(event.aggregateId)
       if (target) target.realization = (event.payload as { to: Realization }).to
+      break
+    }
+
+    case 'realization.reopened': {
+      // Regression expression — a closed item goes back to `in-progress` AND records WHY. Restricted to a real
+      // ITEM at append (Track.reopenItem), so this is a no-op for an unknown/decision aggregate. Legality (the
+      // item was terminally closed, the motive is declared, the reason is non-blank) is asserted AT APPEND,
+      // NEVER here (the established pattern) — the fold takes the event at face value in stream order. `from`
+      // is DERIVED here rather than trusted from the payload, so the trace can never contradict the log.
+      const item = state.items.get(event.aggregateId)
+      if (item) {
+        const p = event.payload as unknown as ReopenPayload
+        // A foreign event without the required identity (or naming a different aggregate) is not allowed to
+        // move the current item. `validate` reports the malformed record; the fold stays fail-safe as well.
+        if (p.itemId !== event.aggregateId) break
+        const from = item.realization
+        // ALL OR NOTHING. A reopening is only applied when there IS a closure to correct, and then BOTH the
+        // realization and the trace move together. A foreign writer that appends a well-formed reopening on a
+        // `to-do`/`in-progress`/`rejected` item therefore changes NOTHING here — instead of the half-application
+        // (realization advanced, trace absent) that would let an out-of-facade event push work forward while
+        // leaving the state unable to say a reopening happened. `validate` reports such an event as a
+        // `reopen-illegal` finding; the fold stays non-throwing and fail-safe.
+        if (from === 'done' || from === 'cancelled') {
+          item.reopenings = [
+            ...(item.reopenings ?? []),
+            { from, motive: p.motive, reason: p.reason, at: event.at, by: event.by },
+          ]
+          item.realization = 'in-progress'
+        }
+      }
       break
     }
 
