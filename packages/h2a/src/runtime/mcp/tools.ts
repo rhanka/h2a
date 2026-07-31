@@ -331,7 +331,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         name: {
           type: "string",
           description:
-            "Case-insensitive substring match on session.name (display name). Use to find a peer by friendly name when you don't know the full instance id."
+            "Case-insensitive, slug-stable substring match on the native or live presence display name. Use to find a peer by friendly name when you don't know the full instance id."
         }
       }
     }
