@@ -36,5 +36,5 @@
 ## Feedback Loop
 
 - [x] Report the SessionStart-versus-actor-RECALL memory finding without widening this fix into a memory redesign.
-- [ ] Complete two independent review legs and reconcile their findings.
+- [x] Complete two independent review legs and reconcile their findings.
 - [ ] Owner UAT remains required; do not mark Track work done.
