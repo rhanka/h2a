@@ -34,6 +34,17 @@ const listLocalSessionsWithDiagnostics = vi.fn();
 const localSessionIdle = vi.fn();
 const sessionRelaunchSafety = vi.fn();
 const localSessionGatewayEnvStatus = vi.fn();
+const capturePaneVisible = vi.fn(() => "Claude Code\n❯ Ready");
+const clearPaneComposer = vi.fn(() => true);
+const pasteLiteralBlock = vi.fn(() => true);
+const submitPane = vi.fn(() => true);
+const paneTreeCpuMs = vi.fn(() => 1000);
+const deliverInitialPrompt = vi.fn(() => ({
+  state: "working" as const,
+  waitedMs: 1000,
+  cpuDeltaMs: 750,
+  evidence: "composer-text" as const,
+}));
 const runLocalCliForeground = vi.fn();
 const migrateForward = vi.fn();
 const migrateBack = vi.fn();
@@ -119,6 +130,11 @@ vi.mock("./tmux.js", () => ({
   localSessionIdle,
   sessionRelaunchSafety,
   localSessionGatewayEnvStatus,
+  capturePaneVisible,
+  clearPaneComposer,
+  pasteLiteralBlock,
+  submitPane,
+  paneTreeCpuMs,
   localSessionName: (slug: string) => `h2a-${slug}`,
   managedSessionCandidates: (slug: string) => [
     `h2a-${slug}`,
@@ -147,6 +163,11 @@ vi.mock("./tmux.js", () => ({
   // Stubbed as a no-op deliberately: this file drives WIRING, and what the launch
   // context should contain is asserted where that is the subject.
   persistLaunchContext: () => {},
+}));
+
+vi.mock("./prompt-delivery.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./prompt-delivery.js")>()),
+  deliverInitialPrompt,
 }));
 
 vi.mock("./migrate.js", () => ({
@@ -260,6 +281,17 @@ beforeEach(() => {
   });
   localSessionGatewayEnvStatus.mockReset();
   localSessionGatewayEnvStatus.mockReturnValue("unknown");
+  deliverInitialPrompt.mockReset();
+  deliverInitialPrompt.mockReturnValue({
+    state: "working",
+    waitedMs: 1000,
+    cpuDeltaMs: 750,
+    evidence: "composer-text",
+  });
+  capturePaneVisible.mockReset();
+  capturePaneVisible.mockReturnValue("Claude Code\n❯ Ready");
+  submitPane.mockReset();
+  submitPane.mockReturnValue(true);
   runLocalCliForeground.mockReset();
   runLocalCliForeground.mockReturnValue(0);
   migrateForward.mockReset();
@@ -376,6 +408,11 @@ describe("h2a relaunch", () => {
   ];
 
   beforeEach(() => {
+    startLocalSession.mockReturnValue({
+      name: "remote-projA",
+      slug: "projA",
+      agentPane: "%1",
+    });
     listLocalSessions.mockReturnValue(sessions);
     listLocalSessionsWithDiagnostics.mockReturnValue({
       sessions,
@@ -468,7 +505,11 @@ describe("h2a relaunch", () => {
       ["resume", "conv-codex"],
       "codex-lane",
       undefined,
-      { sessionClass: "human" },
+      {
+        sessionClass: "human",
+        resumeId: "conv-codex",
+        attachedTerminal: true,
+      },
     );
     expect(startLocalSession).toHaveBeenNthCalledWith(
       2,
@@ -478,8 +519,14 @@ describe("h2a relaunch", () => {
       ["--resume", "conv-claude"],
       "claude-lane",
       undefined,
-      { sessionClass: "human" },
+      {
+        sessionClass: "human",
+        resumeId: "conv-claude",
+        attachedTerminal: true,
+      },
     );
+    expect(deliverInitialPrompt).toHaveBeenCalledTimes(2);
+    expect(stderrText()).toContain("objective re-injected; agent WORKING");
     expect(stderrText()).toContain("unresumable");
     expect(stderrText()).toContain("no resumable conversation");
   });
@@ -735,9 +782,64 @@ describe("h2a relaunch", () => {
       ["resume", "conv-codex"],
       "codex-lane",
       undefined,
-      { sessionClass: "human" },
+      {
+        sessionClass: "human",
+        resumeId: "conv-codex",
+        attachedTerminal: true,
+      },
     );
     expect(stderrText()).toContain("confirmed");
+  });
+
+  it("auto-passes only the exact Claude stale-session gate before proving work", async () => {
+    deliverInitialPrompt
+      .mockReturnValueOnce({
+        state: "host-modal",
+        reason: "Claude is waiting for the exact stale-session summary confirmation",
+        hint: "exact prompt",
+        capture:
+          "This session is 19h 44m old and 450.3k tokens.\nResuming the full session will consume a substantial portion of your usage limits. We recommend resuming from a summary.\n❯ 1. Resume from summary (recommended)\n2. Resume full session as-is\n3. Don't ask me again\nEnter to confirm",
+      })
+      .mockReturnValueOnce({
+        state: "working",
+        waitedMs: 1000,
+        cpuDeltaMs: 750,
+        evidence: "composer-text",
+      });
+
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "claude-lane",
+      "--apply",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(submitPane).toHaveBeenCalledTimes(1);
+    expect(stderrText()).toContain("confirmation auto-passed once");
+    expect(stderrText()).toContain("objective re-injected; agent WORKING");
+  });
+
+  it("fails the command when the resumed agent accepts the objective but stays idle", async () => {
+    deliverInitialPrompt.mockReturnValue({
+      state: "submitted-idle",
+      waitedMs: 30_000,
+      cpuDeltaMs: 12,
+      evidence: "composer-text",
+    });
+
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "claude-lane",
+      "--apply",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stderrText()).toContain("agent stayed idle");
+    expect(stderrText()).not.toContain("objective re-injected; agent WORKING");
   });
 
   it("preserves a background session class on an explicit forced restart", async () => {
@@ -780,7 +882,11 @@ describe("h2a relaunch", () => {
       ["resume", "conv-background"],
       "background-lane",
       undefined,
-      { sessionClass: "background" },
+      {
+        sessionClass: "background",
+        resumeId: "conv-background",
+        attachedTerminal: true,
+      },
     );
   });
 
