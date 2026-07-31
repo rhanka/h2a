@@ -161,9 +161,17 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "resource",
     exitCodes: [0, 1, 2],
     requiredFlags: ["name", "goal"],
-    optionalFlags: ["root", "id", "repo", "track", "agent"],
+    optionalFlags: ["root", "id", "repo", "track", "agent", "auto-tick"],
     description:
       "Create a durable Objective Loop under `<root>/loops/<loopId>/` with state.json, events.jsonl and objective.md. Multiple --repo, --track JSON TrackRef and --agent host:role:placement flags may be supplied."
+  },
+  {
+    verb: "loop enable-auto-tick",
+    outputShape: "resource",
+    exitCodes: [0, 1, 2],
+    requiredFlags: ["loopId"],
+    optionalFlags: ["root"],
+    description: "Explicitly opt an existing Objective Loop into durable supervisor ticks."
   },
   {
     verb: "loop list",
