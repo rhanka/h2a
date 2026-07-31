@@ -13,7 +13,8 @@ import {
   handleLoopStatus,
   handleLoopStop
 } from "../dist/runtime/mcp/handlers.js";
-import { createObjectiveLoop, listLoopEvents, listObjectiveLoops } from "../dist/runtime/loop/index.js";
+import { createObjectiveLoop, listAutoTickLoops, listLoopEvents, listObjectiveLoops } from "../dist/runtime/loop/index.js";
+import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "../dist/runtime/mcp/tools.js";
 import { durableTestDir } from "./durable-test-dir.js";
 
 function freshRoot() {
@@ -81,6 +82,27 @@ test("h2a_loop_create/join/report/done/stop write MVP loop events", () => {
 
     const stopped = handleLoopStop(root, { loopId: "missing", reason: "x" });
     assert.ok("error" in stopped);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("h2a_loop_create exposes explicit autoTick opt-in and makes the loop supervisor-discoverable", () => {
+  const root = freshRoot();
+  try {
+    const descriptor = H2A_CLI_MCP_TOOL_DESCRIPTORS.find((tool) => tool.name === "h2a_loop_create");
+    assert.equal(descriptor?.inputSchema.additionalProperties, false);
+    assert.equal(descriptor?.inputSchema.properties?.autoTick?.type, "boolean");
+
+    const created = handleLoopCreate(root, {
+      id: "mcp-auto",
+      goal: "ship",
+      instance: "claude:h2a:123",
+      autoTick: true
+    });
+    assert.equal(created.kind, "loop-created");
+    assert.equal(created.loop.policy.autoTick, true);
+    assert.deepEqual(listAutoTickLoops(root, {}).map((loop) => loop.id), ["mcp-auto"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

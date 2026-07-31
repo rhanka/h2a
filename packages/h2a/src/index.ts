@@ -647,6 +647,7 @@ export {
   createLoopId,
   createObjectiveLoop,
   declareObjectiveLoopDone,
+  enableObjectiveLoopAutoTick,
   joinObjectiveLoop,
   listLoopEvents,
   listObjectiveLoops,
