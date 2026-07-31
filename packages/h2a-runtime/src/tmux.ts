@@ -11,13 +11,14 @@
  *    middle — this is what fixes "I can't copy the code claude printed".
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 import { getTmuxProfileConfig } from "./config.js";
 import {
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -25,6 +26,8 @@ import {
 } from "node:fs";
 import { basename, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
+
+import { readProcessTreeCpuMs, readWorkerPid } from "./proc-cpu.js";
 
 import {
   LAUNCH_OPTION_PREFIX,
@@ -492,7 +495,135 @@ export type ManagedLaunchMetadata = {
   terminateOnAgentExit?: boolean;
   /** Refuse an existing name instead of reusing it (structured launch contract). */
   refuseExisting?: boolean;
+  /**
+   * Keep a real, fixed-size PTY client attached while the pane is remotely
+   * driven. Required before an initial TUI prompt can be delivered reliably.
+   */
+  attachedTerminal?: boolean;
 };
+
+/** Fixed PTY geometry for a non-human tmux client. */
+export const HEADLESS_TERMINAL_SIZE = { cols: 160, rows: 48 } as const;
+
+export type HeadlessTerminalResult =
+  | {
+      readonly state: "already-attached";
+      readonly attachedClients: number;
+    }
+  | {
+      readonly state: "headless-attached";
+      readonly attachedClients: number;
+      readonly cols: number;
+      readonly rows: number;
+    }
+  | {
+      readonly state: "unavailable";
+      readonly reason: string;
+    };
+
+export type EnsureHeadlessTerminalOptions = {
+  /** How long to wait for tmux to observe the new client. */
+  readonly timeoutMs?: number;
+  /** Poll cadence while the script-owned client starts. */
+  readonly pollMs?: number;
+};
+
+const HEADLESS_TERMINAL_TIMEOUT_MS = 5_000;
+const HEADLESS_TERMINAL_POLL_MS = 50;
+const HEADLESS_TERMINAL_MARKER = "@h2a_attached_terminal";
+
+function sleepBlocking(ms: number): void {
+  if (ms <= 0) return;
+  const cell = new Int32Array(new SharedArrayBuffer(4));
+  Atomics.wait(cell, 0, 0, ms);
+}
+
+/**
+ * Give a detached tmux session a genuine terminal, without taking over the
+ * launcher terminal. `script` allocates a PTY and an intentionally idle pipe
+ * keeps its stdin open; without that pipe `script` receives EOF from a
+ * headless launcher and the tmux client immediately detaches. A pipe or `tmux
+ * send-keys` alone is not a terminal, and both Codex and Claude can drop their
+ * initial composer input when started that way.
+ */
+export function ensureHeadlessTerminal(
+  session: string,
+  options: EnsureHeadlessTerminalOptions = {},
+): HeadlessTerminalResult {
+  const attached = sessionAttachedCount(session);
+  if (attached !== undefined && attached > 0) {
+    return { state: "already-attached", attachedClients: attached };
+  }
+  if (attached === undefined) {
+    return {
+      state: "unavailable",
+      reason: `tmux could not inspect session ${session}`,
+    };
+  }
+  if (!commandAvailable("script")) {
+    return {
+      state: "unavailable",
+      reason: "the util-linux `script` command is required to allocate a persistent PTY",
+    };
+  }
+
+  let launchError: string | undefined;
+  try {
+    const child = spawn(
+      "/bin/sh",
+      [
+        "-c",
+        `exec tail -f /dev/null | script -qefc 'export TERM=xterm-256color; stty cols ${HEADLESS_TERMINAL_SIZE.cols} rows ${HEADLESS_TERMINAL_SIZE.rows}; exec tmux -u attach-session -t "$H2A_HEADLESS_TARGET"' /dev/null`,
+      ],
+      {
+        detached: true,
+        stdio: "ignore",
+        env: {
+          ...process.env,
+          H2A_HEADLESS_TARGET: exactSessionTarget(session),
+        },
+      },
+    );
+    child.on("error", (error) => {
+      launchError = error.message;
+    });
+    child.unref();
+  } catch (error) {
+    return {
+      state: "unavailable",
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const timeoutMs = options.timeoutMs ?? HEADLESS_TERMINAL_TIMEOUT_MS;
+  const pollMs = options.pollMs ?? HEADLESS_TERMINAL_POLL_MS;
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const clients = sessionAttachedCount(session);
+    if (clients !== undefined && clients > 0) {
+      setSessionOption(
+        session,
+        HEADLESS_TERMINAL_MARKER,
+        `headless:${HEADLESS_TERMINAL_SIZE.cols}x${HEADLESS_TERMINAL_SIZE.rows}`,
+      );
+      return {
+        state: "headless-attached",
+        attachedClients: clients,
+        ...HEADLESS_TERMINAL_SIZE,
+      };
+    }
+    if (launchError) {
+      return { state: "unavailable", reason: launchError };
+    }
+    if (Date.now() >= deadline) {
+      return {
+        state: "unavailable",
+        reason: `tmux client did not attach within ${timeoutMs}ms`,
+      };
+    }
+    sleepBlocking(Math.min(pollMs, Math.max(1, deadline - Date.now())));
+  }
+}
 
 /**
  * First clipboard CLI found on PATH, or undefined. With `mouse on`, a mouse
@@ -734,6 +865,7 @@ export function startLocalSession(
     sessionClass,
     terminateOnAgentExit = false,
     refuseExisting = false,
+    attachedTerminal = false,
     ...launchMetadata
   } = metadata;
   ensureScrollConfig(tmuxProfile);
@@ -752,6 +884,14 @@ export function startLocalSession(
       existing.session.name,
       buildLaunchContext({ profile, cwd, label, ...launchMetadata }),
     );
+    if (attachedTerminal) {
+      const terminal = ensureHeadlessTerminal(existing.session.name);
+      if (terminal.state === "unavailable") {
+        throw new Error(
+          `could not attach a persistent terminal to ${existing.session.slug}: ${terminal.reason}`,
+        );
+      }
+    }
     return {
       name: existing.session.name,
       slug: existing.session.slug,
@@ -759,6 +899,24 @@ export function startLocalSession(
     };
   }
 
+  const agentCommand = [
+    ...anthopicEnvUnsetCommandPrefix(),
+    "/bin/bash",
+    "-lc",
+    terminateOnAgentExit ? STRUCTURED_LOCAL_WRAPPER : LOCAL_WRAPPER,
+    ...(terminateOnAgentExit
+      ? [command]
+      : [
+          localRelaunchCommand(
+            profile,
+            cwd,
+            label,
+            metadata.resumeId ? ["--resume", metadata.resumeId] : [],
+          ),
+          command,
+        ]),
+    ...args,
+  ];
   const r = spawnSync(
     TMUX,
     [
@@ -777,22 +935,13 @@ export function startLocalSession(
       profile,
       "-c",
       cwd,
-      ...anthopicEnvUnsetCommandPrefix(),
-      "/bin/bash",
-      "-lc",
-      terminateOnAgentExit ? STRUCTURED_LOCAL_WRAPPER : LOCAL_WRAPPER,
-      ...(terminateOnAgentExit
-        ? [command]
-        : [
-            localRelaunchCommand(
-              profile,
-              cwd,
-              label,
-              metadata.resumeId ? ["--resume", metadata.resumeId] : [],
-            ),
-            command,
-          ]),
-      ...args,
+      // A detached pane has no actual terminal client. Do not start a TUI
+      // there: a process that reads stdin before the PTY client attaches sees
+      // EOF, while one that starts rendering can lose the first prompt. Keep a
+      // benign pane alive, attach and verify the PTY, then respawn the agent.
+      ...(attachedTerminal
+        ? ["/bin/bash", "-lc", "exec sleep 86400"]
+        : agentCommand),
     ],
     {
       encoding: "utf8",
@@ -805,9 +954,36 @@ export function startLocalSession(
   const printedPane = r.stdout?.trim();
   const capturedPane = validTmuxPaneId(printedPane) ? printedPane : undefined;
   const agentPane = persistAgentPaneMetadata(name, profile, cwd, capturedPane);
-  if ((terminateOnAgentExit || refuseExisting) && !agentPane) {
+  if ((terminateOnAgentExit || refuseExisting || attachedTerminal) && !agentPane) {
     killLocalSession(name);
     throw new Error(`tmux did not return a live agent pane for ${slug}`);
+  }
+  if (attachedTerminal) {
+    const terminal = ensureHeadlessTerminal(name);
+    if (terminal.state === "unavailable") {
+      killLocalSession(name);
+      throw new Error(
+        `could not attach a persistent terminal to ${slug}: ${terminal.reason}`,
+      );
+    }
+    const respawned = spawnSync(
+      TMUX,
+      [
+        "respawn-pane",
+        "-k",
+        "-t",
+        agentPane!,
+        "-c",
+        cwd,
+        ...tmuxEnvironmentArgs(sessionClass),
+        ...agentCommand,
+      ],
+      { stdio: ["ignore", "ignore", "ignore"] },
+    );
+    if (respawned.status !== 0) {
+      killLocalSession(name);
+      throw new Error(`tmux could not start the agent pane for ${slug} after terminal attachment`);
+    }
   }
   // Record the profile as a session option so `remote ls` can show it.
   spawnSync(TMUX, ["set-option", "-t", name, "@profile", profile], {
@@ -961,7 +1137,7 @@ export function cleanupHeadlessPromptFile(promptFile?: string): void {
 export function sessionAttachedCount(name: string): number | undefined {
   const r = spawnSync(
     TMUX,
-    ["display", "-p", "-t", `=${name}`, "#{session_attached}"],
+    ["display", "-p", "-t", exactSessionTarget(name), "#{session_attached}"],
     { encoding: "utf8" },
   );
   if (r.status !== 0 || r.stdout === undefined) return undefined;
@@ -1090,8 +1266,25 @@ function validTmuxPaneId(value: string | undefined): value is string {
   return value !== undefined && /^%\d+$/.test(value);
 }
 
+/**
+ * Exact, fail-closed SESSION target for `-t`, for both `show-options` and
+ * `set-option`.
+ *
+ * Measured on tmux 3.6:
+ *   -t <name>     bare  -> resolves exact THEN unique-PREFIX, so `set-option -t
+ *                          h2a-foo` mutates `h2a-foobar` when h2a-foo is gone.
+ *   -t =<name>          -> `=` marks a PANE target here; both commands miss the
+ *                          session, and `-q` swallows the error so a read returns
+ *                          "" — which is why the status surface silently never
+ *                          installed on this tmux.
+ *   -t =<name>:         -> `=` exact + trailing `:` (the session's target):
+ *                          resolves the EXACT session, fails closed when it is
+ *                          absent, and works for read and write alike.
+ * So the correct exact-session form is `=<name>:`.
+ */
 function exactSessionTarget(session: string): string {
-  return session.startsWith("=") ? session : `=${session}`;
+  const bare = session.replace(/^=/, "").replace(/:$/, "");
+  return `=${bare}:`;
 }
 
 function readSessionOption(
@@ -1841,7 +2034,7 @@ export function sessionAttached(name: string): boolean {
   try {
     const r = spawnSync(
       TMUX,
-      ["display", "-p", "-t", `=${name}`, "#{session_attached}"],
+      ["display", "-p", "-t", exactSessionTarget(name), "#{session_attached}"],
       { encoding: "utf8" },
     );
     if (r.status !== 0) return true; // can't tell → assume attached (never nudge)
@@ -1857,10 +2050,18 @@ export function sessionAttached(name: string): boolean {
  * Paste a LITERAL line into a session's main pane, then submit it with a real
  * Enter key event. Content reaches `tmux load-buffer -` on stdin, then a named
  * buffer is pasted: arbitrary text is never interpreted by a shell and never
- * appears in a process argv. Enter is a separate key-name event. Used both for
- * initial prompts and interactive throttle nudges.
+ * appears in a process argv. Enter is a separate key-name event. Used for
+ * interactive throttle nudges (single lines).
  */
 export function sendKeysLiteral(name: string, keys: string): boolean {
+  if (!loadAndPaste(name, keys, false)) return false;
+  const enter = spawnSync(TMUX, ["send-keys", "-t", name, "Enter"], {
+    stdio: "ignore",
+  });
+  return enter.status === 0;
+}
+
+function loadAndPaste(name: string, keys: string, bracketed: boolean): boolean {
   const buffer = `h2a-${process.pid}-${randomUUID()}`;
   const loaded = spawnSync(TMUX, ["load-buffer", "-b", buffer, "-"], {
     input: keys,
@@ -1870,17 +2071,118 @@ export function sendKeysLiteral(name: string, keys: string): boolean {
   if (loaded.status !== 0) return false;
   const pasted = spawnSync(
     TMUX,
-    ["paste-buffer", "-b", buffer, "-d", "-t", name],
+    [
+      "paste-buffer",
+      ...(bracketed ? ["-p"] : []),
+      "-b",
+      buffer,
+      "-d",
+      "-t",
+      name,
+    ],
     { stdio: "ignore" },
   );
   if (pasted.status !== 0) {
     spawnSync(TMUX, ["delete-buffer", "-b", buffer], { stdio: "ignore" });
     return false;
   }
-  const enter = spawnSync(TMUX, ["send-keys", "-t", name, "Enter"], {
+  return true;
+}
+
+/**
+ * Paste text as ONE block, WITHOUT submitting it.
+ *
+ * `-p` wraps the payload in bracketed-paste markers. Measured 2026-07-29 on
+ * Claude Code 2.1.220: without `-p`, a multi-line brief is submitted line by
+ * line — line 1 left as its own request while line 2 stayed in the composer.
+ * With `-p` the whole block lands as a single entry that one Enter submits.
+ */
+export function pasteLiteralBlock(name: string, keys: string): boolean {
+  return loadAndPaste(name, keys, true);
+}
+
+/** Submit whatever the composer currently holds (one real Enter key event). */
+export function submitPane(name: string): boolean {
+  const r = spawnSync(TMUX, ["send-keys", "-t", name, "Enter"], {
     stdio: "ignore",
   });
-  return enter.status === 0;
+  return r.status === 0;
+}
+
+/**
+ * Best-effort composer wipe. Ctrl-U only kills to the start of the CURRENT
+ * line, so a multi-line composer needs several — measured: one C-u left a
+ * multi-line brief in place, and retrying the paste then STACKED copies.
+ * Delivery never depends on this succeeding; it types only once.
+ */
+export function clearPaneComposer(name: string): boolean {
+  let ok = true;
+  for (let i = 0; i < 4; i += 1) {
+    const r = spawnSync(TMUX, ["send-keys", "-t", name, "C-u"], {
+      stdio: "ignore",
+    });
+    ok = ok && r.status === 0;
+  }
+  return ok;
+}
+
+/**
+ * VISIBLE text of one pane, or undefined when tmux cannot be read — unlike
+ * `capturePane`, which flattens a failure into "". Delivery needs the
+ * difference: an unreadable pane is not an empty one.
+ */
+export function capturePaneVisible(pane: string): string | undefined {
+  const r = spawnSync(TMUX, ["capture-pane", "-p", "-t", pane], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (r.status !== 0 || r.stdout === undefined) return undefined;
+  return r.stdout;
+}
+
+/**
+ * CPU time (ms) of the process tree behind a pane — the liveness signal used to
+ * tell a working agent from one parked on its placeholder.
+ */
+export function paneTreeCpuMs(pane: string): number | undefined {
+  const pid = localSessionPanePid(pane);
+  if (pid === undefined) return undefined;
+  return readProcessTreeCpuMs(pid, procReaderDeps());
+}
+
+/**
+ * The pid actually doing the work behind a pane.
+ *
+ * The pane's own pid is the launch WRAPPER: measured 2026-07-29, it reported 0s
+ * of CPU after 37s while its `codex` child had burned 13s. Anything that judges
+ * a lane by the reported pid alone — a supervisor, a status bar, a conductor —
+ * is reading the wrong process, and gets a false answer in both directions.
+ */
+export function paneWorkerPid(pane: string): number | undefined {
+  const pid = localSessionPanePid(pane);
+  if (pid === undefined) return undefined;
+  return readWorkerPid(pid, procReaderDeps());
+}
+
+function procReaderDeps() {
+  return {
+    listPids: () => {
+      try {
+        return readdirSync("/proc")
+          .map((entry) => Number.parseInt(entry, 10))
+          .filter((value) => Number.isInteger(value) && value > 0);
+      } catch {
+        return [];
+      }
+    },
+    readStat: (target: number) => {
+      try {
+        return readFileSync(`/proc/${target}/stat`, "utf8");
+      } catch {
+        return undefined;
+      }
+    },
+  };
 }
 
 /**
