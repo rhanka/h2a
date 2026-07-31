@@ -233,6 +233,21 @@ describe('CLI input validation + review fixes (Lot 7)', () => {
     expect(out.join('').trim().length).toBeGreaterThan(0) // a blockerId
   })
 
+  it('persists a trimmed blocker owner and rejects a blank owner without changing the log', () => {
+    runCli(['init'], io)
+    const target = last(['item', 'new', '--kind', 'feature', '--title', 'target', '--workspace', 'ws'])
+    const prerequisite = last(['item', 'new', '--kind', 'feature', '--title', 'prerequisite', '--workspace', 'ws'])
+    expect(runCli(['blocker', 'raise', '--target', target, '--kind', 'dependency', '--ref', prerequisite, '--owner', '  human:counterparty  '], io)).toBe(0)
+
+    const store = new EventStore(join(dir, '.track', 'events.jsonl'))
+    expect(new Track(store).state().blockers.values().next().value?.owner).toBe('human:counterparty')
+    const before = store.readAll().length
+    out.length = 0
+    expect(runCli(['blocker', 'raise', '--target', target, '--kind', 'dependency', '--ref', prerequisite, '--owner', ''], io)).toBe(1)
+    expect(out.join('')).toContain('--owner must be a non-empty actor')
+    expect(store.readAll()).toHaveLength(before)
+  })
+
   it('decision dossier --context merges, preserving existing options', () => {
     runCli(['init'], io)
     const store = new EventStore(join(dir, '.track', 'events.jsonl'))
