@@ -36,18 +36,12 @@ test("should replace only the bounded doctrine projection", () => {
   );
 });
 
-test("the committed RECALL.md doctrine block is not stale vs the real journal (--check, gated)", () => {
-  // `--check` used to be a manual command, so review of PR 90 could fabricate a ULID inside the
-  // block and every GATED test stayed green (they only used the fixture). This runs --check's
-  // exact comparison against the real committed files, so drift, a fabricated locator, or a
-  // lost decision fail the required gate — not just an optional manual run. See RECALL.md REC-02.
-  const REPO_ROOT = resolve(HERE, "..", "..", "..");
-  const realRecall = readFileSync(join(REPO_ROOT, "docs", "agents", "RECALL.md"), "utf8");
-  const realJournal = readFileSync(join(REPO_ROOT, ".track", "events.jsonl"), "utf8");
-  const regenerated = replaceDoctrineTable(realRecall, renderDoctrineProjection(realJournal));
-  assert.equal(
-    regenerated,
-    realRecall,
-    "committed docs/agents/RECALL.md doctrine block drifted from the journal — run: node scripts/generate-recall-doctrine.mjs",
-  );
-});
+// DELIBERATELY NOT a gate test: a full `--check` byte-equality of the committed table against
+// the real journal is fragile in CI, learned the hard way (RECALL.md REC-22). CI runs a PR on the
+// PR-MERGED-WITH-MAIN tree (refs/pull/N/merge), whose .track/events.jsonl carries ALL of main's
+// events, not the branch's — so regenerating the table there yields every decision main has
+// accumulated, many more rows than the branch's committed table, and equality fails whenever main
+// advances (always). The robust, GATED invariant is "every doctrine ULID resolves in the journal"
+// (actor-memory-wiring.test.js): a merged, larger journal only ADDS events, so it still contains
+// those ULIDs. `--check` stays a generation-time guard, not a CI gate. Gate the invariant, not the
+// exact projection.
