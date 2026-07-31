@@ -38,7 +38,7 @@ test("createLocalStore initializes the directory layout idempotently", () => {
   }
 });
 
-test("registerInstance appends to registry/instances.jsonl and rejects duplicates", () => {
+test("registerInstance appends to registry/instances.jsonl once across repeated calls", () => {
   const root = freshRoot();
   try {
     const store = createLocalStore({ root });
@@ -58,7 +58,8 @@ test("registerInstance appends to registry/instances.jsonl and rejects duplicate
     const content = readFileSync(store.paths.instances, "utf8");
     assert.match(content, /"id":"conductor:01"/);
 
-    assert.throws(() => store.registerInstance(reg), /already registered/);
+    store.registerInstance(reg);
+    assert.equal(store.listInstances().length, 1, "a repeated registration must be a no-op");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
