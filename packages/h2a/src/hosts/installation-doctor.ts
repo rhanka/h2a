@@ -167,6 +167,12 @@ interface MutableHostReport {
 interface TomlTable {
   readonly header: string;
   readonly lines: readonly string[];
+  readonly containsMultilineString?: boolean;
+}
+
+interface ParsedTomlTables {
+  readonly tables: readonly TomlTable[];
+  readonly unavailable?: string;
 }
 
 function defaultHostCommand(command: "claude" | "codex", args: readonly string[]): HostCommandResult {
@@ -437,22 +443,73 @@ function loadBearingArtifacts(
   return resolved;
 }
 
-function parseTomlTables(content: string): TomlTable[] {
+function multilineTomlStringStart(line: string): { readonly delimiter: "'''" | '\"\"\"'; readonly offset: number } | undefined {
+  // This deliberately accepts only the assignment form which this table
+  // rewriter can frame safely. It is not a full TOML parser: arrays of tables
+  // fail closed explicitly, while complex dotted keys and Unicode escape
+  // semantics remain outside this lexical framing.
+  const match = /^\s*(?:[A-Za-z0-9_-]+|"(?:\\.|[^"\\])*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"(?:\\.|[^"\\])*"|'[^']*'))*\s*=\s*('''|""")/.exec(line);
+  return match ? { delimiter: match[1] as "'''" | '\"\"\"', offset: match.index + match[0].length } : undefined;
+}
+
+function multilineTomlStringEnd(
+  line: string,
+  delimiter: "'''" | '\"\"\"',
+  offset: number
+): { readonly closed: boolean; readonly unavailable?: string } {
+  for (let cursor = offset; cursor <= line.length - delimiter.length; cursor++) {
+    if (!line.startsWith(delimiter, cursor)) continue;
+    if (delimiter === '\"\"\"') {
+      let slashCount = 0;
+      for (let previous = cursor - 1; previous >= 0 && line[previous] === "\\"; previous--) slashCount++;
+      if (slashCount % 2 === 1) continue;
+    }
+    const tail = line.slice(cursor + delimiter.length);
+    return /^\s*(?:#.*)?(?:\r?\n)?$/.test(tail)
+      ? { closed: true }
+      : { closed: false, unavailable: "multiline TOML string has content after its closing delimiter" };
+  }
+  return { closed: false };
+}
+
+function parseTomlTables(content: string): ParsedTomlTables {
   const result: TomlTable[] = [];
-  let current: { header: string; lines: string[] } | undefined;
+  let current: { header: string; lines: string[]; containsMultilineString: boolean } | undefined;
+  let multilineDelimiter: "'''" | '\"\"\"' | undefined;
   for (const line of content.split(/(?<=\n)/)) {
+    if (multilineDelimiter) {
+      if (!current) return { tables: result, unavailable: "multiline TOML string has no containing table" };
+      current.lines.push(line);
+      current.containsMultilineString = true;
+      const end = multilineTomlStringEnd(line, multilineDelimiter, 0);
+      if (end.unavailable) return { tables: result, unavailable: end.unavailable };
+      if (end.closed) multilineDelimiter = undefined;
+      continue;
+    }
+    if (/^\s*\[\[/.test(line)) {
+      return { tables: result, unavailable: "TOML arrays of tables are not supported for safe table rewrites" };
+    }
     const header = /^\s*\[([^\]]+)\]\s*(?:#.*)?(?:\r?\n)?$/.exec(line);
     if (header) {
       if (current) result.push(current);
-      current = { header: header[1], lines: [line] };
-    } else if (current) {
-      current.lines.push(line);
+      current = { header: header[1], lines: [line], containsMultilineString: false };
     } else {
-      current = { header: "", lines: [line] };
+      if (!current) current = { header: "", lines: [], containsMultilineString: false };
+      current.lines.push(line);
+      const start = multilineTomlStringStart(line);
+      if (start) {
+        current.containsMultilineString = true;
+        const end = multilineTomlStringEnd(line, start.delimiter, start.offset);
+        if (end.unavailable) return { tables: result, unavailable: end.unavailable };
+        if (!end.closed) multilineDelimiter = start.delimiter;
+      } else if (line.includes("'''") || line.includes('\"\"\"')) {
+        return { tables: result, unavailable: "cannot frame an unsupported triple-quoted TOML string" };
+      }
     }
   }
+  if (multilineDelimiter) return { tables: result, unavailable: "unterminated multiline TOML string" };
   if (current) result.push(current);
-  return result;
+  return { tables: result };
 }
 
 function tomlQuotedName(header: string, prefix: string): string | undefined {
@@ -538,7 +595,9 @@ function rewriteTomlTables(
   transform: (table: TomlTable) => readonly string[] | undefined
 ): string {
   const output: string[] = [];
-  for (const table of parseTomlTables(raw)) {
+  const parsed = parseTomlTables(raw);
+  if (parsed.unavailable) throw new Error(`cannot safely frame TOML tables: ${parsed.unavailable}`);
+  for (const table of parsed.tables) {
     const replacement = transform(table);
     if (replacement) output.push(...replacement);
   }
@@ -787,6 +846,7 @@ function hostConfigurationArtifacts(home: string, host: Host): HostConfiguration
     ? [codexRoot(home), codexConfigPath(home)]
     : [
       claudeRoot(home),
+      claudeSettingsPath(home),
       join(resolveHostConfigCompanionBase("claude", home), ".claude.json"),
       join(resolveHostConfigCompanionBase("claude", home), ".config", "claude", "mcp.json")
     ];
@@ -810,8 +870,9 @@ function hostCliCanRunNativeRepair(
   // never supplies one, so it always resolves the actual executable on PATH.
   if (hasInjectedRunner) return { state: "reachable" };
   let unavailable: { path: string; reason: string } | undefined;
-  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
-    if (directory.length === 0) continue;
+  for (const segment of (process.env.PATH ?? "").split(delimiter)) {
+    // POSIX defines an empty PATH segment as the current working directory.
+    const directory = segment.length === 0 ? "." : segment;
     try {
       const metadata = statSync(join(directory, host));
       if (metadata.isFile() && (metadata.mode & 0o111) !== 0) return { state: "reachable" };
@@ -1015,7 +1076,12 @@ function inspectCodex(home: string, version: string): MutableHostReport {
     report.findings.push(finding("config-invalid", `cannot read Codex config: ${(error as Error).message}`, configPath));
     return report;
   }
-  const tables = parseTomlTables(raw);
+  const parsed = parseTomlTables(raw);
+  if (parsed.unavailable) {
+    report.findings.push(finding("config-invalid", `cannot safely frame Codex TOML: ${parsed.unavailable}`, configPath));
+    return report;
+  }
+  const tables = parsed.tables;
   const marketplaceTables = tables.filter((table) => tomlQuotedName(table.header, "marketplaces") !== undefined);
   const canonical = marketplaceTables.find((table) => tomlQuotedName(table.header, "marketplaces") === H2A_MARKETPLACE_NAME);
   if (!canonicalCodexMarketplace(canonical, home)) {
@@ -1379,6 +1445,12 @@ interface LegacyCodexMarketplaceAuthorization {
 }
 
 function legacyCodexMarketplaceAuthorization(table: TomlTable): LegacyCodexMarketplaceAuthorization {
+  if (table.containsMultilineString) {
+    // This rewriter preserves only the table frame. A legacy table containing
+    // a multiline value is not enough evidence to delete it without a complete
+    // TOML parser, even when its local source appears absent.
+    return { removable: false, unavailable: "legacy table contains a multiline TOML string" };
+  }
   const sourceType = tomlStringValue(table, "source_type");
   if (sourceType !== "local") return { removable: false };
   const source = tomlStringValue(table, "source");
@@ -1476,7 +1548,12 @@ function repairCodexConfig(
     report.unrepaired.push(finding("config-invalid", `cannot read Codex config for repair: ${(error as Error).message}`, path));
     return;
   }
-  const tables = parseTomlTables(raw);
+  const parsed = parseTomlTables(raw);
+  if (parsed.unavailable) {
+    report.unrepaired.push(finding("config-invalid", `cannot safely frame Codex TOML for repair: ${parsed.unavailable}`, path));
+    return;
+  }
+  const tables = parsed.tables;
   const canonicalPlugin = tables.find(
     (table) => tomlQuotedName(table.header, "plugins") === H2A_PLUGIN_SELECTOR
   );
@@ -1881,10 +1958,11 @@ function repairCodex(
   let sourceRecovery = true;
   try {
     const config = existsSync(codexConfigPath(home)) ? readFileSync(codexConfigPath(home), "utf8") : "";
-    const canonicalTable = parseTomlTables(config).find(
+    const parsed = parseTomlTables(config);
+    const canonicalTable = parsed.tables.find(
       (table) => tomlQuotedName(table.header, "marketplaces") === H2A_MARKETPLACE_NAME
     );
-    sourceRecovery = !canonicalCodexMarketplaceConfig(canonicalTable);
+    sourceRecovery = !parsed.unavailable && !canonicalCodexMarketplaceConfig(canonicalTable);
   } catch {
     // repairCodexConfig below records the unreadable config as unrepaired.
   }
