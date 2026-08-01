@@ -168,6 +168,8 @@ interface TomlTable {
   readonly header: string;
   readonly lines: readonly string[];
   readonly containsMultilineString?: boolean;
+  readonly opaqueReason?: string;
+  readonly opaqueLabel?: string;
 }
 
 interface ParsedTomlTables {
@@ -277,6 +279,8 @@ function validateRenderedToml(raw: string): string | undefined {
     }
     if (trimmed.length === 0 || trimmed.startsWith("#")) continue;
     if (trimmed.startsWith("[")) {
+      const arrayHeader = /^\[\[([^\]\r\n]+)\]\]\s*(?:#.*)?$/.exec(trimmed);
+      if (arrayHeader) continue;
       const header = /^\[([^\]\r\n]+)\]\s*(?:#.*)?$/.exec(trimmed);
       if (!header) return `line ${index + 1} has an invalid table header`;
       if (headers.has(header[1])) return `line ${index + 1} repeats table ${header[1]}`;
@@ -445,9 +449,9 @@ function loadBearingArtifacts(
 
 function multilineTomlStringStart(line: string): { readonly delimiter: "'''" | '\"\"\"'; readonly offset: number } | undefined {
   // This deliberately accepts only the assignment form which this table
-  // rewriter can frame safely. It is not a full TOML parser: arrays of tables
-  // fail closed explicitly, while complex dotted keys and Unicode escape
-  // semantics remain outside this lexical framing.
+  // rewriter can frame safely. It is not a full TOML parser: unsupported
+  // regions stay byte-identical, while complex dotted keys and Unicode escape
+  // semantics never grant destructive authorization.
   const match = /^\s*(?:[A-Za-z0-9_-]+|"(?:\\.|[^"\\])*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"(?:\\.|[^"\\])*"|'[^']*'))*\s*=\s*('''|""")/.exec(line);
   return match ? { delimiter: match[1] as "'''" | '\"\"\"', offset: match.index + match[0].length } : undefined;
 }
@@ -472,9 +476,24 @@ function multilineTomlStringEnd(
   return { closed: false };
 }
 
+function dottedMcpRegion(line: string): string | undefined {
+  const assignment = /^\s*(mcp_servers\.[^\s=]+)\s*=/.exec(line);
+  if (!assignment) return undefined;
+  const lastSeparator = assignment[1].lastIndexOf(".");
+  return lastSeparator > "mcp_servers".length
+    ? `${assignment[1].slice(0, lastSeparator)}.*`
+    : undefined;
+}
+
 function parseTomlTables(content: string): ParsedTomlTables {
   const result: TomlTable[] = [];
-  let current: { header: string; lines: string[]; containsMultilineString: boolean } | undefined;
+  let current: {
+    header: string;
+    lines: string[];
+    containsMultilineString: boolean;
+    opaqueReason?: string;
+    opaqueLabel?: string;
+  } | undefined;
   let multilineDelimiter: "'''" | '\"\"\"' | undefined;
   for (const line of content.split(/(?<=\n)/)) {
     if (multilineDelimiter) {
@@ -486,8 +505,35 @@ function parseTomlTables(content: string): ParsedTomlTables {
       if (end.closed) multilineDelimiter = undefined;
       continue;
     }
-    if (/^\s*\[\[/.test(line)) {
-      return { tables: result, unavailable: "TOML arrays of tables are not supported for safe table rewrites" };
+    const arrayHeader = /^\s*\[\[([^\]]+)\]\]\s*(?:#.*)?(?:\r?\n)?$/.exec(line);
+    if (arrayHeader || /^\s*\[\[/.test(line)) {
+      if (current) result.push(current);
+      current = {
+        header: "",
+        lines: [line],
+        containsMultilineString: false,
+        opaqueReason: "TOML arrays of tables are not framed for targeted rewrite",
+        opaqueLabel: arrayHeader ? `[[${arrayHeader[1]}]]` : line.trim()
+      };
+      continue;
+    }
+    const dottedRegion = dottedMcpRegion(line);
+    if (dottedRegion) {
+      if (current?.header) {
+        current.opaqueReason ??= "dotted MCP keys are not framed for targeted rewrite";
+        current.opaqueLabel ??= dottedRegion;
+        current.lines.push(line);
+      } else {
+        if (current) result.push(current);
+        current = {
+          header: "",
+          lines: [line],
+          containsMultilineString: false,
+          opaqueReason: "dotted MCP keys are not framed for targeted rewrite",
+          opaqueLabel: dottedRegion
+        };
+      }
+      continue;
     }
     const header = /^\s*\[([^\]]+)\]\s*(?:#.*)?(?:\r?\n)?$/.exec(line);
     if (header) {
@@ -602,6 +648,28 @@ function rewriteTomlTables(
     if (replacement) output.push(...replacement);
   }
   return output.join("");
+}
+
+function reportOpaqueTomlRegions(report: MutableHostReport, path: string, tables: readonly TomlTable[]): void {
+  for (const table of tables) {
+    if (!table.opaqueReason) continue;
+    report.unrepaired.push(finding(
+      "config-invalid",
+      `cannot rewrite opaque Codex TOML region ${table.opaqueLabel ?? "<unknown>"}: ${table.opaqueReason}; it was left byte-identical.`,
+      path
+    ));
+  }
+}
+
+function reportUnreadableDottedMcpRegions(report: MutableHostReport, path: string, tables: readonly TomlTable[]): void {
+  for (const table of tables) {
+    if (!table.opaqueReason || !table.opaqueLabel?.startsWith("mcp_servers.")) continue;
+    report.findings.push(finding(
+      "config-invalid",
+      `cannot inspect Codex MCP region ${table.opaqueLabel}: ${table.opaqueReason}.`,
+      path
+    ));
+  }
 }
 
 function tomlTable(header: string, lines: readonly string[]): string[] {
@@ -1082,6 +1150,7 @@ function inspectCodex(home: string, version: string): MutableHostReport {
     return report;
   }
   const tables = parsed.tables;
+  reportUnreadableDottedMcpRegions(report, configPath, tables);
   const marketplaceTables = tables.filter((table) => tomlQuotedName(table.header, "marketplaces") !== undefined);
   const canonical = marketplaceTables.find((table) => tomlQuotedName(table.header, "marketplaces") === H2A_MARKETPLACE_NAME);
   if (!canonicalCodexMarketplace(canonical, home)) {
@@ -1445,6 +1514,9 @@ interface LegacyCodexMarketplaceAuthorization {
 }
 
 function legacyCodexMarketplaceAuthorization(table: TomlTable): LegacyCodexMarketplaceAuthorization {
+  if (table.opaqueReason) {
+    return { removable: false, unavailable: `legacy table contains an opaque TOML region (${table.opaqueReason})` };
+  }
   if (table.containsMultilineString) {
     // This rewriter preserves only the table frame. A legacy table containing
     // a multiline value is not enough evidence to delete it without a complete
@@ -1634,6 +1706,7 @@ function repairCodexConfig(
     !canonicalMarketplace ||
     tomlBoolean(canonicalPlugin ?? { header: "", lines: [] }, "enabled") !== true;
   if (!needsConfigRepair) return;
+  reportOpaqueTomlRegions(report, path, tables);
   const next = rewriteTomlTables(raw, (table) => {
     const marketplace = tomlQuotedName(table.header, "marketplaces");
     if (isLegacySentropicName(marketplace) && legacyMarketplacesToRemove.has(table.header)) return undefined;

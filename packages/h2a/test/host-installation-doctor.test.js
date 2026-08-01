@@ -711,6 +711,30 @@ test("doctor repairs local endpoints when the native CLI is unavailable", () => 
   }
 });
 
+test("doctor names unreadable dotted Codex MCP keys instead of reporting a false clean state", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  try {
+    const config =
+      'mcp_servers.local-h2a.command = "h2a"\n' +
+      'mcp_servers.local-h2a.args = ["mcp-serve"]\n\n' +
+      readFileSync(codexPath, "utf8");
+    writeFileSync(codexPath, config);
+
+    const report = doctorHostInstallations({ home, version });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
+    assert.ok(
+      codex?.findings.some((entry) => entry.code === "config-invalid" && /mcp_servers\.local-h2a/.test(entry.message)),
+      JSON.stringify(codex, null, 2)
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor preserves a visible single-quoted local Codex marketplace", () => {
   const { home, version } = cleanShippedLayoutHome();
   const codexPath = join(home, ".codex", "config.toml");
@@ -847,6 +871,53 @@ test("doctor fails closed rather than absorbing a TOML array of tables", () => {
       codex?.unrepaired.some((entry) => entry.code === "config-invalid"),
       JSON.stringify(codex, null, 2)
     );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor repairs framed legacy tables beside untouched Codex skills and hooks arrays", () => {
+  const { home } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const marketplace = "sentropic-local-skills";
+  const plugin = "h2a-local-skills@sentropic-local-skills";
+  const skillPath = join(home, "skills", "SKILL.md");
+  const skillsRegion = "[[skills.config]]\n" +
+    `path = "${skillPath}"\n` +
+    "enabled = false\n";
+  const hooksRegion = "[[hooks.PreToolUse]]\n" +
+    'command = "echo keep"\n';
+  const opaqueRegions = `${skillsRegion}\n${hooksRegion}`;
+  const config = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n` +
+    `[marketplaces.${marketplace}]\n` +
+    'source_type = "local"\n' +
+    `source = "${join(home, "deleted-skills-marketplace")}"\n\n` +
+    `[plugins."${plugin}"]\n` +
+    "enabled = true\n\n" +
+    opaqueRegions;
+  try {
+    mkdirSync(join(skillPath, ".."), { recursive: true });
+    writeFileSync(skillPath, "---\nname: keep\n---\n");
+    writeFileSync(codexPath, config);
+    const root = join(home, "bus");
+    const calls = [];
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const { exitCode, io, report } = runRepairDoctor(home, root, { runHostCommand: repairRunner(home, calls) });
+    const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+    const repaired = readFileSync(codexPath, "utf8");
+
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.doesNotMatch(repaired, new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
+    assert.match(repaired, new RegExp(`\\[plugins\\."${plugin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\][\\s\\S]*enabled = false`));
+    assert.ok(repaired.endsWith(opaqueRegions), repaired);
+    for (const region of ["[[skills.config]]", "[[hooks.PreToolUse]]"]) {
+      assert.ok(
+        codex?.unrepaired.some((entry) => entry.code === "config-invalid" && entry.message.includes(region)),
+        JSON.stringify(codex, null, 2)
+      );
+    }
+    assert.ok(calls.some((call) => call.join(" ") === "codex plugin marketplace upgrade"), JSON.stringify(calls, null, 2));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
