@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { planRelaunch, resumeCommandFor } from "./relaunch.js";
+import {
+  decideRelaunchSafety,
+  planRelaunch,
+  resumeCommandFor,
+} from "./relaunch.js";
 
 describe("resumeCommandFor", () => {
   it("uses --resume for claude/agy and the resume subcommand for codex", () => {
@@ -20,6 +24,7 @@ describe("planRelaunch", () => {
     name: `remote-${slug}`,
     profile: "claude",
     idle: true,
+    activelyWorking: false,
     ...(convId ? { convId } : {}),
   });
 
@@ -43,6 +48,89 @@ describe("planRelaunch", () => {
     ]);
     expect(plan.actions).toEqual([]);
     expect(plan.skipped[0]?.reason).toMatch(/running/);
+  });
+
+  it("never force-relaunches an actively working worker", () => {
+    const plan = planRelaunch(
+      [
+        {
+          ...idleClaude("working", "c-working"),
+          idle: true, // the flaky child-count path said idle
+          activelyWorking: true,
+          livenessReason:
+            "live working CLI — never killed (even with --force)",
+        },
+      ],
+      { force: true },
+    );
+
+    expect(plan.actions).toEqual([]);
+    expect(plan.skipped[0]?.reason).toContain("never killed");
+  });
+
+  it("treats an indeterminate CPU probe as actively working", () => {
+    const plan = planRelaunch(
+      [
+        {
+          ...idleClaude("unknown", "c-unknown"),
+          idle: false,
+          activelyWorking: true,
+          livenessReason:
+            "liveness indeterminate: CPU rate could not be computed",
+        },
+      ],
+      { force: true },
+    );
+
+    expect(plan.actions).toEqual([]);
+    expect(plan.skipped[0]?.reason).toContain("indeterminate");
+  });
+
+  it("classifies dead, parked, and working workers from the short CPU sample", () => {
+    expect(
+      decideRelaunchSafety({
+        paneCommand: "bash",
+        panePid: 10,
+        firstWorkerPid: 10,
+        secondWorkerPid: 10,
+        firstCpuMs: 100,
+        secondCpuMs: 100,
+        elapsedMs: 250,
+      }),
+    ).toMatchObject({ idle: true, activelyWorking: false });
+    expect(
+      decideRelaunchSafety({
+        paneCommand: "bash",
+        panePid: 10,
+        firstWorkerPid: 20,
+        secondWorkerPid: 20,
+        firstCpuMs: 100,
+        secondCpuMs: 110,
+        elapsedMs: 250,
+      }),
+    ).toMatchObject({ idle: true, activelyWorking: false, rateMsPerSecond: 40 });
+    expect(
+      decideRelaunchSafety({
+        paneCommand: "bash",
+        panePid: 10,
+        firstWorkerPid: 20,
+        secondWorkerPid: 20,
+        firstCpuMs: 100,
+        secondCpuMs: 120,
+        elapsedMs: 250,
+      }),
+    ).toMatchObject({ idle: false, activelyWorking: true, rateMsPerSecond: 80 });
+    expect(
+      decideRelaunchSafety({
+        paneCommand: "bash",
+        panePid: 10,
+        firstWorkerPid: 20,
+        secondWorkerPid: 20,
+        firstCpuMs: undefined,
+        secondCpuMs: 120,
+        elapsedMs: 250,
+      }),
+    ).toMatchObject({ idle: false, activelyWorking: true });
   });
 
   it("skips sessions with no convId rather than guessing", () => {
