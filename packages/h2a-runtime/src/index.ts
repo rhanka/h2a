@@ -105,6 +105,7 @@ import {
   resolveAgentPane,
   resolveAgentPaneForInstance,
   resolveLocalSession,
+  sessionRelaunchSafety,
   runLocalCliForeground,
   sendKeysLiteral,
   sessionAttached,
@@ -7920,7 +7921,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           })(),
           slug: s.slug,
           name: s.name,
-          idle: localSessionIdle(s.name),
+          ...(() => {
+            const safety = sessionRelaunchSafety(s.name);
+            return { ...safety, livenessReason: safety.reason };
+          })(),
         })),
         {
           ...(forced ? { force: true } : {}),
@@ -8054,8 +8058,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         return;
       }
 
+      const finalReady: typeof ready = [];
+      for (const item of ready) {
+        const safety = sessionRelaunchSafety(item.action.name);
+        if (safety.activelyWorking) {
+          process.stderr.write(
+            `[h2a] skipped ${item.action.slug}: ${safety.reason}\n`,
+          );
+          continue;
+        }
+        finalReady.push(item);
+      }
+
       let ok = 0;
-      for (const { action, entry, sessionClass } of ready) {
+      for (const { action, entry, sessionClass } of finalReady) {
         if (!killLocalSession(action.name)) {
           process.stderr.write(
             `[h2a] FAILED to force-restart ${action.slug}: tmux session ${action.name} could not be killed.\n`,
