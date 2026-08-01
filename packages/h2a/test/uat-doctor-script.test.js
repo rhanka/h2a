@@ -257,7 +257,21 @@ function ownedCandidateEnvironment(fixture, ready) {
   writeExecutable(join(fixture.fakeBin, "gh"), "#!/bin/sh\necho test-candidate\n");
   writeExecutable(
     join(fixture.fakeBin, "git"),
-    "#!/bin/sh\nexec \"$UAT_TEST_TAR\" -cf - -C \"$UAT_FAKE_CANDIDATE_SOURCE\" .\n"
+    `#!/bin/sh
+if [ "$1" = "-C" ]; then shift 2; fi
+case "$1" in
+  rev-parse) printf '%s\\n' true ;;
+  remote)
+    if [ "\${2-}" = "get-url" ]; then
+      printf '%s\\n' 'git@github.com:rhanka/h2a.git'
+    else
+      printf '%s\\n' origin
+    fi
+    ;;
+  archive) exec "$UAT_TEST_TAR" -cf - -C "$UAT_FAKE_CANDIDATE_SOURCE" . ;;
+  *) printf '%s\\n' "unexpected git invocation: $*" >&2; exit 64 ;;
+esac
+`
   );
   writeExecutable(join(fixture.fakeBin, "npm"), "#!/bin/sh\nexit 0\n");
 
@@ -494,6 +508,95 @@ test(`uat-doctor should clean its temporary tree and return 130 when interrupted
 });
 }
 
+test("uat-doctor should use H2A_UAT_SHA without querying GitHub", async () => {
+  const fixture = createFixture("explicit-sha", false);
+  const ready = join(fixture.root, "doctor-started");
+  let child;
+  try {
+    const env = ownedCandidateEnvironment(fixture, ready);
+    env.H2A_UAT_SHA = "local-candidate-ref";
+    rmSync(join(fixture.fakeBin, "gh"));
+    child = spawn("bash", [SCRIPT], {
+      cwd: REPO_ROOT,
+      env,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const closed = waitForClose(child);
+
+    await waitForFile(ready);
+    process.kill(-child.pid, "SIGTERM");
+    const result = await closed;
+
+    assert.deepEqual(result, { code: 130, signal: null }, `stdout:\n${stdout}\nstderr:\n${stderr}`);
+    assert.match(stdout, /candidat \.\.\.\.\.\.\.\.\.\.\.\. local-candidate-ref/);
+    assert.doesNotMatch(stderr, /prerequis manquant : gh|gh auth login/);
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch (error) {
+        if (error?.code !== "ESRCH") throw error;
+      }
+    }
+    rmSync(fixture.outer, { recursive: true, force: true });
+  }
+});
+
+test("uat-doctor should name a non-GitHub remote and offer H2A_UAT_SHA", () => {
+  const fixture = createFixture("non-github-remote", false);
+  const scratchBefore = readdirSync(fixture.scratch);
+  try {
+    for (const command of ["bash", "env", "node", "tar", "dirname", "mkdir", "mktemp", "rm", "npm"]) {
+      symlinkSync(commandPath(command), join(fixture.fakeBin, command));
+    }
+    writeExecutable(
+      join(fixture.fakeBin, "git"),
+      `#!/bin/sh
+if [ "$1" = "-C" ]; then shift 2; fi
+case "$1" in
+  rev-parse) printf '%s\\n' true ;;
+  remote)
+    if [ "\${2-}" = "get-url" ]; then
+      printf '%s\\n' 'https://git.example.invalid/rhanka/h2a.git'
+    else
+      printf '%s\\n' workstation
+    fi
+    ;;
+  *) printf '%s\\n' "unexpected git invocation: $*" >&2; exit 64 ;;
+esac
+`
+    );
+    writeExecutable(join(fixture.fakeBin, "gh"), "#!/bin/sh\nprintf '%s\\n' 'gh auth login must not run' >&2\nexit 99\n");
+    const env = {
+      ...process.env,
+      HOME: fixture.ownerHome,
+      PATH: fixture.fakeBin,
+      TMPDIR: fixture.scratch,
+      UAT_TMP_PARENT: fixture.scratch
+    };
+    delete env.CODEX_HOME;
+    delete env.CLAUDE_CONFIG_DIR;
+    delete env.UAT_SOURCE_DIR;
+    delete env.UAT_DOCTOR_BIN;
+    delete env.H2A_UAT_SHA;
+    const result = spawnSync(commandPath("bash"), [SCRIPT], { cwd: REPO_ROOT, env, encoding: "utf8" });
+
+    assert.equal(result.status, 1, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    assert.match(result.stderr, /remote 'workstation'/);
+    assert.match(result.stderr, /git\.example\.invalid/);
+    assert.match(result.stderr, /H2A_UAT_SHA/);
+    assert.doesNotMatch(result.stderr, /gh auth login/);
+    assert.deepEqual(readdirSync(fixture.scratch), scratchBefore);
+  } finally {
+    rmSync(fixture.outer, { recursive: true, force: true });
+  }
+});
+
 test("uat-doctor should name git as a missing prerequisite before creating temporary trees", () => {
   const fixture = createFixture("gitless", false);
   const scratchBefore = readdirSync(fixture.scratch);
@@ -532,6 +635,7 @@ test("uat-doctor should document its checkout-root invocation when the relative 
   const guide = readFileSync(join(REPO_ROOT, "docs", "uat", "doctor-repair.md"), "utf8");
 
   assert.equal(result.status, 127, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
-  assert.match(guide, /Depuis la racine du checkout de la PR/);
+  assert.match(guide, /Depuis la racine d'un checkout Git contenant le candidat/);
+  assert.match(guide, /H2A_UAT_SHA.*prioritaire/);
   assert.doesNotMatch(guide, /Depuis n'importe quel répertoire du checkout de la PR/);
 });
