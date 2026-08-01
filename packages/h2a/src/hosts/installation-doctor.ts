@@ -520,7 +520,10 @@ function parseTomlTables(content: string): ParsedTomlTables {
     if (!current) current = { header: "", start, end: start, containsMultilineString: false };
     current.end = start + line.length;
     if (kind === "content") current.trailingTriviaStart = undefined;
-    else if (kind === "comment") current.trailingTriviaStart ??= start;
+    else if (
+      kind === "comment" ||
+      (kind === "blank" && line.replace(/\r?\n$/, "").length > 0)
+    ) current.trailingTriviaStart ??= start;
   };
   let offset = 0;
   for (const line of content.split(/(?<=\n)/)) {
@@ -1774,7 +1777,7 @@ function repairCodexConfig(
   ];
   const rendered = additions.length === 0
     ? next
-    : `${next.trimEnd()}\n\n${additions.join("")}`.replace(/^\n+/, "");
+    : `${next}${next.endsWith("\n") ? "\n" : "\n\n"}${additions.join("")}`;
   if (rendered === raw) return;
   if (options.dryRun) {
     for (const table of tables.filter((table) => legacyPluginsToDisable.has(table.header))) {
