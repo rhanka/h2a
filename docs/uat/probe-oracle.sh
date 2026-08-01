@@ -78,8 +78,11 @@ oracle_codex() { # $1=gate|observe  $2..=arguments codex
   printf '%s\n' "$out" | sans_bruit
   if [ "$code" != "0" ]; then
     if [ "$mode" = "gate" ]; then
-      echo "  >>> INCONCLUSIF : 'codex $*' a sorti $code. Le TEXTE ci-dessus ne prouve RIEN :"
-      echo "      une commande qui echoue peut avoir imprime une table d-apparence correcte."
+      # >&2 : en mode gate la sortie de cette fonction est REDIRIGEE vers le fichier d-oracle.
+      # Ecrire le diagnostic sur stdout le melangeait au texte de l-hote, donc mes propres messages
+      # se retrouvaient dans ce que je grep ensuite. Un observateur ne doit pas contaminer sa mesure.
+      echo "  >>> INCONCLUSIF : 'codex $*' a sorti $code. Le TEXTE rendu ne prouve RIEN :" >&2
+      echo "      une commande qui echoue peut avoir imprime une table d-apparence correcte." >&2
       echo "$code" > "$PROBE/echec-oracle"
     else
       echo "  (codex a sorti $code ici, et c-est ATTENDU : l-installation n-est pas encore reparee)"
@@ -189,7 +192,9 @@ case "$LIGNE_H2A" in
   *mcp-serve*) SERT_CANONIQUE=1;;
 esac
 grep -qi "failed to load marketplace\|^Error" "$MKT_OUT" && MKT_MORT=1
-VERDICT=0   # 0 = concluant et valide ; 1 = invalide ou inconcluant
+# (declaration retiree : elle se trouvait APRES le relevement du drapeau d-echec natif de la ligne
+#  precedente, donc elle REMETTAIT VERDICT a 0 et effacait le seul signal << codex a echoue >>.
+#  Mesure par une jambe de revue independante. VERDICT est declare une seule fois, en tete.)
 
 if [ "$SERT_ANCIEN" = "1" ]; then
   VERDICT=1
