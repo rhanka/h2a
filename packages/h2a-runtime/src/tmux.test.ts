@@ -59,6 +59,7 @@ import {
   parseManagedSessionName,
   sendKeysLiteral,
   sessionAttachedCount,
+  sessionRelaunchSafety,
   setLocalSessionDisplayName,
   startLocalSession,
   startHeadlessSession,
@@ -1537,6 +1538,28 @@ describe("localRelaunchCommand", () => {
     expect(localRelaunchCommand("codex", "/home/u/src/x", undefined)).toBe(
       "h2a run codex /home/u/src/x",
     );
+  });
+});
+
+describe("sessionRelaunchSafety", () => {
+  it("fails closed when the /proc CPU read is unavailable", () => {
+    let nowCalls = 0;
+    const safety = sessionRelaunchSafety("h2a-live", {
+      resolvePane: () => "%7",
+      panePid: () => 100,
+      paneCommand: () => "bash",
+      observe: () => ({
+        cpuMs: undefined,
+        worker: { pid: 101, startTime: "101", bootId: "boot" },
+        procView: { currentBootId: "boot", processes: [] },
+      }),
+      sleep: () => {},
+      now: () => (nowCalls++ === 0 ? 1_000 : 1_250),
+    });
+
+    expect(safety.activelyWorking).toBe(true);
+    expect(safety.idle).toBe(false);
+    expect(safety.reason).toContain("CPU sample unreadable");
   });
 });
 
