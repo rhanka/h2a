@@ -84,6 +84,7 @@ export interface HostInstallationDoctorOptions {
 
 export interface HostInstallationFinding {
   readonly code:
+    | "config-preserved"
     | "config-invalid"
     | "marketplace-missing"
     | "marketplace-stale"
@@ -121,6 +122,9 @@ export interface HostInstallationReport {
   /** Non-blocking inspection notes; never a host-health or session-freshness verdict. */
   readonly diagnostics: readonly HostInstallationFinding[];
   readonly changed: readonly string[];
+  /** Named configuration regions deliberately retained byte-exact; never a health failure. */
+  readonly preserved: readonly HostInstallationFinding[];
+  /** Repair failures that still prevent a healthy host verdict. */
   readonly unrepaired: readonly HostInstallationFinding[];
   /** Declared artifacts retained for diagnostics and to determine precisely what a repair rewrote. */
   readonly coherencePaths: readonly string[];
@@ -157,6 +161,7 @@ interface MutableHostReport {
   findings: HostInstallationFinding[];
   diagnostics: HostInstallationFinding[];
   changed: string[];
+  preserved: HostInstallationFinding[];
   unrepaired: HostInstallationFinding[];
   coherencePaths: string[];
   plannedActions: string[];
@@ -208,7 +213,7 @@ function finding(
 }
 
 function isBlockingFinding(entry: HostInstallationFinding): boolean {
-  return entry.code !== "orphan-cache" && entry.code !== "host-not-installed" && entry.code !== "host-cli-unreachable";
+  return entry.code !== "config-preserved" && entry.code !== "orphan-cache" && entry.code !== "host-not-installed" && entry.code !== "host-cli-unreachable";
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -695,14 +700,22 @@ function rewriteTomlTables(
   return output.join("");
 }
 
+function isNamedOpaqueTomlArray(table: TomlTable): boolean {
+  return (
+    table.opaqueReason === "TOML arrays of tables are not framed for targeted rewrite" &&
+    /^\[\[[^\]\r\n]+\]\]$/.test(table.opaqueLabel ?? "")
+  );
+}
+
 function reportOpaqueTomlRegions(report: MutableHostReport, path: string, tables: readonly TomlTable[]): void {
   for (const table of tables) {
     if (!table.opaqueReason) continue;
-    report.unrepaired.push(finding(
-      "config-invalid",
-      `cannot rewrite opaque Codex TOML region ${table.opaqueLabel ?? "<unknown>"}: ${table.opaqueReason}; its existing bytes were retained and no rewrite was attempted.`,
-      path
-    ));
+    const message = `opaque Codex TOML region ${table.opaqueLabel ?? "<unknown>"}: ${table.opaqueReason}; its existing bytes were retained and no rewrite was attempted.`;
+    if (isNamedOpaqueTomlArray(table)) {
+      report.preserved.push(finding("config-preserved", `preserved ${message}`, path));
+    } else {
+      report.unrepaired.push(finding("config-invalid", `cannot rewrite ${message}`, path));
+    }
   }
 }
 
@@ -1010,6 +1023,7 @@ function absentHostReport(home: string, host: Host): MutableHostReport {
     findings: [],
     diagnostics: [],
     changed: [],
+    preserved: [],
     unrepaired: [],
     coherencePaths: [],
     plannedActions: [],
@@ -1033,6 +1047,7 @@ function unavailableHostConfigurationReport(
     findings: [],
     diagnostics: [],
     changed: [],
+    preserved: [],
     unrepaired: [],
     coherencePaths: [],
     plannedActions: [],
@@ -1053,6 +1068,7 @@ function unavailableHostCliReport(home: string, host: Host, cli: HostCliReachabi
     findings: [],
     diagnostics: [],
     changed: [],
+    preserved: [],
     unrepaired: [],
     coherencePaths: [],
     plannedActions: [],
@@ -1177,6 +1193,7 @@ function inspectCodex(home: string, version: string): MutableHostReport {
     findings: [],
     diagnostics: [],
     changed: [],
+    preserved: [],
     unrepaired: [],
     coherencePaths: [],
     plannedActions: [],
@@ -1271,6 +1288,7 @@ function inspectClaude(home: string, version: string): MutableHostReport {
     findings: [],
     diagnostics: [],
     changed: [],
+    preserved: [],
     unrepaired: [],
     coherencePaths: [],
     plannedActions: [],
@@ -2247,6 +2265,7 @@ function combineAfterRepair(before: MutableHostReport, after: MutableHostReport)
   return {
     ...after,
     changed: before.changed,
+    preserved: [...before.preserved, ...after.preserved],
     unrepaired,
     coherencePaths: [...new Set([...before.coherencePaths, ...after.coherencePaths])],
     plannedActions: [...new Set([...before.plannedActions, ...after.plannedActions])],
@@ -2261,6 +2280,7 @@ function freezeReport(report: MutableHostReport): HostInstallationReport {
     findings: report.findings,
     diagnostics: report.diagnostics,
     changed: report.changed,
+    preserved: report.preserved,
     unrepaired: report.unrepaired,
     coherencePaths: report.coherencePaths,
     plannedActions: report.plannedActions,
