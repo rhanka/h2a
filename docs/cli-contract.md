@@ -29,25 +29,13 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 
 ## Verbs
 
-### Track AI leaf adapters
+### Legacy Track context projection
 
 #### `h2a report-context --workspace-root <absolute-path> [--root <h2a-store>]`
 
 - **Envelope**: `resource`, schema `h2a.report-context/v1`.
 - **Exit codes**: `0`, `1`, `3`.
 - **Description**: Read-only projection of the same h2a tenant into Track context. `storeRoot` and `workspaceRoot` are realpaths; entries are ordinal-sorted, restricted to the requested workspace, capped at 100 entries / 128 KiB, and report an `omitted` count. Inbox bodies are never emitted. This leaf command never calls Track.
-
-#### `h2a report-ai --model <model> --effort <low|medium|high|xhigh> --gateway required`
-
-- **Envelope**: `resource`, schema `track.ai-report.result/v1`.
-- **Exit codes**: `0`, `1`.
-- **Description**: Read one `track.ai-report.context-envelope/v1` object from stdin, acquire the requested local gateway route, and make exactly one Anthropic Messages request without a `tools` field. It launches no Claude/Codex CLI and fails closed unless the gateway attests the effective resolved model and upstream reasoning effort.
-
-#### `h2a report-ai install-track-config [--force]`
-
-- **Envelope**: `action`.
-- **Exit codes**: `0`, `2`, `3`.
-- **Description**: Atomically install `{"argv":["h2a","report-ai","--model","claude-opus-4-8","--effort","xhigh","--gateway","required"],"timeoutMs":600000}` at `${XDG_CONFIG_HOME:-$HOME/.config}/track/report-ai.json` with mode `0600`. Identical content is a content no-op; differing user config is preserved unless `--force` is explicit. Older configs without `timeoutMs` remain valid with Track's legacy 90-second fallback and require an explicit `--force` rollout to adopt the first-party 600-second deadline.
 
 ### Focus Web
 
