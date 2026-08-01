@@ -383,30 +383,38 @@ test("delegated-execution projection fails closed without owner provenance or li
 });
 
 test("tmux status surface uses bounded five-second polling and no cache", () => {
-  const options = Object.fromEntries(h2aStatusSurfaceOptions());
-  assert.equal(options["status-interval"], "5");
-  // The storm was #(h2a status …) re-run per refresh per session. The bar must
-  // now be a cheap file read with a static placeholder, never a node spawn — if
-  // #(h2a status returns here, the storm is back.
-  assert.doesNotMatch(options["status-left"], /#\(h2a status/);
-  assert.doesNotMatch(options["status-right"], /#\(h2a status/);
-  assert.match(options["status-left"], /#\(cat .*echo 'h2a \?'\)/);
-  assert.match(options["status-right"], /#\(cat .*echo 'gw \?'\)/);
-  assert.doesNotMatch(options["status-left"], /#\{session_name\}|#\{window_name\}/);
-  assert.doesNotMatch(options["status-left"], /remote-/);
-  assert.doesNotMatch(JSON.stringify(options), /cache/i);
-  const hostilePriorRight = "#{pane_title}\u202e".repeat(100);
-  const installedRight = Object.fromEntries(h2aStatusSurfaceOptions(hostilePriorRight))["status-right"];
-  assert.match(installedRight, /%H:%M$/);
-  assert.doesNotMatch(installedRight, /pane_title|\u202e/);
-  assert.match(
-    h2aStatusWindowCommand("h2a-owner", "codex:owner:abc"),
-    /--owner-instance 'codex:owner:abc'/,
-  );
-  assert.doesNotMatch(
-    h2aStatusWindowCommand("h2a-owner", "owner; rm -rf /"),
-    /owner-instance/,
-  );
+  const priorRoot = process.env.H2A_ROOT;
+  // Keep the test independent of the checkout path; cache-path checkouts used to fail /cache/i spuriously.
+  process.env.H2A_ROOT = "/tmp/h2a-status-surface-test-root";
+  try {
+    const options = Object.fromEntries(h2aStatusSurfaceOptions());
+    assert.equal(options["status-interval"], "5");
+    // The storm was #(h2a status …) re-run per refresh per session. The bar must
+    // now be a cheap file read with a static placeholder, never a node spawn — if
+    // #(h2a status returns here, the storm is back.
+    assert.doesNotMatch(options["status-left"], /#\(h2a status/);
+    assert.doesNotMatch(options["status-right"], /#\(h2a status/);
+    assert.match(options["status-left"], /#\(cat .*echo 'h2a \?'\)/);
+    assert.match(options["status-right"], /#\(cat .*echo 'gw \?'\)/);
+    assert.doesNotMatch(options["status-left"], /#\{session_name\}|#\{window_name\}/);
+    assert.doesNotMatch(options["status-left"], /remote-/);
+    assert.doesNotMatch(JSON.stringify(options), /cache/i);
+    const hostilePriorRight = "#{pane_title}\u202e".repeat(100);
+    const installedRight = Object.fromEntries(h2aStatusSurfaceOptions(hostilePriorRight))["status-right"];
+    assert.match(installedRight, /%H:%M$/);
+    assert.doesNotMatch(installedRight, /pane_title|\u202e/);
+    assert.match(
+      h2aStatusWindowCommand("h2a-owner", "codex:owner:abc"),
+      /--owner-instance 'codex:owner:abc'/,
+    );
+    assert.doesNotMatch(
+      h2aStatusWindowCommand("h2a-owner", "owner; rm -rf /"),
+      /owner-instance/,
+    );
+  } finally {
+    if (priorRoot === undefined) delete process.env.H2A_ROOT;
+    else process.env.H2A_ROOT = priorRoot;
+  }
 });
 
 function statusOptionFixture(failOnce = () => false) {
