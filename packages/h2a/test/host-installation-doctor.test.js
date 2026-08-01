@@ -885,6 +885,78 @@ test("doctor repairs a framed legacy table while preserving and naming an opaque
   }
 });
 
+test("doctor splices only framed legacy tables around opaque Codex TOML regions", () => {
+  const cases = [
+    {
+      name: "a boundary comment",
+      opaque: "# this comment belongs to the private region\n" +
+        "[[private.keep]]\n" +
+        'token = "must-remain-private"\n',
+      regions: ["[[private.keep]]"]
+    },
+    {
+      name: "adjacent arrays",
+      opaque: "[[private.first]]\n" +
+        'token = "first"\n' +
+        "[[private.second]]\n" +
+        'token = "second"\n',
+      regions: ["[[private.first]]", "[[private.second]]"]
+    },
+    {
+      name: "nested arrays",
+      opaque: "[[private.parent]]\n" +
+        'token = "parent"\n' +
+        "[[private.parent.child]]\n" +
+        'token = "child"\n',
+      regions: ["[[private.parent]]", "[[private.parent.child]]"]
+    },
+    {
+      name: "an EOF array without a final line feed",
+      opaque: "[[private.eof]]\n" +
+        'token = "must-not-gain-a-line-feed"',
+      regions: ["[[private.eof]]"]
+    }
+  ];
+  for (const fixture of cases) {
+    const { home } = cleanShippedLayoutHome();
+    const codexPath = join(home, ".codex", "config.toml");
+    const marketplace = `sentropic-local-splice-${fixture.name.replace(/[^a-z]+/gi, "-").toLowerCase()}`;
+    const missingSource = join(home, `deleted-${marketplace}`);
+    const target = `[marketplaces.${marketplace}]\n` +
+      'source_type = "local"\n' +
+      `source = "${missingSource}"\n`;
+    const before = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n${target}${fixture.opaque}`;
+    const targetStart = before.indexOf(target);
+    const afterExpected = before.slice(0, targetStart) + before.slice(targetStart + target.length);
+    try {
+      writeFileSync(codexPath, before);
+      assert.equal(existsSync(missingSource), false, `${fixture.name}: legacy source must be absent`);
+      const root = join(home, "bus");
+      assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+      const { exitCode, io, report } = runRepairDoctor(home, root, { runHostCommand: repairRunner(home, []) });
+      const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+      const after = readFileSync(codexPath, "utf8");
+
+      assert.equal(exitCode, 2, `${fixture.name}: ${io.stderrText}`);
+      assert.equal(after, afterExpected, `${fixture.name}: only the framed legacy table may be spliced out`);
+      assert.doesNotMatch(after, new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
+      for (const region of fixture.regions) {
+        assert.ok(
+          codex?.unrepaired.some((entry) =>
+            entry.code === "config-invalid" &&
+            entry.message.includes(region) &&
+            entry.message.includes("TOML arrays of tables are not framed for targeted rewrite") &&
+            entry.message.includes("its existing bytes were retained and no rewrite was attempted")
+          ),
+          `${fixture.name}: ${JSON.stringify(codex, null, 2)}`
+        );
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+});
+
 test("doctor repairs framed legacy tables beside untouched Codex skills and hooks arrays", () => {
   const { home } = cleanShippedLayoutHome();
   const codexPath = join(home, ".codex", "config.toml");
