@@ -69,26 +69,40 @@ import {
   attachLocalSession,
   attachPodTmux,
   capturePane,
+  capturePaneVisible,
+  clearPaneComposer,
   conductorRunning,
   currentTmuxSessionName,
   currentTmuxSessionIs,
   ensureManagedTmuxProfile,
+  ensureHeadlessTerminal,
   existingLocalSessionSlugs,
   fanoutLabels,
   findLocalSession,
   killLocalSession,
   localSessionGatewayEnvStatus,
   listLocalSessions,
+  listH2aStatusSurfaces,
+  listLocalSessionsWithDiagnostics,
   localSessionIdle,
   localSessionPanePid,
   localSessionName,
+  paneProcessObservation,
+  paneTreeCpuMs,
+  paneWorkerAttribution,
+  paneWorkerAttributionFromView,
+  paneWorkerPid,
+  pasteLiteralBlock,
+  submitPane,
   installH2aStatusSurface,
   managedSessionCandidates,
   parseManagedSessionName,
   openH2aStatusWindow,
   persistLaunchContext,
   readLaunchContext,
+  readFleetProcView,
   relaunchInSession,
+  resolveAgentPane,
   resolveAgentPaneForInstance,
   resolveLocalSession,
   runLocalCliForeground,
@@ -106,6 +120,11 @@ import {
   uninstallH2aStatusSurface,
   type LocalSession,
 } from "./tmux.js";
+import {
+  deliverInitialPrompt,
+  sleepSync,
+  type PromptDeliveryResult,
+} from "./prompt-delivery.js";
 import { buildLaunchContext } from "./launch-context.js";
 import { migrateTmuxNames, type TmuxNameMigrationMode } from "./tmux-name-migration.js";
 import { projectStatusForH2a } from "./status-projection.js";
@@ -116,8 +135,12 @@ import {
   type AgentLaunchEffort,
 } from "./agent-launch-args.js";
 import { planRelaunch } from "./relaunch.js";
+import type { ProcView } from "./proc-cpu.js";
 import {
+  isHumanFacingSession,
+  readConversationCustomTitle,
   readLastLayout,
+  reconcileRunConvIds,
   restore as restoreLayout,
   type RestoreOptions,
 } from "./restore.js";
@@ -131,6 +154,7 @@ import {
   listJobs,
   listLocalForLs,
   loadRegistry,
+  loadRegistryWithDiagnostics,
   resolveLocalTmuxSessionForName,
   tryClaimSlot,
   withRegistryLock,
@@ -139,6 +163,21 @@ import {
   type RegistryTool,
   type ThrottleInfo,
 } from "./registry.js";
+import {
+  auditSessionLeaseFleet,
+  countLiveSessionLeases,
+  SessionLeaseStore,
+  decideSessionBeat,
+  isSessionLeaseAlive,
+  isSessionLeaseAbandoned,
+  isSessionLeaseDeadBoot,
+  planLeaseSupervision,
+  reclaimProposals,
+  resolveSessionLeasePath,
+  type SessionLease,
+  type SessionLeaseFleetAudit,
+  type SessionLeaseWorker,
+} from "./session-lease.js";
 import {
   aimdEffectiveCap,
   assertDelegateEffort,
@@ -1504,6 +1543,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
   );
   let tmuxSession: string;
   let workerPid: number | undefined;
+  let agentPane: string | undefined;
   try {
     if (headless) {
       const dir = jobDir(originCwd, job.id);
@@ -1521,6 +1561,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         "background",
       );
       tmuxSession = launched.name;
+      agentPane = launched.agentPane;
       workerPid = launched.agentPane
         ? localSessionPanePid(launched.agentPane)
         : undefined;
@@ -1532,9 +1573,10 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         argv.args,
         job.id,
         undefined,
-        { sessionClass: "background" },
+        { sessionClass: "background", attachedTerminal: true },
       );
       tmuxSession = launched.name;
+      agentPane = launched.agentPane;
       workerPid = launched.agentPane
         ? localSessionPanePid(launched.agentPane)
         : undefined;
@@ -1582,12 +1624,201 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
       ? { delegatorTmuxSession: job.delegatorTmuxSession }
       : {}),
   });
+  // Take the SLOT lease for this session (machine-scoped). From here on the slot
+  // is held only as long as something keeps beating it — a session that finishes
+  // without dying stops beating and its slot is reported reclaimable after one
+  // TTL, instead of the 994 minutes measured on the worst hoarder. Best-effort:
+  // a lease hiccup must never break a launch that already happened.
+  try {
+    acquireSessionLease(job.id, {
+      holder: job.delegatorInstance ?? "h2a:startJob",
+      workspace: runCwd,
+      ...(agentPane !== undefined ? { agentPane } : {}),
+    });
+  } catch {
+    // the store is advisory — the job is running either way
+  }
   mirrorNew();
   return {
     started: true,
     target: "local",
     detail: `${runCwd}${isolated ? " [worktree]" : ""}`,
   };
+}
+
+/**
+ * Open the machine-scoped session-lease store. The clock is injected HERE, at
+ * the call site, and never read inside the store: abandonment stays a reader's
+ * computation against an instant the caller names.
+ */
+function sessionLeaseStore(): SessionLeaseStore {
+  return new SessionLeaseStore(resolveSessionLeasePath(), {
+    now: () => new Date().toISOString(),
+  });
+}
+
+/**
+ * Take the slot lease for a freshly launched session, seeding it with the pane's
+ * current process-tree CPU so the FIRST supervising pass already has a baseline
+ * to compute a rate against.
+ */
+export function acquireSessionLease(
+  sessionId: string,
+  opts: {
+    holder: string;
+    workspace?: string;
+    agentPane?: string;
+    worker?: SessionLeaseWorker;
+  },
+): SessionLease | undefined {
+  // CPU baseline and worker identity share one /proc walk at acquire time.
+  const observation = opts.agentPane ? paneProcessObservation(opts.agentPane) : undefined;
+  const worker = opts.worker ?? observation?.worker;
+  return sessionLeaseStore().acquire({
+    sessionId,
+    holder: opts.holder,
+    ...(opts.workspace !== undefined ? { workspace: opts.workspace } : {}),
+    ...(observation?.cpuMs !== undefined ? { cpuMs: observation.cpuMs } : {}),
+    ...(worker !== undefined ? { worker } : {}),
+  });
+}
+
+/** What one supervising pass over the session leases did. */
+export type SessionLeaseSupervision = {
+  beaten: string[];
+  observed: string[];
+  released: string[];
+  /** Sessions whose pane could not be read — NOT beaten, and not judged dead. */
+  unreadable: string[];
+  proposals: ReturnType<typeof reclaimProposals>;
+};
+
+/**
+ * One supervising pass: for every recorded lease, decide from the REGISTRY what
+ * to do, then — for sessions still running — probe the pane's process tree and
+ * beat only what is actually working. Everything else merely records its CPU
+ * reading, so the abandonment clock keeps running.
+ *
+ * This pass NEVER kills, never sends a key, and never frees a slot on its own.
+ * Its only output beyond the store is a list of PROPOSALS.
+ */
+export function superviseSessionLeases(
+  sessions: ReadonlyArray<RegistryEntry>,
+  now: string = new Date().toISOString(),
+): SessionLeaseSupervision {
+  const store = sessionLeaseStore();
+  const result: SessionLeaseSupervision = {
+    beaten: [],
+    observed: [],
+    released: [],
+    unreadable: [],
+    proposals: [],
+  };
+  const procView = readFleetProcView();
+  // R3: prior-boot corpses are reaped silently before any proposal pass.
+  store.reapDeadBootLeases(procView);
+  const leases = store.readAll();
+  const byId = new Map(leases.map((lease) => [lease.sessionId, lease]));
+  for (const step of planLeaseSupervision(leases, sessions)) {
+    const lease = byId.get(step.sessionId);
+    if (lease === undefined) continue;
+    try {
+      if (step.action === "release") {
+        store.release({ sessionId: lease.sessionId, token: lease.token });
+        result.released.push(lease.sessionId);
+        continue;
+      }
+      if (step.action === "leave") continue;
+      const pane = step.tmuxSession ? resolveAgentPane(step.tmuxSession) : undefined;
+      let currentLease = lease;
+      // R1 lazy migration: old leases remain alive until this pass can resolve
+      // their worker. Resolve from the pass-wide snapshot, never by spawning a
+      // /proc walk for every lease.
+      if (currentLease.worker === undefined && pane !== undefined) {
+        const worker = paneWorkerAttributionFromView(pane, procView);
+        if (worker !== undefined) {
+          currentLease = store.populateWorker({
+            sessionId: currentLease.sessionId,
+            token: currentLease.token,
+            worker,
+          });
+        }
+      }
+      if (!isSessionLeaseAlive(currentLease, procView, now)) {
+        result.unreadable.push(currentLease.sessionId);
+        continue;
+      }
+      const cpuMsNow = pane ? paneTreeCpuMs(pane) : undefined;
+      const decision = decideSessionBeat({ lease: currentLease, cpuMsNow, now });
+      if (decision.action === "beat" && cpuMsNow !== undefined) {
+        store.heartbeat({ sessionId: currentLease.sessionId, token: currentLease.token, cpuMs: cpuMsNow });
+        result.beaten.push(currentLease.sessionId);
+      } else if (decision.action === "observe" && cpuMsNow !== undefined) {
+        store.observe({ sessionId: currentLease.sessionId, token: currentLease.token, cpuMs: cpuMsNow });
+        result.observed.push(currentLease.sessionId);
+      } else {
+        result.unreadable.push(currentLease.sessionId);
+      }
+    } catch {
+      // a rejected write (raced re-acquisition, torn store) must not stop the pass
+    }
+  }
+  result.proposals = reclaimProposals(store.readAll(), now, procView);
+  return result;
+}
+
+/** Relaunch one managed session while its lease carries the bounded protection. */
+export function relaunchSessionWithLease(input: {
+  sessionId: string;
+  tmuxSession: string;
+  command: string;
+  resolvingBoundMs?: number;
+}): boolean {
+  const store = sessionLeaseStore();
+  const lease = store.forSession(input.sessionId);
+  if (lease === undefined) return relaunchInSession(input.tmuxSession, input.command);
+  const pane = resolveAgentPane(input.tmuxSession);
+  const outcome = store.relaunch({
+    sessionId: lease.sessionId,
+    token: lease.token,
+    ...(input.resolvingBoundMs !== undefined
+      ? { resolvingBoundMs: input.resolvingBoundMs }
+      : {}),
+    act: () => relaunchInSession(input.tmuxSession, input.command),
+    resolveWorker: () => (pane ? paneWorkerAttribution(pane) : undefined),
+  });
+  return outcome.succeeded;
+}
+
+/** One on-demand fleet-wide read-back audit; it never runs from rendering. */
+export function auditLiveSessionLeases(
+  sessions: ReadonlyArray<RegistryEntry> = listJobs(),
+  now: string = new Date().toISOString(),
+): SessionLeaseFleetAudit & { reaped: string[]; liveLeaseCount: number; procView: ProcView } {
+  const store = sessionLeaseStore();
+  const leases = store.readAll();
+  const procView = readFleetProcView();
+  const report = auditSessionLeaseFleet(
+    sessions.map((session) => ({
+      sessionId: session.id,
+      ...(session.tmuxSession !== undefined ? { tmuxSession: session.tmuxSession } : {}),
+      ...(session.jobState !== undefined ? { jobState: session.jobState } : {}),
+    })),
+    leases,
+    listH2aStatusSurfaces(),
+    procView,
+    now,
+  );
+  const liveLeaseCount = countLiveSessionLeases(leases, procView, now);
+  const reaped = store.reapDeadBootLeases(procView);
+  return { ...report, reaped, liveLeaseCount, procView };
+}
+
+/** Human-readable duration for lease reporting ("41m", "2h13m"). */
+function formatIdle(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}m`;
 }
 
 /**
@@ -2002,10 +2233,11 @@ async function prepareLlmMeshForRestore(
   }
 }
 
-function registryEntryForResumeTarget(
+function registryEntriesForLocalTmuxTarget(
   target: string,
-  local?: LocalSession,
-): RegistryEntry | undefined {
+  local: LocalSession | undefined,
+  entries: readonly RegistryEntry[] = loadRegistry(),
+): RegistryEntry[] {
   const parsedTarget = parseManagedSessionName(target);
   const canonicalSlug = local?.slug ?? parsedTarget?.slug ?? target;
   const tmuxSession = local?.name ?? target;
@@ -2014,15 +2246,8 @@ function registryEntryForResumeTarget(
     : parsedTarget
       ? [target]
       : managedSessionCandidates(canonicalSlug);
-  const matches = loadRegistry().filter((e) => {
-    // Resume is a human-facing operation, not a promotion path.  Keep the
-    // durable class intact by accepting only explicitly human rows; legacy and
-    // background entries fail closed instead of becoming restorable here.
-    if (
-      e.role !== undefined ||
-      e.kind !== "local-tmux" ||
-      e.sessionClass !== "human"
-    ) return false;
+  return entries.filter((e) => {
+    if (e.kind !== "local-tmux") return false;
     // Full managed names are exact targets; never reinterpret one as an id
     // or label that happens to share a prefix-shaped string.
     if (parsedTarget) {
@@ -2039,6 +2264,19 @@ function registryEntryForResumeTarget(
       e.tmuxSession === tmuxSession ||
       (e.tmuxSession !== undefined && candidates.includes(e.tmuxSession))
     );
+  });
+}
+
+function registryEntryForResumeTarget(
+  target: string,
+  local?: LocalSession,
+): RegistryEntry | undefined {
+  const matches = registryEntriesForLocalTmuxTarget(target, local).filter((e) => {
+    // Resume is a human-facing operation, not a promotion path. Share the
+    // durable class test with restore so legacy human rows remain resumable,
+    // while delegated jobs and explicit background launches stay excluded.
+    if (e.role !== undefined) return false;
+    return isHumanFacingSession(e);
   });
   const ids = new Set(matches.map((e) => e.id));
   if (ids.size !== 1) return undefined;
@@ -2105,6 +2343,24 @@ async function confirmReplace(slug: string): Promise<boolean> {
   try {
     const answer = await rl.question(`Type "replace ${slug}" to continue: `);
     return answer.trim() === `replace ${slug}`;
+  } finally {
+    rl.close();
+  }
+}
+
+async function confirmRelaunchAll(): Promise<boolean> {
+  if (process.stdin.isTTY !== true || process.stderr.isTTY !== true) {
+    return false;
+  }
+  const { createInterface: createPromisesInterface } =
+    await import("node:readline/promises");
+  const rl = createPromisesInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+  try {
+    const answer = await rl.question('Type "RELAUNCH" to force-restart every listed session: ');
+    return answer.trim() === "RELAUNCH";
   } finally {
     rl.close();
   }
@@ -5148,7 +5404,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           args,
           resumeSlug,
           undefined,
-          { sessionClass: "human" },
+          { sessionClass: "human", attachedTerminal: true },
         );
         enrollFromRun({
           profile,
@@ -5181,6 +5437,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option(
       "--no-attach",
       "start detached and print the attach command instead (for scripts / fan-out orchestration)",
+    )
+    .option(
+      "--no-attached-terminal",
+      "disable the persistent headless tmux client (legacy compatibility; cannot be used with --prompt-stdin)",
     )
     .option(
       "-r, --resume <convId>",
@@ -5234,6 +5494,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         path: string | undefined,
         opts: {
           attach?: boolean;
+          attachedTerminal?: boolean;
           resume?: string;
           force?: boolean;
           name?: string;
@@ -5295,6 +5556,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         if (opts.promptStdin && process.stdin.isTTY) {
           process.stderr.write("[h2a] --prompt-stdin requires piped stdin\n");
+          process.exitCode = 2;
+          return;
+        }
+        if (opts.promptStdin && opts.attachedTerminal === false) {
+          process.stderr.write(
+            "[h2a] --prompt-stdin requires the attached terminal; remove --no-attached-terminal.\n",
+          );
           process.exitCode = 2;
           return;
         }
@@ -5453,9 +5721,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           slug: string;
           pane?: string;
           pid?: number;
+          workerPid?: number;
           h2aSidecar: boolean;
           outputLog?: string;
           resultJson?: string;
+          promptDelivery?: PromptDeliveryResult;
         }> = [];
         for (const label of labels) {
           const clientSessionId = localSessionName(slugify(label ?? cwd));
@@ -5523,6 +5793,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           let resultJson: string | undefined;
           let agentPane: string | undefined;
           let promptFile: string | undefined;
+          let promptDelivery: PromptDeliveryResult | undefined;
           if (opts.headless) {
             const runDir = join(cwd, ".h2a", "runs", label!);
             mkdirSync(runDir, { recursive: true });
@@ -5558,6 +5829,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   ? { terminateOnAgentExit: true }
                   : {}),
                 ...(structuredLaunch ? { refuseExisting: true } : {}),
+                attachedTerminal: opts.attachedTerminal !== false,
                 sessionClass,
               },
             ));
@@ -5607,22 +5879,58 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               );
             }
           }
-          if (
-            !opts.headless &&
-            initialPrompt !== undefined &&
-            !sendKeysLiteral(agentPane!, initialPrompt)
-          ) {
-            cleanupHeadlessPromptFile(promptFile);
-            killLocalSession(name);
-            process.stderr.write(
-              `[h2a] failed to deliver the initial prompt to ${slug}; the partial session was stopped\n`,
-            );
-            process.exitCode = 1;
-            return;
+          if (!opts.headless && initialPrompt !== undefined) {
+            // NEVER paste-and-hope: `tmux new-session -d` returns before the
+            // agent TUI draws anything, and a prompt sent into that window is
+            // echoed by the raw terminal and then discarded. Delivery is
+            // OBSERVED — brief seen in a real composer, then real work — because
+            // reporting "started" over a lost brief is what left a lane inert
+            // for 33 minutes on 2026-07-28.
+            promptDelivery = deliverInitialPrompt(agentPane!, initialPrompt, {
+              capturePane: capturePaneVisible,
+              clearComposer: clearPaneComposer,
+              pasteBlock: pasteLiteralBlock,
+              submit: submitPane,
+              cpuMs: paneTreeCpuMs,
+              sleep: sleepSync,
+              now: () => Date.now(),
+            });
+            if (promptDelivery.state !== "working") {
+              cleanupHeadlessPromptFile(promptFile);
+              // Only claim the session is gone when the kill actually reported
+              // success. "nothing is left running" over an unchecked call is the
+              // same wider-than-its-evidence claim this change exists to remove,
+              // and a surviving partial session is precisely the idle lane the
+              // operator was just told could not happen.
+              const stopped = killLocalSession(name);
+              const detail =
+                promptDelivery.state === "submitted-idle"
+                  ? `the brief was submitted but the agent never started working ` +
+                    `(${Math.round(promptDelivery.cpuDeltaMs)}ms of CPU): it is not "started"`
+                  : promptDelivery.reason;
+              process.stderr.write(
+                `[h2a] the initial prompt did not reach ${slug}: ${detail}\n` +
+                  (promptDelivery.state === "host-modal"
+                    ? `[h2a] fix: ${promptDelivery.hint}\n`
+                    : "") +
+                  (stopped
+                    ? `[h2a] the partial session was stopped, so nothing is left running idle\n`
+                    : `[h2a] WARNING: stopping the partial session FAILED — ${name} may still be alive; ` +
+                      `list it with h2a ls and stop it with h2a stop ${slug} --reason failed-launch\n`) +
+                  (promptDelivery.state !== "submitted-idle" &&
+                  promptDelivery.capture
+                    ? `[h2a] last screen:\n${promptDelivery.capture}\n`
+                    : ""),
+              );
+              process.exitCode = 1;
+              return;
+            }
           }
           const pid = agentPane
             ? localSessionPanePid(agentPane)
             : undefined;
+          const workerPid =
+            agentPane !== undefined ? paneWorkerPid(agentPane) : undefined;
           if (structuredLaunch && pid === undefined) {
             cleanupHeadlessPromptFile(promptFile);
             killLocalSession(name);
@@ -5640,6 +5948,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             slug,
             tmuxSession: name,
             ...(pid !== undefined ? { pid } : {}),
+            ...(workerPid !== undefined ? { workerPid } : {}),
             cwd,
             sessionClass,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
@@ -5653,6 +5962,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(pid !== undefined ? { pid } : {}),
             ...(outputLog !== undefined ? { outputLog } : {}),
             ...(resultJson !== undefined ? { resultJson } : {}),
+            ...(promptDelivery !== undefined ? { promptDelivery } : {}),
           });
         }
         if (count > 1) {
@@ -5683,10 +5993,28 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 h2aSidecar: only.h2aSidecar,
                 ...(only.pane !== undefined ? { pane: only.pane } : {}),
                 ...(only.pid !== undefined ? { pid: only.pid } : {}),
+                // `pid` is the launch WRAPPER. Measured 2026-07-29: it showed 0s
+                // of CPU after 37s while its codex child had burned 13s, so a
+                // liveness check on `pid` alone reports a working agent as dead.
+                // Name the process that actually works, and say it is distinct.
+                ...(only.workerPid !== undefined
+                  ? { workerPid: only.workerPid }
+                  : {}),
               },
               attach: opts.headless
                 ? null
                 : { command: "h2a", args: ["attach", only.slug] },
+              // What was OBSERVED, not what was attempted: the brief was seen in
+              // a real composer, submitted, and the agent's CPU then moved.
+              ...(only.promptDelivery?.state === "working"
+                ? {
+                    prompt: {
+                      delivered: true,
+                      waitedMs: only.promptDelivery.waitedMs,
+                      cpuDeltaMs: Math.round(only.promptDelivery.cpuDeltaMs),
+                    },
+                  }
+                : {}),
               ...(only.outputLog !== undefined
                 ? {
                     logs: { path: only.outputLog },
@@ -6379,6 +6707,123 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     });
 
   jobsCommand
+    .command("leases")
+    .description(
+      "Session slot leases (machine-scoped): who holds a concurrency slot, when it last proved it was working, and which slots are reclaimable. READ-ONLY — it kills nothing and frees nothing.",
+    )
+    .option(
+      "--probe",
+      "before reporting, run one supervising pass: beat the leases of sessions whose pane is burning CPU, record the others",
+    )
+    .option(
+      "--audit",
+      "run one on-demand fleet-wide read-back audit (one tmux FORMAT call and one /proc scan)",
+    )
+    .action((opts: { probe?: boolean; audit?: boolean }) => {
+      const now = new Date().toISOString();
+      if (opts.probe === true) superviseSessionLeases(listJobs(), now);
+      const audit = opts.audit === true ? auditLiveSessionLeases(listJobs(), now) : undefined;
+      const store = sessionLeaseStore();
+      const leases = store.readAll();
+      if (leases.length === 0) {
+        process.stdout.write("no session leases\n");
+        return;
+      }
+      const nowMs = Date.parse(now);
+      const rows = leases
+        .slice()
+        .sort((a, b) => Date.parse(a.heartbeatAt) - Date.parse(b.heartbeatAt))
+        .map((lease) => {
+          const idle = nowMs - Date.parse(lease.heartbeatAt);
+          const state = audit
+            ? isSessionLeaseAlive(lease, audit.procView, now)
+              ? "held"
+              : "RECLAIMABLE"
+            : isSessionLeaseAbandoned(lease, now)
+              ? "RECLAIMABLE"
+              : "held";
+          return (
+            `${lease.sessionId.padEnd(24)} ${state.padEnd(12)} ` +
+            `idle ${formatIdle(idle).padEnd(7)} ttl ${formatIdle(lease.ttlMs).padEnd(6)} ` +
+            `holder ${lease.holder}`
+          );
+        });
+      process.stdout.write(`${rows.join("\n")}\n`);
+      const reclaimable = audit
+        ? reclaimProposals(leases, now, audit.procView).length
+        : reclaimProposals(leases, now).length;
+      if (reclaimable > 0) {
+        process.stderr.write(
+          `[h2a] ${reclaimable} slot(s) reclaimable — free one with: h2a jobs reclaim <id> ` +
+            "(the session's tmux window is left running and can still be attached)\n",
+        );
+      }
+      if (audit) {
+        if (audit.reaped.length > 0) {
+          process.stderr.write(`[h2a] audit reaped prior-boot lease(s): ${audit.reaped.join(", ")}\n`);
+        }
+        if (audit.missingStatusSurface.length > 0) {
+          process.stderr.write(
+            `[h2a] audit status-surface drift: ${audit.missingStatusSurface.join(", ")}\n`,
+          );
+        }
+      }
+    });
+
+  jobsCommand
+    .command("reclaim <id>")
+    .description(
+      "Free the concurrency SLOT of a session that stopped working (its lease is abandoned): the job is marked terminal and its lease released. It does NOT kill anything — the tmux session keeps running and stays attachable. Refuses while the lease is still being beaten.",
+    )
+    .action((id: string) => {
+      const now = new Date().toISOString();
+      const store = sessionLeaseStore();
+      let lease = store.forSession(id);
+      if (!lease) {
+        process.stderr.write(
+          `[h2a] no session lease for "${id}" — nothing to reclaim (see: h2a jobs leases)\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const procView = readFleetProcView();
+      if (isSessionLeaseDeadBoot(lease, procView)) {
+        store.reapDeadBootLeases(procView);
+        process.stdout.write(`reaped ${id} — lease belonged to a prior boot\n`);
+        return;
+      }
+      // The one guard that matters: a session still proving it works keeps its
+      // slot, whatever the operator believes. Reclaiming is not arbitration.
+      if (isSessionLeaseAlive(lease, procView, now)) {
+        const idle = Date.parse(now) - Date.parse(lease.heartbeatAt);
+        process.stderr.write(
+          `[h2a] refusing to reclaim ${id}: its lease still beats (last proof of work ` +
+            `${formatIdle(idle)} ago, TTL ${formatIdle(lease.ttlMs)}). It is working.\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const job = listJobs().find((e) => e.id === id);
+      const advanced = job ? advanceJob(id, "failed") : undefined;
+      try {
+        store.release({ sessionId: id, token: lease.token });
+      } catch (err) {
+        process.stderr.write(`[h2a] lease release failed: ${(err as Error).message}\n`);
+      }
+      process.stdout.write(
+        `reclaimed ${id} — slot freed after ` +
+          `${formatIdle(Date.parse(now) - Date.parse(lease.heartbeatAt))} without work\n`,
+      );
+      process.stderr.write(
+        `[h2a] the session was NOT killed: ${job?.tmuxSession ?? "its tmux session"} is still running ` +
+          `(h2a jobs attach ${id}). ` +
+          (advanced === undefined
+            ? "No registry entry to advance — only the lease was released.\n"
+            : "The job is recorded terminal so the conductor can admit queued work.\n"),
+      );
+    });
+
+  jobsCommand
     .command("status <id>")
     .description(
       "Show a job's detail (+ output.log / result.json paths for headless jobs).",
@@ -6735,6 +7180,25 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       process.stderr.write(
         `[h2a] conduct: AIMD breaker — admitting up to ${effectiveCap}/${cap} (rate-limit pressure)\n`,
       );
+    }
+
+    // (a'') SESSION LEASES — beat what is working, and REPORT what has stopped.
+    // A finished-but-alive session is invisible to (a): it is `isJobLive`, so
+    // reconcile and the stale sweep both skip it, and it keeps its slot for as
+    // long as it stays alive. The lease pass is the only thing here that reads
+    // inactivity rather than death. It proposes; it never frees a slot itself.
+    try {
+      const supervision = superviseSessionLeases(refreshed);
+      for (const proposal of supervision.proposals) {
+        process.stderr.write(
+          `[h2a] conduct: ${proposal.sessionId} has held its slot without working for ` +
+            `${formatIdle(proposal.idleMs)} (holder ${proposal.holder}, TTL ${formatIdle(proposal.ttlMs)}). ` +
+            `NOT killed — inspect it with: h2a jobs attach ${proposal.sessionId}   ` +
+            `free the slot with: h2a jobs reclaim ${proposal.sessionId}\n`,
+        );
+      }
+    } catch {
+      // the lease store is advisory: a failure here must not stop the conductor
     }
 
     // (b) start pending jobs under the EFFECTIVE cap (oldest-first FIFO).
@@ -7336,50 +7800,140 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     );
 
   // ---------------------------------------------------------------------------
-  // relaunch — bring idle local sessions back in situ, each resuming its OWN conv
+  // relaunch — recover idle sessions, or explicitly force-recreate one/all
   // ---------------------------------------------------------------------------
 
   program
     .command("relaunch [filter]")
     .description(
-      "Relaunch the CLI in local tmux sessions whose CLI dropped to a shell, in situ (windows kept), each resuming ITS OWN conversation from the registry. Running sessions are left alone. Dry-run by default; --apply to do it. [filter] = only sessions whose slug contains it.",
+      "Dry-run local session recovery by default. With an exact [filter], --apply force-recreates that one session from its own registry conversation. --all force-recreates managed sessions only after a warning and typed confirmation (or --yes); interactive agent CLIs stay excluded unless --include-agents is explicit.",
     )
     .option(
       "--apply",
       "actually relaunch (default: dry-run, just print the plan)",
     )
-    .action((filter: string | undefined, opts: { apply?: boolean }) => {
+    .option("--all", "force-restart every managed local tmux session")
+    .option("--yes", "confirm --all non-interactively (requires --apply)")
+    .option(
+      "--include-agents",
+      "with --all, include claude/codex/agy sessions that are excluded by default",
+    )
+    .action(async (
+      filter: string | undefined,
+      opts: { all?: boolean; apply?: boolean; includeAgents?: boolean; yes?: boolean },
+    ) => {
       if (!tmuxAvailable()) {
         process.stderr.write("[h2a] tmux is not installed locally\n");
         process.exitCode = 1;
         return;
       }
-      // Exact tmux session -> its own convId when available. Historical rows
-      // fall back to their slug only after planRelaunch has excluded a dual
-      // h2a-/remote- prefix collision.
-      const convByTmuxSession = new Map<string, string>();
-      const convBySlug = new Map<string, string>();
-      for (const e of loadRegistry()) {
-        if (e.kind !== "local-tmux" || !e.convId) continue;
-        convBySlug.set(e.id, e.convId);
-        if (e.tmuxSession) convByTmuxSession.set(e.tmuxSession, e.convId);
+      if (filter && opts.all) {
+        process.stderr.write(
+          "[h2a] relaunch accepts either one exact session name or --all, not both.\n",
+        );
+        process.exitCode = 1;
+        return;
       }
-      const sessions = listLocalSessions().filter(
-        (s) => !filter || s.slug.includes(filter),
-      );
+
+      const inventory = listLocalSessionsWithDiagnostics();
+      if (!inventory.known) {
+        process.stderr.write(
+          `[h2a] cannot safely relaunch: managed tmux inventory is unknown (${inventory.reason ?? "no detail"}).\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      let sessions = inventory.sessions;
+      if (filter) {
+        const exactName = parseManagedSessionName(filter) ? filter : undefined;
+        const matches = exactName
+          ? sessions.filter((session) => session.name === exactName)
+          : sessions.filter((session) => session.slug === filter);
+        if (matches.length !== 1) {
+          const detail = matches.length
+            ? `ambiguous (${matches.map((session) => session.name).join(", ")})`
+            : "not found";
+          process.stderr.write(
+            `[h2a] cannot force-relaunch ${filter}: exact managed session is ${detail}.\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        sessions = matches;
+      }
+
+      const forced = Boolean(filter || opts.all);
+      const registry = loadRegistryWithDiagnostics();
+      if (forced && !registry.known) {
+        process.stderr.write(
+          `[h2a] cannot safely force-relaunch: registry is unknown (${registry.reason ?? "no detail"}).\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const registryEntries = registry.entries;
+      const resolution = forced
+        ? reconcileRunConvIds(registryEntries, (cwd, convId) =>
+            readConversationCustomTitle(homedir(), cwd, convId),
+          )
+        : undefined;
+      const entryByTmuxSession = new Map<string, RegistryEntry>();
       const plan = planRelaunch(
         sessions.map((s) => ({
+          ...(() => {
+            const matches = registryEntriesForLocalTmuxTarget(
+              s.name,
+              s,
+              registryEntries,
+            );
+            const ids = new Set(matches.map((entry) => entry.id));
+            const entry =
+              matches.length === 1 && ids.size === 1
+                ? matches
+                    .slice()
+                    .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))[0]
+                : undefined;
+            if (entry) entryByTmuxSession.set(s.name, entry);
+            const resolvedConvId = entry
+              ? resolution?.resolvedSid.get(entry.id) ?? entry.convId
+              : undefined;
+            const labelOnly =
+              entry !== undefined &&
+              (!resolvedConvId ||
+                resolvedConvId === entry.id ||
+                resolvedConvId === entry.label);
+            return {
+              profile: entry?.tool ?? s.profile,
+              ...(matches.length > 1 || ids.size > 1
+                ? { unresumableReason: "multiple registry rows match this tmux session — relaunch refused" }
+                : !entry
+                    ? { unresumableReason: "no matching registry conversation — relaunch refused" }
+                    : entry.sessionClass === undefined
+                      ? { unresumableReason: "registry session class is missing — relaunch refused" }
+                    : labelOnly || resolution?.unresolvedRunIds.has(entry.id)
+                      ? { unresumableReason: "no resumable conversation in the registry — relaunch refused" }
+                      : resolvedConvId !== undefined
+                        ? { convId: resolvedConvId }
+                        : { unresumableReason: "no resumable conversation in the registry — relaunch refused" }),
+            };
+          })(),
           slug: s.slug,
           name: s.name,
-          profile: s.profile,
           idle: localSessionIdle(s.name),
-          ...(convByTmuxSession.has(s.name)
-            ? { convId: convByTmuxSession.get(s.name)! }
-            : convBySlug.has(s.slug)
-              ? { convId: convBySlug.get(s.slug)! }
-            : {}),
         })),
+        {
+          ...(forced ? { force: true } : {}),
+          ...(opts.all && !opts.includeAgents
+            ? { excludeInteractiveAgents: true }
+            : {}),
+        },
       );
+      if (opts.all) {
+        process.stderr.write(
+          `[h2a] WARNING: force-restart plan covers ${sessions.length} managed session(s): ${sessions.map((session) => session.name).join(", ") || "none"}\n`,
+        );
+      }
       if (plan.actions.length === 0) {
         process.stderr.write(
           `[h2a] nothing to relaunch${filter ? ` matching "${filter}"` : ""} (${plan.skipped.length} skipped)\n`,
@@ -7391,7 +7945,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       }
       if (!opts.apply) {
         process.stderr.write(
-          `[h2a] would relaunch ${plan.actions.length} session(s) — dry-run, pass --apply:\n`,
+          `[h2a] would${forced ? " force-restart" : " relaunch"} ${plan.actions.length} session(s) — dry-run, pass --apply:\n`,
         );
         for (const a of plan.actions) {
           process.stderr.write(`  ${a.slug}: ${a.cmd}\n`);
@@ -7401,18 +7955,151 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         return;
       }
+
+      // Backward-compatible crash recovery: bare `relaunch --apply` only
+      // retypes into idle shells. Forced kill/recreate is available solely for
+      // one exact target or explicit `--all`.
+      if (!forced) {
+        let ok = 0;
+        for (const action of plan.actions) {
+          const sessionId = entryByTmuxSession.get(action.name)?.id;
+          const relaunched =
+            sessionId !== undefined
+              ? relaunchSessionWithLease({
+                  sessionId,
+                  tmuxSession: action.name,
+                  command: action.cmd,
+                })
+              : relaunchInSession(action.name, action.cmd);
+          if (relaunched) {
+            ok += 1;
+            process.stderr.write(`[h2a] relaunched ${action.slug}: ${action.cmd}\n`);
+          } else {
+            process.stderr.write(`[h2a] FAILED to relaunch ${action.slug}\n`);
+          }
+        }
+        process.stderr.write(
+          `[h2a] relaunched ${ok}/${plan.actions.length}${plan.skipped.length ? `, ${plan.skipped.length} skipped` : ""}\n`,
+        );
+        if (ok !== plan.actions.length) process.exitCode = 1;
+        return;
+      }
+
+      if (opts.all && !opts.yes && !(await confirmRelaunchAll())) {
+        process.stderr.write(
+          "[h2a] bulk force-restart requires typing RELAUNCH, or pass --yes for non-interactive use. No session was changed.\n",
+        );
+        process.exitCode = 1;
+        return;
+      }
+      for (const skipped of plan.skipped) {
+        process.stderr.write(`[h2a] skipped ${skipped.slug}: ${skipped.reason}\n`);
+      }
+      if (filter) {
+        process.stderr.write(
+          `[h2a] confirmed force-restart of ${plan.actions[0]!.slug}; its tmux session will be replaced.\n`,
+        );
+      }
+
+      const ready: Array<{
+        action: (typeof plan.actions)[number];
+        entry: RegistryEntry;
+        sessionClass: "human" | "background";
+      }> = [];
+      let preflightFailed = false;
+      for (const action of plan.actions) {
+        const entry = entryByTmuxSession.get(action.name);
+        const sessionClass = entry?.sessionClass;
+        if (!entry || sessionClass === undefined) {
+          preflightFailed = true;
+          process.stderr.write(
+            `[h2a] cannot force-restart ${action.slug}: its registry launch context changed; no session was killed.\n`,
+          );
+          continue;
+        }
+        const allowed = await guardConvWriters({
+          convId: action.convId,
+          cwd: entry.cwd,
+          excludeId: entry.id,
+          fetchRemoteSessions: async () => {
+            const url = getConfiguredRemoteOptional();
+            return url ? await listRemoteSessions(url) : [];
+          },
+        });
+        if (!allowed) {
+          preflightFailed = true;
+          continue;
+        }
+        ready.push({ action, entry, sessionClass });
+      }
+      const rechecked = listLocalSessionsWithDiagnostics();
+      if (!rechecked.known) {
+        process.stderr.write(
+          `[h2a] cannot safely force-restart: managed tmux inventory changed (${rechecked.reason ?? "no detail"}). No session was killed.\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      for (const { action } of ready) {
+        if (!rechecked.sessions.some((session) => session.name === action.name)) {
+          preflightFailed = true;
+          process.stderr.write(
+            `[h2a] cannot force-restart ${action.slug}: its tmux session changed before replacement. No session was killed.\n`,
+          );
+        }
+      }
+      if (preflightFailed) {
+        process.stderr.write("[h2a] force-restart aborted before any session was killed.\n");
+        process.exitCode = 1;
+        return;
+      }
+
       let ok = 0;
-      for (const a of plan.actions) {
-        if (relaunchInSession(a.name, a.cmd)) {
+      for (const { action, entry, sessionClass } of ready) {
+        if (!killLocalSession(action.name)) {
+          process.stderr.write(
+            `[h2a] FAILED to force-restart ${action.slug}: tmux session ${action.name} could not be killed.\n`,
+          );
+          continue;
+        }
+        try {
+          const gatewayMode = gatewayModeForProfile(
+            action.profile,
+            entry.gatewayMode ?? "auto",
+          );
+          await injectLlmMeshGatewayEnv(gatewayMode, true, localSessionName(action.slug));
+          const { name } = startLocalSession(
+            action.profile,
+            action.command,
+            entry.cwd,
+            action.args,
+            action.slug,
+            undefined,
+            { sessionClass },
+          );
+          enrollFromRun({
+            profile: action.profile,
+            slug: action.slug,
+            tmuxSession: name,
+            cwd: entry.cwd,
+            sessionClass,
+            convId: action.convId,
+            ...(entry.gatewayMode !== undefined
+              ? { gatewayMode: entry.gatewayMode }
+              : {}),
+          });
           ok += 1;
-          process.stderr.write(`[h2a] relaunched ${a.slug}: ${a.cmd}\n`);
-        } else {
-          process.stderr.write(`[h2a] FAILED to relaunch ${a.slug}\n`);
+          process.stderr.write(`[h2a] force-restarted ${action.slug}: ${action.cmd}\n`);
+        } catch (error) {
+          process.stderr.write(
+            `[h2a] FAILED to force-restart ${action.slug} after killing ${action.name}: ${(error as Error).message}\n`,
+          );
         }
       }
       process.stderr.write(
-        `[h2a] relaunched ${ok}/${plan.actions.length}${plan.skipped.length ? `, ${plan.skipped.length} skipped` : ""}\n`,
+        `[h2a] force-restarted ${ok}/${plan.actions.length}${plan.skipped.length ? `, ${plan.skipped.length} skipped` : ""}\n`,
       );
+      if (ok !== plan.actions.length) process.exitCode = 1;
     });
 
   // ---------------------------------------------------------------------------
@@ -7520,6 +8207,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
     let nudged = 0;
     if (apply) {
+      const leaseIdByTmuxSession = new Map(
+        loadRegistry()
+          .filter((entry) => entry.tmuxSession !== undefined)
+          .map((entry) => [entry.tmuxSession!, entry.id]),
+      );
       for (const r of plan.toResume) {
         // DOUBLE-CHECK the attached guard at the moment of action (the pure plan
         // already excluded attached panes, but re-read in case a human just
@@ -7530,7 +8222,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
           continue;
         }
-        const ok = relaunchInSession(r.name, interactiveResumeNudge(r.type));
+        const sessionId = leaseIdByTmuxSession.get(r.name);
+        const ok =
+          sessionId !== undefined
+            ? relaunchSessionWithLease({
+                sessionId,
+                tmuxSession: r.name,
+                command: interactiveResumeNudge(r.type),
+              })
+            : relaunchInSession(r.name, interactiveResumeNudge(r.type));
         if (ok) {
           nudged += 1;
           throttleState.set(r.name, r.next);
@@ -8041,11 +8741,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "force the legacy WS/SSE attach (control-plane proxy) instead of exec",
     )
     .option("--local", "force local tmux lookup")
+    .option(
+      "--headless-terminal",
+      "attach a persistent 160x48 PTY client without taking over this terminal (local sessions only)",
+    )
     .action(
       async (
         first: string,
         second: string | undefined,
-        opts: { exec?: boolean; ws?: boolean; local?: boolean },
+        opts: {
+          exec?: boolean;
+          ws?: boolean;
+          local?: boolean;
+          headlessTerminal?: boolean;
+        },
       ) => {
         // Local tmux session? (unless an explicit URL/sessionId pair is given).
         if (second === undefined && !looksLikeUrl(first)) {
@@ -8071,6 +8780,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 `[h2a] no local session "${first}" (see: h2a ls)\n`,
               );
               process.exitCode = 1;
+              return;
+            }
+            if (opts.headlessTerminal) {
+              const terminal = ensureHeadlessTerminal(localName);
+              if (terminal.state === "unavailable") {
+                process.stderr.write(
+                  `[h2a] could not attach a persistent terminal to ${first}: ${terminal.reason}\n`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+              process.stderr.write(
+                `[h2a] persistent terminal ${terminal.state} for ${first} (${terminal.attachedClients} attached client(s))\n`,
+              );
               return;
             }
             process.exitCode = attachLocalSession(localName);
@@ -9383,6 +10106,14 @@ export function projectAgentsForH2a(): ReturnType<typeof projectRemoteAgents> {
 }
 
 export { projectStatusForH2a };
+
+/**
+ * Status-bar writer surface, consumed by `@sentropic/h2a`'s
+ * `status --write-bars` loop via lazy `import()`: enumerate the sessions whose
+ * installed bar expects prepared files, and resolve where those files live.
+ */
+export { listStatusBarTargets, statusBarFilesForSession, statusBarRoot } from "./tmux.js";
+export type { StatusBarTarget } from "./tmux.js";
 
 /** Open the detailed watcher only for an exact, currently managed session. */
 export function openStatusWindowForH2a(session: string): boolean {
