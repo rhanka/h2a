@@ -12,12 +12,38 @@
  * above that noise, so the approximation never decides anything on its own.
  */
 
+import { readFileSync } from "node:fs";
+
 export const DEFAULT_CLOCK_TICKS_PER_SECOND = 100;
 
 export type ProcEntry = {
   readonly pid: number;
   readonly ppid: number;
   readonly cpuMs: number;
+  /** /proc stat field 22: ticks since boot, preserved as a string. */
+  readonly startTime: string;
+};
+
+export type WorkerAttribution = {
+  readonly pid: number;
+  readonly startTime: string;
+  readonly bootId: string;
+};
+
+export type ProcIdentity = {
+  readonly pid: number;
+  readonly startTime: string;
+};
+
+/** One fleet-wide /proc view, suitable for pure lease projections. */
+export type ProcView = {
+  readonly currentBootId: string;
+  readonly processes:
+    | ReadonlyMap<number, { readonly startTime: string }>
+    | ReadonlyArray<ProcIdentity>;
+  /** The parsed snapshot is retained so a pane worker can be resolved without
+   * another /proc walk during a supervising pass. */
+  readonly entries?: ReadonlyArray<ProcEntry>;
 };
 
 /**
@@ -28,7 +54,7 @@ export type ProcEntry = {
 export function parseProcStat(
   content: string,
   clockTicksPerSecond = DEFAULT_CLOCK_TICKS_PER_SECOND,
-): { readonly ppid: number; readonly cpuMs: number } | undefined {
+): { readonly ppid: number; readonly cpuMs: number; readonly startTime: string } | undefined {
   const close = content.lastIndexOf(")");
   if (close === -1) return undefined;
   const fields = content.slice(close + 1).trim().split(/\s+/);
@@ -36,12 +62,20 @@ export function parseProcStat(
   const ppid = Number.parseInt(fields[1] ?? "", 10);
   const utime = Number.parseInt(fields[11] ?? "", 10);
   const stime = Number.parseInt(fields[12] ?? "", 10);
-  if (!Number.isInteger(ppid) || !Number.isInteger(utime) || !Number.isInteger(stime)) {
+  const startTime = fields[19];
+  if (
+    !Number.isInteger(ppid) ||
+    !Number.isInteger(utime) ||
+    !Number.isInteger(stime) ||
+    startTime === undefined ||
+    !/^\d+$/.test(startTime)
+  ) {
     return undefined;
   }
   return {
     ppid,
     cpuMs: ((utime + stime) / clockTicksPerSecond) * 1000,
+    startTime,
   };
 }
 
@@ -121,6 +155,8 @@ export function busiestDescendant(
 export type ProcReaderDeps = {
   readonly listPids: () => ReadonlyArray<number>;
   readonly readStat: (pid: number) => string | undefined;
+  /** Optional injection point for tests; the default reads kernel boot_id. */
+  readonly readBootId?: () => string | undefined;
   readonly clockTicksPerSecond?: number;
 };
 
@@ -132,9 +168,106 @@ export function snapshotProc(deps: ProcReaderDeps): ProcEntry[] {
     if (raw === undefined) continue; // exited between listing and reading
     const parsed = parseProcStat(raw, deps.clockTicksPerSecond);
     if (!parsed) continue;
-    entries.push({ pid, ppid: parsed.ppid, cpuMs: parsed.cpuMs });
+    entries.push({
+      pid,
+      ppid: parsed.ppid,
+      cpuMs: parsed.cpuMs,
+      startTime: parsed.startTime,
+    });
   }
   return entries;
+}
+
+const DEFAULT_BOOT_ID_READER = (): string | undefined => {
+  try {
+    return readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim() || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+// A reader function is stable for the lifetime of a process. WeakMap keeps
+// injected readers isolated in tests while preserving the production contract:
+// boot_id is read once per process, regardless of how many lease passes run.
+const bootIdCache = new WeakMap<() => string | undefined, string | undefined>();
+
+function cachedBootId(reader: () => string | undefined): string | undefined {
+  if (bootIdCache.has(reader)) return bootIdCache.get(reader);
+  const value = reader();
+  bootIdCache.set(reader, value);
+  return value;
+}
+
+function bootIdReader(deps: ProcReaderDeps): () => string | undefined {
+  return deps.readBootId ?? DEFAULT_BOOT_ID_READER;
+}
+
+/** Snapshot /proc once and retain both CPU/process-tree and identity facts. */
+export function snapshotProcView(deps: ProcReaderDeps): {
+  readonly entries: ProcEntry[];
+  readonly view: ProcView;
+} {
+  const entries = snapshotProc(deps);
+  const processes = new Map<number, { readonly startTime: string }>();
+  for (const entry of entries) processes.set(entry.pid, { startTime: entry.startTime });
+  const currentBootId = cachedBootId(bootIdReader(deps));
+  return {
+    entries,
+    view: {
+      currentBootId: currentBootId ?? "",
+      processes,
+      entries,
+    },
+  };
+}
+
+/** Snapshot /proc once for the liveness predicate. */
+export function readProcView(deps: ProcReaderDeps): ProcView {
+  return snapshotProcView(deps).view;
+}
+
+/** Resolve a worker from an already captured snapshot; performs no syscalls. */
+export function resolveWorkerAttributionFromView(
+  rootPid: number,
+  view: ProcView,
+): WorkerAttribution | undefined {
+  if (!view.entries) return undefined;
+  const workerPid = busiestDescendant(rootPid, view.entries);
+  if (workerPid === undefined) return undefined;
+  const worker = view.entries.find((entry) => entry.pid === workerPid);
+  if (!worker || !view.currentBootId) return undefined;
+  return { pid: worker.pid, startTime: worker.startTime, bootId: view.currentBootId };
+}
+
+/** Resolve the worker once from a pane pid, including its composite identity. */
+export function readWorkerAttribution(
+  rootPid: number,
+  deps: ProcReaderDeps,
+): WorkerAttribution | undefined {
+  const { view } = snapshotProcView(deps);
+  return resolveWorkerAttributionFromView(rootPid, view);
+}
+
+/** Descriptive alias for callers that prefer resolver terminology. */
+export const resolveWorkerAttribution = readWorkerAttribution;
+
+export type ProcessObservation = {
+  readonly cpuMs: number | undefined;
+  readonly worker: WorkerAttribution | undefined;
+  readonly procView: ProcView;
+};
+
+/** CPU + worker observation sharing exactly one /proc snapshot. */
+export function readProcessObservation(
+  rootPid: number,
+  deps: ProcReaderDeps,
+): ProcessObservation {
+  const { entries, view } = snapshotProcView(deps);
+  return {
+    cpuMs: sumTreeCpuMs(rootPid, entries),
+    worker: resolveWorkerAttributionFromView(rootPid, view),
+    procView: view,
+  };
 }
 
 /** Snapshot /proc and total the tree rooted at `rootPid`. */
