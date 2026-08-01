@@ -84,129 +84,24 @@ build a échoué et rien de ce qui suit n'a de valeur.
 
 ---
 
-## Scénario 1 — la source de marketplace a disparu (le défaut réel du 29 juillet)
+## L'ordre compte, et il n'est pas numérique
 
-C'est celui qui a bloqué **tous** les plugins codex, h2a compris, pendant que le plugin
-tournait sur un cache 0.85.18 figé.
+Les scénarios sont **dans l'ordre où il faut les faire**, pas dans l'ordre de leurs numéros. Les numéros
+sont ceux sous lesquels ils ont été écrits ; l'ordre ci-dessous est celui qu'une exécution à froid a
+imposé.
 
-**Ce que tu vas voir en plus, et qui n'est pas un défaut** : `--repair` répare **tous les hôtes**, pas
-seulement celui que ce scénario met en scène. Si `claude` est joignable sur ta machine, tu verras
-apparaître quatre findings côté Claude — marketplace, plugin, version, endpoints — qui n'ont rien à
-voir avec la source codex disparue qu'on teste ici. Une exécution à froid les a signalés comme
-parasites ; je ne peux pas les supprimer sans restreindre `--repair`, ce qui serait un changement de
-produit fait pour arranger une recette. **Lis-les, ignore-les pour ce scénario, et retrouve-les au
-scénario 3** où ils sont, eux, le sujet.
+1. **Le scénario 3 d'abord** — il lit **ton installation réelle**, et rien d'autre ne doit l'avoir
+   touchée. Une exécution à froid a mesuré que le placer après une réparation lui faisait inspecter une
+   racine déjà modifiée : *la séquence détruisait sa propre preuve*. Le mettre en premier rend ça
+   impossible **par construction**, au lieu de dépendre d'une manipulation d'environnement correcte.
+2. **Le scénario 0** — l'oracle. Il demande à `codex` ce qu'il sert vraiment, sur des racines jetables.
+   C'est lui qui décide si le produit marche ; les autres décrivent des cas.
+3. **Le scénario 1**, puis **le scénario 2** — les cas reconstitués, entièrement dans des arbres
+   jetables.
 
-Les racines sont posées **en préfixe**, jamais exportées — sinon elles fuient dans tous les scénarios
-suivants, ce qu'une exécution à froid a mesuré (suite automatisée à 16 pass / 47 fail, deux sondes
-refusant de démarrer).
-
-```bash
-mkdir -p $UAT/h1/.codex
-printf '[marketplaces.sentropic]\nsource_type = "local"\nsource = "%s/disparu"\n' "$UAT" \
-  > $UAT/h1/.codex/config.toml
-
-env -u CLAUDE_CONFIG_DIR HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR init --root "$UAT/h1/bus"
-env -u CLAUDE_CONFIG_DIR HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR doctor --root "$UAT/h1/bus" --repair --dry-run
-echo "exit=$?   # inspecte, ne modifie RIEN"
-env -u CLAUDE_CONFIG_DIR HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR doctor --root "$UAT/h1/bus" --repair
-echo "exit=$?   # repare"
-```
-
-**Attendu** : le premier appel **nomme** la source morte (le chemin qui finit par `/disparu`) et
-dit ce qu'il ferait, sans rien changer. Le second la remplace par la source git `rhanka/h2a` et
-installe `h2a@sentropic`. Aucune question posée, aucun geste de ta part.
-
-**Ce qui invaliderait** : un rapport « propre » au premier appel, ou une réparation qui te
-demande de faire quelque chose.
-
-> **Correction de ma première version de cette recette.** J'avais écrit `h2a doctor` tout court.
-> C'était faux : par conception, `doctor` sans `--repair` n'inspecte **pas** l'installation
-> hôte — il ne peut donc pas nommer la marketplace morte. La revue indépendante l'a relevé.
-> `--dry-run` est ajouté au produit pour cette raison : sans lui, il n'existe aucun moyen
-> d'inspecter ta machine sans la modifier.
-
----
-
-## Scénario 2 — une session vivante doit redémarrer après une réparation réelle
-
-Le cœur du sujet, et ce qui a fait échouer **trois** revues indépendantes. Une réparation faite par
-doctor peut changer le code réellement chargé sans qu'une session déjà démarrée le sache.
-
-Ce scénario est **déterministe** : le harnais fabrique la présence sur le même bus et dans ses
-propres `HOME` et bus temporaires. Il ne touche pas ta machine.
-
-D'abord la preuve automatisée, qui exerce les cinq variantes :
-
-```bash
-node --test packages/h2a/test/host-installation-doctor.test.js
-```
-
-**Attendu** : `pass` sur tous les tests, et **exit 0**. C'est un test : il sort 0 quand il réussit.
-
-> **Correction de ma deuxième version de cette recette, et c'est la faute la plus grave que j'y ai
-> faite.** J'écrivais ici « attendu : sortie 2 » en pointant un `node --test` — donc mon document
-> déclarait **invalidante la sortie 0 que produit précisément une implémentation correcte**. Pire,
-> une réexécution de test n'est **pas** une observation : elle absorbe le comportement dans son
-> assertion au lieu de te le montrer. La revue indépendante l'a mesuré littéralement.
-
-Puis **l'observation** — c'est celle-ci qui vaut recette, parce que tu lis le comportement toi-même :
-
-```bash
-bash docs/uat/probe-live-session.sh          # fabrique le cas, puis lance $DOCTOR et affiche tout
-```
-
-Le probe imprime, dans cet ordre : le code de sortie, le champ `ok` du rapport JSON, et la liste des
-motifs de redémarrage.
-
-**Attendu, et c'est le point non négociable** : sortie **2**, `ok=false`, et un motif explicite disant
-qu'une **session vivante doit redémarrer**. La réparation du cache ne suffit pas : la session a chargé
-l'ancien code. Tu dois **voir** ces trois valeurs, pas les déduire d'un test vert.
-
-Cette promesse est volontairement bornée :
-
-| variante | ce qu'elle piège |
-|---|---|
-| réparation doctor avec écrasement **en place** | une session qui a démarré avant le marqueur doit redémarrer |
-| `codex plugin add`, réinstallation npm ou autre modification manuelle | hors garantie de doctor : redémarre la session toi-même |
-
-**Ce qui invaliderait** : sortie 0 sur le premier cas. Le second n'est pas une recette de détection
-automatique : prétendre le contraire reviendrait à certifier un graphe de chargement que doctor ne
-peut pas observer complètement.
-
----
-
-## Scénario 0 — l'oracle, à faire AVANT tous les autres
-
-```bash
-bash docs/uat/probe-oracle.sh
-```
-
-**Fais celui-ci d'abord**, parce qu'il est le seul qui n'interroge pas doctor. Il reconstruit la forme
-réelle de ton incident — marketplace legacy dont la source est supprimée, entrée de plugin encore
-active, cache encore sur disque déclarant un serveur MCP `h2a` — puis il pose deux questions à
-**codex lui-même** : quel serveur h2a sers-tu vraiment (`codex mcp list`), et ton sous-système
-marketplace répond-il (`codex plugin marketplace list`).
-
-**Pourquoi il existe** : le 2026-07-30, `--repair` portait DEUX verdicts GO indépendants alors qu'il
-laissait codex servir l'ANCIEN serveur MCP. Aucune des deux revues n'était en faute — aucune n'avait
-mandat de lancer une CLI hôte. Ni la suite de tests ni l'autre probe ne l'ont vu, parce que tous deux
-lisent le rapport de doctor. **L'auto-rapport d'un outil ne peut pas être l'oracle de son propre
-fonctionnement.**
-
-**Ce qui invaliderait** : `codex mcp list` rendant autre chose que `h2a mcp-serve`, ou
-`codex plugin marketplace list` échouant. Dans ce cas c'est le rapport qui a tort, pas l'hôte —
-même si doctor annonce `ok=true`.
-
-**État mesuré sur la branche** : les **deux** oracles passent désormais, sur `55f6066a`, rebuild propre
-(`dist` **et** `*.tsbuildinfo` supprimés avant — un `tsc` composite sort 0 sans émettre et rend un `dist`
-mélangé). Quand j'ai écrit ce scénario, l'oracle 2 échouait encore ; `a64e1dc8` l'a fermé.
-
-Ce scénario tourne aussi **en CI** sous le nom `host-oracle` : le job installe codex et exécute cette
-sonde sur racines jetables, verdict porté par le code de sortie. Il est vert sur ce SHA.
-**Où cette garantie s'arrête** : codex seulement, racines jetables seulement, Linux seulement, et le job
-**n'est pas encore un check requis** — l'ajouter à la protection de branche est ta décision, pas la
-mienne, donc aujourd'hui il peut échouer sans bloquer une fusion.
+Le texte annonçait déjà « scénario 0, à faire avant tous les autres » alors qu'il était placé
+troisième. Un document dont l'ordre contredit ses propres instructions se fait lire dans l'ordre où il
+est écrit.
 
 ---
 
@@ -314,6 +209,132 @@ ni les entrées de marketplace, ni le marqueur `h2a-repair.json` de ta racine co
 Si tu veux un retour arrière complet, ne lance pas `--repair` sur ta vraie machine : le scénario 3
 s'arrête au `--dry-run`, qui est prouvé inerte par empreinte dans le probe du scénario 2. Je préfère
 te le dire que te laisser croire qu'une copie de `config.toml` annule tout.
+
+---
+
+## Scénario 0 — l'oracle, à faire AVANT tous les autres
+
+```bash
+bash docs/uat/probe-oracle.sh
+```
+
+**Fais celui-ci d'abord**, parce qu'il est le seul qui n'interroge pas doctor. Il reconstruit la forme
+réelle de ton incident — marketplace legacy dont la source est supprimée, entrée de plugin encore
+active, cache encore sur disque déclarant un serveur MCP `h2a` — puis il pose deux questions à
+**codex lui-même** : quel serveur h2a sers-tu vraiment (`codex mcp list`), et ton sous-système
+marketplace répond-il (`codex plugin marketplace list`).
+
+**Pourquoi il existe** : le 2026-07-30, `--repair` portait DEUX verdicts GO indépendants alors qu'il
+laissait codex servir l'ANCIEN serveur MCP. Aucune des deux revues n'était en faute — aucune n'avait
+mandat de lancer une CLI hôte. Ni la suite de tests ni l'autre probe ne l'ont vu, parce que tous deux
+lisent le rapport de doctor. **L'auto-rapport d'un outil ne peut pas être l'oracle de son propre
+fonctionnement.**
+
+**Ce qui invaliderait** : `codex mcp list` rendant autre chose que `h2a mcp-serve`, ou
+`codex plugin marketplace list` échouant. Dans ce cas c'est le rapport qui a tort, pas l'hôte —
+même si doctor annonce `ok=true`.
+
+**État mesuré sur la branche** : les **deux** oracles passent désormais, sur `55f6066a`, rebuild propre
+(`dist` **et** `*.tsbuildinfo` supprimés avant — un `tsc` composite sort 0 sans émettre et rend un `dist`
+mélangé). Quand j'ai écrit ce scénario, l'oracle 2 échouait encore ; `a64e1dc8` l'a fermé.
+
+Ce scénario tourne aussi **en CI** sous le nom `host-oracle` : le job installe codex et exécute cette
+sonde sur racines jetables, verdict porté par le code de sortie. Il est vert sur ce SHA.
+**Où cette garantie s'arrête** : codex seulement, racines jetables seulement, Linux seulement, et le job
+**n'est pas encore un check requis** — l'ajouter à la protection de branche est ta décision, pas la
+mienne, donc aujourd'hui il peut échouer sans bloquer une fusion.
+
+---
+
+## Scénario 1 — la source de marketplace a disparu (le défaut réel du 29 juillet)
+
+C'est celui qui a bloqué **tous** les plugins codex, h2a compris, pendant que le plugin
+tournait sur un cache 0.85.18 figé.
+
+**Ce que tu vas voir en plus, et qui n'est pas un défaut** : `--repair` répare **tous les hôtes**, pas
+seulement celui que ce scénario met en scène. Si `claude` est joignable sur ta machine, tu verras
+apparaître quatre findings côté Claude — marketplace, plugin, version, endpoints — qui n'ont rien à
+voir avec la source codex disparue qu'on teste ici. Une exécution à froid les a signalés comme
+parasites ; je ne peux pas les supprimer sans restreindre `--repair`, ce qui serait un changement de
+produit fait pour arranger une recette. **Lis-les, ignore-les pour ce scénario, et retrouve-les au
+scénario 3** où ils sont, eux, le sujet.
+
+Les racines sont posées **en préfixe**, jamais exportées — sinon elles fuient dans tous les scénarios
+suivants, ce qu'une exécution à froid a mesuré (suite automatisée à 16 pass / 47 fail, deux sondes
+refusant de démarrer).
+
+```bash
+mkdir -p $UAT/h1/.codex
+printf '[marketplaces.sentropic]\nsource_type = "local"\nsource = "%s/disparu"\n' "$UAT" \
+  > $UAT/h1/.codex/config.toml
+
+env -u CLAUDE_CONFIG_DIR HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR init --root "$UAT/h1/bus"
+env -u CLAUDE_CONFIG_DIR HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR doctor --root "$UAT/h1/bus" --repair --dry-run
+echo "exit=$?   # inspecte, ne modifie RIEN"
+env -u CLAUDE_CONFIG_DIR HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR doctor --root "$UAT/h1/bus" --repair
+echo "exit=$?   # repare"
+```
+
+**Attendu** : le premier appel **nomme** la source morte (le chemin qui finit par `/disparu`) et
+dit ce qu'il ferait, sans rien changer. Le second la remplace par la source git `rhanka/h2a` et
+installe `h2a@sentropic`. Aucune question posée, aucun geste de ta part.
+
+**Ce qui invaliderait** : un rapport « propre » au premier appel, ou une réparation qui te
+demande de faire quelque chose.
+
+> **Correction de ma première version de cette recette.** J'avais écrit `h2a doctor` tout court.
+> C'était faux : par conception, `doctor` sans `--repair` n'inspecte **pas** l'installation
+> hôte — il ne peut donc pas nommer la marketplace morte. La revue indépendante l'a relevé.
+> `--dry-run` est ajouté au produit pour cette raison : sans lui, il n'existe aucun moyen
+> d'inspecter ta machine sans la modifier.
+
+---
+
+## Scénario 2 — une session vivante doit redémarrer après une réparation réelle
+
+Le cœur du sujet, et ce qui a fait échouer **trois** revues indépendantes. Une réparation faite par
+doctor peut changer le code réellement chargé sans qu'une session déjà démarrée le sache.
+
+Ce scénario est **déterministe** : le harnais fabrique la présence sur le même bus et dans ses
+propres `HOME` et bus temporaires. Il ne touche pas ta machine.
+
+D'abord la preuve automatisée, qui exerce les cinq variantes :
+
+```bash
+node --test packages/h2a/test/host-installation-doctor.test.js
+```
+
+**Attendu** : `pass` sur tous les tests, et **exit 0**. C'est un test : il sort 0 quand il réussit.
+
+> **Correction de ma deuxième version de cette recette, et c'est la faute la plus grave que j'y ai
+> faite.** J'écrivais ici « attendu : sortie 2 » en pointant un `node --test` — donc mon document
+> déclarait **invalidante la sortie 0 que produit précisément une implémentation correcte**. Pire,
+> une réexécution de test n'est **pas** une observation : elle absorbe le comportement dans son
+> assertion au lieu de te le montrer. La revue indépendante l'a mesuré littéralement.
+
+Puis **l'observation** — c'est celle-ci qui vaut recette, parce que tu lis le comportement toi-même :
+
+```bash
+bash docs/uat/probe-live-session.sh          # fabrique le cas, puis lance $DOCTOR et affiche tout
+```
+
+Le probe imprime, dans cet ordre : le code de sortie, le champ `ok` du rapport JSON, et la liste des
+motifs de redémarrage.
+
+**Attendu, et c'est le point non négociable** : sortie **2**, `ok=false`, et un motif explicite disant
+qu'une **session vivante doit redémarrer**. La réparation du cache ne suffit pas : la session a chargé
+l'ancien code. Tu dois **voir** ces trois valeurs, pas les déduire d'un test vert.
+
+Cette promesse est volontairement bornée :
+
+| variante | ce qu'elle piège |
+|---|---|
+| réparation doctor avec écrasement **en place** | une session qui a démarré avant le marqueur doit redémarrer |
+| `codex plugin add`, réinstallation npm ou autre modification manuelle | hors garantie de doctor : redémarre la session toi-même |
+
+**Ce qui invaliderait** : sortie 0 sur le premier cas. Le second n'est pas une recette de détection
+automatique : prétendre le contraire reviendrait à certifier un graphe de chargement que doctor ne
+peut pas observer complètement.
 
 ---
 
