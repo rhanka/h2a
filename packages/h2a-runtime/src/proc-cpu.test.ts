@@ -4,6 +4,7 @@ import {
   busiestDescendant,
   parseProcStat,
   readProcessTreeCpuMs,
+  readWorkerAttribution,
   readWorkerPid,
   sumTreeCpuMs,
   type ProcEntry,
@@ -16,6 +17,7 @@ function statLine(options: {
   ppid: number;
   utime: number;
   stime: number;
+  startTime?: string;
 }): string {
   const after = [
     "S", // state
@@ -31,6 +33,13 @@ function statLine(options: {
     "0", // cmajflt
     String(options.utime),
     String(options.stime),
+    "0", // cutime
+    "0", // cstime
+    "0", // priority
+    "0", // nice
+    "0", // num_threads
+    "0", // itrealvalue
+    options.startTime ?? "12345",
   ];
   return `${options.pid} (${options.comm}) ${after.join(" ")}\n`;
 }
@@ -40,7 +49,7 @@ describe("parseProcStat", () => {
     const parsed = parseProcStat(
       statLine({ pid: 42, comm: "node", ppid: 7, utime: 30, stime: 20 }),
     );
-    expect(parsed).toEqual({ ppid: 7, cpuMs: 500 });
+    expect(parsed).toEqual({ ppid: 7, cpuMs: 500, startTime: "12345" });
   });
 
   it("survives a comm containing spaces and parentheses", () => {
@@ -49,7 +58,7 @@ describe("parseProcStat", () => {
     const parsed = parseProcStat(
       statLine({ pid: 42, comm: "my app (x)", ppid: 9, utime: 10, stime: 0 }),
     );
-    expect(parsed).toEqual({ ppid: 9, cpuMs: 100 });
+    expect(parsed).toEqual({ ppid: 9, cpuMs: 100, startTime: "12345" });
   });
 
   it("returns undefined on garbage rather than a fake zero", () => {
@@ -60,10 +69,10 @@ describe("parseProcStat", () => {
 
 describe("sumTreeCpuMs", () => {
   const entries: ProcEntry[] = [
-    { pid: 100, ppid: 1, cpuMs: 10 }, // pane's shell
-    { pid: 101, ppid: 100, cpuMs: 200 }, // the agent
-    { pid: 102, ppid: 101, cpuMs: 5 }, // a tool it spawned
-    { pid: 900, ppid: 1, cpuMs: 999 }, // unrelated
+    { pid: 100, ppid: 1, cpuMs: 10, startTime: "100" }, // pane's shell
+    { pid: 101, ppid: 100, cpuMs: 200, startTime: "101" }, // the agent
+    { pid: 102, ppid: 101, cpuMs: 5, startTime: "102" }, // a tool it spawned
+    { pid: 900, ppid: 1, cpuMs: 999, startTime: "900" }, // unrelated
   ];
 
   it("totals the whole tree, because the agent may be a child of the pane shell", () => {
@@ -97,20 +106,20 @@ describe("busiestDescendant", () => {
   });
 
   it("returns the root when it has no children", () => {
-    expect(busiestDescendant(7, [{ pid: 7, ppid: 1, cpuMs: 5 }])).toBe(7);
+    expect(busiestDescendant(7, [{ pid: 7, ppid: 1, cpuMs: 5, startTime: "7" }])).toBe(7);
   });
 
   it("returns undefined for an unknown root", () => {
     expect(
-      busiestDescendant(42, [{ pid: 7, ppid: 1, cpuMs: 5 }]),
+      busiestDescendant(42, [{ pid: 7, ppid: 1, cpuMs: 5, startTime: "7" }]),
     ).toBeUndefined();
   });
 
   it("terminates on a cyclic snapshot", () => {
     expect(
       busiestDescendant(1, [
-        { pid: 1, ppid: 2, cpuMs: 1 },
-        { pid: 2, ppid: 1, cpuMs: 9 },
+        { pid: 1, ppid: 2, cpuMs: 1, startTime: "1" },
+        { pid: 2, ppid: 1, cpuMs: 9, startTime: "2" },
       ]),
     ).toBe(2);
   });
@@ -133,6 +142,39 @@ describe("readWorkerPid", () => {
   });
 });
 
+describe("readWorkerAttribution", () => {
+  it("resolves the busiest worker with its composite identity and caches boot_id", () => {
+    let bootReads = 0;
+    const deps = {
+      listPids: () => [100, 101],
+      readStat: (pid: number) =>
+        statLine({
+          pid,
+          comm: pid === 100 ? "bash" : "codex",
+          ppid: pid === 100 ? 1 : 100,
+          utime: pid === 100 ? 0 : 1_300,
+          stime: 0,
+          startTime: pid === 100 ? "100" : "54321",
+        }),
+      readBootId: () => {
+        bootReads += 1;
+        return "boot-a";
+      },
+    };
+    expect(readWorkerAttribution(100, deps)).toEqual({
+      pid: 101,
+      startTime: "54321",
+      bootId: "boot-a",
+    });
+    expect(readWorkerAttribution(100, deps)).toEqual({
+      pid: 101,
+      startTime: "54321",
+      bootId: "boot-a",
+    });
+    expect(bootReads).toBe(1);
+  });
+});
+
 describe("readProcessTreeCpuMs", () => {
   it("skips processes that exited between listing and reading", () => {
     const result = readProcessTreeCpuMs(100, {
@@ -146,6 +188,7 @@ describe("readProcessTreeCpuMs", () => {
               ppid: pid === 100 ? 1 : 100,
               utime: 10,
               stime: 0,
+              startTime: String(pid),
             }),
     });
     expect(result).toBe(200);
