@@ -1882,6 +1882,7 @@ function repairCodexConfig(
     );
     if (error) throw new Error(error);
     pushUnique(report.changed, path);
+    reportOpaqueTomlRegions(report, path, tables);
   } catch (error) {
     report.unrepaired.push(finding("config-invalid", `cannot write Codex config: ${(error as Error).message}`, path));
   }
@@ -2116,7 +2117,6 @@ function repairCodex(
   try {
     const config = existsSync(codexConfigPath(home)) ? readFileSync(codexConfigPath(home), "utf8") : "";
     const parsed = parseTomlTables(config);
-    if (!parsed.unavailable) reportOpaqueTomlRegions(before, codexConfigPath(home), parsed.tables);
     const canonicalTable = parsed.tables.find(
       (table) => tomlQuotedName(table.header, "marketplaces") === H2A_MARKETPLACE_NAME
     );
