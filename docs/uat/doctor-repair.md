@@ -6,20 +6,35 @@ Cette recette ne demande plus de copier des blocs Bash depuis le Markdown. Le Ma
 qui va arriver et ce qu'il faut lire ; [`uat-doctor.sh`](./uat-doctor.sh) porte les commandes, leur
 ordre, leurs codes de sortie et les assertions de sécurité.
 
-Depuis la racine du checkout de la PR :
+Depuis la racine d'un checkout Git contenant le candidat :
 
 ```bash
 bash docs/uat/uat-doctor.sh
 ```
+
+Pour exercer explicitement un commit, un tag ou une branche locale — notamment dans un clone sans
+remote GitHub — fournis la référence au lieu de la laisser dériver :
+
+```bash
+H2A_UAT_SHA=9004bcdee5b824c4dc41f0a6d2068328f486899b bash docs/uat/uat-doctor.sh
+```
+
+`H2A_UAT_SHA` est prioritaire : dans ce mode, le script ne consulte pas GitHub et n'appelle pas `gh`.
 
 Le script ne déduit jamais `done` de son propre succès. L'owner doit encore lire le scénario 2 et
 répondre aux trois questions de la dernière section.
 
 ## Prérequis
 
-Pour l'exécution normale, le script vérifie avant de créer un arbre temporaire que `node`, `gh`, `git`,
-`tar` et `npm` sont disponibles. Il nomme explicitement le prérequis manquant au lieu de lancer une
-extraction partielle. Les injections réservées aux tests n'ont besoin que de `node`.
+La recette normale exige un **checkout Git** : le répertoire `.git` et l'objet candidat doivent être
+présents, car le script le copie avec `git archive`. Avant de créer un arbre temporaire, le script vérifie
+`node`, `git`, `tar` et `npm`.
+
+Sans `H2A_UAT_SHA`, il résout le HEAD de la PR 94 : un remote pointant vers `github.com` et `gh` sont
+alors requis. S'il ne trouve pas ce remote, il imprime son nom, son URL et l'hôte inattendu, puis indique
+`H2A_UAT_SHA` comme issue ; il ne suggère pas une authentification GitHub qui ne résoudrait pas ce cas.
+Avec `H2A_UAT_SHA`, aucun remote GitHub ni `gh` n'est requis, mais le checkout Git reste nécessaire pour
+extraire la référence fournie. Les injections réservées aux tests n'ont besoin que de `node`.
 
 ## Ce que tu valides
 
@@ -80,7 +95,8 @@ opération qui doit être inerte.
 
 Le `h2a` global n'est jamais le candidat. Le script :
 
-1. demande à GitHub le `headRefOid` courant de la PR 94 ;
+1. prend `H2A_UAT_SHA` s'il est fourni ; sinon, demande à GitHub le `headRefOid` courant de la PR 94
+   après avoir trouvé un remote `github.com` ;
 2. crée un extrait jetable de ce SHA avec `git archive` ;
 3. exécute `npm ci`, puis `npm run build` dans cet extrait ;
 4. épingle chaque scénario sur `node <extrait>/packages/h2a/dist/bin.js` ;
