@@ -13,17 +13,35 @@
 
 import { isCliProfile, resolveProfile, resumeArgsFor } from "./profiles.js";
 
+export type ResumeLaunch = {
+  command: string;
+  args: string[];
+  display: string;
+};
+
+/** Structured argv for resuming a conversation, safe to hand to a new tmux session. */
+export function resumeLaunchFor(
+  profile: string,
+  convId: string,
+): ResumeLaunch | undefined {
+  if (!isCliProfile(profile)) return undefined;
+  const cfg = resolveProfile(profile);
+  const args = resumeArgsFor(cfg, convId);
+  if (args.length === 0) return undefined;
+  return {
+    command: cfg.command,
+    args,
+    display: [cfg.command, ...args].join(" "),
+  };
+}
+
 /** The shell command that resumes `convId` for `profile`, or undefined if the */
 /** profile has no resume form (e.g. shell). */
 export function resumeCommandFor(
   profile: string,
   convId: string,
 ): string | undefined {
-  if (!isCliProfile(profile)) return undefined;
-  const cfg = resolveProfile(profile);
-  const args = resumeArgsFor(cfg, convId);
-  if (args.length === 0) return undefined;
-  return [cfg.command, ...args].join(" ");
+  return resumeLaunchFor(profile, convId)?.display;
 }
 
 export type RelaunchCandidate = {
@@ -36,6 +54,8 @@ export type RelaunchCandidate = {
   idle: boolean;
   /** this session's own conversation id, from the registry */
   convId?: string;
+  /** why its registry row cannot safely produce a resume conversation */
+  unresumableReason?: string;
 };
 
 export type RelaunchAction = {
@@ -45,6 +65,9 @@ export type RelaunchAction = {
   convId: string;
   /** the command to run in the session (e.g. `claude --resume <id>`) */
   cmd: string;
+  /** structured launch command, never execute `cmd` as a shell string */
+  command: string;
+  args: string[];
 };
 
 export type RelaunchSkip = { slug: string; reason: string };
@@ -53,6 +76,19 @@ export type RelaunchPlan = {
   actions: RelaunchAction[];
   skipped: RelaunchSkip[];
 };
+
+export type PlanRelaunchOptions = {
+  /** A forced restart may replace a CLI that is still running. */
+  force?: boolean;
+  /** Bulk operations must leave human-facing agent CLIs alone unless opted in. */
+  excludeInteractiveAgents?: boolean;
+};
+
+export function isInteractiveAgentProfile(profile: string): boolean {
+  return ["claude", "claude-code", "codex", "agy", "antigravity"].includes(
+    profile,
+  );
+}
 
 /**
  * Decide what to relaunch. Pure: takes fully-resolved candidates (idle flag +
@@ -64,6 +100,7 @@ export type RelaunchPlan = {
  */
 export function planRelaunch(
   candidates: ReadonlyArray<RelaunchCandidate>,
+  options: PlanRelaunchOptions = {},
 ): RelaunchPlan {
   const actions: RelaunchAction[] = [];
   const skipped: RelaunchSkip[] = [];
@@ -85,14 +122,23 @@ export function planRelaunch(
       });
       continue;
     }
-    if (!c.idle) {
+    if (options.excludeInteractiveAgents && isInteractiveAgentProfile(c.profile)) {
+      skipped.push({
+        slug: c.slug,
+        reason: `interactive agent CLI (${c.profile}) excluded by default; pass --include-agents`,
+      });
+      continue;
+    }
+    if (!options.force && !c.idle) {
       skipped.push({ slug: c.slug, reason: "CLI is running — left alone" });
       continue;
     }
     if (!c.convId) {
       skipped.push({
         slug: c.slug,
-        reason: "no convId in the registry — relaunch manually",
+        reason:
+          c.unresumableReason ??
+          "no convId in the registry — relaunch manually",
       });
       continue;
     }
@@ -104,8 +150,8 @@ export function planRelaunch(
       });
       continue;
     }
-    const cmd = resumeCommandFor(c.profile, c.convId);
-    if (!cmd) {
+    const launch = resumeLaunchFor(c.profile, c.convId);
+    if (!launch) {
       skipped.push({
         slug: c.slug,
         reason: `profile "${c.profile}" has no resume form`,
@@ -118,7 +164,9 @@ export function planRelaunch(
       name: c.name,
       profile: c.profile,
       convId: c.convId,
-      cmd,
+      cmd: launch.display,
+      command: launch.command,
+      args: launch.args,
     });
   }
   return { actions, skipped };

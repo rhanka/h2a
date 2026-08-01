@@ -83,8 +83,6 @@
   "outbox put",
   "outbox read",
   "register",
-  "report-ai",
-  "report-ai install-track-config",
   "report-context",
   "sessions",
   "status",

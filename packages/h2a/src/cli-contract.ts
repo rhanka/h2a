@@ -126,25 +126,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: ["workspace-root"],
     optionalFlags: ["root"],
     description:
-      "Emit the read-only, workspace-scoped and capped legacy context projection for an explicitly invoked report-ai adapter; Track's normal report command never consumes it."
-  },
-  {
-    verb: "report-ai",
-    outputShape: "resource",
-    exitCodes: [0, 1],
-    requiredFlags: ["model", "effort", "gateway"],
-    optionalFlags: [],
-    description:
-      "Read a Track AI context envelope on stdin and make one no-tools Messages request to the required local gateway."
-  },
-  {
-    verb: "report-ai install-track-config",
-    outputShape: "action",
-    exitCodes: [0, 2, 3],
-    requiredFlags: [],
-    optionalFlags: ["force"],
-    description:
-      "Atomically install the first-party Track report adapter argv in the user XDG config, preserving differing config unless --force."
+      "Emit the read-only, workspace-scoped and capped legacy h2a context projection; Track's normal report command never consumes it."
   },
 
   // --- setup / registry ---
