@@ -900,6 +900,30 @@ test("doctor repairs a framed legacy table while preserving and naming an opaque
   }
 });
 
+test("doctor fails closed for an opaque Codex MCP array that the host rejects", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  try {
+    writeFileSync(codexPath, `${readFileSync(codexPath, "utf8").trimEnd()}\n\n[[mcp_servers.h2a]]\ncommand = "h2a"\n`);
+    const report = doctorHostInstallations({ home, version });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
+    assert.ok(
+      codex?.failures.some((entry) => entry.code === "config-invalid" && entry.message.includes("mcp_servers.h2a")),
+      JSON.stringify(codex, null, 2)
+    );
+    assert.equal(
+      codex?.preserved.some((entry) => entry.code === "config-preserved" && entry.message.includes("mcp_servers.h2a")),
+      false,
+      JSON.stringify(codex, null, 2)
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor byte-splices only framed legacy tables around opaque Codex TOML regions", () => {
   const cases = [
     {
@@ -1252,6 +1276,44 @@ test("doctor does not mark opaque Codex arrays preserved when a failed native re
     assert.deepEqual(codex?.preserved, [], JSON.stringify(codex, null, 2));
     assert.ok(codex?.failures.some((entry) => entry.code === "host-command-failed"), JSON.stringify(codex, null, 2));
     assert.equal(calls.filter((call) => call[0] === "codex").length, 1, JSON.stringify(calls));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor names opaque Codex arrays preserved after a native configuration rewrite", () => {
+  const { home } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const opaqueRegion = "[[skills.config]]\npath = \"keep.md\"\n";
+  const calls = [];
+  try {
+    writeFileSync(codexPath, `${readFileSync(codexPath, "utf8").trimEnd()}\n\n${opaqueRegion}`);
+    const report = doctorHostInstallations({
+      home,
+      version: VERSION,
+      repair: true,
+      runHostCommand: (command, args) => {
+        calls.push([command, ...args]);
+        if (command === "codex") {
+          if (args.join(" ") === "plugin marketplace upgrade") {
+            writeFileSync(codexPath, `${readFileSync(codexPath, "utf8")}# native rewrite retained the opaque region\n`);
+          }
+          currentPlugin(join(home, ".codex", "plugins", "cache", "sentropic", "h2a", VERSION));
+          currentMarketplace(join(home, ".codex", ".tmp", "marketplaces", "sentropic"));
+          return { ok: true };
+        }
+        return repairRunner(home, calls, VERSION)(command, args);
+      }
+    });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, true, JSON.stringify(codex, null, 2));
+    assert.ok(calls.some((call) => call.join(" ") === "codex plugin marketplace upgrade"), JSON.stringify(calls));
+    assert.ok(
+      codex?.preserved.some((entry) => entry.code === "config-preserved" && entry.message.includes("[[skills.config]]")),
+      JSON.stringify(codex, null, 2)
+    );
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -1625,7 +1687,12 @@ test("doctor leaves host configuration byte-identical when atomic rename fails",
     for (const path of fixture.paths) assert.equal(readFileSync(path, "utf8"), fixture.original.get(path), path);
     for (const path of fixture.paths) {
       assert.ok(
-        report.hosts.flatMap((host) => host.unrepaired).some((entry) => entry.path === path && /injected rename failure/.test(entry.message)),
+        report.hosts.flatMap((host) => host.failures).some((entry) => entry.path === path && /injected rename failure/.test(entry.message)),
+        JSON.stringify(report, null, 2)
+      );
+      assert.equal(
+        report.hosts.flatMap((host) => host.unverifiable).some((entry) => entry.path === path && /injected rename failure/.test(entry.message)),
+        false,
         JSON.stringify(report, null, 2)
       );
     }
@@ -2417,6 +2484,15 @@ test("doctor fails closed when an existing Codex repair marker cannot be read", 
       codex?.findings.some((entry) => entry.code === "repair-marker-unavailable" && entry.path === markerPath),
       JSON.stringify(report, null, 2)
     );
+    assert.ok(
+      codex?.unverifiable.some((entry) => entry.code === "repair-marker-unavailable" && entry.path === markerPath),
+      JSON.stringify(codex, null, 2)
+    );
+    assert.equal(
+      codex?.failures.some((entry) => entry.code === "repair-marker-unavailable" && entry.path === markerPath),
+      false,
+      JSON.stringify(codex, null, 2)
+    );
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -2456,9 +2532,13 @@ test("doctor fails closed when a Codex repair marker cannot be written", () => {
     assert.equal(codex?.ok, false);
     assert.ok(
       codex?.unrepaired.some((entry) =>
-        entry.code === "repair-marker-unavailable" && /cannot write host repair marker/.test(entry.message)
+        entry.code === "repair-marker-write-failed" && /cannot write host repair marker/.test(entry.message)
       ),
       JSON.stringify(report, null, 2)
+    );
+    assert.ok(
+      codex?.failures.some((entry) => entry.code === "repair-marker-write-failed"),
+      JSON.stringify(codex, null, 2)
     );
   } finally {
     rmSync(home, { recursive: true, force: true });
@@ -2624,7 +2704,7 @@ test("doctor fails closed when a post-write repair marker re-read is invalid", (
     assert.equal(codex?.repairMarker, undefined);
     assert.ok(
       codex?.unrepaired.some((entry) =>
-        entry.code === "repair-marker-unavailable" && /cannot write host repair marker/.test(entry.message)
+        entry.code === "repair-marker-write-failed" && /cannot write host repair marker/.test(entry.message)
       ),
       JSON.stringify(report, null, 2)
     );
