@@ -12,14 +12,15 @@ Depuis la racine d'un checkout Git contenant le candidat :
 bash docs/uat/uat-doctor.sh
 ```
 
-Pour exercer explicitement un commit, un tag ou une branche locale — notamment dans un clone sans
-remote GitHub — fournis la référence au lieu de la laisser dériver :
+Pour exercer explicitement un commit, un tag ou une branche locale — par exemple la référence de
+release que tu veux qualifier — fournis-la :
 
 ```bash
-H2A_UAT_SHA=9004bcdee5b824c4dc41f0a6d2068328f486899b bash docs/uat/uat-doctor.sh
+H2A_UAT_SHA=origin/main bash docs/uat/uat-doctor.sh
 ```
 
-`H2A_UAT_SHA` est prioritaire : dans ce mode, le script ne consulte pas GitHub et n'appelle pas `gh`.
+`H2A_UAT_SHA` est prioritaire. Pour valider une release, récupère d'abord son tag dans ce checkout,
+puis donne ce tag au script : `H2A_UAT_SHA=<tag-de-release> bash docs/uat/uat-doctor.sh`.
 
 Le script ne déduit jamais `done` de son propre succès. L'owner doit encore lire le scénario 2 et
 répondre aux trois questions de la dernière section.
@@ -28,13 +29,10 @@ répondre aux trois questions de la dernière section.
 
 La recette normale exige un **checkout Git** : le répertoire `.git` et l'objet candidat doivent être
 présents, car le script le copie avec `git archive`. Avant de créer un arbre temporaire, le script vérifie
-`node`, `git`, `tar` et `npm`.
-
-Sans `H2A_UAT_SHA`, il résout le HEAD de la PR 94 : un remote pointant vers `github.com` et `gh` sont
-alors requis. S'il ne trouve pas ce remote, il imprime son nom, son URL et l'hôte inattendu, puis indique
-`H2A_UAT_SHA` comme issue ; il ne suggère pas une authentification GitHub qui ne résoudrait pas ce cas.
-Avec `H2A_UAT_SHA`, aucun remote GitHub ni `gh` n'est requis, mais le checkout Git reste nécessaire pour
-extraire la référence fournie. Les injections réservées aux tests n'ont besoin que de `node`.
+`node`, `git`, `tar` et `npm`. Aucun remote GitHub ni `gh` n'est requis : sans `H2A_UAT_SHA`, le candidat
+est exactement `HEAD` du checkout qui contient le script. Avec `H2A_UAT_SHA`, le checkout Git reste
+nécessaire pour résoudre et extraire la référence fournie. Les injections réservées aux tests n'ont besoin
+que de `node`.
 
 ## Ce que tu valides
 
@@ -103,12 +101,13 @@ opération qui doit être inerte.
 
 Le `h2a` global n'est jamais le candidat. Le script :
 
-1. prend `H2A_UAT_SHA` s'il est fourni ; sinon, demande à GitHub le `headRefOid` courant de la PR 94
-   après avoir trouvé un remote `github.com` ;
-2. crée un extrait jetable de ce SHA avec `git archive` ;
-3. exécute `npm ci`, puis `npm run build` dans cet extrait ;
-4. épingle chaque scénario sur `node <extrait>/packages/h2a/dist/bin.js` ;
-5. supprime l'extrait et l'arbre UAT en sortant, y compris après un échec ou une interruption
+1. prend `H2A_UAT_SHA` s'il est fourni ; sinon, prend `HEAD` du checkout courant ;
+2. résout cette référence en SHA local, puis imprime avant les scénarios son SHA court, la version lue
+   dans `packages/h2a/package.json` et sa provenance ;
+3. crée un extrait jetable de ce SHA avec `git archive` ;
+4. exécute `npm ci`, puis `npm run build` dans cet extrait ;
+5. épingle chaque scénario sur `node <extrait>/packages/h2a/dist/bin.js` ;
+6. supprime l'extrait et l'arbre UAT en sortant, y compris après un échec ou une interruption
    `Ctrl-C`/`SIGINT`/`TERM`.
 
 Il ne construit, ne nettoie et ne supprime rien dans le checkout partagé.
