@@ -12,9 +12,10 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { getTmuxProfileConfig } from "./config.js";
+import { defaultLocalH2aRoot } from "./h2a-bridge.js";
 import {
   mkdtempSync,
   readFileSync,
@@ -1387,9 +1388,64 @@ function unsetSessionOption(session: string, option: string): boolean {
   ).status === 0;
 }
 
+/** Directory under the h2a root where the bar writer publishes per-session text. */
+export const STATUS_BAR_DIR = "status-bar";
+
+/**
+ * Lock file the bar writer holds inside the status-bar directory. The writer
+ * side of this contract lives in @sentropic/h2a (status-bar-writer.ts); the
+ * name is duplicated there because the CLI is a peer, not an import.
+ */
+const STATUS_BAR_WRITER_LOCK = "writer.lock";
+const STATUS_BAR_WRITER_STALE_MS = 60_000;
+
+function h2aRootForStatusBar(root?: string): string {
+  return root ?? process.env.H2A_ROOT ?? defaultLocalH2aRoot();
+}
+
+/** Directory holding the writer lease and every per-session bar file. */
+export function statusBarRoot(root?: string): string {
+  return join(h2aRootForStatusBar(root), STATUS_BAR_DIR);
+}
+
+/**
+ * Filesystem-safe, collision-free per-session bar file pair. The sanitized
+ * name keeps files greppable; the hash keeps two sessions whose names differ
+ * only by an unsafe character from sharing a file.
+ */
+export function statusBarFilesForSession(
+  session: string,
+  root?: string,
+): { readonly left: string; readonly right: string } {
+  const safe = session.replace(/[^A-Za-z0-9_.-]/g, "_");
+  const hash = createHash("sha256").update(session).digest("hex").slice(0, 8);
+  const base = join(statusBarRoot(root), `${safe}-${hash}`);
+  return { left: `${base}.left`, right: `${base}.right` };
+}
+
+/**
+ * Embed a path in a status option: single-quoted for the /bin/sh that runs
+ * #() commands, with tmux format (#) and strftime (%) expansion escaped. The
+ * escape only matters for exotic H2A_ROOT values — session file names are
+ * sanitized to characters both layers pass through verbatim.
+ */
+function statusOptionPath(path: string): string {
+  return shellSingleQuote(path).replace(/#/g, "##").replace(/%/g, "%%");
+}
+
+/**
+ * The 2026-07-31 spawn-storm rule: tmux re-runs every #(...) here once per
+ * status-interval for EVERY installed session, so nothing in these options may
+ * start a process heavier than a file read. The bar text is produced by the
+ * single background writer (h2a status --write-bars); when the writer or its
+ * file is absent the bar falls back to a static placeholder and spawns
+ * nothing heavier than the same cat.
+ */
 export function h2aStatusSurfaceOptions(
   _previousRight = "%H:%M",
+  session = "",
 ): ReadonlyArray<readonly [string, string]> {
+  const files = statusBarFilesForSession(session);
   return [
     ["status", "on"],
     ["status-interval", "5"],
@@ -1397,7 +1453,7 @@ export function h2aStatusSurfaceOptions(
     ["status-right-length", "200"],
     [
       "status-left",
-      "[h2a] #(h2a status --bar --segment workload --tmux-session #{q:session_name} --owner-instance #{q:@h2a_owner_instance}) ",
+      `[h2a] #(cat ${statusOptionPath(files.left)} 2>/dev/null || echo 'h2a ?') `,
     ],
     [
       "status-right",
@@ -1405,7 +1461,7 @@ export function h2aStatusSurfaceOptions(
       // embed it in the active bar: tmux formats can expand pane/session
       // titles supplied by a host and bypass the status renderer's cap and
       // control/bidi stripping. The fixed clock is bounded, trusted text.
-      "#(h2a status --bar --segment gateway --tmux-session #{q:session_name} --width #{client_width})  %H:%M",
+      `#(cat ${statusOptionPath(files.right)} 2>/dev/null || echo 'gw ?')  %H:%M`,
     ],
   ];
 }
@@ -1508,7 +1564,7 @@ export function installH2aStatusSurfaceWithAccess(
   const previousRight = access.read(session, H2A_STATUS_PREVIOUS_RIGHT);
   if (previousRight === undefined) return false;
   let applied = true;
-  for (const [option, value] of h2aStatusSurfaceOptions(previousRight)) {
+  for (const [option, value] of h2aStatusSurfaceOptions(previousRight, session)) {
     applied = access.set(session, option, value) && applied;
   }
   applied = access.set(session, H2A_STATUS_INSTALLED_OPTION, "v1") && applied;
@@ -1520,11 +1576,107 @@ export function installH2aStatusSurfaceWithAccess(
   return false;
 }
 
+function statusBarWriterAlive(dir: string): boolean {
+  try {
+    const lockPath = join(dir, STATUS_BAR_WRITER_LOCK);
+    if (Date.now() - statSync(lockPath).mtimeMs > STATUS_BAR_WRITER_STALE_MS) {
+      return false;
+    }
+    const holder = JSON.parse(readFileSync(lockPath, "utf8")) as {
+      pid?: number;
+    };
+    if (typeof holder.pid !== "number") return false;
+    process.kill(holder.pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Start the single background bar writer when none is alive. Idempotent and
+ * fail-safe: the spawned writer exits immediately if another one holds the
+ * lease, and when no writer can start at all the installed bar shows its
+ * static placeholders instead of ever spawning per refresh.
+ */
+export function ensureStatusBarWriter(root?: string): void {
+  const resolvedRoot = h2aRootForStatusBar(root);
+  try {
+    if (statusBarWriterAlive(statusBarRoot(resolvedRoot))) return;
+    const child = spawn(
+      "h2a",
+      ["status", "--write-bars", "--root", resolvedRoot],
+      { detached: true, stdio: "ignore" },
+    );
+    child.on("error", () => {});
+    child.unref();
+  } catch {
+    // Fail safe: without a writer the bar keeps its static placeholders.
+  }
+}
+
+export interface StatusBarTarget {
+  readonly session: string;
+  readonly ownerInstance?: string;
+  readonly clientWidth?: number;
+}
+
+/**
+ * Managed sessions whose installed surface expects bar files. One bounded
+ * tmux call for sessions plus one for client widths, regardless of session
+ * count — the writer must never pay a per-session subprocess per tick.
+ */
+export function listStatusBarTargets(): StatusBarTarget[] {
+  const sessions = spawnSync(
+    TMUX,
+    [
+      "list-sessions",
+      "-F",
+      `#{session_name}\t#{${H2A_STATUS_INSTALLED_OPTION}}\t#{@h2a_owner_instance}`,
+    ],
+    { encoding: "utf8" },
+  );
+  if (sessions.status !== 0 || !sessions.stdout) return [];
+  const widths = new Map<string, number>();
+  const clients = spawnSync(
+    TMUX,
+    ["list-clients", "-F", "#{client_session}\t#{client_width}"],
+    { encoding: "utf8" },
+  );
+  if (clients.status === 0 && clients.stdout) {
+    for (const line of clients.stdout.split("\n")) {
+      const [session, width] = line.split("\t");
+      const value = Number(width);
+      if (session && Number.isFinite(value) && value > 0) {
+        widths.set(session, Math.max(widths.get(session) ?? 0, value));
+      }
+    }
+  }
+  const targets: StatusBarTarget[] = [];
+  for (const line of sessions.stdout.split("\n")) {
+    if (!line) continue;
+    const [name, marker, owner] = line.split("\t");
+    if (!name || marker !== "v1" || !parseManagedSessionName(name)) continue;
+    const width = widths.get(name);
+    targets.push({
+      session: name,
+      ...(owner ? { ownerInstance: owner } : {}),
+      ...(width ? { clientWidth: width } : {}),
+    });
+  }
+  return targets;
+}
+
 /** Install the composable 5-second status projection on one exact session. */
 export function installH2aStatusSurface(session: string): boolean {
   if (!parseManagedSessionName(session)) return false;
   if (!listLocalSessions().some((item) => item.name === session)) return false;
-  return installH2aStatusSurfaceWithAccess(session, TMUX_STATUS_OPTION_ACCESS);
+  const installed = installH2aStatusSurfaceWithAccess(
+    session,
+    TMUX_STATUS_OPTION_ACCESS,
+  );
+  if (installed) ensureStatusBarWriter();
+  return installed;
 }
 
 /** Restore every user option captured on first install. */
