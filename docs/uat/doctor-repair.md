@@ -30,19 +30,23 @@ il commence par une sauvegarde.
 > `spawnSync`, qui **hérite de tout ton environnement**. Si l'une de ces variables est définie dans ton
 > shell, elle gagne sur le `HOME` jetable.
 >
-> Les commandes ci-dessous les **épinglent** donc explicitement dans l'arbre jetable, et le probe
-> **refuse de démarrer** si l'une d'elles pointe ailleurs. Vérifie-le toi-même avant de lancer quoi que
-> ce soit : `echo "$CODEX_HOME" "$CLAUDE_CONFIG_DIR"`.
+> **Ces racines ne sont donc JAMAIS exportées dans ton shell.** Chaque scénario qui en a besoin les
+> pose **en préfixe de ses propres commandes**. C'est la correction la plus importante de cette
+> recette : une exécution à froid a mesuré qu'un `export` global les faisait fuir dans tout l'aval —
+> la suite automatisée tombait à **16 pass / 47 fail** au lieu de 63, et les deux sondes refusaient
+> de démarrer parce qu'elles voyaient une racine hors de leur arbre jetable. Le produit allait bien ;
+> c'était ma recette qui cassait tout ce qui la suivait.
+>
+Vérifie d'abord que ton shell n'en porte aucune. Si l'une des deux imprime autre chose que des
+crochets vides, `unset`-la avant de continuer :
 
 ```bash
-cd /home/antoinefa/src/h2a
+echo "CODEX_HOME=[${CODEX_HOME-}] CLAUDE_CONFIG_DIR=[${CLAUDE_CONFIG_DIR-}]"
 export UAT=$(mktemp -d /home/antoinefa/.cache-tmp/uat-doctor-XXXX)
-# MEMORISER tes valeurs avant de les remplacer : les oublier ferait viser les racines par
-# defaut au scenario 3, qui ne sont PAS ton installation si tu utilises ces variables.
-export UAT_ORIG_CODEX_HOME="${CODEX_HOME-__unset__}" UAT_ORIG_CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR-__unset__}"
-# epingler les racines hote DANS l arbre jetable : un HOME jetable ne suffit pas
-export CODEX_HOME="$UAT/h1/.codex" CLAUDE_CONFIG_DIR="$UAT/h1/.claude"
 ```
+
+Rien d'autre. Pas de `cd` vers le dépôt partagé — d'autres agents y construisent, et une exécution à
+froid a montré que ce `cd` faisait lancer `npm ci` et `npm run build` **dans le checkout partagé**.
 
 ## Épingler le candidat — sinon tu testes autre chose que cette PR
 
@@ -51,11 +55,19 @@ export CODEX_HOME="$UAT/h1/.codex" CLAUDE_CONFIG_DIR="$UAT/h1/.claude"
 celle que tu es en train de valider.
 
 ```bash
-git rev-parse --short HEAD          # note-le : c'est le candidat que tu recettes
-npm ci                              # OBLIGATOIRE : sur une archive vraiment propre, build echoue sans lui
-npm run build                       # PAS build:h2a : sur une extraction propre il sort 2, @sentropic/track manquant
-export DOCTOR="node $PWD/packages/h2a/dist/bin.js"
-[ -f packages/h2a/dist/bin.js ] || { echo "build echoue : rien de ce qui suit n'a de valeur"; }
+# Un extrait JETABLE du candidat. Ne recette pas depuis le depot partage : d'autres agents y
+# construisent, et supprimer leur dist casse leurs mesures.
+export CANDIDAT=473dac89                       # remplace par le SHA que tu recettes
+export SRC=$(mktemp -d /home/antoinefa/.cache-tmp/uat-src-XXXX)
+git -C /home/antoinefa/src/h2a archive --format=tar "$CANDIDAT" | tar -xf - -C "$SRC"
+cd "$SRC"
+echo "candidat recette : $CANDIDAT"          # `git rev-parse` NE MARCHE PAS ici : un extrait
+                                              # n'est pas un depot git. Une execution a froid a
+                                              # bute exactement la-dessus.
+npm ci                                        # OBLIGATOIRE : sans lui le build echoue
+npm run build                                 # PAS build:h2a : il sort 2, @sentropic/track manquant
+export DOCTOR="node $SRC/packages/h2a/dist/bin.js"
+[ -f "$SRC/packages/h2a/dist/bin.js" ] || echo "BUILD ECHOUE : rien de ce qui suit n'a de valeur"
 ```
 
 **Toutes les commandes ci-dessous utilisent `$DOCTOR`, jamais `h2a`.** Si `$DOCTOR` n'existe pas, le
@@ -215,41 +227,32 @@ configuration quotidienne au-delà de cette PR. Constate, et décide séparémen
 
 
 
-> **⚠️ CE SCÉNARIO EST INVALIDE SI TU UTILISES DES RACINES PERSONNALISÉES, et c'est un défaut du
-> PRODUIT, pas de cette recette.** Mesuré le 2026-07-30 : `CODEX_HOME` et `CLAUDE_CONFIG_DIR`
-> apparaissent **0 fois** dans `packages/h2a/src`. Doctor **lit** toujours `$HOME/.codex`, alors que
-> ses commandes natives, elles, honorent `CODEX_HOME`. Preuve avec un marqueur distinct par racine :
-> doctor rapporte `plugin-stale` sur l'entrée de `$HOME/.codex` et reste **aveugle** à celle de
-> `$CODEX_HOME`. **Il diagnostique une racine et répare l'autre.** Aucune gymnastique de shell ne
-> peut corriger ça depuis une recette — donc ce scénario refuse de tourner plutôt que de te donner
-> un résultat sur une installation que tu n'utilises pas.
+> **UN AVERTISSEMENT QUE JE RETIRE, parce qu'il est devenu FAUX.** Les versions précédentes de cette
+> recette refusaient de lancer ce scénario si tu utilisais `CODEX_HOME` ou `CLAUDE_CONFIG_DIR` : à
+> l'époque doctor lisait toujours `$HOME/.codex` alors que ses commandes natives honoraient
+> `CODEX_HOME` — il diagnostiquait une racine et réparait l'autre.
 >
-> Trois versions successives de cette recette ont tenté de compenser (épingler, puis `unset`, puis
-> restaurer). Les trois avaient tort : ce n'était pas à la recette de le résoudre.
+> **Ce défaut est corrigé.** Sur ce SHA, doctor honore bien les deux variables ; le scénario 1 le
+> prouve et un test dédié le verrouille. Laisser l'avertissement t'aurait fait croire à un défaut qui
+> n'existe plus — et t'aurait privé du scénario 3 sans raison.
+>
+> Je le note parce que c'est l'inverse de la faute habituelle : ici la recette **sur-avertissait**.
 
 ```bash
-# restaurer exactement ce que tu avais, y compris l'absence de variable
-[ "${UAT_ORIG_CODEX_HOME:-__unset__}" = "__unset__" ] && unset CODEX_HOME || export CODEX_HOME="$UAT_ORIG_CODEX_HOME"
-[ "${UAT_ORIG_CLAUDE_CONFIG_DIR:-__unset__}" = "__unset__" ] && unset CLAUDE_CONFIG_DIR || export CLAUDE_CONFIG_DIR="$UAT_ORIG_CLAUDE_CONFIG_DIR"
-# ECHOUER FERME : le produit ne partage pas le contrat de racine des CLI natives.
-if [ -n "${CODEX_HOME-}" ] || [ -n "${CLAUDE_CONFIG_DIR-}" ]; then
-  echo "SCENARIO 3 REFUSE : tu utilises CODEX_HOME='${CODEX_HOME-}' CLAUDE_CONFIG_DIR='${CLAUDE_CONFIG_DIR-}'."
-  echo "Doctor lirait \$HOME/.codex, pas ta racine. Le resultat porterait sur une autre installation."
-  echo "Note-le comme NON RECETTE et exige le correctif produit (partager le contrat, ou refuser)."
-else
-  # TOUT le scenario vit DANS cette branche : un simple message de refus serait fail-open,
-  # exactement le defaut que ce refus existe pour eviter. La structure refuse, pas la prose.
-  CODEX_ROOT="$HOME/.codex"
-  CLAUDE_ROOT="$HOME/.claude"
-  STAMP=$(date +%Y%m%d-%H%M)
-  cp -p "$CODEX_ROOT/config.toml" "$CODEX_ROOT/config.toml.bak.uat-$STAMP"
-  cp -p "$CLAUDE_ROOT/plugins/known_marketplaces.json" "$CLAUDE_ROOT/plugins/known_marketplaces.json.bak.uat-$STAMP" 2>/dev/null
+CODEX_ROOT="${CODEX_HOME:-$HOME/.codex}"
+CLAUDE_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+STAMP=$(date +%Y%m%d-%H%M)
+echo "racines inspectees : $CODEX_ROOT  |  $CLAUDE_ROOT"
+cp -p "$CODEX_ROOT/config.toml" "$CODEX_ROOT/config.toml.bak.uat-$STAMP"
+cp -p "$CLAUDE_ROOT/plugins/known_marketplaces.json" "$CLAUDE_ROOT/plugins/known_marketplaces.json.bak.uat-$STAMP" 2>/dev/null
 
-  mkdir -p "$UAT/h3"
-  $DOCTOR init --root "$UAT/h3/bus"
-  $DOCTOR doctor --root "$UAT/h3/bus" --repair --dry-run  # inspecte l'installation, ne modifie RIEN
-fi
+mkdir -p "$UAT/h3"
+$DOCTOR init --root "$UAT/h3/bus"
+$DOCTOR doctor --root "$UAT/h3/bus" --repair --dry-run  # inspecte l'installation, ne modifie RIEN
 ```
+
+Les deux sauvegardes portent l'horodatage ; elles sont byte-identiques à tes fichiers actuels et tu
+peux les supprimer quand tu as fini.
 
 Lis le rapport. Il doit décrire ton état réel : une seule marketplace `sentropic` par hôte,
 `h2a@sentropic` à la version npm, un seul endpoint MCP `h2a`, aucun `track-mcp` autonome — et
