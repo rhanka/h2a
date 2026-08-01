@@ -8,6 +8,20 @@ set -uo pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/../.." && pwd)
 
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "ABANDON : prerequis manquant : $1." >&2
+    exit 1
+  }
+}
+
+require_command node
+if [ -z "${UAT_SOURCE_DIR-}" ] && [ -z "${UAT_DOCTOR_BIN-}" ]; then
+  for required_command in gh git tar npm; do
+    require_command "$required_command"
+  done
+fi
+
 OWNER_HOME=${HOME:?HOME doit etre defini pour identifier les racines owner}
 OWNER_CODEX_VALUE=${CODEX_HOME-}
 OWNER_CLAUDE_VALUE=${CLAUDE_CONFIG_DIR-}
@@ -40,6 +54,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+on_signal() {
+  trap - INT TERM
+  exit 130
+}
+trap on_signal INT TERM
+
 UAT=$(mktemp -d "$TMP_PARENT/uat-doctor-XXXXXX") || {
   echo "ABANDON : mktemp a echoue pour la racine UAT." >&2
   exit 1
@@ -54,6 +74,7 @@ fingerprint_paths() {
 const { createHash } = require("node:crypto");
 const { lstatSync, readFileSync, readdirSync, readlinkSync } = require("node:fs");
 const { join } = require("node:path");
+const MAX_INLINE_FILE_BYTES = 8 * 1024 * 1024;
 
 for (const root of process.argv.slice(2)) {
   const hash = createHash("sha256");
@@ -82,7 +103,11 @@ for (const root of process.argv.slice(2)) {
     if (stat.isSymbolicLink()) {
       hash.update(readlinkSync(absolute) + "\0");
     } else if (stat.isFile()) {
-      hash.update(readFileSync(absolute));
+      if (stat.size <= BigInt(MAX_INLINE_FILE_BYTES)) {
+        hash.update(readFileSync(absolute));
+      } else {
+        hash.update("content-bounded-to-metadata\0");
+      }
     } else if (stat.isDirectory()) {
       for (const entry of readdirSync(absolute).sort()) {
         visit(join(absolute, entry), relative === "." ? entry : `${relative}/${entry}`);
