@@ -1,356 +1,207 @@
 # UAT — `h2a doctor --repair` (item 01KYR04KZ4AE41QBA9HZBMRMNY)
 
-**Pour l'owner. Lisible à froid, ~5 minutes.** Ce document existe parce que l'item ne peut
-pas passer `done` sans ta recette, et qu'une recette qu'on ne peut pas lancer en cinq minutes
-ne se fait jamais.
+**Pour l'owner. Lisible à froid, exécutable en une commande.**
 
-**Ce que tu valides** : qu'une installation d'hôte incohérente se répare **sans intervention
-manuelle**, et qu'elle ne se déclare **jamais** propre quand elle ne l'est pas.
+Cette recette ne demande plus de copier des blocs Bash depuis le Markdown. Le Markdown explique ce
+qui va arriver et ce qu'il faut lire ; [`uat-doctor.sh`](./uat-doctor.sh) porte les commandes, leur
+ordre, leurs codes de sortie et les assertions de sécurité.
 
-**Ce que tu ne valides pas ici** : la parité d'exécution des hôtes. La porte requise n'exécute
-pas la suite runtime (73 fichiers `.test.ts` hors garde), donc une installation vérifiée ne
-prouve pas un comportement vérifié.
+Depuis n'importe quel répertoire du checkout de la PR :
 
-**Limite explicite** : doctor garantit la cohérence des réparations qu'il a lui-même effectuées.
-Il ne détecte pas les changements d'installation faits par un autre outil ; après une modification
-manuelle de ton installation, redémarre tes sessions.
+```bash
+bash docs/uat/uat-doctor.sh
+```
+
+Le script ne déduit jamais `done` de son propre succès. L'owner doit encore lire le scénario 2 et
+répondre aux trois questions de la dernière section.
+
+## Ce que tu valides
+
+Qu'une installation d'hôte incohérente se répare **sans intervention manuelle**, et qu'elle ne se
+déclare **jamais** propre quand elle ne l'est pas.
+
+Tu ne valides pas ici la parité d'exécution des hôtes. La porte requise n'exécute pas toute la suite
+runtime ; une installation vérifiée ne prouve donc pas à elle seule un comportement vérifié.
+
+Doctor garantit la cohérence des réparations qu'il a lui-même effectuées. Il ne détecte pas les
+changements d'installation faits par un autre outil ; après une modification manuelle de ton
+installation, redémarre tes sessions.
 
 **Explicit limit — native command failure**: If a native host CLI fails after it has already changed the installation, doctor reports the failure as host-command-failed and does not undo what that CLI already did. Doctor's own configuration writes are atomic. It has no snapshot of third-party state and does not simulate one: a partial restore would promise a recovery it cannot deliver. After a reported native failure, verify the host installation before relying on it.
 
----
+## Le contrat de sécurité du script
 
-## Sécurité d'abord — et une correction que je te dois
+Le runner de production hérite de l'environnement et les CLIs natives honorent `CODEX_HOME` et
+`CLAUDE_CONFIG_DIR`. Un `HOME` jetable ne suffit donc pas à protéger l'installation de l'owner.
 
-Les scénarios 1 et 2 tournent dans un `HOME` jetable. Seul le scénario 3 lit ta vraie installation, et
-il commence par une sauvegarde.
+Le script traite ces variables comme des **valeurs**, jamais comme une chaîne de préfixe à réévaluer :
 
-> **Ce que j'avais écrit était faux, et une revue indépendante l'a mesuré.** J'affirmais qu'un `HOME`
-> jetable rendait impossible toute lecture ou écriture de ta vraie installation. Il ne suffit pas : les
-> CLIs natifs honorent `CODEX_HOME` et `CLAUDE_CONFIG_DIR`, et le runner de production utilise
-> `spawnSync`, qui **hérite de tout ton environnement**. Si l'une de ces variables est définie dans ton
-> shell, elle gagne sur le `HOME` jetable.
->
-> **Ces racines ne sont donc JAMAIS exportées dans ton shell.** Chaque scénario qui en a besoin les
-> pose **en préfixe de ses propres commandes**. C'est la correction la plus importante de cette
-> recette : une exécution à froid a mesuré qu'un `export` global les faisait fuir dans tout l'aval —
-> la suite automatisée tombait à **16 pass / 47 fail** au lieu de 63, et les deux sondes refusaient
-> de démarrer parce qu'elles voyaient une racine hors de leur arbre jetable. Le produit allait bien ;
-> c'était ma recette qui cassait tout ce qui la suivait.
->
-**Ne les `unset` pas.** Une version précédente de cette recette te le demandait, et une exécution à
-froid a mesuré que c'était pire que le défaut d'origine : en les effaçant, tu perds l'information de
-*quelle installation est la tienne*, et le scénario 3 retombe sur `~/.codex` — donc tu inspecterais
-une installation que tu n'utilises pas. J'avais confondu deux choses distinctes et supprimé les deux :
-l'export global (nuisible) et la **mémorisation** de tes racines (nécessaire au scénario 3).
+- il mémorise les valeurs héritées sans les exporter ailleurs ;
+- il utilise un tableau d'arguments `env`, ce qui préserve les chemins contenant des espaces ;
+- il n'invente pas une variable absente ; dans ce cas seulement, la racine par défaut est utilisée ;
+- il retire explicitement les deux variables avant les probes qui construisent leurs propres racines ;
+- il retire `CODEX_HOME` et `CLAUDE_CONFIG_DIR` du `node --test` du scénario 2, puis lui donne un
+  `HOME` situé sous l'arbre UAT jetable. Les défauts `.codex` et `.claude` restent ainsi jetables sans
+  changer la sémantique « variable absente » que plusieurs tests vérifient.
 
-On les **mémorise** donc, sans jamais les imposer aux scénarios jetables :
+Avant et après **chaque scénario**, le script empreinte :
 
-```bash
-export UAT=$(mktemp -d /home/antoinefa/.cache-tmp/uat-doctor-XXXX)
-# TES racines, telles qu'elles sont. Vides = tu utilises les defauts, c'est le cas courant.
-export MES_CODEX="${CODEX_HOME-}"
-export MES_CLAUDE="${CLAUDE_CONFIG_DIR-}"
-echo "tes racines : CODEX_HOME=[$MES_CODEX] CLAUDE_CONFIG_DIR=[$MES_CLAUDE]"
-```
+- la racine Codex réellement utilisée par l'owner ;
+- la racine Claude réellement utilisée par l'owner ;
+- le fichier natif `~/.claude.json`.
 
-Rien d'autre. Pas de `cd` vers le dépôt partagé — d'autres agents y construisent, et une exécution à
-froid a montré que ce `cd` faisait lancer `npm ci` et `npm run build` **dans le checkout partagé**.
+L'empreinte couvre la topologie, les métadonnées, les liens et le contenu des fichiers. Une différence
+fait échouer la recette : un scénario qui produit le bon rapport en modifiant l'installation réelle
+n'est pas un succès.
 
-## Épingler le candidat — sinon tu testes autre chose que cette PR
+Le scénario 3 est limité au `--dry-run`. Le script ne lance jamais automatiquement une réparation sur
+l'installation owner et ne crée plus de sauvegarde « préventive » dans cette installation pendant une
+opération qui doit être inerte.
 
-`h2a` sur ton `PATH` résout vers le paquet **installé globalement**, pas vers cette branche, et
-`packages/h2a/dist` n'est pas versionné. Sans ces deux lignes, tu recetterais une autre version que
-celle que tu es en train de valider.
+## Le candidat réellement exercé
 
-```bash
-# Un extrait JETABLE du candidat. Ne recette pas depuis le depot partage : d'autres agents y
-# construisent, et supprimer leur dist casse leurs mesures.
-export CANDIDAT=$(gh pr view 94 --json headRefOid --jq .headRefOid)   # le HEAD reel de la PR,
-                                              # plutot qu-un SHA fige qui perime entre deux manches
-export SRC=$(mktemp -d /home/antoinefa/.cache-tmp/uat-src-XXXX)
-git -C /home/antoinefa/src/h2a archive --format=tar "$CANDIDAT" | tar -xf - -C "$SRC"
-cd "$SRC"
-echo "candidat recette : $CANDIDAT"          # `git rev-parse` NE MARCHE PAS ici : un extrait
-                                              # n'est pas un depot git. Une execution a froid a
-                                              # bute exactement la-dessus.
-npm ci                                        # OBLIGATOIRE : sans lui le build echoue
-npm run build                                 # PAS build:h2a : il sort 2, @sentropic/track manquant
-export DOCTOR="node $SRC/packages/h2a/dist/bin.js"
-[ -f "$SRC/packages/h2a/dist/bin.js" ] || echo "BUILD ECHOUE : rien de ce qui suit n'a de valeur"
-```
+Le `h2a` global n'est jamais le candidat. Le script :
 
-**Toutes les commandes ci-dessous utilisent `$DOCTOR`, jamais `h2a`.** Si `$DOCTOR` n'existe pas, le
-build a échoué et rien de ce qui suit n'a de valeur.
+1. demande à GitHub le `headRefOid` courant de la PR 94 ;
+2. crée un extrait jetable de ce SHA avec `git archive` ;
+3. exécute `npm ci`, puis `npm run build` dans cet extrait ;
+4. épingle chaque scénario sur `node <extrait>/packages/h2a/dist/bin.js` ;
+5. supprime l'extrait et l'arbre UAT en sortant, y compris après un échec.
 
----
+Il ne construit, ne nettoie et ne supprime rien dans le checkout partagé.
 
-## L'ordre compte, et il n'est pas numérique
+## L'ordre exécuté : 3, 0, 1, 2
 
-Les scénarios sont **dans l'ordre où il faut les faire**, pas dans l'ordre de leurs numéros. Les numéros
-sont ceux sous lesquels ils ont été écrits ; l'ordre ci-dessous est celui qu'une exécution à froid a
-imposé.
+Les numéros sont historiques ; l'ordre physique est la garantie :
 
-1. **Le scénario 3 d'abord** — il lit **ton installation réelle**, et rien d'autre ne doit l'avoir
-   touchée. Une exécution à froid a mesuré que le placer après une réparation lui faisait inspecter une
-   racine déjà modifiée : *la séquence détruisait sa propre preuve*. Le mettre en premier rend ça
-   impossible **par construction**, au lieu de dépendre d'une manipulation d'environnement correcte.
-2. **Le scénario 0** — l'oracle. Il demande à `codex` ce qu'il sert vraiment, sur des racines jetables.
-   C'est lui qui décide si le produit marche ; les autres décrivent des cas.
-3. **Le scénario 1**, puis **le scénario 2** — les cas reconstitués, entièrement dans des arbres
+1. **Scénario 3** lit l'installation owner avant que le reste de la recette ne puisse influencer la
+   preuve. Il ne fait qu'un dry-run.
+2. **Scénario 0** demande ensuite à Codex ce qu'il sert réellement, entièrement sur des racines
    jetables.
+3. **Scénario 1** reconstitue la marketplace disparue et exerce dry-run puis réparation dans son arbre.
+4. **Scénario 2** exécute le test automatisé isolé, puis montre la session vivante à l'owner.
 
-Le texte annonçait déjà « scénario 0, à faire avant tous les autres » alors qu'il était placé
-troisième. Un document dont l'ordre contredit ses propres instructions se fait lire dans l'ordre où il
-est écrit.
+Le script imprime un titre au début de chaque scénario et le verdict d'empreinte juste après. La suite
+ne démarre pas si un scénario abandonne ou si une racine owner a changé.
 
----
+## Scénario 3 — installation owner, lecture en premier
 
-## Scénario 3 — ta vraie installation, en lecture d'abord
+Le sujet est l'état réellement utilisé par l'owner. Si `CODEX_HOME` ou `CLAUDE_CONFIG_DIR` existe dans
+le shell, cette valeur exacte est transmise, y compris si elle contient des espaces. Si la variable
+n'existe pas, le défaut sous `HOME` est utilisé. Aucune fausse racine `~/.claude` n'est forcée à Claude
+quand sa configuration native se trouve dans `~/.claude.json`.
 
-### Une prédiction, mesurée sur ta machine le 2026-07-30 avant que tu lances quoi que ce soit
+Le script initialise un bus temporaire, puis lance `doctor --repair --dry-run`. Les sorties 0 et 2 sont
+toutes deux interprétables : 0 signifie qu'aucune incohérence bloquante n'est rapportée ; 2 signifie
+que le rapport nomme ce qui reste incohérent. Toute autre sortie invalide la recette.
 
-C'est la forme la plus forte que je puisse te donner : je te dis **d'avance** ce que doctor doit
-nommer, et tu vérifies. S'il ne le nomme pas, la détection ne mord pas sur le cas réel.
+Sur la machine qui a produit ce dossier, l'état mesuré le 30 juillet comportait deux endpoints Claude
+H2A connectés simultanément sur deux bus différents. Le dry-run doit alors nommer
+`h2a-endpoint-count`. Il doit aussi décrire l'état réel des marketplaces, du plugin, de sa version et
+des endpoints, jamais un état fabriqué pour la recette.
 
-Mesuré en interrogeant l'hôte, pas l'outil — `claude mcp list` sur ta configuration :
+Le script **ne répare pas** cet état réel. Retirer une entrée de configuration quotidienne dépasse la
+validation de cette PR et reste une décision owner séparée.
 
-```
-plugin:h2a:h2a: h2a mcp-serve --host claude --wake local-tmux --auto-open --auto-upgrade  ✔ Connected
-h2a:            h2a mcp-serve --auto-open --host claude ... --root /home/antoinefa/src/a2a-cli  ✔ Connected
-```
+## Scénario 0 — l'oracle Codex, après la lecture owner
 
-**Deux endpoints h2a connectés en même temps**, sur deux racines de bus différentes. Le second est
-une déclaration globale dans `/home/antoinefa/.claude.json` (`mcpServers.h2a`) qui pointe encore
-`src/a2a-cli` — l'ancien nom de travail du dépôt. Le chemin existe toujours, donc ce n'est pas un
-pointeur mort : c'est un **second bus**. C'est l'incohérence n°5 de ce dossier, et elle est vivante,
-pas historique.
+Le script lance `probe-oracle.sh` avec les racines hôtes héritées explicitement retirées et avec le
+binaire candidat explicitement fourni.
 
-**Ce que doctor doit dire** : un finding `h2a-endpoint-count` sur l'hôte `claude`, annonçant 2
-endpoints là où un seul est requis.
+Le probe reconstitue le véritable incident : marketplace legacy dont la source a disparu, plugin
+encore actif et cache déclarant l'ancien serveur. Il demande ensuite à **Codex**, pas à doctor :
 
-**Ce qui invaliderait** : `--repair --dry-run` qui ne nomme pas ce doublon. Le code émet bien ce
-finding pour Claude comme pour Codex, et **je l'ai depuis vérifié** sur un binaire citable : fixture ne
-portant que ce défaut → `h2a-endpoint-count : Claude exposes 2 H2A endpoints; exactly one plugin
-endpoint is required.` Vérifié aussi avec `CLAUDE_CONFIG_DIR` posé, où doctor rendait auparavant **zéro
-finding** — un faux-propre, fermé par `0e56ed2a`.
+- quel serveur MCP H2A est réellement servi ;
+- si le sous-système marketplace répond et expose une entrée exploitable.
 
-Quand j'ai écrit ce paragraphe la prédiction était **non vérifiée** et je l'avais dit, parce que mon
-`dist` était alors un mélange de deux états (le point d'entrée de la veille à côté d'un module compilé
-du jour : le piège `tsc` composite, qui sort en succès sans émettre). C'est désormais mesuré, pas prédit.
+Une commande native qui échoue après la réparation, un ancien endpoint encore servi, plusieurs
+endpoints H2A ou une marketplace inutilisable invalident ce scénario. L'auto-rapport de doctor ne peut
+pas être l'oracle de son propre fonctionnement.
 
-**Ne répare pas ce doublon depuis cette recette.** Retirer une entrée de `.claude.json` touche ta
-configuration quotidienne au-delà de cette PR. Constate, et décide séparément.
+Le probe utilise un `HOME` et un `CODEX_HOME` jetables, mais exécute le vrai binaire Codex. Il peut donc
+utiliser le réseau et l'authentification disponibles sur la machine. Cette limite est visible dans sa
+sortie.
 
+## Scénario 1 — la source de marketplace a disparu
 
+Ce scénario est exécuté après le scénario 3 : les éventuels findings Claude aperçus ici ont donc déjà
+été lus dans leur contexte owner, et ne sont pas présentés comme une découverte future.
 
-> **UN AVERTISSEMENT QUE JE RETIRE, parce qu'il est devenu FAUX.** Les versions précédentes de cette
-> recette refusaient de lancer ce scénario si tu utilisais `CODEX_HOME` ou `CLAUDE_CONFIG_DIR` : à
-> l'époque doctor lisait toujours `$HOME/.codex` alors que ses commandes natives honoraient
-> `CODEX_HOME` — il diagnostiquait une racine et réparait l'autre.
->
-> **Ce défaut est corrigé.** Sur ce SHA, doctor honore bien les deux variables ; le scénario 1 le
-> prouve et un test dédié le verrouille. Laisser l'avertissement t'aurait fait croire à un défaut qui
-> n'existe plus — et t'aurait privé du scénario 3 sans raison.
->
-> Je le note parce que c'est l'inverse de la faute habituelle : ici la recette **sur-avertissait**.
+Le script crée un `HOME` jetable contenant une marketplace Codex locale dont la source finit par
+`/disparu`. Il lance successivement :
 
-```bash
-# TES racines memorisees au depart — pas les defauts, pas celles d'un scenario jetable.
-# NE POSE PAS une variable que tu n'as pas. Une execution a froid a mesure que forcer
-# CLAUDE_CONFIG_DIR=$HOME/.claude fait chercher a Claude ~/.claude/.claude.json au lieu de
-# ~/.claude.json — donc doctor ne rapportait AUCUN h2a-endpoint-count et ma correction
-# MASQUAIT l'incoherence centrale de ce scenario. On ne transmet que ce qui existe.
-PREFIXE=""
-[ -n "${MES_CODEX-}" ]  && PREFIXE="$PREFIXE CODEX_HOME=$MES_CODEX"
-[ -n "${MES_CLAUDE-}" ] && PREFIXE="$PREFIXE CLAUDE_CONFIG_DIR=$MES_CLAUDE"
-CODEX_ROOT="${MES_CODEX:-$HOME/.codex}"
-CLAUDE_ROOT="${MES_CLAUDE:-$HOME/.claude}"
-STAMP=$(date +%Y%m%d-%H%M)
-echo "racines inspectees : $CODEX_ROOT  |  $CLAUDE_ROOT"
-cp -p "$CODEX_ROOT/config.toml" "$CODEX_ROOT/config.toml.bak.uat-$STAMP"
-cp -p "$CLAUDE_ROOT/plugins/known_marketplaces.json" "$CLAUDE_ROOT/plugins/known_marketplaces.json.bak.uat-$STAMP" 2>/dev/null
+1. `init` — sortie 0 obligatoire ;
+2. `doctor --repair --dry-run` — sortie 2 obligatoire, puisque la source morte doit être nommée ;
+3. `doctor --repair` — sortie 0 obligatoire après réparation.
 
-mkdir -p "$UAT/h3"
-$DOCTOR init --root "$UAT/h3/bus"
-# les racines sont posees EN PREFIXE, jamais exportees : ce scenario vise TON installation,
-# les precedents visaient des arbres jetables, et aucun ne contamine l'autre.
-env $PREFIXE $DOCTOR doctor --root "$UAT/h3/bus" --repair --dry-run  # inspecte, ne modifie RIEN
-```
+Le dry-run doit afficher le chemin mort sans rien modifier. La réparation doit remplacer cette source
+par la source canonique `rhanka/h2a` et installer `h2a@sentropic` sans poser de question. Toute demande
+d'intervention manuelle est un échec de l'UAT, même si la commande finit par sortir 0.
 
-Les deux sauvegardes portent l'horodatage ; elles sont byte-identiques à tes fichiers actuels et tu
-peux les supprimer quand tu as fini.
+Les racines owner sont empreintées indépendamment autour de l'ensemble du scénario.
 
-Lis le rapport. Il doit décrire ton état réel : une seule marketplace `sentropic` par hôte,
-`h2a@sentropic` à la version npm, un seul endpoint MCP `h2a`, aucun `track-mcp` autonome — et
-lister ce qu'une réparation changerait.
+## Scénario 2 — une session vivante doit redémarrer
 
-> **Même correction que le scénario 1** : j'avais écrit `h2a doctor` seul, qui ne regarde pas ton
-> installation hôte. `--dry-run` est la seule façon honnête de te faire inspecter ta machine
-> avant de décider.
+La preuve automatisée reste
+`packages/h2a/test/host-installation-doctor.test.js`, mais elle n'est plus lancée dans l'environnement
+owner. Le script retire les deux variables hôtes et lui fournit seulement un `HOME` sous
+`UAT/h2/test-home`. Les tests continuent donc de voir `CODEX_HOME` et `CLAUDE_CONFIG_DIR` absents,
+tandis que leurs racines par défaut restent jetables. Ils ne peuvent plus atteindre la configuration
+personnalisée de l'owner.
 
-Puis, seulement si tu le veux :
+Après cette porte automatisée, `probe-live-session.sh` fabrique le cas observable :
 
-```bash
-$DOCTOR doctor --root "$UAT/h3/bus" --repair
-```
+- cache plugin ancien ;
+- marqueur de réparation antérieur ;
+- session vivante démarrée après cet ancien marqueur ;
+- nouvelle réparation postérieure à la session.
 
-**Attendu** : soit « rien à réparer », soit une liste de ce qui a été changé. Jamais un silence.
-Le bus temporaire isole cette recette des sessions de ton bus quotidien ; si doctor a réparé ton
-installation, redémarre toute session que tu sais antérieure à cette réparation.
+L'owner doit lire trois valeurs :
 
-**Pour revenir en arrière, et ce que ça ne couvre PAS** :
+- code de doctor **2** ;
+- `report.ok=false` ;
+- au moins un motif explicite disant que la session vivante doit redémarrer.
 
-```bash
-cp "$CODEX_ROOT/config.toml.bak.uat-$STAMP" "$CODEX_ROOT/config.toml"
-```
+Le probe vérifie aussi l'inertie du dry-run par empreinte et l'idempotence d'un second repair. Son
+propre code 0 signifie que l'observation a pu être menée ; il ne remplace pas la lecture humaine des
+trois valeurs. Une commande hôte native en échec rend l'observation inconclusive.
 
-Cette sauvegarde restaure la **configuration**. Elle ne restaure ni les caches de plugins supprimés,
-ni les entrées de marketplace, ni le marqueur `h2a-repair.json` de ta racine codex, ni un plugin désinstallé.
-Si tu veux un retour arrière complet, ne lance pas `--repair` sur ta vraie machine : le scénario 3
-s'arrête au `--dry-run`, qui est prouvé inerte par empreinte dans le probe du scénario 2. Je préfère
-te le dire que te laisser croire qu'une copie de `config.toml` annule tout.
+## La matrice qui verrouille le véhicule
 
----
+La recette elle-même est couverte par
+`packages/h2a/test/uat-doctor-script.test.js`. Le test exécute le script dans cinq environnements :
 
-## Scénario 0 — l'oracle, à faire AVANT tous les autres
-
-```bash
-bash docs/uat/probe-oracle.sh
-```
-
-**Fais celui-ci d'abord**, parce qu'il est le seul qui n'interroge pas doctor. Il reconstruit la forme
-réelle de ton incident — marketplace legacy dont la source est supprimée, entrée de plugin encore
-active, cache encore sur disque déclarant un serveur MCP `h2a` — puis il pose deux questions à
-**codex lui-même** : quel serveur h2a sers-tu vraiment (`codex mcp list`), et ton sous-système
-marketplace répond-il (`codex plugin marketplace list`).
-
-**Pourquoi il existe** : le 2026-07-30, `--repair` portait DEUX verdicts GO indépendants alors qu'il
-laissait codex servir l'ANCIEN serveur MCP. Aucune des deux revues n'était en faute — aucune n'avait
-mandat de lancer une CLI hôte. Ni la suite de tests ni l'autre probe ne l'ont vu, parce que tous deux
-lisent le rapport de doctor. **L'auto-rapport d'un outil ne peut pas être l'oracle de son propre
-fonctionnement.**
-
-**Ce qui invaliderait** : `codex mcp list` rendant autre chose que `h2a mcp-serve`, ou
-`codex plugin marketplace list` échouant. Dans ce cas c'est le rapport qui a tort, pas l'hôte —
-même si doctor annonce `ok=true`.
-
-**État mesuré sur la branche** : les **deux** oracles passent désormais, sur `55f6066a`, rebuild propre
-(`dist` **et** `*.tsbuildinfo` supprimés avant — un `tsc` composite sort 0 sans émettre et rend un `dist`
-mélangé). Quand j'ai écrit ce scénario, l'oracle 2 échouait encore ; `a64e1dc8` l'a fermé.
-
-Ce scénario tourne aussi **en CI** sous le nom `host-oracle` : le job installe codex et exécute cette
-sonde sur racines jetables, verdict porté par le code de sortie. Il est vert sur ce SHA.
-**Où cette garantie s'arrête** : codex seulement, racines jetables seulement, Linux seulement, et le job
-**n'est pas encore un check requis** — l'ajouter à la protection de branche est ta décision, pas la
-mienne, donc aujourd'hui il peut échouer sans bloquer une fusion.
-
----
-
-## Scénario 1 — la source de marketplace a disparu (le défaut réel du 29 juillet)
-
-C'est celui qui a bloqué **tous** les plugins codex, h2a compris, pendant que le plugin
-tournait sur un cache 0.85.18 figé.
-
-**Ce que tu vas voir en plus, et qui n'est pas un défaut** : `--repair` répare **tous les hôtes**, pas
-seulement celui que ce scénario met en scène. Si `claude` est joignable sur ta machine, tu verras
-apparaître quatre findings côté Claude — marketplace, plugin, version, endpoints — qui n'ont rien à
-voir avec la source codex disparue qu'on teste ici. Une exécution à froid les a signalés comme
-parasites ; je ne peux pas les supprimer sans restreindre `--repair`, ce qui serait un changement de
-produit fait pour arranger une recette. **Lis-les, ignore-les pour ce scénario, et retrouve-les au
-scénario 3** où ils sont, eux, le sujet.
-
-Les racines sont posées **en préfixe**, jamais exportées — sinon elles fuient dans tous les scénarios
-suivants, ce qu'une exécution à froid a mesuré (suite automatisée à 16 pass / 47 fail, deux sondes
-refusant de démarrer).
-
-```bash
-mkdir -p $UAT/h1/.codex
-printf '[marketplaces.sentropic]\nsource_type = "local"\nsource = "%s/disparu"\n' "$UAT" \
-  > $UAT/h1/.codex/config.toml
-
-env -u CLAUDE_CONFIG_DIR HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR init --root "$UAT/h1/bus"
-env -u CLAUDE_CONFIG_DIR HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR doctor --root "$UAT/h1/bus" --repair --dry-run
-echo "exit=$?   # inspecte, ne modifie RIEN"
-env -u CLAUDE_CONFIG_DIR HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR doctor --root "$UAT/h1/bus" --repair
-echo "exit=$?   # repare"
-```
-
-**Attendu** : le premier appel **nomme** la source morte (le chemin qui finit par `/disparu`) et
-dit ce qu'il ferait, sans rien changer. Le second la remplace par la source git `rhanka/h2a` et
-installe `h2a@sentropic`. Aucune question posée, aucun geste de ta part.
-
-**Ce qui invaliderait** : un rapport « propre » au premier appel, ou une réparation qui te
-demande de faire quelque chose.
-
-> **Correction de ma première version de cette recette.** J'avais écrit `h2a doctor` tout court.
-> C'était faux : par conception, `doctor` sans `--repair` n'inspecte **pas** l'installation
-> hôte — il ne peut donc pas nommer la marketplace morte. La revue indépendante l'a relevé.
-> `--dry-run` est ajouté au produit pour cette raison : sans lui, il n'existe aucun moyen
-> d'inspecter ta machine sans la modifier.
-
----
-
-## Scénario 2 — une session vivante doit redémarrer après une réparation réelle
-
-Le cœur du sujet, et ce qui a fait échouer **trois** revues indépendantes. Une réparation faite par
-doctor peut changer le code réellement chargé sans qu'une session déjà démarrée le sache.
-
-Ce scénario est **déterministe** : le harnais fabrique la présence sur le même bus et dans ses
-propres `HOME` et bus temporaires. Il ne touche pas ta machine.
-
-D'abord la preuve automatisée, qui exerce les cinq variantes :
-
-```bash
-node --test packages/h2a/test/host-installation-doctor.test.js
-```
-
-**Attendu** : `pass` sur tous les tests, et **exit 0**. C'est un test : il sort 0 quand il réussit.
-
-> **Correction de ma deuxième version de cette recette, et c'est la faute la plus grave que j'y ai
-> faite.** J'écrivais ici « attendu : sortie 2 » en pointant un `node --test` — donc mon document
-> déclarait **invalidante la sortie 0 que produit précisément une implémentation correcte**. Pire,
-> une réexécution de test n'est **pas** une observation : elle absorbe le comportement dans son
-> assertion au lieu de te le montrer. La revue indépendante l'a mesuré littéralement.
-
-Puis **l'observation** — c'est celle-ci qui vaut recette, parce que tu lis le comportement toi-même :
-
-```bash
-bash docs/uat/probe-live-session.sh          # fabrique le cas, puis lance $DOCTOR et affiche tout
-```
-
-Le probe imprime, dans cet ordre : le code de sortie, le champ `ok` du rapport JSON, et la liste des
-motifs de redémarrage.
-
-**Attendu, et c'est le point non négociable** : sortie **2**, `ok=false`, et un motif explicite disant
-qu'une **session vivante doit redémarrer**. La réparation du cache ne suffit pas : la session a chargé
-l'ancien code. Tu dois **voir** ces trois valeurs, pas les déduire d'un test vert.
-
-Cette promesse est volontairement bornée :
-
-| variante | ce qu'elle piège |
+| environnement owner | défaut visé |
 |---|---|
-| réparation doctor avec écrasement **en place** | une session qui a démarré avant le marqueur doit redémarrer |
-| `codex plugin add`, réinstallation npm ou autre modification manuelle | hors garantie de doctor : redémarre la session toi-même |
+| aucune racine hôte définie | défauts par défaut |
+| `CODEX_HOME` seul | fuite Codex |
+| `CLAUDE_CONFIG_DIR` seul | fuite Claude |
+| les deux racines | interaction |
+| les deux avec des espaces | découpage fautif d'un préfixe shell |
 
-**Ce qui invaliderait** : sortie 0 sur le premier cas. Le second n'est pas une recette de détection
-automatique : prétendre le contraire reviendrait à certifier un graphe de chargement que doctor ne
-peut pas observer complètement.
+Chaque ligne crée des racines owner sentinelles et compare leurs empreintes avant/après. Le faux
+`node --test` de cette matrice écrit volontairement dans les racines par défaut de son `HOME` : si le
+script oublie de retirer une racine héritée ou de remplacer `HOME`, il corrompt la sentinelle owner et
+le test échoue.
 
----
+La matrice vérifie aussi l'ordre visible `3 → 0 → 1 → 2` et l'absence de l'ancienne forme dangereuse
+`env $PREFIXE`.
 
-## Nettoyage
+Pour rejouer uniquement cette porte :
 
 ```bash
-rm -rf "$UAT" "$SRC"   # $SRC etait oublie : fuite mesuree a 351 Mio PAR extrait, deux fois de suite
+node --test packages/h2a/test/uat-doctor-script.test.js
 ```
 
----
+## Nettoyage et décision owner
 
-## Ce que je te demande de trancher
+Le trap du script supprime l'arbre UAT et l'extrait candidat, succès ou échec. Il refuse de supprimer
+un chemin qui n'est pas un enfant du parent temporaire qu'il a lui-même sélectionné.
 
-1. **Le scénario 2 se comporte-t-il comme attendu ?** C'est la garantie centrale ; si elle
-   tombe, l'item ne passe pas `done`, quel que soit le vert de la CI.
-2. **Le scénario 1 t'a-t-il demandé quoi que ce soit ?** Ta demande du 22 juillet était
-   « sans intervention manuelle » — une question posée est un échec.
-3. **Y a-t-il une incohérence que tu as déjà rencontrée et qui n'est pas couverte ?** Six ont
-   été mesurées le 29 juillet ; s'il t'en manque une, elle vaut mieux qu'un GO.
+Après lecture, l'owner tranche :
+
+1. Le scénario 2 montre-t-il bien code 2, `ok=false` et un motif de redémarrage ?
+2. Le scénario 1 s'est-il réparé sans poser de question ?
+3. Une incohérence déjà rencontrée manque-t-elle à la recette ?
+
+Sans cette réponse owner, aucun vert du script ou de la CI ne vaut `done`.
