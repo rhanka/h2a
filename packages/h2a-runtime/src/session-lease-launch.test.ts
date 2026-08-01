@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const startLocalSession = vi.hoisted(() => vi.fn());
 const startHeadlessSession = vi.hoisted(() => vi.fn());
 const paneTreeCpuMs = vi.hoisted(() => vi.fn());
+const paneProcessObservation = vi.hoisted(() => vi.fn());
 
 vi.mock("./tmux.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./tmux.js")>();
@@ -25,6 +26,7 @@ vi.mock("./tmux.js", async (importOriginal) => {
     startH2aWindow: () => true,
     localSessionPanePid: () => 4242,
     paneTreeCpuMs,
+    paneProcessObservation,
   };
 });
 
@@ -68,6 +70,11 @@ beforeEach(() => {
     agentPane: "%99",
   });
   paneTreeCpuMs.mockReturnValue(12_345);
+  paneProcessObservation.mockReturnValue({
+    cpuMs: 12_345,
+    worker: undefined,
+    procView: { currentBootId: "", processes: [] },
+  });
 });
 
 afterEach(() => {
