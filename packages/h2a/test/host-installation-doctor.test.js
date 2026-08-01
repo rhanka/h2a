@@ -363,6 +363,17 @@ function repairRunner(home, calls, version = VERSION) {
   };
 }
 
+function repairRunnerWithoutCodexConfigRewrite(home, calls, version = VERSION) {
+  const base = repairRunner(home, calls, version);
+  return (command, args) => {
+    if (command !== "codex") return base(command, args);
+    calls.push([command, ...args]);
+    currentPlugin(join(home, ".codex", "plugins", "cache", "sentropic", "h2a", version), version);
+    currentMarketplace(join(home, ".codex", ".tmp", "marketplaces", "sentropic"));
+    return { ok: true };
+  };
+}
+
 function inPlaceRepairRunner(home, calls) {
   const base = repairRunner(home, calls);
   return (command, args) => {
@@ -972,6 +983,81 @@ test("doctor byte-splices only framed legacy tables around opaque Codex TOML reg
   }
 });
 
+test("doctor preserves terminal bytes while appending missing canonical Codex tables", () => {
+  const cases = [
+    { name: "a CRLF", privateSuffix: "# preserve CRLF\r\n" },
+    { name: "trailing spaces", privateSuffix: "# preserve trailing spaces   " }
+  ];
+  for (const fixture of cases) {
+    const { home } = cleanShippedLayoutHome();
+    const codexPath = join(home, ".codex", "config.toml");
+    const marketplace = `sentropic-local-terminal-${fixture.name.replace(/[^a-z]+/gi, "-").toLowerCase()}`;
+    const missingSource = join(home, `deleted-${marketplace}`);
+    const target = `[marketplaces.${marketplace}]\n` +
+      'source_type = "local"\n' +
+      `source = "${missingSource}"\n`;
+    const before = `${target}${fixture.privateSuffix}`;
+    const privateBytes = Buffer.from(fixture.privateSuffix, "utf8");
+    try {
+      writeFileSync(codexPath, before);
+      const root = join(home, "bus");
+      assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+      const { exitCode, io, report } = runRepairDoctor(home, root, {
+        runHostCommand: repairRunnerWithoutCodexConfigRewrite(home, [])
+      });
+      const after = readFileSync(codexPath);
+
+      assert.equal(exitCode, 0, `${fixture.name}: ${io.stderrText}`);
+      assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+      assert.deepEqual(
+        after.subarray(0, privateBytes.length),
+        privateBytes,
+        `${fixture.name}: repair may append canonical tables but must not normalize existing terminal bytes`
+      );
+      assert.doesNotMatch(after.toString("utf8"), new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
+      assert.match(after.toString("utf8"), /\[marketplaces\.sentropic\]/);
+      assert.match(after.toString("utf8"), /\[plugins\."h2a@sentropic"\]/);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+});
+
+test("doctor preserves a whitespace-only line before a private Codex comment", () => {
+  const { home } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const marketplace = "sentropic-local-whitespace-boundary";
+  const missingSource = join(home, `deleted-${marketplace}`);
+  const target = `[marketplaces.${marketplace}]\n` +
+    'source_type = "local"\n' +
+    `source = "${missingSource}"\n`;
+  const privateRegion = "   \n" +
+    "# private comment\n" +
+    "[private.keep]\n" +
+    'value = "must-remain-private"\n';
+  const before = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n${target}${privateRegion}`;
+  const targetStart = Buffer.from(before, "utf8").indexOf(Buffer.from(target, "utf8"));
+  const expected = Buffer.concat([
+    Buffer.from(before, "utf8").subarray(0, targetStart),
+    Buffer.from(before, "utf8").subarray(targetStart + Buffer.byteLength(target))
+  ]);
+  try {
+    writeFileSync(codexPath, before);
+    const root = join(home, "bus");
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const { exitCode, io } = runRepairDoctor(home, root, { runHostCommand: repairRunner(home, []) });
+
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.deepEqual(
+      readFileSync(codexPath),
+      expected,
+      "only the authorized target span may be removed; whitespace-only trivia belongs to the private region"
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor repairs framed legacy tables beside untouched Codex skills and hooks arrays", () => {
   const { home } = cleanShippedLayoutHome();
   const codexPath = join(home, ".codex", "config.toml");
@@ -1004,15 +1090,14 @@ test("doctor repairs framed legacy tables beside untouched Codex skills and hook
 
     assert.equal(exitCode, 2, io.stderrText);
     assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
     assert.doesNotMatch(repaired, new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
     assert.match(repaired, new RegExp(`\\[plugins\\."${plugin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\][\\s\\S]*enabled = false`));
     assert.ok(repaired.endsWith(opaqueRegions), repaired);
-    for (const region of ["[[skills.config]]", "[[hooks.PreToolUse]]"]) {
-      assert.ok(
-        codex?.unrepaired.some((entry) => entry.code === "config-invalid" && entry.message.includes(region)),
-        JSON.stringify(codex, null, 2)
-      );
-    }
+    const preservedRegions = codex?.unrepaired
+      .filter((entry) => entry.code === "config-invalid")
+      .map((entry) => entry.message.match(/opaque Codex TOML region (\[\[[^\]]+\]\])/)?.[1]);
+    assert.deepEqual(preservedRegions, ["[[skills.config]]", "[[hooks.PreToolUse]]"], JSON.stringify(codex, null, 2));
     assert.ok(calls.some((call) => call.join(" ") === "codex plugin marketplace upgrade"), JSON.stringify(calls, null, 2));
   } finally {
     rmSync(home, { recursive: true, force: true });
