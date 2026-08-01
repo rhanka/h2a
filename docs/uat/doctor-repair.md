@@ -6,7 +6,7 @@ Cette recette ne demande plus de copier des blocs Bash depuis le Markdown. Le Ma
 qui va arriver et ce qu'il faut lire ; [`uat-doctor.sh`](./uat-doctor.sh) porte les commandes, leur
 ordre, leurs codes de sortie et les assertions de sécurité.
 
-Depuis n'importe quel répertoire du checkout de la PR :
+Depuis la racine du checkout de la PR :
 
 ```bash
 bash docs/uat/uat-doctor.sh
@@ -14,6 +14,12 @@ bash docs/uat/uat-doctor.sh
 
 Le script ne déduit jamais `done` de son propre succès. L'owner doit encore lire le scénario 2 et
 répondre aux trois questions de la dernière section.
+
+## Prérequis
+
+Pour l'exécution normale, le script vérifie avant de créer un arbre temporaire que `node`, `gh`, `git`,
+`tar` et `npm` sont disponibles. Il nomme explicitement le prérequis manquant au lieu de lancer une
+extraction partielle. Les injections réservées aux tests n'ont besoin que de `node`.
 
 ## Ce que tu valides
 
@@ -50,9 +56,11 @@ Avant et après **chaque scénario**, le script empreinte :
 - la racine Claude réellement utilisée par l'owner ;
 - le fichier natif `~/.claude.json`.
 
-L'empreinte couvre la topologie, les métadonnées, les liens et le contenu des fichiers. Une différence
-fait échouer la recette : un scénario qui produit le bon rapport en modifiant l'installation réelle
-n'est pas un succès.
+L'empreinte couvre la topologie, les métadonnées et les liens. Elle hache le contenu des fichiers
+jusqu'à 8 Mio ; au-delà, elle borne la lecture aux métadonnées déjà enregistrées (chemin, type, taille,
+mode et date de modification), afin qu'un fichier owner au-delà de la limite de 2 Gio de `readFileSync`
+n'empêche pas la recette de démarrer. Une différence observée fait échouer la recette : un scénario qui
+produit le bon rapport en modifiant l'installation réelle n'est pas un succès.
 
 Le scénario 3 est limité au `--dry-run`. Le script ne lance jamais automatiquement une réparation sur
 l'installation owner et ne crée plus de sauvegarde « préventive » dans cette installation pendant une
@@ -66,7 +74,8 @@ Le `h2a` global n'est jamais le candidat. Le script :
 2. crée un extrait jetable de ce SHA avec `git archive` ;
 3. exécute `npm ci`, puis `npm run build` dans cet extrait ;
 4. épingle chaque scénario sur `node <extrait>/packages/h2a/dist/bin.js` ;
-5. supprime l'extrait et l'arbre UAT en sortant, y compris après un échec.
+5. supprime l'extrait et l'arbre UAT en sortant, y compris après un échec ou une interruption
+   `Ctrl-C`/`SIGINT`/`TERM`.
 
 Il ne construit, ne nettoie et ne supprime rien dans le checkout partagé.
 
