@@ -1112,6 +1112,155 @@ test("doctor repairs framed legacy tables beside untouched Codex skills and hook
   }
 });
 
+test("doctor repairs a framed legacy table beside named opaque arrays containing multiline table-shaped text", () => {
+  const { home } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const marketplace = "sentropic-local-opaque-multiline";
+  const plugin = "h2a-local-opaque-multiline@sentropic-local-opaque-multiline";
+  const missingSource = join(home, "deleted-opaque-multiline-marketplace");
+  const skillsRegion = "[[skills.config]]\n" +
+    'path = "keep.md"\n' +
+    'instructions = """\n' +
+    "before\n" +
+    "[ceci-est-du-texte]\n" +
+    "after\n" +
+    '"""\n';
+  const hooksRegion = "[[hooks.PreToolUse]]\n" +
+    'command = "echo keep"\n';
+  const opaqueRegions = `${skillsRegion}\n${hooksRegion}`;
+  const config = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n` +
+    `[marketplaces.${marketplace}]\n` +
+    'source_type = "local"\n' +
+    `source = "${missingSource}"\n\n` +
+    `[plugins."${plugin}"]\n` +
+    "enabled = true\n\n" +
+    opaqueRegions;
+  try {
+    writeFileSync(codexPath, config);
+    const root = join(home, "bus");
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const { exitCode, io, report } = runRepairDoctor(home, root, { runHostCommand: repairRunner(home, []) });
+    const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+    const repaired = readFileSync(codexPath, "utf8");
+    const preservedRegions = codex?.preserved
+      .filter((entry) => entry.code === "config-preserved")
+      .map((entry) => entry.message.match(/opaque Codex TOML region (\[\[[^\]]+\]\])/)?.[1]);
+
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, true, JSON.stringify(codex, null, 2));
+    assert.equal(existsSync(missingSource), false, "the legacy marketplace source must be absent");
+    assert.doesNotMatch(repaired, new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
+    assert.ok(repaired.endsWith(opaqueRegions), repaired);
+    assert.deepEqual(preservedRegions, ["[[skills.config]]", "[[hooks.PreToolUse]]"], JSON.stringify(codex, null, 2));
+    assert.deepEqual(codex?.failures, [], JSON.stringify(codex, null, 2));
+    assert.deepEqual(codex?.unverifiable, [], JSON.stringify(codex, null, 2));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor repairs a framed legacy table beside named opaque arrays after installing its canonical replacement", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const marketplace = "sentropic-local-opaque-replacement";
+  const plugin = "h2a-local-opaque-replacement@sentropic-local-opaque-replacement";
+  const missingSource = join(home, "deleted-opaque-replacement-marketplace");
+  const skillsRegion = "[[skills.config]]\n" +
+    'instructions = """\n' +
+    "before\n" +
+    "[ceci-est-du-texte]\n" +
+    "after\n" +
+    '"""\n';
+  const hooksRegion = "[[hooks.PreToolUse]]\n" +
+    'command = "echo keep"\n';
+  const opaqueRegions = `${skillsRegion}\n${hooksRegion}`;
+  const config = `[marketplaces.${marketplace}]\n` +
+    'source_type = "local"\n' +
+    `source = "${missingSource}"\n\n` +
+    `[plugins."${plugin}"]\n` +
+    "enabled = true\n\n" +
+    opaqueRegions;
+  const calls = [];
+  try {
+    writeFileSync(codexPath, config);
+    const root = join(home, "bus");
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const { exitCode, io, report } = runRepairDoctor(home, root, {
+      version,
+      runHostCommand: repairRunner(home, calls, version)
+    });
+    const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+    const repaired = readFileSync(codexPath, "utf8");
+    const preservedRegions = codex?.preserved
+      .filter((entry) => entry.code === "config-preserved")
+      .map((entry) => entry.message.match(/opaque Codex TOML region (\[\[[^\]]+\]\])/)?.[1]);
+
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, true, JSON.stringify(codex, null, 2));
+    assert.ok(calls.some((call) => call.join(" ") === "codex plugin marketplace add rhanka/h2a --ref main"), JSON.stringify(calls));
+    assert.doesNotMatch(repaired, new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
+    assert.ok(repaired.includes(opaqueRegions), repaired);
+    assert.deepEqual(preservedRegions, ["[[skills.config]]", "[[hooks.PreToolUse]]"], JSON.stringify(codex, null, 2));
+    assert.deepEqual(codex?.failures, [], JSON.stringify(codex, null, 2));
+    assert.deepEqual(codex?.unverifiable, [], JSON.stringify(codex, null, 2));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor names opaque Codex arrays when a failed native replacement skips the framed rewrite", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const marketplace = "sentropic-local-unverified-replacement";
+  const plugin = "h2a-local-unverified-replacement@sentropic-local-unverified-replacement";
+  const missingSource = join(home, "deleted-unverified-replacement-marketplace");
+  const opaqueRegions = "[[skills.config]]\n" +
+    'instructions = """\n' +
+    "before\n" +
+    "[ceci-est-du-texte]\n" +
+    "after\n" +
+    '"""\n\n' +
+    "[[hooks.PreToolUse]]\n" +
+    'command = "echo keep"\n';
+  const config = `[marketplaces.${marketplace}]\n` +
+    'source_type = "local"\n' +
+    `source = "${missingSource}"\n\n` +
+    `[plugins."${plugin}"]\n` +
+    "enabled = true\n\n" +
+    opaqueRegions;
+  const calls = [];
+  try {
+    writeFileSync(codexPath, config);
+    const root = join(home, "bus");
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const { exitCode, io, report } = runRepairDoctor(home, root, {
+      version,
+      runHostCommand: (command, args) => {
+        calls.push([command, ...args]);
+        return { ok: false, message: "injected native replacement failure" };
+      }
+    });
+    const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.match(readFileSync(codexPath, "utf8"), new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
+    assert.deepEqual(
+      codex?.preserved
+        .filter((entry) => entry.code === "config-preserved")
+        .map((entry) => entry.message.match(/opaque Codex TOML region (\[\[[^\]]+\]\])/)?.[1]),
+      ["[[skills.config]]", "[[hooks.PreToolUse]]"],
+      JSON.stringify(codex, null, 2)
+    );
+    assert.ok(codex?.failures.some((entry) => entry.code === "host-command-failed"), JSON.stringify(codex, null, 2));
+    assert.equal(calls.filter((call) => call[0] === "codex").length, 1, JSON.stringify(calls));
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor does not call a coherent configured host clean when its native CLI is unavailable", () => {
   const { home, version } = cleanShippedLayoutHome();
   const root = join(home, "bus");

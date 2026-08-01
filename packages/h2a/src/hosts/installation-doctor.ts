@@ -1787,7 +1787,6 @@ function repairCodexConfig(
     !canonicalMarketplace ||
     tomlBoolean(canonicalPlugin ?? { header: "", lines: [] }, "enabled") !== true;
   if (!needsConfigRepair) return;
-  reportOpaqueTomlRegions(report, path, tables);
   const next = rewriteTomlTables(raw, (table) => {
     const marketplace = tomlQuotedName(table.header, "marketplaces");
     if (isLegacySentropicName(marketplace) && legacyMarketplacesToRemove.has(table.header)) return undefined;
@@ -2117,6 +2116,7 @@ function repairCodex(
   try {
     const config = existsSync(codexConfigPath(home)) ? readFileSync(codexConfigPath(home), "utf8") : "";
     const parsed = parseTomlTables(config);
+    if (!parsed.unavailable) reportOpaqueTomlRegions(before, codexConfigPath(home), parsed.tables);
     const canonicalTable = parsed.tables.find(
       (table) => tomlQuotedName(table.header, "marketplaces") === H2A_MARKETPLACE_NAME
     );
