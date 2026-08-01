@@ -500,7 +500,7 @@ test("doctor reports a configured broken host when its CLI is absent from PATH",
 
     assert.equal(result.exitCode, 2, result.io.stderrText);
     assert.equal(result.report.ok, false, JSON.stringify(result.report, null, 2));
-    assert.match(claude?.diagnostics.find((entry) => entry.code === "host-cli-unreachable")?.message ?? "", /Claude CLI could not be reached/);
+    assert.match(claude?.failures.find((entry) => entry.code === "host-cli-unreachable")?.message ?? "", /Claude CLI could not be reached/);
     assert.deepEqual(calls, [], "an unreachable configured host must not receive native repair commands");
     assert.ok(claude?.findings.some((entry) => entry.code === "plugin-missing"), JSON.stringify(claude, null, 2));
   } finally {
@@ -523,7 +523,7 @@ test("doctor treats an empty PATH segment as the current directory", () => {
     const codex = report.hosts.find((host) => host.host === "codex");
 
     assert.equal(codex?.findings.some((entry) => entry.code === "host-not-installed"), false, JSON.stringify(codex, null, 2));
-    assert.equal(codex?.diagnostics.some((entry) => entry.code === "host-cli-unreachable"), false, JSON.stringify(codex, null, 2));
+    assert.equal(codex?.failures.some((entry) => entry.code === "host-cli-unreachable"), false, JSON.stringify(codex, null, 2));
   } finally {
     process.chdir(previousCwd);
     if (previousPath === undefined) delete process.env.PATH;
@@ -546,6 +546,8 @@ test("doctor fails closed when configured roots are broken symlinks", () => {
     for (const host of report.checks.hostInstallations.hosts) {
       assert.equal(host.findings.some((entry) => entry.code === "host-not-installed"), false, JSON.stringify(host, null, 2));
       assert.ok(host.findings.some((entry) => entry.code === "host-config-unavailable"), JSON.stringify(host, null, 2));
+      assert.ok(host.unverifiable.some((entry) => entry.code === "host-config-unavailable"), JSON.stringify(host, null, 2));
+      assert.deepEqual(host.failures, [], JSON.stringify(host, null, 2));
     }
   } finally {
     rmSync(home, { recursive: true, force: true });
@@ -692,7 +694,7 @@ test("doctor inspects a visible empty configured root even when its CLI is unava
   }
 });
 
-test("doctor repairs local endpoints when the native CLI is unavailable", () => {
+test("doctor reports a native CLI it could not reach as a real repair failure", () => {
   const { home, version } = cleanShippedLayoutHome();
   const codexPath = join(home, ".codex", "config.toml");
   const calls = [];
@@ -713,10 +715,11 @@ test("doctor repairs local endpoints when the native CLI is unavailable", () => 
     });
     const codex = report.hosts.find((host) => host.host === "codex");
 
-    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
     assert.deepEqual(calls, []);
     assert.doesNotMatch(readFileSync(codexPath, "utf8"), /\[mcp_servers\.local-h2a\]/);
-    assert.ok(codex?.diagnostics.some((entry) => entry.code === "host-cli-unreachable"), JSON.stringify(codex, null, 2));
+    assert.ok(codex?.failures.some((entry) => entry.code === "host-cli-unreachable"), JSON.stringify(codex, null, 2));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -1100,13 +1103,16 @@ test("doctor repairs framed legacy tables beside untouched Codex skills and hook
       .map((entry) => entry.message.match(/opaque Codex TOML region (\[\[[^\]]+\]\])/)?.[1]);
     assert.deepEqual(preservedRegions, ["[[skills.config]]", "[[hooks.PreToolUse]]"], JSON.stringify(codex, null, 2));
     assert.deepEqual(codex?.unrepaired, [], JSON.stringify(codex, null, 2));
+    assert.equal(codex?.preserved.length, 2, JSON.stringify(codex, null, 2));
+    assert.deepEqual(codex?.failures, [], JSON.stringify(codex, null, 2));
+    assert.deepEqual(codex?.unverifiable, [], JSON.stringify(codex, null, 2));
     assert.ok(calls.some((call) => call.join(" ") === "codex plugin marketplace upgrade"), JSON.stringify(calls, null, 2));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
 });
 
-test("doctor keeps a coherent configured host clean when its native CLI is unavailable", () => {
+test("doctor does not call a coherent configured host clean when its native CLI is unavailable", () => {
   const { home, version } = cleanShippedLayoutHome();
   const root = join(home, "bus");
   const calls = [];
@@ -1121,11 +1127,11 @@ test("doctor keeps a coherent configured host clean when its native CLI is unava
       }
     }));
 
-    assert.equal(exitCode, 0, io.stderrText);
-    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
     assert.deepEqual(calls, [], "a clean configured host without a reachable CLI needs no native repair");
     for (const host of report.checks.hostInstallations.hosts) {
-      assert.ok(host.diagnostics.some((entry) => entry.code === "host-cli-unreachable"), JSON.stringify(host, null, 2));
+      assert.ok(host.failures.some((entry) => entry.code === "host-cli-unreachable"), JSON.stringify(host, null, 2));
       assert.deepEqual(host.findings, [], JSON.stringify(host, null, 2));
     }
   } finally {
@@ -2729,6 +2735,9 @@ test("doctor keeps orphan caches informational and gives their exact manual remo
       orphanFinding?.message,
       `Codex has orphan H2A cache directories: sentropic-local-codex-08518. Remove them manually with: rm -rf -- '${orphan}'`
     );
+    assert.ok(codex?.preserved.some((entry) => entry.code === "orphan-cache"), JSON.stringify(codex, null, 2));
+    assert.deepEqual(codex?.failures, [], JSON.stringify(codex, null, 2));
+    assert.deepEqual(codex?.unverifiable, [], JSON.stringify(codex, null, 2));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
