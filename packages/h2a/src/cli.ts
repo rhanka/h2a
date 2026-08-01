@@ -900,7 +900,8 @@ function cmdMailbox(
     const resolution = resolveRecipient({
       target: flags.instance,
       liveInstances: liveSessions,
-      registeredInstances: registeredIds
+      registeredInstances: registeredIds,
+      operation: "read"
     });
     if (resolution.kind === "refuse") {
       streams.stderr.write(
