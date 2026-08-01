@@ -505,7 +505,7 @@ test("droppedKeyPaths is empty exactly when narrowing removed nothing", () => {
 
 // ── 5. A boundary that dies is not a boundary ──────────────────────────────
 
-test("a repeat beat is idempotent — it does not throw, duplicate, or kill the ingester", async () => {
+test("two mirror beats are idempotent and leave the ingester serving", async () => {
   const k = keypair();
   const { tmp, root, store } = receiver();
   try {
@@ -518,6 +518,7 @@ test("a repeat beat is idempotent — it does not throw, duplicate, or kill the 
       // all, so the test process reaching this line is itself the assertion.
       const second = await post(s, signEnvelope(unUpgradedEnvelope(k.pub, NOW + 1_000), { by: INSTANCE, privateKeyPem: k.priv }));
       assert.equal(second.status, 202, "the second beat must be accepted, not fatal");
+      assert.equal(s.listening, true, "the ingester must still be listening after two beats");
       const third = await post(s, signEnvelope(unUpgradedEnvelope(k.pub, NOW + 2_000), { by: INSTANCE, privateKeyPem: k.priv }));
       assert.equal(third.status, 202, "the ingester must still be serving");
     });

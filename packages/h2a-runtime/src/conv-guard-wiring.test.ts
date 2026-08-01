@@ -29,6 +29,8 @@ const attachLocalSession = vi.fn();
 const currentTmuxSessionIs = vi.fn();
 const findLocalSession = vi.fn();
 const killLocalSession = vi.fn();
+const listLocalSessions = vi.fn();
+const listLocalSessionsWithDiagnostics = vi.fn();
 const localSessionIdle = vi.fn();
 const localSessionGatewayEnvStatus = vi.fn();
 const runLocalCliForeground = vi.fn();
@@ -111,7 +113,8 @@ vi.mock("./tmux.js", () => ({
     return session ? { kind: "found", session } : { kind: "missing" };
   },
   killLocalSession,
-  listLocalSessions: () => [],
+  listLocalSessions,
+  listLocalSessionsWithDiagnostics,
   localSessionIdle,
   localSessionGatewayEnvStatus,
   localSessionName: (slug: string) => `h2a-${slug}`,
@@ -136,6 +139,12 @@ vi.mock("./tmux.js", () => ({
     return base || "session";
   },
   runLocalCliForeground,
+  // The in-place resume path persists its launch context through tmux session
+  // options. The mock lacked the export, so the test died ON THE MOCK rather than
+  // on an assertion — and a missing stub reads exactly like a product failure.
+  // Stubbed as a no-op deliberately: this file drives WIRING, and what the launch
+  // context should contain is asserted where that is the subject.
+  persistLaunchContext: () => {},
 }));
 
 vi.mock("./migrate.js", () => ({
@@ -232,6 +241,10 @@ beforeEach(() => {
   findLocalSession.mockReturnValue(undefined);
   killLocalSession.mockReset();
   killLocalSession.mockReturnValue(true);
+  listLocalSessions.mockReset();
+  listLocalSessions.mockReturnValue([]);
+  listLocalSessionsWithDiagnostics.mockReset();
+  listLocalSessionsWithDiagnostics.mockReturnValue({ sessions: [], known: true });
   localSessionIdle.mockReset();
   localSessionIdle.mockReturnValue(false);
   localSessionGatewayEnvStatus.mockReset();
@@ -296,6 +309,247 @@ function registrySession(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+describe("h2a relaunch", () => {
+  const sessions = [
+    {
+      name: "h2a-codex-lane",
+      slug: "codex-lane",
+      profile: "codex",
+      path: "/repo/shared",
+      attached: false,
+    },
+    {
+      name: "h2a-claude-lane",
+      slug: "claude-lane",
+      profile: "claude",
+      path: "/repo/shared",
+      attached: false,
+    },
+    {
+      name: "h2a-unresumable",
+      slug: "unresumable",
+      profile: "agy",
+      path: "/repo/agy",
+      attached: false,
+    },
+  ];
+
+  const resumableRegistry = [
+    registrySession({
+      id: "codex-lane",
+      tool: "codex",
+      cwd: "/repo/shared",
+      convId: "conv-codex",
+      label: "codex-lane",
+      tmuxSession: "h2a-codex-lane",
+      sessionClass: "human",
+    }),
+    registrySession({
+      id: "claude-lane",
+      cwd: "/repo/shared",
+      convId: "conv-claude",
+      label: "claude-lane",
+      tmuxSession: "h2a-claude-lane",
+      sessionClass: "human",
+    }),
+    registrySession({
+      id: "unresumable",
+      tool: "agy",
+      cwd: "/repo/agy",
+      convId: "unresumable",
+      label: "unresumable",
+      tmuxSession: "h2a-unresumable",
+      sessionClass: "human",
+    }),
+  ];
+
+  beforeEach(() => {
+    listLocalSessions.mockReturnValue(sessions);
+    listLocalSessionsWithDiagnostics.mockReturnValue({
+      sessions,
+      known: true,
+    });
+    writeRegistry(resumableRegistry);
+  });
+
+  it("shows the complete bulk dry-run plan without killing or starting sessions", async () => {
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "--all",
+      "--include-agents",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(startLocalSession).not.toHaveBeenCalled();
+    expect(stderrText()).toContain("WARNING");
+    expect(stderrText()).toContain("codex-lane");
+    expect(stderrText()).toContain("claude-lane");
+    expect(stderrText()).toContain("codex resume conv-codex");
+    expect(stderrText()).toContain("claude --resume conv-claude");
+    expect(stderrText()).toContain("unresumable");
+    expect(stderrText()).toContain("no resumable conversation");
+  });
+
+  it("blocks an applied bulk restart without typed confirmation or --yes", async () => {
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "--all",
+      "--include-agents",
+      "--apply",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(startLocalSession).not.toHaveBeenCalled();
+    expect(stderrText()).toContain("WARNING");
+    expect(stderrText()).toContain("RELAUNCH");
+  });
+
+  it("excludes interactive agent CLIs from an applied bulk restart by default", async () => {
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "--all",
+      "--apply",
+      "--yes",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(startLocalSession).not.toHaveBeenCalled();
+    expect(stderrText()).toContain("interactive agent CLI");
+  });
+
+  it("force-restarts every included session with its own registry conversation", async () => {
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "--all",
+      "--include-agents",
+      "--apply",
+      "--yes",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(killLocalSession).toHaveBeenNthCalledWith(1, "h2a-codex-lane");
+    expect(killLocalSession).toHaveBeenNthCalledWith(2, "h2a-claude-lane");
+    expect(startLocalSession).toHaveBeenNthCalledWith(
+      1,
+      "codex",
+      "codex",
+      "/repo/shared",
+      ["resume", "conv-codex"],
+      "codex-lane",
+      undefined,
+      { sessionClass: "human" },
+    );
+    expect(startLocalSession).toHaveBeenNthCalledWith(
+      2,
+      "claude",
+      "claude",
+      "/repo/shared",
+      ["--resume", "conv-claude"],
+      "claude-lane",
+      undefined,
+      { sessionClass: "human" },
+    );
+    expect(stderrText()).toContain("unresumable");
+    expect(stderrText()).toContain("no resumable conversation");
+  });
+
+  it("force-restarts one exact named session after --apply", async () => {
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "codex-lane",
+      "--apply",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(killLocalSession).toHaveBeenCalledWith("h2a-codex-lane");
+    expect(startLocalSession).toHaveBeenCalledWith(
+      "codex",
+      "codex",
+      "/repo/shared",
+      ["resume", "conv-codex"],
+      "codex-lane",
+      undefined,
+      { sessionClass: "human" },
+    );
+    expect(stderrText()).toContain("confirmed");
+  });
+
+  it("preserves a background session class on an explicit forced restart", async () => {
+    const background = {
+      name: "h2a-background-lane",
+      slug: "background-lane",
+      profile: "codex",
+      path: "/repo/background",
+      attached: false,
+    };
+    listLocalSessionsWithDiagnostics.mockReturnValue({
+      sessions: [background],
+      known: true,
+    });
+    writeRegistry([
+      registrySession({
+        id: "background-lane",
+        tool: "codex",
+        cwd: "/repo/background",
+        convId: "conv-background",
+        label: "background-lane",
+        tmuxSession: "h2a-background-lane",
+        sessionClass: "background",
+      }),
+    ]);
+
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "background-lane",
+      "--apply",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(startLocalSession).toHaveBeenCalledWith(
+      "codex",
+      "codex",
+      "/repo/background",
+      ["resume", "conv-background"],
+      "background-lane",
+      undefined,
+      { sessionClass: "background" },
+    );
+  });
+
+  it("keeps the single-writer guard ahead of the forced kill", async () => {
+    getDefaultRemote.mockReturnValue("http://localhost:8080");
+    listRemoteSessions.mockResolvedValue([liveRemoteWriter("conv-codex")]);
+
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "codex-lane",
+      "--apply",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(startLocalSession).not.toHaveBeenCalled();
+    expect(stderrText()).toContain("sess-b");
+  });
+});
 
 describe("h2a resume <slug>", () => {
   it("opens Claude's native resume selector when --claude has no id", async () => {

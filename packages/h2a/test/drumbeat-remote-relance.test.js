@@ -21,10 +21,24 @@ import {
   remoteRelauncher,
   runDrumbeatRelanceInbox
 } from "../dist/index.js";
-import { runDrumbeatWatch as runCliDrumbeatWatch } from "../dist/cli.js";
+import {
+  drumbeatResumeInboxTargets,
+  runDrumbeatWatch as runCliDrumbeatWatch
+} from "../dist/cli.js";
 
 const SIGNER = "codex:watch";
 const TARGET = "claude:remote";
+
+test("drumbeat watch bounds D4 inbox draining to actionable stop entries", () => {
+  assert.deepEqual(
+    drumbeatResumeInboxTargets([
+      { instance: "claude:paused", workStatus: "paused" },
+      { instance: "claude:done", workStatus: "done" },
+      { instance: "claude:terminal", workStatus: "out-of-tokens", terminal: "escalate" }
+    ]),
+    ["claude:paused"]
+  );
+});
 
 function freshRoot(prefix = "h2a-d4-") {
   return mkdtempSync(join(tmpdir(), prefix));
