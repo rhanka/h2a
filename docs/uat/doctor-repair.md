@@ -50,17 +50,27 @@ Le script traite ces variables comme des **valeurs**, jamais comme une chaîne d
   `HOME` situé sous l'arbre UAT jetable. Les défauts `.codex` et `.claude` restent ainsi jetables sans
   changer la sémantique « variable absente » que plusieurs tests vérifient.
 
-Avant et après **chaque scénario**, le script empreinte :
+Avant et après **chaque scénario**, le script photographie la configuration owner réellement utilisée :
 
-- la racine Codex réellement utilisée par l'owner ;
-- la racine Claude réellement utilisée par l'owner ;
-- le fichier natif `~/.claude.json`.
+- `config.toml` pour Codex ;
+- `settings.json`, `plugins/known_marketplaces.json` et
+  `plugins/installed_plugins.json` pour Claude ;
+- les compagnons Claude `.claude.json` et `.config/claude/mcp.json`, sous `HOME` par défaut ou
+  sous `CLAUDE_CONFIG_DIR` quand cette variable est définie ;
+- les manifestes de plugins `.codex-plugin/plugin.json`, `.claude-plugin/plugin.json`,
+  `.agents/plugins/marketplace.json`, `.mcp.json` et `hooks/hooks.json` trouvés sous les deux
+  racines hôtes.
 
-L'empreinte couvre la topologie, les métadonnées et les liens. Elle hache le contenu des fichiers
-jusqu'à 8 Mio ; au-delà, elle borne la lecture aux métadonnées déjà enregistrées (chemin, type, taille,
-mode et date de modification), afin qu'un fichier owner au-delà de la limite de 2 Gio de `readFileSync`
-n'empêche pas la recette de démarrer. Une différence observée fait échouer la recette : un scénario qui
-produit le bon rapport en modifiant l'installation réelle n'est pas un succès.
+Le script porte une liste exécutable d'exclusions, pas une convention implicite : journaux
+(`*.log`, `*.jsonl`, `logs/`, `debug/`, `journal*/`), bases runtime `*.sqlite` et leurs
+`-wal`/`-shm`, caches de session, arbres temporaires, télémétrie, PID et verrous. Il ne compare donc
+plus toute la racine hôte. Une session Codex ou Claude peut rester ouverte pendant l'UAT ; son activité
+normale n'est pas une mutation de configuration.
+
+Pour chaque configuration retenue, l'empreinte couvre le chemin, le type, le mode, la taille, la date de
+modification, le lien éventuel et le contenu jusqu'à 8 Mio. Une différence fait échouer la recette et
+imprime chaque fichier `AJOUTE`, `SUPPRIME` ou `MODIFIE` : un scénario qui produit le bon rapport
+en modifiant une configuration réelle n'est pas un succès.
 
 Le scénario 3 est limité au `--dry-run`. Le script ne lance jamais automatiquement une réparation sur
 l'installation owner et ne crée plus de sauvegarde « préventive » dans cette installation pendant une
@@ -147,7 +157,7 @@ Le dry-run doit afficher le chemin mort sans rien modifier. La réparation doit 
 par la source canonique `rhanka/h2a` et installer `h2a@sentropic` sans poser de question. Toute demande
 d'intervention manuelle est un échec de l'UAT, même si la commande finit par sortir 0.
 
-Les racines owner sont empreintées indépendamment autour de l'ensemble du scénario.
+La configuration owner est empreintée indépendamment autour de l'ensemble du scénario.
 
 ## Scénario 2 — une session vivante doit redémarrer
 
@@ -188,10 +198,16 @@ La recette elle-même est couverte par
 | les deux racines | interaction |
 | les deux avec des espaces | découpage fautif d'un préfixe shell |
 
-Chaque ligne crée des racines owner sentinelles et compare leurs empreintes avant/après. Le faux
-`node --test` de cette matrice écrit volontairement dans les racines par défaut de son `HOME` : si le
-script oublie de retirer une racine héritée ou de remplacer `HOME`, il corrompt la sentinelle owner et
-le test échoue.
+Chaque ligne crée des racines owner sentinelles et vérifie extérieurement qu'elles restent intactes. Le
+faux `node --test` de cette matrice écrit volontairement dans les racines par défaut de son `HOME` :
+si le script oublie de retirer une racine héritée ou de remplacer `HOME`, il corrompt la sentinelle
+owner et le test échoue.
+
+Trois cas discriminent en plus le garde lui-même :
+
+- une écriture dans `logs/logs_2.sqlite` pendant le scénario 3 reste verte ;
+- une écriture dans `config.toml` rend le scénario rouge et le chemin est imprimé ;
+- un contre-mutant qui réintègre `logs_2.sqlite` dans l'empreinte rend le premier cas rouge.
 
 La matrice vérifie aussi l'ordre visible `3 → 0 → 1 → 2` et l'absence de l'ancienne forme dangereuse
 `env $PREFIXE`.
