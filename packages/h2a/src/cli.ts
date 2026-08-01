@@ -72,6 +72,7 @@ import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 // skill copies committed here; SOURCE UNIQUE = the installed npm package).
 import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 import { renderCommandMap } from "./cli-command-map.js";
+import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
 
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
@@ -120,6 +121,12 @@ import { H2A_GEMINI_HOST } from "./hosts/gemini.js";
 import { H2A_AGY_HOST } from "./hosts/agy.js";
 import { H2A_HERMES_HOST } from "./hosts/hermes.js";
 import { H2A_OPENCODE_HOST } from "./hosts/opencode.js";
+import {
+  doctorHostInstallations,
+  findLiveSessionsPredatingHostConfig,
+  type HostInstallationDoctorOptions,
+  type HostInstallationDoctorReport
+} from "./hosts/installation-doctor.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "./mcp.js";
 import {
   renderStopHook,
@@ -312,6 +319,13 @@ export interface H2ACliStreams {
   stdinText?: string | (() => string);
 }
 
+/** Injectable only for embedders that need hermetic host-installation checks. */
+export interface H2ACliOptions {
+  readonly doctorHostInstallations?: (
+    options: HostInstallationDoctorOptions
+  ) => HostInstallationDoctorReport;
+}
+
 const CLI_HOSTS = [
   H2A_CODEX_HOST,
   H2A_CLAUDE_HOST,
@@ -407,7 +421,7 @@ export function renderCliHelp(): string {
     "  h2a conductor [--workspace <id|path>] [--root <path>]   (who is the live conductor/owner of a workspace — derived from presence; conductor=role CONDUCTOR if set, else null; candidates=in-workspace live agents)",
     "  h2a conductor-launch-check [--workspace <id|path>] [--root <path>] [--idle-ms <ms>]   (DRY-RUN: polls track workspace-activity; recommends launching a conductor if work is stalled and none is live — h2a does NOT spawn; launch parked pending spawn policy + remote)",
     "  h2a conductor-launch --workspace <id|path> [--root <path>] [--idle-ms <ms>] [--confirm] [--remote <instance>] [--instance <self>]   (D3 EMIT: if stalled+no conductor, emits a launch-REQUEST envelope to a live remote agent — gated by --confirm + 1/30min/workspace cap; h2a NEVER spawns; remote does the actual spawn)",
-    "  h2a doctor [--root <path>] [--scan <dir>] [--prune]   (--prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
+    "  h2a doctor [--root <path>] [--scan <dir>] [--prune] [--repair] [--dry-run]   (--repair converges Claude/Codex plugin installs; --repair --dry-run reports host findings/actions without changing them; --prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
     "  h2a keepalive [--root <path>] [--interval <ms>] [--once]   (external keepalive prober — refreshes presence for agents whose tmux pane is still alive)",
     "  h2a rename --instance <id> --name <name> [--root <path>]   (set a live session's display name so peers can find it via discover --name)",
     "  h2a status [--root <path>] [--scope <s>] [--instance <i>]",
@@ -5073,7 +5087,8 @@ export function cmdConductorLaunch(
 
 function cmdDoctor(
   flags: Record<string, string>,
-  streams: H2ACliStreams
+  streams: H2ACliStreams,
+  options: H2ACliOptions = {}
 ): number {
   const cwd = streams.cwd ?? (() => process.cwd());
   const root = resolveRoot(flags, cwd);
@@ -5137,6 +5152,69 @@ function cmdDoctor(
 
   // 4. h2a binary reachable (self-check via existing API)
   checks.cliBinary = { ok: true };
+
+  // 5. `doctor` remains the non-mutating bus-health probe used by automation.
+  // `--repair` is the single explicit host-installation convergence action: it
+  // is allowed to touch host configuration/caches and invoke native host CLIs.
+  // That keeps an ordinary isolated-bus probe independent of the operator's
+  // personal Claude/Codex setup while retaining a fail-closed repair surface.
+  if (flags.repair === "true") {
+    const dryRun = flags["dry-run"] === "true";
+    const hostInstallations = (options.doctorHostInstallations ?? doctorHostInstallations)({ repair: true, dryRun });
+    checks.hostInstallations = hostInstallations;
+    if (!hostInstallations.ok) {
+      report.ok = false;
+      report.unrepaired = hostInstallations.hosts.flatMap((host) =>
+        host.unrepaired.length > 0 ? host.unrepaired : host.findings
+      );
+    }
+
+    // Config changes apply only when the host creates a new MCP stdio child.
+    // Presence can prove that an existing session predates a repair marker;
+    // that is the complete restart guarantee, not an attempted reconstruction
+    // of every artifact an external process may have loaded.
+    try {
+      const liveHostSessions = findLiveSessionsPredatingHostConfig(
+        listPresence(root, { sweep: false }),
+        hostInstallations.hosts
+      );
+      checks.liveHostSessions = {
+        ok: liveHostSessions.length === 0,
+        restartRequired: liveHostSessions
+      };
+      if (liveHostSessions.length > 0) {
+        report.ok = false;
+        const unrepaired = (report.unrepaired as Array<Record<string, unknown>> | undefined) ?? [];
+        unrepaired.push(
+          ...liveHostSessions.map((session) => ({
+            code: "live-session-restart-required",
+            message: session.message,
+            host: session.host,
+            sessionId: session.sessionId
+          }))
+        );
+        report.unrepaired = unrepaired;
+      }
+    } catch (error) {
+      report.ok = false;
+      checks.liveHostSessions = {
+        ok: false,
+        message: `cannot verify live host sessions: ${(error as Error).message}`
+      };
+      const unrepaired = (report.unrepaired as Array<Record<string, unknown>> | undefined) ?? [];
+      unrepaired.push({
+        code: "live-session-check-unavailable",
+        message: `cannot verify live host sessions: ${(error as Error).message}`
+      });
+      report.unrepaired = unrepaired;
+    }
+  } else {
+    checks.hostInstallations = {
+      ok: true,
+      skipped: true,
+      message: "pass --repair to detect and converge Claude/Codex host installation drift"
+    };
+  }
 
   // ── Warning checks (do NOT flip report.ok) ──────────────────────────────
 
@@ -5916,7 +5994,7 @@ function targetSpecFor(
   if (host === "claude") {
     return {
       host: "claude",
-      userBase: join(homedir(), ".claude", "skills"),
+      userBase: join(resolveHostConfigRoot("claude"), "skills"),
       projectBase: join(cwd, ".claude", "skills"),
       extension: "SKILL.md",
       write: (base, skillName, _parsed, raw) => {
@@ -5938,7 +6016,9 @@ function targetSpecFor(
     const projectDir = host === "codex" ? ".codex" : host === "hermes" ? ".hermes" : ".opencode";
     return {
       host,
-      userBase: join(homedir(), homeDir, "skills"),
+      userBase: host === "codex"
+        ? join(resolveHostConfigRoot("codex"), "skills")
+        : join(homedir(), homeDir, "skills"),
       projectBase: join(cwd, projectDir, "skills"),
       extension: "SKILL.md",
       write: (base, skillName, _parsed, raw) => {
@@ -6762,7 +6842,8 @@ export function runCli(
   streams: H2ACliStreams = {
     stdout: process.stdout,
     stderr: process.stderr
-  }
+  },
+  options: H2ACliOptions = {}
 ): number {
   const { command, flags } = parseFlags(argv);
 
@@ -6876,7 +6957,7 @@ export function runCli(
   if (command === "thread") return cmdThread(flags, streams);
   if (command === "sessions") return cmdSessions(flags, streams);
   if (command === "status") return cmdStatus(flags, streams);
-  if (command === "doctor") return cmdDoctor(flags, streams);
+  if (command === "doctor") return cmdDoctor(flags, streams, options);
   if (command === "presence-reap") return cmdPresenceReap(flags, streams);
   if (command === "connect") return cmdConnect(flags, streams);
   if (command === "conductor") return cmdConductor(argv.slice(1), streams);
