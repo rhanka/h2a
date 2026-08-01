@@ -92,9 +92,21 @@ cas() {
   local bus="$home/bus" out="$home/rapport.json"
   HOME="$home" PATH="$chemin" node "$DOCTOR_BIN" init --root "$bus" >/dev/null 2>&1
   HOME="$home" PATH="$chemin" node "$DOCTOR_BIN" doctor --root "$bus" --repair --dry-run --format json > "$out" 2>/dev/null
+  local sortie=$?
   local f ok
   f=$(findings_de "$out" codex); ok=$(ok_de "$out")
-  printf '  %s. %-46s ok=%-9s findings=%s\n' "$num" "$libelle" "$ok" "${f:-aucun}"
+  printf '  %s. %-46s sortie=%-2s ok=%-9s findings=%s\n' "$num" "$libelle" "$sortie" "$ok" "${f:-aucun}"
+
+  # LE CODE DE SORTIE FAIT PARTIE DU CONTRAT. Une revue independante a mesure qu-un doctor mutant
+  # emettant les JSON attendus mais sortant TOUJOURS 42 faisait passer les quatre cas et sortir la
+  # sonde a 0. C-est exactement le correctif que j-avais deja ecrit pour probe-oracle.sh et que je
+  # n-avais pas porte ici : un correctif limite a l-occurrence ou je l-avais trouve.
+  local attendu; [ "$ok_attendu" = "true" ] && attendu=0 || attendu=2
+  if [ "$sortie" != "$attendu" ]; then
+    echo "     ECHEC : code de sortie $sortie, attendu $attendu pour ok=$ok_attendu."
+    echo "             Le rapport et le code de sortie doivent dire la MEME chose. $pourquoi"
+    VERDICT=1
+  fi
 
   # 1. le rapport doit etre LISIBLE. Un JSON absent ou malforme n-est pas un succes silencieux.
   if [ "$f" = "ILLISIBLE" ] || [ "$ok" = "ILLISIBLE" ] || [ "$f" = "HOTE-ABSENT" ]; then
@@ -143,8 +155,13 @@ CODEX_HOME_CAS3="$H3/verrou/.codex"
 H3BUS="$H3/bus"
 HOME="$H3" node "$DOCTOR_BIN" init --root "$H3BUS" >/dev/null 2>&1
 HOME="$H3" CODEX_HOME="$CODEX_HOME_CAS3" PATH="$PATH_SANS_CLI" node "$DOCTOR_BIN" doctor --root "$H3BUS" --repair --dry-run --format json > "$H3/rapport.json" 2>/dev/null
+SORTIE3=$?
 F3=$(findings_de "$H3/rapport.json" codex); OK3=$(ok_de "$H3/rapport.json")
-printf '  3. %-46s ok=%-9s findings=%s\n' "CODEX_HOME declare, parent chmod 000 (EACCES)" "$OK3" "${F3:-aucun}"
+printf '  3. %-46s sortie=%-2s ok=%-9s findings=%s\n' "CODEX_HOME declare, parent chmod 000 (EACCES)" "$SORTIE3" "$OK3" "${F3:-aucun}"
+if [ "$SORTIE3" != "2" ]; then
+  echo "     ECHEC : code de sortie $SORTIE3, attendu 2 sur une racine declaree illisible."
+  VERDICT=1
+fi
 if [ "$F3" = "ILLISIBLE" ] || [ "$OK3" = "ILLISIBLE" ] || [ "$F3" = "HOTE-ABSENT" ]; then
   echo "     ECHEC : rapport illisible. Un cas qu-on ne peut pas LIRE n-est pas un cas qui PASSE."
   VERDICT=1
