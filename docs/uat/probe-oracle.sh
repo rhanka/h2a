@@ -179,6 +179,11 @@ echo "=== comment conclure =====================================================
 # L'assertion doit porter sur LA LIGNE du serveur nomme exactement `h2a`, pas sur la sortie
 # entiere : un grep global rendrait VALIDE si n'importe quelle autre ligne contenait mcp-serve.
 LIGNE_H2A=$(awk '$1 == "h2a" { $1=""; print; exit }' "$MCP_OUT")
+# MAIS verifier l-entree NOMMEE ne suffit pas : une revue independante a mesure qu-un SECOND endpoint
+# H2A passait avec Oracle 2 OK, parce que je controlais l-entree que je CONNAIS au lieu de compter.
+# La doctrine du depot interdit le double endpoint ; un oracle qui ne compte pas ne peut pas le voir.
+# On compte toute ligne dont la COMMANDE ou les ARGS trahissent un serveur H2A, quel que soit son nom.
+NB_H2A=$(awk 'NR>1 && ($0 ~ /mcp-serve/ || $0 ~ /ANCIEN-mcp\.js/) { n++ } END { print n+0 }' "$MCP_OUT")
 # Le CONTRAT PUBLIC de doctor fait partie de l-oracle. Une revue a mesure : doctor sorti a 2 avec
 # report.ok=false, les deux oracles verts, et ce script rendait 0. Si l-hote va bien et que doctor
 # dit le contraire, l-un des deux a tort et il faut le dire - un desaccord n-est pas un succes.
@@ -195,6 +200,13 @@ grep -qi "failed to load marketplace\|^Error" "$MKT_OUT" && MKT_MORT=1
 # (declaration retiree : elle se trouvait APRES le relevement du drapeau d-echec natif de la ligne
 #  precedente, donc elle REMETTAIT VERDICT a 0 et effacait le seul signal << codex a echoue >>.
 #  Mesure par une jambe de revue independante. VERDICT est declare une seule fois, en tete.)
+
+if [ "$NB_H2A" -gt 1 ]; then
+  VERDICT=1
+  echo "  INVALIDE : $NB_H2A endpoints H2A servis simultanement. La doctrine du depot en exige UN."
+  echo "             Un second endpoint est l-incoherence n.5 du dossier, et verifier seulement"
+  echo "             l-entree nommee 'h2a' ne peut pas la voir : il faut COMPTER."
+fi
 
 if [ "$SERT_ANCIEN" = "1" ]; then
   VERDICT=1
