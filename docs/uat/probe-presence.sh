@@ -74,21 +74,48 @@ findings_de() { # $1=rapport json  $2=hote
 }
 ok_de() { node -e 'try{const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(r.ok))}catch{process.stdout.write("ILLISIBLE")}' "$1"; }
 
-# $1=libelle  $2=HOME  $3=attendu-contient|attendu-ne-contient-pas  $4=code  $5=justification
+# UNE REVUE INDEPENDANTE A MESURE QUE CETTE MATRICE POUVAIT ETRE VERTE SUR UN PRODUIT CASSE.
+# Mes branches << absent >> ne verifiaient que l-ABSENCE du code vise - or un rapport ILLISIBLE
+# satisfait aussi << ce code est absent >>. Un produit rendant un JSON valide au cas 1 puis plantant
+# aux cas 2, 3 et 4 faisait donc sortir la matrice a 0. C-est le fail-open, dans le fichier meme que
+# j-avais ecrit pour l-empecher : un garde construit a partir des exemples qu-on lui a donnes ne
+# protege que ces exemples.
+#
+# Chaque cas exige desormais TROIS choses, pas une : un rapport JSON LISIBLE, l-etat `ok` ATTENDU,
+# et un finding POSITIF attendu. Nommer ce qui doit etre la vaut mieux que constater ce qui manque.
+#
+# $1=numero $2=libelle $3=HOME $4=ok attendu (true|false) $5=finding EXIGE $6=finding INTERDIT
+# $7=justification $8=PATH
 cas() {
-  local libelle="$2" home="$3" sens="$4" code="$5" pourquoi="$6" num="$1" chemin="${7:-$PATH}"
+  local num="$1" libelle="$2" home="$3" ok_attendu="$4" exige="$5" interdit="$6" pourquoi="$7"
+  local chemin="${8:-$PATH}"
   local bus="$home/bus" out="$home/rapport.json"
   HOME="$home" PATH="$chemin" node "$DOCTOR_BIN" init --root "$bus" >/dev/null 2>&1
   HOME="$home" PATH="$chemin" node "$DOCTOR_BIN" doctor --root "$bus" --repair --dry-run --format json > "$out" 2>/dev/null
   local f ok
   f=$(findings_de "$out" codex); ok=$(ok_de "$out")
   printf '  %s. %-46s ok=%-9s findings=%s\n' "$num" "$libelle" "$ok" "${f:-aucun}"
-  case "$sens" in
-    contient)
-      case ",$f," in *",$code,"*) ;; *) echo "     ECHEC : '$code' attendu et absent. $pourquoi"; VERDICT=1;; esac;;
-    absent)
-      case ",$f," in *",$code,"*) echo "     ECHEC : '$code' present alors qu-il est INTERDIT ici. $pourquoi"; VERDICT=1;; *) ;; esac;;
-  esac
+
+  # 1. le rapport doit etre LISIBLE. Un JSON absent ou malforme n-est pas un succes silencieux.
+  if [ "$f" = "ILLISIBLE" ] || [ "$ok" = "ILLISIBLE" ] || [ "$f" = "HOTE-ABSENT" ]; then
+    echo "     ECHEC : rapport illisible ou hote absent du rapport. Un cas qu-on ne peut pas LIRE"
+    echo "             n-est pas un cas qui PASSE. $pourquoi"
+    VERDICT=1
+    return 0
+  fi
+  # 2. l-etat ok doit etre celui attendu, explicitement.
+  if [ "$ok" != "$ok_attendu" ]; then
+    echo "     ECHEC : ok=$ok, attendu $ok_attendu. $pourquoi"
+    VERDICT=1
+  fi
+  # 3. le finding EXIGE doit etre la - sinon la matrice serait satisfaite par un produit muet.
+  if [ -n "$exige" ]; then
+    case ",$f," in *",$exige,"*) ;; *) echo "     ECHEC : '$exige' attendu et ABSENT. $pourquoi"; VERDICT=1;; esac
+  fi
+  # 4. le finding INTERDIT ne doit pas y etre.
+  if [ -n "$interdit" ]; then
+    case ",$f," in *",$interdit,"*) echo "     ECHEC : '$interdit' present alors qu-il est INTERDIT ici. $pourquoi"; VERDICT=1;; *) ;; esac
+  fi
 }
 
 echo "=== une erreur n-est pas une absence : matrice adverse ===================="
@@ -98,14 +125,14 @@ echo
 
 # --- 1. ENOENT franc : la racine n-existe pas. host-not-installed est LEGITIME.
 H1="$ROOT/h1"; mkdir -p "$H1"
-cas 1 "ENOENT franc, ET aucune CLI hote joignable" "$H1" contient "host-not-installed" \
-  "Absence prouvee sur les DEUX signaux : c-est le seul cas qui autorise host-not-installed, et le correctif de la manche 19 en depend." \
+cas 1 "ENOENT franc, ET aucune CLI hote joignable" "$H1" true "host-not-installed" "" \
+  "Absence prouvee sur les DEUX signaux : le seul cas qui autorise host-not-installed. La manche 19 en depend." \
   "$PATH_SANS_CLI"
 
 # --- 2. symlink casse : la racine EXISTE en tant qu-entree, sa cible non.
 H2="$ROOT/h2"; mkdir -p "$H2"; ln -s "$ROOT/cible-inexistante" "$H2/.codex"
-cas 2 "symlink casse, sans CLI joignable" "$H2" absent "host-not-installed" \
-  "Un lien casse n-est pas une absence : c-est une installation cassee. Mesure par deux relectures independantes." \
+cas 2 "symlink casse, sans CLI joignable" "$H2" false "host-config-unavailable" "host-not-installed" \
+  "Un lien casse n-est pas une absence : c-est une installation cassee, et elle doit etre NOMMEE, pas seulement non-classee absente." \
   "$PATH_SANS_CLI"
 
 # --- 3. parent illisible : la racine existe mais ne peut pas etre lue (EACCES).
@@ -118,6 +145,14 @@ HOME="$H3" node "$DOCTOR_BIN" init --root "$H3BUS" >/dev/null 2>&1
 HOME="$H3" CODEX_HOME="$CODEX_HOME_CAS3" PATH="$PATH_SANS_CLI" node "$DOCTOR_BIN" doctor --root "$H3BUS" --repair --dry-run --format json > "$H3/rapport.json" 2>/dev/null
 F3=$(findings_de "$H3/rapport.json" codex); OK3=$(ok_de "$H3/rapport.json")
 printf '  3. %-46s ok=%-9s findings=%s\n' "CODEX_HOME declare, parent chmod 000 (EACCES)" "$OK3" "${F3:-aucun}"
+if [ "$F3" = "ILLISIBLE" ] || [ "$OK3" = "ILLISIBLE" ] || [ "$F3" = "HOTE-ABSENT" ]; then
+  echo "     ECHEC : rapport illisible. Un cas qu-on ne peut pas LIRE n-est pas un cas qui PASSE."
+  VERDICT=1
+fi
+case ",$F3," in
+  *",host-config-unavailable,"*) ;;
+  *) echo "     ECHEC : 'host-config-unavailable' attendu et ABSENT sur une racine declaree illisible."; VERDICT=1;;
+esac
 case ",$F3," in
   *",host-not-installed,"*)
     echo "     ECHEC : 'host-not-installed' sur une racine EXPLICITEMENT declaree que doctor n-a"
@@ -132,8 +167,8 @@ chmod 755 "$H3/verrou" 2>/dev/null
 
 # --- 4. controle positif : racine vide mais LISIBLE. Doit diagnostiquer, pas se taire.
 H4="$ROOT/h4"; mkdir -p "$H4/.codex"
-cas 4 "racine vide mais LISIBLE, sans CLI (controle positif)" "$H4" absent "host-not-installed" \
-  "Une racine visible et vide est un artefact PRESENT : une installation a diagnostiquer, pas un hote absent." \
+cas 4 "racine vide mais LISIBLE, sans CLI (controle positif)" "$H4" false "marketplace-missing" "host-not-installed" \
+  "Une racine visible et vide est un artefact PRESENT : une installation a DIAGNOSTIQUER. Exiger un finding reel, sinon un produit muet passerait." \
   "$PATH_SANS_CLI"
 
 echo
