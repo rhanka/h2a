@@ -167,6 +167,8 @@ interface MutableHostReport {
 interface TomlTable {
   readonly header: string;
   readonly lines: readonly string[];
+  readonly raw?: string;
+  readonly span?: { readonly start: number; readonly end: number };
   readonly containsMultilineString?: boolean;
   readonly opaqueReason?: string;
   readonly opaqueLabel?: string;
@@ -489,16 +491,44 @@ function parseTomlTables(content: string): ParsedTomlTables {
   const result: TomlTable[] = [];
   let current: {
     header: string;
-    lines: string[];
+    start: number;
+    end: number;
     containsMultilineString: boolean;
     opaqueReason?: string;
     opaqueLabel?: string;
+    trailingTriviaStart?: number;
   } | undefined;
   let multilineDelimiter: "'''" | '\"\"\"' | undefined;
+  const pushCurrent = (): void => {
+    if (!current) return;
+    const end = current.trailingTriviaStart ?? current.end;
+    if (end > current.start) {
+      const raw = content.slice(current.start, end);
+      result.push({
+        header: current.header,
+        lines: raw.split(/(?<=\n)/),
+        raw,
+        span: { start: current.start, end },
+        containsMultilineString: current.containsMultilineString,
+        opaqueReason: current.opaqueReason,
+        opaqueLabel: current.opaqueLabel
+      });
+    }
+    current = undefined;
+  };
+  const appendCurrentLine = (line: string, start: number, kind: "content" | "blank" | "comment"): void => {
+    if (!current) current = { header: "", start, end: start, containsMultilineString: false };
+    current.end = start + line.length;
+    if (kind === "content") current.trailingTriviaStart = undefined;
+    else if (kind === "comment") current.trailingTriviaStart ??= start;
+  };
+  let offset = 0;
   for (const line of content.split(/(?<=\n)/)) {
+    const lineStart = offset;
+    offset += line.length;
     if (multilineDelimiter) {
       if (!current) return { tables: result, unavailable: "multiline TOML string has no containing table" };
-      current.lines.push(line);
+      appendCurrentLine(line, lineStart, "content");
       current.containsMultilineString = true;
       const end = multilineTomlStringEnd(line, multilineDelimiter, 0);
       if (end.unavailable) return { tables: result, unavailable: end.unavailable };
@@ -507,10 +537,11 @@ function parseTomlTables(content: string): ParsedTomlTables {
     }
     const arrayHeader = /^\s*\[\[([^\]]+)\]\]\s*(?:#.*)?(?:\r?\n)?$/.exec(line);
     if (arrayHeader || /^\s*\[\[/.test(line)) {
-      if (current) result.push(current);
+      pushCurrent();
       current = {
         header: "",
-        lines: [line],
+        start: lineStart,
+        end: offset,
         containsMultilineString: false,
         opaqueReason: "TOML arrays of tables are not framed for targeted rewrite",
         opaqueLabel: arrayHeader ? `[[${arrayHeader[1]}]]` : line.trim()
@@ -522,12 +553,13 @@ function parseTomlTables(content: string): ParsedTomlTables {
       if (current?.header) {
         current.opaqueReason ??= "dotted MCP keys are not framed for targeted rewrite";
         current.opaqueLabel ??= dottedRegion;
-        current.lines.push(line);
+        appendCurrentLine(line, lineStart, "content");
       } else {
-        if (current) result.push(current);
+        pushCurrent();
         current = {
           header: "",
-          lines: [line],
+          start: lineStart,
+          end: offset,
           containsMultilineString: false,
           opaqueReason: "dotted MCP keys are not framed for targeted rewrite",
           opaqueLabel: dottedRegion
@@ -537,11 +569,16 @@ function parseTomlTables(content: string): ParsedTomlTables {
     }
     const header = /^\s*\[([^\]]+)\]\s*(?:#.*)?(?:\r?\n)?$/.exec(line);
     if (header) {
-      if (current) result.push(current);
-      current = { header: header[1], lines: [line], containsMultilineString: false };
+      pushCurrent();
+      current = { header: header[1], start: lineStart, end: offset, containsMultilineString: false };
     } else {
-      if (!current) current = { header: "", lines: [], containsMultilineString: false };
-      current.lines.push(line);
+      const kind = /^\s*#.*(?:\r?\n)?$/.test(line)
+        ? "comment"
+        : /^\s*(?:\r?\n)?$/.test(line)
+          ? "blank"
+          : "content";
+      appendCurrentLine(line, lineStart, kind);
+      if (!current) return { tables: result, unavailable: "TOML line has no containing table" };
       const start = multilineTomlStringStart(line);
       if (start) {
         current.containsMultilineString = true;
@@ -554,7 +591,7 @@ function parseTomlTables(content: string): ParsedTomlTables {
     }
   }
   if (multilineDelimiter) return { tables: result, unavailable: "unterminated multiline TOML string" };
-  if (current) result.push(current);
+  pushCurrent();
   return { tables: result };
 }
 
@@ -640,13 +677,18 @@ function rewriteTomlTables(
   raw: string,
   transform: (table: TomlTable) => readonly string[] | undefined
 ): string {
-  const output: string[] = [];
   const parsed = parseTomlTables(raw);
   if (parsed.unavailable) throw new Error(`cannot safely frame TOML tables: ${parsed.unavailable}`);
+  const output: string[] = [];
+  let cursor = 0;
   for (const table of parsed.tables) {
+    if (!table.span) throw new Error("cannot safely frame TOML table span");
+    output.push(raw.slice(cursor, table.span.start));
     const replacement = transform(table);
     if (replacement) output.push(...replacement);
+    cursor = table.span.end;
   }
+  output.push(raw.slice(cursor));
   return output.join("");
 }
 
@@ -655,7 +697,7 @@ function reportOpaqueTomlRegions(report: MutableHostReport, path: string, tables
     if (!table.opaqueReason) continue;
     report.unrepaired.push(finding(
       "config-invalid",
-      `cannot rewrite opaque Codex TOML region ${table.opaqueLabel ?? "<unknown>"}: ${table.opaqueReason}; it was left byte-identical.`,
+      `cannot rewrite opaque Codex TOML region ${table.opaqueLabel ?? "<unknown>"}: ${table.opaqueReason}; its existing bytes were retained and no rewrite was attempted.`,
       path
     ));
   }
@@ -1716,7 +1758,7 @@ function repairCodexConfig(
     if (plugin && legacyPluginsToDisable.has(table.header)) return setTomlValue(table, "enabled", "false");
     const mcp = tomlQuotedName(table.header, "mcp_servers");
     if (mcp !== undefined && (isDirectH2aMcp(table) || isDirectTrackMcp(table))) return undefined;
-    return table.lines;
+    return [table.raw ?? table.lines.join("")];
   });
   const additions = [
     ...(canonicalMarketplace ? [] : tomlTable(`marketplaces.${H2A_MARKETPLACE_NAME}`, [
@@ -1791,7 +1833,7 @@ function repairCodexConfig(
     const error = atomicConfigurationWrite(
       path,
       raw,
-      rendered.endsWith("\n") ? rendered : `${rendered}\n`,
+      rendered,
       "toml",
       options.testConfigurationWrite,
       revalidateLegacyMarketplacesBeforeReplace
