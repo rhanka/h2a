@@ -122,9 +122,13 @@ export interface HostInstallationReport {
   /** Non-blocking inspection notes; never a host-health or session-freshness verdict. */
   readonly diagnostics: readonly HostInstallationFinding[];
   readonly changed: readonly string[];
-  /** Named configuration regions deliberately retained byte-exact; never a health failure. */
+  /** Deliberately retained host state, named precisely and never a health failure. */
   readonly preserved: readonly HostInstallationFinding[];
-  /** Repair failures that still prevent a healthy host verdict. */
+  /** Operations doctor attempted but could not complete; always prevent a healthy host verdict. */
+  readonly failures: readonly HostInstallationFinding[];
+  /** State doctor needed to verify but could not establish safely; always prevents a healthy host verdict. */
+  readonly unverifiable: readonly HostInstallationFinding[];
+  /** Backward-compatible flat view of blocking failures and unverifiable state. */
   readonly unrepaired: readonly HostInstallationFinding[];
   /** Declared artifacts retained for diagnostics and to determine precisely what a repair rewrote. */
   readonly coherencePaths: readonly string[];
@@ -213,7 +217,21 @@ function finding(
 }
 
 function isBlockingFinding(entry: HostInstallationFinding): boolean {
-  return entry.code !== "config-preserved" && entry.code !== "orphan-cache" && entry.code !== "host-not-installed" && entry.code !== "host-cli-unreachable";
+  return entry.code !== "config-preserved" && entry.code !== "orphan-cache" && entry.code !== "host-not-installed";
+}
+
+type HostFindingBucket = "preserved" | "failure" | "unverifiable";
+
+function hostFindingBucket(entry: HostInstallationFinding): HostFindingBucket {
+  if (["config-preserved", "orphan-cache", "host-not-installed"].includes(entry.code)) return "preserved";
+  if (["config-invalid", "host-cli-unavailable", "host-config-unavailable", "ownership-unverified", "runtime-artifact-unavailable"].includes(entry.code)) {
+    return "unverifiable";
+  }
+  return "failure";
+}
+
+function uniqueFindings(entries: readonly HostInstallationFinding[]): HostInstallationFinding[] {
+  return [...new Set(entries)];
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -2274,14 +2292,25 @@ function combineAfterRepair(before: MutableHostReport, after: MutableHostReport)
 }
 
 function freezeReport(report: MutableHostReport): HostInstallationReport {
+  const outcomes = uniqueFindings([
+    ...report.preserved,
+    ...report.unrepaired,
+    ...report.findings,
+    ...report.diagnostics
+  ]);
+  const preserved = outcomes.filter((entry) => hostFindingBucket(entry) === "preserved");
+  const failures = outcomes.filter((entry) => hostFindingBucket(entry) === "failure");
+  const unverifiable = outcomes.filter((entry) => hostFindingBucket(entry) === "unverifiable");
   return {
     host: report.host,
-    ok: report.unrepaired.every((entry) => !isBlockingFinding(entry)) && report.findings.every((entry) => !isBlockingFinding(entry)),
+    ok: failures.length === 0 && unverifiable.length === 0,
     findings: report.findings,
     diagnostics: report.diagnostics,
     changed: report.changed,
-    preserved: report.preserved,
-    unrepaired: report.unrepaired,
+    preserved,
+    failures,
+    unverifiable,
+    unrepaired: [...failures, ...unverifiable],
     coherencePaths: report.coherencePaths,
     plannedActions: report.plannedActions,
     repairMarkerPath: report.repairMarkerPath,
@@ -2331,7 +2360,7 @@ export function doctorHostInstallations(
         ? repairCodex(home, version, runner, writeMarker, dryRun, options.testConfigurationWrite, cliReachable)
         : inspectCodex(home, version);
     }
-    if (!cliReachable) report.diagnostics.push(unreachableHostCliDiagnostic(host, artifacts.present));
+    if (!cliReachable) report.unrepaired.push(unreachableHostCliDiagnostic(host, artifacts.present));
     return report;
   };
   const mutable = [inspectOrRepair("claude"), inspectOrRepair("codex")];
