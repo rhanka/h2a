@@ -108,6 +108,33 @@ describe("llm-gateway account quota fallback", () => {
     expect(selectFallbackAccount("claude-a")?.id).toBe("codex-a");
   });
 
+  it("does not downgrade a constrained Codex fallback to a raw key", () => {
+    vi.stubEnv(
+      "GATEWAY_ACCOUNTS",
+      JSON.stringify([
+        {
+          id: "codex-oauth",
+          provider: "openai",
+          label: "Codex OAuth",
+          token: "codex.header.signature",
+        },
+        {
+          id: "codex-raw",
+          provider: "openai",
+          label: "Raw API key",
+          token: "sk-must-not-receive-context",
+        },
+      ]),
+    );
+    resetAccountsCache();
+
+    expect(
+      selectFallbackAccount("codex-oauth", Date.now(), {
+        requiredTransport: "codex-responses",
+      }),
+    ).toBeUndefined();
+  });
+
   it("expired exhaustion windows are pruned on read", () => {
     vi.stubEnv(
       "GATEWAY_ACCOUNTS",
