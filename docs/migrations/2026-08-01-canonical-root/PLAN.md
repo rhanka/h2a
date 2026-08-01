@@ -42,8 +42,13 @@ migration**, reversible-first, pin removal last.
    a future reader must see the link was conferred, not calculated (arch: an agent self-attesting is
    refused; the principal conferring an actor's identity proves nothing, it founds — no infinite
    regression). arch visas each such edge when it is made, not as part of the migration.
-4. **Key switch (last, irreversible): MOVE the 380 pin keys to default + keep pin as backup.**
-   NOT duplicate (arch: no doubling of secret exposure on an unenforced host).
+4. **Key switch: COPY the 380 pin keys to default; pin is quarantined read-only at phase 6.**
+   The mechanism is a copy, but the **net effect is a MOVE-with-backup, not a live duplication**:
+   once the pin is quarantined (phase 6) it is no longer authoritative, so the 380 keys are live at
+   exactly one place, with the pin as an inert rollback. The transient window (keys copied, pin not
+   yet quarantined) doesn't widen access — this host already has no read restriction between the two
+   stores (see the reason-next-to-conclusion). NOT a duplication left live (arch: no doubling of
+   secret exposure on an unenforced host).
 5. **Verify superset** — recount every id/key/alias; one miss => STOP. Final re-scan of the pin
    immediately before removal (runtime: `pop` deletes on read, so late mail must be caught).
 6. **Remove the pin** (GATED: runtime GO + arch visa) — last step. Then **quarantine** the pinned

@@ -58,8 +58,8 @@ log(`  legacy-label dirs PRESERVED-NOT-MERGED (attestation, out of band): ${lega
 const pinKeys = ls(join(PIN, "keys"));
 const defKeys = new Set(ls(join(DEF, "keys")));
 const collide = pinKeys.filter((k) => defKeys.has(k));
-log("PHASE 4 — keys (MOVE, not duplicate; pin kept as read-only backup):");
-log(`  ${DRY_RUN ? "WOULD move" : "moved"} ${pinKeys.length} keys.`);
+log("PHASE 4 — keys (COPY to default now; pin quarantined read-only at phase 6 => net MOVE, not live duplication):");
+log(`  ${DRY_RUN ? "WOULD copy" : "copied"} ${pinKeys.length} keys to default (pin stays readable until the phase-6 quarantine — net effect is a move-with-backup, NOT a duplication left live).`);
 log(`  overwrite check (pin ∩ default names): ${collide.length}  ${collide.length ? "!!! COLLISION — STOP" : "(none — safe both directions)"}`);
 if (collide.length) { console.error("ABORT: key-name collision would overwrite default keys."); process.exit(3); }
 for (const k of pinKeys) track(join(DEF, "keys", k));
