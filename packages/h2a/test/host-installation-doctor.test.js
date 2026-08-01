@@ -543,6 +543,79 @@ test("doctor fails closed when an explicitly configured host root is inaccessibl
   }
 });
 
+test("doctor treats an explicitly configured CODEX_HOME below a file as broken", () => {
+  const home = join(tmpdir(), `h2a-host-doctor-declared-root-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const declaredParent = join(home, "not-a-directory");
+  const declaredRoot = join(declaredParent, "codex");
+  const previousPath = process.env.PATH;
+  const previousCodexRoot = process.env.CODEX_HOME;
+  const previousClaudeRoot = process.env.CLAUDE_CONFIG_DIR;
+  try {
+    mkdirSync(home, { recursive: true });
+    writeFileSync(declaredParent, "not a directory\n");
+    process.env.PATH = join(home, "empty-bin");
+    process.env.CODEX_HOME = declaredRoot;
+    delete process.env.CLAUDE_CONFIG_DIR;
+
+    const report = productionDoctorHostInstallations({ home, version: VERSION, repair: true });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
+    assert.equal(codex?.findings.some((entry) => entry.code === "host-not-installed"), false, JSON.stringify(codex, null, 2));
+    assert.ok(
+      codex?.findings.some((entry) => entry.code === "host-config-unavailable" && /CODEX_HOME.*ENOTDIR/.test(entry.message)),
+      JSON.stringify(codex, null, 2)
+    );
+  } finally {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousCodexRoot === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexRoot;
+    if (previousClaudeRoot === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previousClaudeRoot;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor treats an unreadable PATH probe as unavailable instead of absent", () => {
+  const home = join(tmpdir(), `h2a-host-doctor-unreadable-path-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const inaccessibleBin = join(home, "inaccessible-bin");
+  const previousPath = process.env.PATH;
+  const previousCodexRoot = process.env.CODEX_HOME;
+  const previousClaudeRoot = process.env.CLAUDE_CONFIG_DIR;
+  let restricted = false;
+  try {
+    mkdirSync(inaccessibleBin, { recursive: true });
+    writeFileSync(join(inaccessibleBin, "codex"), "#!/bin/sh\nexit 0\n");
+    chmodSync(inaccessibleBin, 0o000);
+    restricted = true;
+    process.env.PATH = inaccessibleBin;
+    delete process.env.CODEX_HOME;
+    delete process.env.CLAUDE_CONFIG_DIR;
+
+    const report = productionDoctorHostInstallations({ home, version: VERSION, repair: true });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
+    assert.equal(codex?.findings.some((entry) => entry.code === "host-not-installed"), false, JSON.stringify(codex, null, 2));
+    assert.ok(
+      codex?.findings.some((entry) => entry.code === "host-cli-unavailable" && /EACCES/.test(entry.message)),
+      JSON.stringify(codex, null, 2)
+    );
+  } finally {
+    if (restricted) chmodSync(inaccessibleBin, 0o700);
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    if (previousCodexRoot === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexRoot;
+    if (previousClaudeRoot === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previousClaudeRoot;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor inspects a visible empty configured root even when its CLI is unavailable", () => {
   const home = join(tmpdir(), `h2a-host-doctor-empty-root-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   try {
@@ -616,6 +689,52 @@ test("doctor preserves a visible single-quoted local Codex marketplace", () => {
     assert.equal(readFileSync(codexPath, "utf8"), config);
     assert.ok(codex?.unrepaired.some((entry) => entry.code === "ownership-unverified"), JSON.stringify(codex, null, 2));
     assert.match(readFileSync(codexPath, "utf8"), /private_metadata = 'must-remain-private'/);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails closed for legacy local marketplace sources it cannot decode", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const tripleMarketplace = "sentropic-local-triple-quoted";
+  const escapedMarketplace = "sentropic-local-escaped";
+  const triplePlugin = "h2a-local-triple-quoted@sentropic-local-triple-quoted";
+  const escapedPlugin = "h2a-local-escaped@sentropic-local-escaped";
+  const tripleSource = join(home, "visible-triple-quoted-marketplace");
+  const escapedSource = join(home, "visible-escaped-marketplace");
+  try {
+    mkdirSync(tripleSource, { recursive: true });
+    mkdirSync(escapedSource, { recursive: true });
+    const escapedTomlSource = escapedSource.replace("visible-escaped-marketplace", "visible\\u002Descaped\\u002Dmarketplace");
+    const config = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n` +
+      `[marketplaces.${tripleMarketplace}]\n` +
+      'source_type = "local"\n' +
+      `source = '''${tripleSource}'''\n` +
+      'private_metadata = "must-remain-triple-private"\n\n' +
+      `[marketplaces.${escapedMarketplace}]\n` +
+      'source_type = "local"\n' +
+      `source = "${escapedTomlSource}"\n` +
+      'private_metadata = "must-remain-escaped-private"\n\n' +
+      `[plugins."${triplePlugin}"]\n` +
+      "enabled = true\n\n" +
+      `[plugins."${escapedPlugin}"]\n` +
+      "enabled = true\n";
+    writeFileSync(codexPath, config);
+
+    const root = join(home, "bus");
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const { exitCode, io, report } = runRepairDoctor(home, root, { runHostCommand: repairRunner(home, []) });
+    const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
+    assert.equal(readFileSync(codexPath, "utf8"), config, "unreadable TOML must not authorize any rewrite");
+    assert.ok(
+      codex?.unrepaired.some((entry) => entry.code === "ownership-unverified"),
+      JSON.stringify(codex, null, 2)
+    );
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

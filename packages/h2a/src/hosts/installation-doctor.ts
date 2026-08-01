@@ -97,6 +97,7 @@ export interface HostInstallationFinding {
     | "host-command-refused"
     | "host-command-unavailable"
     | "host-cli-unreachable"
+    | "host-cli-unavailable"
     | "host-config-unavailable"
     | "host-not-installed"
     | "ownership-unverified"
@@ -460,15 +461,69 @@ function tomlQuotedName(header: string, prefix: string): string | undefined {
   return match?.[1] ?? match?.[2];
 }
 
-function tomlValue(table: TomlTable, key: string): string | undefined {
+function tomlAssignment(table: TomlTable, key: string): string | undefined {
   const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const line = table.lines.slice(1).find((entry) => new RegExp(`^\\s*${escaped}\\s*=`).test(entry));
   if (!line) return undefined;
-  const value = line.slice(line.indexOf("=") + 1).trim().replace(/\s+#.*$/, "");
+  return line.slice(line.indexOf("=") + 1).trim().replace(/\s+#.*$/, "");
+}
+
+function tomlValue(table: TomlTable, key: string): string | undefined {
+  const value = tomlAssignment(table, key);
+  if (value === undefined) return undefined;
   const quoted = /^"((?:\\.|[^"\\])*)"$/.exec(value);
   if (quoted) return quoted[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
   const literal = /^'([^']*)'$/.exec(value);
   return literal ? literal[1] : value;
+}
+
+function decodeTomlBasicString(value: string): string | undefined {
+  if (value.length < 2 || value[0] !== '"' || value.at(-1) !== '"') return undefined;
+  let decoded = "";
+  for (let cursor = 1; cursor < value.length - 1; cursor++) {
+    const character = value[cursor];
+    if (character !== "\\") {
+      if (character < " " || character === '"') return undefined;
+      decoded += character;
+      continue;
+    }
+    const escape = value[++cursor];
+    if (cursor >= value.length - 1) return undefined;
+    const escaped = escape === "b" ? "\b"
+      : escape === "t" ? "\t"
+      : escape === "n" ? "\n"
+      : escape === "f" ? "\f"
+      : escape === "r" ? "\r"
+      : escape === '"' ? '"'
+      : escape === "\\" ? "\\"
+      : undefined;
+    if (escaped !== undefined) {
+      decoded += escaped;
+      continue;
+    }
+    const width = escape === "u" ? 4 : escape === "U" ? 8 : undefined;
+    if (width === undefined) return undefined;
+    const hexadecimal = value.slice(cursor + 1, cursor + 1 + width);
+    if (!new RegExp(`^[0-9A-Fa-f]{${width}}$`).test(hexadecimal)) return undefined;
+    const codePoint = Number.parseInt(hexadecimal, 16);
+    if (codePoint > 0x10FFFF || (codePoint >= 0xD800 && codePoint <= 0xDFFF)) return undefined;
+    decoded += String.fromCodePoint(codePoint);
+    cursor += width;
+  }
+  return decoded;
+}
+
+/**
+ * Return a fully decoded single-line TOML string, or nothing. This intentionally
+ * does not try to approximate multiline TOML syntax: a path that we cannot
+ * decode exactly must never be used as evidence that a local source is absent.
+ */
+function tomlStringValue(table: TomlTable, key: string): string | undefined {
+  const value = tomlAssignment(table, key);
+  if (value === undefined) return undefined;
+  if (/^"/.test(value)) return decodeTomlBasicString(value);
+  const literal = /^'([^']*)'$/.exec(value);
+  return literal?.[1];
 }
 
 function tomlBoolean(table: TomlTable, key: string): boolean | undefined {
@@ -664,10 +719,17 @@ function claudeConfigPaths(home: string): string[] {
 }
 
 type HostConfigurationArtifactState = "absent" | "present" | "unavailable";
+type HostCliReachabilityState = "reachable" | "absent" | "unavailable";
 
 interface HostConfigurationArtifacts {
   readonly present: readonly string[];
   readonly unavailable: readonly { readonly path: string; readonly reason: string }[];
+}
+
+interface HostCliReachability {
+  readonly state: HostCliReachabilityState;
+  readonly unavailablePath?: string;
+  readonly unavailableReason?: string;
 }
 
 function isProvenAbsentFilesystemError(error: unknown): boolean {
@@ -692,7 +754,35 @@ function hostConfigurationArtifactState(path: string): { readonly state: HostCon
   }
 }
 
+function explicitlyConfiguredHostRoot(host: Host): { readonly environment: "CLAUDE_CONFIG_DIR" | "CODEX_HOME"; readonly path: string } | undefined {
+  const environment = host === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+  const path = process.env[environment];
+  return path && path.length > 0 ? { environment, path } : undefined;
+}
+
 function hostConfigurationArtifacts(home: string, host: Host): HostConfigurationArtifacts {
+  const explicitlyConfigured = explicitlyConfiguredHostRoot(host);
+  if (explicitlyConfigured) {
+    try {
+      if (!statSync(explicitlyConfigured.path).isDirectory()) {
+        return {
+          present: [],
+          unavailable: [{
+            path: explicitlyConfigured.path,
+            reason: `${explicitlyConfigured.environment} is explicitly configured but is not a directory`
+          }]
+        };
+      }
+    } catch (error) {
+      return {
+        present: [],
+        unavailable: [{
+          path: explicitlyConfigured.path,
+          reason: `${explicitlyConfigured.environment} is explicitly configured but cannot be inspected (${(error as NodeJS.ErrnoException).code ?? (error as Error).message})`
+        }]
+      };
+    }
+  }
   const candidates = host === "codex"
     ? [codexRoot(home), codexConfigPath(home)]
     : [
@@ -714,20 +804,29 @@ function hostCliCanRunNativeRepair(
   host: Host,
   hasInjectedRunner: boolean,
   testHostCliReachable: HostInstallationDoctorOptions["testHostCliReachable"]
-): boolean {
-  if (testHostCliReachable) return testHostCliReachable(host);
+): HostCliReachability {
+  if (testHostCliReachable) return { state: testHostCliReachable(host) ? "reachable" : "absent" };
   // A runner is the hermetic test double for a reachable native CLI. Production
   // never supplies one, so it always resolves the actual executable on PATH.
-  if (hasInjectedRunner) return true;
-  return (process.env.PATH ?? "").split(delimiter).some((directory) => {
-    if (directory.length === 0) return false;
+  if (hasInjectedRunner) return { state: "reachable" };
+  let unavailable: { path: string; reason: string } | undefined;
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    if (directory.length === 0) continue;
     try {
       const metadata = statSync(join(directory, host));
-      return metadata.isFile() && (metadata.mode & 0o111) !== 0;
-    } catch {
-      return false;
+      if (metadata.isFile() && (metadata.mode & 0o111) !== 0) return { state: "reachable" };
+    } catch (error) {
+      if (!isProvenAbsentFilesystemError(error) && !unavailable) {
+        unavailable = {
+          path: directory,
+          reason: (error as NodeJS.ErrnoException).code ?? (error as Error).message
+        };
+      }
     }
-  });
+  }
+  return unavailable
+    ? { state: "unavailable", unavailablePath: unavailable.path, unavailableReason: unavailable.reason }
+    : { state: "absent" };
 }
 
 function absentHostReport(home: string, host: Host): MutableHostReport {
@@ -769,6 +868,26 @@ function unavailableHostConfigurationReport(
     "host-config-unavailable",
     `${hostName} configuration cannot be inspected safely: ${unavailable.map((entry) => `${entry.path} (${entry.reason})`).join(", ")}.`,
     unavailable[0]?.path
+  ));
+  return report;
+}
+
+function unavailableHostCliReport(home: string, host: Host, cli: HostCliReachability): MutableHostReport {
+  const hostName = host === "claude" ? "Claude" : "Codex";
+  const report: MutableHostReport = {
+    host,
+    findings: [],
+    diagnostics: [],
+    changed: [],
+    unrepaired: [],
+    coherencePaths: [],
+    plannedActions: [],
+    repairMarkerPath: repairMarkerPath(home, host)
+  };
+  report.findings.push(finding(
+    "host-cli-unavailable",
+    `${hostName} CLI cannot be inspected safely on PATH: ${cli.unavailablePath} (${cli.unavailableReason}).`,
+    cli.unavailablePath
   ));
   return report;
 }
@@ -1250,7 +1369,7 @@ function canonicalCodexMarketplaceLines(table: TomlTable | undefined): string[] 
 }
 
 function isOwnedLegacyCodexMarketplace(table: TomlTable): boolean {
-  const source = tomlValue(table, "source");
+  const source = tomlStringValue(table, "source");
   return typeof source === "string" && isOwnedMarketplace(source);
 }
 
@@ -1260,9 +1379,13 @@ interface LegacyCodexMarketplaceAuthorization {
 }
 
 function legacyCodexMarketplaceAuthorization(table: TomlTable): LegacyCodexMarketplaceAuthorization {
-  if (isOwnedLegacyCodexMarketplace(table)) return { removable: true };
-  const source = tomlValue(table, "source");
-  if (tomlValue(table, "source_type") !== "local" || typeof source !== "string") return { removable: false };
+  const sourceType = tomlStringValue(table, "source_type");
+  if (sourceType !== "local") return { removable: false };
+  const source = tomlStringValue(table, "source");
+  if (source === undefined) {
+    return { removable: false, unavailable: "TOML source is not a fully decoded single-line string" };
+  }
+  if (isOwnedMarketplace(source)) return { removable: true };
   try {
     // statSync follows links, matching the path resolution used by Codex.
     // An inaccessible path is not evidence that the target is gone.
@@ -1958,10 +2081,14 @@ export function doctorHostInstallations(
   const writeMarker = options.writeRepairMarker ?? ((path: string, content: string) => writeFileSync(path, content));
   const inspectOrRepair = (host: Host): MutableHostReport => {
     const artifacts = hostConfigurationArtifacts(home, host);
-    const cliReachable = hostCliCanRunNativeRepair(host, options.runHostCommand !== undefined, options.testHostCliReachable);
+    const cli = hostCliCanRunNativeRepair(host, options.runHostCommand !== undefined, options.testHostCliReachable);
     if (artifacts.unavailable.length > 0) {
       return unavailableHostConfigurationReport(home, host, artifacts.unavailable);
     }
+    if (cli.state === "unavailable") {
+      return unavailableHostCliReport(home, host, cli);
+    }
+    const cliReachable = cli.state === "reachable";
     if (!cliReachable && artifacts.present.length === 0) {
       return absentHostReport(home, host);
     }
