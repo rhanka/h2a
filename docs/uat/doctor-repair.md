@@ -89,16 +89,28 @@ build a échoué et rien de ce qui suit n'a de valeur.
 C'est celui qui a bloqué **tous** les plugins codex, h2a compris, pendant que le plugin
 tournait sur un cache 0.85.18 figé.
 
+**Ce que tu vas voir en plus, et qui n'est pas un défaut** : `--repair` répare **tous les hôtes**, pas
+seulement celui que ce scénario met en scène. Si `claude` est joignable sur ta machine, tu verras
+apparaître quatre findings côté Claude — marketplace, plugin, version, endpoints — qui n'ont rien à
+voir avec la source codex disparue qu'on teste ici. Une exécution à froid les a signalés comme
+parasites ; je ne peux pas les supprimer sans restreindre `--repair`, ce qui serait un changement de
+produit fait pour arranger une recette. **Lis-les, ignore-les pour ce scénario, et retrouve-les au
+scénario 3** où ils sont, eux, le sujet.
+
+Les racines sont posées **en préfixe**, jamais exportées — sinon elles fuient dans tous les scénarios
+suivants, ce qu'une exécution à froid a mesuré (suite automatisée à 16 pass / 47 fail, deux sondes
+refusant de démarrer).
+
 ```bash
 mkdir -p $UAT/h1/.codex
 printf '[marketplaces.sentropic]\nsource_type = "local"\nsource = "%s/disparu"\n' "$UAT" \
   > $UAT/h1/.codex/config.toml
 
-HOME=$UAT/h1 $DOCTOR init --root "$UAT/h1/bus"
-HOME=$UAT/h1 $DOCTOR doctor --root "$UAT/h1/bus" --repair --dry-run   # inspecte, ne modifie RIEN
-echo "exit=$?"
-HOME=$UAT/h1 $DOCTOR doctor --root "$UAT/h1/bus" --repair             # répare
-echo "exit=$?"
+HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR init --root "$UAT/h1/bus"
+HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR doctor --root "$UAT/h1/bus" --repair --dry-run
+echo "exit=$?   # inspecte, ne modifie RIEN"
+HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR doctor --root "$UAT/h1/bus" --repair
+echo "exit=$?   # repare"
 ```
 
 **Attendu** : le premier appel **nomme** la source morte (le chemin qui finit par `/disparu`) et
