@@ -9967,6 +9967,14 @@ export function projectAgentsForH2a(): ReturnType<typeof projectRemoteAgents> {
 
 export { projectStatusForH2a };
 
+/**
+ * Status-bar writer surface, consumed by `@sentropic/h2a`'s
+ * `status --write-bars` loop via lazy `import()`: enumerate the sessions whose
+ * installed bar expects prepared files, and resolve where those files live.
+ */
+export { listStatusBarTargets, statusBarFilesForSession, statusBarRoot } from "./tmux.js";
+export type { StatusBarTarget } from "./tmux.js";
+
 /** Open the detailed watcher only for an exact, currently managed session. */
 export function openStatusWindowForH2a(session: string): boolean {
   const exact = listLocalSessions().find((item) => item.name === session);
