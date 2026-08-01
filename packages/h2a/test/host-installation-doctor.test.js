@@ -1095,6 +1095,7 @@ test("doctor repairs framed legacy tables beside untouched Codex skills and hook
     assert.equal(exitCode, 0, io.stderrText);
     assert.equal(report.ok, true, JSON.stringify(report, null, 2));
     assert.equal(codex?.ok, true, JSON.stringify(codex, null, 2));
+    assert.ok(codex?.changed.includes(codexPath), JSON.stringify(codex, null, 2));
     assert.doesNotMatch(repaired, new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
     assert.match(repaired, new RegExp(`\\[plugins\\."${plugin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\][\\s\\S]*enabled = false`));
     assert.ok(repaired.endsWith(opaqueRegions), repaired);
@@ -1210,7 +1211,7 @@ test("doctor repairs a framed legacy table beside named opaque arrays after inst
   }
 });
 
-test("doctor names opaque Codex arrays when a failed native replacement skips the framed rewrite", () => {
+test("doctor does not mark opaque Codex arrays preserved when a failed native replacement skips the framed rewrite", () => {
   const { home, version } = cleanShippedLayoutHome();
   const codexPath = join(home, ".codex", "config.toml");
   const marketplace = "sentropic-local-unverified-replacement";
@@ -1247,13 +1248,8 @@ test("doctor names opaque Codex arrays when a failed native replacement skips th
     assert.equal(exitCode, 2, io.stderrText);
     assert.equal(report.ok, false, JSON.stringify(report, null, 2));
     assert.match(readFileSync(codexPath, "utf8"), new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
-    assert.deepEqual(
-      codex?.preserved
-        .filter((entry) => entry.code === "config-preserved")
-        .map((entry) => entry.message.match(/opaque Codex TOML region (\[\[[^\]]+\]\])/)?.[1]),
-      ["[[skills.config]]", "[[hooks.PreToolUse]]"],
-      JSON.stringify(codex, null, 2)
-    );
+    assert.deepEqual(codex?.changed, [], JSON.stringify(codex, null, 2));
+    assert.deepEqual(codex?.preserved, [], JSON.stringify(codex, null, 2));
     assert.ok(codex?.failures.some((entry) => entry.code === "host-command-failed"), JSON.stringify(codex, null, 2));
     assert.equal(calls.filter((call) => call[0] === "codex").length, 1, JSON.stringify(calls));
   } finally {
