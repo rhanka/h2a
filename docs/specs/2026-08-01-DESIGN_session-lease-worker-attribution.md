@@ -53,17 +53,24 @@ future consumer. It must not live in the slot counter while abandonment lives el
 two readers WILL diverge (one says "lease live", the other "slot free").
 
 ```
-ALIVE(lease, live /proc, now)  ⟺  ¬abandoned(lease, now)  ∧  workerValid(lease, /proc)
+ALIVE(lease, live /proc, now)  ⟺  ¬abandoned(lease, now)  ∧  ¬workerDisproven(lease, /proc)
 
-workerValid(lease, /proc)  ⟺  lease.worker present
-                              ∧ lease.worker.bootId === currentBootId
-                              ∧ /proc/<lease.worker.pid> exists
-                              ∧ /proc/<lease.worker.pid>.startTime === lease.worker.startTime
+// R1 — ABSENT worker is UNKNOWN, NOT disqualifying. A lease with no worker field is not
+// DISPROVEN; it stays ALIVE on abandonment alone until a pass resolves it. Only a
+// PRESENT-but-contradicted worker disproves life.
+workerDisproven(lease, /proc)  ⟺  lease.worker present
+                              ∧ (   lease.worker.bootId !== currentBootId            // dead boot  (R3: reap)
+                                  ∨ /proc/<lease.worker.pid> absent                  // worker gone (R3: contest)
+                                  ∨ /proc/<lease.worker.pid>.startTime !== recorded ) // pid recycled/replaced (R3: contest)
 ```
 
-`workerValid` is a **conjunct of life**, never a display field. Slot count of live leases =
-`leases.filter(l => ALIVE(l, /proc, now))`. Finished-but-alive frees its slot by TTL; a
-recycled pid never counts as a live slot.
+**R1 — safe at deploy.** Because absent `worker` never disproves, at the instant this
+predicate ships — when NO existing lease yet carries the field — it is a NO-OP over the live
+fleet: it reduces to abandonment alone, so no working session is mass-proposed for reclaim. A
+supervising pass then resolves `worker` for leases lacking it (lazy migration); the field
+becomes load-bearing only once populated. `worker` presence is a **conjunct of DISPROOF**,
+never a precondition of life. Slot count of live leases = `leases.filter(l => ALIVE(l, /proc,
+now))`; finished-but-alive frees its slot by TTL; a recycled pid never counts as a live slot.
 
 ## 4. The danger this closes, and the race it opens (arch refinement 2)
 
@@ -81,9 +88,16 @@ to kill it.
 
 PARADE (already in the store's shape): **re-resolution happens under the lease TOKEN, in the
 SAME act as the relaunch** — not after, not by a third-party observer. While the holder
-presents its token, the re-resolution window is protected. Optional explicit `worker:
-"resolving"` state is acceptable ONLY WITH ITS OWN BOUND (a resolving-deadline), else
-"resolving" becomes the new silent hole.
+presents its token, the re-resolution window is protected.
+
+**R2 — the protected window carries its OWN bound, at the same standard I demand of the
+optional state.** If the relaunch HANGS, the holder keeps its token and the window would stay
+open forever — the lease protected against reclaim indefinitely, which is exactly the hole
+forbidden below for `worker: "resolving"`, sitting in the NOMINAL path. So the protection is
+bounded: `now − relaunchStartedAt > resolvingBoundMs` ends it EVEN with a valid token; past
+the bound the lease is reclaimable like any other. "I am relaunching" must not become the new
+"finished-but-alive." The same `resolvingBoundMs` governs the explicit `worker: "resolving"`
+state — acceptable only with this bound, else "resolving" is the new silent hole.
 
 ## 5. Reader before writer (form constraint — from M2, the class this repo mass-produces)
 
@@ -94,9 +108,15 @@ reproduce that identically. So this design NAMES the readers before the writer:
 - **WHO reads `worker`:** the `ALIVE` predicate (§3), consumed by (a) the slot counter,
   (b) the reclaim-proposal reader, (c) the read-back auditor (§6).
 - **WHEN:** every supervising pass, and every slot-admission check.
-- **WHAT HAPPENS WHEN INVALID:** the lease is not ALIVE → its slot is counted free → it
-  becomes a reclaim PROPOSAL (never an automatic kill; this store proposes, a human/conductor
-  disposes), EXCEPT while protected by the relaunch token window (§4).
+- **WHAT HAPPENS WHEN DISPROVEN — and the two cases are NOT the same (R3):**
+  - **dead boot** (`bootId` mismatch): the worker cannot exist — the lease is a corpse from a
+    prior boot. It is REAPED (removed) silently, never proposed. A report that emits a reclaim
+    proposal for every lease after every reboot is noise nobody reads — the failure this repo
+    repeats. A lease from another boot is not CONTESTED, it is DEAD: it is reaped, not proposed.
+  - **contested** (same boot, but `/proc/<pid>` gone or `startTime` mismatch): the worker died
+    or was replaced while we watched. Slot counted free; becomes a reclaim PROPOSAL a
+    human/conductor can see (this store proposes, a human disposes) — EXCEPT inside the bounded
+    relaunch window (§4).
 
 The writer (`acquire`/relaunch populating `worker` via one /proc walk — arch refinement 2b:
 /proc is MOVED to acquire-time, not eliminated; the worker is a grandchild, resolved once by
@@ -116,10 +136,13 @@ the status bar was one case — not just the bar.
 The storm that froze the machine was ~330 `h2a status` processes: ONE node process per refresh
 per session across 57 sessions. The bug was the per-refresh SPAWN, not the session count. An
 auditor implemented as a PER-SESSION probe is that exact form. Therefore, by construction:
-- **ONE pass for the WHOLE fleet, never one per session.** tmux lists every session and its
-  options in a SINGLE invocation (`tmux list-sessions`/`show-options -A`); the auditor reads
-  the whole fleet in one shot and compares in memory. Worker validity likewise: one `/proc`
-  scan, compared against all leases in memory — not one scan per lease.
+- **ONE pass for the WHOLE fleet, never one per session.** tmux returns the marker for EVERY
+  session in ONE invocation via a FORMAT: `tmux list-sessions -F '#{session_name} #{@h2a_status_surface}'`
+  (VERIFIED on tmux 3.6 — prints the custom option per session, one call). NOT
+  `show-options -A -t <session>`, which is PER-TARGET and would force a per-session loop — the
+  exact shape this constraint forbids (R4: the command matters, not just the rule; an
+  implementer follows the cited command). Worker validity likewise: ONE `/proc` scan compared
+  against all leases in memory — not one scan per lease.
 - **NO spawn per refresh.** The audit is a BOUNDED act — on demand, or on a loose cadence —
   NEVER hooked to a render/refresh cycle.
 - **General rule for the whole class fix:** a reader that costs one process per subject is not
