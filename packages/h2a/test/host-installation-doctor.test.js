@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -30,7 +31,49 @@ const fixtureHostCliReachable = () => true;
 // Fixtures model installed hosts; presence is an explicit test input rather
 // than a fact inherited from the developer or CI runner PATH.
 function doctorHostInstallations(options = {}) {
-  return productionDoctorHostInstallations({ testHostCliReachable: fixtureHostCliReachable, ...options });
+  return productionDoctorHostInstallations({
+    testHostCliReachable: fixtureHostCliReachable,
+    testCodexConfigurationOracle: { knownGood: { ok: true }, candidate: { ok: true } },
+    ...options
+  });
+}
+
+const codexCliProbe = spawnSync("codex", ["--version"], { encoding: "utf8", timeout: 10_000 });
+
+function runRealCodexMcpList(codexHome) {
+  return spawnSync("codex", ["mcp", "list"], {
+    cwd: codexHome,
+    encoding: "utf8",
+    timeout: 120_000,
+    // This child-only override is the test's isolation boundary.  It never
+    // reads or writes the owner's configured CODEX_HOME.
+    env: { ...process.env, CODEX_HOME: codexHome }
+  });
+}
+
+function inspectCodexWithItsRealConfigurationOracle(home, codexHome) {
+  const program = [
+    `import { doctorHostInstallations } from ${JSON.stringify(new URL("../dist/index.js", import.meta.url).href)};`,
+    "const report = doctorHostInstallations({ home: process.env.H2A_ORACLE_HOME });",
+    "const codex = report.hosts.find((host) => host.host === 'codex');",
+    "process.stdout.write(JSON.stringify(codex));"
+  ].join("");
+  const startedAt = process.hrtime.bigint();
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", program], {
+    cwd: home,
+    encoding: "utf8",
+    timeout: 120_000,
+    // Both host roots point under this fixture.  The spawned production
+    // doctor therefore validates exactly the root the preceding Codex call
+    // inspected, without touching an inherited owner root.
+    env: {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      CLAUDE_CONFIG_DIR: join(home, ".claude"),
+      H2A_ORACLE_HOME: home
+    }
+  });
+  return { result, elapsedMs: Number(process.hrtime.bigint() - startedAt) / 1_000_000 };
 }
 
 function writeJson(path, value) {
@@ -741,7 +784,7 @@ test("doctor names unreadable dotted Codex MCP keys instead of reporting a false
     assert.equal(report.ok, false, JSON.stringify(report, null, 2));
     assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
     assert.ok(
-      codex?.findings.some((entry) => entry.code === "config-invalid" && /mcp_servers\.local-h2a/.test(entry.message)),
+      codex?.failures.some((entry) => entry.code === "config-invalid" && /mcp_servers\.local-h2a/.test(entry.message)),
       JSON.stringify(codex, null, 2)
     );
   } finally {
@@ -905,13 +948,24 @@ test("doctor fails closed for an opaque Codex MCP array that the host rejects", 
   const codexPath = join(home, ".codex", "config.toml");
   try {
     writeFileSync(codexPath, `${readFileSync(codexPath, "utf8").trimEnd()}\n\n[[mcp_servers.h2a]]\ncommand = "h2a"\n`);
-    const report = doctorHostInstallations({ home, version });
+    const report = doctorHostInstallations({
+      home,
+      version,
+      testCodexConfigurationOracle: {
+        knownGood: { ok: true },
+        candidate: { ok: false, message: "injected Codex configuration rejection" }
+      }
+    });
     const codex = report.hosts.find((host) => host.host === "codex");
 
     assert.equal(report.ok, false, JSON.stringify(report, null, 2));
     assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
     assert.ok(
-      codex?.failures.some((entry) => entry.code === "config-invalid" && entry.message.includes("mcp_servers.h2a")),
+      codex?.failures.some((entry) =>
+        entry.code === "config-invalid" &&
+        entry.path === codexPath &&
+        entry.message.includes("Codex rejected its configuration")
+      ),
       JSON.stringify(codex, null, 2)
     );
     assert.equal(
@@ -923,6 +977,121 @@ test("doctor fails closed for an opaque Codex MCP array that the host rejects", 
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("doctor keeps a Codex configuration unverified when its oracle fails the known-good self-test", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  try {
+    const report = doctorHostInstallations({
+      home,
+      version,
+      testCodexConfigurationOracle: {
+        knownGood: { ok: false, message: "codex mcp list exited 2: unknown subcommand" },
+        candidate: { ok: false, message: "must not be trusted after the failed self-test" }
+      }
+    });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
+    assert.ok(
+      codex?.unverifiable.some((entry) =>
+        entry.code === "host-config-unverifiable" &&
+        entry.path === codexPath &&
+        entry.message.includes("known-good minimal configuration")
+      ),
+      JSON.stringify(codex, null, 2)
+    );
+    assert.equal(
+      codex?.failures.some((entry) => entry.code === "config-invalid"),
+      false,
+      JSON.stringify(codex, null, 2)
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test(
+  "Codex oracle rejects an invalid array MCP table and accepts the framed table",
+  { skip: codexCliProbe.status === 0 ? false : "requires the real codex binary" },
+  (t) => {
+    const { home } = cleanShippedLayoutHome();
+    const codexHome = join(home, ".codex");
+    const codexPath = join(codexHome, "config.toml");
+    const cleanConfig = readFileSync(codexPath, "utf8");
+    const rejectedTables = [
+      { label: "mcp_servers", toml: "[[mcp_servers.h2a]]\ncommand = \"h2a\"\n" },
+      { label: "profiles", toml: "[[profiles.moi]]\nmodel = \"test\"\n" },
+      { label: "model_providers", toml: "[[model_providers.test]]\nname = \"test\"\n" },
+      { label: "tui", toml: "[[tui]]\nname = \"test\"\n" }
+    ];
+    try {
+      for (const fixture of rejectedTables) {
+        writeFileSync(codexPath, `${cleanConfig.trimEnd()}\n\n${fixture.toml}`);
+        const rejected = runRealCodexMcpList(codexHome);
+        assert.notEqual(rejected.status, 0, `${fixture.label}: ${rejected.stderr}\n${rejected.stdout}`);
+        assert.match(`${rejected.stderr}\n${rejected.stdout}`, /failed to load configuration/i);
+
+        const invalidDoctor = inspectCodexWithItsRealConfigurationOracle(home, codexHome).result;
+        assert.equal(invalidDoctor.status, 0, `${fixture.label}: ${invalidDoctor.stderr}\n${invalidDoctor.stdout}`);
+        const invalidCodex = JSON.parse(invalidDoctor.stdout);
+        assert.equal(invalidCodex.ok, false, JSON.stringify(invalidCodex, null, 2));
+        assert.ok(
+          invalidCodex.failures.some((entry) => entry.code === "config-invalid" && /Codex rejected its configuration/.test(entry.message)),
+          JSON.stringify(invalidCodex, null, 2)
+        );
+        assert.equal(
+          invalidCodex.preserved.some((entry) => entry.code === "config-preserved" && entry.path === codexPath),
+          false,
+          JSON.stringify(invalidCodex, null, 2)
+        );
+      }
+
+      writeFileSync(codexPath, cleanConfig);
+      const accepted = runRealCodexMcpList(codexHome);
+      assert.equal(accepted.status, 0, `${accepted.stderr}\n${accepted.stdout}`);
+
+      const validDoctor = inspectCodexWithItsRealConfigurationOracle(home, codexHome);
+      assert.equal(validDoctor.result.status, 0, `${validDoctor.result.stderr}\n${validDoctor.result.stdout}`);
+      const validCodex = JSON.parse(validDoctor.result.stdout);
+      assert.equal(validCodex.ok, true, JSON.stringify(validCodex, null, 2));
+      assert.equal(
+        validCodex.failures.some((entry) => entry.code === "config-invalid"),
+        false,
+        JSON.stringify(validCodex, null, 2)
+      );
+      t.diagnostic(`healthy isolated doctor path, including the Codex acceptance oracle: ${validDoctor.elapsedMs.toFixed(1)} ms`);
+
+      writeFileSync(codexPath, `${cleanConfig.trimEnd()}\n\n[mcp_servers.h2a]\ncommand = "h2a"\n`);
+      const acceptedFramedMcp = runRealCodexMcpList(codexHome);
+      assert.equal(acceptedFramedMcp.status, 0, `${acceptedFramedMcp.stderr}\n${acceptedFramedMcp.stdout}`);
+      const framedMcpDoctor = inspectCodexWithItsRealConfigurationOracle(home, codexHome).result;
+      assert.equal(framedMcpDoctor.status, 0, `${framedMcpDoctor.stderr}\n${framedMcpDoctor.stdout}`);
+      const framedMcpCodex = JSON.parse(framedMcpDoctor.stdout);
+      assert.equal(framedMcpCodex.ok, true, JSON.stringify(framedMcpCodex, null, 2));
+
+      writeFileSync(
+        codexPath,
+        `${cleanConfig.trimEnd()}\n\n[[skills.config]]\npath = "/tmp/keep/SKILL.md"\nenabled = false\n\n[[hooks.PreToolUse]]\nmatcher = "^Bash$"\n\n[[hooks.PreToolUse.hooks]]\ntype = "command"\ncommand = "true"\n`
+      );
+      const acceptedOpaque = runRealCodexMcpList(codexHome);
+      assert.equal(acceptedOpaque.status, 0, `${acceptedOpaque.stderr}\n${acceptedOpaque.stdout}`);
+      const opaqueDoctor = inspectCodexWithItsRealConfigurationOracle(home, codexHome).result;
+      assert.equal(opaqueDoctor.status, 0, `${opaqueDoctor.stderr}\n${opaqueDoctor.stdout}`);
+      const opaqueCodex = JSON.parse(opaqueDoctor.stdout);
+      assert.equal(opaqueCodex.ok, true, JSON.stringify(opaqueCodex, null, 2));
+      for (const label of ["[[skills.config]]", "[[hooks.PreToolUse]]"]) {
+        assert.ok(
+          opaqueCodex.preserved.some((entry) => entry.code === "config-preserved" && entry.message.includes(label)),
+          JSON.stringify(opaqueCodex, null, 2)
+        );
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
+);
 
 test("doctor byte-splices only framed legacy tables around opaque Codex TOML regions", () => {
   const cases = [
@@ -1235,7 +1404,7 @@ test("doctor repairs a framed legacy table beside named opaque arrays after inst
   }
 });
 
-test("doctor does not mark opaque Codex arrays preserved when a failed native replacement skips the framed rewrite", () => {
+test("doctor names accepted opaque Codex arrays even when a separate native replacement fails", () => {
   const { home, version } = cleanShippedLayoutHome();
   const codexPath = join(home, ".codex", "config.toml");
   const marketplace = "sentropic-local-unverified-replacement";
@@ -1273,7 +1442,11 @@ test("doctor does not mark opaque Codex arrays preserved when a failed native re
     assert.equal(report.ok, false, JSON.stringify(report, null, 2));
     assert.match(readFileSync(codexPath, "utf8"), new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
     assert.deepEqual(codex?.changed, [], JSON.stringify(codex, null, 2));
-    assert.deepEqual(codex?.preserved, [], JSON.stringify(codex, null, 2));
+    assert.deepEqual(
+      codex?.preserved.map((entry) => entry.message.match(/opaque Codex TOML region (\[\[[^\]]+\]\])/ )?.[1]),
+      ["[[skills.config]]", "[[hooks.PreToolUse]]"],
+      JSON.stringify(codex, null, 2)
+    );
     assert.ok(codex?.failures.some((entry) => entry.code === "host-command-failed"), JSON.stringify(codex, null, 2));
     assert.equal(calls.filter((call) => call[0] === "codex").length, 1, JSON.stringify(calls));
   } finally {

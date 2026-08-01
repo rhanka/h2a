@@ -19,6 +19,7 @@ import {
   existsSync,
   fsyncSync,
   lstatSync,
+  mkdtempSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -30,7 +31,7 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 
 import type { H2ASession } from "../session.js";
@@ -68,6 +69,11 @@ export interface HostInstallationDoctorOptions {
   readonly runHostCommand?: HostCommandRunner;
   /** Test-only native-CLI reachability override; configuration artifacts decide host installation. */
   readonly testHostCliReachable?: (host: Host) => boolean;
+  /** Test-only responses from the known-good and candidate Codex configuration probes. */
+  readonly testCodexConfigurationOracle?: {
+    readonly knownGood: HostCommandResult;
+    readonly candidate: HostCommandResult;
+  };
   /** Injectable for hermetic tests; production writes the durable repair marker. */
   readonly writeRepairMarker?: (path: string, content: string) => void;
   /** Report host repair findings and planned actions without mutating the host. */
@@ -100,6 +106,7 @@ export interface HostInstallationFinding {
     | "host-cli-unreachable"
     | "host-cli-unavailable"
     | "host-config-unavailable"
+    | "host-config-unverifiable"
     | "host-not-installed"
     | "ownership-unverified"
     | "repair-marker-unavailable"
@@ -189,11 +196,17 @@ interface ParsedTomlTables {
   readonly unavailable?: string;
 }
 
-function defaultHostCommand(command: "claude" | "codex", args: readonly string[]): HostCommandResult {
+function defaultHostCommand(
+  command: "claude" | "codex",
+  args: readonly string[],
+  context?: { readonly env?: NodeJS.ProcessEnv; readonly cwd?: string }
+): HostCommandResult {
   try {
     const result = spawnSync(command, [...args], {
       encoding: "utf8",
-      timeout: 120_000
+      timeout: 120_000,
+      ...(context?.cwd ? { cwd: context.cwd } : {}),
+      ...(context?.env ? { env: context.env } : {})
     });
     if (result.status === 0) return { ok: true };
     const detail = [result.stderr, result.stdout, result.error?.message]
@@ -225,14 +238,20 @@ type HostFindingBucket = "preserved" | "failure" | "unverifiable";
 
 function hostFindingBucket(entry: HostInstallationFinding): HostFindingBucket {
   if (["config-preserved", "orphan-cache", "host-not-installed"].includes(entry.code)) return "preserved";
-  if (["host-cli-unavailable", "host-config-unavailable", "ownership-unverified", "repair-marker-unavailable", "runtime-artifact-unavailable"].includes(entry.code)) {
+  if (["host-cli-unavailable", "host-config-unavailable", "host-config-unverifiable", "ownership-unverified", "repair-marker-unavailable", "runtime-artifact-unavailable"].includes(entry.code)) {
     return "unverifiable";
   }
   return "failure";
 }
 
 function uniqueFindings(entries: readonly HostInstallationFinding[]): HostInstallationFinding[] {
-  return [...new Set(entries)];
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    const key = `${entry.code}\u0000${entry.path ?? ""}\u0000${entry.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -726,34 +745,15 @@ function isNamedOpaqueTomlArray(table: TomlTable): boolean {
   );
 }
 
-function isOpaqueMcpServerRegion(table: TomlTable): boolean {
-  const label = table.opaqueLabel ?? "";
-  return label.startsWith("mcp_servers.") || /^\[\[mcp_servers\.[^\]\r\n]+\]\]$/.test(label);
-}
-
 function reportOpaqueTomlRegions(report: MutableHostReport, path: string, tables: readonly TomlTable[]): void {
   for (const table of tables) {
     if (!table.opaqueReason) continue;
-    // `reportUnreadableDottedMcpRegions` records this separately as config-invalid:
-    // retaining bytes is not a deliberate preservation when Codex rejects its type.
-    if (isOpaqueMcpServerRegion(table)) continue;
     const message = `opaque Codex TOML region ${table.opaqueLabel ?? "<unknown>"}: ${table.opaqueReason}; its existing bytes were retained and no rewrite was attempted.`;
     if (isNamedOpaqueTomlArray(table)) {
       report.preserved.push(finding("config-preserved", `preserved ${message}`, path));
     } else {
       report.unrepaired.push(finding("config-invalid", `cannot rewrite ${message}`, path));
     }
-  }
-}
-
-function reportUnreadableDottedMcpRegions(report: MutableHostReport, path: string, tables: readonly TomlTable[]): void {
-  for (const table of tables) {
-    if (!table.opaqueReason || !isOpaqueMcpServerRegion(table)) continue;
-    report.findings.push(finding(
-      "config-invalid",
-      `cannot inspect Codex MCP region ${table.opaqueLabel}: ${table.opaqueReason}.`,
-      path
-    ));
   }
 }
 
@@ -1239,7 +1239,6 @@ function inspectCodex(home: string, version: string): MutableHostReport {
     return report;
   }
   const tables = parsed.tables;
-  reportUnreadableDottedMcpRegions(report, configPath, tables);
   const marketplaceTables = tables.filter((table) => tomlQuotedName(table.header, "marketplaces") !== undefined);
   const canonical = marketplaceTables.find((table) => tomlQuotedName(table.header, "marketplaces") === H2A_MARKETPLACE_NAME);
   if (!canonicalCodexMarketplace(canonical, home)) {
@@ -1891,7 +1890,6 @@ function repairCodexConfig(
     );
     if (error) throw new Error(error);
     pushUnique(report.changed, path);
-    reportOpaqueTomlRegions(report, path, tables);
   } catch (error) {
     report.unrepaired.push(finding("config-invalid", `cannot write Codex config: ${(error as Error).message}`, path));
   }
@@ -2021,6 +2019,92 @@ function runCommand(
   return false;
 }
 
+/**
+ * A TOML region that doctor deliberately leaves alone is only informational if
+ * Codex can still load the resulting configuration.  Its parser is a framing
+ * safeguard, not a second implementation of Codex's configuration grammar;
+ * `codex mcp list` is therefore the acceptance oracle.
+ */
+function codexOracleContext(codexHome: string): { readonly env: NodeJS.ProcessEnv; readonly cwd: string } {
+  return {
+    cwd: codexHome,
+    // This only changes the spawned Codex process.  It never reads or writes
+    // the owner's CODEX_HOME while checking the disposable known-good root.
+    env: { ...process.env, CODEX_HOME: codexHome }
+  };
+}
+
+function verifyCodexOracleKnownGood(
+  testOracle?: NonNullable<HostInstallationDoctorOptions["testCodexConfigurationOracle"]>
+): HostCommandResult {
+  if (testOracle) return testOracle.knownGood;
+  let oracleHome: string | undefined;
+  let oracleResult: HostCommandResult;
+  try {
+    oracleHome = mkdtempSync(join(tmpdir(), "h2a-codex-config-oracle-"));
+    writeFileSync(join(oracleHome, "config.toml"), "# known-good empty Codex configuration\n");
+    oracleResult = defaultHostCommand("codex", ["mcp", "list"], codexOracleContext(oracleHome));
+  } catch (error) {
+    oracleResult = { ok: false, message: (error as Error).message };
+  }
+  if (oracleHome) {
+    try {
+      rmSync(oracleHome, { recursive: true, force: true });
+    } catch (error) {
+      return { ok: false, message: `cannot remove disposable oracle root: ${(error as Error).message}` };
+    }
+  }
+  return oracleResult;
+}
+
+function verifyCodexConfiguration(
+  home: string,
+  report: MutableHostReport,
+  nativeCliReachable: boolean,
+  testOracle?: NonNullable<HostInstallationDoctorOptions["testCodexConfigurationOracle"]>
+): boolean {
+  if (!nativeCliReachable) return false;
+  const oracleSelfTest = verifyCodexOracleKnownGood(testOracle);
+  const configPath = codexConfigPath(home);
+  if (!oracleSelfTest.ok) {
+    report.unrepaired.push(
+      finding(
+        "host-config-unverifiable",
+        `Codex configuration oracle could not validate a known-good minimal configuration; it did not judge ${configPath}: ${oracleSelfTest.message ?? "unknown error"}`,
+        configPath
+      )
+    );
+    return false;
+  }
+  const result = testOracle?.candidate ?? defaultHostCommand("codex", ["mcp", "list"], codexOracleContext(codexRoot(home)));
+  if (result.ok) return true;
+  // A region is deliberately preserved only when the host accepts the whole
+  // file containing it.  Once the oracle rejects that file, retaining any
+  // config-preserved finding for it would recreate the false-clean verdict.
+  report.preserved = report.preserved.filter(
+    (entry) => !(entry.code === "config-preserved" && entry.path === configPath)
+  );
+  report.unrepaired.push(
+    finding(
+      "config-invalid",
+      `Codex rejected its configuration while running codex mcp list: ${result.message ?? "unknown error"}`,
+      configPath
+    )
+  );
+  return false;
+}
+
+function reportAcceptedOpaqueCodexRegions(home: string, report: MutableHostReport): void {
+  const path = codexConfigPath(home);
+  try {
+    const raw = readFileSync(path, "utf8");
+    const parsed = parseTomlTables(raw);
+    if (!parsed.unavailable) reportOpaqueTomlRegions(report, path, parsed.tables);
+  } catch {
+    // inspectCodex carries a configuration that cannot be read or framed.
+  }
+}
+
 function artifactSnapshots(paths: readonly string[]): Map<string, string> {
   const snapshots = new Map<string, string>();
   for (const path of paths) {
@@ -2049,25 +2133,6 @@ function actualRepairPaths(
     }
   });
   return [...before.changed, ...rewrittenArtifacts];
-}
-
-function reportOpaqueRegionsPreservedByNativeCodexRewrite(
-  home: string,
-  report: MutableHostReport,
-  repairedPaths: readonly string[]
-): void {
-  const path = codexConfigPath(home);
-  if (
-    !repairedPaths.includes(path) ||
-    report.preserved.some((entry) => entry.code === "config-preserved" && entry.path === path)
-  ) return;
-  try {
-    const raw = readFileSync(path, "utf8");
-    const parsed = parseTomlTables(raw);
-    if (!parsed.unavailable) reportOpaqueTomlRegions(report, path, parsed.tables);
-  } catch {
-    // The final inspection reports a configuration we cannot read or frame.
-  }
 }
 
 function removeOwnedCache(
@@ -2203,7 +2268,6 @@ function repairCodex(
     if (before.plannedActions.length > 0) planAction(before, `record repair marker after verified mutation at ${repairMarkerPath(home, "codex")}`);
   } else {
     const repairedPaths = actualRepairPaths(before, afterNativeRepair, beforeArtifacts);
-    reportOpaqueRegionsPreservedByNativeCodexRewrite(home, before, repairedPaths);
     recordRepairMarker(home, before, repairedPaths, writeMarker);
   }
   return combineAfterRepair(before, inspectCodex(home, version));
@@ -2389,6 +2453,19 @@ export function doctorHostInstallations(
       report = repair
         ? repairCodex(home, version, runner, writeMarker, dryRun, options.testConfigurationWrite, cliReachable)
         : inspectCodex(home, version);
+      // `testHostCliReachable` deliberately models only CLI presence for
+      // hermetic fixture tests.  It must not accidentally query a developer's
+      // configured Codex installation; the production path has no such
+      // override and always asks the real host.
+      if (cliReachable && (options.testHostCliReachable === undefined || options.testCodexConfigurationOracle !== undefined)) {
+        const accepted = verifyCodexConfiguration(
+          home,
+          report,
+          cliReachable,
+          options.testCodexConfigurationOracle
+        );
+        if (accepted) reportAcceptedOpaqueCodexRegions(home, report);
+      }
     }
     if (!cliReachable) report.unrepaired.push(unreachableHostCliDiagnostic(host, artifacts.present));
     return report;
