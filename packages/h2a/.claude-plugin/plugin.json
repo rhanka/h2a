@@ -1,7 +1,7 @@
 {
   "name": "h2a",
   "description": "H2A coordination with one MCP endpoint (including Track read tools) and the H2A, Track, and Harness operating skills.",
-  "version": "0.90.0",
+  "version": "0.90.1",
   "author": {
     "name": "Fabien Antoine"
   },
