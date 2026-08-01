@@ -106,10 +106,10 @@ mkdir -p $UAT/h1/.codex
 printf '[marketplaces.sentropic]\nsource_type = "local"\nsource = "%s/disparu"\n' "$UAT" \
   > $UAT/h1/.codex/config.toml
 
-HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR init --root "$UAT/h1/bus"
-HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR doctor --root "$UAT/h1/bus" --repair --dry-run
+env -u CLAUDE_CONFIG_DIR HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR init --root "$UAT/h1/bus"
+env -u CLAUDE_CONFIG_DIR HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR doctor --root "$UAT/h1/bus" --repair --dry-run
 echo "exit=$?   # inspecte, ne modifie RIEN"
-HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR doctor --root "$UAT/h1/bus" --repair
+env -u CLAUDE_CONFIG_DIR HOME=$UAT/h1 CODEX_HOME=$UAT/h1/.codex $DOCTOR doctor --root "$UAT/h1/bus" --repair
 echo "exit=$?   # repare"
 ```
 
@@ -261,6 +261,13 @@ configuration quotidienne au-delà de cette PR. Constate, et décide séparémen
 
 ```bash
 # TES racines memorisees au depart — pas les defauts, pas celles d'un scenario jetable.
+# NE POSE PAS une variable que tu n'as pas. Une execution a froid a mesure que forcer
+# CLAUDE_CONFIG_DIR=$HOME/.claude fait chercher a Claude ~/.claude/.claude.json au lieu de
+# ~/.claude.json — donc doctor ne rapportait AUCUN h2a-endpoint-count et ma correction
+# MASQUAIT l'incoherence centrale de ce scenario. On ne transmet que ce qui existe.
+PREFIXE=""
+[ -n "${MES_CODEX-}" ]  && PREFIXE="$PREFIXE CODEX_HOME=$MES_CODEX"
+[ -n "${MES_CLAUDE-}" ] && PREFIXE="$PREFIXE CLAUDE_CONFIG_DIR=$MES_CLAUDE"
 CODEX_ROOT="${MES_CODEX:-$HOME/.codex}"
 CLAUDE_ROOT="${MES_CLAUDE:-$HOME/.claude}"
 STAMP=$(date +%Y%m%d-%H%M)
@@ -272,8 +279,7 @@ mkdir -p "$UAT/h3"
 $DOCTOR init --root "$UAT/h3/bus"
 # les racines sont posees EN PREFIXE, jamais exportees : ce scenario vise TON installation,
 # les precedents visaient des arbres jetables, et aucun ne contamine l'autre.
-CODEX_HOME="$CODEX_ROOT" CLAUDE_CONFIG_DIR="$CLAUDE_ROOT" \
-  $DOCTOR doctor --root "$UAT/h3/bus" --repair --dry-run  # inspecte, ne modifie RIEN
+env $PREFIXE $DOCTOR doctor --root "$UAT/h3/bus" --repair --dry-run  # inspecte, ne modifie RIEN
 ```
 
 Les deux sauvegardes portent l'horodatage ; elles sont byte-identiques à tes fichiers actuels et tu
@@ -314,7 +320,7 @@ te le dire que te laisser croire qu'une copie de `config.toml` annule tout.
 ## Nettoyage
 
 ```bash
-rm -rf $UAT
+rm -rf "$UAT" "$SRC"   # $SRC etait oublie : fuite mesuree a 351 Mio PAR extrait, deux fois de suite
 ```
 
 ---
