@@ -94,8 +94,16 @@ node -e '
 echo "=== ce que le probe a fabrique ==========================================="
 echo "  HOME jetable ........ $HOME_DIR"
 echo "  cache plugin ........ 0.87.0 (manifeste declarant 0.87.0)"
-echo "  marqueur de repair .. 2010-01-01  (une reparation a EU LIEU)"
-echo "  session vivante ..... demarree 2020-01-01, donc APRES le marqueur"
+echo "  marqueur ANCIEN ..... 2010-01-01  (une reparation avait EU LIEU autrefois)"
+echo "  session vivante ..... demarree 2020-01-01, donc APRES cet ancien marqueur"
+echo
+echo "  ATTENTION A LA CHRONOLOGIE, elle a trois temps et pas deux :"
+echo "    1. 2010 : une vieille reparation, dont le marqueur est deja sur disque"
+echo "    2. 2020 : la session vivante demarre — elle est POSTERIEURE au vieux marqueur"
+echo "    3. MAINTENANT : --repair va ecrire un marqueur NEUF, donc POSTERIEUR a la session"
+echo "  C'est le temps 3 qui compte : une session demarree AVANT la reparation qu'on vient de"
+echo "  faire ne peut pas avoir charge le code repare. Le marqueur de 2010 n'est la que pour"
+echo "  prouver qu'un marqueur PREEXISTANT ne suffit pas a excuser la session."
 echo "  => une session qui n'a pas pu charger le code repare"
 echo
 echo "=== ce que le candidat repond ============================================"
@@ -104,6 +112,12 @@ HOME="$HOME_DIR" node "$DOCTOR_BIN" doctor --root "$BUS" --repair --format json 
 CODE=$?
 
 echo "  code de sortie ...... $CODE      <-- tu dois lire 2"
+NEUF=$(node -e 'try{const m=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));process.stdout.write(String(m.repairedAt||"absent"))}catch{process.stdout.write("absent")}' "$HOME_DIR/.codex/h2a-repair.json")
+echo "  marqueur APRES repair $NEUF"
+echo "                        <-- il doit etre de MAINTENANT, donc posterieur a la session de 2020."
+echo "                            C'est CE marqueur-la qui rend la session perimee. Une revue a"
+echo "                            mesure que ne pas l'afficher forcait le lecteur a reconstruire"
+echo "                            la chronologie de tete."
 node -e '
   const fs = require("node:fs");
   let r; try { r = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); }
