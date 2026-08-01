@@ -87,7 +87,6 @@ const CORE_CONFIGURATION_PATHS = [
   join(claudeRoot, "settings.json"),
   join(claudeRoot, "plugins", "known_marketplaces.json"),
   join(claudeRoot, "plugins", "installed_plugins.json"),
-  claudeNative,
   claudeMcp
 ];
 const PLUGIN_CONFIGURATION_BASENAMES = new Set([
@@ -125,6 +124,15 @@ const VOLATILE_DIRECTORY_NAMES = new Set([
   "shell_snapshots",
   "telemetry",
   "tmp"
+]);
+
+// Measured on 2026-08-01 with Claude Code 2.1.220 while no UAT was running:
+// live Claude sessions rewrote only these top-level keys in .claude.json.
+// Keep this list narrow and re-measure it after host upgrades; every other
+// key remains guarded because doctor can repair native Claude configuration.
+const VOLATILE_CLAUDE_NATIVE_KEYS = new Set([
+  "pluginUsage",
+  "promptQueueUseCount"
 ]);
 
 function isVolatileConfigurationPath(relative) {
@@ -186,6 +194,47 @@ function record(path, absentIsState = false) {
   snapshot.set(path, fingerprint(path, stat));
 }
 
+function fingerprintClaudeNativeStructure(path, stat) {
+  const hash = createHash("sha256");
+  const type = stat.isDirectory() ? "d" : stat.isFile() ? "f" : stat.isSymbolicLink() ? "l" : "o";
+  hash.update([type, String(stat.mode)].join("\0") + "\0");
+  if (stat.isSymbolicLink()) hash.update(readlinkSync(path) + "\0");
+  return hash.digest("hex");
+}
+
+function fingerprintClaudeNativeValue(value) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function recordClaudeNative(path, absentIsState = false) {
+  let stat;
+  try {
+    stat = lstatSync(path, { bigint: true });
+  } catch (error) {
+    if (error && error.code === "ENOENT" && absentIsState) {
+      snapshot.set(path, "ABSENT");
+      return;
+    }
+    if (error && error.code === "ENOENT") return;
+    throw error;
+  }
+
+  snapshot.set(`${path}#<structure>`, fingerprintClaudeNativeStructure(path, stat));
+  let value;
+  try {
+    value = JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    throw new Error(`impossible de lire .claude.json comme JSON : ${error.message}`);
+  }
+  if (value === null || Array.isArray(value) || typeof value !== "object") {
+    throw new Error(".claude.json doit contenir un objet JSON");
+  }
+  for (const key of Object.keys(value).sort()) {
+    if (VOLATILE_CLAUDE_NATIVE_KEYS.has(key)) continue;
+    snapshot.set(`${path}#${key}`, fingerprintClaudeNativeValue(value[key]));
+  }
+}
+
 function visitRoot(root) {
   function visit(absolute, relative) {
     let stat;
@@ -211,6 +260,7 @@ function visitRoot(root) {
 }
 
 for (const path of CORE_CONFIGURATION_PATHS) record(path, true);
+recordClaudeNative(claudeNative, true);
 visitRoot(codexRoot);
 visitRoot(claudeRoot);
 
@@ -498,6 +548,6 @@ guard_owner_roots "scenario 2" run_scenario_2 || exit 1
 echo
 echo "=== decision owner ========================================================"
 echo "  La recette a execute 3, 0, 1, 2 et la configuration owner est restee identique."
-echo "  Les sessions Codex et Claude peuvent rester ouvertes : journaux, bases SQLite, caches de session et verrous sont hors empreinte."
+echo "  Les sessions Codex et Claude peuvent rester ouvertes pour les ecritures mesurees : journaux, bases SQLite, caches, verrous et les cles Claude pluginUsage/promptQueueUseCount."
 echo "  Aucun done n'est deduit de ce vert : l'owner doit encore lire le scenario 2 et trancher."
 echo "  Le nettoyage de l'UAT et de l'extrait candidat va maintenant etre effectue."

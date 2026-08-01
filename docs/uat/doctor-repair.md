@@ -76,16 +76,24 @@ Avant et après **chaque scénario**, le script photographie la configuration ow
   `.agents/plugins/marketplace.json`, `.mcp.json` et `hooks/hooks.json` trouvés sous les deux
   racines hôtes.
 
+`.claude.json` est un cas particulier : Claude Code le réécrit pendant que des sessions sont vivantes,
+mais doctor peut aussi y réparer une configuration. Le script garde donc son type et son mode, puis la
+valeur de **chaque clé racine**, et imprime la clé (`.claude.json#projects`, par exemple) si elle change.
+Il exclut seulement `pluginUsage` et `promptQueueUseCount`. Cette liste a été mesurée le 1er août 2026
+sur Claude Code 2.1.220, sans UAT : les deux clés changeaient seules, toutes les autres clés racine
+restaient stables pendant l'échantillon. Une mise à jour de l'hôte peut invalider cette observation ; ne
+l'élargis pas par intuition, mesure de nouveau d'abord.
+
 Le script porte une liste exécutable d'exclusions, pas une convention implicite : journaux
 (`*.log`, `*.jsonl`, `logs/`, `debug/`, `journal*/`), bases runtime `*.sqlite` et leurs
 `-wal`/`-shm`, caches de session, arbres temporaires, télémétrie, PID et verrous. Il ne compare donc
 plus toute la racine hôte. Une session Codex ou Claude peut rester ouverte pendant l'UAT ; son activité
 normale n'est pas une mutation de configuration.
 
-Pour chaque configuration retenue, l'empreinte couvre le chemin, le type, le mode, la taille, la date de
-modification, le lien éventuel et le contenu jusqu'à 8 Mio. Une différence fait échouer la recette et
-imprime chaque fichier `AJOUTE`, `SUPPRIME` ou `MODIFIE` : un scénario qui produit le bon rapport
-en modifiant une configuration réelle n'est pas un succès.
+Pour chaque configuration retenue autre que `.claude.json`, l'empreinte couvre le chemin, le type, le
+mode, la taille, la date de modification, le lien éventuel et le contenu jusqu'à 8 Mio. Une différence
+fait échouer la recette et imprime chaque fichier `AJOUTE`, `SUPPRIME` ou `MODIFIE` : un scénario qui
+produit le bon rapport en modifiant une configuration réelle n'est pas un succès.
 
 Le scénario 3 est limité au `--dry-run`. Le script ne lance jamais automatiquement une réparation sur
 l'installation owner et ne crée plus de sauvegarde « préventive » dans cette installation pendant une
@@ -137,6 +145,24 @@ des endpoints, jamais un état fabriqué pour la recette.
 
 Le script **ne répare pas** cet état réel. Retirer une entrée de configuration quotidienne dépasse la
 validation de cette PR et reste une décision owner séparée.
+
+## Si le garde owner se déclenche
+
+Le script s'arrête avant le scénario suivant, ne lance aucune réparation owner et nettoie ses arbres
+jetables. Garde la ligne imprimée, notamment la clé si elle est sous `.claude.json`; elle est une preuve
+d'une écriture, pas une attribution automatique à doctor.
+
+1. Ne relance pas immédiatement et ne modifie pas la configuration owner.
+2. Sans UAT, observe la clé nommée pendant 30 à 60 secondes. Si elle bouge seule, c'est une activité hôte
+   à documenter avec la version de l'hôte ; la liste des exclusions doit alors être re-mesurée, pas élargie
+   localement.
+3. Si elle ne bouge pas sans UAT, ferme les sessions hôtes ou attends leur arrêt, puis reprends **toute**
+   la recette. La même clé non volatile qui change à nouveau reste un échec à attribuer au candidat ou à un
+   autre outil concurrent ; n'accepte pas le vert en contournant le garde.
+
+Les sessions peuvent donc rester ouvertes pour les écritures déjà mesurées — journaux, bases SQLite,
+caches, verrous, `pluginUsage` et `promptQueueUseCount` — tandis que toute autre configuration reste
+gardée.
 
 ## Scénario 0 — l'oracle Codex, après la lecture owner
 
