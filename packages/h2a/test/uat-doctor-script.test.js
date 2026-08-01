@@ -108,6 +108,7 @@ if (process.env.UAT_INTERRUPT_READY) {
 const dryRun = args.includes("--dry-run");
 const codexRoot = process.env.CODEX_HOME || join(process.env.HOME, ".codex");
 const configPath = join(codexRoot, "config.toml");
+const claudeNativePath = join(process.env.HOME, ".claude.json");
 if (
   dryRun &&
   process.env.UAT_TEST_OWNER_MUTATION &&
@@ -118,6 +119,23 @@ if (
     : configPath;
   mkdirSync(dirname(mutationPath), { recursive: true });
   writeFileSync(mutationPath, "mutation:" + Date.now() + "\\n");
+}
+if (
+  dryRun &&
+  process.env.UAT_TEST_CLAUDE_NATIVE_MUTATION &&
+  (!process.env.UAT_TEST_CLAUDE_NATIVE_ROOT || claudeNativePath === process.env.UAT_TEST_CLAUDE_NATIVE_ROOT)
+) {
+  const claudeNative = JSON.parse(readFileSync(claudeNativePath, "utf8"));
+  if (process.env.UAT_TEST_CLAUDE_NATIVE_MUTATION === "volatile") {
+    claudeNative.pluginUsage ??= {};
+    claudeNative.pluginUsage["h2a@sentropic"] ??= {};
+    claudeNative.pluginUsage["h2a@sentropic"].usageCount =
+      (claudeNative.pluginUsage["h2a@sentropic"].usageCount ?? 0) + 1;
+    claudeNative.promptQueueUseCount = (claudeNative.promptQueueUseCount ?? 0) + 1;
+  } else {
+    claudeNative.owner = "candidate-mutation";
+  }
+  writeFileSync(claudeNativePath, JSON.stringify(claudeNative) + "\\n");
 }
 const live = existsSync(join(bus, "presence", "uat-probe.json"));
 let brokenMarketplace = false;
@@ -410,6 +428,72 @@ test("uat-doctor should ignore volatile Codex activity while guarding owner conf
   }
 });
 
+test("uat-doctor should ignore the measured volatile keys in .claude.json", () => {
+  const fixture = createFixture("volatile-claude-native", false);
+  const nativePath = join(fixture.ownerHome, ".claude.json");
+  try {
+    const result = spawnSync("bash", [SCRIPT], {
+      cwd: REPO_ROOT,
+      env: injectedEnvironment(fixture, {
+        UAT_TEST_CLAUDE_NATIVE_MUTATION: "volatile",
+        UAT_TEST_CLAUDE_NATIVE_ROOT: nativePath
+      }),
+      encoding: "utf8"
+    });
+
+    assert.equal(result.status, 0, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    assert.match(result.stdout, /configuration owner \. IDENTIQUE avant\/apres scenario 3/);
+  } finally {
+    rmSync(fixture.outer, { recursive: true, force: true });
+  }
+});
+
+test("uat-doctor should name a nonvolatile .claude.json key mutation", () => {
+  const fixture = createFixture("nonvolatile-claude-native", false);
+  const nativePath = join(fixture.ownerHome, ".claude.json");
+  try {
+    const result = spawnSync("bash", [SCRIPT], {
+      cwd: REPO_ROOT,
+      env: injectedEnvironment(fixture, {
+        UAT_TEST_CLAUDE_NATIVE_MUTATION: "configuration",
+        UAT_TEST_CLAUDE_NATIVE_ROOT: nativePath
+      }),
+      encoding: "utf8"
+    });
+
+    assert.equal(result.status, 1, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    assert.match(result.stderr, new RegExp(`MODIFIE : ${nativePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}#owner`));
+  } finally {
+    rmSync(fixture.outer, { recursive: true, force: true });
+  }
+});
+
+test("uat-doctor should fail for a volatile .claude.json mutation when whole-file fingerprinting returns", () => {
+  const fixture = createFixture("volatile-claude-native-counter-mutant", false);
+  const nativePath = join(fixture.ownerHome, ".claude.json");
+  const mutantScript = join(fixture.root, "mutant checkout", "docs", "uat", "uat-doctor.sh");
+  const source = readFileSync(SCRIPT, "utf8");
+  const needle = "recordClaudeNative(claudeNative, true);";
+  const mutant = source.replace(needle, "record(claudeNative, true);");
+  try {
+    assert.notEqual(mutant, source, "whole-file counter-mutant insertion point disappeared");
+    writeExecutable(mutantScript, mutant);
+    const result = spawnSync("bash", [mutantScript], {
+      cwd: REPO_ROOT,
+      env: injectedEnvironment(fixture, {
+        UAT_TEST_CLAUDE_NATIVE_MUTATION: "volatile",
+        UAT_TEST_CLAUDE_NATIVE_ROOT: nativePath
+      }),
+      encoding: "utf8"
+    });
+
+    assert.equal(result.status, 1, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    assert.match(result.stderr, new RegExp(`MODIFIE : ${nativePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  } finally {
+    rmSync(fixture.outer, { recursive: true, force: true });
+  }
+});
+
 test("uat-doctor should reject and name an owner configuration mutation", () => {
   const fixture = createFixture("owner-config-mutation", false);
   const configPath = join(fixture.defaultCodex, "config.toml");
@@ -637,5 +721,7 @@ test("uat-doctor should document its checkout-root invocation when the relative 
   assert.equal(result.status, 127, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
   assert.match(guide, /Depuis la racine d'un checkout Git contenant le candidat/);
   assert.match(guide, /H2A_UAT_SHA.*prioritaire/);
+  assert.match(guide, /pluginUsage.*promptQueueUseCount/s);
+  assert.match(guide, /## Si le garde owner se déclenche/);
   assert.doesNotMatch(guide, /Depuis n'importe quel répertoire du checkout de la PR/);
 });
