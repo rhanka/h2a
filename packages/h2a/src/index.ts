@@ -508,6 +508,23 @@ export type {
 } from "./hosts/codex.js";
 
 export {
+  doctorHostInstallations,
+  findLiveSessionsPredatingHostConfig,
+  H2A_MARKETPLACE_GIT_URL,
+  H2A_MARKETPLACE_NAME,
+  H2A_MARKETPLACE_REPOSITORY,
+  H2A_PLUGIN_SELECTOR,
+  type HostCommandResult,
+  type HostCommandRunner,
+  type HostInstallationDoctorOptions,
+  type HostInstallationDoctorReport,
+  type HostInstallationFinding,
+  type HostInstallationReport,
+  type HostRepairMarker,
+  type LiveHostSessionFinding
+} from "./hosts/installation-doctor.js";
+
+export {
   H2A_CLAUDE_HOST,
   H2A_CODEX_HOST,
   H2A_GEMINI_HOST,

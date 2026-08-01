@@ -44,6 +44,65 @@ function freshCwd() {
   return mkdtempSync(join(tmpdir(), "h2a-install-skills-"));
 }
 
+test("install-skills user scope follows configured Claude and Codex roots", () => {
+  const home = freshCwd();
+  const cwd = freshCwd();
+  const configuredClaude = join(home, "configured-claude");
+  const configuredCodex = join(home, "configured-codex");
+  const previousHome = process.env.HOME;
+  const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  const previousCodexHome = process.env.CODEX_HOME;
+  try {
+    process.env.HOME = home;
+    process.env.CLAUDE_CONFIG_DIR = configuredClaude;
+    process.env.CODEX_HOME = configuredCodex;
+    for (const [host, expected] of [
+      ["claude", join(configuredClaude, "skills")],
+      ["codex", join(configuredCodex, "skills")]
+    ]) {
+      const streams = captureStreams(cwd);
+      assert.equal(runCli(["install-skills", "--host", host, "--scope", "user"], streams), 0, streams.stderrText);
+      assert.equal(JSON.parse(streams.stdoutText).targetBase, expected);
+    }
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("install-skills user scope preserves default Claude and Codex roots", () => {
+  const home = freshCwd();
+  const cwd = freshCwd();
+  const previousHome = process.env.HOME;
+  const previousClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  const previousCodexHome = process.env.CODEX_HOME;
+  try {
+    process.env.HOME = home;
+    delete process.env.CLAUDE_CONFIG_DIR;
+    delete process.env.CODEX_HOME;
+    for (const host of ["claude", "codex"]) {
+      const streams = captureStreams(cwd);
+      assert.equal(runCli(["install-skills", "--host", host, "--scope", "user"], streams), 0, streams.stderrText);
+      assert.equal(JSON.parse(streams.stdoutText).targetBase, join(home, `.${host}`, "skills"));
+    }
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    if (previousClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 test("install-skills --host claude renders h2a + track + harness from a single source each", () => {
   const cwd = freshCwd();
   try {
