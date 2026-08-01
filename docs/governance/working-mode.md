@@ -18,6 +18,12 @@ haute-coordination — celui-ci est pour le travail multi-gros-repo fortement co
 - À chaque merge de PR : **rebase la branche sur origin/main puis `git merge`** (merge-commit). Jamais `--rebase`/`--squash` sur une release (réécrit les SHA).
 - `.track` committé depuis la RACINE sur une branche dédiée (jamais depuis une feature).
 
+## Contrôle des conteneurs / environnements
+- **≤ 3 environnements docker/compose UP par repo simultanément.** Avant d'en lancer un 4ᵉ, le conducteur STOPPE le plus ancien / le plus idle du repo.
+- **Chaque conducteur contrôle ses conteneurs** : `docker ps` régulier par repo ; tear-down des env de test/CI une fois la vérif faite ; jamais laisser traîner un env up sans usage actif.
+- **Les lanes aussi** : une lane qui fait `docker compose up` pour un test doit le `down` en fin de tâche.
+- **Pourquoi (mesuré le 2026-07-31)** : ~22 conteneurs up en même temps → thrash swap (21 Go), load 200 sur 32 cores, écran gelé. Le remède a été `docker stop` de tout + kill de la tempête de barres de statut tmux. Le cap ≤3/repo évite la récidive.
+
 ## Décisions (autonomie maximale)
 - **Réversible de base** → j'agis et je le mentionne (ne pas demander — « temps perdu »).
 - **Réversible-difficile** → consensus `sol`/`fable` puis j'agis. Un merge derrière flag / option / mode A-B est RÉVERSIBLE même en prod.
