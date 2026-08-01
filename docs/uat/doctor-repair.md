@@ -37,12 +37,20 @@ il commence par une sauvegarde.
 > de démarrer parce qu'elles voyaient une racine hors de leur arbre jetable. Le produit allait bien ;
 > c'était ma recette qui cassait tout ce qui la suivait.
 >
-Vérifie d'abord que ton shell n'en porte aucune. Si l'une des deux imprime autre chose que des
-crochets vides, `unset`-la avant de continuer :
+**Ne les `unset` pas.** Une version précédente de cette recette te le demandait, et une exécution à
+froid a mesuré que c'était pire que le défaut d'origine : en les effaçant, tu perds l'information de
+*quelle installation est la tienne*, et le scénario 3 retombe sur `~/.codex` — donc tu inspecterais
+une installation que tu n'utilises pas. J'avais confondu deux choses distinctes et supprimé les deux :
+l'export global (nuisible) et la **mémorisation** de tes racines (nécessaire au scénario 3).
+
+On les **mémorise** donc, sans jamais les imposer aux scénarios jetables :
 
 ```bash
-echo "CODEX_HOME=[${CODEX_HOME-}] CLAUDE_CONFIG_DIR=[${CLAUDE_CONFIG_DIR-}]"
 export UAT=$(mktemp -d /home/antoinefa/.cache-tmp/uat-doctor-XXXX)
+# TES racines, telles qu'elles sont. Vides = tu utilises les defauts, c'est le cas courant.
+export MES_CODEX="${CODEX_HOME-}"
+export MES_CLAUDE="${CLAUDE_CONFIG_DIR-}"
+echo "tes racines : CODEX_HOME=[$MES_CODEX] CLAUDE_CONFIG_DIR=[$MES_CLAUDE]"
 ```
 
 Rien d'autre. Pas de `cd` vers le dépôt partagé — d'autres agents y construisent, et une exécution à
@@ -57,7 +65,8 @@ celle que tu es en train de valider.
 ```bash
 # Un extrait JETABLE du candidat. Ne recette pas depuis le depot partage : d'autres agents y
 # construisent, et supprimer leur dist casse leurs mesures.
-export CANDIDAT=473dac89                       # remplace par le SHA que tu recettes
+export CANDIDAT=$(gh pr view 94 --json headRefOid --jq .headRefOid)   # le HEAD reel de la PR,
+                                              # plutot qu-un SHA fige qui perime entre deux manches
 export SRC=$(mktemp -d /home/antoinefa/.cache-tmp/uat-src-XXXX)
 git -C /home/antoinefa/src/h2a archive --format=tar "$CANDIDAT" | tar -xf - -C "$SRC"
 cd "$SRC"
@@ -239,8 +248,9 @@ configuration quotidienne au-delà de cette PR. Constate, et décide séparémen
 > Je le note parce que c'est l'inverse de la faute habituelle : ici la recette **sur-avertissait**.
 
 ```bash
-CODEX_ROOT="${CODEX_HOME:-$HOME/.codex}"
-CLAUDE_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+# TES racines memorisees au depart — pas les defauts, pas celles d'un scenario jetable.
+CODEX_ROOT="${MES_CODEX:-$HOME/.codex}"
+CLAUDE_ROOT="${MES_CLAUDE:-$HOME/.claude}"
 STAMP=$(date +%Y%m%d-%H%M)
 echo "racines inspectees : $CODEX_ROOT  |  $CLAUDE_ROOT"
 cp -p "$CODEX_ROOT/config.toml" "$CODEX_ROOT/config.toml.bak.uat-$STAMP"
@@ -248,7 +258,10 @@ cp -p "$CLAUDE_ROOT/plugins/known_marketplaces.json" "$CLAUDE_ROOT/plugins/known
 
 mkdir -p "$UAT/h3"
 $DOCTOR init --root "$UAT/h3/bus"
-$DOCTOR doctor --root "$UAT/h3/bus" --repair --dry-run  # inspecte l'installation, ne modifie RIEN
+# les racines sont posees EN PREFIXE, jamais exportees : ce scenario vise TON installation,
+# les precedents visaient des arbres jetables, et aucun ne contamine l'autre.
+CODEX_HOME="$CODEX_ROOT" CLAUDE_CONFIG_DIR="$CLAUDE_ROOT" \
+  $DOCTOR doctor --root "$UAT/h3/bus" --repair --dry-run  # inspecte, ne modifie RIEN
 ```
 
 Les deux sauvegardes portent l'horodatage ; elles sont byte-identiques à tes fichiers actuels et tu
