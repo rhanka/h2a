@@ -497,6 +497,30 @@ test("doctor reports a configured broken host when its CLI is absent from PATH",
   }
 });
 
+test("doctor treats an empty PATH segment as the current directory", () => {
+  const home = join(tmpdir(), `h2a-host-doctor-empty-path-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const previousPath = process.env.PATH;
+  const previousCwd = process.cwd();
+  try {
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, "codex"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(home, "codex"), 0o755);
+    process.chdir(home);
+    process.env.PATH = ":";
+
+    const report = productionDoctorHostInstallations({ home, version: VERSION });
+    const codex = report.hosts.find((host) => host.host === "codex");
+
+    assert.equal(codex?.findings.some((entry) => entry.code === "host-not-installed"), false, JSON.stringify(codex, null, 2));
+    assert.equal(codex?.diagnostics.some((entry) => entry.code === "host-cli-unreachable"), false, JSON.stringify(codex, null, 2));
+  } finally {
+    process.chdir(previousCwd);
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor fails closed when configured roots are broken symlinks", () => {
   const home = join(tmpdir(), `h2a-host-doctor-broken-root-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const root = join(home, "bus");
@@ -512,6 +536,28 @@ test("doctor fails closed when configured roots are broken symlinks", () => {
       assert.equal(host.findings.some((entry) => entry.code === "host-not-installed"), false, JSON.stringify(host, null, 2));
       assert.ok(host.findings.some((entry) => entry.code === "host-config-unavailable"), JSON.stringify(host, null, 2));
     }
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor reports a broken Claude settings symlink as unavailable", () => {
+  const { home } = cleanShippedLayoutHome();
+  const settingsPath = join(home, ".claude", "settings.json");
+  const root = join(home, "bus");
+  try {
+    symlinkSync(join(home, "missing-settings.json"), settingsPath);
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const { exitCode, io, report } = runRepairDoctor(home, root, { runHostCommand: repairRunner(home, []) });
+    const claude = report.checks.hostInstallations.hosts.find((host) => host.host === "claude");
+
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(claude?.ok, false, JSON.stringify(claude, null, 2));
+    assert.ok(
+      claude?.findings.some((entry) => entry.code === "host-config-unavailable" && entry.path === settingsPath),
+      JSON.stringify(claude, null, 2)
+    );
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -733,6 +779,72 @@ test("doctor fails closed for legacy local marketplace sources it cannot decode"
     assert.equal(readFileSync(codexPath, "utf8"), config, "unreadable TOML must not authorize any rewrite");
     assert.ok(
       codex?.unrepaired.some((entry) => entry.code === "ownership-unverified"),
+      JSON.stringify(codex, null, 2)
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor preserves a legacy table whose multiline value contains a table-shaped line", () => {
+  const { home } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const marketplace = "sentropic-local-multiline";
+  const plugin = "h2a-local-multiline@sentropic-local-multiline";
+  const config = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n` +
+    `[marketplaces.${marketplace}]\n` +
+    'source_type = "local"\n' +
+    `source = "${join(home, "deleted-multiline-marketplace")}"\n` +
+    'private_metadata = """\n' +
+    "before\n" +
+    "[keep]\n" +
+    "after\n" +
+    '"""\n\n' +
+    `[plugins."${plugin}"]\n` +
+    "enabled = true\n";
+  try {
+    writeFileSync(codexPath, config);
+    const root = join(home, "bus");
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const { exitCode, io, report } = runRepairDoctor(home, root, { runHostCommand: repairRunner(home, []) });
+    const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
+    assert.equal(readFileSync(codexPath, "utf8"), config, "multiline TOML must not authorize a table rewrite");
+    assert.ok(
+      codex?.unrepaired.some((entry) => entry.code === "ownership-unverified"),
+      JSON.stringify(codex, null, 2)
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor fails closed rather than absorbing a TOML array of tables", () => {
+  const { home } = cleanShippedLayoutHome();
+  const codexPath = join(home, ".codex", "config.toml");
+  const marketplace = "sentropic-local-array";
+  const config = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n` +
+    `[marketplaces.${marketplace}]\n` +
+    'source_type = "local"\n' +
+    `source = "${join(home, "deleted-array-marketplace")}"\n\n` +
+    "[[private.keep]]\n" +
+    'token = "must-remain-private"\n';
+  try {
+    writeFileSync(codexPath, config);
+    const root = join(home, "bus");
+    assert.equal(runCli(["init", "--root", root], streams(home)), 0);
+    const { exitCode, io, report } = runRepairDoctor(home, root, { runHostCommand: repairRunner(home, []) });
+    const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+
+    assert.equal(exitCode, 2, io.stderrText);
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
+    assert.equal(readFileSync(codexPath, "utf8"), config, "unframed TOML arrays must not authorize a rewrite");
+    assert.ok(
+      codex?.unrepaired.some((entry) => entry.code === "config-invalid"),
       JSON.stringify(codex, null, 2)
     );
   } finally {
