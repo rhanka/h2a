@@ -19,10 +19,11 @@ haute-coordination — celui-ci est pour le travail multi-gros-repo fortement co
 - `.track` committé depuis la RACINE sur une branche dédiée (jamais depuis une feature).
 
 ## Contrôle des conteneurs / environnements
-- **≤ 3 environnements docker/compose UP par repo simultanément.** Avant d'en lancer un 4ᵉ, le conducteur STOPPE le plus ancien / le plus idle du repo.
+- **≤ 3 environnements docker/compose UP par repo simultanément** (unité de compte : un *projet compose* unique par repo). Avant d'en lancer un 4ᵉ, le conducteur STOPPE le plus ancien / le plus idle du repo.
+- **Application MANUELLE, tenue par le conducteur — pas un mécanisme.** Aujourd'hui aucun hook, aucune CI, aucun script ne refuse un 4ᵉ environnement : rien ne l'empêche mécaniquement. C'est une convention au barreau « habitude » de l'échelle d'opposabilité (structurel > test > spec > habitude) ; elle ne tient que tant que le conducteur la tient. La durcir (hook/CI qui refuse le 4ᵉ) reste à faire.
 - **Chaque conducteur contrôle ses conteneurs** : `docker ps` régulier par repo ; tear-down des env de test/CI une fois la vérif faite ; jamais laisser traîner un env up sans usage actif.
 - **Les lanes aussi** : une lane qui fait `docker compose up` pour un test doit le `down` en fin de tâche.
-- **Pourquoi (mesuré le 2026-07-31)** : ~22 conteneurs up en même temps → thrash swap (21 Go), load 200 sur 32 cores, écran gelé. Le remède a été `docker stop` de tout + kill de la tempête de barres de statut tmux. Le cap ≤3/repo évite la récidive.
+- **Pourquoi (mesuré le 2026-07-31)** : ~22 conteneurs up en même temps → thrash swap (21 Go), load 200 sur 32 cores, écran gelé. Le remède a été `docker stop` de tout + kill de la tempête de barres de statut tmux. Le cap ≤3/repo **réduit** le risque de récidive — il ne le supprime pas : étant manuel, il peut être manqué.
 
 ## Décisions (autonomie maximale)
 - **Réversible de base** → j'agis et je le mentionne (ne pas demander — « temps perdu »).
