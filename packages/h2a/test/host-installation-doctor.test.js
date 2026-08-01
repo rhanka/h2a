@@ -885,7 +885,7 @@ test("doctor repairs a framed legacy table while preserving and naming an opaque
   }
 });
 
-test("doctor splices only framed legacy tables around opaque Codex TOML regions", () => {
+test("doctor byte-splices only framed legacy tables around opaque Codex TOML regions", () => {
   const cases = [
     {
       name: "a boundary comment",
@@ -915,6 +915,14 @@ test("doctor splices only framed legacy tables around opaque Codex TOML regions"
       opaque: "[[private.eof]]\n" +
         'token = "must-not-gain-a-line-feed"',
       regions: ["[[private.eof]]"]
+    },
+    {
+      name: "a CRLF opaque array with indentation, key order, and trailing spaces",
+      eol: "\r\n",
+      opaque: "[[private.crlf]]\r\n" +
+        '  zeta = "last"  # preserve this trailing comment\r\n' +
+        '  alpha = "first"   ',
+      regions: ["[[private.crlf]]"]
     }
   ];
   for (const fixture of cases) {
@@ -922,12 +930,18 @@ test("doctor splices only framed legacy tables around opaque Codex TOML regions"
     const codexPath = join(home, ".codex", "config.toml");
     const marketplace = `sentropic-local-splice-${fixture.name.replace(/[^a-z]+/gi, "-").toLowerCase()}`;
     const missingSource = join(home, `deleted-${marketplace}`);
-    const target = `[marketplaces.${marketplace}]\n` +
-      'source_type = "local"\n' +
-      `source = "${missingSource}"\n`;
-    const before = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n${target}${fixture.opaque}`;
-    const targetStart = before.indexOf(target);
-    const afterExpected = before.slice(0, targetStart) + before.slice(targetStart + target.length);
+    const eol = fixture.eol ?? "\n";
+    const target = `[marketplaces.${marketplace}]${eol}` +
+      `source_type = "local"${eol}` +
+      `source = "${missingSource}"${eol}`;
+    const before = `${readFileSync(codexPath, "utf8").trimEnd()}${eol}${eol}${target}${fixture.opaque}`;
+    const beforeBytes = Buffer.from(before, "utf8");
+    const targetBytes = Buffer.from(target, "utf8");
+    const targetStart = beforeBytes.indexOf(targetBytes);
+    const afterExpected = Buffer.concat([
+      beforeBytes.subarray(0, targetStart),
+      beforeBytes.subarray(targetStart + targetBytes.length)
+    ]);
     try {
       writeFileSync(codexPath, before);
       assert.equal(existsSync(missingSource), false, `${fixture.name}: legacy source must be absent`);
@@ -935,11 +949,12 @@ test("doctor splices only framed legacy tables around opaque Codex TOML regions"
       assert.equal(runCli(["init", "--root", root], streams(home)), 0);
       const { exitCode, io, report } = runRepairDoctor(home, root, { runHostCommand: repairRunner(home, []) });
       const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
-      const after = readFileSync(codexPath, "utf8");
+      const after = readFileSync(codexPath);
 
       assert.equal(exitCode, 2, `${fixture.name}: ${io.stderrText}`);
-      assert.equal(after, afterExpected, `${fixture.name}: only the framed legacy table may be spliced out`);
-      assert.doesNotMatch(after, new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
+      assert.deepEqual(after, afterExpected, `${fixture.name}: only the framed legacy table may be spliced out`);
+      assert.equal(after.at(-1), beforeBytes.at(-1), `${fixture.name}: must preserve the final byte`);
+      assert.doesNotMatch(after.toString("utf8"), new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
       for (const region of fixture.regions) {
         assert.ok(
           codex?.unrepaired.some((entry) =>
