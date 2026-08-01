@@ -25,3 +25,10 @@ export {
   type InstanceDescriptor,
   type SessionDescriptor
 } from "./descriptors.js";
+
+export {
+  readLocalFeed,
+  type FeedPresenceReader,
+  type FeedRegistrationSource,
+  type ReadLocalFeedOptions
+} from "./local.js";
