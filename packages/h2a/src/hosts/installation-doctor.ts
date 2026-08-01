@@ -103,6 +103,7 @@ export interface HostInstallationFinding {
     | "host-not-installed"
     | "ownership-unverified"
     | "repair-marker-unavailable"
+    | "repair-marker-write-failed"
     | "runtime-artifact-unavailable";
   readonly message: string;
   readonly path?: string;
@@ -224,7 +225,7 @@ type HostFindingBucket = "preserved" | "failure" | "unverifiable";
 
 function hostFindingBucket(entry: HostInstallationFinding): HostFindingBucket {
   if (["config-preserved", "orphan-cache", "host-not-installed"].includes(entry.code)) return "preserved";
-  if (["config-invalid", "host-cli-unavailable", "host-config-unavailable", "ownership-unverified", "runtime-artifact-unavailable"].includes(entry.code)) {
+  if (["host-cli-unavailable", "host-config-unavailable", "ownership-unverified", "repair-marker-unavailable", "runtime-artifact-unavailable"].includes(entry.code)) {
     return "unverifiable";
   }
   return "failure";
@@ -725,9 +726,17 @@ function isNamedOpaqueTomlArray(table: TomlTable): boolean {
   );
 }
 
+function isOpaqueMcpServerRegion(table: TomlTable): boolean {
+  const label = table.opaqueLabel ?? "";
+  return label.startsWith("mcp_servers.") || /^\[\[mcp_servers\.[^\]\r\n]+\]\]$/.test(label);
+}
+
 function reportOpaqueTomlRegions(report: MutableHostReport, path: string, tables: readonly TomlTable[]): void {
   for (const table of tables) {
     if (!table.opaqueReason) continue;
+    // `reportUnreadableDottedMcpRegions` records this separately as config-invalid:
+    // retaining bytes is not a deliberate preservation when Codex rejects its type.
+    if (isOpaqueMcpServerRegion(table)) continue;
     const message = `opaque Codex TOML region ${table.opaqueLabel ?? "<unknown>"}: ${table.opaqueReason}; its existing bytes were retained and no rewrite was attempted.`;
     if (isNamedOpaqueTomlArray(table)) {
       report.preserved.push(finding("config-preserved", `preserved ${message}`, path));
@@ -739,7 +748,7 @@ function reportOpaqueTomlRegions(report: MutableHostReport, path: string, tables
 
 function reportUnreadableDottedMcpRegions(report: MutableHostReport, path: string, tables: readonly TomlTable[]): void {
   for (const table of tables) {
-    if (!table.opaqueReason || !table.opaqueLabel?.startsWith("mcp_servers.")) continue;
+    if (!table.opaqueReason || !isOpaqueMcpServerRegion(table)) continue;
     report.findings.push(finding(
       "config-invalid",
       `cannot inspect Codex MCP region ${table.opaqueLabel}: ${table.opaqueReason}.`,
@@ -1197,7 +1206,7 @@ function recordRepairMarker(
     pushUnique(report.changed, path);
   } catch (error) {
     report.unrepaired.push(
-      finding("repair-marker-unavailable", `cannot write host repair marker: ${(error as Error).message}`, path)
+      finding("repair-marker-write-failed", `cannot write host repair marker: ${(error as Error).message}`, path)
     );
   }
 }
@@ -2042,6 +2051,25 @@ function actualRepairPaths(
   return [...before.changed, ...rewrittenArtifacts];
 }
 
+function reportOpaqueRegionsPreservedByNativeCodexRewrite(
+  home: string,
+  report: MutableHostReport,
+  repairedPaths: readonly string[]
+): void {
+  const path = codexConfigPath(home);
+  if (
+    !repairedPaths.includes(path) ||
+    report.preserved.some((entry) => entry.code === "config-preserved" && entry.path === path)
+  ) return;
+  try {
+    const raw = readFileSync(path, "utf8");
+    const parsed = parseTomlTables(raw);
+    if (!parsed.unavailable) reportOpaqueTomlRegions(report, path, parsed.tables);
+  } catch {
+    // The final inspection reports a configuration we cannot read or frame.
+  }
+}
+
 function removeOwnedCache(
   report: MutableHostReport,
   path: string,
@@ -2174,7 +2202,9 @@ function repairCodex(
   if (dryRun) {
     if (before.plannedActions.length > 0) planAction(before, `record repair marker after verified mutation at ${repairMarkerPath(home, "codex")}`);
   } else {
-    recordRepairMarker(home, before, actualRepairPaths(before, afterNativeRepair, beforeArtifacts), writeMarker);
+    const repairedPaths = actualRepairPaths(before, afterNativeRepair, beforeArtifacts);
+    reportOpaqueRegionsPreservedByNativeCodexRewrite(home, before, repairedPaths);
+    recordRepairMarker(home, before, repairedPaths, writeMarker);
   }
   return combineAfterRepair(before, inspectCodex(home, version));
 }
