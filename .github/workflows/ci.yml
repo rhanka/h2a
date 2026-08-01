@@ -44,6 +44,11 @@ jobs:
       - run: npm run build
       - name: Install the codex CLI — it is the oracle, not a convenience
         run: npm i -g @openai/codex
+      - name: Codex rejects an invalid preserved configuration
+        run: |
+          set -euo pipefail
+          unset CODEX_HOME CLAUDE_CONFIG_DIR
+          node --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
       - name: Ask the host what it serves
         run: |
           set -euo pipefail
