@@ -108,6 +108,17 @@ if (process.env.UAT_INTERRUPT_READY) {
 const dryRun = args.includes("--dry-run");
 const codexRoot = process.env.CODEX_HOME || join(process.env.HOME, ".codex");
 const configPath = join(codexRoot, "config.toml");
+if (
+  dryRun &&
+  process.env.UAT_TEST_OWNER_MUTATION &&
+  (!process.env.UAT_TEST_OWNER_MUTATION_ROOT || codexRoot === process.env.UAT_TEST_OWNER_MUTATION_ROOT)
+) {
+  const mutationPath = process.env.UAT_TEST_OWNER_MUTATION === "volatile"
+    ? join(codexRoot, "logs", "logs_2.sqlite")
+    : configPath;
+  mkdirSync(dirname(mutationPath), { recursive: true });
+  writeFileSync(mutationPath, "mutation:" + Date.now() + "\\n");
+}
 const live = existsSync(join(bus, "presence", "uat-probe.json"));
 let brokenMarketplace = false;
 try { brokenMarketplace = readFileSync(configPath, "utf8").includes("/disparu"); } catch {}
@@ -323,10 +334,10 @@ for (const scenario of matrix) {
 
       assert.deepEqual(after, before, `owner roots changed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
       assert.equal(result.status, 0, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
-      assert.match(result.stdout, /empreintes owner .... IDENTIQUES avant\/apres scenario 3/);
-      assert.match(result.stdout, /empreintes owner .... IDENTIQUES avant\/apres scenario 0/);
-      assert.match(result.stdout, /empreintes owner .... IDENTIQUES avant\/apres scenario 1/);
-      assert.match(result.stdout, /empreintes owner .... IDENTIQUES avant\/apres scenario 2/);
+      assert.match(result.stdout, /configuration owner \. IDENTIQUE avant\/apres scenario 3/);
+      assert.match(result.stdout, /configuration owner \. IDENTIQUE avant\/apres scenario 0/);
+      assert.match(result.stdout, /configuration owner \. IDENTIQUE avant\/apres scenario 1/);
+      assert.match(result.stdout, /configuration owner \. IDENTIQUE avant\/apres scenario 2/);
 
       const order = [
         result.stdout.indexOf("=== scenario 3"),
@@ -343,7 +354,7 @@ for (const scenario of matrix) {
   });
 }
 
-test("uat-doctor should fingerprint an owner root containing a file larger than readFileSync's limit", () => {
+test("uat-doctor should ignore a large non-configuration owner file", () => {
   const fixture = createFixture("large-owner-file", false);
   const largeFile = join(fixture.defaultCodex, "sparse-over-2gib");
   try {
@@ -358,8 +369,78 @@ test("uat-doctor should fingerprint an owner root containing a file larger than 
 
     assert.equal(result.status, 0, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
     assert.equal(statSync(largeFile, { bigint: true }).size, before);
-    assert.match(result.stdout, /empreintes owner .... IDENTIQUES avant\/apres scenario 3/);
-    assert.match(result.stdout, /empreintes owner .... IDENTIQUES avant\/apres scenario 2/);
+    assert.match(result.stdout, /configuration owner \. IDENTIQUE avant\/apres scenario 3/);
+    assert.match(result.stdout, /configuration owner \. IDENTIQUE avant\/apres scenario 2/);
+  } finally {
+    rmSync(fixture.outer, { recursive: true, force: true });
+  }
+});
+
+test("uat-doctor should ignore volatile Codex activity while guarding owner configuration", () => {
+  const fixture = createFixture("volatile-owner-activity", false);
+  try {
+    const result = spawnSync("bash", [SCRIPT], {
+      cwd: REPO_ROOT,
+      env: injectedEnvironment(fixture, {
+        UAT_TEST_OWNER_MUTATION: "volatile",
+        UAT_TEST_OWNER_MUTATION_ROOT: fixture.defaultCodex
+      }),
+      encoding: "utf8"
+    });
+
+    assert.equal(result.status, 0, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    assert.ok(existsSync(join(fixture.defaultCodex, "logs", "logs_2.sqlite")));
+    assert.match(result.stdout, /configuration owner \. IDENTIQUE avant\/apres scenario 3/);
+  } finally {
+    rmSync(fixture.outer, { recursive: true, force: true });
+  }
+});
+
+test("uat-doctor should reject and name an owner configuration mutation", () => {
+  const fixture = createFixture("owner-config-mutation", false);
+  const configPath = join(fixture.defaultCodex, "config.toml");
+  try {
+    writeFileSync(configPath, "before=1\n");
+    const result = spawnSync("bash", [SCRIPT], {
+      cwd: REPO_ROOT,
+      env: injectedEnvironment(fixture, {
+        UAT_TEST_OWNER_MUTATION: "configuration",
+        UAT_TEST_OWNER_MUTATION_ROOT: fixture.defaultCodex
+      }),
+      encoding: "utf8"
+    });
+
+    assert.equal(result.status, 1, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    assert.match(result.stderr, /configuration owner a change pendant scenario 3/);
+    assert.ok(result.stderr.includes(`MODIFIE : ${configPath}`), result.stderr);
+  } finally {
+    rmSync(fixture.outer, { recursive: true, force: true });
+  }
+});
+
+test("uat-doctor volatile exclusion should fail when logs_2.sqlite is reintroduced into the fingerprint", () => {
+  const fixture = createFixture("volatile-counter-mutant", false);
+  const mutantScript = join(fixture.root, "mutant checkout", "docs", "uat", "uat-doctor.sh");
+  const source = readFileSync(SCRIPT, "utf8");
+  const needle = "if (isVolatileConfigurationPath(relative)) return false;";
+  const mutant = source.replace(
+    needle,
+    'if (relative.endsWith("logs_2.sqlite")) return true;\\n    ' + needle
+  );
+  try {
+    assert.notEqual(mutant, source, "counter-mutant insertion point disappeared");
+    writeExecutable(mutantScript, mutant);
+    const result = spawnSync("bash", [mutantScript], {
+      cwd: REPO_ROOT,
+      env: injectedEnvironment(fixture, {
+        UAT_TEST_OWNER_MUTATION: "volatile",
+        UAT_TEST_OWNER_MUTATION_ROOT: fixture.defaultCodex
+      }),
+      encoding: "utf8"
+    });
+
+    assert.equal(result.status, 1, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    assert.match(result.stderr, /logs_2\.sqlite/);
   } finally {
     rmSync(fixture.outer, { recursive: true, force: true });
   }
