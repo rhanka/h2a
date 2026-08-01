@@ -1,5 +1,4 @@
 import { serve } from "@hono/node-server";
-import { createNodeWebSocket } from "@hono/node-ws";
 import {
   REMOTE_PROTOCOL_VERSION,
   REMOTE_SCHEMA_VERSION,
@@ -155,7 +154,6 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
   // Open control-plane in-process for remote attach.
   const app = new Hono();
-  const nodeWs = createNodeWebSocket({ app });
 
   app.get("/healthz", (c) =>
     c.json({ ok: true, sessionId, profile: profile.profile }),
@@ -218,7 +216,6 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
   const port = options.port ?? 0;
   const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
-  nodeWs.injectWebSocket(server);
 
   let actualPort = port;
   const address = server.address();
