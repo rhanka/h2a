@@ -32,6 +32,7 @@ const killLocalSession = vi.fn();
 const listLocalSessions = vi.fn();
 const listLocalSessionsWithDiagnostics = vi.fn();
 const localSessionIdle = vi.fn();
+const sessionRelaunchSafety = vi.fn();
 const localSessionGatewayEnvStatus = vi.fn();
 const runLocalCliForeground = vi.fn();
 const migrateForward = vi.fn();
@@ -116,6 +117,7 @@ vi.mock("./tmux.js", () => ({
   listLocalSessions,
   listLocalSessionsWithDiagnostics,
   localSessionIdle,
+  sessionRelaunchSafety,
   localSessionGatewayEnvStatus,
   localSessionName: (slug: string) => `h2a-${slug}`,
   managedSessionCandidates: (slug: string) => [
@@ -247,6 +249,12 @@ beforeEach(() => {
   listLocalSessionsWithDiagnostics.mockReturnValue({ sessions: [], known: true });
   localSessionIdle.mockReset();
   localSessionIdle.mockReturnValue(false);
+  sessionRelaunchSafety.mockReset();
+  sessionRelaunchSafety.mockReturnValue({
+    idle: true,
+    activelyWorking: false,
+    reason: "test parked/dead session",
+  });
   localSessionGatewayEnvStatus.mockReset();
   localSessionGatewayEnvStatus.mockReturnValue("unknown");
   runLocalCliForeground.mockReset();
@@ -463,6 +471,80 @@ describe("h2a relaunch", () => {
     );
     expect(stderrText()).toContain("unresumable");
     expect(stderrText()).toContain("no resumable conversation");
+  });
+
+  it("never force-relaunches a working agent even when the old child count says idle", async () => {
+    // Reproduce the measured mass-kill shape: localSessionIdle's flaky count
+    // says the bash wrapper is idle, while the worker/CPU safety floor says it
+    // is working at 100 ms/s.
+    localSessionIdle.mockReturnValue(true);
+    sessionRelaunchSafety.mockImplementation((name: string) =>
+      name === "h2a-codex-lane"
+        ? {
+            idle: false,
+            activelyWorking: true,
+            rateMsPerSecond: 100,
+            reason: "live working CLI — never killed (even with --force)",
+          }
+        : {
+            idle: true,
+            activelyWorking: false,
+            reason: "test parked/dead session",
+          },
+    );
+
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "--all",
+      "--include-agents",
+      "--apply",
+      "--yes",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(killLocalSession).not.toHaveBeenCalledWith("h2a-codex-lane");
+    expect(startLocalSession).not.toHaveBeenCalledWith(
+      "codex",
+      "codex",
+      "/repo/shared",
+      ["resume", "conv-codex"],
+      "codex-lane",
+      undefined,
+      { sessionClass: "human" },
+    );
+    expect(killLocalSession).toHaveBeenCalledWith("h2a-claude-lane");
+    expect(stderrText()).toContain("never killed");
+  });
+
+  it("skips a forced relaunch when the worker CPU probe is indeterminate", async () => {
+    sessionRelaunchSafety.mockImplementation((name: string) =>
+      name === "h2a-codex-lane"
+        ? {
+            idle: false,
+            activelyWorking: true,
+            reason: "liveness indeterminate: CPU rate could not be computed",
+          }
+        : {
+            idle: true,
+            activelyWorking: false,
+            reason: "test parked/dead session",
+          },
+    );
+
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "codex-lane",
+      "--apply",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(startLocalSession).not.toHaveBeenCalled();
+    expect(stderrText()).toContain("liveness indeterminate");
   });
 
   it("force-restarts one exact named session after --apply", async () => {
