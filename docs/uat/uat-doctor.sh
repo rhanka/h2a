@@ -27,7 +27,9 @@ OWNER_CODEX_VALUE=${CODEX_HOME-}
 OWNER_CLAUDE_VALUE=${CLAUDE_CONFIG_DIR-}
 OWNER_CODEX_ROOT=${OWNER_CODEX_VALUE:-$OWNER_HOME/.codex}
 OWNER_CLAUDE_ROOT=${OWNER_CLAUDE_VALUE:-$OWNER_HOME/.claude}
-OWNER_CLAUDE_NATIVE=$OWNER_HOME/.claude.json
+OWNER_CLAUDE_COMPANION_BASE=${OWNER_CLAUDE_VALUE:-$OWNER_HOME}
+OWNER_CLAUDE_NATIVE=$OWNER_CLAUDE_COMPANION_BASE/.claude.json
+OWNER_CLAUDE_MCP=$OWNER_CLAUDE_COMPANION_BASE/.config/claude/mcp.json
 
 TMP_PARENT=${UAT_TMP_PARENT:-${TMPDIR:-/tmp}}
 mkdir -p -- "$TMP_PARENT" || {
@@ -69,67 +71,181 @@ case "$UAT" in
   *) echo "ABANDON : mktemp a rendu un chemin inattendu '$UAT'." >&2; exit 1 ;;
 esac
 
-fingerprint_paths() {
-  node - "$@" <<'NODE'
+owner_snapshot() {
+  node - "$OWNER_CODEX_ROOT" "$OWNER_CLAUDE_ROOT" "$OWNER_CLAUDE_NATIVE" "$OWNER_CLAUDE_MCP" <<'NODE'
 const { createHash } = require("node:crypto");
 const { lstatSync, readFileSync, readdirSync, readlinkSync } = require("node:fs");
-const { join } = require("node:path");
+const { basename, join } = require("node:path");
 const MAX_INLINE_FILE_BYTES = 8 * 1024 * 1024;
+const [codexRoot, claudeRoot, claudeNative, claudeMcp] = process.argv.slice(2);
 
-for (const root of process.argv.slice(2)) {
+// These are configuration-bearing artifacts. Everything else under the host
+// roots is outside this guard unless it is a plugin manifest matched below.
+const CORE_CONFIGURATION_PATHS = [
+  join(codexRoot, "config.toml"),
+  join(claudeRoot, "settings.json"),
+  join(claudeRoot, "plugins", "known_marketplaces.json"),
+  join(claudeRoot, "plugins", "installed_plugins.json"),
+  claudeNative,
+  claudeMcp
+];
+const PLUGIN_CONFIGURATION_BASENAMES = new Set([
+  ".mcp.json",
+  "hooks.json"
+]);
+
+// Explicitly volatile host state: journals, SQLite runtime databases and
+// sidecars, session caches, temporary trees and locks are never configuration.
+const VOLATILE_FILE_PATTERNS = [
+  "*.log",
+  "*.jsonl",
+  "*.sqlite",
+  "*.sqlite-wal",
+  "*.sqlite-shm",
+  "*.lock",
+  "*.pid"
+];
+const VOLATILE_DIRECTORY_NAMES = new Set([
+  ".tmp",
+  "debug",
+  "file-history",
+  "history",
+  "journal",
+  "journals",
+  "lock",
+  "locks",
+  "logs",
+  "session-cache",
+  "session-env",
+  "session_cache",
+  "session_env",
+  "sessions",
+  "shell-snapshots",
+  "shell_snapshots",
+  "telemetry",
+  "tmp"
+]);
+
+function isVolatileConfigurationPath(relative) {
+  const normalized = relative.replaceAll("\\", "/");
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.some((part) => VOLATILE_DIRECTORY_NAMES.has(part))) return true;
+  const name = parts.at(-1) ?? "";
+  return VOLATILE_FILE_PATTERNS.some((pattern) => name.endsWith(pattern.slice(1)));
+}
+
+function isConfiguration(relative) {
+  if (isVolatileConfigurationPath(relative)) return false;
+  const normalized = `/${relative.replaceAll("\\", "/")}`;
+  return (
+    normalized.endsWith("/.codex-plugin/plugin.json") ||
+    normalized.endsWith("/.claude-plugin/plugin.json") ||
+    normalized.endsWith("/.agents/plugins/marketplace.json") ||
+    normalized.endsWith("/hooks/hooks.json") ||
+    PLUGIN_CONFIGURATION_BASENAMES.has(basename(normalized))
+  );
+}
+
+function fingerprint(path, stat) {
   const hash = createHash("sha256");
+  const type = stat.isDirectory() ? "d" : stat.isFile() ? "f" : stat.isSymbolicLink() ? "l" : "o";
+  hash.update([
+    type,
+    String(stat.mode),
+    String(stat.size),
+    String(stat.mtimeNs)
+  ].join("\0") + "\0");
 
+  if (stat.isSymbolicLink()) {
+    hash.update(readlinkSync(path) + "\0");
+  } else if (stat.isFile()) {
+    if (stat.size <= BigInt(MAX_INLINE_FILE_BYTES)) {
+      hash.update(readFileSync(path));
+    } else {
+      hash.update("content-bounded-to-metadata\0");
+    }
+  }
+  return hash.digest("hex");
+}
+
+const snapshot = new Map();
+
+function record(path, absentIsState = false) {
+  let stat;
+  try {
+    stat = lstatSync(path, { bigint: true });
+  } catch (error) {
+    if (error && error.code === "ENOENT" && absentIsState) {
+      snapshot.set(path, "ABSENT");
+      return;
+    }
+    if (error && error.code === "ENOENT") return;
+    throw error;
+  }
+  snapshot.set(path, fingerprint(path, stat));
+}
+
+function visitRoot(root) {
   function visit(absolute, relative) {
     let stat;
     try {
       stat = lstatSync(absolute, { bigint: true });
     } catch (error) {
-      if (error && error.code === "ENOENT") {
-        hash.update(`ABSENT\0${relative}\0`);
-        return;
-      }
+      if (error && error.code === "ENOENT") return;
       throw error;
     }
 
-    const type = stat.isDirectory() ? "d" : stat.isFile() ? "f" : stat.isSymbolicLink() ? "l" : "o";
-    hash.update([
-      type,
-      relative,
-      String(stat.mode),
-      String(stat.size),
-      String(stat.mtimeNs)
-    ].join("\0") + "\0");
-
-    if (stat.isSymbolicLink()) {
-      hash.update(readlinkSync(absolute) + "\0");
-    } else if (stat.isFile()) {
-      if (stat.size <= BigInt(MAX_INLINE_FILE_BYTES)) {
-        hash.update(readFileSync(absolute));
-      } else {
-        hash.update("content-bounded-to-metadata\0");
-      }
-    } else if (stat.isDirectory()) {
+    if (stat.isDirectory()) {
       for (const entry of readdirSync(absolute).sort()) {
-        visit(join(absolute, entry), relative === "." ? entry : `${relative}/${entry}`);
+        const childRelative = relative ? `${relative}/${entry}` : entry;
+        if (isVolatileConfigurationPath(childRelative)) continue;
+        visit(join(absolute, entry), childRelative);
       }
+    } else if (isConfiguration(relative)) {
+      snapshot.set(absolute, fingerprint(absolute, stat));
     }
   }
 
-  visit(root, ".");
-  process.stdout.write(hash.digest("hex") + "\n");
+  visit(root, "");
 }
+
+for (const path of CORE_CONFIGURATION_PATHS) record(path, true);
+visitRoot(codexRoot);
+visitRoot(claudeRoot);
+
+const ordered = Object.fromEntries([...snapshot.entries()].sort(([left], [right]) => left.localeCompare(right)));
+process.stdout.write(JSON.stringify(ordered) + "\n");
 NODE
 }
 
-owner_snapshot() {
-  fingerprint_paths "$OWNER_CODEX_ROOT" "$OWNER_CLAUDE_ROOT" "$OWNER_CLAUDE_NATIVE"
+configuration_changes() {
+  node - "$1" "$2" <<'NODE'
+const { readFileSync } = require("node:fs");
+const [beforePath, afterPath] = process.argv.slice(2);
+const before = JSON.parse(readFileSync(beforePath, "utf8"));
+const after = JSON.parse(readFileSync(afterPath, "utf8"));
+const paths = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+
+for (const path of paths) {
+  if (before[path] === after[path]) continue;
+  const status = before[path] === "ABSENT" || !(path in before)
+    ? "AJOUTE"
+    : after[path] === "ABSENT" || !(path in after)
+      ? "SUPPRIME"
+      : "MODIFIE";
+  process.stdout.write(`  ${status} : ${path}\n`);
+}
+NODE
 }
 
 guard_owner_roots() {
   local label=$1
   shift
-  local before after code
-  before=$(owner_snapshot) || {
+  local snapshot_label=${label// /-}
+  local before=$UAT/.owner-config-before-$snapshot_label.json
+  local after=$UAT/.owner-config-after-$snapshot_label.json
+  local changes code
+  owner_snapshot > "$before" || {
     echo "ABANDON : empreinte owner impossible avant $label." >&2
     return 1
   }
@@ -137,18 +253,20 @@ guard_owner_roots() {
   "$@"
   code=$?
 
-  after=$(owner_snapshot) || {
+  owner_snapshot > "$after" || {
     echo "ABANDON : empreinte owner impossible apres $label." >&2
     return 1
   }
-  if [ "$before" != "$after" ]; then
-    echo "INVALIDE : une racine owner a change pendant $label." >&2
-    echo "  CODEX : $OWNER_CODEX_ROOT" >&2
-    echo "  CLAUDE: $OWNER_CLAUDE_ROOT" >&2
-    echo "  NATIF : $OWNER_CLAUDE_NATIVE" >&2
+  changes=$(configuration_changes "$before" "$after") || {
+    echo "ABANDON : comparaison owner impossible apres $label." >&2
+    return 1
+  }
+  if [ -n "$changes" ]; then
+    echo "INVALIDE : la configuration owner a change pendant $label." >&2
+    printf '%s\n' "$changes" >&2
     return 1
   fi
-  echo "  empreintes owner .... IDENTIQUES avant/apres $label"
+  echo "  configuration owner . IDENTIQUE avant/apres $label"
   return "$code"
 }
 
@@ -310,6 +428,7 @@ echo "  owner HOME .......... $OWNER_HOME"
 echo "  owner CODEX ......... $OWNER_CODEX_ROOT"
 echo "  owner CLAUDE ........ $OWNER_CLAUDE_ROOT"
 echo "  config Claude native  $OWNER_CLAUDE_NATIVE"
+echo "  config Claude MCP .... $OWNER_CLAUDE_MCP"
 echo "  racine UAT jetable .. $UAT"
 
 prepare_candidate || exit 1
@@ -324,6 +443,7 @@ guard_owner_roots "scenario 2" run_scenario_2 || exit 1
 
 echo
 echo "=== decision owner ========================================================"
-echo "  La recette a execute 3, 0, 1, 2 et les racines owner sont restees byte-identiques."
+echo "  La recette a execute 3, 0, 1, 2 et la configuration owner est restee identique."
+echo "  Les sessions Codex et Claude peuvent rester ouvertes : journaux, bases SQLite, caches de session et verrous sont hors empreinte."
 echo "  Aucun done n'est deduit de ce vert : l'owner doit encore lire le scenario 2 et trancher."
 echo "  Le nettoyage de l'UAT et de l'extrait candidat va maintenant etre effectue."
