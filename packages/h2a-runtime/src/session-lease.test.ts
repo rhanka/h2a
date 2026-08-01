@@ -5,17 +5,23 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   DEFAULT_SESSION_LEASE_TTL_MS,
+  DEFAULT_RESOLVING_BOUND_MS,
   DEFAULT_WORKING_CPU_MS_PER_SECOND,
+  auditSessionLeaseFleet,
+  countLiveSessionLeases,
   SessionLeaseError,
   SessionLeaseStore,
   cpuRateMsPerSecond,
   decideSessionBeat,
   isSessionLeaseAbandoned,
+  isSessionLeaseAlive,
+  workerDisproven,
   planLeaseSupervision,
   reclaimProposals,
   resolveSessionLeasePath,
   type SessionLease,
 } from "./session-lease.js";
+import type { ProcView } from "./proc-cpu.js";
 
 // Scratch dir inside the package (never /tmp), like the other test suites.
 const SCRATCH_ROOT = join(
@@ -40,6 +46,16 @@ function storeAt(clock: { iso: string }, ids: string[] = []): SessionLeaseStore 
 const T0 = "2026-07-30T10:00:00.000Z";
 const plusMinutes = (iso: string, minutes: number): string =>
   new Date(Date.parse(iso) + minutes * 60_000).toISOString();
+
+function procView(
+  currentBootId: string,
+  processes: ReadonlyArray<{ pid: number; startTime: string }>,
+): ProcView {
+  return {
+    currentBootId,
+    processes: new Map(processes.map(({ pid, startTime }) => [pid, { startTime }])),
+  };
+}
 
 beforeEach(() => {
   mkdirSync(SCRATCH_ROOT, { recursive: true });
@@ -322,6 +338,120 @@ describe("what a supervising pass must do with each lease (pure)", () => {
     expect(planLeaseSupervision([lease("orphan")], [])).toEqual([
       { sessionId: "orphan", action: "leave", reason: "unregistered" },
     ]);
+  });
+});
+
+describe("worker attribution liveness and the four fixed reserves", () => {
+  const attributed = (overrides: Partial<SessionLease> = {}): SessionLease => ({
+    leaseId: "worker-lease",
+    sessionId: "worker-job",
+    holder: "conductor",
+    acquiredAt: T0,
+    heartbeatAt: T0,
+    expiresAt: plusMinutes(T0, 30),
+    ttlMs: DEFAULT_SESSION_LEASE_TTL_MS,
+    token: "worker-token",
+    worker: { pid: 321, startTime: "111", bootId: "boot-a" },
+    ...overrides,
+  });
+
+  it("R1 keeps a legacy worker-less fleet alive and out of reclaim proposals", () => {
+    const legacy = [
+      attributed({ sessionId: "legacy-a" }),
+      attributed({ sessionId: "legacy-b" }),
+    ];
+    delete legacy[0]!.worker;
+    delete legacy[1]!.worker;
+    const view = procView("boot-a", []);
+    expect(isSessionLeaseAlive(legacy[0]!, view, plusMinutes(T0, 1))).toBe(true);
+    expect(countLiveSessionLeases(legacy, view, plusMinutes(T0, 1))).toBe(2);
+    expect(reclaimProposals(legacy, plusMinutes(T0, 1), view)).toEqual([]);
+  });
+
+  it("disproves a recycled pid when its start time changes", () => {
+    const lease = attributed();
+    const view = procView("boot-a", [{ pid: 321, startTime: "222" }]);
+    expect(workerDisproven(lease, view)).toBe(true);
+    expect(isSessionLeaseAlive(lease, view, plusMinutes(T0, 1))).toBe(false);
+  });
+
+  it("returns a slot when the holder beats but the same-boot worker is gone", () => {
+    const lease = attributed({ heartbeatAt: plusMinutes(T0, 1) });
+    const view = procView("boot-a", []);
+    expect(isSessionLeaseAlive(lease, view, plusMinutes(T0, 2))).toBe(false);
+    expect(countLiveSessionLeases([lease], view, plusMinutes(T0, 2))).toBe(0);
+    expect(reclaimProposals([lease], plusMinutes(T0, 2), view)[0]).toMatchObject({
+      sessionId: "worker-job",
+      reason: "contested",
+    });
+  });
+
+  it("R2 protects a token-guarded resolving relaunch only inside its own bound", () => {
+    const clock = { iso: T0 };
+    const store = storeAt(clock);
+    const lease = store.acquire({
+      sessionId: "relaunch-job",
+      holder: "conductor",
+      worker: { pid: 321, startTime: "111", bootId: "boot-a" },
+    });
+    clock.iso = plusMinutes(T0, 1);
+    const resolving = store.beginRelaunch({
+      sessionId: "relaunch-job",
+      token: lease.token,
+      resolvingBoundMs: 5_000,
+    });
+    const within = new Date(Date.parse(resolving.relaunchStartedAt!) + 4_999).toISOString();
+    const after = new Date(Date.parse(resolving.relaunchStartedAt!) + 5_001).toISOString();
+    expect(isSessionLeaseAlive(resolving, procView("boot-a", []), within)).toBe(true);
+    expect(reclaimProposals([resolving], within, procView("boot-a", []))).toEqual([]);
+    expect(isSessionLeaseAlive(resolving, procView("boot-a", []), after)).toBe(false);
+    expect(reclaimProposals([resolving], after, procView("boot-a", []))[0]).toMatchObject({
+      reason: "contested",
+    });
+    expect(() =>
+      store.beginRelaunch({ sessionId: "relaunch-job", token: "wrong-token" }),
+    ).toThrow(/token mismatch/);
+    expect(() =>
+      store.heartbeat({ sessionId: "relaunch-job", token: "wrong-token" }),
+    ).toThrow(/token mismatch/);
+    expect(DEFAULT_RESOLVING_BOUND_MS).toBeGreaterThan(0);
+  });
+
+  it("R3 reaps prior-boot leases and proposes same-boot contests", () => {
+    const oldBoot = attributed({ sessionId: "old-boot", worker: { pid: 1, startTime: "1", bootId: "boot-old" } });
+    const contested = attributed({ sessionId: "contested", worker: { pid: 2, startTime: "2", bootId: "boot-a" } });
+    const deadView = procView("boot-a", [{ pid: 2, startTime: "different" }]);
+    const report = auditSessionLeaseFleet(
+      [
+        { sessionId: "old-boot", tmuxSession: "h2a-old" },
+        { sessionId: "contested", tmuxSession: "h2a-contested" },
+      ],
+      [oldBoot, contested],
+      [
+        { sessionName: "h2a-old", marker: "v1" },
+        { sessionName: "h2a-contested", marker: "v1" },
+      ],
+      deadView,
+      plusMinutes(T0, 1),
+    );
+    expect(report.deadBoot).toEqual(["old-boot"]);
+    expect(report.contested.map((proposal) => proposal.sessionId)).toEqual(["contested"]);
+    expect(reclaimProposals([oldBoot], plusMinutes(T0, 1), deadView)).toEqual([]);
+    expect(reclaimProposals([oldBoot, { ...oldBoot, sessionId: "old-boot-2" }], plusMinutes(T0, 1), deadView)).toEqual([]);
+  });
+
+  it("R4 audits all marker rows from one fleet projection", () => {
+    const report = auditSessionLeaseFleet(
+      [
+        { sessionId: "a", tmuxSession: "h2a-a" },
+        { sessionId: "b", tmuxSession: "h2a-b" },
+      ],
+      [],
+      [{ sessionName: "h2a-a", marker: "v1" }, { sessionName: "h2a-b" }],
+      procView("boot-a", []),
+      T0,
+    );
+    expect(report.missingStatusSurface).toEqual(["b"]);
   });
 });
 

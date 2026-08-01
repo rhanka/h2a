@@ -82,10 +82,14 @@ import {
   killLocalSession,
   localSessionGatewayEnvStatus,
   listLocalSessions,
+  listH2aStatusSurfaces,
   localSessionIdle,
   localSessionPanePid,
   localSessionName,
+  paneProcessObservation,
   paneTreeCpuMs,
+  paneWorkerAttribution,
+  paneWorkerAttributionFromView,
   paneWorkerPid,
   pasteLiteralBlock,
   submitPane,
@@ -95,6 +99,7 @@ import {
   openH2aStatusWindow,
   persistLaunchContext,
   readLaunchContext,
+  readFleetProcView,
   relaunchInSession,
   resolveAgentPane,
   resolveAgentPaneForInstance,
@@ -129,6 +134,7 @@ import {
   type AgentLaunchEffort,
 } from "./agent-launch-args.js";
 import { planRelaunch } from "./relaunch.js";
+import type { ProcView } from "./proc-cpu.js";
 import {
   isHumanFacingSession,
   readLastLayout,
@@ -154,13 +160,19 @@ import {
   type ThrottleInfo,
 } from "./registry.js";
 import {
+  auditSessionLeaseFleet,
+  countLiveSessionLeases,
   SessionLeaseStore,
   decideSessionBeat,
+  isSessionLeaseAlive,
   isSessionLeaseAbandoned,
+  isSessionLeaseDeadBoot,
   planLeaseSupervision,
   reclaimProposals,
   resolveSessionLeasePath,
   type SessionLease,
+  type SessionLeaseFleetAudit,
+  type SessionLeaseWorker,
 } from "./session-lease.js";
 import {
   aimdEffectiveCap,
@@ -1644,14 +1656,22 @@ function sessionLeaseStore(): SessionLeaseStore {
  */
 export function acquireSessionLease(
   sessionId: string,
-  opts: { holder: string; workspace?: string; agentPane?: string },
+  opts: {
+    holder: string;
+    workspace?: string;
+    agentPane?: string;
+    worker?: SessionLeaseWorker;
+  },
 ): SessionLease | undefined {
-  const cpuMs = opts.agentPane ? paneTreeCpuMs(opts.agentPane) : undefined;
+  // CPU baseline and worker identity share one /proc walk at acquire time.
+  const observation = opts.agentPane ? paneProcessObservation(opts.agentPane) : undefined;
+  const worker = opts.worker ?? observation?.worker;
   return sessionLeaseStore().acquire({
     sessionId,
     holder: opts.holder,
     ...(opts.workspace !== undefined ? { workspace: opts.workspace } : {}),
-    ...(cpuMs !== undefined ? { cpuMs } : {}),
+    ...(observation?.cpuMs !== undefined ? { cpuMs: observation.cpuMs } : {}),
+    ...(worker !== undefined ? { worker } : {}),
   });
 }
 
@@ -1686,6 +1706,9 @@ export function superviseSessionLeases(
     unreadable: [],
     proposals: [],
   };
+  const procView = readFleetProcView();
+  // R3: prior-boot corpses are reaped silently before any proposal pass.
+  store.reapDeadBootLeases(procView);
   const leases = store.readAll();
   const byId = new Map(leases.map((lease) => [lease.sessionId, lease]));
   for (const step of planLeaseSupervision(leases, sessions)) {
@@ -1699,23 +1722,88 @@ export function superviseSessionLeases(
       }
       if (step.action === "leave") continue;
       const pane = step.tmuxSession ? resolveAgentPane(step.tmuxSession) : undefined;
+      let currentLease = lease;
+      // R1 lazy migration: old leases remain alive until this pass can resolve
+      // their worker. Resolve from the pass-wide snapshot, never by spawning a
+      // /proc walk for every lease.
+      if (currentLease.worker === undefined && pane !== undefined) {
+        const worker = paneWorkerAttributionFromView(pane, procView);
+        if (worker !== undefined) {
+          currentLease = store.populateWorker({
+            sessionId: currentLease.sessionId,
+            token: currentLease.token,
+            worker,
+          });
+        }
+      }
+      if (!isSessionLeaseAlive(currentLease, procView, now)) {
+        result.unreadable.push(currentLease.sessionId);
+        continue;
+      }
       const cpuMsNow = pane ? paneTreeCpuMs(pane) : undefined;
-      const decision = decideSessionBeat({ lease, cpuMsNow, now });
+      const decision = decideSessionBeat({ lease: currentLease, cpuMsNow, now });
       if (decision.action === "beat" && cpuMsNow !== undefined) {
-        store.heartbeat({ sessionId: lease.sessionId, token: lease.token, cpuMs: cpuMsNow });
-        result.beaten.push(lease.sessionId);
+        store.heartbeat({ sessionId: currentLease.sessionId, token: currentLease.token, cpuMs: cpuMsNow });
+        result.beaten.push(currentLease.sessionId);
       } else if (decision.action === "observe" && cpuMsNow !== undefined) {
-        store.observe({ sessionId: lease.sessionId, token: lease.token, cpuMs: cpuMsNow });
-        result.observed.push(lease.sessionId);
+        store.observe({ sessionId: currentLease.sessionId, token: currentLease.token, cpuMs: cpuMsNow });
+        result.observed.push(currentLease.sessionId);
       } else {
-        result.unreadable.push(lease.sessionId);
+        result.unreadable.push(currentLease.sessionId);
       }
     } catch {
       // a rejected write (raced re-acquisition, torn store) must not stop the pass
     }
   }
-  result.proposals = reclaimProposals(store.readAll(), now);
+  result.proposals = reclaimProposals(store.readAll(), now, procView);
   return result;
+}
+
+/** Relaunch one managed session while its lease carries the bounded protection. */
+export function relaunchSessionWithLease(input: {
+  sessionId: string;
+  tmuxSession: string;
+  command: string;
+  resolvingBoundMs?: number;
+}): boolean {
+  const store = sessionLeaseStore();
+  const lease = store.forSession(input.sessionId);
+  if (lease === undefined) return relaunchInSession(input.tmuxSession, input.command);
+  const pane = resolveAgentPane(input.tmuxSession);
+  const outcome = store.relaunch({
+    sessionId: lease.sessionId,
+    token: lease.token,
+    ...(input.resolvingBoundMs !== undefined
+      ? { resolvingBoundMs: input.resolvingBoundMs }
+      : {}),
+    act: () => relaunchInSession(input.tmuxSession, input.command),
+    resolveWorker: () => (pane ? paneWorkerAttribution(pane) : undefined),
+  });
+  return outcome.succeeded;
+}
+
+/** One on-demand fleet-wide read-back audit; it never runs from rendering. */
+export function auditLiveSessionLeases(
+  sessions: ReadonlyArray<RegistryEntry> = listJobs(),
+  now: string = new Date().toISOString(),
+): SessionLeaseFleetAudit & { reaped: string[]; liveLeaseCount: number; procView: ProcView } {
+  const store = sessionLeaseStore();
+  const leases = store.readAll();
+  const procView = readFleetProcView();
+  const report = auditSessionLeaseFleet(
+    sessions.map((session) => ({
+      sessionId: session.id,
+      ...(session.tmuxSession !== undefined ? { tmuxSession: session.tmuxSession } : {}),
+      ...(session.jobState !== undefined ? { jobState: session.jobState } : {}),
+    })),
+    leases,
+    listH2aStatusSurfaces(),
+    procView,
+    now,
+  );
+  const liveLeaseCount = countLiveSessionLeases(leases, procView, now);
+  const reaped = store.reapDeadBootLeases(procView);
+  return { ...report, reaped, liveLeaseCount, procView };
 }
 
 /** Human-readable duration for lease reporting ("41m", "2h13m"). */
@@ -6597,10 +6685,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "--probe",
       "before reporting, run one supervising pass: beat the leases of sessions whose pane is burning CPU, record the others",
     )
-    .action((opts: { probe?: boolean }) => {
+    .option(
+      "--audit",
+      "run one on-demand fleet-wide read-back audit (one tmux FORMAT call and one /proc scan)",
+    )
+    .action((opts: { probe?: boolean; audit?: boolean }) => {
       const now = new Date().toISOString();
       if (opts.probe === true) superviseSessionLeases(listJobs(), now);
-      const leases = sessionLeaseStore().readAll();
+      const audit = opts.audit === true ? auditLiveSessionLeases(listJobs(), now) : undefined;
+      const store = sessionLeaseStore();
+      const leases = store.readAll();
       if (leases.length === 0) {
         process.stdout.write("no session leases\n");
         return;
@@ -6611,7 +6705,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         .sort((a, b) => Date.parse(a.heartbeatAt) - Date.parse(b.heartbeatAt))
         .map((lease) => {
           const idle = nowMs - Date.parse(lease.heartbeatAt);
-          const state = isSessionLeaseAbandoned(lease, now) ? "RECLAIMABLE" : "held";
+          const state = audit
+            ? isSessionLeaseAlive(lease, audit.procView, now)
+              ? "held"
+              : "RECLAIMABLE"
+            : isSessionLeaseAbandoned(lease, now)
+              ? "RECLAIMABLE"
+              : "held";
           return (
             `${lease.sessionId.padEnd(24)} ${state.padEnd(12)} ` +
             `idle ${formatIdle(idle).padEnd(7)} ttl ${formatIdle(lease.ttlMs).padEnd(6)} ` +
@@ -6619,12 +6719,24 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
         });
       process.stdout.write(`${rows.join("\n")}\n`);
-      const reclaimable = reclaimProposals(leases, now).length;
+      const reclaimable = audit
+        ? reclaimProposals(leases, now, audit.procView).length
+        : reclaimProposals(leases, now).length;
       if (reclaimable > 0) {
         process.stderr.write(
           `[h2a] ${reclaimable} slot(s) reclaimable — free one with: h2a jobs reclaim <id> ` +
             "(the session's tmux window is left running and can still be attached)\n",
         );
+      }
+      if (audit) {
+        if (audit.reaped.length > 0) {
+          process.stderr.write(`[h2a] audit reaped prior-boot lease(s): ${audit.reaped.join(", ")}\n`);
+        }
+        if (audit.missingStatusSurface.length > 0) {
+          process.stderr.write(
+            `[h2a] audit status-surface drift: ${audit.missingStatusSurface.join(", ")}\n`,
+          );
+        }
       }
     });
 
@@ -6636,7 +6748,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .action((id: string) => {
       const now = new Date().toISOString();
       const store = sessionLeaseStore();
-      const lease = store.forSession(id);
+      let lease = store.forSession(id);
       if (!lease) {
         process.stderr.write(
           `[h2a] no session lease for "${id}" — nothing to reclaim (see: h2a jobs leases)\n`,
@@ -6644,9 +6756,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         process.exitCode = 1;
         return;
       }
+      const procView = readFleetProcView();
+      if (isSessionLeaseDeadBoot(lease, procView)) {
+        store.reapDeadBootLeases(procView);
+        process.stdout.write(`reaped ${id} — lease belonged to a prior boot\n`);
+        return;
+      }
       // The one guard that matters: a session still proving it works keeps its
       // slot, whatever the operator believes. Reclaiming is not arbitration.
-      if (!isSessionLeaseAbandoned(lease, now)) {
+      if (isSessionLeaseAlive(lease, procView, now)) {
         const idle = Date.parse(now) - Date.parse(lease.heartbeatAt);
         process.stderr.write(
           `[h2a] refusing to reclaim ${id}: its lease still beats (last proof of work ` +
@@ -7675,7 +7793,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       // h2a-/remote- prefix collision.
       const convByTmuxSession = new Map<string, string>();
       const convBySlug = new Map<string, string>();
+      const leaseIdByTmuxSession = new Map<string, string>();
       for (const e of loadRegistry()) {
+        if (e.tmuxSession) leaseIdByTmuxSession.set(e.tmuxSession, e.id);
         if (e.kind !== "local-tmux" || !e.convId) continue;
         convBySlug.set(e.id, e.convId);
         if (e.tmuxSession) convByTmuxSession.set(e.tmuxSession, e.convId);
@@ -7719,7 +7839,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       }
       let ok = 0;
       for (const a of plan.actions) {
-        if (relaunchInSession(a.name, a.cmd)) {
+        const sessionId = leaseIdByTmuxSession.get(a.name);
+        if (
+          sessionId !== undefined
+            ? relaunchSessionWithLease({ sessionId, tmuxSession: a.name, command: a.cmd })
+            : relaunchInSession(a.name, a.cmd)
+        ) {
           ok += 1;
           process.stderr.write(`[h2a] relaunched ${a.slug}: ${a.cmd}\n`);
         } else {
@@ -7836,6 +7961,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
     let nudged = 0;
     if (apply) {
+      const leaseIdByTmuxSession = new Map(
+        loadRegistry()
+          .filter((entry) => entry.tmuxSession !== undefined)
+          .map((entry) => [entry.tmuxSession!, entry.id]),
+      );
       for (const r of plan.toResume) {
         // DOUBLE-CHECK the attached guard at the moment of action (the pure plan
         // already excluded attached panes, but re-read in case a human just
@@ -7846,7 +7976,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
           continue;
         }
-        const ok = relaunchInSession(r.name, interactiveResumeNudge(r.type));
+        const sessionId = leaseIdByTmuxSession.get(r.name);
+        const ok =
+          sessionId !== undefined
+            ? relaunchSessionWithLease({
+                sessionId,
+                tmuxSession: r.name,
+                command: interactiveResumeNudge(r.type),
+              })
+            : relaunchInSession(r.name, interactiveResumeNudge(r.type));
         if (ok) {
           nudged += 1;
           throttleState.set(r.name, r.next);
