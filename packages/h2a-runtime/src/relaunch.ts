@@ -12,12 +12,132 @@
  */
 
 import { isCliProfile, resolveProfile, resumeArgsFor } from "./profiles.js";
+import {
+  cpuRateMsPerSecond,
+  DEFAULT_WORKING_CPU_MS_PER_SECOND,
+} from "./session-lease.js";
 
 export type ResumeLaunch = {
   command: string;
   args: string[];
   display: string;
 };
+
+export type RelaunchSafety = {
+  /** True only when the pane is a shell with no live worker descendant. */
+  idle: boolean;
+  /** The hard floor: true also covers indeterminate liveness. */
+  activelyWorking: boolean;
+  reason: string;
+  rateMsPerSecond?: number;
+};
+
+export type RelaunchSafetySample = {
+  paneCommand?: string | undefined;
+  panePid?: number | undefined;
+  firstWorkerPid?: number | undefined;
+  secondWorkerPid?: number | undefined;
+  firstCpuMs?: number | undefined;
+  secondCpuMs?: number | undefined;
+  elapsedMs?: number | undefined;
+};
+
+const SHELL_COMMANDS = new Set(["bash", "sh"]);
+
+/**
+ * Pure relaunch liveness projection.
+ *
+ * The relaunch path must never turn missing evidence into permission to kill.
+ * A complete pair of observations is required: the pane must be a wrapper
+ * shell, both observations must resolve the same worker/root, and CPU must
+ * produce a non-negative rate. Anything else is indeterminate and therefore
+ * receives the hard working floor.
+ */
+export function decideRelaunchSafety(
+  sample: RelaunchSafetySample,
+): RelaunchSafety {
+  if (!SHELL_COMMANDS.has(sample.paneCommand ?? "")) {
+    return {
+      idle: false,
+      activelyWorking: true,
+      reason: "liveness indeterminate: pane command is not a readable shell",
+    };
+  }
+  if (
+    typeof sample.panePid !== "number" ||
+    !Number.isInteger(sample.panePid) ||
+    sample.panePid <= 0 ||
+    typeof sample.firstWorkerPid !== "number" ||
+    !Number.isInteger(sample.firstWorkerPid) ||
+    typeof sample.secondWorkerPid !== "number" ||
+    !Number.isInteger(sample.secondWorkerPid) ||
+    typeof sample.firstCpuMs !== "number" ||
+    !Number.isFinite(sample.firstCpuMs) ||
+    typeof sample.secondCpuMs !== "number" ||
+    !Number.isFinite(sample.secondCpuMs) ||
+    typeof sample.elapsedMs !== "number" ||
+    !Number.isFinite(sample.elapsedMs) ||
+    sample.elapsedMs <= 0
+  ) {
+    return {
+      idle: false,
+      activelyWorking: true,
+      reason: "liveness indeterminate: pane, worker, or CPU sample unreadable",
+    };
+  }
+
+  // A worker disappearing, appearing, or changing identity during the sample
+  // is not evidence of idleness. The safe outcome is to leave the session.
+  if (sample.firstWorkerPid !== sample.secondWorkerPid) {
+    return {
+      idle: false,
+      activelyWorking: true,
+      reason: "liveness indeterminate: worker identity changed during sample",
+    };
+  }
+
+  // busiestDescendant returns the pane root when the wrapper has no live
+  // descendant. This is the only shape that proves a dead/parked shell.
+  if (sample.firstWorkerPid === sample.panePid) {
+    return {
+      idle: true,
+      activelyWorking: false,
+      reason: "no live CLI worker descendant",
+    };
+  }
+
+  const rateMsPerSecond = cpuRateMsPerSecond(
+    {
+      sample: {
+        cpuMs: sample.firstCpuMs,
+        sampledAt: new Date(0).toISOString(),
+      },
+    },
+    sample.secondCpuMs,
+    new Date(sample.elapsedMs).toISOString(),
+  );
+  if (rateMsPerSecond === undefined) {
+    return {
+      idle: false,
+      activelyWorking: true,
+      reason: "liveness indeterminate: CPU rate could not be computed",
+    };
+  }
+  if (rateMsPerSecond >= DEFAULT_WORKING_CPU_MS_PER_SECOND) {
+    return {
+      idle: false,
+      activelyWorking: true,
+      rateMsPerSecond,
+      reason: "live working CLI — never killed (even with --force)",
+    };
+  }
+  return {
+    idle: true,
+    activelyWorking: false,
+    rateMsPerSecond,
+    reason: "live CLI worker is parked below the working CPU threshold",
+  };
+}
 
 /** Structured argv for resuming a conversation, safe to hand to a new tmux session. */
 export function resumeLaunchFor(
@@ -50,8 +170,12 @@ export type RelaunchCandidate = {
   /** full tmux session name, e.g. `h2a-sentropic#2` */
   name: string;
   profile: string;
-  /** true when the pane is an idle shell (CLI gone) — only these are relaunched */
+  /** true when the shell has no working worker (dead or parked) */
   idle: boolean;
+  /** Hard safety floor. Indeterminate probes must set this true. */
+  activelyWorking: boolean;
+  /** Diagnostic reason for the hard floor or liveness projection. */
+  livenessReason?: string;
   /** this session's own conversation id, from the registry */
   convId?: string;
   /** why its registry row cannot safely produce a resume conversation */
@@ -126,6 +250,15 @@ export function planRelaunch(
       skipped.push({
         slug: c.slug,
         reason: `interactive agent CLI (${c.profile}) excluded by default; pass --include-agents`,
+      });
+      continue;
+    }
+    if (c.activelyWorking !== false) {
+      skipped.push({
+        slug: c.slug,
+        reason:
+          c.livenessReason ??
+          "liveness indeterminate — left alone (never kill on unknown)",
       });
       continue;
     }

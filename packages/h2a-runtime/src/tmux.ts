@@ -40,6 +40,10 @@ import {
   type ProcReaderDeps,
   type WorkerAttribution,
 } from "./proc-cpu.js";
+import {
+  decideRelaunchSafety,
+  type RelaunchSafety,
+} from "./relaunch.js";
 
 import {
   LAUNCH_OPTION_PREFIX,
@@ -2152,6 +2156,83 @@ export function localSessionIdle(name: string): boolean {
   );
   const kids = Number((children.stdout ?? "").trim());
   return Number.isInteger(kids) && kids === 0;
+}
+
+const RELAUNCH_LIVENESS_SAMPLE_MS = 250;
+
+export type RelaunchSafetyProbe = {
+  resolvePane?: (name: string) => string | undefined;
+  panePid?: (pane: string) => number | undefined;
+  paneCommand?: (pane: string) => string | undefined;
+  observe?: (pane: string) => ProcessObservation | undefined;
+  sleep?: (ms: number) => void;
+  now?: () => number;
+};
+
+function paneCurrentCommand(pane: string): string | undefined {
+  const result = spawnSync(
+    TMUX,
+    ["display", "-p", "-t", pane, "#{pane_current_command}"],
+    { encoding: "utf8" },
+  );
+  if (result.status !== 0 || result.stdout === undefined) return undefined;
+  const command = result.stdout.trim();
+  return command || undefined;
+}
+
+/**
+ * Fail-closed liveness evidence for the relaunch path.
+ *
+ * `localSessionIdle` remains available to its other callers, but relaunch must
+ * not use its flaky child-count shellout. This probe uses the merged worker
+ * attribution and process-tree CPU signal instead. Any unreadable pane, worker,
+ * or CPU sample is deliberately projected to the hard skip floor.
+ */
+export function sessionRelaunchSafety(
+  name: string,
+  probe: RelaunchSafetyProbe = {},
+): RelaunchSafety {
+  try {
+    const resolvePane = probe.resolvePane ?? resolveAgentPane;
+    const readPanePid = probe.panePid ?? localSessionPanePid;
+    const readPaneCommand = probe.paneCommand ?? paneCurrentCommand;
+    const observe = probe.observe ?? paneProcessObservation;
+    const sleep = probe.sleep ?? sleepBlocking;
+    const now = probe.now ?? Date.now;
+    const pane = resolvePane(name);
+    if (!pane) {
+      return {
+        idle: false,
+        activelyWorking: true,
+        reason: "liveness indeterminate: agent pane is unreadable",
+      };
+    }
+    const panePid = readPanePid(pane);
+    const paneCommand = readPaneCommand(pane);
+    if (panePid === undefined || paneCommand === undefined) {
+      return decideRelaunchSafety({ paneCommand, panePid });
+    }
+
+    const startedAt = now();
+    const first = observe(pane);
+    sleep(RELAUNCH_LIVENESS_SAMPLE_MS);
+    const second = observe(pane);
+    return decideRelaunchSafety({
+      paneCommand,
+      panePid,
+      firstWorkerPid: first?.worker?.pid,
+      secondWorkerPid: second?.worker?.pid,
+      firstCpuMs: first?.cpuMs,
+      secondCpuMs: second?.cpuMs,
+      elapsedMs: now() - startedAt,
+    });
+  } catch {
+    return {
+      idle: false,
+      activelyWorking: true,
+      reason: "liveness indeterminate: worker/CPU probe failed",
+    };
+  }
 }
 
 export type LocalSessionGatewayEnvStatus =
