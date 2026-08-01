@@ -233,7 +233,7 @@ export function countLiveSessionLeases(
  * negative delta is not a rate, and must never be read as "idle". PURE.
  */
 export function cpuRateMsPerSecond(
-  lease: SessionLease,
+  lease: Pick<SessionLease, "sample">,
   cpuMsNow: number,
   now: string,
 ): number | undefined {
