@@ -1752,9 +1752,13 @@ function repairCodexConfig(
   const next = rewriteTomlTables(raw, (table) => {
     const marketplace = tomlQuotedName(table.header, "marketplaces");
     if (isLegacySentropicName(marketplace) && legacyMarketplacesToRemove.has(table.header)) return undefined;
-    if (marketplace === H2A_MARKETPLACE_NAME) return canonicalCodexMarketplaceLines(table);
+    if (marketplace === H2A_MARKETPLACE_NAME) {
+      return canonicalCodexMarketplaceConfig(table) ? [table.raw ?? table.lines.join("")] : canonicalCodexMarketplaceLines(table);
+    }
     const plugin = tomlQuotedName(table.header, "plugins");
-    if (plugin === H2A_PLUGIN_SELECTOR) return setTomlValue(table, "enabled", "true");
+    if (plugin === H2A_PLUGIN_SELECTOR) {
+      return tomlBoolean(table, "enabled") === true ? [table.raw ?? table.lines.join("")] : setTomlValue(table, "enabled", "true");
+    }
     if (plugin && legacyPluginsToDisable.has(table.header)) return setTomlValue(table, "enabled", "false");
     const mcp = tomlQuotedName(table.header, "mcp_servers");
     if (mcp !== undefined && (isDirectH2aMcp(table) || isDirectTrackMcp(table))) return undefined;
