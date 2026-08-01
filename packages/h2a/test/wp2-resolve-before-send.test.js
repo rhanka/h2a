@@ -96,6 +96,26 @@ test("resolveRecipient: full id (3 segments, 12-hex) → deliver", () => {
   assert.equal(result.kind, "deliver");
 });
 
+test("resolveRecipient: full id absent from live instances → deliver-dormant", () => {
+  const target = "claude:foo:aaaaaaaaaaaa";
+  const result = resolveRecipient({
+    target,
+    liveInstances: ["claude:foo:bbbbbbbbbbbb"],
+    registeredInstances: [target]
+  });
+  assert.equal(result.kind, "deliver-dormant");
+  assert.match(result.reason, /deposited for wake/);
+});
+
+test("resolveRecipient: full id matches live instance across hex case → deliver", () => {
+  const result = resolveRecipient({
+    target: "claude:foo:ABCDEF123456",
+    liveInstances: ["claude:foo:abcdef123456"],
+    registeredInstances: ["claude:foo:abcdef123456"]
+  });
+  assert.equal(result.kind, "deliver");
+});
+
 test("resolveRecipient: malformed 3-segment (non-12-hex 3rd seg) → refuse", () => {
   const result = resolveRecipient({
     target: "claude:sentropic:sentropic-chat",
@@ -288,6 +308,29 @@ test("CLI inbox put full id (host:label:uuid12) → exit 0, resolution:deliver",
     const out = JSON.parse(streams.stdoutText);
     assert.equal(out.ok, true);
     assert.equal(out.resolution, "deliver", `expected deliver, got: ${JSON.stringify(out)}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("MCP handleInbox put dormant full id → deliver-dormant, dormant:true, recipientLive:false", () => {
+  const dir = mkdtempSync(join(tmpdir(), "wp2-mcp-fullid-dormant-"));
+  const root = join(dir, ".h2a");
+  try {
+    const store = createLocalStore({ root });
+    const fullId = "claude:foo:aaaaaaaaaaaa";
+    store.registerInstance(makeRegistration(fullId));
+
+    const result = handleInbox(store, {
+      action: "put",
+      instance: fullId,
+      envelope: makeEnvelopeObj("env-mcp-fullid-dormant-1")
+    });
+    assert.ok(!result.error, `expected no error, got: ${JSON.stringify(result)}`);
+    assert.equal(result.ok, true);
+    assert.equal(result.resolution, "deliver-dormant");
+    assert.equal(result.dormant, true);
+    assert.equal(result.recipientLive, false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
