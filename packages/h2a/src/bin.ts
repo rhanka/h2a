@@ -26,8 +26,6 @@ import {
   shouldDispatchRuntime
 } from "./bin-routing.js";
 import { runFocusServeCli } from "./runtime/focus/serve.js";
-import { runH2AReportAi } from "./runtime/reporting/report-ai.js";
-import { readUtf8Stdin } from "./runtime/reporting/stdin.js";
 
 const argv = process.argv.slice(2);
 
@@ -187,21 +185,6 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
   runAsync("sysml verify", runSysmlVerify(parseFlagsFrom(2)));
 } else if (argv[0] === "keepalive") {
   runAsync("keepalive", cmdKeepalive(parseFlagsFrom(1), { stdout: process.stdout, stderr: process.stderr }));
-} else if (argv[0] === "report-ai" && argv[1] !== "install-track-config") {
-  const flags = parseFlagsFrom(1);
-  const stdinText = await readUtf8Stdin();
-  runAsync(
-    "report-ai",
-    runH2AReportAi(
-      {
-        model: flags.model ?? "",
-        effort: flags.effort ?? "",
-        gateway: flags.gateway ?? "",
-        stdinText
-      },
-      { stdout: process.stdout, stderr: process.stderr }
-    )
-  );
 } else if (argv[0] === "focus" && (argv[1] === "serve" || argv[1] === "web")) {
   // Intercept the production web server before the bare `focus` facade can delegate to `track focus`.
   // Every other `h2a focus ...` invocation keeps the existing Track behavior unchanged.

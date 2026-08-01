@@ -82,6 +82,7 @@ import {
   killLocalSession,
   localSessionGatewayEnvStatus,
   listLocalSessions,
+  listLocalSessionsWithDiagnostics,
   localSessionIdle,
   localSessionPanePid,
   localSessionName,
@@ -131,7 +132,9 @@ import {
 import { planRelaunch } from "./relaunch.js";
 import {
   isHumanFacingSession,
+  readConversationCustomTitle,
   readLastLayout,
+  reconcileRunConvIds,
   restore as restoreLayout,
   type RestoreOptions,
 } from "./restore.js";
@@ -145,6 +148,7 @@ import {
   listJobs,
   listLocalForLs,
   loadRegistry,
+  loadRegistryWithDiagnostics,
   resolveLocalTmuxSessionForName,
   tryClaimSlot,
   withRegistryLock,
@@ -2141,10 +2145,11 @@ async function prepareLlmMeshForRestore(
   }
 }
 
-function registryEntryForResumeTarget(
+function registryEntriesForLocalTmuxTarget(
   target: string,
-  local?: LocalSession,
-): RegistryEntry | undefined {
+  local: LocalSession | undefined,
+  entries: readonly RegistryEntry[] = loadRegistry(),
+): RegistryEntry[] {
   const parsedTarget = parseManagedSessionName(target);
   const canonicalSlug = local?.slug ?? parsedTarget?.slug ?? target;
   const tmuxSession = local?.name ?? target;
@@ -2153,18 +2158,8 @@ function registryEntryForResumeTarget(
     : parsedTarget
       ? [target]
       : managedSessionCandidates(canonicalSlug);
-  const matches = loadRegistry().filter((e) => {
-    // Resume is a human-facing operation, not a promotion path: a delegated job
-    // or an explicit background launch must never become resumable here.
-    //
-    // The class test is SHARED with restore rather than written inline, because
-    // written inline it was an opt-in on an explicit class and every record
-    // enrolled before the class existed failed closed — measured as "cannot
-    // resume <slug>: registry has no human session" on entries that are plainly
-    // human sessions. Two gates judging the same question in two ways is how one
-    // of them ends up wrong on its own.
-    if (e.role !== undefined || e.kind !== "local-tmux") return false;
-    if (!isHumanFacingSession(e)) return false;
+  return entries.filter((e) => {
+    if (e.kind !== "local-tmux") return false;
     // Full managed names are exact targets; never reinterpret one as an id
     // or label that happens to share a prefix-shaped string.
     if (parsedTarget) {
@@ -2181,6 +2176,19 @@ function registryEntryForResumeTarget(
       e.tmuxSession === tmuxSession ||
       (e.tmuxSession !== undefined && candidates.includes(e.tmuxSession))
     );
+  });
+}
+
+function registryEntryForResumeTarget(
+  target: string,
+  local?: LocalSession,
+): RegistryEntry | undefined {
+  const matches = registryEntriesForLocalTmuxTarget(target, local).filter((e) => {
+    // Resume is a human-facing operation, not a promotion path. Share the
+    // durable class test with restore so legacy human rows remain resumable,
+    // while delegated jobs and explicit background launches stay excluded.
+    if (e.role !== undefined) return false;
+    return isHumanFacingSession(e);
   });
   const ids = new Set(matches.map((e) => e.id));
   if (ids.size !== 1) return undefined;
@@ -2247,6 +2255,24 @@ async function confirmReplace(slug: string): Promise<boolean> {
   try {
     const answer = await rl.question(`Type "replace ${slug}" to continue: `);
     return answer.trim() === `replace ${slug}`;
+  } finally {
+    rl.close();
+  }
+}
+
+async function confirmRelaunchAll(): Promise<boolean> {
+  if (process.stdin.isTTY !== true || process.stderr.isTTY !== true) {
+    return false;
+  }
+  const { createInterface: createPromisesInterface } =
+    await import("node:readline/promises");
+  const rl = createPromisesInterface({
+    input: process.stdin,
+    output: process.stderr,
+  });
+  try {
+    const answer = await rl.question('Type "RELAUNCH" to force-restart every listed session: ');
+    return answer.trim() === "RELAUNCH";
   } finally {
     rl.close();
   }
@@ -7656,50 +7682,140 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     );
 
   // ---------------------------------------------------------------------------
-  // relaunch — bring idle local sessions back in situ, each resuming its OWN conv
+  // relaunch — recover idle sessions, or explicitly force-recreate one/all
   // ---------------------------------------------------------------------------
 
   program
     .command("relaunch [filter]")
     .description(
-      "Relaunch the CLI in local tmux sessions whose CLI dropped to a shell, in situ (windows kept), each resuming ITS OWN conversation from the registry. Running sessions are left alone. Dry-run by default; --apply to do it. [filter] = only sessions whose slug contains it.",
+      "Dry-run local session recovery by default. With an exact [filter], --apply force-recreates that one session from its own registry conversation. --all force-recreates managed sessions only after a warning and typed confirmation (or --yes); interactive agent CLIs stay excluded unless --include-agents is explicit.",
     )
     .option(
       "--apply",
       "actually relaunch (default: dry-run, just print the plan)",
     )
-    .action((filter: string | undefined, opts: { apply?: boolean }) => {
+    .option("--all", "force-restart every managed local tmux session")
+    .option("--yes", "confirm --all non-interactively (requires --apply)")
+    .option(
+      "--include-agents",
+      "with --all, include claude/codex/agy sessions that are excluded by default",
+    )
+    .action(async (
+      filter: string | undefined,
+      opts: { all?: boolean; apply?: boolean; includeAgents?: boolean; yes?: boolean },
+    ) => {
       if (!tmuxAvailable()) {
         process.stderr.write("[h2a] tmux is not installed locally\n");
         process.exitCode = 1;
         return;
       }
-      // Exact tmux session -> its own convId when available. Historical rows
-      // fall back to their slug only after planRelaunch has excluded a dual
-      // h2a-/remote- prefix collision.
-      const convByTmuxSession = new Map<string, string>();
-      const convBySlug = new Map<string, string>();
-      for (const e of loadRegistry()) {
-        if (e.kind !== "local-tmux" || !e.convId) continue;
-        convBySlug.set(e.id, e.convId);
-        if (e.tmuxSession) convByTmuxSession.set(e.tmuxSession, e.convId);
+      if (filter && opts.all) {
+        process.stderr.write(
+          "[h2a] relaunch accepts either one exact session name or --all, not both.\n",
+        );
+        process.exitCode = 1;
+        return;
       }
-      const sessions = listLocalSessions().filter(
-        (s) => !filter || s.slug.includes(filter),
-      );
+
+      const inventory = listLocalSessionsWithDiagnostics();
+      if (!inventory.known) {
+        process.stderr.write(
+          `[h2a] cannot safely relaunch: managed tmux inventory is unknown (${inventory.reason ?? "no detail"}).\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+
+      let sessions = inventory.sessions;
+      if (filter) {
+        const exactName = parseManagedSessionName(filter) ? filter : undefined;
+        const matches = exactName
+          ? sessions.filter((session) => session.name === exactName)
+          : sessions.filter((session) => session.slug === filter);
+        if (matches.length !== 1) {
+          const detail = matches.length
+            ? `ambiguous (${matches.map((session) => session.name).join(", ")})`
+            : "not found";
+          process.stderr.write(
+            `[h2a] cannot force-relaunch ${filter}: exact managed session is ${detail}.\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        sessions = matches;
+      }
+
+      const forced = Boolean(filter || opts.all);
+      const registry = loadRegistryWithDiagnostics();
+      if (forced && !registry.known) {
+        process.stderr.write(
+          `[h2a] cannot safely force-relaunch: registry is unknown (${registry.reason ?? "no detail"}).\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const registryEntries = registry.entries;
+      const resolution = forced
+        ? reconcileRunConvIds(registryEntries, (cwd, convId) =>
+            readConversationCustomTitle(homedir(), cwd, convId),
+          )
+        : undefined;
+      const entryByTmuxSession = new Map<string, RegistryEntry>();
       const plan = planRelaunch(
         sessions.map((s) => ({
+          ...(() => {
+            const matches = registryEntriesForLocalTmuxTarget(
+              s.name,
+              s,
+              registryEntries,
+            );
+            const ids = new Set(matches.map((entry) => entry.id));
+            const entry =
+              matches.length === 1 && ids.size === 1
+                ? matches
+                    .slice()
+                    .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))[0]
+                : undefined;
+            if (entry) entryByTmuxSession.set(s.name, entry);
+            const resolvedConvId = entry
+              ? resolution?.resolvedSid.get(entry.id) ?? entry.convId
+              : undefined;
+            const labelOnly =
+              entry !== undefined &&
+              (!resolvedConvId ||
+                resolvedConvId === entry.id ||
+                resolvedConvId === entry.label);
+            return {
+              profile: entry?.tool ?? s.profile,
+              ...(matches.length > 1 || ids.size > 1
+                ? { unresumableReason: "multiple registry rows match this tmux session — relaunch refused" }
+                : !entry
+                    ? { unresumableReason: "no matching registry conversation — relaunch refused" }
+                    : entry.sessionClass === undefined
+                      ? { unresumableReason: "registry session class is missing — relaunch refused" }
+                    : labelOnly || resolution?.unresolvedRunIds.has(entry.id)
+                      ? { unresumableReason: "no resumable conversation in the registry — relaunch refused" }
+                      : resolvedConvId !== undefined
+                        ? { convId: resolvedConvId }
+                        : { unresumableReason: "no resumable conversation in the registry — relaunch refused" }),
+            };
+          })(),
           slug: s.slug,
           name: s.name,
-          profile: s.profile,
           idle: localSessionIdle(s.name),
-          ...(convByTmuxSession.has(s.name)
-            ? { convId: convByTmuxSession.get(s.name)! }
-            : convBySlug.has(s.slug)
-              ? { convId: convBySlug.get(s.slug)! }
-            : {}),
         })),
+        {
+          ...(forced ? { force: true } : {}),
+          ...(opts.all && !opts.includeAgents
+            ? { excludeInteractiveAgents: true }
+            : {}),
+        },
       );
+      if (opts.all) {
+        process.stderr.write(
+          `[h2a] WARNING: force-restart plan covers ${sessions.length} managed session(s): ${sessions.map((session) => session.name).join(", ") || "none"}\n`,
+        );
+      }
       if (plan.actions.length === 0) {
         process.stderr.write(
           `[h2a] nothing to relaunch${filter ? ` matching "${filter}"` : ""} (${plan.skipped.length} skipped)\n`,
@@ -7711,7 +7827,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       }
       if (!opts.apply) {
         process.stderr.write(
-          `[h2a] would relaunch ${plan.actions.length} session(s) — dry-run, pass --apply:\n`,
+          `[h2a] would${forced ? " force-restart" : " relaunch"} ${plan.actions.length} session(s) — dry-run, pass --apply:\n`,
         );
         for (const a of plan.actions) {
           process.stderr.write(`  ${a.slug}: ${a.cmd}\n`);
@@ -7721,18 +7837,142 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         return;
       }
+
+      // Backward-compatible crash recovery: bare `relaunch --apply` only
+      // retypes into idle shells. Forced kill/recreate is available solely for
+      // one exact target or explicit `--all`.
+      if (!forced) {
+        let ok = 0;
+        for (const action of plan.actions) {
+          if (relaunchInSession(action.name, action.cmd)) {
+            ok += 1;
+            process.stderr.write(`[h2a] relaunched ${action.slug}: ${action.cmd}\n`);
+          } else {
+            process.stderr.write(`[h2a] FAILED to relaunch ${action.slug}\n`);
+          }
+        }
+        process.stderr.write(
+          `[h2a] relaunched ${ok}/${plan.actions.length}${plan.skipped.length ? `, ${plan.skipped.length} skipped` : ""}\n`,
+        );
+        if (ok !== plan.actions.length) process.exitCode = 1;
+        return;
+      }
+
+      if (opts.all && !opts.yes && !(await confirmRelaunchAll())) {
+        process.stderr.write(
+          "[h2a] bulk force-restart requires typing RELAUNCH, or pass --yes for non-interactive use. No session was changed.\n",
+        );
+        process.exitCode = 1;
+        return;
+      }
+      for (const skipped of plan.skipped) {
+        process.stderr.write(`[h2a] skipped ${skipped.slug}: ${skipped.reason}\n`);
+      }
+      if (filter) {
+        process.stderr.write(
+          `[h2a] confirmed force-restart of ${plan.actions[0]!.slug}; its tmux session will be replaced.\n`,
+        );
+      }
+
+      const ready: Array<{
+        action: (typeof plan.actions)[number];
+        entry: RegistryEntry;
+        sessionClass: "human" | "background";
+      }> = [];
+      let preflightFailed = false;
+      for (const action of plan.actions) {
+        const entry = entryByTmuxSession.get(action.name);
+        const sessionClass = entry?.sessionClass;
+        if (!entry || sessionClass === undefined) {
+          preflightFailed = true;
+          process.stderr.write(
+            `[h2a] cannot force-restart ${action.slug}: its registry launch context changed; no session was killed.\n`,
+          );
+          continue;
+        }
+        const allowed = await guardConvWriters({
+          convId: action.convId,
+          cwd: entry.cwd,
+          excludeId: entry.id,
+          fetchRemoteSessions: async () => {
+            const url = getConfiguredRemoteOptional();
+            return url ? await listRemoteSessions(url) : [];
+          },
+        });
+        if (!allowed) {
+          preflightFailed = true;
+          continue;
+        }
+        ready.push({ action, entry, sessionClass });
+      }
+      const rechecked = listLocalSessionsWithDiagnostics();
+      if (!rechecked.known) {
+        process.stderr.write(
+          `[h2a] cannot safely force-restart: managed tmux inventory changed (${rechecked.reason ?? "no detail"}). No session was killed.\n`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      for (const { action } of ready) {
+        if (!rechecked.sessions.some((session) => session.name === action.name)) {
+          preflightFailed = true;
+          process.stderr.write(
+            `[h2a] cannot force-restart ${action.slug}: its tmux session changed before replacement. No session was killed.\n`,
+          );
+        }
+      }
+      if (preflightFailed) {
+        process.stderr.write("[h2a] force-restart aborted before any session was killed.\n");
+        process.exitCode = 1;
+        return;
+      }
+
       let ok = 0;
-      for (const a of plan.actions) {
-        if (relaunchInSession(a.name, a.cmd)) {
+      for (const { action, entry, sessionClass } of ready) {
+        if (!killLocalSession(action.name)) {
+          process.stderr.write(
+            `[h2a] FAILED to force-restart ${action.slug}: tmux session ${action.name} could not be killed.\n`,
+          );
+          continue;
+        }
+        try {
+          const gatewayMode = gatewayModeForProfile(
+            action.profile,
+            entry.gatewayMode ?? "auto",
+          );
+          await injectLlmMeshGatewayEnv(gatewayMode, true, localSessionName(action.slug));
+          const { name } = startLocalSession(
+            action.profile,
+            action.command,
+            entry.cwd,
+            action.args,
+            action.slug,
+            undefined,
+            { sessionClass },
+          );
+          enrollFromRun({
+            profile: action.profile,
+            slug: action.slug,
+            tmuxSession: name,
+            cwd: entry.cwd,
+            sessionClass,
+            convId: action.convId,
+            ...(entry.gatewayMode !== undefined
+              ? { gatewayMode: entry.gatewayMode }
+              : {}),
+          });
           ok += 1;
-          process.stderr.write(`[h2a] relaunched ${a.slug}: ${a.cmd}\n`);
-        } else {
-          process.stderr.write(`[h2a] FAILED to relaunch ${a.slug}\n`);
+          process.stderr.write(`[h2a] force-restarted ${action.slug}: ${action.cmd}\n`);
+        } catch (error) {
+          process.stderr.write(
+            `[h2a] FAILED to force-restart ${action.slug} after killing ${action.name}: ${(error as Error).message}\n`,
+          );
         }
       }
       process.stderr.write(
-        `[h2a] relaunched ${ok}/${plan.actions.length}${plan.skipped.length ? `, ${plan.skipped.length} skipped` : ""}\n`,
+        `[h2a] force-restarted ${ok}/${plan.actions.length}${plan.skipped.length ? `, ${plan.skipped.length} skipped` : ""}\n`,
       );
+      if (ok !== plan.actions.length) process.exitCode = 1;
     });
 
   // ---------------------------------------------------------------------------
