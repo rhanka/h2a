@@ -236,6 +236,26 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
     `loop ${argv[1]}`,
     runLoopEngineCli(argv, { stdout: process.stdout, stderr: process.stderr }, ac.signal)
   );
+} else if (argv[0] === "status" && argv.includes("--write-bars")) {
+  // The single background producer of every tmux status-bar file. The
+  // installed surface only ever reads those files, so this loop is the one
+  // place bar content is computed (see status-bar-writer.ts).
+  const flags = parseFlagsFrom(1);
+  const ac = new AbortController();
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => ac.abort());
+  }
+  const root =
+    flags.root ??
+    process.env.H2A_ROOT ??
+    join(homedir(), "h2a-workspace", ".h2a");
+  runAsync("status --write-bars", (async () => {
+    const { runStatusBarWriter } = await import("./status-bar-writer.js");
+    return runStatusBarWriter(
+      { root, signal: ac.signal },
+      { stdout: process.stdout, stderr: process.stderr }
+    );
+  })());
 } else if (
   argv[0] === "status" &&
   argv.some((token) =>
