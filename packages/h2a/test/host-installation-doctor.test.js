@@ -877,20 +877,21 @@ test("doctor repairs a framed legacy table while preserving and naming an opaque
     const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
     const repaired = readFileSync(codexPath, "utf8");
 
-    assert.equal(exitCode, 2, io.stderrText);
-    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
-    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, true, JSON.stringify(codex, null, 2));
     assert.ok(repaired.endsWith(privateRegion), "the opaque private region must remain byte-identical");
     assert.equal(existsSync(missingSource), false, "the legacy marketplace source must be absent");
     assert.doesNotMatch(repaired, new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
     assert.ok(
-      codex?.unrepaired.some((entry) =>
-        entry.code === "config-invalid" &&
+      codex?.preserved.some((entry) =>
+        entry.code === "config-preserved" &&
         entry.message.includes("[[private.keep]]") &&
         entry.message.includes("TOML arrays of tables are not framed for targeted rewrite")
       ),
       JSON.stringify(codex, null, 2)
     );
+    assert.deepEqual(codex?.unrepaired, [], JSON.stringify(codex, null, 2));
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -962,14 +963,14 @@ test("doctor byte-splices only framed legacy tables around opaque Codex TOML reg
       const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
       const after = readFileSync(codexPath);
 
-      assert.equal(exitCode, 2, `${fixture.name}: ${io.stderrText}`);
+      assert.equal(exitCode, 0, `${fixture.name}: ${io.stderrText}`);
       assert.deepEqual(after, afterExpected, `${fixture.name}: only the framed legacy table may be spliced out`);
       assert.equal(after.at(-1), beforeBytes.at(-1), `${fixture.name}: must preserve the final byte`);
       assert.doesNotMatch(after.toString("utf8"), new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
       for (const region of fixture.regions) {
         assert.ok(
-          codex?.unrepaired.some((entry) =>
-            entry.code === "config-invalid" &&
+          codex?.preserved.some((entry) =>
+            entry.code === "config-preserved" &&
             entry.message.includes(region) &&
             entry.message.includes("TOML arrays of tables are not framed for targeted rewrite") &&
             entry.message.includes("its existing bytes were retained and no rewrite was attempted")
@@ -1088,16 +1089,17 @@ test("doctor repairs framed legacy tables beside untouched Codex skills and hook
     const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
     const repaired = readFileSync(codexPath, "utf8");
 
-    assert.equal(exitCode, 2, io.stderrText);
-    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
-    assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
+    assert.equal(exitCode, 0, io.stderrText);
+    assert.equal(report.ok, true, JSON.stringify(report, null, 2));
+    assert.equal(codex?.ok, true, JSON.stringify(codex, null, 2));
     assert.doesNotMatch(repaired, new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
     assert.match(repaired, new RegExp(`\\[plugins\\."${plugin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\][\\s\\S]*enabled = false`));
     assert.ok(repaired.endsWith(opaqueRegions), repaired);
-    const preservedRegions = codex?.unrepaired
-      .filter((entry) => entry.code === "config-invalid")
+    const preservedRegions = codex?.preserved
+      .filter((entry) => entry.code === "config-preserved")
       .map((entry) => entry.message.match(/opaque Codex TOML region (\[\[[^\]]+\]\])/)?.[1]);
     assert.deepEqual(preservedRegions, ["[[skills.config]]", "[[hooks.PreToolUse]]"], JSON.stringify(codex, null, 2));
+    assert.deepEqual(codex?.unrepaired, [], JSON.stringify(codex, null, 2));
     assert.ok(calls.some((call) => call.join(" ") === "codex plugin marketplace upgrade"), JSON.stringify(calls, null, 2));
   } finally {
     rmSync(home, { recursive: true, force: true });
