@@ -48,6 +48,7 @@ import { dirname, join } from "node:path";
 
 import { resolveConfigDir } from "./config.js";
 import { withFileLock } from "./file-lock.js";
+import type { ProcView } from "./proc-cpu.js";
 
 /**
  * Default lease TTL. 30 minutes, the same figure track settled on: long enough
@@ -79,6 +80,17 @@ export const DEFAULT_SESSION_LEASE_TTL_MS = 30 * 60_000;
  */
 export const DEFAULT_WORKING_CPU_MS_PER_SECOND = 75;
 
+/** Maximum time a token-holder may keep a lease in the relaunch gap. */
+export const DEFAULT_RESOLVING_BOUND_MS = 60_000;
+
+export type SessionLeaseWorker = {
+  pid: number;
+  startTime: string;
+  bootId: string;
+};
+
+export type SessionLeaseWorkerState = SessionLeaseWorker | "resolving";
+
 /** A CPU observation of the session's pane process tree, at a point in time. */
 export interface SessionCpuSample {
   /** Cumulative CPU (ms) of the pane's whole process tree — `paneTreeCpuMs`. */
@@ -109,6 +121,11 @@ export interface SessionLease {
   token: string;
   /** Last CPU observation — the evidence the beat decision is derived from. */
   sample?: SessionCpuSample;
+  /** Composite identity of the process actually doing the work. */
+  worker?: SessionLeaseWorkerState;
+  /** Bounded token-protected relaunch window (used while worker is resolving). */
+  relaunchStartedAt?: string;
+  resolvingBoundMs?: number;
 }
 
 /** Rejected lease operation (wrong token, absent lease, subject already held). */
@@ -126,6 +143,86 @@ export class SessionLeaseError extends Error {
  */
 export function isSessionLeaseAbandoned(lease: SessionLease, now: string): boolean {
   return Date.parse(now) - Date.parse(lease.heartbeatAt) > lease.ttlMs;
+}
+
+function workerRecord(worker: SessionLeaseWorkerState | undefined): SessionLeaseWorker | undefined {
+  return worker !== undefined && worker !== "resolving" ? worker : undefined;
+}
+
+function processStartTime(procView: ProcView, pid: number): string | undefined {
+  if (Array.isArray(procView.processes)) {
+    return procView.processes.find((process) => process.pid === pid)?.startTime;
+  }
+  return (procView.processes as ReadonlyMap<number, { readonly startTime: string }>).get(pid)
+    ?.startTime;
+}
+
+/** True when a present worker is contradicted by the current boot/proc view. */
+export function workerDisproven(
+  lease: SessionLease,
+  procView: ProcView | undefined,
+  now?: string,
+): boolean {
+  if (lease.worker === undefined) return false; // R1: absent is UNKNOWN.
+  if (lease.worker === "resolving") {
+    // Resolving is safe only inside its own bounded window. When no instant is
+    // supplied, direct callers can still inspect the state without introducing
+    // an implicit clock; isSessionLeaseAlive always supplies `now`.
+    if (now === undefined) return false;
+    const started = Date.parse(lease.relaunchStartedAt ?? "");
+    const bound = lease.resolvingBoundMs;
+    return (
+      !Number.isFinite(started) ||
+      typeof bound !== "number" ||
+      !Number.isFinite(bound) ||
+      bound < 0 ||
+      Date.parse(now) - started > bound
+    );
+  }
+  if (procView === undefined) return false; // Unknown evidence is not disproof.
+  if (!procView.currentBootId) return false; // /proc unavailable is UNKNOWN.
+  if (lease.worker.bootId !== procView.currentBootId) return true;
+  const startTime = processStartTime(procView, lease.worker.pid);
+  return startTime === undefined || startTime !== lease.worker.startTime;
+}
+
+/** The one liveness projection used by slot and reclaim readers. */
+export function isSessionLeaseAlive(
+  lease: SessionLease,
+  procView: ProcView | undefined,
+  now: string,
+): boolean {
+  return !isSessionLeaseAbandoned(lease, now) && !workerDisproven(lease, procView, now);
+}
+
+export function isSessionLeaseDeadBoot(
+  lease: SessionLease,
+  procView: ProcView | undefined,
+): boolean {
+  const worker = workerRecord(lease.worker);
+  return (
+    worker !== undefined &&
+    procView !== undefined &&
+    procView.currentBootId !== "" &&
+    worker.bootId !== procView.currentBootId
+  );
+}
+
+export function isSessionLeaseContested(
+  lease: SessionLease,
+  procView: ProcView | undefined,
+  now: string,
+): boolean {
+  return workerDisproven(lease, procView, now) && !isSessionLeaseDeadBoot(lease, procView);
+}
+
+/** Pure slot counter; every count goes through the same liveness predicate. */
+export function countLiveSessionLeases(
+  leases: ReadonlyArray<SessionLease>,
+  procView: ProcView | undefined,
+  now: string,
+): number {
+  return leases.filter((lease) => isSessionLeaseAlive(lease, procView, now)).length;
 }
 
 /**
@@ -201,6 +298,8 @@ export interface SessionReclaimProposal {
   heartbeatAt: string;
   /** CPU rate over the whole unbeaten window, when a sample exists (ms/s). */
   lastRateMsPerSecond?: number;
+  /** Contested is same-boot worker disproof; abandoned is the legacy TTL case. */
+  reason?: "abandoned" | "contested";
 }
 
 /**
@@ -212,10 +311,15 @@ export interface SessionReclaimProposal {
 export function reclaimProposals(
   leases: ReadonlyArray<SessionLease>,
   now: string,
+  procView?: ProcView,
 ): SessionReclaimProposal[] {
   const nowMs = Date.parse(now);
   return leases
-    .filter((lease) => isSessionLeaseAbandoned(lease, now))
+    .filter((lease) => {
+      // R3: a prior-boot corpse is reaped by the auditor and never proposed.
+      if (isSessionLeaseDeadBoot(lease, procView)) return false;
+      return !isSessionLeaseAlive(lease, procView, now);
+    })
     .map((lease) => {
       const idleMs = nowMs - Date.parse(lease.heartbeatAt);
       const proposal: SessionReclaimProposal = {
@@ -225,6 +329,8 @@ export function reclaimProposals(
         ttlMs: lease.ttlMs,
         heartbeatAt: lease.heartbeatAt,
       };
+      if (isSessionLeaseContested(lease, procView, now)) proposal.reason = "contested";
+      else proposal.reason = "abandoned";
       return proposal;
     })
     .sort((a, b) => b.idleMs - a.idleMs);
@@ -275,6 +381,51 @@ export function planLeaseSupervision(
   });
 }
 
+export type SessionLeaseManagedSession = {
+  readonly sessionId: string;
+  readonly tmuxSession?: string;
+  readonly jobState?: string;
+};
+
+export type SessionLeaseStatusSurface = {
+  readonly sessionName: string;
+  readonly marker?: string;
+};
+
+export type SessionLeaseFleetAudit = {
+  /** Live managed sessions for which the installed marker is absent/drifted. */
+  missingStatusSurface: string[];
+  /** Same-boot worker disproofs; these are reclaim proposals, not reaps. */
+  contested: SessionReclaimProposal[];
+  /** Prior-boot worker leases; these are silently reaped. */
+  deadBoot: string[];
+};
+
+/** Pure read-back auditor projection over one tmux and one /proc snapshot. */
+export function auditSessionLeaseFleet(
+  sessions: ReadonlyArray<SessionLeaseManagedSession>,
+  leases: ReadonlyArray<SessionLease>,
+  statusSurfaces: ReadonlyArray<SessionLeaseStatusSurface>,
+  procView: ProcView,
+  now: string,
+): SessionLeaseFleetAudit {
+  const surfaces = new Map(statusSurfaces.map((surface) => [surface.sessionName, surface.marker]));
+  const missingStatusSurface = sessions
+    .filter((session) => {
+      const live = session.jobState !== "done" && session.jobState !== "failed";
+      return live && session.tmuxSession !== undefined && surfaces.get(session.tmuxSession) !== "v1";
+    })
+    .map((session) => session.sessionId);
+  const deadBoot = leases
+    .filter((lease) => isSessionLeaseDeadBoot(lease, procView))
+    .map((lease) => lease.sessionId);
+  const dead = new Set(deadBoot);
+  const contested = reclaimProposals(leases, now, procView).filter(
+    (proposal) => proposal.reason === "contested" && !dead.has(proposal.sessionId),
+  );
+  return { missingStatusSurface, contested, deadBoot };
+}
+
 /** Machine-scoped path of the session-lease side-store (beside `registry.json`). */
 export function resolveSessionLeasePath(): string {
   return join(resolveConfigDir(), "session-leases.json");
@@ -310,9 +461,9 @@ export class SessionLeaseStore {
     return this.readAll().find((lease) => lease.sessionId === sessionId);
   }
 
-  /** The leases abandoned at `now` (explicit instant — the store adds no clock). */
-  abandoned(now: string): SessionLease[] {
-    return this.readAll().filter((lease) => isSessionLeaseAbandoned(lease, now));
+  /** The leases not alive at `now`, using the shared reader predicate. */
+  abandoned(now: string, procView?: ProcView): SessionLease[] {
+    return this.readAll().filter((lease) => !isSessionLeaseAlive(lease, procView, now));
   }
 
   /**
@@ -328,6 +479,7 @@ export class SessionLeaseStore {
     workspace?: string;
     ttlMs?: number;
     cpuMs?: number;
+    worker?: SessionLeaseWorker;
   }): SessionLease {
     return withFileLock(this.leasesPath, () => {
       const all = readLeaseFile(this.leasesPath);
@@ -352,6 +504,7 @@ export class SessionLeaseStore {
         ...(input.cpuMs !== undefined
           ? { sample: { cpuMs: input.cpuMs, sampledAt: now } }
           : {}),
+        ...(input.worker !== undefined ? { worker: input.worker } : {}),
       };
       const next = all.filter((l) => l.sessionId !== input.sessionId);
       next.push(lease);
@@ -392,6 +545,97 @@ export class SessionLeaseStore {
       ...lease,
       sample: { cpuMs: input.cpuMs, sampledAt: this.clock() },
     }));
+  }
+
+  /** Lazily migrate a legacy lease once a supervising pass can resolve its worker. */
+  populateWorker(input: {
+    sessionId: string;
+    token: string;
+    worker: SessionLeaseWorker;
+  }): SessionLease {
+    return this.mutate(input.sessionId, input.token, "populate worker", (lease) => {
+      const next = { ...lease, worker: input.worker };
+      if (lease.worker === "resolving") {
+        delete next.relaunchStartedAt;
+        delete next.resolvingBoundMs;
+      }
+      return next;
+    });
+  }
+
+  /** Begin the bounded token-guarded relaunch window. */
+  beginRelaunch(input: {
+    sessionId: string;
+    token: string;
+    resolvingBoundMs?: number;
+  }): SessionLease {
+    return this.mutate(input.sessionId, input.token, "begin relaunch", (lease) => {
+      const bound = input.resolvingBoundMs ?? DEFAULT_RESOLVING_BOUND_MS;
+      if (!Number.isFinite(bound) || bound < 0) {
+        throw new SessionLeaseError("session-lease: resolvingBoundMs must be finite and non-negative");
+      }
+      return {
+        ...lease,
+        worker: "resolving",
+        relaunchStartedAt: this.clock(),
+        resolvingBoundMs: bound,
+      };
+    });
+  }
+
+  /** Complete the same-act relaunch with the newly resolved worker identity. */
+  finishRelaunch(input: {
+    sessionId: string;
+    token: string;
+    worker: SessionLeaseWorker;
+  }): SessionLease {
+    return this.mutate(input.sessionId, input.token, "finish relaunch", (lease) => {
+      const next = { ...lease, worker: input.worker };
+      delete next.relaunchStartedAt;
+      delete next.resolvingBoundMs;
+      return next;
+    });
+  }
+
+  /**
+   * Run a relaunch and re-resolve the worker under the holder's token. If the
+   * process is not visible immediately, the bounded `resolving` state remains
+   * on disk and becomes reclaimable after its bound.
+   */
+  relaunch(input: {
+    sessionId: string;
+    token: string;
+    resolvingBoundMs?: number;
+    act: () => boolean;
+    resolveWorker: () => SessionLeaseWorker | undefined;
+  }): { succeeded: boolean; lease: SessionLease } {
+    this.beginRelaunch(input);
+    let acted = false;
+    try {
+      acted = input.act();
+    } catch {
+      acted = false;
+    }
+    if (!acted) {
+      const lease = this.forSession(input.sessionId);
+      if (!lease) throw new SessionLeaseError(`session-lease: relaunch lease disappeared for ${input.sessionId}`);
+      return { succeeded: false, lease };
+    }
+    let worker: SessionLeaseWorker | undefined;
+    try {
+      worker = input.resolveWorker();
+    } catch {
+      worker = undefined;
+    }
+    if (worker === undefined) {
+      const lease = this.forSession(input.sessionId);
+      if (!lease) throw new SessionLeaseError(`session-lease: relaunch lease disappeared for ${input.sessionId}`);
+      return { succeeded: true, lease };
+    }
+    return {
+      succeeded: true,
+      lease: this.finishRelaunch({ sessionId: input.sessionId, token: input.token, worker }),
+    };
   }
 
   /** Give the slot back. Only the matching token is accepted. */
@@ -439,12 +683,47 @@ export class SessionLeaseStore {
       return next;
     });
   }
+
+  /** Remove only leases proven to belong to a prior kernel boot. */
+  reapDeadBootLeases(procView: ProcView): string[] {
+    return withFileLock(this.leasesPath, () => {
+      const all = readLeaseFile(this.leasesPath);
+      const dead = all
+        .filter((lease) => isSessionLeaseDeadBoot(lease, procView))
+        .map((lease) => lease.sessionId);
+      if (dead.length === 0) return dead;
+      const deadSet = new Set(dead);
+      writeLeaseFile(
+        this.leasesPath,
+        all.filter((lease) => !deadSet.has(lease.sessionId)),
+      );
+      return dead;
+    });
+  }
 }
 
 /** Shape guard — a torn or hand-edited row must not poison the whole store. */
 function isSessionLease(value: unknown): value is SessionLease {
   if (typeof value !== "object" || value === null) return false;
   const lease = value as Partial<SessionLease>;
+  const worker = lease.worker;
+  const validWorker =
+    worker === undefined ||
+    worker === "resolving" ||
+    (typeof worker === "object" &&
+      worker !== null &&
+      Number.isInteger(worker.pid) &&
+      worker.pid > 0 &&
+      typeof worker.startTime === "string" &&
+      /^\d+$/.test(worker.startTime) &&
+      typeof worker.bootId === "string" &&
+      worker.bootId.length > 0);
+  const validResolvingWindow =
+    (lease.relaunchStartedAt === undefined && lease.resolvingBoundMs === undefined) ||
+    (typeof lease.relaunchStartedAt === "string" &&
+      typeof lease.resolvingBoundMs === "number" &&
+      Number.isFinite(lease.resolvingBoundMs) &&
+      lease.resolvingBoundMs >= 0);
   return (
     typeof lease.leaseId === "string" &&
     typeof lease.sessionId === "string" &&
@@ -452,7 +731,12 @@ function isSessionLease(value: unknown): value is SessionLease {
     typeof lease.acquiredAt === "string" &&
     typeof lease.heartbeatAt === "string" &&
     typeof lease.token === "string" &&
-    typeof lease.ttlMs === "number"
+    typeof lease.ttlMs === "number" &&
+    validWorker &&
+    validResolvingWindow &&
+    (worker === "resolving"
+      ? lease.relaunchStartedAt !== undefined && lease.resolvingBoundMs !== undefined
+      : true)
   );
 }
 
