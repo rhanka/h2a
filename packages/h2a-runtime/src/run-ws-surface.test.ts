@@ -8,8 +8,14 @@ import { run } from "./run.js";
  * What the run server's HTTP surface is, and what it is NOT.
  *
  * `run()` instantiated a `@hono/node-ws` adapter and injected its upgrade
- * listener, but no route ever called `upgradeWebSocket` — the four routes are
- * plain HTTP and one SSE stream. So the adapter served nothing, while being the
+ * listener, but no route ever called `upgradeWebSocket` — the routes are plain
+ * HTTP and one SSE stream. The route inventory from `run.ts` is:
+ * - `GET /healthz`
+ * - `GET /sessions/${sessionId}`
+ * - `GET /sessions/${sessionId}/events` (SSE)
+ * - `POST /sessions/${sessionId}/terminal/input`
+ * Adding a route to `run.ts` means adding it here, so this guard's proof stays
+ * equal to the surface it guards. The adapter served nothing, while being the
  * sole remaining lockfile path on two accepted-vulnerability rows.
  *
  * These assertions hold BEFORE and AFTER that dead wiring is removed, which is
@@ -133,7 +139,12 @@ describe("run server — HTTP surface, and the absence of a websocket one", () =
     // route is added later, this assertion is what makes that a decision.
     const result = await startRun();
     try {
-      for (const path of ["/healthz", `/sessions/${result.sessionId}`]) {
+      for (const path of [
+        "/healthz",
+        `/sessions/${result.sessionId}`,
+        `/sessions/${result.sessionId}/events`,
+        `/sessions/${result.sessionId}/terminal/input`,
+      ]) {
         const socket = new WebSocket(`ws://127.0.0.1:${result.port}${path}`);
         const opened = await new Promise<boolean>((resolve) => {
           const timer = setTimeout(() => resolve(false), 3_000);
