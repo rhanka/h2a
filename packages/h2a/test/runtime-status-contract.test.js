@@ -385,10 +385,13 @@ test("delegated-execution projection fails closed without owner provenance or li
 test("tmux status surface uses bounded five-second polling and no cache", () => {
   const options = Object.fromEntries(h2aStatusSurfaceOptions());
   assert.equal(options["status-interval"], "5");
-  assert.match(options["status-left"], /status --bar --segment workload/);
-  assert.match(options["status-right"], /status --bar --segment gateway/);
-  assert.match(options["status-left"], /--owner-instance #\{q:@h2a_owner_instance\}/);
-  assert.match(options["status-right"], /--width #\{client_width\}/);
+  // The storm was #(h2a status …) re-run per refresh per session. The bar must
+  // now be a cheap file read with a static placeholder, never a node spawn — if
+  // #(h2a status returns here, the storm is back.
+  assert.doesNotMatch(options["status-left"], /#\(h2a status/);
+  assert.doesNotMatch(options["status-right"], /#\(h2a status/);
+  assert.match(options["status-left"], /#\(cat .*echo 'h2a \?'\)/);
+  assert.match(options["status-right"], /#\(cat .*echo 'gw \?'\)/);
   assert.doesNotMatch(options["status-left"], /#\{session_name\}|#\{window_name\}/);
   assert.doesNotMatch(options["status-left"], /remote-/);
   assert.doesNotMatch(JSON.stringify(options), /cache/i);
@@ -433,7 +436,7 @@ function statusOptionFixture(failOnce = () => false) {
 test("tmux status install is failure-atomic and preserves an empty status-right", () => {
   let failed = false;
   const liveFailure = statusOptionFixture((option, value) => {
-    if (!failed && option === "status-left" && value.includes("h2a status")) {
+    if (!failed && option === "status-left" && value.includes("#(cat")) {
       failed = true;
       return true;
     }
@@ -455,7 +458,7 @@ test("tmux status install is failure-atomic and preserves an empty status-right"
 
   const success = statusOptionFixture();
   assert.equal(installH2aStatusSurfaceWithAccess("h2a-demo", success.access), true);
-  assert.match(success.values.get("status-left"), /h2a status/);
+  assert.match(success.values.get("status-left"), /#\(cat /);
   assert.equal(uninstallH2aStatusSurfaceWithAccess("h2a-demo", success.access), true);
   assert.equal(success.values.get("status-right"), "");
   assert.equal(success.values.get("status-left"), "original-left");
