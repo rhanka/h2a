@@ -27,7 +27,18 @@ import {
 import { basename, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 
-import { readProcessTreeCpuMs, readWorkerPid } from "./proc-cpu.js";
+import {
+  readProcessObservation,
+  readProcessTreeCpuMs,
+  readProcView,
+  readWorkerAttribution,
+  readWorkerPid,
+  resolveWorkerAttributionFromView,
+  type ProcView,
+  type ProcessObservation,
+  type ProcReaderDeps,
+  type WorkerAttribution,
+} from "./proc-cpu.js";
 
 import {
   LAUNCH_OPTION_PREFIX,
@@ -376,6 +387,46 @@ export function listLocalSessionsWithDiagnostics(): {
     out.push(session);
   }
   return { sessions: out, known: true };
+}
+
+export type H2aStatusSurfaceRecord = {
+  readonly sessionName: string;
+  readonly marker?: string;
+};
+
+type FleetTmuxRunner = (
+  command: string,
+  args: string[],
+  options: { encoding: "utf8"; stdio: ["ignore", "pipe", "ignore"] },
+) => { status: number | null; stdout?: string };
+
+/**
+ * Read the status marker for the whole tmux fleet in one invocation. This is
+ * intentionally a FORMAT projection: show-options -A -t <session> is a
+ * per-target probe and recreates the process storm this auditor exists to fix.
+ */
+export function listH2aStatusSurfaces(
+  run: FleetTmuxRunner = spawnSync as FleetTmuxRunner,
+): H2aStatusSurfaceRecord[] {
+  const r = run(
+    TMUX,
+    ["list-sessions", "-F", "#{session_name} #{@h2a_status_surface}"],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  );
+  if (r.status !== 0 || !r.stdout) return [];
+  const records: H2aStatusSurfaceRecord[] = [];
+  for (const line of r.stdout.split("\n")) {
+    if (!line) continue;
+    const separator = line.indexOf(" ");
+    if (separator === -1) {
+      records.push({ sessionName: line });
+      continue;
+    }
+    const sessionName = line.slice(0, separator);
+    const marker = line.slice(separator + 1).trim();
+    if (sessionName) records.push({ sessionName, ...(marker ? { marker } : {}) });
+  }
+  return records;
 }
 
 /** Compatibility reader used by existing callers that accept best-effort []. */
@@ -2150,6 +2201,13 @@ export function paneTreeCpuMs(pane: string): number | undefined {
   return readProcessTreeCpuMs(pid, procReaderDeps());
 }
 
+/** CPU + worker identity from one /proc snapshot at acquire time. */
+export function paneProcessObservation(pane: string): ProcessObservation | undefined {
+  const pid = localSessionPanePid(pane);
+  if (pid === undefined) return undefined;
+  return readProcessObservation(pid, procReaderDeps());
+}
+
 /**
  * The pid actually doing the work behind a pane.
  *
@@ -2164,7 +2222,29 @@ export function paneWorkerPid(pane: string): number | undefined {
   return readWorkerPid(pid, procReaderDeps());
 }
 
-function procReaderDeps() {
+/** Composite identity of the process actually doing the work behind a pane. */
+export function paneWorkerAttribution(pane: string): WorkerAttribution | undefined {
+  const pid = localSessionPanePid(pane);
+  if (pid === undefined) return undefined;
+  return readWorkerAttribution(pid, procReaderDeps());
+}
+
+/** Resolve a pane worker from a caller-owned fleet snapshot without another scan. */
+export function paneWorkerAttributionFromView(
+  pane: string,
+  view: ProcView,
+): WorkerAttribution | undefined {
+  const pid = localSessionPanePid(pane);
+  if (pid === undefined) return undefined;
+  return resolveWorkerAttributionFromView(pid, view);
+}
+
+/** One /proc scan for the fleet-wide auditor and supervising pass. */
+export function readFleetProcView(): ProcView {
+  return readProcView(procReaderDeps());
+}
+
+function procReaderDeps(): ProcReaderDeps {
   return {
     listPids: () => {
       try {
