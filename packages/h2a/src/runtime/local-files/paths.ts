@@ -259,8 +259,18 @@ export function resolveRecipient(opts: {
   const parts = target.split(":");
 
   // 3. Full id: exactly 3 segments where seg3 is 12-hex.
+  //    The destination is the full id itself; naming must still be honest — a
+  //    full id with no live session is a deposit-for-wake, not a completion (I5).
   if (parts.length === 3 && UUID12_PATTERN.test(parts[2])) {
-    return { kind: "deliver" };
+    const canonicalTarget = canonicalAddress(target);
+    const live = liveInstances.some(
+      (candidate) => canonicalAddress(liveInstance(candidate)) === canonicalTarget
+    );
+    if (live) return { kind: "deliver" };
+    return {
+      kind: "deliver-dormant",
+      reason: `no live session for '${target}'; deposited for wake.`
+    };
   }
 
   // 4. Malformed 3-segment: seg3 is NOT 12-hex.
