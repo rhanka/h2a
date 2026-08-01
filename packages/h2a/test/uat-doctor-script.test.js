@@ -257,6 +257,7 @@ function ownedCandidateEnvironment(fixture, ready) {
   mkdirSync(join(candidate, "packages", "h2a", "test"), { recursive: true });
   mkdirSync(join(doctor, ".."), { recursive: true });
   writeFileSync(join(candidate, "package.json"), '{"type":"module"}\n');
+  writeFileSync(join(candidate, "packages", "h2a", "package.json"), '{"version":"0.99.0-uat"}\n');
   writeFileSync(
     join(candidate, "docs", "uat", "probe-oracle.sh"),
     "#!/bin/sh\nprintf ready > \"$UAT_INTERRUPT_READY\"\nexec node -e 'setInterval(() => {}, 1000)'\n"
@@ -272,19 +273,19 @@ function ownedCandidateEnvironment(fixture, ready) {
   );
 
   linkFixtureCommands(fixture, ["bash", "env", "node", "tar", "dirname", "mkdir", "mktemp", "rm"]);
-  writeExecutable(join(fixture.fakeBin, "gh"), "#!/bin/sh\necho test-candidate\n");
   writeExecutable(
     join(fixture.fakeBin, "git"),
     `#!/bin/sh
 if [ "$1" = "-C" ]; then shift 2; fi
+[ -z "\${UAT_GIT_TRACE-}" ] || printf '%s\\n' "$*" >> "$UAT_GIT_TRACE"
 case "$1" in
-  rev-parse) printf '%s\\n' true ;;
-  remote)
-    if [ "\${2-}" = "get-url" ]; then
-      printf '%s\\n' 'git@github.com:rhanka/h2a.git'
-    else
-      printf '%s\\n' origin
-    fi
+  rev-parse)
+    case "\${2-}" in
+      --is-inside-work-tree) printf '%s\\n' true ;;
+      --verify) printf '%s\\n' '0123456789abcdef0123456789abcdef01234567' ;;
+      --short=12) printf '%s\\n' '0123456789ab' ;;
+      *) printf '%s\\n' "unexpected git rev-parse invocation: $*" >&2; exit 64 ;;
+    esac
     ;;
   archive) exec "$UAT_TEST_TAR" -cf - -C "$UAT_FAKE_CANDIDATE_SOURCE" . ;;
   *) printf '%s\\n' "unexpected git invocation: $*" >&2; exit 64 ;;
@@ -301,6 +302,7 @@ esac
     UAT_TMP_PARENT: fixture.scratch,
     UAT_FAKE_CANDIDATE_SOURCE: candidate,
     UAT_INTERRUPT_READY: ready,
+    UAT_GIT_TRACE: join(fixture.root, "git-trace"),
     UAT_TEST_TAR: commandPath("tar")
   };
   delete env.CODEX_HOME;
@@ -592,14 +594,12 @@ test(`uat-doctor should clean its temporary tree and return 130 when interrupted
 });
 }
 
-test("uat-doctor should use H2A_UAT_SHA without querying GitHub", async () => {
-  const fixture = createFixture("explicit-sha", false);
+test("uat-doctor should resolve checkout HEAD without invoking gh", async () => {
+  const fixture = createFixture("checkout-head", false);
   const ready = join(fixture.root, "doctor-started");
   let child;
   try {
     const env = ownedCandidateEnvironment(fixture, ready);
-    env.H2A_UAT_SHA = "local-candidate-ref";
-    rmSync(join(fixture.fakeBin, "gh"));
     child = spawn("bash", [SCRIPT], {
       cwd: REPO_ROOT,
       env,
@@ -617,8 +617,10 @@ test("uat-doctor should use H2A_UAT_SHA without querying GitHub", async () => {
     const result = await closed;
 
     assert.deepEqual(result, { code: 130, signal: null }, `stdout:\n${stdout}\nstderr:\n${stderr}`);
-    assert.match(stdout, /candidat \.\.\.\.\.\.\.\.\.\.\.\. local-candidate-ref/);
-    assert.doesNotMatch(stderr, /prerequis manquant : gh|gh auth login/);
+    assert.match(stdout, /candidat \.\.\.\.\.\.\.\.\.\.\.\. 0123456789ab \(version 0\.99\.0-uat\)/);
+    assert.match(stdout, /provenance \.\.\.\.\.\.\.\.\.\. HEAD du checkout/);
+    assert.doesNotMatch(stderr, /gh/);
+    assert.match(readFileSync(env.UAT_GIT_TRACE, "utf8"), /rev-parse --verify --end-of-options HEAD\^\{commit\}/);
   } finally {
     if (child && child.exitCode === null && child.signalCode === null) {
       try {
@@ -631,51 +633,67 @@ test("uat-doctor should use H2A_UAT_SHA without querying GitHub", async () => {
   }
 });
 
-test("uat-doctor should name a non-GitHub remote and offer H2A_UAT_SHA", () => {
-  const fixture = createFixture("non-github-remote", false);
-  const scratchBefore = readdirSync(fixture.scratch);
+test("uat-doctor should use an explicit release tag without invoking gh", async () => {
+  const fixture = createFixture("explicit-sha", false);
+  const ready = join(fixture.root, "doctor-started");
+  let child;
   try {
-    for (const command of ["bash", "env", "node", "tar", "dirname", "mkdir", "mktemp", "rm", "npm"]) {
-      symlinkSync(commandPath(command), join(fixture.fakeBin, command));
+    const env = ownedCandidateEnvironment(fixture, ready);
+    env.H2A_UAT_SHA = "release-0.99.0";
+    child = spawn("bash", [SCRIPT], {
+      cwd: REPO_ROOT,
+      env,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const closed = waitForClose(child);
+
+    await waitForFile(ready);
+    process.kill(-child.pid, "SIGTERM");
+    const result = await closed;
+
+    assert.deepEqual(result, { code: 130, signal: null }, `stdout:\n${stdout}\nstderr:\n${stderr}`);
+    assert.match(stdout, /candidat \.\.\.\.\.\.\.\.\.\.\.\. 0123456789ab \(version 0\.99\.0-uat\)/);
+    assert.match(stdout, /provenance \.\.\.\.\.\.\.\.\.\. H2A_UAT_SHA fourni \(release-0\.99\.0\)/);
+    assert.doesNotMatch(stderr, /gh/);
+    assert.match(readFileSync(env.UAT_GIT_TRACE, "utf8"), /rev-parse --verify --end-of-options release-0\.99\.0\^\{commit\}/);
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch (error) {
+        if (error?.code !== "ESRCH") throw error;
+      }
     }
-    writeExecutable(
-      join(fixture.fakeBin, "git"),
-      `#!/bin/sh
-if [ "$1" = "-C" ]; then shift 2; fi
-case "$1" in
-  rev-parse) printf '%s\\n' true ;;
-  remote)
-    if [ "\${2-}" = "get-url" ]; then
-      printf '%s\\n' 'https://git.example.invalid/rhanka/h2a.git'
-    else
-      printf '%s\\n' workstation
-    fi
-    ;;
-  *) printf '%s\\n' "unexpected git invocation: $*" >&2; exit 64 ;;
-esac
-`
-    );
-    writeExecutable(join(fixture.fakeBin, "gh"), "#!/bin/sh\nprintf '%s\\n' 'gh auth login must not run' >&2\nexit 99\n");
-    const env = {
-      ...process.env,
-      HOME: fixture.ownerHome,
-      PATH: fixture.fakeBin,
-      TMPDIR: fixture.scratch,
-      UAT_TMP_PARENT: fixture.scratch
-    };
-    delete env.CODEX_HOME;
-    delete env.CLAUDE_CONFIG_DIR;
-    delete env.UAT_SOURCE_DIR;
-    delete env.UAT_DOCTOR_BIN;
-    delete env.H2A_UAT_SHA;
-    const result = spawnSync(commandPath("bash"), [SCRIPT], { cwd: REPO_ROOT, env, encoding: "utf8" });
+    rmSync(fixture.outer, { recursive: true, force: true });
+  }
+});
+
+test("uat-doctor rejects the PR 94 candidate-resolution mutant without gh", () => {
+  const fixture = createFixture("pr-94-mutant", false);
+  const ready = join(fixture.root, "doctor-started");
+  try {
+    const candidate = "CANDIDATE=$(git -C \"$REPO_ROOT\" rev-parse --verify --end-of-options \"${CANDIDATE_REFERENCE}^{commit}\")";
+    const source = readFileSync(SCRIPT, "utf8");
+    assert.match(source, new RegExp(candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    const mutant = join(fixture.root, "uat-doctor-pr-94-mutant.sh");
+    writeExecutable(mutant, source.replace(
+      candidate,
+      "CANDIDATE=$(gh pr view 94 --json headRefOid --jq .headRefOid)"
+    ));
+    const result = spawnSync(commandPath("bash"), [mutant], {
+      cwd: REPO_ROOT,
+      env: ownedCandidateEnvironment(fixture, ready),
+      encoding: "utf8"
+    });
 
     assert.equal(result.status, 1, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
-    assert.match(result.stderr, /remote 'workstation'/);
-    assert.match(result.stderr, /git\.example\.invalid/);
-    assert.match(result.stderr, /H2A_UAT_SHA/);
-    assert.doesNotMatch(result.stderr, /gh auth login/);
-    assert.deepEqual(readdirSync(fixture.scratch), scratchBefore);
+    assert.match(result.stderr, /gh.*not found|gh: command not found/);
+    assert.ok(!existsSync(ready), `the PR 94 mutant reached scenario 0:\n${result.stdout}\n${result.stderr}`);
   } finally {
     rmSync(fixture.outer, { recursive: true, force: true });
   }
@@ -688,7 +706,6 @@ test("uat-doctor should name git as a missing prerequisite before creating tempo
     for (const command of ["bash", "node", "tar", "dirname", "mkdir", "mktemp", "rm"]) {
       symlinkSync(commandPath(command), join(fixture.fakeBin, command));
     }
-    writeExecutable(join(fixture.fakeBin, "gh"), "#!/bin/sh\nexit 0\n");
     const env = {
       ...process.env,
       HOME: fixture.ownerHome,
@@ -721,7 +738,10 @@ test("uat-doctor should document its checkout-root invocation when the relative 
   assert.equal(result.status, 127, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
   assert.match(guide, /Depuis la racine d'un checkout Git contenant le candidat/);
   assert.match(guide, /H2A_UAT_SHA.*prioritaire/);
+  assert.match(guide, /H2A_UAT_SHA=origin\/main/);
+  assert.match(guide, /tag-de-release/);
   assert.match(guide, /pluginUsage.*promptQueueUseCount/s);
   assert.match(guide, /## Si le garde owner se déclenche/);
+  assert.doesNotMatch(guide, /9004bcdee5b824c4dc41f0a6d2068328f486899b|PR 94|github\.com/);
   assert.doesNotMatch(guide, /Depuis n'importe quel répertoire du checkout de la PR/);
 });
