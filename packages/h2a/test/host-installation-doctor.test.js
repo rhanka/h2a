@@ -846,29 +846,38 @@ test("doctor preserves a legacy table whose multiline value contains a table-sha
   }
 });
 
-test("doctor fails closed rather than absorbing a TOML array of tables", () => {
+test("doctor repairs a framed legacy table while preserving and naming an opaque TOML array region", () => {
   const { home } = cleanShippedLayoutHome();
   const codexPath = join(home, ".codex", "config.toml");
   const marketplace = "sentropic-local-array";
+  const missingSource = join(home, "deleted-array-marketplace");
+  const privateRegion = "[[private.keep]]\n" +
+    'token = "must-remain-private"\n';
   const config = `${readFileSync(codexPath, "utf8").trimEnd()}\n\n` +
     `[marketplaces.${marketplace}]\n` +
     'source_type = "local"\n' +
-    `source = "${join(home, "deleted-array-marketplace")}"\n\n` +
-    "[[private.keep]]\n" +
-    'token = "must-remain-private"\n';
+    `source = "${missingSource}"\n\n` +
+    privateRegion;
   try {
     writeFileSync(codexPath, config);
     const root = join(home, "bus");
     assert.equal(runCli(["init", "--root", root], streams(home)), 0);
     const { exitCode, io, report } = runRepairDoctor(home, root, { runHostCommand: repairRunner(home, []) });
     const codex = report.checks.hostInstallations.hosts.find((host) => host.host === "codex");
+    const repaired = readFileSync(codexPath, "utf8");
 
     assert.equal(exitCode, 2, io.stderrText);
     assert.equal(report.ok, false, JSON.stringify(report, null, 2));
     assert.equal(codex?.ok, false, JSON.stringify(codex, null, 2));
-    assert.equal(readFileSync(codexPath, "utf8"), config, "unframed TOML arrays must not authorize a rewrite");
+    assert.ok(repaired.endsWith(privateRegion), "the opaque private region must remain byte-identical");
+    assert.equal(existsSync(missingSource), false, "the legacy marketplace source must be absent");
+    assert.doesNotMatch(repaired, new RegExp(`\\[marketplaces\\.${marketplace}\\]`));
     assert.ok(
-      codex?.unrepaired.some((entry) => entry.code === "config-invalid"),
+      codex?.unrepaired.some((entry) =>
+        entry.code === "config-invalid" &&
+        entry.message.includes("[[private.keep]]") &&
+        entry.message.includes("TOML arrays of tables are not framed for targeted rewrite")
+      ),
       JSON.stringify(codex, null, 2)
     );
   } finally {
