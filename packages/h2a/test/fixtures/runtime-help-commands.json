@@ -170,7 +170,7 @@
     {
       "group": "Recover & supervise sessions (advanced):",
       "term": "relaunch [options] [filter]",
-      "description": "Relaunch the CLI in local tmux sessions whose CLI dropped to a shell, in situ (windows kept), each resuming ITS OWN conversation from the registry. Running sessions are left alone. Dry-run by default; --apply to do it. [filter] = only sessions whose slug contains it."
+      "description": "Dry-run local session recovery by default. With an exact [filter], --apply force-recreates that one session from its own registry conversation. --all force-recreates managed sessions only after a warning and typed confirmation (or --yes); interactive agent CLIs stay excluded unless --include-agents is explicit."
     },
     {
       "group": "Recover & supervise sessions (advanced):",
