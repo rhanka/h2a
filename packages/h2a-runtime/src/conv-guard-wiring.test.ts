@@ -251,9 +251,12 @@ beforeEach(() => {
   localSessionIdle.mockReturnValue(false);
   sessionRelaunchSafety.mockReset();
   sessionRelaunchSafety.mockReturnValue({
-    idle: true,
+    dead: true,
+    activatable: false,
+    indeterminate: false,
     activelyWorking: false,
-    reason: "test parked/dead session",
+    reason: "test dead session",
+    identity: { pane: "%test-dead", panePid: 100 },
   });
   localSessionGatewayEnvStatus.mockReset();
   localSessionGatewayEnvStatus.mockReturnValue("unknown");
@@ -447,8 +450,16 @@ describe("h2a relaunch", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(killLocalSession).toHaveBeenNthCalledWith(1, "h2a-codex-lane");
-    expect(killLocalSession).toHaveBeenNthCalledWith(2, "h2a-claude-lane");
+    expect(killLocalSession).toHaveBeenNthCalledWith(
+      1,
+      "h2a-codex-lane",
+      { pane: "%test-dead", panePid: 100 },
+    );
+    expect(killLocalSession).toHaveBeenNthCalledWith(
+      2,
+      "h2a-claude-lane",
+      { pane: "%test-dead", panePid: 100 },
+    );
     expect(startLocalSession).toHaveBeenNthCalledWith(
       1,
       "codex",
@@ -481,15 +492,20 @@ describe("h2a relaunch", () => {
     sessionRelaunchSafety.mockImplementation((name: string) =>
       name === "h2a-codex-lane"
         ? {
-            idle: false,
+            dead: false,
+            activatable: true,
+            indeterminate: false,
             activelyWorking: true,
             rateMsPerSecond: 100,
             reason: "live working CLI — never killed (even with --force)",
           }
         : {
-            idle: true,
+            dead: true,
+            activatable: false,
+            indeterminate: false,
             activelyWorking: false,
-            reason: "test parked/dead session",
+            reason: "test dead session",
+            identity: { pane: "%test-dead", panePid: 100 },
           },
     );
 
@@ -504,7 +520,9 @@ describe("h2a relaunch", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(killLocalSession).not.toHaveBeenCalledWith("h2a-codex-lane");
+    expect(
+      killLocalSession.mock.calls.some(([name]) => name === "h2a-codex-lane"),
+    ).toBe(false);
     expect(startLocalSession).not.toHaveBeenCalledWith(
       "codex",
       "codex",
@@ -514,22 +532,171 @@ describe("h2a relaunch", () => {
       undefined,
       { sessionClass: "human" },
     );
-    expect(killLocalSession).toHaveBeenCalledWith("h2a-claude-lane");
+    expect(killLocalSession).toHaveBeenCalledWith("h2a-claude-lane", {
+      pane: "%test-dead",
+      panePid: 100,
+    });
     expect(stderrText()).toContain("never killed");
+  });
+
+  it("does not force-kill a live parked worker at 40 ms/s", async () => {
+    sessionRelaunchSafety.mockImplementation((name: string) =>
+      name === "h2a-codex-lane"
+        ? {
+            dead: false,
+            activatable: true,
+            indeterminate: false,
+            activelyWorking: false,
+            rateMsPerSecond: 40,
+            reason: "live parked CLI worker is activatable — never force-killed",
+          }
+        : {
+            dead: true,
+            activatable: false,
+            indeterminate: false,
+            activelyWorking: false,
+            reason: "test dead session",
+            identity: { pane: "%test-dead", panePid: 100 },
+          },
+    );
+
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "--all",
+      "--include-agents",
+      "--apply",
+      "--yes",
+    ]);
+
+    const forcedActionCount = killLocalSession.mock.calls.filter(
+      ([name]) => name === "h2a-codex-lane",
+    ).length;
+    expect(exitCode).toBe(0);
+    expect(forcedActionCount).toBe(0);
+    expect(stderrText()).toContain("activatable");
+  });
+
+  it("rechecks a candidate immediately before force-kill", async () => {
+    let codexSafetyChecks = 0;
+    sessionRelaunchSafety.mockImplementation((name: string) => {
+      if (name !== "h2a-codex-lane") {
+        return {
+          dead: true,
+          activatable: false,
+          indeterminate: false,
+          activelyWorking: false,
+          reason: "test dead session",
+          identity: { pane: "%test-dead", panePid: 100 },
+        };
+      }
+      codexSafetyChecks += 1;
+      return codexSafetyChecks === 1
+        ? {
+            dead: true,
+            activatable: false,
+            indeterminate: false,
+            activelyWorking: false,
+            reason: "test dead session",
+            identity: { pane: "%test-dead", panePid: 100 },
+          }
+        : {
+            dead: false,
+            activatable: true,
+            indeterminate: false,
+            activelyWorking: false,
+            rateMsPerSecond: 40,
+            reason: "live parked CLI worker is activatable — never force-killed",
+          };
+    });
+
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "codex-lane",
+      "--apply",
+    ]);
+
+    expect(codexSafetyChecks).toBe(2);
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(exitCode).toBe(1);
+    expect(stderrText()).toContain("activatable");
+  });
+
+  it("skips a batch target that becomes live after its final probe", async () => {
+    let claudeSafetyChecks = 0;
+    sessionRelaunchSafety.mockImplementation((name: string) => {
+      if (name !== "h2a-claude-lane") {
+        return {
+          dead: true,
+          activatable: false,
+          indeterminate: false,
+          activelyWorking: false,
+          reason: "test dead session",
+          identity: { pane: "%test-dead", panePid: 100 },
+        };
+      }
+      claudeSafetyChecks += 1;
+      return claudeSafetyChecks < 3
+        ? {
+            dead: true,
+            activatable: false,
+            indeterminate: false,
+            activelyWorking: false,
+            reason: "test dead session",
+            identity: { pane: "%test-dead", panePid: 100 },
+          }
+        : {
+            dead: false,
+            activatable: true,
+            indeterminate: false,
+            activelyWorking: false,
+            rateMsPerSecond: 40,
+            reason: "live parked CLI worker became activatable before kill",
+          };
+    });
+
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "--all",
+      "--include-agents",
+      "--apply",
+      "--yes",
+    ]);
+
+    const forcedActionCount = killLocalSession.mock.calls.filter(
+      ([name]) => name === "h2a-claude-lane",
+    ).length;
+    expect(forcedActionCount).toBe(0);
+    expect(
+      killLocalSession.mock.calls.some(([name]) => name === "h2a-claude-lane"),
+    ).toBe(false);
+    expect(claudeSafetyChecks).toBe(3);
+    expect(exitCode).toBe(1);
+    expect(stderrText()).toContain("became live before kill");
   });
 
   it("skips a forced relaunch when the worker CPU probe is indeterminate", async () => {
     sessionRelaunchSafety.mockImplementation((name: string) =>
       name === "h2a-codex-lane"
         ? {
-            idle: false,
+            dead: false,
+            activatable: false,
+            indeterminate: true,
             activelyWorking: true,
             reason: "liveness indeterminate: CPU rate could not be computed",
           }
         : {
-            idle: true,
+            dead: true,
+            activatable: false,
+            indeterminate: false,
             activelyWorking: false,
-            reason: "test parked/dead session",
+            reason: "test dead session",
+            identity: { pane: "%test-dead", panePid: 100 },
           },
     );
 
@@ -557,7 +724,10 @@ describe("h2a relaunch", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(killLocalSession).toHaveBeenCalledWith("h2a-codex-lane");
+    expect(killLocalSession).toHaveBeenCalledWith("h2a-codex-lane", {
+      pane: "%test-dead",
+      panePid: 100,
+    });
     expect(startLocalSession).toHaveBeenCalledWith(
       "codex",
       "codex",
