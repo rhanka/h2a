@@ -10,8 +10,28 @@ import {
   H2A_GEMINI_HOST,
   H2A_HERMES_HOST,
   H2A_OPENCODE_HOST,
-  runCli
+  runCli as productionRunCli
 } from "../dist/index.js";
+
+// Host setup now diagnoses Claude/Codex after rendering or merging. Keep the
+// legacy rendering tests hermetic: they exercise setup syntax, not a developer
+// machine's real plugin installation.
+function healthyHostInstallations() {
+  return {
+    ok: true,
+    hosts: [
+      { host: "claude", ok: true, unrepaired: [] },
+      { host: "codex", ok: true, unrepaired: [] }
+    ]
+  };
+}
+
+function runCli(argv, streams, options = {}) {
+  return productionRunCli(argv, streams, {
+    doctorHostInstallations: healthyHostInstallations,
+    ...options
+  });
+}
 
 function captureStreams(cwd) {
   let stdout = "";
@@ -96,6 +116,51 @@ test("h2a host setup --host codex --print emits JSON snippet on stdout", () => {
   assert.match(streams.stdoutText, /"mcpServers"/);
   // path hint is delivered on stderr (so stdout stays JSON-only).
   assert.match(streams.stderrText, /codex/);
+  assert.doesNotMatch(streams.stderrText, /installation remains incoherent/);
+});
+
+test("h2a host setup names a stale Codex installation without repairing it", () => {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-host-setup-coherence-"));
+  const config = join(dir, "config.toml");
+  try {
+    writeFileSync(config, '[marketplaces.sentropic]\nsource = "/deleted/marketplace"\n');
+    const before = readFileSync(config);
+    const streams = captureStreams(dir);
+    let inspected = 0;
+    const rc = runCli(
+      ["host", "setup", "--host", "codex", "--print"],
+      streams,
+      {
+        doctorHostInstallations: (options) => {
+          inspected++;
+          assert.equal(options.repair, false, "setup must diagnose, never repair implicitly");
+          return {
+            ok: false,
+            hosts: [
+              { host: "claude", ok: true, unrepaired: [] },
+              {
+                host: "codex",
+                ok: false,
+                unrepaired: [
+                  { code: "marketplace-missing", message: "Codex lacks the canonical marketplace." },
+                  { code: "version-skew", message: "Codex plugin version is stale." }
+                ]
+              }
+            ]
+          };
+        }
+      }
+    );
+
+    assert.equal(rc, 2, streams.stderrText);
+    assert.equal(inspected, 1, "setup must inspect the state it leaves");
+    assert.match(streams.stderrText, /marketplace-missing/);
+    assert.match(streams.stderrText, /version-skew/);
+    assert.match(streams.stderrText, /doctor --repair/);
+    assert.equal(readFileSync(config).equals(before), true, "setup must not repair the stale configuration");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("h2a host setup --host claude --print emits a claude-shaped snippet", () => {
