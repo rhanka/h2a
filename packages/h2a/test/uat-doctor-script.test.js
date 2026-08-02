@@ -18,12 +18,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..", "..");
 const SCRIPT = join(REPO_ROOT, "docs", "uat", "uat-doctor.sh");
+const INSTALLATION_DOCTOR_CONTRACT_URL = pathToFileURL(
+  join(REPO_ROOT, "packages", "h2a", "src", "hosts", "installation-doctor-contract.js")
+).href;
 
 function writeExecutable(path, content) {
   mkdirSync(dirname(path), { recursive: true });
@@ -267,7 +270,7 @@ function ownedCandidateEnvironment(fixture, ready) {
   writeFileSync(join(candidate, "packages", "h2a", "package.json"), '{"version":"0.99.0-uat"}\n');
   writeFileSync(
     join(candidate, "packages", "h2a", "src", "hosts", "installation-doctor-contract.js"),
-    'export const CLAUDE_NATIVE_REPAIRABLE_ROOT_KEYS = Object.freeze(["mcpServers"]);\n'
+    `export * from ${JSON.stringify(INSTALLATION_DOCTOR_CONTRACT_URL)};\n`
   );
   writeFileSync(
     join(candidate, "docs", "uat", "probe-oracle.sh"),
@@ -322,6 +325,31 @@ esac
   delete env.UAT_DOCTOR_BIN;
   return env;
 }
+
+test("uat-doctor owned-candidate fixture should re-export the real Claude repair contract", () => {
+  const fixture = createFixture("contract-proxy", false);
+  try {
+    const env = ownedCandidateEnvironment(fixture, join(fixture.root, "unused-ready"));
+    const fixtureContract = readFileSync(
+      join(env.UAT_FAKE_CANDIDATE_SOURCE, "packages", "h2a", "src", "hosts", "installation-doctor-contract.js"),
+      "utf8"
+    );
+
+    assert.equal(fixtureContract, `export * from ${JSON.stringify(INSTALLATION_DOCTOR_CONTRACT_URL)};\n`);
+  } finally {
+    rmSync(fixture.outer, { recursive: true, force: true });
+  }
+});
+
+test("Claude native repair boundary should derive the UAT list from doctor’s named MCP key", () => {
+  const contract = readFileSync(new URL("../src/hosts/installation-doctor-contract.js", import.meta.url), "utf8");
+  const doctor = readFileSync(new URL("../src/hosts/installation-doctor.ts", import.meta.url), "utf8");
+
+  assert.match(contract, /export const CLAUDE_NATIVE_MCP_ROOT_KEY = "mcpServers";/);
+  assert.match(contract, /Object\.freeze\(\[CLAUDE_NATIVE_MCP_ROOT_KEY\]\)/);
+  assert.match(doctor, /property\.key === CLAUDE_NATIVE_MCP_ROOT_KEY/);
+  assert.doesNotMatch(doctor, /CLAUDE_NATIVE_REPAIRABLE_ROOT_KEYS\[0\]/);
+});
 
 async function waitForFile(path) {
   const deadline = Date.now() + 5000;
@@ -779,8 +807,10 @@ test("uat-doctor should document its checkout-root invocation and owner decision
   assert.match(guide, /H2A_UAT_SHA=origin\/main/);
   assert.match(guide, /tag-de-release/);
   assert.match(guide, /\.claude\.json#mcpServers/);
-  assert.match(guide, /skillUsage/);
+  assert.match(guide, /Le garde surveille positivement ce que doctor\s+peut réparer/);
+  assert.match(guide, /Tout le reste de `\.claude\.json` peut bouger sans\s+conséquence/);
   assert.match(guide, /## Si le garde owner se déclenche/);
+  assert.doesNotMatch(guide, /liste noire|pluginUsage|promptQueueUseCount/);
   assert.doesNotMatch(guide, /9004bcdee5b824c4dc41f0a6d2068328f486899b|PR 94|github\.com/);
   assert.doesNotMatch(guide, /Depuis n'importe quel répertoire du checkout de la PR/);
   assert.doesNotMatch(guide, /déjà rencontrée/);
