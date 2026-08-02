@@ -25,6 +25,7 @@ function registryEntry(
     enrolledAt: now,
     lastSeenAt: now,
     source: "run",
+    sessionClass: "human",
     ...over,
   };
 }
@@ -81,10 +82,12 @@ describe("h2a restore — human-facing session preservation (defect repro)", () 
   });
 
   it("DEFECT #2: excludes delegated role:'job' workers from human restore", () => {
+    const worker = registryEntry("worker", { role: "job", jobState: "running" });
+    delete worker.sessionClass;
     const entries: RegistryEntry[] = [
       registryEntry("human", { sessionClass: "human" }),
       // A delegated job: role 'job', NO sessionClass set (as delegate enrolls it).
-      registryEntry("worker", { role: "job", jobState: "running" }),
+      worker,
     ];
     const projects = registrySessions(HOME, entries).map((s) => s.project);
     expect(projects).toEqual(["human"]);
