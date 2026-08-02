@@ -83,6 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           npm i -g @sentropic/h2a@latest
+          npm ls -g @sentropic/h2a --depth=0
           which h2a
           h2a --help
 
