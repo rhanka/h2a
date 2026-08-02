@@ -66,6 +66,7 @@ function baseInput(overrides = {}) {
   return {
     verdicts: twoIndependentGoVerdicts(),
     attestation: attestation(),
+    attestationRef: "attestation-ref:note-1",
     leg1Ref: "verdict-ref:session-A:note-1",
     leg2Ref: "verdict-ref:session-B:note-1",
     authorId: "claude:h2a-memory:author-not-a-leg",
@@ -96,24 +97,32 @@ function countingStubPort(promoteImpl) {
 // assemblePromotionEvidence — pure assembly into the port's PromotionEvidence shape.
 // ---------------------------------------------------------------------------
 
-test("assemblePromotionEvidence packs the two refs and a serialized attestation into PromotionEvidence", () => {
-  const att = attestation();
-  const evidence = assemblePromotionEvidence("verdict-ref:leg1", "verdict-ref:leg2", att);
+test("assemblePromotionEvidence packs the two verdict refs and the attestation REF into PromotionEvidence", () => {
+  const evidence = assemblePromotionEvidence("verdict-ref:leg1", "verdict-ref:leg2", "attestation-ref:note-1");
 
   assert.equal(evidence.leg1_verdict_ref, "verdict-ref:leg1");
   assert.equal(evidence.leg2_verdict_ref, "verdict-ref:leg2");
   assert.equal(typeof evidence.independence_attestation, "string");
 
-  // The attestation must be RECOVERABLE from the serialized string (not lossy),
-  // since graphify's gate re-inspects it structurally.
-  const parsed = JSON.parse(evidence.independence_attestation);
-  assert.deepEqual(parsed, att);
+  // The attestation travels by REFERENCE (locator), like leg1/leg2 — graphify
+  // holds the locator, the artifact it points to holds the {leg1,leg2,...}
+  // content. This is a pass-through, NOT a serialization: no JSON.stringify.
+  assert.equal(evidence.independence_attestation, "attestation-ref:note-1");
+});
+
+test("assemblePromotionEvidence passes the attestation ref through UNCHANGED — never JSON.stringify's it", () => {
+  const evidence = assemblePromotionEvidence("r1", "r2", "attestation-ref:opaque-locator");
+  assert.equal(evidence.independence_attestation, "attestation-ref:opaque-locator");
+  // Not valid JSON of an object — a bare locator string, not a serialized attestation.
+  assert.throws(() => {
+    const parsed = JSON.parse(evidence.independence_attestation);
+    if (parsed !== null && typeof parsed === "object") throw new Error("looked like a serialized object");
+  });
 });
 
 test("assemblePromotionEvidence is pure — same inputs produce the same evidence, no side effects", () => {
-  const att = attestation();
-  const e1 = assemblePromotionEvidence("r1", "r2", att);
-  const e2 = assemblePromotionEvidence("r1", "r2", att);
+  const e1 = assemblePromotionEvidence("r1", "r2", "attestation-ref:x");
+  const e2 = assemblePromotionEvidence("r1", "r2", "attestation-ref:x");
   assert.deepEqual(e1, e2);
 });
 
@@ -223,7 +232,7 @@ test("checkDoubleConsensusPreconditions is STRUCTURAL, not merely attested — i
 
 test("promoteNote branches to promoted:true when the injected port promotes", async () => {
   const { port } = countingStubPort(() => ({ promoted: true, id: "note-1" }));
-  const evidence = assemblePromotionEvidence("r1", "r2", attestation());
+  const evidence = assemblePromotionEvidence("r1", "r2", "attestation-ref:x");
   const result = await promoteNote("note-1", evidence, CTX, port);
   assert.deepEqual(result.outcome, { promoted: true, id: "note-1" });
   assert.equal(result.localOnly, false);
@@ -231,14 +240,14 @@ test("promoteNote branches to promoted:true when the injected port promotes", as
 
 test("promoteNote branches to promoted:false when the injected port refuses", async () => {
   const { port } = countingStubPort(() => ({ promoted: false, reason: "below threshold" }));
-  const evidence = assemblePromotionEvidence("r1", "r2", attestation());
+  const evidence = assemblePromotionEvidence("r1", "r2", "attestation-ref:x");
   const result = await promoteNote("note-1", evidence, CTX, port);
   assert.deepEqual(result.outcome, { promoted: false, reason: "below threshold" });
   assert.equal(result.localOnly, false);
 });
 
 test("promoteNote REFUSES (fail-closed, I5) when no port is injected — undefined", async () => {
-  const evidence = assemblePromotionEvidence("r1", "r2", attestation());
+  const evidence = assemblePromotionEvidence("r1", "r2", "attestation-ref:x");
   const result = await promoteNote("note-1", evidence, CTX, undefined);
   assert.equal(result.outcome.promoted, false);
   assert.match(result.outcome.reason, /fail-closed/i);
@@ -246,7 +255,7 @@ test("promoteNote REFUSES (fail-closed, I5) when no port is injected — undefin
 });
 
 test("promoteNote REFUSES (fail-closed, I5) when no port is injected — null", async () => {
-  const evidence = assemblePromotionEvidence("r1", "r2", attestation());
+  const evidence = assemblePromotionEvidence("r1", "r2", "attestation-ref:x");
   const result = await promoteNote("note-1", evidence, CTX, null);
   assert.equal(result.outcome.promoted, false);
   assert.equal(result.localOnly, true);
@@ -256,7 +265,7 @@ test("promoteNote REFUSES when the port throws (unreachable) — never a silent 
   const { port } = countingStubPort(() => {
     throw new Error("ECONNREFUSED");
   });
-  const evidence = assemblePromotionEvidence("r1", "r2", attestation());
+  const evidence = assemblePromotionEvidence("r1", "r2", "attestation-ref:x");
   const result = await promoteNote("note-1", evidence, CTX, port);
   assert.equal(result.outcome.promoted, false);
   assert.match(result.outcome.reason, /unreachable/i);
@@ -275,7 +284,7 @@ test("promoteNote REFUSES when the port rejects (unreachable) — never a silent
       throw new Error("not used");
     }
   };
-  const evidence = assemblePromotionEvidence("r1", "r2", attestation());
+  const evidence = assemblePromotionEvidence("r1", "r2", "attestation-ref:x");
   const result = await promoteNote("note-1", evidence, CTX, port);
   assert.equal(result.outcome.promoted, false);
   assert.match(result.outcome.reason, /unreachable/i);
