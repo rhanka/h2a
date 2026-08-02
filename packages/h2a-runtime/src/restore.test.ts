@@ -68,6 +68,7 @@ function registryEntry(project: string, over: Partial<RegistryEntry> = {}): Regi
     enrolledAt: now,
     lastSeenAt: now,
     source: "run",
+    sessionClass: "human",
     ...over,
   };
 }
@@ -80,14 +81,14 @@ describe("registry-first discovery", () => {
     const cwdB = seedClaudeScan("projB", "scan-b");
 
     const entries = [
-      registryEntry("projA", { convId: "conv-A", label: "projA" }),
+      registryEntry("projA", { convId: "scan-a", label: "projA" }),
     ];
     const fromRegistry = registrySessions(home, entries);
     expect(fromRegistry).toHaveLength(1);
     expect(fromRegistry[0]).toMatchObject({
       project: "projA",
       tool: "claude",
-      sid: "conv-A",
+      sid: "scan-a",
       cwd: cwdA,
       origin: "registry",
       label: "projA",
@@ -100,7 +101,7 @@ describe("registry-first discovery", () => {
     expect(merged).toHaveLength(2);
     const a = merged.find((s) => s.project === "projA")!;
     expect(a.origin).toBe("registry");
-    expect(a.sid).toBe("conv-A"); // reliable convId, not the scanned guess
+    expect(a.sid).toBe("scan-a"); // registry entry, not a duplicate scan
     const b = merged.find((s) => s.project === "projB")!;
     expect(b.origin).toBe("scan");
     expect(b.sid).toBe("scan-b");
@@ -124,6 +125,45 @@ describe("registry-first discovery", () => {
     expect(registrySessions(home, entries).map((entry) => entry.project)).toEqual([
       "human",
     ]);
+  });
+
+  it("classifies a legacy line with its real Claude transcript as human", () => {
+    const cwd = seedClaudeScan("legacy-transcript", "conv-legacy");
+    const legacy = registryEntry("legacy-transcript", { convId: "conv-legacy" });
+    delete legacy.sessionClass;
+
+    expect(
+      registrySessions(home, [legacy], undefined, { home, liveTmuxSessions: [] }),
+    ).toMatchObject([{ project: "legacy-transcript", cwd }]);
+  });
+
+  it("classifies a legacy line bound to a live tmux session as human", () => {
+    const legacy = registryEntry("legacy-tmux", { convId: "conv-legacy" });
+    delete legacy.sessionClass;
+    mkdirSync(legacy.cwd, { recursive: true });
+
+    expect(
+      registrySessions(home, [legacy], undefined, {
+        home,
+        liveTmuxSessions: [
+          {
+            name: legacy.tmuxSession!,
+            path: legacy.cwd,
+            profile: legacy.tool,
+          },
+        ],
+      }),
+    ).toMatchObject([{ project: "legacy-tmux" }]);
+  });
+
+  it("fails closed for a legacy line with no transcript or live tmux evidence", () => {
+    const legacy = registryEntry("legacy-unknown", { convId: "conv-legacy" });
+    delete legacy.sessionClass;
+    mkdirSync(legacy.cwd, { recursive: true });
+
+    expect(
+      registrySessions(home, [legacy], undefined, { home, liveTmuxSessions: [] }),
+    ).toEqual([]);
   });
 
   it("carries the pinned gatewayMode from the registry entry onto the session", () => {
