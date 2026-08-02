@@ -259,6 +259,47 @@ describe("ensureHeadlessTerminal", () => {
 });
 
 describe("killLocalSession", () => {
+  it("does not issue a kill when a batch target becomes a new live worker after its dead re-check", () => {
+    let deadClockCalls = 0;
+    const rechecked = sessionRelaunchSafety("h2a-proj", {
+      resolvePane: () => "%7",
+      panePid: () => 100,
+      paneCommand: () => "bash",
+      observe: () => ({
+        cpuMs: 0,
+        worker: { pid: 100, startTime: "100", bootId: "boot" },
+        procView: { currentBootId: "boot", processes: [] },
+      }),
+      sleep: () => {},
+      now: () => (deadClockCalls++ === 0 ? 1_000 : 1_250),
+    });
+    let liveClockCalls = 0;
+
+    expect(rechecked).toMatchObject({
+      dead: true,
+      identity: { pane: "%7", panePid: 100 },
+    });
+    expect(
+      killLocalSession("h2a-proj", rechecked.identity!, {
+        resolvePane: () => "%8",
+        panePid: () => 200,
+        paneCommand: () => "bash",
+        observe: () => ({
+          cpuMs: 10,
+          worker: { pid: 201, startTime: "201", bootId: "boot" },
+          procView: { currentBootId: "boot", processes: [] },
+        }),
+        sleep: () => {},
+        now: () => (liveClockCalls++ === 0 ? 2_000 : 2_250),
+      }),
+    ).toBe(false);
+
+    const forcedActionCount = tmuxCalls("kill-session").filter(
+      ([, args]) => Array.isArray(args) && args.includes("=h2a-proj:"),
+    ).length;
+    expect(forcedActionCount).toBe(0);
+  });
+
   it("uses an exact tmux session target", () => {
     spawnSyncMock.mockReturnValue({ status: 0 });
 
@@ -1558,7 +1599,8 @@ describe("sessionRelaunchSafety", () => {
     });
 
     expect(safety.activelyWorking).toBe(true);
-    expect(safety.idle).toBe(false);
+    expect(safety.dead).toBe(false);
+    expect(safety.indeterminate).toBe(true);
     expect(safety.reason).toContain("CPU sample unreadable");
   });
 });

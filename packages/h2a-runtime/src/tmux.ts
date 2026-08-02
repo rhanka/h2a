@@ -42,6 +42,8 @@ import {
 } from "./proc-cpu.js";
 import {
   decideRelaunchSafety,
+  isRelaunchKillable,
+  type RelaunchKillIdentity,
   type RelaunchSafety,
 } from "./relaunch.js";
 
@@ -2091,8 +2093,26 @@ export function runLocalCliForeground(command: string, args: string[]): number {
   return r.status ?? 0;
 }
 
-/** Kill a local tmux session. */
-export function killLocalSession(name: string): boolean {
+/**
+ * Kill a local tmux session. A relaunch kill carries the pane generation that
+ * was proven dead; re-check it immediately before killing so a replacement
+ * session or a newly-live worker is left alone.
+ */
+export function killLocalSession(
+  name: string,
+  expectedIdentity?: RelaunchKillIdentity,
+  probe?: RelaunchSafetyProbe,
+): boolean {
+  if (expectedIdentity) {
+    const rechecked = sessionRelaunchSafety(name, probe);
+    if (
+      !isRelaunchKillable(rechecked) ||
+      rechecked.identity?.pane !== expectedIdentity.pane ||
+      rechecked.identity.panePid !== expectedIdentity.panePid
+    ) {
+      return false;
+    }
+  }
   const r = spawnSync(TMUX, ["kill-session", "-t", exactSessionTarget(name)], {
     stdio: "ignore",
   });
@@ -2202,7 +2222,9 @@ export function sessionRelaunchSafety(
     const pane = resolvePane(name);
     if (!pane) {
       return {
-        idle: false,
+        dead: false,
+        activatable: false,
+        indeterminate: true,
         activelyWorking: true,
         reason: "liveness indeterminate: agent pane is unreadable",
       };
@@ -2218,6 +2240,7 @@ export function sessionRelaunchSafety(
     sleep(RELAUNCH_LIVENESS_SAMPLE_MS);
     const second = observe(pane);
     return decideRelaunchSafety({
+      pane,
       paneCommand,
       panePid,
       firstWorkerPid: first?.worker?.pid,
@@ -2228,7 +2251,9 @@ export function sessionRelaunchSafety(
     });
   } catch {
     return {
-      idle: false,
+      dead: false,
+      activatable: false,
+      indeterminate: true,
       activelyWorking: true,
       reason: "liveness indeterminate: worker/CPU probe failed",
     };

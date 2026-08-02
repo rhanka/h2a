@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   decideRelaunchSafety,
+  isRelaunchKillable,
   planRelaunch,
   resumeCommandFor,
 } from "./relaunch.js";
@@ -19,20 +20,22 @@ describe("resumeCommandFor", () => {
 });
 
 describe("planRelaunch", () => {
-  const idleClaude = (slug: string, convId?: string) => ({
+  const deadClaude = (slug: string, convId?: string) => ({
     slug,
     name: `remote-${slug}`,
     profile: "claude",
-    idle: true,
+    dead: true,
+    activatable: false,
+    indeterminate: false,
     activelyWorking: false,
     ...(convId ? { convId } : {}),
   });
 
-  it("plans idle sessions with a known convId, each its own command", () => {
+  it("plans dead sessions with a known convId, each its own command", () => {
     const plan = planRelaunch([
-      idleClaude("sentropic", "c-a"),
-      idleClaude("sentropic#2", "c-b"),
-      { ...idleClaude("dataviz", "r-1"), profile: "codex" },
+      deadClaude("sentropic", "c-a"),
+      deadClaude("sentropic#2", "c-b"),
+      { ...deadClaude("dataviz", "r-1"), profile: "codex" },
     ]);
     expect(plan.actions.map((a) => a.cmd)).toEqual([
       "claude --resume c-a",
@@ -42,20 +45,25 @@ describe("planRelaunch", () => {
     expect(plan.skipped).toEqual([]);
   });
 
-  it("leaves running sessions alone", () => {
+  it("leaves live sessions alone", () => {
     const plan = planRelaunch([
-      { ...idleClaude("live", "c-x"), idle: false },
+      {
+        ...deadClaude("live", "c-x"),
+        dead: false,
+        activatable: true,
+      },
     ]);
     expect(plan.actions).toEqual([]);
-    expect(plan.skipped[0]?.reason).toMatch(/running/);
+    expect(plan.skipped[0]?.reason).toMatch(/activatable/);
   });
 
   it("never force-relaunches an actively working worker", () => {
     const plan = planRelaunch(
       [
         {
-          ...idleClaude("working", "c-working"),
-          idle: true, // the flaky child-count path said idle
+          ...deadClaude("working", "c-working"),
+          dead: false,
+          activatable: true,
           activelyWorking: true,
           livenessReason:
             "live working CLI — never killed (even with --force)",
@@ -72,8 +80,9 @@ describe("planRelaunch", () => {
     const plan = planRelaunch(
       [
         {
-          ...idleClaude("unknown", "c-unknown"),
-          idle: false,
+          ...deadClaude("unknown", "c-unknown"),
+          dead: false,
+          indeterminate: true,
           activelyWorking: true,
           livenessReason:
             "liveness indeterminate: CPU rate could not be computed",
@@ -86,20 +95,8 @@ describe("planRelaunch", () => {
     expect(plan.skipped[0]?.reason).toContain("indeterminate");
   });
 
-  it("classifies dead, parked, and working workers from the short CPU sample", () => {
-    expect(
-      decideRelaunchSafety({
-        paneCommand: "bash",
-        panePid: 10,
-        firstWorkerPid: 10,
-        secondWorkerPid: 10,
-        firstCpuMs: 100,
-        secondCpuMs: 100,
-        elapsedMs: 250,
-      }),
-    ).toMatchObject({ idle: true, activelyWorking: false });
-    expect(
-      decideRelaunchSafety({
+  it("classifies a live worker at 40 ms/s as activatable and never killable", () => {
+    const parkedAt40 = decideRelaunchSafety({
         paneCommand: "bash",
         panePid: 10,
         firstWorkerPid: 20,
@@ -107,8 +104,44 @@ describe("planRelaunch", () => {
         firstCpuMs: 100,
         secondCpuMs: 110,
         elapsedMs: 250,
-      }),
-    ).toMatchObject({ idle: true, activelyWorking: false, rateMsPerSecond: 40 });
+      });
+
+    expect(parkedAt40).toMatchObject({
+      dead: false,
+      activatable: true,
+      indeterminate: false,
+      activelyWorking: false,
+      rateMsPerSecond: 40,
+    });
+    expect(isRelaunchKillable(parkedAt40)).toBe(false);
+
+    const plan = planRelaunch(
+      [{ ...deadClaude("live-40", "c-live-40"), ...parkedAt40 }],
+      { force: true },
+    );
+    const forcedActionCount = plan.actions.length;
+    expect(forcedActionCount).toBe(0);
+    expect(plan.skipped[0]?.reason).toContain("activatable");
+  });
+
+  it("keeps dead sessions killable and indeterminate liveness unkillable", () => {
+    const dead = decideRelaunchSafety({
+      paneCommand: "bash",
+      panePid: 10,
+      firstWorkerPid: 10,
+      secondWorkerPid: 10,
+      firstCpuMs: 100,
+      secondCpuMs: 100,
+      elapsedMs: 250,
+    });
+    expect(dead).toMatchObject({
+      dead: true,
+      activatable: false,
+      indeterminate: false,
+      activelyWorking: false,
+    });
+    expect(isRelaunchKillable(dead)).toBe(true);
+
     expect(
       decideRelaunchSafety({
         paneCommand: "bash",
@@ -119,9 +152,15 @@ describe("planRelaunch", () => {
         secondCpuMs: 120,
         elapsedMs: 250,
       }),
-    ).toMatchObject({ idle: false, activelyWorking: true, rateMsPerSecond: 80 });
-    expect(
-      decideRelaunchSafety({
+    ).toMatchObject({
+      dead: false,
+      activatable: true,
+      indeterminate: false,
+      activelyWorking: true,
+      rateMsPerSecond: 80,
+    });
+
+    const indeterminate = decideRelaunchSafety({
         paneCommand: "bash",
         panePid: 10,
         firstWorkerPid: 20,
@@ -129,20 +168,26 @@ describe("planRelaunch", () => {
         firstCpuMs: undefined,
         secondCpuMs: 120,
         elapsedMs: 250,
-      }),
-    ).toMatchObject({ idle: false, activelyWorking: true });
+      });
+    expect(indeterminate).toMatchObject({
+      dead: false,
+      activatable: false,
+      indeterminate: true,
+      activelyWorking: true,
+    });
+    expect(isRelaunchKillable(indeterminate)).toBe(false);
   });
 
   it("skips sessions with no convId rather than guessing", () => {
-    const plan = planRelaunch([idleClaude("opendb")]);
+    const plan = planRelaunch([deadClaude("opendb")]);
     expect(plan.actions).toEqual([]);
     expect(plan.skipped[0]?.reason).toMatch(/no convId/);
   });
 
   it("refuses to point two sessions at the SAME conversation", () => {
     const plan = planRelaunch([
-      idleClaude("a", "dup"),
-      idleClaude("b", "dup"),
+      deadClaude("a", "dup"),
+      deadClaude("b", "dup"),
     ]);
     expect(plan.actions).toHaveLength(1);
     expect(plan.actions[0]?.slug).toBe("a");
@@ -151,8 +196,8 @@ describe("planRelaunch", () => {
 
   it("refuses a dual-prefix tmux collision before assigning either conversation", () => {
     const plan = planRelaunch([
-      { ...idleClaude("proj", "canonical"), name: "h2a-proj" },
-      { ...idleClaude("proj", "legacy"), name: "remote-proj" },
+      { ...deadClaude("proj", "canonical"), name: "h2a-proj" },
+      { ...deadClaude("proj", "legacy"), name: "remote-proj" },
     ]);
 
     expect(plan.actions).toEqual([]);
