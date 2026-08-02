@@ -29,6 +29,19 @@ structural has a named mechanism that rejects a violation. test has a named test
 violation. spec-line is written without a rejecting mechanism. habit is practice only. The word
 habit is deliberate, not a euphemism for a gate.
 
+**What this document enforces, stated in aggregate so no reader has to total it themselves:
+33 of its 35 registered clauses have NO mechanism that rejects a violation.** Exactly two are
+`structural` — EXIT-02 and COMPAT-02 — and **no clause is `test`**: the one that claimed that rung
+cited a test which rejects a different clause's violation, and was downgraded rather than
+re-labelled. Twenty-eight are `spec-line` — written, with nothing that rejects — and five are
+`habit`. Twenty-three clauses name a proof marked `not-yet-written`, and every one of those is
+`spec-line`: no clause claims a strong rung on a proof that does not exist.
+
+Read `spec-line` carefully rather than reassuringly. It is the rung that misleads most, because
+`habit` announces itself while `spec-line` reads like a norm and holds no more. A reader who
+counts twenty-seven specification lines and infers an enforced contract has misread this document,
+and the fault would be the document's, not theirs.
+
 | ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
 |---|---|---|---|---|
 | EVOL-00 | This paper authorizes no executable dispatch, engine, package, release, or cutover action. | This header; inspect with git show -- docs/specs/2026-07-29-SPEC_EVOL_native-dispatch-successor-contract.md. | spec-line | It can expose a contradictory paper claim; it cannot reject a code commit. |
@@ -219,7 +232,7 @@ and LIMIT.
 | ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
 |---|---|---|---|---|
 | TEST-01 | Every successor-delta condition names observable dependencies and test case failing for stated violation. | Fixture register; dispatchNativeSuccessor (**not-yet-written**). | spec-line | Names protect nothing until seam/tests exist. |
-| TEST-02 | Base-characterization fixtures do not use universal fail-first rule. | Fixture register; existing bin-routing incompatibility test. | test | Existing test proves API case only. |
+| TEST-02 | Base-characterization fixtures do not use universal fail-first rule. | Fixture register only. No test rejects a violation of THIS clause: `packages/h2a/test/bin-routing.test.js:77` was previously cited here, but it asserts that `resolveH2aRuntimeDispatch` rejects an incompatible capability version — that is a violation of EXIT-02, not of TEST-02. A fixture-shape test (**not-yet-written**) would be needed. | spec-line | Nothing rejects a characterization fixture written with a fail-first assertion; a reviewer must catch it by reading. |
 | CC-01 | Full frozen-surface change control remains explicitly habit until a gate watches bare h2a, h2a --resume, h2a run, and declared contract version together. | FC-03; current scripts/check-public-contract.sh is only named existing script. | habit | Written downgrade makes no false current-CI claim. |
 
 ## 6. Phased authorization
