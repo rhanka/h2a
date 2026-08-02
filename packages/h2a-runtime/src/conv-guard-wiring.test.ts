@@ -607,6 +607,57 @@ describe("h2a relaunch", () => {
     expect(stderrText()).toContain("activatable");
   });
 
+  it("skips a batch target that becomes live after its final probe", async () => {
+    let claudeSafetyChecks = 0;
+    sessionRelaunchSafety.mockImplementation((name: string) => {
+      if (name !== "h2a-claude-lane") {
+        return {
+          dead: true,
+          activatable: false,
+          indeterminate: false,
+          activelyWorking: false,
+          reason: "test dead session",
+        };
+      }
+      claudeSafetyChecks += 1;
+      return claudeSafetyChecks < 3
+        ? {
+            dead: true,
+            activatable: false,
+            indeterminate: false,
+            activelyWorking: false,
+            reason: "test dead session",
+          }
+        : {
+            dead: false,
+            activatable: true,
+            indeterminate: false,
+            activelyWorking: false,
+            rateMsPerSecond: 40,
+            reason: "live parked CLI worker became activatable before kill",
+          };
+    });
+
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "--all",
+      "--include-agents",
+      "--apply",
+      "--yes",
+    ]);
+
+    const forcedActionCount = killLocalSession.mock.calls.filter(
+      ([name]) => name === "h2a-claude-lane",
+    ).length;
+    expect(forcedActionCount).toBe(0);
+    expect(killLocalSession).not.toHaveBeenCalledWith("h2a-claude-lane");
+    expect(claudeSafetyChecks).toBe(3);
+    expect(exitCode).toBe(1);
+    expect(stderrText()).toContain("became live before kill");
+  });
+
   it("skips a forced relaunch when the worker CPU probe is indeterminate", async () => {
     sessionRelaunchSafety.mockImplementation((name: string) =>
       name === "h2a-codex-lane"
