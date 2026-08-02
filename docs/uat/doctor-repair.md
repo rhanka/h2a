@@ -268,6 +268,6 @@ Après lecture, l'owner tranche :
 
 1. Le scénario 2 montre-t-il bien code 2, `ok=false` et un motif de redémarrage ?
 2. Le scénario 1 s'est-il réparé sans poser de question ?
-3. Une incohérence déjà rencontrée manque-t-elle à la recette ?
+3. Pendant ce passage, as-tu rencontré un comportement que la recette ne t'avait pas annoncé ?
 
 Sans cette réponse owner, aucun vert du script ou de la CI ne vaut `done`.
