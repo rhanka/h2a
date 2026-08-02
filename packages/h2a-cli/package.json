@@ -1,6 +1,6 @@
 {
   "name": "@sentropic/h2a-cli",
-  "version": "0.90.2",
+  "version": "0.90.3",
   "description": "DEPRECATED — fusionné dans @sentropic/h2a. Installez @sentropic/h2a.",
   "license": "MIT",
   "type": "module",
@@ -33,7 +33,7 @@
     "dist"
   ],
   "dependencies": {
-    "@sentropic/h2a": "^0.90.2"
+    "@sentropic/h2a": "^0.90.3"
   },
   "publishConfig": {
     "access": "public"
