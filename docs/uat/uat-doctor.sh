@@ -20,7 +20,6 @@ if [ -z "${UAT_SOURCE_DIR-}" ] && [ -z "${UAT_DOCTOR_BIN-}" ]; then
   for required_command in git tar npm; do
     require_command "$required_command"
   done
-  [ -n "${H2A_UAT_SHA-}" ] || require_command gh
 fi
 
 OWNER_HOME=${HOME:?HOME doit etre defini pour identifier les racines owner}
@@ -338,54 +337,6 @@ expect_code_0_or_2() {
   esac
 }
 
-github_repository_from_remote() {
-  local remote_url=$1 repository
-  case "$remote_url" in
-    https://github.com/*|http://github.com/*|git://github.com/*)
-      repository=${remote_url#*github.com/}
-      ;;
-    ssh://git@github.com/*)
-      repository=${remote_url#ssh://git@github.com/}
-      ;;
-    git@github.com:*)
-      repository=${remote_url#git@github.com:}
-      ;;
-    *) return 1 ;;
-  esac
-  repository=${repository%.git}
-  case "$repository" in
-    */*) printf '%s\n' "$repository" ;;
-    *) return 1 ;;
-  esac
-}
-
-resolve_github_remote() {
-  local remote remote_url repository
-  local first_remote="" first_remote_url=""
-  GITHUB_REMOTE=""
-  GITHUB_REPOSITORY=""
-
-  while IFS= read -r remote; do
-    [ -n "$remote" ] || continue
-    remote_url=$(git -C "$REPO_ROOT" remote get-url "$remote" 2>/dev/null) || remote_url=""
-    if [ -z "$first_remote" ]; then
-      first_remote=$remote
-      first_remote_url=$remote_url
-    fi
-    repository=$(github_repository_from_remote "$remote_url") || continue
-    GITHUB_REMOTE=$remote
-    GITHUB_REPOSITORY=$repository
-    return 0
-  done < <(git -C "$REPO_ROOT" remote)
-
-  if [ -n "$first_remote" ]; then
-    echo "ABANDON : aucun remote GitHub utilisable : remote '$first_remote' = '$first_remote_url' (hote non GitHub ; github.com est requis). Fournissez H2A_UAT_SHA=<commit|tag|branche> pour choisir le candidat explicitement." >&2
-  else
-    echo "ABANDON : aucun remote GitHub configure dans '$REPO_ROOT'. Fournissez H2A_UAT_SHA=<commit|tag|branche> pour choisir le candidat explicitement." >&2
-  fi
-  return 1
-}
-
 prepare_candidate() {
   if [ -n "${UAT_SOURCE_DIR-}" ] || [ -n "${UAT_DOCTOR_BIN-}" ]; then
     if [ -z "${UAT_SOURCE_DIR-}" ] || [ -z "${UAT_DOCTOR_BIN-}" ]; then
@@ -395,6 +346,8 @@ prepare_candidate() {
     SRC=$(cd -- "$UAT_SOURCE_DIR" && pwd) || return 1
     DOCTOR_BIN=$UAT_DOCTOR_BIN
     CANDIDATE="injection de test"
+    CANDIDATE_SHORT="injection de test"
+    CANDIDATE_PROVENANCE="injection reservee aux tests"
     OWNS_SRC=0
   else
     if [ "$(git -C "$REPO_ROOT" rev-parse --is-inside-work-tree 2>/dev/null)" != "true" ]; then
@@ -402,13 +355,18 @@ prepare_candidate() {
       return 1
     fi
     if [ -n "${H2A_UAT_SHA-}" ]; then
-      CANDIDATE=$H2A_UAT_SHA
+      CANDIDATE_REFERENCE=$H2A_UAT_SHA
+      CANDIDATE_PROVENANCE="H2A_UAT_SHA fourni ($CANDIDATE_REFERENCE)"
     else
-      resolve_github_remote || return 1
-      CANDIDATE=$(gh pr view 94 --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
+      CANDIDATE_REFERENCE=HEAD
+      CANDIDATE_PROVENANCE="HEAD du checkout"
     fi
-    [ -n "$CANDIDATE" ] || {
-      echo "ABANDON : GitHub n'a pas fourni le SHA du HEAD de la PR 94 depuis le remote '$GITHUB_REMOTE'. Fournissez H2A_UAT_SHA=<commit|tag|branche> pour choisir le candidat explicitement." >&2
+    CANDIDATE=$(git -C "$REPO_ROOT" rev-parse --verify --end-of-options "${CANDIDATE_REFERENCE}^{commit}") || {
+      echo "ABANDON : reference candidat invalide '$CANDIDATE_REFERENCE'." >&2
+      return 1
+    }
+    CANDIDATE_SHORT=$(git -C "$REPO_ROOT" rev-parse --short=12 "$CANDIDATE") || {
+      echo "ABANDON : impossible de raccourcir le SHA candidat '$CANDIDATE'." >&2
       return 1
     }
     SRC=$(mktemp -d "$TMP_PARENT/uat-src-XXXXXX") || return 1
@@ -442,6 +400,15 @@ prepare_candidate() {
   NODE_TEST_FILE=${UAT_NODE_TEST_FILE:-$SRC/packages/h2a/test/host-installation-doctor.test.js}
   [ -f "$NODE_TEST_FILE" ] || {
     echo "ABANDON : test automatise absent a '$NODE_TEST_FILE'." >&2
+    return 1
+  }
+  CANDIDATE_VERSION=$(node -e '
+const { readFileSync } = require("node:fs");
+const pkg = JSON.parse(readFileSync(process.argv[1], "utf8"));
+if (typeof pkg.version !== "string" || pkg.version.length === 0) process.exit(1);
+process.stdout.write(pkg.version);
+' "$SRC/packages/h2a/package.json") || {
+    echo "ABANDON : version absente ou invalide dans '$SRC/packages/h2a/package.json'." >&2
     return 1
   }
 }
@@ -536,7 +503,8 @@ echo "  config Claude MCP .... $OWNER_CLAUDE_MCP"
 echo "  racine UAT jetable .. $UAT"
 
 prepare_candidate || exit 1
-echo "  candidat ............ $CANDIDATE"
+echo "  candidat ............ $CANDIDATE_SHORT (version $CANDIDATE_VERSION)"
+echo "  provenance .......... $CANDIDATE_PROVENANCE"
 echo "  source candidate .... $SRC"
 echo "  doctor .............. $DOCTOR_BIN"
 
