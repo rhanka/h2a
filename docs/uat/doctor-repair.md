@@ -75,18 +75,24 @@ Avant et après **chaque scénario**, le script photographie la configuration ow
   racines hôtes.
 
 `.claude.json` est un cas particulier : Claude Code le réécrit pendant que des sessions sont vivantes,
-mais doctor peut aussi y réparer une configuration. Le script garde donc son type et son mode, puis la
-valeur de **chaque clé racine**, et imprime la clé (`.claude.json#projects`, par exemple) si elle change.
-Il exclut seulement `pluginUsage` et `promptQueueUseCount`. Cette liste a été mesurée le 1er août 2026
-sur Claude Code 2.1.220, sans UAT : les deux clés changeaient seules, toutes les autres clés racine
-restaient stables pendant l'échantillon. Une mise à jour de l'hôte peut invalider cette observation ; ne
-l'élargis pas par intuition, mesure de nouveau d'abord.
+mais doctor peut aussi y réparer une configuration. Le script garde donc son type et son mode, puis
+seulement les sous-arbres que doctor peut réécrire. Aujourd'hui, c'est
+`.claude.json#mcpServers`; une différence nomme cette clé. La liste est importée du contrat source de
+doctor, également utilisé par sa réparation, plutôt que déduite d'une observation de sessions vivantes.
+Une préférence d'interface ou une clé d'usage sans rapport est délibérément hors du garde : ce choix
+réduit la surface protégée à ce que doctor peut toucher. Le garde surveille positivement ce que doctor
+peut réparer, importé de ce contrat, et rien d'autre. Tout le reste de `.claude.json` peut bouger sans
+conséquence : c'est un choix de frontière explicite, pas une omission.
 
-Le script porte une liste exécutable d'exclusions, pas une convention implicite : journaux
-(`*.log`, `*.jsonl`, `logs/`, `debug/`, `journal*/`), bases runtime `*.sqlite` et leurs
-`-wal`/`-shm`, caches de session, arbres temporaires, télémétrie, PID et verrous. Il ne compare donc
-plus toute la racine hôte. Une session Codex ou Claude peut rester ouverte pendant l'UAT ; son activité
-normale n'est pas une mutation de configuration.
+Cette frontière remplace trois faux-sales mesurés : le garde octet-à-octet sous `.codex` a mordu sur
+`logs_2.sqlite`, le fichier `.claude.json` entier a mordu sur des réécritures de session, puis une
+énumération de clés volatiles a raté l'usage d'une compétence. L'activité de l'hôte ne peut pas être
+déduite d'une observation au repos. Si doctor obtient une nouvelle écriture dans `.claude.json`, son
+contrat doit être étendu ; le garde la suivra au passage suivant.
+
+Le script ne compare pas toute la racine hôte. Une session Codex ou Claude peut rester ouverte pendant
+l'UAT ; son activité normale hors des surfaces réparables n'est pas une mutation de configuration à
+attribuer au candidat.
 
 Pour chaque configuration retenue autre que `.claude.json`, l'empreinte couvre le chemin, le type, le
 mode, la taille, la date de modification, le lien éventuel et le contenu jusqu'à 8 Mio. Une différence
@@ -152,16 +158,15 @@ jetables. Garde la ligne imprimée, notamment la clé si elle est sous `.claude.
 d'une écriture, pas une attribution automatique à doctor.
 
 1. Ne relance pas immédiatement et ne modifie pas la configuration owner.
-2. Sans UAT, observe la clé nommée pendant 30 à 60 secondes. Si elle bouge seule, c'est une activité hôte
-   à documenter avec la version de l'hôte ; la liste des exclusions doit alors être re-mesurée, pas élargie
-   localement.
+2. Sans UAT, observe la surface réparable nommée pendant 30 à 60 secondes. Si elle bouge seule,
+   documente l'activité avec la version de l'hôte : elle reste une écriture pertinente tant que doctor
+   peut la réparer.
 3. Si elle ne bouge pas sans UAT, ferme les sessions hôtes ou attends leur arrêt, puis reprends **toute**
-   la recette. La même clé non volatile qui change à nouveau reste un échec à attribuer au candidat ou à un
-   autre outil concurrent ; n'accepte pas le vert en contournant le garde.
+   la recette. La même surface réparable qui change à nouveau reste un échec à attribuer au candidat ou à
+   un autre outil concurrent ; n'accepte pas le vert en contournant le garde.
 
-Les sessions peuvent donc rester ouvertes pour les écritures déjà mesurées — journaux, bases SQLite,
-caches, verrous, `pluginUsage` et `promptQueueUseCount` — tandis que toute autre configuration reste
-gardée.
+Les sessions peuvent rester ouvertes : tout ce qui est hors des surfaces réparables importées du contrat
+est volontairement hors du garde, tandis que ces surfaces restent gardées.
 
 ## Scénario 0 — l'oracle Codex, après la lecture owner
 
