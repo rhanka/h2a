@@ -1007,7 +1007,21 @@ for (const contract of H2A_CLI_VERB_CONTRACTS) {
         return;
       }
       const streams = captureStreams(dir);
-      const rc = runCli(argv, streams);
+      const rc = runCli(
+        argv,
+        streams,
+        contract.verb === "host setup"
+          ? {
+              doctorHostInstallations: () => ({
+                ok: true,
+                hosts: [
+                  { host: "claude", ok: true, unrepaired: [] },
+                  { host: "codex", ok: true, unrepaired: [] }
+                ]
+              })
+            }
+          : undefined
+      );
       assert.equal(
         rc,
         0,
