@@ -26,6 +26,8 @@ import {
   shouldDispatchRuntime
 } from "./bin-routing.js";
 import { runFocusServeCli } from "./runtime/focus/serve.js";
+import { runH2AReportAi } from "./runtime/reporting/report-ai.js";
+import { readUtf8Stdin } from "./runtime/reporting/stdin.js";
 
 const argv = process.argv.slice(2);
 
@@ -185,6 +187,21 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
   runAsync("sysml verify", runSysmlVerify(parseFlagsFrom(2)));
 } else if (argv[0] === "keepalive") {
   runAsync("keepalive", cmdKeepalive(parseFlagsFrom(1), { stdout: process.stdout, stderr: process.stderr }));
+} else if (argv[0] === "report-ai" && argv[1] !== "install-track-config") {
+  const flags = parseFlagsFrom(1);
+  const stdinText = await readUtf8Stdin();
+  runAsync(
+    "report-ai",
+    runH2AReportAi(
+      {
+        model: flags.model ?? "",
+        effort: flags.effort ?? "",
+        gateway: flags.gateway ?? "",
+        stdinText
+      },
+      { stdout: process.stdout, stderr: process.stderr }
+    )
+  );
 } else if (argv[0] === "focus" && (argv[1] === "serve" || argv[1] === "web")) {
   // Intercept the production web server before the bare `focus` facade can delegate to `track focus`.
   // Every other `h2a focus ...` invocation keeps the existing Track behavior unchanged.
@@ -236,26 +253,6 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
     `loop ${argv[1]}`,
     runLoopEngineCli(argv, { stdout: process.stdout, stderr: process.stderr }, ac.signal)
   );
-} else if (argv[0] === "status" && argv.includes("--write-bars")) {
-  // The single background producer of every tmux status-bar file. The
-  // installed surface only ever reads those files, so this loop is the one
-  // place bar content is computed (see status-bar-writer.ts).
-  const flags = parseFlagsFrom(1);
-  const ac = new AbortController();
-  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
-    process.once(sig, () => ac.abort());
-  }
-  const root =
-    flags.root ??
-    process.env.H2A_ROOT ??
-    join(homedir(), "h2a-workspace", ".h2a");
-  runAsync("status --write-bars", (async () => {
-    const { runStatusBarWriter } = await import("./status-bar-writer.js");
-    return runStatusBarWriter(
-      { root, signal: ac.signal },
-      { stdout: process.stdout, stderr: process.stderr }
-    );
-  })());
 } else if (
   argv[0] === "status" &&
   argv.some((token) =>

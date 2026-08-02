@@ -16,7 +16,7 @@ const ROOT = process.cwd();
 
 test("parité: les verbes runtime (non-natifs) → dispatch runtime", () => {
   for (const v of [
-    "ls", "jobs", "delegate", "wake-request", "rename", "restart", "select", "report-ai",
+    "ls", "jobs", "delegate", "wake-request", "rename", "restart", "select",
     "pick", "back", "migrate", "run", "attach", "stop", "workspace", "agents", "tunnel", "secrets"
   ]) {
     assert.equal(shouldDispatchRuntime([v]), true, `${v} doit être délégué au runtime`);
@@ -25,7 +25,7 @@ test("parité: les verbes runtime (non-natifs) → dispatch runtime", () => {
 
 test("les verbes h2a-natifs (dont collisions) → PAS de délégation", () => {
   for (const v of [
-    "status", "connect", "conductor-launch", "loop", "negotiate", "discover", "report-context",
+    "status", "connect", "conductor-launch", "loop", "negotiate", "discover", "report-context", "report-ai",
     "inbox", "sessions", "drumbeat", "mcp-serve", "keepalive", "remote", "drive", "sysml",
     // façade track (déléguée par runCli à la CLI track, PAS au runtime)
     "item", "decision", "report", "snapshot", "query", "blocker", "focus"
@@ -91,7 +91,7 @@ test("anti-drift: le set natif couvre TOUS les 1ers mots du contrat CLI + routes
     const first = c.verb.split(" ")[0];
     assert.ok(H2A_NATIVE_VERBS.has(first), `1er mot du contrat "${first}" doit être natif`);
   }
-  for (const w of ["mcp-serve", "remote", "drive", "drumbeat", "sysml", "keepalive", "loop"]) {
+  for (const w of ["mcp-serve", "remote", "drive", "drumbeat", "sysml", "keepalive", "loop", "report-ai"]) {
     assert.ok(H2A_NATIVE_VERBS.has(w), `route bin.ts "${w}" doit être native`);
   }
 });
