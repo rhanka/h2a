@@ -6,9 +6,11 @@
 // (not parsed CLI stdout) is a double-consensus ruling (2026-07-02).
 
 import { spawnSync } from "node:child_process";
-import { realpathSync, statSync } from "node:fs";
-import { isAbsolute, relative } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { EventStore, Track } from "@sentropic/track";
 
 import type { H2ALaunchContext } from "../../../session.js";
 import type { H2ADriveRequest, H2ADriver } from "../../drive/index.js";
@@ -28,11 +30,13 @@ import {
   readObjectiveLoop,
   updateObjectiveLoopStatus,
   validateLoopLaunchSpec,
+  type H2ALoopDecisionGate,
   type H2ALoopLaunchSpec,
-  type H2AObjectiveLoop
+  type H2AObjectiveLoop,
+  type H2ALoopTrackRef
 } from "../index.js";
-import { loopRefLocator, type AgentsSnapshot, type InboxSnapshot, type PendingDecision, type PresenceSnapshot, type PresenceView, type ProjectedAgent, type RefsRollup, type RefStatus } from "./decision.js";
-import type { ActionSink } from "./execute.js";
+import { loopRefLocator, type AgentsSnapshot, type InboxSnapshot, type PendingDecision, type PresenceSnapshot, type PresenceView, type ProjectedAgent, type RefsRollup, type RefStatus, type TickAction } from "./decision.js";
+import type { ActionContext, ActionEffectResult, ActionSink } from "./execute.js";
 
 // --- Agents adapter (lazy runtime; degraded-clean on absence/failure) ---------
 export async function readAgents(): Promise<AgentsSnapshot> {
@@ -627,6 +631,143 @@ export function localTmuxLoopWakeDriver(options: {
   };
 }
 
+const LOOP_DECISION_ACTOR = "h2a:loop-supervisor";
+
+function isStructuredDecisionGate(
+  ref: H2ALoopTrackRef,
+): ref is H2ALoopTrackRef & { readonly decisionGate: H2ALoopDecisionGate } {
+  const gate = ref.decisionGate;
+  return ref.role === "decision-gate" &&
+    gate !== undefined &&
+    typeof gate.id === "string" && gate.id.length > 0 &&
+    (gate.decisionKind === "orientation" || gate.decisionKind === "commitment") &&
+    typeof gate.title === "string" && gate.title.length > 0 &&
+    typeof gate.context === "string" &&
+    Array.isArray(gate.options) && gate.options.length >= 2 &&
+    gate.options.every((option) =>
+      typeof option.id === "string" && option.id.length > 0 &&
+      typeof option.title === "string" && option.title.length > 0 &&
+      typeof option.summary === "string" && option.summary.length > 0,
+    ) &&
+    typeof gate.recommendation?.optionId === "string" &&
+    typeof gate.recommendation.rationale === "string" && gate.recommendation.rationale.length > 0 &&
+    gate.options.some((option) => option.id === gate.recommendation.optionId) &&
+    typeof gate.target?.itemId === "string" && gate.target.itemId.length > 0 &&
+    typeof gate.target.workspace === "string" && gate.target.workspace.length > 0;
+}
+
+function decisionGateForAction(
+  loop: H2AObjectiveLoop,
+  action: TickAction,
+): (H2ALoopTrackRef & { readonly decisionGate: H2ALoopDecisionGate }) | undefined {
+  return loop.refs.find((ref) =>
+    isStructuredDecisionGate(ref) &&
+    (action.refLocator === loopRefLocator(ref) || action.decisionId === ref.decisionGate.id),
+  ) as (H2ALoopTrackRef & { readonly decisionGate: H2ALoopDecisionGate }) | undefined;
+}
+
+/** Stable Track identity for one open gate revision and target lifecycle episode. */
+function decisionSourceKey(
+  loopId: string,
+  ref: H2ALoopTrackRef,
+  gate: H2ALoopDecisionGate,
+  episode: number,
+): string {
+  const revision = createHash("sha256")
+    .update(JSON.stringify({ locator: loopRefLocator(ref), gate, episode }))
+    .digest("hex");
+  return `h2a-loop-decision:${loopId}:${gate.id}:${revision}`;
+}
+
+type LedgerResolution =
+  | { readonly track: Track }
+  | { readonly reason: "track-ledger-unavailable" | "track-target-not-found" };
+
+/**
+ * Find the ledger that owns the gate target. Loop repos are the primary source;
+ * the h2a root (and its workspace parent for legacy `.h2a` roots) are fallbacks.
+ * No directory is created here: a missing ledger is an observable failed route.
+ */
+function resolveTrackLedger(
+  loop: H2AObjectiveLoop,
+  ctx: ActionContext,
+  gate: H2ALoopDecisionGate,
+): LedgerResolution {
+  const roots = [...new Set([
+    ...loop.repos.map((repo) => repo.path),
+    ctx.root,
+    dirname(ctx.root),
+  ])];
+  let foundLedger = false;
+  for (const root of roots) {
+    const eventsPath = join(root, ".track", "events.jsonl");
+    if (!existsSync(eventsPath)) continue;
+    foundLedger = true;
+    const track = new Track(new EventStore(eventsPath), { by: LOOP_DECISION_ACTOR });
+    const target = track.state().items.get(gate.target.itemId);
+    if (target?.workspace === gate.target.workspace) return { track };
+  }
+  return { reason: foundLedger ? "track-target-not-found" : "track-ledger-unavailable" };
+}
+
+function routeLoopDecision(action: TickAction, ctx: ActionContext): ActionEffectResult {
+  let loop: H2AObjectiveLoop;
+  try {
+    loop = readObjectiveLoop(ctx.root, ctx.loopId);
+  } catch (error) {
+    return { outcome: "failed", detail: `loop-unavailable: ${(error as Error).message}`, retrySafe: false };
+  }
+  const ref = decisionGateForAction(loop, action);
+  if (ref === undefined) {
+    return { outcome: "failed", detail: "decision-gate-not-found", retrySafe: false };
+  }
+
+  const gate = ref.decisionGate;
+  try {
+    const ledger = resolveTrackLedger(loop, ctx, gate);
+    if ("reason" in ledger) return { outcome: "failed", detail: ledger.reason, retrySafe: true };
+    const episode = ledger.track.state().items.get(gate.target.itemId)?.reopenings?.length ?? 0;
+    const sourceKey = decisionSourceKey(loop.id, ref, gate, episode);
+
+    const existing = [...ledger.track.state().decisions.values()].find(
+      (decision) => decision.sourceKey === sourceKey,
+    );
+    if (existing !== undefined) {
+      return { outcome: "routed", detail: `decision-already-raised:${existing.id}` };
+    }
+
+    const decisionId = ledger.track.createDecision({
+      decisionKind: gate.decisionKind,
+      title: gate.title,
+      workspace: gate.target.workspace,
+      targets: [gate.target.itemId],
+      sourceKey,
+      dossier: {
+        context: gate.context,
+        options: gate.options.map((option) => ({
+          id: option.id,
+          title: option.title,
+          summary: option.summary,
+          ...(option.pros === undefined ? {} : { pros: [...option.pros] }),
+          ...(option.cons === undefined ? {} : { cons: [...option.cons] }),
+        })),
+        qa: (gate.qa ?? []).map((entry) => ({
+          id: entry.id,
+          question: entry.question,
+          ...(entry.answer === undefined ? {} : { answer: entry.answer }),
+        })),
+        recommendation: {
+          optionId: gate.recommendation.optionId,
+          rationale: gate.recommendation.rationale,
+        },
+      },
+    });
+    return { outcome: "routed", detail: `decision-raised:${decisionId}` };
+  } catch (error) {
+    return { outcome: "failed", detail: `track-ledger-write-failed: ${(error as Error).message}`, retrySafe: true };
+  }
+}
+
 // --- Action sink (effects for `--execute`) ------------------------------------
 // `close` = idempotent store status flip (ZERO injection). `wake` = fresh-session
 // + shared-budget typed local-tmux driver, distinguishing human deferral from a
@@ -728,8 +869,8 @@ export function buildActionSink(opts: {
       if (outcome === "deferred-human") return "deferred";
       return "failed";
     },
-    async routeDecision() {
-      return "skipped";
+    async routeDecision(action, ctx) {
+      return routeLoopDecision(action, ctx);
     }
   };
 }
