@@ -666,10 +666,15 @@ function decisionGateForAction(
   ) as (H2ALoopTrackRef & { readonly decisionGate: H2ALoopDecisionGate }) | undefined;
 }
 
-/** Stable Track identity for one open gate revision; a changed dossier is a new gate revision. */
-function decisionSourceKey(loopId: string, ref: H2ALoopTrackRef, gate: H2ALoopDecisionGate): string {
+/** Stable Track identity for one open gate revision and target lifecycle episode. */
+function decisionSourceKey(
+  loopId: string,
+  ref: H2ALoopTrackRef,
+  gate: H2ALoopDecisionGate,
+  episode: number,
+): string {
   const revision = createHash("sha256")
-    .update(JSON.stringify({ locator: loopRefLocator(ref), gate }))
+    .update(JSON.stringify({ locator: loopRefLocator(ref), gate, episode }))
     .digest("hex");
   return `h2a-loop-decision:${loopId}:${gate.id}:${revision}`;
 }
@@ -718,16 +723,17 @@ function routeLoopDecision(action: TickAction, ctx: ActionContext): ActionEffect
   }
 
   const gate = ref.decisionGate;
-  const sourceKey = decisionSourceKey(loop.id, ref, gate);
   try {
     const ledger = resolveTrackLedger(loop, ctx, gate);
     if ("reason" in ledger) return { outcome: "failed", detail: ledger.reason, retrySafe: true };
+    const episode = ledger.track.state().items.get(gate.target.itemId)?.reopenings?.length ?? 0;
+    const sourceKey = decisionSourceKey(loop.id, ref, gate, episode);
 
     const existing = [...ledger.track.state().decisions.values()].find(
-      (decision) => decision.sourceKey === sourceKey && decision.outcome === "pending",
+      (decision) => decision.sourceKey === sourceKey,
     );
     if (existing !== undefined) {
-      return { outcome: "routed", detail: `decision-already-pending:${existing.id}` };
+      return { outcome: "routed", detail: `decision-already-raised:${existing.id}` };
     }
 
     const decisionId = ledger.track.createDecision({
