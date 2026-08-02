@@ -1,10 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import {
+  CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
+  deliverInitialPrompt,
+  type PromptDeliveryDeps,
+} from "./prompt-delivery.js";
 import {
   decideRelaunchSafety,
   isRelaunchKillable,
   planRelaunch,
+  relaunchContinuationPrompt,
   resumeCommandFor,
+  wakeRelaunchedSession,
 } from "./relaunch.js";
 
 describe("resumeCommandFor", () => {
@@ -16,6 +23,168 @@ describe("resumeCommandFor", () => {
   it("returns undefined for a profile with no resume form", () => {
     expect(resumeCommandFor("shell", "x")).toBeUndefined();
     expect(resumeCommandFor("not-a-profile", "x")).toBeUndefined();
+  });
+});
+
+describe("relaunchContinuationPrompt", () => {
+  it("uses a registered task when one exists and otherwise resumes conversation authority", () => {
+    expect(relaunchContinuationPrompt("  finish WP5  ")).toContain("finish WP5");
+    expect(relaunchContinuationPrompt()).toContain("standing objective");
+  });
+});
+
+describe("wakeRelaunchedSession", () => {
+  const working = {
+    state: "working" as const,
+    waitedMs: 1200,
+    cpuDeltaMs: 900,
+    evidence: "composer-text" as const,
+  };
+  const exactModal = {
+    state: "host-modal" as const,
+    reason: CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
+    hint: "exact prompt",
+    capture:
+      "This session is 19h 44m old and 450.3k tokens.\nResuming the full session will consume a substantial portion of your usage limits. We recommend resuming from a summary.\n❯ 1. Resume from summary (recommended)\n2. Resume full session as-is\n3. Don't ask me again\nEnter to confirm",
+  };
+
+  it("auto-passes the exact Claude confirmation once, then proves continuation work", () => {
+    let now = 0;
+    const deliverContinuation = vi
+      .fn()
+      .mockReturnValueOnce(exactModal)
+      .mockReturnValueOnce(working);
+    const submitConfirmation = vi.fn(() => true);
+    const result = wakeRelaunchedSession("continue", {
+      deliverContinuation,
+      submitConfirmation,
+      capturePane: () => "Claude Code\n❯ Ready",
+      sleep: (ms) => {
+        now += ms;
+      },
+      now: () => now,
+    });
+
+    expect(result.state).toBe("working");
+    expect(result.confirmation).toBe("auto-passed");
+    expect(submitConfirmation).toHaveBeenCalledTimes(1);
+    expect(deliverContinuation).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits through summary compaction before submitting the continuation", () => {
+    let now = 0;
+    let confirmed = false;
+    let captureReadsAfterConfirm = 0;
+    let composer = "";
+    let submitted = false;
+    let pastedWhileBlocking = false;
+    let continuationSubmits = 0;
+
+    const capturePane = () => {
+      if (!confirmed) return exactModal.capture;
+      captureReadsAfterConfirm += 1;
+      if (captureReadsAfterConfirm <= 4) {
+        return `* Compacting conversation…
+  ▰▰▰▰▰▱▱▱ 50%
+  ❯ Continue working autonomously
+❯ Press up to edit queued messages`;
+      }
+      return `Claude Code
+Resume summary ready
+❯ ${composer}
+status: idle`;
+    };
+
+    const deliveryDeps: PromptDeliveryDeps = {
+      capturePane,
+      clearComposer: () => {
+        composer = "";
+        return true;
+      },
+      pasteBlock: (_pane, prompt) => {
+        pastedWhileBlocking = captureReadsAfterConfirm <= 4;
+        composer = prompt;
+        return true;
+      },
+      submit: () => {
+        continuationSubmits += 1;
+        submitted = true;
+        composer = "";
+        return true;
+      },
+      cpuMs: () => (submitted ? now : 0),
+      sleep: (ms) => {
+        now += ms;
+      },
+      now: () => now,
+    };
+
+    const result = wakeRelaunchedSession("continue now", {
+      deliverContinuation: (prompt) =>
+        deliverInitialPrompt("%1", prompt, deliveryDeps, {
+          timeoutMs: 5_000,
+          pollMs: 100,
+          quietMs: 100,
+          quietCpuMs: 1,
+          activityMs: 1_000,
+          activityCpuMs: 100,
+          landedMs: 1_000,
+        }),
+      submitConfirmation: () => {
+        confirmed = true;
+        return true;
+      },
+      capturePane,
+      sleep: (ms) => {
+        now += ms;
+      },
+      now: () => now,
+    });
+
+    expect(result.state).toBe("working");
+    expect(result.confirmation).toBe("auto-passed");
+    expect(captureReadsAfterConfirm).toBeGreaterThan(4);
+    expect(pastedWhileBlocking).toBe(false);
+    expect(continuationSubmits).toBe(1);
+  });
+
+  it("never sends Enter for a different host modal", () => {
+    const submitConfirmation = vi.fn(() => true);
+    const result = wakeRelaunchedSession("continue", {
+      deliverContinuation: () => ({
+        state: "host-modal",
+        reason: "the host is waiting on a modal choice prompt",
+        hint: "ask a human",
+        capture: "1. Delete everything\nEnter to confirm",
+      }),
+      submitConfirmation,
+      capturePane: () => "",
+      sleep: () => undefined,
+      now: () => 0,
+    });
+
+    expect(result.state).toBe("failed");
+    expect(submitConfirmation).not.toHaveBeenCalled();
+  });
+
+  it("reports failure when the objective was submitted but no work follows", () => {
+    const result = wakeRelaunchedSession("continue", {
+      deliverContinuation: () => ({
+        state: "submitted-idle",
+        waitedMs: 30_000,
+        cpuDeltaMs: 12,
+        evidence: "composer-text",
+      }),
+      submitConfirmation: () => true,
+      capturePane: () => "❯",
+      sleep: () => undefined,
+      now: () => 0,
+    });
+
+    expect(result).toMatchObject({
+      state: "failed",
+      reason: "the continuation objective was submitted but the agent stayed idle",
+    });
   });
 });
 
