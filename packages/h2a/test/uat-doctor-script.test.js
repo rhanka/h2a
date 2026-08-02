@@ -18,12 +18,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..", "..", "..");
 const SCRIPT = join(REPO_ROOT, "docs", "uat", "uat-doctor.sh");
+const INSTALLATION_DOCTOR_CONTRACT_URL = pathToFileURL(
+  join(REPO_ROOT, "packages", "h2a", "src", "hosts", "installation-doctor-contract.js")
+).href;
 
 function writeExecutable(path, content) {
   mkdirSync(dirname(path), { recursive: true });
@@ -126,12 +129,18 @@ if (
   (!process.env.UAT_TEST_CLAUDE_NATIVE_ROOT || claudeNativePath === process.env.UAT_TEST_CLAUDE_NATIVE_ROOT)
 ) {
   const claudeNative = JSON.parse(readFileSync(claudeNativePath, "utf8"));
-  if (process.env.UAT_TEST_CLAUDE_NATIVE_MUTATION === "volatile") {
+  if (process.env.UAT_TEST_CLAUDE_NATIVE_MUTATION === "activity") {
     claudeNative.pluginUsage ??= {};
     claudeNative.pluginUsage["h2a@sentropic"] ??= {};
     claudeNative.pluginUsage["h2a@sentropic"].usageCount =
       (claudeNative.pluginUsage["h2a@sentropic"].usageCount ?? 0) + 1;
     claudeNative.promptQueueUseCount = (claudeNative.promptQueueUseCount ?? 0) + 1;
+    claudeNative.skillUsage = (claudeNative.skillUsage ?? 0) + 1;
+  } else if (process.env.UAT_TEST_CLAUDE_NATIVE_MUTATION === "mcp-server") {
+    claudeNative.mcpServers ??= {};
+    claudeNative.mcpServers.h2a = { command: "h2a", args: ["mcp-serve"] };
+  } else if (process.env.UAT_TEST_CLAUDE_NATIVE_MUTATION === "ui-preference") {
+    claudeNative.uiPreferences = { theme: "dark" };
   } else {
     claudeNative.owner = "candidate-mutation";
   }
@@ -254,10 +263,15 @@ function ownedCandidateEnvironment(fixture, ready) {
   const candidate = join(fixture.root, "candidate source");
   const doctor = join(candidate, "packages", "h2a", "dist", "bin.js");
   mkdirSync(join(candidate, "docs", "uat"), { recursive: true });
+  mkdirSync(join(candidate, "packages", "h2a", "src", "hosts"), { recursive: true });
   mkdirSync(join(candidate, "packages", "h2a", "test"), { recursive: true });
   mkdirSync(join(doctor, ".."), { recursive: true });
   writeFileSync(join(candidate, "package.json"), '{"type":"module"}\n');
   writeFileSync(join(candidate, "packages", "h2a", "package.json"), '{"version":"0.99.0-uat"}\n');
+  writeFileSync(
+    join(candidate, "packages", "h2a", "src", "hosts", "installation-doctor-contract.js"),
+    `export * from ${JSON.stringify(INSTALLATION_DOCTOR_CONTRACT_URL)};\n`
+  );
   writeFileSync(
     join(candidate, "docs", "uat", "probe-oracle.sh"),
     "#!/bin/sh\nprintf ready > \"$UAT_INTERRUPT_READY\"\nexec node -e 'setInterval(() => {}, 1000)'\n"
@@ -311,6 +325,31 @@ esac
   delete env.UAT_DOCTOR_BIN;
   return env;
 }
+
+test("uat-doctor owned-candidate fixture should re-export the real Claude repair contract", () => {
+  const fixture = createFixture("contract-proxy", false);
+  try {
+    const env = ownedCandidateEnvironment(fixture, join(fixture.root, "unused-ready"));
+    const fixtureContract = readFileSync(
+      join(env.UAT_FAKE_CANDIDATE_SOURCE, "packages", "h2a", "src", "hosts", "installation-doctor-contract.js"),
+      "utf8"
+    );
+
+    assert.equal(fixtureContract, `export * from ${JSON.stringify(INSTALLATION_DOCTOR_CONTRACT_URL)};\n`);
+  } finally {
+    rmSync(fixture.outer, { recursive: true, force: true });
+  }
+});
+
+test("Claude native repair boundary should derive the UAT list from doctor’s named MCP key", () => {
+  const contract = readFileSync(new URL("../src/hosts/installation-doctor-contract.js", import.meta.url), "utf8");
+  const doctor = readFileSync(new URL("../src/hosts/installation-doctor.ts", import.meta.url), "utf8");
+
+  assert.match(contract, /export const CLAUDE_NATIVE_MCP_ROOT_KEY = "mcpServers";/);
+  assert.match(contract, /Object\.freeze\(\[CLAUDE_NATIVE_MCP_ROOT_KEY\]\)/);
+  assert.match(doctor, /property\.key === CLAUDE_NATIVE_MCP_ROOT_KEY/);
+  assert.doesNotMatch(doctor, /CLAUDE_NATIVE_REPAIRABLE_ROOT_KEYS\[0\]/);
+});
 
 async function waitForFile(path) {
   const deadline = Date.now() + 5000;
@@ -430,14 +469,14 @@ test("uat-doctor should ignore volatile Codex activity while guarding owner conf
   }
 });
 
-test("uat-doctor should ignore the measured volatile keys in .claude.json", () => {
-  const fixture = createFixture("volatile-claude-native", false);
+test("uat-doctor should ignore Claude activity keys outside the doctor relevance boundary", () => {
+  const fixture = createFixture("claude-activity", false);
   const nativePath = join(fixture.ownerHome, ".claude.json");
   try {
     const result = spawnSync("bash", [SCRIPT], {
       cwd: REPO_ROOT,
       env: injectedEnvironment(fixture, {
-        UAT_TEST_CLAUDE_NATIVE_MUTATION: "volatile",
+        UAT_TEST_CLAUDE_NATIVE_MUTATION: "activity",
         UAT_TEST_CLAUDE_NATIVE_ROOT: nativePath
       }),
       encoding: "utf8"
@@ -450,47 +489,71 @@ test("uat-doctor should ignore the measured volatile keys in .claude.json", () =
   }
 });
 
-test("uat-doctor should name a nonvolatile .claude.json key mutation", () => {
-  const fixture = createFixture("nonvolatile-claude-native", false);
+test("uat-doctor should reject and name an H2A MCP mutation in .claude.json", () => {
+  const fixture = createFixture("claude-mcp-native", false);
   const nativePath = join(fixture.ownerHome, ".claude.json");
   try {
+    writeFileSync(nativePath, '{"owner":"claude-mcp-native","mcpServers":{"h2a":{"command":"before"}}}\n');
     const result = spawnSync("bash", [SCRIPT], {
       cwd: REPO_ROOT,
       env: injectedEnvironment(fixture, {
-        UAT_TEST_CLAUDE_NATIVE_MUTATION: "configuration",
+        UAT_TEST_CLAUDE_NATIVE_MUTATION: "mcp-server",
         UAT_TEST_CLAUDE_NATIVE_ROOT: nativePath
       }),
       encoding: "utf8"
     });
 
     assert.equal(result.status, 1, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
-    assert.match(result.stderr, new RegExp(`MODIFIE : ${nativePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}#owner`));
+    assert.match(result.stderr, new RegExp(`MODIFIE : ${nativePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}#mcpServers`));
   } finally {
     rmSync(fixture.outer, { recursive: true, force: true });
   }
 });
 
-test("uat-doctor should fail for a volatile .claude.json mutation when whole-file fingerprinting returns", () => {
-  const fixture = createFixture("volatile-claude-native-counter-mutant", false);
+test("uat-doctor should ignore an unrelated .claude.json preference mutation", () => {
+  const fixture = createFixture("claude-ui-preference", false);
+  const nativePath = join(fixture.ownerHome, ".claude.json");
+  try {
+    const result = spawnSync("bash", [SCRIPT], {
+      cwd: REPO_ROOT,
+      env: injectedEnvironment(fixture, {
+        UAT_TEST_CLAUDE_NATIVE_MUTATION: "ui-preference",
+        UAT_TEST_CLAUDE_NATIVE_ROOT: nativePath
+      }),
+      encoding: "utf8"
+    });
+
+    assert.equal(result.status, 0, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    assert.match(result.stdout, /configuration owner \. IDENTIQUE avant\/apres scenario 3/);
+  } finally {
+    rmSync(fixture.outer, { recursive: true, force: true });
+  }
+});
+
+test("uat-doctor activity guard should fail when a volatile-key blacklist returns", () => {
+  const fixture = createFixture("claude-activity-counter-mutant", false);
   const nativePath = join(fixture.ownerHome, ".claude.json");
   const mutantScript = join(fixture.root, "mutant checkout", "docs", "uat", "uat-doctor.sh");
   const source = readFileSync(SCRIPT, "utf8");
-  const needle = "recordClaudeNative(claudeNative, true);";
-  const mutant = source.replace(needle, "record(claudeNative, true);");
+  const needle = "for (const key of [...REPAIRABLE_CLAUDE_NATIVE_KEYS].sort()) {";
+  const mutant = source.replace(
+    needle,
+    'for (const key of Object.keys(value).filter((key) => !new Set(["pluginUsage", "promptQueueUseCount"]).has(key)).sort()) {'
+  );
   try {
-    assert.notEqual(mutant, source, "whole-file counter-mutant insertion point disappeared");
+    assert.notEqual(mutant, source, "volatile-key blacklist counter-mutant insertion point disappeared");
     writeExecutable(mutantScript, mutant);
     const result = spawnSync("bash", [mutantScript], {
       cwd: REPO_ROOT,
       env: injectedEnvironment(fixture, {
-        UAT_TEST_CLAUDE_NATIVE_MUTATION: "volatile",
+        UAT_TEST_CLAUDE_NATIVE_MUTATION: "activity",
         UAT_TEST_CLAUDE_NATIVE_ROOT: nativePath
       }),
       encoding: "utf8"
     });
 
     assert.equal(result.status, 1, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
-    assert.match(result.stderr, new RegExp(`MODIFIE : ${nativePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+    assert.match(result.stderr, new RegExp(`${nativePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}#skillUsage`));
   } finally {
     rmSync(fixture.outer, { recursive: true, force: true });
   }
@@ -743,8 +806,11 @@ test("uat-doctor should document its checkout-root invocation and owner decision
   assert.match(guide, /H2A_UAT_SHA.*prioritaire/);
   assert.match(guide, /H2A_UAT_SHA=origin\/main/);
   assert.match(guide, /tag-de-release/);
-  assert.match(guide, /pluginUsage.*promptQueueUseCount/s);
+  assert.match(guide, /\.claude\.json#mcpServers/);
+  assert.match(guide, /Le garde surveille positivement ce que doctor\s+peut réparer/);
+  assert.match(guide, /Tout le reste de `\.claude\.json` peut bouger sans\s+conséquence/);
   assert.match(guide, /## Si le garde owner se déclenche/);
+  assert.doesNotMatch(guide, /liste noire|pluginUsage|promptQueueUseCount/);
   assert.doesNotMatch(guide, /9004bcdee5b824c4dc41f0a6d2068328f486899b|PR 94|github\.com/);
   assert.doesNotMatch(guide, /Depuis n'importe quel répertoire du checkout de la PR/);
   assert.doesNotMatch(guide, /déjà rencontrée/);
