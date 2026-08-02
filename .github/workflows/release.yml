@@ -160,8 +160,8 @@ jobs:
 
       # This is deliberately after GitHub Release creation: publication is already
       # irreversible, so a broken artefact must be reported without hiding the
-      # release that describes what npm now serves. It checks only dry-run doctor
-      # on Ubuntu; it does not exercise --repair or a real host installation.
+      # release that describes what npm now serves. It initializes an isolated
+      # bus and runs doctor in host-repair dry-run mode on Ubuntu.
       - name: Verify published @sentropic/h2a doctor (post-release)
         shell: bash
         run: |
@@ -180,22 +180,54 @@ jobs:
             sleep "$retry_delay_seconds"
           done
           root="$(mktemp -d)/.h2a"
-          # doctor is dry-run by default. Parse the installed artefact's report
-          # so a success exit with non-JSON stdout cannot satisfy this gate.
-          h2a doctor --root "$root" --format json | node -e '
-            let stdout = "";
-            process.stdin.setEncoding("utf8");
-            process.stdin.on("data", (chunk) => { stdout += chunk; });
-            process.stdin.on("end", () => {
-              let report;
-              try {
-                report = JSON.parse(stdout);
-              } catch {
-                process.exitCode = 1;
-                return;
-              }
-              if (!Object.prototype.hasOwnProperty.call(report, "ok")) {
-                process.exitCode = 1;
-              }
-            });
-          '
+          # Initialize the bus so doctor can inspect host installations instead of
+          # failing only on a missing root/schema. --repair --dry-run reports host
+          # findings and planned actions without mutating the runner.
+          h2a init --root "$root" >/dev/null
+          # Capture stdout even when doctor reports host-health findings; the node
+          # check below decides from report content.
+          out="$(h2a doctor --root "$root" --repair --dry-run --format json 2>/dev/null || true)"
+          node -e '
+            const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+            let report;
+            try {
+              report = JSON.parse(process.argv[1]);
+            } catch {
+              process.exit(1);
+            }
+            if (
+              report === null ||
+              typeof report !== "object" ||
+              !hasOwn(report, "ok") ||
+              typeof report.ok !== "boolean"
+            ) {
+              process.exit(1);
+            }
+            if (report.ok === true) process.exit(0);
+
+            let unrepaired;
+            if (hasOwn(report, "unrepaired")) {
+              unrepaired = report.unrepaired;
+            } else if (
+              Array.isArray(report.hosts) &&
+              report.hosts.length > 0 &&
+              report.hosts.every(
+                (host) => host !== null && typeof host === "object" && Array.isArray(host.unrepaired)
+              )
+            ) {
+              unrepaired = report.hosts.flatMap((host) => host.unrepaired);
+            }
+            if (
+              !Array.isArray(unrepaired) ||
+              unrepaired.length === 0 ||
+              unrepaired.some(
+                (entry) =>
+                  entry === null ||
+                  typeof entry !== "object" ||
+                  !hasOwn(entry, "code") ||
+                  entry.code !== "host-cli-unreachable"
+              )
+            ) {
+              process.exit(1);
+            }
+          ' "$out"
