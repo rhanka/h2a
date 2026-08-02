@@ -1558,7 +1558,8 @@ describe("sessionRelaunchSafety", () => {
     });
 
     expect(safety.activelyWorking).toBe(true);
-    expect(safety.idle).toBe(false);
+    expect(safety.dead).toBe(false);
+    expect(safety.indeterminate).toBe(true);
     expect(safety.reason).toContain("CPU sample unreadable");
   });
 });
