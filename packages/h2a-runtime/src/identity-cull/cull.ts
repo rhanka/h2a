@@ -111,12 +111,15 @@ export interface IdentityCullInput {
   readonly now?: () => Date;
   /** Test-only interleaving seam, invoked immediately before each packet mutation. */
   readonly beforePacketWrite?: (attempt: PacketWriteAttempt) => void;
+  /** Test-only seam invoked after structural confinement is checked, before mutation. */
+  readonly afterPacketWriteConfinement?: (attempt: PacketWriteAttempt) => void;
 }
 
 export interface PacketWriteAttempt {
   readonly kind: "directory" | "file";
   readonly name: string;
   readonly packetRoot: string;
+  readonly phase: "before-create" | "before-write";
 }
 
 export interface CullRunResult {
@@ -274,12 +277,16 @@ function isInside(path: string, root: string): boolean {
 
 interface HeldPacketDirectory {
   readonly fd: number;
-  readonly canonicalPath: string;
   /** Approved packet root captured before the packet-writing window opens. */
   readonly packetRoot: string;
   readonly defRoot: string;
   readonly pinRoot: string;
+  /** The packet-root device captured while its directory descriptor is held. */
+  readonly packetDevice: number;
+  readonly defDevice: number;
+  readonly pinDevice: number;
   readonly beforePacketWrite?: (attempt: PacketWriteAttempt) => void;
+  readonly afterPacketWriteConfinement?: (attempt: PacketWriteAttempt) => void;
 }
 
 function descriptorPath(fd: number, name?: string): string {
@@ -308,25 +315,44 @@ function assertDirectoryOutsideProtectedRoots(fd: number, defRoot: string, pinRo
   return canonicalPath;
 }
 
+function capturedDirectoryDevice(path: string, description: string): number {
+  const fd = openNoFollowDirectory(path);
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isDirectory()) throw new Error(`${description} must be a directory: ${path}`);
+    return Number(stat.dev);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function assertDistinctPacketDevice(packetDevice: number, defDevice: number, pinDevice: number): void {
+  if (packetDevice === defDevice || packetDevice === pinDevice) {
+    throw new Error("packet output must be on a filesystem device distinct from both DEF and PIN");
+  }
+}
+
 /**
- * A directory descriptor follows its inode across rename. Therefore containment
- * is an operation guard, not a setup check: re-resolve the held target FD just
- * before every packet mutation and reject an escaped or protected location.
+ * A directory descriptor follows its inode across rename. Its device is
+ * therefore a structural boundary: a packet directory on a device distinct
+ * from DEF and PIN cannot be renamed into either protected tree (EXDEV).
+ * Re-fstat the held descriptor before mutations so a visible mount/device
+ * change fails closed; never re-resolve a pathname as a containment check.
  */
 function assertPacketWriteContainment(
   directory: HeldPacketDirectory,
   kind: PacketWriteAttempt["kind"],
   name: string,
+  phase: PacketWriteAttempt["phase"],
 ): void {
-  directory.beforePacketWrite?.({ kind, name, packetRoot: directory.packetRoot });
-  const canonicalPath = realpathSync(descriptorPath(directory.fd));
-  if (
-    !isInside(canonicalPath, directory.packetRoot)
-    || isInside(canonicalPath, directory.defRoot)
-    || isInside(canonicalPath, directory.pinRoot)
-  ) {
-    throw new Error("packet write containment lost: directory escaped approved packet root or entered DEF/PIN");
+  const attempt = { kind, name, packetRoot: directory.packetRoot, phase };
+  directory.beforePacketWrite?.(attempt);
+  const device = Number(fstatSync(directory.fd).dev);
+  if (device !== directory.packetDevice) {
+    throw new Error("packet write aborted: held packet directory device changed");
   }
+  assertDistinctPacketDevice(device, directory.defDevice, directory.pinDevice);
+  directory.afterPacketWriteConfinement?.(attempt);
 }
 
 /**
@@ -339,6 +365,8 @@ function openPacketOutputDirectory(outputDir: string, defRoot: string, pinRoot: 
   const absoluteOutput = resolve(outputDir);
   const components = relative(sep, absoluteOutput).split(sep).filter(Boolean);
   if (components.length === 0) throw new Error("packet output directory must be a new non-root directory");
+  const defDevice = capturedDirectoryDevice(defRoot, "DEF root");
+  const pinDevice = capturedDirectoryDevice(pinRoot, "PIN root");
 
   let currentFd = openNoFollowDirectory(sep);
   try {
@@ -355,6 +383,7 @@ function openPacketOutputDirectory(outputDir: string, defRoot: string, pinRoot: 
           throw new Error(`packet output path has a missing or inaccessible ancestor: ${absoluteOutput}`);
         }
         assertDirectoryOutsideProtectedRoots(currentFd, defRoot, pinRoot);
+        assertDistinctPacketDevice(Number(fstatSync(currentFd).dev), defDevice, pinDevice);
         mkdirSync(componentPath, { recursive: false, mode: 0o700 });
         createdFinalComponent = true;
         stat = lstatSync(componentPath);
@@ -374,12 +403,16 @@ function openPacketOutputDirectory(outputDir: string, defRoot: string, pinRoot: 
     }
 
     const canonicalPath = assertDirectoryOutsideProtectedRoots(currentFd, defRoot, pinRoot);
+    const packetDevice = Number(fstatSync(currentFd).dev);
+    assertDistinctPacketDevice(packetDevice, defDevice, pinDevice);
     return {
       fd: currentFd,
-      canonicalPath,
       packetRoot: canonicalPath,
       defRoot,
       pinRoot,
+      packetDevice,
+      defDevice,
+      pinDevice,
     };
   } catch (error) {
     closeSync(currentFd);
@@ -388,29 +421,29 @@ function openPacketOutputDirectory(outputDir: string, defRoot: string, pinRoot: 
 }
 
 function createPacketDirectory(parent: HeldPacketDirectory, name: string): HeldPacketDirectory {
-  assertPacketWriteContainment(parent, "directory", name);
+  assertPacketWriteContainment(parent, "directory", name, "before-create");
   const path = descriptorPath(parent.fd, name);
   mkdirSync(path, { recursive: false, mode: 0o700 });
   const fd = openNoFollowDirectory(path);
   try {
-    const canonicalPath = realpathSync(descriptorPath(fd));
-    if (
-      !isInside(canonicalPath, parent.packetRoot)
-      || isInside(canonicalPath, parent.defRoot)
-      || isInside(canonicalPath, parent.pinRoot)
-    ) {
-      throw new Error("packet write containment lost: directory escaped approved packet root or entered DEF/PIN");
+    const device = Number(fstatSync(fd).dev);
+    if (device !== parent.packetDevice) {
+      throw new Error("packet directory creation aborted: held packet directory device changed");
     }
-    const childDirectory = {
+    assertDistinctPacketDevice(device, parent.defDevice, parent.pinDevice);
+    return {
       fd,
-      canonicalPath,
       packetRoot: parent.packetRoot,
       defRoot: parent.defRoot,
       pinRoot: parent.pinRoot,
+      packetDevice: parent.packetDevice,
+      defDevice: parent.defDevice,
+      pinDevice: parent.pinDevice,
+      ...(parent.beforePacketWrite === undefined ? {} : { beforePacketWrite: parent.beforePacketWrite }),
+      ...(parent.afterPacketWriteConfinement === undefined
+        ? {}
+        : { afterPacketWriteConfinement: parent.afterPacketWriteConfinement }),
     };
-    return parent.beforePacketWrite === undefined
-      ? childDirectory
-      : { ...childDirectory, beforePacketWrite: parent.beforePacketWrite };
   } catch (error) {
     closeSync(fd);
     throw error;
@@ -418,16 +451,16 @@ function createPacketDirectory(parent: HeldPacketDirectory, name: string): HeldP
 }
 
 function writePacketFile(directory: HeldPacketDirectory, name: string, bytes: string | Buffer, mode = 0o600): void {
-  // Opening with O_CREAT is itself a mutation; protect that boundary first.
-  assertPacketWriteContainment(directory, "file", name);
+  // Opening with O_CREAT is itself a mutation; enforce structural confinement first.
+  assertPacketWriteContainment(directory, "file", name, "before-create");
   const fd = openSync(
     descriptorPath(directory.fd, name),
     constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
     mode,
   );
   try {
-    // The target directory FD is re-checked again immediately before bytes are written.
-    assertPacketWriteContainment(directory, "file", name);
+    // Re-fstat detects a visible mount/device change before bytes are written.
+    assertPacketWriteContainment(directory, "file", name, "before-write");
     writeFileSync(fd, bytes);
     fsyncSync(fd);
   } finally {
@@ -721,9 +754,13 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
   }
 
   const packet = openPacketOutputDirectory(input.outputDir, canonicalDefRoot, canonicalPinRoot);
-  const packetWithWriteObserver: HeldPacketDirectory = input.beforePacketWrite === undefined
-    ? packet
-    : { ...packet, beforePacketWrite: input.beforePacketWrite };
+  const packetWithWriteObserver: HeldPacketDirectory = {
+    ...packet,
+    ...(input.beforePacketWrite === undefined ? {} : { beforePacketWrite: input.beforePacketWrite }),
+    ...(input.afterPacketWriteConfinement === undefined
+      ? {}
+      : { afterPacketWriteConfinement: input.afterPacketWriteConfinement }),
+  };
   let evidenceDir: HeldPacketDirectory | undefined;
   try {
     const evidence = createPacketDirectory(packetWithWriteObserver, "evidence");
@@ -777,6 +814,15 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
       epochRequired: true,
       heldDescriptorCas: "fstat+full-read+fstat size/hash primitive for the executor's immediately-pre-rename check",
       singleWriterVerification: "required before executor continuation; bypass inventory aborts",
+    },
+    packetWriteConfinement: {
+      strategy: "no-cross-device",
+      packetDevice: packet.packetDevice,
+      defDevice: packet.defDevice,
+      pinDevice: packet.pinDevice,
+      structuralGuarantee: "packet-root st_dev differs from DEF and PIN, so a packet directory or member cannot be renamed into either root",
+      mountChangeDetection: "before each create and byte write, fstat the held packet directory and abort if st_dev differs from its captured value",
+      residual: "Node exposes no openat2 RESOLVE_BENEATH binding; this guarantee covers rename containment while the captured device identities hold, and fstat can only detect mount changes that alter the held descriptor st_dev",
     },
     writeSet: ["packet output only"],
   };
@@ -836,11 +882,11 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
     });
 
     return {
-      packetDir: packet.canonicalPath,
+      packetDir: packet.packetRoot,
       componentCount: components.length,
       cullSetSize: wouldCull.length,
       keepReasonHistogram,
-      summaryPath: join(packet.canonicalPath, "summary.json"),
+      summaryPath: join(packet.packetRoot, "summary.json"),
       snapshot: { canonicalPath: snapshot.canonicalPath, size: snapshot.size, sha256: snapshot.sha256 },
     };
   } finally {
