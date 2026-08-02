@@ -170,10 +170,10 @@ function arrangeSession(
     const sub = Array.isArray(args) ? String(args[0]) : "";
     if (sub === "-V") return { status: 0, stdout: "tmux 3.4\n" };
     if (sub === "list-sessions") {
-      // Format: name\tattached\tpath\t@profile\t@display_name
+      // Format: id\tcreated\tpid\tsocket\tname\tattached\tpath\t@profile\t@display_name
       return {
         status: 0,
-        stdout: `remote-${label}\t0\t/home/u/src/${label}\t${host}\t\n`,
+        stdout: `$1\t1710000000\t1234\t/tmp/tmux-1000/default\tremote-${label}\t0\t/home/u/src/${label}\t${host}\t\n`,
       };
     }
     if (sub === "show-options") {
