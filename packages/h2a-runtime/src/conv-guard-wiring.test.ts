@@ -256,6 +256,7 @@ beforeEach(() => {
     indeterminate: false,
     activelyWorking: false,
     reason: "test dead session",
+    identity: { pane: "%test-dead", panePid: 100 },
   });
   localSessionGatewayEnvStatus.mockReset();
   localSessionGatewayEnvStatus.mockReturnValue("unknown");
@@ -449,8 +450,16 @@ describe("h2a relaunch", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(killLocalSession).toHaveBeenNthCalledWith(1, "h2a-codex-lane");
-    expect(killLocalSession).toHaveBeenNthCalledWith(2, "h2a-claude-lane");
+    expect(killLocalSession).toHaveBeenNthCalledWith(
+      1,
+      "h2a-codex-lane",
+      { pane: "%test-dead", panePid: 100 },
+    );
+    expect(killLocalSession).toHaveBeenNthCalledWith(
+      2,
+      "h2a-claude-lane",
+      { pane: "%test-dead", panePid: 100 },
+    );
     expect(startLocalSession).toHaveBeenNthCalledWith(
       1,
       "codex",
@@ -496,6 +505,7 @@ describe("h2a relaunch", () => {
             indeterminate: false,
             activelyWorking: false,
             reason: "test dead session",
+            identity: { pane: "%test-dead", panePid: 100 },
           },
     );
 
@@ -510,7 +520,9 @@ describe("h2a relaunch", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(killLocalSession).not.toHaveBeenCalledWith("h2a-codex-lane");
+    expect(
+      killLocalSession.mock.calls.some(([name]) => name === "h2a-codex-lane"),
+    ).toBe(false);
     expect(startLocalSession).not.toHaveBeenCalledWith(
       "codex",
       "codex",
@@ -520,7 +532,10 @@ describe("h2a relaunch", () => {
       undefined,
       { sessionClass: "human" },
     );
-    expect(killLocalSession).toHaveBeenCalledWith("h2a-claude-lane");
+    expect(killLocalSession).toHaveBeenCalledWith("h2a-claude-lane", {
+      pane: "%test-dead",
+      panePid: 100,
+    });
     expect(stderrText()).toContain("never killed");
   });
 
@@ -541,6 +556,7 @@ describe("h2a relaunch", () => {
             indeterminate: false,
             activelyWorking: false,
             reason: "test dead session",
+            identity: { pane: "%test-dead", panePid: 100 },
           },
     );
 
@@ -572,6 +588,7 @@ describe("h2a relaunch", () => {
           indeterminate: false,
           activelyWorking: false,
           reason: "test dead session",
+          identity: { pane: "%test-dead", panePid: 100 },
         };
       }
       codexSafetyChecks += 1;
@@ -582,6 +599,7 @@ describe("h2a relaunch", () => {
             indeterminate: false,
             activelyWorking: false,
             reason: "test dead session",
+            identity: { pane: "%test-dead", panePid: 100 },
           }
         : {
             dead: false,
@@ -617,6 +635,7 @@ describe("h2a relaunch", () => {
           indeterminate: false,
           activelyWorking: false,
           reason: "test dead session",
+          identity: { pane: "%test-dead", panePid: 100 },
         };
       }
       claudeSafetyChecks += 1;
@@ -627,6 +646,7 @@ describe("h2a relaunch", () => {
             indeterminate: false,
             activelyWorking: false,
             reason: "test dead session",
+            identity: { pane: "%test-dead", panePid: 100 },
           }
         : {
             dead: false,
@@ -652,7 +672,9 @@ describe("h2a relaunch", () => {
       ([name]) => name === "h2a-claude-lane",
     ).length;
     expect(forcedActionCount).toBe(0);
-    expect(killLocalSession).not.toHaveBeenCalledWith("h2a-claude-lane");
+    expect(
+      killLocalSession.mock.calls.some(([name]) => name === "h2a-claude-lane"),
+    ).toBe(false);
     expect(claudeSafetyChecks).toBe(3);
     expect(exitCode).toBe(1);
     expect(stderrText()).toContain("became live before kill");
@@ -674,6 +696,7 @@ describe("h2a relaunch", () => {
             indeterminate: false,
             activelyWorking: false,
             reason: "test dead session",
+            identity: { pane: "%test-dead", panePid: 100 },
           },
     );
 
@@ -701,7 +724,10 @@ describe("h2a relaunch", () => {
     ]);
 
     expect(exitCode).toBe(0);
-    expect(killLocalSession).toHaveBeenCalledWith("h2a-codex-lane");
+    expect(killLocalSession).toHaveBeenCalledWith("h2a-codex-lane", {
+      pane: "%test-dead",
+      panePid: 100,
+    });
     expect(startLocalSession).toHaveBeenCalledWith(
       "codex",
       "codex",
