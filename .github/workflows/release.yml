@@ -157,3 +157,45 @@ jobs:
             --title "$tag" \
             --generate-notes \
             --verify-tag
+
+      # This is deliberately after GitHub Release creation: publication is already
+      # irreversible, so a broken artefact must be reported without hiding the
+      # release that describes what npm now serves. It checks only dry-run doctor
+      # on Ubuntu; it does not exercise --repair or a real host installation.
+      - name: Verify published @sentropic/h2a doctor (post-release)
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_attempts=6
+          retry_delay_seconds=10
+          for attempt in $(seq 1 "$max_attempts"); do
+            if npm i -g "@sentropic/h2a@$RELEASE_VERSION"; then
+              break
+            fi
+            if [[ "$attempt" -eq "$max_attempts" ]]; then
+              echo "::error::@sentropic/h2a@$RELEASE_VERSION was not installable after $max_attempts attempts." >&2
+              exit 1
+            fi
+            echo "@sentropic/h2a@$RELEASE_VERSION is not available yet; retrying in $retry_delay_seconds seconds (attempt $attempt/$max_attempts)." >&2
+            sleep "$retry_delay_seconds"
+          done
+          root="$(mktemp -d)/.h2a"
+          # doctor is dry-run by default. Parse the installed artefact's report
+          # so a success exit with non-JSON stdout cannot satisfy this gate.
+          h2a doctor --root "$root" --format json | node -e '
+            let stdout = "";
+            process.stdin.setEncoding("utf8");
+            process.stdin.on("data", (chunk) => { stdout += chunk; });
+            process.stdin.on("end", () => {
+              let report;
+              try {
+                report = JSON.parse(stdout);
+              } catch {
+                process.exitCode = 1;
+                return;
+              }
+              if (!Object.prototype.hasOwnProperty.call(report, "ok")) {
+                process.exitCode = 1;
+              }
+            });
+          '
