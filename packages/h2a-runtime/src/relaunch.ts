@@ -34,9 +34,18 @@ export type RelaunchSafety = {
   activelyWorking: boolean;
   reason: string;
   rateMsPerSecond?: number;
+  /** Present only for a proven-dead pane that can be compare-and-swapped before kill. */
+  identity?: RelaunchKillIdentity;
+};
+
+/** The tmux pane generation observed while proving a session has no worker. */
+export type RelaunchKillIdentity = {
+  pane: string;
+  panePid: number;
 };
 
 export type RelaunchSafetySample = {
+  pane?: string | undefined;
   paneCommand?: string | undefined;
   panePid?: number | undefined;
   firstWorkerPid?: number | undefined;
@@ -109,12 +118,17 @@ export function decideRelaunchSafety(
   // busiestDescendant returns the pane root when the wrapper has no live
   // descendant. This is the only shape that proves a dead shell.
   if (sample.firstWorkerPid === sample.panePid) {
+    const identity =
+      typeof sample.pane === "string" && sample.pane.length > 0
+        ? { pane: sample.pane, panePid: sample.panePid }
+        : undefined;
     return {
       dead: true,
       activatable: false,
       indeterminate: false,
       activelyWorking: false,
       reason: "no live CLI worker descendant",
+      ...(identity ? { identity } : {}),
     };
   }
 
