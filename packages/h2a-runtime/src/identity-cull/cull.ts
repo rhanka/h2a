@@ -109,6 +109,14 @@ export interface IdentityCullInput {
   readonly evidence?: CullEvidenceInput;
   readonly operator?: string;
   readonly now?: () => Date;
+  /** Test-only interleaving seam, invoked immediately before each packet mutation. */
+  readonly beforePacketWrite?: (attempt: PacketWriteAttempt) => void;
+}
+
+export interface PacketWriteAttempt {
+  readonly kind: "directory" | "file";
+  readonly name: string;
+  readonly packetRoot: string;
 }
 
 export interface CullRunResult {
@@ -136,6 +144,18 @@ const LIVE_DEF_CONTROLS = [
 ] as const;
 
 const IDENTITY_BINDING_FENCE_PROTOCOL = "identity-binding-fence-v1";
+
+/**
+ * #160 only stages the §4-§6 proof packet. Per SPEC #156 §7.1 and §8, the
+ * executor—not staging—owns the final compare-to-rename critical section.
+ * A real staging-to-executor handoff transfers the held fence and descriptor;
+ * staging must never release and then reacquire that fence around a rename.
+ */
+const EXECUTOR_FENCE_HANDOFF_CONTRACT = {
+  specReference: "SPEC #156 §7.1 and §8",
+  executorScope: "The executor holds the canonical fence exclusively from the final held-descriptor compare through descriptor-relative rename and read-back.",
+  transferRule: "A staging-to-executor handoff transmits the held fence and descriptor; staging must not release and reacquire them around the rename.",
+} as const;
 
 function sha256(bytes: Buffer | string): string {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -255,6 +275,11 @@ function isInside(path: string, root: string): boolean {
 interface HeldPacketDirectory {
   readonly fd: number;
   readonly canonicalPath: string;
+  /** Approved packet root captured before the packet-writing window opens. */
+  readonly packetRoot: string;
+  readonly defRoot: string;
+  readonly pinRoot: string;
+  readonly beforePacketWrite?: (attempt: PacketWriteAttempt) => void;
 }
 
 function descriptorPath(fd: number, name?: string): string {
@@ -272,6 +297,35 @@ function openNoFollowDirectory(path: string): number {
   } catch (error) {
     closeSync(fd);
     throw error;
+  }
+}
+
+function assertDirectoryOutsideProtectedRoots(fd: number, defRoot: string, pinRoot: string): string {
+  const canonicalPath = realpathSync(descriptorPath(fd));
+  if (isInside(canonicalPath, defRoot) || isInside(canonicalPath, pinRoot)) {
+    throw new Error("packet output must be outside both DEF and PIN roots");
+  }
+  return canonicalPath;
+}
+
+/**
+ * A directory descriptor follows its inode across rename. Therefore containment
+ * is an operation guard, not a setup check: re-resolve the held target FD just
+ * before every packet mutation and reject an escaped or protected location.
+ */
+function assertPacketWriteContainment(
+  directory: HeldPacketDirectory,
+  kind: PacketWriteAttempt["kind"],
+  name: string,
+): void {
+  directory.beforePacketWrite?.({ kind, name, packetRoot: directory.packetRoot });
+  const canonicalPath = realpathSync(descriptorPath(directory.fd));
+  if (
+    !isInside(canonicalPath, directory.packetRoot)
+    || isInside(canonicalPath, directory.defRoot)
+    || isInside(canonicalPath, directory.pinRoot)
+  ) {
+    throw new Error("packet write containment lost: directory escaped approved packet root or entered DEF/PIN");
   }
 }
 
@@ -300,10 +354,7 @@ function openPacketOutputDirectory(outputDir: string, defRoot: string, pinRoot: 
         if (code !== "ENOENT" || !isFinalComponent) {
           throw new Error(`packet output path has a missing or inaccessible ancestor: ${absoluteOutput}`);
         }
-        const canonicalParent = realpathSync(descriptorPath(currentFd));
-        if (isInside(canonicalParent, defRoot) || isInside(canonicalParent, pinRoot)) {
-          throw new Error("packet output must be outside both DEF and PIN roots");
-        }
+        assertDirectoryOutsideProtectedRoots(currentFd, defRoot, pinRoot);
         mkdirSync(componentPath, { recursive: false, mode: 0o700 });
         createdFinalComponent = true;
         stat = lstatSync(componentPath);
@@ -322,11 +373,14 @@ function openPacketOutputDirectory(outputDir: string, defRoot: string, pinRoot: 
       currentFd = nextFd;
     }
 
-    const canonicalPath = realpathSync(descriptorPath(currentFd));
-    if (isInside(canonicalPath, defRoot) || isInside(canonicalPath, pinRoot)) {
-      throw new Error("packet output must be outside both DEF and PIN roots");
-    }
-    return { fd: currentFd, canonicalPath };
+    const canonicalPath = assertDirectoryOutsideProtectedRoots(currentFd, defRoot, pinRoot);
+    return {
+      fd: currentFd,
+      canonicalPath,
+      packetRoot: canonicalPath,
+      defRoot,
+      pinRoot,
+    };
   } catch (error) {
     closeSync(currentFd);
     throw error;
@@ -334,19 +388,46 @@ function openPacketOutputDirectory(outputDir: string, defRoot: string, pinRoot: 
 }
 
 function createPacketDirectory(parent: HeldPacketDirectory, name: string): HeldPacketDirectory {
+  assertPacketWriteContainment(parent, "directory", name);
   const path = descriptorPath(parent.fd, name);
   mkdirSync(path, { recursive: false, mode: 0o700 });
   const fd = openNoFollowDirectory(path);
-  return { fd, canonicalPath: realpathSync(descriptorPath(fd)) };
+  try {
+    const canonicalPath = realpathSync(descriptorPath(fd));
+    if (
+      !isInside(canonicalPath, parent.packetRoot)
+      || isInside(canonicalPath, parent.defRoot)
+      || isInside(canonicalPath, parent.pinRoot)
+    ) {
+      throw new Error("packet write containment lost: directory escaped approved packet root or entered DEF/PIN");
+    }
+    const childDirectory = {
+      fd,
+      canonicalPath,
+      packetRoot: parent.packetRoot,
+      defRoot: parent.defRoot,
+      pinRoot: parent.pinRoot,
+    };
+    return parent.beforePacketWrite === undefined
+      ? childDirectory
+      : { ...childDirectory, beforePacketWrite: parent.beforePacketWrite };
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
 }
 
 function writePacketFile(directory: HeldPacketDirectory, name: string, bytes: string | Buffer, mode = 0o600): void {
+  // Opening with O_CREAT is itself a mutation; protect that boundary first.
+  assertPacketWriteContainment(directory, "file", name);
   const fd = openSync(
     descriptorPath(directory.fd, name),
     constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
     mode,
   );
   try {
+    // The target directory FD is re-checked again immediately before bytes are written.
+    assertPacketWriteContainment(directory, "file", name);
     writeFileSync(fd, bytes);
     fsyncSync(fd);
   } finally {
@@ -640,9 +721,12 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
   }
 
   const packet = openPacketOutputDirectory(input.outputDir, canonicalDefRoot, canonicalPinRoot);
+  const packetWithWriteObserver: HeldPacketDirectory = input.beforePacketWrite === undefined
+    ? packet
+    : { ...packet, beforePacketWrite: input.beforePacketWrite };
   let evidenceDir: HeldPacketDirectory | undefined;
   try {
-    const evidence = createPacketDirectory(packet, "evidence");
+    const evidence = createPacketDirectory(packetWithWriteObserver, "evidence");
     evidenceDir = evidence;
     writePacketFile(evidence, "def-bindings.jsonl", snapshot.bytes, 0o400);
     if ("snapshot" in pin) writePacketFile(evidence, "pin-bindings.jsonl", pin.snapshot.bytes, 0o400);
@@ -683,12 +767,15 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
       : { root: canonicalPinRoot, unavailable: pin.reason },
     S_R_present: false,
     executionHardGated: true,
-    structuralWriterInvariant: true,
+    fencePrimitiveProvided: true,
+    checkActExecutedByStaging: false,
+    "checkActIsExecutorScopePer_§7_1": true,
+    handoffContract: EXECUTOR_FENCE_HANDOFF_CONTRACT,
     structuralWriterFence: {
       protocol: IDENTITY_BINDING_FENCE_PROTOCOL,
       canonicalLockPath: join(canonicalDefRoot, "identity", ".lock"),
       epochRequired: true,
-      heldDescriptorCas: "fstat+full-read+fstat size/hash immediately before disabled rename",
+      heldDescriptorCas: "fstat+full-read+fstat size/hash primitive for the executor's immediately-pre-rename check",
       singleWriterVerification: "required before executor continuation; bypass inventory aborts",
     },
     writeSet: ["packet output only"],
@@ -722,23 +809,23 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
     executionHardGated: true,
   };
 
-    writeJson(packet, "run-manifest.json", runManifest);
-    writeJson(packet, "coverage.json", coverage);
-    writeJson(packet, "dependencies.json", dependencies);
+    writeJson(packetWithWriteObserver, "run-manifest.json", runManifest);
+    writeJson(packetWithWriteObserver, "coverage.json", coverage);
+    writeJson(packetWithWriteObserver, "dependencies.json", dependencies);
     writeJson(evidence, "acquisition.json", { defBindings: { path: snapshot.canonicalPath, sha256: snapshot.sha256, size: snapshot.size }, pinStatus: "snapshot" in pin ? "COMPLETE" : pin.reason });
-    writeJsonLines(packet, "decisions.jsonl", records);
-    writeJsonLines(packet, "would-cull.jsonl", wouldCull);
-    writeJsonLines(packet, "keep.jsonl", keep);
-    writeJson(packet, "lookup-replay.json", lookupReplay);
-    writeJson(packet, "positive-controls.json", positiveControls);
-    writeJson(packet, "summary.json", summary);
-    writePacketFile(packet, "report.txt", `DEF identity cull dry-run\ncomponents: ${components.length}\ncull-set: ${wouldCull.length}\nKEEP reasons: ${JSON.stringify(keepReasonHistogram)}\n`);
+    writeJsonLines(packetWithWriteObserver, "decisions.jsonl", records);
+    writeJsonLines(packetWithWriteObserver, "would-cull.jsonl", wouldCull);
+    writeJsonLines(packetWithWriteObserver, "keep.jsonl", keep);
+    writeJson(packetWithWriteObserver, "lookup-replay.json", lookupReplay);
+    writeJson(packetWithWriteObserver, "positive-controls.json", positiveControls);
+    writeJson(packetWithWriteObserver, "summary.json", summary);
+    writePacketFile(packetWithWriteObserver, "report.txt", `DEF identity cull dry-run\ncomponents: ${components.length}\ncull-set: ${wouldCull.length}\nKEEP reasons: ${JSON.stringify(keepReasonHistogram)}\n`);
 
     const artifactPaths = [
     "run-manifest.json", "coverage.json", "dependencies.json", "evidence/def-bindings.jsonl", "evidence/acquisition.json", "decisions.jsonl", "would-cull.jsonl", "keep.jsonl", "lookup-replay.json", "positive-controls.json", "summary.json", "report.txt",
     ...("snapshot" in pin ? ["evidence/pin-bindings.jsonl"] : []),
   ];
-    writeJson(packet, "member-hashes.json", {
+    writeJson(packetWithWriteObserver, "member-hashes.json", {
       version: 1,
       members: artifactPaths.map((path) => {
         const [directory, name] = path.startsWith("evidence/")
@@ -758,7 +845,7 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
     };
   } finally {
     if (evidenceDir) closeSync(evidenceDir.fd);
-    closeSync(packet.fd);
+    closeSync(packetWithWriteObserver.fd);
   }
 }
 
@@ -851,17 +938,20 @@ export function verifySingleWriterPrecondition(
   return { valid: true };
 }
 
-export interface HeldDescriptorCasResult {
-  readonly state: "ABORTED" | "READY";
-  readonly reason?:
-    | "HELD_DESCRIPTOR_SIZE_MISMATCH"
-    | "HELD_DESCRIPTOR_HASH_MISMATCH"
-    | "SINGLE_WRITER_PRECONDITION_FAILED"
-    | "CANONICAL_BINDING_FENCE_UNAVAILABLE"
-    | "CANONICAL_BINDING_FENCE_LOST";
-}
+type HeldDescriptorAbortReason =
+  | "HELD_DESCRIPTOR_SIZE_MISMATCH"
+  | "HELD_DESCRIPTOR_HASH_MISMATCH"
+  | "SINGLE_WRITER_PRECONDITION_FAILED"
+  | "CANONICAL_BINDING_FENCE_UNAVAILABLE"
+  | "CANONICAL_BINDING_FENCE_LOST";
 
-function compareHeldDescriptor(fd: number, expectedSize: number, expectedSha256: string): HeldDescriptorCasResult {
+type HeldDescriptorAbort = { readonly state: "ABORTED"; readonly reason: HeldDescriptorAbortReason };
+
+export type HeldDescriptorCasResult = HeldDescriptorAbort | { readonly state: "STAGING_VERIFIED" };
+
+type HeldDescriptorComparison = HeldDescriptorAbort | { readonly state: "READY" };
+
+function compareHeldDescriptor(fd: number, expectedSize: number, expectedSha256: string): HeldDescriptorComparison {
   const before = fstatSync(fd);
   if (before.size !== expectedSize) return { state: "ABORTED", reason: "HELD_DESCRIPTOR_SIZE_MISMATCH" };
   const bytes = Buffer.alloc(before.size);
@@ -939,9 +1029,11 @@ function releaseCanonicalBindingFence(fence: CanonicalBindingFence): void {
 }
 
 /**
- * Tests the authoritative len/hash observation over one held descriptor.
- * It never renames in this release; a future executor may only continue after
- * this returns READY and after the separate structural writer proof is valid.
+ * Exercises the authoritative len/hash primitive over one held descriptor.
+ * This staging-only verification releases its test fence before it returns and
+ * never authorizes a caller to rename. Per SPEC #156 §7.1 and §8, an executor
+ * must instead retain its own transmitted fence and descriptor from its final
+ * compare through descriptor-relative rename and read-back.
  */
 export function verifyHeldDescriptorCas(input: HeldDescriptorCasInput): HeldDescriptorCasResult {
   if (!verifySingleWriterPrecondition(input.writerInventory).valid) {
@@ -965,11 +1057,11 @@ export function verifyHeldDescriptorCas(input: HeldDescriptorCasInput): HeldDesc
     const final = compareHeldDescriptor(fd, input.expectedSize, input.expectedSha256);
     if (final.state === "ABORTED") return final;
       if (!fenceIsHeld(fence)) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_LOST" };
-      // Never call rename: execution remains hard-gated for this release.  A
-      // future executor may continue only inside this still-held fence, from
-      // this final CAS through descriptor-relative rename and read-back.
+      // Never call rename: execution remains hard-gated for this release. This
+      // staging verification releases its fence at return; an executor must not
+      // use it as a released-then-reacquired rename precondition.
     void input.rename;
-    return { state: "READY" };
+    return { state: "STAGING_VERIFIED" };
     } finally {
       closeSync(fd);
     }
