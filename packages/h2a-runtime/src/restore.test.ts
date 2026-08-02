@@ -127,6 +127,20 @@ describe("registry-first discovery", () => {
     ]);
   });
 
+  it("excludes an ended human entry before preserving registry order", () => {
+    const entries = [
+      registryEntry("ended", {
+        sessionClass: "human",
+        endedAt: new Date().toISOString(),
+      }),
+      registryEntry("current", { sessionClass: "human" }),
+    ];
+
+    expect(registrySessions(home, entries).map((entry) => entry.project)).toEqual([
+      "current",
+    ]);
+  });
+
   it("classifies a legacy line with its real Claude transcript as human", () => {
     const cwd = seedClaudeScan("legacy-transcript", "conv-legacy");
     const legacy = registryEntry("legacy-transcript", { convId: "conv-legacy" });

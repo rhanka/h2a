@@ -244,8 +244,8 @@ export function deriveLegacySessionClass(
   e: RegistryEntry,
   evidence: LegacySessionEvidence,
 ): SessionClass {
-  if (e.sessionClass !== undefined) return e.sessionClass;
   if (e.endedAt !== undefined || e.role === "job") return "background";
+  if (e.sessionClass !== undefined) return e.sessionClass;
   if (evidence.humanConfirmedIds?.has(e.id)) return "human";
   if (hasLegacyTranscript(e, evidence.home)) return "human";
   if (hasLiveTmuxEvidence(e, evidence.liveTmuxSessions)) return "human";
