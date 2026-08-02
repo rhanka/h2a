@@ -100,3 +100,22 @@ jobs:
           h2a discover --root "$root" --role CONDUCTOR --scope scope:smoke
           h2a host setup --host codex --root "$root" --print
           h2a host setup --host claude --root "$root" --print
+          # doctor is dry-run by default. Parse the installed artefact's report
+          # so a success exit with non-JSON stdout cannot satisfy this gate.
+          h2a doctor --root "$root" --format json | node -e '
+            let stdout = "";
+            process.stdin.setEncoding("utf8");
+            process.stdin.on("data", (chunk) => { stdout += chunk; });
+            process.stdin.on("end", () => {
+              let report;
+              try {
+                report = JSON.parse(stdout);
+              } catch {
+                process.exitCode = 1;
+                return;
+              }
+              if (!Object.prototype.hasOwnProperty.call(report, "ok")) {
+                process.exitCode = 1;
+              }
+            });
+          '
