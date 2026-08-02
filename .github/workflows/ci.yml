@@ -42,8 +42,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # Pin the host oracle to the known-good CLI installed on this host (0.145.0).
+      # The unpinned install failed once in 52 runs on release/v0.90.2: run 30728408587
+      # (2026-08-02) served the old MCP server after repair and made a release cut red.
       - name: Install the codex CLI — it is the oracle, not a convenience
-        run: npm i -g @openai/codex
+        run: npm i -g @openai/codex@0.145.0
       - name: Codex rejects an invalid preserved configuration
         run: |
           set -euo pipefail
