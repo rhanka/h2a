@@ -159,7 +159,23 @@ should not be cited as a decision.
 | Removal cost = 6 functional surfaces | **measured** (M4) | an inventory of call sites, not a proof that each is exercised. |
 | Attribution needs `/proc` | **measured** (M5) | true of tmux's exposed interface; a future tmux could change it. |
 | The silent failure is structural | **measured** (M2) | grep-based absence of a consumer; a consumer added elsewhere since would falsify it. |
-| The ledger is a field, not a registry | **design** | authorised by the design doc at `8f697b01`; nothing is built yet. |
+| The ledger is a field, not a registry | **measured** | ~~design only; nothing is built yet~~ — **corrected 2026-08-02, see below.** Built and on `main` as `6f4433b2`. |
+
+**CORRECTION, 2026-08-02.** The row above originally read *"authorised by the design doc at
+`8f697b01`; nothing is built yet."* **That was false at publication, not merely aged.** The worker
+attribution landed on `main` as `6f4433b2` (*feat(runtime): session-lease worker attribution — #106
+extension (R1-R4)*) at 2026-08-01 11:07:45 -0400; this study merged as `92b529c2` later the same day,
+so the implementation had been on `main` for roughly two and a half hours when I published the claim
+that nothing was built. `git merge-base --is-ancestor 6f4433b2 92b529c2` confirms it. The lease now
+carries `bootId`, `machine`, `pid` and `startTime` in source — verified with positive controls
+(`ttlMs`, `heartbeatAt`, `token` all present, so the probe discriminates).
+
+`[JUDGMENT]` The error is the one this study itself warns about in §1: **I cited a state without
+re-measuring it at delivery.** Writing "nothing is built yet" is a claim about *now*, and *now* moved
+between drafting and merging. The rule I take from it, and it generalises past this document: a
+"where this stops" table asserts the present tense, so every row in one must be re-measured at the
+moment of publication, not at the moment of drafting. Nothing else in the study depends on this row —
+the recommendation rests on M1/M3/M4, which are untouched.
 
 **What would overturn the recommendation.** Evidence that one of the six functional surfaces is
 already broken or not actually carried by tmux (the removal cost drops); or a hot-pivot requirement
