@@ -180,25 +180,50 @@ jobs:
             sleep "$retry_delay_seconds"
           done
           root="$(mktemp -d)/.h2a"
-          # doctor is dry-run by default. Its exit code reflects host health, which
-          # is irrelevant on a bare CI runner; verify the installed artefact emits
-          # a well-formed report with an ok property instead.
-          out="$(h2a doctor --root "$root" --format json || true)"
+          # doctor is dry-run by default. Capture stdout even when its host-health
+          # exit status is non-zero; the node check below decides from report content.
+          out="$(h2a doctor --root "$root" --format json 2>/dev/null || true)"
           node -e '
+            const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
             let report;
-            let parsed = true;
             try {
               report = JSON.parse(process.argv[1]);
             } catch {
-              parsed = false;
+              process.exit(1);
             }
             if (
-              !parsed ||
               report === null ||
               typeof report !== "object" ||
-              !Object.prototype.hasOwnProperty.call(report, "ok") ||
+              !hasOwn(report, "ok") ||
               typeof report.ok !== "boolean"
             ) {
-              process.exitCode = 1;
+              process.exit(1);
+            }
+            if (report.ok === true) process.exit(0);
+
+            let unrepaired;
+            if (hasOwn(report, "unrepaired")) {
+              unrepaired = report.unrepaired;
+            } else if (
+              Array.isArray(report.hosts) &&
+              report.hosts.length > 0 &&
+              report.hosts.every(
+                (host) => host !== null && typeof host === "object" && Array.isArray(host.unrepaired)
+              )
+            ) {
+              unrepaired = report.hosts.flatMap((host) => host.unrepaired);
+            }
+            if (
+              !Array.isArray(unrepaired) ||
+              unrepaired.length === 0 ||
+              unrepaired.some(
+                (entry) =>
+                  entry === null ||
+                  typeof entry !== "object" ||
+                  !hasOwn(entry, "code") ||
+                  entry.code !== "host-cli-unreachable"
+              )
+            ) {
+              process.exit(1);
             }
           ' "$out"
