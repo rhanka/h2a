@@ -32,7 +32,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname, join, relative } from "node:path";
 
 import type { H2ASession } from "../session.js";
 import { resolveHostConfigCompanionBase, resolveHostConfigRoot } from "../runtime/host-config-root.js";
@@ -71,6 +71,11 @@ export interface HostInstallationDoctorOptions {
   readonly testHostCliReachable?: (host: Host) => boolean;
   /** Test-only responses from the known-good and candidate Codex configuration probes. */
   readonly testCodexConfigurationOracle?: {
+    readonly knownGood: HostCommandResult;
+    readonly candidate: HostCommandResult;
+  };
+  /** Test-only responses from the known-good and candidate Claude configuration probes. */
+  readonly testClaudeConfigurationOracle?: {
     readonly knownGood: HostCommandResult;
     readonly candidate: HostCommandResult;
   };
@@ -2094,6 +2099,138 @@ function verifyCodexConfiguration(
   return false;
 }
 
+/**
+ * Claude rewrites even a valid configuration while listing MCP servers.  The
+ * oracle therefore receives a byte-for-byte copy under a disposable home;
+ * the owner's files must never be an argument to the native command.
+ */
+function claudeOracleContext(claudeHome: string): { readonly env: NodeJS.ProcessEnv; readonly cwd: string } {
+  return {
+    cwd: claudeHome,
+    env: {
+      ...process.env,
+      HOME: claudeHome,
+      CLAUDE_CONFIG_DIR: claudeHome,
+      XDG_CONFIG_HOME: join(claudeHome, ".config"),
+      XDG_CACHE_HOME: join(claudeHome, ".cache"),
+      XDG_DATA_HOME: join(claudeHome, ".local", "share")
+    }
+  };
+}
+
+function verifyClaudeOracleKnownGood(
+  testOracle?: NonNullable<HostInstallationDoctorOptions["testClaudeConfigurationOracle"]>
+): HostCommandResult {
+  if (testOracle) return testOracle.knownGood;
+  let oracleHome: string | undefined;
+  let oracleResult: HostCommandResult;
+  try {
+    oracleHome = mkdtempSync(join(tmpdir(), "h2a-claude-config-oracle-"));
+    writeFileSync(join(oracleHome, ".claude.json"), "{}\n");
+    oracleResult = defaultHostCommand("claude", ["mcp", "list"], claudeOracleContext(oracleHome));
+  } catch (error) {
+    oracleResult = { ok: false, message: (error as Error).message };
+  }
+  if (oracleHome) {
+    try {
+      rmSync(oracleHome, { recursive: true, force: true });
+    } catch (error) {
+      return { ok: false, message: `cannot remove disposable oracle root: ${(error as Error).message}` };
+    }
+  }
+  return oracleResult;
+}
+
+interface ClaudeOracleSource {
+  readonly path: string;
+  readonly raw: Buffer;
+}
+
+function verifyClaudeConfiguration(
+  home: string,
+  report: MutableHostReport,
+  nativeCliReachable: boolean,
+  testOracle?: NonNullable<HostInstallationDoctorOptions["testClaudeConfigurationOracle"]>
+): boolean {
+  if (!nativeCliReachable) return false;
+  const configPaths = claudeConfigPaths(home);
+  const configBase = resolveHostConfigCompanionBase("claude", home);
+  const configPath = configPaths[0] ?? join(configBase, ".claude.json");
+  const oracleSelfTest = verifyClaudeOracleKnownGood(testOracle);
+  if (!oracleSelfTest.ok) {
+    report.unrepaired.push(
+      finding(
+        "host-config-unverifiable",
+        `Claude configuration oracle could not validate a known-good minimal configuration; it did not judge ${configPath}: ${oracleSelfTest.message ?? "unknown error"}`,
+        configPath
+      )
+    );
+    return false;
+  }
+  if (testOracle) {
+    if (testOracle.candidate.ok) return true;
+    report.unrepaired.push(
+      finding(
+        "config-invalid",
+        `Claude rejected its configuration while running claude mcp list: ${testOracle.candidate.message ?? "unknown error"}`,
+        configPath
+      )
+    );
+    return false;
+  }
+
+  let oracleHome: string | undefined;
+  let oracleResult: HostCommandResult | undefined;
+  let verificationError: string | undefined;
+  const sources: ClaudeOracleSource[] = [];
+  try {
+    oracleHome = mkdtempSync(join(tmpdir(), "h2a-claude-config-oracle-"));
+    for (const path of configPaths) {
+      const destination = join(oracleHome, relative(configBase, path));
+      const raw = readFileSync(path);
+      mkdirSync(dirname(destination), { recursive: true });
+      writeFileSync(destination, raw);
+      sources.push({ path, raw });
+    }
+    oracleResult = defaultHostCommand("claude", ["mcp", "list"], claudeOracleContext(oracleHome));
+    for (const source of sources) {
+      const current = readFileSync(source.path);
+      if (!current.equals(source.raw)) {
+        verificationError = `configuration changed while the Claude oracle inspected its disposable copy: ${source.path}`;
+        break;
+      }
+    }
+  } catch (error) {
+    verificationError = (error as Error).message;
+  }
+  if (oracleHome) {
+    try {
+      rmSync(oracleHome, { recursive: true, force: true });
+    } catch (error) {
+      verificationError ??= `cannot remove disposable oracle root: ${(error as Error).message}`;
+    }
+  }
+  if (verificationError) {
+    report.unrepaired.push(
+      finding(
+        "host-config-unverifiable",
+        `Claude configuration oracle could not safely inspect ${configPath}: ${verificationError}`,
+        configPath
+      )
+    );
+    return false;
+  }
+  if (oracleResult?.ok) return true;
+  report.unrepaired.push(
+    finding(
+      "config-invalid",
+      `Claude rejected its configuration while running claude mcp list: ${oracleResult?.message ?? "unknown error"}`,
+      configPath
+    )
+  );
+  return false;
+}
+
 function reportAcceptedOpaqueCodexRegions(home: string, report: MutableHostReport): void {
   const path = codexConfigPath(home);
   try {
@@ -2449,6 +2586,19 @@ export function doctorHostInstallations(
           cliReachable
         )
         : inspectClaude(home, version);
+      // `testHostCliReachable` deliberately models only CLI presence for
+      // hermetic fixture tests. It must not accidentally query a developer's
+      // configured Claude installation; the production path has no such
+      // override and always asks Claude through a disposable configuration
+      // copy because `claude mcp list` rewrites its input.
+      if (cliReachable && (options.testHostCliReachable === undefined || options.testClaudeConfigurationOracle !== undefined)) {
+        verifyClaudeConfiguration(
+          home,
+          report,
+          cliReachable,
+          options.testClaudeConfigurationOracle
+        );
+      }
     } else {
       report = repair
         ? repairCodex(home, version, runner, writeMarker, dryRun, options.testConfigurationWrite, cliReachable)
