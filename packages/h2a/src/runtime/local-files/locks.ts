@@ -32,11 +32,26 @@ export interface LockOwner {
   readonly pid: number;
   readonly hostname: string;
   readonly startedAt: string;
+  /** Optional protocol marker for a lock with a stronger caller invariant. */
+  readonly protocol?: string;
+  /** Caller-issued generation for a fenced critical section. */
+  readonly fenceEpoch?: string;
 }
 
 export interface WithLockOptions {
   readonly timeoutMs?: number;
   readonly pollMs?: number;
+  /**
+   * Extra immutable identity carried by the lock owner record.  Callers that
+   * need a structural fence use this to bind the lock to a protocol + epoch.
+   */
+  readonly ownerMetadata?: Readonly<Pick<LockOwner, "protocol" | "fenceEpoch">>;
+  /**
+   * Whether a dead same-host holder may be reclaimed.  Destructive protocols
+   * deliberately disable this: an ambiguous fence is a refusal, never a
+   * reason to silently continue.
+   */
+  readonly reclaimStale?: boolean;
 }
 
 export class LockTimeoutError extends Error {
@@ -68,7 +83,13 @@ function tryParseOwner(raw: string): LockOwner | undefined {
       typeof parsed.hostname === "string" &&
       typeof parsed.startedAt === "string"
     ) {
-      return { pid: parsed.pid, hostname: parsed.hostname, startedAt: parsed.startedAt };
+      return {
+        pid: parsed.pid,
+        hostname: parsed.hostname,
+        startedAt: parsed.startedAt,
+        ...(typeof parsed.protocol === "string" ? { protocol: parsed.protocol } : {}),
+        ...(typeof parsed.fenceEpoch === "string" ? { fenceEpoch: parsed.fenceEpoch } : {})
+      };
     }
   } catch {
     /* malformed — fall through */
@@ -95,11 +116,16 @@ function pidIsAliveOnSameHost(owner: LockOwner, selfHostname: string): boolean {
   }
 }
 
-function acquire(lockPath: string, selfHostname: string): { ok: true } | { ok: false; lastSeen?: LockOwner } {
+function acquire(
+  lockPath: string,
+  selfHostname: string,
+  options: Pick<WithLockOptions, "ownerMetadata" | "reclaimStale">
+): { ok: true } | { ok: false; lastSeen?: LockOwner } {
   const ownerPayload: LockOwner = {
     pid: process.pid,
     hostname: selfHostname,
-    startedAt: new Date().toISOString()
+    startedAt: new Date().toISOString(),
+    ...options.ownerMetadata
   };
   try {
     const fd = openSync(lockPath, "wx");
@@ -123,7 +149,7 @@ function acquire(lockPath: string, selfHostname: string): { ok: true } | { ok: f
     return { ok: false };
   }
   const owner = tryParseOwner(raw);
-  if (owner && !pidIsAliveOnSameHost(owner, selfHostname)) {
+  if (options.reclaimStale !== false && owner && !pidIsAliveOnSameHost(owner, selfHostname)) {
     // Stale: reclaim by unlinking. The next loop iteration retries the create.
     try {
       unlinkSync(lockPath);
@@ -167,7 +193,7 @@ export async function withLock<T>(
   const deadline = Date.now() + timeoutMs;
   let lastSeen: LockOwner | undefined;
   while (true) {
-    const attempt = acquire(lockPath, selfHostname);
+    const attempt = acquire(lockPath, selfHostname, options);
     if (attempt.ok) break;
     lastSeen = attempt.lastSeen ?? lastSeen;
     if (Date.now() >= deadline) {
@@ -199,7 +225,7 @@ export function withLockSync<T>(
   const deadline = Date.now() + timeoutMs;
   let lastSeen: LockOwner | undefined;
   while (true) {
-    const attempt = acquire(lockPath, selfHostname);
+    const attempt = acquire(lockPath, selfHostname, options);
     if (attempt.ok) break;
     lastSeen = attempt.lastSeen ?? lastSeen;
     if (Date.now() >= deadline) {
