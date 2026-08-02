@@ -1,10 +1,8 @@
 # SPEC EVOL — Track human AI report and deterministic snapshot
 
-Status: superseded 2026-07-27 — the AI-report route was replaced by the deterministic CLI report
+Status: accepted after two adversarial reviews; implementation-ready
 Date: 2026-07-14
 Scope: `@sentropic/track` read-only CLI/MCP surfaces and first-party h2a adapters
-
-> This document remains intact as the historical record of the accepted decision that was later reversed.
 
 ## Problem and product boundary
 

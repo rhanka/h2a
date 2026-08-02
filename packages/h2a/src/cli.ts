@@ -265,7 +265,11 @@ import { runLoopWatch, runTick } from "./runtime/loop/engine/tick.js";
 import { runLoopSupervisor } from "./runtime/loop/supervisor.js";
 import { gatherPendingDecisions } from "./runtime/canevas/gather.js";
 import { runCanevasServe } from "./runtime/canevas/serve.js";
-import { readH2AReportContext } from "./runtime/reporting/index.js";
+import {
+  installTrackReportAiConfig,
+  readH2AReportContext,
+  TrackReportAiConfigConflictError
+} from "./runtime/reporting/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `dist/cli.js` lives in `packages/h2a-cli/dist/`; skills are at
@@ -443,8 +447,10 @@ export function renderCliHelp(): string {
     "  h2a loop logs <loopId> [--agent <selector>] [--root <path>]",
     "  h2a loop supervise [--interval-ms <n>] [--root <path>]",
     "",
-    "Legacy Track context projection (leaf command; never calls Track report/snapshot):",
+    "Track AI adapters (leaf commands; never call Track report/snapshot):",
     "  h2a report-context --workspace-root <absolute-path> [--root <h2a-store>]",
+    "  h2a report-ai --model <model> --effort <low|medium|high|xhigh> --gateway required   (Track context envelope on stdin; one no-tools local-gateway request)",
+    "  h2a report-ai install-track-config [--force]   (atomic user XDG config, mode 0600; preserves overrides by default)",
     "",
     "Focus Web (packaged production app):",
     "  h2a focus serve [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]",
@@ -900,8 +906,7 @@ function cmdMailbox(
     const resolution = resolveRecipient({
       target: flags.instance,
       liveInstances: liveSessions,
-      registeredInstances: registeredIds,
-      operation: "read"
+      registeredInstances: registeredIds
     });
     if (resolution.kind === "refuse") {
       streams.stderr.write(
@@ -6653,6 +6658,24 @@ function cmdReportContext(
   }
 }
 
+function cmdInstallTrackReportAiConfig(
+  flags: Record<string, string>,
+  streams: H2ACliStreams
+): number {
+  try {
+    const result = installTrackReportAiConfig({ force: flags.force === "true" });
+    streams.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);
+    return 0;
+  } catch (err) {
+    if (err instanceof TrackReportAiConfigConflictError) {
+      streams.stderr.write(`h2a report-ai install-track-config: ${err.message}\n`);
+      return 2;
+    }
+    streams.stderr.write(`h2a report-ai install-track-config: ${(err as Error).message}\n`);
+    return 3;
+  }
+}
+
 function resolveTrackBin(): string {
   // Le champ `exports` de @sentropic/track bloque l'accès à ./package.json,
   // donc on résout l'entrée puis on remonte jusqu'au package.json du package.
@@ -6830,6 +6853,11 @@ export function runCli(
   }
 
   if (command === "report-context") return cmdReportContext(flags, streams);
+  if (command === "report-ai") {
+    if (argv[1] === "install-track-config") return cmdInstallTrackReportAiConfig(flags, streams);
+    streams.stderr.write("h2a report-ai: async adapter command — run via the h2a binary\n");
+    return 1;
+  }
 
   if (command === "init") return cmdInit(flags, streams);
   if (command === "register") return cmdRegister(flags, streams);

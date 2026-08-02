@@ -63,8 +63,6 @@ import {
   startLocalSession,
   startHeadlessSession,
   installH2aStatusSurface,
-  installH2aStatusSurfaceWithAccess,
-  type H2aStatusOptionAccess,
   startH2aWindow,
   startH2aWindowVerified,
   validateManagedTmuxProfile,
@@ -1934,52 +1932,6 @@ describe("session-option targets (tmux 3.6 regression)", () => {
     );
     for (const args of sessionOptionCalls) {
       expect(args[args.indexOf("-t") + 1]).toBe("=h2a-worker:");
-    }
-  });
-});
-
-describe("status surface per-refresh spawn ban (2026-07-31 storm)", () => {
-  function fakeAccess(): {
-    store: Map<string, string>;
-    access: H2aStatusOptionAccess;
-  } {
-    const store = new Map<string, string>([
-      ["status", "on"],
-      ["status-left", "[prev] "],
-      ["status-right", "%H:%M"],
-      ["status-interval", "1"],
-      ["status-left-length", "10"],
-      ["status-right-length", "40"],
-    ]);
-    return {
-      store,
-      access: {
-        read: (_session, option) => store.get(option) ?? "",
-        set: (_session, option, value) => {
-          store.set(option, value);
-          return true;
-        },
-        unset: (_session, option) => {
-          store.delete(option);
-          return true;
-        },
-      },
-    };
-  }
-
-  it("installs a bar whose only per-refresh commands are file reads", () => {
-    const { store, access } = fakeAccess();
-    expect(installH2aStatusSurfaceWithAccess("h2a-worker", access)).toBe(true);
-    for (const option of ["status-left", "status-right"] as const) {
-      const value = store.get(option) ?? "";
-      expect(value).not.toContain("#(h2a");
-      const commands = [...value.matchAll(/#\(([^)]*)\)/g)].map(
-        (match) => match[1],
-      );
-      expect(commands.length).toBeGreaterThan(0);
-      for (const command of commands) {
-        expect(command).toMatch(/^cat /);
-      }
     }
   });
 });
