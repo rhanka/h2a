@@ -37,6 +37,7 @@ import { delimiter, dirname, join, relative } from "node:path";
 import type { H2ASession } from "../session.js";
 import { resolveHostConfigCompanionBase, resolveHostConfigRoot } from "../runtime/host-config-root.js";
 import { currentCliVersion } from "../runtime/upgrade/index.js";
+import { CLAUDE_NATIVE_MCP_ROOT_KEY } from "./installation-doctor-contract.js";
 
 export const H2A_PLUGIN_SELECTOR = "h2a@sentropic";
 export const H2A_MARKETPLACE_NAME = "sentropic";
@@ -1508,7 +1509,7 @@ function jsonObjectProperties(raw: string, objectStart: number): JsonObjectPrope
 
 function removeOwnedJsonMcpEntries(raw: string): string | undefined {
   const root = jsonObjectProperties(raw, skipJsonWhitespace(raw, 0));
-  const mcpServers = root?.find((property) => property.key === "mcpServers");
+  const mcpServers = root?.find((property) => property.key === CLAUDE_NATIVE_MCP_ROOT_KEY);
   if (!mcpServers || raw[mcpServers.valueStart] !== "{") return raw;
   const servers = jsonObjectProperties(raw, mcpServers.valueStart);
   if (!servers) return undefined;
