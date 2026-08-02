@@ -4,9 +4,21 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      force_drift:
+        description: "Force a detector failure to exercise issue lifecycle handling"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  # Serialize detector runs so two red runs cannot race between the label lookup and issue creation.
+  group: codex-drift
+  cancel-in-progress: false
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   host-oracle-drift:
@@ -21,22 +33,132 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      - run: npm ci
-      - run: npm run build
-      - name: Install the latest codex CLI for drift detection
-        run: npm i -g @openai/codex
-      - name: Codex rejects an invalid preserved configuration
+      - name: Run the latest Codex host oracle
+        id: detector
+        continue-on-error: true
         run: |
           set -euo pipefail
+          pinned_version="$(sed -n 's/.*@openai\/codex@\([^[:space:]]*\).*/\1/p' .github/workflows/ci.yml | head -1)"
+          [ -n "$pinned_version" ] || pinned_version="unknown"
+          echo "pinned_version=$pinned_version" >> "$GITHUB_OUTPUT"
+          echo "detected_version=unavailable" >> "$GITHUB_OUTPUT"
+
+          npm ci
+          npm run build
+          npm i -g @openai/codex
+          detected_version="$(codex --version 2>&1 | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g; s/[[:space:]]*$//')"
+          [ -n "$detected_version" ] || detected_version="unavailable"
+          echo "detected_version=$detected_version" >> "$GITHUB_OUTPUT"
+
           unset CODEX_HOME CLAUDE_CONFIG_DIR
           node --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
-      - name: Ask the host what it serves
-        run: |
-          set -euo pipefail
-          unset CODEX_HOME CLAUDE_CONFIG_DIR
           bash docs/uat/probe-oracle.sh
-      - name: An error is not an absence
-        run: |
-          set -euo pipefail
-          unset CODEX_HOME CLAUDE_CONFIG_DIR
           bash docs/uat/probe-presence.sh
+
+          if [ "${{ inputs.force_drift || false }}" = "true" ]; then
+            echo "Forced detector failure requested by workflow_dispatch."
+            exit 1
+          fi
+
+      - name: Open or resolve the Codex drift issue
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          DETECTOR_OUTCOME: ${{ steps.detector.outcome }}
+          DETECTED_VERSION: ${{ steps.detector.outputs.detected_version }}
+          PINNED_VERSION: ${{ steps.detector.outputs.pinned_version }}
+          FORCE_DRIFT: ${{ inputs.force_drift || false }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const labelName = 'codex-drift';
+            const { owner, repo } = context.repo;
+            const detectorOutcome = process.env.DETECTOR_OUTCOME;
+            const isDrift = detectorOutcome === 'failure';
+            const isGreen = detectorOutcome === 'success';
+            const runUrl = process.env.RUN_URL;
+            const detectedVersion = process.env.DETECTED_VERSION || 'unavailable';
+            const pinnedVersion = process.env.PINNED_VERSION || 'unknown';
+            const forced = process.env.FORCE_DRIFT === 'true';
+
+            const labels = await github.paginate(github.rest.issues.listLabelsForRepo, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+            if (!labels.some((label) => label.name === labelName)) {
+              await github.rest.issues.createLabel({
+                owner,
+                repo,
+                name: labelName,
+                color: 'b60205',
+                description: 'An upstream Codex release diverges from the host doctor',
+              });
+            }
+
+            const openIssues = (await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              labels: labelName,
+              per_page: 100,
+            })).filter((issue) => !issue.pull_request);
+
+            if (isDrift) {
+              if (openIssues.length > 0) {
+                core.info(`Codex drift issue #${openIssues[0].number} is already open; no duplicate created.`);
+                return;
+              }
+
+              const issue = await github.rest.issues.create({
+                owner,
+                repo,
+                title: '[codex-drift] Host oracle diverged from latest Codex',
+                labels: [labelName],
+                body: [
+                  '# Codex drift detected',
+                  '',
+                  `The unpinned Codex host oracle failed on [workflow run](${runUrl}).`,
+                  '',
+                  `- Latest Codex that triggered the detector: \`${detectedVersion}\``,
+                  `- Codex version currently pinned in \`host-oracle\`: \`${pinnedVersion}\``,
+                  `- Run: ${runUrl}`,
+                  `- Trigger: ${forced ? 'workflow_dispatch test injection' : 'scheduled detector'}`,
+                  '',
+                  '## Next action',
+                  '',
+                  'Test the latest Codex release and either raise the host-oracle pin after confirming compatibility, or treat the divergence as a product defect and fix the doctor/oracle contract.',
+                  '',
+                  'This issue is the single notification for the current drift episode; subsequent red runs do not create duplicates.',
+                ].join('\n'),
+              });
+              core.notice(`Opened Codex drift issue #${issue.data.number}.`);
+              return;
+            }
+
+            if (!isGreen) {
+              core.warning(`Detector outcome was ${detectorOutcome}; leaving existing drift issues unchanged.`);
+              return;
+            }
+
+            for (const issue of openIssues) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issue.number,
+                body: `The Codex drift detector is green again on [workflow run](${runUrl}); closing this drift episode.`,
+              });
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: issue.number,
+                state: 'closed',
+              });
+              core.notice(`Closed resolved Codex drift issue #${issue.number}.`);
+            }
+
+      - name: Preserve detector failure after notification
+        if: always() && steps.detector.outcome == 'failure'
+        run: |
+          echo "The Codex drift detector failed; notification handling must not mask that failure."
+          exit 1
