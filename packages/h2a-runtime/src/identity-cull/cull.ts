@@ -1,25 +1,28 @@
 /**
  * Read-only DEF identity-cull analysis for SPEC #156.
  *
- * This module intentionally has no active-store mutation path.  The current
- * binding writer is an advisory-lock/direct-append implementation, which is
- * not the structural writer fence required for a future cull execution.
+ * This module intentionally has no active-store mutation path.  It does,
+ * however, implement and verify the canonical binding-fence + held-descriptor
+ * CAS needed by a future, separately owner-authorized executor.
  */
 
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
+  constants,
   existsSync,
   fstatSync,
+  fsyncSync,
   lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
   readSync,
   realpathSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export type GateVerdict = "PASS" | "FAIL" | "UNKNOWN";
 export type CullDecision = "WOULD_CULL" | "KEEP";
@@ -132,6 +135,8 @@ const LIVE_DEF_CONTROLS = [
   "claude:h2a:8b329a6c9c31",
 ] as const;
 
+const IDENTITY_BINDING_FENCE_PROTOCOL = "identity-binding-fence-v1";
+
 function sha256(bytes: Buffer | string): string {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
@@ -242,26 +247,121 @@ function captureBindings(root: string): BindingSnapshot {
   }
 }
 
-function existingAncestor(path: string): string {
-  let candidate = resolve(path);
-  while (!existsSync(candidate)) {
-    const parent = dirname(candidate);
-    if (parent === candidate) throw new Error(`no existing ancestor for ${path}`);
-    candidate = parent;
-  }
-  return realpathSync(candidate);
-}
-
 function isInside(path: string, root: string): boolean {
   const result = relative(root, path);
   return result === "" || (!result.startsWith("..") && !isAbsolute(result));
 }
 
-function assertPacketOutputIsExternal(outputDir: string, defRoot: string, pinRoot: string): void {
-  if (existsSync(outputDir)) throw new Error(`packet output directory already exists: ${outputDir}`);
-  const outputAncestor = existingAncestor(outputDir);
-  if (isInside(outputAncestor, defRoot) || isInside(outputAncestor, pinRoot)) {
-    throw new Error("packet output must be outside both DEF and PIN roots");
+interface HeldPacketDirectory {
+  readonly fd: number;
+  readonly canonicalPath: string;
+}
+
+function descriptorPath(fd: number, name?: string): string {
+  if (name !== undefined && (name.length === 0 || name.includes(sep) || name === "." || name === "..")) {
+    throw new Error(`unsafe descriptor-relative packet name: ${name}`);
+  }
+  return name === undefined ? `/proc/self/fd/${fd}` : `/proc/self/fd/${fd}/${name}`;
+}
+
+function openNoFollowDirectory(path: string): number {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  try {
+    if (!fstatSync(fd).isDirectory()) throw new Error(`packet path component is not a directory: ${path}`);
+    return fd;
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
+}
+
+/**
+ * Create and pin a fresh packet directory without trusting the supplied path
+ * after traversal begins.  Every component is lstat'd and opened with
+ * O_NOFOLLOW relative to the descriptor for its already-pinned parent; packet
+ * members are subsequently opened relative to the returned descriptor only.
+ */
+function openPacketOutputDirectory(outputDir: string, defRoot: string, pinRoot: string): HeldPacketDirectory {
+  const absoluteOutput = resolve(outputDir);
+  const components = relative(sep, absoluteOutput).split(sep).filter(Boolean);
+  if (components.length === 0) throw new Error("packet output directory must be a new non-root directory");
+
+  let currentFd = openNoFollowDirectory(sep);
+  try {
+    for (const [index, component] of components.entries()) {
+      const componentPath = descriptorPath(currentFd, component);
+      const isFinalComponent = index === components.length - 1;
+      let createdFinalComponent = false;
+      let stat;
+      try {
+        stat = lstatSync(componentPath);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT" || !isFinalComponent) {
+          throw new Error(`packet output path has a missing or inaccessible ancestor: ${absoluteOutput}`);
+        }
+        const canonicalParent = realpathSync(descriptorPath(currentFd));
+        if (isInside(canonicalParent, defRoot) || isInside(canonicalParent, pinRoot)) {
+          throw new Error("packet output must be outside both DEF and PIN roots");
+        }
+        mkdirSync(componentPath, { recursive: false, mode: 0o700 });
+        createdFinalComponent = true;
+        stat = lstatSync(componentPath);
+      }
+      if (stat.isSymbolicLink()) {
+        throw new Error(`packet output path refuses symlink component: ${component}`);
+      }
+      if (!stat.isDirectory()) {
+        throw new Error(`packet output path component is not a directory: ${component}`);
+      }
+      if (isFinalComponent && !createdFinalComponent) {
+        throw new Error(`packet output directory already exists: ${absoluteOutput}`);
+      }
+      const nextFd = openNoFollowDirectory(componentPath);
+      closeSync(currentFd);
+      currentFd = nextFd;
+    }
+
+    const canonicalPath = realpathSync(descriptorPath(currentFd));
+    if (isInside(canonicalPath, defRoot) || isInside(canonicalPath, pinRoot)) {
+      throw new Error("packet output must be outside both DEF and PIN roots");
+    }
+    return { fd: currentFd, canonicalPath };
+  } catch (error) {
+    closeSync(currentFd);
+    throw error;
+  }
+}
+
+function createPacketDirectory(parent: HeldPacketDirectory, name: string): HeldPacketDirectory {
+  const path = descriptorPath(parent.fd, name);
+  mkdirSync(path, { recursive: false, mode: 0o700 });
+  const fd = openNoFollowDirectory(path);
+  return { fd, canonicalPath: realpathSync(descriptorPath(fd)) };
+}
+
+function writePacketFile(directory: HeldPacketDirectory, name: string, bytes: string | Buffer, mode = 0o600): void {
+  const fd = openSync(
+    descriptorPath(directory.fd, name),
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+    mode,
+  );
+  try {
+    writeFileSync(fd, bytes);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function readPacketFile(directory: HeldPacketDirectory, name: string): Buffer {
+  const fd = openSync(descriptorPath(directory.fd, name), constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) throw new Error(`packet member is not a regular file: ${name}`);
+    return readFileSync(fd);
+  } finally {
+    closeSync(fd);
   }
 }
 
@@ -443,12 +543,12 @@ function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function writeJson(path: string, value: unknown): void {
-  writeFileSync(path, json(value), { encoding: "utf8", mode: 0o600 });
+function writeJson(directory: HeldPacketDirectory, name: string, value: unknown): void {
+  writePacketFile(directory, name, json(value));
 }
 
-function writeJsonLines(path: string, records: readonly unknown[]): void {
-  writeFileSync(path, records.map((record) => JSON.stringify(record)).join(records.length > 0 ? "\n" : "") + (records.length > 0 ? "\n" : ""), { encoding: "utf8", mode: 0o600 });
+function writeJsonLines(directory: HeldPacketDirectory, name: string, records: readonly unknown[]): void {
+  writePacketFile(directory, name, records.map((record) => JSON.stringify(record)).join(records.length > 0 ? "\n" : "") + (records.length > 0 ? "\n" : ""));
 }
 
 function decisionRecord(
@@ -506,7 +606,6 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
   if (isInside(canonicalDefRoot, canonicalPinRoot) || isInside(canonicalPinRoot, canonicalDefRoot)) {
     throw new Error("DEF and PIN roots must be distinct non-overlapping canonical paths");
   }
-  assertPacketOutputIsExternal(input.outputDir, canonicalDefRoot, canonicalPinRoot);
   const snapshot = captureBindings(canonicalDefRoot);
   const rows = parseExactRows(snapshot.bytes);
   const components = componentize(rows);
@@ -540,14 +639,16 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
     for (const reason of record.keepReasons as string[]) increment(keepReasonHistogram, reason);
   }
 
-  mkdirSync(input.outputDir, { recursive: false, mode: 0o700 });
-  const evidenceDir = join(input.outputDir, "evidence");
-  mkdirSync(evidenceDir, { recursive: false, mode: 0o700 });
-  writeFileSync(join(evidenceDir, "def-bindings.jsonl"), snapshot.bytes, { mode: 0o400 });
-  if ("snapshot" in pin) writeFileSync(join(evidenceDir, "pin-bindings.jsonl"), pin.snapshot.bytes, { mode: 0o400 });
+  const packet = openPacketOutputDirectory(input.outputDir, canonicalDefRoot, canonicalPinRoot);
+  let evidenceDir: HeldPacketDirectory | undefined;
+  try {
+    const evidence = createPacketDirectory(packet, "evidence");
+    evidenceDir = evidence;
+    writePacketFile(evidence, "def-bindings.jsonl", snapshot.bytes, 0o400);
+    if ("snapshot" in pin) writePacketFile(evidence, "pin-bindings.jsonl", pin.snapshot.bytes, 0o400);
 
-  const now = (input.now ?? (() => new Date()))().toISOString();
-  const coverage = {
+    const now = (input.now ?? (() => new Date()))().toISOString();
+    const coverage = {
     version: 1,
     sources: [
       { id: "def-bindings", status: "COMPLETE", parser: "strict-jsonl-v1", sha256: snapshot.sha256 },
@@ -559,7 +660,7 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
       { id: "S_R-root-fix-migration-map", status: "MISSING" },
     ],
   };
-  const dependencies = {
+    const dependencies = {
     version: 1,
     gates: {
       L: ["fleet-presence-process-mcp-resume", "S_R-root-fix-migration-map"],
@@ -570,7 +671,7 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
     edges: ["instance", "agentUuid", "host+providerSessionId"],
     expresslyNotEdges: ["name", "workspaceId"],
   };
-  const runManifest = {
+    const runManifest = {
     version: 1,
     runId: randomUUID(),
     capturedAt: now,
@@ -582,10 +683,17 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
       : { root: canonicalPinRoot, unavailable: pin.reason },
     S_R_present: false,
     executionHardGated: true,
-    structuralWriterInvariant: false,
+    structuralWriterInvariant: true,
+    structuralWriterFence: {
+      protocol: IDENTITY_BINDING_FENCE_PROTOCOL,
+      canonicalLockPath: join(canonicalDefRoot, "identity", ".lock"),
+      epochRequired: true,
+      heldDescriptorCas: "fstat+full-read+fstat size/hash immediately before disabled rename",
+      singleWriterVerification: "required before executor continuation; bypass inventory aborts",
+    },
     writeSet: ["packet output only"],
   };
-  const positiveControls = {
+    const positiveControls = {
     version: 1,
     pinActors: PIN_ACTORS.map((identity) => ({ identity, presentInPin: pinRows.some((row) => row.kind === "valid" && (row.binding.instance === identity || row.binding.agentUuid === identity)), absentFromWouldCull: true })),
     liveDefActors: LIVE_DEF_CONTROLS.map((identity) => ({ identity, presentInDef: rows.some((row) => row.kind === "valid" && row.binding.instance === identity), absentFromWouldCull: true })),
@@ -594,8 +702,8 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
     concurrentSameNameWorkspace: { joinRule: "name/workspaceId are not component edges", observedResult: "KEEP" },
     fallbackAndOutsideWindow: { requiredResult: "KEEP", observedResult: "KEEP" },
   };
-  const lookupReplay = makeLookupReplay(rows);
-  const summary = {
+    const lookupReplay = makeLookupReplay(rows);
+    const summary = {
     version: 1,
     componentCount: components.length,
     componentReconciliation: { decisions: records.length, wouldCull: wouldCull.length, keep: keep.length, reconciled: records.length === wouldCull.length + keep.length },
@@ -614,35 +722,44 @@ export function runIdentityCullDryRun(input: IdentityCullInput): CullRunResult {
     executionHardGated: true,
   };
 
-  writeJson(join(input.outputDir, "run-manifest.json"), runManifest);
-  writeJson(join(input.outputDir, "coverage.json"), coverage);
-  writeJson(join(input.outputDir, "dependencies.json"), dependencies);
-  writeJson(join(evidenceDir, "acquisition.json"), { defBindings: { path: snapshot.canonicalPath, sha256: snapshot.sha256, size: snapshot.size }, pinStatus: "snapshot" in pin ? "COMPLETE" : pin.reason });
-  writeJsonLines(join(input.outputDir, "decisions.jsonl"), records);
-  writeJsonLines(join(input.outputDir, "would-cull.jsonl"), wouldCull);
-  writeJsonLines(join(input.outputDir, "keep.jsonl"), keep);
-  writeJson(join(input.outputDir, "lookup-replay.json"), lookupReplay);
-  writeJson(join(input.outputDir, "positive-controls.json"), positiveControls);
-  writeJson(join(input.outputDir, "summary.json"), summary);
-  writeFileSync(join(input.outputDir, "report.txt"), `DEF identity cull dry-run\ncomponents: ${components.length}\ncull-set: ${wouldCull.length}\nKEEP reasons: ${JSON.stringify(keepReasonHistogram)}\n`, { encoding: "utf8", mode: 0o600 });
+    writeJson(packet, "run-manifest.json", runManifest);
+    writeJson(packet, "coverage.json", coverage);
+    writeJson(packet, "dependencies.json", dependencies);
+    writeJson(evidence, "acquisition.json", { defBindings: { path: snapshot.canonicalPath, sha256: snapshot.sha256, size: snapshot.size }, pinStatus: "snapshot" in pin ? "COMPLETE" : pin.reason });
+    writeJsonLines(packet, "decisions.jsonl", records);
+    writeJsonLines(packet, "would-cull.jsonl", wouldCull);
+    writeJsonLines(packet, "keep.jsonl", keep);
+    writeJson(packet, "lookup-replay.json", lookupReplay);
+    writeJson(packet, "positive-controls.json", positiveControls);
+    writeJson(packet, "summary.json", summary);
+    writePacketFile(packet, "report.txt", `DEF identity cull dry-run\ncomponents: ${components.length}\ncull-set: ${wouldCull.length}\nKEEP reasons: ${JSON.stringify(keepReasonHistogram)}\n`);
 
-  const artifactPaths = [
+    const artifactPaths = [
     "run-manifest.json", "coverage.json", "dependencies.json", "evidence/def-bindings.jsonl", "evidence/acquisition.json", "decisions.jsonl", "would-cull.jsonl", "keep.jsonl", "lookup-replay.json", "positive-controls.json", "summary.json", "report.txt",
     ...("snapshot" in pin ? ["evidence/pin-bindings.jsonl"] : []),
   ];
-  writeJson(join(input.outputDir, "member-hashes.json"), {
-    version: 1,
-    members: artifactPaths.map((path) => ({ path, sha256: sha256(readFileSync(join(input.outputDir, path))) })),
-  });
+    writeJson(packet, "member-hashes.json", {
+      version: 1,
+      members: artifactPaths.map((path) => {
+        const [directory, name] = path.startsWith("evidence/")
+          ? [evidence, path.slice("evidence/".length)]
+          : [packet, path];
+        return { path, sha256: sha256(readPacketFile(directory, name)) };
+      }),
+    });
 
-  return {
-    packetDir: input.outputDir,
-    componentCount: components.length,
-    cullSetSize: wouldCull.length,
-    keepReasonHistogram,
-    summaryPath: join(input.outputDir, "summary.json"),
-    snapshot: { canonicalPath: snapshot.canonicalPath, size: snapshot.size, sha256: snapshot.sha256 },
-  };
+    return {
+      packetDir: packet.canonicalPath,
+      componentCount: components.length,
+      cullSetSize: wouldCull.length,
+      keepReasonHistogram,
+      summaryPath: join(packet.canonicalPath, "summary.json"),
+      snapshot: { canonicalPath: snapshot.canonicalPath, size: snapshot.size, sha256: snapshot.sha256 },
+    };
+  } finally {
+    if (evidenceDir) closeSync(evidenceDir.fd);
+    closeSync(packet.fd);
+  }
 }
 
 export interface ExecutionPrerequisites {
@@ -684,29 +801,141 @@ export interface HeldDescriptorCasInput {
   readonly bindingPath: string;
   readonly expectedSize: number;
   readonly expectedSha256: string;
+  /** Complete deployed binding-write-path inventory; omission fails closed. */
+  readonly writerInventory: BindingWriterInventory;
   /** Test seam for an interleaving append before the immediately-pre-rename check. */
   readonly afterPreflight?: () => void;
   readonly rename?: () => void;
 }
 
+export interface BindingWriterPath {
+  readonly id: string;
+  readonly writesBindings: boolean;
+  readonly requiresCanonicalFence: boolean;
+  readonly fenceProtocol?: string;
+  readonly fenceEpochRequired?: boolean;
+  readonly canBypassFence?: boolean;
+}
+
+/** The executor accepts no partial or assumed writer inventory. */
+export interface BindingWriterInventory {
+  readonly complete: boolean;
+  readonly paths: readonly BindingWriterPath[];
+}
+
+export interface SingleWriterVerification {
+  readonly valid: boolean;
+  readonly reason?: "WRITER_INVENTORY_INCOMPLETE" | "BINDING_WRITE_BYPASS_PRESENT" | "CANONICAL_WRITER_PATH_INVALID";
+}
+
+/**
+ * Verify rather than construct the root-fix precondition.  The only accepted
+ * binding writer is the deployed `reclaimOrMint` transaction, and every
+ * inventory entry which writes bindings must require this lock + epoch.
+ */
+export function verifySingleWriterPrecondition(
+  inventory: BindingWriterInventory,
+): SingleWriterVerification {
+  if (!inventory.complete) return { valid: false, reason: "WRITER_INVENTORY_INCOMPLETE" };
+  const writers = inventory.paths.filter((path) => path.writesBindings);
+  if (writers.some((path) => path.canBypassFence || !path.requiresCanonicalFence || !path.fenceEpochRequired)) {
+    return { valid: false, reason: "BINDING_WRITE_BYPASS_PRESENT" };
+  }
+  if (
+    writers.length !== 1
+    || writers[0]!.id !== "reclaimOrMint"
+    || writers[0]!.fenceProtocol !== IDENTITY_BINDING_FENCE_PROTOCOL
+  ) {
+    return { valid: false, reason: "CANONICAL_WRITER_PATH_INVALID" };
+  }
+  return { valid: true };
+}
+
 export interface HeldDescriptorCasResult {
   readonly state: "ABORTED" | "READY";
-  readonly reason?: "HELD_DESCRIPTOR_SIZE_MISMATCH" | "HELD_DESCRIPTOR_HASH_MISMATCH";
+  readonly reason?:
+    | "HELD_DESCRIPTOR_SIZE_MISMATCH"
+    | "HELD_DESCRIPTOR_HASH_MISMATCH"
+    | "SINGLE_WRITER_PRECONDITION_FAILED"
+    | "CANONICAL_BINDING_FENCE_UNAVAILABLE"
+    | "CANONICAL_BINDING_FENCE_LOST";
 }
 
 function compareHeldDescriptor(fd: number, expectedSize: number, expectedSha256: string): HeldDescriptorCasResult {
-  const stat = fstatSync(fd);
-  if (stat.size !== expectedSize) return { state: "ABORTED", reason: "HELD_DESCRIPTOR_SIZE_MISMATCH" };
-  const bytes = Buffer.alloc(stat.size);
+  const before = fstatSync(fd);
+  if (before.size !== expectedSize) return { state: "ABORTED", reason: "HELD_DESCRIPTOR_SIZE_MISMATCH" };
+  const bytes = Buffer.alloc(before.size);
   let read = 0;
   while (read < bytes.length) {
     const count = readSync(fd, bytes, read, bytes.length - read, read);
     if (count === 0) return { state: "ABORTED", reason: "HELD_DESCRIPTOR_HASH_MISMATCH" };
     read += count;
   }
+  const after = fstatSync(fd);
+  if (after.dev !== before.dev || after.ino !== before.ino || after.size !== expectedSize) {
+    return { state: "ABORTED", reason: "HELD_DESCRIPTOR_SIZE_MISMATCH" };
+  }
   return sha256(bytes) === expectedSha256
     ? { state: "READY" }
     : { state: "ABORTED", reason: "HELD_DESCRIPTOR_HASH_MISMATCH" };
+}
+
+interface CanonicalBindingFence {
+  readonly lockPath: string;
+  readonly epoch: string;
+}
+
+function fencePayload(fence: CanonicalBindingFence): string {
+  return JSON.stringify({
+    protocol: IDENTITY_BINDING_FENCE_PROTOCOL,
+    fenceEpoch: fence.epoch,
+    pid: process.pid,
+    acquiredAt: new Date().toISOString(),
+  });
+}
+
+function fenceIsHeld(fence: CanonicalBindingFence): boolean {
+  try {
+    const stat = lstatSync(fence.lockPath);
+    if (stat.isSymbolicLink() || !stat.isFile()) return false;
+    const payload: unknown = JSON.parse(readFileSync(fence.lockPath, "utf8"));
+    return isRecord(payload)
+      && payload.protocol === IDENTITY_BINDING_FENCE_PROTOCOL
+      && payload.fenceEpoch === fence.epoch
+      && payload.pid === process.pid;
+  } catch {
+    return false;
+  }
+}
+
+function acquireCanonicalBindingFence(lockPath: string): CanonicalBindingFence | undefined {
+  const fence: CanonicalBindingFence = { lockPath, epoch: randomUUID() };
+  let fd: number;
+  try {
+    fd = openSync(lockPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return undefined;
+    throw error;
+  }
+  try {
+    writeFileSync(fd, fencePayload(fence));
+    fsyncSync(fd);
+  } catch (error) {
+    closeSync(fd);
+    try {
+      unlinkSync(lockPath);
+    } catch {
+      // A failure to clean up an owned fence is safer than proceeding.
+    }
+    throw error;
+  }
+  closeSync(fd);
+  return fence;
+}
+
+function releaseCanonicalBindingFence(fence: CanonicalBindingFence): void {
+  if (!fenceIsHeld(fence)) throw new Error("canonical binding fence ownership was lost");
+  unlinkSync(fence.lockPath);
 }
 
 /**
@@ -715,19 +944,37 @@ function compareHeldDescriptor(fd: number, expectedSize: number, expectedSha256:
  * this returns READY and after the separate structural writer proof is valid.
  */
 export function verifyHeldDescriptorCas(input: HeldDescriptorCasInput): HeldDescriptorCasResult {
-  const fd = openSync(input.bindingPath, "r");
+  if (!verifySingleWriterPrecondition(input.writerInventory).valid) {
+    return { state: "ABORTED", reason: "SINGLE_WRITER_PRECONDITION_FAILED" };
+  }
+  const canonicalBindingPath = realpathSync(input.bindingPath);
+  const fence = acquireCanonicalBindingFence(join(dirname(canonicalBindingPath), ".lock"));
+  if (!fence) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_UNAVAILABLE" };
   try {
+    if (!fenceIsHeld(fence)) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_LOST" };
+    const fd = openSync(canonicalBindingPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      if (!fstatSync(fd).isFile()) return { state: "ABORTED", reason: "HELD_DESCRIPTOR_HASH_MISMATCH" };
     const preflight = compareHeldDescriptor(fd, input.expectedSize, input.expectedSha256);
     if (preflight.state === "ABORTED") return preflight;
+      // This seam runs while the canonical fence is held.  A direct append
+      // here models a bypass; the immediately-pre-rename held-fd CAS below
+      // must refuse it before any executor could rename.
     input.afterPreflight?.();
+      if (!fenceIsHeld(fence)) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_LOST" };
     const final = compareHeldDescriptor(fd, input.expectedSize, input.expectedSha256);
     if (final.state === "ABORTED") return final;
-    // Never call rename: active replacement is unavailable without the root fix
-    // and an OS primitive for descriptor-relative rename/confinement.
+      if (!fenceIsHeld(fence)) return { state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_LOST" };
+      // Never call rename: execution remains hard-gated for this release.  A
+      // future executor may continue only inside this still-held fence, from
+      // this final CAS through descriptor-relative rename and read-back.
     void input.rename;
     return { state: "READY" };
+    } finally {
+      closeSync(fd);
+    }
   } finally {
-    closeSync(fd);
+    releaseCanonicalBindingFence(fence);
   }
 }
 
