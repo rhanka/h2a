@@ -7723,9 +7723,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
           continue;
         }
-        if (!killLocalSession(action.name)) {
+        if (!safety.identity) {
           process.stderr.write(
-            `[h2a] FAILED to force-restart ${action.slug}: tmux session ${action.name} could not be killed.\n`,
+            `[h2a] skipped ${action.slug}: liveness identity was unreadable immediately before kill.\n`,
+          );
+          continue;
+        }
+        if (!killLocalSession(action.name, safety.identity)) {
+          process.stderr.write(
+            `[h2a] skipped ${action.slug}: tmux session ${action.name} changed or was no longer proven dead immediately before kill.\n`,
           );
           continue;
         }
