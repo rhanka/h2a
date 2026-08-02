@@ -1,6 +1,9 @@
 # EVOL — Native dispatch conformance contract
 
-Date: 2026-07-29. Revision 2 (2026-07-30), after two independent adversarial review legs.
+Date: 2026-07-29. Revision 3 (2026-08-02), after two independent adversarial review legs and
+the WP6 acceptance criteria. This revision preserves every revision-2 disposition; it changes the
+form of the claims, not their technical choice.
+
 Rung: **EVOL — paper only.** Authorizes no dispatch code, no engine work, no package change,
 no publish, no cutover. §6 states what each later phase unlocks.
 Work package: WP13. Track item: `01KWVNYNHVJGA8CCW566PG4WMH`.
@@ -8,6 +11,53 @@ Backbone: `docs/specs/2026-07-18-STUDY_h2a-native-agent-and-session-engine.md` �
 `docs/specs/2026-07-13-SPEC_STUDY_native-agent-via-sentropic.md`.
 Reviews reconciled: `docs/specs/reviews/2026-07-29-REVIEW-leg1-native-dispatch-evol.md`
 (4 blocking, 4 major) and `-leg2-` (4 blocking, 8 major, 3 minor). §7 dispositions all 23.
+
+## 0. Opposability protocol
+
+This EVOL has one normative surface: the clause registers introduced in revision 3. Explanatory
+prose, historical quotations, and code observations outside a register describe context only. A
+ratification DEC may incorporate clause ids, but it adds no unregistered requirement.
+
+Every registered clause has these fields:
+
+| Field | Meaning |
+|---|---|
+| `CLAUSE` | The bounded requirement or explicit non-claim. |
+| `PROOF` | A concrete artefact and a command or inspection path. `not-yet-written` means the named artefact does not exist in this checkout. |
+| `ENFORCEMENT-LEVEL` | Exactly one rung: `structural` > `test` > `spec-line` > `habit`. |
+| `LIMIT` | Where the guarantee stops; no clause implies more than this field says. |
+
+`structural` means a named mechanism rejects the violation. `test` means a named test fails on
+the violation. `spec-line` means the requirement is written but this checkout has no rejecting
+mechanism. `habit` means practice only. `habit` is intentionally visible: it is not a synonym for
+an implemented gate.
+
+The paper-only boundary is itself a clause rather than an assertion in the heading:
+
+| ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
+|---|---|---|---|---|
+| EVOL-00 | This EVOL authorizes no executable dispatch, engine, package, publish, or cutover change. | This header and `git show -- docs/specs/2026-07-29-SPEC_EVOL_native-dispatch-successor-contract.md`. | `spec-line` | A reader can detect a contradictory paper claim, but the document cannot reject a code commit. |
+
+### 0.1 Current-tree evidence snapshot (re-verified 2026-08-02)
+
+| Observation | Concrete source / verification |
+|---|---|
+| The live front authority is the ordered `bin.ts` chain; runtime fallback is reached at its final `shouldDispatchRuntime(argv)` branch. | `packages/h2a/src/bin.ts:110-284`; inspect with `nl -ba packages/h2a/src/bin.ts | sed -n '110,284p'`. |
+| The runtime predicate is first-token fallback: every non-native first token crosses its lazy boundary. | `packages/h2a/src/bin-routing.ts:31-49`; `node --test packages/h2a/test/bin-routing.test.js` exercises the current predicate. |
+| Runtime `main()` migrates configuration before profile-menu or Commander parsing. | `packages/h2a-runtime/src/index.ts:2302-2318`; inspect with `nl -ba packages/h2a-runtime/src/index.ts | sed -n '2302,2318p'`. |
+| An ordinary `run` selector resolves through `LOCAL_CLI[profile] ?? profile`; the existing `run` action creates a local tmux session and enrolls it. | `packages/h2a-runtime/src/index.ts:1946-2003,5344-5945`; creation and enrollment are at `:5728-5747` and `:5855-5868`. |
+| The interactive wrapper drops a TTY pane to `/bin/bash -l` after its CLI exits. | `packages/h2a-runtime/src/tmux.ts:92-102`. |
+| The legacy runtime `resume [slug]` command has its own registry/slug failure handling. | `packages/h2a-runtime/src/index.ts:4948-5341`. It is distinct from the frozen but unimplemented top-level spelling `h2a --resume`. |
+| CI runs `scripts/check-public-contract.sh`, which compares MCP and CLI-verb goldens and the core anti-cycle, not bare/`--resume` dispatch behavior. | `.github/workflows/ci.yml:60-64`; `scripts/check-public-contract.sh:12-38`. Reproduce the coverage audit with `rg -n 'check-public-contract|h2a-public-contract-v1|--resume' .github scripts docs packages`. |
+
+The source trace for an ordinary unknown `h2a run <selector>` is the baseline for §4.3: with no
+structured option, the selector reaches `localCliCommand`; a previously absent slug passes the
+existing-session check; `startLocalSession` creates tmux and persists its launch context; `enrollFromRun`
+records the session; and `LOCAL_WRAPPER` leaves an interactive pane as a login shell. The default
+single-run path forwards the tmux attach status (`packages/h2a-runtime/src/index.ts:5940-5953`,
+`packages/h2a-runtime/src/tmux.ts:1860-1871`), whose normal detach is 0; it is not an independently
+enforced exit invariant. This is source-trace verification, not an end-to-end invocation: executing
+the shipped runtime would first run the config-home migration above.
 
 ## 0. What revision 2 changes, and why
 
