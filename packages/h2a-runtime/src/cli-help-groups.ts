@@ -52,6 +52,7 @@ export type H2aRuntimeHelpGroupId =
   | "OBSERVE"
   | "COORDINATE"
   | "SET_UP"
+  | "SPECIALIST"
   | "SESSION_RECOVERY"
   | "TRANSPORT"
   | "LLM_LOCAL"
@@ -121,6 +122,11 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
       "resume",
       "stop",
     ],
+  },
+  {
+    id: "SPECIALIST",
+    heading: "Specialist identity tools (advanced):",
+    commands: ["identity"],
   },
   {
     // Vendored excerpt 3, § "Daily operator surface — top level", these rows:
