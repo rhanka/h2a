@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -51,6 +51,15 @@ function writeBindings(root: string, rows: readonly Record<string, string>[]): v
   writeFileSync(join(root, "identity", "bindings.jsonl"), rows.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
 }
 
+function makeCrossDevicePacketOutput(defRoot: string): string {
+  const packetParent = mkdtempSync("/dev/shm/h2a-identity-cull-packet-");
+  scratchRoots.push(packetParent);
+  if (statSync(packetParent).dev === statSync(defRoot).dev) {
+    throw new Error("test fixture requires /dev/shm to be on a different device than DEF");
+  }
+  return join(packetParent, "packet");
+}
+
 function makeRun(rows: readonly Record<string, string>[], evidence = completeEvidence) {
   const base = mkdtempSync(join(tmpdir(), "h2a-identity-cull-"));
   scratchRoots.push(base);
@@ -67,7 +76,7 @@ function makeRun(rows: readonly Record<string, string>[], evidence = completeEvi
   const result = runIdentityCullDryRun({
     defRoot,
     pinRoot,
-    outputDir: join(base, "packet"),
+    outputDir: makeCrossDevicePacketOutput(defRoot),
     ownerAllowlist: ["focus:local-human"],
     evidence,
     now: () => new Date("2026-08-02T12:00:00.000Z"),
@@ -146,6 +155,15 @@ describe("identity cull dry-run", () => {
       "checkActIsExecutorScopePer_§7_1": boolean;
       handoffContract: { specReference: string; executorScope: string; transferRule: string };
       structuralWriterFence: { protocol: string; epochRequired: boolean; heldDescriptorCas: string };
+      packetWriteConfinement: {
+        strategy: string;
+        packetDevice: number;
+        defDevice: number;
+        pinDevice: number;
+        structuralGuarantee: string;
+        mountChangeDetection: string;
+        residual: string;
+      };
     };
     expect(manifest).not.toHaveProperty("structuralWriterInvariant");
     expect(manifest.executionHardGated).toBe(true);
@@ -160,6 +178,12 @@ describe("identity cull dry-run", () => {
       epochRequired: true,
     });
     expect(manifest.structuralWriterFence.heldDescriptorCas).toContain("fstat+full-read+fstat");
+    expect(manifest.packetWriteConfinement.strategy).toBe("no-cross-device");
+    expect(manifest.packetWriteConfinement.packetDevice).not.toBe(manifest.packetWriteConfinement.defDevice);
+    expect(manifest.packetWriteConfinement.packetDevice).not.toBe(manifest.packetWriteConfinement.pinDevice);
+    expect(manifest.packetWriteConfinement.structuralGuarantee).toContain("cannot be renamed");
+    expect(manifest.packetWriteConfinement.mountChangeDetection).toContain("fstat");
+    expect(manifest.packetWriteConfinement.residual).toContain("openat2");
   });
 
   it("refuses outputDir chain symlinks into DEF or PIN before any packet write", () => {
@@ -195,13 +219,30 @@ describe("identity cull dry-run", () => {
     expect(existsSync(join(pinRoot, "packet"))).toBe(false);
   });
 
-  it("refuses a packet directory rename and symlink swap before any packet byte can land under DEF or PIN", () => {
+  it("refuses a packet output filesystem shared with DEF or PIN before packet creation", () => {
+    const base = mkdtempSync(join(tmpdir(), "h2a-identity-cull-same-device-"));
+    scratchRoots.push(base);
+    const defRoot = join(base, "def");
+    const pinRoot = join(base, "pin");
+    writeBindings(defRoot, [row()]);
+    writeBindings(pinRoot, [row({ providerSessionId: "pin" })]);
+
+    expect(() => runIdentityCullDryRun({
+      defRoot,
+      pinRoot,
+      outputDir: join(base, "packet"),
+      ownerAllowlist: ["focus:local-human"],
+      evidence: completeEvidence,
+    })).toThrow("packet output must be on a filesystem device distinct from both DEF and PIN");
+    expect(existsSync(join(base, "packet"))).toBe(false);
+  });
+
+  it("aborts an after-check rename before a packet byte can land under DEF or PIN", () => {
     for (const protectedRootName of ["def", "pin"] as const) {
       const base = mkdtempSync(join(tmpdir(), "h2a-identity-cull-write-swap-"));
       scratchRoots.push(base);
       const defRoot = join(base, "def");
       const pinRoot = join(base, "pin");
-      const packetDir = join(base, "packet");
       writeBindings(defRoot, [row()]);
       writeBindings(pinRoot, [row({ providerSessionId: "pin" })]);
       const protectedRoot = protectedRootName === "def" ? defRoot : pinRoot;
@@ -209,22 +250,30 @@ describe("identity cull dry-run", () => {
       const before = readFileSync(protectedBindings);
       const movedPacket = join(protectedRoot, `moved-packet-${protectedRootName}`);
       let swapped = false;
+      let afterWriteCheckCount = 0;
+      let failure: NodeJS.ErrnoException | undefined;
 
-      expect(() => runIdentityCullDryRun({
-        defRoot,
-        pinRoot,
-        outputDir: packetDir,
-        ownerAllowlist: ["focus:local-human"],
-        evidence: completeEvidence,
-        beforePacketWrite: (attempt) => {
-          if (swapped || attempt.kind !== "file" || attempt.name !== "def-bindings.jsonl") return;
-          swapped = true;
-          renameSync(attempt.packetRoot, movedPacket);
-          symlinkSync(protectedRoot, attempt.packetRoot, "dir");
-        },
-      })).toThrow("packet write containment lost");
+      try {
+        runIdentityCullDryRun({
+          defRoot,
+          pinRoot,
+          outputDir: makeCrossDevicePacketOutput(defRoot),
+          ownerAllowlist: ["focus:local-human"],
+          evidence: completeEvidence,
+          afterPacketWriteConfinement: (attempt) => {
+            if (swapped || attempt.kind !== "file" || attempt.name !== "def-bindings.jsonl" || attempt.phase !== "before-write") return;
+            afterWriteCheckCount += 1;
+            if (afterWriteCheckCount !== 1) return;
+            swapped = true;
+            renameSync(attempt.packetRoot, movedPacket);
+          },
+        });
+      } catch (error) {
+        failure = error as NodeJS.ErrnoException;
+      }
 
       expect(swapped).toBe(true);
+      expect(failure?.code).toBe("EXDEV");
       expect(existsSync(join(movedPacket, "evidence", "def-bindings.jsonl"))).toBe(false);
       expect(readFileSync(protectedBindings)).toEqual(before);
     }
