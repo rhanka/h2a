@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -266,6 +266,7 @@ import {
   type ConductorLaunchRequest,
 } from "./conductor-launch.js";
 import { defaultLocalH2aRoot } from "./h2a-bridge.js";
+import { refuseCullExecution, runIdentityCullDryRun } from "./identity-cull/cull.js";
 import { guardConvWriters } from "./conv-guard.js";
 import {
   handleClaudeHook,
@@ -2459,6 +2460,40 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         "demand. h2a runs and coordinates agents; it is not itself an agent.",
     )
     .version("0.0.0");
+
+  const identityCommand = program
+    .command("identity")
+    .description("Read-only DEF identity-cull proof packet; execution is disabled");
+
+  identityCommand
+    .command("cull")
+    .description("Emit a fail-closed DEF binding analysis packet (dry-run only)")
+    .option("--dry-run", "read DEF/PIN and emit only an external proof packet (default)")
+    .option("--execute", "refuse destructive execution; no bypass exists")
+    .option("--root <path>", "DEF h2a root (default: H2A_ROOT or ~/h2a-workspace/.h2a)")
+    .option("--output <path>", "new external directory for the proof packet")
+    .action((opts: { dryRun?: boolean; execute?: boolean; root?: string; output?: string }) => {
+      if (opts.execute) {
+        const refusal = refuseCullExecution();
+        process.stderr.write(`[h2a] identity cull refused: ${refusal.refusalCodes.join(", ")}\n`);
+        process.exitCode = 2;
+        return;
+      }
+      const defRoot = opts.root ?? process.env.H2A_ROOT ?? defaultLocalH2aRoot();
+      const outputDir = opts.output ?? join(tmpdir(), `h2a-identity-cull-${randomUUID()}`);
+      try {
+        const result = runIdentityCullDryRun({
+          defRoot,
+          pinRoot: join(homedir(), "src", "a2a-cli"),
+          outputDir,
+          operator: process.env.USER ?? "unknown",
+        });
+        process.stdout.write(`${JSON.stringify({ mode: "dry-run", packetDir: result.packetDir, componentCount: result.componentCount, cullSetSize: result.cullSetSize, keepReasonHistogram: result.keepReasonHistogram })}\n`);
+      } catch (error) {
+        process.stderr.write(`[h2a] identity cull dry-run failed: ${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 1;
+      }
+    });
 
   const tmuxCommand = program
     .command("tmux")

@@ -294,6 +294,8 @@ const RUNTIME_VERBS: readonly {
   { group: "SET_UP", verb: "check", summary: "End-to-end probe: create a session, await it, stop it (alias: smoke)." },
   { group: "SET_UP", verb: "tmux", summary: "Manage h2a's local tmux naming and status surface." },
 
+  { group: "SPECIALIST", verb: "identity", summary: "Emit a fail-closed DEF identity-cull proof packet; execution is disabled." },
+
   { group: "SESSION_RECOVERY", verb: "restore", summary: "Relaunch the dev sessions in their recorded layout." },
   { group: "SESSION_RECOVERY", verb: "relaunch", summary: "Recover an idle CLI, or force-restart one session or a guarded fleet from its registry conversation." },
   { group: "SESSION_RECOVERY", verb: "resume-throttled", summary: "Nudge rate-limited, detached sessions back to life." },
