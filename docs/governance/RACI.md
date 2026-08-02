@@ -214,7 +214,11 @@ as a mandate.
    workspace are registered `roles: ["AGENTS"]` — including `cond`, `arch`, `harness`
    and `cyber`. `h2a_conductor` returns `conductor: null, claimedBy: null` for the
    workspace. Measured 2026-07-29 21:37Z. So the roles above are, today, invisible to
-   the machine; provisioning them requires the owner's ratification.
+   the machine. `h2a org provision` does **not** require the owner's ratification: it
+   can append role/scope grants from any valid manifest when registry rows are
+   array-shaped. On this legacy scalar-shaped registry it instead fails before any
+   grant with `TypeError: r.roles is not iterable`, so provisioning cannot currently
+   be relied on to make these roles exist.
 
 2. **The conductor resolver cannot be reached by path.** `h2a_conductor` called with
    `workspacePath: /home/antoinefa/src/h2a` derives
@@ -270,9 +274,10 @@ as a mandate.
    in WP6 (identity & workspace); broadcast by the conductor.
 
 What would raise the A/R/C/I rung from spec line to structural, in order of cost:
-provision the ratified manifest so roles exist in the registry; give `track` a way to
-set `accountable`/`responsible` on an existing item; then gate the acts in table B on
-the actor's registered role, reusing the clearance gate rather than goodwill.
+repair provisioning so it accepts the real registry rows, and enforce the intended
+ratification boundary before treating its grants as structural role state; give `track`
+a way to set `accountable`/`responsible` on an existing item; then gate the acts in
+table B on the actor's registered role, reusing the clearance gate rather than goodwill.
 
 **Provisioning: two of my successive claims were wrong, in opposite directions.** For the
 record, because the corrections matter more than the conclusion.
