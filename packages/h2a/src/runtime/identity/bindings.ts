@@ -26,11 +26,19 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
 import { verifyCanonical, type H2ASignature } from "@sentropic/h2a";
 
 import { localStorePaths, withLockSync } from "../local-files/index.js";
+
+/**
+ * The one protocol accepted by the DEF identity-binding writer.  The cull
+ * executor uses the same sentinel and refuses a writer inventory that cannot
+ * prove this epoch-bearing protocol for every binding write path.
+ */
+export const IDENTITY_BINDING_FENCE_PROTOCOL = "identity-binding-fence-v1";
 
 export interface H2AIdentityBinding {
   readonly host: string;
@@ -153,5 +161,13 @@ export function reclaimOrMint(
       "utf8"
     );
     return { action: "mint", instance: minted.instance, agentUuid: minted.agentUuid };
+  }, {
+    ownerMetadata: {
+      protocol: IDENTITY_BINDING_FENCE_PROTOCOL,
+      fenceEpoch: randomUUID()
+    },
+    // A cull fence is fail-closed.  Reclaiming an apparently stale sentinel
+    // would turn an ambiguous owner/fence state into a concurrent write.
+    reclaimStale: false
   });
 }
