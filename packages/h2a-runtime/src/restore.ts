@@ -32,6 +32,7 @@ import {
   type RegistryEntry,
 } from "./registry.js";
 import { listLocalSessions, slugify, type LocalSession } from "./tmux.js";
+import type { SessionClass } from "./session-class.js";
 
 export type DiscoveredSession = {
   project: string;
@@ -172,34 +173,91 @@ export function discoverSessions(
   return out;
 }
 
-/**
- * Restore gate: may this registry record become a dev tab?
- *
- * An ended record never can. A record carrying an explicit class is judged on
- * that class — which is the whole point of stamping it, and keeps a background
- * launch or a delegated job out.
- *
- * A record with NO class is a LEGACY record, and this is where the gate has to
- * be careful in both directions. Enrollment has required a class since the
- * classification landed (registry.ts refuses an enrollment without one), so an
- * unclassified record can only predate it. Judging those closed took out every
- * session enrolled before that day: measured, restore returned an EMPTY list for
- * three live named sessions of one repo, which is exactly what the owner
- * observed as "restore does not restore my multi-session projects" — the filter
- * was tightened to opt-in while nothing back-filled the class.
- *
- * So legacy records fall back to the discriminator that existed when they were
- * written: a delegated job is never human, anything else was a session someone
- * launched. That is narrower than it looks — it cannot readmit a NEW background
- * session, because a new record always carries its class.
- */
-export function isHumanFacingSession(
-  e: Pick<RegistryEntry, "sessionClass" | "endedAt" | "role">,
+/** Out-of-registry facts allowed to classify a legacy session as human. */
+export type LegacySessionEvidence = {
+  readonly home: string;
+  readonly liveTmuxSessions: ReadonlyArray<
+    Pick<LocalSession, "name" | "path" | "profile">
+  >;
+  /** A caller that obtained an explicit human confirmation may name its entry. */
+  readonly humanConfirmedIds?: ReadonlySet<string>;
+};
+
+/** Snapshot the external evidence once, rather than trusting a registry default. */
+export function legacySessionEvidence(
+  home: string = homedir(),
+  liveTmuxSessions: ReadonlyArray<
+    Pick<LocalSession, "name" | "path" | "profile">
+  > = listLocalSessions(),
+): LegacySessionEvidence {
+  return { home, liveTmuxSessions };
+}
+
+function hasClaudeTranscript(e: RegistryEntry, home: string): boolean {
+  if (e.tool !== "claude" || !e.convId) return false;
+  try {
+    const stat = statSync(
+      join(home, ".claude", "projects", encodeCwd(e.cwd), `${e.convId}.jsonl`),
+    );
+    return stat.isFile() && stat.size > 0;
+  } catch {
+    return false;
+  }
+}
+
+function hasCodexTranscript(e: RegistryEntry, home: string): boolean {
+  if (e.tool !== "codex" || !e.convId) return false;
+  for (const file of walk(join(home, ".codex", "sessions"))) {
+    if (!file.endsWith(".jsonl")) continue;
+    const meta = firstLineJson(file);
+    if (meta?.payload?.cwd === e.cwd && meta?.payload?.id === e.convId) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasLegacyTranscript(e: RegistryEntry, home: string): boolean {
+  return hasClaudeTranscript(e, home) || hasCodexTranscript(e, home);
+}
+
+function hasLiveTmuxEvidence(
+  e: RegistryEntry,
+  liveTmuxSessions: LegacySessionEvidence["liveTmuxSessions"],
 ): boolean {
-  if (e.endedAt !== undefined) return false;
-  if (e.sessionClass === "human") return true;
-  if (e.sessionClass === "background") return false;
-  return e.role !== "job";
+  return (
+    e.tmuxSession !== undefined &&
+    liveTmuxSessions.some(
+      (session) =>
+        session.name === e.tmuxSession &&
+        session.path === e.cwd &&
+        session.profile === e.tool,
+    )
+  );
+}
+
+/**
+ * Classify a legacy registry record from evidence held outside the registry.
+ * Absence is not proof of a human: anything inconclusive is background.
+ */
+export function deriveLegacySessionClass(
+  e: RegistryEntry,
+  evidence: LegacySessionEvidence,
+): SessionClass {
+  if (e.sessionClass !== undefined) return e.sessionClass;
+  if (e.endedAt !== undefined || e.role === "job") return "background";
+  if (evidence.humanConfirmedIds?.has(e.id)) return "human";
+  if (hasLegacyTranscript(e, evidence.home)) return "human";
+  if (hasLiveTmuxEvidence(e, evidence.liveTmuxSessions)) return "human";
+  return "background";
+}
+
+/** Restore gate: only explicit or externally proven human sessions are restorable. */
+export function isHumanFacingSession(
+  e: RegistryEntry,
+  evidence: LegacySessionEvidence = legacySessionEvidence(),
+): boolean {
+  return deriveLegacySessionClass(e, evidence) === "human";
 }
 
 /**
@@ -290,6 +348,7 @@ export type ConvIdResolution = {
 export function reconcileRunConvIds(
   entries: readonly RegistryEntry[],
   customTitleFor: (cwd: string, convId: string) => string | undefined,
+  evidence: LegacySessionEvidence = legacySessionEvidence(),
 ): ConvIdResolution {
   // Hook conversations per cwd — their convId IS the real conversation uuid, and
   // the transcript records the human-facing label as `customTitle`.
@@ -315,7 +374,7 @@ export function reconcileRunConvIds(
     if (r.kind !== "local-tmux" || r.source !== "run") continue;
     // Delegated jobs / background launches are never restored as human tabs, so
     // don't reconcile (and don't emit a spurious skip note) for them.
-    if (!isHumanFacingSession(r)) continue;
+    if (!isHumanFacingSession(r, evidence)) continue;
     const hooks = hooksByCwd.get(r.cwd) ?? [];
 
     // 1. The run entry already carries a real conversation uuid — trust it.
@@ -371,6 +430,7 @@ export function registrySessions(
   home: string = homedir(),
   entries: RegistryEntry[] = loadRegistry(),
   resolution?: ConvIdResolution,
+  evidence: LegacySessionEvidence = legacySessionEvidence(home),
 ): DiscoveredSession[] {
   const src = join(home, "src");
   const out: DiscoveredSession[] = [];
@@ -378,7 +438,7 @@ export function registrySessions(
     if (e.kind === "remote") continue; // remote groups are filled from SCW
     // Only human dev sessions are restorable — never delegated jobs or explicit
     // background launches (they had no human in front of them).
-    if (!isHumanFacingSession(e)) continue;
+    if (!isHumanFacingSession(e, evidence)) continue;
     if (!e.cwd.startsWith(`${src}/`)) continue;
     // A run session whose conversation id could not be resolved is skipped here
     // (restore() emits the attach-hint note) — never a broken `--resume <label>`.
@@ -852,8 +912,11 @@ export function restore(
   // resumes correctly (and each named session of a repo keeps its own uuid).
   const home = homedir();
   const registryEntries = loadRegistry();
-  const resolution = reconcileRunConvIds(registryEntries, (cwd, convId) =>
-    readConversationCustomTitle(home, cwd, convId),
+  const evidence = legacySessionEvidence(home);
+  const resolution = reconcileRunConvIds(
+    registryEntries,
+    (cwd, convId) => readConversationCustomTitle(home, cwd, convId),
+    evidence,
   );
   // Persist the resolved conversation ids back onto the run entries so the state
   // is EMITTED, not re-derived (a transcript scan) on every restore. Skipped on
@@ -886,7 +949,7 @@ export function restore(
   }
   const scanned = discoverSessions(cfg.maxAgeHours * 3600 * 1000);
   const allDiscovered = mergeDiscovered(
-    registrySessions(home, registryEntries, resolution),
+    registrySessions(home, registryEntries, resolution, evidence),
     scanned,
   );
   // Transcript scans lack a durable human/job marker. They are deliberately
