@@ -38,13 +38,35 @@ export type HostModal = {
  * wordings would only ever list the ones that already bit us. What they share is
  * the shape — `› 1.` choices plus an explicit "press enter to …".
  */
-const MODAL_CHOICE = /(^|\n)\s*[›>]?\s*1\.\s+\S/;
-const MODAL_CONFIRM = /press (?:enter|return) to (?:continue|confirm|select)/i;
+const MODAL_CHOICE = /(^|\n)\s*[›>❯]?\s*1\.\s+\S/;
+const MODAL_CONFIRM = /(?:press\s+)?(?:enter|return) to (?:continue|confirm|select)/i;
+
+/**
+ * Claude Code's stale-session resume gate. This is deliberately narrower than
+ * the generic modal detector: relaunch may auto-confirm this one safe choice,
+ * but must leave every other host decision to a human.
+ */
+const CLAUDE_LONG_CONTEXT_CONFIRM =
+  /this session is\s+\d+(?:d|h)(?:\s+\d+(?:h|m))?\s+old and\s+\d+(?:\.\d+)?[kmg]?\s+tokens\.[\s\S]*?resuming the full session will consume a substantial portion of your usage limits\.\s+we recommend resuming from a summary\.[\s\S]*?❯\s*1\.\s*resume from summary\s*\(recommended\)[\s\S]*?2\.\s*resume full session as-is[\s\S]*?3\.\s*don't ask me again[\s\S]*?enter to confirm/i;
+
+export const CLAUDE_LONG_CONTEXT_CONFIRM_REASON =
+  "Claude is waiting for the exact stale-session summary confirmation";
+
+export function isClaudeLongContextConfirm(capture: string): boolean {
+  return CLAUDE_LONG_CONTEXT_CONFIRM.test(capture);
+}
 
 const NAMED_MODALS: ReadonlyArray<{
   readonly match: RegExp;
   readonly modal: HostModal;
 }> = [
+  {
+    match: CLAUDE_LONG_CONTEXT_CONFIRM,
+    modal: {
+      reason: CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
+      hint: "h2a relaunch may confirm this exact summary-resume choice once before re-injecting the continuation objective",
+    },
+  },
   {
     // Recorded per repository root, so a workspace outside an approved repo
     // blocks here — and nobody will ever answer it in a background lane.
@@ -202,6 +224,18 @@ export function paneHasDrawnUi(capture: string, minLines = 3): boolean {
   );
 }
 
+/**
+ * A drawn composer is not necessarily ready: after stale-session confirmation
+ * Claude renders a composer while summary compaction is still running, and a
+ * submitted prompt is only queued. That work must never count as the resumed
+ * objective's activity proof.
+ */
+export function paneHasBlockingActivity(capture: string): boolean {
+  return /compacting conversation|press up to edit queued messages/i.test(
+    capture,
+  );
+}
+
 export type PromptDeliveryDeps = {
   /** Visible text of the pane, or undefined when tmux cannot be read. */
   readonly capturePane: (pane: string) => string | undefined;
@@ -345,7 +379,10 @@ function waitUntilReady(
     if (capture === undefined) {
       unreadable += 1;
       if (unreadable >= 3) return { ok: false, unreadable: true };
-    } else if (paneHasDrawnUi(capture)) {
+    } else if (
+      paneHasDrawnUi(capture) &&
+      !paneHasBlockingActivity(capture)
+    ) {
       unreadable = 0;
       const before = deps.cpuMs(pane);
       const startedAt = deps.now();
