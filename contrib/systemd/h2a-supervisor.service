@@ -14,10 +14,10 @@ Type=simple
 ExecStart=h2a loop supervise
 # The h2a root. This MUST match the root where your loops actually live, or the
 # supervisor watches an empty directory and silently ticks nothing. The value
-# below is h2a's own default root (used when H2A_ROOT is unset). If you create
-# loops with a different --root or H2A_ROOT, set the SAME value here. Confirm with
-# `h2a loop list --root <value>`.
-Environment=H2A_ROOT=%h/h2a-workspace/.h2a
+# below is the fleet checkout convention, expanded by systemd for the service
+# user. If your fleet lives elsewhere, set the SAME value here. Confirm with
+# `h2a loop list --root <value>`. Do not point this at the legacy default bus.
+Environment=H2A_ROOT=%h/src/a2a-cli
 # Global kill-switch: uncomment to freeze auto-ticking without disabling the
 # unit. Any non-empty, non-0/false value freezes every beat.
 # Environment=H2A_LOOP_AUTOTICK_OFF=1

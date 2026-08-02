@@ -27,8 +27,9 @@ lease. It never touches loops that have not opted in, and the global kill-switch
 mkdir -p ~/.config/systemd/user
 cp contrib/systemd/h2a-supervisor.service ~/.config/systemd/user/
 
-# 2. (If needed) edit ExecStart to the absolute path of `h2a`
-#    and Environment=H2A_ROOT to your h2a root.
+# 2. (If needed) edit ExecStart to the absolute path of `h2a`.
+#    The template defaults H2A_ROOT to %h/src/a2a-cli, the fleet checkout
+#    convention. Change it only when your fleet uses a different root.
 #    `command -v h2a` prints the path to use.
 
 # 3. Enable + start it now
@@ -43,6 +44,12 @@ loginctl enable-linger "$USER"
 Make sure `Environment=H2A_ROOT=` in the unit points at the SAME root where your
 loops live (`h2a loop list --root <value>` should show them) — otherwise the
 supervisor watches an empty directory and silently ticks nothing.
+
+For the currently deployed fleet host, systemd must expand the shared-template
+default to `H2A_ROOT=/home/antoinefa/src/a2a-cli`. This is a host deployment
+value, not a personal path embedded in the shared template. `h2a-mirror-push`
+still has its own root configuration and is intentionally outside this wire-only
+supervisor change.
 
 ## Operate
 
