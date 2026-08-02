@@ -128,9 +128,10 @@ at the moment of committing, because a table like this asserts the present tense
 
 `[SNAPSHOT 2026-08-01 — NOT re-measured today, and I say so rather than implying an audit]`
 `surface/I2`, `surface/I3` and `surface/I5` were assessed on 2026-08-01 by `runtime` (WP5) and the
-plugins lane, with file and line cited at the time: I2 satisfied at the sites traversed; I3
-**partial** — the discipline exists but no structural per-object marker does, so its rung is *habit*,
-not *structural*; I5 satisfied at the send path under the corrected wording. Those three rows may have
+plugins lane, with file and line cited at the time: `surface/I2` satisfied at the sites traversed;
+`surface/I3` **partial** — the discipline exists but no structural per-object marker does, so its rung
+is *habit*, not *structural*; `surface/I5` satisfied at the send path under the corrected wording.
+Those three rows may have
 moved since. Anyone citing them should re-measure first — the same rule this file applies to itself.
 
 **Where the invariants stop, collectively.** Nothing rejects a violation. There is no test, no schema,
