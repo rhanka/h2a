@@ -16,6 +16,11 @@ import {
   cpuRateMsPerSecond,
   DEFAULT_WORKING_CPU_MS_PER_SECOND,
 } from "./session-lease.js";
+import {
+  CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
+  isClaudeLongContextConfirm,
+  type PromptDeliveryResult,
+} from "./prompt-delivery.js";
 
 export type ResumeLaunch = {
   command: string;
@@ -168,6 +173,124 @@ export function decideRelaunchSafety(
     activelyWorking: false,
     rateMsPerSecond,
     reason: "live parked CLI worker is activatable — never force-killed",
+  };
+}
+
+export const RELAUNCH_CONTINUATION_PROMPT =
+  "Continue working autonomously on the standing objective in this resumed conversation. Re-read the latest user request, identify the next incomplete step, and act on it now. Do not stop at the input prompt or wait for another nudge.";
+
+/**
+ * Prefer a durable delegated task when the registry has one; otherwise the
+ * resumed conversation remains the authority for its standing objective.
+ */
+export function relaunchContinuationPrompt(task?: string): string {
+  const objective = task?.trim();
+  return objective
+    ? `Continue working autonomously on this registered objective:\n\n${objective}\n\nResume the next incomplete step now; do not stop at the input prompt or wait for another nudge.`
+    : RELAUNCH_CONTINUATION_PROMPT;
+}
+
+export type RelaunchWakeDeps = {
+  /** The existing paste/submit/activity proof, bound to the relaunched pane. */
+  deliverContinuation: (prompt: string) => PromptDeliveryResult;
+  /** One Enter key event; called only after the exact Claude prompt was seen. */
+  submitConfirmation: () => boolean;
+  /** Full visible pane used to prove that the confirmation actually cleared. */
+  capturePane: () => string | undefined;
+  sleep: (ms: number) => void;
+  now: () => number;
+};
+
+export type RelaunchWakeResult =
+  | {
+      state: "working";
+      confirmation: "not-present" | "auto-passed";
+      delivery: Extract<PromptDeliveryResult, { state: "working" }>;
+    }
+  | {
+      state: "failed";
+      confirmation: "not-present" | "auto-passed" | "send-failed";
+      reason: string;
+      capture: string;
+      delivery?: Exclude<PromptDeliveryResult, { state: "working" }>;
+    };
+
+export type RelaunchWakeOptions = {
+  confirmationClearMs?: number;
+  pollMs?: number;
+};
+
+/**
+ * Turn a resumed TUI into proved work. The first delivery attempt doubles as a
+ * settled-host/modal observation. Only Claude's exact stale-session prompt may
+ * consume an automatic Enter, exactly once; every other modal fails closed.
+ */
+export function wakeRelaunchedSession(
+  prompt: string,
+  deps: RelaunchWakeDeps,
+  options: RelaunchWakeOptions = {},
+): RelaunchWakeResult {
+  let delivery = deps.deliverContinuation(prompt);
+  if (delivery.state === "working") {
+    return { state: "working", confirmation: "not-present", delivery };
+  }
+  if (
+    delivery.state !== "host-modal" ||
+    delivery.reason !== CLAUDE_LONG_CONTEXT_CONFIRM_REASON
+  ) {
+    return {
+      state: "failed",
+      confirmation: "not-present",
+      reason:
+        delivery.state === "submitted-idle"
+          ? "the continuation objective was submitted but the agent stayed idle"
+          : delivery.reason,
+      capture: "capture" in delivery ? delivery.capture : "",
+      delivery,
+    };
+  }
+
+  if (!deps.submitConfirmation()) {
+    return {
+      state: "failed",
+      confirmation: "send-failed",
+      reason: "tmux could not submit Claude's stale-session summary confirmation",
+      capture: delivery.capture,
+      delivery,
+    };
+  }
+
+  const deadline = deps.now() + (options.confirmationClearMs ?? 10_000);
+  const pollMs = options.pollMs ?? 250;
+  let capture = delivery.capture;
+  for (;;) {
+    deps.sleep(pollMs);
+    capture = deps.capturePane() ?? capture;
+    if (!isClaudeLongContextConfirm(capture)) break;
+    if (deps.now() >= deadline) {
+      return {
+        state: "failed",
+        confirmation: "auto-passed",
+        reason: "Claude's stale-session confirmation did not clear after one Enter",
+        capture,
+        delivery,
+      };
+    }
+  }
+
+  delivery = deps.deliverContinuation(prompt);
+  if (delivery.state === "working") {
+    return { state: "working", confirmation: "auto-passed", delivery };
+  }
+  return {
+    state: "failed",
+    confirmation: "auto-passed",
+    reason:
+      delivery.state === "submitted-idle"
+        ? "the continuation objective was submitted but the agent stayed idle"
+        : delivery.reason,
+    capture: "capture" in delivery ? delivery.capture : capture,
+    delivery,
   };
 }
 
