@@ -1,0 +1,20 @@
+{
+  "name": "sentropic",
+  "interface": {
+    "displayName": "Sentropic"
+  },
+  "plugins": [
+    {
+      "name": "h2a",
+      "source": {
+        "source": "local",
+        "path": "./packages/h2a"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
