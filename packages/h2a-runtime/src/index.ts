@@ -8088,6 +8088,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
       let ok = 0;
       for (const { action, entry, sessionClass } of finalReady) {
+        const safety = sessionRelaunchSafety(action.name);
+        if (!isRelaunchKillable(safety)) {
+          process.stderr.write(
+            `[h2a] skipped ${action.slug}: became live before kill: ${safety.reason}\n`,
+          );
+          continue;
+        }
         if (!killLocalSession(action.name)) {
           process.stderr.write(
             `[h2a] FAILED to force-restart ${action.slug}: tmux session ${action.name} could not be killed.\n`,
