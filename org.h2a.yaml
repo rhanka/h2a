@@ -1,0 +1,137 @@
+# h2a org manifest — the twelve durable actors and the owner.
+#
+# Machine form of docs/governance/RACI.md. Read it with `h2a org show`, check it
+# with `h2a org validate`, measure the drift against the live registry with
+# `h2a org diff`.
+#
+# STATUS: PROPOSED. Nothing here grants anything yet — but only because nobody has
+# run `h2a org provision`, which is a far weaker guarantee than this header claimed.
+#
+# THE RATIFICATION BOUNDARY DOES NOT EXIST. An earlier version of this file said
+# "only a ratified manifest is provisioned". That is FALSE, and it was measured false
+# by the third review leg on PR 84: `h2a org provision` accepts any file that passes
+# `validateOrgManifest`. On a control registry it granted CONDUCTOR and two scopes to
+# `cond` with no signature, no `org-ratified` envelope, and no key at all. The
+# propose/ratify lifecycle does exist in the code (`h2a coach propose` / `ratify`),
+# but provisioning never checks that it happened.
+#
+# So the only thing between this file and a live role grant is that nobody typed the
+# command. That is a habit, not a boundary — and describing it as a boundary was a
+# claim wider than its proof, in the document whose job is to bound its own claims.
+#
+# ALSO MEASURED, same leg: on the real shared registry `h2a org diff` and
+# `h2a org provision` do not run at all — they throw `TypeError: r.roles is not
+# iterable` on a legacy row that carries `role`/`scope` as scalars instead of arrays.
+# So the mechanism this file is written for is currently broken on the estate it
+# describes, and any plan that assumes provisioning "would grant nothing" is assuming
+# an outcome the command never reaches.
+#
+# WHY `instance:` CARRIES A BARE NAME. The org model keys an actor on an
+# `instance` id, but an h2a instance id (`claude:h2a:c18853e319ea`) is minted per
+# conversation: a manifest naming today's ids is stale tomorrow. The durable
+# handle of an actor is its launch name (`h2a run --name cond`), which is one of
+# the four namespaces target resolution is decided to search (DOC-03). So the
+# manifest binds the durable name, and `h2a org diff` reports every actor as
+# `missing` until a name→keyed-instance binding exists. That output is the
+# measure of the gap between this paper and the machine — not a defect of the
+# manifest.
+
+scope: org:h2a
+version: "1"
+
+instances:
+  # ---- the human owner -------------------------------------------------------
+  - instance: fabien
+    role: PRINCIPAL
+    scopes: [org:h2a]
+    mandateRights: [ratify-org, accept-uat, set-priority]
+
+  # ---- transverse actors -----------------------------------------------------
+  - instance: cond
+    role: CONDUCTOR
+    scopes: [org:h2a, org:h2a/wp4]
+    mandateRights: [define-raci, dispatch, wake]
+  # `arch` is the counterweight to the conductor owning WP4, and the org role
+  # vocabulary has no advisor role. CONTROL was not taken: in the authority
+  # matrix CONTROL may *impose* POLICY, which is more than the owner granted.
+  # AGENTS + an advisory mandate right is the honest encoding; see the open
+  # question in docs/governance/RACI.md.
+  - instance: arch
+    role: AGENTS
+    scopes: [org:h2a, org:h2a/wp6]
+    mandateRights: [advise-raci, arbitrate-boundaries]
+  - instance: harness
+    role: CONTROL
+    scopes: [org:h2a, org:h2a/wp9]
+    mandateRights: [gate-tests, gate-branch]
+  # `cyber` is the only actor without a WP, and it delivers rather than advises.
+  # Its scope is a policy domain, not a WP; whether it gets a WP of its own is
+  # an open owner decision.
+  - instance: cyber
+    role: CONTROL
+    scopes: [org:h2a, org:h2a/security]
+    mandateRights: [gate-audit, ship-security-fix]
+
+  # ---- domain lanes ----------------------------------------------------------
+  - instance: coop
+    role: AGENTS
+    scopes: [org:h2a, org:h2a/wp1, org:h2a/wp2, org:h2a/wp3]
+  - instance: runtime
+    role: AGENTS
+    scopes: [org:h2a, org:h2a/wp5]
+  - instance: track
+    role: AGENTS
+    scopes: [org:h2a, org:h2a/wp8]
+  - instance: plugins
+    role: AGENTS
+    scopes: [org:h2a, org:h2a/wp10]
+  - instance: memory
+    role: AGENTS
+    scopes: [org:h2a, org:h2a/wp11]
+  - instance: portal
+    role: AGENTS
+    scopes: [org:h2a, org:h2a/wp12]
+  - instance: agents
+    role: AGENTS
+    scopes: [org:h2a, org:h2a/wp13]
+  - instance: gateway
+    role: AGENTS
+    scopes: [org:h2a, org:h2a/wp14]
+
+# Informational hints only — the actual messaging gate is scope membership, and
+# every actor sits in `org:h2a`. These edges say which exchanges are expected to
+# carry weight, not which are permitted.
+commEdges:
+  # dispatch: the conductor addresses every actor
+  - from: cond
+    to: arch
+  - from: cond
+    to: harness
+  - from: cond
+    to: cyber
+  - from: cond
+    to: coop
+  - from: cond
+    to: runtime
+  - from: cond
+    to: track
+  - from: cond
+    to: plugins
+  - from: cond
+    to: memory
+  - from: cond
+    to: portal
+  - from: cond
+    to: agents
+  - from: cond
+    to: gateway
+  # the mandatory counterweight: the architect's advice on the RACI
+  - from: arch
+    to: cond
+  # escalation to the owner
+  - from: cond
+    to: fabien
+  - from: arch
+    to: fabien
+  - from: cyber
+    to: fabien
