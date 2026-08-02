@@ -24,15 +24,28 @@ export type ResumeLaunch = {
 };
 
 export type RelaunchSafety = {
-  /** True only when the pane is a shell with no live worker descendant. */
-  idle: boolean;
-  /** The hard floor: true also covers indeterminate liveness. */
+  /** True only when the shell has no live CLI worker descendant. */
+  dead: boolean;
+  /** A live worker is present, whether parked or actively working. Never kill it. */
+  activatable: boolean;
+  /** Missing or changing evidence is never permission to kill. */
+  indeterminate: boolean;
+  /** The hard floor: true while a live worker crosses the CPU threshold. */
   activelyWorking: boolean;
   reason: string;
   rateMsPerSecond?: number;
+  /** Present only for a proven-dead pane that can be compare-and-swapped before kill. */
+  identity?: RelaunchKillIdentity;
+};
+
+/** The tmux pane generation observed while proving a session has no worker. */
+export type RelaunchKillIdentity = {
+  pane: string;
+  panePid: number;
 };
 
 export type RelaunchSafetySample = {
+  pane?: string | undefined;
   paneCommand?: string | undefined;
   panePid?: number | undefined;
   firstWorkerPid?: number | undefined;
@@ -58,7 +71,9 @@ export function decideRelaunchSafety(
 ): RelaunchSafety {
   if (!SHELL_COMMANDS.has(sample.paneCommand ?? "")) {
     return {
-      idle: false,
+      dead: false,
+      activatable: false,
+      indeterminate: true,
       activelyWorking: true,
       reason: "liveness indeterminate: pane command is not a readable shell",
     };
@@ -80,7 +95,9 @@ export function decideRelaunchSafety(
     sample.elapsedMs <= 0
   ) {
     return {
-      idle: false,
+      dead: false,
+      activatable: false,
+      indeterminate: true,
       activelyWorking: true,
       reason: "liveness indeterminate: pane, worker, or CPU sample unreadable",
     };
@@ -90,19 +107,28 @@ export function decideRelaunchSafety(
   // is not evidence of idleness. The safe outcome is to leave the session.
   if (sample.firstWorkerPid !== sample.secondWorkerPid) {
     return {
-      idle: false,
+      dead: false,
+      activatable: false,
+      indeterminate: true,
       activelyWorking: true,
       reason: "liveness indeterminate: worker identity changed during sample",
     };
   }
 
   // busiestDescendant returns the pane root when the wrapper has no live
-  // descendant. This is the only shape that proves a dead/parked shell.
+  // descendant. This is the only shape that proves a dead shell.
   if (sample.firstWorkerPid === sample.panePid) {
+    const identity =
+      typeof sample.pane === "string" && sample.pane.length > 0
+        ? { pane: sample.pane, panePid: sample.panePid }
+        : undefined;
     return {
-      idle: true,
+      dead: true,
+      activatable: false,
+      indeterminate: false,
       activelyWorking: false,
       reason: "no live CLI worker descendant",
+      ...(identity ? { identity } : {}),
     };
   }
 
@@ -118,24 +144,30 @@ export function decideRelaunchSafety(
   );
   if (rateMsPerSecond === undefined) {
     return {
-      idle: false,
+      dead: false,
+      activatable: false,
+      indeterminate: true,
       activelyWorking: true,
       reason: "liveness indeterminate: CPU rate could not be computed",
     };
   }
   if (rateMsPerSecond >= DEFAULT_WORKING_CPU_MS_PER_SECOND) {
     return {
-      idle: false,
+      dead: false,
+      activatable: true,
+      indeterminate: false,
       activelyWorking: true,
       rateMsPerSecond,
       reason: "live working CLI — never killed (even with --force)",
     };
   }
   return {
-    idle: true,
+    dead: false,
+    activatable: true,
+    indeterminate: false,
     activelyWorking: false,
     rateMsPerSecond,
-    reason: "live CLI worker is parked below the working CPU threshold",
+    reason: "live parked CLI worker is activatable — never force-killed",
   };
 }
 
@@ -170,9 +202,13 @@ export type RelaunchCandidate = {
   /** full tmux session name, e.g. `h2a-sentropic#2` */
   name: string;
   profile: string;
-  /** true when the shell has no working worker (dead or parked) */
-  idle: boolean;
-  /** Hard safety floor. Indeterminate probes must set this true. */
+  /** True only when the shell has no live CLI worker descendant. */
+  dead: boolean;
+  /** A live worker exists and can be woken, but must never be force-killed. */
+  activatable: boolean;
+  /** Missing or ambiguous liveness evidence; fail closed toward alive. */
+  indeterminate: boolean;
+  /** Hard safety floor while a worker is actively using CPU. */
   activelyWorking: boolean;
   /** Diagnostic reason for the hard floor or liveness projection. */
   livenessReason?: string;
@@ -202,7 +238,7 @@ export type RelaunchPlan = {
 };
 
 export type PlanRelaunchOptions = {
-  /** A forced restart may replace a CLI that is still running. */
+  /** A forced restart kill/recreates an eligible dead session. */
   force?: boolean;
   /** Bulk operations must leave human-facing agent CLIs alone unless opted in. */
   excludeInteractiveAgents?: boolean;
@@ -215,9 +251,28 @@ export function isInteractiveAgentProfile(profile: string): boolean {
 }
 
 /**
- * Decide what to relaunch. Pure: takes fully-resolved candidates (idle flag +
- * convId already gathered) so it is unit-testable without tmux/registry I/O.
- * Skips running sessions (never disturb a live CLI), sessions with no known
+ * A kill is permitted only after proving that the shell has no live worker.
+ * Every other state, including a parked worker or incomplete evidence, is
+ * preserved as alive.
+ */
+export function isRelaunchKillable(
+  safety: Pick<
+    RelaunchSafety,
+    "dead" | "activatable" | "indeterminate" | "activelyWorking"
+  >,
+): boolean {
+  return (
+    safety.dead &&
+    !safety.activatable &&
+    safety.activelyWorking === false &&
+    safety.indeterminate === false
+  );
+}
+
+/**
+ * Decide what to relaunch. Pure: takes fully-resolved liveness candidates +
+ * convId already gathered, so it is unit-testable without tmux/registry I/O.
+ * Skips every live or indeterminate session, sessions with no known
  * convId (relaunch by hand rather than guess and risk a collision), and
  * profiles with no resume form. Also refuses to point two sessions at the SAME
  * convId (defensive: the registry should already be 1:1).
@@ -253,17 +308,15 @@ export function planRelaunch(
       });
       continue;
     }
-    if (c.activelyWorking !== false) {
+    if (!isRelaunchKillable(c)) {
       skipped.push({
         slug: c.slug,
         reason:
           c.livenessReason ??
-          "liveness indeterminate — left alone (never kill on unknown)",
+          (c.activatable
+            ? "live worker is activatable — never force-killed"
+            : "liveness is not proven dead — left alone (never kill on unknown)"),
       });
-      continue;
-    }
-    if (!options.force && !c.idle) {
-      skipped.push({ slug: c.slug, reason: "CLI is running — left alone" });
       continue;
     }
     if (!c.convId) {

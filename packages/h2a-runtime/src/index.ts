@@ -135,7 +135,7 @@ import {
   isAgentLaunchProfile,
   type AgentLaunchEffort,
 } from "./agent-launch-args.js";
-import { planRelaunch } from "./relaunch.js";
+import { isRelaunchKillable, planRelaunch } from "./relaunch.js";
 import { deriveSessionClass } from "./session-class.js";
 import type { ProcView } from "./proc-cpu.js";
 import {
@@ -8077,7 +8077,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const finalReady: typeof ready = [];
       for (const item of ready) {
         const safety = sessionRelaunchSafety(item.action.name);
-        if (safety.activelyWorking) {
+        if (!isRelaunchKillable(safety)) {
           process.stderr.write(
             `[h2a] skipped ${item.action.slug}: ${safety.reason}\n`,
           );
@@ -8088,9 +8088,22 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
       let ok = 0;
       for (const { action, entry, sessionClass } of finalReady) {
-        if (!killLocalSession(action.name)) {
+        const safety = sessionRelaunchSafety(action.name);
+        if (!isRelaunchKillable(safety)) {
           process.stderr.write(
-            `[h2a] FAILED to force-restart ${action.slug}: tmux session ${action.name} could not be killed.\n`,
+            `[h2a] skipped ${action.slug}: became live before kill: ${safety.reason}\n`,
+          );
+          continue;
+        }
+        if (!safety.identity) {
+          process.stderr.write(
+            `[h2a] skipped ${action.slug}: liveness identity was unreadable immediately before kill.\n`,
+          );
+          continue;
+        }
+        if (!killLocalSession(action.name, safety.identity)) {
+          process.stderr.write(
+            `[h2a] skipped ${action.slug}: tmux session ${action.name} changed or was no longer proven dead immediately before kill.\n`,
           );
           continue;
         }
