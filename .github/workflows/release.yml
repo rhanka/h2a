@@ -180,22 +180,25 @@ jobs:
             sleep "$retry_delay_seconds"
           done
           root="$(mktemp -d)/.h2a"
-          # doctor is dry-run by default. Parse the installed artefact's report
-          # so a success exit with non-JSON stdout cannot satisfy this gate.
-          h2a doctor --root "$root" --format json | node -e '
-            let stdout = "";
-            process.stdin.setEncoding("utf8");
-            process.stdin.on("data", (chunk) => { stdout += chunk; });
-            process.stdin.on("end", () => {
-              let report;
-              try {
-                report = JSON.parse(stdout);
-              } catch {
-                process.exitCode = 1;
-                return;
-              }
-              if (!Object.prototype.hasOwnProperty.call(report, "ok")) {
-                process.exitCode = 1;
-              }
-            });
-          '
+          # doctor is dry-run by default. Its exit code reflects host health, which
+          # is irrelevant on a bare CI runner; verify the installed artefact emits
+          # a well-formed report with an ok property instead.
+          out="$(h2a doctor --root "$root" --format json || true)"
+          node -e '
+            let report;
+            let parsed = true;
+            try {
+              report = JSON.parse(process.argv[1]);
+            } catch {
+              parsed = false;
+            }
+            if (
+              !parsed ||
+              report === null ||
+              typeof report !== "object" ||
+              !Object.prototype.hasOwnProperty.call(report, "ok") ||
+              typeof report.ok !== "boolean"
+            ) {
+              process.exitCode = 1;
+            }
+          ' "$out"
