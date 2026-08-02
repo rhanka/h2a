@@ -630,7 +630,7 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     requiredFlags: ["host"],
     optionalFlags: ["endpoint", "url", "root", "print", "write", "force", "no-wake"],
     description:
-      "Render or merge exactly one `mcpServers.h2a` endpoint for a supported host. `--endpoint local` (default) renders coordination-ready stdio `mcp-serve --auto-open --auto-upgrade --wake local-tmux`; `--endpoint remote --url <http(s)://…>` renders an HTTP MCP URL and rejects local-only flags. The selected endpoint exposes h2a plus Track's read-only tools. Reconfiguration removes recognized h2a aliases and standalone Track MCP entries instead of stacking them. `--print` (default) emits the snippet; `--write <file>` safely merges JSON only (native YAML/JSONC is refused); `--force` is only for intentionally replacing malformed JSON."
+      "Render or merge exactly one `mcpServers.h2a` endpoint for a supported host. `--endpoint local` (default) renders coordination-ready stdio `mcp-serve --auto-open --auto-upgrade --wake local-tmux`; `--endpoint remote --url <http(s)://…>` renders an HTTP MCP URL and rejects local-only flags. The selected endpoint exposes h2a plus Track's read-only tools. Reconfiguration removes recognized h2a aliases and standalone Track MCP entries instead of stacking them. `--print` (default) emits the snippet; `--write <file>` safely merges JSON only (native YAML/JSONC is refused); `--force` is only for intentionally replacing malformed JSON. Codex and Claude setup then inspect the selected host without repairing it: an incoherent installation is named, recommends `h2a doctor --repair`, and exits 2."
   },
   {
     verb: "host plugin",

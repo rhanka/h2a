@@ -3867,7 +3867,8 @@ function driveLineFromHookInput(raw: string): string | undefined {
 
 function cmdHostSetup(
   flags: Record<string, string>,
-  streams: H2ACliStreams
+  streams: H2ACliStreams,
+  options: H2ACliOptions
 ): number {
   const host = flags.host;
   if (!host) {
@@ -3968,7 +3969,7 @@ function cmdHostSetup(
     streams.stderr.write(
       `# ${host} — selected ${endpoint} h2a endpoint; paste this snippet under \`mcpServers\` in:\n# ${snippet.path.hint}\n# example path: ${snippet.path.example}\n`
     );
-    return 0;
+    return reportHostSetupCoherence(host, streams, options) ? 0 : 2;
   }
 
   if (isUnsupportedHostWritePath(host, targetPath)) {
@@ -4065,17 +4066,19 @@ function cmdHostSetup(
     return 3;
   }
 
+  const coherent = reportHostSetupCoherence(host, streams, options);
   streams.stdout.write(
     `${JSON.stringify(
       {
-        ok: true,
+        ok: coherent,
         host,
         endpoint,
         path: targetPath,
         merged: true,
         replacedH2a,
         removedH2aMcpServers,
-        removedTrackMcpServers
+        removedTrackMcpServers,
+        ...(coherent ? {} : { next: "h2a doctor --repair" })
       },
       null,
       2
@@ -4084,7 +4087,43 @@ function cmdHostSetup(
   streams.stderr.write(
     `# wrote the selected ${endpoint} mcpServers.h2a endpoint for host=${host} to ${targetPath}\n# disabled duplicate h2a MCP entries: ${removedH2aMcpServers.join(", ") || "none"}\n# disabled standalone Track MCP entries: ${removedTrackMcpServers.join(", ") || "none"}\n# ${snippet.path.hint}\n`
   );
-  return 0;
+  return coherent ? 0 : 2;
+}
+
+/**
+ * `host setup` is intentionally non-repairing, but must not present a stale
+ * plugin installation as a successful setup.  The installation doctor owns
+ * the host-specific diagnosis; this verb only asks it to inspect the host it
+ * just configured and points the operator to the explicit repair action.
+ */
+function reportHostSetupCoherence(
+  host: string,
+  streams: H2ACliStreams,
+  options: H2ACliOptions
+): boolean {
+  // The installation doctor currently has native coherence knowledge only for
+  // Claude and Codex. Other host setup verbs remain renderer/JSON-merger
+  // operations until they gain an equivalent host inspection surface.
+  if (host !== "claude" && host !== "codex") return true;
+
+  try {
+    const report = (options.doctorHostInstallations ?? doctorHostInstallations)({ repair: false });
+    const installation = report.hosts.find((entry) => entry.host === host);
+    if (installation?.ok) return true;
+    const findings = installation?.unrepaired ?? [];
+    const namedFindings = findings.length > 0
+      ? findings.map((entry) => `${entry.code}: ${entry.message}`).join("; ")
+      : "host-installation-check-unavailable: the selected host was absent from the diagnostic report";
+    streams.stderr.write(
+      `h2a host setup: ${host} installation remains incoherent — ${namedFindings}. Run \`h2a doctor --repair\` to converge it.\n`
+    );
+    return false;
+  } catch (error) {
+    streams.stderr.write(
+      `h2a host setup: ${host} installation could not be verified (${(error as Error).message}). Run \`h2a doctor --repair\` to inspect and converge it.\n`
+    );
+    return false;
+  }
 }
 
 function cmdHostStatus(
@@ -4361,9 +4400,9 @@ function mergeStopHooksFile(
   return undefined;
 }
 
-function cmdHost(argv: readonly string[], streams: H2ACliStreams): number {
+function cmdHost(argv: readonly string[], streams: H2ACliStreams, options: H2ACliOptions): number {
   const { command: sub, flags } = parseFlags(argv);
-  if (sub === "setup") return cmdHostSetup(flags, streams);
+  if (sub === "setup") return cmdHostSetup(flags, streams, options);
   if (sub === "status") return cmdHostStatus(flags, streams);
   if (sub === "plugin") return cmdHostPlugin(flags, streams);
   streams.stderr.write(`Unknown host subcommand: ${sub ?? "<none>"}\n`);
@@ -6952,7 +6991,7 @@ export function runCli(
   if (command === "comprehension") return cmdComprehension(argv.slice(1), streams);
   if (command === "inbox") return cmdMailbox(argv.slice(1), "inbox", streams);
   if (command === "outbox") return cmdMailbox(argv.slice(1), "outbox", streams);
-  if (command === "host") return cmdHost(argv.slice(1), streams);
+  if (command === "host") return cmdHost(argv.slice(1), streams, options);
   if (command === "store") return cmdStore(argv.slice(1), streams);
   if (command === "thread") return cmdThread(flags, streams);
   if (command === "sessions") return cmdSessions(flags, streams);
