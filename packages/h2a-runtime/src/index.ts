@@ -140,6 +140,7 @@ import { deriveSessionClass } from "./session-class.js";
 import type { ProcView } from "./proc-cpu.js";
 import {
   isHumanFacingSession,
+  legacySessionEvidence,
   readConversationCustomTitle,
   readLastLayout,
   reconcileRunConvIds,
@@ -2273,12 +2274,16 @@ function registryEntryForResumeTarget(
   target: string,
   local?: LocalSession,
 ): RegistryEntry | undefined {
+  const evidence = legacySessionEvidence(
+    homedir(),
+    local === undefined ? listLocalSessions() : [local],
+  );
   const matches = registryEntriesForLocalTmuxTarget(target, local).filter((e) => {
     // Resume is a human-facing operation, not a promotion path. Share the
     // durable class test with restore so legacy human rows remain resumable,
     // while delegated jobs and explicit background launches stay excluded.
     if (e.role !== undefined) return false;
-    return isHumanFacingSession(e);
+    return isHumanFacingSession(e, evidence);
   });
   const ids = new Set(matches.map((e) => e.id));
   if (ids.size !== 1) return undefined;
