@@ -93,6 +93,9 @@ vi.mock("./tmux.js", () => ({
   startLocalSession,
   attachLocalSession,
   attachPodTmux: vi.fn(),
+  // tmux.ts gained this export; a mock factory that omits it makes the module
+  // throw at call time rather than fail an assertion.
+  persistLaunchContext: vi.fn(),
   currentTmuxSessionIs,
   existingLocalSessionSlugs: (
     labels: ReadonlyArray<string | undefined>,
@@ -647,6 +650,8 @@ describe("h2a resume <slug>", () => {
       cwd,
       ["--resume"],
       expectedSlug,
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
   });
 
@@ -663,6 +668,8 @@ describe("h2a resume <slug>", () => {
       cwd,
       ["resume"],
       expectedSlug,
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
   });
 
@@ -693,6 +700,8 @@ describe("h2a resume <slug>", () => {
       cwd,
       ["--resume", "claude-last"],
       expectedSlug,
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
   });
 
@@ -829,6 +838,8 @@ describe("h2a resume <slug>", () => {
       cwd,
       ["resume", "--last"],
       expectedSlug,
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
   });
 
@@ -865,6 +876,8 @@ describe("h2a resume <slug>", () => {
       cwd,
       ["--resume", "claude-existing"],
       expectedSlug,
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(stderrText()).toContain(`resumed local session ${expectedSlug}`);
     expect(stderrText()).toContain(`h2a attach ${expectedSlug}`);
@@ -889,6 +902,8 @@ describe("h2a resume <slug>", () => {
       cwd,
       ["--resume", "claude-existing"],
       "geo",
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
   });
 
@@ -904,6 +919,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(stderrText()).toContain("resumed local session projA");
     expect(stderrText()).toContain("h2a attach projA");
@@ -926,6 +943,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--bare", "--resume", "conv-dup"],
       "projA",
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBe("http://localhost:3002");
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-test");
@@ -956,6 +975,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--bare", "--resume", "conv-dup"],
       "projA",
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBe("http://localhost:3002");
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-current");
@@ -976,6 +997,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
@@ -1032,6 +1055,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--bare", "--resume", "conv-dup"],
       "projA",
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-started");
     expect(process.env.ANTHROPIC_API_KEY).toBe("gw-started");
@@ -1067,6 +1092,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
@@ -1106,6 +1133,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
@@ -1156,6 +1185,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(stderrText()).toContain("replaced local session projA");
   });
@@ -1231,6 +1262,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      expect.any(Object), // options: sessionClass is DERIVED by the product; not pinned here
     );
     expect(stderrText()).toContain(
       "--replace will kill tmux session remote-projA",

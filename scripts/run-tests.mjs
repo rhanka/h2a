@@ -7,30 +7,24 @@
  * is forwarded to node. This runner discovers test files itself using
  * `node:fs`, so it behaves identically on Linux, macOS and Windows.
  *
- * It runs the test trees explicitly owned by the root `npm test` gate:
- *   - top-level `*.test.js` files in packages/h2a/test and
- *     packages/focus-interactive/test through `node --test`;
- *   - every source `.test.ts` or `.spec.ts` file under packages/track/src through
- *     Vitest. The Track suite is separate because it is TypeScript/Vitest rather
- *     than Node's built-in test runner.
+ * It runs the test trees declared in `scripts/test-manifest.mjs`:
+ *   - top-level `*.test.js` files under NODE_TEST_DIRS through `node --test`;
+ *   - every source `.test.ts` or `.spec.ts` file of each VITEST_SUITES package
+ *     through Vitest (TypeScript suites, not Node's built-in runner).
  *
- * Other workspace packages own their own package-level test commands and are not
- * represented by this root gate. Do not quote this runner as a whole-monorepo
- * test count.
+ * The manifest — not this file — is the declaration, because a structural test
+ * (packages/h2a/test/test-gate-coverage.test.js) reads it to prove that no
+ * workspace package carrying test files is left outside the gate.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { NODE_TEST_DIRS, VITEST_SUITES } from "./test-manifest.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, "..");
-
-// A1: la suite vit dans packages/h2a/test (h2a-cli est un stub deprecie, sans tests).
-const NODE_TEST_DIRS = ["packages/h2a/test", "packages/focus-interactive/test"];
-const VITEST_SUITES = [
-  { name: "Track", dir: "packages/track", config: "vitest.config.ts" },
-];
 
 const nodeTestFiles = [];
 for (const rel of NODE_TEST_DIRS) {
