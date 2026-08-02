@@ -349,6 +349,9 @@ function registrySession(overrides: Record<string, unknown> = {}) {
     enrolledAt: NOW,
     lastSeenAt: NOW,
     source: "run",
+    // These rows model a session selected by the human-facing `resume`
+    // command; background sessions are deliberately excluded from that path.
+    sessionClass: "human",
     ...overrides,
   };
 }
@@ -577,7 +580,11 @@ describe("h2a relaunch", () => {
       ["resume", "conv-codex"],
       "codex-lane",
       undefined,
-      { sessionClass: "human" },
+      {
+        sessionClass: "human",
+        resumeId: "conv-codex",
+        attachedTerminal: true,
+      },
     );
     expect(killLocalSession).toHaveBeenCalledWith("h2a-claude-lane", {
       pane: "%test-dead",
@@ -912,7 +919,8 @@ describe("h2a relaunch", () => {
 describe("h2a resume <slug>", () => {
   it("opens Claude's native resume selector when --claude has no id", async () => {
     const cwd = process.cwd();
-    const expectedSlug = cwd.split("/").filter(Boolean).pop() ?? "session";
+    const expectedSlug = (cwd.split("/").filter(Boolean).pop() ?? "session")
+      .replace(/^h2a-/, "");
 
     const exitCode = await main(["node", "remote", "resume", "--claude"]);
 
@@ -923,12 +931,15 @@ describe("h2a resume <slug>", () => {
       cwd,
       ["--resume"],
       expectedSlug,
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
   });
 
   it("opens Codex's native resume selector when --codex has no id", async () => {
     const cwd = process.cwd();
-    const expectedSlug = cwd.split("/").filter(Boolean).pop() ?? "session";
+    const expectedSlug = (cwd.split("/").filter(Boolean).pop() ?? "session")
+      .replace(/^h2a-/, "");
 
     const exitCode = await main(["node", "remote", "resume", "--codex"]);
 
@@ -939,12 +950,15 @@ describe("h2a resume <slug>", () => {
       cwd,
       ["resume"],
       expectedSlug,
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
   });
 
   it("resumes the last local Claude conversation with --claude --last", async () => {
     const cwd = process.cwd();
-    const expectedSlug = cwd.split("/").filter(Boolean).pop() ?? "session";
+    const expectedSlug = (cwd.split("/").filter(Boolean).pop() ?? "session")
+      .replace(/^h2a-/, "");
     localConvStat.mockReturnValue({
       convId: "claude-last",
       bytes: 12,
@@ -969,6 +983,8 @@ describe("h2a resume <slug>", () => {
       cwd,
       ["--resume", "claude-last"],
       expectedSlug,
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
   });
 
@@ -1052,6 +1068,10 @@ describe("h2a resume <slug>", () => {
       ANTHROPIC_AUTH_TOKEN: "gw-current",
       ANTHROPIC_API_KEY: "gw-current",
     });
+    // Resume checks the active pane against the gateway env that is current in
+    // this process before it decides whether a replacement is safe.
+    process.env.ANTHROPIC_BASE_URL = "http://localhost:3002";
+    process.env.ANTHROPIC_AUTH_TOKEN = "gw-current";
     findLocalSession.mockReturnValue({
       name: "remote-remote-cli",
       slug: "remote-cli",
@@ -1088,7 +1108,8 @@ describe("h2a resume <slug>", () => {
 
   it("resumes Codex's native last session with --codex --last", async () => {
     const cwd = process.cwd();
-    const expectedSlug = cwd.split("/").filter(Boolean).pop() ?? "session";
+    const expectedSlug = (cwd.split("/").filter(Boolean).pop() ?? "session")
+      .replace(/^h2a-/, "");
 
     const exitCode = await main([
       "node",
@@ -1105,6 +1126,8 @@ describe("h2a resume <slug>", () => {
       cwd,
       ["resume", "--last"],
       expectedSlug,
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
   });
 
@@ -1124,7 +1147,8 @@ describe("h2a resume <slug>", () => {
 
   it("enrolls and resumes an existing Claude conversation from the current directory", async () => {
     const cwd = process.cwd();
-    const expectedSlug = cwd.split("/").filter(Boolean).pop() ?? "session";
+    const expectedSlug = (cwd.split("/").filter(Boolean).pop() ?? "session")
+      .replace(/^h2a-/, "");
 
     const exitCode = await main([
       "node",
@@ -1141,6 +1165,8 @@ describe("h2a resume <slug>", () => {
       cwd,
       ["--resume", "claude-existing"],
       expectedSlug,
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
     expect(stderrText()).toContain(`resumed local session ${expectedSlug}`);
     expect(stderrText()).toContain(`h2a attach ${expectedSlug}`);
@@ -1165,6 +1191,8 @@ describe("h2a resume <slug>", () => {
       cwd,
       ["--resume", "claude-existing"],
       "geo",
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
   });
 
@@ -1180,6 +1208,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
     expect(stderrText()).toContain("resumed local session projA");
     expect(stderrText()).toContain("h2a attach projA");
@@ -1200,15 +1230,17 @@ describe("h2a resume <slug>", () => {
       "claude",
       "claude",
       "/home/u/src/projA",
-      ["--bare", "--resume", "conv-dup"],
+      ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBe("http://localhost:3002");
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-test");
     expect(process.env.ANTHROPIC_API_KEY).toBe("gw-test");
     expect(acquireLlmMeshSessionEnv).toHaveBeenCalledWith(
       undefined,
-      "conv-dup",
+      "h2a-projA",
     );
   });
 
@@ -1232,6 +1264,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--bare", "--resume", "conv-dup"],
       "projA",
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBe("http://localhost:3002");
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-current");
@@ -1252,6 +1286,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
@@ -1306,8 +1342,10 @@ describe("h2a resume <slug>", () => {
       "claude",
       "claude",
       "/home/u/src/projA",
-      ["--bare", "--resume", "conv-dup"],
+      ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-started");
     expect(process.env.ANTHROPIC_API_KEY).toBe("gw-started");
@@ -1343,6 +1381,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
@@ -1382,6 +1422,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   });
@@ -1432,6 +1474,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
     expect(stderrText()).toContain("replaced local session projA");
   });
@@ -1507,6 +1551,8 @@ describe("h2a resume <slug>", () => {
       "/home/u/src/projA",
       ["--resume", "conv-dup"],
       "projA",
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
     );
     expect(stderrText()).toContain(
       "--replace will kill tmux session remote-projA",

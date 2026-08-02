@@ -50,6 +50,7 @@ const baseInput = {
   cwd: "/home/u/src/projA",
   source: "run" as const,
   tmuxSession: "remote-projA",
+  sessionClass: "background" as const,
 };
 
 describe("registry", () => {
@@ -166,19 +167,19 @@ describe("registry", () => {
 
     it("local liveness follows pid (kill(pid, 0)) and endedAt", () => {
       enroll(
-        { id: "with-pid", tool: "codex", kind: "local", cwd: "/x", source: "run", pid: 1234 },
+        { id: "with-pid", tool: "codex", kind: "local", cwd: "/x", source: "run", sessionClass: "background", pid: 1234 },
         regPath,
       );
       enroll(
-        { id: "dead-pid", tool: "codex", kind: "local", cwd: "/x", source: "run", pid: 9999 },
+        { id: "dead-pid", tool: "codex", kind: "local", cwd: "/x", source: "run", sessionClass: "background", pid: 9999 },
         regPath,
       );
       enroll(
-        { id: "no-pid", tool: "claude", kind: "local", cwd: "/x", source: "hook" },
+        { id: "no-pid", tool: "claude", kind: "local", cwd: "/x", source: "hook", sessionClass: "background" },
         regPath,
       );
       enroll(
-        { id: "ended", tool: "claude", kind: "local", cwd: "/x", source: "hook" },
+        { id: "ended", tool: "claude", kind: "local", cwd: "/x", source: "hook", sessionClass: "background" },
         regPath,
       );
       markEnded("ended", regPath);
@@ -196,7 +197,7 @@ describe("registry", () => {
       // to an unrelated live process. Without the boot guard, kill(pid,0) would
       // falsely report it live and the single-writer guard would block restore.
       enroll(
-        { id: "pre-boot", tool: "claude", kind: "local", cwd: "/x", source: "hook", pid: 1234 },
+        { id: "pre-boot", tool: "claude", kind: "local", cwd: "/x", source: "hook", sessionClass: "background", pid: 1234 },
         regPath,
       );
       const live = listLive({
@@ -209,7 +210,7 @@ describe("registry", () => {
 
     it("remote entries are always returned (caller reconciles)", () => {
       enroll(
-        { id: "scw-1", tool: "claude", kind: "remote", cwd: "/w", source: "remote", remoteId: "scw-1" },
+        { id: "scw-1", tool: "claude", kind: "remote", cwd: "/w", source: "remote", sessionClass: "background", remoteId: "scw-1" },
         regPath,
       );
       expect(listLive({ path: regPath }).map((e) => e.id)).toEqual(["scw-1"]);
@@ -255,6 +256,7 @@ describe("registry", () => {
       cwd: "/home/u/src/projA/.remote/jobs/job-1/wt",
       source: "run" as const,
       tmuxSession: "remote-job-1",
+      sessionClass: "background" as const,
       role: "job" as const,
       jobState: "running" as const,
       task: "fix the flaky test",
@@ -395,7 +397,7 @@ describe("registry", () => {
         enroll({ ...jobInput, id: "occ-1", jobState: "throttled" }, regPath);
         // cap 1, one throttled job already occupies the slot → no claim.
         const claimed = tryClaimSlot(
-          { id: "new", tool: "claude", kind: "local-tmux", cwd: "/r", source: "run", role: "job" },
+          { id: "new", tool: "claude", kind: "local-tmux", cwd: "/r", source: "run", sessionClass: "background", role: "job" },
           1,
           regPath,
         );
@@ -412,6 +414,7 @@ describe("registry", () => {
             kind: "local-tmux",
             cwd: "/repo",
             source: "run",
+            sessionClass: "background",
             role: "job",
             jobState: "pending",
             task: "queued task",
@@ -445,6 +448,7 @@ describe("registry", () => {
             kind: "local-tmux",
             cwd: "/repo",
             source: "run",
+            sessionClass: "background",
             role: "job",
             jobState: "pending",
             depthBudget: 3,
@@ -477,6 +481,7 @@ describe("registry concurrency (S2/S3)", () => {
     kind: "local-tmux" as const,
     cwd: "/repo",
     source: "run" as const,
+    sessionClass: "background" as const,
     role: "job" as const,
   });
 
