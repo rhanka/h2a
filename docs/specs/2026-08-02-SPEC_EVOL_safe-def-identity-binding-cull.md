@@ -51,7 +51,7 @@ For one proof run `R`:
 - `E_R` is the preserved, hash-addressed evidence corpus and closed-world coverage proof used for life, ownership, protection, and churn provenance. It includes a source → parser → identity-edge → gate dependency graph. Its source set is independently derived and reconciled from the pinned runtime/store schema, configuration, canonical registrations, workspace history, configured remotes, filesystem discovery, and an owner-ratified external-source registry. A gap propagates `UNKNOWN` to every dependent gate.
 - `W_defect = [t_start, t_stop)` is the independently attested interval in which the defective reclaim behavior was active. Release/deployment evidence establishes both endpoints. An approximate date histogram does not.
 - `T_mcp` is the recent-MCP veto lookback. It must be recorded in the proof, may not be shorter than the runtime's canonical ten-minute advisory window, and must include clock-skew and propagation margins. It never proves that a provider conversation is terminal or non-resumable.
-- `S_R` is the owner-ratified, collision-resistant root-fix migration map that records canonical actor continuity/supersession and retirement of legacy provider-session lookup keys without merging concurrent actors.
+- `S_R` is the owner-ratified, collision-resistant root-fix migration map that records canonical actor continuity/supersession and retirement of legacy provider-session lookup keys without merging concurrent actors. For every identity proposed as a reclaim-duplicate, it names a concrete non-null surviving canonical identity and supplies positive, independently verifiable/authenticated evidence for every continuity edge from the duplicate to that survivor.
 
 No proof may use an unresolved symlink, a basename-only store comparison, a partial evidence inventory, or a mutable “latest” reference.
 
@@ -106,16 +106,16 @@ Name comparison is an additional veto, not an identity join. Store disjointness 
 
 `C(i) = PASS` only when every condition below is evidenced:
 
-Distinct provider conversations are legitimate by default under the currently ratified contract. Host, workspace, label, or launch name — alone or combined — must never establish that two conversations are one actor. PASS requires `S_R` to provide a collision-resistant, owner-ratified continuity/supersession record that preserves concurrent actors and proof-of-possession roots. Concurrency, multiple unattested PoP roots, missing canonical successor, or missing legacy-key retirement is UNKNOWN.
+Distinct provider conversations are legitimate by default under the currently ratified contract. Host, workspace, label, or launch name — alone or combined — must never establish that two conversations are one actor. PASS requires `S_R` to provide a collision-resistant, owner-ratified continuity/supersession record that preserves concurrent actors and proof-of-possession roots, and to identify a concrete non-null surviving canonical identity to which `i` positively continues. Concurrency, multiple unattested PoP roots, a missing or null canonical successor, or missing legacy-key retirement is `UNKNOWN` and therefore KEEP.
 
 1. Every binding row for `i` was appended inside `W_defect`.
 2. `providerSessionId` is a real provider-conversation value, not `fallback:*`, missing, malformed, synthesized from an unknown source, or reused ambiguously across hosts.
 3. The row is proven to be a mint produced by the affected `reclaimOrMint` path and code/deployment version. Timestamp coincidence is insufficient.
-4. `S_R`, not a heuristic lineage inferred from names/workspaces, places `i` in an attested multi-mint continuity component with distinct provider sessions and minted UUIDs, identifies the surviving canonical identity where one exists, and marks the component's legacy lookup keys retired.
-5. No evidence suggests a deliberate one-conversation/one-identity actor, concurrent legitimate actor, test fixture that owns results, imported identity, migration, fallback mode, manual override, remote identity, or other mint cause.
+4. `S_R`, not a heuristic lineage inferred from names/workspaces, places `i` in an attested multi-mint continuity component with distinct provider sessions and minted UUIDs, identifies a concrete non-null surviving canonical identity `s(i) != i` to which `i` continues, supplies positive independently verifiable/authenticated evidence for every continuity edge from `i` to `s(i)` (attested supersession/continuity edges and/or authenticated proof-of-possession lineage), and marks the component's legacy lookup keys retired.
+5. That positive evidence proves `i` is a reclaim-key duplicate whose identity continues through the live/registered survivor `s(i)`. The absence of evidence of a deliberate or real actor is not proof of duplication and never yields PASS. No non-null survivor, ambiguous or heuristic-only lineage, a one-conversation identity that cannot be positively bound to the survivor, concurrency, multiple unattested proof-of-possession roots, or missing legacy-key retirement makes `C(i) = UNKNOWN` and therefore KEEP.
 6. The churn classifier version, inputs, cluster members, and reasons are recorded per ID and are reproducible from `B_R` and `E_R`.
 
-The 4,548 measured provider-session keys associated with multiple identities are evidence of abnormal minting, but not standalone deletion authority. A singleton, a row outside an attested defect window, or a row whose stable lineage cannot be reconstructed is `UNKNOWN` and stays.
+The 4,548 measured provider-session keys associated with multiple identities are evidence of abnormal minting, but not standalone deletion authority. A singleton, a row outside an attested defect window, a row with no concrete non-null surviving canonical identity, or a row whose positive per-edge continuity to that survivor cannot be independently verified is `UNKNOWN` and stays.
 
 ## 5. Never-touch boundary
 
@@ -129,7 +129,7 @@ The future operation must enforce, before opening any output file, all of these 
 3. **Owner/human identities and owner data are immutable:** the ratified owner allowlist is unioned into `P_R`; any `focus:local-human`, principal, owner name, owner alias, or ambiguous human attribution is a veto.
 4. **Within DEF, only the binding transaction may write:** keys and key history, aliases, registry, presence, inbox, outbox, loops, negotiations, engagements, governance, Track data, leases, status, policies, and all other persistent files are read-only evidence. The write-set manifest contains exactly the active binding replacement, one transaction staging inode, and the canonical `identity/.lock` sentinel lifecycle described in sections 7–8 (or an owner-ratified lock outside DEF). No other DEF file may be created or changed, and no general binding-directory write permission is implied.
 5. **Quarantine is outside PIN and outside the active DEF tree:** it is an owner-approved, access-controlled path on durable storage. It contains only the binding snapshot and proof material necessary for restoration; it must never be confused with an active store.
-6. **Exact-target checks are mandatory:** canonical path, device/inode, schema, and snapshot hash must match the approved packet. A mismatch aborts before mutation.
+6. **Exact-target checks are mandatory:** canonical path, device/inode, schema, and snapshot length/hash must match the approved packet when opened. Immediately before replacement, the authoritative held-descriptor content compare-and-swap gate in section 7 must again match the exact `len(B_R)` and `hash(B_R)`; a size, tail, or hash mismatch aborts before active mutation.
 7. **The boundary is structurally enforced:** execution occurs under OS-enforced write confinement. PIN and every evidence root are mounted/read-open-only; the only writable locations are the approved quarantine directory and the pinned DEF binding-directory transaction. Roots and binding files are opened once with no-symlink/beneath/no-cross-device resolution; file/directory descriptors remain held and are re-`fstat`ed through commit. All creation/rename operations are descriptor-relative. Unexpected hard links, mount changes, unsupported confinement, or descriptor/path mismatch abort. Hashes detect drift but do not replace write confinement.
 
 ## 6. Required safety-proof packet
@@ -141,14 +141,14 @@ The dry run is read-only and produces a self-contained, immutable packet. It mus
 - `run-manifest.json`: run ID; UTC times; operator; tool source commit and binary hash; canonical DEF/PIN paths and filesystem identities; schema versions; `W_defect`; `T_mcp`; evidence-source inventory, parser versions, completeness/freshness results; snapshot hashes/counts; protected-set and owner-allowlist hashes.
 - `coverage.json` and `dependencies.json`: the independently derived closed-world source set, recursive path inventories, exclusions with ratified reasons, and the source → parser → identity-edge → gate graph with reconciliation results.
 - `evidence/`: the exact captured bytes or signed canonical query responses for every source used by every gate, including `lstat`/filesystem metadata, acquisition start/end times, mount/boot/clock identity, command/query exit status, and truncation/error state. Ephemeral tmux/process observations carry a signed acquisition attestation bound to the fence epoch.
-- `decisions.jsonl`: exactly one decision per DEF identity component, containing all member rows/edges/line numbers/fingerprints, raw identity fields, four gate verdicts, machine-readable keep/cull reasons, evidence references and hashes, and final `WOULD_CULL` or `KEEP`.
-- `would-cull.jsonl`: the exact ordered subset of rows proposed for removal, with row fingerprints and per-component evidence references.
+- `decisions.jsonl`: exactly one decision per DEF identity component, containing all member rows/edges/line numbers/fingerprints, raw identity fields, four gate verdicts, machine-readable keep/cull reasons, the concrete non-null canonical survivor and authenticated per-edge continuity evidence for every `C=PASS`, evidence references and hashes, and final `WOULD_CULL` or `KEEP`.
+- `would-cull.jsonl`: the exact ordered subset of rows proposed for removal, with row fingerprints, the non-null surviving canonical identity, and per-edge continuity/per-component evidence references.
 - `keep.jsonl`: every remaining identity and at least one decisive KEEP/UNKNOWN reason.
-- `lookup-replay.json`: before/after replay of runtime's last-wins `(host, providerSessionId)` lookup for every key, canonical-successor/retirement evidence, and proof that filtering exposes no predecessor or different effective binding.
+- `lookup-replay.json`: before/after replay of runtime's last-wins `(host, providerSessionId)` lookup for every key, concrete non-null canonical-successor/retirement evidence, authenticated per-edge continuity to that survivor, and proof that filtering exposes no predecessor or different effective binding.
 - `positive-controls.json`: the actor/owner/PIN assertions below and their evidence.
 - `summary.json` and a human-readable report: counts by gate and reason, parser/source failures, ambiguous IDs, input/output count reconciliation, and hashes of every packet member.
 
-The packet invariant is `DEF identity components = WOULD_CULL + KEEP`, with no duplicate, omission, split component, or undecided row. Each `WOULD_CULL` decision must show `presenceRefs=0`, `liveSessionRefs=0`, `recentMcpRefs=0`, `ownedWorkRefs=0`, `protectedRefs=0`, terminal/supersession proof, and a non-empty reproducible churn proof. Zero without source-completeness evidence is invalid.
+The packet invariant is `DEF identity components = WOULD_CULL + KEEP`, with no duplicate, omission, split component, or undecided row. Each `WOULD_CULL` decision must show `presenceRefs=0`, `liveSessionRefs=0`, `recentMcpRefs=0`, `ownedWorkRefs=0`, `protectedRefs=0`, terminal/supersession proof, a concrete non-null surviving canonical identity, and non-empty independently verifiable/authenticated per-edge continuity proof to that survivor. Zero without source-completeness evidence is invalid.
 
 A clean-room verifier with no access to mutable live state must rederive `decisions.jsonl`, `would-cull.jsonl`, `lookup-replay.json`, and the predicted filtered bytes/hash `K_R` byte-for-byte from the preserved packet. Unpreserved evidence, an undiscoverable source, or a non-reproducible query makes every dependent gate UNKNOWN.
 
@@ -166,6 +166,7 @@ The proof must fail unless it demonstrates all of the following:
 5. A row outside `W_defect` and a `fallback:*` row are detected and kept, proving that the churn classifier is not merely “old/inactive = garbage.”
 6. For each Gate P resolution route — exact instance, UUID, owner alias, durable role, DEF→PIN provider-session/registration edge, and proof-of-possession lineage — a target-universe DEF control or faithful fixture fails P while the other three gates pass. A control already caught by L, O, or C does not validate P; an unexercised join cannot support `P=PASS`.
 7. Two legitimate concurrent, same-workspace/same-name provider conversations stay separate and KEEP, and a multi-row same-provider lookup key stays as one component unless its whole component passes and `S_R` retires the key.
+8. A genuine quiet single-conversation actor, or faithful fixture, with no non-null surviving canonical identity and no positive continuity evidence is `C=UNKNOWN` and KEEP even when its other three gates pass. The control fails if absence of evidence of a deliberate actor is treated as proof of reclaim-duplication.
 
 The actor control is intentionally cross-store: the real three are in PIN, not DEF. Requiring them to appear in DEF would contradict the measured topology and could tempt an unsafe identity substitution.
 
@@ -173,7 +174,7 @@ The actor control is intentionally cross-store: the real three are in PIN, not D
 
 The conductor's pre-fence dossier is informational only. It contains the preliminary proof packet, top-level hash, exact proposed count, all UNKNOWN/KEEP classes, quarantine location/retention, restoration procedure, root-fix status, and explicit statement that only DEF bindings are in scope. It does not authorize a future set computed from changing evidence.
 
-The maintenance fence is a generation-numbered writer barrier covering every process/service capable of creating a DEF binding, presence/session/lease, MCP activity, alias/registration, message/protocol artifact, provider resume record, or attributed work for any candidate. Before final scanning, ingress closes, all registered writers drain pre-fence work and acknowledge the same epoch, and the executor proves no unregistered writer exists. The binding lock is acquired only after those acknowledgements. The epoch remains valid through evidence capture, final authorization, swap, directory fsync, and read-back. Missing acknowledgement, expired lease/fence, unfenceable source, unregistered writer, or any write not carrying the epoch aborts with no mutation. The binding lock alone is insufficient.
+The maintenance fence is a generation-numbered writer barrier covering every process/service capable of creating a DEF binding, presence/session/lease, MCP activity, alias/registration, message/protocol artifact, provider resume record, or attributed work for any candidate. As a mandatory root-fix precondition, every DEF binding append is admitted through exactly one binding transaction path; that path cannot open or append the binding file unless it holds the canonical binding lock and current fence epoch. Direct or alternate binding append paths are absent by construction, not assumed absent from a cooperative acknowledgement. The executor verifies this structural single-writer invariant against the deployed binary/write-path inventory and aborts if any binding-write path can bypass the fence. Before final scanning, ingress closes and all other registered writers drain pre-fence work and acknowledge the same epoch. The binding lock is acquired only after those acknowledgements and remains held exclusively through the final held-descriptor compare, replacement, directory fsync, displaced-inode check, and read-back, so the sole binding writer serializes behind it. The epoch remains valid through evidence capture, final authorization, swap, directory fsync, and read-back. Missing acknowledgement, expired lease/fence, unfenceable source, a bypass-capable binding path, or any write not carrying the epoch aborts with no mutation. The binding lock alone is insufficient without the single-writer invariant and the complete fence.
 
 Under the held fence, the executor must:
 
@@ -181,11 +182,21 @@ Under the held fence, the executor must:
 2. prove PIN is outside the write set and matches the pinned read-only snapshot;
 3. capture the final `E_R`, recompute components and gates, replay lookup semantics, and clean-room verify the final immutable packet;
 4. have the conductor present that final packet while the fence remains held;
-5. obtain and verify `owner-authorization.json`, signed by a trusted owner key and binding: owner identity/key, nonce, expiry, run/fence IDs, canonical DEF filesystem identity, `B_R` hash, the ordered input row-fingerprint sequence, `would-cull.jsonl` hash, exact candidate component/row set, `K_R` hash, quarantine root/retention, and tool/classifier versions;
+5. obtain and verify `owner-authorization.json`, signed by a trusted owner key and binding: owner identity/key, nonce, expiry, run/fence IDs, canonical DEF filesystem identity, `B_R` length/hash, the ordered input row-fingerprint sequence, `would-cull.jsonl` hash, exact candidate component/row set, `K_R` hash, quarantine root/retention, and tool/classifier versions;
 6. verify signature, trust, expiry, nonce/replay status, and revocation immediately before staging;
-7. abort on any changed byte, ordered row, evidence item, protected set, fence state, candidate component, parser/tool version, or authorization field. No subset/superset substitution is permitted.
+7. prepare and verify quarantine and the staging inode under section 8 without replacing the active binding;
+8. as the last gate immediately before the descriptor-relative rename, capture the final observation from the still-held original `B_R` descriptor by re-`fstat`ing and re-reading it, and require both `st_size == len(B_R)` and `sha256(current bytes) == hash(B_R)`; and
+9. abort on any changed byte, ordered row, evidence item, protected set, fence state, candidate component, parser/tool version, authorization field, descriptor identity, size, tail, or content hash. No subset/superset substitution is permitted.
+
+An append to this JSONL file necessarily increases its size. Therefore any size growth is the structural signal of an interleaved append; a same-size modification or other tail change is caught by the full content hash. Either result aborts before rename with no active binding mutation. This held-descriptor length/hash compare, not the cooperative epoch acknowledgements, is the authoritative content compare-and-swap gate at replacement.
 
 The owner authorization is approval of this exact fenced packet, never permission to “remove about 24k identities.” If the owner cannot review/sign before the bounded fence expires, release it without mutation and start a new final proof.
+
+### 7.1 Closing the final compare-to-rename interval
+
+POSIX `rename()` is unconditional and does not offer an atomic content-conditional rename. This protocol does not pretend that the held-descriptor compare and rename are one syscall. Instead, it closes the interval structurally: all binding mutation is available only through the single writer path, every append on that path must acquire the same lock/epoch, and the executor holds that lock exclusively from the final compare through rename and read-back. No conforming appender can enter between the compare and rename. If the deployed runtime cannot demonstrate that construction, the cull precondition fails and execution aborts; this document accepts no cooperative-only writer fence.
+
+The held-descriptor size/hash compare is defense in depth for drift before that interval. As a final recoverability net for a violated invariant, the descriptor for the displaced `B_R` inode remains held after rename through directory fsync and read-back and is re-`fstat`ed/re-read. Any bytes beyond `len(B_R)` are a late pre-swap append tail, are preserved in the external transaction package before success can be reported, and activate section 8.2's restoration trigger and section 8.3's lossless restoration. Section 8.3 combines that tail with any post-swap active tail without discarding either. Thus a detected bypass is restored, not silently clobbered; ambiguous tail provenance or ordering stops for owner-directed restoration rather than guessing.
 
 ## 8. Reversible-first staging and restoration
 
@@ -207,7 +218,7 @@ Before swap, fsync every quarantine member, its manifest, the package directory,
 
 The sole additional data inode permitted in DEF is one anonymous or collision-resistant `O_EXCL` staging inode in the pinned binding directory. The transaction may also create/write/remove exactly the canonical `identity/.lock` sentinel, whose identity, contents, fence epoch, holder, acquisition, and release are recorded in the write-set manifest. A pre-existing, unowned, or stale-looking lock is ambiguity and aborts; it is never automatically removed. Crash cleanup may unlink only a lock proven from the durable transaction record and process/fence evidence to belong to this transaction and to have no live holder.
 
-The staging inode is written and fsynced, byte/hash verified as `K_R`, and never reopened through an untrusted path. Before rename, the executor captures from `B_R`, stores in quarantine, reproduces on the staging inode, and verifies every supported security-relevant attribute: owner/group, mode, ACLs, xattrs, SELinux/AppArmor or other security labels, file flags, and filesystem-specific metadata. Unsupported, unreadable, unreproducible, or post-application-mismatched metadata aborts before rename. The executor then performs a descriptor-relative atomic replacement and fsyncs the binding directory. Post-swap read-back re-verifies bytes and all security metadata. No in-place truncation or per-line mutation is permitted. Abort cleanup may remove only the transaction-recorded staging inode and eligible transaction-owned lock.
+The staging inode is written and fsynced, byte/hash verified as `K_R`, and never reopened through an untrusted path. Before rename, the executor captures from `B_R`, stores in quarantine, reproduces on the staging inode, and verifies every supported security-relevant attribute: owner/group, mode, ACLs, xattrs, SELinux/AppArmor or other security labels, file flags, and filesystem-specific metadata. Unsupported, unreadable, unreproducible, or post-application-mismatched metadata aborts before rename. With the binding lock still held, the executor then performs section 7's final size/hash compare on the held original descriptor as the immediately-pre-rename gate, performs the descriptor-relative atomic replacement, and fsyncs the binding directory. The displaced original descriptor remains held and is re-`fstat`ed/re-read through read-back; any late bytes beyond `len(B_R)` are preserved durably as `N_pre` and activate section 8.2's restoration trigger and section 8.3's restoration protocol before success or fence release. Post-swap read-back re-verifies bytes and all security metadata. No in-place truncation or per-line mutation is permitted. Abort cleanup may remove only the transaction-recorded staging inode and eligible transaction-owned lock.
 
 Immediately before commit, `lookup-replay.json` must prove that no retained `(host, providerSessionId)` changes effective last-wins binding and no predecessor becomes visible. A lookup key may disappear only when every row in its identity component passes all gates and `S_R` explicitly retires that key. Otherwise the component is KEEP.
 
@@ -224,11 +235,12 @@ Each transition is durably recorded in the external quarantine transaction log b
 
 At any state, unexpected active bytes, missing/extra transaction objects, invalid log transition, fence/confinement failure, or unprovable directory durability means: keep quarantine, make no automated cleanup or new replacement, and stop for owner-directed restoration under a fresh complete fence. This rule covers crashes after rename but before directory fsync, after fsync but before `SWAP_COMMITTED`, and during read-back.
 
-### 8.2 Read-back, rescan, and soak
+### 8.2 Read-back, restoration trigger, rescan, and soak
 
 Before releasing the fence/lock, read back and verify:
 
 - active bytes/hash equal the predicted `K_R`;
+- the still-held displaced original descriptor remains exactly `B_R`; any bytes beyond `len(B_R)` are durably preserved as `N_pre` and trigger section 8.3 restoration before success or fence release;
 - active row count plus quarantined row count equals `B_R`'s row count;
 - every kept row is byte-identical and in original order;
 - every proposed row and only those rows is absent;
@@ -240,17 +252,22 @@ Quarantine remains through an owner-specified soak period long enough to cover r
 
 Before real staging, a non-live byte-faithful fixture must rehearse a resume/reconnect against `K_R` and prove the root-fix migration reaches the surviving canonical identity without fresh mint, shared inbox/key, or predecessor resurrection. Hard deletion of quarantine is a separate owner-gated act whose signed authorization binds the exact quarantine manifest/hash after the soak and final proof; it is never implied by staging approval.
 
-### 8.3 Lossless restoration with a live append-only tail
+### 8.3 Lossless restoration with displaced and active append-only tails
 
-Restoration must not overwrite bindings appended after staging. Under the same complete writer-barrier protocol and a new fence epoch/identity lock, it pins and reads the active file once. `N` is exactly the bytes beginning at offset `len(K_R)` after bytewise prefix equality; it must be empty or complete, newline-terminated, schema-valid JSONL rows with no partial final record. Every tail-row fingerprint is recorded.
+Restoration must not overwrite bindings appended after the final `B_R` observation or after staging. It accounts for two exact tails:
 
-Before rename, the executor preserves and fsync-verifies the exact `N` bytes/fingerprints in the external restoration transaction package. Restoration inherits section 8.1's exact DEF write set, transaction-owned lock lifecycle, descriptor-relative confinement, complete security-metadata capture/reproduction/read-back, directory fsync, and unknown-state stop rules.
+- `N_pre` is any bytes beginning at offset `len(B_R)` on the still-held displaced original descriptor after the cull rename. It captures an append that violated the single-writer invariant and landed on the old inode between the final compare and replacement. The executor re-reads and durably preserves this tail before reporting success or releasing the cull fence.
+- `N_post` is any bytes beginning at offset `len(K_R)` on the active binding file after bytewise prefix equality. Under the same complete writer-barrier protocol and a new fence epoch/identity lock, restoration pins and reads the active file once to capture it.
+
+Each tail must be empty or complete, newline-terminated, schema-valid JSONL rows with no partial final record, and every tail-row fingerprint is recorded. `N = N_pre || N_post` only when the preserved descriptor/transaction evidence proves that ordering; this is the expected ordering for a late append to the displaced pre-swap inode followed by normal active-file appends. If both tails exist but their provenance or order is ambiguous, automated restoration stops for owner direction and discards neither.
+
+Before restoration rename, the executor preserves and fsync-verifies the exact `N_pre`, `N_post`, combined `N`, and fingerprints in the external restoration transaction package. Restoration inherits section 8.1's exact DEF write set, transaction-owned lock lifecycle, descriptor-relative confinement, complete security-metadata capture/reproduction/read-back, directory fsync, and unknown-state stop rules.
 
 The executor builds `B_R || N` in a new transaction-recorded staging inode, fsyncs it, verifies the predicted hash and security metadata, performs descriptor-relative atomic replacement, fsyncs the binding directory, and reopens/read-backs the result before releasing the fence. Durable restoration ordering is: `RESTORE_INPUT_VERIFIED` → verified staging inode → rename → directory fsync → `RESTORE_COMMITTED` → read-back → `RESTORE_READBACK_VERIFIED`.
 
-Recovery uses the same complete fence and permits: at `RESTORE_INPUT_VERIFIED`, exactly `K_R || N` (abort/clean only recorded transaction objects) or `B_R || N` (finish directory fsync and advance); at `RESTORE_COMMITTED`, exactly `B_R || N` followed by repeated full read-back; at `RESTORE_READBACK_VERIFIED`, exactly `B_R || N` and no repeated rename. At every phase, the recovered `N` must byte/fingerprint-match the preserved restoration package. Any other bytes, metadata, object, log transition, or durability state retains quarantine and stops for owner direction.
+Recovery uses the same complete fence and permits: at `RESTORE_INPUT_VERIFIED`, exactly `K_R || N_post` (abort/clean only recorded transaction objects while retaining preserved `N_pre`) or `B_R || N` (finish directory fsync and advance); at `RESTORE_COMMITTED`, exactly `B_R || N` followed by repeated full read-back; at `RESTORE_READBACK_VERIFIED`, exactly `B_R || N` and no repeated rename. At every phase, recovered tail bytes must byte/fingerprint-match `N_pre`, `N_post`, and `N` in the preserved restoration package. Any other bytes, metadata, object, log transition, or durability state retains quarantine and stops for owner direction.
 
-This restores original order and last-wins semantics while preserving new rows. Any prefix, parse, record-boundary, writer, confinement, metadata, or hash discrepancy forbids automated restoration; the owner receives the intact quarantine and diagnostics, and the executor must not guess or append old rows at the end. Quarantine remains until owner acceptance of the restored state.
+This restores original order and last-wins semantics while preserving both a clobbered pre-swap append and later active rows. Any prefix, parse, record-boundary, tail-provenance/order, writer, confinement, metadata, or hash discrepancy forbids automated restoration; the owner receives the intact quarantine and diagnostics, and the executor must not guess, discard a tail, or append old rows at the end. Quarantine remains until owner acceptance of the restored state.
 
 ## 9. Reclaim-key root-fix pendant (source stop)
 
@@ -262,7 +279,8 @@ A separate identity design/fix must supersede the current `(host, providerSessio
 - retain proof-of-possession as the authenticator and specify key rotation/recovery;
 - define the stable actor/launch lineage used across conversations;
 - preserve concurrent-session isolation and prevent two actors from sharing an inbox or key;
-- emit the collision-resistant continuity/supersession map `S_R`, including canonical successors and explicit retirement of legacy provider-session lookup keys;
+- route every DEF binding append through exactly one binding transaction/writer path that structurally requires the canonical fence lock and current epoch, with no direct or alternate append path;
+- emit the collision-resistant continuity/supersession map `S_R`, including a concrete non-null canonical successor and independently verifiable/authenticated per-edge continuity for every proposed duplicate, plus explicit retirement of legacy provider-session lookup keys;
 - make mint vs reclaim reason/provenance observable so future lifecycle decisions are evidence-based;
 - include migration, race, concurrent-start, resume, cross-workspace, owner/real-actor, and no-proof tests.
 
@@ -285,6 +303,7 @@ Known explicit KEEP/UNKNOWN cases are:
 | DEF `codex:antoinefa:3ae2c4955912` | KEEP / owner ambiguity | Owner-like human/home identity; no ratified mapping proves it non-owner. |
 | All 199 measured `fallback:*` rows | KEEP | They lack the stated provider-session churn signature. |
 | Any row outside an attested `W_defect` | KEEP | Date coincidence cannot prove defect provenance. |
+| Any quiet one-conversation identity with no non-null survivor or positive per-edge continuity proof | KEEP / `C=UNKNOWN` | Silence and absence of contrary evidence do not prove reclaim-duplication. |
 | Any identity in the remaining DEF population without a complete four-gate record | KEEP | Safety has not been proven from headline measurement. |
 
 ## 11. Acceptance criteria for a conductor dossier
@@ -293,12 +312,12 @@ The conductor may pose the destructive go only when:
 
 1. the root fix is ratified, deployed, and observed to stop the source;
 2. the protected/owner set is explicit, ratified, non-empty, and hash-addressed;
-3. every DEF identity component has one reconciled decision and every proposed component passes all four gates, including terminal/resume-safe supersession;
+3. every DEF identity component has one reconciled decision and every proposed component passes all four gates, including terminal/resume-safe supersession, a concrete non-null surviving canonical identity, and authenticated independently verifiable per-edge continuity to that survivor;
 4. last-wins lookup replay proves no effective binding changes or predecessor resurrection and every disappearing key is retired in `S_R`;
-5. all positive and negative controls pass, including route-specific P controls, the three PIN actors, owner/human control, live same-name DEF controls, owned-work control, outside-window/fallback controls, legitimate concurrent conversations, and a multi-row provider key;
+5. all positive and negative controls pass, including route-specific P controls, the three PIN actors, owner/human control, live same-name DEF controls, owned-work control, outside-window/fallback controls, a quiet single-conversation identity with no survivor/continuity proof, legitimate concurrent conversations, and a multi-row provider key;
 6. the closed-world evidence/dependency inventory is complete, every source/parser is healthy, and a clean-room verifier reproduces the final packet and `K_R` byte-for-byte;
-7. a complete writer fence and OS-enforced write confinement remain valid through the signed final authorization, swap, directory fsync, and read-back;
-8. quarantine/crash recovery has been independently verified, filtered-file resume/reconnect has been rehearsed safely, and lossless tail-preserving restoration has been rehearsed on a non-live fixture;
+7. the deployed root fix structurally exposes exactly one lock/epoch-requiring DEF binding writer path, the complete writer fence and OS-enforced write confinement remain valid through signed final authorization and read-back, and the held-descriptor `len(B_R)`/`hash(B_R)` compare passes immediately before rename;
+8. quarantine/crash recovery has been independently verified, filtered-file resume/reconnect has been rehearsed safely, and lossless restoration of displaced `N_pre` plus active `N_post` tails has been rehearsed on a non-live fixture;
 9. the owner signs the exact fenced manifest, ordered row set/hash, `K_R`, quarantine contract, and scope before fence expiry;
 10. the gap-free soak monitor, post-stage read-back/rescan, restoration owner, and separately signed hard-delete gate are scheduled and owned.
 
