@@ -136,9 +136,11 @@ import {
   type AgentLaunchEffort,
 } from "./agent-launch-args.js";
 import { planRelaunch } from "./relaunch.js";
+import { deriveSessionClass } from "./session-class.js";
 import type { ProcView } from "./proc-cpu.js";
 import {
   isHumanFacingSession,
+  legacySessionEvidence,
   readConversationCustomTitle,
   readLastLayout,
   reconcileRunConvIds,
@@ -2272,12 +2274,16 @@ function registryEntryForResumeTarget(
   target: string,
   local?: LocalSession,
 ): RegistryEntry | undefined {
+  const evidence = legacySessionEvidence(
+    homedir(),
+    local === undefined ? listLocalSessions() : [local],
+  );
   const matches = registryEntriesForLocalTmuxTarget(target, local).filter((e) => {
     // Resume is a human-facing operation, not a promotion path. Share the
     // durable class test with restore so legacy human rows remain resumable,
     // while delegated jobs and explicit background launches stay excluded.
     if (e.role !== undefined) return false;
-    return isHumanFacingSession(e);
+    return isHumanFacingSession(e, evidence);
   });
   const ids = new Set(matches.map((e) => e.id));
   if (ids.size !== 1) return undefined;
@@ -5128,6 +5134,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
+        let gatewayMode: "auto" | "gateway" | "direct";
+        try {
+          gatewayMode = gatewayModeFromOptions(opts);
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
+          process.exitCode = 1;
+          return;
+        }
         const target = slug ?? slugify(process.cwd());
         const localResolution = resolveLocalSession(target);
         if (localResolution.kind === "ambiguous") {
@@ -5217,14 +5231,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           return;
         }
         const profile = entry.tool;
-        let gatewayMode: "auto" | "gateway" | "direct";
-        try {
-          gatewayMode = gatewayModeFromOptions(opts);
-        } catch (error) {
-          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
-          process.exitCode = 1;
-          return;
-        }
         if (gatewayMode === "gateway" && !profileUsesLlmMeshGateway(profile)) {
           process.stderr.write(
             `[h2a] --llm-gateway/--gw is unsupported for ${profile}; this gateway is Anthropic-compatible and only Claude profiles consume it.\n`,
@@ -5398,6 +5404,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           true,
           localSessionName(resumeSlug),
         );
+        const sessionClass = deriveSessionClass({
+          background: opts.attach !== true,
+          humanTerminal:
+            opts.attach === true &&
+            process.stdin.isTTY === true &&
+            process.stdout.isTTY === true,
+        });
         const { name } = startLocalSession(
           profile,
           command,
@@ -5405,14 +5418,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           args,
           resumeSlug,
           undefined,
-          { sessionClass: "human", attachedTerminal: true },
+          { sessionClass, attachedTerminal: true },
         );
         enrollFromRun({
           profile,
           slug: resumeSlug,
           tmuxSession: name,
           cwd: entry.cwd,
-          sessionClass: "human",
+          sessionClass,
           ...(entry.convId ? { convId: entry.convId } : {}),
           ...(gatewayMode !== "auto" ? { gatewayMode } : {}),
         });
@@ -5700,8 +5713,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // A detached/background or run-once launch is a worker, even when its
         // agent later emits a Claude SessionStart hook. Stamp this through tmux
         // so that hook cannot reclassify it as a human session.
-        const sessionClass =
-          opts.background || opts.headless ? "background" : "human";
+        const sessionClass = deriveSessionClass({
+          background: opts.background === true,
+          headless: opts.headless === true,
+          humanTerminal: opts.attachedTerminal !== false,
+        });
         let activeGateway: string | undefined;
         const h2a = getH2aConfig();
         const h2aSidecar = opts.h2a ?? h2a.enabled;
