@@ -2202,7 +2202,9 @@ export function sessionRelaunchSafety(
     const pane = resolvePane(name);
     if (!pane) {
       return {
-        idle: false,
+        dead: false,
+        activatable: false,
+        indeterminate: true,
         activelyWorking: true,
         reason: "liveness indeterminate: agent pane is unreadable",
       };
@@ -2228,7 +2230,9 @@ export function sessionRelaunchSafety(
     });
   } catch {
     return {
-      idle: false,
+      dead: false,
+      activatable: false,
+      indeterminate: true,
       activelyWorking: true,
       reason: "liveness indeterminate: worker/CPU probe failed",
     };
