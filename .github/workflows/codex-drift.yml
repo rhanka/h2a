@@ -1,0 +1,42 @@
+name: codex-drift
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-oracle-drift:
+    # This is an observation-only detector, deliberately separate from ci.yml.
+    # It is NOT a gate and must never be added to required branch-protection checks.
+    # The unpinned install exposes whether a new Codex release diverges from our doctor.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install the latest codex CLI for drift detection
+        run: npm i -g @openai/codex
+      - name: Codex rejects an invalid preserved configuration
+        run: |
+          set -euo pipefail
+          unset CODEX_HOME CLAUDE_CONFIG_DIR
+          node --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
+      - name: Ask the host what it serves
+        run: |
+          set -euo pipefail
+          unset CODEX_HOME CLAUDE_CONFIG_DIR
+          bash docs/uat/probe-oracle.sh
+      - name: An error is not an absence
+        run: |
+          set -euo pipefail
+          unset CODEX_HOME CLAUDE_CONFIG_DIR
+          bash docs/uat/probe-presence.sh
