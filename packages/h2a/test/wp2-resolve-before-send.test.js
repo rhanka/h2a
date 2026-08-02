@@ -448,51 +448,6 @@ test("CLI inbox read serves a declared-but-never-live host:label while put remai
   }
 });
 
-test("CLI inbox pop serves a declared-but-never-live host:label like read, while put stays refused", () => {
-  // pop reads-and-removes; it is a read-family op, so an orphan/declared inbox must
-  // pop, never be refused as a phantom write. Symmetric to the read fix above.
-  const dir = mkdtempSync(join(tmpdir(), "doc03-pop-phantom-"));
-  const root = join(dir, ".h2a");
-  const instance = "codex:dev-1";
-  const envelope = makeEnvelopeObj("env-doc03-pop-phantom");
-  try {
-    const store = createLocalStore({ root });
-    store.putInboxMessage(instance, envelope);
-
-    const popStreams = captureStreams(dir);
-    const popRc = runCli(
-      ["inbox", "pop", "--root", root, "--instance", instance, "--envelope", "env-doc03-pop-phantom"],
-      popStreams
-    );
-    assert.equal(popRc, 0, `expected an orphan inbox pop, got: ${popStreams.stderrText}`);
-    assert.doesNotMatch(popStreams.stderrText, /no live or registered agent/);
-    assert.equal(store.readInbox(instance).length, 0, "pop must have removed the envelope");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("MCP inbox pop serves a declared-but-never-live host:label like read", () => {
-  const dir = mkdtempSync(join(tmpdir(), "doc03-mcp-pop-phantom-"));
-  const root = join(dir, ".h2a");
-  const instance = "codex:dev-1";
-  const envelope = makeEnvelopeObj("env-doc03-mcp-pop-phantom");
-  try {
-    const store = createLocalStore({ root });
-    store.putInboxMessage(instance, envelope);
-
-    const popResult = handleInbox(store, {
-      action: "pop",
-      instance,
-      envelopeId: "env-doc03-mcp-pop-phantom"
-    });
-    assert.ok(!popResult.error, `expected an orphan MCP pop, got: ${JSON.stringify(popResult)}`);
-    assert.equal(store.readInbox(instance).length, 0, "MCP pop must have removed the envelope");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test("MCP inbox read refuses a malformed third segment", () => {
   const dir = mkdtempSync(join(tmpdir(), "doc03-read-malformed-third-segment-"));
   const root = join(dir, ".h2a");

@@ -200,6 +200,7 @@ const CORE_GROUP_BY_FIRST_WORD: Readonly<Record<string, H2ACommandGroupId>> = {
   // Work — study row "Read or record work | `h2a report` / `h2a decision …` |
   // Curated Track lifts". The Track façade verbs are added separately below.
   "report-context": "WORK",
+  "report-ai": "WORK",
 
   // Set up — study rows "Connect this host", "Diagnose".
   init: "SET_UP",
@@ -295,7 +296,7 @@ const RUNTIME_VERBS: readonly {
   { group: "SET_UP", verb: "tmux", summary: "Manage h2a's local tmux naming and status surface." },
 
   { group: "SESSION_RECOVERY", verb: "restore", summary: "Relaunch the dev sessions in their recorded layout." },
-  { group: "SESSION_RECOVERY", verb: "relaunch", summary: "Recover an idle CLI, or force-restart one session or a guarded fleet from its registry conversation." },
+  { group: "SESSION_RECOVERY", verb: "relaunch", summary: "Restart the CLI in sessions that dropped to a shell." },
   { group: "SESSION_RECOVERY", verb: "resume-throttled", summary: "Nudge rate-limited, detached sessions back to life." },
   { group: "SESSION_RECOVERY", verb: "layout", summary: "The layout auto-recorded by `h2a restore`." },
   { group: "SESSION_RECOVERY", verb: "rename", summary: "Rename a session's display name without restarting it." },

@@ -528,38 +528,6 @@ the seed unless a separate owner decision reopens integration.
   core memory. Only Honcho was read end to end in the mechanism research; ByteRover, Hindsight,
   Holographic, mem0, OpenViking, RetainDB, and Supermemory remain unverified beyond their declarations.
 
-### 8.6 Reference systems — 2026-07-31 addition: EXXETA `exxperts`
-
-Added to the benchmark on 2026-07-31 (owner). Characterized from the project's public README at
-`https://github.com/EXXETA/exxperts`, **not code-verified** — treat every claim below as the
-project's declaration, not a measurement, the same standard applied to the unverified providers
-above. TypeScript on the Pi runtime (Node ≥ 20.6), Apache-2.0, ~38 commits, actively developed.
-
-What it is, per its README: a **local-first, provider-agnostic agent framework with
-approval-gated, user-controlled persistent memory**. It is the closest shipping system to several
-directions this study already decided, and its substrate is the **opposite pole** from graphify:
-
-- **File-based, not a graph.** Memory is plain text files under `~/.exxperts`, each tracing back
-  to the conversation it came from. This is the "committed / file" pole of the location choice
-  (D10 update, choice b) — no vectors, no knowledge graph, no Postgres.
-- **Time travel** ("read everything your AI knew on any given day") is a `recall --as-of`
-  capability by another name — the same read the graphify seam relies on, but over files, which
-  matches graphify-knowledge's measured **offline file-backend** (`recall --as-of --graph <file>`,
-  `freshness: unverified`), not the store window.
-- **Approval gate** ("nothing is saved until you approve it") is a shipping instance of **D11**
-  (keep the human gate; reduce what reaches the human) — a working reference for that decision.
-- **Provenance** (every memory links to its exact source conversation) is D9-adjacent grounding,
-  and is the same discipline as graphify's `verifyVerbatim` citation gate: it guarantees the entry
-  cites its source, **not** that the lesson is true.
-- **Per-room governed memory** (independent rooms, each with its own memory) is the
-  compartmentalization pole of the sharing choice (D10 update, choice d) — but the README does not
-  state cross-room mutualization of common facts, which is exactly the property the owner requires.
-
-**Not stated in the README:** contradiction detection/reconciliation (the D9 core), bi-temporality,
-any ordering coordinate beyond per-day recall, and cross-agent ordering. So it validates the
-human-gate, provenance and file-based-recall directions, and is silent on the two hardest ones this
-study keeps open: contradiction and cross-agent order. Reference only — no dependency implied.
-
 ### 8.5 Failure modes that constrain the native design
 
 - Issue #56464 reports replace/add truncating a roughly 2,100-character memory from 28 entries to 5 while

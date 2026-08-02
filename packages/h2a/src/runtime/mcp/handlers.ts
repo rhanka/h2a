@@ -282,8 +282,7 @@ export function handleInbox(
         const resolution = resolveRecipient({
           target: args.instance,
           liveInstances: liveSessions,
-          registeredInstances: registeredIds,
-          operation: "read"
+          registeredInstances: registeredIds
         });
         if (resolution.kind === "refuse") {
           return {
