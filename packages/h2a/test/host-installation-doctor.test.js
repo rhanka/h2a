@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  mkdtempSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -34,11 +35,13 @@ function doctorHostInstallations(options = {}) {
   return productionDoctorHostInstallations({
     testHostCliReachable: fixtureHostCliReachable,
     testCodexConfigurationOracle: { knownGood: { ok: true }, candidate: { ok: true } },
+    testClaudeConfigurationOracle: { knownGood: { ok: true }, candidate: { ok: true } },
     ...options
   });
 }
 
 const codexCliProbe = spawnSync("codex", ["--version"], { encoding: "utf8", timeout: 10_000 });
+const claudeCliProbe = spawnSync("claude", ["--version"], { encoding: "utf8", timeout: 10_000 });
 
 function runRealCodexMcpList(codexHome) {
   return spawnSync("codex", ["mcp", "list"], {
@@ -48,6 +51,45 @@ function runRealCodexMcpList(codexHome) {
     // This child-only override is the test's isolation boundary.  It never
     // reads or writes the owner's configured CODEX_HOME.
     env: { ...process.env, CODEX_HOME: codexHome }
+  });
+}
+
+function isolatedClaudeEnvironment(home) {
+  const env = {
+    ...process.env,
+    HOME: home,
+    CODEX_HOME: join(home, "no-codex"),
+    XDG_CONFIG_HOME: join(home, ".config"),
+    XDG_CACHE_HOME: join(home, ".cache"),
+    XDG_DATA_HOME: join(home, ".local", "share")
+  };
+  delete env.CLAUDE_CONFIG_DIR;
+  return env;
+}
+
+function runRealClaudeMcpList(claudeHome) {
+  return spawnSync("claude", ["mcp", "list"], {
+    cwd: claudeHome,
+    encoding: "utf8",
+    timeout: 120_000,
+    env: isolatedClaudeEnvironment(claudeHome)
+  });
+}
+
+function inspectClaudeWithItsRealConfigurationOracle(home) {
+  const program = [
+    `import { doctorHostInstallations } from ${JSON.stringify(new URL("../dist/index.js", import.meta.url).href)};`,
+    "const report = doctorHostInstallations({ home: process.env.H2A_ORACLE_HOME, repair: true, dryRun: true });",
+    "const claude = report.hosts.find((host) => host.host === 'claude');",
+    "process.stdout.write(JSON.stringify(claude));"
+  ].join("");
+  const env = isolatedClaudeEnvironment(home);
+  env.H2A_ORACLE_HOME = home;
+  return spawnSync(process.execPath, ["--input-type=module", "--eval", program], {
+    cwd: home,
+    encoding: "utf8",
+    timeout: 120_000,
+    env
   });
 }
 
@@ -1012,6 +1054,72 @@ test("doctor keeps a Codex configuration unverified when its oracle fails the kn
   }
 });
 
+test("doctor fails closed when the Claude configuration oracle rejects an otherwise parseable config", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const claudePath = join(home, ".claude.json");
+  try {
+    writeFileSync(claudePath, "{}\n");
+    const report = doctorHostInstallations({
+      home,
+      version,
+      testClaudeConfigurationOracle: {
+        knownGood: { ok: true },
+        candidate: { ok: false, message: "injected Claude configuration rejection" }
+      }
+    });
+    const claude = report.hosts.find((host) => host.host === "claude");
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(claude?.ok, false, JSON.stringify(claude, null, 2));
+    assert.ok(
+      claude?.failures.some((entry) =>
+        entry.code === "config-invalid" &&
+        entry.path === claudePath &&
+        entry.message.includes("Claude rejected its configuration") &&
+        entry.message.includes("injected Claude configuration rejection")
+      ),
+      JSON.stringify(claude, null, 2)
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor keeps a Claude configuration unverified when its oracle fails the known-good self-test", () => {
+  const { home, version } = cleanShippedLayoutHome();
+  const claudePath = join(home, ".claude.json");
+  try {
+    writeFileSync(claudePath, "{}\n");
+    const report = doctorHostInstallations({
+      home,
+      version,
+      testClaudeConfigurationOracle: {
+        knownGood: { ok: false, message: "spawnSync claude ENOENT" },
+        candidate: { ok: false, message: "must not be trusted after the failed self-test" }
+      }
+    });
+    const claude = report.hosts.find((host) => host.host === "claude");
+
+    assert.equal(report.ok, false, JSON.stringify(report, null, 2));
+    assert.equal(claude?.ok, false, JSON.stringify(claude, null, 2));
+    assert.ok(
+      claude?.unverifiable.some((entry) =>
+        entry.code === "host-config-unverifiable" &&
+        entry.path === claudePath &&
+        entry.message.includes("known-good minimal configuration")
+      ),
+      JSON.stringify(claude, null, 2)
+    );
+    assert.equal(
+      claude?.failures.some((entry) => entry.code === "config-invalid"),
+      false,
+      JSON.stringify(claude, null, 2)
+    );
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test(
   "Codex oracle rejects an invalid array MCP table and accepts the framed table",
   { skip: codexCliProbe.status === 0 ? false : "requires the real codex binary" },
@@ -1089,6 +1197,65 @@ test(
       }
     } finally {
       rmSync(home, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "Claude oracle validates an isolated copy without writing the dry-run owner config",
+  { skip: claudeCliProbe.status === 0 ? false : "requires the real claude binary" },
+  () => {
+    const directHealthyHome = mkdtempSync(join(tmpdir(), "h2a-claude-oracle-healthy-"));
+    const directRejectedHome = mkdtempSync(join(tmpdir(), "h2a-claude-oracle-rejected-"));
+    const healthyDoctor = cleanShippedLayoutHome();
+    const rejectedDoctor = cleanShippedLayoutHome();
+    const healthyPath = join(healthyDoctor.home, ".claude.json");
+    const rejectedPath = join(rejectedDoctor.home, ".claude.json");
+    const corrupted = `${String.fromCharCode(123, 34)}mcpServers${String.fromCharCode(34, 58)}\n`;
+    try {
+      writeFileSync(join(directHealthyHome, ".claude.json"), "{}\n");
+      const hostHealthy = runRealClaudeMcpList(directHealthyHome);
+      assert.equal(hostHealthy.status, 0, `${hostHealthy.stderr}\n${hostHealthy.stdout}`);
+
+      writeFileSync(healthyPath, "{}\n");
+      const healthyBefore = readFileSync(healthyPath);
+      const healthyResult = inspectClaudeWithItsRealConfigurationOracle(healthyDoctor.home);
+      assert.equal(healthyResult.status, 0, `${healthyResult.stderr}\n${healthyResult.stdout}`);
+      const healthyClaude = JSON.parse(healthyResult.stdout);
+      assert.equal(healthyClaude.ok, true, JSON.stringify(healthyClaude, null, 2));
+      assert.equal(
+        healthyClaude.unrepaired.some((entry) => entry.code === "config-invalid" || entry.code === "host-config-unverifiable"),
+        false,
+        JSON.stringify(healthyClaude, null, 2)
+      );
+      assert.deepEqual(readFileSync(healthyPath), healthyBefore, "dry-run oracle must not rewrite the healthy owner config");
+
+      writeFileSync(join(directRejectedHome, ".claude.json"), corrupted);
+      const hostRejected = runRealClaudeMcpList(directRejectedHome);
+      assert.notEqual(hostRejected.status, 0, `${hostRejected.stderr}\n${hostRejected.stdout}`);
+      assert.match(`${hostRejected.stderr}\n${hostRejected.stdout}`, /corrupted: JSON Parse error/i);
+
+      writeFileSync(rejectedPath, corrupted);
+      const rejectedBefore = readFileSync(rejectedPath);
+      const rejectedResult = inspectClaudeWithItsRealConfigurationOracle(rejectedDoctor.home);
+      assert.equal(rejectedResult.status, 0, `${rejectedResult.stderr}\n${rejectedResult.stdout}`);
+      const rejectedClaude = JSON.parse(rejectedResult.stdout);
+      assert.equal(rejectedClaude.ok, false, JSON.stringify(rejectedClaude, null, 2));
+      assert.ok(
+        rejectedClaude.failures.some((entry) =>
+          entry.code === "config-invalid" &&
+          entry.path === rejectedPath &&
+          entry.message.includes("Claude rejected its configuration while running claude mcp list") &&
+          entry.message.includes("Unexpected EOF")
+        ),
+        JSON.stringify(rejectedClaude, null, 2)
+      );
+      assert.deepEqual(readFileSync(rejectedPath), rejectedBefore, "dry-run oracle must not rewrite the rejected owner config");
+    } finally {
+      rmSync(directHealthyHome, { recursive: true, force: true });
+      rmSync(directRejectedHome, { recursive: true, force: true });
+      rmSync(healthyDoctor.home, { recursive: true, force: true });
+      rmSync(rejectedDoctor.home, { recursive: true, force: true });
     }
   }
 );
