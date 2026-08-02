@@ -75,12 +75,19 @@ Avant et après **chaque scénario**, le script photographie la configuration ow
   racines hôtes.
 
 `.claude.json` est un cas particulier : Claude Code le réécrit pendant que des sessions sont vivantes,
-mais doctor peut aussi y réparer une configuration. Le script garde donc son type et son mode, puis la
-valeur de **chaque clé racine**, et imprime la clé (`.claude.json#projects`, par exemple) si elle change.
-Il exclut seulement `pluginUsage` et `promptQueueUseCount`. Cette liste a été mesurée le 1er août 2026
-sur Claude Code 2.1.220, sans UAT : les deux clés changeaient seules, toutes les autres clés racine
-restaient stables pendant l'échantillon. Une mise à jour de l'hôte peut invalider cette observation ; ne
-l'élargis pas par intuition, mesure de nouveau d'abord.
+mais doctor peut aussi y réparer une configuration. Le script garde donc son type et son mode, puis
+seulement les sous-arbres que doctor peut réécrire. Aujourd'hui, c'est
+`.claude.json#mcpServers`; une différence nomme cette clé. La liste est importée du contrat source de
+doctor, également utilisé par sa réparation, plutôt que déduite d'une observation de sessions vivantes.
+Une préférence d'interface ou une clé d'usage sans rapport est délibérément hors du garde : ce choix
+réduit la surface protégée à ce que doctor peut toucher.
+
+Cette frontière remplace trois faux-sales mesurés : le garde octet-à-octet sous `.codex` a mordu sur
+`logs_2.sqlite`, le fichier `.claude.json` entier a mordu sur des réécritures de session, puis une liste
+noire de `pluginUsage` et `promptQueueUseCount` a manqué `skillUsage` lors de l'utilisation d'une
+compétence. N'ajoute pas une nouvelle clé volatile à une liste noire : l'activité de l'hôte ne peut pas
+être énumérée depuis une observation au repos. Si doctor obtient une nouvelle écriture dans
+`.claude.json`, son contrat doit être étendu ; le garde la suivra au passage suivant.
 
 Le script porte une liste exécutable d'exclusions, pas une convention implicite : journaux
 (`*.log`, `*.jsonl`, `logs/`, `debug/`, `journal*/`), bases runtime `*.sqlite` et leurs

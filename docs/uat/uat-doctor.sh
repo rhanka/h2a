@@ -72,12 +72,32 @@ case "$UAT" in
 esac
 
 owner_snapshot() {
-  node - "$OWNER_CODEX_ROOT" "$OWNER_CLAUDE_ROOT" "$OWNER_CLAUDE_NATIVE" "$OWNER_CLAUDE_MCP" <<'NODE'
+  local repairable_claude_native_keys
+  repairable_claude_native_keys=$(node --input-type=module - "$SRC/packages/h2a/src/hosts/installation-doctor-contract.js" <<'NODE'
+import { pathToFileURL } from "node:url";
+
+const contractPath = process.argv.at(-1);
+const { CLAUDE_NATIVE_REPAIRABLE_ROOT_KEYS } = await import(pathToFileURL(contractPath).href);
+if (!Array.isArray(CLAUDE_NATIVE_REPAIRABLE_ROOT_KEYS) || !CLAUDE_NATIVE_REPAIRABLE_ROOT_KEYS.every((key) => typeof key === "string")) {
+  throw new Error("contrat doctor des cles Claude reparables invalide");
+}
+process.stdout.write(JSON.stringify(CLAUDE_NATIVE_REPAIRABLE_ROOT_KEYS));
+NODE
+  ) || {
+    echo "ABANDON : contrat doctor des cles Claude reparables impossible a lire." >&2
+    return 1
+  }
+
+  node - "$OWNER_CODEX_ROOT" "$OWNER_CLAUDE_ROOT" "$OWNER_CLAUDE_NATIVE" "$OWNER_CLAUDE_MCP" "$repairable_claude_native_keys" <<'NODE'
 const { createHash } = require("node:crypto");
 const { lstatSync, readFileSync, readdirSync, readlinkSync } = require("node:fs");
 const { basename, join } = require("node:path");
 const MAX_INLINE_FILE_BYTES = 8 * 1024 * 1024;
-const [codexRoot, claudeRoot, claudeNative, claudeMcp] = process.argv.slice(2);
+const [codexRoot, claudeRoot, claudeNative, claudeMcp, repairableKeys] = process.argv.slice(2);
+const REPAIRABLE_CLAUDE_NATIVE_KEYS = new Set(JSON.parse(repairableKeys));
+if ([...REPAIRABLE_CLAUDE_NATIVE_KEYS].some((key) => typeof key !== "string")) {
+  throw new Error("contrat doctor des cles Claude reparables invalide");
+}
 
 // These are configuration-bearing artifacts. Everything else under the host
 // roots is outside this guard unless it is a plugin manifest matched below.
@@ -125,14 +145,18 @@ const VOLATILE_DIRECTORY_NAMES = new Set([
   "tmp"
 ]);
 
-// Measured on 2026-08-01 with Claude Code 2.1.220 while no UAT was running:
-// live Claude sessions rewrote only these top-level keys in .claude.json.
-// Keep this list narrow and re-measure it after host upgrades; every other
-// key remains guarded because doctor can repair native Claude configuration.
-const VOLATILE_CLAUDE_NATIVE_KEYS = new Set([
-  "pluginUsage",
-  "promptQueueUseCount"
-]);
+// Relevance boundary for .claude.json, not a volatile-key blacklist. The
+// imported doctor contract lists exactly the root subtrees doctor can rewrite
+// itself (currently mcpServers). This is intentionally narrower than all of
+// Claude's configuration: an unrelated UI preference is outside this guard.
+//
+// The boundary follows three measured false positives: the original whole
+// .codex byte guard caught logs_2.sqlite; whole .claude.json caught live
+// session rewrites; and a negative list containing pluginUsage and
+// promptQueueUseCount missed skillUsage when a skill was actually used. No
+// idle observation can enumerate state that changes only under activity.
+// The contract is imported from the candidate's doctor source, which uses it
+// to locate the same mcpServers subtree during repair.
 
 function isVolatileConfigurationPath(relative) {
   const normalized = relative.replaceAll("\\", "/");
@@ -228,9 +252,11 @@ function recordClaudeNative(path, absentIsState = false) {
   if (value === null || Array.isArray(value) || typeof value !== "object") {
     throw new Error(".claude.json doit contenir un objet JSON");
   }
-  for (const key of Object.keys(value).sort()) {
-    if (VOLATILE_CLAUDE_NATIVE_KEYS.has(key)) continue;
-    snapshot.set(`${path}#${key}`, fingerprintClaudeNativeValue(value[key]));
+  for (const key of [...REPAIRABLE_CLAUDE_NATIVE_KEYS].sort()) {
+    snapshot.set(
+      `${path}#${key}`,
+      Object.hasOwn(value, key) ? fingerprintClaudeNativeValue(value[key]) : "ABSENT"
+    );
   }
 }
 
@@ -516,6 +542,6 @@ guard_owner_roots "scenario 2" run_scenario_2 || exit 1
 echo
 echo "=== decision owner ========================================================"
 echo "  La recette a execute 3, 0, 1, 2 et la configuration owner est restee identique."
-echo "  Les sessions Codex et Claude peuvent rester ouvertes pour les ecritures mesurees : journaux, bases SQLite, caches, verrous et les cles Claude pluginUsage/promptQueueUseCount."
+echo "  Les sessions Codex et Claude peuvent rester ouvertes pour les ecritures hors surface doctor : journaux, bases SQLite, caches, verrous et les cles Claude sans rapport avec mcpServers."
 echo "  Aucun done n'est deduit de ce vert : l'owner doit encore lire le scenario 2 et trancher."
 echo "  Le nettoyage de l'UAT et de l'extrait candidat va maintenant etre effectue."
