@@ -728,7 +728,7 @@ test("uat-doctor should name git as a missing prerequisite before creating tempo
   }
 });
 
-test("uat-doctor should document its checkout-root invocation when the relative command cannot run from packages", () => {
+test("uat-doctor should document its checkout-root invocation and owner decision", () => {
   const result = spawnSync(commandPath("bash"), ["docs/uat/uat-doctor.sh"], {
     cwd: join(REPO_ROOT, "packages"),
     encoding: "utf8"
@@ -744,4 +744,12 @@ test("uat-doctor should document its checkout-root invocation when the relative 
   assert.match(guide, /## Si le garde owner se déclenche/);
   assert.doesNotMatch(guide, /9004bcdee5b824c4dc41f0a6d2068328f486899b|PR 94|github\.com/);
   assert.doesNotMatch(guide, /Depuis n'importe quel répertoire du checkout de la PR/);
+  assert.doesNotMatch(guide, /déjà rencontrée/);
+  for (const question of [
+    "Le scénario 2 montre-t-il bien code 2, `ok=false` et un motif de redémarrage ?",
+    "Le scénario 1 s'est-il réparé sans poser de question ?",
+    "Pendant ce passage, as-tu rencontré un comportement que la recette ne t'avait pas annoncé ?"
+  ]) {
+    assert.ok(guide.includes(question), `question owner absente : ${question}`);
+  }
 });
