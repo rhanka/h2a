@@ -263,7 +263,12 @@ export function planLoopTick(input: TickInput): TickPlan {
     const s = statusOf(r);
     return s !== "accepted" && s !== "done";
   });
-  const hasOpenDecision = inbox.pendingDecisions.length > 0 || openDecisionGates.length > 0;
+  // Advisory gates still reach the owner stack, but do not stop the loop's
+  // work-progress outcome. All-go-or-waived gates remain blocking.
+  const blockingDecisionGates = loop.policy.decisionGatePolicy === "advisory-only"
+    ? []
+    : openDecisionGates;
+  const hasOpenDecision = inbox.pendingDecisions.length > 0 || blockingDecisionGates.length > 0;
 
   const workPending = !allTargetsSatisfied;
 
@@ -306,6 +311,23 @@ export function planLoopTick(input: TickInput): TickPlan {
 
   // 4) DECISIONS — surface pending human decisions (route only; no injection here).
   if (outcome !== "failed") {
+    for (const ref of openDecisionGates) {
+      // A persisted legacy ref without structured payload remains visible as
+      // waiting-human, but cannot honestly be materialized as a blank Track
+      // card. New decision-gate refs carry this shape at creation time.
+      if (ref.decisionGate === undefined) {
+        reasons.push(`decision gate ${loopRefLocator(ref)} has no structured payload`);
+        continue;
+      }
+      actions.push(
+        action({
+          type: "route-decision",
+          decisionId: ref.decisionGate.id,
+          refLocator: loopRefLocator(ref),
+          reason: "open decision gate",
+        }),
+      );
+    }
     for (const d of inbox.pendingDecisions) {
       actions.push(
         action({
