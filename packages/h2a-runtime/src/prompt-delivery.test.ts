@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
   captureTail,
   collapsedPasteMatches,
   countOccurrences,
   deliverInitialPrompt,
   detectCollapsedPaste,
   detectHostModal,
+  isClaudeLongContextConfirm,
+  paneHasBlockingActivity,
   paneHasDrawnUi,
   promptProbes,
   type PromptDeliveryDeps,
@@ -47,6 +50,22 @@ const HOOKS_MODAL = `  Hooks need review
   2. Trust all and continue
   3. Continue without trusting (hooks won't run)
   Press enter to confirm or esc to go back`;
+
+const LONG_CONTEXT_CONFIRM = `This session is 19h 44m old and 450.3k tokens.
+
+Resuming the full session will consume a substantial portion of your usage limits. We recommend resuming from a summary.
+
+❯ 1. Resume from summary (recommended)
+  2. Resume full session as-is
+  3. Don't ask me again
+
+  Enter to confirm · Esc to cancel`;
+
+const COMPACTING = `* Compacting conversation… (16s)
+  ▰▰▰▰▰▰▰▱▱▱ 17%
+
+  ❯ Continue working autonomously
+❯ Press up to edit queued messages`;
 
 /** Same "Update available!" wording as a passive banner over a live composer. */
 const UPDATE_BANNER = `│ ✨ Update available! 0.145.0 -> 0.146.0         │
@@ -276,6 +295,27 @@ describe("countOccurrences", () => {
 });
 
 describe("detectHostModal", () => {
+  it("names only Claude's exact stale-session summary confirmation as auto-confirmable", () => {
+    expect(isClaudeLongContextConfirm(LONG_CONTEXT_CONFIRM)).toBe(true);
+    expect(detectHostModal(LONG_CONTEXT_CONFIRM)?.reason).toBe(
+      CLAUDE_LONG_CONTEXT_CONFIRM_REASON,
+    );
+    expect(
+      isClaudeLongContextConfirm(
+        LONG_CONTEXT_CONFIRM.replace("19h 44m", "60d"),
+      ),
+    ).toBe(true);
+
+    const fullSessionSelected = LONG_CONTEXT_CONFIRM.replace(
+      "❯ 1. Resume from summary (recommended)\n  2. Resume full session as-is",
+      "  1. Resume from summary (recommended)\n❯ 2. Resume full session as-is",
+    );
+    expect(isClaudeLongContextConfirm(fullSessionSelected)).toBe(false);
+    expect(detectHostModal(fullSessionSelected)?.reason).toContain(
+      "modal choice prompt",
+    );
+  });
+
   it("names the directory-trust prompt", () => {
     const modal = detectHostModal(TRUST_MODAL);
     expect(modal?.reason).toContain("directory-trust");
@@ -309,7 +349,28 @@ describe("detectHostModal", () => {
   });
 });
 
+describe("paneHasBlockingActivity", () => {
+  it("keeps a drawn Claude composer non-ready while summary work owns it", () => {
+    expect(paneHasDrawnUi(COMPACTING)).toBe(true);
+    expect(paneHasBlockingActivity(COMPACTING)).toBe(true);
+    expect(paneHasBlockingActivity(COMPOSER)).toBe(false);
+  });
+});
+
 describe("deliverInitialPrompt", () => {
+  it("never queues the continuation while stale-session summary compaction is running", () => {
+    const { deps, calls } = fakePane({ screen: COMPACTING });
+
+    const result = deliverInitialPrompt("%1", "continue", deps, {
+      timeoutMs: 5_000,
+      pollMs: 500,
+    });
+
+    expect(result.state).toBe("undelivered");
+    expect(calls.pastes).toHaveLength(0);
+    expect(calls.submits).toBe(0);
+  });
+
   it("waits for a drawn, settled host before typing, then submits once", () => {
     const { deps, calls } = fakePane({
       drawnAfterCalls: 4, // pane exists, nothing drawn yet
