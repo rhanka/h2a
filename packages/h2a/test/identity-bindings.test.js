@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -42,6 +42,27 @@ test("first connect with no binding → MINT + records the binding", () => {
     assert.equal(recorded.instance, r.instance);
     assert.equal(recorded.agentUuid, r.agentUuid);
     assert.equal(listBindings(root).length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("binding writer carries the canonical fence epoch for its entire append transaction", () => {
+  const { dir, root } = freshRoot();
+  try {
+    let observedFence;
+    reclaimOrMint(root, KEY, {
+      verifyProof: () => false,
+      mint: () => {
+        observedFence = JSON.parse(readFileSync(join(root, "identity", ".lock"), "utf8"));
+        return { instance: "claude:lbl:fenced", agentUuid: "uuid-fenced" };
+      },
+      now: () => fixed
+    });
+    assert.equal(observedFence.protocol, "identity-binding-fence-v1");
+    assert.equal(typeof observedFence.fenceEpoch, "string");
+    assert.equal(observedFence.fenceEpoch.length > 0, true);
+    assert.equal(existsSync(join(root, "identity", ".lock")), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
