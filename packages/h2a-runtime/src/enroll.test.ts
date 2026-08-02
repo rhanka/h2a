@@ -215,6 +215,7 @@ describe("handleClaudeHook — P3 job.done on claude-end for a delegated job", (
         kind: "local-tmux",
         cwd: "/work",
         source: "run",
+        sessionClass: "background",
         role: "job",
         jobState: "running",
         callbackTo: "claude:parent:1",
@@ -253,6 +254,7 @@ describe("handleClaudeHook — P3 job.done on claude-end for a delegated job", (
         kind: "local-tmux",
         cwd: "/work",
         source: "run",
+        sessionClass: "background",
         role: "job",
         jobState: "running",
         callbackTo: "p",
@@ -278,7 +280,7 @@ describe("handleClaudeHook — P3 job.done on claude-end for a delegated job", (
 
   it("a non-job session end is untouched (no callback field)", () => {
     enroll(
-      { id: "plain-1", tool: "claude", kind: "local", cwd: "/work", source: "hook" },
+      { id: "plain-1", tool: "claude", kind: "local", cwd: "/work", source: "hook", sessionClass: "background" },
       regPath,
     );
     const r = handleClaudeHook(
@@ -302,6 +304,7 @@ describe("H1 — job resolved by REMOTE_JOB_ID / convId, not session_id slug", (
         kind: "local-tmux",
         cwd: "/work",
         source: "run",
+        sessionClass: "background",
         role: "job",
         jobState: "running",
         callbackTo: "claude:parent:1",
@@ -381,7 +384,12 @@ describe("H1 — job resolved by REMOTE_JOB_ID / convId, not session_id slug", (
       "claude-end",
       JSON.stringify({ session_id: "conv-uuid-C", cwd: "/work" }),
       regPath,
-      { env: {}, emit: () => ({ emitted: false, reason: "no-parent" }) },
+      {
+        // The delegated job id can be scrubbed before SessionEnd, but the
+        // managed-launch class remains stamped on the h2a session.
+        env: { H2A_SESSION_CLASS: "background" },
+        emit: () => ({ emitted: false, reason: "no-parent" }),
+      },
     );
     expect(r.jobId).toBe("job-C");
     expect(loadRegistry(regPath).find((e) => e.id === "job-C")?.jobState).toBe(
