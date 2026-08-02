@@ -160,8 +160,8 @@ jobs:
 
       # This is deliberately after GitHub Release creation: publication is already
       # irreversible, so a broken artefact must be reported without hiding the
-      # release that describes what npm now serves. It checks only dry-run doctor
-      # on Ubuntu; it does not exercise --repair or a real host installation.
+      # release that describes what npm now serves. It initializes an isolated
+      # bus and runs doctor in host-repair dry-run mode on Ubuntu.
       - name: Verify published @sentropic/h2a doctor (post-release)
         shell: bash
         run: |
@@ -180,9 +180,13 @@ jobs:
             sleep "$retry_delay_seconds"
           done
           root="$(mktemp -d)/.h2a"
-          # doctor is dry-run by default. Capture stdout even when its host-health
-          # exit status is non-zero; the node check below decides from report content.
-          out="$(h2a doctor --root "$root" --format json 2>/dev/null || true)"
+          # Initialize the bus so doctor can inspect host installations instead of
+          # failing only on a missing root/schema. --repair --dry-run reports host
+          # findings and planned actions without mutating the runner.
+          h2a init --root "$root" >/dev/null
+          # Capture stdout even when doctor reports host-health findings; the node
+          # check below decides from report content.
+          out="$(h2a doctor --root "$root" --repair --dry-run --format json 2>/dev/null || true)"
           node -e '
             const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
             let report;
