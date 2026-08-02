@@ -1,40 +1,46 @@
-# Fix: unattended relaunch autonomy lock
+# Feature: DEF identity-binding cull tool
 
 ## Objective
 
-- [x] Make `h2a relaunch --apply <session>` resume a dropped interactive session, clear only Claude's exact long-context confirmation, re-inject a continuation objective, and prove the agent is working before reporting success.
-- [x] Verify and report whether durable actor memory is freshly loaded on resume.
+- [x] Emit a deterministic, read-only proof packet for every DEF identity component and keep every component unless all four gates have positive evidence.
+- [x] Expose `h2a identity cull --dry-run` and hard-refuse all execution attempts until the root fix, owner authorization, and structural writer fence exist.
 
 ## Scope / Guardrails
 
 **Allowed Paths**
 
 - `BRANCH.md`
+- `packages/h2a-runtime/src/identity-cull/**`
 - `packages/h2a-runtime/src/index.ts`
-- `packages/h2a-runtime/src/conv-guard-wiring.test.ts`
-- `packages/h2a-runtime/src/prompt-delivery.ts`
-- `packages/h2a-runtime/src/prompt-delivery.test.ts`
-- `packages/h2a-runtime/src/relaunch.ts`
-- `packages/h2a-runtime/src/relaunch.test.ts`
-- `docs/uat/**` only for the requested real-session capture.
-- `docs/reviews/**` only for harness consensus artefacts.
+- `packages/h2a-runtime/src/cli-help-groups.ts`
+- `packages/h2a/src/cli-command-map.ts`
+- `packages/h2a/test/fixtures/runtime-help-commands.json`
+- `docs/reviews/**` only for the required harness review record
 
 **Forbidden Paths**
 
 - `.track/**`
+- DEF and PIN stores
+- `packages/h2a/src/runtime/identity/bindings.ts`
 - dependency manifests and lockfiles
-- objective-loop policy or Track realization state
+- `Makefile`, Docker files, and generated focus assets
 
-## Lot 1 — unattended resume and work proof
+## Plan / Todo (lot-based)
 
-- [x] Detect Claude's exact stale-session summary confirmation and submit one Enter only for that prompt.
-- [x] Re-inject a bounded continuation objective after resume and use the existing prompt-delivery proof to require real processing.
-- [x] Fail loudly with the observed pane state when resume parks or a different host modal appears.
-- [x] Regression-test confirmation gating, no-confirmation resume, objective selection, and failure behavior.
-- [x] Capture a real `h2a relaunch --apply` reaching WORKING unattended.
+- [x] **Lot 1 — fail-closed analysis and packet**
+  - [x] Read the canonical DEF binding bytes exactly, derive only supported identity components, and preserve byte-level evidence.
+  - [x] Apply L/O/P/C gates with source gaps and absent `S_R` as explicit UNKNOWN/KEEP reasons.
+  - [x] Emit the spec-required packet artifacts, zero-row would-cull set, lookup replay, positive controls, and reconciliation summary.
+  - [x] Add focused unit controls for protected/live/owner/fallback/outside-window/quiet/concurrent identities and empty cull set.
+  - [x] Gate: focused tests and runtime TypeScript check pass.
+
+- [x] **Lot 2 — CLI and inert execution guard**
+  - [x] Register `h2a identity cull --dry-run` with canonical root/output validation and help-map coverage.
+  - [x] Implement typed execution prerequisite refusal before any active-store, staging, or quarantine write.
+  - [x] Verify the held-descriptor length/hash check detects an injected append and aborts before a rename callback.
+  - [x] Run the real DEF dry run and record the packet summary; run runtime-suite baseline/branch failure-set comparison.
+  - [x] Gate: execution-refusal and structural-CAS tests pass; cull set remains empty.
 
 ## Feedback Loop
 
-- [x] Report the SessionStart-versus-actor-RECALL memory finding without widening this fix into a memory redesign.
-- [x] Complete two independent review legs and reconcile their findings.
-- [ ] Owner UAT remains required; do not mark Track work done.
+- [x] Defer actual descriptor-relative staging, quarantine swap, and restoration until the separately authorized root fix supplies a non-bypassable writer path and native confinement support.
