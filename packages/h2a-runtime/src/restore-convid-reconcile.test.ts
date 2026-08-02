@@ -35,6 +35,7 @@ function runEntry(over: Partial<RegistryEntry> = {}): RegistryEntry {
     source: "run",
     enrolledAt: now,
     lastSeenAt: now,
+    sessionClass: "human",
     ...over,
   };
 }
@@ -50,6 +51,7 @@ function hookEntry(convId: string, over: Partial<RegistryEntry> = {}): RegistryE
     convId,
     enrolledAt: now,
     lastSeenAt: now,
+    sessionClass: "human",
     ...over,
   };
 }
@@ -120,7 +122,7 @@ describe("reconcileRunConvIds — run↔hook join", () => {
 
   it("does NOT reconcile delegated jobs / background launches", () => {
     const entries: RegistryEntry[] = [
-      runEntry({ id: "job", label: "job", convId: "job", role: "job", jobState: "running" }),
+      runEntry({ id: "job", label: "job", convId: "job", role: "job", jobState: "running", sessionClass: undefined }),
       runEntry({ id: "bg", label: "bg", convId: "bg", sessionClass: "background" }),
     ];
     const r = reconcileRunConvIds(entries, titleReader({}));
