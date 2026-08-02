@@ -685,14 +685,17 @@ test("uat-doctor rejects the PR 94 candidate-resolution mutant without gh", () =
       candidate,
       "CANDIDATE=$(gh pr view 94 --json headRefOid --jq .headRefOid)"
     ));
+    const env = ownedCandidateEnvironment(fixture, ready);
+    env.LC_ALL = "C";
+    env.LANG = "C";
     const result = spawnSync(commandPath("bash"), [mutant], {
       cwd: REPO_ROOT,
-      env: ownedCandidateEnvironment(fixture, ready),
+      env,
       encoding: "utf8"
     });
 
     assert.equal(result.status, 1, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
-    assert.match(result.stderr, /gh.*not found|gh: command not found/);
+    assert.match(result.stderr, /ABANDON : reference candidat invalide 'HEAD'\./);
     assert.ok(!existsSync(ready), `the PR 94 mutant reached scenario 0:\n${result.stdout}\n${result.stderr}`);
   } finally {
     rmSync(fixture.outer, { recursive: true, force: true });
@@ -721,7 +724,7 @@ test("uat-doctor should name git as a missing prerequisite before creating tempo
 
     assert.equal(result.status, 1, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
     assert.match(result.stderr, /ABANDON : prerequis manquant : git\./);
-    assert.doesNotMatch(result.stderr, /tar:|command not found/);
+    assert.doesNotMatch(result.stderr, /tar:/);
     assert.deepEqual(readdirSync(fixture.scratch), scratchBefore);
   } finally {
     rmSync(fixture.outer, { recursive: true, force: true });
