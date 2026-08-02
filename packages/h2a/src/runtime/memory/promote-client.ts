@@ -15,6 +15,15 @@
  * never trusts this client's say-so either — this module's own refusal is a
  * courtesy that saves a round trip, not the authority.
  *
+ * REF, NOT INLINE: `independence_attestation` in `PromotionEvidence` is a
+ * LOCATOR string, exactly like `leg1_verdict_ref`/`leg2_verdict_ref` (§9.4).
+ * graphify's evidence holds the three refs; the attestation ARTIFACT (a file
+ * — see `./d11-ceremony.ts`, which writes it) holds the actual
+ * `IndependenceAttestation` content that ref points to. This module never
+ * serializes the attestation object itself into the evidence — the caller
+ * writes the artifact and hands `assemblePromotionEvidence` the ref it got
+ * back.
+ *
  * I5 — fail-closed, TWO LAYERS:
  *   1. `checkDoubleConsensusPreconditions` is a PURE, port-less function. It
  *      cannot call the port even if it wanted to — a refusal here makes
@@ -31,8 +40,8 @@
  * distinctness and the author/session collision from the VERDICTS'
  * own `leg` field, never from `attestation.distinctModels` /
  * `attestation.distinctSessions` — those booleans are a self-report from the
- * orchestrator and travel through to graphify as part of the evidence
- * (`assemblePromotionEvidence` serializes the whole attestation), but this
+ * orchestrator and reach graphify only by reference (the attestation
+ * ARTIFACT, not this in-memory object — see the REF note above), but this
  * client does not treat them as authoritative for its own local refusal. A
  * lying attestation cannot paper over two identical verdict legs.
  *
@@ -75,10 +84,12 @@ export interface MemoryVerdict {
 
 /**
  * The orchestrator's attestation that the two legs were actually independent.
- * Serialized whole into `PromotionEvidence.independence_attestation` so
- * graphify's gate can inspect it too — but see the module doc: this client
- * does NOT treat `distinctModels`/`distinctSessions` here as authoritative
- * for its own refusal; it recomputes distinctness from the verdicts.
+ * This is the CONTENT of the attestation artifact a ceremony writes (see
+ * `./d11-ceremony.ts`); `PromotionEvidence.independence_attestation` carries
+ * only that artifact's REF (locator string), never this object inline — see
+ * the module doc's REF note. This client does NOT treat
+ * `distinctModels`/`distinctSessions` here as authoritative for its own
+ * refusal; it recomputes distinctness from the verdicts.
  */
 export interface IndependenceAttestation {
   readonly leg1: LegIdentity;
@@ -94,21 +105,26 @@ export interface IndependenceAttestation {
 // ---------------------------------------------------------------------------
 
 /**
- * Pack the two verdict-file references and a serialized attestation into the
+ * Pack the two verdict-file references and the attestation REFERENCE into the
  * port's `PromotionEvidence` shape. Pure: same inputs → same output, no I/O.
- * The attestation is serialized with `JSON.stringify` so it survives the
- * port boundary intact and is recoverable verbatim on the far side (graphify
- * re-inspects it structurally — this is not a summary, it's the record).
+ *
+ * `attestationRef` is a LOCATOR string, exactly like `leg1Ref`/`leg2Ref` — NOT
+ * the `IndependenceAttestation` object serialized inline. graphify's evidence
+ * holds the three refs; the attestation ARTIFACT (a file, written by whoever
+ * ran the ceremony — see `./d11-ceremony.ts`) holds the actual
+ * `{leg1,leg2,distinct*,...}` content that ref points to. Passed through
+ * unchanged — no `JSON.stringify` — because there is nothing to serialize
+ * here: the caller already resolved the ref by writing the artifact.
  */
 export function assemblePromotionEvidence(
   leg1Ref: string,
   leg2Ref: string,
-  attestation: IndependenceAttestation
+  attestationRef: string
 ): PromotionEvidence {
   return {
     leg1_verdict_ref: leg1Ref,
     leg2_verdict_ref: leg2Ref,
-    independence_attestation: JSON.stringify(attestation)
+    independence_attestation: attestationRef
   };
 }
 
@@ -241,6 +257,13 @@ export async function promoteNote(
 export interface PromoteNoteWithDoubleConsensusInput extends DoubleConsensusInput {
   readonly noteId: string;
   readonly ctx: MemoryContext;
+  /**
+   * The attestation ARTIFACT's locator — distinct from `attestation` (the
+   * in-memory object `checkDoubleConsensusPreconditions` uses for its own
+   * completeness gate, unchanged by this reconciliation). This is what
+   * actually travels to the port via `assemblePromotionEvidence`.
+   */
+  readonly attestationRef: string;
 }
 
 /**
@@ -260,6 +283,6 @@ export async function promoteNoteWithDoubleConsensus(
     return refuseResult(`double-consensus preconditions not met: ${check.reason}`);
   }
 
-  const evidence = assemblePromotionEvidence(input.leg1Ref, input.leg2Ref, input.attestation);
+  const evidence = assemblePromotionEvidence(input.leg1Ref, input.leg2Ref, input.attestationRef);
   return promoteNote(input.noteId, evidence, input.ctx, port);
 }
