@@ -781,7 +781,7 @@ describe("main", () => {
     expect(err).toContain("h2a attach remote-proj");
   });
 
-  it("normalizes an exact canonical name before starting a non-live resume", async () => {
+  it("classifies a detached resume as background", async () => {
     const exitCode = await main([
       "node",
       "remote",
@@ -799,8 +799,65 @@ describe("main", () => {
       expect.any(Array),
       "proj",
       undefined,
-      { attachedTerminal: true, sessionClass: "human" },
+      { attachedTerminal: true, sessionClass: "background" },
     );
+  });
+
+  it("classifies a resume with no human terminal evidence as background", async () => {
+    const exitCode = await main([
+      "node",
+      "remote",
+      "resume",
+      "proj",
+      "--claude",
+      "conv-1",
+      "--attach",
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(startLocalSession).toHaveBeenCalledWith(
+      "claude",
+      expect.any(String),
+      process.cwd(),
+      expect.any(Array),
+      "proj",
+      undefined,
+      { attachedTerminal: true, sessionClass: "background" },
+    );
+  });
+
+  it("classifies a resume to a real human tty as human", async () => {
+    const stdinTty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+    const stdoutTty = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
+    Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
+    try {
+      const exitCode = await main([
+        "node",
+        "remote",
+        "resume",
+        "proj",
+        "--claude",
+        "conv-1",
+        "--attach",
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(startLocalSession).toHaveBeenCalledWith(
+        "claude",
+        expect.any(String),
+        process.cwd(),
+        expect.any(Array),
+        "proj",
+        undefined,
+        { attachedTerminal: true, sessionClass: "human" },
+      );
+    } finally {
+      if (stdinTty) Object.defineProperty(process.stdin, "isTTY", stdinTty);
+      else Reflect.deleteProperty(process.stdin, "isTTY");
+      if (stdoutTty) Object.defineProperty(process.stdout, "isTTY", stdoutTty);
+      else Reflect.deleteProperty(process.stdout, "isTTY");
+    }
   });
 
   it("stops a registry-only local tmux session without falling through remotely", async () => {
