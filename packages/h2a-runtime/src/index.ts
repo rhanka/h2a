@@ -4920,6 +4920,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
+        let gatewayMode: "auto" | "gateway" | "direct";
+        try {
+          gatewayMode = gatewayModeFromOptions(opts);
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
+          process.exitCode = 1;
+          return;
+        }
         const target = slug ?? slugify(process.cwd());
         const localResolution = resolveLocalSession(target);
         if (localResolution.kind === "ambiguous") {
@@ -5009,14 +5017,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           return;
         }
         const profile = entry.tool;
-        let gatewayMode: "auto" | "gateway" | "direct";
-        try {
-          gatewayMode = gatewayModeFromOptions(opts);
-        } catch (error) {
-          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
-          process.exitCode = 1;
-          return;
-        }
         if (gatewayMode === "gateway" && !profileUsesLlmMeshGateway(profile)) {
           process.stderr.write(
             `[h2a] --llm-gateway/--gw is unsupported for ${profile}; this gateway is Anthropic-compatible and only Claude profiles consume it.\n`,
