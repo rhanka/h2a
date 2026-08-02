@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -137,15 +137,24 @@ describe("identity cull dry-run", () => {
     }
   });
 
-  it("reports the real structural writer fence while retaining the execution hard gate", () => {
+  it("reports the fence primitive and executor handoff without claiming staging executed check-to-act", () => {
     const { result } = makeRun([row()]);
     const manifest = JSON.parse(readFileSync(join(result.packetDir, "run-manifest.json"), "utf8")) as {
-      structuralWriterInvariant: boolean;
       executionHardGated: boolean;
+      fencePrimitiveProvided: boolean;
+      checkActExecutedByStaging: boolean;
+      "checkActIsExecutorScopePer_§7_1": boolean;
+      handoffContract: { specReference: string; executorScope: string; transferRule: string };
       structuralWriterFence: { protocol: string; epochRequired: boolean; heldDescriptorCas: string };
     };
-    expect(manifest.structuralWriterInvariant).toBe(true);
+    expect(manifest).not.toHaveProperty("structuralWriterInvariant");
     expect(manifest.executionHardGated).toBe(true);
+    expect(manifest.fencePrimitiveProvided).toBe(true);
+    expect(manifest.checkActExecutedByStaging).toBe(false);
+    expect(manifest["checkActIsExecutorScopePer_§7_1"]).toBe(true);
+    expect(manifest.handoffContract).toMatchObject({ specReference: "SPEC #156 §7.1 and §8" });
+    expect(manifest.handoffContract.executorScope).toContain("final held-descriptor compare through descriptor-relative rename and read-back");
+    expect(manifest.handoffContract.transferRule).toContain("transmits the held fence and descriptor");
     expect(manifest.structuralWriterFence).toMatchObject({
       protocol: "identity-binding-fence-v1",
       epochRequired: true,
@@ -185,6 +194,41 @@ describe("identity cull dry-run", () => {
     expect(existsSync(join(defRoot, "packet"))).toBe(false);
     expect(existsSync(join(pinRoot, "packet"))).toBe(false);
   });
+
+  it("refuses a packet directory rename and symlink swap before any packet byte can land under DEF or PIN", () => {
+    for (const protectedRootName of ["def", "pin"] as const) {
+      const base = mkdtempSync(join(tmpdir(), "h2a-identity-cull-write-swap-"));
+      scratchRoots.push(base);
+      const defRoot = join(base, "def");
+      const pinRoot = join(base, "pin");
+      const packetDir = join(base, "packet");
+      writeBindings(defRoot, [row()]);
+      writeBindings(pinRoot, [row({ providerSessionId: "pin" })]);
+      const protectedRoot = protectedRootName === "def" ? defRoot : pinRoot;
+      const protectedBindings = join(protectedRoot, "identity", "bindings.jsonl");
+      const before = readFileSync(protectedBindings);
+      const movedPacket = join(protectedRoot, `moved-packet-${protectedRootName}`);
+      let swapped = false;
+
+      expect(() => runIdentityCullDryRun({
+        defRoot,
+        pinRoot,
+        outputDir: packetDir,
+        ownerAllowlist: ["focus:local-human"],
+        evidence: completeEvidence,
+        beforePacketWrite: (attempt) => {
+          if (swapped || attempt.kind !== "file" || attempt.name !== "def-bindings.jsonl") return;
+          swapped = true;
+          renameSync(attempt.packetRoot, movedPacket);
+          symlinkSync(protectedRoot, attempt.packetRoot, "dir");
+        },
+      })).toThrow("packet write containment lost");
+
+      expect(swapped).toBe(true);
+      expect(existsSync(join(movedPacket, "evidence", "def-bindings.jsonl"))).toBe(false);
+      expect(readFileSync(protectedBindings)).toEqual(before);
+    }
+  });
 });
 
 describe("identity cull execution guard", () => {
@@ -222,6 +266,25 @@ describe("identity cull execution guard", () => {
     expect(result).toEqual({ state: "ABORTED", reason: "HELD_DESCRIPTOR_SIZE_MISMATCH" });
     expect(renameCalled).toBe(false);
     expect(heldFence).toMatchObject({ protocol: "identity-binding-fence-v1" });
+    expect(existsSync(join(base, ".lock"))).toBe(false);
+  });
+
+  it("provides staging verification without executing a supplied rename callback", () => {
+    const base = mkdtempSync(join(tmpdir(), "h2a-identity-cas-staging-"));
+    scratchRoots.push(base);
+    const bindingPath = join(base, "bindings.jsonl");
+    const initial = Buffer.from(`${JSON.stringify(row())}\n`);
+    writeFileSync(bindingPath, initial);
+    let renameCalled = false;
+
+    expect(verifyHeldDescriptorCas({
+      bindingPath,
+      expectedSize: initial.length,
+      expectedSha256: `sha256:${createHash("sha256").update(initial).digest("hex")}`,
+      writerInventory: canonicalBindingWriterInventory,
+      rename: () => { renameCalled = true; },
+    })).toEqual({ state: "STAGING_VERIFIED" });
+    expect(renameCalled).toBe(false);
     expect(existsSync(join(base, ".lock"))).toBe(false);
   });
 
