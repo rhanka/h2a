@@ -7,15 +7,14 @@
 // import `@sentropic/h2a-runtime` (only `adapters.ts` may); the golden-rule scan
 // enforces it.
 //
-// Double-consensus (opus-4-8 + codex xhigh, 2026-07-02): tranche 1 executes ONLY
-// `close`; wake/request-launch/route-decision are wired to the sink but return
-// `skipped` ("not-enabled") until their guarded slices land. A `degraded` plan
-// executes NOTHING.
+// Double-consensus (opus-4-8 + codex xhigh, 2026-07-02): close, guarded wake /
+// request-launch, and decision routing execute through their sink seams. A
+// `degraded` plan executes NOTHING.
 
 import { appendLoopEvent } from "../index.js";
 import type { TickAction, TickPlan } from "./decision.js";
 
-export type ActionOutcome = "done" | "deferred" | "skipped" | "failed";
+export type ActionOutcome = "done" | "routed" | "deferred" | "skipped" | "failed";
 
 export interface ActionEffect {
   readonly outcome: ActionOutcome;
@@ -62,6 +61,7 @@ export function actionKey(a: TickAction, loopId: string): string {
 
 const EVENT_FOR: Record<ActionOutcome, string> = {
   done: "loop.action.applied",
+  routed: "loop.action.routed",
   deferred: "loop.action.deferred",
   failed: "loop.action.failed",
   skipped: "loop.action.skipped"
@@ -82,7 +82,7 @@ export async function executePlan(
 ): Promise<ExecReport> {
   const ctx: ActionContext = { root, loopId, now };
   const results: ActionResult[] = [];
-  const counts: Record<ActionOutcome, number> = { done: 0, deferred: 0, skipped: 0, failed: 0 };
+  const counts: Record<ActionOutcome, number> = { done: 0, routed: 0, deferred: 0, skipped: 0, failed: 0 };
   const at = new Date(now).toISOString();
 
   const refsDegraded = plan.degradedSources?.refs === true;
