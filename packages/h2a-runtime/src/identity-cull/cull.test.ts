@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -33,6 +33,17 @@ const completeEvidence = {
   life: { complete: true, noLife: true, twoObservationsAgree: true, resumeSafe: true },
   ownership: { complete: true, noOwnedWork: true },
   protectedSetComplete: true,
+} as const;
+
+const canonicalBindingWriterInventory = {
+  complete: true,
+  paths: [{
+    id: "reclaimOrMint",
+    writesBindings: true,
+    requiresCanonicalFence: true,
+    fenceProtocol: "identity-binding-fence-v1",
+    fenceEpochRequired: true,
+  }],
 } as const;
 
 function writeBindings(root: string, rows: readonly Record<string, string>[]): void {
@@ -125,6 +136,55 @@ describe("identity cull dry-run", () => {
       expect(() => readFileSync(join(result.packetDir, artifact))).not.toThrow();
     }
   });
+
+  it("reports the real structural writer fence while retaining the execution hard gate", () => {
+    const { result } = makeRun([row()]);
+    const manifest = JSON.parse(readFileSync(join(result.packetDir, "run-manifest.json"), "utf8")) as {
+      structuralWriterInvariant: boolean;
+      executionHardGated: boolean;
+      structuralWriterFence: { protocol: string; epochRequired: boolean; heldDescriptorCas: string };
+    };
+    expect(manifest.structuralWriterInvariant).toBe(true);
+    expect(manifest.executionHardGated).toBe(true);
+    expect(manifest.structuralWriterFence).toMatchObject({
+      protocol: "identity-binding-fence-v1",
+      epochRequired: true,
+    });
+    expect(manifest.structuralWriterFence.heldDescriptorCas).toContain("fstat+full-read+fstat");
+  });
+
+  it("refuses outputDir chain symlinks into DEF or PIN before any packet write", () => {
+    const base = mkdtempSync(join(tmpdir(), "h2a-identity-cull-symlink-"));
+    scratchRoots.push(base);
+    const defRoot = join(base, "def");
+    const pinRoot = join(base, "pin");
+    const outsideRoot = join(base, "outside");
+    writeBindings(defRoot, [row()]);
+    writeBindings(pinRoot, [row({ providerSessionId: "pin" })]);
+    mkdirSync(outsideRoot);
+    for (const [name, target] of [["redirect-def", defRoot], ["redirect-pin", pinRoot]] as const) {
+      symlinkSync(target, join(outsideRoot, name), "dir");
+      expect(() => runIdentityCullDryRun({
+        defRoot,
+        pinRoot,
+        outputDir: join(outsideRoot, name, "packet"),
+        ownerAllowlist: ["focus:local-human"],
+        evidence: completeEvidence,
+      })).toThrow("packet output path refuses symlink component");
+    }
+    for (const protectedRoot of [defRoot, pinRoot]) {
+      expect(() => runIdentityCullDryRun({
+        defRoot,
+        pinRoot,
+        outputDir: join(protectedRoot, "packet-direct"),
+        ownerAllowlist: ["focus:local-human"],
+        evidence: completeEvidence,
+      })).toThrow("packet output must be outside both DEF and PIN roots");
+      expect(existsSync(join(protectedRoot, "packet-direct"))).toBe(false);
+    }
+    expect(existsSync(join(defRoot, "packet"))).toBe(false);
+    expect(existsSync(join(pinRoot, "packet"))).toBe(false);
+  });
 });
 
 describe("identity cull execution guard", () => {
@@ -147,15 +207,48 @@ describe("identity cull execution guard", () => {
     const initial = Buffer.from(`${JSON.stringify(row())}\n`);
     writeFileSync(bindingPath, initial);
     let renameCalled = false;
+    let heldFence: unknown;
     const result = verifyHeldDescriptorCas({
       bindingPath,
       expectedSize: initial.length,
       expectedSha256: `sha256:${createHash("sha256").update(initial).digest("hex")}`,
-      afterPreflight: () => appendFileSync(bindingPath, `${JSON.stringify(row({ providerSessionId: "late" }))}\n`),
+      writerInventory: canonicalBindingWriterInventory,
+      afterPreflight: () => {
+        heldFence = JSON.parse(readFileSync(join(base, ".lock"), "utf8"));
+        appendFileSync(bindingPath, `${JSON.stringify(row({ providerSessionId: "late" }))}\n`);
+      },
       rename: () => { renameCalled = true; },
     });
     expect(result).toEqual({ state: "ABORTED", reason: "HELD_DESCRIPTOR_SIZE_MISMATCH" });
     expect(renameCalled).toBe(false);
+    expect(heldFence).toMatchObject({ protocol: "identity-binding-fence-v1" });
+    expect(existsSync(join(base, ".lock"))).toBe(false);
+  });
+
+  it("aborts the held-descriptor CAS when a binding writer bypass is present", () => {
+    const base = mkdtempSync(join(tmpdir(), "h2a-identity-cas-bypass-"));
+    scratchRoots.push(base);
+    const bindingPath = join(base, "bindings.jsonl");
+    const initial = Buffer.from(`${JSON.stringify(row())}\n`);
+    writeFileSync(bindingPath, initial);
+
+    expect(verifyHeldDescriptorCas({
+      bindingPath,
+      expectedSize: initial.length,
+      expectedSha256: `sha256:${createHash("sha256").update(initial).digest("hex")}`,
+      writerInventory: {
+        complete: true,
+        paths: [
+          ...canonicalBindingWriterInventory.paths,
+          {
+            id: "direct-append-bypass",
+            writesBindings: true,
+            requiresCanonicalFence: false,
+            canBypassFence: true,
+          },
+        ],
+      },
+    })).toEqual({ state: "ABORTED", reason: "SINGLE_WRITER_PRECONDITION_FAILED" });
   });
 
   it("refuses lossless restoration when both append tails have no proven order", () => {
