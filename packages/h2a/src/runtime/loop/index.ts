@@ -53,7 +53,53 @@ export interface H2ALoopTrackRef {
   readonly aggregateKind: "item" | "decision" | "blocker" | "criterion" | "evidence" | "wp";
   readonly aggregateId: string;
   readonly role: string;
+  /**
+   * Owner-facing payload for a decision gate. Only refs with
+   * `role:"decision-gate"` use this; ordinary Track refs stay unchanged.
+   * The loop engine turns an open gate into one pending Track decision, but
+   * this declaration does not opt a loop into supervisor ticks.
+   */
+  readonly decisionGate?: H2ALoopDecisionGate;
   readonly baselineCommit?: string;
+}
+
+/** A native Track decision option declared by a loop decision gate. */
+export interface H2ALoopDecisionGateOption {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly pros?: readonly string[];
+  readonly cons?: readonly string[];
+}
+
+/** An optional question that accompanies an owner-facing decision gate. */
+export interface H2ALoopDecisionGateQuestion {
+  readonly id: string;
+  readonly question: string;
+  readonly answer?: string;
+}
+
+/**
+ * Structured data needed to turn an open loop ref into a well-formed pending
+ * Track decision. The explicit target avoids guessing which tracked item the
+ * owner is being asked to unblock.
+ */
+export interface H2ALoopDecisionGate {
+  /** Stable identity for this gate within the loop. */
+  readonly id: string;
+  readonly decisionKind: "orientation" | "commitment";
+  readonly title: string;
+  readonly context: string;
+  readonly options: readonly H2ALoopDecisionGateOption[];
+  readonly qa?: readonly H2ALoopDecisionGateQuestion[];
+  readonly recommendation: {
+    readonly optionId: string;
+    readonly rationale: string;
+  };
+  readonly target: {
+    readonly itemId: string;
+    readonly workspace: string;
+  };
 }
 
 export interface H2ALoopRepoRef {
