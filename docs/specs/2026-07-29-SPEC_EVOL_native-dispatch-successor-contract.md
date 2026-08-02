@@ -1,411 +1,284 @@
 # EVOL — Native dispatch conformance contract
 
 Date: 2026-07-29. Revision 3 (2026-08-02), after two independent adversarial review legs and
-the WP6 acceptance criteria. This revision preserves every revision-2 disposition; it changes the
-form of the claims, not their technical choice.
+the WP6 acceptance criteria. Revision 3 retains all 23 revision-2 dispositions. Its change is
+opposability: every retained requirement names evidence, level, and limit.
 
-Rung: **EVOL — paper only.** Authorizes no dispatch code, no engine work, no package change,
-no publish, no cutover. §6 states what each later phase unlocks.
-Work package: WP13. Track item: `01KWVNYNHVJGA8CCW566PG4WMH`.
-Backbone: `docs/specs/2026-07-18-STUDY_h2a-native-agent-and-session-engine.md` §11;
-`docs/specs/2026-07-13-SPEC_STUDY_native-agent-via-sentropic.md`.
-Reviews reconciled: `docs/specs/reviews/2026-07-29-REVIEW-leg1-native-dispatch-evol.md`
-(4 blocking, 4 major) and `-leg2-` (4 blocking, 8 major, 3 minor). §7 dispositions all 23.
+Rung: **EVOL — paper only.** It authorizes no dispatch code, engine work, package change, publish,
+or cutover. Work package: WP13. Track item: 01KWVNYNHVJGA8CCW566PG4WMH.
+
+Backbone: docs/specs/2026-07-18-STUDY_h2a-native-agent-and-session-engine.md §11 and
+docs/specs/2026-07-13-SPEC_STUDY_native-agent-via-sentropic.md. Review legs:
+docs/specs/reviews/2026-07-29-REVIEW-leg1-native-dispatch-evol.md and
+docs/specs/reviews/2026-07-29-REVIEW-leg2-native-dispatch-evol.md.
 
 ## 0. Opposability protocol
 
-This EVOL has one normative surface: the clause registers introduced in revision 3. Explanatory
-prose, historical quotations, and code observations outside a register describe context only. A
-ratification DEC may incorporate clause ids, but it adds no unregistered requirement.
-
-Every registered clause has these fields:
+The clause registers are this EVOL's only normative surface. Narrative, quotations, history, and
+current-tree observations give context only. A later DEC can incorporate clause IDs but adds no
+unregistered requirement.
 
 | Field | Meaning |
 |---|---|
-| `CLAUSE` | The bounded requirement or explicit non-claim. |
-| `PROOF` | A concrete artefact and a command or inspection path. `not-yet-written` means the named artefact does not exist in this checkout. |
-| `ENFORCEMENT-LEVEL` | Exactly one rung: `structural` > `test` > `spec-line` > `habit`. |
-| `LIMIT` | Where the guarantee stops; no clause implies more than this field says. |
+| CLAUSE | One bounded requirement or explicit non-claim. |
+| PROOF | Concrete artefact plus inspection/execution path. **not-yet-written** gives an exact future identifier that does not exist in this checkout. |
+| ENFORCEMENT-LEVEL | Exactly one rung: structural > test > spec-line > habit. |
+| LIMIT | Where the guarantee stops. No clause implies more than this field says. |
 
-`structural` means a named mechanism rejects the violation. `test` means a named test fails on
-the violation. `spec-line` means the requirement is written but this checkout has no rejecting
-mechanism. `habit` means practice only. `habit` is intentionally visible: it is not a synonym for
-an implemented gate.
-
-The paper-only boundary is itself a clause rather than an assertion in the heading:
+structural has a named mechanism that rejects a violation. test has a named test that fails on a
+violation. spec-line is written without a rejecting mechanism. habit is practice only. The word
+habit is deliberate, not a euphemism for a gate.
 
 | ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
 |---|---|---|---|---|
-| EVOL-00 | This EVOL authorizes no executable dispatch, engine, package, publish, or cutover change. | This header and `git show -- docs/specs/2026-07-29-SPEC_EVOL_native-dispatch-successor-contract.md`. | `spec-line` | A reader can detect a contradictory paper claim, but the document cannot reject a code commit. |
+| EVOL-00 | This paper authorizes no executable dispatch, engine, package, release, or cutover action. | This header; inspect with git show -- docs/specs/2026-07-29-SPEC_EVOL_native-dispatch-successor-contract.md. | spec-line | It can expose a contradictory paper claim; it cannot reject a code commit. |
 
 ### 0.1 Current-tree evidence snapshot (re-verified 2026-08-02)
 
-| Observation | Concrete source / verification |
+| Observation | Concrete evidence and reproduction |
 |---|---|
-| The live front authority is the ordered `bin.ts` chain; runtime fallback is reached at its final `shouldDispatchRuntime(argv)` branch. | `packages/h2a/src/bin.ts:110-284`; inspect with `nl -ba packages/h2a/src/bin.ts | sed -n '110,284p'`. |
-| The runtime predicate is first-token fallback: every non-native first token crosses its lazy boundary. | `packages/h2a/src/bin-routing.ts:31-49`; `node --test packages/h2a/test/bin-routing.test.js` exercises the current predicate. |
-| Runtime `main()` migrates configuration before profile-menu or Commander parsing. | `packages/h2a-runtime/src/index.ts:2302-2318`; inspect with `nl -ba packages/h2a-runtime/src/index.ts | sed -n '2302,2318p'`. |
-| An ordinary `run` selector resolves through `LOCAL_CLI[profile] ?? profile`; the existing `run` action creates a local tmux session and enrolls it. | `packages/h2a-runtime/src/index.ts:1946-2003,5344-5945`; creation and enrollment are at `:5728-5747` and `:5855-5868`. |
-| The interactive wrapper drops a TTY pane to `/bin/bash -l` after its CLI exits. | `packages/h2a-runtime/src/tmux.ts:92-102`. |
-| The legacy runtime `resume [slug]` command has its own registry/slug failure handling. | `packages/h2a-runtime/src/index.ts:4948-5341`. It is distinct from the frozen but unimplemented top-level spelling `h2a --resume`. |
-| CI runs `scripts/check-public-contract.sh`, which compares MCP and CLI-verb goldens and the core anti-cycle, not bare/`--resume` dispatch behavior. | `.github/workflows/ci.yml:60-64`; `scripts/check-public-contract.sh:12-38`. Reproduce the coverage audit with `rg -n 'check-public-contract|h2a-public-contract-v1|--resume' .github scripts docs packages`. |
+| The live front authority is the ordered bin.ts chain; its final branch asks shouldDispatchRuntime(argv). | packages/h2a/src/bin.ts:110-284; inspect with nl -ba packages/h2a/src/bin.ts \| sed -n '110,284p'. |
+| The lazy predicate is first-token fallback. | packages/h2a/src/bin-routing.ts:31-49. Existing test: packages/h2a/test/bin-routing.test.js, “parité: les verbes runtime (non-natifs) → dispatch runtime”; run npm run build:h2a && node --test packages/h2a/test/bin-routing.test.js. |
+| Runtime main migrates configuration before profile-menu or Commander parsing. | packages/h2a-runtime/src/index.ts:2302-2318. |
+| Ordinary run resolves LOCAL_CLI[profile] ?? profile, creates local tmux, and enrolls it. | packages/h2a-runtime/src/index.ts:1946-2003, 5344-5945; creation :5728-5747; enrollment :5855-5868. |
+| Interactive wrapper changes an ended CLI pane into login shell. | packages/h2a-runtime/src/tmux.ts:92-102. |
+| Legacy h2a resume [slug] has its own registry/slug failure handling; it is distinct from frozen top-level h2a --resume. | packages/h2a-runtime/src/index.ts:4948-5341. |
+| CI invokes the public-contract script, whose checks are MCP names, CLI verb names, and core anti-cycle. No bare-h2a or --resume behavior check appears. | .github/workflows/ci.yml:60-64; scripts/check-public-contract.sh:12-38; audit with rg -n 'check-public-contract\|h2a-public-contract-v1\|--resume' .github scripts docs packages. |
+| dispatchMode and dispatch_mode occur zero times in packages/*/src. Positive control: dispatch occurs 16 times in packages/h2a/src/cli.ts. | rg -n --glob '*.ts' --glob '*.js' 'dispatchMode\|dispatch_mode' packages/*/src; rg -n 'dispatch' packages/h2a/src/cli.ts \| wc -l. |
+| Release machinery updates root metadata plus h2a, h2a-cli, h2a-runtime, and track; release CI compares each published package version with tag. | scripts/release.mjs:45-76; .github/workflows/release.yml:76-143. |
 
-The source trace for an ordinary unknown `h2a run <selector>` is the baseline for §4.3: with no
-structured option, the selector reaches `localCliCommand`; a previously absent slug passes the
-existing-session check; `startLocalSession` creates tmux and persists its launch context; `enrollFromRun`
-records the session; and `LOCAL_WRAPPER` leaves an interactive pane as a login shell. The default
-single-run path forwards the tmux attach status (`packages/h2a-runtime/src/index.ts:5940-5953`,
-`packages/h2a-runtime/src/tmux.ts:1860-1871`), whose normal detach is 0; it is not an independently
-enforced exit invariant. This is source-trace verification, not an end-to-end invocation: executing
-the shipped runtime would first run the config-home migration above.
+## 1. Position, frozen contract, and authority
 
-## 0. What revision 2 changes, and why
+The frozen public contract names bare interactive h2a, h2a --resume, and h2a run <cli> as grammar
+(docs/contracts/h2a-public-contract-v1.md:3-4,19). Current empty argv still follows runCli help/
+exit 0 (packages/h2a/src/cli.ts:6778-6779). This is a conformance gap. The frozen contract's
+full-surface CI change-control promise has not fired.
 
-Revision 1 framed this work as **breaking DEC-034** to obtain a native `h2a`. Review leg 2
-found the document that revision 1 never cited:
+| ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
+|---|---|---|---|---|
+| FC-01 | Bare interactive h2a, h2a --resume, and h2a run <cli> remain frozen public grammar; successor path honors rather than silently amends them. | docs/contracts/h2a-public-contract-v1.md:19; classifier evidence in DISP-01 through DISP-04. | spec-line | Current implementation diverges; this is target, not present behavior. |
+| FC-02 | Product amendment of a frozen surface remains owner-reserved (P4). | docs/contracts/h2a-public-contract-v1.md:3-4; docs/specs/evidence/2026-07-29-WP13-owner-decision.md (**not-yet-written**). | habit | Repository has no receipt validator before contract edit. |
+| FC-03 | Full frozen-surface change control is labelled habit, not described as existing CI gate. | Contract :3-4; §0.1 audit; scripts/check-public-contract.sh:12-38. | habit | Existing script structurally rejects narrow MCP/verb/anti-cycle drift only. |
+| AUTH-01 | P1 exact h2a run enters native, P2 h2a run native, and P3 unknown-selector rejection remain owner decisions before realization. | Owner-decision record in FC-02 (**not-yet-written**). | habit | Paper listing does not prevent implementation before record. |
+| FC-04 | CI and H2A_LEGACY_EMPTY_DISPATCH are documented frozen-surface environment additions before they affect dispatch. | docs/contracts/h2a-public-contract-v1.md:8; docs/specs/evidence/2026-07-29-WP13-owner-decision.md (**not-yet-written**). | spec-line | No current contract-surface validator covers either variable. |
 
-> `docs/contracts/h2a-public-contract-v1.md:19` — status **CONTRAT GELÉ**, 2026-06-29:
-> "grammaire actée : […] lancement `h2a run <cli> [--options]` ; **agent natif `h2a`
-> (bare, interactif)** ; **`h2a --resume`**."
-> Same file, header: "Toute évolution de ce contrat = décision irréversible-produit
-> (réservée à Fabien). Tout diff sur ces surfaces doit échouer la CI sans bump de version
-> explicite."
+| Owner decision | Retained reason |
+|---|---|
+| P1 — exact zero-operand h2a run enters native | Frozen contract does not name it. |
+| P2 — h2a run native is explicit spelling and option carrier | It adds reserved selector to frozen verb. |
+| P3 — unknown run selector changes from executable fallback to rejection | Source trace reaches persisted state as well as argv. |
+| P4 — honor or amend frozen contract | Contract reserves its evolution to owner. |
 
-Verified verbatim in this checkout. That inverts the framing:
+The 2026-07-17 co-conception study keeps S3 open: bare h2a and h2a --resume are preserved, while
+run native is additive after a runtime × placement matrix
+(docs/specs/2026-07-17-STUDY_h2a-cli-coconception.md:292-301,305-327). Phase 1 records
+co-validation rather than treating it as superseded.
 
-- Bare `h2a` as the native interactive agent is **already ratified**. The target is not a
-  new breaking change to be sold; it is a **conformance gap** — the code prints help and
-  exits 0, the frozen contract says native agent.
-- The change-control clause **did not fire**. A frozen surface diverged from its contract
-  and no CI failure recorded it. That is this repository's recurring pattern — a guard that
-  is written but never triggers — and it is worth more than the grammar below.
-- What still requires an owner product decision is therefore **narrow** (§1), not the whole
-  document.
+## 2. Dispatch classification and the new closed-mode schema
 
-Revision 2 also drops three claims revision 1 made without the evidence to carry them, and
-rewrites the parts two independent legs showed to be impossible as written. Nothing here is
-weakened to look better: the count of things this document can promise went **down**.
+Stage A is core, pure, and no-I/O. It handles help, version, frozen implicit spellings, top-level
+--resume, selector-less errors, and delegation. Stage B is a future versioned runtime parse-only
+capability before runtime main. Current main migrates configuration before parsing (§0.1), so no
+side-effect-free Stage-B capability exists today.
 
-## 1. What actually requires an owner decision — and what does not
+This closed schema is **new work**. The §0.1 measurement shows no dispatchMode or dispatch_mode
+field in packages/*/src. There is no open schema to “close”: this is the first validator and its
+unknown-mode case is the first rejection test, not a repair of an existing guard.
 
-**Already ratified (frozen contract v1). No new decision needed; conformance is owed:**
-bare, no-argv `h2a` starts the native interactive agent; `h2a --resume` exists;
-`h2a run <cli> [--options]` remains the explicit vendor launch form.
+| DispatchMode value | Invocation class | Outcome | Exit | Allowed effects |
+|---|---|---|---:|---|
+| HELP | h2a help, --help, -h; h2a run --help or -h; h2a run native --help or -h | matching help | 0 | none |
+| VERSION | h2a --version, -v, version | existing bin.ts route | existing | none |
+| CORE | existing core/meta and Track-façade routes | existing route | existing | existing route only |
+| RUNTIME | recognized non-run runtime verb | existing lazy route | existing | existing route only |
+| RUN_VENDOR | h2a run <recognized vendor or retained alias> … | existing vendor route | existing | existing route only |
+| NATIVE_EXPLICIT | h2a run native … | explicit native | §4 | readiness then lifecycle |
+| NATIVE_IMPLICIT | exact bare h2a and, after P1, exact h2a run | native interactive | §4 | preguard, admission, lifecycle |
+| NATIVE_RESUME | h2a --resume [<ref>] | native resume | §3 | preguard, admission, lifecycle |
+| LEGACY_EMPTY | exact empty forms while legacy escape applies | frozen replacement legacy output | 0 or 1 | none |
+| USAGE_REJECT | selector-less non-help run option; leading unmatched option/terminator; unmatched first token; unknown run selector; value outside DispatchMode | stderr-only refusal | 1 | no runtime main, migration, PATH probe, engine probe, tmux, or session |
 
-**Requires an owner product decision, because it diverges from or extends the frozen
-contract:**
+Each DispatchMode row is data under DISP-03 and inherits its PROOF, ENFORCEMENT-LEVEL, and LIMIT.
 
-| # | Decision | Why it is the owner's |
-|---|---|---|
-| P1 | Exact, zero-operand `h2a run` also enters native | Not named in the frozen contract; changes a published error into a launch |
-| P2 | `h2a run native` as the explicit spelling and option carrier | Adds a reserved selector to a frozen verb |
-| P3 | Removing the unknown-token-as-executable behavior (§4.3) | A safety break with a measured blast radius the document cannot bound (§7/M3) |
-| P4 | Whether the frozen contract itself is amended instead of honored | Reserved to the owner by the contract's own header |
+| ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
+|---|---|---|---|---|
+| DISP-01 | Stage A is exported pure classifier and reconciled with bin.ts rather than layered beside an unexamined authority. | packages/h2a/src/native-dispatch.ts::classifyNativeDispatch (**not-yet-written**); packages/h2a/test/native-dispatch-contract.test.js, “classifies every DispatchMode row without I/O” (**not-yet-written**); run npm run build:h2a && node --test packages/h2a/test/native-dispatch-contract.test.js. | spec-line | No export/test exists; paper does not choose bin.ts refactor versus fence. |
+| DISP-02 | Stage B classifies delegated argv before runtime main migrates configuration. | packages/h2a-runtime/src/native-dispatch.ts::classifyNativeDispatch (**not-yet-written**); packages/h2a-runtime/src/native-dispatch.test.ts, “classifies unknown selector before migrateConfigHomeIfNeeded” (**not-yet-written**); run npx vitest run packages/h2a-runtime/src/native-dispatch.test.ts. | spec-line | Current runtime exports main only; new capability needs phase-1 seam work. |
+| DISP-03 | DispatchMode is exhaustive. A value outside it is rejected, never inferred, defaulted, or executed. | packages/h2a/src/native-dispatch.ts::assertDispatchMode (**not-yet-written**); packages/h2a/test/native-dispatch-contract.test.js, “rejects an unknown DispatchMode before migration or session creation” (**not-yet-written**); command in DISP-01. | spec-line | Named rejection test is planned, not present; it proves new mechanism only after implementation. |
+| DISP-04 | Top-level h2a --resume [<ref>] classifies as NATIVE_RESUME rather than unknown option. | packages/h2a/test/native-dispatch-contract.test.js, “classifies --resume and --resume <ref> as NATIVE_RESUME” (**not-yet-written**); command in DISP-01. | spec-line | Current first-token fallback routes --resume to runtime (packages/h2a/src/bin-routing.ts:31-49); resume semantics remain limited by ID-02. |
+| DISP-05 | Help rows work before lazy boundary when optional runtime/native engine are unavailable. | packages/h2a/test/native-dispatch-contract.test.js, “core help rows do not load runtime” (**not-yet-written**); command in DISP-01. | spec-line | Existing binary lacks spies for import/migration absence. |
+| DISP-06 | Selector-less run options and every unmatched token class produce USAGE_REJECT. | packages/h2a-runtime/src/native-dispatch.test.ts, “rejects selector-less run options and unmatched top-level argv” (**not-yet-written**); command in DISP-02. | spec-line | Runtime parser and native option grammar remain separate. |
 
-P4 is the fork. This document assumes the contract is **honored** and specifies the
-conformance path. If the owner amends it instead, §2–§6 are rewritten, not patched.
+Native option grammar remains unfrozen. Current run has headless, JSON, model, effort, background,
+prompt-stdin, and gateway inputs (packages/h2a-runtime/src/index.ts:5344-5402). The exhaustive
+promise is classification only, not a new native machine surface.
 
-## 2. Dispatch — a two-stage contract, not one impossible authority
+### 2.1 Current defect: failure indistinguishable from success
 
-Revision 1 claimed "one pure classifier over `(argv, env, tty)` is the single authority"
-while also stating that the optional runtime remains the authority for its own verbs. Leg 1
-proved these cannot both hold: `(argv, env, tty)` contains no verb registry, so a core-pure
-function cannot separate a recognized runtime verb from an unknown one without the core
-allowlist the document rejects. Leg 2 added that the real dispatch authority today is
-neither — it is the ordered 17-branch chain in `packages/h2a/src/bin.ts:112-298`, which
-classifies on `argv[0]`, `argv[1]` **and** flag presence, and owns `--version` before
-`bin-routing` is consulted.
+This names a **form only**. For a simple unknown run selector, source
+trace supplies three success signals although no valid dispatch mode was recognized:
 
-**Stage A — core, pure, no I/O.** Decides: help spellings; the frozen-contract implicit
-forms; `--resume`; selector-less option errors; and "delegate to stage B". It must be a
-named exported function so fixtures can call it, and it must be reconciled with the
-existing `bin.ts` chain rather than layered on top of it — the EVOL's realization phase
-must state whether that chain is refactored into stage A or kept and fenced.
+1. ordinary normal tmux detach returns exit 0 through attachLocalSession;
+2. startLocalSession persists launch context and enrollFromRun records a session;
+3. LOCAL_WRAPPER keeps the pane as interactive login shell after unknown executable exits.
 
-**Stage B — runtime, side-effect-free parse only.** A new versioned capability that
-classifies a delegated first token **before** `main()` calls `migrateConfigHomeIfNeeded()`
-(`packages/h2a-runtime/src/index.ts:2134-2149`). Today no such capability exists: the only
-entry is `main(argv)`, which migrates config first. Until stage B exists, any promise that
-an unknown verb "resolves the parser but migrates nothing" is unimplementable — revision 1
-made that promise and it is withdrawn.
+Evidence: packages/h2a-runtime/src/index.ts:1946-2003, 5544-5569, 5610-5747, 5855-5868, 5940-5953;
+packages/h2a-runtime/src/tmux.ts:92-102, 848-994, 1860-1871. This is source-trace verification,
+not direct runtime invocation because main migrates configuration first. The signals do not
+distinguish done, deposited/pending, and not-dispatched. Reports of the same form elsewhere are not
+evidence in this EVOL.
 
-### 2.1 The classifier rows
+| ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
+|---|---|---|---|---|
+| DISP-07 | Successor replaces the failure-indistinguishable-from-success form for unknown run selector with USAGE_REJECT: exit 1, one stderr diagnostic, no stdout, tmux, launch context, or enrollment. | packages/h2a-runtime/src/native-dispatch.test.ts, “unknown run selector refuses without tmux session, launch context, or enrollment” (**not-yet-written**); command in DISP-02. | spec-line | Changes only unknown-selector behavior after P3; persisted entries are COMPAT-04. |
 
-Ordered; "None" means no runtime import, no config migration, no PATH probe, no network, no
-engine probe, no session.
+## 3. Admission, identity, launch, and resume
 
-| # | Invocation | Outcome | Exit | Side effects |
-|---:|---|---|---:|---|
-| 1 | `h2a help`, `h2a --help`, `h2a -h` | Top-level help | 0 | None |
-| 2 | `h2a --version`, `-v` | Existing version path (owned by the `bin.ts` chain today) | Existing | None |
-| 3 | `h2a run --help`, `h2a run -h` | Run help, core-intercepted before the lazy boundary | 0 | None |
-| 4 | `h2a run native --help`, `-h` | Native help | 0 | None |
-| 5 | Existing core/meta verb, and Track-façade verbs (`report`, `item`, `focus`, …) | Existing route, in-process or spawn as today | Existing | Existing |
-| 6 | Recognized non-run runtime verb (`ls`, `attach`, `stop`, `resume`, `delegate`, `jobs`, `workspace`, `install`) | Existing lazy dispatch | Existing | Existing |
-| 7 | `h2a run <recognized vendor or retained alias> …` | Existing tmux/attach route (§3.2) | Existing | Existing |
-| 8 | `h2a run native …` | Native; interactive unless an explicit machine form is given (§2.2) | §3 | Readiness before creation |
-| 9 | `h2a --resume [<ref>]` | **Frozen-contract spelling.** Native resume | §3 | Readiness before attach |
-| 10 | Exact bare `h2a` | Native interactive, subject to §2.3 | §3 | Guards, then readiness |
-| 11 | Exact `h2a run` (P1) | Same flow as row 10 | §3 | Guards, then readiness |
-| 12 | Leading option or terminator before any verb: `h2a --root <p> <verb>`, `h2a --`, combined shorts (`h2a -hv`) | Explicitly enumerated, not swept into "unknown verb" | per case | None for the help cases |
-| 13 | `h2a run --<non-help-option>` / `h2a run --` with no selector | Usage error, stderr only | 1 | None |
-| 14 | Unknown `run` selector | Usage error (§4.3) | 1 | Stage B only |
-| 15 | Any other unmatched first token, **including option-like tokens** | Usage error | 1 | Stage B only |
+TTY and CI remain preguards: stdin and stdout TTY are required for implicit interaction; nonempty CI
+refuses implicit form under pseudo-TTY. They decide environmental conditions only. Admission
+discriminates this invocation by exact workspace binding: resolved workspace matches WorkspaceBinding
+in SessionLaunchIntent and native capability accepts binding, policy, and quota.
 
-Row 9 exists because leg 2 measured that `shouldDispatchRuntime(["--resume"])` is `true`
-today: a spelling the frozen contract names is currently routed to Commander as an unknown
-option. Revision 1 had no row for it and would have classified it as an unknown top-level
-verb — failing its own completeness criterion.
+The pair below is measurable: matching binding passes; different or absent binding refuses. It does
+not claim to infer a human's intent inside an already-admitted workspace.
 
-Rows 12 and 15 exist because leg 2 measured that `h2a --root /tmp status`, `h2a --`, and
-`h2a -hv` all cross the runtime boundary today and are not "unknown verbs" in any natural
-reading. A catch-all that does not say "including option-like tokens and `--`" is not a
-catch-all.
+| ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
+|---|---|---|---|---|
+| ADMIT-01 | Implicit native reaches readiness only after TTY and CI preguards pass; refusal is stderr-only, exit 1, no fallback. | packages/h2a/test/native-dispatch-contract.test.js, “implicit native refuses non-TTY and CI before readiness” (**not-yet-written**); command in DISP-01. | spec-line | Ambient checks do not establish workspace admission. |
+| ADMIT-02 | Native launch admission requires exact resolved-workspace/WorkspaceBinding match plus capability policy/quota acceptance. | packages/h2a-runtime/src/native-admission.test.ts, “admits a ready native intent bound to its resolved workspace” (**not-yet-written**); run npx vitest run packages/h2a-runtime/src/native-admission.test.ts. | spec-line | Engine capability and binding store do not exist in this checkout. |
+| ADMIT-03 | Ready-looking intent with different or absent WorkspaceBinding refuses before CreateSession. | packages/h2a-runtime/src/native-admission.test.ts, “rejects a ready native intent whose workspace binding is different or absent” (**not-yet-written**); command in ADMIT-02. | spec-line | Cannot distinguish mistaken intent inside correctly bound workspace. |
 
-### 2.2 The native option grammar is NOT frozen here
+Existing seam proposal supplies SessionLaunchIntent correlation/binding and SessionProjection executionId/
+receipt (docs/specs/2026-07-18-STUDY_h2a-native-agent-and-session-engine.md:511-540).
 
-Revision 1 said row 8 was "native grammar; interactive when no machine/headless form is
-explicit" and froze nothing. Leg 1 showed the consequence: `h2a run native --headless`,
-`--json`, `-p x` have no determined result, while the existing `run` parser already exposes
-`--headless`, `--json`, `--model`, `--effort`, `--background`, `--prompt-stdin` and gateway
-flags. Freezing a native option surface before the engine seam answers (§6, G1) would
-invent flags the engine may not honor. **This EVOL therefore does not claim to freeze it**,
-and the completeness claim is scoped to rows 1–15 minus row 8's option surface. That scope
-limit is stated here rather than discovered later.
+| Operation | Identifier at request | Reference after success | Failure return; created-session result |
+|---|---|---|---|
+| Native launch | caller correlationId and idempotency key/scope, WorkspaceBinding, descriptor revision | SessionProjection.executionId, revision, immutable receipt; attach/control only if advertised | Usage/preguard: 1, no intent/session. Runtime missing/incompatible: 127/64, no intent/session. Binding/policy/quota/readiness/engine: 2 with structured reason plus correlationId, no executionId. Local I/O: 3 with correlationId and no claimed executionId. Post-create attach failure: 3 with executionId/receipt retained. |
+| Native resume with explicit <ref> | correlationId/idempotency key plus existing session or checkpoint ref, WorkspaceBinding, descriptor revision | successor SessionProjection.executionId, revision, immutable receipt; input ref is lineage, not PTY continuity | Usage/preguard: 1. Missing/foreign/expired/unauthorized ref or binding/policy/quota/readiness: 2 with reason/correlationId, no successor. Runtime: 127/64. I/O: 3. Post-create attach failure: 3 with successor retained. |
+| Frozen h2a --resume without <ref> | **Known gap:** frozen contract supplies spelling, not a last-native resolver. | None claimed. | Classifier reaches NATIVE_RESUME; phase 1 supplies resolver or structured exit-2 native-resume-reference-unavailable. No session creation is claimed first. |
 
-### 2.3 Guards — non-TTY is load-bearing, `CI` is not
+The identity table is the data of ID-01 through ID-03 and inherits their PROOF,
+ENFORCEMENT-LEVEL, and LIMIT.
 
-Revision 1 led with `CI`. Leg 2 measured that `process.env.CI` has **zero precedent** in
-`packages/*/src`, and that the load-bearing half is non-TTY. Revised: an implicit native
-form requires `stdin.isTTY` **and** `stdout.isTTY`; a redirected `stderr` alone does not
-disqualify. A nonempty `CI` additionally refuses the implicit forms under a pseudo-TTY.
-Refusal writes one diagnostic to stderr, nothing to stdout, exits 1, never falls back to
-help.
+| ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
+|---|---|---|---|---|
+| ID-01 | Native launch follows first identity row; executionId is authoritative and correlationId is caller linkage. | packages/h2a-runtime/src/native-session-contract.ts::createNativeSession (**not-yet-written**); packages/h2a-runtime/src/native-session-contract.test.ts, “CreateSession returns executionId, revision, and immutable receipt” (**not-yet-written**); run npx vitest run packages/h2a-runtime/src/native-session-contract.test.ts. | spec-line | Seam types are proposed; no native engine returns them now. |
+| ID-02 | Explicit native resume follows second row; successful resume returns successor projection, not implicit PTY continuity. | packages/h2a-runtime/src/native-session-contract.ts::resumeNativeSession (**not-yet-written**); packages/h2a-runtime/src/native-session-contract.test.ts, “Resume returns successor projection for session and checkpoint references” (**not-yet-written**); command in ID-01. | spec-line | Zero-argument spelling has documented gap pending phase 1. |
+| ID-03 | Unresolved zero-argument h2a --resume creates and attaches no native session merely because preguards passed. | packages/h2a/test/native-dispatch-contract.test.js, “resume without resolvable native reference refuses before CreateSession” (**not-yet-written**); command in DISP-01. | spec-line | Leaves open last-native record, chooser, or owner-approved alternative. |
 
-Leg 2's M2 stands and is recorded rather than argued away: **today's bare `h2a` is strictly
-safer than the successor's** — core-only, help, exit 0, no import, no write. These guards
-protect automation; nothing here protects an interactive human who runs `h2a` in an
-arbitrary directory. That is a real cost of honoring the frozen contract, and it belongs in
-front of the owner (§1, P4), not buried in a guard table.
-
-## 3. Exits
+## 4. Exits and compatibility
 
 | Exit | Meaning |
 |---:|---|
-| 0 | Help/version, clean native completion, explicit quit |
-| 1 | Usage/selector error, or interactive safety refusal |
-| 2 | Native readiness, authentication/admission, engine state, policy or budget failure, with a structured reason |
-| 3 | Local I/O or OS failure |
-| 64 | Runtime CLI API incompatibility at the lazy boundary |
-| 127 | Module-not-found at the lazy boundary — **see below** |
-| 128 + signal | Signal termination |
+| 0 | help/version, clean native completion, explicit quit, or legacy bare result |
+| 1 | usage/schema error or implicit safety refusal |
+| 2 | readiness, authentication, admission, engine-state, policy, budget, or native-reference failure with structured reason |
+| 3 | local I/O or OS failure |
+| 64 | runtime API incompatibility at lazy boundary |
+| 127 | broad module-not-found bucket at lazy boundary |
+| 128 + signal | signal termination |
 
-**127 does not mean "the optional runtime package is missing."** `packages/h2a/src/bin.ts:82-94`
-tests only `err.code === "ERR_MODULE_NOT_FOUND"`, which is also produced when
-`@sentropic/h2a-runtime` resolves but one of its transitive imports fails during evaluation.
-Both report "install the runtime". Revision 1's availability table named 127 as evidence of
-a specific state; that was an assertion wider than its evidence. The realization phase must
-either discriminate on the failing specifier or publish 127 as the broad bucket it is.
+Each exit row is data under EXIT-01 and inherits its PROOF, ENFORCEMENT-LEVEL, and LIMIT.
 
-### 3.2 Vendor routes — revision 1 cited the wrong function
+127 remains broad: bin.ts checks ERR_MODULE_NOT_FOUND, covering missing optional runtime and possible
+transitive evaluation failure (packages/h2a/src/bin.ts:77-105).
 
-Revision 1 justified vendor compatibility with `runProfile`. Leg 1 traced that `runProfile`
-serves the **direct** profile commands (`h2a claude`, `h2a codex`), and only its local PTY
-branch assigns `result.exit.exitCode`. `h2a run <profile>` is a different Commander action
-(`index.ts:5177`) which starts a tmux session and by default assigns
-`attachLocalSession(...)` to `process.exitCode` (`:5712`), with further distinct behavior in
-its detached and structured branches. Compatibility must therefore be frozen **per route** —
-`run <vendor>` interactive attach, detached/headless/structured, direct vendor local PTY,
-direct vendor remote — each with its own golden fixture. One citation cannot carry four
-contracts.
+| ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
+|---|---|---|---|---|
+| EXIT-01 | Exit table is successor native taxonomy; exit alone does not assert cause more specific than its row. | packages/h2a/test/native-dispatch-contract.test.js, “maps successor failure classes to published exits” (**not-yet-written**); command in DISP-01. | spec-line | Vendor-child behavior remains outside normalized native taxonomy. |
+| EXIT-02 | API incompatibility rejects before runtime dispatch through current capability resolver. | packages/h2a/src/bin-routing.ts:65-85; packages/h2a/test/bin-routing.test.js, “runtime dispatch: rejects an incompatible capability version”; command in §0.1. | structural | Covers current runtime dispatch, not native parser/readiness. |
+| COMPAT-01 | Vendor compatibility is per route: interactive run attach, detached/headless/structured run, direct local PTY, direct remote. | packages/h2a-runtime/src/native-dispatch.test.ts, “characterizes run vendor interactive attach”, “characterizes run vendor structured launch”, “characterizes direct vendor local PTY”, “characterizes direct vendor remote” (**all not-yet-written**); command in DISP-02. | spec-line | Characterizes retained routes; does not freeze native options. |
+| COMPAT-02 | Lockstep release set includes h2a, h2a-cli, h2a-runtime, and track; successor major has collateral track impact. | scripts/release.mjs:45-76; .github/workflows/release.yml, `Version sanity gate (tag vs package.json)`:70-107, whose named h2a/cli/runtime/track mismatch branches exit 1; inspect nl -ba scripts/release.mjs \| sed -n '45,76p'. | structural | Proves current tooling, not approval for independent versioning. |
+| COMPAT-03 | Runtime capability bump breaks every heavy runtime verb in mixed install; H2A_LEGACY_EMPTY_DISPATCH covers two empty forms only and is not rollback for that break. | packages/h2a/src/bin-routing.ts:55-85; packages/h2a/package.json:58-64; incompatibility test in EXIT-02. | spec-line | No complete heavy-surface mixed-version strategy exists here. |
+| COMPAT-04 | P3 covers argv and persisted entries whose saved tool is unknown; migration/refusal shares owner decision. | packages/h2a-runtime/src/index.ts:1961-1963 and :5122-5159; packages/h2a-runtime/src/native-dispatch.test.ts, “refuses legacy persisted unknown selector with named diagnostic” (**not-yet-written**). | spec-line | No adoption measurement or new telemetry is authorized. |
+| COMPAT-05 | Profile picker is not live shipped-bin implicit selector. | packages/h2a-runtime/src/profile-menu.ts:20-25; packages/h2a/src/bin.ts:281-284; predicate test packages/h2a-runtime/src/profile-menu.test.ts, profile menu / “only appears for bare interactive remote invocations”; run npx vitest run packages/h2a-runtime/src/profile-menu.test.ts. | spec-line | Predicate test does not exercise the full published-bin route; claim is limited to that route. |
+| COMPAT-06 | During first successor major only, H2A_LEGACY_EMPTY_DISPATCH gives exact bare h2a help/0 and exact h2a run frozen stderr-only/1 output before runtime import, migration, or native launch; it is removed in next major. | packages/h2a/test/native-dispatch-contract.test.js, “legacy empty dispatch uses frozen output without runtime effects” (**not-yet-written**); command in DISP-01. | spec-line | Exact run output is replacement output, not a byte-for-byte Commander reproduction; lever covers neither heavy verbs nor mixed installs. |
 
-## 4. Compatibility, release and rollback — the honest shape
+## 5. Fixtures, observable seams, and change control
 
-### 4.1 The lockstep set is the repository, not two packages
+Realization exposes one injectable front seam, packages/h2a/src/native-dispatch.ts::
+dispatchNativeSuccessor (**not-yet-written**), with import counter, migration spy, Stage-B classifier,
+admission probe, and session factory. That seam observes no import, no migration, no session, and
+normalized launch intent. Current private dispatchRuntime closes over process argv and cannot do so.
+The source basis for that limit is packages/h2a/src/bin.ts:30,77-105.
 
-Revision 1 said "coordinated majors of `@sentropic/h2a` and `@sentropic/h2a-runtime`".
-Verified in this checkout: `scripts/release.mjs` bumps **eight** manifests in one step —
-root, root lock, `packages/h2a`, its two plugin manifests, `packages/h2a-cli`,
-`packages/h2a-runtime`, and **`packages/track`** — and the release workflow hard-fails on an
-`h2a-cli`/tag version mismatch. A successor major therefore forces a **collateral major on
-`@sentropic/track`**, a package with its own consumers and nothing to do with CLI dispatch.
-`h2a-cli` also still owns the `h2a` bin name. Either the release script gains independent
-versioning first, or the EVOL must state plainly that shipping this costs a track major.
-
-### 4.2 The rollback lever does not reach the largest breakage
-
-`H2A_LEGACY_EMPTY_DISPATCH` restores the two empty forms. But bumping
-`H2A_RUNTIME_CLI_API_VERSION` breaks **every heavy verb** — `ls`, `attach`, `stop`,
-`resume`, `delegate`, `jobs`, `workspace`, `install` — for any mixed install, and npm does
-not prevent the mix (`peerDependencies: "*"`, optional dependency). Advertising a rollback
-that covers the small breakage while the release ships a larger unprotected one is
-precisely an assurance wider than its evidence. Either the capability bump is dropped from
-this change, or the compatibility strategy must cover the heavy-verb surface — and this
-document does not currently know how.
-
-Additionally, the "byte-for-byte, before any import" promise for exact `h2a run` is
-withdrawn: both legs independently showed the current result is produced *by* the runtime
-(127 with no runtime, 64 if incompatible, otherwise a possible config-migration write on
-stderr followed by Commander's missing-argument error), so a pre-import branch cannot
-reproduce it without doing the thing it forbids. Replacement: a **frozen, environment-
-independent legacy output** for the two empty forms, explicitly labelled as not identical
-to today's, and never pinned to a third-party error string.
-
-### 4.3 The unknown-selector break — and what it really reaches
-
-Revision 1 justified removing `LOCAL_CLI[profile] ?? profile` (`index.ts:1818`) as removing
-arbitrary command execution. Two corrections:
-
-- **The current baseline is worse than revision 1 described.** Leg 2 traced that there is no
-  profile validation on that path: `localStartArgs` returns `[]` for an unknown token, the
-  tmux session **is created and registered**, `h2a` exits 0, and `tmux.ts:99` drops the pane
-  to `exec /bin/bash -l`. Verified. So a typo does not merely execute something — it
-  registers a session whose pane is a login shell. Any fixture written against revision 1's
-  description would have asserted the wrong baseline.
-- **The break reaches persisted state, not only argv.** `localCliCommand` has a second call
-  site (`index.ts:4981`) that takes the profile from the session registry (`entry.tool`), so
-  removing the fallback also changes resumption of already-recorded sessions. That is why
-  P3 is an owner decision, and why the document cannot bound its blast radius — especially
-  under its own no-new-telemetry rule.
-
-### 4.4 A claim withdrawn: the vendor picker is dead code
-
-Revision 1 retired `profile-menu.ts::shouldShowProfileMenu` as a live implicit selector. Leg
-2 measured mutual exclusivity: the menu requires `process.argv.length <= 2`, and the runtime
-is only reached at `>= 3`. It is unreachable through the shipped bin. Removing it may still
-be good hygiene; it is **not** a safety argument, and revision 1 spent safety weight on it.
-
-## 5. Fixtures — two kinds, not one rule
-
-Revision 1 applied a universal "must fail on `origin/main` first" rule. Leg 1 showed it is
-wrong for at least three of the ten: fixture 7's core assertion (`resolveH2aRuntimeDispatch`
-rejecting a version mismatch) **already exists and passes today**
-(`packages/h2a/test/bin-routing.test.js:77-87`), fixture 4 is an unchanged-behavior
-invariant that must pass on the base, and fixture 9 can pass without proving the escape
-hatch was read.
-
-Split accordingly:
-
-**Base characterization (must pass before and after)** — vendor route behavior per §3.2;
-existing heavy-verb dispatch; existing help spellings; the current unknown-selector baseline
-of §4.3 recorded as a golden, so the successor's change to it is visible.
-
-**Successor delta (must fail first, for a named reason)** — rows 9, 10, 11 producing one
-identical launch intent; implicit forms refusing under non-TTY; `--resume` classified rather
-than rejected as an unknown option; unknown selector no longer creating a session; stage B
-classifying without config migration.
-
-Each fixture must name the observable seam it asserts on. Revision 1 asserted "no import, no
-migration, no session" against functions that cannot observe those events: `dispatchRuntime`
-is private and reads module-scope `argv`. The realization phase must expose an injectable
-front dispatcher, or the assertion is unwritable — a fixture that cannot fail is the same
-defect as a guard that cannot fire.
-
-## 6. Phased authorization — replacing self-blocking gates
-
-Revision 1 forbade all code until G1–G6 held, while G4–G6 could only hold **after** code
-shipped. Leg 1 named it: the document blocked itself. Phases, each unlocked by the previous:
-
-| Phase | Unlocked by | Authorizes |
+| Fixture set | Exact case identifier | Baseline |
 |---|---|---|
-| 0 — paper | this EVOL, reconciled with both legs | nothing executable |
-| 1 — seam | owner decision on §1 P1–P4; sentropic answers A1–A4 / Q1–Q5; a versioned seam with a frozen stop-reason-to-exit mapping | specifying stage B's capability |
-| 2 — explicit route | phase 1 | implementing and testing `h2a run native` **additively**, changing no existing behavior |
-| 3 — compatibility | phase 2 green; §4.1 release-set answer; §4.2 heavy-verb strategy | announcement-only release; help and diagnostics naming the coming change |
-| 4 — candidate | phase 3 shipped for at least one release | building a cutover candidate behind the legacy lever |
-| 5 — cutover | owner UAT **on that candidate build**, dated and recorded | flipping rows 10 and 11 atomically, and publishing |
+| Base characterization | packages/h2a-runtime/src/native-dispatch.test.ts, “unknown selector currently creates, enrolls, and leaves login shell” (**not-yet-written**) | passes on source-harness baseline; records three-signal defect |
+| Base characterization | packages/h2a-runtime/src/native-dispatch.test.ts, four COMPAT-01 cases (**not-yet-written**) | passes before and after successor work |
+| Base characterization | packages/h2a/test/bin-routing.test.js, “runtime dispatch: rejects an incompatible capability version” | exists and passes today |
+| Successor delta | packages/h2a/test/native-dispatch-contract.test.js, “implicit spellings normalize to one NativeLaunchIntent” (**not-yet-written**) | fails before successor implementation |
+| Successor delta | packages/h2a/test/native-dispatch-contract.test.js, “rejects an unknown DispatchMode before migration or session creation” (**not-yet-written**) | fails before schema/rejection mechanism |
+| Successor delta | packages/h2a-runtime/src/native-dispatch.test.ts, “unknown run selector refuses without tmux session, launch context, or enrollment” (**not-yet-written**) | fails before P3 implementation |
+| Successor delta | packages/h2a/test/native-dispatch-contract.test.js, “implicit native refuses non-TTY and CI before readiness” (**not-yet-written**) | fails before implicit implementation |
+| Successor delta | packages/h2a-runtime/src/native-admission.test.ts, ADMIT-02 and ADMIT-03 cases (**not-yet-written**) | fails before admission capability |
 
-Each phase's evidence must be a named artefact — a path or release id, an immutable ref, the
-verification command and its result, and for phase 5 a dated owner acceptance. Leg 1's C8
-was right that revision 1's gates could be satisfied by prose; a gate judged by narration is
-a convention, not a gate.
+The fixture rows are data under TEST-01 and TEST-02 and inherit their PROOF, ENFORCEMENT-LEVEL,
+and LIMIT.
 
-**Phase 1 status, 2026-07-30:** open. A1–A4 were deposited to the architect on 2026-07-18 to
-a target absent from today's registry, re-sent 2026-07-29 and acknowledged; answers are
-committed but not yet rendered. Also open, and uncited by revision 1: §S3 of
-`docs/specs/2026-07-17-STUDY_h2a-cli-coconception.md` is an unresolved sentropic
-co-validation fork on **this exact question** — it argues for preserving bare `h2a` and
-`h2a --resume` and making `run native` additive only after a runtime × placement matrix.
-That fork is not superseded by the 2026-07-18 study and belongs in phase 1's list.
+| ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
+|---|---|---|---|---|
+| TEST-01 | Every successor-delta condition names observable dependencies and test case failing for stated violation. | Fixture register; dispatchNativeSuccessor (**not-yet-written**). | spec-line | Names protect nothing until seam/tests exist. |
+| TEST-02 | Base-characterization fixtures do not use universal fail-first rule. | Fixture register; existing bin-routing incompatibility test. | test | Existing test proves API case only. |
+| CC-01 | Full frozen-surface change control remains explicitly habit until a gate watches bare h2a, h2a --resume, h2a run, and declared contract version together. | FC-03; current scripts/check-public-contract.sh is only named existing script. | habit | Written downgrade makes no false current-CI claim. |
 
-## 7. Adversarial review reconciliation
+## 6. Phased authorization
 
-Two independent legs, both on commit `3b3fe85`, neither the author. Leg 2 was placed in a
-worktree that did not contain leg 1's findings — structural blinding, not an instruction.
-Leg 1: 4 blocking, 4 major, 0 suspected. Leg 2: 4 blocking, 8 major, 3 minor, 0 suspected.
-**Zero findings rejected.** Disposition:
+| Phase | Entry evidence | Paper authorization after entry |
+|---|---|---|
+| 0 — paper | this EVOL plus both review legs | none |
+| 1 — seam | P1–P4 owner record; sentropic A1–A4 / Q1–Q5 and S3 co-validation; Stage-B capability and stop-reason mapping | specify Stage B |
+| 2 — explicit route | phase-1 record; DISP-01/02/03, ADMIT-02/03, ID-01 evidence | additive h2a run native, retained behavior unchanged |
+| 3 — compatibility | phase-2 evidence; COMPAT-01; release-set/heavy-verb strategy record | announcement-only release |
+| 4 — candidate | phase-3 release id; legacy-empty/mixed-version evidence | candidate behind legacy behavior |
+| 5 — cutover | dated owner observation on candidate for admitted bare launch/non-TTY refusal | atomically flip NATIVE_IMPLICIT and publish |
 
-| Finding | Disposition in revision 2 |
+Each phase row is data under PHASE-01 through PHASE-03 and inherits their PROOF,
+ENFORCEMENT-LEVEL, and LIMIT.
+
+| ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
+|---|---|---|---|---|
+| PHASE-01 | Phase entry is conjunction of named evidence, immutable ref, command/result, and owner/date where applicable. | docs/specs/evidence/2026-07-29-WP13-native-dispatch-phase-1-seam.json, phase-2-explicit-route.json, phase-3-compatibility.json, phase-4-candidate.json, phase-5-owner-uat.md, and 2026-07-29-WP13-native-dispatch-evidence.schema.json (**all not-yet-written**). | spec-line | No evidence evaluator exists now. |
+| PHASE-02 | No phase authorizes later-phase work. | Phase table and EVOL-00. | spec-line | Paper cannot reject out-of-order implementation. |
+| PHASE-03 | Phase 5 needs dated owner receipt of candidate bare launch and non-TTY refusal; green suite alone is insufficient. | docs/specs/evidence/2026-07-29-WP13-native-dispatch-phase-5-owner-uat.md (**not-yet-written**). | habit | Human observation/signature is not mechanically reproducible. |
+
+Phase 1 is open. A1–A4 / Q1–Q5 correspondence is acknowledged but unrendered; S3 remains the
+cross-owner fork. This status authorizes no phase-2 work.
+
+## 7. Revision-2 reconciliation retained
+
+| Review finding(s) | Retained disposition |
 |---|---|
-| L1-C1 impossible single authority | Accepted — §2 two-stage contract; the unimplementable no-migration promise withdrawn |
-| L1-C2 incomplete grammar | Accepted — rows 9, 12, 15; §2.2 explicitly does not freeze the native option surface |
-| L1-C3 legacy hatch contradiction | Accepted — §4.2, byte-for-byte withdrawn, frozen output substituted |
-| L1-C4 self-blocking gates | Accepted — §6 phases |
-| L1-C5 fixtures not falsifiable | Accepted — §5 split, plus the seam-observability requirement |
-| L1-C6 wrong vendor citation | Accepted — §3.2, per-route contracts |
-| L1-C7 exit 127 not specific | Accepted — §3 |
-| L1-C8 gates lack evidence predicates | Accepted — §6 evidence tuple |
-| L2-B1 release set is four packages | Accepted — §4.1, including the collateral track major |
-| L2-B2 rollback misses heavy verbs | Accepted — §4.2, stated as unsolved |
-| L2-B3 frozen contract already enacts it | Accepted, and it **reframes the document** — §0, §1 |
-| L2-B4 `--resume` missing | Accepted — row 9 |
-| L2-M1 open S3 fork uncited | Accepted — §6 phase 1 |
-| L2-M2 today's bare `h2a` is safer | Accepted — §2.3, surfaced to the owner rather than argued |
-| L2-M3 D7 reaches persisted state | Accepted — §4.3 |
-| L2-M4 row 9 baseline wrong | Accepted — §4.3, verified independently (`tmux.ts:99`) |
-| L2-M5 fixture 9 impossible | Accepted — §4.2, merged with L1-C3 |
-| L2-M6 `bin.ts` chain is the real authority | Accepted — §2 |
-| L2-M7 picker is dead code | Accepted — §4.4, claim withdrawn |
-| L2-M8 missing subjects | Accepted as a **known gap**: session identity, naming, slug collision in one cwd, `ls`/`attach`/`stop`, presence, reaping, and resume continuation for the implicitly created session are not specified here. Named so it cannot be mistaken for covered |
-| L2-m1 citation derivation | Accepted — the `H2A_NATIVE_VERBS` derivation includes `TRACK_FACADE_VERBS` |
-| L2-m2 diagnostics language | Open: new diagnostics are specified in English while the loader's are French. Not resolved here |
-| L2-m3 env surface unrecorded | Accepted — any new env var is a diff against the frozen contract's documented surface and follows §1 |
+| L1-C1, L2-M6 | two-stage contract; bin.ts present authority; no-migration awaits Stage B |
+| L1-C2, L2-B4, L2-m1 | --resume, leading options/terminator, option-like tokens, Track derivation, unfrozen native options |
+| L1-C3, L2-M5 | byte-for-byte exact-run legacy claim withdrawn; replacement output environment-independent |
+| L1-C4, L1-C8 | phased authorization/evidence tuples replace self-blocking prose gates |
+| L1-C5 | base characterization split from delta; observable seam named |
+| L1-C6 | vendor compatibility per route, not runProfile |
+| L1-C7 | 127 broad module-not-found bucket |
+| L2-B1, L2-B2 | actual lockstep set and uncovered heavy-verb mixed-install break explicit |
+| L2-B3 | frozen contract re-frames work as conformance and exposes failed change control |
+| L2-M1 | S3 phase-1 co-validation input |
+| L2-M2 | bare h2a safer; TTY/CI preguards plus admission discriminator |
+| L2-M3, L2-M4 | unknown selector persisted state and three-signal baseline |
+| L2-M7 | picker unreachable through shipped h2a bin |
+| L2-M8 | identity/reference/failure tables expose zero-ref resume gap |
+| L2-m2, L2-m3 | diagnostic language/environment surface remain owner/version evidence items |
 
-**What the reviews did not cover.** Neither leg executed the `h2a` binary end to end — leg 2
-declined because a session hook refuses `h2a` from a shell and `main()` mutates the real
-config home, and leg 1's end-to-end probe was discarded because Node resolved the runtime to
-the sibling checkout. Leg 1's build did not complete (a missing `@hono/node-ws` and a
-`@sentropic/llm-gateway` export mismatch). Every behavioral claim above therefore rests on
-source reading and a built dist, not on running the shipped command. That limit is inherited
-by this revision and must be closed in phase 2.
+Both review legs declined direct shipped-CLI run because shell hook and real configuration mutation
+made it unsafe. This revision uses source-trace baseline and names end-to-end tests; it does not
+convert that limit into a success claim.
 
-## 8. Acceptance of this EVOL, as paper
+## 8. Paper acceptance
 
-- §0 cites the frozen contract verbatim and states the conformance reframing.
-- §1 separates what is already ratified from the four decisions reserved to the owner.
-- §2 states a two-stage contract that does not claim an impossible authority, and scopes its
-  own completeness.
-- §3, §4 withdraw revision 1's three unsupported claims — 127 specificity, `runProfile` as
-  the vendor route, the picker as a live selector — rather than restating them.
-- §5 distinguishes characterization from delta and names the seam each fixture needs.
-- §6 phases authorization so no gate requires the work it forbids, and reports phase 1 open.
-- §7 dispositions all 23 findings and names what the reviews could not reach.
+| ID | CLAUSE | PROOF | ENFORCEMENT-LEVEL | LIMIT |
+|---|---|---|---|---|
+| ACCEPT-01 | Paper acceptance requires registers for retained normative claims, LIMIT for every guarantee, and concrete closed-schema/admission rejection identifiers. | Review with rg -n 'ENFORCEMENT-LEVEL\|PROOF\|LIMIT\|unknown DispatchMode\|workspace binding' docs/specs/2026-07-29-SPEC_EVOL_native-dispatch-successor-contract.md. | spec-line | Self-check is not independent ratification and authorizes no realization. |
+| ACCEPT-02 | All 23 review findings remain reconciled; formatting rework silently reopens or rejects none. | §7 and both review files. | spec-line | Records document consistency only; later independent review remains separate. |
 
----
+### Appendix A — DEC ratification map
 
-## Appendix A — successor DEC, ready to append at ratification
-
-> **## DEC-NNN — Native dispatch conformance contract**
->
-> **Date**: TBD. **Refers**: `docs/contracts/h2a-public-contract-v1.md` (CONTRAT GELÉ,
-> 2026-06-29), DEC-034, WP13, and this EVOL.
->
-> **Finding**: the frozen public contract already enacts bare, interactive native `h2a` and
-> `h2a --resume`. The shipped code prints help and exits 0, and routes `--resume` to the
-> runtime as an unknown option. The contract's change-control clause — any diff on these
-> surfaces must fail CI without an explicit version bump — did not fire. The primary defect
-> is the unenforced clause, not the grammar.
->
-> **Decision**: honor the frozen contract. Additionally ratify, as extensions: exact
-> zero-operand `h2a run` entering the same native flow (P1); `h2a run native` as the explicit
-> spelling (P2); and removal of the unknown-token-as-executable behavior (P3), whose current
-> baseline registers a tmux session on a login shell and whose removal also reaches
-> resumption of recorded sessions.
->
-> **Consequence**: the release lockstep set includes `@sentropic/track` and
-> `@sentropic/h2a-cli`; a runtime CLI capability bump breaks the whole heavy-verb surface in
-> mixed installs and its compatibility strategy is unresolved; realization proceeds by the
-> phases in EVOL §6, and no phase is entered before its predecessor's named evidence exists.
->
-> **Not decided here**: whether the frozen contract is amended instead of honored (P4),
-> which the contract reserves to the owner.
+The successor DEC refers to FC-01 through FC-04 for frozen-contract posture; DISP-01 through DISP-07
+for dispatch; ADMIT-01 through ADMIT-03 and ID-01 through ID-03 for admission/session semantics;
+EXIT-01 through COMPAT-06 for compatibility; TEST-01 through CC-01 for evidence/change control; and
+PHASE-01 through PHASE-03 for authorization. This appendix adds no requirement and authorizes no code.
