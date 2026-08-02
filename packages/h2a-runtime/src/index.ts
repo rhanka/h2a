@@ -136,6 +136,7 @@ import {
   type AgentLaunchEffort,
 } from "./agent-launch-args.js";
 import { planRelaunch } from "./relaunch.js";
+import { deriveSessionClass } from "./session-class.js";
 import type { ProcView } from "./proc-cpu.js";
 import {
   isHumanFacingSession,
@@ -5398,6 +5399,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           true,
           localSessionName(resumeSlug),
         );
+        const sessionClass = deriveSessionClass({
+          background: opts.attach !== true,
+          humanTerminal:
+            opts.attach === true &&
+            process.stdin.isTTY === true &&
+            process.stdout.isTTY === true,
+        });
         const { name } = startLocalSession(
           profile,
           command,
@@ -5405,14 +5413,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           args,
           resumeSlug,
           undefined,
-          { sessionClass: "human", attachedTerminal: true },
+          { sessionClass, attachedTerminal: true },
         );
         enrollFromRun({
           profile,
           slug: resumeSlug,
           tmuxSession: name,
           cwd: entry.cwd,
-          sessionClass: "human",
+          sessionClass,
           ...(entry.convId ? { convId: entry.convId } : {}),
           ...(gatewayMode !== "auto" ? { gatewayMode } : {}),
         });
@@ -5700,8 +5708,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // A detached/background or run-once launch is a worker, even when its
         // agent later emits a Claude SessionStart hook. Stamp this through tmux
         // so that hook cannot reclassify it as a human session.
-        const sessionClass =
-          opts.background || opts.headless ? "background" : "human";
+        const sessionClass = deriveSessionClass({
+          background: opts.background === true,
+          headless: opts.headless === true,
+          humanTerminal: opts.attachedTerminal !== false,
+        });
         let activeGateway: string | undefined;
         const h2a = getH2aConfig();
         const h2aSidecar = opts.h2a ?? h2a.enabled;
