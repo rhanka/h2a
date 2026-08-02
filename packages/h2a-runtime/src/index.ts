@@ -128,7 +128,7 @@ import {
   isAgentLaunchProfile,
   type AgentLaunchEffort,
 } from "./agent-launch-args.js";
-import { planRelaunch } from "./relaunch.js";
+import { isRelaunchKillable, planRelaunch } from "./relaunch.js";
 import { deriveSessionClass } from "./session-class.js";
 import type { ProcView } from "./proc-cpu.js";
 import {
@@ -7705,7 +7705,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const finalReady: typeof ready = [];
       for (const item of ready) {
         const safety = sessionRelaunchSafety(item.action.name);
-        if (safety.activelyWorking) {
+        if (!isRelaunchKillable(safety)) {
           process.stderr.write(
             `[h2a] skipped ${item.action.slug}: ${safety.reason}\n`,
           );
