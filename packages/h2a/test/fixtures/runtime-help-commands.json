@@ -1,6 +1,6 @@
 {
   "note": "Pins EVERY top-level command row of the runtime entrypoint's --help: term, description and the intention group it renders under. Generated from the built runtime; regenerate deliberately, never to make a red test green. The ROOT description is intentionally NOT here - it is top-level prose and it changed by design; it is pinned separately as rootDescriptionContains.",
-  "commandCount": 47,
+  "commandCount": 48,
   "descriptionsWrapped": false,
   "rootDescriptionContains": [
     "The unified sentropic CLI and core",
@@ -61,6 +61,11 @@
       "group": "Start — begin, return to, or end a work session:",
       "term": "stop [options] <urlOrSessionId> [sessionId]",
       "description": "Stop a session. Resolves a LOCAL tmux session (by slug) first (kills it), otherwise stops a remote session on the control-plane."
+    },
+    {
+      "group": "Specialist identity tools (advanced):",
+      "term": "identity",
+      "description": "Read-only DEF identity-cull proof packet; execution is disabled"
     },
     {
       "group": "Observe — see what is running and what needs attention:",
