@@ -251,9 +251,11 @@ beforeEach(() => {
   localSessionIdle.mockReturnValue(false);
   sessionRelaunchSafety.mockReset();
   sessionRelaunchSafety.mockReturnValue({
-    idle: true,
+    dead: true,
+    activatable: false,
+    indeterminate: false,
     activelyWorking: false,
-    reason: "test parked/dead session",
+    reason: "test dead session",
   });
   localSessionGatewayEnvStatus.mockReset();
   localSessionGatewayEnvStatus.mockReturnValue("unknown");
@@ -481,15 +483,19 @@ describe("h2a relaunch", () => {
     sessionRelaunchSafety.mockImplementation((name: string) =>
       name === "h2a-codex-lane"
         ? {
-            idle: false,
+            dead: false,
+            activatable: true,
+            indeterminate: false,
             activelyWorking: true,
             rateMsPerSecond: 100,
             reason: "live working CLI — never killed (even with --force)",
           }
         : {
-            idle: true,
+            dead: true,
+            activatable: false,
+            indeterminate: false,
             activelyWorking: false,
-            reason: "test parked/dead session",
+            reason: "test dead session",
           },
     );
 
@@ -518,18 +524,105 @@ describe("h2a relaunch", () => {
     expect(stderrText()).toContain("never killed");
   });
 
+  it("does not force-kill a live parked worker at 40 ms/s", async () => {
+    sessionRelaunchSafety.mockImplementation((name: string) =>
+      name === "h2a-codex-lane"
+        ? {
+            dead: false,
+            activatable: true,
+            indeterminate: false,
+            activelyWorking: false,
+            rateMsPerSecond: 40,
+            reason: "live parked CLI worker is activatable — never force-killed",
+          }
+        : {
+            dead: true,
+            activatable: false,
+            indeterminate: false,
+            activelyWorking: false,
+            reason: "test dead session",
+          },
+    );
+
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "--all",
+      "--include-agents",
+      "--apply",
+      "--yes",
+    ]);
+
+    const forcedActionCount = killLocalSession.mock.calls.filter(
+      ([name]) => name === "h2a-codex-lane",
+    ).length;
+    expect(exitCode).toBe(0);
+    expect(forcedActionCount).toBe(0);
+    expect(stderrText()).toContain("activatable");
+  });
+
+  it("rechecks a candidate immediately before force-kill", async () => {
+    let codexSafetyChecks = 0;
+    sessionRelaunchSafety.mockImplementation((name: string) => {
+      if (name !== "h2a-codex-lane") {
+        return {
+          dead: true,
+          activatable: false,
+          indeterminate: false,
+          activelyWorking: false,
+          reason: "test dead session",
+        };
+      }
+      codexSafetyChecks += 1;
+      return codexSafetyChecks === 1
+        ? {
+            dead: true,
+            activatable: false,
+            indeterminate: false,
+            activelyWorking: false,
+            reason: "test dead session",
+          }
+        : {
+            dead: false,
+            activatable: true,
+            indeterminate: false,
+            activelyWorking: false,
+            rateMsPerSecond: 40,
+            reason: "live parked CLI worker is activatable — never force-killed",
+          };
+    });
+
+    const exitCode = await main([
+      "node",
+      "h2a",
+      "relaunch",
+      "codex-lane",
+      "--apply",
+    ]);
+
+    expect(codexSafetyChecks).toBe(2);
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(exitCode).toBe(1);
+    expect(stderrText()).toContain("activatable");
+  });
+
   it("skips a forced relaunch when the worker CPU probe is indeterminate", async () => {
     sessionRelaunchSafety.mockImplementation((name: string) =>
       name === "h2a-codex-lane"
         ? {
-            idle: false,
+            dead: false,
+            activatable: false,
+            indeterminate: true,
             activelyWorking: true,
             reason: "liveness indeterminate: CPU rate could not be computed",
           }
         : {
-            idle: true,
+            dead: true,
+            activatable: false,
+            indeterminate: false,
             activelyWorking: false,
-            reason: "test parked/dead session",
+            reason: "test dead session",
           },
     );
 
