@@ -54,7 +54,7 @@ vi.mock("./config.js", () => ({
 }));
 
 vi.mock("./convsync.js", () => ({
-  encodeCwd: (cwd: string) => cwd.replace(/\//g, "-"),
+  encodeCwd: (cwd: string) => cwd.replace(/[^a-zA-Z0-9]/g, "-"),
   localConvStat: mockLocalConvStat,
   remoteConvStat: mockRemoteConvStat,
 }));
