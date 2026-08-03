@@ -25,6 +25,7 @@ import {
   resolveConfigPath,
   type LayoutConfig,
 } from "./config.js";
+import { encodeCwd } from "./convsync.js";
 import {
   loadRegistry,
   looksLikeConversationUuid,
@@ -71,11 +72,6 @@ export type LayoutWindow = { title: string; tabs: LayoutTab[] };
 
 /** A pre-resolved SCW tab for a remote group (built by the caller from `remote ls`). */
 export type RemoteTab = { id: string; label: string; cwd: string };
-
-/** Claude encodes a cwd into its project-dir name by replacing non-alphanumerics with "-". */
-function encodeCwd(cwd: string): string {
-  return cwd.replace(/[^a-zA-Z0-9]/g, "-");
-}
 
 /** Project identity is the whole workspace path below ~/src, never its root. */
 function projectForCwd(src: string, cwd: string): string | undefined {
