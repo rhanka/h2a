@@ -192,7 +192,7 @@ vi.mock("./llm-mesh.js", () => ({
 // conversation" for the guard — the real localConvStat reads the runner's
 // ~/.claude/projects, which must never leak into the test.
 vi.mock("./convsync.js", () => ({
-  encodeCwd: (cwd: string) => cwd.replace(/\//g, "-"),
+  encodeCwd: (cwd: string) => cwd.replace(/[^a-zA-Z0-9]/g, "-"),
   localConvStat,
   remoteConvStat: vi.fn(() => undefined),
   alignment: vi.fn(() => ({ state: "missing", detail: "" })),

@@ -111,7 +111,7 @@ describe("decideSyncAction (ahead-guard)", () => {
   });
 });
 
-describe("conversation paths (claude cwd encoding, slashes → dashes)", () => {
+describe("conversation paths (Claude cwd encoding, non-alphanumerics → dashes)", () => {
   it("localConvFile builds the local jsonl path under ~/.claude/projects", () => {
     expect(localConvFile("/home/dev/src/app", "abc-123", "/home/dev")).toBe(
       "/home/dev/.claude/projects/-home-dev-src-app/abc-123.jsonl",
@@ -129,6 +129,12 @@ describe("conversation paths (claude cwd encoding, slashes → dashes)", () => {
     const local = localConvFile(ws, "c1", "/home/dev");
     const rel = remoteConvRel(ws, "c1");
     expect(local.endsWith(rel)).toBe(true);
+  });
+
+  it("uses the host CLI encoding for a dotted .lanes workspace", () => {
+    expect(localConvFile("/home/x/geo/.lanes/archi", "lane-1", "/home/x")).toBe(
+      "/home/x/.claude/projects/-home-x-geo--lanes-archi/lane-1.jsonl",
+    );
   });
 });
 

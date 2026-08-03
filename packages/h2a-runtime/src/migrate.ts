@@ -69,6 +69,7 @@ import {
   leaseHeaders,
   releaseLineageLease,
 } from "./lineage-client.js";
+import { encodeCwd } from "./convsync.js";
 
 import { CLI_PROFILES } from "./protocol-local.js";
 
@@ -237,7 +238,7 @@ const STATE_SUBDIR = ".remote/sessions";
  * pushed archive and the session-agent restores it into the Pod's HOME — so the
  * remote CLI `--resume` picks up exactly where the local session left off.
  *
- * Uses claude's cwd→dir encoding (slashes → dashes). With path parity (the
+ * Uses Claude's cwd→dir encoding (non-alphanumerics → dashes). With path parity (the
  * Pod's cwd equals `cwd`) the remote CLI derives the identical project dir name,
  * so the staged conversation is found on resume. Returns the staged conversation
  * id (filename stem), or undefined if nothing was captured.
@@ -254,7 +255,7 @@ function newestLocalConvId(
 ): string | undefined {
   const relDir = PROFILE_STATE_DIRS[profile];
   if (!relDir) return undefined;
-  const src = join(home, relDir, cwd.replace(/\//g, "-"));
+  const src = join(home, relDir, encodeCwd(cwd));
   if (!existsSync(src)) return undefined;
   let newest: { name: string; mtime: number } | undefined;
   for (const e of readdirSync(src, { withFileTypes: true })) {
@@ -274,7 +275,7 @@ function captureLiveConversation(
 ): string | undefined {
   const relDir = PROFILE_STATE_DIRS[profile];
   if (!relDir) return undefined; // only claude's path-encoded projects for now
-  const projectDir = cwd.replace(/\//g, "-");
+  const projectDir = encodeCwd(cwd);
   const src = join(home, relDir, projectDir);
   if (!existsSync(src)) return undefined;
 
