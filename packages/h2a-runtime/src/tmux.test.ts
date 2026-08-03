@@ -208,7 +208,7 @@ describe("ensureHeadlessTerminal", () => {
       "/bin/sh",
       [
         "-c",
-        expect.stringMatching(/tail -f \/dev\/null \| script -qefc.*stty cols 160 rows 48/),
+        expect.stringMatching(/script -qefc.*stty cols 160 rows 48/),
       ],
       expect.objectContaining({
         detached: true,
@@ -218,6 +218,10 @@ describe("ensureHeadlessTerminal", () => {
         }),
       }),
     );
+    const shellCommand = spawnMock.mock.calls[0]?.[1]?.[1];
+    expect(shellCommand).toContain('sleep infinity > "$pipe" &');
+    expect(shellCommand).toContain("trap cleanup EXIT");
+    expect(shellCommand).not.toContain("tail -f /dev/null");
     expect(unref).toHaveBeenCalledOnce();
     expect(tmuxCalls("set-option")).toContainEqual([
       "tmux",
