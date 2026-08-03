@@ -631,7 +631,7 @@ export function ensureHeadlessTerminal(
       "/bin/sh",
       [
         "-c",
-        `exec tail -f /dev/null | script -qefc 'export TERM=xterm-256color; stty cols ${HEADLESS_TERMINAL_SIZE.cols} rows ${HEADLESS_TERMINAL_SIZE.rows}; exec tmux -u attach-session -t "$H2A_HEADLESS_TARGET"' /dev/null`,
+        `pipe_dir=$(mktemp -d) || exit 1; pipe="$pipe_dir/stdin"; mkfifo "$pipe" || exit 1; sleep infinity > "$pipe" & feeder=$!; cleanup() { kill "$feeder" 2>/dev/null; wait "$feeder" 2>/dev/null; rm -rf "$pipe_dir"; }; trap cleanup EXIT; script -qefc 'export TERM=xterm-256color; stty cols ${HEADLESS_TERMINAL_SIZE.cols} rows ${HEADLESS_TERMINAL_SIZE.rows}; exec tmux -u attach-session -t "$H2A_HEADLESS_TARGET"' /dev/null < "$pipe"`,
       ],
       {
         detached: true,
