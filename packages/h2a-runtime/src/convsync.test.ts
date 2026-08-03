@@ -53,6 +53,12 @@ describe("encodeCwd", () => {
   it("trailing slash becomes trailing dash", () => {
     expect(encodeCwd("/foo/bar/")).toBe("-foo-bar-");
   });
+
+  it("replaces dots and other non-alphanumerics with dashes", () => {
+    expect(encodeCwd("/home/x/geo/.lanes/archi")).toBe(
+      "-home-x-geo--lanes-archi",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -147,6 +153,20 @@ describe("localConvStat", () => {
     expect(result!.bytes).toBe(Buffer.byteLength(content));
     expect(result!.lines).toBe(2);
     expect(result!.sha).toHaveLength(12);
+  });
+
+  it("finds a conversation in a dotted .lanes project directory", () => {
+    const dottedCwd = "/home/x/geo/.lanes/archi";
+    const dir = join(
+      scratch,
+      ".claude",
+      "projects",
+      "-home-x-geo--lanes-archi",
+    );
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "lane-conv.jsonl"), "line1\n");
+
+    expect(localConvStat(dottedCwd, scratch)?.convId).toBe("lane-conv");
   });
 
   it("returns the newest .jsonl when multiple exist", () => {
