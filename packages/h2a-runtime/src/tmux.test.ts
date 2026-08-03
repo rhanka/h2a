@@ -540,14 +540,14 @@ describe("startLocalSession agent pane metadata", () => {
     ]);
   });
 
-  it("marks an h2a_run worker and gives its cleanup wrapper the exact session name", () => {
+  it("captures an h2a_run worker session ID at creation and passes it to cleanup", () => {
     spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
       if (cmd === "tmux" && args[0] === "list-sessions") {
         return { status: 1, stdout: "" };
       }
       if (cmd === "tmux" && args[0] === "new-session") {
-        return { status: 0, stdout: "%7\n" };
+        return { status: 0, stdout: "$42\t%7\n" };
       }
       return { status: 0, stdout: "" };
     });
@@ -563,9 +563,12 @@ describe("startLocalSession agent pane metadata", () => {
     );
 
     const argv = tmuxCalls("new-session")[0]![1] as string[];
-    expect(argv.slice(-5)).toEqual([
+    expect(argv).toContain("#{session_id}\t#{pane_id}");
+    expect(argv).toContain("exec sleep 86400");
+    const respawn = tmuxCalls("respawn-pane")[0]![1] as string[];
+    expect(respawn.slice(-5)).toEqual([
       STRUCTURED_H2A_RUN_WRAPPER,
-      "h2a-worker",
+      "$42",
       "codex",
       "--model",
       "gpt-5.6",
@@ -1733,13 +1736,13 @@ describe("STRUCTURED_H2A_RUN_WRAPPER (real bash)", () => {
     try {
       writeFileSync(
         fakeTmux,
-        "#!/bin/sh\nif [ \"$1\" = display-message ]; then\n  printf '%s\\n' '$42'\nelse\n  printf '%s\\n' \"$*\" >> \"$H2A_RUN_CLEANUP_LOG\"\nfi\n",
+        '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$H2A_RUN_CLEANUP_LOG"\n',
         { mode: 0o700 },
       );
       chmodSync(fakeTmux, 0o700);
       const r = realSpawnSync(
         "bash",
-        ["-c", STRUCTURED_H2A_RUN_WRAPPER, "h2a-short-worker", "true"],
+        ["-c", STRUCTURED_H2A_RUN_WRAPPER, "$42", "true"],
         {
           encoding: "utf8",
           env: {
@@ -1757,7 +1760,7 @@ describe("STRUCTURED_H2A_RUN_WRAPPER (real bash)", () => {
     }
   });
 
-  it("preserves a replacement session when the original name is reused before its worker exits", () => {
+  it("preserves a replacement session when its name is reused after creation", () => {
     const dir = mkdtempSync(join(tmpdir(), "h2a-run-cleanup-reuse-"));
     const server = `h2a-run-cleanup-${process.pid}-${Date.now()}`;
     const session = `h2a-run-reused-${process.pid}`;
@@ -1773,20 +1776,37 @@ describe("STRUCTURED_H2A_RUN_WRAPPER (real bash)", () => {
       const started = tmux([
         "new-session",
         "-d",
+        "-P",
+        "-F",
+        "#{session_id}",
         "-s",
         session,
-        "bash",
-        "-c",
-        STRUCTURED_H2A_RUN_WRAPPER,
-        session,
-        "sh",
-        "-c",
-        'while [ ! -f "$H2A_RUN_RELEASE" ]; do sleep 0.01; done',
+        "sleep",
+        "infinity",
       ]);
       expect(started.status).toBe(0);
+      const originalSessionId = started.stdout.trim();
+      expect(originalSessionId).toMatch(/^\$\d+$/);
 
       expect(
-        tmux(["rename-session", "-t", `=${session}:`, renamedSession]).status,
+        tmux([
+          "respawn-pane",
+          "-k",
+          "-t",
+          originalSessionId,
+          "bash",
+          "-c",
+          STRUCTURED_H2A_RUN_WRAPPER,
+          originalSessionId,
+          "sh",
+          "-c",
+          'while [ ! -f "$H2A_RUN_RELEASE" ]; do sleep 0.01; done',
+        ]).status,
+      ).toBe(0);
+
+      expect(
+        tmux(["rename-session", "-t", originalSessionId, renamedSession])
+          .status,
       ).toBe(0);
       expect(
         tmux(["new-session", "-d", "-s", session, "sleep", "infinity"]).status,
@@ -1804,7 +1824,7 @@ describe("STRUCTURED_H2A_RUN_WRAPPER (real bash)", () => {
 
       let originalExited = false;
       for (let attempt = 0; attempt < 100; attempt += 1) {
-        if (tmux(["has-session", "-t", `=${renamedSession}:`]).status !== 0) {
+        if (tmux(["has-session", "-t", originalSessionId]).status !== 0) {
           originalExited = true;
           break;
         }
@@ -1826,6 +1846,115 @@ describe("STRUCTURED_H2A_RUN_WRAPPER (real bash)", () => {
       tmux(["kill-server"]);
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("survives name reuse before startup capture only with a creation-bound ID", () => {
+    function runStartupRace(
+      wrapper: string,
+      wrapperTarget: (sessionId: string, sessionName: string) => string,
+    ) {
+      const server = `h2a-run-startup-race-${process.pid}-${Date.now()}-${Math.random()}`;
+      const session = `h2a-run-startup-race-${process.pid}`;
+      const renamedSession = `${session}-old`;
+      const tmux = (args: string[]) =>
+        realSpawnSync("tmux", ["-L", server, ...args], { encoding: "utf8" });
+
+      try {
+        const original = tmux([
+          "new-session",
+          "-d",
+          "-P",
+          "-F",
+          "#{session_id}\t#{pane_id}",
+          "-s",
+          session,
+          "sleep",
+          "infinity",
+        ]);
+        expect(original.status).toBe(0);
+        const [originalSessionId, originalPane] = original.stdout.trim().split("\t");
+        expect(originalSessionId).toMatch(/^\$\d+$/);
+        expect(originalPane).toMatch(/^%\d+$/);
+
+        expect(
+          tmux(["rename-session", "-t", originalSessionId!, renamedSession]).status,
+        ).toBe(0);
+        const replacement = tmux([
+          "new-session",
+          "-d",
+          "-P",
+          "-F",
+          "#{session_id}\t#{pane_id}",
+          "-s",
+          session,
+          "sleep",
+          "infinity",
+        ]);
+        expect(replacement.status).toBe(0);
+        const [replacementSessionId] = replacement.stdout.trim().split("\t");
+        const replacementPanePid = tmux([
+          "display-message",
+          "-p",
+          "-t",
+          replacementSessionId!,
+          "#{pane_pid}",
+        ]).stdout.trim();
+        expect(replacementPanePid).not.toBe("");
+
+        expect(
+          tmux([
+            "respawn-pane",
+            "-k",
+            "-t",
+            originalPane!,
+            "bash",
+            "-c",
+            wrapper,
+            wrapperTarget(originalSessionId!, session),
+            "true",
+          ]).status,
+        ).toBe(0);
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          if (tmux(["has-session", "-t", originalSessionId!]).status !== 0) break;
+          realSpawnSync("sleep", ["0.02"]);
+        }
+
+        return {
+          originalExited: tmux(["has-session", "-t", originalSessionId!]).status !== 0,
+          replacementSurvives:
+            tmux(["has-session", "-t", replacementSessionId!]).status === 0,
+          replacementPanePid: tmux([
+            "display-message",
+            "-p",
+            "-t",
+            replacementSessionId!,
+            "#{pane_pid}",
+          ]).stdout.trim(),
+          expectedReplacementPanePid: replacementPanePid,
+        };
+      } finally {
+        tmux(["kill-server"]);
+      }
+    }
+
+    expect(STRUCTURED_H2A_RUN_WRAPPER).not.toContain("display-message");
+    const current = runStartupRace(STRUCTURED_H2A_RUN_WRAPPER, (sessionId) => sessionId);
+    expect(current.originalExited).toBe(true);
+    expect(current.replacementSurvives).toBe(true);
+    expect(current.replacementPanePid).toBe(current.expectedReplacementPanePid);
+
+    const legacyNameResolvingWrapper = `session="$0"; cli="$1"; shift
+sid=$(tmux display-message -p -t "=$session:" '#{session_id}' 2>/dev/null) || sid=""
+cleanup() {
+  [ -n "$sid" ] && tmux kill-session -t "$sid" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+"$cli" "$@"
+code=$?
+exit "$code"`;
+    const legacy = runStartupRace(legacyNameResolvingWrapper, (_sessionId, sessionName) => sessionName);
+    expect(legacy.originalExited).toBe(true);
+    expect(legacy.replacementSurvives).toBe(false);
   });
 });
 
