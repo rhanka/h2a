@@ -1,14 +1,15 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const listLocalSessions = vi.hoisted(() => vi.fn());
+const listLocalSessionsWithDiagnostics = vi.hoisted(() => vi.fn());
+const killLocalSession = vi.hoisted(() => vi.fn());
 const spawn = vi.hoisted(() => vi.fn());
 
 vi.mock("./tmux.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./tmux.js")>();
-  return { ...actual, listLocalSessions };
+  return { ...actual, killLocalSession, listLocalSessionsWithDiagnostics };
 });
 
 vi.mock("node:child_process", async (importOriginal) => {
@@ -24,8 +25,9 @@ describe("launchLayout prefix collision", () => {
   let runtimeDir: string;
 
   beforeEach(() => {
-    listLocalSessions.mockReset();
-    listLocalSessions.mockReturnValue([]);
+    listLocalSessionsWithDiagnostics.mockReset();
+    listLocalSessionsWithDiagnostics.mockReturnValue({ sessions: [], known: true });
+    killLocalSession.mockReset();
     spawn.mockReset();
     spawn.mockReturnValue({ stderr: { on: vi.fn() }, unref: vi.fn() });
     previousScreen = process.env.GNOME_TERMINAL_SCREEN;
@@ -43,22 +45,25 @@ describe("launchLayout prefix collision", () => {
   });
 
   it("skips the tab instead of emitting a bare-slug attach command", () => {
-    listLocalSessions.mockReturnValue([
-      {
-        name: "h2a-proj",
-        slug: "proj",
-        profile: "claude",
-        path: "/repo/proj",
-        attached: false,
-      },
-      {
-        name: "remote-proj",
-        slug: "proj",
-        profile: "claude",
-        path: "/repo/proj",
-        attached: false,
-      },
-    ]);
+    listLocalSessionsWithDiagnostics.mockReturnValue({
+      sessions: [
+        {
+          name: "h2a-proj",
+          slug: "proj",
+          profile: "claude",
+          path: "/repo/proj",
+          attached: false,
+        },
+        {
+          name: "remote-proj",
+          slug: "proj",
+          profile: "claude",
+          path: "/repo/proj",
+          attached: false,
+        },
+      ],
+      known: true,
+    });
     const write = vi.fn(() => true);
 
     const result = launchLayout(
@@ -111,5 +116,112 @@ describe("launchLayout prefix collision", () => {
     expect(spawn).toHaveBeenCalledTimes(1);
     const options = spawn.mock.calls[0]![2] as { env: NodeJS.ProcessEnv };
     expect(options.env).not.toHaveProperty("GNOME_TERMINAL_SCREEN");
+  });
+
+  it("re-attaches a live orphan with its exact tmux name without relaunching or changing its PID", () => {
+    const orphan = {
+      name: "h2a-orphan",
+      slug: "orphan",
+      profile: "claude",
+      path: "/repo/orphan",
+      tmuxServerPid: "4242",
+      attached: false,
+    };
+    const tmuxState = { sessions: [orphan] };
+    listLocalSessionsWithDiagnostics.mockImplementation(() => ({
+      sessions: tmuxState.sessions,
+      known: true,
+    }));
+    killLocalSession.mockImplementation((name: string) => {
+      tmuxState.sessions = tmuxState.sessions.filter((session) => session.name !== name);
+      return true;
+    });
+    const pidBefore = listLocalSessionsWithDiagnostics().sessions.find(
+      (session) => session.name === "h2a-orphan",
+    )?.tmuxServerPid;
+
+    const result = launchLayout(
+      [
+        {
+          title: "work",
+          tabs: [
+            { cwd: "/repo/orphan", label: "orphan", tool: "claude", sid: "conv-1" },
+          ],
+        },
+      ],
+      { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
+    );
+
+    expect(result).toEqual({ opened: 1, skippedLive: [] });
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const args = spawn.mock.calls[0]![1] as string[];
+    const mapPath = args.at(-1)!;
+    const command = readFileSync(mapPath, "utf8");
+    expect(command).toContain("tmux attach -t 'h2a-orphan'");
+    expect(command).not.toMatch(/h2a run|h2a resume|--replace/);
+
+    expect(killLocalSession).not.toHaveBeenCalledWith("h2a-orphan");
+    const pidAfter = listLocalSessionsWithDiagnostics().sessions.find(
+      (session) => session.name === "h2a-orphan",
+    )?.tmuxServerPid;
+    expect(pidAfter).toBe(pidBefore);
+  });
+
+  it("launches an absent session and leaves an already-attached session alone", () => {
+    listLocalSessionsWithDiagnostics.mockReturnValue({
+      sessions: [
+        {
+          name: "h2a-visible",
+          slug: "visible",
+          profile: "claude",
+          path: "/repo/visible",
+          attached: true,
+        },
+      ],
+      known: true,
+    });
+
+    const result = launchLayout(
+      [
+        {
+          title: "work",
+          tabs: [
+            { cwd: "/repo/absent", label: "absent", tool: "codex", sid: "conv-a" },
+            { cwd: "/repo/visible", label: "visible", tool: "claude", sid: "conv-v" },
+          ],
+        },
+      ],
+      { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
+    );
+
+    expect(result).toEqual({ opened: 1, skippedLive: ["visible"] });
+    const args = spawn.mock.calls[0]![1] as string[];
+    const command = readFileSync(args.at(-1)!, "utf8");
+    expect(command).toContain("h2a run 'codex' '/repo/absent' --resume 'conv-a' --name 'absent'");
+    expect(command).not.toContain("visible");
+  });
+
+  it("defaults to an attach command when tmux view state is unavailable", () => {
+    listLocalSessionsWithDiagnostics.mockReturnValue({
+      sessions: [],
+      known: false,
+      reason: "tmux list failed",
+    });
+
+    const result = launchLayout(
+      [
+        {
+          title: "work",
+          tabs: [{ cwd: "/repo/unknown", label: "unknown", tool: "claude", sid: "conv-u" }],
+        },
+      ],
+      { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
+    );
+
+    expect(result).toEqual({ opened: 1, skippedLive: [] });
+    const args = spawn.mock.calls[0]![1] as string[];
+    const command = readFileSync(args.at(-1)!, "utf8");
+    expect(command).toContain("tmux attach -t 'h2a-unknown'");
+    expect(command).not.toContain("h2a run");
   });
 });
