@@ -105,9 +105,27 @@ the terminal is a VIEW, not the session. Focus reads and renders a document. Nei
 the other to be completed first.
 
 The shared seam is the durable identity slot. D6 reserves `agentRef`, but the current published port
-does not contain it. Meanwhile h2a `packages/h2a/src/runtime/identity/bindings.ts` defines the reclaim
-key with `providerSessionId` and matches `host + providerSessionId`; that value identifies the
-provider conversation and therefore contains precisely what changes between conversations.
+does not contain it — measured at sentropic merge commit `fdee25c5`: zero occurrences of `agentRef`,
+positive control `hostKind` present.
+
+**Correction, 2026-08-03, made before this document was reviewed.** An earlier draft of this section
+stated that the reclaim key "contains precisely what changes between conversations", i.e. that reprise
+never fires. **That is measured false and is withdrawn.** Sequential resume RECLAIMS: the same
+`providerSessionId` returns the existing binding and the same identity (traced as `[mint, reclaim,
+mint]` by WP5). A per-conversation identity is *intended*, not a defect — keying on `workspaceId`
+instead once collapsed two concurrent conversations in one repository onto a single id and inbox.
+The real defect is **narrower**: a concurrency race in which concurrent first-connects on the same key
+each mint before the prior binding's proof is registered — reproduced with 12 synchronised workers
+yielding 3 mints instead of 1, and matching a measured historical excess of 6 651 identities across
+4 548 keys in one store while the live store shows zero. Owner of the fix: WP5, and it is a
+concurrency guard, not a key rewrite.
+
+**Consequence for this document, and it makes D3.3 stronger rather than weaker.** There is at present
+**no durable cross-conversation anchor at all**: `agentUuid` was measured NOT stable across
+conversations, so "documented perennial" was not "is perennial". Leaving the slot absent is therefore
+not a temporary courtesy until a value arrives — it is the only honest state until a durable anchor is
+built by someone. **Where this stops:** these are WP5's measurements of 2026-08-03, cited as theirs;
+this document did not re-run them and does not specify the anchor.
 
 | ID | Normative clause | Enforcement rung | Named proof observable by another person | Where the guarantee stops |
 |---|---|---|---|---|
