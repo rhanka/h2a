@@ -22,9 +22,9 @@ export type ConvStat = {
   sha: string;
 };
 
-/** claude's cwd→project-dir encoding (slashes → dashes). */
+/** Claude's cwd→project-dir encoding (non-alphanumerics → dashes), matching the host CLI. */
 export function encodeCwd(cwd: string): string {
-  return cwd.replace(/\//g, "-");
+  return cwd.replace(/[^a-zA-Z0-9]/g, "-");
 }
 
 function expandHome(p: string): string {
