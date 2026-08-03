@@ -426,26 +426,26 @@ describe("tabCommand", () => {
     ).toBe("h2a run 'claude' '/home/u/src/geo' --resume 'c3' --name 'geo'");
   });
 
-  it("forceGateway 'direct' RELAUNCHES a live session via resume --replace --attach --no-gw", () => {
+  it("forceGateway 'direct' still attaches a live session instead of replacing it", () => {
     const live = new Set(["surch"]);
     expect(
       tabCommand(
         { cwd: "/home/u/src/surch", label: "surch", tool: "claude", sid: "c1" },
         live,
-        { forceGateway: "direct" },
+        { forceGateway: "direct", attachSession: "h2a-surch" },
       ),
-    ).toBe("h2a resume 'surch' --replace --attach --no-gw");
+    ).toBe("tmux attach -t 'h2a-surch'");
   });
 
-  it("forceGateway 'gateway' RELAUNCHES a live session via resume --replace --attach --gw", () => {
+  it("forceGateway 'gateway' still attaches a live session instead of replacing it", () => {
     const live = new Set(["geo"]);
     expect(
       tabCommand(
         { cwd: "/home/u/src/geo", label: "geo", tool: "claude", sid: "c2" },
         live,
-        { forceGateway: "gateway" },
+        { forceGateway: "gateway", attachSession: "h2a-geo" },
       ),
-    ).toBe("h2a resume 'geo' --replace --attach --gw");
+    ).toBe("tmux attach -t 'h2a-geo'");
   });
 
   it("forceGateway OVERRIDES the per-instance pin (pinned gateway, forced direct)", () => {
