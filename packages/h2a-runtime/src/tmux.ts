@@ -135,12 +135,12 @@ const H2A_RUN_WORKER_MARKER = "v1";
 /**
  * h2a_run's interactive worker must own the lifetime of its whole tmux
  * session.  Its MCP sidecar is another window, so merely letting the worker
- * pane terminate leaks the sidecar and therefore the session.  Capture the
- * owning session's immutable tmux ID once at wrapper start: the session name
- * can subsequently be renamed and reused by a different live session.
+ * pane terminate leaks the sidecar and therefore the session. The launcher
+ * captures the owning session's immutable tmux ID at creation and passes it
+ * as this wrapper's first positional argument. The session name can be
+ * renamed and reused by a different live session before this wrapper starts.
  */
-export const STRUCTURED_H2A_RUN_WRAPPER = `session="$0"; cli="$1"; shift
-sid=$(tmux display-message -p -t "=$session:" '#{session_id}' 2>/dev/null) || sid=""
+export const STRUCTURED_H2A_RUN_WRAPPER = `sid="$0"; cli="$1"; shift
 cleanup() {
   [ -n "$sid" ] && tmux kill-session -t "$sid" >/dev/null 2>&1 || true
 }
@@ -985,17 +985,18 @@ export function startLocalSession(
     };
   }
 
-  const structuredWrapper = h2aRunWorker
-    ? STRUCTURED_H2A_RUN_WRAPPER
-    : STRUCTURED_LOCAL_WRAPPER;
-  const agentCommand = [
+  const agentCommand = (h2aRunSessionId?: string) => [
     ...anthopicEnvUnsetCommandPrefix(),
     "/bin/bash",
     "-lc",
-    terminateOnAgentExit ? structuredWrapper : LOCAL_WRAPPER,
+    terminateOnAgentExit
+      ? h2aRunWorker
+        ? STRUCTURED_H2A_RUN_WRAPPER
+        : STRUCTURED_LOCAL_WRAPPER
+      : LOCAL_WRAPPER,
     ...(terminateOnAgentExit
       ? h2aRunWorker
-        ? [name, command]
+        ? [h2aRunSessionId ?? "", command]
         : [command]
       : [
           localRelaunchCommand(
@@ -1015,7 +1016,7 @@ export function startLocalSession(
       "-d",
       "-P",
       "-F",
-      "#{pane_id}",
+      h2aRunWorker ? "#{session_id}\t#{pane_id}" : "#{pane_id}",
       ...tmuxEnvironmentArgs(sessionClass),
       "-s",
       name,
@@ -1030,9 +1031,9 @@ export function startLocalSession(
       // there: a process that reads stdin before the PTY client attaches sees
       // EOF, while one that starts rendering can lose the first prompt. Keep a
       // benign pane alive, attach and verify the PTY, then respawn the agent.
-      ...(attachedTerminal
+      ...(attachedTerminal || h2aRunWorker
         ? ["/bin/bash", "-lc", "exec sleep 86400"]
-        : agentCommand),
+        : agentCommand()),
     ],
     {
       encoding: "utf8",
@@ -1042,12 +1043,28 @@ export function startLocalSession(
   if (r.status !== 0) {
     throw new Error(`tmux new-session failed (exit ${r.status ?? "?"})`);
   }
-  const printedPane = r.stdout?.trim();
+  const printed = r.stdout?.trim();
+  const [printedSessionId, printedPane] = h2aRunWorker
+    ? (printed?.split("\t") ?? [])
+    : [undefined, printed];
+  const h2aRunSessionId = validTmuxSessionId(printedSessionId)
+    ? printedSessionId
+    : undefined;
   const capturedPane = validTmuxPaneId(printedPane) ? printedPane : undefined;
   const agentPane = persistAgentPaneMetadata(name, profile, cwd, capturedPane);
-  if ((terminateOnAgentExit || refuseExisting || attachedTerminal) && !agentPane) {
+  if (
+    (terminateOnAgentExit ||
+      refuseExisting ||
+      attachedTerminal ||
+      h2aRunWorker) &&
+    !agentPane
+  ) {
     killLocalSession(name);
     throw new Error(`tmux did not return a live agent pane for ${slug}`);
+  }
+  if (h2aRunWorker && !h2aRunSessionId) {
+    killLocalSession(name);
+    throw new Error(`tmux did not return a session ID for ${slug}`);
   }
   if (
     h2aRunWorker &&
@@ -1064,6 +1081,8 @@ export function startLocalSession(
         `could not attach a persistent terminal to ${slug}: ${terminal.reason}`,
       );
     }
+  }
+  if (h2aRunWorker || attachedTerminal) {
     const respawned = spawnSync(
       TMUX,
       [
@@ -1074,13 +1093,13 @@ export function startLocalSession(
         "-c",
         cwd,
         ...tmuxEnvironmentArgs(sessionClass),
-        ...agentCommand,
+        ...agentCommand(h2aRunSessionId),
       ],
       { stdio: ["ignore", "ignore", "ignore"] },
     );
     if (respawned.status !== 0) {
       killLocalSession(name);
-      throw new Error(`tmux could not start the agent pane for ${slug} after terminal attachment`);
+      throw new Error(`tmux could not start the agent pane for ${slug}`);
     }
   }
   // Record the profile as a session option so `remote ls` can show it.
@@ -1362,6 +1381,10 @@ export function commandAvailable(cmd: string): boolean {
 
 function validTmuxPaneId(value: string | undefined): value is string {
   return value !== undefined && /^%\d+$/.test(value);
+}
+
+function validTmuxSessionId(value: string | undefined): value is string {
+  return value !== undefined && /^\$\d+$/.test(value);
 }
 
 /**
