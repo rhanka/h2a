@@ -210,6 +210,170 @@
  * gate.
  *
  * ===========================================================================
+ * D11 FIX — ROUND 3 (this build) — `defaultReadVerdict` is now PATH-CONFINED.
+ * ===========================================================================
+ *
+ * THE HOLE ROUND 2 LEFT (proven by a THIRD, independent review, a separate
+ * leg from the two that forced ROUNDS 1 and 2): ROUND 2 moved `readVerdict`
+ * to construction time, closing the "fabricated in-memory artifact" hole.
+ * But the DEFAULT construction-time reader, `defaultReadVerdict`, still did
+ * a plain `readFile(ref)` — and `ref` is `writeVerdict`'s PER-CALL,
+ * caller-controlled return value. Moving the READER to construction time
+ * defends against a caller substituting a DIFFERENT reader; it does nothing
+ * to confine WHERE the real, trusted, construction-time reader looks, when
+ * that location is still a bare string the untrusted per-call caller
+ * chose. Three attacks reached `promoteNote` with `promoted: true` at
+ * ROUND 2 (@824b633e):
+ *   1. TRAVERSAL — `writeVerdict` returns a `../../…` ref pointing at some
+ *      OTHER, genuinely signed verdict file outside the intended zone (e.g.
+ *      one written by a real leg for a DIFFERENT ceremony run entirely).
+ *   2. SYMLINK — `writeVerdict` "writes" its ref location as a symlink to
+ *      an attacker-controlled file (or makes an ancestor directory a
+ *      symlink); `readFile` follows it transparently.
+ *   3. TOCTOU — `writeVerdict`'s ref looks confined and could even pass a
+ *      naive check, but the file at that path is swapped between the
+ *      moment any confinement check runs and the moment bytes are actually
+ *      read — a real risk IF that check and that read are two separate
+ *      pathname-based filesystem operations ("realpath(ref), then
+ *      separately re-open(ref)" is itself racy this way).
+ *
+ * THE FIX, REUSING the path-confinement technique already proven and MERGED
+ * in this repo — `packages/h2a-runtime/src/identity-cull/cull.ts` (PR
+ * #160): `realpathSync` canonicalization of a TRUSTED root,
+ * `openSync(..., O_RDONLY | O_DIRECTORY | O_NOFOLLOW)` descriptor-relative
+ * directory walking that refuses a symlink at ANY path component, and — the
+ * TOCTOU-closing move — a SINGLE held file descriptor carried from open
+ * through the `fstatSync` regular-file check to the actual read, never a
+ * second, pathname-based open. This module reimplements the same
+ * primitives locally (`h2a` does not depend on `h2a-runtime` at build time;
+ * the peer dependency is optional) — the TECHNIQUE is reused, not
+ * reinvented, per that module's own comments on the same primitives.
+ *
+ * 1. `createD11Ceremony({ ..., authorizedRoot })` — a new construction-time
+ *    option, REQUIRED whenever the REAL default reader is in use (no custom
+ *    `readVerdict` override): constructing without it throws synchronously,
+ *    the same fail-loud pattern as a missing `trustedKeystore`. A real
+ *    filesystem reader with no confinement root IS the hole this round
+ *    closes; there is no safe default for it.
+ *
+ * 2. `deriveVerdictRef(authorizedRoot, noteId, leg)` — a new, exported,
+ *    PURE function (no filesystem access): the ONE location a leg's verdict
+ *    for a note may ever be read from — `beneath(authorizedRoot,
+ *    sanitized(noteId), sanitized(legId))`. Both `noteId` and the leg's
+ *    `{model, session}` are sanitized (reject `/`, `\`, NUL, `.`, `..`) —
+ *    REFUSED outright (thrown, caught, turned into a ceremony refusal)
+ *    rather than silently stripped, so a hostile value can never be
+ *    "cleaned" into some OTHER, ambiguous, colliding path. This is derived
+ *    from `legSpec1`/`legSpec2` — the ceremony's OWN dispatch decision,
+ *    already checked structurally distinct and non-author BEFORE launch —
+ *    never from anything `launchLeg` or `writeVerdict` claim back. (A
+ *    deliberate, narrow exception to I1's "opaque, never parsed/derived
+ *    from" stance for `noteId`/leg identity: here they are used ONLY to
+ *    build a confined filesystem path, via sanitize-or-refuse, never
+ *    split/parsed/compared piecewise.)
+ *
+ * 3. Per leg, BEFORE any filesystem access on `writeVerdict`'s ref: the
+ *    ceremony computes the derived path and requires
+ *    `resolve(writeVerdictRef) === derivedPath`, EXACTLY, string-for-string
+ *    — REFUSED otherwise, before `readVerdict` is ever called with it. This
+ *    alone closes TRAVERSAL structurally: a `../`-laden ref can never be
+ *    textually identical to the clean, sanitized, ceremony-derived path, so
+ *    it is refused without a single filesystem call ever touching it.
+ *
+ * 4. `defaultReadVerdict(ref, authorizedRoot)` (signature change from
+ *    ROUND 2 — now confined) opens the verdict file via the cull.ts-style
+ *    descriptor-relative O_NOFOLLOW walk from the realpath'd
+ *    `authorizedRoot` down through `ref`'s path components — refusing a
+ *    symlink at ANY component (closes SYMLINK) — then, from the ONE
+ *    resulting file descriptor: `fstatSync`s it (must be a regular file),
+ *    re-derives its canonical path via `realpath("/proc/self/fd/<fd>")` as
+ *    defense-in-depth confirmation it is still beneath `authorizedRoot`,
+ *    and reads its bytes from THAT SAME descriptor — never a second,
+ *    pathname-based open (closes TOCTOU: there is no gap between "this is
+ *    confirmed a regular file beneath the root" and "these are the bytes
+ *    verified" — both statements are about the identical open file
+ *    description).
+ *
+ * 5. When a construction site supplies a CUSTOM `readVerdict` (an
+ *    alternate, non-default store — still construction-time-only,
+ *    unchanged from ROUND 2), the ref-derivation VALIDATION in (3) still
+ *    applies whenever `authorizedRoot` is ALSO configured (defense in
+ *    depth, cheap, store-agnostic — pure string comparison); it is skipped
+ *    only when a construction site both overrides the reader AND supplies
+ *    no `authorizedRoot`, in which case that override remains, as in
+ *    ROUND 2, a fully trusted construction-time decision this module does
+ *    not second-guess.
+ *
+ * Everything from ROUND 1 §3 and ROUND 2 remains UNCHANGED: signature-by-
+ * claimed-leg, GO, anti-replay (noteId pin), cross-artifact distinctness,
+ * separation of powers off the READ content, and coherence with the inline
+ * verdict. ROUND 3 adds a confinement gate BEFORE that pipeline runs; it
+ * removes no existing check.
+ *
+ * ===========================================================================
+ * D11 FIX — ROUND 3 §B (this build) — `authorId` is now BOUND to a verified
+ * author signature; `input.authorId` is no longer trusted for anything.
+ * ===========================================================================
+ *
+ * THE HOLE: `RunD11CeremonyInput.authorId` was a bare, per-call,
+ * caller-supplied string. Every separation-of-powers check compared a leg
+ * against WHATEVER `authorId` the caller happened to supply — a caller could
+ * simply lie (supply an `authorId` distinct from every leg) even when the
+ * TRUE author was genuinely one of the two legs reviewing its own note, and
+ * the ceremony had no way to detect it.
+ *
+ * WHY NOT a trusted-author field on the note itself: graphify verified
+ * (@67bf73c7) that `MemoryNote` carries NO trusted author field — graphify
+ * authors nothing at admission (its anti-cycle boundary, §8, forbids it from
+ * verifying signatures there). So this cannot be closed by reading a field
+ * graphify stamped; it must be closed INSIDE the ceremony, the same way the
+ * verdict-fabrication hole was: bind the claim to an unforgeable signature,
+ * verified against a trust anchor this module already owns.
+ *
+ * THE FIX — reuses the EXACT SAME trust anchor as verdict signatures, no
+ * second trust root:
+ *
+ * 1. The note carries an AUTHOR SIGNATURE in its open extension field
+ *    (`note["h2a.author_signature"]`, `D11CeremonyNote`'s `[key: string]:
+ *    unknown` slot — `MemoryNoteInput`/`note-builder.ts` already carry such
+ *    an open slot; graphify stores it OPAQUE/unverified, it never inspects
+ *    or verifies it). The shape, `AuthorSignature`, mirrors `VerdictArtifact`:
+ *    `{authorLeg: LegIdentity, noteId, signature}` — a base64 Ed25519
+ *    signature over the canonicalized `{authorLeg, noteId}` payload, binding
+ *    the identity claim to BOTH who claims it and which note it is for
+ *    (anti-replay, identical shape to how verdict signatures bind `noteId`).
+ *    `authorLeg` reuses `LegIdentity` (not a new taxonomy, I4) precisely so
+ *    it can be looked up in the SAME `trustedKeystore` a leg's key is.
+ *
+ * 2. `runD11Ceremony` RE-VERIFIES this signature — FIRST, before any other
+ *    check — against the SAME construction-time `trustedKeystore` +
+ *    `verifySignature` already closed over for verdicts (`verifyNoteAuthor`,
+ *    below). No per-call/caller-injected dependency is consulted for this
+ *    (injected_deps_hide_fabrication_hole discipline, same as ROUND 1/2/3's
+ *    other anchors): an attacker who controls `deps` cannot make their own
+ *    verifier say yes.
+ *
+ * 3. On success, the VERIFIED signer's identity — `authorLeg.session` — is
+ *    what EVERY separation-of-powers check in this module now compares
+ *    against, replacing every prior use of `input.authorId`.
+ *    `RunD11CeremonyInput.authorId` remains in the type (callers may still
+ *    pass it) but is STRUCTURALLY NEVER READ for a trust decision anywhere
+ *    in this module — at most an unverified, decorative hint. Lying about it
+ *    has zero effect: it is not consulted.
+ *
+ * 4. FAIL-CLOSED: a note with no author signature, a malformed one, one
+ *    whose `noteId` does not match the note it is attached to, or one that
+ *    does not verify against the trusted keystore, REFUSES the entire
+ *    ceremony immediately — `launchLeg` is never called, exactly like the
+ *    other pre-launch fail-closed checks (I5).
+ *
+ * PARKED (owner-gated, not this round): having graphify itself stamp a
+ * trusted `authored_by` field at admission (via `AdmissionDeps`) — a
+ * heavier, graphify-contract change. This round stays entirely h2a-side,
+ * zero graphify change, closing the hole with a mechanism this module
+ * already had (signature verification against its own trust anchor).
+ *
+ * ===========================================================================
  * (Unchanged) FLOW summary and invariants.
  * ===========================================================================
  *
@@ -241,7 +405,8 @@
  */
 
 import { createPublicKey, verify as verifyEd25519Signature } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { closeSync, constants, fstatSync, openSync, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import { canonicalize } from "../../canonical.js";
 import type { MemoryContext, MemoryProducerPort } from "./port-v1.js";
@@ -270,9 +435,35 @@ export interface D11CeremonyNote {
 
 export interface RunD11CeremonyInput {
   readonly note: D11CeremonyNote;
-  /** The note's author (opaque id) — separation of powers: no leg may equal this. */
+  /**
+   * D11 FIX ROUND 3 §B: this is an UNVERIFIED, per-call, caller-supplied
+   * hint — structurally NEVER READ for a trust decision anywhere in this
+   * module. Separation of powers ("no leg may equal the author") is
+   * enforced against the VERIFIED signer of `note["h2a.author_signature"]`
+   * (see `verifyNoteAuthor`, below), not against this field. Kept in the
+   * type only so a caller may still attach it for its own bookkeeping.
+   */
   readonly authorId: string;
 }
+
+/**
+ * D11 FIX ROUND 3 §B — the note's AUTHOR SIGNATURE, carried in the note's
+ * open extension slot (`note[AUTHOR_SIGNATURE_KEY]`). Mirrors
+ * `VerdictArtifact`'s shape deliberately: `authorLeg` reuses `LegIdentity`
+ * (I4 — not a new taxonomy) precisely so it is looked up in the SAME
+ * `trustedKeystore` a leg's key is — no second trust root. The signature
+ * covers the canonicalized `{authorLeg, noteId}` payload, binding the
+ * identity claim to both who claims it and which note it is for.
+ */
+export interface AuthorSignature {
+  readonly authorLeg: LegIdentity;
+  readonly noteId: string;
+  /** Base64 Ed25519 signature over the canonicalized payload `{authorLeg, noteId}`. */
+  readonly signature: string;
+}
+
+/** The note extension key `AuthorSignature` is carried under (`D11CeremonyNote`'s open `[key: string]: unknown` slot). */
+export const AUTHOR_SIGNATURE_KEY = "h2a.author_signature" as const;
 
 /**
  * A verdict ARTIFACT — what `readVerdict` returns after actually opening and
@@ -327,12 +518,15 @@ export interface D11TrustedKeystore {
 export type VerifySignatureFn = (payload: unknown, signature: string, publicKey: string) => boolean;
 
 /**
- * D11 FIX ROUND 2: the verdict-artifact reader seam. Real, path-bound
- * filesystem I/O (`defaultReadVerdict`, below) in production; stubbable at
- * `createD11Ceremony` construction time for tests. Injected at CONSTRUCTION,
- * like the keystore and the verifier, and for the identical reason: per-call
- * injection is exactly what let a caller hand the ceremony a fabricated,
- * durability-free "read" in the hole this round closes.
+ * D11 FIX ROUND 2: the verdict-artifact reader seam. Real, CONFINED,
+ * path-bound filesystem I/O (`defaultReadVerdict`, below — ROUND 3 makes it
+ * confined) in production; stubbable at `createD11Ceremony` construction
+ * time for tests. Injected at CONSTRUCTION, like the keystore and the
+ * verifier, and for the identical reason: per-call injection is exactly
+ * what let a caller hand the ceremony a fabricated, durability-free "read"
+ * in the hole ROUND 2 closes. `ref` here is always a value THIS MODULE
+ * derived (ROUND 3 §3), never the raw, unvalidated string a per-call
+ * `writeVerdict` returned.
  */
 export type ReadVerdictFn = (ref: string) => Promise<VerdictArtifact | null>;
 
@@ -364,13 +558,23 @@ export interface CreateD11CeremonyOptions {
   readonly verifySignature?: VerifySignatureFn | undefined;
   /**
    * D11 FIX ROUND 2: the verdict-artifact reader. Defaults to
-   * `defaultReadVerdict`, a REAL path-bound filesystem reader (`ref` IS the
-   * path it reads). Override ONLY for tests — e.g. a fake, construction-time
+   * `defaultReadVerdict`, a REAL, CONFINED, path-bound filesystem reader
+   * (ROUND 3). Override ONLY for tests — e.g. a fake, construction-time
    * `Map`-backed store-reader — wired at the SAME trusted construction site
    * as `trustedKeystore`, never by a per-call caller of the returned
    * `runD11Ceremony`.
    */
   readonly readVerdict?: ReadVerdictFn | undefined;
+  /**
+   * D11 FIX ROUND 3: the confinement root for verdict reads. REQUIRED
+   * (construction throws otherwise) whenever the REAL default reader is in
+   * use (no `readVerdict` override) — a real filesystem reader with no
+   * confinement root is exactly the hole ROUND 3 closes. When supplied
+   * alongside a CUSTOM `readVerdict`, it still activates the ref-derivation
+   * validation (ROUND 3 §3/§5) as defense in depth, even though that
+   * override reader itself is not required to be filesystem-backed.
+   */
+  readonly authorizedRoot?: string | undefined;
 }
 
 export type RunD11Ceremony = (
@@ -466,27 +670,282 @@ function isVerdictArtifactShape(value: unknown): value is VerdictArtifact {
   return typeof leg.model === "string" && typeof leg.session === "string";
 }
 
+// ---------------------------------------------------------------------------
+// D11 FIX ROUND 3 §B — author-signature verification. Reuses the SAME
+// construction-time `trustedKeystore` + `verifySignature` verdict
+// signatures use — no second trust root, no per-call-injected verifier.
+// ---------------------------------------------------------------------------
+
+/** Mirrors `isVerdictArtifactShape`'s shape-before-signature discipline: refuse a malformed shape BEFORE ever handing it to signature verification. */
+function isAuthorSignatureShape(value: unknown): value is AuthorSignature {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (typeof v.noteId !== "string") return false;
+  if (typeof v.signature !== "string") return false;
+  if (typeof v.authorLeg !== "object" || v.authorLeg === null) return false;
+  const authorLeg = v.authorLeg as Record<string, unknown>;
+  return typeof authorLeg.model === "string" && typeof authorLeg.session === "string";
+}
+
+function authorSignedPayload(sig: AuthorSignature): unknown {
+  return { authorLeg: sig.authorLeg, noteId: sig.noteId };
+}
+
+type AuthorVerification =
+  | { readonly ok: true; readonly authorId: string }
+  | { readonly ok: false; readonly reason: string };
+
 /**
- * D11 FIX ROUND 2 — the default, REAL durable-store reader. `ref` IS a
- * filesystem path: this does a genuine `readFile` at exactly that path, then
- * JSON-parses and shape-validates the result. Returns `null` on ANY failure
- * — missing file (ENOENT), permission error, malformed JSON, or a
- * well-formed-but-wrong-shape value — never throws. What it returns, when it
- * returns non-null, is PATH-BOUND: literally the bytes actually persisted at
- * `ref`, never a value the caller constructed in memory. This is the
- * structural anchor: a `VerdictArtifact` with no durable backing at its own
- * ref cannot reach this function's non-null return, by construction.
+ * D11 FIX ROUND 3 §B — verify `note[AUTHOR_SIGNATURE_KEY]` against the SAME
+ * construction-time `trustedKeystore` + `verifySignature` verdict
+ * signatures are checked against (no second trust root — the module doc's
+ * ROUND 3 §B explains why). Returns the VERIFIED signer's `authorLeg.session`
+ * on success; a structured refusal reason on ANY failure — missing
+ * signature, malformed shape, a `noteId` that does not match the note it is
+ * attached to (anti-replay), an unknown/untrusted claimed identity, or an
+ * invalid signature. Never throws; never falls back to any caller-supplied
+ * value.
  */
-export async function defaultReadVerdict(ref: string): Promise<VerdictArtifact | null> {
-  let raw: string;
+function verifyNoteAuthor(
+  note: D11CeremonyNote,
+  trustedKeystore: D11TrustedKeystore,
+  verifySignature: VerifySignatureFn
+): AuthorVerification {
+  const raw = note[AUTHOR_SIGNATURE_KEY];
+  if (!isAuthorSignatureShape(raw)) {
+    return {
+      ok: false,
+      reason: `note has no valid author signature (${AUTHOR_SIGNATURE_KEY}) — refusing (fail-closed)`
+    };
+  }
+  if (raw.noteId !== note.noteId) {
+    return {
+      ok: false,
+      reason: "the note's author signature noteId does not match the note itself — refusing (anti-replay)"
+    };
+  }
+  const publicKey = trustedKeystore.getPublicKey(raw.authorLeg);
+  if (typeof publicKey !== "string" || publicKey.length === 0) {
+    return {
+      ok: false,
+      reason: "no trusted public key for the note's claimed author — refusing (fail-closed; unknown author or empty keystore)"
+    };
+  }
+  let signatureOk: boolean;
   try {
-    raw = await readFile(ref, "utf8");
+    signatureOk = verifySignature(authorSignedPayload(raw), raw.signature, publicKey);
+  } catch (err) {
+    return { ok: false, reason: `author signature verification threw — ${errorReason(err)}` };
+  }
+  if (!signatureOk) {
+    return {
+      ok: false,
+      reason: "the note's author signature is invalid — refusing (fabricated, tampered, or signed by the wrong key)"
+    };
+  }
+  return { ok: true, authorId: raw.authorLeg.session };
+}
+
+// ---------------------------------------------------------------------------
+// D11 FIX ROUND 3 — path-confinement primitives. REUSES the technique
+// proven and MERGED in `packages/h2a-runtime/src/identity-cull/cull.ts`
+// (PR #160): `realpathSync` canonicalization of a trusted root,
+// `openSync(..., O_RDONLY | O_DIRECTORY | O_NOFOLLOW)` descriptor-relative
+// directory walking that refuses a symlink at ANY path component
+// (`openNoFollowDirectory`/`descriptorPath` below mirror cull.ts's own
+// functions of the same names and shape), and a SINGLE held file
+// descriptor carried from open through the `fstatSync` check to the read —
+// never a second, pathname-based open. `h2a` does not depend on
+// `h2a-runtime` at build time (the peer dependency is optional), so the
+// primitives are reimplemented locally rather than imported; the technique,
+// not the module, is what is reused.
+// ---------------------------------------------------------------------------
+
+/**
+ * Reject `/`, `\`, NUL, `.` and `..` outright rather than stripping them —
+ * a hostile `noteId`/leg identity value must never be silently "cleaned"
+ * into some OTHER, ambiguous, possibly-colliding path segment.
+ */
+function sanitizePathSegment(value: string, label: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${label} must be a non-empty string to derive a confined verdict path`);
+  }
+  if (value === "." || value === "..") {
+    throw new Error(`${label} refuses "." or ".." as a path segment`);
+  }
+  if (value.includes("/") || value.includes("\\") || value.includes("\0")) {
+    throw new Error(`${label} refuses a path separator or NUL byte in a path segment`);
+  }
+  return value;
+}
+
+/** Mirrors cull.ts's `isInside` — `relative()`-based containment check, no `..`, never absolute. */
+function isBeneathRoot(candidate: string, root: string): boolean {
+  const rel = relative(root, candidate);
+  return rel !== "" && rel !== "." && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+/**
+ * D11 FIX ROUND 3: the ONE location a leg's verdict for a note may ever be
+ * read from — `beneath(authorizedRoot, sanitized(noteId), sanitized(legId))`.
+ * Pure (no filesystem access) so the ceremony can compute it and compare it
+ * against `writeVerdict`'s per-call return value BEFORE touching disk.
+ * Derived from the ceremony's OWN dispatch decision (the `legSpec` it
+ * actually launched, already checked distinct/non-author before launch) —
+ * never from anything `launchLeg`/`writeVerdict` claim back.
+ */
+export function deriveVerdictRef(authorizedRoot: string, noteId: string, leg: LegIdentity): string {
+  const root = resolve(authorizedRoot);
+  const noteSegment = sanitizePathSegment(noteId, "noteId");
+  const model = sanitizePathSegment(leg?.model, "leg.model");
+  const session = sanitizePathSegment(leg?.session, "leg.session");
+  const legSegment = sanitizePathSegment(`${model}__${session}.json`, "leg");
+  const derived = resolve(root, noteSegment, legSegment);
+  if (!isBeneathRoot(derived, root)) {
+    // Defense in depth: sanitizePathSegment above should already make this
+    // unreachable (no `/`/`..` can survive into a segment), but a derived
+    // path is never trusted without this check regardless.
+    throw new Error("derived verdict ref escaped authorizedRoot");
+  }
+  return derived;
+}
+
+/** Mirrors cull.ts's `descriptorPath` — a safe, descriptor-relative `/proc/self/fd/<fd>[/<name>]` path. */
+function descriptorPath(fd: number, name?: string): string {
+  if (name !== undefined && (name.length === 0 || name.includes(sep) || name === "." || name === "..")) {
+    throw new Error(`unsafe descriptor-relative verdict path segment: ${name}`);
+  }
+  return name === undefined ? `/proc/self/fd/${fd}` : `/proc/self/fd/${fd}/${name}`;
+}
+
+/** Mirrors cull.ts's `openNoFollowDirectory` — open a directory descriptor, refusing a symlink. */
+function openNoFollowDirectory(path: string): number {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  try {
+    if (!fstatSync(fd).isDirectory()) throw new Error(`not a directory: ${path}`);
+    return fd;
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
+}
+
+/** The path components of `target` relative to `root`, or `null` if `target` is not strictly beneath `root`. */
+function componentsBeneathRoot(root: string, target: string): string[] | null {
+  const rel = relative(root, target);
+  if (rel === "" || rel === "." || rel.startsWith("..") || isAbsolute(rel)) return null;
+  const parts = rel.split(sep).filter((part) => part.length > 0);
+  return parts.length > 0 ? parts : null;
+}
+
+/**
+ * D11 FIX ROUND 3 — confined-open + single-descriptor read. Walks from the
+ * realpath'd `authorizedRoot` down through `ref`'s path components, opening
+ * EVERY component (directories AND the final file) with `O_NOFOLLOW` —
+ * refusing a symlink anywhere in the chain (closes SYMLINK). The final file
+ * descriptor is `fstatSync`'d (must be a regular file), its canonical path
+ * re-derived via `realpath(/proc/self/fd/<fd>)` and re-checked beneath the
+ * root (defense in depth), and then READ FROM THAT SAME DESCRIPTOR — never
+ * a second, pathname-based open (closes TOCTOU: no gap between "confirmed a
+ * regular file beneath the root" and "these are the verified bytes"; both
+ * are about the identical open file description).
+ *
+ * Returns `null` on ANY failure — missing path, escaped root, a symlink at
+ * any component, not a regular file — never throws.
+ */
+function readConfinedFileBytes(authorizedRoot: string, ref: string): Buffer | null {
+  let resolvedRoot: string;
+  let resolvedRef: string;
+  try {
+    resolvedRoot = realpathSync(resolve(authorizedRoot));
+    resolvedRef = resolve(ref);
   } catch {
     return null;
   }
+  const components = componentsBeneathRoot(resolvedRoot, resolvedRef);
+  if (!components) return null;
+
+  const openedFds: number[] = [];
+  try {
+    let currentFd: number;
+    try {
+      currentFd = openNoFollowDirectory(resolvedRoot);
+    } catch {
+      return null;
+    }
+    openedFds.push(currentFd);
+
+    for (let index = 0; index < components.length - 1; index += 1) {
+      let nextFd: number;
+      try {
+        nextFd = openNoFollowDirectory(descriptorPath(currentFd, components[index]!));
+      } catch {
+        return null;
+      }
+      openedFds.push(nextFd);
+      currentFd = nextFd;
+    }
+
+    const finalName = components[components.length - 1]!;
+    let fileFd: number;
+    try {
+      fileFd = openSync(descriptorPath(currentFd, finalName), constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch {
+      return null;
+    }
+    openedFds.push(fileFd);
+
+    let stat;
+    try {
+      stat = fstatSync(fileFd);
+    } catch {
+      return null;
+    }
+    if (!stat.isFile()) return null;
+
+    let canonicalOpened: string;
+    try {
+      canonicalOpened = realpathSync(descriptorPath(fileFd));
+    } catch {
+      return null;
+    }
+    if (!isBeneathRoot(canonicalOpened, resolvedRoot)) return null;
+
+    try {
+      return readFileSync(fileFd);
+    } catch {
+      return null;
+    }
+  } finally {
+    for (const fd of openedFds) {
+      try {
+        closeSync(fd);
+      } catch {
+        // best-effort close — the descriptor may already be invalid after a failure above
+      }
+    }
+  }
+}
+
+/**
+ * D11 FIX ROUND 2/3 — the default, REAL, CONFINED durable-store reader.
+ * `ref` IS a filesystem path, opened only via the confined,
+ * descriptor-relative, O_NOFOLLOW walk (`readConfinedFileBytes`, ROUND 3)
+ * beneath `authorizedRoot` — never a bare `readFile(ref)` — then
+ * JSON-parsed and shape-validated. Returns `null` on ANY failure — missing
+ * file, escaped root, a symlink anywhere in the chain, permission error,
+ * malformed JSON, or a well-formed-but-wrong-shape value — never throws.
+ * What it returns, when non-null, is PATH-BOUND: literally the bytes
+ * actually persisted at `ref`, confirmed beneath `authorizedRoot`, never a
+ * value the caller constructed in memory and never bytes read via a path
+ * that could have been re-resolved after any check.
+ */
+export async function defaultReadVerdict(ref: string, authorizedRoot: string): Promise<VerdictArtifact | null> {
+  const bytes = readConfinedFileBytes(authorizedRoot, ref);
+  if (!bytes) return null;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(bytes.toString("utf8"));
   } catch {
     return null;
   }
@@ -513,8 +972,22 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
   const trustedKeystore = options.trustedKeystore;
   const verifySignature: VerifySignatureFn =
     typeof options.verifySignature === "function" ? options.verifySignature : defaultVerifySignature;
-  const readVerdict: ReadVerdictFn =
-    typeof options.readVerdict === "function" ? options.readVerdict : defaultReadVerdict;
+  const hasCustomReadVerdict = typeof options.readVerdict === "function";
+  const authorizedRoot = typeof options.authorizedRoot === "string" ? options.authorizedRoot : undefined;
+
+  // D11 FIX ROUND 3: a real filesystem reader with no confinement root is
+  // exactly the hole this round closes — fail loudly at construction, the
+  // same pattern as a missing `trustedKeystore`, rather than silently
+  // producing a ceremony whose default reader is unconfined.
+  if (!hasCustomReadVerdict && !authorizedRoot) {
+    throw new Error(
+      "createD11Ceremony requires authorizedRoot when no custom readVerdict is supplied — the real default reader must be confined (D11 FIX ROUND 3)"
+    );
+  }
+
+  const readVerdict: ReadVerdictFn = hasCustomReadVerdict
+    ? (options.readVerdict as ReadVerdictFn)
+    : (ref: string) => defaultReadVerdict(ref, authorizedRoot as string);
 
   /**
    * Run the D11 ceremony end to end. See the module doc for the full flow.
@@ -530,6 +1003,23 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
     if (!deps) {
       return refuse("no ceremony dependencies injected — refusing (fail-closed, I5)");
     }
+
+    // =========================================================================
+    // D11 FIX ROUND 3 §B — verify the note's AUTHOR SIGNATURE FIRST, against
+    // the SAME construction-time trustedKeystore + verifySignature used for
+    // verdict signatures (no second trust root). Every separation-of-powers
+    // check below compares against the VERIFIED signer's identity —
+    // `verifiedAuthorId` — never `input.authorId` (an unverified, per-call
+    // hint this module structurally never reads for a trust decision).
+    // FAIL-CLOSED: no signature, a malformed one, a noteId mismatch, or one
+    // that does not verify against the trusted keystore refuses immediately —
+    // launchLeg is never called, exactly like the other pre-launch checks.
+    // =========================================================================
+    const authorVerification = verifyNoteAuthor(input.note, trustedKeystore, verifySignature);
+    if (!authorVerification.ok) {
+      return refuse(authorVerification.reason);
+    }
+    const verifiedAuthorId = authorVerification.authorId;
 
     // D11 FIX ROUND 2: `readVerdict` is intentionally NOT destructured from
     // `deps` here — it is not a field of `RunD11CeremonyDeps` at all. Even if
@@ -550,9 +1040,9 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
         "the two legSpecs are not structurally distinct (same model+session) — refusing before launch"
       );
     }
-    if (legSpec1.session === input.authorId || legSpec2.session === input.authorId) {
+    if (legSpec1.session === verifiedAuthorId || legSpec2.session === verifiedAuthorId) {
       return refuse(
-        "a legSpec's session equals the note's author — separation of powers requires launching only independent reviewers"
+        "a legSpec's session equals the note's VERIFIED author — separation of powers requires launching only independent reviewers"
       );
     }
 
@@ -586,7 +1076,7 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
       attestation: precheckAttestation,
       leg1Ref: PENDING_LEG1_REF,
       leg2Ref: PENDING_LEG2_REF,
-      authorId: input.authorId
+      authorId: verifiedAuthorId
     });
     if (!precheck.ok) {
       return refuse(`double-consensus preconditions not met: ${precheck.reason}`);
@@ -605,6 +1095,48 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
     }
 
     // =========================================================================
+    // D11 FIX ROUND 3 §3 — path confinement, BEFORE any filesystem access on
+    // writeVerdict's per-call, caller-controlled ref. Active whenever
+    // `authorizedRoot` is configured (always, when using the real default
+    // reader — construction requires it; also as defense in depth when a
+    // construction site supplies both a custom reader AND an authorizedRoot).
+    // The ceremony derives the ONE location each leg's verdict may be read
+    // from, from data it already trusts at this point (the note being
+    // promoted, and the legSpec it actually dispatched) — and requires the
+    // per-call ref to resolve to EXACTLY that path, string-for-string,
+    // REFUSING otherwise. This closes TRAVERSAL structurally: a `../`-laden
+    // ref can never be textually identical to the clean, sanitized,
+    // ceremony-derived path.
+    // =========================================================================
+    let leg1ReadRef = leg1Ref;
+    let leg2ReadRef = leg2Ref;
+    if (authorizedRoot) {
+      let expectedRef1: string;
+      let expectedRef2: string;
+      try {
+        expectedRef1 = deriveVerdictRef(authorizedRoot, input.note.noteId, legSpec1);
+        expectedRef2 = deriveVerdictRef(authorizedRoot, input.note.noteId, legSpec2);
+      } catch (err) {
+        return refuse(`could not derive a confined verdict path: ${errorReason(err)}`);
+      }
+      if (resolve(leg1Ref) !== expectedRef1) {
+        return refuse(
+          "leg1: writeVerdict's ref does not resolve to the ceremony-derived confined path — refusing (traversal/relocation refused before any file access)"
+        );
+      }
+      if (resolve(leg2Ref) !== expectedRef2) {
+        return refuse(
+          "leg2: writeVerdict's ref does not resolve to the ceremony-derived confined path — refusing (traversal/relocation refused before any file access)"
+        );
+      }
+      // From here on, ONLY the ceremony's own derived strings are ever
+      // handed to readVerdict — never the raw per-call ref, even though the
+      // two are required equal at this point.
+      leg1ReadRef = expectedRef1;
+      leg2ReadRef = expectedRef2;
+    }
+
+    // =========================================================================
     // D11 FIX §3 — the READ, signature-verified gate. Everything from here on
     // is what actually protects `promoteNote`; nothing before this point does.
     // `readVerdict` here is ALWAYS the construction-time closure (ROUND 2) —
@@ -617,7 +1149,7 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
     let artifact1: VerdictArtifact | null;
     let artifact2: VerdictArtifact | null;
     try {
-      [artifact1, artifact2] = await Promise.all([readVerdict(leg1Ref), readVerdict(leg2Ref)]);
+      [artifact1, artifact2] = await Promise.all([readVerdict(leg1ReadRef), readVerdict(leg2ReadRef)]);
     } catch (err) {
       return refuse(`readVerdict failed: ${errorReason(err)}`);
     }
@@ -670,9 +1202,9 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
         "the two read verdict artifacts are not independent — the same leg was read twice — refusing"
       );
     }
-    if (artifact1.leg.session === input.authorId || artifact2.leg.session === input.authorId) {
+    if (artifact1.leg.session === verifiedAuthorId || artifact2.leg.session === verifiedAuthorId) {
       return refuse(
-        "a read verdict artifact's leg session equals the note's author — separation of powers requires an independent reviewer — refusing"
+        "a read verdict artifact's leg session equals the note's VERIFIED author — separation of powers requires an independent reviewer — refusing"
       );
     }
 
@@ -730,7 +1262,7 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
         attestationRef,
         leg1Ref,
         leg2Ref,
-        authorId: input.authorId
+        authorId: verifiedAuthorId
       },
       port
     );
