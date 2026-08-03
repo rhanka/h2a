@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -114,6 +114,17 @@ function makeTempCwd(label: string): string {
   );
   mkdirSync(base, { recursive: true });
   return base;
+}
+
+function makeTempDir(label: string): string {
+  const base = join(
+    new URL(".", import.meta.url).pathname,
+    "..",
+    ".test-scratch",
+    label,
+  );
+  mkdirSync(base, { recursive: true });
+  return mkdtempSync(join(base, "dir-"));
 }
 
 const REMOTE_URL = "http://remote.test:8080";
@@ -380,6 +391,73 @@ describe("migrateForward", () => {
     expect(mainSession).toBeDefined();
     expect(mainSession!.startupArgs).toContain("--resume");
     expect(mainSession!.startupArgs).toContain("conv-abc123");
+  });
+
+  it("finds and stages a live conversation from a dotted .lanes cwd", async () => {
+    const root = makeTempDir("forward-dotted-lane");
+    const home = makeTempDir("forward-dotted-lane-home");
+    const cwd = join(root, "geo", ".lanes", "archi");
+    const projectDir = cwd.replace(/[^a-zA-Z0-9]/g, "-");
+    const slashOnlyProjectDir = cwd.replace(/\//g, "-");
+    const convId = "lane-conv";
+    const stderr = stubStream();
+    const capturedBodies: Array<{ profile: string; startupArgs?: readonly string[] }> = [];
+
+    try {
+      mkdirSync(cwd, { recursive: true });
+      const sourceDir = join(home, ".claude", "projects", projectDir);
+      mkdirSync(sourceDir, { recursive: true });
+      writeFileSync(join(sourceDir, `${convId}.jsonl`), "line1\n");
+      // The old slash-only encoding would look here and miss this fixture.
+      expect(
+        existsSync(join(home, ".claude", "projects", slashOnlyProjectDir)),
+      ).toBe(false);
+
+      mockReadWorkspaceMarker.mockReturnValue({
+        remote: REMOTE_URL,
+        workspaceId: WORKSPACE_ID,
+        path: cwd,
+        home,
+      });
+      mockCreateRemoteSession.mockImplementation(
+        (_url: string, body: { profile: string; startupArgs?: readonly string[]; workspaceSync?: boolean }) => {
+          capturedBodies.push(body);
+          if (body.workspaceSync && body.profile === "shell") {
+            return Promise.resolve({ id: PUSH_SESSION_ID });
+          }
+          return Promise.resolve({ id: SESSION_ID });
+        },
+      );
+
+      await migrateForward({
+        profile: "claude",
+        remoteUrl: REMOTE_URL,
+        resume: true,
+        noAttach: true,
+        cwd,
+        stderr,
+      });
+
+      const mainSession = capturedBodies.find((body) => body.profile === "claude");
+      expect(mainSession?.startupArgs).toEqual(["--resume", convId]);
+      expect(
+        existsSync(
+          join(
+            cwd,
+            ".remote",
+            "sessions",
+            "claude",
+            ".claude",
+            "projects",
+            projectDir,
+            `${convId}.jsonl`,
+          ),
+        ),
+      ).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it("creates a new workspace when none is linked", async () => {
