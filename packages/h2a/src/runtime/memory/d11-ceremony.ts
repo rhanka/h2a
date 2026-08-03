@@ -1,31 +1,36 @@
 /**
- * D11 ceremony orchestrator — WP11 slice 5 (build brief), D11 FIX (this build):
- * closes the fabrication hole an independent review NO-GO'd. See the "D11 FIX"
- * section below for what changed and why; the rest of this doc describes the
- * ceremony's unchanged shape.
+ * D11 ceremony orchestrator — WP11 slice 5 (build brief). Anti-fabrication
+ * FIXED in two rounds, each closing a hole an independent review NO-GO'd.
+ * See "D11 FIX — ROUND 1" and "D11 FIX — ROUND 2" below for what changed, in
+ * order, and why; the rest of this doc describes the ceremony's unchanged
+ * shape.
  *
  * Composes the double-consensus END TO END: launch the two independent legs,
  * collect their INLINE verdicts, gate on slice 3's `checkDoubleConsensusPreconditions`
  * (the SAME structural check, not a reimplementation) as a cheap pre-write
- * reject, write the verdict + attestation artifacts, READ THEM BACK and
- * cryptographically verify them (the fix), and only then dispatch through
- * `promoteNoteWithDoubleConsensus` — now fed the READ, VERIFIED verdicts, never
- * the caller-controlled inline ones.
+ * reject, write the verdict + attestation artifacts, READ THEM BACK from a
+ * REAL, construction-time-bound durable store and cryptographically verify
+ * them (ROUND 1 + ROUND 2 together), and only then dispatch through
+ * `promoteNoteWithDoubleConsensus` — now fed the READ, VERIFIED verdicts,
+ * never the caller-controlled inline ones.
  *
  * SCOPE (bounded), same shape as the rest of `runtime/memory/`: the actual
- * model-leg launching and the verdict/attestation FILE writes are INJECTED
- * (`deps.launchLeg`, `deps.writeVerdict`, `deps.readVerdict`,
- * `deps.writeAttestation`, `deps.port`) and stubbed in tests — never
- * implemented for real here. This module is the ORCHESTRATION only: what gets
- * called, in what order, and what refuses the ceremony before the next step
- * ever runs. Real Ed25519 signature verification (`verifySignature`, the
- * default) and the concrete `trustedKeystore` backing store ARE implemented
- * for real (crypto is not an "out of scope, inject a stub" concern the way
- * file I/O is) — but the keystore's actual key material and distribution is a
- * WP5 concern (see D11 FIX §1).
+ * model-leg launching and the verdict/attestation FILE WRITES are INJECTED
+ * (`deps.launchLeg`, `deps.writeVerdict`, `deps.writeAttestation`,
+ * `deps.port`) and stubbed in tests — never implemented for real here. This
+ * module is the ORCHESTRATION only: what gets called, in what order, and
+ * what refuses the ceremony before the next step ever runs. Real Ed25519
+ * signature verification (`verifySignature`, the default), the concrete
+ * `trustedKeystore` backing store, AND (ROUND 2) the default verdict-artifact
+ * READER (`readVerdict`, a real path-bound filesystem reader) ARE
+ * implemented for real — crypto, and "read back exactly what is actually
+ * persisted", are not "out of scope, inject a stub" concerns the way
+ * launching a model or writing a file are. The keystore's actual key
+ * material/distribution and the durable store's actual deployment location
+ * remain a WP5 concern (see ROUND 1 §1 and ROUND 2 below).
  *
  * ===========================================================================
- * D11 FIX — the anti-fabrication anchor (this build).
+ * D11 FIX — ROUND 1 — the anti-fabrication anchor (signature verification).
  * ===========================================================================
  *
  * THE HOLE (proven by an independent review): before this fix, `launchLeg`
@@ -45,12 +50,12 @@
  *    verifier). It returns the actual `runD11Ceremony(input, deps)` function.
  *    This is the load-bearing design choice: `trustedKeystore` is a
  *    CONSTRUCTION-TIME input, never part of the per-call `RunD11CeremonyDeps`.
- *    `readVerdict` and `launchLeg` ARE per-call (caller-injected, untrusted —
- *    that is exactly what let the hole exist), so if signature verification
- *    used a per-call-supplied keystore too, a caller could simply hand the
- *    ceremony ITS OWN keystore (mapping its own throwaway key to whatever leg
- *    it likes) and sign its own fabrication — the hole would just move one
- *    layer down. The keystore must come from a trusted CONSTRUCTION site (a
+ *    At the time of THIS round, `readVerdict` and `launchLeg` were BOTH still
+ *    per-call (caller-injected, untrusted); if signature verification used a
+ *    per-call-supplied keystore too, a caller could simply hand the ceremony
+ *    ITS OWN keystore (mapping its own throwaway key to whatever leg it
+ *    likes) and sign its own fabrication — the hole would just move one layer
+ *    down. The keystore must come from a trusted CONSTRUCTION site (a
  *    conductor/bootstrap that wires `createD11Ceremony` once, not a value an
  *    arbitrary per-call caller of the returned `runD11Ceremony` can swap).
  *    `trustedKeystore` is documented here as the LOCAL anchor for today
@@ -61,14 +66,16 @@
  *    different backing store (network-fetched, rotated, cross-repo) can
  *    implement it later; the ceremony's own logic never changes.
  *
- * 2. `readVerdict(ref) => Promise<VerdictArtifact | null>` — a NEW per-call
- *    dep. It OPENS+READS the verdict artifact actually persisted at `ref` (or
- *    returns `null` if absent/unreadable — the exact shape of the proven
- *    counter-example: a `writeVerdict` that never created a file). Distinct
- *    from `MemoryVerdict` (slice 3's in-memory, caller-asserted shape):
- *    `VerdictArtifact` additionally carries a `signature` — proof the artifact
- *    was actually produced by whoever holds the claimed leg's private key,
- *    not merely narrated by whoever called this ceremony.
+ * 2. `readVerdict(ref) => Promise<VerdictArtifact | null>` — at THIS round, a
+ *    per-call dep. It OPENS+READS the verdict artifact actually persisted at
+ *    `ref` (or returns `null` if absent/unreadable — the exact shape of the
+ *    proven counter-example: a `writeVerdict` that never created a file).
+ *    Distinct from `MemoryVerdict` (slice 3's in-memory, caller-asserted
+ *    shape): `VerdictArtifact` additionally carries a `signature` — proof the
+ *    artifact was actually produced by whoever holds the claimed leg's
+ *    private key, not merely narrated by whoever called this ceremony.
+ *    ROUND 2 (below) moves this dep to construction-time too — read that
+ *    section for why leaving it per-call was itself still a hole.
  *
  * 3. The gate (fail-closed at every step, `promoteNote` NEVER reached on any
  *    failure): after `launchLeg` → `writeVerdict` produce the two refs, for
@@ -117,28 +124,105 @@
  *    unconditional second layer (unchanged from slice 3) before ever
  *    touching the port.
  *
- * WHAT THIS DOES NOT CLAIM: `trustedKeystore`'s own key material and
- * `verifySignature`'s correctness are trusted construction-time inputs, not
- * re-verified here (WP5 territory, see (1) above). This module defends
- * against a caller/per-call-dep fabricating a plausible-looking JSON
- * verdict; it does not defend against a compromised private key for a leg
- * genuinely registered in the trusted keystore, or a compromised
- * construction site — those are key-management and wiring concerns, not
- * gaps in this gate.
+ * ===========================================================================
+ * D11 FIX — ROUND 2 (this build) — `readVerdict` moves to construction time.
+ * ===========================================================================
+ *
+ * THE HOLE ROUND 1 LEFT (proven by an independent review, a SECOND, separate
+ * leg from the one that forced ROUND 1): ROUND 1 moved `trustedKeystore` and
+ * `verifySignature` to construction-time, but left `readVerdict` as a
+ * PER-CALL, caller-injected dep. An adversarial per-call caller can inject a
+ * `readVerdict` that returns a NON-NULL, TRUSTED-SIGNED artifact that exists
+ * ONLY in memory — a ref string pointing at NO durable file anywhere — and
+ * the gate above (§3a) only refuses `null`; a fabricated-but-signed in-memory
+ * object sails through every check in ROUND 1 §3. ROUND 1's signature
+ * verification only actually defends anything IF the per-call caller lacks
+ * the trusted legs' private keys — but nothing in this module, or in what it
+ * composes, ESTABLISHES that. Key custody is a WP5 wiring concern that is not
+ * yet specified; assuming the caller can't sign is exactly the kind of
+ * unverified assumption D11 exists to eliminate. We do not rely on it here.
+ * The deeper problem: a trust-critical READER that the untrusted per-call
+ * caller can inject is an EMPTY ANCHOR — no matter how strong the
+ * verification logic downstream of it is, the caller controls whether that
+ * logic ever sees real data at all. This is the same injected-deps lesson
+ * ROUND 1 only half-applied (it anchored the VERIFIER but not the READER).
+ *
+ * THE FIX:
+ *
+ * 1. `readVerdict` moves from `RunD11CeremonyDeps` (per-call) to
+ *    `CreateD11CeremonyOptions` (construction-time) — EXACTLY like
+ *    `trustedKeystore` and `verifySignature`, and for the identical reason:
+ *    the per-call caller of the returned `runD11Ceremony(input, deps)` is the
+ *    UNTRUSTED adversary this whole ceremony exists to defend against. A
+ *    trust-critical dependency that adversary can inject or override is not
+ *    a defense, it is a hook for the exact fabrication being defended
+ *    against. `RunD11CeremonyDeps` no longer has a `readVerdict` field at
+ *    all (a type-level guarantee, not merely a runtime check) — and even if
+ *    a caller attaches an extra `readVerdict` property to the `deps` object
+ *    at runtime anyway (JS does not enforce the TS shape), `runD11Ceremony`
+ *    never reads `deps.readVerdict` — it always uses the reader CLOSED OVER
+ *    at construction. Proven in tests: an attached-but-unused
+ *    `deps.readVerdict` records zero calls.
+ *
+ * 2. The DEFAULT construction-time reader, `defaultReadVerdict`, is a REAL
+ *    in-module durable-store reader with PATH-BINDING: `ref` IS a filesystem
+ *    path, and the reader does a genuine `readFile` at exactly that path,
+ *    then JSON-parses and shape-validates the result. It returns `null` on
+ *    ANY failure — missing file, unreadable, malformed JSON, wrong shape —
+ *    which is exactly ROUND 1's proven counter-example (an invented ref with
+ *    no real file behind it) and stays refused for the identical reason.
+ *    Because the reader always dereferences the REAL filesystem at the ref's
+ *    own path, what it returns is BOUND to that ref — it is literally what
+ *    is stored there — never a caller-fabricated in-memory object: there is
+ *    no code path by which an in-memory `VerdictArtifact`, however validly
+ *    signed, can reach `promoteNote` without first being real bytes on disk
+ *    at the exact path the ceremony itself derived from `writeVerdict`'s
+ *    return value. `readVerdict` remains overridable AT CONSTRUCTION for
+ *    tests only — a test may supply a fake store-reader (e.g. an in-memory
+ *    `Map<ref, VerdictArtifact>`) to `createD11Ceremony({ readVerdict: ... })`
+ *    so tests don't need real disk I/O for every scenario — but that
+ *    override is wired ONCE, at the same trusted construction site as
+ *    `trustedKeystore`, never by the per-call caller under test.
+ *
+ * 3. Everything from ROUND 1 §3 is UNCHANGED: signature-by-claimed-leg,
+ *    GO, anti-replay (noteId pin), cross-artifact distinctness, separation
+ *    of powers off the READ content, and coherence with the inline verdict.
+ *    ROUND 2 only changes WHERE `readVerdict` comes from and WHAT its
+ *    default implementation actually does; it adds no new gate steps because
+ *    none were missing — the missing piece was that the existing gate could
+ *    be handed fabricated input before it ever ran.
+ *
+ * WHAT THIS DOES NOT CLAIM (residual, stated honestly): the CONSTRUCTION
+ * SITE — whoever calls `createD11Ceremony({ trustedKeystore, readVerdict })`
+ * — remains a trusted wiring point (WP5 domain, unchanged from ROUND 1 §1):
+ * its choice of keystore, its choice of durable-store reader (or acceptance
+ * of the real filesystem default), and the actual key material/store
+ * deployment behind both are not re-verified by this module. That is ONE
+ * trusted wiring point exercised once at bootstrap, not any of the
+ * potentially many per-call callers of the returned `runD11Ceremony` — a
+ * much smaller, much more auditable surface than ROUND 1 left. This module
+ * defends against a per-call caller fabricating a plausible-looking verdict,
+ * signed or not, durable or not; it does not defend against a compromised
+ * private key for a leg genuinely registered in the trusted keystore, a
+ * compromised/malicious construction site, or a durable store an attacker
+ * can write to directly (bypassing `writeVerdict`) — those remain
+ * key-management, wiring, and storage-access concerns, not gaps in this
+ * gate.
  *
  * ===========================================================================
  * (Unchanged) FLOW summary and invariants.
  * ===========================================================================
  *
  * I5 — fail-closed at EVERY injected/lookup step: `deps` itself,
- * `deps.legSpecs`, `deps.launchLeg`, `deps.writeVerdict`, `deps.readVerdict`,
- * `deps.writeAttestation`, `deps.port`, and the `trustedKeystore` lookup are
- * all treated as untrusted or fallible — absent, wrong shape, throwing,
- * rejecting, or (for the keystore) simply "no entry" all REFUSE with a
- * structured `{promoted:false, reason}`, never a silent success. A ceremony
- * that fails partway NEVER reaches `promoteNote` (slice 3's raw dispatch) —
- * proven in tests via counting stubs showing later steps are never invoked
- * once an earlier one refuses.
+ * `deps.legSpecs`, `deps.launchLeg`, `deps.writeVerdict`, `deps.writeAttestation`,
+ * `deps.port`, the CONSTRUCTION-TIME `readVerdict` (ROUND 2), and the
+ * `trustedKeystore` lookup are all treated as untrusted or fallible — absent,
+ * wrong shape, throwing, rejecting, or (for the keystore, and for
+ * `readVerdict`'s return) simply "nothing there" all REFUSE with a structured
+ * `{promoted:false, reason}`, never a silent success. A ceremony that fails
+ * partway NEVER reaches `promoteNote` (slice 3's raw dispatch) — proven in
+ * tests via counting stubs showing later steps are never invoked once an
+ * earlier one refuses.
  *
  * I1 — durable identity slot: `note.noteId`, `note.principal_owner`,
  * `authorId`, and every `legSpec.{model,session}` / `leg.{model,session}` are
@@ -157,6 +241,7 @@
  */
 
 import { createPublicKey, verify as verifyEd25519Signature } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
 import { canonicalize } from "../../canonical.js";
 import type { MemoryContext, MemoryProducerPort } from "./port-v1.js";
@@ -191,11 +276,12 @@ export interface RunD11CeremonyInput {
 
 /**
  * A verdict ARTIFACT — what `readVerdict` returns after actually opening and
- * reading the file persisted at a ref (D11 FIX). Distinct from
- * `MemoryVerdict` (`./promote-client.ts`), which is the in-memory shape a
- * `launchLeg` call returns INLINE and is never, by itself, trusted for a
- * promotion decision: `VerdictArtifact` additionally carries `signature`,
- * proof of authorship the inline shape has no room for.
+ * reading the file persisted at a ref (D11 FIX ROUND 1, path-bound for real
+ * by ROUND 2's default reader). Distinct from `MemoryVerdict`
+ * (`./promote-client.ts`), which is the in-memory shape a `launchLeg` call
+ * returns INLINE and is never, by itself, trusted for a promotion decision:
+ * `VerdictArtifact` additionally carries `signature`, proof of authorship
+ * the inline shape has no room for.
  */
 export interface VerdictArtifact {
   readonly noteId: string;
@@ -213,7 +299,7 @@ export interface VerdictArtifact {
 
 /**
  * The trusted keystore — an opaque `LegIdentity` -> Ed25519 public key (PEM)
- * lookup. D11 FIX (1): NEVER supplied per-call (that would make it
+ * lookup. D11 FIX ROUND 1 §1: NEVER supplied per-call (that would make it
  * caller-swappable, reopening the fabrication hole) — it is closed over at
  * `createD11Ceremony` construction time by a trusted wiring site. Today this
  * is the LOCAL anchor (an in-process map/interface); it is designed to be
@@ -240,26 +326,31 @@ export interface D11TrustedKeystore {
  */
 export type VerifySignatureFn = (payload: unknown, signature: string, publicKey: string) => boolean;
 
+/**
+ * D11 FIX ROUND 2: the verdict-artifact reader seam. Real, path-bound
+ * filesystem I/O (`defaultReadVerdict`, below) in production; stubbable at
+ * `createD11Ceremony` construction time for tests. Injected at CONSTRUCTION,
+ * like the keystore and the verifier, and for the identical reason: per-call
+ * injection is exactly what let a caller hand the ceremony a fabricated,
+ * durability-free "read" in the hole this round closes.
+ */
+export type ReadVerdictFn = (ref: string) => Promise<VerdictArtifact | null>;
+
 export interface RunD11CeremonyDeps {
   /** Launch one leg's review. INJECTED — real model-launching is out of scope here. */
   readonly launchLeg?: ((note: D11CeremonyNote, legSpec: LegSpec) => Promise<MemoryVerdict>) | undefined | null;
   /** Persist one verdict, return its REF (locator). INJECTED — real file I/O is out of scope here. */
   readonly writeVerdict?: ((verdict: MemoryVerdict) => Promise<string>) | undefined | null;
-  /**
-   * D11 FIX (2): OPENS+READS the verdict artifact actually persisted at
-   * `ref`. Returns `null` if absent/unreadable (the proven counter-example
-   * shape). INJECTED — real file I/O is out of scope here; what is NOT out
-   * of scope is that its return is verified against the CLOSED-OVER
-   * `trustedKeystore` before being trusted for anything, so a caller cannot
-   * fabricate promotion merely by injecting a lying `readVerdict`.
-   */
-  readonly readVerdict?: ((ref: string) => Promise<VerdictArtifact | null>) | undefined | null;
   /** Persist the attestation, return its REF. INJECTED — real file I/O + signing are out of scope here. */
   readonly writeAttestation?: ((attestation: IndependenceAttestation) => Promise<string>) | undefined | null;
   /** The two legs to launch. Must be structurally distinct (checked BEFORE launch). */
   readonly legSpecs?: readonly [LegSpec, LegSpec] | undefined | null;
   readonly port?: MemoryProducerPort | undefined | null;
   readonly ctx: MemoryContext;
+  // NOTE (D11 FIX ROUND 2): there is deliberately NO `readVerdict` field here.
+  // It moved to `CreateD11CeremonyOptions` — construction-time only. A
+  // per-call caller cannot supply or override it; see the ROUND 2 module doc
+  // for why leaving it here was itself the hole an independent review proved.
 }
 
 /** Reuses slice 3's result shape unchanged — a ceremony IS a composed promotion attempt. */
@@ -271,6 +362,15 @@ export interface CreateD11CeremonyOptions {
   readonly trustedKeystore: D11TrustedKeystore;
   /** Defaults to real Ed25519 (`defaultVerifySignature`). Override only for tests. */
   readonly verifySignature?: VerifySignatureFn | undefined;
+  /**
+   * D11 FIX ROUND 2: the verdict-artifact reader. Defaults to
+   * `defaultReadVerdict`, a REAL path-bound filesystem reader (`ref` IS the
+   * path it reads). Override ONLY for tests — e.g. a fake, construction-time
+   * `Map`-backed store-reader — wired at the SAME trusted construction site
+   * as `trustedKeystore`, never by a per-call caller of the returned
+   * `runD11Ceremony`.
+   */
+  readonly readVerdict?: ReadVerdictFn | undefined;
 }
 
 export type RunD11Ceremony = (
@@ -347,12 +447,61 @@ export function defaultVerifySignature(payload: unknown, signature: string, publ
 }
 
 /**
+ * D11 FIX ROUND 2: shape-validate a value read back from the durable store
+ * before trusting it as a `VerdictArtifact` at all — a malformed or
+ * unrelated JSON blob at a path must never be handed to the signature check
+ * as if it were a real artifact (it would simply fail signature
+ * verification, but failing CLOSED here, before that, is cheaper and
+ * clearer about why).
+ */
+function isVerdictArtifactShape(value: unknown): value is VerdictArtifact {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (typeof v.noteId !== "string") return false;
+  if (v.verdict !== "GO" && v.verdict !== "NO-GO") return false;
+  if (typeof v.at !== "number") return false;
+  if (typeof v.signature !== "string") return false;
+  if (typeof v.leg !== "object" || v.leg === null) return false;
+  const leg = v.leg as Record<string, unknown>;
+  return typeof leg.model === "string" && typeof leg.session === "string";
+}
+
+/**
+ * D11 FIX ROUND 2 — the default, REAL durable-store reader. `ref` IS a
+ * filesystem path: this does a genuine `readFile` at exactly that path, then
+ * JSON-parses and shape-validates the result. Returns `null` on ANY failure
+ * — missing file (ENOENT), permission error, malformed JSON, or a
+ * well-formed-but-wrong-shape value — never throws. What it returns, when it
+ * returns non-null, is PATH-BOUND: literally the bytes actually persisted at
+ * `ref`, never a value the caller constructed in memory. This is the
+ * structural anchor: a `VerdictArtifact` with no durable backing at its own
+ * ref cannot reach this function's non-null return, by construction.
+ */
+export async function defaultReadVerdict(ref: string): Promise<VerdictArtifact | null> {
+  let raw: string;
+  try {
+    raw = await readFile(ref, "utf8");
+  } catch {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  return isVerdictArtifactShape(parsed) ? parsed : null;
+}
+
+/**
  * Factory: builds the actual `runD11Ceremony` function, CLOSED OVER
- * `trustedKeystore` (and, optionally, `verifySignature`). This is the
- * anti-fabrication anchor (D11 FIX §1): signature verification always uses
- * THIS keystore, never one a caller of the returned function can inject
- * per-call. Throws synchronously on a missing/malformed `trustedKeystore` —
- * a construction-site wiring bug should fail loudly and immediately, not
+ * `trustedKeystore` (and, optionally, `verifySignature` and `readVerdict`).
+ * This is the anti-fabrication anchor (D11 FIX ROUND 1 §1 + ROUND 2 §1):
+ * signature verification always uses THIS keystore, and the verdict
+ * read-back always uses THIS reader (real filesystem by default) — never
+ * one a caller of the returned function can inject per-call. Throws
+ * synchronously on a missing/malformed `trustedKeystore` — a
+ * construction-site wiring bug should fail loudly and immediately, not
  * silently produce a ceremony that can never verify anything.
  */
 export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Ceremony {
@@ -364,6 +513,8 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
   const trustedKeystore = options.trustedKeystore;
   const verifySignature: VerifySignatureFn =
     typeof options.verifySignature === "function" ? options.verifySignature : defaultVerifySignature;
+  const readVerdict: ReadVerdictFn =
+    typeof options.readVerdict === "function" ? options.readVerdict : defaultReadVerdict;
 
   /**
    * Run the D11 ceremony end to end. See the module doc for the full flow.
@@ -380,7 +531,13 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
       return refuse("no ceremony dependencies injected — refusing (fail-closed, I5)");
     }
 
-    const { launchLeg, writeVerdict, readVerdict, writeAttestation, legSpecs, port, ctx } = deps;
+    // D11 FIX ROUND 2: `readVerdict` is intentionally NOT destructured from
+    // `deps` here — it is not a field of `RunD11CeremonyDeps` at all. Even if
+    // a caller attaches a `readVerdict` property to the object passed as
+    // `deps` anyway (JS does not enforce the TS shape at runtime), it is
+    // never read: the CLOSED-OVER `readVerdict` from `createD11Ceremony`
+    // (above) is what's used below, unconditionally.
+    const { launchLeg, writeVerdict, writeAttestation, legSpecs, port, ctx } = deps;
 
     if (!Array.isArray(legSpecs) || legSpecs.length !== 2) {
       return refuse("exactly 2 legSpecs are required to run a double-consensus ceremony");
@@ -450,11 +607,13 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
     // =========================================================================
     // D11 FIX §3 — the READ, signature-verified gate. Everything from here on
     // is what actually protects `promoteNote`; nothing before this point does.
+    // `readVerdict` here is ALWAYS the construction-time closure (ROUND 2) —
+    // a real function is guaranteed (default or a construction-time override),
+    // so there is no "readVerdict absent" branch left to guard: a missing
+    // durable artifact now surfaces as `readVerdict(ref)` resolving to `null`
+    // (checked immediately below), not as this dep being absent.
     // =========================================================================
 
-    if (typeof readVerdict !== "function") {
-      return refuse("no readVerdict injected — refusing (fail-closed, I5)");
-    }
     let artifact1: VerdictArtifact | null;
     let artifact2: VerdictArtifact | null;
     try {
