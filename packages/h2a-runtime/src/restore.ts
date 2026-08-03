@@ -32,7 +32,12 @@ import {
   persistReconciledConvIds,
   type RegistryEntry,
 } from "./registry.js";
-import { listLocalSessions, slugify, type LocalSession } from "./tmux.js";
+import {
+  listLocalSessions,
+  listLocalSessionsWithDiagnostics,
+  slugify,
+  type LocalSession,
+} from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
 
 export type DiscoveredSession = {
@@ -678,17 +683,20 @@ function projLatest(arr: DiscoveredSession[]): number {
 }
 
 /**
- * Per-tab command: SCW via `attach --exec`; a LOCAL session that is already
- * live → `remote attach <slug>` (do NOT `remote run -r`, which the single-writer
- * guard refuses while that session still holds the conversation — this is what
- * broke a `restore` over still-detached sessions); otherwise create it via
- * `remote run … --resume …` (which attaches by default). `liveSlugs` = slugs of
- * currently-live local tmux sessions (empty for the reproducible layout snapshot).
+ * Per-tab command for an ABSENT local session: create it via `remote run …
+ * --resume …` (which attaches by default). Live sessions are deliberately
+ * handled by `launchLayout`, which knows their exact tmux names and whether they
+ * have a client attached; it emits `tmux attach -t <exact-name>` and never
+ * relaunches them.
  */
 export function tabCommand(
   tab: LayoutTab,
   liveSlugs: ReadonlySet<string> = new Set(),
-  opts: { forceGateway?: "gateway" | "direct" } = {},
+  opts: {
+    forceGateway?: "gateway" | "direct";
+    /** Exact existing tmux name — attach directly, never replace/relaunch it. */
+    attachSession?: string;
+  } = {},
 ): string {
   const q = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
   if (tab.remoteId) {
@@ -705,16 +713,15 @@ export function tabCommand(
     `h2a run ${q(tab.tool ?? "shell")} ${q(tab.cwd)} ` +
     (tab.sid ? `--resume ${q(tab.sid)} ` : "") +
     `--name ${q(tab.label)}${gwFlag}${extra}`;
+  if (opts.attachSession) {
+    return `tmux attach -t ${q(opts.attachSession)}`;
+  }
   if (liveSlugs.has(slug)) {
-    // Already running. Normally we just attach (no redundant relaunch, no guard
-    // fight). But a forced posture (restore --gw/--no-gw) must actually SWITCH a
-    // live session — a reattach can't change a running process's gateway env.
-    // `remote run` has NO --replace and refuses to clobber a live session, so
-    // relaunch via `remote resume --replace`: it kills the running tmux session,
-    // resumes the conversation in the forced posture (--no-gw scrubs the gateway
-    // env), and --attach reopens the terminal onto it.
-    if (!opts.forceGateway) return `h2a attach ${q(slug)}`;
-    return `h2a resume ${q(slug)} --replace --attach${gwFlag}`;
+    // Compatibility for direct callers that only know a unique slug.  Restore
+    // itself always supplies the exact name above, avoiding prefix collisions.
+    // Crucially, a gateway override never turns a live session into --replace:
+    // restore must preserve its process and conversation.
+    return `h2a attach ${q(slug)}`;
   }
   return runCmd("");
 }
@@ -763,33 +770,55 @@ function runDir(): string {
 /**
  * Launch the layout in gnome-terminal: one window per group, one tab per session.
  *
- * Default behaviour (reattach=false): sessions already live in tmux are SKIPPED —
- * no new terminal tab is opened for them. The assumption is that if a tmux session
- * exists, the user either has a terminal showing it or intentionally left it running.
- * Use reattach=true (--reattach flag) to reopen a terminal tab for every session
- * regardless of its current tmux state.
+ * Default behaviour: a live session with a tmux client is already visible and is
+ * skipped; a live session with zero clients is orphaned, so a terminal tab is
+ * opened directly onto that exact tmux session. An absent session is launched as
+ * before. `--reattach` explicitly opens another tab even for an already-visible
+ * session. This is deliberately a view decision, not a liveness decision.
  */
 export function launchLayout(
   windows: LayoutWindow[],
   stderr: NodeJS.WriteStream = process.stderr,
   opts: { reattach?: boolean; forceGateway?: "gateway" | "direct" } = {},
 ): { opened: number; skippedLive: string[] } {
-  const liveSessions = listLocalSessions();
-  const liveSlugs = new Set(liveSessions.map((s) => s.slug));
+  const localSessions = listLocalSessionsWithDiagnostics();
+  const liveSessions = localSessions.sessions;
   const ambiguousLiveNames = ambiguousLiveSessionNames(liveSessions);
   const skippedLive: string[] = [];
   let opened = 0;
-  // A forced posture must reach EVERY session (live ones get relaunched), so it
-  // includes already-live tabs just like --reattach.
-  const includeLive = opts.reattach || opts.forceGateway !== undefined;
+  // A gateway override can configure a NEW process but must never replace a live
+  // one. `--reattach` is the sole opt-in that duplicates an already-visible tab.
+  const includeAttached = opts.reattach === true;
   const tabOpts = opts.forceGateway ? { forceGateway: opts.forceGateway } : {};
 
+  if (!localSessions.known) {
+    // We cannot reliably tell "attached" from "orphaned".  Prefer a harmless
+    // duplicate/failing attach over `h2a run` possibly racing a live tmux
+    // session; a restore command must never reclaim a view by killing its work.
+    stderr.write(
+      `[h2a] tmux view state unavailable${localSessions.reason ? ` (${localSessions.reason})` : ""}; ` +
+        "opening attach tabs rather than relaunching local sessions\n",
+    );
+  }
+
   for (const win of windows) {
-    // Filter tabs: skip local sessions already in tmux (attach would be redundant).
     // Remote (k8s) tabs are always included — we can't probe pod health here.
-    const activeTabs = win.tabs.filter((t) => {
-      if (t.remoteId) return true;
+    // Local tabs carry their finalized command because a live orphan must attach
+    // to its exact tmux name, while an absent session must be launched.
+    const activeTabs: Array<{ tab: LayoutTab; command: string }> = [];
+    for (const t of win.tabs) {
+      if (t.remoteId) {
+        activeTabs.push({ tab: t, command: tabCommand(t) });
+        continue;
+      }
       const slug = slugify(t.label);
+      if (!localSessions.known) {
+        activeTabs.push({
+          tab: t,
+          command: tabCommand(t, new Set([slug]), { attachSession: `h2a-${slug}` }),
+        });
+        continue;
+      }
       const names = ambiguousLiveNames.get(slug);
       if (names) {
         skippedLive.push(t.label);
@@ -797,14 +826,21 @@ export function launchLayout(
           `[h2a] restore skipped "${t.label}": local tmux slug is ambiguous (${names.sort().join(", ")}); ` +
             `attach explicitly with h2a attach ${names.sort()[0]} or h2a attach ${names.sort()[1]}\n`,
         );
-        return false;
+        continue;
       }
-      if (!includeLive && liveSlugs.has(slug)) {
+
+      const liveSession = liveSessions.find((session) => session.slug === slug);
+      if (liveSession && !includeAttached && liveSession.attached) {
         skippedLive.push(t.label);
-        return false;
+        continue;
       }
-      return true;
-    });
+      activeTabs.push({
+        tab: t,
+        command: liveSession
+          ? tabCommand(t, new Set([slug]), { attachSession: liveSession.name })
+          : tabCommand(t, new Set(), tabOpts),
+      });
+    }
 
     if (activeTabs.length === 0) {
       // All sessions in this window are already active — no tab needed.
@@ -820,12 +856,12 @@ export function launchLayout(
     );
     const body =
       activeTabs
-        .map((t) => `${t.cwd}\t${tabCommand(t, liveSlugs, tabOpts)}`)
+        .map(({ tab, command }) => `${tab.cwd}\t${command}`)
         .join("\n") + "\n";
     writeFileSync(mapPath, body, "utf8");
 
     const args: string[] = [];
-    activeTabs.forEach((tab, i) => {
+    activeTabs.forEach(({ tab }, i) => {
       args.push(
         i === 0 ? "--window" : "--tab",
         `--working-directory=${tab.cwd}`,
@@ -855,7 +891,7 @@ export function launchLayout(
 
   if (skippedLive.length > 0) {
     stderr.write(
-      `[h2a] ${skippedLive.length} session(s) déjà actives ignorées` +
+      `[h2a] ${skippedLive.length} session(s) déjà visibles ignorées` +
       ` (--reattach pour les rouvrir quand même): ${skippedLive.join(", ")}\n`,
     );
   }
@@ -875,9 +911,9 @@ export type RestoreOptions = {
    */
   reattach?: boolean;
   /**
-   * Force the llm-mesh gateway posture for the WHOLE restore, overriding every
-   * session's pinned gatewayMode. Live sessions on the wrong posture are
-   * relaunched (--replace) so the switch actually takes effect.
+   * Force the llm-mesh gateway posture for sessions launched by this restore.
+   * Existing sessions keep their running posture and are only attached, never
+   * replaced to apply this override.
    */
   forceGateway?: "gateway" | "direct";
   stderr?: NodeJS.WriteStream;
