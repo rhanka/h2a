@@ -1,8 +1,14 @@
-**DECISION 1 — CANONICAL FOCUS:** sentropic `packages/focus` is canonical; h2a `packages/focus/` MUST be deleted, not renamed or made private, and “the two coexist” is forbidden. **ENFORCEMENT RUNG:** spec-line; `scripts/check-focus-package-identity.mjs` does not exist yet. **NAMED PROOF:** that future rejector, absence of the h2a directory in `git ls-tree`, and npm metadata naming sentropic. **LIMIT:** this settles package identity only; it neither removes `packages/focus-interactive` nor forbids a separately tracked compiled vendor snapshot.
-
 # SPEC — Focus in the sentropic armature
 
 **Status — DESIGN-ONLY, 2026-08-03. No build was performed and no lane was launched.**
+
+**DECISION 1, in one line — CANONICAL FOCUS:** sentropic `packages/focus` is canonical; h2a
+`packages/focus/` MUST be deleted, not renamed or made private, and “the two coexist” is forbidden.
+**ENFORCEMENT RUNG:** spec-line; `scripts/check-focus-package-identity.mjs` does not exist yet.
+**NAMED PROOF:** that future rejector, absence of the h2a directory in `git ls-tree`, and npm metadata
+naming sentropic as the publisher. **LIMIT:** this settles package identity only; it neither removes
+`packages/focus-interactive` nor forbids a separately tracked compiled vendor snapshot. §2 carries the
+governing rule and the full deletion seam.
 
 **Scope.** The owner cannot use the remote Claude surface and chooses sentropic, the separate
 `rhanka/sentropic` web application, as the principal tool. This document specifies how a Focus
