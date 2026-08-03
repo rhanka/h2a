@@ -22,9 +22,22 @@ export type ConvStat = {
   sha: string;
 };
 
-/** claude's cwd→project-dir encoding (slashes → dashes). */
+const MAX_CWD_PROJECT_DIR_LENGTH = 200;
+
+/** Claude's hash suffix for cwd project directories longer than 200 characters. */
+function hostHash(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index++) {
+    hash = (hash << 5) - hash + value.charCodeAt(index) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+/** Claude's cwd→project-dir encoding, matching the host CLI. */
 export function encodeCwd(cwd: string): string {
-  return cwd.replace(/\//g, "-");
+  const encoded = cwd.replace(/[^a-zA-Z0-9]/g, "-");
+  if (encoded.length <= MAX_CWD_PROJECT_DIR_LENGTH) return encoded;
+  return `${encoded.slice(0, MAX_CWD_PROJECT_DIR_LENGTH)}-${hostHash(cwd)}`;
 }
 
 function expandHome(p: string): string {
