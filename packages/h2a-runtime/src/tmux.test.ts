@@ -1811,6 +1811,43 @@ describe("reapExitedH2aRunSessions", () => {
     });
   });
 
+  it("does not reap a worker that revives between the safety proof and guarded kill", () => {
+    const newWorkerBetween = { pane: "%7", panePid: 701 };
+    const kill = vi.fn((_name, expectedIdentity) => {
+      // This seam stands in for killLocalSession's immediate recheck: a new
+      // worker in the same pane has a new generation and must prevent a kill.
+      return (
+        expectedIdentity.pane === newWorkerBetween.pane &&
+        expectedIdentity.panePid === newWorkerBetween.panePid
+      );
+    });
+    const result = reapExitedH2aRunSessions({
+      list: () => ({
+        known: true,
+        sessions: [reaperSession("h2a-revived-worker")],
+      }),
+      marked: () => true,
+      idle: () => true,
+      safety: () => PROVEN_DEAD,
+      kill,
+    });
+
+    expect(kill).toHaveBeenCalledWith("h2a-revived-worker", {
+      pane: "%7",
+      panePid: 700,
+    });
+    expect(result).toEqual({
+      reaped: [],
+      skipped: [
+        {
+          name: "h2a-revived-worker",
+          reason: "session changed or could not be reproven dead before kill",
+        },
+      ],
+      indeterminate: false,
+    });
+  });
+
   it("never reaps either a busy worker or an idle-at-composer worker", () => {
     const kill = vi.fn(() => true);
     const result = reapExitedH2aRunSessions({
