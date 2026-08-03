@@ -72,9 +72,9 @@ export type LayoutWindow = { title: string; tabs: LayoutTab[] };
 /** A pre-resolved SCW tab for a remote group (built by the caller from `remote ls`). */
 export type RemoteTab = { id: string; label: string; cwd: string };
 
-/** claude encodes a cwd into its project-dir name by replacing "/" with "-". */
+/** Claude encodes a cwd into its project-dir name by replacing non-alphanumerics with "-". */
 function encodeCwd(cwd: string): string {
-  return cwd.replace(/\//g, "-");
+  return cwd.replace(/[^a-zA-Z0-9]/g, "-");
 }
 
 /** Project identity is the whole workspace path below ~/src, never its root. */
@@ -844,10 +844,11 @@ export function launchLayout(
     );
     // Surface gnome-terminal errors (e.g. "Failed to get screen…") instead of
     // silently claiming the window opened.
+    const { GNOME_TERMINAL_SCREEN: _drop, ...childEnv } = process.env;
     const child = spawn("gnome-terminal", args, {
       stdio: ["ignore", "ignore", "pipe"],
       detached: true,
-      env: process.env,
+      env: childEnv,
     });
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr.write(`[h2a] gnome-terminal: ${chunk.toString().trim()}\n`);
