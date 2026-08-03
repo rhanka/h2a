@@ -128,6 +128,26 @@ if [ -t 0 ]; then exec /bin/bash -l; else exit "$code"; fi`;
 export const STRUCTURED_LOCAL_WRAPPER = `cli="$0"
 exec "$cli" "$@"`;
 
+/** Exact tmux option that marks a session launched by the local h2a_run bridge. */
+export const H2A_RUN_WORKER_OPTION = "@h2a_run_worker";
+const H2A_RUN_WORKER_MARKER = "v1";
+
+/**
+ * h2a_run's interactive worker must own the lifetime of its whole tmux
+ * session.  Its MCP sidecar is another window, so merely letting the worker
+ * pane terminate leaks the sidecar and therefore the session.  The session
+ * name is generated locally and passed as one argv token; the exact target
+ * prevents tmux's prefix matching from selecting a replacement session.
+ */
+export const STRUCTURED_H2A_RUN_WRAPPER = `session="$0"; cli="$1"; shift
+cleanup() {
+  tmux kill-session -t "=$session:" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+"$cli" "$@"
+code=$?
+exit "$code"`;
+
 /**
  * Run-once-exit wrapper for HEADLESS delegated jobs — the OPPOSITE of
  * LOCAL_WRAPPER's drop-to-shell. Redirects the CLI's stdout+stderr to an output
@@ -551,6 +571,12 @@ export type ManagedLaunchMetadata = {
   h2aCommand?: string;
   /** End the pane with the agent; never expose a fallback shell to prompt input. */
   terminateOnAgentExit?: boolean;
+  /**
+   * h2a_run-only lifetime ownership.  The launcher stamps a durable marker
+   * before starting the agent and its wrapper ends the complete session when
+   * that agent exits, including any MCP sidecar window.
+   */
+  h2aRunWorker?: boolean;
   /** Refuse an existing name instead of reusing it (structured launch contract). */
   refuseExisting?: boolean;
   /**
@@ -922,6 +948,7 @@ export function startLocalSession(
   const {
     sessionClass,
     terminateOnAgentExit = false,
+    h2aRunWorker = false,
     refuseExisting = false,
     attachedTerminal = false,
     ...launchMetadata
@@ -957,13 +984,18 @@ export function startLocalSession(
     };
   }
 
+  const structuredWrapper = h2aRunWorker
+    ? STRUCTURED_H2A_RUN_WRAPPER
+    : STRUCTURED_LOCAL_WRAPPER;
   const agentCommand = [
     ...anthopicEnvUnsetCommandPrefix(),
     "/bin/bash",
     "-lc",
-    terminateOnAgentExit ? STRUCTURED_LOCAL_WRAPPER : LOCAL_WRAPPER,
+    terminateOnAgentExit ? structuredWrapper : LOCAL_WRAPPER,
     ...(terminateOnAgentExit
-      ? [command]
+      ? h2aRunWorker
+        ? [name, command]
+        : [command]
       : [
           localRelaunchCommand(
             profile,
@@ -1015,6 +1047,13 @@ export function startLocalSession(
   if ((terminateOnAgentExit || refuseExisting || attachedTerminal) && !agentPane) {
     killLocalSession(name);
     throw new Error(`tmux did not return a live agent pane for ${slug}`);
+  }
+  if (
+    h2aRunWorker &&
+    !setSessionOption(name, H2A_RUN_WORKER_OPTION, H2A_RUN_WORKER_MARKER)
+  ) {
+    killLocalSession(name);
+    throw new Error(`tmux could not mark ${slug} as an h2a_run worker`);
   }
   if (attachedTerminal) {
     const terminal = ensureHeadlessTerminal(name);
@@ -2176,6 +2215,89 @@ export function localSessionIdle(name: string): boolean {
   );
   const kids = Number((children.stdout ?? "").trim());
   return Number.isInteger(kids) && kids === 0;
+}
+
+export type H2aRunReapSkip = {
+  readonly name: string;
+  readonly reason: string;
+};
+
+export type H2aRunReapResult = {
+  readonly reaped: readonly string[];
+  readonly skipped: readonly H2aRunReapSkip[];
+  /** tmux inventory was unavailable, so no session was considered. */
+  readonly indeterminate: boolean;
+};
+
+/** Test seam for the destructive h2a_run reaper. */
+export type H2aRunReapProbe = {
+  readonly list?: () => {
+    readonly sessions: readonly LocalSession[];
+    readonly known: boolean;
+  };
+  readonly marked?: (name: string) => boolean;
+  /** Required idle-shell witness; a false/unknown result always preserves it. */
+  readonly idle?: (name: string) => boolean;
+  /**
+   * The definitive liveness witness, bound to the recorded agent pane rather
+   * than the session's selected pane (which may be the h2a sidecar).
+   */
+  readonly safety?: (name: string) => RelaunchSafety;
+  readonly kill?: (name: string, identity: RelaunchKillIdentity) => boolean;
+};
+
+/**
+ * Reap only h2a_run workers that are proved dead twice: the session reports an
+ * idle login shell and the recorded agent pane has no live descendant across a
+ * two-sample liveness check.  `killLocalSession` compares that pane generation
+ * again immediately before the exact-session kill.  Every unreadable or live
+ * state is deliberately retained.
+ */
+export function reapExitedH2aRunSessions(
+  probe: H2aRunReapProbe = {},
+): H2aRunReapResult {
+  const inventory = (probe.list ?? listLocalSessionsWithDiagnostics)();
+  if (!inventory.known) {
+    return { reaped: [], skipped: [], indeterminate: true };
+  }
+  const marked =
+    probe.marked ??
+    ((name: string) =>
+      readSessionOption(name, H2A_RUN_WORKER_OPTION) === H2A_RUN_WORKER_MARKER);
+  const idle = probe.idle ?? localSessionIdle;
+  const safety = probe.safety ?? sessionRelaunchSafety;
+  const kill = probe.kill ?? killLocalSession;
+  const reaped: string[] = [];
+  const skipped: H2aRunReapSkip[] = [];
+
+  for (const session of inventory.sessions) {
+    // The durable launch marker is the ownership boundary: never infer an
+    // h2a_run worker from a managed name, profile, background class, or sidecar.
+    if (!marked(session.name)) continue;
+    // This is an additional witness only.  The actual worker identity below is
+    // resolved from @remote_agent_pane, never from the session's selected pane.
+    if (!idle(session.name)) {
+      skipped.push({
+        name: session.name,
+        reason: "not a proven idle login shell",
+      });
+      continue;
+    }
+    const verdict = safety(session.name);
+    if (!isRelaunchKillable(verdict) || !verdict.identity) {
+      skipped.push({ name: session.name, reason: verdict.reason });
+      continue;
+    }
+    if (kill(session.name, verdict.identity)) {
+      reaped.push(session.name);
+    } else {
+      skipped.push({
+        name: session.name,
+        reason: "session changed or could not be reproven dead before kill",
+      });
+    }
+  }
+  return { reaped, skipped, indeterminate: false };
 }
 
 const RELAUNCH_LIVENESS_SAMPLE_MS = 250;

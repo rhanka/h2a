@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -25,6 +26,7 @@ vi.mock("./config.js", () => ({
 }));
 
 import {
+  H2A_RUN_WORKER_OPTION,
   H2A_WINDOW_NAME,
   HEADLESS_WRAPPER,
   LEGACY_LOCAL_PREFIX,
@@ -33,6 +35,7 @@ import {
   REMOTE_TMUX_PROFILE,
   REMOTE_TMUX_PROFILE_NAME,
   STRUCTURED_LOCAL_WRAPPER,
+  STRUCTURED_H2A_RUN_WRAPPER,
   STRUCTURED_WINDOW_WRAPPER,
   attachLocalSession,
   buildCodexImagePasteBinding,
@@ -57,6 +60,7 @@ import {
   resolveLocalSession,
   managedSessionCandidates,
   parseManagedSessionName,
+  reapExitedH2aRunSessions,
   sendKeysLiteral,
   sessionAttachedCount,
   sessionRelaunchSafety,
@@ -66,6 +70,7 @@ import {
   installH2aStatusSurface,
   installH2aStatusSurfaceWithAccess,
   type H2aStatusOptionAccess,
+  type LocalSession,
   startH2aWindow,
   startH2aWindowVerified,
   validateManagedTmuxProfile,
@@ -533,6 +538,47 @@ describe("startLocalSession agent pane metadata", () => {
       "--model",
       "opus",
     ]);
+  });
+
+  it("marks an h2a_run worker and gives its cleanup wrapper the exact session name", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions") {
+        return { status: 1, stdout: "" };
+      }
+      if (cmd === "tmux" && args[0] === "new-session") {
+        return { status: 0, stdout: "%7\n" };
+      }
+      return { status: 0, stdout: "" };
+    });
+
+    startLocalSession(
+      "codex",
+      "codex",
+      "/home/u/src/remote",
+      ["--model", "gpt-5.6"],
+      "worker",
+      "remote",
+      { terminateOnAgentExit: true, h2aRunWorker: true },
+    );
+
+    const argv = tmuxCalls("new-session")[0]![1] as string[];
+    expect(argv.slice(-5)).toEqual([
+      STRUCTURED_H2A_RUN_WRAPPER,
+      "h2a-worker",
+      "codex",
+      "--model",
+      "gpt-5.6",
+    ]);
+    expect(
+      spawnSyncMock.mock.calls.some(
+        (call) =>
+          call[0] === "tmux" &&
+          Array.isArray(call[1]) &&
+          call[1].includes(H2A_RUN_WORKER_OPTION) &&
+          call[1].includes("v1"),
+      ),
+    ).toBe(true);
   });
 
   it("attaches the PTY before respawning a structured agent into its pane", () => {
@@ -1676,6 +1722,158 @@ describe("STRUCTURED_LOCAL_WRAPPER (real bash)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("STRUCTURED_H2A_RUN_WRAPPER (real bash)", () => {
+  it("kills its exact tmux session after a short worker exits", () => {
+    const dir = mkdtempSync(join(tmpdir(), "h2a-run-cleanup-wrapper-"));
+    const fakeTmux = join(dir, "tmux");
+    const cleanupLog = join(dir, "cleanup.log");
+    try {
+      writeFileSync(
+        fakeTmux,
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$H2A_RUN_CLEANUP_LOG\"\n",
+        { mode: 0o700 },
+      );
+      chmodSync(fakeTmux, 0o700);
+      const r = realSpawnSync(
+        "bash",
+        ["-c", STRUCTURED_H2A_RUN_WRAPPER, "h2a-short-worker", "true"],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${dir}:${process.env.PATH ?? ""}`,
+            H2A_RUN_CLEANUP_LOG: cleanupLog,
+          },
+        },
+      );
+
+      expect(r.status).toBe(0);
+      expect(readFileSync(cleanupLog, "utf8")).toBe(
+        "kill-session -t =h2a-short-worker:\n",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+function reaperSession(name: string): LocalSession {
+  return {
+    tmuxId: "$1",
+    tmuxCreatedAt: "1710000000",
+    tmuxServerPid: "1234",
+    tmuxSocketPath: "/tmp/tmux-1000/default",
+    name,
+    slug: name.replace(/^h2a-/, ""),
+    profile: "codex",
+    path: "/home/u/src/remote",
+    attached: false,
+  };
+}
+
+const PROVEN_DEAD = {
+  dead: true,
+  activatable: false,
+  indeterminate: false,
+  activelyWorking: false,
+  reason: "no live CLI worker descendant",
+  identity: { pane: "%7", panePid: 700 },
+} as const;
+
+describe("reapExitedH2aRunSessions", () => {
+  it("reaps only a marked worker with an idle shell and no live descendant", () => {
+    const kill = vi.fn(() => true);
+    const result = reapExitedH2aRunSessions({
+      list: () => ({
+        known: true,
+        sessions: [
+          reaperSession("h2a-exited-worker"),
+          reaperSession("h2a-not-h2a-run"),
+        ],
+      }),
+      marked: (name) => name === "h2a-exited-worker",
+      idle: () => true,
+      safety: () => PROVEN_DEAD,
+      kill,
+    });
+
+    expect(result).toEqual({
+      reaped: ["h2a-exited-worker"],
+      skipped: [],
+      indeterminate: false,
+    });
+    expect(kill).toHaveBeenCalledWith("h2a-exited-worker", {
+      pane: "%7",
+      panePid: 700,
+    });
+  });
+
+  it("never reaps either a busy worker or an idle-at-composer worker", () => {
+    const kill = vi.fn(() => true);
+    const result = reapExitedH2aRunSessions({
+      list: () => ({
+        known: true,
+        sessions: [
+          reaperSession("h2a-busy-worker"),
+          reaperSession("h2a-composer-worker"),
+        ],
+      }),
+      marked: () => true,
+      // Busy work fails the idle-shell witness. For a parked composer we
+      // deliberately inject a stale positive witness: the second, descendant
+      // liveness proof still prevents the destructive operation.
+      idle: (name) => name === "h2a-composer-worker",
+      safety: () => ({
+        dead: false,
+        activatable: true,
+        indeterminate: false,
+        activelyWorking: false,
+        reason: "live parked CLI worker is activatable — never force-killed",
+      }),
+      kill,
+    });
+
+    expect(result.reaped).toEqual([]);
+    expect(result.skipped).toEqual([
+      { name: "h2a-busy-worker", reason: "not a proven idle login shell" },
+      {
+        name: "h2a-composer-worker",
+        reason: "live parked CLI worker is activatable — never force-killed",
+      },
+    ]);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the agent-pane liveness evidence is indeterminate", () => {
+    const kill = vi.fn(() => true);
+    const result = reapExitedH2aRunSessions({
+      list: () => ({
+        known: true,
+        sessions: [reaperSession("h2a-unreadable-worker")],
+      }),
+      marked: () => true,
+      idle: () => true,
+      safety: () => ({
+        dead: false,
+        activatable: false,
+        indeterminate: true,
+        activelyWorking: true,
+        reason: "liveness indeterminate: worker/CPU probe failed",
+      }),
+      kill,
+    });
+
+    expect(result.reaped).toEqual([]);
+    expect(result.skipped).toEqual([
+      {
+        name: "h2a-unreadable-worker",
+        reason: "liveness indeterminate: worker/CPU probe failed",
+      },
+    ]);
+    expect(kill).not.toHaveBeenCalled();
   });
 });
 
