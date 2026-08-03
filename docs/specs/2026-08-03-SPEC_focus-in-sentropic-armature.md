@@ -91,6 +91,9 @@ dossiers are documents, not agents. Its result carries `provenance.holder` and
 | D2.3 | `FocusDossierDetail` MUST be stateless and MUST persist nothing. | **spec-line** | Future `packages/chat-ui/src/components/FocusDossierDetail.svelte` and `FocusDossierDetail.persistence.test.ts` | Covers the renderer; read-port caches and the authoritative holder are outside it. |
 | D2.4 | Every returned dossier MUST name its holder and measurement time. | **spec-line** | Future `packages/chat-ui/src/state/decisionDossierReadPort.test.ts` asserting non-empty `provenance.holder` and `provenance.measuredAt` | Establishes provenance, not freshness duration or holder availability. |
 | D2.5 | Option (b), a different plane, is not chosen; it MAY be reconsidered only with evidence that a dossier cannot be represented as an entry detail. | **spec-line** | Future superseding `spec/SPEC_EVOL_FOCUS_PLANE.md` containing that evidence | Does not prejudge the result of such evidence. |
+| D2.6 | **sentropic ships the LIB and MUST NOT enrol.** `@sentropic/chat-ui` publishes `AgentsFeedPort`, `AgentsEntry`, the list component, `DecisionDossierReadPort` and `FocusDossierDetail`; it renders and defines the ports, and it MUST NOT fetch, MUST NOT enrol an agent, and MUST hold no host state. | **spec-line** | Its published export surface contains no function writing to any host's identity, registry or presence; future `scripts/check-lib-does-not-enrol.mjs` rejects such an export. Today's corroboration, re-runnable: the existing port module at sentropic `fdee25c5` declares itself `Pure module: no stores, no browser API, no HTTP` | Constrains the LIB's surface, not what a host does with it, and not transport choice. |
+| D2.7 | **Each host wires the INTEGRATION that enrols.** The feed *source* behind the port — h2a presence, the plugins host, the cowork connector — and the dossier read adapter are owned by the host, never by the LIB. A host either feeds the one port or is not on the surface. | **spec-line** | Each host's adapter module and its fixture; `scripts/check-agents-surface-singularity.mjs` (D2.1) rejects a parallel list | Assigns ownership of enrolment; it does not specify any host's adapter, nor guarantee that a host implements one. |
+| D2.8 | h2a MUST consume the LIB as a **published version**, never a workspace path or a checkout link. | **spec-line** | The h2a manifest line and its lock resolving to the npm artifact | The local workspace may still resolve internally; the published manifest is what governs. |
 
 A second list appearing without a decision is exactly the mechanism that produced three Focus
 copies: sentropic source, h2a source, and h2a's compiled vendor. D1.5 classifies the vendor's
@@ -124,13 +127,22 @@ concurrency guard, not a key rewrite.
 **no durable cross-conversation anchor at all**: `agentUuid` was measured NOT stable across
 conversations, so "documented perennial" was not "is perennial". Leaving the slot absent is therefore
 not a temporary courtesy until a value arrives — it is the only honest state until a durable anchor is
-built by someone. **Where this stops:** these are WP5's measurements of 2026-08-03, cited as theirs;
-this document did not re-run them and does not specify the anchor. **Resolution status of that
-citation, stated so a reader is not misled:** no repository artifact carries those measurements yet —
-they exist as WP5's traced run and its report. Until WP5 publishes them, this paragraph is an
-attribution, not a resolvable reference. The two figures this document *did* measure itself are the
-absence of `agentRef` at sentropic `fdee25c5` and the excess-identity counts (4 548 keys, 6 651 excess
-in one store, zero in the live store).
+built by someone.
+
+**Where each fact above comes from, separated so nothing reads as more resolvable than it is.**
+
+| Fact | Status | How a reader resolves it |
+|---|---|---|
+| `agentRef` absent from the published port | measured by this document | `curl -fsSL https://raw.githubusercontent.com/rhanka/sentropic/fdee25c5f45c7c4d9aadfb6170833d451d87bbc7/packages/chat-ui/src/state/agentsEntry.ts \| grep -c agentRef` → `0`; control `grep -c hostKind` → `1` |
+| 4 548 keys minted more than once, 6 651 excess identities in one store, zero in the live store | measured by this document | Group `identity/bindings.jsonl` by `(host, providerSessionId)` in each store and count keys whose lines carry more than one distinct `instance`; run against `~/h2a-workspace/.h2a` and `~/src/a2a-cli`. Point-in-time: the first store grew during the measurement. |
+| sequential resume reclaims — `[mint, reclaim, mint]` | **attribution to WP5**, not re-run here | Not resolvable from any repository artifact today; WP5 holds the trace |
+| 12 synchronised workers yield 3 mints instead of 1 | **attribution to WP5**, not re-run here | Same — no artifact yet |
+| `agentUuid` not stable across conversations | **attribution to WP5**, not re-run here | Same — no artifact yet |
+
+The three attributed rows are the ones that overturned the earlier diagnosis, and they carry the weight
+of this section. They are stated as WP5's because they are WP5's; until WP5 publishes them, a reader
+cannot check them, and this document does not pretend otherwise. This specification does not specify
+the anchor.
 
 | ID | Normative clause | Enforcement rung | Named proof observable by another person | Where the guarantee stops |
 |---|---|---|---|---|
