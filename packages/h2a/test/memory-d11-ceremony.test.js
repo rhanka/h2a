@@ -35,16 +35,48 @@
 // to be DEAD CODE (zero calls); and the REAL default `readVerdict` — genuine filesystem
 // I/O, not a stand-in — both accepts a genuinely-persisted artifact and refuses a missing
 // or malformed one. `promoteNote` is NEVER reached on any refusal, in either round's tests.
+//
+// ROUND 3 (this file, new section near the end): a THIRD, independent review NO-GO'd
+// round 2 — `readVerdict` moved to construction time, but the DEFAULT reader still did a
+// plain `readFile(ref)` on `writeVerdict`'s PER-CALL, caller-controlled return value; the
+// untrusted caller still chose WHERE the trusted reader looked. Three attacks reached
+// `promoteNote` with `promoted:true` at ROUND 2 (@824b633e): TRAVERSAL (a `../` ref to a
+// genuinely-signed artifact outside the zone), SYMLINK (the confined ref exists but is a
+// symlink to an attacker file), and TOCTOU (the file is swapped between write and read).
+// THE ROUND-3 FIX, reusing the path-confinement technique proven and merged in
+// `packages/h2a-runtime/src/identity-cull/cull.ts` (PR #160): `createD11Ceremony({
+// authorizedRoot })` (required for the real default reader); the ceremony derives the
+// ONE location each leg's verdict may be read from and refuses any `writeVerdict` ref
+// that doesn't resolve to EXACTLY that path (closes TRAVERSAL); `defaultReadVerdict`
+// opens it via a descriptor-relative, `O_NOFOLLOW` walk that refuses a symlink at ANY
+// component (closes SYMLINK); and reads from the SAME held descriptor it just
+// `fstat`'d — never a second, pathname-based open (closes TOCTOU).
+//
+// ROUND 3 §B (this file, section near the end): `authorId` was a bare, per-call,
+// caller-supplied string nothing verified — a caller could lie about it even when the
+// TRUE author was genuinely one of the two legs. Graphify verified (@67bf73c7) MemoryNote
+// carries no trusted author field, so THE FIX closes this INSIDE the ceremony instead:
+// the note now carries an `AuthorSignature` in its open extension slot
+// (`note["h2a.author_signature"]`), re-verified against the SAME construction-time
+// `trustedKeystore` + `verifySignature` verdict signatures already use (no second trust
+// root); every separation-of-powers check compares against that VERIFIED signer's
+// identity, never `input.authorId`. What was a SKIPPED, documented KNOWN-OPEN bypass is
+// now a closed, asserted refusal.
 
 import { strict as assert } from "node:assert";
 import { createPrivateKey, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import test from "node:test";
 
 import { canonicalize } from "../dist/index.js";
-import { createD11Ceremony, defaultReadVerdict, defaultVerifySignature } from "../dist/runtime/memory/d11-ceremony.js";
+import {
+  createD11Ceremony,
+  defaultReadVerdict,
+  defaultVerifySignature,
+  deriveVerdictRef
+} from "../dist/runtime/memory/d11-ceremony.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures & helpers.
@@ -114,10 +146,34 @@ function refCounter(prefix) {
   });
 }
 
-const NOTE = { noteId: "note-1", principal_owner: "claude:h2a-memory:owner-1" };
+/** Builds a genuinely, correctly signed AuthorSignature (D11 FIX ROUND 3 §B). */
+function authorSignature(privateKeyPem, { noteId, authorLeg }) {
+  const payload = { authorLeg, noteId };
+  return { authorLeg, noteId, signature: signPayload(privateKeyPem, payload) };
+}
+
+/** Attaches a valid `h2a.author_signature` extension to a note-shaped object. */
+function withAuthorSignature(note, privateKeyPem, authorLeg) {
+  return { ...note, "h2a.author_signature": authorSignature(privateKeyPem, { noteId: note.noteId, authorLeg }) };
+}
+
 const AUTHOR_ID = "claude:h2a-memory:author-not-a-leg";
 const LEG_SPEC_1 = leg("gpt-5.6-terra-xhigh", "session-A");
 const LEG_SPEC_2 = leg("opus-5-xhigh", "session-B");
+// D11 FIX ROUND 3 §B: the note's claimed author, as a LegIdentity — verified
+// against the SAME trustedKeystore a leg's key is (no second trust root).
+// `.session === AUTHOR_ID` deliberately, so every EXISTING "a leg collides
+// with the author" test (a plain string comparison against AUTHOR_ID) keeps
+// its exact meaning once the author identity is signature-verified instead
+// of caller-asserted.
+const AUTHOR_LEG = leg("h2a-memory-orchestrator", AUTHOR_ID);
+const KEY_AUTHOR_SIG = keypair();
+
+const NOTE = withAuthorSignature(
+  { noteId: "note-1", principal_owner: "claude:h2a-memory:owner-1" },
+  KEY_AUTHOR_SIG.privateKeyPem,
+  AUTHOR_LEG
+);
 const CTX = { principal_owner: NOTE.principal_owner };
 
 function goVerdictFor(legSpec) {
@@ -144,7 +200,8 @@ const TRUSTED_KEYSTORE = keystoreFrom([
   [LEG_SPEC_1, KEY_1.publicKeyPem],
   [LEG_SPEC_2, KEY_2.publicKeyPem],
   [LEG_SPEC_AUTHOR_IMPERSONATION, KEY_AUTHOR.publicKeyPem],
-  [LEG_SPEC_SWAP, KEY_SWAP.publicKeyPem]
+  [LEG_SPEC_SWAP, KEY_SWAP.publicKeyPem],
+  [AUTHOR_LEG, KEY_AUTHOR_SIG.publicKeyPem] // D11 FIX ROUND 3 §B — the note's author signature verifies against THIS entry
 ]);
 const EMPTY_KEYSTORE = keystoreFrom([]);
 const ALL_SIGNABLE_KEYS = keyRegistryFrom([
@@ -152,7 +209,8 @@ const ALL_SIGNABLE_KEYS = keyRegistryFrom([
   [LEG_SPEC_2, KEY_2],
   [LEG_SPEC_AUTHOR_IMPERSONATION, KEY_AUTHOR],
   [LEG_SPEC_SWAP, KEY_SWAP],
-  [LEG_SPEC_UNREGISTERED, KEY_UNREGISTERED]
+  [LEG_SPEC_UNREGISTERED, KEY_UNREGISTERED],
+  [AUTHOR_LEG, KEY_AUTHOR_SIG]
 ]);
 
 /**
@@ -196,9 +254,36 @@ function honestVerdictIo() {
 }
 
 /** Wraps the REAL `defaultReadVerdict` with a call counter, so a test can prove the
- * genuine filesystem reader was actually invoked N times without giving up realness. */
-function countingDefaultReadVerdict() {
-  return countingFn((ref) => defaultReadVerdict(ref));
+ * genuine filesystem reader was actually invoked N times without giving up realness.
+ * `authorizedRoot` is REQUIRED (D11 FIX ROUND 3 — the real reader is confined). */
+function countingDefaultReadVerdict(authorizedRoot) {
+  return countingFn((ref) => defaultReadVerdict(ref, authorizedRoot));
+}
+
+/**
+ * D11 FIX ROUND 3 — writes a genuinely signed verdict artifact at the ONE
+ * location `deriveVerdictRef` says it belongs (creating the note's
+ * subdirectory first). Mirrors how an HONEST production `writeVerdict` must
+ * behave under ROUND 3: the ref it returns is not a free choice — it must
+ * land exactly where the ceremony will independently derive.
+ */
+async function writeConfinedArtifact(authorizedRoot, privateKeyPem, verdict) {
+  const ref = deriveVerdictRef(authorizedRoot, verdict.noteId, verdict.leg);
+  await mkdir(dirname(ref), { recursive: true });
+  await writeFile(ref, JSON.stringify(signedArtifact(privateKeyPem, verdict)), "utf8");
+  return ref;
+}
+
+/**
+ * A `writeVerdict` stub that returns the CORRECT ceremony-derived ref for
+ * whatever it's asked to write, but never actually writes a file — the
+ * ROUND 1/2 proven counter-example shape (a ref pointing at NO durable
+ * file), now expressed as a CONFINED, correctly-shaped ref so a test
+ * exercises the "no artifact" gate specifically, not the ROUND 3
+ * confinement gate (which a bare unrelated string would trip instead).
+ */
+function confinedNoWriteRef(authorizedRoot) {
+  return countingFn(async (verdict) => deriveVerdictRef(authorizedRoot, verdict.noteId, verdict.leg));
 }
 
 function honestPort() {
@@ -239,6 +324,17 @@ test("createD11Ceremony throws synchronously when constructed without a trustedK
   assert.throws(() => createD11Ceremony({ trustedKeystore: {} }), /trustedKeystore/i);
 });
 
+test("D11 FIX ROUND 3: createD11Ceremony throws synchronously when the real default reader would be used but no authorizedRoot is supplied", () => {
+  assert.throws(() => createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE }), /authorizedRoot/i);
+  assert.throws(() => createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict: null }), /authorizedRoot/i);
+  assert.throws(() => createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict: undefined }), /authorizedRoot/i);
+});
+
+test("D11 FIX ROUND 3: createD11Ceremony does NOT require authorizedRoot when a custom readVerdict override is supplied", () => {
+  const { readVerdict } = honestVerdictIo();
+  assert.doesNotThrow(() => createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict }));
+});
+
 test("createD11Ceremony honors a custom injected verifySignature (construction-time seam, not per-call)", async () => {
   let calls = 0;
   const alwaysReject = () => {
@@ -255,12 +351,18 @@ test("createD11Ceremony honors a custom injected verifySignature (construction-t
 });
 
 test("createD11Ceremony: a non-function readVerdict override falls back to the REAL default reader (parity with verifySignature's fallback)", async () => {
-  const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict: null });
-  const deps = happyDeps({ writeVerdict: refCounter("no-file-anywhere-ref") }); // mints refs, writes nothing real
-  const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
-  assert.equal(result.outcome.promoted, false);
-  assert.match(result.outcome.reason, /no artifact/i);
-  assert.equal(deps.port.promoteNote.calls(), 0);
+  const dir = await mkdtemp(join(tmpdir(), "d11-ceremony-fallback-"));
+  try {
+    const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict: null, authorizedRoot: dir });
+    // correctly confined refs (D11 FIX ROUND 3) — mints refs, writes nothing real
+    const deps = happyDeps({ writeVerdict: confinedNoWriteRef(dir) });
+    const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
+    assert.equal(result.outcome.promoted, false);
+    assert.match(result.outcome.reason, /no artifact/i);
+    assert.equal(deps.port.promoteNote.calls(), 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("defaultVerifySignature: a genuine signature over the exact payload verifies true", () => {
@@ -287,7 +389,7 @@ test("defaultReadVerdict: reads back a genuinely persisted artifact exactly as s
     const ref = join(dir, "leg1.json");
     const artifact = signedArtifact(KEY_1.privateKeyPem, goVerdictFor(LEG_SPEC_1));
     await writeFile(ref, JSON.stringify(artifact), "utf8");
-    const read = await defaultReadVerdict(ref);
+    const read = await defaultReadVerdict(ref, dir);
     assert.deepEqual(read, artifact, "what's returned is literally what's on disk at ref");
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -297,7 +399,7 @@ test("defaultReadVerdict: reads back a genuinely persisted artifact exactly as s
 test("defaultReadVerdict: returns null for a ref with no file behind it — never throws", async () => {
   const dir = await mkdtemp(join(tmpdir(), "d11-ceremony-defaultread-"));
   try {
-    const result = await defaultReadVerdict(join(dir, "does-not-exist.json"));
+    const result = await defaultReadVerdict(join(dir, "does-not-exist.json"), dir);
     assert.equal(result, null);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -309,7 +411,7 @@ test("defaultReadVerdict: returns null for a file that exists but is not valid J
   try {
     const ref = join(dir, "malformed.json");
     await writeFile(ref, "not json {{{", "utf8");
-    assert.equal(await defaultReadVerdict(ref), null);
+    assert.equal(await defaultReadVerdict(ref, dir), null);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -320,7 +422,7 @@ test("defaultReadVerdict: returns null for well-formed JSON that is not a Verdic
   try {
     const ref = join(dir, "wrong-shape.json");
     await writeFile(ref, JSON.stringify({ hello: "world" }), "utf8");
-    assert.equal(await defaultReadVerdict(ref), null);
+    assert.equal(await defaultReadVerdict(ref, dir), null);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -546,27 +648,34 @@ test("runD11Ceremony REFUSES when the construction-time readVerdict throws — w
 
 test("D11 FIX counter-example: launchLeg fabricates 2 GO verdicts and writeVerdict invents refs with NO file behind them — REFUSED by the REAL default reader, promoteNote never called", async () => {
   // launchLeg returns two well-formed, distinct, GO, non-author verdicts — exactly
-  // what a fabricating caller would produce. writeVerdict mints refs but never
-  // stores anything (no file ever created ANYWHERE, real disk included). The
-  // ceremony is constructed with NO readVerdict override — the REAL default,
-  // genuine-filesystem reader (wrapped only to count calls) honestly reports
-  // "nothing there" for any ref it's asked about: the fabrication cannot be
+  // what a fabricating caller would produce. writeVerdict mints CORRECTLY CONFINED
+  // refs (D11 FIX ROUND 3 — a bare unrelated string would now be caught one gate
+  // EARLIER, at the confinement check itself; see the ROUND 3 section below for
+  // that) but never stores anything (no file ever created ANYWHERE, real disk
+  // included). The ceremony is constructed with NO readVerdict override — the REAL
+  // default, genuine-filesystem reader (wrapped only to count calls) honestly
+  // reports "nothing there" for any ref it's asked about: the fabrication cannot be
   // laundered.
-  const readVerdict = countingDefaultReadVerdict();
-  const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict });
-  const writeVerdict = refCounter("fabricated-ref");
-  const deps = happyDeps({ writeVerdict });
+  const dir = await mkdtemp(join(tmpdir(), "d11-ceremony-counterexample-"));
+  try {
+    const readVerdict = countingDefaultReadVerdict(dir);
+    const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict });
+    const writeVerdict = confinedNoWriteRef(dir);
+    const deps = happyDeps({ writeVerdict });
 
-  const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
+    const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
 
-  assert.equal(result.outcome.promoted, false);
-  assert.match(result.outcome.reason, /no artifact|readVerdict/i);
-  assert.equal(result.localOnly, true);
-  assert.equal(deps.launchLeg.calls(), 2, "the fabricated inline verdicts were still produced");
-  assert.equal(writeVerdict.calls(), 2, "the invented refs were still minted");
-  assert.equal(readVerdict.calls(), 2, "both refs were actually checked against the REAL filesystem");
-  assert.equal(deps.writeAttestation.calls(), 0);
-  assert.equal(deps.port.promoteNote.calls(), 0, "THE HOLE: a caller fabricating 2 GO verdicts must never reach promoteNote");
+    assert.equal(result.outcome.promoted, false);
+    assert.match(result.outcome.reason, /no artifact|readVerdict/i);
+    assert.equal(result.localOnly, true);
+    assert.equal(deps.launchLeg.calls(), 2, "the fabricated inline verdicts were still produced");
+    assert.equal(writeVerdict.calls(), 2, "the invented refs were still minted");
+    assert.equal(readVerdict.calls(), 2, "both refs were actually checked against the REAL filesystem");
+    assert.equal(deps.writeAttestation.calls(), 0);
+    assert.equal(deps.port.promoteNote.calls(), 0, "THE HOLE: a caller fabricating 2 GO verdicts must never reach promoteNote");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("runD11Ceremony REFUSES when readVerdict finds a file for leg2 but not leg1", async () => {
@@ -594,49 +703,54 @@ test("runD11Ceremony REFUSES when readVerdict finds a file for leg2 but not leg1
 // ---------------------------------------------------------------------------
 
 test("TERRA ATTACK — a per-call deps.readVerdict returning a trusted-signed IN-MEMORY artifact is IGNORED (readVerdict is construction-time only); the real construction-time reader finds no durable backing and REFUSES", async () => {
-  // The ceremony is constructed with NO readVerdict override at all — the
-  // production default (`defaultReadVerdict`, a real filesystem reader),
-  // wrapped only to count invocations.
-  const readVerdict = countingDefaultReadVerdict();
-  const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict });
+  const dir = await mkdtemp(join(tmpdir(), "d11-ceremony-terra-"));
+  try {
+    // The ceremony is constructed with NO readVerdict override at all — the
+    // production default (`defaultReadVerdict`, a real filesystem reader),
+    // wrapped only to count invocations.
+    const readVerdict = countingDefaultReadVerdict(dir);
+    const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict });
 
-  // writeVerdict (still per-call, still untrusted) mints refs but writes
-  // NOTHING to disk — the ROUND 1 counter-example shape.
-  const writeVerdict = refCounter("terra-attack-ref");
+    // writeVerdict (still per-call, still untrusted) mints CORRECTLY CONFINED
+    // refs but writes NOTHING to disk — the ROUND 1 counter-example shape.
+    const writeVerdict = confinedNoWriteRef(dir);
 
-  // THE ATTACK: the per-call caller attaches a `readVerdict` straight onto the
-  // `deps` object at runtime — `RunD11CeremonyDeps` has no such field, so this
-  // is only possible because JS does not enforce the TS shape. It fabricates a
-  // fully-formed, GENUINELY, VALIDLY signed artifact (the attacker holds
-  // LEG_SPEC_1's real private key here — modelling exactly the "unestablished
-  // key custody" scenario the WHY names) that exists ONLY as this in-memory
-  // closure's return value — no durable backing anywhere, no file, no ref
-  // that resolves to real bytes.
-  let maliciousReadVerdictCalls = 0;
-  const maliciousReadVerdict = async () => {
-    maliciousReadVerdictCalls += 1;
-    return signedArtifact(KEY_1.privateKeyPem, goVerdictFor(LEG_SPEC_1));
-  };
+    // THE ATTACK: the per-call caller attaches a `readVerdict` straight onto the
+    // `deps` object at runtime — `RunD11CeremonyDeps` has no such field, so this
+    // is only possible because JS does not enforce the TS shape. It fabricates a
+    // fully-formed, GENUINELY, VALIDLY signed artifact (the attacker holds
+    // LEG_SPEC_1's real private key here — modelling exactly the "unestablished
+    // key custody" scenario the WHY names) that exists ONLY as this in-memory
+    // closure's return value — no durable backing anywhere, no file, no ref
+    // that resolves to real bytes.
+    let maliciousReadVerdictCalls = 0;
+    const maliciousReadVerdict = async () => {
+      maliciousReadVerdictCalls += 1;
+      return signedArtifact(KEY_1.privateKeyPem, goVerdictFor(LEG_SPEC_1));
+    };
 
-  const deps = happyDeps({ writeVerdict });
-  deps.readVerdict = maliciousReadVerdict; // attached at runtime; not a real RunD11CeremonyDeps field
+    const deps = happyDeps({ writeVerdict });
+    deps.readVerdict = maliciousReadVerdict; // attached at runtime; not a real RunD11CeremonyDeps field
 
-  const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
+    const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
 
-  assert.equal(result.outcome.promoted, false);
-  assert.equal(result.localOnly, true);
-  assert.match(result.outcome.reason, /no artifact|readVerdict/i);
-  assert.equal(
-    deps.port.promoteNote.calls(),
-    0,
-    "THE ATTACK: an in-memory trusted-signed artifact with no durable backing must never reach promoteNote"
-  );
-  assert.equal(
-    maliciousReadVerdictCalls,
-    0,
-    "the per-call-attached readVerdict is DEAD CODE — runD11Ceremony never reads deps.readVerdict at all"
-  );
-  assert.equal(readVerdict.calls(), 2, "the REAL construction-time reader was used instead, for both refs");
+    assert.equal(result.outcome.promoted, false);
+    assert.equal(result.localOnly, true);
+    assert.match(result.outcome.reason, /no artifact|readVerdict/i);
+    assert.equal(
+      deps.port.promoteNote.calls(),
+      0,
+      "THE ATTACK: an in-memory trusted-signed artifact with no durable backing must never reach promoteNote"
+    );
+    assert.equal(
+      maliciousReadVerdictCalls,
+      0,
+      "the per-call-attached readVerdict is DEAD CODE — runD11Ceremony never reads deps.readVerdict at all"
+    );
+    assert.equal(readVerdict.calls(), 2, "the REAL construction-time reader was used instead, for both refs");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -945,17 +1059,14 @@ test("runD11Ceremony happy path with the REAL default readVerdict (no constructi
   const dir = await mkdtemp(join(tmpdir(), "d11-ceremony-happy-"));
   try {
     // No `readVerdict` override at all — this is the production default shape:
-    // `defaultReadVerdict` does a genuine `readFile` at whatever path
-    // `writeVerdict` (below) actually writes to.
-    const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE });
+    // `defaultReadVerdict` does a genuine, CONFINED read (D11 FIX ROUND 3) at
+    // whatever path `writeVerdict` (below) actually writes to — which must be
+    // the ceremony-derived path beneath `authorizedRoot`, now REQUIRED.
+    const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, authorizedRoot: dir });
 
-    let n = 0;
     const writeVerdict = countingFn(async (verdict) => {
-      n += 1;
-      const ref = join(dir, `verdict-${n}.json`);
       const key = ALL_SIGNABLE_KEYS.keyFor(verdict.leg);
-      await writeFile(ref, JSON.stringify(signedArtifact(key.privateKeyPem, verdict)), "utf8");
-      return ref;
+      return writeConfinedArtifact(dir, key.privateKeyPem, verdict);
     });
     const deps = happyDeps({ writeVerdict });
     const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
@@ -965,8 +1076,8 @@ test("runD11Ceremony happy path with the REAL default readVerdict (no constructi
     assert.equal(deps.port.promoteNote.calls(), 1);
 
     const [, evidence] = deps.port.promoteNote.args()[0];
-    assert.equal(evidence.leg1_verdict_ref, join(dir, "verdict-1.json"));
-    assert.equal(evidence.leg2_verdict_ref, join(dir, "verdict-2.json"));
+    assert.equal(evidence.leg1_verdict_ref, deriveVerdictRef(dir, NOTE.noteId, LEG_SPEC_1));
+    assert.equal(evidence.leg2_verdict_ref, deriveVerdictRef(dir, NOTE.noteId, LEG_SPEC_2));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -980,7 +1091,12 @@ test("runD11Ceremony happy path is order-agnostic on distinctModels/distinctSess
   const legB = leg(sameModel, "session-same-B");
   const keystore = keystoreFrom([
     [legA, keyA.publicKeyPem],
-    [legB, keyB.publicKeyPem]
+    [legB, keyB.publicKeyPem],
+    // D11 FIX ROUND 3 §B: this ceremony uses a CUSTOM keystore, distinct
+    // from TRUSTED_KEYSTORE — NOTE's author signature must ALSO verify
+    // against it, or author verification refuses before either leg is ever
+    // launched.
+    [AUTHOR_LEG, KEY_AUTHOR_SIG.publicKeyPem]
   ]);
 
   const files = new Map();
@@ -1001,4 +1117,268 @@ test("runD11Ceremony happy path is order-agnostic on distinctModels/distinctSess
   const [writtenAttestation] = deps.writeAttestation.args()[0];
   assert.equal(writtenAttestation.distinctModels, false, "same model on both legs — not distinct");
   assert.equal(writtenAttestation.distinctSessions, true, "distinct sessions still make the legs independent");
+});
+
+// ---------------------------------------------------------------------------
+// D11 FIX ROUND 3 — path confinement. A THIRD, independent review NO-GO'd
+// round 2: `readVerdict` was construction-time, but the DEFAULT reader still
+// did a plain `readFile(ref)` on `writeVerdict`'s PER-CALL, caller-controlled
+// return value — the untrusted caller still controlled WHERE the trusted
+// reader looked. All three of the following attacks reached `promoteNote`
+// with `promoted: true` at ROUND 2 (@824b633e). ROUND 3 closes them by
+// deriving the ONE authorized read location itself (never trusting the
+// per-call ref beyond a string-equality check against that derivation), and
+// by opening it via the cull.ts-style descriptor-relative O_NOFOLLOW walk
+// with a SINGLE held file descriptor from open through fstat to read.
+// ---------------------------------------------------------------------------
+
+test("ROUND 3 ATTACK 1 — TRAVERSAL: writeVerdict returns a ../ ref pointing at a genuinely, validly signed GO artifact OUTSIDE the authorized zone — REFUSED before any file access (@824b633e this reached promoteNote:true)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "d11-ceremony-traversal-root-"));
+  const outside = await mkdtemp(join(tmpdir(), "d11-ceremony-traversal-outside-"));
+  try {
+    // A genuinely, validly signed GO artifact for LEG_SPEC_1 — real signature,
+    // real trusted key, everything a naive reader would accept — just planted
+    // OUTSIDE authorizedRoot.
+    const outsideRef = join(outside, "planted-leg1.json");
+    await writeFile(outsideRef, JSON.stringify(signedArtifact(KEY_1.privateKeyPem, goVerdictFor(LEG_SPEC_1))), "utf8");
+    // `root` and `outside` share the same parent (os.tmpdir()), so this
+    // genuinely traverses OUT of root and back into `outside` — a real `../`
+    // escape, not a simulated one.
+    const traversalRef = join(root, "..", basename(outside), "planted-leg1.json");
+
+    const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, authorizedRoot: root });
+    const writeVerdict = countingFn(async (verdict) => {
+      if (verdict.leg.session === LEG_SPEC_1.session) return traversalRef;
+      const key = ALL_SIGNABLE_KEYS.keyFor(verdict.leg);
+      return writeConfinedArtifact(root, key.privateKeyPem, verdict);
+    });
+    const deps = happyDeps({ writeVerdict });
+
+    const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
+
+    assert.equal(result.outcome.promoted, false);
+    assert.equal(result.localOnly, true);
+    assert.match(result.outcome.reason, /leg1/);
+    assert.match(result.outcome.reason, /confined/i);
+    assert.equal(
+      deps.port.promoteNote.calls(),
+      0,
+      "THE ATTACK: a traversal ref to a genuinely valid GO artifact must never reach promoteNote"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("ROUND 3 ATTACK 2 — SYMLINK: the confined ref (string-identical to the ceremony-derived path) IS a symlink to an attacker file outside the zone — REFUSED (O_NOFOLLOW), promoteNote never called (@824b633e this reached promoteNote:true)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "d11-ceremony-symlink-root-"));
+  const outside = await mkdtemp(join(tmpdir(), "d11-ceremony-symlink-outside-"));
+  try {
+    const outsideRef = join(outside, "attacker-leg1.json");
+    await writeFile(outsideRef, JSON.stringify(signedArtifact(KEY_1.privateKeyPem, goVerdictFor(LEG_SPEC_1))), "utf8");
+
+    const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, authorizedRoot: root });
+    const writeVerdict = countingFn(async (verdict) => {
+      if (verdict.leg.session === LEG_SPEC_1.session) {
+        // The ref returned is the CORRECT, ceremony-derived path — it PASSES
+        // the string-equality confinement check — but what's actually AT
+        // that path is a symlink to an attacker file outside the zone.
+        const ref = deriveVerdictRef(root, verdict.noteId, verdict.leg);
+        await mkdir(dirname(ref), { recursive: true });
+        await symlink(outsideRef, ref);
+        return ref;
+      }
+      const key = ALL_SIGNABLE_KEYS.keyFor(verdict.leg);
+      return writeConfinedArtifact(root, key.privateKeyPem, verdict);
+    });
+    const deps = happyDeps({ writeVerdict });
+
+    const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
+
+    assert.equal(result.outcome.promoted, false);
+    assert.equal(result.localOnly, true);
+    assert.match(result.outcome.reason, /no artifact/i);
+    assert.equal(
+      deps.port.promoteNote.calls(),
+      0,
+      "THE ATTACK: a symlink to a genuinely valid GO artifact must never reach promoteNote"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("ROUND 3 ATTACK 3 — TOCTOU: the confined ref is a genuinely signed artifact at write time but is SWAPPED for a symlink before the read — REFUSED (single held descriptor, no re-open gap), promoteNote never called (@824b633e this reached promoteNote:true)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "d11-ceremony-toctou-root-"));
+  const outside = await mkdtemp(join(tmpdir(), "d11-ceremony-toctou-outside-"));
+  try {
+    const outsideRef = join(outside, "attacker-leg1.json");
+    await writeFile(outsideRef, JSON.stringify(signedArtifact(KEY_1.privateKeyPem, goVerdictFor(LEG_SPEC_1))), "utf8");
+
+    const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, authorizedRoot: root });
+    const writeVerdict = countingFn(async (verdict) => {
+      if (verdict.leg.session === LEG_SPEC_1.session) {
+        const ref = deriveVerdictRef(root, verdict.noteId, verdict.leg);
+        await mkdir(dirname(ref), { recursive: true });
+        // A naive "check the file, THEN separately re-open it to read" reader
+        // would see THIS genuinely, validly signed GO artifact if it checked
+        // right now — this deterministically models winning the TOCTOU race
+        // window: by the time the ceremony's actual read runs, only the
+        // swapped symlink below exists.
+        await writeFile(ref, JSON.stringify(signedArtifact(KEY_1.privateKeyPem, verdict)), "utf8");
+        await unlink(ref);
+        await symlink(outsideRef, ref);
+        return ref;
+      }
+      const key = ALL_SIGNABLE_KEYS.keyFor(verdict.leg);
+      return writeConfinedArtifact(root, key.privateKeyPem, verdict);
+    });
+    const deps = happyDeps({ writeVerdict });
+
+    const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
+
+    assert.equal(result.outcome.promoted, false);
+    assert.equal(result.localOnly, true);
+    assert.match(result.outcome.reason, /no artifact/i);
+    assert.equal(
+      deps.port.promoteNote.calls(),
+      0,
+      "THE ATTACK: a file swapped between write and read must never reach promoteNote"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("ROUND 3 — ref-collision still refused: writeVerdict tries to make leg2's ref collide with leg1's ceremony-derived path — REFUSED at the confinement gate itself", async () => {
+  const root = await mkdtemp(join(tmpdir(), "d11-ceremony-collision-"));
+  try {
+    const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, authorizedRoot: root });
+    const leg1DerivedRef = deriveVerdictRef(root, NOTE.noteId, LEG_SPEC_1);
+    const writeVerdict = countingFn(async (verdict) => {
+      if (verdict.leg.session === LEG_SPEC_1.session) {
+        return writeConfinedArtifact(root, KEY_1.privateKeyPem, verdict);
+      }
+      // leg2 attempts to claim leg1's own derived location instead of its own.
+      return leg1DerivedRef;
+    });
+    const deps = happyDeps({ writeVerdict });
+    const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
+    assert.equal(result.outcome.promoted, false);
+    assert.match(result.outcome.reason, /leg2/);
+    assert.match(result.outcome.reason, /confined/i);
+    assert.equal(deps.port.promoteNote.calls(), 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// D11 FIX ROUND 3 §B — authorId is now BOUND to a verified author signature.
+// Graphify verified (@67bf73c7) MemoryNote carries no trusted author field —
+// so this closes INSIDE the ceremony, reusing the SAME trustedKeystore +
+// verifySignature verdict signatures already use (no second trust root).
+// `input.authorId` is a bare, per-call, caller-supplied hint — structurally
+// NEVER read for a trust decision anywhere in this module; separation of
+// powers compares against the VERIFIED signer of
+// `note["h2a.author_signature"]` instead. What was previously a KNOWN-OPEN,
+// SKIPPED, documented bypass is now a closed, asserted refusal.
+// ---------------------------------------------------------------------------
+
+test("D11 FIX ROUND 3 §B: authorId bypass is now REFUSED — a caller's false input.authorId cannot hide that the note's VERIFIED signed author is actually one of the two legs", async () => {
+  const { readVerdict } = honestVerdictIo();
+  const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict });
+  // The note's REAL, SIGNED author is LEG_SPEC_1 itself (signed with
+  // LEG_SPEC_1's own trusted key) — LEG_SPEC_1 is genuinely reviewing its
+  // own note.
+  const selfAuthoredNote = withAuthorSignature(NOTE, KEY_1.privateKeyPem, LEG_SPEC_1);
+  const deps = happyDeps();
+  // The caller supplies a DIFFERENT, false authorId — under the OLD
+  // (round-2) design this bypassed separation of powers; it no longer can,
+  // because authorId is never read for the trust decision.
+  const result = await ceremony(
+    { note: selfAuthoredNote, authorId: "claude:h2a-memory:a-false-author-id" },
+    deps
+  );
+  assert.equal(result.outcome.promoted, false);
+  assert.equal(result.localOnly, true);
+  assert.match(result.outcome.reason, /author/i);
+  assert.equal(deps.launchLeg.calls(), 0, "a leg == the VERIFIED author must never reach launchLeg");
+  assert.equal(readVerdict.calls(), 0);
+  assert.equal(deps.port.promoteNote.calls(), 0);
+});
+
+test("D11 FIX ROUND 3 §B: a note with NO author signature is REFUSED — fail-closed, never falls back to input.authorId", async () => {
+  const { readVerdict } = honestVerdictIo();
+  const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict });
+  const noteWithoutSignature = { noteId: NOTE.noteId, principal_owner: NOTE.principal_owner };
+  const deps = happyDeps();
+  const result = await ceremony({ note: noteWithoutSignature, authorId: AUTHOR_ID }, deps);
+  assert.equal(result.outcome.promoted, false);
+  assert.equal(result.localOnly, true);
+  assert.match(result.outcome.reason, /author signature/i);
+  assert.equal(deps.launchLeg.calls(), 0);
+  assert.equal(readVerdict.calls(), 0);
+  assert.equal(deps.port.promoteNote.calls(), 0);
+});
+
+test("D11 FIX ROUND 3 §B: a note whose author signature is signed by a key NOT in the trusted keystore is REFUSED (unknown author)", async () => {
+  const { readVerdict } = honestVerdictIo();
+  const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict });
+  const unknownAuthorLeg = leg("unregistered-author-model", "unregistered-author-session");
+  const unknownAuthorKey = keypair(); // never registered in TRUSTED_KEYSTORE
+  const noteWithUnknownAuthor = withAuthorSignature(NOTE, unknownAuthorKey.privateKeyPem, unknownAuthorLeg);
+  const deps = happyDeps();
+  const result = await ceremony({ note: noteWithUnknownAuthor, authorId: AUTHOR_ID }, deps);
+  assert.equal(result.outcome.promoted, false);
+  assert.match(result.outcome.reason, /no trusted public key/i);
+  assert.equal(deps.launchLeg.calls(), 0);
+  assert.equal(deps.port.promoteNote.calls(), 0);
+});
+
+test("D11 FIX ROUND 3 §B: a note whose author signature is garbage/tampered is REFUSED even though the claimed authorLeg IS in the trusted keystore", async () => {
+  const { readVerdict } = honestVerdictIo();
+  const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict });
+  const tamperedNote = {
+    ...NOTE,
+    "h2a.author_signature": { authorLeg: AUTHOR_LEG, noteId: NOTE.noteId, signature: "not-a-real-signature" }
+  };
+  const deps = happyDeps();
+  const result = await ceremony({ note: tamperedNote, authorId: AUTHOR_ID }, deps);
+  assert.equal(result.outcome.promoted, false);
+  assert.match(result.outcome.reason, /author signature is invalid/i);
+  assert.equal(deps.launchLeg.calls(), 0);
+  assert.equal(deps.port.promoteNote.calls(), 0);
+});
+
+test("D11 FIX ROUND 3 §B: a note's author signature whose noteId does not match the note itself is REFUSED (anti-replay)", async () => {
+  const { readVerdict } = honestVerdictIo();
+  const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict });
+  const replayedNote = {
+    ...NOTE,
+    "h2a.author_signature": authorSignature(KEY_AUTHOR_SIG.privateKeyPem, {
+      noteId: "some-other-note",
+      authorLeg: AUTHOR_LEG
+    })
+  };
+  const deps = happyDeps();
+  const result = await ceremony({ note: replayedNote, authorId: AUTHOR_ID }, deps);
+  assert.equal(result.outcome.promoted, false);
+  assert.match(result.outcome.reason, /noteId does not match|replay/i);
+  assert.equal(deps.launchLeg.calls(), 0);
+  assert.equal(deps.port.promoteNote.calls(), 0);
+});
+
+test("D11 FIX ROUND 3 §B: a note whose author signature verifies, with a signer DISTINCT from both legs, promotes normally", async () => {
+  const { writeVerdict, readVerdict } = honestVerdictIo();
+  const ceremony = createD11Ceremony({ trustedKeystore: TRUSTED_KEYSTORE, readVerdict });
+  const deps = happyDeps({ writeVerdict });
+  // NOTE's author signature verifies to AUTHOR_LEG.session (AUTHOR_ID),
+  // distinct from both LEG_SPEC_1.session and LEG_SPEC_2.session.
+  const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
+  assert.deepEqual(result.outcome, { promoted: true, id: NOTE.noteId });
+  assert.equal(deps.port.promoteNote.calls(), 1);
 });
