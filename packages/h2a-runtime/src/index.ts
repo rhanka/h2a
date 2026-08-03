@@ -8279,9 +8279,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (group) restoreOpts.group = group;
         if (opts.dryRun) restoreOpts.dryRun = true;
 
-        // Optional whole-fleet gateway override. "auto" (no flag) leaves each
-        // session on its pinned posture; gateway/direct forces all + relaunches
-        // live sessions to actually switch them.
+        // Optional restore-launch gateway override. "auto" (no flag) leaves
+        // each session on its pinned posture; an existing live session is only
+        // attached so restore never replaces it to change gateway posture.
         let forceGateway: "gateway" | "direct" | undefined;
         try {
           const mode = gatewayModeFromOptions(opts);
