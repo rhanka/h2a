@@ -9,6 +9,7 @@ import {
   dropRemoteBackedLocals,
   groupSessions,
   mergeDiscovered,
+  readConversationCustomTitle,
   readLastLayout,
   registrySessions,
   sessionIdentitySlug,
@@ -43,9 +44,9 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-/** claude encodes a cwd into its project-dir name by replacing "/" with "-". */
+/** Claude encodes a cwd into its project-dir name by replacing non-alphanumerics with "-". */
 function claudeProjectDir(cwd: string): string {
-  return join(home, ".claude", "projects", cwd.replace(/\//g, "-"));
+  return join(home, ".claude", "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
 }
 
 function seedClaudeScan(project: string, sid: string): string {
@@ -74,6 +75,25 @@ function registryEntry(project: string, over: Partial<RegistryEntry> = {}): Regi
 }
 
 describe("registry-first discovery", () => {
+  it("finds a Claude transcript in the canonical dotted-lane project directory", () => {
+    const cwd = "/home/x/geo/.lanes/archi";
+    const convId = "conv-lane";
+    const dir = join(
+      home,
+      ".claude",
+      "projects",
+      "-home-x-geo--lanes-archi",
+    );
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `${convId}.jsonl`),
+      '{"type":"custom-title","customTitle":"archi"}\n',
+      "utf8",
+    );
+
+    expect(readConversationCustomTitle(home, cwd, convId)).toBe("archi");
+  });
+
   it("registry entries beat the filesystem scan for the same project; the scan completes uncovered projects", () => {
     // projA: live registry entry AND scan files -> registry wins.
     const cwdA = seedClaudeScan("projA", "scan-a");
