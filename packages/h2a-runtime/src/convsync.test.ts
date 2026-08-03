@@ -33,6 +33,26 @@ let scratch: string;
 beforeEach(() => { scratch = mkdtempSync(join(SCRATCH_ROOT, "home-")); });
 afterEach(() => { rmSync(scratch, { recursive: true, force: true }); });
 
+// Verbatim host helpers from Claude 2.1.220:
+//   byte 247436601: function srt(e){let t=0;for(let r=0;r<e.length;r++)t=(t<<5)-t+e.charCodeAt(r)|0;return t}
+//   byte 248035177: function eCh(e){return Math.abs(srt(e)).toString(36)}
+//   byte 248035230: function x0(e){let t=e.replace(/[^a-zA-Z0-9]/g,"-");if(t.length<=axt)return t;return`${t.slice(0,axt)}-${eCh(e)}`}
+function srt(e: string): number {
+  let t = 0;
+  for (let r = 0; r < e.length; r++) t = (t << 5) - t + e.charCodeAt(r) | 0;
+  return t;
+}
+
+function eCh(e: string): string {
+  return Math.abs(srt(e)).toString(36);
+}
+
+function x0(e: string): string {
+  const t = e.replace(/[^a-zA-Z0-9]/g, "-");
+  if (t.length <= 200) return t;
+  return `${t.slice(0, 200)}-${eCh(e)}`;
+}
+
 // ---------------------------------------------------------------------------
 // encodeCwd
 // ---------------------------------------------------------------------------
@@ -58,6 +78,21 @@ describe("encodeCwd", () => {
     expect(encodeCwd("/home/x/geo/.lanes/archi")).toBe(
       "-home-x-geo--lanes-archi",
     );
+  });
+
+  it("replaces underscores and spaces with dashes for short paths", () => {
+    expect(encodeCwd("/home/x/project_name with spaces")).toBe(
+      "-home-x-project-name-with-spaces",
+    );
+  });
+
+  it("matches the verbatim host x0 oracle for an encoded path over 200 characters", () => {
+    const cwd = "/workspace/" + "alpha_ beta/".repeat(24);
+    const substituted = cwd.replace(/[^a-zA-Z0-9]/g, "-");
+
+    expect(substituted.length).toBeGreaterThan(200);
+    expect(encodeCwd(cwd)).toBe(x0(cwd));
+    expect(encodeCwd(cwd)).toMatch(/-hq0xbd$/);
   });
 });
 
