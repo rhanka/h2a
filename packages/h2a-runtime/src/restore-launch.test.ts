@@ -4,11 +4,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const listLocalSessionsWithDiagnostics = vi.hoisted(() => vi.fn());
+const killLocalSession = vi.hoisted(() => vi.fn());
 const spawn = vi.hoisted(() => vi.fn());
 
 vi.mock("./tmux.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./tmux.js")>();
-  return { ...actual, listLocalSessionsWithDiagnostics };
+  return { ...actual, killLocalSession, listLocalSessionsWithDiagnostics };
 });
 
 vi.mock("node:child_process", async (importOriginal) => {
@@ -26,6 +27,7 @@ describe("launchLayout prefix collision", () => {
   beforeEach(() => {
     listLocalSessionsWithDiagnostics.mockReset();
     listLocalSessionsWithDiagnostics.mockReturnValue({ sessions: [], known: true });
+    killLocalSession.mockReset();
     spawn.mockReset();
     spawn.mockReturnValue({ stderr: { on: vi.fn() }, unref: vi.fn() });
     previousScreen = process.env.GNOME_TERMINAL_SCREEN;
@@ -125,8 +127,18 @@ describe("launchLayout prefix collision", () => {
       tmuxServerPid: "4242",
       attached: false,
     };
-    listLocalSessionsWithDiagnostics.mockReturnValue({ sessions: [orphan], known: true });
-    const pidBefore = orphan.tmuxServerPid;
+    const tmuxState = { sessions: [orphan] };
+    listLocalSessionsWithDiagnostics.mockImplementation(() => ({
+      sessions: tmuxState.sessions,
+      known: true,
+    }));
+    killLocalSession.mockImplementation((name: string) => {
+      tmuxState.sessions = tmuxState.sessions.filter((session) => session.name !== name);
+      return true;
+    });
+    const pidBefore = listLocalSessionsWithDiagnostics().sessions.find(
+      (session) => session.name === "h2a-orphan",
+    )?.tmuxServerPid;
 
     const result = launchLayout(
       [
@@ -148,7 +160,10 @@ describe("launchLayout prefix collision", () => {
     expect(command).toContain("tmux attach -t 'h2a-orphan'");
     expect(command).not.toMatch(/h2a run|h2a resume|--replace/);
 
-    const pidAfter = listLocalSessionsWithDiagnostics().sessions[0]!.tmuxServerPid;
+    expect(killLocalSession).not.toHaveBeenCalledWith("h2a-orphan");
+    const pidAfter = listLocalSessionsWithDiagnostics().sessions.find(
+      (session) => session.name === "h2a-orphan",
+    )?.tmuxServerPid;
     expect(pidAfter).toBe(pidBefore);
   });
 
