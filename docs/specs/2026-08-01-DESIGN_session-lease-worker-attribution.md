@@ -53,24 +53,28 @@ future consumer. It must not live in the slot counter while abandonment lives el
 two readers WILL diverge (one says "lease live", the other "slot free").
 
 ```
-ALIVE(lease, live /proc, now)  ⟺  ¬abandoned(lease, now)  ∧  ¬workerDisproven(lease, /proc)
+ALIVE(lease, live /proc, now)  ⟺  ¬abandoned(lease, now)  ∧  workerGate(lease, /proc)
 
-// R1 — ABSENT worker is UNKNOWN, NOT disqualifying. A lease with no worker field is not
-// DISPROVEN; it stays ALIVE on abandonment alone until a pass resolves it. Only a
-// PRESENT-but-contradicted worker disproves life.
-workerDisproven(lease, /proc)  ⟺  lease.worker present
-                              ∧ (   lease.worker.bootId !== currentBootId            // dead boot  (R3: reap)
-                                  ∨ /proc/<lease.worker.pid> absent                  // worker gone (R3: contest)
-                                  ∨ /proc/<lease.worker.pid>.startTime !== recorded ) // pid recycled/replaced (R3: contest)
+// R1 — ABSENT worker is UNKNOWN, NOT disqualifying. Until a pass resolves it, the
+// abandonment criterion alone decides life. When worker is PRESENT, workerValid is the
+// load-bearing conjunct: positive evidence of death disqualifies the lease.
+workerGate(lease, /proc)  ⟺  lease.worker absent  ∨  workerValid(lease, /proc)
+
+workerValid(lease, /proc)  ⟺  lease.worker present
+                            ∧ lease.worker.bootId === currentBootId
+                            ∧ /proc/<lease.worker.pid> exists
+                            ∧ /proc/<lease.worker.pid>.startTime === recorded
 ```
 
-**R1 — safe at deploy.** Because absent `worker` never disproves, at the instant this
-predicate ships — when NO existing lease yet carries the field — it is a NO-OP over the live
-fleet: it reduces to abandonment alone, so no working session is mass-proposed for reclaim. A
-supervising pass then resolves `worker` for leases lacking it (lazy migration); the field
-becomes load-bearing only once populated. `worker` presence is a **conjunct of DISPROOF**,
-never a precondition of life. Slot count of live leases = `leases.filter(l => ALIVE(l, /proc,
-now))`; finished-but-alive frees its slot by TTL; a recycled pid never counts as a live slot.
+**R1 — safe at deploy.** Because absent `worker` is UNKNOWN and non-disqualifying, at the
+instant this predicate ships — when NO existing lease yet carries the field — it is a NO-OP
+over the live fleet: `workerGate` is true and ALIVE reduces to abandonment alone, so no
+working session is mass-proposed for reclaim. A supervising pass MAY resolve `worker` for
+leases lacking it (lazy migration), but absence remains non-disqualifying regardless. Once
+the field is present, `workerValid` is again a **conjunct of life**, never a display field:
+only positive evidence of worker death can make the gate false. Slot count of live leases =
+`leases.filter(l => ALIVE(l, /proc, now))`; finished-but-alive frees its slot by TTL; a
+recycled pid never counts as a live slot.
 
 ## 4. The danger this closes, and the race it opens (arch refinement 2)
 
@@ -115,8 +119,8 @@ reproduce that identically. So this design NAMES the readers before the writer:
     repeats. A lease from another boot is not CONTESTED, it is DEAD: it is reaped, not proposed.
   - **contested** (same boot, but `/proc/<pid>` gone or `startTime` mismatch): the worker died
     or was replaced while we watched. Slot counted free; becomes a reclaim PROPOSAL a
-    human/conductor can see (this store proposes, a human disposes) — EXCEPT inside the bounded
-    relaunch window (§4).
+    human/conductor can see. This store **PROPOSES**; a human/conductor **DISPOSES** — EXCEPT
+    inside the bounded relaunch window (§4).
 
 The writer (`acquire`/relaunch populating `worker` via one /proc walk — arch refinement 2b:
 /proc is MOVED to acquire-time, not eliminated; the worker is a grandchild, resolved once by
@@ -137,12 +141,14 @@ The storm that froze the machine was ~330 `h2a status` processes: ONE node proce
 per session across 57 sessions. The bug was the per-refresh SPAWN, not the session count. An
 auditor implemented as a PER-SESSION probe is that exact form. Therefore, by construction:
 - **ONE pass for the WHOLE fleet, never one per session.** tmux returns the marker for EVERY
-  session in ONE invocation via a FORMAT: `tmux list-sessions -F '#{session_name} #{@h2a_status_surface}'`
-  (VERIFIED on tmux 3.6 — prints the custom option per session, one call). NOT
-  `show-options -A -t <session>`, which is PER-TARGET and would force a per-session loop — the
-  exact shape this constraint forbids (R4: the command matters, not just the rule; an
-  implementer follows the cited command). Worker validity likewise: ONE `/proc` scan compared
-  against all leases in memory — not one scan per lease.
+  session in ONE invocation via a FORMAT: `tmux list-sessions -F '#{@h2a_status_surface}'`
+  (VERIFIED on tmux 3.6 with distinct values on two sessions — prints each session's custom
+  option, one call). An auditor MAY add `#{session_name}` to that SAME format string to label
+  rows; it does not need another query. NOT `show-options -A -t <session>`, which is PER-TARGET
+  and would force a per-session loop — the exact shape this constraint forbids (R4: the
+  command matters, not just the rule; an implementer follows the cited command). Worker
+  validity likewise: ONE `/proc` scan compared against all leases in memory — not one scan
+  per lease.
 - **NO spawn per refresh.** The audit is a BOUNDED act — on demand, or on a loose cadence —
   NEVER hooked to a render/refresh cycle.
 - **General rule for the whole class fix:** a reader that costs one process per subject is not
