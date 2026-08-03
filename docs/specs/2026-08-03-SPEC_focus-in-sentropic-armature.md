@@ -125,7 +125,12 @@ concurrency guard, not a key rewrite.
 conversations, so "documented perennial" was not "is perennial". Leaving the slot absent is therefore
 not a temporary courtesy until a value arrives — it is the only honest state until a durable anchor is
 built by someone. **Where this stops:** these are WP5's measurements of 2026-08-03, cited as theirs;
-this document did not re-run them and does not specify the anchor.
+this document did not re-run them and does not specify the anchor. **Resolution status of that
+citation, stated so a reader is not misled:** no repository artifact carries those measurements yet —
+they exist as WP5's traced run and its report. Until WP5 publishes them, this paragraph is an
+attribution, not a resolvable reference. The two figures this document *did* measure itself are the
+absence of `agentRef` at sentropic `fdee25c5` and the excess-identity counts (4 548 keys, 6 651 excess
+in one store, zero in the live store).
 
 | ID | Normative clause | Enforcement rung | Named proof observable by another person | Where the guarantee stops |
 |---|---|---|---|---|
