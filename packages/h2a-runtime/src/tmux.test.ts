@@ -1733,7 +1733,7 @@ describe("STRUCTURED_H2A_RUN_WRAPPER (real bash)", () => {
     try {
       writeFileSync(
         fakeTmux,
-        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$H2A_RUN_CLEANUP_LOG\"\n",
+        "#!/bin/sh\nif [ \"$1\" = display-message ]; then\n  printf '%s\\n' '$42'\nelse\n  printf '%s\\n' \"$*\" >> \"$H2A_RUN_CLEANUP_LOG\"\nfi\n",
         { mode: 0o700 },
       );
       chmodSync(fakeTmux, 0o700);
@@ -1751,10 +1751,79 @@ describe("STRUCTURED_H2A_RUN_WRAPPER (real bash)", () => {
       );
 
       expect(r.status).toBe(0);
-      expect(readFileSync(cleanupLog, "utf8")).toBe(
-        "kill-session -t =h2a-short-worker:\n",
-      );
+      expect(readFileSync(cleanupLog, "utf8")).toBe("kill-session -t $42\n");
     } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves a replacement session when the original name is reused before its worker exits", () => {
+    const dir = mkdtempSync(join(tmpdir(), "h2a-run-cleanup-reuse-"));
+    const server = `h2a-run-cleanup-${process.pid}-${Date.now()}`;
+    const session = `h2a-run-reused-${process.pid}`;
+    const renamedSession = `${session}-old`;
+    const release = join(dir, "release-worker");
+    const tmux = (args: string[]) =>
+      realSpawnSync("tmux", ["-L", server, ...args], {
+        encoding: "utf8",
+        env: { ...process.env, H2A_RUN_RELEASE: release },
+      });
+
+    try {
+      const started = tmux([
+        "new-session",
+        "-d",
+        "-s",
+        session,
+        "bash",
+        "-c",
+        STRUCTURED_H2A_RUN_WRAPPER,
+        session,
+        "sh",
+        "-c",
+        'while [ ! -f "$H2A_RUN_RELEASE" ]; do sleep 0.01; done',
+      ]);
+      expect(started.status).toBe(0);
+
+      expect(
+        tmux(["rename-session", "-t", `=${session}:`, renamedSession]).status,
+      ).toBe(0);
+      expect(
+        tmux(["new-session", "-d", "-s", session, "sleep", "infinity"]).status,
+      ).toBe(0);
+      const replacementPanePid = tmux([
+        "display-message",
+        "-p",
+        "-t",
+        `=${session}:`,
+        "#{pane_pid}",
+      ]).stdout.trim();
+      expect(replacementPanePid).not.toBe("");
+
+      writeFileSync(release, "exit\n");
+
+      let originalExited = false;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (tmux(["has-session", "-t", `=${renamedSession}:`]).status !== 0) {
+          originalExited = true;
+          break;
+        }
+        realSpawnSync("sleep", ["0.02"]);
+      }
+
+      expect(originalExited).toBe(true);
+      expect(tmux(["has-session", "-t", `=${session}:`]).status).toBe(0);
+      expect(
+        tmux([
+          "display-message",
+          "-p",
+          "-t",
+          `=${session}:`,
+          "#{pane_pid}",
+        ]).stdout.trim(),
+      ).toBe(replacementPanePid);
+    } finally {
+      tmux(["kill-server"]);
       rmSync(dir, { recursive: true, force: true });
     }
   });

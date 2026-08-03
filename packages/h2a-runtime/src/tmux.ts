@@ -135,13 +135,14 @@ const H2A_RUN_WORKER_MARKER = "v1";
 /**
  * h2a_run's interactive worker must own the lifetime of its whole tmux
  * session.  Its MCP sidecar is another window, so merely letting the worker
- * pane terminate leaks the sidecar and therefore the session.  The session
- * name is generated locally and passed as one argv token; the exact target
- * prevents tmux's prefix matching from selecting a replacement session.
+ * pane terminate leaks the sidecar and therefore the session.  Capture the
+ * owning session's immutable tmux ID once at wrapper start: the session name
+ * can subsequently be renamed and reused by a different live session.
  */
 export const STRUCTURED_H2A_RUN_WRAPPER = `session="$0"; cli="$1"; shift
+sid=$(tmux display-message -p -t "=$session:" '#{session_id}' 2>/dev/null) || sid=""
 cleanup() {
-  tmux kill-session -t "=$session:" >/dev/null 2>&1 || true
+  [ -n "$sid" ] && tmux kill-session -t "$sid" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 "$cli" "$@"
