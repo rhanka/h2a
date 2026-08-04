@@ -1,0 +1,40 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "env:1785653017345:74b8",
+  "type": "event",
+  "actor": {
+    "instance": "codex:h2a:c822743d65c1",
+    "role": "AGENTS",
+    "scope": "scope:pr150-independent-confirmation"
+  },
+  "body": {
+    "kind": "review",
+    "title": "GO — PR #150 post-fix independent confirmation",
+    "text": "GO at exact head 74b74c81c80824217064920d964f03541377789d. Detached origin/main baseline 0f2f0a174e6627ab88d6b0b1929f3d8e16f88295. Full command in each: npx vitest run packages/h2a-runtime/src. main 59 failed / 1211 passed / 1270 total; branch 58 failed / 1218 passed / 1276 total. Mechanical branch-minus-main test-name set: []; DELTA=0. Branch failure set equals main minus the restored registry-first discovery test in restore.test.ts. conv-guard-wiring: 16 failed vs 16, no new names; index resume-wiring: 0 failed vs 0; all added resume classification tests pass. D2 rejects contradictory gateway flags PASS. D4 excludes an ended human entry before preserving registry order PASS. npm ci exit 0 in both. Verdict GO.",
+    "verdict": "GO",
+    "headSha": "74b74c81c80824217064920d964f03541377789d",
+    "baselineSha": "0f2f0a174e6627ab88d6b0b1929f3d8e16f88295",
+    "counts": {
+      "main": {
+        "failed": 59,
+        "passed": 1211,
+        "total": 1270
+      },
+      "branch": {
+        "failed": 58,
+        "passed": 1218,
+        "total": 1276
+      }
+    },
+    "newFailures": [],
+    "fixedVsMain": [
+      "src/restore.test.ts :: registry-first discovery registry entries beat the filesystem scan for the same project; the scan completes uncovered projects"
+    ],
+    "namedChecks": {
+      "d2": "passed",
+      "d4": "passed"
+    }
+  },
+  "createdAt": "2026-08-02T06:43:37.342858161Z"
+}

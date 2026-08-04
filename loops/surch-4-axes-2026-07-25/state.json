@@ -1,0 +1,33 @@
+{
+  "id": "surch-4-axes-2026-07-25",
+  "ownerSystem": "h2a",
+  "name": "surch-4-axes",
+  "goal": "surch : atteindre la parité ou l'avantage sur les 4 axes contre ES 8.6.1 à mémoire constante. Front n°1 = latence (p95 aléatoire ~4× pire qu'ES). Ordre : P0 séparer coût de sonde et coût moteur → P1 terminaison anticipée → P2 rebrancher le parcours à saut par segment → P3 seuil MaxScore réel → P4 trancher le feeder → P5 gates qualité BEIR → P6 défauts harnais L2. Backlog complet dans .track (4 workpackages, 8 pistes, 8 résultats acquis/échecs).",
+  "status": "created",
+  "repos": [],
+  "refs": [],
+  "agents": [
+    {
+      "id": "claude:surch:5944f778511e",
+      "host": "shell",
+      "role": "conductor",
+      "placement": "local",
+      "status": "running",
+      "h2aInstance": "claude:surch:5944f778511e",
+      "required": true,
+      "joinedAt": "2026-07-25T22:57:56.482Z"
+    }
+  ],
+  "policy": {
+    "tickMs": 60000,
+    "idleMs": 900000,
+    "maxRelaunches": 3,
+    "requireHumanTypingGuard": true,
+    "autoTick": false,
+    "closeWhenRefsSatisfied": false,
+    "successCriteria": "explicit-done",
+    "decisionGatePolicy": "all-go-or-waived"
+  },
+  "createdAt": "2026-07-25T22:57:56.477Z",
+  "updatedAt": "2026-07-25T22:57:56.482Z"
+}

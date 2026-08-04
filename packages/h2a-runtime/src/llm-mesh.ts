@@ -64,7 +64,7 @@ export function replaceAnthropicGatewayEnvironment(
 export interface LlmMeshAccount {
   id: string;
   /** "anthropic" = Claude sk-ant-; "openai" = OpenAI API key or OAuth JWT; "google" = Google OAuth */
-  provider: "anthropic" | "openai" | "google" | "gemini" | "gcp" | "gemini-code-assist";
+  provider: "anthropic" | "openai" | "google" | "gemini" | "gcp";
   label: string;
   token: string;
   authType?: "api-key" | "bearer";
@@ -464,8 +464,7 @@ export async function refreshAccountToken(
   if (
     account.provider === "google" ||
     account.provider === "gemini" ||
-    account.provider === "gcp" ||
-    account.provider === "gemini-code-assist"
+    account.provider === "gcp"
   ) {
     if (!account.refreshToken) {
       const baseDir = dir ?? homedir();
@@ -602,8 +601,7 @@ export function localGatewaySessionProvider(
       (account) =>
         account.provider === "google" ||
         account.provider === "gemini" ||
-        account.provider === "gcp" ||
-        account.provider === "gemini-code-assist",
+        account.provider === "gcp",
     )
   ) {
     return "google";

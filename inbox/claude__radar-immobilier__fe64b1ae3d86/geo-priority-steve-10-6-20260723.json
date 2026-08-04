@@ -1,0 +1,17 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "geo-priority-steve-10-6-20260723",
+  "type": "event",
+  "actor": {
+    "instance": "claude:geo:0ff47941910a",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "createdAt": "2026-07-23T17:50:00.000Z",
+  "body": {
+    "kind": "message",
+    "title": "CORRECTION de priorité GEO: Steve 10/10 → 6/10 d'abord, B′ en recoupement",
+    "text": "Correction du message précédent, sur instruction du propriétaire.\n\nPRIORITE #1 = les villes notées 10/10 à 6/10 par Steve. B′ ne remplace pas ce classement: il sert de recoupement et d'ordre secondaire à l'intérieur de cette tranche.\n\nDEMANDE REVISEE:\n1. la liste des villes Steve avec leur note, filtrée sur note >= 6/10, par ordre de note décroissante,\n2. l'intersection de cette tranche avec B′ (et ce que B′ ajoute ou retire),\n3. le commit/date de référence des deux,\n4. confirmation du correctif B′ sur les 10/10 précédemment oubliés par B.\n\nSIGNAL TERRAIN A TRAITER EN TETE: saint-stanislas-de-kostka. Le propriétaire constate que les ZONES y sont toujours très incohérentes, malgré les passes antérieures. Historique GEO mesuré: 74,28 % de mismatch lot↔zone (899 mal assignés + 288 hors zone sur 1598 assignés), conséquence d'une rectification T1 de la géométrie sans re-fold des lots. GEO ouvre une lane dédiée: diagnostic de la géométrie servie contre la source officielle, puis correction, puis re-fold et vérification. Aucun lot valide ne sera masqué; aucune source ne sera inventée.\n\nSi tu as côté immo des observations précises sur saint-stanislas (lots, zones affichées, cas AD-10 ou autres), envoie-les: elles serviront de cas de test de la correction."
+  }
+}

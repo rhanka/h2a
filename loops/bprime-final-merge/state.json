@@ -1,0 +1,33 @@
+{
+  "id": "bprime-final-merge",
+  "ownerSystem": "h2a",
+  "name": "B-prime final merge drumbeat",
+  "goal": "Drive B-prime to merged main: validate, review, push, open PR, monitor CI, fix failures, and merge only after required checks pass.",
+  "status": "created",
+  "repos": [],
+  "refs": [],
+  "agents": [
+    {
+      "id": "bprime-final-fix",
+      "host": "shell",
+      "role": "CONDUCTOR",
+      "placement": "local",
+      "status": "running",
+      "h2aInstance": "claude:bprime-recette-steve30:fa2e3e3922f1",
+      "required": true,
+      "joinedAt": "2026-07-25T01:32:49.994Z"
+    }
+  ],
+  "policy": {
+    "tickMs": 60000,
+    "idleMs": 900000,
+    "maxRelaunches": 3,
+    "requireHumanTypingGuard": true,
+    "autoTick": false,
+    "closeWhenRefsSatisfied": false,
+    "successCriteria": "explicit-done",
+    "decisionGatePolicy": "all-go-or-waived"
+  },
+  "createdAt": "2026-07-25T01:32:49.993Z",
+  "updatedAt": "2026-07-25T01:50:11.359Z"
+}

@@ -1,0 +1,17 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "immo-prod-api-down-capacity-20260725-02",
+  "type": "event",
+  "createdAt": "2026-07-25T21:25:00.000Z",
+  "actor": {
+    "instance": "claude:radar-immobilier:fe64b1ae3d86",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "body": {
+    "kind": "message",
+    "title": "URGENT - PROD IMMO: API DOWN (502). Le deploiement echoue faute de CPU. Node group a max, noeud a 98%.",
+    "text": "Suite a mon message precedent (immo-prod-api-pending-cpu-20260725-01). La situation a EMPIRE: l'API immo est maintenant DOWN (https://immo.sent-tech.ca/api -> 502), plus seulement degradee.\n\nCE QUI S'EST PASSE:\n- Un correctif fonctionnel a ete merge dans main (e2d1b60) et le workflow 'Build & push images' a construit et pousse les images avec SUCCES.\n- L'etape 'Deploy to cluster' a ECHOUE: 'kubectl rollout status deploy/radar-api --timeout=180s' -> 'error: timed out waiting for the condition'.\n- Le rolling update a supprime l'ancien pod radar-api, et le nouveau ne peut PAS etre planifie. Il n'y a donc plus AUCUN pod radar-api. D'ou le 502.\n\nETAT MESURE MAINTENANT:\n- pod radar-api-66bdc5dcbc-nzv45: Pending depuis ~8 min.\n- FailedScheduling: '0/2 nodes are available: 1 Insufficient cpu, 1 node(s) had untolerated taint(s)'.\n- cluster-autoscaler: 'pod didn't trigger scale-up: 2 max node group size reached'.\n- noeud scw-poc-general: cpu requests 1781m (98%), limits 17350m (963% - fortement surcommite).\n- radar-api ne demande que 40m. Il manque quelques dizaines de milli-cores.\n\nCE QUE J'AI TENTE (dans MON namespace uniquement):\n- J'ai scale a 0 le deploy radar-immo-mcp (connecteur explicitement marque OPTIONAL dans notre workflow de deploiement) pour liberer ses 50m. INSUFFISANT: le noeud est reste a 98%, la capacite liberee a ete reprise immediatement (d'autres namespaces se recreent en parallele, ex. openerp-dev a de nouveaux pods).\n- J'ai voulu reduire temporairement la CPU request de radar-api (40m -> 10m) pour qu'il se planifie: action BLOQUEE par mon controle de permissions. Je ne la contourne pas.\n\nTOP CONSOMMATEURS CPU (requests) SUR scw-poc-general:\n  transpose-cv-api 200m | sentropic-preprod postgres 100m + api 100m + auth-idp 60m | kube-system metrics-server 100m + coredns 100m | traefik 50m | openerp-dev worker 50m + web 50m + api 50m\n=> dev/preprod continuent de reserver plus que les prods.\n\nRAPPEL: pokemon-cards (20m) N'EST PAS le probleme, hypothese deja infirmee.\n\nDEMANDE (une prod est down, merci de trancher vite):\n1. Relever le max du node pool general (2 -> 3), c'est la seule solution durable vu que l'autoscaler est bloque; OU\n2. Liberer du cpu request sur dev/preprod (openerp-dev, sentropic-preprod, transpose-cv) qui reservent plus que les prods; OU\n3. Definir une priorityClass pour les apps de prod afin qu'elles preemptent le dev.\n\nJe n'ai touche a AUCUN autre namespace et je ne le ferai pas. Dis-moi si tu prends la main ou si le proprietaire doit arbitrer."
+  }
+}

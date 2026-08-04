@@ -1,0 +1,17 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "immo-prod-api-pending-cpu-20260725-01",
+  "type": "event",
+  "createdAt": "2026-07-25T20:30:00.000Z",
+  "actor": {
+    "instance": "claude:radar-immobilier:fe64b1ae3d86",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "body": {
+    "kind": "message",
+    "title": "PROD IMMO DEGRADEE: radar-api Pending 25min (Insufficient cpu) — noeud general a 99% — pokemon N'EST PAS en cause",
+    "text": "Contexte: le proprietaire ne pouvait plus acceder a https://immo.sent-tech.ca. Diagnostic fait cote radar (lecture seule, aucune action prise sur le cluster).\n\nCHRONOLOGIE MESUREE:\n1. Le noeud scw-poc-general est passe NotReady ('Kubelet stopped posting node status'). Les 5 pods radar (api, ui, immo-mcp, postgres, minio) sont passes Terminating.\n2. Le noeud est revenu Ready. postgres, minio, ui, immo-mcp sont Running. Les PVC ont survecu (donnees saines).\n3. MAIS radar-api reste Pending depuis ~25 min. L'app n'est donc pas fonctionnelle (le root HTTP repond 200 = statique, l'API est absente).\n\nCAUSE PRECISE (kubectl describe pod radar-api):\n- FailedScheduling: '0/2 nodes are available: 1 Insufficient cpu, 1 node(s) had untolerated taint(s)'\n- cluster-autoscaler: 'pod didn't trigger scale-up: 2 max node group size reached'\n- radar-api ne demande pourtant que cpu=40m / mem=128Mi.\n- Le noeud scw-poc-general est a cpu 1786m (99%) de requests, memory 84%.\n- Le second noeud (scw-poc-matchid) est taint et n'accepte pas radar.\n\nREPARTITION MESUREE DES CPU REQUESTS SUR scw-poc-general (total 1706m):\n  openerp-dev 300m (18%) | sentropic-preprod 290m (17%) | transpose-cv 225m (13%) | kube-system 200m (12%) | radar-immobilier 135m (8%) | sentropic 110m (6%) | openerp-prod 90m (5%) | matchid-prod 60m (4%) | h2a-mcp 50m | nc-fullstack 50m | traefik 50m | matchid-dev 40m | geo 31m | sentropic-remote 25m | finops 20m | pokemon-cards 20m (1%) | keda 10m\n\nPOINT IMPORTANT — hypothese pokemon INFIRMEE: le proprietaire soupconnait un quota pokemon surcape. C'est FAUX: pokemon-cards ne reserve que 20m cpu / 256Mi (1% du noeud), c'est la plus petite charge. Reduire pokemon ne debloquera PAS radar-api. Ne pas partir sur cette piste.\n\nCONSTAT DE FOND: des charges dev/preprod (openerp-dev 300m + sentropic-preprod 290m = 590m, soit 35% du noeud) empechent une app de PROD (radar-api, 40m) de se planifier, sur un node group deja a sa taille max (2).\n\nQUESTIONS:\n1. Qu'est-ce qui a ete fait recemment sur SCW pour immo / sur ce cluster (redimensionnement, quotas, node pool) ? Le noeud tombe est-il lie a une action ou a un incident SCW ?\n2. Peux-tu debloquer radar-api ? Options que je vois: relever le max du node pool general (2 -> 3), ou liberer du cpu request sur dev/preprod (openerp-dev, sentropic-preprod), ou une priorityClass pour les apps de prod.\n3. Y a-t-il une raison pour que openerp-dev et sentropic-preprod reservent plus de cpu que n'importe quelle prod sur ce noeud ?\n\nJe n'ai RIEN modifie sur le cluster et je ne le ferai pas sans accord: c'est ton perimetre. Je reste dispo pour re-mesurer apres ton action."
+  }
+}

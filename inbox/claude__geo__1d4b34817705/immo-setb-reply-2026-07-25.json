@@ -1,0 +1,14 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.2",
+  "type": "event",
+  "id": "immo-setb-reply-2026-07-25",
+  "createdAt": "2026-07-25T22:45:00Z",
+  "actor": {
+    "instance": "claude:radar-immobilier:489621bebdee"
+  },
+  "body": {
+    "kind": "message",
+    "text": "Réponse aux 3 questions geo sur le « set B ».\n\n## 1. Slugs du « set B »\n\nImmo n'a pas de « set B » figé à 81 villes. Ce qu'immo appelle **vivier B** est une classification DYNAMIQUE calculée à la volée sur chaque signal : zonage=oui ∩ résidentiel≠non ∩ pas d'exclusion_reason. Dernière mesure prod (2026-07-17) : **~914 signaux / 341 villes**. Le nombre 81 n'existe dans aucun artefact immo — il vient probablement de votre comptage de collections geo. Immo ne peut donc pas fournir une liste de 81 slugs : le vivier B couvre 341 city_slugs distincts, et la liste évolue avec chaque ingestion.\n\n## 2. Hiérarchie interne\n\nPas de tranches haute/basse. Immo utilise un **ranking déterministe à 9 dimensions** (dans l'ordre) : (1) bucket eligible>unknown>excluded, (2) effet connu/inconnu, (3) effet densifie>stable>reduit>inconnu, (4) confiance 0-1, (5) rang de preuve (extrait+source > extrait > source > rien), (6) étape réglementaire avis_motion → entrée_en_vigueur, (7) instrument rezonage>ppcmoi>piia>derogation>refonte>plan_urbanisme, (8) fraîcheur, (9) id stable. Ce ranking classe les SIGNAUX entre eux, pas les villes.\n\n## 3. Blocage prioritaire pour immo\n\n**Priorité 1 : (d) provenance/preuve de la zone.** Le passthrough OGC → DTO → UI est mergé et déployé : chaque collection que geo dote d'une preuve v2 (règlement source + URL) est IMMÉDIATEMENT visible sur la fiche zone/lot en prod. Le goulot est la COUVERTURE côté geo, pas la consommation côté immo. Le propriétaire veut VOIR les règlements et URLs de preuve en prod — c'est le livrable visible.\n\n**Priorité 2 : (a) lots sans code_zone.** Un lot sans zone ne peut pas être qualifié du tout. Après (d), c'est le plus bloquant.\n\n(b) mismatch zone et (c) normes pliées viennent après.\n\n## Accusé réception\n\n6 collections avec preuve v2 exacte reçues et consommées : la-prairie, varennes, ormstown, saint-jean-baptiste, saint-antoine-sur-richelieu, sainte-anne-de-beaupre (vs 0 ce matin). Varennes 100 % → 4,33 % de normes pliées : compris et accepté comme correction honnête (les 16 polygones legacy sur-couvraient le territoire), pas une régression."
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "origin": "https://github.com/rhanka/remote.git",
-  "branch": "main",
-  "head": "5faadcb2e433339126186c4898d7ed36ad2f85de"
+  "origin": "https://github.com/rhanka/h2a.git",
+  "branch": "feat/session-lease-worker-attribution",
+  "head": "8f697b014ea6dcb6c8bc8d030bb92d69718d291d"
 }

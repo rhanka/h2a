@@ -1,0 +1,33 @@
+{
+  "id": "loop-mry7o5hv",
+  "ownerSystem": "h2a",
+  "name": "mcp-gdrive-gmail-enrollment",
+  "goal": "Deliver minimum viable MCP integration for Google Drive and Gmail: multi-account enrollment mutualized via h2a, workspace-segmented re-exposure, using existing sentropic connectors. MCP lane builds only the mcp-platform seam; architect owns api/tenancy/migrations decisions.",
+  "status": "created",
+  "repos": [],
+  "refs": [],
+  "agents": [
+    {
+      "id": "claude:mcp",
+      "host": "shell",
+      "role": "AGENTS",
+      "placement": "local",
+      "status": "running",
+      "h2aInstance": "claude:mcp",
+      "required": true,
+      "joinedAt": "2026-07-24T00:37:47.348Z"
+    }
+  ],
+  "policy": {
+    "tickMs": 60000,
+    "idleMs": 900000,
+    "maxRelaunches": 3,
+    "requireHumanTypingGuard": true,
+    "autoTick": false,
+    "closeWhenRefsSatisfied": false,
+    "successCriteria": "explicit-done",
+    "decisionGatePolicy": "all-go-or-waived"
+  },
+  "createdAt": "2026-07-24T00:37:47.347Z",
+  "updatedAt": "2026-07-24T00:39:36.364Z"
+}

@@ -1,0 +1,34 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "1.0",
+  "id": "msg-diag-recovery-20260723-01",
+  "type": "escalate",
+  "createdAt": "2026-07-23T20:40:00.000Z",
+  "actor": {
+    "instance": "claude:sentropic",
+    "role": "AGENT"
+  },
+  "topic": "diag-recovery-and-public-surface",
+  "priority": "high",
+  "body": {
+    "context": "Sentropic side: @sentropic/cited-source-viewer@0.2.0 is published. Owner asked what comes next and flagged that diag work may have been lost, since we only see GitHub state. I did a READ-ONLY recovery pass on rhanka/diag. Nothing modified, merged, pushed or deployed.",
+    "findings": [
+      "Nothing is lost in the git sense: clone clean vs origin/main, no unpushed commits, no stashes, no dangling objects. But TWO branches were never merged into main.",
+      "origin/feat/diag-real-chat = 5 commits AHEAD of main, strictly fast-forwardable, with NO PULL REQUEST AT ALL. Contains the real @sentropic/chat-server mount (0.2.0 then 0.3.0), chat-ui@0.22 + render_mermaid host-tool registration, docs/standards/diag-chat-integration-plan.md, and commit 23973a1 'lock public mount' with deny-by-default capabilities (acceptClientProviderApiKey:false, acceptClientVscodeAgent:false, acceptClientLocalToolDefinitions:false, allowedLocalTools:[render_mermaid], server-side localToolDefinitions).",
+      "origin/main (3164ff7, 2026-06-11) does NOT contain the public-mount lock: main still runs the hand-rolled Hono chat route with only createDailyQuota + df_uid cookie.",
+      "origin/retrofit/ds-native-ui = 7 commits ahead, PR #4 OPEN and untouched since 2026-06-15 (DS bump 0.10.3 to 0.34.42, WP1-WP4 DS-native chrome/cards/annotate/chat, emitCss:false fix, RETROFIT_PROGRESS.md).",
+      "The two unmerged branches CONFLICT with each other on apps/ui/package.json and package-lock.json (ChatConversationPane.svelte auto-merges). They need an explicit reconciliation order, not two independent fast-forwards.",
+      "NO deployment infrastructure on ANY branch: zero .github/workflows, no Dockerfile, no compose, no deploy Makefile target. The 2026-06-02 spec called for one adapter-node app plus dedicated CI, but apps/ui is still adapter-static with fallback 200.html on all three branches.",
+      "Domain naming inconsistent: architecture spec says drawings.sent-tech.ca, chat integration plan says diag.sent-tech.ca.",
+      "Annotation work is real and substantial in packages/annotate (contracts, CommentStore, geometry, Svelte AnnotationLayer, point/rect/lasso/arrow, logical+geometric+group anchors, numbered pins, 2 UAT rounds). docs/superpowers/specs/2026-06-02-architecture-annotate-migration.md decided annotate + drawings-skills should be MIGRATED INTO sentropic/packages. Neither is publish-ready: raw src/*.ts and .svelte exports, no build, no dist exports, peers marked optional."
+    ],
+    "questions": [
+      "Are feat/diag-real-chat and retrofit/ds-native-ui both still wanted, and in which order should they be reconciled onto main?",
+      "Was the public-mount lock (23973a1) intentionally left off main, or did that integration simply never land?",
+      "Ratified public domain: diag.sent-tech.ca or drawings.sent-tech.ca?",
+      "For free public generation: self-hosted adapter-node deploy with your own abuse controls, or wait for the Sentropic app-host/ingress (SP-01/SP-02/SP-03) that the plan says is upstream and unpublished?",
+      "Do you still want @sentropic/annotate + @sentropic/drawings-skills repatriated into the sentropic monorepo, and should the sentropic side take the publish-readiness + CI lanes work, mirroring what was just done for cited-source-viewer?"
+    ],
+    "position": "My read on priority: (1) reconcile the two unmerged branches so the public-mount lock reaches main, (2) decide the public-exposure model and abuse controls BEFORE any DNS/deploy, since current main has only an in-memory daily quota behind a spoofable df_uid cookie while exposing an LLM key, (3) only then publish-readiness and repatriation into sentropic."
+  }
+}

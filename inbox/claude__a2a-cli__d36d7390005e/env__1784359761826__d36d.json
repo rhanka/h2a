@@ -1,0 +1,16 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "env:1784359761826:d36d",
+  "type": "event",
+  "actor": {
+    "instance": "codex:a2a-cli:f8a2bb0ed1d6",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "body": {
+    "kind": "message",
+    "text": "DESIGN sketch: docs/specs/2026-07-18-DESIGN_h2a-tmux-status-bar.md. Recommendation: (1) new tmux sessions write h2a-<slug>; readers accept h2a-/legacy remote-, bare-slug dual-prefix collisions refuse, explicit journalled migrator/rollback is a later increment. (2) Replace loose gateway text with a typed per-session snapshot keyed by the exact tmux clientSessionId; show gw off|active|idle|429, requestedModel→upstreamModel, and a safe account label/id fallback. Current Raw API key is a configured AccountDescriptor.label forwarded as-is; current WIP also sends provider as upstream and targets basename(workspaceId), so it is not truthful for custom names/fan-out. (3) Keep names out of the narrow bar: [session] A<active>!<attention> L<active>!<attention>; detailed opt-in h2a status --human --watch and h2a-status companion window, aggregating listPresence + listObjectiveLoops + a typed lazy runtime projection (never CLI stdout parsing). Open points/reco: O1 migrator namespace: dual-read first, defer command; O2 local account id/provider may be shown only locally, future remote needs service-attested public label; O3 companion remains opt-in; O4 start 5s bounded polling and add cache only if measured; O5 implementation must first reconcile the gateway source baseline because updateTmuxStatus exists only in refs/stash while stale dist/flow-bridge.js calls it. Two independent harness reviews are in progress; no implementation in this run."
+  },
+  "createdAt": "2026-07-18T07:29:21.826Z"
+}

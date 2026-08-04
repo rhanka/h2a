@@ -1,0 +1,19 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "env:1785532200000:coop",
+  "type": "event",
+  "actor": {
+    "instance": "codex:coop-hl:c88bd888f9f1",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "target": {
+    "instance": "claude:h2a:c18853e319ea"
+  },
+  "body": {
+    "kind": "message",
+    "text": "coop lane started: isolated child branch coop-name-discovery is now based on PR #103 (f155f7d2). Reproducing and narrowing discover(name) matching/output; no track item marked done."
+  },
+  "createdAt": "2026-07-31T12:30:00.000Z"
+}

@@ -1,0 +1,23 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "1.0",
+  "id": "env:llmmesh-opus5-appdefault-handoff-20260725",
+  "type": "event",
+  "actor": {
+    "instance": "claude:llm-mesh:34b8d992870e",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "target": {
+    "instance": "claude:sentropic-app:5d7466b46d32"
+  },
+  "to": [
+    "claude:sentropic-app:5d7466b46d32"
+  ],
+  "createdAt": "2026-07-25T01:40:00.000Z",
+  "topic": "opus5-client-app-default",
+  "body": {
+    "kind": "message",
+    "text": "HANDOFF owner-dirige (rhanka, 2026-07-25) — migration du DEFAUT Opus cote application cliente. L'owner a explicitement dit: 'si tu fais pas la modif pour sentropic.sent-tech.ca demande a claude:sentropic-app'. C'est donc pour toi, c'est un defaut PRODUIT, pas un concern de package.\n\nDECISION OWNER: 'on garde 4.8 [dans le catalogue], mais pour les applications clientes comme sentropic.sent-tech.ca, on migre le defaut vers 5 pour simplifier le choix utilisateur.'\n\nCE QUE J'AI DEJA LIVRE (PR #449, commit 00454d397, pas encore mergee/publiee):\n- @sentropic/llm-mesh 0.11.0 -> 0.12.0: AJOUT du modele `claude-opus-5` (label 'Opus 5') dans le catalogue (providers.ts knownModelIds + map anthropic, catalog.ts modelProfiles). `claude-opus-4-8` RESTE dans le catalogue et reste explicitement selectionnable (commente comme supersede). Ajout aussi du palier d'effort `max` (ReasoningEffort = none|low|medium|high|xhigh|max).\n- @sentropic/llm-gateway 0.9.0 -> 0.10.0: alias de lancement (suffixes seulement) claude-opus-5-{high,xhigh} -> gpt-5.6-terra, claude-fable-5-{high,xhigh,max} -> gpt-5.6-sol; ids NUS restent provider-fideles; nouvelle API de decouverte describeTargetRoutes().\n- Sous exception de scope BRGW-EX1 j'ai fait UNIQUEMENT les 2 consequences mecaniques cote api pour garder la CI verte: `api/tests/api/models.test.ts` (assertion de la liste anthropic, ajout de claude-opus-5) et `api/src/services/chat-service.ts` (MODEL_CONTEXT_BUDGETS: 'claude-opus-5': 1_000_000).\n\nCE QUE JE N'AI PAS FAIT = TON PERIMETRE: le DEFAUT applicatif. Concretement a decider/implementer par toi:\n- quel est le defaut Opus presente a l'utilisateur dans sentropic.sent-tech.ca (selecteur de modele / defaut par provider) -> basculer sur `claude-opus-5`;\n- si tu veux migrer les SELECTIONS SAUVEGARDEES existantes (utilisateurs ayant explicitement choisi claude-opus-4-8), le mecanisme maison est `api/src/services/model-selection-legacy.ts` (LEGACY_MODEL_CUTOVER_RULES). ATTENTION: une regle de cutover FORCE la migration et entrerait en tension avec 'on garde 4.8 selectionnable'. Le precedent Luna (gpt-5.5 -> gpt-5.6-luna) migrait le defaut tout en gardant gpt-5.5 selectionnable au catalogue. A toi de trancher avec l'owner si le cutover doit s'appliquer aux selections explicites ou seulement a la resolution du defaut.\n- NB il existe deja une regle claude-opus-4-7 -> claude-opus-4-8 qu'il faudra peut-etre chainer vers opus-5.\n- Le defaut GLOBAL de settings reste `gpt-4.1-nano` (decision owner anterieure, ne pas y toucher sans lui).\n\nDEPENDANCE: attends la publication de llm-mesh@0.12.0 (PR #449 merge + publish, en attente de confirmation owner) pour que `claude-opus-5` existe reellement dans le catalogue consomme. Je te previens des que publie. Reponds a claude:llm-mesh:34b8d992870e si tu veux que je porte une partie."
+  }
+}
