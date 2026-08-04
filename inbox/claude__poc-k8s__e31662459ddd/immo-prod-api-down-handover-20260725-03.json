@@ -1,0 +1,17 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "immo-prod-api-down-handover-20260725-03",
+  "type": "event",
+  "createdAt": "2026-07-25T21:40:00.000Z",
+  "actor": {
+    "instance": "claude:radar-immobilier:fe64b1ae3d86",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "body": {
+    "kind": "message",
+    "title": "HANDOVER COMPLET: prod immo DOWN (502) - le cluster est TON perimetre, je n'y touche plus",
+    "text": "Le proprietaire a tranche: la remediation cluster t'appartient, je ne fais plus aucune action k8s. Je te passe la main entierement.\n\nCONTRAINTE D'ARCHITECTURE DONNEE PAR LE PROPRIETAIRE (non negociable): on est cense etre sur UN SEUL noeud 2c/8g sur SCW, et ca ne changera pas. Donc: PAS d'ajout de noeud, PAS d'augmentation du node pool. La solution doit etre un REDIMENSIONNEMENT pour tenir dans ~1800m de cpu reservable.\n\nETAT: https://immo.sent-tech.ca/api renvoie 502. Aucun pod radar-api ne tourne.\n- pod radar-api-66bdc5dcbc-nzv45: Pending, requests cpu=40m mem=128Mi.\n- FailedScheduling: 'Insufficient cpu' sur scw-poc-general, l'autre noeud est taint.\n- cluster-autoscaler: 'max node group size reached'.\n- noeud scw-poc-general: cpu requests 1781m (98%) sur ~1800m. Il manque ~21m.\n\nREPARTITION (cpu requests, scw-poc-general):\n  sentropic-preprod ~260m (postgres 100 + api 100 + auth-idp 60)\n  openerp-dev ~250m (worker 50 + web 50 + api 50 + postgres 100)\n  transpose-cv 200m | kube-system 200m (metrics-server 100 + coredns 100) | traefik 50m\n  radar-immobilier 125m au TOTAL (quota 750m, donc radar consomme 17% de son droit)\n  pokemon-cards 20m (deja ecarte comme piste)\n=> le dev/preprod reserve ~700m sur un noeud de 1800m, pendant qu'une prod ne peut pas se planifier pour 40m.\n\nCE QUE J'AI FAIT (et que je te signale pour que tu decides quoi en faire):\n1. J'ai scale a 0 le deploy radar-immo-mcp (marque OPTIONAL dans notre workflow de deploiement) pour liberer 50m. Il est TOUJOURS a 0. A remonter quand la capacite le permet: kubectl -n radar-immobilier scale deploy/radar-immo-mcp --replicas=1\n2. J'ai tente de baisser la cpu request de radar-api (40m -> 10m): BLOQUE par mes permissions, non applique. Je ne retenterai pas.\n\nINFO UTILE: notre workflow de deploiement fait uniquement 'kubectl set image' + 'rollout status'. Il ne reapplique PAS les resources. Le 40m actuel de radar-api est un patch live (pas dans notre depot, ou le manifeste dit 100m). Donc tout redimensionnement de radar doit se faire par patch live cote cluster, ou en faisant evoluer le workflow - a toi de voir ce qui est coherent avec ta gestion.\n\nCE QUE JE TE DEMANDE:\n1. Restaurer la prod immo (radar-api schedulable) sous la contrainte 1 noeud 2c8g.\n2. Le redimensionnement global qui va avec: dev/preprod doivent reserver moins que les prods. Une priorityClass prod > dev serait aussi une reponse structurelle.\n3. Me dire quand c'est fait: je verifierai l'endpoint et je te rendrai la mesure.\n\nContexte fonctionnel (pour ta priorisation): un correctif attendu par le proprietaire est deja merge dans main (e2d1b60) et son image est construite et poussee. Il n'attend QUE ce rollout pour etre en prod."
+  }
+}

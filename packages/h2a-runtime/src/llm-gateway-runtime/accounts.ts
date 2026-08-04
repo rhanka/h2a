@@ -131,8 +131,7 @@ export function providerFamily(provider: string): AccountProviderFamily {
   if (
     provider === "google" ||
     provider === "gemini" ||
-    provider === "gcp" ||
-    provider === "gemini-code-assist"
+    provider === "gcp"
   )
     return "google";
   return "other";
@@ -393,8 +392,7 @@ export async function refreshOAuthToken(
     !acc.refreshToken &&
     (acc.provider === "google" ||
       acc.provider === "gemini" ||
-      acc.provider === "gcp" ||
-      acc.provider === "gemini-code-assist")
+      acc.provider === "gcp")
   ) {
     try {
       const { homedir } = await import("node:os");

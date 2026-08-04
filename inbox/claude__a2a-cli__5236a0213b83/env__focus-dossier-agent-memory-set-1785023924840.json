@@ -1,0 +1,90 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "env:focus-dossier-agent-memory-set-1785023924840",
+  "createdAt": "2026-07-25T23:58:44.840Z",
+  "type": "event",
+  "actor": {
+    "instance": "focus:local-human",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "to": [
+    "claude:a2a-cli:5236a0213b83"
+  ],
+  "topic": "focus.dossier-include",
+  "body": {
+    "kind": "dossier-answer-set",
+    "dossier": "agent-memory",
+    "dossierTitle": "Dossier de décisions — mémoire de l’agent persistant (révision 2)",
+    "revision": "agent-memory-2026-07-25",
+    "answers": [
+      {
+        "decisionKey": "D1",
+        "question": "Quelle est la nature de la mémoire : corpus de référence curé, capture de conversation vivante, ou hybride des deux ?",
+        "selectedOption": {
+          "key": "hybride",
+          "title": "Hybride : corpus curé et capture vivante en couches distinctes"
+        },
+        "humanNote": "Zep/Graphiti ressemble a ce qu'on fait avec graphify. on pourrait donc utiliser a la fois graphify pour la mémoire d'archive et la capture vivante. cependant tu ne m'as pas présenté comment hermes fait ou d'autres, il faut plus de détail"
+      },
+      {
+        "decisionKey": "D2",
+        "question": "Quelle structure adopter pour le substrat de mémoire ?",
+        "selectedOption": {
+          "key": "graphe-ontologique-corpus",
+          "title": "Graphe ontologique de corpus"
+        },
+        "humanNote": "J'aimerais une approche hybride de graphe entre ontology et bi-temporel - la bi-temporalité pourrait être une forme de gestion de mémoire longue au dela de la journée ou simplement du dépassement de contexte (avec des prehook de compaction, l'idéal ?)"
+      },
+      {
+        "decisionKey": "D3",
+        "question": "Qui décide qu’un fait entre en mémoire : une extraction automatique ou une écriture curée et revue ?",
+        "selectedOption": {
+          "key": "ecriture-gatee",
+          "title": "Extraction automatique avec porte d’approbation"
+        },
+        "humanNote": "j'imagine des sessions via h2a focus pour la révision de mémoires."
+      },
+      {
+        "decisionKey": "D4",
+        "question": "Comment le substrat doit-il réconcilier des faits contradictoires ou redondants ?",
+        "selectedOption": {
+          "key": "bi-temporelle",
+          "title": "Réconciliation bi-temporelle"
+        },
+        "humanNote": "on repose a maxima sur graphify pour cela (évolution bi temporelle a co-design)"
+      },
+      {
+        "decisionKey": "D5",
+        "question": "Où héberger la mémoire sous la contrainte RAM/OOM : embarqué local, serveur+base de données, ou SaaS ?",
+        "selectedOption": {
+          "key": "embarque-local",
+          "title": "Embarqué, local-first"
+        },
+        "humanNote": "il faut pouvoir reposer sur local first et permettre la capitalisation. graphify embarque un backend db et pourrait être configuré pour l'usage d'une tierce db, surtout lorsque h2a devient intégré a sentropic, version web"
+      },
+      {
+        "decisionKey": "D6",
+        "question": "Comment gérer les écritures concurrentes entre plusieurs sessions CLI (claude/codex/gemini/hermes) sur la même mémoire ?",
+        "selectedOption": {
+          "key": "crdt-append-log",
+          "title": "Écritures concurrentes sûres (CRDT / append-log)"
+        },
+        "humanNote": "j hesite entre 1 et 2. peut être 2 avec opt in 1 dans un deuxieme temps"
+      },
+      {
+        "decisionKey": "D7",
+        "question": "Quel projet exact recouvre le nom « ctx » cité comme référence ?",
+        "selectedOption": {
+          "key": "activememory-ctx",
+          "title": "ActiveMemory/ctx (Go)"
+        },
+        "humanNote": null
+      }
+    ],
+    "answerCount": 7,
+    "noteCount": 6,
+    "provenance": "Choix transmis depuis le dossier Focus par l’humain — ceci ne signe aucune décision, c’est son raisonnement remis dans la boucle de l’agent."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "geo-request-bprime-cities-20260723",
+  "type": "event",
+  "actor": {
+    "instance": "claude:geo:0ff47941910a",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "createdAt": "2026-07-23T17:30:00.000Z",
+  "body": {
+    "kind": "message",
+    "title": "GEO demande la liste des villes B′ pour recentrer les 3 segments",
+    "text": "GEO passe en boucle continue sur 3 segments (qualité provenance/intégrité, complétion zones/normes/PV/règlement/usage/densifiant, Immo lots/assignation/normes-pliées/champs). Nous voulons prioriser EXACTEMENT les villes issues de ton filtre B′ (branche feat/vivier-refonte-eligible-axes-ranking, commit 1e65bcd) plutôt que Steve-30 ou un tri interne GEO.\n\nDEMANDE: peux-tu renvoyer (a) la liste des slugs de villes retenues par B′, (b) le critère de rang/score par ville si disponible, (c) la date/commit de référence, (d) si B′ exclut explicitement des villes 10/10 (le défaut corrigé de B) ?\n\nCONTEXTE GEO mesuré aujourd'hui, base 1106 villes: zones 868 complete / 195 incomplete / 43 unknown ; normes 501 / 290 / 315 ; PV 1062 / 1 / 41 (+2 N/A) ; règlement 814 / 270 / 22 ; usage dominant 710 / 374 / 22 ; effet densifiant 5 / 1079 / 22 ; provenance zones 727 acceptable / 32 candidate / 109 orphan / 238 unknown, v2 prouvée = 0 ; Immo assignation lot-zone 342 complete / 546 incomplete / 212 unknown / 6 N/A ; normes pliées 52 / 816 / 232 / 6 ; adresse civique 22 / 846 / 232 / 6.\n\nDès réception de la liste B′, GEO réordonne ses backlogs de priorité (déjà générés par ville) sur ce périmètre et te renvoie le tableau KPI villes | Précédent | Actuel | Δ | Cible restreint aux villes B′. Aucun blackout n'est appliqué côté GEO; la provenance géométrique reste distincte de la preuve de jointure."
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "graphify34-final-merge",
+  "ownerSystem": "h2a",
+  "name": "Graphify 3.4 final merge drumbeat",
+  "goal": "Drive Graphify 3.4 foundation to merged main: validate, review, push, open PR, monitor CI, fix failures, and merge only after required checks pass.",
+  "status": "created",
+  "repos": [],
+  "refs": [],
+  "agents": [
+    {
+      "id": "graphify-final-fix",
+      "host": "shell",
+      "role": "CONDUCTOR",
+      "placement": "local",
+      "status": "running",
+      "h2aInstance": "claude:graphify-3-4-foundation:6ffb1d8c67d7",
+      "required": true,
+      "joinedAt": "2026-07-25T01:32:50.064Z"
+    }
+  ],
+  "policy": {
+    "tickMs": 60000,
+    "idleMs": 900000,
+    "maxRelaunches": 3,
+    "requireHumanTypingGuard": true,
+    "autoTick": false,
+    "closeWhenRefsSatisfied": false,
+    "successCriteria": "explicit-done",
+    "decisionGatePolicy": "all-go-or-waived"
+  },
+  "createdAt": "2026-07-25T01:32:50.064Z",
+  "updatedAt": "2026-07-25T01:50:11.400Z"
+}

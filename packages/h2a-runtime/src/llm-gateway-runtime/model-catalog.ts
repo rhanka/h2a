@@ -68,7 +68,7 @@ function envCatalogEntries(): ModelCatalogEntry[] {
           ? "anthropic"
           : "openai",
       transportProviderId: isGoogle
-        ? "gemini-code-assist"
+        ? "cloud-code"
         : isAnthropic
           ? "claude-code"
           : "codex",
@@ -136,7 +136,7 @@ export function accountPoolForProvider(
     normalized === "google" ||
     normalized === "gemini" ||
     normalized === "gcp" ||
-    normalized === "gemini-code-assist"
+    normalized === "cloud-code"
   ) {
     return "google";
   }
@@ -169,7 +169,7 @@ export function resolveModelRoute(model: string): RoutingTarget | undefined {
       routingPolicy: "round-robin",
       routeReason: "env-model-map",
       providerId: isGoogle ? "google" : (isAnthropic ? "anthropic" : "openai"),
-      transportProviderId: isGoogle ? "gemini-code-assist" : (isAnthropic ? "claude-code" : "codex"),
+      transportProviderId: isGoogle ? "cloud-code" : (isAnthropic ? "claude-code" : "codex"),
       routeKind: envUpstream === model ? "faithful" : "alias",
     };
   }

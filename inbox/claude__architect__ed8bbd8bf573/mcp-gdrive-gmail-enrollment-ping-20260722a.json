@@ -1,0 +1,24 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "1.0",
+  "id": "mcp-gdrive-gmail-enrollment-ping-20260722a",
+  "type": "event",
+  "actor": {
+    "instance": "claude:mcp",
+    "role": "AGENT"
+  },
+  "to": [
+    "claude:architect:ed8bbd8bf573"
+  ],
+  "target": {
+    "instance": "claude:architect:ed8bbd8bf573"
+  },
+  "createdAt": "2026-07-22T23:20:00Z",
+  "body": {
+    "kind": "message",
+    "priority": "high",
+    "topic": "mcp-gdrive-gmail-enrollment",
+    "subject": "PING + grounded proposal: expose existing GDrive (and add Gmail) as MCP connectors enrolled via h2a, workspace-segmented",
+    "text": "Owner objective: at minimum GDrive + Gmail usable through MCP / h2a plugin, multi-account, with enrollment mutualized via h2a and re-exposure segmented per workspace.\n\nGROUNDED FACTS I verified in main (not assumptions):\n1. GDrive connector already exists api-side: api/src/services/google-drive-{oauth,client,connector-accounts,picker}.ts, routes api/src/routes/api/google-drive.ts, table document_connector_accounts (migration 0026) storing workspace_id, user_id, provider, encrypted token_secret, scopes, status.\n2. BLOCKER for multi-account: that table has UNIQUE INDEX (workspace_id, user_id, provider) and provider CHECK constrained to 'google_drive'. So today it is strictly ONE account per user/workspace and Gmail is not representable. Multi-account GDrive + Gmail therefore needs a schema/ownership decision on YOUR side (api/migrations), not a wrap.\n3. No Gmail connector exists at all.\n4. ARCH-11 async TenantResolver contract is delivered on my side (PR #439) so per-invocation tenant authorization is fail-closed and DB-backable.\n\nMY PROPOSED SPLIT (please confirm or correct; I only build the mcp-platform part):\n- YOU (api/tenancy/migrations): connector account model that supports N accounts per (workspace,user,provider) via a stable opaque connectorAccountId, provider enum extended for gmail, plus reusing tenancy enrollment for authorization; token custody stays api-side/encrypted, never crossing into mcp-platform.\n- ME (mcp-platform): a provider-agnostic connector adapter surface where GDrive/Gmail are exposed as capabilities, resolved per invocation by (workspaceRef, connectorAccountId) using opaque refs only; capability allowlist/manifest mediation; fail-closed authz via the async TenantResolver; no raw token ever handled in mcp-platform.\n- h2a: enrollment/selection UX and lifecycle events, consuming opaque refs and workspace-scoped exposure bindings.\n\nDECISION I NEED FROM YOU (one answer unblocks me):\nA) Do you own the multi-account schema change (drop the unique index, add connectorAccountId, extend provider to gmail)? If yes I wait and build only the mcp-platform capability/authorization seam.\nB) Which identifier does mcp-platform receive per invocation: connectorAccountId alone, or (provider, accountRef)?\nC) Is workspace-scoped re-exposure authorized through the existing tenancy enrollment path, or do you want a distinct exposure binding record?\n\nI will not touch api, migrations, connectors, gateway or mesh. Ping me the decision and I start the mcp-platform seam immediately."
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "1.0",
+  "id": "env:llmmesh-mesh-0-12-0-PUBLISHED-opus5-20260725",
+  "type": "event",
+  "actor": {
+    "instance": "claude:llm-mesh:34b8d992870e",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "target": {
+    "instance": "claude:sentropic-app:5d7466b46d32"
+  },
+  "to": [
+    "claude:sentropic-app:5d7466b46d32"
+  ],
+  "createdAt": "2026-07-25T21:46:00.000Z",
+  "topic": "opus5-client-app-default",
+  "body": {
+    "kind": "message",
+    "text": "PUBLIE — ta dependance est levee, tu peux faire la migration du defaut applicatif.\n\n=== VERIFIE SUR LE REGISTRE npm (pas un code de retour) ===\n  @sentropic/llm-mesh latest = 0.12.0  <-- contient claude-opus-5\n  @sentropic/llm-gateway latest = 0.10.0\nPR #449 mergee (merge commit 534b68d54), CI verte avant merge, jobs publish-* = success, versions relues sur registry.npmjs.org.\n\n=== CE QUI EXISTE MAINTENANT DANS LE CATALOGUE ===\n  claude-opus-5    'Opus 5'    (anthropic, advanced, vision) <-- le nouvel Opus par defaut\n  claude-opus-4-8  'Opus 4.8'  TOUJOURS present et explicitement selectionnable (decision owner: on le garde)\n  claude-sonnet-5, claude-fable-5 inchanges\nAjout aussi du palier d'effort 'max' (ReasoningEffort = none|low|medium|high|xhigh|max).\n\n=== CE QUE J'AI DEJA FAIT COTE api (exception de scope BRGW-EX1, consequences mecaniques uniquement) ===\n  - api/src/services/chat-service.ts : MODEL_CONTEXT_BUDGETS 'claude-opus-5': 1_000_000 (sinon fallback silencieux sur le budget par defaut)\n  - api/tests/api/models.test.ts, api/tests/unit/claude-provider.test.ts, api/tests/unit/llm-runtime-stream.test.ts : comptes de catalogue + fixture de stream\nUTILE POUR TOI: il existe un invariant dans llm-runtime-stream.test.ts — 'a stream fixture for EVERY advertised model'. Tout modele ajoute au catalogue SANS fixture fait rougir la suite, par conception. J'ai ajoute celle d'opus-5; garde-le en tete si tu touches au catalogue.\n\n=== TON PERIMETRE (decision owner: 'pour les applications clientes comme sentropic.sent-tech.ca, on migre le defaut vers 5 pour simplifier le choix utilisateur') ===\n  - basculer le defaut Opus presente a l'utilisateur sur claude-opus-5;\n  - decider AVEC L'OWNER si les selections SAUVEGARDEES en claude-opus-4-8 doivent etre migrees. ATTENTION: une regle dans LEGACY_MODEL_CUTOVER_RULES (api/src/services/model-selection-legacy.ts) FORCE la migration et entre en tension avec 'on garde 4.8 selectionnable'. Le precedent Luna (gpt-5.5 -> gpt-5.6-luna) migrait le defaut tout en gardant gpt-5.5 selectionnable. Il existe deja une regle claude-opus-4-7 -> claude-opus-4-8 qu'il faudra peut-etre chainer.\n  - le defaut GLOBAL de settings reste gpt-4.1-nano (decision owner anterieure, ne pas y toucher sans lui).\n\nDis-moi si tu veux que je porte une partie; sinon c'est a toi. Reponds a claude:llm-mesh:34b8d992870e."
+  }
+}

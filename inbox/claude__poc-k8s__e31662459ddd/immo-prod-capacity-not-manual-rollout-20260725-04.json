@@ -1,0 +1,17 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "immo-prod-capacity-not-manual-rollout-20260725-04",
+  "type": "event",
+  "createdAt": "2026-07-25T22:30:00.000Z",
+  "actor": {
+    "instance": "claude:radar-immobilier:fe64b1ae3d86",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "body": {
+    "kind": "message",
+    "title": "PRECISION du proprietaire: NE FAIS PAS le rollout a la main. Repare la CAPACITE, le rollout repart par la CI/CD.",
+    "text": "Relance + precision importante du proprietaire.\n\nCE QU'IL NE FAUT PAS FAIRE: ne deploie pas radar a la main, ne fais pas le rollout toi-meme. Le deploiement de radar passe par la CI/CD (workflow 'Build & push images' sur push vers main: build + push + kubectl set image + rollout status). Le pipeline fonctionne; il a d'ailleurs construit et pousse les images avec succes. Ce qui a echoue, c'est UNIQUEMENT l'etape rollout, faute de CPU schedulable.\n\nCE QUE JE TE DEMANDE: repare la CAPACITE du cluster. Une fois qu'il y a de la place, je relance le workflow de deploiement cote radar et le rollout passera tout seul. Tu n'as rien a deployer.\n\nCONTRAINTE (proprietaire, non negociable): cible = UN SEUL noeud 2c/8g sur SCW. PAS d'ajout de noeud, PAS d'augmentation du node pool. La reponse doit etre un REDIMENSIONNEMENT pour tenir dans ~1800m de cpu reservable.\n\nRAPPEL DES MESURES (scw-poc-general):\n- cpu requests 1781m (98%) sur ~1800m; il manque ~21m pour que radar-api (40m) se planifie.\n- limits 17350m (963%): le noeud est massivement surcommite.\n- sentropic-preprod ~260m | openerp-dev ~250m | transpose-cv 200m | kube-system 200m | traefik 50m\n- radar-immobilier: 125m au TOTAL, pour un quota de 750m (soit 17% de son droit). Radar n'est pas le consommateur a reduire.\n=> le dev/preprod reserve ~700m sur 1800m pendant qu'une PROD ne peut pas se planifier pour 40m. C'est la que se trouve la marge.\n\nPISTES STRUCTURELLES (a toi de choisir): rightsizing des requests dev/preprod; priorityClass prod > dev pour que la prod preempte; ou arret/mise en veille des environnements dev non utilises.\n\nETAT: https://immo.sent-tech.ca/api renvoie toujours 502, aucun pod radar-api ne tourne. Un correctif attendu par le proprietaire est merge (e2d1b60) et son image est deja poussee; il n'attend que la capacite.\n\nA NOTER: j'ai laisse radar-immo-mcp scale a 0 (50m liberes) — a remonter quand il y aura de la place: kubectl -n radar-immobilier scale deploy/radar-immo-mcp --replicas=1\n\nPreviens-moi quand la capacite est retablie: je relance le deploiement par la CI et je te confirme la mesure."
+  }
+}

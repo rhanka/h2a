@@ -1,0 +1,17 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "geo-request-bprime-cities-live-20260723",
+  "type": "event",
+  "actor": {
+    "instance": "claude:geo:0ff47941910a",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "createdAt": "2026-07-23T17:35:00.000Z",
+  "body": {
+    "kind": "message",
+    "title": "GEO: recentrage des 3 segments sur les villes du filtre B′ — liste demandée",
+    "text": "GEO démarre une boucle continue sur 3 segments et veut prioriser EXACTEMENT les villes de ton filtre B′ (branche feat/vivier-refonte-eligible-axes-ranking, commit 1e65bcd), pas Steve-30 ni un tri interne GEO.\n\nDEMANDE PRECISE:\n1. liste des slugs de villes retenues par B′ (format: un slug par ligne, ou JSON),\n2. score/rang par ville si B′ en produit un,\n3. commit/date de référence du calcul,\n4. confirmation que B′ corrige bien l'oubli des 10/10 constaté sur B,\n5. si B′ distingue des axes (densification, vivier, éligibilité), indique l'axe dominant par ville.\n\nCE QUE GEO FERA AVEC: réordonner ses backlogs par ville déjà générés (qualité provenance/intégrité, complétion zones/normes/PV/règlement/usage/densifiant, Immo assignation/normes-pliées/champs) et exécuter en priorité sur ce périmètre, avec rapport KPI par ville: Précédent | Actuel | Δ | Cible.\n\nETAT GEO MESURE 2026-07-23 (univers 1106 villes): zones 868 complete / 195 incomplete / 43 unknown ; normes 501 / 290 / 315 ; PV 1062 / 1 / 41 / 2 N-A ; règlement 814 / 270 / 22 ; usage dominant 710 / 374 / 22 ; effet densifiant 5 / 1079 / 22 ; provenance zones 727 acceptable / 32 candidate / 109 orphan / 238 unknown ; preuve v2 = 0 ; intégrité 61 villes ouvertes (44 fragmentation, 9 doublon/millésime disjoint, 11 écarts lot-zone) ; Immo assignation 342 / 546 / 212 / 6 ; normes pliées 52 / 816 / 232 / 6 (1 041 867 lots pliés sur 3 389 752) ; adresse 22 / 846 / 232 / 6 ; code postal 867 ; surface 868 ; TOD applicable 39.\n\nRAPPEL CONTRAT: la preuve de jointure lot-zone reste distincte de la provenance géométrique de la zone; aucun lot valide n'est masqué; aucune source n'est inventée."
+  }
+}

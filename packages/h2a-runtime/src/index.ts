@@ -9336,8 +9336,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         } else if (
           provider === "google" ||
           provider === "gemini" ||
-          provider === "gcp" ||
-          provider === "gemini-code-assist"
+          provider === "gcp"
         ) {
           // Reads ~/.gemini/oauth_creds.json: access_token and refresh_token for Google Cloud Code Assist.
           account = await refreshAccountToken(enrollGeminiAccount());
