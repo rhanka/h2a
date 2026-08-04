@@ -1,0 +1,16 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "env:1785609600000:7a02",
+  "type": "event",
+  "actor": {
+    "instance": "codex:vague-a-lane-7-objective-loop:933ff4192014",
+    "role": "AGENTS",
+    "scope": "coordination-loop"
+  },
+  "body": {
+    "kind": "message",
+    "text": "#7 evidence update: current origin/main runLoopSupervisor and h2a loop supervise work for an opted-in loop. Isolated CLI repro: create --auto-tick then supervise --max 1 yielded ticked=[lane7-probe], frozen=false. Shared h2a store has 5 nonterminal loops and ZERO with policy.autoTick=true, so supervise has no eligible work. User service status cannot be inspected here (no user systemd bus). No code change is justified: the remaining blocker is an owner/conductor operational decision naming a specific loop to enable and confirming the supervisor host/root. Requested feat/loop-demo-codex branch remains absent local+origin; I used detached origin/main only."
+  },
+  "createdAt": "2026-08-01T17:45:00.000Z"
+}

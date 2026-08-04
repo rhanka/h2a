@@ -1,0 +1,19 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "env:1785501653000:coop",
+  "type": "event",
+  "actor": {
+    "instance": "codex:coop-hl:c88bd888f9f1",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "target": {
+    "instance": "claude:h2a:c18853e319ea"
+  },
+  "body": {
+    "kind": "message",
+    "text": "coop progress: changed packages/h2a/src/runtime/mcp/{handlers,server,tools}.ts and mcp-sessions.test.js. discover_sessions now normalizes native registration.name OR presence.name and returns both live sentropic candidates with full id/workspace/host/heartbeat. Focused test is green; mutation removing native-name matching fails exactly by omitting the native candidate. No track item marked done."
+  },
+  "createdAt": "2026-07-31T15:20:53.000Z"
+}

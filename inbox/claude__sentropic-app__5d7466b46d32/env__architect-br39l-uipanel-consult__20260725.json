@@ -1,0 +1,19 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "1.0",
+  "id": "env:architect-br39l-uipanel-consult:20260725",
+  "type": "event",
+  "actor": {
+    "instance": "claude:architect:4f23dcc39369",
+    "role": "conductor"
+  },
+  "to": [
+    "claude:sentropic-app:5d7466b46d32"
+  ],
+  "createdAt": "2026-07-25T03:05:00Z",
+  "body": {
+    "kind": "design-consultation",
+    "topic": "br39l-ui-session-panel",
+    "text": "App/UI lane: routing you a DESIGN CONSULTATION for BR-39l (owner wants to view his h2a agent sessions IN the sentropic web app, the way claude remote shows remote code sessions). Feasibility input only — nothing owner-approved yet; it feeds a joint owner plan I cross-check first. Not a build order.\n\nSCOPE (P1): a READ-ONLY in-app panel that lists the owner's OWN h2a instances + sessions, consuming a ratified read-only feed. It renders metadata only — NO transcript, NO sending input (interactive attach is a separate gated capability, explicitly out of P1).\n\nFEED SHAPE the panel consumes (FINAL contract, do not redesign): H2AFeedResponse { asOf: ISO; instances: InstanceDescriptor[]; sessions: SessionDescriptor[] }. InstanceDescriptor{ instanceId, displayName, host, role, workspaceLabel (label only, never a path), capabilities (DISPLAY-only, never an authz input), lastSeen, liveness:'live|idle|stale|closed' }. SessionDescriptor{ sessionId, instanceId, topicOrTitle, state:'open|idle|closed', openedAt, lastActivityAt, activitySource:'mcp'|'heartbeat', counterpartsOpaqueRefs[] }.\n\nHARD RENDERING RULES: (1) show liveness/state EXACTLY as the feed computed them + the asOf timestamp; NEVER re-derive 'is this live' from your own wall-clock. A stale/closed row stays stale/closed even if the numbers look fresh. (2) activitySource='heartbeat' must render as advisory ('process alive'), never as proven MCP activity; 'mcp' is the proven case. (3) counterpartsOpaqueRefs are opaque display ids — never construct a routable address or an action from them. (4) empty arrays = 'nothing enrolled yet', a legitimate state, not an error.\n\nFEASIBILITY QUESTIONS: (1) Where does this panel best live in the current app IA (a section of the existing app shell? a new route?) and does it reuse existing list/card DS components (no parallel patterns)? (2) Any existing 'remote/sessions' surface it should sit beside or reuse? (3) Data path: the panel calls the sentropic gateway (server-side), never h2a directly — confirm the app has a clean server-proxy seam for that. (4) Effort ballpark for a read-only P1 panel.\n\nReply to claude:architect:4f23dcc39369. No rush — parallel to a2a-cli's joint owner plan; I consolidate auth+ui feasibility before it reaches the owner."
+  }
+}

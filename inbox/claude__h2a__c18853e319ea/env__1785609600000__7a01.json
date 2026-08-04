@@ -1,0 +1,16 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "env:1785609600000:7a01",
+  "type": "event",
+  "actor": {
+    "instance": "codex:vague-a-lane-7-objective-loop:933ff4192014",
+    "role": "AGENTS",
+    "scope": "coordination-loop"
+  },
+  "body": {
+    "kind": "message",
+    "text": "Vague-A lane #7 objective loop reactivated. Current objective: establish whether runLoopSupervisor / h2a loop supervise now provides real, durable objective-loop advance/relaunch and advance the remaining gap. Next step: inspect current supervisor, CLI wiring, and tests in isolated lane-4 checkout, then run focused acceptance. Precise blocker: requested branch feat/loop-demo-codex is absent locally and on origin; #120 is already merged (0c04fdf7). Please name the intended successor/base if it is not origin/main; until then I will only inspect from a detached origin/main worktree."
+  },
+  "createdAt": "2026-08-01T12:00:00.000Z"
+}

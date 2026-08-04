@@ -1,0 +1,33 @@
+{
+  "id": "geo-proof-final-merge",
+  "ownerSystem": "h2a",
+  "name": "Zoning evidence final merge drumbeat",
+  "goal": "Deliver official public zoning-source URL evidence safely through API to UI, validate it, repair review findings, push, CI, and merge into main.",
+  "status": "created",
+  "repos": [],
+  "refs": [],
+  "agents": [
+    {
+      "id": "geo-proof-final-merge",
+      "host": "shell",
+      "role": "CONDUCTOR",
+      "placement": "local",
+      "status": "running",
+      "h2aInstance": "claude:immo-proof-provenance-link:01720a93ca5a",
+      "required": true,
+      "joinedAt": "2026-07-25T01:34:36.428Z"
+    }
+  ],
+  "policy": {
+    "tickMs": 60000,
+    "idleMs": 900000,
+    "maxRelaunches": 3,
+    "requireHumanTypingGuard": true,
+    "autoTick": false,
+    "closeWhenRefsSatisfied": false,
+    "successCriteria": "explicit-done",
+    "decisionGatePolicy": "all-go-or-waived"
+  },
+  "createdAt": "2026-07-25T01:34:36.427Z",
+  "updatedAt": "2026-07-25T01:50:11.433Z"
+}

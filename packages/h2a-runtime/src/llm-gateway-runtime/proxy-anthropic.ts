@@ -6,7 +6,6 @@ import {
   type SessionEntry,
 } from "./sticky.js";
 import { handleMessagesViaOpenAI } from "./proxy-openai.js";
-import { handleMessagesViaGemini } from "./proxy-gemini.js";
 import {
   accountPoolForProvider,
   resolveModelRoute,
@@ -259,14 +258,6 @@ async function dispatchToSessionAccount(
   // constructed, so route text cannot be claimed merely from parsing or a
   // successful rebind.
   recordOutbound();
-  if (
-    session.provider === "google" ||
-    session.provider === "gemini" ||
-    session.provider === "gcp" ||
-    session.provider === "gemini-code-assist"
-  ) {
-    return handleMessagesViaGemini(c, session, body);
-  }
   if (usesOpenAIProvider(session.provider)) {
     return handleMessagesViaOpenAI(
       c,

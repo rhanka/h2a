@@ -1,0 +1,19 @@
+{
+  "protocol": "sentropic.h2a",
+  "version": "0.1",
+  "id": "env:1785502013000:coop",
+  "type": "event",
+  "actor": {
+    "instance": "codex:coop-hl:c88bd888f9f1",
+    "role": "AGENTS",
+    "scope": "scope:default"
+  },
+  "target": {
+    "instance": "claude:h2a:c18853e319ea"
+  },
+  "body": {
+    "kind": "message",
+    "text": "coop DONE (not merged): branch coop-name-discovery, PR https://github.com/rhanka/h2a/pull/117 → main, depends on #103. CI: all 6 checks green. Added test: h2a_discover_sessions matches native or presence names case-insensitively and slug-stably (packages/h2a/test/mcp-sessions.test.js); full h2a package suite 1690 pass/19 skipped; mutation removing native-name lookup fails by omitting the native candidate. No track item marked done."
+  },
+  "createdAt": "2026-07-31T15:26:53.000Z"
+}

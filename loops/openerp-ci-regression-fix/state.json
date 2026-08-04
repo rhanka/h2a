@@ -1,0 +1,33 @@
+{
+  "id": "openerp-ci-regression-fix",
+  "ownerSystem": "h2a",
+  "name": "OpenERP — CI regression fix (D9 + deps)",
+  "goal": "Corriger les 2 régressions CI sur main (pg integration smoke cassé par D9 7efdf1c: Date vs string dans match.ts; web e2e cassé par b2d9078: esbuild.target retiré) puis publier main avec CI verte.",
+  "status": "done",
+  "repos": [],
+  "refs": [],
+  "agents": [
+    {
+      "id": "conductor",
+      "host": "shell",
+      "role": "CONDUCTOR",
+      "placement": "local",
+      "status": "running",
+      "h2aInstance": "claude:openerp:520153c00ef2",
+      "required": true,
+      "joinedAt": "2026-07-25T07:36:04.788Z"
+    }
+  ],
+  "policy": {
+    "tickMs": 60000,
+    "idleMs": 900000,
+    "maxRelaunches": 3,
+    "requireHumanTypingGuard": true,
+    "autoTick": false,
+    "closeWhenRefsSatisfied": false,
+    "successCriteria": "explicit-done",
+    "decisionGatePolicy": "all-go-or-waived"
+  },
+  "createdAt": "2026-07-25T07:36:04.787Z",
+  "updatedAt": "2026-07-25T08:03:44.142Z"
+}
