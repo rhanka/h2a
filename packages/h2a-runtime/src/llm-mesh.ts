@@ -1,15 +1,14 @@
 /**
  * llm-mesh — local LLM gateway management for solo-dev mode.
  *
- * Enrollment: `remote llm-mesh enroll codex` reads ~/.codex/auth.json
- *   (supports both raw OPENAI_API_KEY and ChatGPT Pro OAuth JWT) and writes
- *   ~/.sentropic/llm-mesh.json.
+ * Enrollment: `h2a llm-mesh enroll cloud-code|codex` delegates OAuth to the
+ *   sentropic-owned facade and records only public account metadata locally.
  *
  * Startup:    `remote llm-mesh start` reads the config, starts the embedded
  *   gateway runtime as a background process, and prints the env vars to
  *   configure Claude Code.
  *
- * Config path: ~/.sentropic/llm-mesh.json  (0600)
+ * Config path: ~/.sentropic/llm-mesh.json  (0600, public metadata only)
  * PID file:    ~/.sentropic/llm-mesh.pid
  * Token file:  ~/.sentropic/llm-mesh-token.json (0600, runtime metadata + derived gw-token)
  * Seed file:   ~/.sentropic/llm-mesh-seed (0600, sole durable gateway-token secret)
@@ -25,11 +24,15 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import {
+  createLlmMeshFacade,
+  type LlmMeshFacade,
+} from "@sentropic/llm-mesh/facade";
 
 const ANTHROPIC_GATEWAY_ENV_KEYS = [
   "ANTHROPIC_BASE_URL",
@@ -74,10 +77,113 @@ export interface LlmMeshAccount {
 
 export interface LlmMeshConfig {
   accounts: LlmMeshAccount[];
+  /** Public mesh enrollment records. Credentials remain owned by llm-mesh. */
+  meshAccounts?: LlmMeshEnrollmentAccount[];
   /** Local port for the gateway. Default: 3002 */
   port?: number;
   /** Log file path (stdout+stderr of the gateway process). Default: ~/.sentropic/llm-mesh.log */
   logFile?: string;
+}
+
+export interface LlmMeshEnrollmentAccount {
+  accountId: string;
+  provider: "cloud-code" | "codex";
+  label: string;
+}
+
+export interface FacadeEnrollmentOptions {
+  configRef?: string;
+  ownerScope?: string;
+  redirectUri?: string;
+  /** Injection seam for CLI tests; production uses the opaque facade. */
+  facade?: LlmMeshFacade;
+}
+
+function facadeConfigResolver() {
+  return {
+    async resolveConfig(configRef: string): Promise<Record<string, unknown>> {
+      const raw = process.env.H2A_LLM_MESH_CONFIG_JSON;
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const scoped = parsed[configRef];
+      return scoped && typeof scoped === "object" && !Array.isArray(scoped)
+        ? scoped as Record<string, unknown>
+        : parsed;
+    },
+  };
+}
+
+export function createCliLlmMeshFacade(): LlmMeshFacade {
+  return createLlmMeshFacade({
+    configResolver: facadeConfigResolver(),
+    mode: "cli",
+  });
+}
+
+function openEnrollmentBrowser(url: string): void {
+  const command = process.platform === "darwin"
+    ? "open"
+    : process.platform === "win32"
+      ? "cmd"
+      : "xdg-open";
+  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  try {
+    const child = spawn(command, args, { detached: true, stdio: "ignore" });
+    child.unref();
+  } catch {
+    // The URL is always printed, so a headless CLI can continue manually.
+  }
+}
+
+/**
+ * Enroll through the sentropic-owned OAuth state machine. H2A never receives
+ * an authorization code or a provider token; only the public account record is
+ * retained locally for CLI status.
+ */
+export async function enrollViaFacade(
+  provider: "cloud-code" | "codex",
+  options: FacadeEnrollmentOptions = {},
+): Promise<LlmMeshEnrollmentAccount> {
+  const facade = options.facade ?? createCliLlmMeshFacade();
+  const session = await facade.enroll(provider, {
+    configRef: options.configRef ?? process.env.H2A_LLM_MESH_CONFIG_REF ?? "default",
+    mode: "cli",
+    redirectUri: options.redirectUri ?? "http://127.0.0.1",
+    ownerScope: options.ownerScope ?? `cli:${hostname()}`,
+  });
+
+  const completed = provider === "cloud-code"
+    ? await (async () => {
+        if (session.kind !== "authorization-url") {
+          throw new Error("Cloud Code enrollment did not return an authorization URL");
+        }
+        process.stdout.write(`[h2a] llm-mesh: open ${session.url}\n`);
+        openEnrollmentBrowser(session.url);
+        return facade.waitForCallback(session.enrollmentId);
+      })()
+    : await (async () => {
+        if (session.kind !== "device-code") {
+          throw new Error("Codex enrollment did not return a device code");
+        }
+        process.stdout.write(
+          `[h2a] llm-mesh: enter code ${session.userCode} at ${session.verificationUrl}\n`,
+        );
+        return facade.pollForCompletion(session.enrollmentId);
+      })();
+
+  return { accountId: completed.accountId, provider, label: completed.label };
+}
+
+export function recordFacadeEnrollment(
+  account: LlmMeshEnrollmentAccount,
+  dir?: string,
+): void {
+  const config = readLlmMeshConfig(dir) ?? { accounts: [] };
+  const meshAccounts = (config.meshAccounts ?? []).filter(
+    (existing) => existing.accountId !== account.accountId,
+  );
+  meshAccounts.push(account);
+  writeLlmMeshConfig({ ...config, meshAccounts }, dir);
 }
 
 // ---------------------------------------------------------------------------
@@ -191,11 +297,20 @@ function writeSecretString(path: string, value: string): void {
 }
 
 export function readLlmMeshConfig(dir?: string): LlmMeshConfig | null {
-  return readJson<LlmMeshConfig>(llmMeshConfigPath(dir));
+  const config = readJson<Omit<LlmMeshConfig, "accounts"> & {
+    accounts?: unknown;
+  }>(llmMeshConfigPath(dir));
+  if (!config) return null;
+  // `accounts` used to hold provider credentials. Ignore it on read so a
+  // pre-facade file cannot put a token back into the gateway process.
+  return { ...config, accounts: [] };
 }
 
 export function writeLlmMeshConfig(config: LlmMeshConfig, dir?: string): void {
-  writeSecret(llmMeshConfigPath(dir), config);
+  // The facade/keyring own credentials. Keep only public enrollment metadata
+  // in llm-mesh.json, including when migrating a pre-facade configuration.
+  const { accounts: _legacyCredentialRecords, ...publicConfig } = config;
+  writeSecret(llmMeshConfigPath(dir), publicConfig);
 }
 
 export function readOrCreateLlmMeshSeed(dir?: string): string {
@@ -568,51 +683,14 @@ export function gatewayScriptPath(): string {
   return join(dirname(thisFile), "llm-gateway-runtime", "index.js");
 }
 
-/** Build GATEWAY_ACCOUNTS from the llm-mesh config accounts */
-function buildGatewayAccountsEnv(accounts: LlmMeshAccount[]): string {
-  return JSON.stringify(
-    accounts.map((a) => ({
-      id: a.id,
-      provider: a.provider,
-      label: a.label,
-      token: a.token,
-      ...(a.refreshToken ? { refreshToken: a.refreshToken } : {}),
-      ...(a.expiresAt ? { expiresAt: a.expiresAt } : {}),
-    })),
-  );
-}
-
-function isUnsupportedClaudeOAuthAccount(account: LlmMeshAccount): boolean {
-  return (
-    account.provider === "anthropic" &&
-    (account.authType === "bearer" ||
-      account.id === "claude-oauth" ||
-      account.token.startsWith("sk-ant-oat"))
-  );
-}
-
-type LocalGatewaySessionProvider = "codex" | "anthropic" | "google";
+type LocalGatewaySessionProvider = "cloud-code";
 
 export function localGatewaySessionProvider(
-  accounts: LlmMeshAccount[],
+  accounts: readonly LlmMeshEnrollmentAccount[],
 ): LocalGatewaySessionProvider | undefined {
-  if (
-    accounts.some(
-      (account) =>
-        account.provider === "google" ||
-        account.provider === "gemini" ||
-        account.provider === "gcp",
-    )
-  ) {
-    return "google";
-  }
-  if (accounts.some((account) => account.provider === "openai")) {
-    return "codex";
-  }
-  if (accounts.some((account) => account.provider === "anthropic")) {
-    return "anthropic";
-  }
-  return undefined;
+  return accounts.some((account) => account.provider === "cloud-code")
+    ? "cloud-code"
+    : undefined;
 }
 
 export interface StartResult {
@@ -656,51 +734,15 @@ export async function startGateway(
 
   mkdirSync(sentropicDir(), { recursive: true });
 
-  // Refresh expired tokens before launch
-  const refreshedAccounts: LlmMeshAccount[] = [];
-  const unusableAccountIds = new Set<string>();
-  for (const acc of config.accounts) {
-    try {
-      const refreshedAccount = await refreshAccountToken(acc);
-      refreshedAccounts.push(refreshedAccount);
-      if (isAccountTokenExpired(refreshedAccount)) {
-        unusableAccountIds.add(acc.id);
-        process.stderr.write(
-          `[h2a] llm-mesh: account ${acc.id} is expired and cannot be refreshed; re-enroll this provider account\n`,
-        );
-      }
-    } catch (err) {
-      unusableAccountIds.add(acc.id);
-      const detail = opts.verbose ? `: ${String(err)}` : "";
-      process.stderr.write(
-        `[h2a] llm-mesh: token refresh failed for ${acc.id}${detail}; re-enroll this provider account\n`,
-      );
-      // Retain the credential in config for explicit re-enrollment, but never
-      // expose the stale token to the gateway process.
-      refreshedAccounts.push(acc);
-    }
-  }
-
-  const gatewayAccounts = refreshedAccounts.filter(
-    (account) =>
-      !unusableAccountIds.has(account.id) &&
-      !isUnsupportedClaudeOAuthAccount(account),
-  );
-  if (gatewayAccounts.length === 0) {
-    throw new Error(
-      "llm-mesh has no usable gateway-supported accounts: re-enroll expired provider accounts; Claude Code OAuth cannot be proxied through Anthropic /v1/messages yet",
-    );
-  }
-  const sessionProvider = localGatewaySessionProvider(gatewayAccounts);
+  const sessionProvider = localGatewaySessionProvider(config.meshAccounts ?? []);
   if (!sessionProvider) {
     throw new Error(
-      "llm-mesh has no local runtime provider: Google Code Assist transport remains delegated to llm-mesh",
+      "llm-mesh has no Cloud Code enrollment. Run `h2a llm-mesh enroll cloud-code` first.",
     );
   }
 
   const gatewayEnv: NodeJS.ProcessEnv = {
     ...process.env,
-    GATEWAY_ACCOUNTS: buildGatewayAccountsEnv(gatewayAccounts),
     LLM_GATEWAY_TOKEN_SEED: readOrCreateLlmMeshSeed(),
     LLM_GATEWAY_STICKY_FILE: llmMeshStickyPath(),
     PORT: String(port),
@@ -732,6 +774,7 @@ export async function startGateway(
       sessionId: gatewayClientSessionId(opts.clientSessionId),
       workspaceId: process.cwd(),
       provider: sessionProvider,
+      requiredTransport: "cloud-code",
     }),
   });
   if (!sessionResp.ok) {
@@ -748,9 +791,6 @@ export async function startGateway(
     pid,
     provider: sessionProvider,
   });
-
-  // Persist refreshed tokens back to config
-  writeLlmMeshConfig({ ...config, accounts: refreshedAccounts });
 
   return { pid, port, gatewayToken };
 }
@@ -858,13 +898,7 @@ export async function acquireLlmMeshSessionEnv(
     if (!provider) {
       const config = readLlmMeshConfig(dir);
       provider = config
-        ? localGatewaySessionProvider(
-            config.accounts.filter(
-              (account) =>
-                !isUnsupportedClaudeOAuthAccount(account) &&
-                !isAccountTokenExpired(account),
-            ),
-          )
+        ? localGatewaySessionProvider(config.meshAccounts ?? [])
         : undefined;
     }
     if (!provider) return null;
@@ -881,6 +915,7 @@ export async function acquireLlmMeshSessionEnv(
         sessionId: gatewayClientSessionId(clientSessionId),
         workspaceId,
         provider,
+        requiredTransport: "cloud-code",
       }),
     });
     if (!sessionResp.ok) return null;

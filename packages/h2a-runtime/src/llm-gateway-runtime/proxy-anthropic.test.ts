@@ -89,11 +89,12 @@ describe("proxy-anthropic quota fallback", () => {
     );
     expect(readFileSync(stickyPath, "utf8")).toContain("claude-quota");
     const { lookupToken } = await import("./sticky.js");
-    await expect(lookupToken(gatewayToken)).resolves.toMatchObject({
+    const entry = await lookupToken(gatewayToken);
+    expect(entry).toMatchObject({
       accountId: "claude-quota",
-      token: "sk-ant-quota",
       provider: "anthropic",
     });
+    expect(entry).not.toHaveProperty("token");
   });
 
   it("preserves the upstream 429 when no fallback account is configured", async () => {
@@ -171,11 +172,12 @@ describe("proxy-anthropic quota fallback", () => {
     expect(readFileSync(stickyPath, "utf8")).toContain("claude-quota");
     expect(readFileSync(stickyPath, "utf8")).not.toContain("gemini-fallback");
     const { lookupToken } = await import("./sticky.js");
-    await expect(lookupToken(gatewayToken)).resolves.toMatchObject({
+    const entry = await lookupToken(gatewayToken);
+    expect(entry).toMatchObject({
       accountId: "claude-quota",
-      token: "sk-ant-quota",
       provider: "anthropic",
     });
+    expect(entry).not.toHaveProperty("token");
   });
 
   it("refuses an un-routed 429 across UNRECOGNISED providers", async () => {
@@ -289,10 +291,11 @@ describe("proxy-anthropic quota fallback", () => {
     );
     expect(readFileSync(stickyPath, "utf8")).toContain("claude-backup");
     const { lookupToken } = await import("./sticky.js");
-    await expect(lookupToken(gatewayToken)).resolves.toMatchObject({
+    const entry = await lookupToken(gatewayToken);
+    expect(entry).toMatchObject({
       accountId: "claude-backup",
-      token: "sk-ant-backup",
       provider: "anthropic",
     });
+    expect(entry).not.toHaveProperty("token");
   });
 });

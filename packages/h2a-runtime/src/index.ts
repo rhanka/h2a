@@ -375,17 +375,13 @@ import {
   type CliProfile,
 } from "./protocol-local.js";
 import {
-  enrollCodexAccount,
-  enrollClaudeAccount,
-  enrollGeminiAccount,
+  enrollViaFacade,
+  recordFacadeEnrollment,
   readLlmMeshConfig,
   startGateway,
   stopGateway,
-  writeLlmMeshConfig,
   readGatewayPid,
   llmMeshLogPath,
-  jwtExpiry,
-  refreshAccountToken,
   replaceAnthropicGatewayEnvironment,
   readLlmMeshSessionEnv,
   acquireLlmMeshSessionEnv,
@@ -2053,7 +2049,7 @@ async function injectLlmMeshGatewayEnv(
     : readLlmMeshSessionEnv() ?? (await acquireLlmMeshSessionEnv());
   if (!meshEnv) {
     const config = readLlmMeshConfig();
-    if (config?.accounts.length) {
+    if (config?.meshAccounts?.length) {
       try {
         const result = await startGateway(config, { clientSessionId });
         meshEnv = {
@@ -2117,7 +2113,7 @@ async function prepareLlmMeshForRestore(
 ): Promise<void> {
   if (!getLlmMeshRuntimeConfig().enabled) return;
   const config = readLlmMeshConfig();
-  if (!config?.accounts.length) {
+  if (!config?.meshAccounts?.length) {
     process.stderr.write(
       "[h2a] llm-mesh: restore config enabled, but no llm-mesh account is enrolled; Claude may ask for login.\n",
     );
@@ -9300,115 +9296,40 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .description(
       "Enroll a local LLM provider account.\n" +
         "  Providers:\n" +
-        "    codex     — import OAuth tokens from local Codex CLI installation (~/.codex/auth.json)\n" +
-        "    openai    — register an OpenAI API key (sk-...) via --token\n" +
-        "    anthropic — register an Anthropic API key (sk-ant-api...) via --token",
+        "    cloud-code — use the Cloud Code browser enrollment\n" +
+        "    codex     — use the Codex device enrollment",
     )
-    .option(
-      "--from-local",
-      "import credentials from the local provider CLI installation",
-    )
-    .option("--token <value>", "API key to enroll manually")
-    .option("--label <label>", "human-readable label for this account")
-    .option("--id <id>", "account id (default: derived from provider)")
+    .option("--config-ref <ref>", "sentropic configuration reference for OAuth")
     .action(
       async (
         provider: string,
         opts: {
-          fromLocal?: boolean;
-          token?: string;
-          label?: string;
-          id?: string;
+          configRef?: string;
         },
       ) => {
-        let account;
-        if (provider === "claude") {
-          // Import the local Claude Code OAuth login (~/.claude/.credentials.json) as a pooled
-          // claude-code account: provider "anthropic" + authType "bearer" so the anthropic proxy
-          // upstreams via Authorization: Bearer + anthropic-beta: oauth-2025-04-20 (not x-api-key).
-          account = enrollClaudeAccount();
-        } else if (provider === "codex") {
-          // Reads ~/.codex/auth.json: OAuth JWT (chatgpt_plan_type: pro).
-          // NOTE: this token works with the Codex CLI app-server (local) but NOT with
-          // api.openai.com Chat Completions (missing model.request scope).
-          // For a working gateway proxy, use `enroll openai --token sk-...` instead.
-          account = enrollCodexAccount();
-        } else if (
-          provider === "google" ||
-          provider === "gemini" ||
-          provider === "gcp"
-        ) {
-          // Reads ~/.gemini/oauth_creds.json: access_token and refresh_token for Google Cloud Code Assist.
-          account = await refreshAccountToken(enrollGeminiAccount());
-        } else if (provider === "openai") {
-          if (!opts.token) {
-            process.stderr.write(
-              `[h2a] llm-mesh: --token <sk-...> is required for provider "openai"\n` +
-                `  Example: h2a llm-mesh enroll openai --token sk-proj-...\n`,
-            );
-            process.exitCode = 1;
-            return;
-          }
-          account = {
-            id: opts.id ?? "openai-1",
-            provider: "openai" as const,
-            label: opts.label ?? "OpenAI (API key)",
-            token: opts.token,
-          };
-        } else if (provider === "anthropic") {
-          if (!opts.token) {
-            process.stderr.write(
-              `[h2a] llm-mesh: --token <sk-ant-api...> is required for provider "anthropic"\n`,
-            );
-            process.exitCode = 1;
-            return;
-          }
-          if (opts.token.startsWith("sk-ant-oat")) {
-            process.stderr.write(
-              `[h2a] llm-mesh: refused Claude Code OAuth token for provider "anthropic".\n` +
-                `  Claude Code OAuth uses a separate Claude Code transport, not Anthropic /v1/messages.\n`,
-            );
-            process.exitCode = 1;
-            return;
-          }
-          account = {
-            id: opts.id ?? "anthropic-1",
-            provider: "anthropic" as const,
-            label: opts.label ?? "Anthropic (API key)",
-            token: opts.token,
-          };
-        } else {
+        if (provider !== "cloud-code" && provider !== "codex") {
           process.stderr.write(
-            `[h2a] llm-mesh: unsupported provider "${provider}".\n` +
-              `  Supported: codex (OAuth), google (OAuth), gemini (OAuth), openai (API key), anthropic (API key)\n`,
+            `[h2a] llm-mesh: unsupported provider "${provider}". ` +
+              "Supported: cloud-code, codex\n",
           );
           process.exitCode = 1;
           return;
         }
-        const existing = readLlmMeshConfig() ?? { accounts: [] };
-        const accounts = existing.accounts.filter((a) => a.id !== account.id);
-        accounts.push(account);
-        writeLlmMeshConfig({ ...existing, accounts });
-        process.stdout.write(
-          `[h2a] llm-mesh: enrolled ${account.label} (id: ${account.id}, provider: ${account.provider})\n`,
-        );
-        if ("expiresAt" in account && account.expiresAt) {
-          const exp = new Date(account.expiresAt as string);
-          const minsLeft = Math.round((exp.getTime() - Date.now()) / 60_000);
+        try {
+          const account = await enrollViaFacade(provider, {
+            ...(opts.configRef ? { configRef: opts.configRef } : {}),
+          });
+          recordFacadeEnrollment(account);
           process.stdout.write(
-            `[h2a] llm-mesh: token expires ${account.expiresAt} (${minsLeft > 0 ? `in ${minsLeft}min` : "EXPIRED"})\n`,
+            `[h2a] llm-mesh: enrolled ${account.label} ` +
+              `(id: ${account.accountId}, provider: ${account.provider})\n`,
           );
-        }
-        if (provider === "codex") {
-          process.stdout.write(
-            `[h2a] NOTE: Codex OAuth token works locally via codex app-server,\n` +
-              `  but NOT with api.openai.com (missing model.request scope).\n` +
-              `  For a fully working gateway, use: h2a llm-mesh enroll openai --token sk-...\n`,
+        } catch (error) {
+          process.stderr.write(
+            `[h2a] llm-mesh: ${error instanceof Error ? error.message : String(error)}\n`,
           );
+          process.exitCode = 1;
         }
-        process.stdout.write(
-          `[h2a] Run \`h2a llm-mesh start\` to launch the gateway.\n`,
-        );
       },
     );
 
@@ -9418,7 +9339,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("-v, --verbose", "verbose output")
     .action(async (opts: { verbose?: boolean }) => {
       const config = readLlmMeshConfig();
-      if (!config || config.accounts.length === 0) {
+      if (!config || !config.meshAccounts?.length) {
         process.stderr.write(
           `[h2a] llm-mesh: no accounts configured. Run \`h2a llm-mesh enroll codex\` first.\n`,
         );
@@ -9495,7 +9416,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("-v, --verbose", "verbose output")
     .action(async (opts: { verbose?: boolean }) => {
       const config = readLlmMeshConfig();
-      if (!config || config.accounts.length === 0) {
+      if (!config || !config.meshAccounts?.length) {
         process.stderr.write(
           `[h2a] llm-mesh: no accounts configured. Run \`h2a llm-mesh enroll codex\` first.\n`,
         );
@@ -9551,18 +9472,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         `  restore/local auto-reactivation: ${runtime.enabled ? "enabled" : "disabled"}\n`,
       );
       if (config) {
-        for (const acc of config.accounts) {
-          let status = "ok";
-          if (acc.expiresAt) {
-            const exp = new Date(acc.expiresAt);
-            const mins = Math.round((exp.getTime() - Date.now()) / 60_000);
-            status =
-              mins > 0
-                ? `expires in ${mins}min`
-                : `EXPIRED ${Math.abs(mins)}min ago`;
-          }
+        for (const acc of config.meshAccounts ?? []) {
           process.stdout.write(
-            `  account: ${acc.label} (${acc.provider}) — ${status}\n`,
+            `  account: ${acc.label} (${acc.provider})\n`,
           );
         }
       } else {
