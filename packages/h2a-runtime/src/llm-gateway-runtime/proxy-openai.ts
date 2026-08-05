@@ -22,7 +22,6 @@ import {
   refreshOAuthToken,
   type GatewayUpstreamTransport,
 } from "./accounts.js";
-import { updateSessionToken } from "./sticky.js";
 import { routeModelOrThrow } from "./model-catalog.js";
 
 const OPENAI_BASE = process.env.OPENAI_UPSTREAM_URL ?? "https://api.openai.com";
@@ -1586,8 +1585,6 @@ export async function handleMessagesViaOpenAI(
     const newToken = await refreshOAuthTokenForRetry(session.accountId);
     if (newToken) {
       await upstream.body?.cancel().catch(() => {});
-      if (session.gatewayToken)
-        updateSessionToken(session.gatewayToken, newToken);
       try {
         upstream = await fetchUpstreamWithRetry(() => doFetch(newToken));
       } catch (err) {
