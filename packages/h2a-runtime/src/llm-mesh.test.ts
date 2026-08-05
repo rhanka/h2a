@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LlmMeshManager,
   acquireLlmMeshSessionEnv,
+  enrollViaFacade,
   gatewayScriptPath,
   llmMeshSeedPath,
   llmMeshTokenPath,
@@ -13,6 +14,7 @@ import {
   readOrCreateLlmMeshSeed,
   refreshAccountToken,
 } from "./llm-mesh.js";
+import type { LlmMeshFacade } from "@sentropic/llm-mesh/facade";
 
 const SCRATCH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -43,49 +45,63 @@ describe("llm-mesh seed", () => {
   });
 });
 
+describe("facade enrollment", () => {
+  it("uses the sentropic Codex polling flow without exposing a token", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "device-code",
+        enrollmentId: "enr-codex",
+        verificationUrl: "https://auth.test/device",
+        userCode: "ABCD-EFGH",
+        pollIntervalMs: 1_000,
+        expiresAt: "2030-01-01T00:00:00.000Z",
+      }),
+      pollForCompletion: vi.fn().mockResolvedValue({
+        accountId: "acct-codex",
+        label: "Codex",
+      }),
+      waitForCallback: vi.fn(),
+      cancel: vi.fn(),
+      acquire: vi.fn(),
+      release: vi.fn(),
+      getAdapter: vi.fn(),
+    } as unknown as LlmMeshFacade;
+
+    await expect(enrollViaFacade("codex", { facade })).resolves.toEqual({
+      accountId: "acct-codex",
+      provider: "codex",
+      label: "Codex",
+    });
+    expect(facade.enroll).toHaveBeenCalledWith("codex", expect.objectContaining({
+      mode: "cli",
+    }));
+    expect(facade.pollForCompletion).toHaveBeenCalledWith("enr-codex");
+    expect(facade.waitForCallback).not.toHaveBeenCalled();
+  });
+});
+
 describe("gateway runtime path", () => {
   it("uses the remote-cli embedded gateway runtime, not apps/llm-gateway", () => {
     expect(gatewayScriptPath()).toMatch(/\/(src|dist)\/llm-gateway-runtime\/index\.js$/);
     expect(gatewayScriptPath()).not.toContain("apps/llm-gateway");
   });
 
-  it("preflights a supported local provider before spawning", () => {
+  it("preflights a Cloud Code enrollment before spawning", () => {
     const account = {
-      id: "account",
+      accountId: "account",
       label: "Account",
-      token: "token",
     };
 
     expect(
       localGatewaySessionProvider([
-        { ...account, provider: "google" },
+        { ...account, provider: "cloud-code" },
       ]),
-    ).toBe("google");
+    ).toBe("cloud-code");
     expect(
       localGatewaySessionProvider([
-        { ...account, provider: "anthropic" },
+        { ...account, provider: "codex" },
       ]),
-    ).toBe("anthropic");
-    expect(
-      localGatewaySessionProvider([
-        { ...account, provider: "anthropic" },
-        { ...account, id: "codex", provider: "openai" },
-      ]),
-    ).toBe("codex");
-
-    expect(
-      localGatewaySessionProvider([
-        { ...account, id: "google-acc", provider: "google" },
-        { ...account, provider: "anthropic" },
-      ]),
-    ).toBe("google");
-
-    expect(
-      localGatewaySessionProvider([
-        { ...account, id: "google-acc", provider: "google" },
-        { ...account, provider: "anthropic" },
-      ]),
-    ).toBe("google");
+    ).toBeUndefined();
   });
 });
 
@@ -309,7 +325,7 @@ describe("acquireLlmMeshSessionEnv", () => {
   });
 
   describe("LlmMeshManager capitalized API", () => {
-    it("provides clean capitalized methods for config and account operations", () => {
+    it("persists only public mesh enrollment records", () => {
       const manager = new LlmMeshManager();
 
       expect(manager.GetActiveConfig(SCRATCH)).toBeNull();
@@ -323,10 +339,23 @@ describe("acquireLlmMeshSessionEnv", () => {
             token: "test-token",
           },
         ],
+        meshAccounts: [
+          {
+            accountId: "cloud-code-1",
+            provider: "cloud-code" as const,
+            label: "Cloud Code",
+          },
+        ],
       };
 
       manager.SaveConfig(testConfig, SCRATCH);
-      expect(manager.GetActiveConfig(SCRATCH)).toEqual(testConfig);
+      expect(manager.GetActiveConfig(SCRATCH)).toEqual({
+        accounts: [],
+        meshAccounts: testConfig.meshAccounts,
+      });
+      expect(readFileSync(join(SCRATCH, "llm-mesh.json"), "utf8")).not.toContain(
+        "test-token",
+      );
     });
   });
 });

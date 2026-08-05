@@ -5,6 +5,7 @@ import {
   rebindGatewaySession,
   type SessionEntry,
 } from "./sticky.js";
+import { handleMessagesViaCloudCode } from "./proxy-cloud-code.js";
 import { handleMessagesViaOpenAI } from "./proxy-openai.js";
 import {
   accountPoolForProvider,
@@ -93,6 +94,7 @@ async function rebindAfterQuotaResponse(
   response: Response,
   route?: RoutingTarget,
 ): Promise<SessionEntry | undefined> {
+  if (!session.accountId || !session.provider) return undefined;
   const exhaustedAccount = findAccount(session.accountId);
   if (exhaustedAccount && response.status === 429) {
     const retry = retryAfterMs(response);
@@ -188,7 +190,7 @@ function completeWhenBodyEnds(
 
 async function handleMessagesViaAnthropic(
   c: Context,
-  session: Pick<SessionEntry, "token">,
+  session: { token: string },
   body: ArrayBuffer,
 ): Promise<Response> {
   const upstreamUrl = `${ANTHROPIC_BASE}/v1/messages`;
@@ -244,6 +246,12 @@ async function dispatchToSessionAccount(
   body: ArrayBuffer,
   recordOutbound: () => void,
 ): Promise<Response> {
+  if (session.transportConstraints) {
+    return handleMessagesViaCloudCode(c, session, body);
+  }
+  if (!session.accountId || !session.provider) {
+    return c.json({ error: "gateway session account is unavailable" }, 503);
+  }
   if (
     session.requiredTransport &&
     session.transport !== session.requiredTransport
@@ -258,11 +266,15 @@ async function dispatchToSessionAccount(
   // constructed, so route text cannot be claimed merely from parsing or a
   // successful rebind.
   recordOutbound();
+  const account = findAccount(session.accountId);
+  if (!account) {
+    return c.json({ error: "gateway session account is unavailable" }, 503);
+  }
   if (usesOpenAIProvider(session.provider)) {
     return handleMessagesViaOpenAI(
       c,
       {
-        token: session.token,
+        token: account.token,
         gatewayToken: session.gatewayToken,
         accountId: session.accountId,
         sessionId: session.sessionId,
@@ -273,7 +285,7 @@ async function dispatchToSessionAccount(
       body,
     );
   }
-  return handleMessagesViaAnthropic(c, session, body);
+  return handleMessagesViaAnthropic(c, account, body);
 }
 
 function routeFromRequestBody(body: ArrayBuffer): RoutingTarget | undefined {
@@ -298,6 +310,20 @@ export async function handleMessages(c: Context): Promise<Response> {
 
   const body = await c.req.raw.arrayBuffer();
   const route = routeFromRequestBody(body);
+
+  if (session.transportConstraints) {
+    if (route?.transportProviderId && route.transportProviderId !== "cloud-code") {
+      return c.json(
+        { error: "gateway session transport constraint is no longer satisfied" },
+        503,
+      );
+    }
+    return handleMessagesViaCloudCode(c, session, body);
+  }
+
+  if (!session.accountId) {
+    return c.json({ error: "gateway session account is unavailable" }, 503);
+  }
 
   const sessionAccount = findAccount(session.accountId);
   if (route && !sessionAccount) {
@@ -333,6 +359,9 @@ export async function handleMessages(c: Context): Promise<Response> {
   try {
     for (;;) {
       const dispatchSession = session;
+      if (!dispatchSession.accountId) {
+        return c.json({ error: "gateway session account is unavailable" }, 503);
+      }
       attempted.add(dispatchSession.accountId);
       const response = await dispatchToSessionAccount(c, dispatchSession, body, () => {
         if (outboundRecorded) return;
@@ -352,7 +381,7 @@ export async function handleMessages(c: Context): Promise<Response> {
         response,
         route,
       );
-      if (!rebound || attempted.has(rebound.accountId)) {
+      if (!rebound?.accountId || attempted.has(rebound.accountId)) {
         if (response.status === 429) {
           recordSessionRateLimitComplete(session.sessionId, route);
         } else {
