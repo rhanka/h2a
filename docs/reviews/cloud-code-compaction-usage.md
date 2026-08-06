@@ -1,11 +1,21 @@
 ---
-status: selection-failed
+status: incomplete
 review-author:
   host: codex
-  model: unknown
-  effort: unknown
+  model: gpt-5.6-terra
+  effort: xhigh
 target-ref: 001c9556
-observed-failure: The current session does not expose the author's exact declared model and effort, so the harness selector cannot choose two complementary Claude-hosted review legs without inferring prohibited metadata.
+author-attestation:
+  source: h2a_run
+  session: h2a-fix-cloud-code-compaction-terra
+  pane: "%43"
+  gateway: direct
+legs:
+  - path: docs/reviews/cloud-code-compaction-usage/claude-sol-correctness.md
+    status: failed
+  - path: docs/reviews/cloud-code-compaction-usage/claude-luna-adversarial.md
+    status: failed
+observed-failure: Both h2a_run launches were rejected by Claude Code's external-import confirmation before the prompt reached either reviewer; h2a stopped the partial sessions.
 ---
 
-No peer-review consensus is claimed. This branch is draft-only until a session with attested author metadata can dispatch and reconcile the required two independent review legs.
+No peer-review consensus is claimed.
