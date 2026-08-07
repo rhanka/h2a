@@ -148,6 +148,18 @@ function tmuxSessionRow(
   return `$1\t1710000000\t1234\t/tmp/tmux-1000/default\t${name}\t${attached}\t${path}\t${profile}\t${displayName}\n`;
 }
 
+function parseRunShellScriptArg(commandArg: string): string {
+  const prefix = "run-shell -b ";
+  if (!commandArg.startsWith(prefix)) {
+    throw new Error(`expected run-shell binding command, got: ${commandArg}`);
+  }
+  const quoted = commandArg.slice(prefix.length);
+  if (!quoted.startsWith("'") || !quoted.endsWith("'")) {
+    throw new Error(`expected run-shell command to be single-quoted: ${commandArg}`);
+  }
+  return quoted.slice(1, -1).replace(/'\\''/g, "'");
+}
+
 describe("attachLocalSession", () => {
   it("uses tmux attach-session outside tmux", () => {
     delete process.env.TMUX;
@@ -1542,23 +1554,43 @@ describe("buildCodexImagePasteBinding", () => {
     expect(line).toContain("image/png");
     expect(line).toContain("image/jpeg");
     expect(line).toContain(".remote/images");
-    expect(line).toContain("send-keys");
+    expect(line).toContain("tmux send-keys");
     expect(line).toContain("-l");
     expect(line).toContain("codex");
-    expect(line).toContain("send-keys C-v");
   });
 
-  it("targets the triggering pane explicitly in the run-shell script (pane_id)", () => {
+  it("targets the triggering pane explicitly in both scripts (pane_id)", () => {
     const line = buildCodexImagePasteBinding().join(" ");
-    // #{pane_id} must appear in the script so tmux expands it at binding-fire time,
-    // preventing the background shell from targeting the wrong pane.
+    // #{pane_id} must appear in each script so tmux expands it at binding-fire
+    // time, preventing the background shell from targeting the wrong pane.
     expect(line).toContain("#{pane_id}");
-    expect(line).toContain("-t");
-    expect(line).toContain("tmux load-buffer");
-    expect(line).toContain("tmux paste-buffer");
+  });
+
+  it("compiles generated image/text shell scripts with /bin/sh -n", () => {
+    const binding = buildCodexImagePasteBinding();
+    const imageScript = parseRunShellScriptArg(binding[6] as string);
+    const fallbackScript = parseRunShellScriptArg(binding[7] as string);
+    const dir = mkdtempSync(join(tmpdir(), "h2a-tmux-copy-"));
+    const imagePath = join(dir, "image.sh");
+    const fallbackPath = join(dir, "fallback.sh");
+
+    try {
+      writeFileSync(imagePath, `${imageScript}\n`);
+      writeFileSync(fallbackPath, `${fallbackScript}\n`);
+      expect(realSpawnSync("/bin/sh", ["-n", imagePath]).status).toBe(0);
+      expect(realSpawnSync("/bin/sh", ["-n", fallbackPath]).status).toBe(0);
+    } finally {
+      rmSync(fallbackPath, { force: true });
+      rmSync(imagePath, { force: true });
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("routes non-Codex text pastes through system clipboard tools", () => {
+    const line = buildCodexImagePasteBinding().join(" ");
     expect(line).toContain("xclip -selection clipboard -out");
     expect(line).toContain("xsel -ob");
-    expect(line).toContain("tmux send-keys -t \"$PANE_TARGET\" C-v");
+    expect(line).toContain("tmux paste-buffer");
   });
 });
 

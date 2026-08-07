@@ -874,7 +874,7 @@ export function buildCodexImagePasteBinding(): ReadonlyArray<string> {
     'else',
     '  tmux send-keys -t "$PANE_TARGET" C-v',
     'fi',
-  ].join("; ");
+  ].join("\n");
   return [
     "bind",
     "-n",
