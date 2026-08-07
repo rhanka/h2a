@@ -14,10 +14,9 @@ import {
   NATIVE_TERMINAL_MAX_FRAME_BYTES,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
   NativeTerminalRemoteError,
-  isRecord,
+  parseNativeTerminalResponse,
   type NativeTerminalPing,
   type NativeTerminalRequest,
-  type NativeTerminalResponse,
   type NativeTerminalStopSignal,
 } from "./protocol.js";
 import {
@@ -228,11 +227,17 @@ export class NativeTerminalClient {
         this.#socket.destroy(new Error("terminal host returned invalid JSON"));
         return;
       }
-      if (!isRecord(parsed) || typeof parsed.id !== "string" || typeof parsed.ok !== "boolean") {
-        this.#socket.destroy(new Error("terminal host returned an invalid response"));
+      let response;
+      try {
+        response = parseNativeTerminalResponse(parsed);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.#fail(
+          new Error(`terminal host returned an invalid response: ${detail}`),
+        );
+        this.#socket.destroy();
         return;
       }
-      const response = parsed as NativeTerminalResponse;
       const pending = this.#pending.get(response.id);
       if (!pending) continue;
       this.#pending.delete(response.id);

@@ -11,6 +11,7 @@ export const NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS = 32;
 export const NATIVE_TERMINAL_MAX_SESSIONS = 256;
 export const NATIVE_TERMINAL_DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
 export const NATIVE_TERMINAL_HEALTH_TIMEOUT_MS = 1_000;
+export const NATIVE_TERMINAL_MAX_ERROR_MESSAGE_CHARS = 1_024;
 
 export const NATIVE_TERMINAL_STOP_SIGNALS = [
   "SIGHUP",
@@ -94,6 +95,52 @@ export class NativeTerminalRemoteError extends Error {
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function parseNativeTerminalResponse(
+  value: unknown,
+): NativeTerminalResponse {
+  if (!isRecord(value)) throw new TypeError("response must be an object");
+  if (value.version !== NATIVE_TERMINAL_PROTOCOL_VERSION) {
+    throw new TypeError("unsupported terminal protocol version");
+  }
+  if (
+    typeof value.id !== "string" ||
+    value.id.length === 0 ||
+    value.id.length > 128
+  ) {
+    throw new TypeError(
+      "response id must be a non-empty string of at most 128 characters",
+    );
+  }
+  if (value.ok === true) {
+    if (!Object.prototype.hasOwnProperty.call(value, "result")) {
+      throw new TypeError("successful response must include a result");
+    }
+    return value as NativeTerminalSuccessResponse;
+  }
+  if (value.ok !== false) {
+    throw new TypeError("response ok must be a boolean");
+  }
+  if (!isRecord(value.error)) {
+    throw new TypeError("error response must include an error object");
+  }
+  if (
+    value.error.code !== "invalid-request" &&
+    value.error.code !== "operation-failed"
+  ) {
+    throw new TypeError("terminal response error code is invalid");
+  }
+  if (
+    typeof value.error.message !== "string" ||
+    value.error.message.length === 0 ||
+    value.error.message.length > NATIVE_TERMINAL_MAX_ERROR_MESSAGE_CHARS
+  ) {
+    throw new TypeError(
+      `terminal response error message must contain 1-${NATIVE_TERMINAL_MAX_ERROR_MESSAGE_CHARS} characters`,
+    );
+  }
+  return value as NativeTerminalErrorResponse;
 }
 
 export function parseNativeTerminalRequest(value: unknown): NativeTerminalRequest {

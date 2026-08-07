@@ -92,6 +92,42 @@ async function eventually<T>(read: () => Promise<T>, accept: (value: T) => boole
   throw new Error("condition did not become true");
 }
 
+async function expectMalformedPeerResponseRejected(
+  response: (id: string) => Readonly<Record<string, unknown>>,
+): Promise<void> {
+  const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-malformed-"));
+  const socketPath = join(directory, "host.sock");
+  const peerSockets = new Set<Socket>();
+  const peer = createServer((socket) => {
+    peerSockets.add(socket);
+    socket.once("close", () => peerSockets.delete(socket));
+    socket.setEncoding("utf8");
+    let buffer = "";
+    socket.on("data", (chunk: string) => {
+      buffer += chunk;
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      const request = JSON.parse(buffer.slice(0, newline)) as { id: string };
+      socket.write(`${JSON.stringify(response(request.id))}\n`);
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    peer.once("error", reject);
+    peer.listen(socketPath, () => resolve());
+  });
+  await chmod(socketPath, 0o600);
+  cleanup.push(async () => {
+    for (const socket of peerSockets) socket.destroy();
+    await new Promise<void>((resolve) => peer.close(() => resolve()));
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  const client = await NativeTerminalClient.connect(socketPath);
+  cleanup.push(async () => client.close());
+  await expect(client.ping()).rejects.toThrow(/invalid response/i);
+  await expect(client.ping()).rejects.toThrow(/client is closed/i);
+}
+
 describe("native terminal local transport", () => {
   it("should reject a shared socket directory without changing its permissions", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-shared-"));
@@ -195,6 +231,42 @@ describe("native terminal local transport", () => {
     });
     cleanup.push(async () => client.close());
     await expect(client.ping()).rejects.toThrow(/request timed out after 50ms/i);
+  });
+
+  it("should fail closed on incompatible or malformed response variants", async () => {
+    const validResult = {
+      generation: "rogue-generation",
+      hostPid: process.pid,
+      protocolVersion: 1,
+    };
+    await expectMalformedPeerResponseRejected((id) => ({
+      version: 999,
+      id,
+      ok: true,
+      result: validResult,
+    }));
+    await expectMalformedPeerResponseRejected((id) => ({
+      version: 1,
+      id,
+      ok: false,
+    }));
+    await expectMalformedPeerResponseRejected((id) => ({
+      version: 1,
+      id,
+      ok: false,
+      error: { code: "wrong-code", message: "wrong code" },
+    }));
+    await expectMalformedPeerResponseRejected((id) => ({
+      version: 1,
+      id,
+      ok: false,
+      error: { code: "operation-failed", message: 42 },
+    }));
+    await expectMalformedPeerResponseRejected((id) => ({
+      version: 1,
+      id,
+      ok: true,
+    }));
   });
 
   it("should refuse a socket whose filesystem mode is not private", async () => {

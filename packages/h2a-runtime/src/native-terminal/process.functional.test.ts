@@ -1,12 +1,14 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { chmod, mkdtemp, readFile, readlink, rm, stat } from "node:fs/promises";
+import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
+import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
 
 const children = new Set<ChildProcess>();
 const directories = new Set<string>();
@@ -260,10 +262,119 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       stopSignal: "SIGKILL",
     });
     await eventually(() => running(session.pid), (alive) => !alive);
-    expect(await client.state("stubborn")).toMatchObject({
+    const exited = await eventually(
+      () => client.state("stubborn"),
+      (state) => state.status === "exited",
+    );
+    expect(exited).toMatchObject({
       status: "exited",
     });
   });
+
+  it("should keep the shared host and an existing real PTY alive after an exact-limit invalid request", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-frame-limit-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    let hostProcess: ChildProcess | undefined;
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      replayBytesPerSession: 1024,
+      generationFactory: () => "frame-limit-generation",
+      spawnHost: (options) => {
+        hostProcess = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+        ], {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        children.add(hostProcess);
+        return hostProcess;
+      },
+    });
+    const client = await supervisor.client();
+    const ping = await client.ping();
+    await client.create({
+      id: "survivor",
+      command: "/bin/sh",
+      args: ["-c", "printf survivor-ready\\r\\n; while IFS= read -r line; do printf 'survivor:%s\\r\\n' \"$line\"; done"],
+      cwd: directory,
+      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      cols: 80,
+      rows: 24,
+    });
+    await eventually(
+      () => client.readOutput("survivor", 0),
+      (output) => output.chunks.some((chunk) => chunk.data.includes("survivor-ready")),
+    );
+    const lease = await client.acquireController("survivor", "frame-limit-owner");
+
+    const rawSocket = createConnection(socketPath);
+    await new Promise<void>((resolve, reject) => {
+      rawSocket.once("connect", resolve);
+      rawSocket.once("error", reject);
+    });
+    rawSocket.setEncoding("utf8");
+    let responseBuffer = "";
+    const responseLine = new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("exact-limit request response timed out")),
+        30_000,
+      );
+      rawSocket.on("data", (chunk: string) => {
+        responseBuffer += chunk;
+        const newline = responseBuffer.indexOf("\n");
+        if (newline < 0) return;
+        clearTimeout(timeout);
+        resolve(responseBuffer.slice(0, newline));
+      });
+      rawSocket.once("error", (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+    const emptyIdFrame = JSON.stringify({ version: 1, id: "", operation: "ping" });
+    const invalidFrame = JSON.stringify({
+      version: 1,
+      id: "A".repeat(
+        NATIVE_TERMINAL_MAX_FRAME_BYTES - Buffer.byteLength(emptyIdFrame),
+      ),
+      operation: "ping",
+    });
+    expect(Buffer.byteLength(invalidFrame)).toBe(NATIVE_TERMINAL_MAX_FRAME_BYTES);
+    await new Promise<void>((resolve, reject) => {
+      rawSocket.write(`${invalidFrame}\n`, (error) => error ? reject(error) : resolve());
+    });
+    const invalidResponse = JSON.parse(await responseLine) as {
+      id: string;
+      ok: boolean;
+      error: { code: string };
+    };
+    expect(invalidResponse).toMatchObject({
+      id: "invalid",
+      ok: false,
+      error: { code: "invalid-request" },
+    });
+    rawSocket.destroy();
+
+    expect(hostProcess?.exitCode).toBeNull();
+    expect(hostProcess?.signalCode).toBeNull();
+    expect((await client.ping()).hostPid).toBe(ping.hostPid);
+    await client.write(lease, "still-alive\r");
+    await eventually(
+      () => client.readOutput("survivor", 0),
+      (output) => output.chunks.some((chunk) => chunk.data.includes("survivor:still-alive")),
+    );
+  }, 45_000);
 
   it("should back off repeated host startup failures and preserve the diagnostic", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-backoff-"));
