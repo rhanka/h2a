@@ -12,6 +12,7 @@ export const NATIVE_TERMINAL_MAX_SESSIONS = 256;
 export const NATIVE_TERMINAL_DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
 export const NATIVE_TERMINAL_HEALTH_TIMEOUT_MS = 1_000;
 export const NATIVE_TERMINAL_MAX_ERROR_MESSAGE_CHARS = 1_024;
+export const NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS = 128;
 
 export const NATIVE_TERMINAL_STOP_SIGNALS = [
   "SIGHUP",
@@ -107,10 +108,10 @@ export function parseNativeTerminalResponse(
   if (
     typeof value.id !== "string" ||
     value.id.length === 0 ||
-    value.id.length > 128
+    value.id.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS
   ) {
     throw new TypeError(
-      "response id must be a non-empty string of at most 128 characters",
+      `response id must be a non-empty string of at most ${NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS} characters`,
     );
   }
   if (value.ok === true) {
@@ -148,8 +149,14 @@ export function parseNativeTerminalRequest(value: unknown): NativeTerminalReques
   if (value.version !== NATIVE_TERMINAL_PROTOCOL_VERSION) {
     throw new TypeError("unsupported terminal protocol version");
   }
-  if (typeof value.id !== "string" || value.id.length === 0 || value.id.length > 128) {
-    throw new TypeError("request id must be a non-empty string of at most 128 characters");
+  if (
+    typeof value.id !== "string" ||
+    value.id.length === 0 ||
+    value.id.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS
+  ) {
+    throw new TypeError(
+      `request id must be a non-empty string of at most ${NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS} characters`,
+    );
   }
   const operations: ReadonlySet<string> = new Set<NativeTerminalOperation>([
     "ping",

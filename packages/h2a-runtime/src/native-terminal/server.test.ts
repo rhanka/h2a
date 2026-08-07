@@ -8,6 +8,7 @@ import type { PtyHandle, PtySpawner } from "../pty.js";
 import { NativeTerminalClient } from "./client.js";
 import { NativeTerminalHost } from "./host.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
+import { NATIVE_TERMINAL_MAX_REPLAY_CHUNKS_PER_SESSION } from "./replay-buffer.js";
 import { startNativeTerminalHostServer, type NativeTerminalHostServer } from "./server.js";
 
 class StubPty implements PtyHandle {
@@ -42,7 +43,7 @@ afterEach(async () => {
   while (cleanup.length > 0) await cleanup.pop()?.();
 });
 
-async function service(): Promise<{
+async function service(options: { replayBytesPerSession?: number } = {}): Promise<{
   socketPath: string;
   server: NativeTerminalHostServer;
   client: NativeTerminalClient;
@@ -58,7 +59,7 @@ async function service(): Promise<{
   };
   const host = new NativeTerminalHost({
     generation: "unit-generation",
-    replayBytesPerSession: 1024,
+    replayBytesPerSession: options.replayBytesPerSession ?? 1024,
     spawner,
   });
   const server = await startNativeTerminalHostServer({ socketPath, host });
@@ -168,6 +169,27 @@ describe("native terminal local transport", () => {
     });
     expect(await client.readOutput("beta", 0)).toMatchObject({
       chunks: [{ seq: 1, data: "beta-output" }],
+    });
+  });
+
+  it("should bound fragmented replay and keep the client connected", async () => {
+    const { client, ptys } = await service({
+      replayBytesPerSession: 4 * 1024 * 1024,
+    });
+    await client.create(createOptions("fragmented"));
+    const emitted = NATIVE_TERMINAL_MAX_REPLAY_CHUNKS_PER_SESSION + 100;
+    for (let index = 0; index < emitted; index += 1) {
+      ptys.get("fragmented")!.emitData("x");
+    }
+
+    const replay = await client.readOutput("fragmented", 0);
+    expect(replay.chunks).toHaveLength(
+      NATIVE_TERMINAL_MAX_REPLAY_CHUNKS_PER_SESSION,
+    );
+    expect(replay.gap).toEqual({ fromSeq: 1, toSeq: 100 });
+    expect(replay.latestSeq).toBe(emitted);
+    expect(await client.ping()).toMatchObject({
+      generation: "unit-generation",
     });
   });
 

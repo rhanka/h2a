@@ -11,6 +11,7 @@ import {
 import {
   NATIVE_TERMINAL_MAX_FRAME_BYTES,
   NATIVE_TERMINAL_MAX_ERROR_MESSAGE_CHARS,
+  NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
   isNativeTerminalStopSignal,
   isRecord,
@@ -44,6 +45,16 @@ function requiredString(value: unknown, label: string): string {
   return value;
 }
 
+function requiredIdentifier(value: unknown, label: string): string {
+  const identifier = requiredString(value, label);
+  if (identifier.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS) {
+    throw new TypeError(
+      `${label} must contain at most ${NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS} characters`,
+    );
+  }
+  return identifier;
+}
+
 function requiredInteger(value: unknown, label: string): number {
   if (!Number.isSafeInteger(value) || (value as number) <= 0) {
     throw new TypeError(`${label} must be a positive safe integer`);
@@ -52,7 +63,7 @@ function requiredInteger(value: unknown, label: string): number {
 }
 
 function sessionId(params: unknown): string {
-  return requiredString(requiredRecord(params, "params").id, "session id");
+  return requiredIdentifier(requiredRecord(params, "params").id, "session id");
 }
 
 function controllerLease(value: unknown): NativeTerminalControllerLease {
@@ -60,9 +71,13 @@ function controllerLease(value: unknown): NativeTerminalControllerLease {
   if (lease.role !== "controller") throw new TypeError("invalid controller lease role");
   return {
     role: "controller",
-    id: requiredString(lease.id, "controller lease session id"),
-    generation: requiredString(lease.generation, "controller lease generation"),
-    controllerId: requiredString(lease.controllerId, "controller lease id"),
+    id: requiredIdentifier(lease.id, "controller lease session id"),
+    generation: requiredIdentifier(lease.generation, "controller lease generation"),
+    incarnation: requiredIdentifier(
+      lease.incarnation,
+      "controller lease incarnation",
+    ),
+    controllerId: requiredIdentifier(lease.controllerId, "controller lease id"),
     epoch: requiredInteger(lease.epoch, "controller lease epoch"),
   };
 }
@@ -70,6 +85,7 @@ function controllerLease(value: unknown): NativeTerminalControllerLease {
 function sameLease(left: NativeTerminalControllerLease, right: NativeTerminalControllerLease): boolean {
   return left.id === right.id
     && left.generation === right.generation
+    && left.incarnation === right.incarnation
     && left.controllerId === right.controllerId
     && left.epoch === right.epoch;
 }
@@ -93,7 +109,7 @@ function createOptions(params: unknown): NativeTerminalCreateOptions {
     throw new TypeError("terminal env values must be strings");
   }
   return {
-    id: requiredString(options.id, "terminal session id"),
+    id: requiredIdentifier(options.id, "terminal session id"),
     command: requiredString(options.command, "terminal command"),
     args: options.args,
     cwd: requiredString(options.cwd, "terminal cwd"),
@@ -135,15 +151,18 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       if (!Number.isSafeInteger(afterSeq) || (afterSeq as number) < 0) {
         throw new TypeError("afterSeq must be a non-negative safe integer");
       }
-      return host.readOutput(requiredString(record.id, "session id"), afterSeq as number);
+      return host.readOutput(
+        requiredIdentifier(record.id, "session id"),
+        afterSeq as number,
+      );
     }
     case "attach-observer":
       return host.attachObserver(sessionId(params));
     case "acquire-controller": {
       const record = requiredRecord(params, "params");
       const lease = host.acquireController(
-        requiredString(record.id, "session id"),
-        requiredString(record.controllerId, "controller id"),
+        requiredIdentifier(record.id, "session id"),
+        requiredIdentifier(record.controllerId, "controller id"),
       );
       context.leases.set(lease.id, lease);
       return lease;
@@ -195,7 +214,9 @@ function responseFrame(response: NativeTerminalResponse): string {
 }
 
 function safeResponseId(value: unknown): string {
-  return typeof value === "string" && value.length > 0 && value.length <= 128
+  return typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS
     ? value
     : "invalid";
 }
