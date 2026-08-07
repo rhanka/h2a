@@ -2,8 +2,8 @@
 
 ## Objective
 
-- [ ] Establish a typed, bounded terminal replay contract for a future single-process multi-session PTY host.
-- [ ] Prove independent PTY lifecycle and fail-closed controller arbitration without changing the tmux default.
+- [x] Establish a typed, bounded terminal replay contract for a single-process multi-session PTY host.
+- [x] Prove a persistent local transport, independent real-PTY lifecycle and fail-closed controller arbitration without changing the tmux default.
 
 ## Scope / Guardrails
 
@@ -13,6 +13,9 @@
 - [ ] `docs/specs/2026-08-06-SPEC_EVOL_native-multisession-terminal-host.md`
 - [ ] `docs/reviews/native-terminal-host-lot1.md`
 - [ ] `packages/h2a-runtime/src/native-terminal/**`
+- [ ] `packages/h2a-runtime/src/pty.ts` (BR178-EX1)
+- [ ] `packages/h2a-runtime/src/index.ts` (BR178-EX2)
+- [ ] `.github/workflows/ci.yml` (BR178-EX3)
 
 **Forbidden Paths (must not change)**
 
@@ -31,6 +34,12 @@
 - [ ] `packages/h2a-runtime/src/run.ts`
 - [ ] local-server transport and supervision files
 
+**Recorded scope exceptions**
+
+- [x] **BR178-EX1 — `packages/h2a-runtime/src/pty.ts`:** expose the real PTY PID for lifecycle/process-attribution proofs and use `createRequire(import.meta.url)` so the existing lazy `node-pty` load works from emitted ESM. Impact is additive to the internal `PtyHandle`; rollback removes the PID from the new native host state.
+- [x] **BR178-EX2 — `packages/h2a-runtime/src/index.ts`:** export the native host client/supervisor seam so the existing local server can own one supervisor in a later opt-in wiring lot. No CLI route or tmux call site changes; rollback removes the exports.
+- [x] **BR178-EX3 — `.github/workflows/ci.yml`:** execute the native-terminal unit, socket-integration and Linux real-PTY functional suite in both supported CI Node jobs. Impact is one focused Vitest invocation per build-and-test matrix leg; rollback removes that single step.
+
 ## Plan / Todo (lot-based)
 
 - [x] **Lot 1 — sequenced bounded replay**
@@ -44,10 +53,22 @@
 - [x] **Lot 3 — controller epoch and versioned contract**
   - [x] Add single-controller acquisition with an incrementing epoch and observer-only attachment.
   - [x] Reject stale input and resize epochs through an in-process typed contract.
-  - [ ] Gate: focused native-terminal tests, runtime suite and root typecheck pass.
+  - [x] Gate: focused native-terminal tests and root typecheck pass.
+- [x] **Lot 4 — persistent private local host transport**
+  - [x] Add a bounded versioned JSON-lines protocol over a private Unix socket (`0700` parent, `0600` socket).
+  - [x] Add a persistent client and connect-or-start supervisor that coalesces concurrent callers and reconnects to the same host generation.
+  - [x] Bind controller leases to the owning connection and release them on disconnect without stopping PTYs.
+  - [x] Add a separately executable Node host process using the real `node-pty` spawner.
+- [x] **Lot 5 — local execution evidence**
+  - [x] Execute two real shell PTYs in one host and prove independent replay/input/exit.
+  - [x] Disconnect/reconnect the client and prove the host PID and PTY PIDs remain stable with one host spawn.
+  - [x] Stop one PTY without affecting the other, then crash the host and prove its remaining PTY disappears.
+  - [x] Gracefully stop the host and prove bounded TERM→KILL drain of a non-cooperative PTY, code-0 exit, socket removal and a distinct next generation.
+  - [x] Race two supervisors against one socket and prove convergence on one host without repeated spawns.
+  - [ ] Gate: full root suite and CI pass on the final commit.
 
 ## Feedback Loop
 
-- [ ] Stop for owner decision before adding a local socket, switching the default backend or claiming Greywall enforcement.
-- [ ] Record any required out-of-scope path as a BRxx-EXn exception with reason, impact and rollback.
+- [x] Owner explicitly authorized the private local socket and separately supervised host process in this PR; default-backend cutover and Greywall enforcement remain forbidden.
+- [x] Record every required out-of-scope path as a BRxx-EXn exception with reason, impact and rollback.
 - [ ] Re-run consensus review with complete author metadata before marking this PR ready.

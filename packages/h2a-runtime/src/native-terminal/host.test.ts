@@ -4,6 +4,8 @@ import type { PtyHandle, PtySpawner } from "../pty.js";
 import { NativeTerminalHost } from "./host.js";
 
 class StubPty implements PtyHandle {
+  static #nextPid = 41000;
+  readonly pid = StubPty.#nextPid++;
   readonly cols = 80;
   readonly rows = 24;
   readonly #dataHandlers = new Set<(chunk: string) => void>();
@@ -99,6 +101,7 @@ describe("NativeTerminalHost", () => {
       {
         id: "alpha",
         generation: "host-generation-1",
+        pid: expect.any(Number),
         status: "exited",
         latestSeq: 1,
         exit: { exitCode: 7, signal: 15 },
@@ -107,6 +110,7 @@ describe("NativeTerminalHost", () => {
       {
         id: "beta",
         generation: "host-generation-1",
+        pid: expect.any(Number),
         status: "running",
         latestSeq: 2,
         exit: null,
@@ -128,12 +132,12 @@ describe("NativeTerminalHost", () => {
 
     expect(host.stop("alpha", "SIGTERM")).toMatchObject({
       id: "alpha",
-      status: "stopped",
+      status: "stopping",
       stopSignal: "SIGTERM",
     });
     expect(host.stop("alpha", "SIGKILL")).toMatchObject({
       id: "alpha",
-      status: "stopped",
+      status: "stopping",
       stopSignal: "SIGTERM",
     });
     expect(ptys.get("alpha")!.kill).toHaveBeenCalledTimes(1);
@@ -144,13 +148,34 @@ describe("NativeTerminalHost", () => {
     ptys.get("beta")!.emitData("alive");
 
     expect(host.state("alpha")).toMatchObject({
-      status: "stopped",
+      status: "exited",
       exit: { exitCode: 0 },
     });
     expect(host.state("beta")).toMatchObject({
       status: "running",
       latestSeq: 1,
     });
+  });
+
+  it("should force-stop every non-exited session during bounded host shutdown", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-force",
+      replayBytesPerSession: 32,
+      spawner,
+    });
+    createSession(host, "alpha");
+    createSession(host, "beta");
+
+    host.stop("alpha", "SIGTERM");
+    expect(host.forceStopAll("SIGKILL")).toEqual([
+      expect.objectContaining({ id: "alpha", status: "stopping", stopSignal: "SIGKILL" }),
+      expect.objectContaining({ id: "beta", status: "stopping", stopSignal: "SIGKILL" }),
+    ]);
+    expect(ptys.get("alpha")!.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+    expect(ptys.get("alpha")!.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
+    expect(ptys.get("beta")!.kill).toHaveBeenCalledOnce();
+    expect(ptys.get("beta")!.kill).toHaveBeenCalledWith("SIGKILL");
   });
 
   it("should reject duplicate and unknown session identifiers", () => {
