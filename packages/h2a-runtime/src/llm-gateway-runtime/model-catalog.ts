@@ -52,6 +52,19 @@ const CLOUD_CODE_CATALOG: readonly ModelCatalogEntry[] = [
     defaultPolicy: "round-robin",
     routeKind: "faithful",
   },
+  {
+    id: "gemini-2.5-flash",
+    provider: "google",
+    targetProviderId: "google",
+    transportProviderId: "cloud-code",
+    upstreamModel: "gemini-2.5-flash",
+    accountPool: "google",
+    inputProtocol: "anthropic.messages",
+    outputProtocol: "anthropic.messages",
+    capabilities: [...GOOGLE_CAPABILITIES],
+    defaultPolicy: "round-robin",
+    routeKind: "faithful",
+  },
 ];
 
 let _catalog: ModelCatalogEntry[] | null = null;
