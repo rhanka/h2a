@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { evaluateSecurityDebt } from "../../../scripts/audit-security-debt.mjs";
 
 const PATH = "packages/example/node_modules/example";
@@ -60,4 +63,11 @@ test("security debt gate rejects an advisory that drifted", () => {
 test("security debt gate fails closed on malformed audit output", () => {
   const result = evaluateSecurityDebt({ audit: {}, register: register(), lockfile });
   assert.match(result.errors.join("\n"), /did not return a vulnerabilities object/);
+});
+
+test("security debt gate also audits the independent Focus lockfile", () => {
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+  const packageJson = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8"));
+  assert.equal(packageJson.scripts["audit:security"], "node scripts/audit-security-debt.mjs && npm run audit:security:focus");
+  assert.equal(packageJson.scripts["audit:security:focus"], "npm --prefix apps/focus audit --audit-level=moderate");
 });
