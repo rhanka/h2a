@@ -240,6 +240,73 @@ describe("registry", () => {
       ]);
     });
 
+    it("keeps entries explicitly restorePinned even when older than maxAgeHours", () => {
+      const old = new Date(Date.now() - 100 * 3600 * 1000).toISOString();
+      const entries: RegistryEntry[] = [
+        {
+          id: "restore-pinned",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/r",
+          tmuxSession: "remote-restore",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          sessionClass: "human",
+          convId: "d7e77a42-7b54-4ca7-8f55-3d4dd3d3f2d4",
+          restorePinned: true,
+        },
+        {
+          id: "dead-old",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/a",
+          tmuxSession: "remote-a",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          sessionClass: "background",
+        },
+      ];
+      writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
+      const removed = prune(72, { path: regPath, tmuxHasSession: () => false });
+      expect(removed).toBe(1);
+      expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-pinned"]);
+    });
+
+    it("keeps durable human rows that qualify for implicit restore pinning", () => {
+      const old = new Date(Date.now() - 100 * 3600 * 1000).toISOString();
+      const entries: RegistryEntry[] = [
+        {
+          id: "restore-implicit",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/r",
+          tmuxSession: "remote-restore-implicit",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          sessionClass: "human",
+          convId: "f6a55f9e-b8b8-4e13-bf5f-c2d8b6a1b9e0",
+        },
+        {
+          id: "dead-old",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/a",
+          tmuxSession: "remote-a",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          sessionClass: "background",
+        },
+      ];
+      writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
+      const removed = prune(72, { path: regPath, tmuxHasSession: () => false });
+      expect(removed).toBe(1);
+      expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-implicit"]);
+    });
+
     it("is a no-op (no rewrite) when nothing is prunable", () => {
       enroll(baseInput, regPath);
       const before = readFileSync(regPath, "utf8");
