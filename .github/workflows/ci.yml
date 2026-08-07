@@ -64,6 +64,7 @@ jobs:
           oracle_marketplace=$(mktemp -d "$RUNNER_TEMP/h2a-oracle-marketplace.XXXXXX")
           oracle_git_config=$(mktemp "$RUNNER_TEMP/h2a-oracle-gitconfig.XXXXXX")
           git init --bare "$oracle_marketplace" >/dev/null
+          git -C "$oracle_marketplace" config receive.shallowUpdate true
           git -C "$GITHUB_WORKSPACE" push "$oracle_marketplace" HEAD:refs/heads/main >/dev/null
           git config --file "$oracle_git_config" url."file://$oracle_marketplace".insteadOf https://github.com/rhanka/h2a.git
           GIT_CONFIG_GLOBAL="$oracle_git_config" bash docs/uat/probe-oracle.sh
