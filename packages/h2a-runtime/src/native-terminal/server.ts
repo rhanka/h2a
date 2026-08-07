@@ -1,6 +1,7 @@
-import { chmod, lstat, mkdir, unlink } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { chmod, link, mkdir, unlink } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
-import { dirname, isAbsolute } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 import {
   NativeTerminalHost,
@@ -10,12 +11,19 @@ import {
 import {
   NATIVE_TERMINAL_MAX_FRAME_BYTES,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
+  isNativeTerminalStopSignal,
   isRecord,
   parseNativeTerminalRequest,
   type NativeTerminalErrorResponse,
   type NativeTerminalRequest,
   type NativeTerminalResponse,
 } from "./protocol.js";
+import {
+  assertPrivateNativeTerminalSocketDirectory,
+  inspectPrivateNativeTerminalSocket,
+  sameNativeTerminalSocket,
+  type NativeTerminalSocketIdentity,
+} from "./socket-path.js";
 
 type ConnectionContext = {
   readonly socket: Socket;
@@ -163,11 +171,16 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
     }
     case "stop": {
       const record = requiredRecord(params, "params");
-      const id = requiredString(record.id, "session id");
-      if (record.signal !== undefined && typeof record.signal !== "string") {
-        throw new TypeError("terminal stop signal must be a string");
+      const lease = ownedLease(context, record);
+      if (
+        record.signal !== undefined &&
+        !isNativeTerminalStopSignal(record.signal)
+      ) {
+        throw new TypeError(
+          "terminal stop signal must be SIGHUP, SIGINT, SIGTERM or SIGKILL",
+        );
       }
-      return host.stop(id, record.signal as string | undefined);
+      return host.stop(lease, record.signal);
     }
   }
 }
@@ -251,31 +264,69 @@ async function socketAcceptsConnections(socketPath: string): Promise<boolean> {
 }
 
 async function removeStaleSocket(socketPath: string): Promise<void> {
-  try {
-    const info = await lstat(socketPath);
-    if (!info.isSocket()) throw new Error(`terminal host path exists and is not a socket: ${socketPath}`);
-    if (await socketAcceptsConnections(socketPath)) {
-      throw new Error(`terminal host socket is already active: ${socketPath}`);
+  for (;;) {
+    let stale: NativeTerminalSocketIdentity;
+    try {
+      stale = await inspectPrivateNativeTerminalSocket(socketPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
     }
-    await unlink(socketPath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    if (await socketAcceptsConnections(socketPath)) {
+      throw new Error(
+        `terminal host socket is already active: ${socketPath}`,
+      );
+    }
+    try {
+      const current = await inspectPrivateNativeTerminalSocket(socketPath);
+      if (sameNativeTerminalSocket(stale, current)) {
+        await unlink(socketPath);
+        return;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
   }
 }
 
 async function ensurePrivateSocketDirectory(socketPath: string): Promise<void> {
   const directory = dirname(socketPath);
   try {
-    const info = await lstat(directory);
-    if (!info.isDirectory()) throw new Error(`terminal host socket parent is not a directory: ${directory}`);
-    if ((info.mode & 0o077) !== 0) {
-      throw new Error(`terminal host socket parent must not be accessible by group or others: ${directory}`);
-    }
+    await assertPrivateNativeTerminalSocketDirectory(socketPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await chmod(directory, 0o700);
+    await assertPrivateNativeTerminalSocketDirectory(socketPath);
   }
+}
+
+function stagingSocketPath(socketPath: string): string {
+  const directory = dirname(socketPath);
+  const stem = basename(socketPath).slice(0, 24).replace(/[^A-Za-z0-9_.-]/g, "_");
+  return join(
+    directory,
+    `.${stem}.${process.pid}.${randomUUID().slice(0, 8)}.sock`,
+  );
+}
+
+async function publishSocket(
+  stagedPath: string,
+  socketPath: string,
+): Promise<NativeTerminalSocketIdentity> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try {
+      await link(stagedPath, socketPath);
+      const published = await inspectPrivateNativeTerminalSocket(socketPath);
+      await unlink(stagedPath);
+      return published;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await removeStaleSocket(socketPath);
+    }
+  }
+  throw new Error("terminal host socket publication retry limit exceeded");
 }
 
 export type NativeTerminalHostServer = Readonly<{
@@ -289,7 +340,6 @@ export async function startNativeTerminalHostServer(options: {
 }): Promise<NativeTerminalHostServer> {
   if (!isAbsolute(options.socketPath)) throw new Error("terminal host socket path must be absolute");
   await ensurePrivateSocketDirectory(options.socketPath);
-  await removeStaleSocket(options.socketPath);
 
   const sockets = new Set<Socket>();
   const server: Server = createServer((socket) => {
@@ -303,15 +353,29 @@ export async function startNativeTerminalHostServer(options: {
       sockets.delete(socket);
     });
   });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(options.socketPath, () => {
-      server.removeListener("error", reject);
-      resolve();
+  const stagedPath = stagingSocketPath(options.socketPath);
+  let ownedSocket: NativeTerminalSocketIdentity;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(stagedPath, () => {
+        server.removeListener("error", reject);
+        resolve();
+      });
     });
-  });
-  await chmod(options.socketPath, 0o600);
-  const ownedSocket = await lstat(options.socketPath);
+    await chmod(stagedPath, 0o600);
+    ownedSocket = await publishSocket(stagedPath, options.socketPath);
+  } catch (error) {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    try {
+      await unlink(stagedPath);
+    } catch (cleanupError) {
+      if ((cleanupError as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw cleanupError;
+      }
+    }
+    throw error;
+  }
   let closing: Promise<void> | undefined;
 
   return Object.freeze({
@@ -321,7 +385,11 @@ export async function startNativeTerminalHostServer(options: {
         let stopError: unknown;
         if (closeOptions.stopSessions) {
           try {
-            options.host.stopAll(closeOptions.signal ?? "SIGTERM");
+            const signal = closeOptions.signal ?? "SIGTERM";
+            if (!isNativeTerminalStopSignal(signal)) {
+              throw new TypeError("invalid terminal host shutdown signal");
+            }
+            options.host.stopAll(signal);
           } catch (error) {
             stopError = error;
           }
@@ -331,8 +399,10 @@ export async function startNativeTerminalHostServer(options: {
           server.close((error) => error ? reject(error) : resolve());
         });
         try {
-          const current = await lstat(options.socketPath);
-          if (current.dev === ownedSocket.dev && current.ino === ownedSocket.ino) {
+          const current = await inspectPrivateNativeTerminalSocket(
+            options.socketPath,
+          );
+          if (sameNativeTerminalSocket(current, ownedSocket)) {
             await unlink(options.socketPath);
           }
         } catch (error) {

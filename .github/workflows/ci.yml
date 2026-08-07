@@ -120,7 +120,12 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - name: Exercise the native multi-session terminal host
-        run: npx --no-install vitest run packages/h2a-runtime/src/native-terminal/*.test.ts
+        run: >-
+          npx --no-install vitest run
+          packages/h2a-runtime/src/native-terminal/replay-buffer.test.ts
+          packages/h2a-runtime/src/native-terminal/host.test.ts
+          packages/h2a-runtime/src/native-terminal/server.test.ts
+          packages/h2a-runtime/src/native-terminal/process.functional.test.ts
       # migration P2: le contrat public (surface MCP/CLI + anti-cycle core) ne doit pas dériver sans bump
       - run: bash scripts/check-public-contract.sh
         if: runner.os == 'Linux'
