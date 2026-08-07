@@ -62,6 +62,29 @@
 // root); every separation-of-powers check compares against that VERIFIED signer's
 // identity, never `input.authorId`. What was a SKIPPED, documented KNOWN-OPEN bypass is
 // now a closed, asserted refusal.
+//
+// ROUND 4 (this file, new section near the end): a FOURTH, independent review NO-GO'd
+// round 3 with TWO real blockers, neither exercised by any test above. BLOCKER 1 —
+// SAME-NOTE REPLAY: the signed payload `{noteId, verdict, leg, at}` has no freshness, no
+// nonce, no one-shot consumption — an attacker holding NO private key can replay the
+// already-signed BYTES of two OLD, genuinely-produced GO verdicts for the SAME noteId
+// (from a prior, real ceremony) into a FRESH ceremony and mint a fresh promotion.
+// BLOCKER 2 — CRYPTO AUTHOR/REVIEWER ALIAS: separation of powers compared
+// `leg.session`/`authorId` STRINGS only, never the verified PUBLIC KEY — if the trusted
+// keystore mapped ONE key to TWO (or three) distinct `{model, session}` identities, the
+// SAME crypto principal could author AND review (or "independently" review twice) with
+// no forged signature anywhere. THE FIX: (1) a fresh, gate-generated, unpredictable
+// `ceremonyNonce` per run, threaded to `launchLeg` and bound into the signed payload —
+// the gate REQUIRES a read artifact's nonce match THIS run's own value AND rebuilds the
+// verification payload from that same gate-owned value, never the artifact's
+// self-reported one; (2) `canonicalKeyFingerprint` (SPKI DER + SHA-256) replaces
+// session-string comparison as the AUTHORITATIVE separation-of-powers check — three
+// pairwise-distinct crypto principals (author, reviewer1, reviewer2) required, checked
+// both PRE-LAUNCH and POST-READ, fail-closed on any missing/unparseable key. Three
+// attacks reached `promoteNote` with `promoted:true` at ROUND 3 (@64e3f8a4): the
+// same-note replay, an author/reviewer key alias, and a reviewer/reviewer key alias
+// (the third, a variant not exercised by the independent review itself, added here as
+// the same fake-independence class extended one step further).
 
 import { strict as assert } from "node:assert";
 import { createPrivateKey, generateKeyPairSync, sign as cryptoSign } from "node:crypto";
@@ -100,10 +123,16 @@ function signPayload(privateKeyPem, payload) {
   return cryptoSign(null, message, key).toString("base64");
 }
 
-/** Builds a genuinely, correctly signed VerdictArtifact for the given content. */
-function signedArtifact(privateKeyPem, { noteId, verdict, leg: legIdentity, at }) {
-  const payload = { noteId, verdict, leg: legIdentity, at };
-  return { noteId, verdict, leg: legIdentity, at, signature: signPayload(privateKeyPem, payload) };
+/**
+ * Builds a genuinely, correctly signed VerdictArtifact for the given content.
+ * D11 FIX ROUND 4 FIX 1: `ceremonyNonce` is now part of both the artifact and
+ * the signed payload — whatever nonce the caller's `verdict` object carries
+ * (normally threaded end to end from a live ceremony's `launchLeg` call, see
+ * `happyDeps`) flows straight through into what's actually signed.
+ */
+function signedArtifact(privateKeyPem, { noteId, verdict, leg: legIdentity, at, ceremonyNonce }) {
+  const payload = { noteId, verdict, leg: legIdentity, at, ceremonyNonce };
+  return { noteId, verdict, leg: legIdentity, at, ceremonyNonce, signature: signPayload(privateKeyPem, payload) };
 }
 
 function keystoreFrom(pairs) {
@@ -176,8 +205,16 @@ const NOTE = withAuthorSignature(
 );
 const CTX = { principal_owner: NOTE.principal_owner };
 
-function goVerdictFor(legSpec) {
-  return { noteId: NOTE.noteId, verdict: "GO", leg: legSpec, at: 1000 };
+// D11 FIX ROUND 4 FIX 1: a fixture nonce for tests that build/verify a
+// VerdictArtifact WITHOUT running a live ceremony (e.g. `defaultReadVerdict`
+// exercised directly, or an artifact PLANTED outside a ceremony's confined
+// zone for a ROUND 3 attack test where the confinement/symlink gate refuses
+// before freshness is ever checked). A LIVE ceremony run always overrides
+// this with its own freshly-generated nonce — see `happyDeps`'s `launchLeg`.
+const FIXTURE_CEREMONY_NONCE = "fixture-ceremony-nonce-not-a-live-run";
+
+function goVerdictFor(legSpec, ceremonyNonce = FIXTURE_CEREMONY_NONCE) {
+  return { noteId: NOTE.noteId, verdict: "GO", leg: legSpec, at: 1000, ceremonyNonce };
 }
 
 // Keys registered in the TRUSTED keystore the ceremony verifies against.
@@ -299,7 +336,11 @@ function honestPort() {
 }
 
 function happyDeps(overrides = {}) {
-  const launchLeg = countingFn(async (note, legSpec) => goVerdictFor(legSpec));
+  // D11 FIX ROUND 4 FIX 1: threads THIS ceremony run's real, freshly
+  // generated `ceremonyNonce` (3rd arg, from `runD11Ceremony` itself) into
+  // the returned LegVerdict — the honest-leg shape every legitimate fixture
+  // must produce for the freshness gate to ever pass.
+  const launchLeg = countingFn(async (note, legSpec, ceremonyNonce) => goVerdictFor(legSpec, ceremonyNonce));
   const writeVerdict = refCounter("unmatched-write-ref"); // deliberately not wired to any store; override when the test reaches the read gate
   const writeAttestation = refCounter("attestation-ref");
   const port = honestPort();
@@ -1381,4 +1422,235 @@ test("D11 FIX ROUND 3 §B: a note whose author signature verifies, with a signer
   const result = await ceremony({ note: NOTE, authorId: AUTHOR_ID }, deps);
   assert.deepEqual(result.outcome, { promoted: true, id: NOTE.noteId });
   assert.equal(deps.port.promoteNote.calls(), 1);
+});
+
+// ---------------------------------------------------------------------------
+// D11 FIX ROUND 4 — a FOURTH, independent review NO-GO'd ROUND 3 with TWO
+// real blockers, neither exercised by any test above. Both of the following
+// three tests PROMOTE (`promoted: true`, `promoteNote` called) at ROUND 3
+// (@64e3f8a4) — proven by an independent review re-running the FIRST TWO
+// against that exact commit before this round's fix existed; the THIRD is a
+// variant of the same fake-independence class, not tested by that review,
+// added here because it reaches the identical hole (a shared key behind two
+// distinct `{model, session}` identities) one step further — reviewer vs.
+// reviewer, not just author vs. reviewer. See the ROUND 4 module doc in
+// `d11-ceremony.ts` for the full fix description.
+// ---------------------------------------------------------------------------
+
+test("D11 FIX ROUND 4 ATTACK 1 — REPLAY: a fresh promotion is fabricated only by replaying OLD, already-signed, SAME-noteId verdict bytes from a prior ceremony — REFUSED (fresh ceremony nonce required; @64e3f8a4 this reached promoteNote:true, no private key used by the attacker)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "d11-r4-replay-"));
+  try {
+    const replayAuthorLeg = leg("replay-author-model", "replay-author-session");
+    const replayLeg1 = leg("replay-review-model-1", "replay-review-session-1");
+    const replayLeg2 = leg("replay-review-model-2", "replay-review-session-2");
+    const authorKey = keypair();
+    const key1 = keypair();
+    const key2 = keypair();
+    const note = withAuthorSignature(
+      { noteId: "d11-r4-replay-note", principal_owner: "claude:h2a-memory:owner-replay" },
+      authorKey.privateKeyPem,
+      replayAuthorLeg
+    );
+    const keystore = keystoreFrom([
+      [replayAuthorLeg, authorKey.publicKeyPem],
+      [replayLeg1, key1.publicKeyPem],
+      [replayLeg2, key2.publicKeyPem]
+    ]);
+
+    // Authority phase: an OLD ceremony genuinely ran once (with SOME old,
+    // now-stale nonce) and produced two genuinely, validly signed GO
+    // artifacts for THIS noteId, persisted at the ONE location this
+    // noteId+leg pair will always derive to.
+    const oldNonce = "old-stale-nonce-from-a-prior-genuine-ceremony";
+    function oldSignedArtifact(privateKeyPem, verdict) {
+      const payload = {
+        noteId: verdict.noteId,
+        verdict: verdict.verdict,
+        leg: verdict.leg,
+        at: verdict.at,
+        ceremonyNonce: oldNonce
+      };
+      return { ...payload, signature: signPayload(privateKeyPem, payload) };
+    }
+    const oldArtifact1 = oldSignedArtifact(key1.privateKeyPem, { noteId: note.noteId, verdict: "GO", leg: replayLeg1, at: 1 });
+    const oldArtifact2 = oldSignedArtifact(key2.privateKeyPem, { noteId: note.noteId, verdict: "GO", leg: replayLeg2, at: 1 });
+    const ref1 = deriveVerdictRef(root, note.noteId, replayLeg1);
+    const ref2 = deriveVerdictRef(root, note.noteId, replayLeg2);
+    await mkdir(dirname(ref1), { recursive: true });
+    await writeFile(ref1, JSON.stringify(oldArtifact1), "utf8");
+    await writeFile(ref2, JSON.stringify(oldArtifact2), "utf8");
+
+    // Attack phase: a FRESH ceremony. `launchLeg`/`writeVerdict` here
+    // capture only PUBLIC data and the ALREADY-PERSISTED old bytes — no
+    // private key is used by the attacker anywhere in this fresh run.
+    const ceremony = createD11Ceremony({ trustedKeystore: keystore, authorizedRoot: root });
+    const launchLeg = countingFn(async (_note, spec) => {
+      const old = spec.session === replayLeg1.session ? oldArtifact1 : oldArtifact2;
+      return { noteId: old.noteId, verdict: old.verdict, leg: old.leg, at: old.at, ceremonyNonce: old.ceremonyNonce };
+    });
+    const writeVerdict = countingFn(async (verdict) =>
+      // The REF is CORRECT (the ceremony-derived confined path) — the attack
+      // is entirely about the BYTES already sitting at that path, not about
+      // relocating them.
+      verdict.leg.session === replayLeg1.session ? ref1 : ref2
+    );
+    let promoteCalls = 0;
+    const result = await ceremony(
+      { note, authorId: "caller-lie-is-irrelevant" },
+      {
+        legSpecs: [replayLeg1, replayLeg2],
+        launchLeg,
+        writeVerdict,
+        writeAttestation: async () => "attestation-ref",
+        ctx: { principal_owner: note.principal_owner },
+        port: {
+          promoteNote: async () => {
+            promoteCalls += 1;
+            return { promoted: true, id: note.noteId };
+          }
+        }
+      }
+    );
+
+    assert.equal(result.outcome.promoted, false);
+    assert.equal(
+      promoteCalls,
+      0,
+      "THE ATTACK: same-note replay of old, genuinely signed verdict bytes must never mint a fresh promotion"
+    );
+    assert.match(result.outcome.reason, /nonce|replay|stale/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("D11 FIX ROUND 4 ATTACK 2 — ALIAS (author/reviewer): self-promotion when the VERIFIED author and one reviewer are aliases for the SAME public key under distinct sessions — REFUSED (canonical key fingerprint, not session strings; @64e3f8a4 this reached promoteNote:true)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "d11-r4-author-alias-"));
+  try {
+    const authorAlias = leg("alias-author-model", "alias-author-session");
+    const reviewerAlias = leg("alias-review-model-1", "alias-reviewer-alias-session");
+    const leg2 = leg("alias-review-model-2", "alias-review-session-2");
+    const sharedKey = keypair(); // ONE keypair backing TWO distinct identities
+    const key2 = keypair();
+    const note = withAuthorSignature(
+      { noteId: "d11-r4-author-alias-note", principal_owner: "claude:h2a-memory:owner-alias-1" },
+      sharedKey.privateKeyPem,
+      authorAlias
+    );
+    const keystore = keystoreFrom([
+      [authorAlias, sharedKey.publicKeyPem],
+      [reviewerAlias, sharedKey.publicKeyPem], // ALIAS: same key, different identity
+      [leg2, key2.publicKeyPem]
+    ]);
+    const ceremony = createD11Ceremony({ trustedKeystore: keystore, authorizedRoot: root });
+    const launchLeg = countingFn(async (_note, spec, ceremonyNonce) => ({
+      noteId: note.noteId,
+      verdict: "GO",
+      leg: spec,
+      at: 2,
+      ceremonyNonce
+    }));
+    const writeVerdict = countingFn(async (verdict) => {
+      const privateKeyPem = verdict.leg.session === reviewerAlias.session ? sharedKey.privateKeyPem : key2.privateKeyPem;
+      const ref = deriveVerdictRef(root, verdict.noteId, verdict.leg);
+      await mkdir(dirname(ref), { recursive: true });
+      await writeFile(ref, JSON.stringify(signedArtifact(privateKeyPem, verdict)), "utf8");
+      return ref;
+    });
+    let promoteCalls = 0;
+    const result = await ceremony(
+      { note, authorId: "caller-lie-is-irrelevant" },
+      {
+        legSpecs: [reviewerAlias, leg2],
+        launchLeg,
+        writeVerdict,
+        writeAttestation: async () => "attestation-ref",
+        ctx: { principal_owner: note.principal_owner },
+        port: {
+          promoteNote: async () => {
+            promoteCalls += 1;
+            return { promoted: true, id: note.noteId };
+          }
+        }
+      }
+    );
+
+    assert.equal(result.outcome.promoted, false);
+    assert.equal(
+      promoteCalls,
+      0,
+      "THE ATTACK: the same crypto principal must not author AND review through two identity aliases"
+    );
+    assert.match(result.outcome.reason, /fingerprint|crypto principal|same canonical/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("D11 FIX ROUND 4 ATTACK 3 (required addition, a variant not exercised by the independent review) — ALIAS (reviewer/reviewer): fake independence when BOTH reviewer legs are aliases for the SAME public key under distinct sessions — REFUSED (the fingerprint check is pairwise: r1≠r2 is caught, not just author≠reviewer; @64e3f8a4 this reached promoteNote:true — sameLegSpec only compares {model,session}, never the key behind them)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "d11-r4-reviewer-alias-"));
+  try {
+    const authorLeg2 = leg("r4-author-model", "r4-author-session");
+    const reviewerAliasA = leg("r4-review-model-a", "r4-review-session-a");
+    const reviewerAliasB = leg("r4-review-model-b", "r4-review-session-b"); // DISTINCT model+session, SAME key as A
+    const authorKey = keypair();
+    const sharedReviewerKey = keypair(); // ONE keypair backing BOTH "independent" reviewer identities
+    const note = withAuthorSignature(
+      { noteId: "d11-r4-reviewer-alias-note", principal_owner: "claude:h2a-memory:owner-alias-2" },
+      authorKey.privateKeyPem,
+      authorLeg2
+    );
+    const keystore = keystoreFrom([
+      [authorLeg2, authorKey.publicKeyPem],
+      [reviewerAliasA, sharedReviewerKey.publicKeyPem],
+      [reviewerAliasB, sharedReviewerKey.publicKeyPem] // ALIAS: same key as reviewerAliasA
+    ]);
+    // Structurally distinct per the OLD (session-string) check: different
+    // model AND different session — `sameLegSpec` alone would call these two
+    // "independent". Only the key-fingerprint check (ROUND 4) catches it.
+    assert.notEqual(reviewerAliasA.session, reviewerAliasB.session);
+    assert.notEqual(reviewerAliasA.model, reviewerAliasB.model);
+
+    const ceremony = createD11Ceremony({ trustedKeystore: keystore, authorizedRoot: root });
+    const launchLeg = countingFn(async (_note, spec, ceremonyNonce) => ({
+      noteId: note.noteId,
+      verdict: "GO",
+      leg: spec,
+      at: 3,
+      ceremonyNonce
+    }));
+    const writeVerdict = countingFn(async (verdict) => {
+      const ref = deriveVerdictRef(root, verdict.noteId, verdict.leg);
+      await mkdir(dirname(ref), { recursive: true });
+      await writeFile(ref, JSON.stringify(signedArtifact(sharedReviewerKey.privateKeyPem, verdict)), "utf8");
+      return ref;
+    });
+    let promoteCalls = 0;
+    const result = await ceremony(
+      { note, authorId: "caller-lie-is-irrelevant" },
+      {
+        legSpecs: [reviewerAliasA, reviewerAliasB],
+        launchLeg,
+        writeVerdict,
+        writeAttestation: async () => "attestation-ref",
+        ctx: { principal_owner: note.principal_owner },
+        port: {
+          promoteNote: async () => {
+            promoteCalls += 1;
+            return { promoted: true, id: note.noteId };
+          }
+        }
+      }
+    );
+
+    assert.equal(result.outcome.promoted, false);
+    assert.equal(
+      promoteCalls,
+      0,
+      "THE ATTACK: two reviewer identities backed by the SAME key are not independent — must never reach promoteNote"
+    );
+    assert.match(result.outcome.reason, /fingerprint|crypto principal|same canonical/i);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
