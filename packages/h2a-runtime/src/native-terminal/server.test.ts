@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, stat, unlink } from "node:fs/promises";
+import { chmod, link, mkdtemp, rm, stat, unlink } from "node:fs/promises";
 import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -376,5 +376,78 @@ describe("native terminal local transport", () => {
     expect(await client.ping()).toMatchObject({
       generation: "second-generation",
     });
+  });
+
+  it("should serialize competing publishers across a stale canonical socket", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-publish-race-"));
+    const socketPath = join(directory, "host.sock");
+    const stalePath = join(directory, "stale.sock");
+    await chmod(directory, 0o700);
+    const staleServer = createServer();
+    await new Promise<void>((resolve, reject) => {
+      staleServer.once("error", reject);
+      staleServer.listen(stalePath, resolve);
+    });
+    await chmod(stalePath, 0o600);
+    await link(stalePath, socketPath);
+    await new Promise<void>((resolve) => staleServer.close(() => resolve()));
+
+    const servers = new Set<NativeTerminalHostServer>();
+    const clients = new Set<NativeTerminalClient>();
+    const host = (generation: string) => new NativeTerminalHost({
+      generation,
+      replayBytesPerSession: 1024,
+      spawner: () => new StubPty(),
+    });
+    try {
+      const contenders = await Promise.allSettled([
+        startNativeTerminalHostServer({
+          socketPath,
+          host: host("publisher-alpha"),
+        }),
+        startNativeTerminalHostServer({
+          socketPath,
+          host: host("publisher-beta"),
+        }),
+      ]);
+      const fulfilled = contenders.filter(
+        (result): result is PromiseFulfilledResult<NativeTerminalHostServer> =>
+          result.status === "fulfilled",
+      );
+      const rejected = contenders.filter(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      );
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      expect(String(rejected[0]!.reason)).toMatch(/already active/i);
+      servers.add(fulfilled[0]!.value);
+
+      const winner = await NativeTerminalClient.connect(socketPath);
+      clients.add(winner);
+      expect(["publisher-alpha", "publisher-beta"]).toContain(
+        (await winner.ping()).generation,
+      );
+      winner.close();
+      clients.delete(winner);
+      await fulfilled[0]!.value.close();
+      servers.delete(fulfilled[0]!.value);
+
+      const replacement = await startNativeTerminalHostServer({
+        socketPath,
+        host: host("publisher-replacement"),
+      });
+      servers.add(replacement);
+      const replacementClient = await NativeTerminalClient.connect(socketPath);
+      clients.add(replacementClient);
+      expect(await replacementClient.ping()).toMatchObject({
+        generation: "publisher-replacement",
+      });
+    } finally {
+      for (const client of clients) client.close();
+      await Promise.allSettled(
+        [...servers].map((server) => server.close({ stopSessions: true })),
+      );
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

@@ -11,6 +11,7 @@ import {
   NATIVE_TERMINAL_MAX_REPLAY_BYTES_PER_SESSION,
   NATIVE_TERMINAL_MAX_SESSIONS,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
+  type NativeTerminalPing,
 } from "./protocol.js";
 
 const NATIVE_TERMINAL_SPAWN_BACKOFF_BASE_MS = 250;
@@ -75,7 +76,10 @@ async function waitForChildExit(
 async function connectHealthy(
   socketPath: string,
   requestTimeoutMs: number,
-): Promise<NativeTerminalClient> {
+): Promise<Readonly<{
+  client: NativeTerminalClient;
+  ping: NativeTerminalPing;
+}>> {
   const client = await NativeTerminalClient.connect(socketPath, {
     connectTimeoutMs: NATIVE_TERMINAL_HEALTH_TIMEOUT_MS,
     requestTimeoutMs,
@@ -91,7 +95,7 @@ async function connectHealthy(
     ) {
       throw new Error("native terminal host returned an invalid ping");
     }
-    return client;
+    return { client, ping };
   } catch (error) {
     client.close();
     throw error;
@@ -212,8 +216,7 @@ export class NativeTerminalHostSupervisor {
         this.#socketPath,
         this.#requestTimeoutMs,
       );
-      this.#resetSpawnBackoff();
-      return connected;
+      return await this.#adoptHealthyConnection(connected);
     } catch {
       if (!this.#spawned || this.#spawned.exitCode !== null || this.#spawned.signalCode !== null) {
         const now = this.#now();
@@ -261,8 +264,7 @@ export class NativeTerminalHostSupervisor {
           this.#socketPath,
           this.#requestTimeoutMs,
         );
-        this.#resetSpawnBackoff();
-        return connected;
+        return await this.#adoptHealthyConnection(connected);
       } catch (error) {
         lastError = error;
       }
@@ -300,6 +302,31 @@ export class NativeTerminalHostSupervisor {
     }
     this.#recordSpawnFailure(error);
     throw error;
+  }
+
+  async #adoptHealthyConnection(connected: Readonly<{
+    client: NativeTerminalClient;
+    ping: NativeTerminalPing;
+  }>): Promise<NativeTerminalClient> {
+    const spawned = this.#spawned;
+    if (
+      spawned &&
+      !childExited(spawned) &&
+      spawned.pid !== connected.ping.hostPid
+    ) {
+      try {
+        await this.#terminateOwnedSpawn(spawned);
+      } catch (error) {
+        connected.client.close();
+        throw new Error(
+          `native terminal host adoption could not reap losing owned child: ${String(error)}`,
+        );
+      }
+    } else if (spawned && childExited(spawned) && this.#spawned === spawned) {
+      this.#spawned = undefined;
+    }
+    this.#resetSpawnBackoff();
+    return connected.client;
   }
 
   async #terminateOwnedSpawn(spawned: ChildProcess): Promise<void> {
