@@ -1,0 +1,210 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>D6 slice-a — dossier de spécification commenté (agents-surface fusion)</title>
+<style>
+  :root{
+    --bg:#f5f7fa; --panel:#ffffff; --ink:#1a2030; --ink-soft:#454f63; --ink-faint:#6b7488;
+    --line:#e0e4ec; --line-soft:#eceff4; --accent:#0e7c7b; --accent-soft:#0e7c7b14;
+    --ok:#1c8a4e; --ok-soft:#1c8a4e14; --warn:#b26a00; --warn-soft:#b26a0014;
+    --risk:#c0392b; --risk-soft:#c0392b12;
+    --shadow:0 1px 2px #1a203008,0 6px 20px #1a20300a;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace; --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#0f1218; --panel:#161b24; --ink:#e7eaf1; --ink-soft:#b3bccb; --ink-faint:#828ba0;
+    --line:#252b37; --line-soft:#1c2230; --accent:#34b3b0; --accent-soft:#34b3b01c;
+    --ok:#48c07c; --ok-soft:#48c07c1a; --warn:#d9932f; --warn-soft:#d9932f16;
+    --risk:#e5695b; --risk-soft:#e5695b18; --shadow:0 1px 2px #0006,0 8px 24px #0004;}}
+  :root[data-theme="dark"]{--bg:#0f1218;--panel:#161b24;--ink:#e7eaf1;--ink-soft:#b3bccb;--ink-faint:#828ba0;
+    --line:#252b37;--line-soft:#1c2230;--accent:#34b3b0;--accent-soft:#34b3b01c;--ok:#48c07c;--ok-soft:#48c07c1a;
+    --warn:#d9932f;--warn-soft:#d9932f16;--risk:#e5695b;--risk-soft:#e5695b18;--shadow:0 1px 2px #0006,0 8px 24px #0004;}
+  :root[data-theme="light"]{--bg:#f5f7fa;--panel:#ffffff;--ink:#1a2030;--ink-soft:#454f63;--ink-faint:#6b7488;
+    --line:#e0e4ec;--line-soft:#eceff4;--accent:#0e7c7b;--accent-soft:#0e7c7b14;--ok:#1c8a4e;--ok-soft:#1c8a4e14;
+    --warn:#b26a00;--warn-soft:#b26a0014;--risk:#c0392b;--risk-soft:#c0392b12;--shadow:0 1px 2px #1a203008,0 6px 20px #1a20300a;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.58;font-size:15.5px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:860px;margin:0 auto;padding:32px 20px 90px}
+  .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  h1{font-size:27px;line-height:1.18;margin:.35em 0 .15em;letter-spacing:-.01em;text-wrap:balance}
+  .sub{color:var(--ink-soft);margin:.2em 0 0}
+  .ribbon{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 6px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 11px;border-radius:999px;background:var(--warn-soft);color:var(--warn)}
+  .pill.neutral{background:var(--accent-soft);color:var(--accent)}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin:15px 0;box-shadow:var(--shadow)}
+  section>h2{font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);margin:0 0 12px;font-weight:700}
+  p{margin:.5em 0}
+  .lead{font-size:16px}
+  code,.mono{font-family:var(--mono);font-size:12.5px;background:var(--line-soft);padding:1px 5px;border-radius:4px}
+  .tag{font-family:var(--mono);font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;letter-spacing:.03em;white-space:nowrap}
+  .tag.fact{background:var(--accent-soft);color:var(--accent)} .tag.judg{background:var(--warn-soft);color:var(--warn)}
+  .dec{border:1px solid var(--line);border-radius:12px;padding:0;margin:12px 0;overflow:hidden}
+  .dec>.hd{padding:13px 16px;background:var(--accent-soft);border-bottom:1px solid var(--line)}
+  .dec>.hd .n{font-family:var(--mono);font-weight:800;color:var(--accent);font-size:13px}
+  .dec>.hd .t{font-weight:700;font-size:15.5px;margin-top:2px}
+  .dec>.bd{padding:12px 16px}
+  .dec .row{margin:.45em 0}
+  .lbl{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);font-weight:700;display:block;margin-bottom:1px}
+  .risk{border-left:3px solid var(--risk);background:var(--risk-soft);padding:8px 12px;border-radius:0 8px 8px 0;margin:.5em 0}
+  .risk .lbl{color:var(--risk)}
+  .revs{display:flex;flex-wrap:wrap;gap:6px;margin-top:.4em}
+  .rev{font-size:12.5px;padding:3px 9px;border-radius:7px;border:1px solid var(--line);background:var(--panel)}
+  .rev b{color:var(--accent)}
+  .tblwrap{overflow-x:auto} table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:520px;margin:6px 0}
+  th,td{text-align:left;padding:8px 11px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  th{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-faint);font-weight:700}
+  tr:last-child td{border-bottom:none} .ex{color:var(--ok);font-weight:600} .ad{color:var(--warn);font-weight:600}
+  .reviewer{border:1px solid var(--line);border-radius:11px;padding:14px 16px;margin:10px 0}
+  .reviewer .who{font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .verd{font-family:var(--mono);font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px}
+  .verd.ok{background:var(--ok-soft);color:var(--ok)} .verd.no{background:var(--risk-soft);color:var(--risk)}
+  ul.tight{margin:.4em 0;padding-left:18px} ul.tight li{margin:.28em 0}
+  .stake{border-left:3px solid var(--warn);background:var(--warn-soft);padding:6px 12px;border-radius:0 8px 8px 0;margin:.4em 0;font-size:14.5px}
+  details{border:1px solid var(--line);border-radius:10px;margin:8px 0;background:var(--panel)}
+  details>summary{cursor:pointer;padding:11px 15px;font-weight:600;font-size:13.5px;color:var(--accent)}
+  details[open]>summary{border-bottom:1px solid var(--line-soft)}
+  details .body{padding:6px 15px 14px}
+  pre.spec{font-family:var(--mono);font-size:11.5px;line-height:1.5;white-space:pre-wrap;background:var(--line-soft);
+    padding:12px 14px;border-radius:8px;overflow-x:auto;color:var(--ink-soft);margin:0}
+  .closing{border:1.5px dashed var(--accent);background:transparent}
+  footer{color:var(--ink-faint);font-size:12px;text-align:center;margin-top:26px;line-height:1.55}
+  .hl{font-weight:600}
+</style></head><body>
+
+<div class="wrap">
+  <div class="eyebrow">Dossier de spécification commenté · D6 slice-a · conducteur h2a</div>
+  <h1>Ce que la spec « agents-surface fusion » décide — et ce que la signer engage</h1>
+  <p class="sub"><span class="mono">SPEC_EVOL_AGENTS_SURFACE_FUSION.md</span> @ <span class="mono">caf5ea6ea</span> · rhanka/sentropic · <b>design-only</b> · rien ne merge, rien n'est signé.</p>
+
+  <div class="ribbon">
+    <span class="pill neutral">DESIGN-ONLY — pose le contrat, ne lance aucun build</span>
+    <span class="pill">La DATA (agents réels sur la surface) reste GATÉE (BR-39l)</span>
+    <span class="pill">Signer = la direction, pas le build</span>
+  </div>
+
+  <section>
+    <h2>En une lecture — de quoi il s'agit vraiment</h2>
+    <p class="lead">Cette spec pose <b>un contrat</b> : que les agents de <b>tous les hôtes</b> (cowork, plugins, sessions chat, jobs, transcripts CLI) deviennent des <b>lignes d'UNE seule surface</b> (<code>AgentsFeedPort</code> → <code>AgentsList</code>), au lieu de 2–5 listes séparées. C'est le premier morceau concret de « capitaliser sur sentropic » (D6) : <b>sentropic livre la LIB</b> (le composant + le port), <b>chaque hôte câble son INTÉGRATION</b> (la source qui enrôle ses agents).</p>
+    <p><span class="tag judg">HONNÊTE</span> Ce que signer <b>ne fait PAS</b> : ça ne fait PAS apparaître tes agents sur la surface. Cette slice livre <b>le contrat + le port + des tests-fixtures</b>. Les <b>vraies sources de données</b> (donc tes agents cowork/plugins/remote qui apparaissent) sont <b>gatées</b> sur un autre blocage (<span class="mono">BR-39l</span>, le trou de feed) + le storm-gate 0.90.1 + ta signature. <b>La signature est en amont de ton besoin réel</b> (cowork+chat qui marche) : elle acte la forme du contrat, pas la livraison.</p>
+  </section>
+
+  <section>
+    <h2>Les décisions de spécification (commentées, avec le risque)</h2>
+
+    <div class="dec"><div class="hd"><span class="n">D-1</span><div class="t">La frontière LIB / INTÉGRATION (le cœur du « capitaliser sur sentropic »)</div></div><div class="bd">
+      <div class="row"><span class="lbl">Décide</span> sentropic livre la <b>LIB</b> (<code>@sentropic/chat-ui</code> : le composant <code>AgentsList</code> + le contrat <code>AgentsFeedPort</code>/<code>AgentsEntry</code>). La LIB <b>rend et définit le port</b> ; elle <b>ne fetch pas, n'enrôle pas, ne détient aucun hôte</b>. Chaque hôte câble l'<b>INTÉGRATION</b> = la source de feed qui enrôle ses agents (présence h2a, hôte plugins, connecteur cowork).</div>
+      <div class="row"><span class="lbl">Sujet</span> C'est LA décision de délégation : qu'est-ce que tu délègues à sentropic (la surface + le port) vs ce que h2a/les hôtes gardent (le feed).</div>
+      <div class="risk"><span class="lbl">Risque</span> Une frontière mal posée = couplage/dette (exactement ce que D6 veut éviter). Si sentropic possédait aussi le feed → les hôtes se couplent à son modèle de données. Si chaque hôte possédait la surface → retour aux « 2 ni 5 » listes.</div>
+      <div class="revs"><span class="rev"><b>archi h2a</b> : ACCEPTE — B1 « la LIB n'enrôle pas » VÉRIFIÉ EN SOURCE (le port n'expose que <code>list()</code>+<code>subscribe()</code>, structurellement incapable d'enrôler)</span><span class="rev"><b>terra</b> : B1 présent, split confirmé</span></div>
+    </div></div>
+
+    <div class="dec"><div class="hd"><span class="n">D-2</span><div class="t">Un seul port ; les entrées sont des GENRES, pas des surfaces</div></div><div class="bd">
+      <div class="row"><span class="lbl">Décide</span> UNE <code>AgentsFeedPort</code>, UN <code>AgentsList</code>. Cowork/plugins/sessions/jobs/CLI = des <b>entrées</b> (<code>kind: agent|session|remote|job|run</code>) avec <code>connection</code> + <code>hostKind</code> — <b>pas</b> un 2ᵉ composant. <code>AgentsList</code> rend l'union.</div>
+      <div class="row"><span class="lbl">Sujet</span> Unifier la surface agents (« une, pas deux ni cinq »).</div>
+      <div class="risk"><span class="lbl">Risque</span> Forcer des hôtes hétérogènes dans un même modèle d'entrée : si l'agent d'un hôte ne rentre pas dans le modèle de genres, il est exclu ou bricolé.</div>
+      <div class="revs"><span class="rev"><b>archi h2a</b> : ACCEPTE — « le modèle de fusion est juste : un port, entrées=genres, provenance explicite »</span></div>
+    </div></div>
+
+    <div class="dec"><div class="hd"><span class="n">D-3</span><div class="t">3 champs AJOUTÉS à AgentsEntry (et l'honnêteté d'état)</div></div><div class="bd">
+      <div class="row"><span class="lbl">Décide</span> ajouter à <code>AgentsEntry</code> : <code>agentRef</code> (identité durable, pour I1), marqueur <code>HOLDER/VIEW</code> (autorité, pour I3), <code>measuredAt</code> (mesuré-vs-supposé, pour I2).</div>
+      <div class="tblwrap"><table>
+        <tr><th>Champ</th><th>État fresh-main</th><th>Rôle</th></tr>
+        <tr><td><code>hostKind</code></td><td class="ex">EXISTE</td><td>quel hôte détient l'entrée</td></tr>
+        <tr><td><code>connection</code></td><td class="ex">EXISTE</td><td>joignabilité / état du lien</td></tr>
+        <tr><td><code>agentRef</code></td><td class="ad">AJOUTÉ</td><td>identité durable (I1)</td></tr>
+        <tr><td>HOLDER/VIEW</td><td class="ad">AJOUTÉ</td><td>autorité (I3)</td></tr>
+        <tr><td><code>measuredAt</code></td><td class="ad">AJOUTÉ</td><td>mesuré-vs-supposé (I2)</td></tr>
+      </table></div>
+      <div class="risk"><span class="lbl">Risque</span> Croissance de schéma. Et une question d'HONNÊTETÉ : 2 champs existent, 3 sont ajoutés — la spec doit le dire, pas décrire les 3 ajoutés comme déjà présents (c'était un défaut, corrigé, cf archi CONTRE-3).</div>
+      <div class="revs"><span class="rev"><b>archi h2a</b> : CONTRE-3 (à l'origine : champs décrits au présent qui n'existent pas → « Testable now » FAUX) → CORRIGÉ (table exists-vs-added)</span><span class="rev"><b>terra</b> : table vérifiée l.37-43, hostKind/connection présents en source</span></div>
+    </div></div>
+
+    <div class="dec"><div class="hd"><span class="n">D-4</span><div class="t">Identité durable (I1) : réservée, PAS soudée — et la réparation DIFFÉRÉE ⚠️</div></div><div class="bd">
+      <div class="row"><span class="lbl">Décide</span> clé un agent sur <code>agentRef</code>, JAMAIS sur <code>providerSessionId</code>/un id de conversation. La spec ENREGISTRE le défaut connu (<code>reclaimOrMint</code> matche <code>host+providerSessionId</code> → la reprise ne se déclenche jamais → une identité fraîche est mintée silencieusement) et <b>réserve le slot + vise l'identité reprise</b>, mais <b>ne répare PAS le chemin de resume</b> (hors-scope, feed-time).</div>
+      <div class="stake"><span class="lbl" style="color:var(--warn)">Enjeu réel</span> C'est un <b>bug d'identité ouvert</b> (déjà connu côté h2a, WP5). Signer cette slice ne le RÉPARE PAS — elle réserve le slot et diffère le fix. Donc l'identité durable est <b>contractée mais pas encore fonctionnelle</b> ; la conformité I1 ici est <b>partielle</b> (réservée, non réparée). Tu dois le savoir : ce n'est pas « I1 réglé », c'est « I1 réservé, réparation à venir ».</div>
+      <div class="revs"><span class="rev"><b>archi h2a</b> : le « réserver-pas-souder » est la bonne discipline (lié à son propre invariant surface/I1, publié en #152)</span></div>
+    </div></div>
+
+    <div class="dec"><div class="hd"><span class="n">D-5</span><div class="t">I3 détenteur/vue · I4 un seul vocabulaire (testables)</div></div><div class="bd">
+      <div class="row"><span class="lbl">I3</span> chaque entrée = HOLDER ou VIEW ; le renderer ne persiste RIEN d'une VIEW ; en désaccord le DÉTENTEUR gagne (jamais la vue).</div>
+      <div class="row"><span class="lbl">I4</span> les capacités des agents plugin/cowork passent par le vocabulaire cross-host EXISTANT ; aucune 2ᵉ grammaire. <b>Testable maintenant.</b></div>
+      <div class="risk"><span class="lbl">Risque</span> faible — ce sont des invariants de discipline ; le risque est de les contourner au feed-time (d'où les fixtures qui les gardent).</div>
+      <div class="revs"><span class="rev"><b>archi h2a</b> : ACCEPTE</span><span class="rev"><b>terra</b> : conformité présente</span></div>
+    </div></div>
+
+    <div class="dec"><div class="hd"><span class="n">D-6</span><div class="t">I2 / I5 : RÉSERVÉS, PAS encore appliqués (feed-time, gaté) ⚠️</div></div><div class="bd">
+      <div class="row"><span class="lbl">Décide</span> I2 (mesuré vs supposé) et I5 (une opé sur une contrepartie injoignable ne doit jamais ressembler à un succès : <b>DÉPOSÉ-EN-ATTENTE</b> pour réveil, ou refusée <b>PAS-FAIT</b>) sont <b>réservés</b> mais <b>lient au feed-time</b> (gaté). Donc <b>PAS appliqués dans cette slice</b>, seulement réservés pour que le feed ne puisse pas les contourner.</div>
+      <div class="stake"><span class="lbl" style="color:var(--warn)">Enjeu</span> I5 est l'invariant sur lequel s'est jouée toute la revue (le « dépôt-dormant-pour-réveil » dont 11 lanes dépendent). Il est maintenant correctement rédigé (principe), mais <b>seulement réservé</b> — son application réelle est au feed-time.</div>
+      <div class="revs"><span class="rev"><b>archi h2a</b> : CONTRE-1 (GRAVE) = la rédaction PÉRIMÉE d'I5 (« default=REFUSE, no best-effort ») interdisait le dépôt-dormant → à remplacer par le PRINCIPE → CORRIGÉ</span><span class="rev"><b>terra</b> : NO-GO sur un résidu littéral (« best-effort » dans une négation) → CORRIGÉ en 1 mot</span><span class="rev"><b>cond</b> : re-vérif source, grep périmé VIDE, principe présent l.25</span></div>
+    </div></div>
+
+  </section>
+
+  <section>
+    <h2>Les revues, par reviewer (le réel, pas « on a relu »)</h2>
+
+    <div class="reviewer"><div class="who">architecte h2a <span class="verd ok">ACCEPTE LE FOND · 4 contres sur la FORME</span></div>
+      <p style="margin:.5em 0">A lu l'artefact <b>en source</b> (pas mon résumé), évalué clause par clause vs le contrat 6′.</p>
+      <ul class="tight">
+        <li><b>Accepte</b> : recevabilité (paquet nommé + existe), frontière (B1 la LIB n'enrôle pas — <b>vérifié en source</b>), ordre/sécurité (remote reporté à Vague C).</li>
+        <li><b>CONTRE-1 (GRAVE, seul bloqueur)</b> : I5 épinglait la rédaction PÉRIMÉE qui interdit le dépôt-dormant → remplacer par le principe. <span class="tag judg">→ corrigé</span></li>
+        <li><b>CONTRE-2</b> : identifiants I1–I5 nus (3ᵉ revendicateur sur 2 repos) → qualifier <code>surface/Ix</code> + citer #152 comme publieur unique. <span class="tag judg">→ corrigé</span></li>
+        <li><b>CONTRE-3</b> : champs décrits comme existants alors qu'ils sont ajoutés → table exists-vs-added. <span class="tag judg">→ corrigé</span></li>
+        <li><b>CONTRE-4</b> : B3 ne nommait aucun objet mourant → « no duplicate/parallel-list object is known ». <span class="tag judg">→ corrigé</span></li>
+        <li>Observation : la branche était 334 commits derrière main → rebaser. <span class="tag judg">→ fait (0-behind)</span></li>
+      </ul>
+    </div>
+
+    <div class="reviewer"><div class="who">jambe fraîche « terra » (codex xhigh, modèle DISTINCT du sol qui a corrigé) <span class="verd no">NO-GO → puis résolu</span></div>
+      <p style="margin:.5em 0">Vérifie <b>avec preuve grep/citation</b> que les corrections sont réelles.</p>
+      <ul class="tight">
+        <li>Contres 2/3/4 + rebase + fond accepté = <b>RÉSOLUS</b> (vérifiés en source).</li>
+        <li>A trouvé un <b>résidu littéral</b> : le mot « best-effort » subsistait dans une négation correcte l.66 → grep non vide → <b>NO-GO</b> sur ce point précis.</li>
+        <li>Corrigé en un mot (« silent best-effort success » → « silent success »).</li>
+      </ul>
+    </div>
+
+    <div class="reviewer"><div class="who">conducteur h2a (moi) <span class="verd ok">re-vérif à la source</span></div>
+      <p style="margin:.5em 0">Je ne me fie pas au rapport : j'ai grepé la spec moi-même @<span class="mono">caf5ea6ea</span>.</p>
+      <ul class="tight">
+        <li><code>grep 'best-effort|default…refuse|silent fallback'</code> = <b>VIDE</b> ✓</li>
+        <li>Principe I5 présent l.25 · surface/I1–I5 qualifiés l.17 · branche 0-behind main ✓</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Les enjeux honnêtes (ce qui reste ouvert / différé / gaté)</h2>
+    <ul class="tight">
+      <li><span class="tag judg">STAKE</span> <b>Contrat, pas livraison</b> : cette slice = le port + le composant + des fixtures. Les vraies sources de feed (tes agents réels) sont gatées sur <span class="mono">BR-39l</span> (le trou de feed) + 0.90.1. <b>Signer ne délivre pas cowork+chat.</b></li>
+      <li><span class="tag judg">STAKE</span> <b>I1 (identité durable) réparation DIFFÉRÉE</b> (D-4) : le slot est réservé, le bug reclaimOrMint n'est pas réparé ici (feed-time, WP5).</li>
+      <li><span class="tag judg">STAKE</span> <b>I2/I5 réservés, pas appliqués</b> (D-6) : ils lient au feed-time.</li>
+      <li><span class="tag judg">O-1</span> <b>Le conducteur (moi) doit</b> : les orientations 1–4 ne sont pas encore dans un artefact transmis ; la spec le note comme dette conducteur. Ça ne bloque pas la slice mais c'est à moi de le fournir.</li>
+    </ul>
+  </section>
+
+  <details>
+    <summary>▸ Lire la spec complète (source, @caf5ea6ea)</summary>
+    <div class="body"><pre class="spec">Chargée depuis git : spec/SPEC_EVOL_AGENTS_SURFACE_FUSION.md @ caf5ea6ea (rhanka/sentropic).
+Sections : 0 Status/framing · 1 Objectif · 2 Contrat 6′ (I1–I5, publieur = h2a #152) ·
+3 Modèle de fusion (un port, entrées=genres, provenance) · 4 Conformité I1/I3/I4 (nommés owner) +
+I2/I5 réservés · 5 Split capitalisation + grille A/B/C · 6 Dépendances & ce qui est gaté (BR-39l,
+0.90.1, signature) · 7 Non-goals · 8 Open items (O-1 conducteur owes, O-2 resume-repair différé,
+O-3 version au publish).
+
+Le fond de chaque section est repris et commenté dans les cartes D-1 à D-6 ci-dessus, avec le
+risque et la revue de chaque reviewer. Pour le texte gouvernant des invariants surface/I1–I5,
+la spec renvoie au SEUL publieur : h2a docs/governance/surface-invariants.md (PR #152) — elle
+n'en ré-épingle pas une copie (c'était CONTRE-2).</pre></div>
+  </details>
+
+  <section class="closing">
+    <h2>Ce dossier ne te demande pas de décider</h2>
+    <p>C'est une <b>présentation</b> du fond, pour que tu juges les décisions de spécification toi-même — pas un « signe ici ». Tu signes <b>quand et comme tu veux</b>, sur tes termes.</p>
+    <p>Si tu veux avancer : dis-moi si ce niveau de détail est le bon <b>gabarit</b> pour tes décisions futures, ou ce que tu veux voir en plus (ex. le diff exact ligne à ligne, le texte gouvernant des invariants #152, une comparaison avec l'alternative rejetée). Et la question de fond que toi seul tranches : <b>es-tu d'accord avec la frontière D-1 (déléguer la surface+port à sentropic) et le report de la data à BR-39l ?</b> — c'est ça, le vrai objet de la signature, pas « les contres sont résolus ».</p>
+  </section>
+
+  <footer>
+    Cockpit de décision Focus · surface autonome (accessible sans session claude) · design-only, rien ne merge, rien n'est signé.<br>
+    Substance de la spec + revue de chaque reviewer + enjeux ouverts — pas un résumé de process.
+  </footer>
+</div>
+</body></html>
