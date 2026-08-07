@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, readlink, rm, stat } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readlink, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -124,7 +124,13 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const replacementLease = await reconnected.acquireController("alpha", "reconnected-client");
     await reconnected.releaseController(replacementLease);
 
-    expect(await reconnected.stop("alpha", "SIGTERM")).toMatchObject({ status: "stopping" });
+    const stopLease = await reconnected.acquireController(
+      "alpha",
+      "alpha-stopper",
+    );
+    expect(await reconnected.stop(stopLease, "SIGTERM")).toMatchObject({
+      status: "stopping",
+    });
     await eventually(() => reconnected.state("alpha"), (state) => state.status === "exited");
     expect((await reconnected.state("beta")).status).toBe("running");
     const betaLease = await reconnected.acquireController("beta", "beta-client");
@@ -197,6 +203,108 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const restarted = await supervisor.client();
     expect(supervisor.spawnedPid).not.toBe(stoppedHostPid);
     expect(await restarted.ping()).toMatchObject({ generation: "restart-generation" });
+  });
+
+  it("should let the owning controller escalate a real stubborn PTY from TERM to KILL", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-escalate-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      replayBytesPerSession: 1024,
+      generationFactory: () => "escalation-generation",
+      spawnHost: (options) => {
+        const child = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+        ], {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        children.add(child);
+        return child;
+      },
+    });
+    const client = await supervisor.client();
+    const session = await client.create({
+      id: "stubborn",
+      command: "/bin/sh",
+      args: ["-c", "trap '' HUP TERM INT; printf stubborn-ready; while :; do :; done"],
+      cwd: directory,
+      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      cols: 80,
+      rows: 24,
+    });
+    await eventually(
+      () => client.readOutput("stubborn", 0),
+      (output) => output.chunks.some((chunk) => chunk.data.includes("stubborn-ready")),
+    );
+    const lease = await client.acquireController("stubborn", "stop-owner");
+    expect(await client.stop(lease, "SIGTERM")).toMatchObject({
+      status: "stopping",
+      stopSignal: "SIGTERM",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(running(session.pid)).toBe(true);
+    expect(await client.stop(lease, "SIGKILL")).toMatchObject({
+      status: "stopping",
+      stopSignal: "SIGKILL",
+    });
+    await eventually(() => running(session.pid), (alive) => !alive);
+    expect(await client.state("stubborn")).toMatchObject({
+      status: "exited",
+    });
+  });
+
+  it("should back off repeated host startup failures and preserve the diagnostic", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-backoff-"));
+    directories.add(directory);
+    await chmod(directory, 0o755);
+    const socketPath = join(directory, "host.sock");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    let spawnCount = 0;
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      replayBytesPerSession: 1024,
+      generationFactory: () => `failure-generation-${spawnCount + 1}`,
+      spawnHost: (options) => {
+        spawnCount += 1;
+        const child = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+        ], {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "ignore", "pipe"],
+        });
+        children.add(child);
+        return child;
+      },
+    });
+
+    await expect(supervisor.client()).rejects.toThrow(/mode 0700/i);
+    expect(spawnCount).toBe(1);
+    await expect(supervisor.client()).rejects.toThrow(/restart backoff active/i);
+    expect(spawnCount).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 275));
+    await expect(supervisor.client()).rejects.toThrow(/mode 0700/i);
+    expect(spawnCount).toBe(2);
   });
 
   it("should converge competing supervisors on one socket without repeated host spawns", async () => {

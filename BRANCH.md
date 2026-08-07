@@ -17,6 +17,8 @@
 - [ ] `packages/h2a-runtime/src/index.ts` (BR178-EX2)
 - [ ] `.github/workflows/ci.yml` (BR178-EX3)
 - [ ] `docs/reviews/pr178-native-terminal-*.md` (BR178-EX4)
+- [ ] `packages/h2a-runtime/src/run.test.ts` (BR178-EX5)
+- [ ] `packages/h2a-runtime/src/run-ws-surface.test.ts` (BR178-EX5)
 
 **Forbidden Paths (must not change)**
 
@@ -41,6 +43,7 @@
 - [x] **BR178-EX2 — `packages/h2a-runtime/src/index.ts`:** export the native host client/supervisor seam so the existing local server can own one supervisor in a later opt-in wiring lot. No CLI route or tmux call site changes; rollback removes the exports.
 - [x] **BR178-EX3 — `.github/workflows/ci.yml`:** execute the native-terminal unit, socket-integration and Linux real-PTY functional suite in both supported CI Node jobs. Impact is one focused Vitest invocation per build-and-test matrix leg; rollback removes that single step.
 - [x] **BR178-EX4 — `docs/reviews/pr178-native-terminal-*.md`:** retain the exact-target two-leg consensus dossier required before readiness. Impact is review evidence only; rollback removes the three PR-specific review artifacts.
+- [x] **BR178-EX5 — `packages/h2a-runtime/src/run.test.ts`, `packages/h2a-runtime/src/run-ws-surface.test.ts`:** keep existing `PtyHandle` test doubles type-correct after BR178-EX1 made the real PTY PID part of the internal handle contract. Impact is two inert fixture fields; rollback removes them with BR178-EX1.
 
 ## Plan / Todo (lot-based)
 
@@ -68,6 +71,13 @@
   - [x] Gracefully stop the host and prove bounded TERM→KILL drain of a non-cooperative PTY, code-0 exit, socket removal and a distinct next generation.
   - [x] Race two supervisors against one socket and prove convergence on one host without repeated spawns.
   - [ ] Gate: full root suite and CI pass on the final commit.
+- [x] **Lot 6 — first-consensus lifecycle and security hardening**
+  - [x] Make controller-owned stop truthful and repeatable so `TERM` can escalate to `KILL`, while observers remain read-only.
+  - [x] Bound retained sessions, recycle exited IDs, validate signals and add deadlines to every client request.
+  - [x] Validate socket parent/socket UID, type and exact modes; publish the canonical Unix socket atomically and guard cleanup by inode identity.
+  - [x] Bound startup retries with backoff and retained stderr diagnostics so repeated host failures cannot create a Node spawn storm.
+  - [x] Add unit/socket tests plus Linux real-PTY execution tests for multi-session lifecycle, stop escalation, host crash, restart convergence and startup backoff.
+  - [x] Gate: native-terminal `4 files / 23 tests`, historical PTY-double `2 files / 6 tests`, runtime typecheck, compiled default-spawn smoke, security audit, package dry-run and isolated full root suite pass locally.
 
 ## Feedback Loop
 

@@ -3,13 +3,18 @@ import { randomUUID } from "node:crypto";
 
 import { NativeTerminalHost } from "./host.js";
 import { nodePtySpawner } from "../pty.js";
-import { NATIVE_TERMINAL_MAX_REPLAY_BYTES_PER_SESSION } from "./protocol.js";
+import {
+  NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
+  NATIVE_TERMINAL_MAX_REPLAY_BYTES_PER_SESSION,
+  NATIVE_TERMINAL_MAX_SESSIONS,
+} from "./protocol.js";
 import { startNativeTerminalHostServer } from "./server.js";
 
 type ProcessOptions = {
   socketPath: string;
   generation: string;
   replayBytesPerSession: number;
+  maxSessions: number;
 };
 
 const GRACEFUL_DRAIN_MS = 500;
@@ -39,10 +44,25 @@ function parsePositiveInteger(raw: string | undefined, label: string): number {
   return value;
 }
 
+function parseMaxSessions(raw: string | undefined): number {
+  const value = Number(raw);
+  if (
+    !Number.isSafeInteger(value) ||
+    value <= 0 ||
+    value > NATIVE_TERMINAL_MAX_SESSIONS
+  ) {
+    throw new Error(
+      `--max-sessions must be between 1 and ${NATIVE_TERMINAL_MAX_SESSIONS}`,
+    );
+  }
+  return value;
+}
+
 export function parseNativeTerminalHostArgs(argv: ReadonlyArray<string>): ProcessOptions {
   let socketPath: string | undefined;
   let generation: string = randomUUID();
   let replayBytesPerSession = 4 * 1024 * 1024;
+  let maxSessions = NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS;
   for (let index = 2; index < argv.length; index += 1) {
     const flag = argv[index];
     const value = argv[index + 1];
@@ -61,12 +81,16 @@ export function parseNativeTerminalHostArgs(argv: ReadonlyArray<string>): Proces
         replayBytesPerSession = parsePositiveInteger(value, "--replay-bytes");
         index += 1;
         break;
+      case "--max-sessions":
+        maxSessions = parseMaxSessions(value);
+        index += 1;
+        break;
       default:
         throw new Error(`unknown native terminal host argument: ${flag ?? "<missing>"}`);
     }
   }
   if (!socketPath) throw new Error("--socket is required");
-  return { socketPath, generation, replayBytesPerSession };
+  return { socketPath, generation, replayBytesPerSession, maxSessions };
 }
 
 export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>): Promise<void> {
@@ -74,6 +98,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
   const host = new NativeTerminalHost({
     generation: options.generation,
     replayBytesPerSession: options.replayBytesPerSession,
+    maxSessions: options.maxSessions,
     spawner: nodePtySpawner,
   });
   const server = await startNativeTerminalHostServer({ socketPath: options.socketPath, host });

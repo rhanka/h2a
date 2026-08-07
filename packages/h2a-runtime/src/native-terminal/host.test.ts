@@ -119,7 +119,7 @@ describe("NativeTerminalHost", () => {
     ]);
   });
 
-  it("should stop one session idempotently without affecting another", () => {
+  it("should let the controller escalate one stopping session without affecting another", () => {
     const { spawner, ptys } = stubSpawner();
     const host = new NativeTerminalHost({
       generation: "host-generation-2",
@@ -129,19 +129,21 @@ describe("NativeTerminalHost", () => {
 
     createSession(host, "alpha");
     createSession(host, "beta");
+    const lease = host.acquireController("alpha", "stopper");
 
-    expect(host.stop("alpha", "SIGTERM")).toMatchObject({
+    expect(host.stop(lease, "SIGTERM")).toMatchObject({
       id: "alpha",
       status: "stopping",
       stopSignal: "SIGTERM",
     });
-    expect(host.stop("alpha", "SIGKILL")).toMatchObject({
+    expect(host.stop(lease, "SIGKILL")).toMatchObject({
       id: "alpha",
       status: "stopping",
-      stopSignal: "SIGTERM",
+      stopSignal: "SIGKILL",
     });
-    expect(ptys.get("alpha")!.kill).toHaveBeenCalledTimes(1);
-    expect(ptys.get("alpha")!.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(ptys.get("alpha")!.kill).toHaveBeenCalledTimes(2);
+    expect(ptys.get("alpha")!.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
+    expect(ptys.get("alpha")!.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
     expect(ptys.get("beta")!.kill).not.toHaveBeenCalled();
 
     ptys.get("alpha")!.emitExit({ exitCode: 0 });
@@ -167,7 +169,8 @@ describe("NativeTerminalHost", () => {
     createSession(host, "alpha");
     createSession(host, "beta");
 
-    host.stop("alpha", "SIGTERM");
+    const lease = host.acquireController("alpha", "stopper");
+    host.stop(lease, "SIGTERM");
     expect(host.forceStopAll("SIGKILL")).toEqual([
       expect.objectContaining({ id: "alpha", status: "stopping", stopSignal: "SIGKILL" }),
       expect.objectContaining({ id: "beta", status: "stopping", stopSignal: "SIGKILL" }),
@@ -193,7 +196,32 @@ describe("NativeTerminalHost", () => {
     expect(() => host.readOutput("missing", 0)).toThrow(
       /unknown terminal session/i,
     );
-    expect(() => host.stop("missing")).toThrow(/unknown terminal session/i);
+  });
+
+  it("should bound retained sessions and recycle exited identifiers", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-bounded",
+      replayBytesPerSession: 32,
+      maxSessions: 2,
+      spawner,
+    });
+
+    createSession(host, "alpha");
+    createSession(host, "beta");
+    expect(() => createSession(host, "gamma")).toThrow(/session limit/i);
+
+    ptys.get("alpha")!.emitExit({ exitCode: 0 });
+    createSession(host, "gamma");
+    expect(host.list().map((session) => session.id)).toEqual(["beta", "gamma"]);
+
+    ptys.get("gamma")!.emitExit({ exitCode: 0 });
+    createSession(host, "gamma");
+    expect(host.state("gamma")).toMatchObject({
+      status: "running",
+      latestSeq: 0,
+      exit: null,
+    });
   });
 
   it("should allow one controller while observers remain read-only", () => {
@@ -277,7 +305,7 @@ describe("NativeTerminalHost", () => {
     const stopped = host.acquireController("alpha", "alpha-client");
     const exited = host.acquireController("beta", "beta-client");
 
-    host.stop("alpha");
+    host.stop(stopped);
     ptys.get("beta")!.emitExit({ exitCode: 0 });
 
     expect(() => host.write(stopped, "after-stop")).toThrow(

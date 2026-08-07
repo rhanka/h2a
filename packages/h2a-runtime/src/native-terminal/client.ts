@@ -10,6 +10,7 @@ import type {
   NativeTerminalSessionState,
 } from "./host.js";
 import {
+  NATIVE_TERMINAL_DEFAULT_REQUEST_TIMEOUT_MS,
   NATIVE_TERMINAL_MAX_FRAME_BYTES,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
   NativeTerminalRemoteError,
@@ -17,21 +18,29 @@ import {
   type NativeTerminalPing,
   type NativeTerminalRequest,
   type NativeTerminalResponse,
+  type NativeTerminalStopSignal,
 } from "./protocol.js";
+import {
+  inspectPrivateNativeTerminalSocket,
+  sameNativeTerminalSocket,
+} from "./socket-path.js";
 
 type PendingRequest = {
   resolve(value: unknown): void;
   reject(error: Error): void;
+  timeout: NodeJS.Timeout;
 };
 
 export class NativeTerminalClient {
   readonly #socket: Socket;
+  readonly #requestTimeoutMs: number;
   readonly #pending = new Map<string, PendingRequest>();
   #buffer = "";
   #closed = false;
 
-  private constructor(socket: Socket) {
+  private constructor(socket: Socket, requestTimeoutMs: number) {
     this.#socket = socket;
+    this.#requestTimeoutMs = requestTimeoutMs;
     socket.setNoDelay(true);
     socket.setEncoding("utf8");
     socket.on("data", (chunk: string) => this.#onData(chunk));
@@ -39,25 +48,71 @@ export class NativeTerminalClient {
     socket.on("close", () => this.#fail(new Error("terminal host connection closed")));
   }
 
-  static connect(socketPath: string): Promise<NativeTerminalClient> {
+  static async connect(
+    socketPath: string,
+    options: {
+      connectTimeoutMs?: number;
+      requestTimeoutMs?: number;
+    } = {},
+  ): Promise<NativeTerminalClient> {
+    const expected = await inspectPrivateNativeTerminalSocket(socketPath);
+    const connectTimeoutMs = options.connectTimeoutMs ?? 1_000;
+    const requestTimeoutMs =
+      options.requestTimeoutMs ?? NATIVE_TERMINAL_DEFAULT_REQUEST_TIMEOUT_MS;
+    for (const [label, value] of [
+      ["connectTimeoutMs", connectTimeoutMs],
+      ["requestTimeoutMs", requestTimeoutMs],
+    ] as const) {
+      if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new RangeError(`${label} must be a positive safe integer`);
+      }
+    }
     return new Promise((resolve, reject) => {
       const socket = createConnection(socketPath);
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        socket.destroy();
+        reject(new Error("terminal host connection timed out"));
+      }, connectTimeoutMs);
+      timeout.unref();
       const onError = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
         socket.removeListener("connect", onConnect);
         socket.destroy();
         reject(error);
       };
       const onConnect = (): void => {
-        socket.removeListener("error", onError);
-        resolve(new NativeTerminalClient(socket));
+        void inspectPrivateNativeTerminalSocket(socketPath).then(
+          (connected) => {
+            if (settled) return;
+            if (!sameNativeTerminalSocket(expected, connected)) {
+              settled = true;
+              clearTimeout(timeout);
+              socket.destroy();
+              reject(
+                new Error("terminal host socket changed while connecting"),
+              );
+              return;
+            }
+            settled = true;
+            clearTimeout(timeout);
+            socket.removeListener("error", onError);
+            resolve(new NativeTerminalClient(socket, requestTimeoutMs));
+          },
+          onError,
+        );
       };
       socket.once("error", onError);
       socket.once("connect", onConnect);
     });
   }
 
-  ping(): Promise<NativeTerminalPing> {
-    return this.#request("ping") as Promise<NativeTerminalPing>;
+  ping(timeoutMs = this.#requestTimeoutMs): Promise<NativeTerminalPing> {
+    return this.#request("ping", undefined, timeoutMs) as Promise<NativeTerminalPing>;
   }
 
   create(options: NativeTerminalCreateOptions): Promise<NativeTerminalSessionState> {
@@ -96,19 +151,34 @@ export class NativeTerminalClient {
     await this.#request("resize", { lease, cols, rows });
   }
 
-  stop(id: string, signal?: string): Promise<NativeTerminalSessionState> {
-    return this.#request("stop", signal === undefined ? { id } : { id, signal }) as Promise<NativeTerminalSessionState>;
+  stop(
+    lease: NativeTerminalControllerLease,
+    signal?: NativeTerminalStopSignal,
+  ): Promise<NativeTerminalSessionState> {
+    return this.#request(
+      "stop",
+      signal === undefined ? { lease } : { lease, signal },
+    ) as Promise<NativeTerminalSessionState>;
   }
 
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
-    this.#socket.end();
+    this.#socket.destroy();
     this.#fail(new Error("terminal host client closed"));
   }
 
-  #request(operation: NativeTerminalRequest["operation"], params?: Readonly<Record<string, unknown>>): Promise<unknown> {
+  #request(
+    operation: NativeTerminalRequest["operation"],
+    params?: Readonly<Record<string, unknown>>,
+    timeoutMs = this.#requestTimeoutMs,
+  ): Promise<unknown> {
     if (this.#closed) return Promise.reject(new Error("terminal host client is closed"));
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+      return Promise.reject(
+        new RangeError("terminal host request timeout must be a positive safe integer"),
+      );
+    }
     const id = randomUUID();
     const request: NativeTerminalRequest = params === undefined
       ? { version: NATIVE_TERMINAL_PROTOCOL_VERSION, id, operation }
@@ -118,10 +188,22 @@ export class NativeTerminalClient {
       return Promise.reject(new RangeError("terminal host request exceeds the frame limit"));
     }
     return new Promise((resolve, reject) => {
-      this.#pending.set(id, { resolve, reject });
+      const timeout = setTimeout(() => {
+        if (!this.#pending.delete(id)) return;
+        reject(
+          new Error(
+            `terminal host ${operation} request timed out after ${timeoutMs}ms`,
+          ),
+        );
+      }, timeoutMs);
+      timeout.unref();
+      this.#pending.set(id, { resolve, reject, timeout });
       this.#socket.write(frame, (error) => {
         if (!error) return;
+        const pending = this.#pending.get(id);
+        if (!pending) return;
         this.#pending.delete(id);
+        clearTimeout(pending.timeout);
         reject(error);
       });
     });
@@ -154,6 +236,7 @@ export class NativeTerminalClient {
       const pending = this.#pending.get(response.id);
       if (!pending) continue;
       this.#pending.delete(response.id);
+      clearTimeout(pending.timeout);
       if (response.ok) pending.resolve(response.result);
       else pending.reject(new NativeTerminalRemoteError(response.error));
     }
@@ -164,7 +247,10 @@ export class NativeTerminalClient {
 
   #fail(error: Error): void {
     if (!this.#closed) this.#closed = true;
-    for (const pending of this.#pending.values()) pending.reject(error);
+    for (const pending of this.#pending.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+    }
     this.#pending.clear();
   }
 }
