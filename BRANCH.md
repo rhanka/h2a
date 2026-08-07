@@ -86,7 +86,12 @@
   - [x] Add deterministic fragmented-output transport coverage plus a two-connection/two-real-PTY recycled-ID test covering stale write, resize, release and stop.
   - [x] Reap supervisor-owned children that miss readiness with bounded TERM→KILL before backoff/replacement; leave adopted hosts unsignalled.
   - [x] Bound accepted connections and pending response count/bytes per connection and globally; drop only the slow peer on backpressure.
-  - [ ] Gate: native-terminal `4 files / 33 tests`, historical PTY-double `2 files / 6 tests`, typecheck, compiled default-spawn/adoption smoke, security audit, full root suite, CI and fresh two-leg consensus all pass on the final target.
+- [ ] **Lot 8 — fatal ownership and publication-race closure**
+  - [x] Put each Linux PTY workload behind one non-Node guardian with a kernel parent-death signal and process-group TERM→KILL forwarding; fail closed if the fixed `setpriv` boundary is unavailable.
+  - [x] Reap a distinct supervisor-owned startup loser before adopting a healthy winning host, then prove later replacement remains possible.
+  - [x] Serialize legitimate socket publishers/closers with a private crash-released Linux abstract-socket lock and verify staged/published inode identity.
+  - [x] Add real-process regressions for a HUP/TERM/INT-resistant PTY tree after hard host death and forced reaping, losing-child adoption, and competing publication over a stale socket.
+  - [ ] Gate: native-terminal `4 files / 36 tests`, historical PTY-double `2 files / 6 tests`, typecheck, compiled default-spawn/adoption smoke, security audit, full root suite, CI and fresh two-leg consensus all pass on the final target.
 
 ## Feedback Loop
 
