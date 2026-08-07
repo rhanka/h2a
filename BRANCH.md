@@ -84,7 +84,9 @@
   - [x] Add a server-minted session incarnation to state, replay, observer and controller contracts so exited-ID reuse cannot resurrect a stale connection lease.
   - [x] Bound replay by payload bytes, serialized wire bytes and retained chunk count; expose `latestSeq` without materializing replay.
   - [x] Add deterministic fragmented-output transport coverage plus a two-connection/two-real-PTY recycled-ID test covering stale write, resize, release and stop.
-  - [ ] Gate: native-terminal `4 files / 30 tests`, historical PTY-double `2 files / 6 tests`, typecheck, compiled default-spawn/adoption smoke, security audit, full root suite, CI and fresh two-leg consensus all pass on the final target.
+  - [x] Reap supervisor-owned children that miss readiness with bounded TERM→KILL before backoff/replacement; leave adopted hosts unsignalled.
+  - [x] Bound accepted connections and pending response count/bytes per connection and globally; drop only the slow peer on backpressure.
+  - [ ] Gate: native-terminal `4 files / 33 tests`, historical PTY-double `2 files / 6 tests`, typecheck, compiled default-spawn/adoption smoke, security audit, full root suite, CI and fresh two-leg consensus all pass on the final target.
 
 ## Feedback Loop
 
