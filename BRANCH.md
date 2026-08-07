@@ -78,9 +78,16 @@
   - [x] Bound startup retries with backoff and retained stderr diagnostics so repeated host failures cannot create a Node spawn storm.
   - [x] Add unit/socket tests plus Linux real-PTY execution tests for multi-session lifecycle, stop escalation, host crash, restart convergence and startup backoff.
   - [x] Gate: native-terminal `4 files / 23 tests`, historical PTY-double `2 files / 6 tests`, runtime typecheck, compiled default-spawn smoke, security audit, package dry-run and isolated full root suite pass locally.
+- [x] **Lot 7 — exact-target protocol, incarnation and replay hardening**
+  - [x] Strictly parse response version/discriminants before pending-state mutation and contain malformed-frame failures to one connection.
+  - [x] Bound invalid response IDs/messages and prove an exact 33,554,432-byte invalid request cannot kill the host or an active real PTY.
+  - [x] Add a server-minted session incarnation to state, replay, observer and controller contracts so exited-ID reuse cannot resurrect a stale connection lease.
+  - [x] Bound replay by payload bytes, serialized wire bytes and retained chunk count; expose `latestSeq` without materializing replay.
+  - [x] Add deterministic fragmented-output transport coverage plus a two-connection/two-real-PTY recycled-ID test covering stale write, resize, release and stop.
+  - [ ] Gate: native-terminal `4 files / 30 tests`, historical PTY-double `2 files / 6 tests`, typecheck, compiled default-spawn/adoption smoke, security audit, full root suite, CI and fresh two-leg consensus all pass on the final target.
 
 ## Feedback Loop
 
 - [x] Owner explicitly authorized the private local socket and separately supervised host process in this PR; default-backend cutover and Greywall enforcement remain forbidden.
 - [x] Record every required out-of-scope path as a BRxx-EXn exception with reason, impact and rollback.
-- [ ] Re-run consensus review with complete author metadata before marking this PR ready.
+- [ ] Re-run two independent native Codex consensus legs on the final exact target before marking this PR ready.
