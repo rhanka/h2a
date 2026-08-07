@@ -156,18 +156,30 @@ D3.1–D3.4 make the ordering explicit: the durable slot's meaning and empty-sta
 either adapter writing it, while both fronts proceed concurrently around that seam. If one front
 welds an ephemeral id into the slot, the other inherits the weld; no other coupling was identified.
 
-## 5. Decision-dossier format is explicitly in flight
+## 5. Decision-dossier format — was in flight, LANDED 2026-08-07
 
 The owner-validated substance-first format comments each spec decision, states its risk, includes
 each reviewer's real review and the open stakes, and requires no forced signature. Its artifacts are
 `docs/focus/decision-dossier-format.md` and
-`docs/focus/2026-08-03-d6-agents-surface-decision-dossier.html`. Both are **in-flight** on branch
-`docs/focus-decision-dossier-d6-example`, open PR #170. They are **not** on `origin/main`.
+`docs/focus/2026-08-03-d6-agents-surface-decision-dossier.html`.
+
+**Status changed after this document was drafted, and re-measured before merge.** When §1 was written
+they were in flight on branch `docs/focus-decision-dossier-d6-example` and absent from `origin/main`.
+PR #170 **merged on 2026-08-07 at 15:43Z**, and both files are now on `origin/main` — re-measured with
+`git cat-file -e origin/main:docs/focus/decision-dossier-format.md` and the same for the HTML, both
+succeeding. The §1 row recording them as absent is a **dated observation that has since been
+overtaken**, and is left standing there rather than rewritten, because §1 is a log of what was
+measured while writing.
+
+Consequence: the artifacts are now **stable and citable by path on `origin/main`**, so D4.1 below —
+which required every citation to carry "in-flight", branch and PR number — is **discharged** by the
+merge rather than satisfied by compliance. It is kept in the table with that state recorded, because
+a clause that silently disappears leaves a reader unable to tell whether it was met or dropped.
 
 | ID | Normative clause | Enforcement rung | Named proof observable by another person | Where the guarantee stops |
 |---|---|---|---|---|
-| D4.1 | Until PR #170 merges, every citation to either format artifact MUST include “in-flight”, branch name, and PR number. | **spec-line** | A documentation-reference search reviewed against `gh pr view 170 --repo rhanka/h2a` | Makes the citation resolvable; it does not make the artifact stable. |
-| D4.2 | The armature MUST accept the dossier as a document from the read port and MUST NOT freeze the in-flight example's HTML as a transport or persistence contract. | **spec-line** | Future `packages/chat-ui/src/state/decisionDossierReadPort.test.ts` plus `rg` showing no example-HTML parser in adapters | Preserves format evolution; it does not guarantee backward compatibility after publication. |
+| D4.1 | ~~Until PR #170 merges, every citation to either format artifact MUST include “in-flight”, branch name, and PR number.~~ **DISCHARGED 2026-08-07 by the merge of #170**, not by compliance. Citations now resolve by path on `origin/main`. | **spec-line**, now moot | `git cat-file -e origin/main:docs/focus/decision-dossier-format.md` succeeds; `gh pr view 170` shows merged 2026-08-07T15:43Z | Recorded as discharged rather than deleted, so a reader can tell it was met and not dropped. |
+| D4.2 | The armature MUST accept the dossier as a document from the read port and MUST NOT freeze the example's HTML as a transport or persistence contract. | **spec-line** | Future `packages/chat-ui/src/state/decisionDossierReadPort.test.ts` plus `rg` showing no example-HTML parser in adapters | Preserves format evolution; it does not guarantee backward compatibility after publication. **Now sharper, not weaker**: the example is on `main`, so freezing it is easier and the prohibition matters more. |
 
 This qualification is load-bearing: this repository has repeatedly paid for citations to documents
 a reader cannot resolve. PR metadata is the present resolver; a main-branch path is not.
