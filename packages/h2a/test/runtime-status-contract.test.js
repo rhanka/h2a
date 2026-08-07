@@ -72,6 +72,7 @@ test("runtime routing is read from llm-gateway 0.10 canonical descriptions", () 
       .map((entry) => [entry.id, entry.targetProviderId, entry.upstreamModel, entry.routeKind]),
     [
       ["gemini-2.5-pro", "google", "gemini-2.5-pro", "faithful"],
+      ["gemini-2.5-flash", "google", "gemini-2.5-flash", "faithful"]
     ]
   );
   assert.equal(resolveModelRoute("claude-opus-5-xhigh")?.upstreamModel, "gpt-5.6-terra");
