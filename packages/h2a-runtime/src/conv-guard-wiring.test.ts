@@ -1318,12 +1318,12 @@ describe("h2a resume <slug>", () => {
 
   it("starts configured llm-mesh automatically before resuming Claude", async () => {
     readLlmMeshConfig.mockReturnValue({
-      accounts: [
+      accounts: [],
+      meshAccounts: [
         {
-          id: "codex-oauth",
-          provider: "openai",
-          label: "Codex",
-          token: "tok",
+          accountId: "cloud-code-oauth",
+          provider: "cloud-code",
+          label: "Cloud Code",
         },
       ],
     });
@@ -1355,12 +1355,12 @@ describe("h2a resume <slug>", () => {
   it("does not auto-start llm-mesh by default", async () => {
     getLlmMeshRuntimeConfig.mockReturnValue({ enabled: false });
     readLlmMeshConfig.mockReturnValue({
-      accounts: [
+      accounts: [],
+      meshAccounts: [
         {
-          id: "codex-oauth",
-          provider: "openai",
-          label: "Codex",
-          token: "tok",
+          accountId: "cloud-code-oauth",
+          provider: "cloud-code",
+          label: "Cloud Code",
         },
       ],
     });
@@ -1390,12 +1390,12 @@ describe("h2a resume <slug>", () => {
   it("--no-gw forces direct auth even when llm-mesh config is enabled", async () => {
     getLlmMeshRuntimeConfig.mockReturnValue({ enabled: true });
     readLlmMeshConfig.mockReturnValue({
-      accounts: [
+      accounts: [],
+      meshAccounts: [
         {
-          id: "codex-oauth",
-          provider: "openai",
-          label: "Codex",
-          token: "tok",
+          accountId: "cloud-code-oauth",
+          provider: "cloud-code",
+          label: "Cloud Code",
         },
       ],
     });
