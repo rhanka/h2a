@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { chmod, link, mkdir, unlink } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { chmod, link, lstat, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { basename, dirname, isAbsolute, join } from "node:path";
 
@@ -43,6 +43,10 @@ type ConnectionContext = {
 type ResponseQueueBudget = {
   pendingBytes: number;
 };
+
+const SOCKET_PUBLICATION_LOCK_TIMEOUT_MS = 5_000;
+const SOCKET_PUBLICATION_LOCK_RETRY_MS = 25;
+const SOCKET_PUBLICATION_LOCK_ID_FILE = ".h2a-native-terminal.lock-id";
 
 function requiredRecord(value: unknown, label: string): Record<string, unknown> {
   if (!isRecord(value)) throw new TypeError(`${label} must be an object`);
@@ -371,6 +375,102 @@ async function socketAcceptsConnections(socketPath: string): Promise<boolean> {
   });
 }
 
+async function socketPublicationLockSecret(socketPath: string): Promise<string> {
+  if (process.platform !== "linux" || process.getuid === undefined) {
+    throw new Error(
+      "native terminal socket publication requires Linux abstract Unix sockets",
+    );
+  }
+  const directory = dirname(socketPath);
+  const identityPath = join(directory, SOCKET_PUBLICATION_LOCK_ID_FILE);
+  const temporaryPath = join(
+    directory,
+    `.${SOCKET_PUBLICATION_LOCK_ID_FILE}.${process.pid}.${randomUUID()}.tmp`,
+  );
+  try {
+    await writeFile(temporaryPath, `${randomUUID()}\n`, {
+      flag: "wx",
+      mode: 0o600,
+    });
+    await chmod(temporaryPath, 0o600);
+    try {
+      await link(temporaryPath, identityPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+  } finally {
+    try {
+      await unlink(temporaryPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+
+  const identity = await lstat(identityPath);
+  if (
+    !identity.isFile()
+    || identity.isSymbolicLink()
+    || identity.uid !== process.getuid()
+    || (identity.mode & 0o777) !== 0o600
+  ) {
+    throw new Error(
+      `terminal socket publication lock identity is not a private owned file: ${identityPath}`,
+    );
+  }
+  const secret = (await readFile(identityPath, "utf8")).trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(secret)) {
+    throw new Error(
+      `terminal socket publication lock identity is malformed: ${identityPath}`,
+    );
+  }
+  return secret;
+}
+
+async function acquireSocketPublicationLock(socketPath: string): Promise<Server> {
+  const secret = await socketPublicationLockSecret(socketPath);
+  const address = `\0h2a-terminal-lock-${createHash("sha256")
+    .update(`${process.getuid?.() ?? "unknown"}:${socketPath}:${secret}`)
+    .digest("hex")}`;
+  const deadline = Date.now() + SOCKET_PUBLICATION_LOCK_TIMEOUT_MS;
+  for (;;) {
+    const lock = createServer();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        lock.once("error", reject);
+        lock.listen(address, () => {
+          lock.removeListener("error", reject);
+          resolve();
+        });
+      });
+      return lock;
+    } catch (error) {
+      if (
+        (error as NodeJS.ErrnoException).code !== "EADDRINUSE"
+        || Date.now() >= deadline
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, SOCKET_PUBLICATION_LOCK_RETRY_MS)
+      );
+    }
+  }
+}
+
+async function withSocketPublicationLock<T>(
+  socketPath: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const lock = await acquireSocketPublicationLock(socketPath);
+  try {
+    return await operation();
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      lock.close((error) => error ? reject(error) : resolve());
+    });
+  }
+}
+
 async function removeStaleSocket(socketPath: string): Promise<void> {
   for (;;) {
     let stale: NativeTerminalSocketIdentity;
@@ -423,10 +523,16 @@ async function publishSocket(
   stagedPath: string,
   socketPath: string,
 ): Promise<NativeTerminalSocketIdentity> {
+  const staged = await inspectPrivateNativeTerminalSocket(stagedPath);
   for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
       await link(stagedPath, socketPath);
       const published = await inspectPrivateNativeTerminalSocket(socketPath);
+      if (!sameNativeTerminalSocket(staged, published)) {
+        throw new Error(
+          "terminal host published socket identity does not match its staged socket",
+        );
+      }
       await unlink(stagedPath);
       return published;
     } catch (error) {
@@ -494,7 +600,10 @@ export async function startNativeTerminalHostServer(options: {
       });
     });
     await chmod(stagedPath, 0o600);
-    ownedSocket = await publishSocket(stagedPath, options.socketPath);
+    ownedSocket = await withSocketPublicationLock(
+      options.socketPath,
+      () => publishSocket(stagedPath, options.socketPath),
+    );
   } catch (error) {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     try {
@@ -528,16 +637,18 @@ export async function startNativeTerminalHostServer(options: {
         await new Promise<void>((resolve, reject) => {
           server.close((error) => error ? reject(error) : resolve());
         });
-        try {
-          const current = await inspectPrivateNativeTerminalSocket(
-            options.socketPath,
-          );
-          if (sameNativeTerminalSocket(current, ownedSocket)) {
-            await unlink(options.socketPath);
+        await withSocketPublicationLock(options.socketPath, async () => {
+          try {
+            const current = await inspectPrivateNativeTerminalSocket(
+              options.socketPath,
+            );
+            if (sameNativeTerminalSocket(current, ownedSocket)) {
+              await unlink(options.socketPath);
+            }
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
           }
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        }
+        });
         if (stopError !== undefined) throw stopError;
       })();
       return closing;
