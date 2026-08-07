@@ -10174,6 +10174,15 @@ export function projectAgentsForH2a(): ReturnType<typeof projectRemoteAgents> {
 
 export { projectStatusForH2a };
 
+export { NativeTerminalClient } from "./native-terminal/client.js";
+export { NativeTerminalHost } from "./native-terminal/host.js";
+export { NativeTerminalHostSupervisor } from "./native-terminal/supervisor.js";
+export type {
+  NativeTerminalControllerLease,
+  NativeTerminalCreateOptions,
+  NativeTerminalSessionState,
+} from "./native-terminal/host.js";
+
 /**
  * Status-bar writer surface, consumed by `@sentropic/h2a`'s
  * `status --write-bars` loop via lazy `import()`: enumerate the sessions whose
