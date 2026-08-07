@@ -1,28 +1,25 @@
-# PR #178 native terminal host — final consensus dossier
+# PR #178 native terminal host — R3 review reconciliation
 
 ## Exact target reviewed
 
-- PR: `rhanka/h2a#178`
 - Base / merge-base: `83bc1fa609fd0458833a2dcebc1bf56476657a56`
-- Exact implementation target: `fbd1839369faaeb13cd785623667bee0993cf714`
-- Target binary-diff SHA-256: `cb837a214cb4665da1187e04507aa040ba7f40f3537389f5c79339b8b5104683`
+- Exact implementation target: `c005e61c63c270a9341ec14c6cbf0ee363deafa5`
+- Target binary-diff SHA-256: `52aa4a8d52f471dda26e00205e57880207a48dcb3595c641781ac547dffb454c`
 
-## Independent review legs
+## Legs
 
-| Leg | Launch identity | Self-reported identity | Artifact | Verdict |
-|---|---|---|---|---|
-| correctness | native Codex, `gpt-5.6-sol`, xhigh, direct | native Codex, `gpt-5.6-sol`, xhigh; opaque fallback not attestable | `docs/reviews/pr178-native-terminal-correctness.md` | **NO-GO** |
-| security | native Codex, `gpt-5.6-sol`, xhigh, direct | native Codex; exact deployed model/effort not exposed in-session | `docs/reviews/pr178-native-terminal-security.md` | **NO-GO** |
+| Leg | Launch | Result | Artifact/status |
+|---|---|---|---|
+| correctness | native Codex direct, assigned `gpt-5.6-sol`/xhigh | exit 0, **NO-GO** | `docs/reviews/pr178-native-terminal-correctness.md` complete |
+| security | native Codex direct, assigned `gpt-5.6-sol`/xhigh | exit 1 before verdict; model safety filter interrupted a local backpressure probe | PENDING stub; **does not count as a review** |
 
-Both sessions were launched independently after `fbd18393`, verified the exact HEAD, merge-base and binary-diff hash before inspection, were forbidden from reading the sibling/consensus artifact, modified only their assigned report, and completed with exit code 0. Both ran typecheck, the four-file native-terminal suite (25/25, including six Linux real-process cases), the historical run surface (6/6), and separate emitted/default-spawn and adversarial probes.
+The correctness leg verified the immutable target, ran typecheck, 30/30 native tests, 6/6 historical tests, emitted default-spawn and adversarial probes, and confirmed the preceding incarnation/replay findings resolved.
 
-## Reconciled findings
+## Reconciled actionable findings
 
-1. **HIGH — stale controller lease resurrection after exited-ID reuse (correctness).** A replacement session resets `controllerEpoch` while retaining the host generation and user-selected session/controller IDs; the old connection retains the old lease. The resulting leases are byte-identical. The stale connection wrote and resized the replacement PTY and released its rightful controller in both real transport/stub and emitted standalone-host/real-PTY probes. Required: a server-minted non-reused session incarnation (or equivalent proven invariant) throughout state/replay/observer/lease ownership and checks, plus a two-connection real-PTY regression covering write, resize, release and stop.
-2. **MEDIUM — fragmented replay violates memory and wire bounds (both legs).** Replay charges payload bytes but retains one object per callback. At 1,300,000 one-byte chunks, only 1.3 MiB of the 4 MiB payload allowance is used, yet the response is about 33.99 MiB, exceeds the 32 MiB frame, consumes roughly 180–193 MiB heap, and closes the reader. Snapshot paths also materialize replay merely to obtain `latestSeq`. Required: bound/coalesce metadata, ensure every admitted replay is representable or explicitly paginated, expose `latestSeq` without replay materialization, and add deterministic fragmented-output execution coverage.
+1. **HIGH — supervisor-owned child survives readiness timeout.** A spawned child that remains alive without publishing a healthy socket is neither terminated nor cleared after the five-second startup deadline. It suppresses replacement indefinitely after backoff. Required: bounded TERM→KILL reaping only for supervisor-owned children, await exit, clear ownership, then apply backoff; add a real-child replacement regression.
+2. **HIGH — outbound backpressure is unbounded.** `socket.write()` backpressure is ignored; a paused client can pipeline legal replay requests and queue responses without a per-connection byte/request cap or accepted-connection cap. The correctness probe reached about 64 MiB queued; the conductor independently measured RSS growth from 68 MiB to 190 MiB under 400,000 tiny pings while the host remained live. Required: hard outbound queue/pipeline and connection limits, stop frame consumption when the budget is reached, and prove another real PTY/client survives.
 
-The preceding malformed-response and exact-limit request findings are independently confirmed resolved on this target: all five malformed variants reject without uncaught exceptions, and the exact 33,554,432-byte request leaves the host and active real PTY alive.
+## Verdict
 
-## Consensus verdict
-
-**NO-GO on `fbd1839369faaeb13cd785623667bee0993cf714`.** The two reports are materially convergent and both findings are actionable. Their full commands, measurements and evidence are preserved in the leg artifacts. Corrections require a new exact target and two fresh independent reviews. The owner explicitly requested no merge.
+**NO-GO on `c005e61c63c270a9341ec14c6cbf0ee363deafa5`.** One complete independent leg found two actionable HIGH defects; the failed security leg supplies no consensus vote. Corrections require a new exact target and two fresh complete independent legs. No merge is authorized.
