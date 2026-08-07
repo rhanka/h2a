@@ -16,6 +16,7 @@
 - [ ] `packages/h2a-runtime/src/pty.ts` (BR178-EX1)
 - [ ] `packages/h2a-runtime/src/index.ts` (BR178-EX2)
 - [ ] `.github/workflows/ci.yml` (BR178-EX3)
+- [ ] `docs/reviews/pr178-native-terminal-*.md` (BR178-EX4)
 
 **Forbidden Paths (must not change)**
 
@@ -39,6 +40,7 @@
 - [x] **BR178-EX1 — `packages/h2a-runtime/src/pty.ts`:** expose the real PTY PID for lifecycle/process-attribution proofs and use `createRequire(import.meta.url)` so the existing lazy `node-pty` load works from emitted ESM. Impact is additive to the internal `PtyHandle`; rollback removes the PID from the new native host state.
 - [x] **BR178-EX2 — `packages/h2a-runtime/src/index.ts`:** export the native host client/supervisor seam so the existing local server can own one supervisor in a later opt-in wiring lot. No CLI route or tmux call site changes; rollback removes the exports.
 - [x] **BR178-EX3 — `.github/workflows/ci.yml`:** execute the native-terminal unit, socket-integration and Linux real-PTY functional suite in both supported CI Node jobs. Impact is one focused Vitest invocation per build-and-test matrix leg; rollback removes that single step.
+- [x] **BR178-EX4 — `docs/reviews/pr178-native-terminal-*.md`:** retain the exact-target two-leg consensus dossier required before readiness. Impact is review evidence only; rollback removes the three PR-specific review artifacts.
 
 ## Plan / Todo (lot-based)
 
