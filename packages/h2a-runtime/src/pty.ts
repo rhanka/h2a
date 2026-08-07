@@ -7,8 +7,11 @@ const require = createRequire(import.meta.url);
 const LINUX_PARENT_DEATH_SIGNAL = "SIGUSR2";
 const LINUX_FORCE_KILL_SIGNAL = "SIGUSR1";
 const LINUX_PTY_GUARDIAN_SCRIPT = [
-  'h2a_forward() { h2a_signal=$1; trap "" "$h2a_signal"; /bin/kill "-$h2a_signal" -- "-$$" 2>/dev/null || :; trap "h2a_forward $h2a_signal" "$h2a_signal"; }',
-  'h2a_force() { trap - USR1 USR2; /bin/kill -KILL -- "-$$"; }',
+  "h2a_expected_parent=$1",
+  "shift",
+  '[ "$PPID" -eq "$h2a_expected_parent" ] || { builtin kill -KILL -- "-$$"; exit 127; }',
+  'h2a_forward() { local h2a_signal=$1; trap "" "$h2a_signal"; builtin kill "-$h2a_signal" -- "-$$" 2>/dev/null || :; trap "h2a_forward $h2a_signal" "$h2a_signal"; }',
+  'h2a_force() { trap - USR1 USR2; builtin kill -KILL -- "-$$"; }',
   "trap 'h2a_forward HUP' HUP",
   "trap 'h2a_forward INT' INT",
   "trap 'h2a_forward TERM' TERM",
@@ -36,6 +39,20 @@ function linuxSetprivPath(): string {
   );
 }
 
+function linuxBashPath(): string {
+  for (const candidate of ["/bin/bash", "/usr/bin/bash"]) {
+    try {
+      accessSync(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      // Try the next fixed system path. Never resolve this boundary through PATH.
+    }
+  }
+  throw new Error(
+    "native terminal PTY crash containment requires bash",
+  );
+}
+
 function guardedSpawnCommand(options: Parameters<PtySpawner>[0]): {
   command: string;
   args: string[];
@@ -49,10 +66,11 @@ function guardedSpawnCommand(options: Parameters<PtySpawner>[0]): {
       "--pdeathsig",
       LINUX_PARENT_DEATH_SIGNAL,
       "--",
-      "/bin/sh",
+      linuxBashPath(),
       "-c",
       LINUX_PTY_GUARDIAN_SCRIPT,
       "h2a-pty-guardian",
+      String(process.pid),
       options.command,
       ...options.args,
     ],

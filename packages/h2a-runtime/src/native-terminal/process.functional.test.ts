@@ -43,6 +43,27 @@ function running(pid: number): boolean {
   }
 }
 
+async function processObservation(pid: number): Promise<Readonly<Record<string, unknown>>> {
+  try {
+    const raw = await readFile(`/proc/${pid}/stat`, "utf8");
+    const commandEnd = raw.lastIndexOf(")");
+    const fields = raw.slice(commandEnd + 2).split(" ");
+    return {
+      pid,
+      state: fields[0],
+      parentPid: Number(fields[1]),
+      processGroup: Number(fields[2]),
+      session: Number(fields[3]),
+    };
+  } catch (error) {
+    return {
+      pid,
+      missing: (error as NodeJS.ErrnoException).code === "ENOENT",
+      error: String(error),
+    };
+  }
+}
+
 async function directChildren(pid: number): Promise<number[]> {
   const raw = await readFile(`/proc/${pid}/task/${pid}/children`, "utf8");
   return raw.trim().length === 0 ? [] : raw.trim().split(/\s+/).map(Number);
@@ -226,8 +247,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     );
     process.kill(firstPing.hostPid, "SIGKILL");
     await eventually(
-      () => hardCrashPids.map(running),
-      (states) => states.every((alive) => !alive),
+      () => Promise.all(hardCrashPids.map(processObservation)),
+      (states) => states.every((state) => state.missing === true),
     );
 
     const replacement = await supervisor.client();
