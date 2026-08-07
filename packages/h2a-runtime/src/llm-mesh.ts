@@ -104,11 +104,15 @@ function facadeConfigResolver() {
     async resolveConfig(configRef: string): Promise<Record<string, unknown>> {
       const raw = process.env.H2A_LLM_MESH_CONFIG_JSON;
       if (!raw) return {};
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const scoped = parsed[configRef];
-      return scoped && typeof scoped === "object" && !Array.isArray(scoped)
-        ? scoped as Record<string, unknown>
-        : parsed;
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        const scoped = parsed[configRef];
+        return scoped && typeof scoped === "object" && !Array.isArray(scoped)
+          ? (scoped as Record<string, unknown>)
+          : parsed;
+      } catch {
+        return {};
+      }
     },
   };
 }
