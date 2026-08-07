@@ -21,6 +21,7 @@ import {
   withRegistryLock,
   type RegistryEntry,
 } from "./registry.js";
+import { DEFAULT_LAYOUT } from "./config.js";
 
 // Scratch dir inside the package (never /tmp), like the other test suites.
 const SCRATCH_ROOT = join(
@@ -269,9 +270,86 @@ describe("registry", () => {
         },
       ];
       writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
-      const removed = prune(72, { path: regPath, tmuxHasSession: () => false });
+      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+        path: regPath,
+        tmuxHasSession: () => false,
+      });
       expect(removed).toBe(1);
       expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-pinned"]);
+    });
+
+    it("keeps human entries whose convId equals label (mis-recorded durable sessions)", () => {
+      const old = new Date(Date.now() - 100 * 3600 * 1000).toISOString();
+      const entries: RegistryEntry[] = [
+        {
+          id: "restore-label-eq",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/r",
+          tmuxSession: "remote-restore-label-eq",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          sessionClass: "human",
+          convId: "reglement",
+          label: "reglement",
+        },
+        {
+          id: "dead-old",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/a",
+          tmuxSession: "remote-a",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          sessionClass: "background",
+        },
+      ];
+      writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
+      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+        path: regPath,
+        tmuxHasSession: () => false,
+      });
+      expect(removed).toBe(1);
+      expect(loadRegistry(regPath).map((e) => e.id)).toEqual([
+        "restore-label-eq",
+      ]);
+    });
+
+    it("keeps human entries with no convId (mis-recorded durable sessions)", () => {
+      const old = new Date(Date.now() - 100 * 3600 * 1000).toISOString();
+      const entries: RegistryEntry[] = [
+        {
+          id: "restore-no-convid",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/r",
+          tmuxSession: "remote-restore-no-convid",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          sessionClass: "human",
+        },
+        {
+          id: "dead-old",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/a",
+          tmuxSession: "remote-a",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          sessionClass: "background",
+        },
+      ];
+      writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
+      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+        path: regPath,
+        tmuxHasSession: () => false,
+      });
+      expect(removed).toBe(1);
+      expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-no-convid"]);
     });
 
     it("keeps durable human rows that qualify for implicit restore pinning", () => {
@@ -302,7 +380,10 @@ describe("registry", () => {
         },
       ];
       writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
-      const removed = prune(72, { path: regPath, tmuxHasSession: () => false });
+      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+        path: regPath,
+        tmuxHasSession: () => false,
+      });
       expect(removed).toBe(1);
       expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-implicit"]);
     });
