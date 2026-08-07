@@ -48,6 +48,39 @@ async function directChildren(pid: number): Promise<number[]> {
   return raw.trim().length === 0 ? [] : raw.trim().split(/\s+/).map(Number);
 }
 
+async function createStubbornWorkload(
+  client: NativeTerminalClient,
+  id: string,
+  directory: string,
+): Promise<number[]> {
+  const session = await client.create({
+    id,
+    command: "/bin/sh",
+    args: [
+      "-c",
+      `trap '' HUP TERM INT; /bin/sh -c "trap '' HUP TERM INT; while :; do sleep 1; done" & h2a_descendant=$!; printf '${id}-ready:%s\\r\\n' "$h2a_descendant"; while :; do sleep 1; done`,
+    ],
+    cwd: directory,
+    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+    cols: 80,
+    rows: 24,
+  });
+  const output = await eventually(
+    () => client.readOutput(id, 0),
+    (replay) => replay.chunks.some((chunk) =>
+      chunk.data.includes(`${id}-ready:`)
+    ),
+  );
+  const match = output.chunks.map((chunk) => chunk.data).join("")
+    .match(new RegExp(`${id}-ready:(\\d+)`));
+  if (!match) throw new Error("stubborn PTY did not report its descendant");
+  const targetChildren = await eventually(
+    () => directChildren(session.pid),
+    (pids) => pids.length === 1,
+  );
+  return [session.pid, targetChildren[0]!, Number(match[1])];
+}
+
 describe.skipIf(process.platform !== "linux")("native terminal host process", () => {
   it("should keep two real PTYs alive through client reconnect without per-operation Node spawns", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-functional-"));
@@ -147,6 +180,73 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     await expect(reconnected.list()).rejects.toThrow(/closed|client/i);
     await eventually(() => running(beta.pid), (alive) => !alive);
     expect(running(ping.hostPid)).toBe(false);
+  });
+
+  it("should kill a signal-resistant PTY tree after hard host death and forced host reaping", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-parent-death-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    let spawnCount = 0;
+    const generations = ["parent-death-hard", "parent-death-reap"];
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      replayBytesPerSession: 1024,
+      startupTimeoutMs: 500,
+      spawnTerminationGraceMs: 100,
+      generationFactory: () => generations[spawnCount] ?? `unexpected-${spawnCount}`,
+      spawnHost: (options) => {
+        spawnCount += 1;
+        const child = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+        ], {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        children.add(child);
+        return child;
+      },
+    });
+
+    const first = await supervisor.client();
+    const firstPing = await first.ping();
+    const hardCrashPids = await createStubbornWorkload(
+      first,
+      "hard-crash-tree",
+      directory,
+    );
+    process.kill(firstPing.hostPid, "SIGKILL");
+    await eventually(
+      () => hardCrashPids.map(running),
+      (states) => states.every((alive) => !alive),
+    );
+
+    const replacement = await supervisor.client();
+    const replacementPing = await replacement.ping();
+    expect(replacementPing.hostPid).not.toBe(firstPing.hostPid);
+    expect(spawnCount).toBe(2);
+    const forcedReapPids = await createStubbornWorkload(
+      replacement,
+      "forced-reap-tree",
+      directory,
+    );
+    supervisor.disconnect();
+    process.kill(replacementPing.hostPid, "SIGSTOP");
+    await expect(supervisor.client()).rejects.toThrow(/did not become ready/i);
+    await eventually(
+      () => [replacementPing.hostPid, ...forcedReapPids].map(running),
+      (states) => states.every((alive) => !alive),
+    );
+    expect(supervisor.spawnedPid).toBeUndefined();
   });
 
   it("should stop its PTYs and remove its socket on graceful host shutdown", async () => {
@@ -655,6 +755,97 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     expect(await replacement.ping()).toMatchObject({
       generation: "hung-generation-2",
     });
+  });
+
+  it("should reap its losing owned child before adopting and later replacing a winning host", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-adopt-reap-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    let losingSpawnCount = 0;
+    let losingChild: ChildProcess | undefined;
+    const losingGenerations = ["losing-hung", "losing-replacement"];
+    const losing = new NativeTerminalHostSupervisor({
+      socketPath,
+      replayBytesPerSession: 1024,
+      startupTimeoutMs: 1_000,
+      spawnTerminationGraceMs: 100,
+      generationFactory: () =>
+        losingGenerations[losingSpawnCount] ?? `losing-${losingSpawnCount}`,
+      spawnHost: (options) => {
+        losingSpawnCount += 1;
+        const child = losingSpawnCount === 1
+          ? spawn(process.execPath, [
+              "-e",
+              "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)",
+            ], {
+              detached: true,
+              stdio: ["ignore", "ignore", "pipe"],
+            })
+          : spawn(process.execPath, [
+              "--import",
+              "tsx",
+              entry,
+              "--socket",
+              options.socketPath,
+              "--generation",
+              options.generation,
+              "--replay-bytes",
+              String(options.replayBytesPerSession),
+            ], {
+              cwd: dirname(entry),
+              env: process.env,
+              stdio: ["ignore", "pipe", "pipe"],
+            });
+        if (losingSpawnCount === 1) losingChild = child;
+        children.add(child);
+        return child;
+      },
+    });
+    const losingConnection = losing.client();
+    await eventually(
+      () => losingChild?.pid,
+      (pid) => typeof pid === "number" && running(pid),
+    );
+
+    let winningChild: ChildProcess | undefined;
+    const winner = new NativeTerminalHostSupervisor({
+      socketPath,
+      replayBytesPerSession: 1024,
+      generationFactory: () => "winning-generation",
+      spawnHost: (options) => {
+        winningChild = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+        ], {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        children.add(winningChild);
+        return winningChild;
+      },
+    });
+    const winningConnection = await winner.client();
+    const winningPing = await winningConnection.ping();
+    const adopted = await losingConnection;
+    expect((await adopted.ping()).hostPid).toBe(winningPing.hostPid);
+    await eventually(() => running(losingChild!.pid!), (alive) => !alive);
+    expect(losing.spawnedPid).toBeUndefined();
+
+    process.kill(winningPing.hostPid, "SIGKILL");
+    await once(winningChild!, "exit");
+    losing.disconnect();
+    const replacement = await losing.client();
+    expect(losingSpawnCount).toBe(2);
+    expect((await replacement.ping()).hostPid).not.toBe(winningPing.hostPid);
   });
 
   it("should converge competing supervisors on one socket without repeated host spawns", async () => {
