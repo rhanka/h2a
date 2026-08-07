@@ -38,6 +38,35 @@ export interface RoutingTarget {
 const CODEX_CAPABILITIES = ["streaming", "tools", "reasoning_effort"] as const;
 const GOOGLE_CAPABILITIES = ["streaming", "tools"] as const;
 
+const CLOUD_CODE_CATALOG: readonly ModelCatalogEntry[] = [
+  {
+    id: "gemini-2.5-pro",
+    provider: "google",
+    targetProviderId: "google",
+    transportProviderId: "cloud-code",
+    upstreamModel: "gemini-2.5-pro",
+    accountPool: "google",
+    inputProtocol: "anthropic.messages",
+    outputProtocol: "anthropic.messages",
+    capabilities: [...GOOGLE_CAPABILITIES],
+    defaultPolicy: "round-robin",
+    routeKind: "faithful",
+  },
+  {
+    id: "gemini-2.5-flash",
+    provider: "google",
+    targetProviderId: "google",
+    transportProviderId: "cloud-code",
+    upstreamModel: "gemini-2.5-flash",
+    accountPool: "google",
+    inputProtocol: "anthropic.messages",
+    outputProtocol: "anthropic.messages",
+    capabilities: [...GOOGLE_CAPABILITIES],
+    defaultPolicy: "round-robin",
+    routeKind: "faithful",
+  },
+];
+
 let _catalog: ModelCatalogEntry[] | null = null;
 let _envModelMap: Record<string, string> | null = null;
 
@@ -68,7 +97,7 @@ function envCatalogEntries(): ModelCatalogEntry[] {
           ? "anthropic"
           : "openai",
       transportProviderId: isGoogle
-        ? "gemini-code-assist"
+        ? "cloud-code"
         : isAnthropic
           ? "claude-code"
           : "codex",
@@ -114,6 +143,7 @@ export function listModelCatalog(): ModelCatalogEntry[] {
     const byId = new Map<string, ModelCatalogEntry>(
       canonical.map((entry) => [entry.id, entry]),
     );
+    for (const entry of CLOUD_CODE_CATALOG) byId.set(entry.id, entry);
     for (const entry of envCatalogEntries()) byId.set(entry.id, entry);
     _catalog = [...byId.values()];
   }
@@ -136,7 +166,7 @@ export function accountPoolForProvider(
     normalized === "google" ||
     normalized === "gemini" ||
     normalized === "gcp" ||
-    normalized === "gemini-code-assist"
+    normalized === "cloud-code"
   ) {
     return "google";
   }
@@ -169,7 +199,7 @@ export function resolveModelRoute(model: string): RoutingTarget | undefined {
       routingPolicy: "round-robin",
       routeReason: "env-model-map",
       providerId: isGoogle ? "google" : (isAnthropic ? "anthropic" : "openai"),
-      transportProviderId: isGoogle ? "gemini-code-assist" : (isAnthropic ? "claude-code" : "codex"),
+      transportProviderId: isGoogle ? "cloud-code" : (isAnthropic ? "claude-code" : "codex"),
       routeKind: envUpstream === model ? "faithful" : "alias",
     };
   }
