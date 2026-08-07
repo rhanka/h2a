@@ -7,7 +7,7 @@ import test from "node:test";
 import { H2A_CLI_MCP_TOOL_NAMES, createMcpServer } from "../dist/index.js";
 
 function freshRoot() {
-  return mkdtempSync(join(tmpdir(), "h2a-mcp-"));
+  return mkdtempSync(join(process.env.H2A_TEST_TRACK_TMPDIR ?? tmpdir(), "h2a-mcp-"));
 }
 
 function registration(overrides = {}) {
