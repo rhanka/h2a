@@ -57,6 +57,7 @@ interface FocusServeDeps {
   env?: NodeJS.ProcessEnv;
   assetsDir?: string;
   h2aBin?: string;
+  findTrackedRepo?: (start: string) => string | undefined;
 }
 
 interface ParsedFocusArgs {
@@ -268,7 +269,7 @@ export function resolveFocusServeConfig(
   const inferred = earlyEvents ? inferRepoFromEvents(earlyEvents) : undefined;
   const repoRoot = repoInput
     ? canonicalDirectory(repoInput, cwd, "Focus repository")
-    : inferred ?? findTrackedRepo(cwd);
+    : inferred ?? (deps.findTrackedRepo ?? findTrackedRepo)(cwd);
   if (!repoRoot) {
     throw new Error(
       `no tracked repository found from ${resolve(cwd)}; pass --repo <path> or set FOCUS_REPO_ROOT`
