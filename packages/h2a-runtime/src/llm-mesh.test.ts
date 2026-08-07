@@ -6,13 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LlmMeshManager,
   acquireLlmMeshSessionEnv,
+  enrollViaFacade,
   gatewayScriptPath,
   llmMeshSeedPath,
   llmMeshTokenPath,
   localGatewaySessionProvider,
+  recordFacadeEnrollment,
   readOrCreateLlmMeshSeed,
   refreshAccountToken,
 } from "./llm-mesh.js";
+import type { LlmMeshFacade } from "@sentropic/llm-mesh/facade";
 
 const SCRATCH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -29,8 +32,10 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(SCRATCH, { recursive: true, force: true });
+  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   globalThis.fetch = originalFetch;
 });
 
@@ -49,43 +54,112 @@ describe("gateway runtime path", () => {
     expect(gatewayScriptPath()).not.toContain("apps/llm-gateway");
   });
 
-  it("preflights a supported local provider before spawning", () => {
-    const account = {
-      id: "account",
-      label: "Account",
-      token: "token",
-    };
+  it("preflights only a facade-backed Cloud Code enrollment", () => {
+    expect(localGatewaySessionProvider([
+      { accountId: "cloud", provider: "cloud-code", label: "Cloud Code" },
+    ])).toBe("cloud-code");
+    expect(localGatewaySessionProvider([
+      { accountId: "codex", provider: "codex", label: "Codex" },
+    ])).toBeUndefined();
+    expect(localGatewaySessionProvider([])).toBeUndefined();
+  });
+});
 
-    expect(
-      localGatewaySessionProvider([
-        { ...account, provider: "google" },
-      ]),
-    ).toBe("google");
-    expect(
-      localGatewaySessionProvider([
-        { ...account, provider: "anthropic" },
-      ]),
-    ).toBe("anthropic");
-    expect(
-      localGatewaySessionProvider([
-        { ...account, provider: "anthropic" },
-        { ...account, id: "codex", provider: "openai" },
-      ]),
-    ).toBe("codex");
+describe("facade enrollment", () => {
+  it("waits for the Cloud Code callback without receiving an authorization code", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "authorization-url",
+        enrollmentId: "enroll-cloud",
+        url: "https://accounts.example/authorize",
+        expiresAt: "2026-08-07T01:00:00.000Z",
+      }),
+      waitForCallback: vi.fn().mockResolvedValue({
+        accountId: "account-cloud",
+        label: "Cloud Code",
+      }),
+      pollForCompletion: vi.fn(),
+    } as unknown as LlmMeshFacade;
+    const openBrowser = vi.fn();
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-    expect(
-      localGatewaySessionProvider([
-        { ...account, id: "google-acc", provider: "google" },
-        { ...account, provider: "anthropic" },
-      ]),
-    ).toBe("google");
+    const account = await enrollViaFacade("cloud-code", {
+      facade,
+      openBrowser,
+      configRef: "config-v1",
+      ownerScope: "cli:test-host",
+      redirectUri: "http://127.0.0.1/callback",
+    });
 
-    expect(
-      localGatewaySessionProvider([
-        { ...account, id: "google-acc", provider: "google" },
-        { ...account, provider: "anthropic" },
-      ]),
-    ).toBe("google");
+    expect(facade.enroll).toHaveBeenCalledWith("cloud-code", {
+      configRef: "config-v1",
+      mode: "cli",
+      ownerScope: "cli:test-host",
+      redirectUri: "http://127.0.0.1/callback",
+    });
+    expect(openBrowser).toHaveBeenCalledWith("https://accounts.example/authorize");
+    expect(facade.waitForCallback).toHaveBeenCalledWith("enroll-cloud");
+    expect(facade.pollForCompletion).not.toHaveBeenCalled();
+    expect(account).toEqual({
+      accountId: "account-cloud",
+      provider: "cloud-code",
+      label: "Cloud Code",
+    });
+  });
+
+  it("persists only public enrollment metadata", () => {
+    recordFacadeEnrollment({
+      accountId: "account-cloud",
+      provider: "cloud-code",
+      label: "Cloud Code",
+    }, SCRATCH);
+
+    const raw = readFileSync(join(SCRATCH, "llm-mesh.json"), "utf8");
+    expect(raw).not.toContain("token");
+    expect(JSON.parse(raw)).toEqual({
+      meshAccounts: [{
+        accountId: "account-cloud",
+        provider: "cloud-code",
+        label: "Cloud Code",
+      }],
+    });
+  });
+
+  it("polls the opaque facade for Codex device enrollment", async () => {
+    const facade = {
+      enroll: vi.fn().mockResolvedValue({
+        kind: "device-code",
+        enrollmentId: "enroll-codex",
+        userCode: "ABCD-EFGH",
+        verificationUrl: "https://auth.example/device",
+        expiresAt: "2026-08-07T01:00:00.000Z",
+        intervalSeconds: 5,
+      }),
+      waitForCallback: vi.fn(),
+      pollForCompletion: vi.fn().mockResolvedValue({
+        accountId: "account-codex",
+        label: "Codex",
+      }),
+    } as unknown as LlmMeshFacade;
+    const openBrowser = vi.fn();
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    const account = await enrollViaFacade("codex", {
+      facade,
+      openBrowser,
+      configRef: "config-v1",
+      ownerScope: "cli:test-host",
+      redirectUri: "http://127.0.0.1/callback",
+    });
+
+    expect(facade.pollForCompletion).toHaveBeenCalledWith("enroll-codex");
+    expect(facade.waitForCallback).not.toHaveBeenCalled();
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(account).toEqual({
+      accountId: "account-codex",
+      provider: "codex",
+      label: "Codex",
+    });
   });
 });
 
@@ -221,7 +295,7 @@ describe("Google OAuth refresh", () => {
       token: "opaque-expired-google-token",
       expiresAt: "2020-01-01T00:00:00.000Z",
     };
-    
+
     await expect(refreshAccountToken(account, SCRATCH)).resolves.toEqual(account);
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -239,12 +313,21 @@ describe("acquireLlmMeshSessionEnv", () => {
       }),
       "utf8",
     );
+    new LlmMeshManager().SaveConfig({
+      accounts: [],
+      meshAccounts: [{
+        accountId: "account-cloud",
+        provider: "cloud-code",
+        label: "Cloud Code",
+      }],
+    }, SCRATCH);
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       expect(url).toBe("http://localhost:3002/v1/session");
       expect(init?.method).toBe("POST");
       expect(JSON.parse(String(init?.body))).toMatchObject({
         sessionId: "h2a-proj-alpha",
-        provider: "codex",
+        provider: "cloud-code",
+        requiredTransport: "cloud-code",
       });
       return new Response(JSON.stringify({ gatewayToken: "gw-v1-proj-alpha.fixed" }), {
         status: 201,
@@ -264,7 +347,7 @@ describe("acquireLlmMeshSessionEnv", () => {
       gatewayToken: "gw-v1-proj-alpha.fixed",
       baseUrl: "http://localhost:3002",
       pid: process.pid,
-      provider: "codex",
+      provider: "cloud-code",
     });
   });
 
@@ -275,7 +358,7 @@ describe("acquireLlmMeshSessionEnv", () => {
         gatewayToken: "gw-stale",
         baseUrl: "http://localhost:3002",
         pid: process.pid,
-        provider: "codex",
+        provider: "cloud-code",
       }),
       "utf8",
     );
@@ -309,7 +392,7 @@ describe("acquireLlmMeshSessionEnv", () => {
   });
 
   describe("LlmMeshManager capitalized API", () => {
-    it("provides clean capitalized methods for config and account operations", () => {
+    it("drops legacy credential records while preserving public mesh accounts", () => {
       const manager = new LlmMeshManager();
 
       expect(manager.GetActiveConfig(SCRATCH)).toBeNull();
@@ -323,10 +406,20 @@ describe("acquireLlmMeshSessionEnv", () => {
             token: "test-token",
           },
         ],
+        meshAccounts: [{
+          accountId: "account-cloud",
+          provider: "cloud-code" as const,
+          label: "Cloud Code",
+        }],
       };
 
       manager.SaveConfig(testConfig, SCRATCH);
-      expect(manager.GetActiveConfig(SCRATCH)).toEqual(testConfig);
+      expect(manager.GetActiveConfig(SCRATCH)).toEqual({
+        accounts: [],
+        meshAccounts: testConfig.meshAccounts,
+      });
+      expect(readFileSync(join(SCRATCH, "llm-mesh.json"), "utf8"))
+        .not.toContain("test-token");
     });
   });
 });
