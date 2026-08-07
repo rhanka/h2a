@@ -33,6 +33,7 @@ export type EffectiveAccountAuthType = "api-key" | "bearer";
 export type GatewayUpstreamTransport =
   | "anthropic-messages"
   | "codex-responses"
+  | "cloud-code"
   | "openai-chat-completions"
   | "unknown";
 
@@ -51,6 +52,7 @@ export function effectiveAccountAuthType(
 export function upstreamTransportForAccount(
   account: AccountDescriptor,
 ): GatewayUpstreamTransport {
+  if (account.provider === "cloud-code") return "cloud-code";
   switch (providerFamily(account.provider)) {
     case "openai":
       return isCodexOAuthToken(account.token)
@@ -132,7 +134,7 @@ export function providerFamily(provider: string): AccountProviderFamily {
     provider === "google" ||
     provider === "gemini" ||
     provider === "gcp" ||
-    provider === "gemini-code-assist"
+    provider === "cloud-code"
   )
     return "google";
   return "other";
@@ -270,7 +272,15 @@ export function findAccount(accountId: string): AccountDescriptor | undefined {
 }
 
 export function listRoutableModels(): ModelCatalogEntry[] {
-  const accounts = getAccounts();
+  let accounts: AccountDescriptor[];
+  try {
+    accounts = getAccounts();
+  } catch {
+    // Facade-backed Cloud Code accounts never enter GATEWAY_ACCOUNTS.
+    return listModelCatalog().filter(
+      (entry) => entry.transportProviderId === "cloud-code",
+    );
+  }
   return listModelCatalog().filter((entry) => {
     const route = resolveModelRoute(entry.id);
     return (
@@ -393,8 +403,7 @@ export async function refreshOAuthToken(
     !acc.refreshToken &&
     (acc.provider === "google" ||
       acc.provider === "gemini" ||
-      acc.provider === "gcp" ||
-      acc.provider === "gemini-code-assist")
+      acc.provider === "gcp")
   ) {
     try {
       const { homedir } = await import("node:os");
