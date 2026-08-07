@@ -1,35 +1,28 @@
 # PR #178 native terminal host — final consensus dossier
 
-## Exact target under review
+## Exact target reviewed
 
 - PR: `rhanka/h2a#178`
-- Base: `origin/main@83bc1fa609fd0458833a2dcebc1bf56476657a56`
-- Target commit: `0a20b7cbddb1e4a7ff986668274105c5d03d6a20`
-- Target diff SHA-256: `af56965a97f9e369176852873b19a6c393f09e7f56c08a7ef66ef2049824480b`
+- Base / merge-base: `83bc1fa609fd0458833a2dcebc1bf56476657a56`
+- Exact implementation target: `fbd1839369faaeb13cd785623667bee0993cf714`
+- Target binary-diff SHA-256: `cb837a214cb4665da1187e04507aa040ba7f40f3537389f5c79339b8b5104683`
 
-## Author identity
+## Independent review legs
 
-- Host/model: Codex `gpt-5.6-sol`, effort `xhigh`.
-- Provenance: explicit conductor routing for end-to-end ownership of PR #178.
+| Leg | Launch identity | Self-reported identity | Artifact | Verdict |
+|---|---|---|---|---|
+| correctness | native Codex, `gpt-5.6-sol`, xhigh, direct | native Codex, `gpt-5.6-sol`, xhigh; opaque fallback not attestable | `docs/reviews/pr178-native-terminal-correctness.md` | **NO-GO** |
+| security | native Codex, `gpt-5.6-sol`, xhigh, direct | native Codex; exact deployed model/effort not exposed in-session | `docs/reviews/pr178-native-terminal-security.md` | **NO-GO** |
 
-## Prior consensus and reconciliation
-
-The initial valid independent reviews both returned NO-GO on the pre-hardening target; their complete reports are preserved in commit `114dbdcb`. The final code adds truthful controller-owned TERM-to-KILL escalation, bounded/recyclable sessions, socket UID/type/mode and inode checks, atomic publication, request deadlines, signal validation, bounded startup backoff with diagnostics, portable CI commands and corrected PTY test doubles. Main was then rebased exactly onto `83bc1fa609fd0458833a2dcebc1bf56476657a56`; all evidence must target the resulting `0a20b7cb`.
-
-## Independent legs on `0a20b7c`
-
-| Leg | Host | Model | Effort | Artifact | Status |
-|---|---|---|---|---|---|
-| correctness | Codex native | `gpt-5.6-sol` | xhigh | `docs/reviews/pr178-native-terminal-correctness.md` | **NO-GO** |
-| security | Codex native | `gpt-5.6-sol` | xhigh | `docs/reviews/pr178-native-terminal-security.md` | **NO-GO** |
-
-Both reviewers independently verified the exact base, target and diff hash and executed the four-file native-terminal suite (23/23). The correctness leg additionally proved the compiled default-spawn/adoption path with one persistent host and one direct PTY child; the security leg revalidated the private-socket and resource-boundary claims.
+Both sessions were launched independently after `fbd18393`, verified the exact HEAD, merge-base and binary-diff hash before inspection, were forbidden from reading the sibling/consensus artifact, modified only their assigned report, and completed with exit code 0. Both ran typecheck, the four-file native-terminal suite (25/25, including six Linux real-process cases), the historical run surface (6/6), and separate emitted/default-spawn and adversarial probes.
 
 ## Reconciled findings
 
-1. **Malformed response containment — MEDIUM, confirmed by both legs.** The client accepts a partial envelope, does not enforce protocol version or the success/error discriminant, and can throw after removing a matching pending request. Required remediation: strict response parsing before touching pending state, fail the connection closed, and raw-peer regressions for incompatible version, missing/invalid error fields and malformed success.
-2. **Exact-limit invalid request containment — MEDIUM, security leg.** An exactly 32 MiB request with an overlong raw ID reaches the parser error path, which reflects that unbounded ID and throws while framing the response. The exception escapes the socket callback and terminates the standalone shared host. Required remediation: bounded fallback correlation/error fields, exception-safe per-socket handling, and a real-process regression proving the host and an existing PTY survive.
+1. **HIGH — stale controller lease resurrection after exited-ID reuse (correctness).** A replacement session resets `controllerEpoch` while retaining the host generation and user-selected session/controller IDs; the old connection retains the old lease. The resulting leases are byte-identical. The stale connection wrote and resized the replacement PTY and released its rightful controller in both real transport/stub and emitted standalone-host/real-PTY probes. Required: a server-minted non-reused session incarnation (or equivalent proven invariant) throughout state/replay/observer/lease ownership and checks, plus a two-connection real-PTY regression covering write, resize, release and stop.
+2. **MEDIUM — fragmented replay violates memory and wire bounds (both legs).** Replay charges payload bytes but retains one object per callback. At 1,300,000 one-byte chunks, only 1.3 MiB of the 4 MiB payload allowance is used, yet the response is about 33.99 MiB, exceeds the 32 MiB frame, consumes roughly 180–193 MiB heap, and closes the reader. Snapshot paths also materialize replay merely to obtain `latestSeq`. Required: bound/coalesce metadata, ensure every admitted replay is representable or explicitly paginated, expose `latestSeq` without replay materialization, and add deterministic fragmented-output execution coverage.
+
+The preceding malformed-response and exact-limit request findings are independently confirmed resolved on this target: all five malformed variants reject without uncaught exceptions, and the exact 33,554,432-byte request leaves the host and active real PTY alive.
 
 ## Consensus verdict
 
-**NO-GO on `0a20b7cbddb1e4a7ff986668274105c5d03d6a20`.** The reports are independent and materially convergent. Both findings are actionable and block readiness. Their complete evidence is preserved in the two leg artifacts; corrections require a new target SHA and two fresh independent reviews. The owner explicitly requested no merge.
+**NO-GO on `fbd1839369faaeb13cd785623667bee0993cf714`.** The two reports are materially convergent and both findings are actionable. Their full commands, measurements and evidence are preserved in the leg artifacts. Corrections require a new exact target and two fresh independent reviews. The owner explicitly requested no merge.
