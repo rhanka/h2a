@@ -7,6 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { NativeTerminalClient } from "./client.js";
 import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
 import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
 
@@ -375,6 +376,103 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       (output) => output.chunks.some((chunk) => chunk.data.includes("survivor:still-alive")),
     );
   }, 45_000);
+
+  it("should fence an old connection when a real PTY session id is reincarnated", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-reincarnation-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      replayBytesPerSession: 1024,
+      generationFactory: () => "reincarnation-generation",
+      spawnHost: (options) => {
+        const child = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+        ], {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        children.add(child);
+        return child;
+      },
+    });
+    const staleClient = await supervisor.client();
+    const currentClient = await NativeTerminalClient.connect(socketPath);
+    const shell = (marker: string) => ({
+      id: "recycled",
+      command: "/bin/sh",
+      args: [
+        "-c",
+        `printf '${marker}-ready\\r\\n'; while IFS= read -r line; do printf '${marker}:%s\\r\\n' "$line"; done`,
+      ],
+      cwd: directory,
+      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      cols: 80,
+      rows: 24,
+    });
+
+    const original = await staleClient.create(shell("original"));
+    const staleLease = await staleClient.acquireController(
+      "recycled",
+      "same-controller",
+    );
+    await staleClient.stop(staleLease, "SIGTERM");
+    await eventually(
+      () => staleClient.state("recycled"),
+      (state) => state.status === "exited",
+    );
+
+    const replacement = await currentClient.create(shell("replacement"));
+    const currentLease = await currentClient.acquireController(
+      "recycled",
+      "same-controller",
+    );
+    expect(replacement.pid).not.toBe(original.pid);
+    expect(currentLease).toMatchObject({
+      id: staleLease.id,
+      generation: staleLease.generation,
+      controllerId: staleLease.controllerId,
+      epoch: staleLease.epoch,
+    });
+    expect(currentLease.incarnation).not.toBe(staleLease.incarnation);
+    await eventually(
+      () => currentClient.readOutput("recycled", 0),
+      (output) => output.chunks.some((chunk) => chunk.data.includes("replacement-ready")),
+    );
+
+    await expect(staleClient.write(staleLease, "stale-write\r")).rejects.toThrow(
+      /stale terminal controller lease/i,
+    );
+    await expect(staleClient.resize(staleLease, 100, 30)).rejects.toThrow(
+      /stale terminal controller lease/i,
+    );
+    await expect(staleClient.releaseController(staleLease)).rejects.toThrow(
+      /stale terminal controller lease/i,
+    );
+    await expect(staleClient.stop(staleLease, "SIGKILL")).rejects.toThrow(
+      /stale terminal controller lease/i,
+    );
+
+    expect(running(replacement.pid)).toBe(true);
+    await currentClient.write(currentLease, "current-write\r");
+    await eventually(
+      () => currentClient.readOutput("recycled", 0),
+      (output) => output.chunks.some((chunk) => chunk.data.includes("replacement:current-write")),
+    );
+    await currentClient.stop(currentLease, "SIGTERM");
+    await eventually(() => running(replacement.pid), (alive) => !alive);
+    currentClient.close();
+  });
 
   it("should back off repeated host startup failures and preserve the diagnostic", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-backoff-"));

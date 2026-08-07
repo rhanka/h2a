@@ -84,12 +84,14 @@ describe("NativeTerminalHost", () => {
 
     expect(host.readOutput("alpha", 0)).toEqual({
       generation: "host-generation-1",
+      incarnation: expect.any(String),
       chunks: [{ seq: 1, data: "alpha-output" }],
       gap: null,
       latestSeq: 1,
     });
     expect(host.readOutput("beta", 0)).toEqual({
       generation: "host-generation-1",
+      incarnation: expect.any(String),
       chunks: [
         { seq: 1, data: "beta-output" },
         { seq: 2, data: "-still-running" },
@@ -101,6 +103,7 @@ describe("NativeTerminalHost", () => {
       {
         id: "alpha",
         generation: "host-generation-1",
+        incarnation: expect.any(String),
         pid: expect.any(Number),
         status: "exited",
         latestSeq: 1,
@@ -110,6 +113,7 @@ describe("NativeTerminalHost", () => {
       {
         id: "beta",
         generation: "host-generation-1",
+        incarnation: expect.any(String),
         pid: expect.any(Number),
         status: "running",
         latestSeq: 2,
@@ -237,6 +241,7 @@ describe("NativeTerminalHost", () => {
       role: "observer",
       id: "alpha",
       generation: "host-generation-4",
+      incarnation: expect.any(String),
       controllerEpoch: 0,
     });
     const controller = host.acquireController("alpha", "focus-client");
@@ -244,6 +249,7 @@ describe("NativeTerminalHost", () => {
       role: "controller",
       id: "alpha",
       generation: "host-generation-4",
+      incarnation: expect.any(String),
       controllerId: "focus-client",
       epoch: 1,
     });
@@ -275,6 +281,7 @@ describe("NativeTerminalHost", () => {
     expect(host.releaseController(first)).toEqual({
       id: "alpha",
       generation: "host-generation-5",
+      incarnation: first.incarnation,
       controllerEpoch: 2,
     });
     const second = host.acquireController("alpha", "second-client");
@@ -314,5 +321,38 @@ describe("NativeTerminalHost", () => {
     expect(() => host.resize(exited, 90, 30)).toThrow(
       /stale terminal controller lease/i,
     );
+  });
+
+  it("should never resurrect a lease when an exited session id is reused", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-reincarnation",
+      replayBytesPerSession: 32,
+      spawner,
+    });
+    createSession(host, "alpha");
+    const stale = host.acquireController("alpha", "same-controller");
+    ptys.get("alpha")!.emitExit({ exitCode: 0 });
+
+    createSession(host, "alpha");
+    const current = host.acquireController("alpha", "same-controller");
+    expect(current).toMatchObject({
+      id: stale.id,
+      generation: stale.generation,
+      controllerId: stale.controllerId,
+      epoch: stale.epoch,
+    });
+    expect(current.incarnation).not.toBe(stale.incarnation);
+
+    expect(() => host.write(stale, "stale")).toThrow(/stale/i);
+    expect(() => host.resize(stale, 100, 30)).toThrow(/stale/i);
+    expect(() => host.releaseController(stale)).toThrow(/stale/i);
+    expect(() => host.stop(stale, "SIGKILL")).toThrow(/stale/i);
+    expect(ptys.get("alpha")!.write).not.toHaveBeenCalled();
+    expect(ptys.get("alpha")!.resize).not.toHaveBeenCalled();
+    expect(ptys.get("alpha")!.kill).not.toHaveBeenCalled();
+
+    host.write(current, "current");
+    expect(ptys.get("alpha")!.write).toHaveBeenCalledWith("current");
   });
 });
