@@ -374,6 +374,103 @@
  * already had (signature verification against its own trust anchor).
  *
  * ===========================================================================
+ * D11 FIX — ROUND 4 (this build) — same-note verdict REPLAY is now refused
+ * (a fresh, gate-issued ceremony nonce), and separation-of-powers is now
+ * enforced on CANONICAL CRYPTO PRINCIPALS (public-key fingerprints), not
+ * session strings.
+ * ===========================================================================
+ *
+ * THE TWO HOLES (proven by an independent review, a FOURTH, separate leg from
+ * the three that forced ROUNDS 1-3): at ROUND 3 (@64e3f8a4), the signed
+ * verdict payload was `{noteId, verdict, leg, at}` — signed, noteId-pinned
+ * against cross-note replay, but with NO freshness, NO nonce, NO one-shot
+ * consumption. An attacker holding NO private key at all could REPLAY the
+ * already-signed BYTES of two OLD, genuinely-produced GO verdicts for the
+ * SAME noteId (from a prior, real ceremony) straight into a FRESH ceremony's
+ * confined artifact locations and mint a fresh promotion — BLOCKER 1,
+ * SAME-NOTE REPLAY. Separately, separation-of-powers derived and compared
+ * `authorLeg.session` / `leg.session` STRINGS only, never the verified
+ * PUBLIC KEY those sessions claim to speak for; `D11TrustedKeystore` never
+ * enforced that a public key maps to at most one identity. If the same
+ * keystore mapped ONE Ed25519 key to TWO (or three) different
+ * `{model, session}` identities, the SAME cryptographic principal could
+ * author a note under one alias and review it — genuinely signing, no forged
+ * signature anywhere — under another, or "independently" review it TWICE
+ * under two reviewer aliases — BLOCKER 2, CRYPTO AUTHOR/REVIEWER (and
+ * REVIEWER/REVIEWER) ALIAS. Both reach `promoteNote({promoted:true})` at
+ * @64e3f8a4 without ever forging a signature.
+ *
+ * FIX 1 — REPLAY: a fresh, gate-issued, unpredictable ONE-SHOT ceremony
+ * nonce.
+ *
+ * 1. `runD11Ceremony` generates `ceremonyNonce = randomBytes(32).toString(
+ *    "base64")` (`node:crypto`, NOT `Math.random`/`Date.now` — unpredictable)
+ *    as the FIRST thing it does, every call. Never persisted, never reused
+ *    across calls — a fresh value exists ONLY for the lifetime of this one
+ *    ceremony invocation ("stateless one-shot": no server-side nonce store
+ *    is needed because the GATE regenerates its own value every run and
+ *    trusts nothing else).
+ * 2. The nonce is threaded to `launchLeg(note, legSpec, ceremonyNonce)` (new
+ *    3rd arg), so an honest leg's inline verdict — now `LegVerdict =
+ *    MemoryVerdict & {ceremonyNonce}` (a LOCAL extension; slice 3's own
+ *    `MemoryVerdict` is untouched, I4) — can carry it through `writeVerdict`
+ *    into what actually gets signed. `VerdictArtifact` and
+ *    `verdictSignedPayload` gain `ceremonyNonce`; the signature now covers
+ *    `{noteId, verdict, leg, at, ceremonyNonce}`.
+ * 3. THE GATE (load-bearing): for each READ artifact, (a) REQUIRE
+ *    `artifact.ceremonyNonce === ceremonyNonce` (THIS run's generated value)
+ *    — reject a stale/replayed artifact immediately, before any signature
+ *    math; AND (b), independently, verify the signature over a payload
+ *    REBUILT from the GATE's OWN `ceremonyNonce` variable — never
+ *    `artifact.ceremonyNonce` as the source of truth for what to verify. A
+ *    replayed old artifact's real signed bytes covered a DIFFERENT (or
+ *    absent) nonce, so (b) alone already fails to verify against a payload
+ *    built with the CURRENT run's nonce, even hypothetically without (a).
+ *    Both (a) and (b) independently refuse a same-note replay — proven by
+ *    the ROUND 4 mutation-check in the test file (each neutralized alone,
+ *    then together, then restored — see that file's comments for the
+ *    ACTUAL, reproduced results).
+ * 4. `coherentWithInline` is extended to also require
+ *    `artifact.ceremonyNonce === inline.ceremonyNonce`.
+ *
+ * FIX 2 — ALIAS: separation-of-powers on canonical CRYPTO PRINCIPALS.
+ *
+ * 1. `canonicalKeyFingerprint(pem)` — `createPublicKey` then re-export as
+ *    SPKI DER, SHA-256 of that DER, base64. Two differently-formatted PEM
+ *    encodings of the identical key canonicalize to the SAME fingerprint
+ *    (robust to encoding, unlike a raw PEM string compare); an unparseable
+ *    key throws (caught and turned into a ceremony refusal, I5).
+ * 2. `verifyNoteAuthor` resolves and returns the VERIFIED author's
+ *    fingerprint alongside its `authorId` — the SAME public key it already
+ *    looked up to verify the author signature, so no extra trust decision is
+ *    introduced.
+ * 3. Separation-of-powers now requires THREE PAIRWISE-DISTINCT crypto
+ *    principals (author, reviewer1, reviewer2), by fingerprint, fail-closed
+ *    on any missing/unparseable key:
+ *      - PRE-LAUNCH: `legSpec1`/`legSpec2`'s trusted keys are resolved and
+ *        fingerprinted BEFORE `launchLeg` is ever called (symmetric with the
+ *        existing pre-launch session-string checks) — refuses before a
+ *        single model call is ever made.
+ *      - POST-READ: re-checked off the ACTUAL READ artifacts' `leg`s'
+ *        fingerprints (the SAME trusted keys that just verified each
+ *        artifact's signature) — a `readVerdict` returning a different leg
+ *        than the one launched is still caught, symmetric with ROUND 1's
+ *        existing "off the READ content only" discipline.
+ *    The existing session-string distinctness checks (`sameLegSpec`,
+ *    `.session === verifiedAuthorId`) are KEPT, unchanged, as defense in
+ *    depth; the fingerprint checks are the AUTHORITATIVE crypto layer added
+ *    this round — a `.session` alias backed by a shared key now refuses even
+ *    when every session string looks pairwise distinct (the
+ *    reviewer/reviewer variant ROUND 3 could not catch, since `sameLegSpec`
+ *    only compares `{model, session}`, never the key behind them).
+ *
+ * Everything from ROUNDS 1-3 remains UNCHANGED: path confinement,
+ * signature-by-claimed-leg, GO, cross-note noteId anti-replay, the two
+ * artifacts' structural (session) distinctness, coherence with the inline
+ * verdict, and author-signature verification. ROUND 4 adds a freshness gate
+ * and a crypto-principal gate; it removes no existing check.
+ *
+ * ===========================================================================
  * (Unchanged) FLOW summary and invariants.
  * ===========================================================================
  *
@@ -404,7 +501,7 @@
  * READ, signed record `MemoryVerdict` never was.
  */
 
-import { createPublicKey, verify as verifyEd25519Signature } from "node:crypto";
+import { createHash, createPublicKey, randomBytes, verify as verifyEd25519Signature } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
@@ -480,13 +577,36 @@ export interface VerdictArtifact {
   readonly leg: LegIdentity;
   readonly at: number;
   /**
+   * D11 FIX ROUND 4 FIX 1 — the FRESH, gate-issued, unpredictable nonce this
+   * verdict was signed under (`crypto.randomBytes(32)`, base64). The gate
+   * REQUIRES this equal THIS RUN's own generated nonce (never trusted from
+   * the artifact alone) and rebuilds the signed payload from ITS OWN nonce
+   * value when verifying — see `verdictSignedPayload` and the ROUND 4 module
+   * doc. Closes SAME-NOTE REPLAY: an old, genuinely-signed artifact for the
+   * SAME noteId carries a DIFFERENT (stale) nonce and fails both checks.
+   */
+  readonly ceremonyNonce: string;
+  /**
    * Base64 Ed25519 signature over the canonicalized payload
-   * `{noteId, verdict, leg, at}` (exactly these four fields, nothing else) —
-   * binds the verdict to BOTH the note it reviews (anti-replay) and the leg
-   * that claims to have produced it (anti-impersonation).
+   * `{noteId, verdict, leg, at, ceremonyNonce}` (exactly these five fields,
+   * nothing else) — binds the verdict to the note it reviews (anti-replay
+   * across notes), the leg that claims to have produced it
+   * (anti-impersonation), and the ceremony run it was produced for
+   * (anti-replay of the SAME note, ROUND 4).
    */
   readonly signature: string;
 }
+
+/**
+ * D11 FIX ROUND 4 FIX 1 — the inline verdict a leg returns, extended with the
+ * ceremony's own freshly-generated nonce so it can flow through
+ * `writeVerdict` into what actually gets signed. A LOCAL extension of slice
+ * 3's `MemoryVerdict` (I4 — not a new taxonomy: every `MemoryVerdict` field
+ * is untouched; `ceremonyNonce` is additive and never leaves this module —
+ * `toMemoryVerdict` strips it back out before anything reaches
+ * `promoteNoteWithDoubleConsensus`).
+ */
+export type LegVerdict = MemoryVerdict & { readonly ceremonyNonce: string };
 
 /**
  * The trusted keystore — an opaque `LegIdentity` -> Ed25519 public key (PEM)
@@ -531,10 +651,18 @@ export type VerifySignatureFn = (payload: unknown, signature: string, publicKey:
 export type ReadVerdictFn = (ref: string) => Promise<VerdictArtifact | null>;
 
 export interface RunD11CeremonyDeps {
-  /** Launch one leg's review. INJECTED — real model-launching is out of scope here. */
-  readonly launchLeg?: ((note: D11CeremonyNote, legSpec: LegSpec) => Promise<MemoryVerdict>) | undefined | null;
+  /**
+   * Launch one leg's review. INJECTED — real model-launching is out of scope
+   * here. D11 FIX ROUND 4 FIX 1: the 3rd arg is THIS ceremony run's freshly
+   * generated `ceremonyNonce` — an honest leg threads it into its returned
+   * `LegVerdict` so it flows through `writeVerdict` into what gets signed.
+   */
+  readonly launchLeg?:
+    | ((note: D11CeremonyNote, legSpec: LegSpec, ceremonyNonce: string) => Promise<LegVerdict>)
+    | undefined
+    | null;
   /** Persist one verdict, return its REF (locator). INJECTED — real file I/O is out of scope here. */
-  readonly writeVerdict?: ((verdict: MemoryVerdict) => Promise<string>) | undefined | null;
+  readonly writeVerdict?: ((verdict: LegVerdict) => Promise<string>) | undefined | null;
   /** Persist the attestation, return its REF. INJECTED — real file I/O + signing are out of scope here. */
   readonly writeAttestation?: ((attestation: IndependenceAttestation) => Promise<string>) | undefined | null;
   /** The two legs to launch. Must be structurally distinct (checked BEFORE launch). */
@@ -606,20 +734,31 @@ function errorReason(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function verdictSignedPayload(artifact: VerdictArtifact): unknown {
-  return { noteId: artifact.noteId, verdict: artifact.verdict, leg: artifact.leg, at: artifact.at };
+/**
+ * D11 FIX ROUND 4 FIX 1 — the signed payload now includes `ceremonyNonce`,
+ * but deliberately as a SEPARATE, EXPLICIT parameter (`ceremonyNonce`,
+ * passed by the caller), never read off `artifact.ceremonyNonce`. The gate
+ * (below) ALWAYS calls this with THIS RUN's own generated nonce — the ONE
+ * source of truth for what a valid signature must cover this run — so a
+ * replayed artifact whose real signed bytes covered a DIFFERENT (stale)
+ * nonce fails to verify here even if the artifact's self-reported
+ * `ceremonyNonce` field were tampered to match.
+ */
+function verdictSignedPayload(artifact: VerdictArtifact, ceremonyNonce: string): unknown {
+  return { noteId: artifact.noteId, verdict: artifact.verdict, leg: artifact.leg, at: artifact.at, ceremonyNonce };
 }
 
 function toMemoryVerdict(artifact: VerdictArtifact): MemoryVerdict {
   return { noteId: artifact.noteId, verdict: artifact.verdict, leg: artifact.leg, at: artifact.at };
 }
 
-function coherentWithInline(artifact: VerdictArtifact, inline: MemoryVerdict): boolean {
+function coherentWithInline(artifact: VerdictArtifact, inline: LegVerdict): boolean {
   return (
     artifact.noteId === inline.noteId &&
     artifact.verdict === inline.verdict &&
     artifact.leg.model === inline.leg.model &&
-    artifact.leg.session === inline.leg.session
+    artifact.leg.session === inline.leg.session &&
+    artifact.ceremonyNonce === inline.ceremonyNonce
   );
 }
 
@@ -664,10 +803,30 @@ function isVerdictArtifactShape(value: unknown): value is VerdictArtifact {
   if (typeof v.noteId !== "string") return false;
   if (v.verdict !== "GO" && v.verdict !== "NO-GO") return false;
   if (typeof v.at !== "number") return false;
+  // D11 FIX ROUND 4 FIX 1 — a verdict artifact with no (or empty)
+  // ceremonyNonce is not a valid shape at all — refused HERE, before ever
+  // reaching the freshness/signature gate below.
+  if (typeof v.ceremonyNonce !== "string" || v.ceremonyNonce.length === 0) return false;
   if (typeof v.signature !== "string") return false;
   if (typeof v.leg !== "object" || v.leg === null) return false;
   const leg = v.leg as Record<string, unknown>;
   return typeof leg.model === "string" && typeof leg.session === "string";
+}
+
+/**
+ * D11 FIX ROUND 4 FIX 2 — the canonical CRYPTO PRINCIPAL fingerprint for an
+ * Ed25519 public key: parse the PEM, re-export as SPKI DER (a canonical
+ * encoding independent of the ORIGINAL PEM's own formatting/line-wrapping),
+ * then SHA-256 that DER. Two differently-formatted PEM encodings of the
+ * IDENTICAL key canonicalize to the SAME fingerprint — robust to encoding,
+ * unlike a raw PEM string compare. Throws on an unparseable key; callers
+ * MUST catch this and turn it into a fail-closed ceremony refusal (I5) —
+ * there is no safe default fingerprint for a key that cannot even be parsed.
+ */
+export function canonicalKeyFingerprint(publicKeyPem: string): string {
+  const key = createPublicKey({ key: publicKeyPem, format: "pem" });
+  const der = key.export({ type: "spki", format: "der" });
+  return createHash("sha256").update(der).digest("base64");
 }
 
 // ---------------------------------------------------------------------------
@@ -692,7 +851,18 @@ function authorSignedPayload(sig: AuthorSignature): unknown {
 }
 
 type AuthorVerification =
-  | { readonly ok: true; readonly authorId: string }
+  | {
+      readonly ok: true;
+      readonly authorId: string;
+      /**
+       * D11 FIX ROUND 4 FIX 2 — the VERIFIED author's canonical crypto-
+       * principal fingerprint (the SAME trusted key that just verified the
+       * author signature). Used by separation-of-powers below to refuse a
+       * key-fingerprint alias even when `authorId`/`leg.session` strings
+       * look pairwise distinct.
+       */
+      readonly authorKeyFingerprint: string;
+    }
   | { readonly ok: false; readonly reason: string };
 
 /**
@@ -743,7 +913,20 @@ function verifyNoteAuthor(
       reason: "the note's author signature is invalid — refusing (fabricated, tampered, or signed by the wrong key)"
     };
   }
-  return { ok: true, authorId: raw.authorLeg.session };
+  // D11 FIX ROUND 4 FIX 2 — resolve the canonical fingerprint of the SAME
+  // trusted key that just verified this signature. Fail-closed (I5) on an
+  // unparseable key, the same discipline as every other lookup in this
+  // module.
+  let authorKeyFingerprint: string;
+  try {
+    authorKeyFingerprint = canonicalKeyFingerprint(publicKey);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `the note's author trusted public key is not a parseable Ed25519 key — refusing (fail-closed) — ${errorReason(err)}`
+    };
+  }
+  return { ok: true, authorId: raw.authorLeg.session, authorKeyFingerprint };
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,6 +1183,15 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
     input: RunD11CeremonyInput,
     deps: RunD11CeremonyDeps | undefined | null
   ): Promise<D11CeremonyResult> {
+    // =========================================================================
+    // D11 FIX ROUND 4 FIX 1 — the FIRST thing every ceremony run does: mint a
+    // fresh, unpredictable, gate-owned nonce (`node:crypto.randomBytes`, NOT
+    // Math.random/Date.now). Never persisted, never reused — a "stateless
+    // one-shot": THIS run's own value is the ONE source of truth every read
+    // artifact is checked against below (see the ROUND 4 module doc).
+    // =========================================================================
+    const ceremonyNonce = randomBytes(32).toString("base64");
+
     if (!deps) {
       return refuse("no ceremony dependencies injected — refusing (fail-closed, I5)");
     }
@@ -1020,6 +1212,7 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
       return refuse(authorVerification.reason);
     }
     const verifiedAuthorId = authorVerification.authorId;
+    const authorKeyFingerprint = authorVerification.authorKeyFingerprint;
 
     // D11 FIX ROUND 2: `readVerdict` is intentionally NOT destructured from
     // `deps` here — it is not a field of `RunD11CeremonyDeps` at all. Even if
@@ -1046,15 +1239,63 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
       );
     }
 
+    // =========================================================================
+    // D11 FIX ROUND 4 FIX 2 — separation of powers on CANONICAL CRYPTO
+    // PRINCIPALS, PRE-LAUNCH. The session-string checks above are kept as
+    // defense in depth, but a public key can back TWO (or three) distinct
+    // `{model, session}` identities in the SAME trusted keystore — a
+    // `.session` alias the checks above cannot see. Resolve + fingerprint
+    // BOTH legSpecs' trusted keys BEFORE a single model call is made; refuse
+    // fail-closed on a missing/unparseable key (cannot establish
+    // distinctness, so it is never treated as "assume distinct").
+    // =========================================================================
+    let legSpec1KeyFingerprint: string;
+    let legSpec2KeyFingerprint: string;
+    try {
+      const legSpec1PublicKey = trustedKeystore.getPublicKey(legSpec1);
+      if (typeof legSpec1PublicKey !== "string" || legSpec1PublicKey.length === 0) {
+        return refuse(
+          "legSpec1: no trusted public key — refusing before launch (fail-closed; cannot establish crypto-principal distinctness)"
+        );
+      }
+      const legSpec2PublicKey = trustedKeystore.getPublicKey(legSpec2);
+      if (typeof legSpec2PublicKey !== "string" || legSpec2PublicKey.length === 0) {
+        return refuse(
+          "legSpec2: no trusted public key — refusing before launch (fail-closed; cannot establish crypto-principal distinctness)"
+        );
+      }
+      legSpec1KeyFingerprint = canonicalKeyFingerprint(legSpec1PublicKey);
+      legSpec2KeyFingerprint = canonicalKeyFingerprint(legSpec2PublicKey);
+    } catch (err) {
+      return refuse(
+        `could not resolve a canonical key fingerprint before launch — refusing (fail-closed) — ${errorReason(err)}`
+      );
+    }
+    if (legSpec1KeyFingerprint === authorKeyFingerprint || legSpec2KeyFingerprint === authorKeyFingerprint) {
+      return refuse(
+        "a legSpec's trusted public key is the SAME canonical crypto principal as the note's VERIFIED author (key-fingerprint alias) — separation of powers requires launching only independent reviewers — refusing before launch"
+      );
+    }
+    if (legSpec1KeyFingerprint === legSpec2KeyFingerprint) {
+      return refuse(
+        "legSpec1 and legSpec2 resolve to the SAME canonical crypto principal (key-fingerprint alias) — refusing before launch (two reviewer identities must not share one key)"
+      );
+    }
+
     if (typeof launchLeg !== "function") {
       return refuse("no launchLeg injected — refusing (fail-closed, I5)");
     }
 
     // --- Launch both legs CONCURRENTLY: neither sees the other's verdict. ---
-    let v1: MemoryVerdict;
-    let v2: MemoryVerdict;
+    // D11 FIX ROUND 4 FIX 1: both legs receive THIS run's ceremonyNonce as a
+    // 3rd arg — an honest leg threads it into its returned LegVerdict.
+    let v1: LegVerdict;
+    let v2: LegVerdict;
     try {
-      [v1, v2] = await Promise.all([launchLeg(input.note, legSpec1), launchLeg(input.note, legSpec2)]);
+      [v1, v2] = await Promise.all([
+        launchLeg(input.note, legSpec1, ceremonyNonce),
+        launchLeg(input.note, legSpec2, ceremonyNonce)
+      ]);
     } catch (err) {
       return refuse(`launchLeg failed: ${errorReason(err)}`);
     }
@@ -1164,20 +1405,56 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
       );
     }
 
-    // --- Per artifact: signature (against the CLAIMED leg's trusted key), GO, anti-replay. ---
+    // --- Per artifact: freshness, fingerprint, signature (against the CLAIMED leg's trusted key), GO, anti-replay. ---
+    let artifact1KeyFingerprint!: string;
+    let artifact2KeyFingerprint!: string;
     for (const [label, artifact] of [
       ["leg1", artifact1],
       ["leg2", artifact2]
     ] as const) {
+      // D11 FIX ROUND 4 FIX 1 — freshness, checked FIRST and cheaply: REQUIRE
+      // this artifact was signed for THIS ceremony's own, freshly generated
+      // nonce. A stale/replayed artifact (from ANY prior ceremony, even one
+      // that genuinely, validly signed it) is refused here before any
+      // signature math runs.
+      if (artifact.ceremonyNonce !== ceremonyNonce) {
+        return refuse(
+          `${label}: the read verdict's ceremonyNonce does not match this ceremony's freshly generated nonce — refusing (stale or replayed artifact; anti-replay)`
+        );
+      }
+
       const publicKey = trustedKeystore.getPublicKey(artifact.leg);
       if (typeof publicKey !== "string" || publicKey.length === 0) {
         return refuse(
           `${label}: no trusted public key for the claimed leg — refusing (fail-closed; unknown leg or empty keystore)`
         );
       }
+      // D11 FIX ROUND 4 FIX 2 — resolve the canonical crypto-principal
+      // fingerprint for the CLAIMED leg's trusted key (the SAME key about to
+      // verify the signature below). Used by the cross-artifact checks
+      // after this loop.
+      let fingerprint: string;
+      try {
+        fingerprint = canonicalKeyFingerprint(publicKey);
+      } catch (err) {
+        return refuse(
+          `${label}: trusted public key is not a parseable Ed25519 key — refusing (fail-closed) — ${errorReason(err)}`
+        );
+      }
+      if (label === "leg1") {
+        artifact1KeyFingerprint = fingerprint;
+      } else {
+        artifact2KeyFingerprint = fingerprint;
+      }
+
       let signatureOk: boolean;
       try {
-        signatureOk = verifySignature(verdictSignedPayload(artifact), artifact.signature, publicKey);
+        // D11 FIX ROUND 4 FIX 1 — the payload is rebuilt from THIS RUN's OWN
+        // `ceremonyNonce` variable, never `artifact.ceremonyNonce` — see
+        // `verdictSignedPayload` and the ROUND 4 module doc for why this,
+        // independently of the explicit check above, already refuses a
+        // same-note replay.
+        signatureOk = verifySignature(verdictSignedPayload(artifact, ceremonyNonce), artifact.signature, publicKey);
       } catch (err) {
         return refuse(`${label}: signature verification threw — ${errorReason(err)}`);
       }
@@ -1205,6 +1482,25 @@ export function createD11Ceremony(options: CreateD11CeremonyOptions): RunD11Cere
     if (artifact1.leg.session === verifiedAuthorId || artifact2.leg.session === verifiedAuthorId) {
       return refuse(
         "a read verdict artifact's leg session equals the note's VERIFIED author — separation of powers requires an independent reviewer — refusing"
+      );
+    }
+    // D11 FIX ROUND 4 FIX 2 — separation of powers on the ACTUAL READ
+    // artifacts' CANONICAL CRYPTO PRINCIPALS, POST-READ. Re-checked off the
+    // fingerprints resolved from the SAME trusted keys that just verified
+    // each artifact's signature — a `readVerdict` returning a different leg
+    // than the one launched (and thus a different key) is still caught
+    // here, symmetric with the existing "off the READ content only"
+    // discipline for the session-string checks above. This is the
+    // AUTHORITATIVE crypto check; the session-string checks above are kept
+    // as defense in depth.
+    if (artifact1KeyFingerprint === authorKeyFingerprint || artifact2KeyFingerprint === authorKeyFingerprint) {
+      return refuse(
+        "a read verdict artifact's leg resolves to the SAME canonical crypto principal as the note's VERIFIED author (key-fingerprint alias) — separation of powers requires an independent reviewer — refusing"
+      );
+    }
+    if (artifact1KeyFingerprint === artifact2KeyFingerprint) {
+      return refuse(
+        "the two read verdict artifacts resolve to the SAME canonical crypto principal (key-fingerprint alias) — refusing (two reviewer identities must not share one key)"
       );
     }
 
