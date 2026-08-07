@@ -1,46 +1,52 @@
-# Feature: DEF identity-binding cull tool
+# Fix: restore compatibility with facade mesh accounts
 
 ## Objective
 
-- [x] Emit a deterministic, read-only proof packet for every DEF identity component and keep every component unless all four gates have positive evidence.
-- [x] Expose `h2a identity cull --dry-run` and hard-refuse all execution attempts until the root fix, owner authorization, and structural writer fence exist.
+- [x] Restore accepts `llm-mesh.json` files containing public `meshAccounts` metadata and no legacy credential-bearing `accounts` array.
+- [x] An explicit `restore --gw` acquires a usable gateway or fails clearly before restore opens any agent.
 
 ## Scope / Guardrails
 
 **Allowed Paths**
 
 - `BRANCH.md`
-- `packages/h2a-runtime/src/identity-cull/**`
 - `packages/h2a-runtime/src/index.ts`
-- `packages/h2a-runtime/src/cli-help-groups.ts`
-- `packages/h2a/src/cli-command-map.ts`
-- `packages/h2a/test/fixtures/runtime-help-commands.json`
-- `docs/reviews/**` only for the required harness review record
+- `packages/h2a-runtime/src/structured-gateway.test.ts`
 
 **Forbidden Paths**
 
-- `.track/**`
-- DEF and PIN stores
-- `packages/h2a/src/runtime/identity/bindings.ts`
+- `packages/h2a-runtime/src/tmux.ts` and status-bar tests (preserve #131 anti-storm behavior)
 - dependency manifests and lockfiles
-- `Makefile`, Docker files, and generated focus assets
+- global installs, live `~/.sentropic` state, and live tmux sessions
+- publish and push surfaces
 
-## Plan / Todo (lot-based)
+## Plan / Todo
 
-- [x] **Lot 1 — fail-closed analysis and packet**
-  - [x] Read the canonical DEF binding bytes exactly, derive only supported identity components, and preserve byte-level evidence.
-  - [x] Apply L/O/P/C gates with source gaps and absent `S_R` as explicit UNKNOWN/KEEP reasons.
-  - [x] Emit the spec-required packet artifacts, zero-row would-cull set, lookup replay, positive controls, and reconciliation summary.
-  - [x] Add focused unit controls for protected/live/owner/fallback/outside-window/quiet/concurrent identities and empty cull set.
-  - [x] Gate: focused tests and runtime TypeScript check pass.
-
-- [x] **Lot 2 — CLI and inert execution guard**
-  - [x] Register `h2a identity cull --dry-run` with canonical root/output validation and help-map coverage.
-  - [x] Implement typed execution prerequisite refusal before any active-store, staging, or quarantine write.
-  - [x] Verify the held-descriptor length/hash check detects an injected append and aborts before a rename callback.
-  - [x] Run the real DEF dry run and record the packet summary; run runtime-suite baseline/branch failure-set comparison.
-  - [x] Gate: execution-refusal and structural-CAS tests pass; cull set remains empty.
+- [x] **Lot 1 — deterministic regression**
+  - [x] Add a unit fixture with `meshAccounts` and deliberately no `accounts` property.
+  - [x] Prove required gateway restore cannot reach the agent-opening continuation without a valid gateway.
+- [x] **Lot 2 — minimal restore fix**
+  - [x] Route restore preparation through the existing fail-closed structured gateway boundary when `--gw` is explicit.
+  - [x] Keep automatic restore behavior compatible and keep credentials out of `llm-mesh.json`.
+  - [x] Run the focused tests and proportional runtime/package gates.
 
 ## Feedback Loop
 
-- [x] Defer actual descriptor-relative staging, quarantine swap, and restoration until the separately authorized root fix supplies a non-bypassable writer path and native confinement support.
+- [x] Re-run the deterministic fixture after the fix and verify the #131 files remain unchanged.
+
+## Root Cause
+
+The restore command parsed `--gw` for the emitted layout but did not pass that
+required mode to gateway preparation. Preparation therefore obeyed only the
+auto-reactivation toggle and invoked the fallback-enabled `auto` path, allowing
+`restoreLayout` to continue without a gateway. The facade migration exposed the
+same path because public config now carries `meshAccounts` and no credential
+array; credentials remain outside `llm-mesh.json`.
+
+## Verification
+
+- `npx vitest run packages/h2a-runtime/src/structured-gateway.test.ts packages/h2a-runtime/src/restore.test.ts packages/h2a-runtime/src/restore-launch.test.ts` — 42 passed.
+- Same command plus `packages/h2a-runtime/src/llm-mesh.test.ts` — 52 passed, 2 base failures from stale pre-facade expectations (`google` legacy provider and credential round-trip); neither file is changed here.
+- `npx tsc -b packages/h2a-runtime --pretty false` — blocked by two base `e49cd57a` errors outside this diff: incomplete `RelaunchCandidate` projection and missing `updateSessionToken` export.
+- `git diff --check` — clean.
+- `git diff --name-only e49cd57a --` over tmux/status-surface files — empty; #131 remains untouched.
