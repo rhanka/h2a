@@ -828,11 +828,13 @@ export function validateManagedTmuxProfile(
 }
 
 /**
- * Wayland image paste bridge for Codex panes. Terminals/tmux cannot paste image
- * bytes into a TTY, so the reliable path is: read the clipboard image with
- * wl-paste, save it under the pane cwd, then paste the resulting file path into
- * Codex. The binding is guarded by the current tmux session/window profile and
- * clipboard MIME type; when the guard fails, Ctrl+V is forwarded unchanged.
+ * Paste handler for `Ctrl+V` in local tmux panes.
+ *
+ * Terminals/tmux cannot paste image bytes into a TTY, so the reliable path is:
+ * read the clipboard image with wl-paste, save it under the pane cwd, then paste
+ * the resulting file path into Codex. For non-image pastes (including all non-Codex
+ * panes), the binding reads the text clipboard via system tools and replays it with
+ * `tmux paste-buffer` so `Ctrl+Shift+V` keeps working on those panes.
  */
 export function buildCodexImagePasteBinding(): ReadonlyArray<string> {
   const condition = [
@@ -857,6 +859,22 @@ export function buildCodexImagePasteBinding(): ReadonlyArray<string> {
     'wl-paste -t "$mime" > "$file"',
     'tmux send-keys -t "$PANE_TARGET" -l "$file"',
   ].join("; ");
+  const fallbackScript = [
+    'PANE_TARGET="#{pane_id}"',
+    'BUFFER_NAME="h2a-clipboard"',
+    'if command -v xclip >/dev/null 2>&1; then',
+    '  xclip -selection clipboard -out | tmux load-buffer -b "$BUFFER_NAME" -',
+    '  tmux paste-buffer -t "$PANE_TARGET" -b "$BUFFER_NAME"',
+    'elif command -v xsel >/dev/null 2>&1; then',
+    '  xsel -ob | tmux load-buffer -b "$BUFFER_NAME" -',
+    '  tmux paste-buffer -t "$PANE_TARGET" -b "$BUFFER_NAME"',
+    'elif command -v wl-paste >/dev/null 2>&1; then',
+    '  wl-paste | tmux load-buffer -b "$BUFFER_NAME" -',
+    '  tmux paste-buffer -t "$PANE_TARGET" -b "$BUFFER_NAME"',
+    'else',
+    '  tmux send-keys -t "$PANE_TARGET" C-v',
+    'fi',
+  ].join("; ");
   return [
     "bind",
     "-n",
@@ -865,7 +883,7 @@ export function buildCodexImagePasteBinding(): ReadonlyArray<string> {
     "-b",
     condition,
     `run-shell -b ${shellSingleQuote(script)}`,
-    "send-keys C-v",
+    `run-shell -b ${shellSingleQuote(fallbackScript)}`,
   ];
 }
 
