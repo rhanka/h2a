@@ -1,11 +1,15 @@
 import { Hono } from "hono";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   handleMessagesViaOpenAI,
   toCodexRequest,
   trimCodexBodyForContext,
 } from "./proxy-openai.js";
+
+beforeEach(() => {
+  vi.stubEnv("OPENAI_MODEL_MAP", "");
+});
 
 afterEach(() => {
   vi.restoreAllMocks();

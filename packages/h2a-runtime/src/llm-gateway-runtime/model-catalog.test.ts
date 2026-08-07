@@ -1,10 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   accountPoolForProvider,
   resetModelCatalogCache,
   resolveModelRoute,
 } from "./model-catalog.js";
+
+beforeEach(() => {
+  vi.stubEnv("OPENAI_MODEL_MAP", "");
+  resetModelCatalogCache();
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();

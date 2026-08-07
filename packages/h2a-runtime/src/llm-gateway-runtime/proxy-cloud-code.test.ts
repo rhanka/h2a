@@ -59,4 +59,60 @@ describe("Cloud Code facade proxy", () => {
       expect.any(AbortSignal),
     );
   });
+
+  it("releases exactly once when the client aborts", async () => {
+    const acquisition = { reservation: { reservationId: "reservation-abort" } };
+    const execute = vi.fn().mockImplementation(async function* (
+      _acquisition: unknown,
+      _request: unknown,
+      signal: AbortSignal,
+    ) {
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) resolve();
+        else signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+      const error = new Error("aborted");
+      error.name = "AbortError";
+      throw error;
+    });
+    const facade = {
+      acquire: vi.fn().mockResolvedValue(acquisition),
+      release: vi.fn().mockResolvedValue(undefined),
+      getAdapter: vi.fn().mockReturnValue({ execute }),
+    } as unknown as LlmMeshFacade;
+    const app = new Hono();
+    app.post("/v1/messages", (c) =>
+      handleMessagesViaCloudCode(
+        c,
+        {
+          sessionId: "session-abort",
+          transportConstraints: {
+            transportProviderId: "cloud-code",
+            accountConstraints: { targetProviderId: "google" },
+          },
+        },
+        undefined,
+        facade,
+      ),
+    );
+    const abort = new AbortController();
+    const pending = app.fetch(new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gemini-2.5-pro",
+        stream: false,
+        messages: [{ role: "user", content: "ping" }],
+      }),
+      signal: abort.signal,
+    }));
+
+    await vi.waitFor(() => expect(execute).toHaveBeenCalledOnce());
+    abort.abort();
+    const response = await pending;
+
+    expect(response.status).toBe(499);
+    expect(facade.release).toHaveBeenCalledOnce();
+    expect(facade.release).toHaveBeenCalledWith(acquisition);
+  });
 });

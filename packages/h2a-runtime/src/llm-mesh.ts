@@ -97,6 +97,8 @@ export interface FacadeEnrollmentOptions {
   redirectUri?: string;
   /** Injection seam for CLI tests; production uses the opaque facade. */
   facade?: LlmMeshFacade;
+  /** Injection seam that keeps enrollment tests from opening a real browser. */
+  openBrowser?: (url: string) => void;
 }
 
 function facadeConfigResolver() {
@@ -162,7 +164,7 @@ export async function enrollViaFacade(
           throw new Error("Cloud Code enrollment did not return an authorization URL");
         }
         process.stdout.write(`[h2a] llm-mesh: open ${session.url}\n`);
-        openEnrollmentBrowser(session.url);
+        (options.openBrowser ?? openEnrollmentBrowser)(session.url);
         return facade.waitForCallback(session.enrollmentId);
       })()
     : await (async () => {
@@ -893,7 +895,9 @@ export async function acquireLlmMeshSessionEnv(
       const tokenFile = JSON.parse(raw) as LlmMeshTokenFile;
       baseUrl = tokenFile.baseUrl;
       pid = tokenFile.pid;
-      provider = tokenFile.provider;
+      provider = tokenFile.provider === "cloud-code"
+        ? tokenFile.provider
+        : undefined;
     } catch {
       baseUrl = configuredGatewayBaseUrl(dir) ?? undefined;
       pid = readGatewayPid(dir) ?? undefined;
