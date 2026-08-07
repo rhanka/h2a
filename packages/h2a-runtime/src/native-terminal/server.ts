@@ -10,8 +10,12 @@ import {
 } from "./host.js";
 import {
   NATIVE_TERMINAL_MAX_FRAME_BYTES,
+  NATIVE_TERMINAL_MAX_CONNECTIONS,
   NATIVE_TERMINAL_MAX_ERROR_MESSAGE_CHARS,
   NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS,
+  NATIVE_TERMINAL_MAX_PENDING_RESPONSE_BYTES_PER_CONNECTION,
+  NATIVE_TERMINAL_MAX_PENDING_RESPONSE_BYTES_TOTAL,
+  NATIVE_TERMINAL_MAX_PENDING_RESPONSES_PER_CONNECTION,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
   isNativeTerminalStopSignal,
   isRecord,
@@ -30,7 +34,14 @@ import {
 type ConnectionContext = {
   readonly socket: Socket;
   readonly leases: Map<string, NativeTerminalControllerLease>;
+  readonly responseBudget: ResponseQueueBudget;
   buffer: string;
+  pendingResponseBytes: number;
+  pendingResponses: number;
+};
+
+type ResponseQueueBudget = {
+  pendingBytes: number;
 };
 
 function requiredRecord(value: unknown, label: string): Record<string, unknown> {
@@ -231,13 +242,63 @@ function writeResponse(
   context: ConnectionContext,
   response: NativeTerminalResponse,
 ): boolean {
+  let frame: string;
   try {
-    context.socket.write(responseFrame(response));
-    return true;
+    frame = responseFrame(response);
   } catch {
     context.socket.destroy();
     return false;
   }
+  const bytes = Buffer.byteLength(frame);
+  if (
+    context.socket.destroyed ||
+    context.pendingResponses >=
+      NATIVE_TERMINAL_MAX_PENDING_RESPONSES_PER_CONNECTION ||
+    context.pendingResponseBytes + bytes >
+      NATIVE_TERMINAL_MAX_PENDING_RESPONSE_BYTES_PER_CONNECTION ||
+    context.responseBudget.pendingBytes + bytes >
+      NATIVE_TERMINAL_MAX_PENDING_RESPONSE_BYTES_TOTAL
+  ) {
+    context.socket.destroy();
+    return false;
+  }
+  context.pendingResponses += 1;
+  context.pendingResponseBytes += bytes;
+  context.responseBudget.pendingBytes += bytes;
+  try {
+    context.socket.write(frame, (error) => {
+      releasePendingResponse(context, bytes);
+      if (error) context.socket.destroy();
+    });
+    return true;
+  } catch {
+    releasePendingResponse(context, bytes);
+    context.socket.destroy();
+    return false;
+  }
+}
+
+function releasePendingResponse(
+  context: ConnectionContext,
+  bytes: number,
+): void {
+  if (context.pendingResponses <= 0) return;
+  context.pendingResponses -= 1;
+  const released = Math.min(bytes, context.pendingResponseBytes);
+  context.pendingResponseBytes -= released;
+  context.responseBudget.pendingBytes = Math.max(
+    0,
+    context.responseBudget.pendingBytes - released,
+  );
+}
+
+function releaseAllPendingResponses(context: ConnectionContext): void {
+  context.responseBudget.pendingBytes = Math.max(
+    0,
+    context.responseBudget.pendingBytes - context.pendingResponseBytes,
+  );
+  context.pendingResponseBytes = 0;
+  context.pendingResponses = 0;
 }
 
 function writeError(context: ConnectionContext, id: unknown, code: NativeTerminalErrorResponse["error"]["code"], error: unknown): boolean {
@@ -270,7 +331,7 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
     try {
       raw = JSON.parse(line);
     } catch (error) {
-      writeError(context, "invalid", "invalid-request", error);
+      if (!writeError(context, "invalid", "invalid-request", error)) return;
       continue;
     }
     let request: NativeTerminalRequest;
@@ -278,7 +339,7 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
       request = parseNativeTerminalRequest(raw);
     } catch (error) {
       const id = isRecord(raw) ? raw.id : "invalid";
-      writeError(context, id, "invalid-request", error);
+      if (!writeError(context, id, "invalid-request", error)) return;
       continue;
     }
     try {
@@ -288,9 +349,9 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
         ok: true,
         result: dispatch(host, context, request),
       };
-      writeResponse(context, response);
+      if (!writeResponse(context, response)) return;
     } catch (error) {
-      writeError(context, request.id, "operation-failed", error);
+      if (!writeError(context, request.id, "operation-failed", error)) return;
     }
   }
   if (Buffer.byteLength(context.buffer) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
@@ -389,8 +450,20 @@ export async function startNativeTerminalHostServer(options: {
   await ensurePrivateSocketDirectory(options.socketPath);
 
   const sockets = new Set<Socket>();
+  const responseBudget: ResponseQueueBudget = { pendingBytes: 0 };
   const server: Server = createServer((socket) => {
-    const context: ConnectionContext = { socket, leases: new Map(), buffer: "" };
+    if (sockets.size >= NATIVE_TERMINAL_MAX_CONNECTIONS) {
+      socket.destroy();
+      return;
+    }
+    const context: ConnectionContext = {
+      socket,
+      leases: new Map(),
+      responseBudget,
+      buffer: "",
+      pendingResponseBytes: 0,
+      pendingResponses: 0,
+    };
     sockets.add(socket);
     socket.setEncoding("utf8");
     socket.setNoDelay(true);
@@ -405,6 +478,7 @@ export async function startNativeTerminalHostServer(options: {
       }
     });
     socket.on("close", () => {
+      releaseAllPendingResponses(context);
       releaseConnectionLeases(options.host, context);
       sockets.delete(socket);
     });
