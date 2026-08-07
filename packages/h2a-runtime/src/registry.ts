@@ -150,6 +150,11 @@ export type RegistryEntry = {
    * default. Absent = launched in "auto" mode (follows the default).
    */
   gatewayMode?: "gateway" | "direct";
+  /**
+   * Durable restore pin: local-tmux/run/human rows with UUID convId and no
+   * endedAt are retained by prune across long offline windows.
+   */
+  restorePinned?: boolean;
 };
 
 export type EnrollInput = {
@@ -184,6 +189,8 @@ export type EnrollInput = {
   effort?: string;
   accountId?: string;
   gatewayMode?: "gateway" | "direct";
+  /** Explicit override for restore pinning (internal only). */
+  restorePinned?: boolean;
 };
 
 /** Injectable liveness probes (tests stay deterministic, no tmux/pid needed). */
@@ -222,6 +229,21 @@ const CONVERSATION_UUID_RE =
 
 export function looksLikeConversationUuid(value: string | undefined): boolean {
   return value !== undefined && CONVERSATION_UUID_RE.test(value);
+}
+
+function isRestorePinnedCandidate(entry: RegistryEntry): boolean {
+  return (
+    entry.kind === "local-tmux" &&
+    entry.source === "run" &&
+    entry.sessionClass === "human" &&
+    !entry.endedAt &&
+    looksLikeConversationUuid(entry.convId)
+  );
+}
+
+function shouldPreserveByRestorePin(entry: RegistryEntry): boolean {
+  if (entry.restorePinned === false) return false;
+  return isRestorePinnedCandidate(entry);
 }
 
 export function loadRegistry(
@@ -292,7 +314,8 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
       e.delegationOrigin === "cli:h2a-delegate") &&
     (e.pid === undefined || (typeof e.pid === "number" && Number.isInteger(e.pid) && e.pid > 0)) &&
     (e.delegatorInstance === undefined || typeof e.delegatorInstance === "string") &&
-    (e.delegatorTmuxSession === undefined || typeof e.delegatorTmuxSession === "string")
+    (e.delegatorTmuxSession === undefined || typeof e.delegatorTmuxSession === "string") &&
+    (e.restorePinned === undefined || typeof e.restorePinned === "boolean")
   );
 }
 
@@ -477,6 +500,13 @@ function applyEnroll(
   if (effort !== undefined) entry.effort = effort;
   const gatewayMode = input.gatewayMode ?? prev?.gatewayMode;
   if (gatewayMode !== undefined) entry.gatewayMode = gatewayMode;
+  if (input.restorePinned !== undefined) {
+    entry.restorePinned = input.restorePinned;
+  } else if (prev?.restorePinned !== undefined) {
+    entry.restorePinned = prev.restorePinned;
+  } else {
+    entry.restorePinned = shouldPreserveByRestorePin(entry);
+  }
   if (idx >= 0) entries[idx] = entry;
   else entries.push(entry);
   return entry;
@@ -727,6 +757,7 @@ export function prune(maxAgeHours: number, opts: RegistryOpts = {}): number {
   return withRegistryLock(path, (entries) => {
     const kept = entries.filter((e) => {
       if (isLive(e, opts)) return true;
+      if (shouldPreserveByRestorePin(e)) return true;
       const last = Date.parse(e.endedAt ?? e.lastSeenAt);
       return Number.isFinite(last) && last >= cutoff;
     });
