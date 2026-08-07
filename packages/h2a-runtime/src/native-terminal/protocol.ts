@@ -1,0 +1,105 @@
+import type {
+  NativeTerminalControllerLease,
+  NativeTerminalCreateOptions,
+} from "./host.js";
+
+export const NATIVE_TERMINAL_PROTOCOL_VERSION = 1 as const;
+export const NATIVE_TERMINAL_MAX_REPLAY_BYTES_PER_SESSION = 4 * 1024 * 1024;
+// JSON escaping can expand one replay byte to six wire bytes (for example NUL).
+export const NATIVE_TERMINAL_MAX_FRAME_BYTES = 32 * 1024 * 1024;
+
+export type NativeTerminalOperation =
+  | "ping"
+  | "create"
+  | "list"
+  | "state"
+  | "read-output"
+  | "attach-observer"
+  | "acquire-controller"
+  | "release-controller"
+  | "write"
+  | "resize"
+  | "stop";
+
+export type NativeTerminalRequest = Readonly<{
+  version: typeof NATIVE_TERMINAL_PROTOCOL_VERSION;
+  id: string;
+  operation: NativeTerminalOperation;
+  params?: Readonly<Record<string, unknown>>;
+}>;
+
+export type NativeTerminalSuccessResponse = Readonly<{
+  version: typeof NATIVE_TERMINAL_PROTOCOL_VERSION;
+  id: string;
+  ok: true;
+  result: unknown;
+}>;
+
+export type NativeTerminalErrorResponse = Readonly<{
+  version: typeof NATIVE_TERMINAL_PROTOCOL_VERSION;
+  id: string;
+  ok: false;
+  error: Readonly<{
+    code: "invalid-request" | "operation-failed";
+    message: string;
+  }>;
+}>;
+
+export type NativeTerminalResponse =
+  | NativeTerminalSuccessResponse
+  | NativeTerminalErrorResponse;
+
+export type NativeTerminalPing = Readonly<{
+  generation: string;
+  hostPid: number;
+  protocolVersion: typeof NATIVE_TERMINAL_PROTOCOL_VERSION;
+}>;
+
+export type NativeTerminalCreateParams = NativeTerminalCreateOptions;
+export type NativeTerminalLeaseParams = Readonly<{
+  lease: NativeTerminalControllerLease;
+}>;
+
+export class NativeTerminalRemoteError extends Error {
+  readonly code: NativeTerminalErrorResponse["error"]["code"];
+
+  constructor(error: NativeTerminalErrorResponse["error"]) {
+    super(error.message);
+    this.name = "NativeTerminalRemoteError";
+    this.code = error.code;
+  }
+}
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function parseNativeTerminalRequest(value: unknown): NativeTerminalRequest {
+  if (!isRecord(value)) throw new TypeError("request must be an object");
+  if (value.version !== NATIVE_TERMINAL_PROTOCOL_VERSION) {
+    throw new TypeError("unsupported terminal protocol version");
+  }
+  if (typeof value.id !== "string" || value.id.length === 0 || value.id.length > 128) {
+    throw new TypeError("request id must be a non-empty string of at most 128 characters");
+  }
+  const operations: ReadonlySet<string> = new Set<NativeTerminalOperation>([
+    "ping",
+    "create",
+    "list",
+    "state",
+    "read-output",
+    "attach-observer",
+    "acquire-controller",
+    "release-controller",
+    "write",
+    "resize",
+    "stop",
+  ]);
+  if (typeof value.operation !== "string" || !operations.has(value.operation)) {
+    throw new TypeError("unknown terminal operation");
+  }
+  if (value.params !== undefined && !isRecord(value.params)) {
+    throw new TypeError("request params must be an object");
+  }
+  return value as NativeTerminalRequest;
+}

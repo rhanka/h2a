@@ -1,6 +1,10 @@
 import type * as nodePty from "node-pty";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 
 export type PtyHandle = {
+  readonly pid: number;
   readonly cols: number;
   readonly rows: number;
   write(data: string): void;
@@ -34,6 +38,9 @@ export const nodePtySpawner: PtySpawner = (options) => {
     name: "xterm-256color",
   });
   return {
+    get pid() {
+      return proc.pid;
+    },
     get cols() {
       return options.cols;
     },
