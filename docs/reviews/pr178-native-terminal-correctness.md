@@ -1,201 +1,129 @@
-# PR #178 final native Codex review — correctness and runtime lifecycle
+# PR #178 independent final review — correctness and native terminal lifecycle
 
 - Status: **COMPLETE — NO-GO**
-- Base / merge-base: `83bc1fa609fd0458833a2dcebc1bf56476657a56`
-- Exact implementation target: `c005e61c63c270a9341ec14c6cbf0ee363deafa5`
-- Target binary-diff SHA-256: `52aa4a8d52f471dda26e00205e57880207a48dcb3595c641781ac547dffb454c`
-- Diff surface: 23 files, 4,038 insertions, 35 deletions.
-- Independence: this leg did **not** read
-  `docs/reviews/pr178-native-terminal-security.md` or
-  `docs/reviews/pr178-native-terminal-consensus.md` before reaching and writing
-  its verdict. The preceding same-lens report was read only from commit
-  `dbc7f796` with `git show`, as authorized.
+- Reviewed target: `f40e24cc7e23a7bd88fef0a78325816cb4c22388`
+- Required base / exact merge-base: `83bc1fa609fd0458833a2dcebc1bf56476657a56`
+- Binary diff SHA-256: `2ae714233d14b31baa5daafe1bf1dd77b6448acaadf97a20e20bdb9a529e9c61`
+- Diff surface: 23 files, 4,047 insertions, 35 deletions
+- Environment: Linux `7.0.0-29-generic` x86_64; Node `v22.22.1`; npm `11.17.0`
+- Review role: first independent final correctness reviewer; prior reports were used only as historical context, and every current conclusion below was reverified against the assigned target.
 
-## Reviewer identity and caveat
+## Scope and immutable-target verification
 
-| Field | Value |
-|---|---|
-| Host | native Codex |
-| Model | Codex, GPT-5 family; the exact runtime model ID is not exposed to this review session |
-| Effort | not independently attestable from inside the session |
-| Machine | `Linux 7.0.0-29-generic x86_64` |
-| Node / npm | `v22.22.1` / `11.17.0` |
-| Worktree | `/home/antoinefa/src/h2a/tmp/worktrees/native-terminal-host` |
-| Lens | persistent host ownership; multi-session real-PTY lifecycle; incarnation/generation/epoch/connection fencing; reconnect/adoption/races; crash and bounded shutdown; escalation; replay, resource and request bounds; no spawn storm; emitted default spawn; tests; honest deferred cutover |
-
-The host identity above distinguishes this native Codex leg from the other
-independent reviewer. It is not an attestation of opaque platform routing or an
-unexposed exact model/effort setting.
-
-## Immutable target verification
-
-The required checks ran before repository content inspection and matched the
-assigned target exactly:
+I inspected the complete diff from the required base through the target, `BRANCH.md`, the EVOL specification, package/test conventions, CI wiring, and the prior review artifacts. The checkout had no `AGENTS.md`. I did not change implementation, tests, dependencies, release files, or Track state.
 
 ```text
 $ git rev-parse HEAD
-c005e61c63c270a9341ec14c6cbf0ee363deafa5
-$ git merge-base HEAD origin/main
+f40e24cc7e23a7bd88fef0a78325816cb4c22388
+
+$ git merge-base 83bc1fa609fd0458833a2dcebc1bf56476657a56 f40e24cc7e23a7bd88fef0a78325816cb4c22388
 83bc1fa609fd0458833a2dcebc1bf56476657a56
-$ git diff --binary origin/main...HEAD | sha256sum
-52aa4a8d52f471dda26e00205e57880207a48dcb3595c641781ac547dffb454c  -
+
+$ git diff --binary 83bc1fa609fd0458833a2dcebc1bf56476657a56..f40e24cc7e23a7bd88fef0a78325816cb4c22388 | sha256sum
+2ae714233d14b31baa5daafe1bf1dd77b6448acaadf97a20e20bdb9a529e9c61  -
 ```
 
-## Exact commands and results
+`git diff --check` passed. The target diff contains no changes to `packages/h2a-runtime/src/tmux.ts`, `packages/h2a-runtime/src/run.ts`, dependency manifests/lockfiles, `.track`, or release files.
 
-| ID | Exact command | Result |
+## Commands and results
+
+| ID | Command | Result |
 |---|---|---|
-| C1 | `git rev-parse HEAD` | exit 0; exact assigned HEAD |
-| C2 | `git merge-base HEAD origin/main` | exit 0; exact assigned merge-base |
-| C3 | `git diff --binary origin/main...HEAD \| sha256sum` | exit 0; exact assigned digest |
-| C4 | `npm run typecheck` | exit 0 |
-| C5 | `npx --no-install vitest run packages/h2a-runtime/src/native-terminal/replay-buffer.test.ts packages/h2a-runtime/src/native-terminal/host.test.ts packages/h2a-runtime/src/native-terminal/server.test.ts packages/h2a-runtime/src/native-terminal/process.functional.test.ts --reporter=verbose` | exit 0; **4 files / 30 tests passed**, 9.02 s; all seven Linux real-process cases executed |
-| C6 | `npx --no-install vitest run packages/h2a-runtime/src/run.test.ts packages/h2a-runtime/src/run-ws-surface.test.ts --reporter=verbose` | exit 0; **2 files / 6 tests passed**, 444 ms |
-| C7 | `node /tmp/pr178-default-spawn-probe.mjs` | exit 0; emitted default host PID 13 owned real PTY PID 24 as its only direct child, reconnect adopted PID 13, socket was mode 0600, and graceful stop removed host, PTY and socket |
-| C8 | `node /tmp/pr178-malformed-peer-probe.mjs /home/antoinefa/src/h2a/tmp/worktrees/native-terminal-host` | exit 0; matching-ID malformed error rejected the request, closed the client and did not crash the caller |
-| C9 | `node --max-old-space-size=2048 /tmp/pr178-dense-replay-probe.mjs /home/antoinefa/src/h2a/tmp/worktrees/native-terminal-host` | exit 0; 1,300,000 one-byte callbacks remained readable through the server, the host survived and reconnect read the tail |
-| C10 | `node --expose-gc /tmp/pr178-replay-chunk-bound-probe.mjs` | exit 0; 1,300,000 callbacks retained 65,536 chunks, emitted a 1,769,608-byte response below the 32 MiB frame, and used 15,365,144 heap bytes after append/GC |
-| C11 | `node /tmp/pr178-fragmented-replay-server-probe.mjs` | exit 0; no replay failure, live client, responsive host and `latestSeq: 1300000` |
-| C12 | `node --check /tmp/pr178-real-reincarnation-fenced-probe.mjs && node /tmp/pr178-real-reincarnation-fenced-probe.mjs /home/antoinefa/src/h2a/tmp/worktrees/native-terminal-host` | exit 0; two emitted real PTYs reused ID, generation, controller ID and epoch but had distinct incarnations; stale write, resize, release and stop all rejected; replacement stayed running and accepted its current lease |
-| C13 | `node --check /tmp/pr178-hung-startup-probe.mjs && node /tmp/pr178-hung-startup-probe.mjs /home/antoinefa/src/h2a/tmp/worktrees/native-terminal-host` | exit 0; reproduced F1 against emitted supervisor code |
-| C14 | `node --check /tmp/pr178-slow-reader-backpressure-probe.mjs && node --expose-gc /tmp/pr178-slow-reader-backpressure-probe.mjs /home/antoinefa/src/h2a/tmp/worktrees/native-terminal-host` | exit 0; reproduced F2 against emitted host/server/client code |
-| C15 | `git diff --check origin/main...HEAD` | exit 0; no output |
-| C16 | `git diff --name-only origin/main...HEAD -- packages/h2a-runtime/src/tmux.ts packages/h2a-runtime/src/run.ts package.json package-lock.json docs/release.md` | exit 0; no paths |
+| C1 | `npm run typecheck` | exit 0 |
+| C2 | `npx --no-install vitest run packages/h2a-runtime/src/native-terminal/replay-buffer.test.ts packages/h2a-runtime/src/native-terminal/host.test.ts packages/h2a-runtime/src/native-terminal/server.test.ts packages/h2a-runtime/src/native-terminal/process.functional.test.ts --reporter=verbose` | exit 0; **4 files / 33 tests passed**; all nine Linux real-process tests executed |
+| C3 | `npx --no-install vitest run packages/h2a-runtime/src/run.test.ts packages/h2a-runtime/src/run-ws-surface.test.ts --reporter=verbose` | exit 0; **2 files / 6 tests passed** |
+| C4 | `npm test` | exit 0; build, vendor/package/import checks and the full discovered root test suite passed |
+| C5 | `npm run audit:security` | exit 0; security-debt gate passed with zero moderate-or-higher findings; the independent Focus audit reported three low findings only |
+| C6 | `node /tmp/pr178-default-spawn-probe.mjs` | exit 0; emitted default supervisor started host PID 35, whose sole direct child was real PTY PID 46; reconnect retained host PID 35; socket was an owned mode-0600 Unix socket; graceful stop removed host, PTY and socket |
+| C7 | `node --expose-gc /tmp/pr178-slow-reader-backpressure-probe.mjs <workspace>` | exit 0; only 7 of 16 legal 4 MiB replay writes were admitted; all 7 encountered backpressure; maximum `writableLength` was 29,361,500 bytes, below the 32 MiB per-connection ceiling; another client remained responsive |
+| C8 | `node /tmp/pr178-connection-cap-probe.mjs` | exit 0; with one healthy client plus 63 held peers, the overflow connection was closed; the healthy client and a replacement connection both retained the same host PID |
+| C9 | `node /tmp/pr178-hung-startup-probe.mjs <workspace>` | exit 0; a non-ready owned child was dead after the 5 s readiness deadline, backoff allowed a second spawn only after 250 ms, and no first child remained |
+| C10 | `node /tmp/pr178-adoption-owned-child-probe.mjs` | **exit 2; reproduced F1**: winner host PID 21 was adopted, while the losing supervisor continued to report and retain its distinct live owned child PID 20 |
+| C11 | `node /tmp/pr178-stubborn-crash-probe.mjs` | **exit 2; reproduced F2**: after hard-killing host PID 13, real PTY PID 24 was still `R (running)` under PID 1 two seconds later |
+| C12 | `node /tmp/pr178-stubborn-startup-reap-probe.mjs` | **exit 2; reproduced F2 through the new reaper**: a frozen owned host was TERM→KILL reaped and disappeared, while its real PTY remained `R (running)` under PID 1 two seconds later |
 
-All custom probe files and their transient sockets/processes were confined to
-`/tmp` and cleaned up. No product file was changed by the probes.
+The custom probes used emitted `dist` code built from the exact target and real Linux processes/PTYs. Their processes and socket directories were cleaned after each run.
 
-## Prior-finding revalidation
+## Findings
 
-The preceding exact-lens NO-GO at `dbc7f796` identified session-incarnation
-aliasing and replay/frame non-composition. Both are resolved on this target:
-
-| Previous finding or claim | Exact-target result |
-|---|---|
-| Recycled-ID stale lease could control a replacement PTY | **Resolved.** A server-minted UUID incarnation is present in state, replay, observer attachments, controller leases/state, server parsing, connection equality and host lease matching. C12 independently repeated session ID, generation, controller ID and epoch across two connections and two distinct emitted real PTYs. The old lease was rejected for write, resize, release and stop; the replacement survived and the current lease still worked. |
-| Fragmented replay could exceed its response frame | **Resolved.** Payload bytes, actual JSON-escaped chunk encoding and a 65,536-chunk limit compose below the 32 MiB frame. C9-C11 executed 1.3 million one-byte callbacks with a live client and bounded representation. The committed 65,636-callback transport regression returned exactly 65,536 chunks, an explicit `{ fromSeq: 1, toSeq: 100 }` gap and a live ping. |
-| `state`/`list` materialized replay just to obtain the sequence | **Resolved.** `TerminalReplayBuffer.latestSeq` is constant-time and snapshots use it directly. |
-| Matching-ID malformed response crashed the caller | **Resolved.** C8 and the five committed incompatible/malformed variants fail closed without an uncaught exception. |
-| Exactly 33,554,432-byte invalid request killed the host | **Resolved.** The committed exact-limit real-process case passed in 4.918 s while preserving the same host and live real PTY. |
-| TERM→KILL escalation and bounded graceful shutdown | **Resolved in exercised paths.** Both the owner escalation and stubborn-child host shutdown cases passed. |
-| Connection-foreign mutation, stale socket cleanup race, exited-record capacity, request deadlines, startup diagnostic/backoff, and historical `PtyHandle.pid` doubles | **Resolved in the previously reported and newly rerun committed cases.** Typecheck, 30 native tests and 6 historical tests are green. |
-
-## Findings — severity ranked
-
-### F1 — HIGH — A live child that misses startup readiness is never terminated or replaced
+### F1 — HIGH — adoption can return while a different supervisor-owned child remains live
 
 Locations:
 
-- `packages/h2a-runtime/src/native-terminal/supervisor.ts:173-217`
-- `packages/h2a-runtime/src/native-terminal/supervisor.ts:220-254`
+- `packages/h2a-runtime/src/native-terminal/supervisor.ts:256-265`
+- `packages/h2a-runtime/src/native-terminal/supervisor.ts:286-301`
+- `packages/h2a-runtime/src/native-terminal/supervisor.ts:305-320`
 
-The supervisor spawns only when `#spawned` is absent or has exited. If its own
-child remains alive but never publishes a healthy socket, the five-second
-startup deadline records a failure and throws, but does not signal, await, or
-clear that child. After backoff, the same live `#spawned` value suppresses a new
-spawn; the retry simply enters another startup polling window. This is not a
-spawn storm, but it is an unbounded detached-process and recovery stall.
+The startup loop accepts any healthy socket and returns immediately. It does not compare the healthy ping's `hostPid` with the live child in `#spawned`, and it does not reap that child before adopting a different winner. Owned-child cleanup is reached only after the readiness deadline expires.
 
-C13 used the emitted supervisor with a detached Node child that stayed alive
-without publishing a socket. The first call failed after 5,023 ms, while the
-child was still alive. After the 250 ms backoff, a retry was still unsettled
-after 400 ms, `spawnCount` remained 1, and `spawnedPid` still named the same
-live child. Only the probe's external `SIGKILL` made the retry reject:
+C10 forced this exact race. The losing supervisor spawned a child that stayed live without publishing a socket; a second supervisor then published the healthy host. Both clients converged on winner PID 21, but the losing supervisor retained `spawnedPid: 20`, and PID 20 remained live after adoption:
 
 ```json
 {
-  "firstElapsedMs": 5023,
-  "aliveAfterDeadline": true,
-  "retryObservation": {
-    "retrySettled": false,
-    "spawnCount": 1,
-    "sameSpawnedPid": true,
-    "childStillAlive": true
-  },
-  "retryFailure": "native terminal host exited before accepting connections (SIGKILL)"
+  "winningHostPid": 21,
+  "losingSupervisorAdoptedPid": 21,
+  "sameHealthyHost": true,
+  "losingSupervisorSpawnedPid": 20,
+  "hungOwnedPid": 20,
+  "hungOwnedStillAlive": true
 }
 ```
 
-The same branch also governs a supervisor-owned host process that remains alive
-but stops answering health pings. Consequently, a wedged owned host or startup
-can leave all operations stalled indefinitely and can leave a detached Node
-process after its producer exits. The existing backoff test covers only a child
-that exits on its own.
+This leaks a detached Node child in the exact convergence path meant to guarantee one persistent host. It also poisons later recovery: while that stale child remains live, `#connectOrStart` treats it as the owned startup and suppresses a replacement if the adopted winner later fails.
 
-Required remediation: treat expiry of the startup contract for a
-supervisor-spawned child as a bounded lifecycle transition. TERM then KILL it
-if necessary, await exit, clear the owned child reference, and only then apply
-restart backoff. Do not signal merely adopted/foreign hosts. Add a real-child
-regression that never publishes readiness and proves bounded reaping followed
-by one backoff-governed replacement spawn.
+Required acceptance: when a supervisor adopts a healthy PID different from its live owned spawn, it must boundedly reap only the losing owned spawn before completing convergence, without signaling the adopted host. A real-child race test must prove one surviving Node host and no losing child, then prove that supervisor can restart normally after the winner exits.
 
-### F2 — HIGH — A slow reader can queue unbounded replay responses in the shared host
+### F2 — HIGH — hard host death and TERM→KILL startup reaping can orphan live PTYs
 
 Locations:
 
-- `packages/h2a-runtime/src/native-terminal/server.ts:230-241`
-- `packages/h2a-runtime/src/native-terminal/server.ts:256-295`
-- `packages/h2a-runtime/src/native-terminal/server.ts:391-410`
+- `packages/h2a-runtime/src/native-terminal/supervisor.ts:29-53`
+- `packages/h2a-runtime/src/native-terminal/supervisor.ts:305-320`
+- `packages/h2a-runtime/src/native-terminal/process.ts:113-145`
+- `packages/h2a-runtime/src/pty.ts:28-39`
+- `docs/specs/2026-08-06-SPEC_EVOL_native-multisession-terminal-host.md:18`
+- `docs/specs/2026-08-06-SPEC_EVOL_native-multisession-terminal-host.md:42`
 
-Each individual replay response is now representable, but aggregate outbound
-resources are not bounded. `writeResponse` ignores the boolean returned by
-`socket.write`, and `consumeFrames` continues parsing, serializing and queuing
-responses after backpressure. There is no per-connection queued-byte/request
-cap and no server connection cap. A paused local peer can therefore amplify
-small valid requests into arbitrary queued replay bytes inside the one process
-that owns every PTY.
+The supervisor tracks and signals only the detached Node host PID. Real PTYs are ordinary children of that host, and the only explicit PTY drain is in catchable host signal handlers. A hard crash cannot run those handlers. Closing the PTY master is not a lifetime fence for a child that ignores terminal hangup signals.
 
-C14 paused a raw private-UDS client after creating one legal 4 MiB replay, then
-sent 16 valid `read-output` requests totaling only 1,526 bytes. All 16 large
-server writes returned `false`; nevertheless the server queued every response
-and reached `writableLength: 67112006` (about 64 MiB). The host still answered a
-second client at that point, so the probe stopped safely rather than driving it
-to OOM. There is no structural ceiling preventing linear continuation.
+C11 created a real shell PTY that installed `trap '' HUP TERM INT` and entered a busy loop, then sent `SIGKILL` to the host. The host disappeared, but the PTY was still actively running and reparented to PID 1 after two seconds:
 
-This is a runtime correctness/resource fault, not a claim that mode 0600 is a
-cross-UID security boundary. A buggy or concurrent owner client is sufficient,
-and exhaustion would take down unrelated PTYs in the shared host.
+```json
+{
+  "hostPid": 13,
+  "ptyPid": 24,
+  "hostAlive": false,
+  "ptyAlive2000msAfterCrash": true,
+  "statusLines": ["State:\tR (running)", "PPid:\t1"]
+}
+```
 
-Required remediation: enforce a hard per-connection outbound queue budget and
-request/pipeline bound; pause request consumption on backpressure and resume on
-`drain`, or close the slow connection before the budget can be exceeded. Bound
-accepted connections as well. Add a paused-socket regression that pipelines
-maximum legal replay requests and proves queued bytes stay under the declared
-limit while another real PTY and client remain live.
+C12 then exercised the new readiness reaper itself: the host was frozen with `SIGSTOP`, the supervisor's health/readiness checks expired, TERM could not be handled, and the new code escalated to KILL. The host died and `spawnedPid` cleared, but the signal-resistant real PTY again remained running under PID 1:
 
-## Runtime-lifecycle conclusions
+```json
+{
+  "failure": "native terminal host did not become ready: Error: terminal host ping request timed out after 1000ms",
+  "hostAlive": false,
+  "ptyAlive2000msAfterReap": true,
+  "statusLines": ["State:\tR (running)", "PPid:\t1"]
+}
+```
 
-- **The core architecture is genuinely native.** The emitted default path uses
-  one detached persistent Node host that owns real PTYs directly. Reconnect
-  adopts the same PID, two real sessions remain independent, and operations do
-  not create per-operation Node children or wrap tmux.
-- **Session/controller fencing is now coherent across reincarnation.** Host
-  generation, server-minted incarnation, controller ID, epoch and connection
-  ownership all participate, and the adversarial repeated-tuple real-PTY case
-  fails closed for every mutation.
-- **Replay representation is now compositionally bounded per session.** The
-  1.3-million-fragment execution remains representable, exposes the current
-  sequence without replay materialization and keeps the client connected.
-  F2 is a distinct aggregate transport-queue bound.
-- **Crash, normal shutdown and stop escalation are truthful in the exercised
-  cases.** SIGKILL ended the host and its live PTY; graceful shutdown drained a
-  stubborn PTY through KILL and removed the socket. F1 leaves the startup/wedged
-  owned-child path unbounded.
-- **Private UDS checks are real but deliberately limited.** Absolute path,
-  owning UID, directory mode 0700, socket type/mode 0600 and inode replacement
-  checks are present. No kernel peer-credential or Greywall guarantee is
-  claimed.
-- **Deferred scope is honest.** Search/diff inspection found only the exported
-  seam and foundation/tests; there is no production constructor/caller, tmux
-  remains the default, and Greywall enforcement, service-manager ownership,
-  parity/soak and owner-approved cutover remain explicit later gates.
+This directly contradicts HOST-01 and ACCEPT-04. The orphan is no longer visible or controllable through the host protocol, can outlive a newly started generation, and may retain compute, files, credentials, and descendant processes.
+
+Required acceptance: use a lifetime-containment mechanism that does not depend on the Node host executing JavaScript after a fatal crash (for example an independently owned process group/cgroup or an equivalent kernel-enforced parent-death boundary). A Linux real-PTY regression must install HUP/TERM/INT ignores, hard-kill the host, and prove the entire PTY workload disappears; the same proof must cover forced startup reaping.
+
+## Verified behavior that is not blocking
+
+- The core runtime path is genuinely native: one persistent Node host directly owns multiple `node-pty` children. No changed runtime path invokes or wraps tmux, and operations/reconnect do not spawn per-operation Node children.
+- Two real PTYs have independent output, input, stop and exit behavior. Client reconnect preserves the host and PTY PIDs; controller connection ownership, epoch, generation and session incarnation fences rejected stale/foreign mutations in the committed real-process cases.
+- Replay is bounded by payload bytes, serialized wire bytes and chunk count; truncation is explicit, `latestSeq` is read without replay materialization, and exact-limit malformed frames do not kill the shared host.
+- The response-queue remediation is effective in the exercised attacks. Per-connection response bytes/count are bounded, a shared pending-byte budget exists, the 64-connection ceiling is enforced, and a slow peer is dropped while another client and PTY remain usable.
+- Graceful TERM→KILL shutdown works when the host remains able to execute its drain handler. F2 is specifically the uncatchable/frozen-host boundary that graceful tests cannot establish.
+- The foundation remains behind the tmux default; no production terminal call site or release surface changed.
 
 ## Verdict
 
-**NO-GO.** The target successfully resolves both preceding blockers and proves
-the central native multi-session PTY design, emitted adoption, reincarnation
-fencing, exact frame survival and fragmented replay bounds. It still has two
-actionable shared-host lifecycle/resource defects: a supervisor-owned child can
-remain detached and permanently suppress recovery after readiness timeout, and
-a slow valid client can queue outbound replay without bound. The review
-contract permits GO only when no actionable finding remains.
+**NO-GO on `f40e24cc7e23a7bd88fef0a78325816cb4c22388`.**
+
+The target resolves the preceding unbounded response-queue defect and the simple non-ready-child timeout case, and it demonstrates the intended persistent multi-session native architecture. It still has two actionable HIGH lifecycle defects: convergence can leak a losing supervisor-owned Node child, and a hard or forced host death can leave signal-resistant PTYs running outside all host ownership. Both violate the core one-host/crash-containment contract and must be corrected and independently re-reviewed on a new exact target before merge.
