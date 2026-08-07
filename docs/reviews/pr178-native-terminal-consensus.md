@@ -1,35 +1,35 @@
-# PR #178 native terminal host — consensus dossier
+# PR #178 native terminal host — final consensus dossier
 
-## Exact target
+## Exact target under review
 
 - PR: `rhanka/h2a#178`
-- Base: `origin/main@2544b16b81994563630fdb6d3d4f859806b9d2fb`
-- Target commit: `a6e46cf08a62af41afede2f423c4004e150cecc4`
-- Target diff SHA-256: `ed6bf6945d1eeea7826958a1430d219c30e692850d176d8c3167236c3814464a`
+- Base: `origin/main@83bc1fa609fd0458833a2dcebc1bf56476657a56`
+- Target commit: `0a20b7cbddb1e4a7ff986668274105c5d03d6a20`
+- Target diff SHA-256: `af56965a97f9e369176852873b19a6c393f09e7f56c08a7ef66ef2049824480b`
 
 ## Author identity
 
-- Host: `codex`
-- Model: `gpt-5.6-sol`
-- Effort: `xhigh`
-- Provenance: explicit conductor routing for PR #178 in the active conversation.
+- Host/model: Codex `gpt-5.6-sol`, effort `xhigh`.
+- Provenance: explicit conductor routing for end-to-end ownership of PR #178.
 
-## Required independent legs
+## Prior consensus and reconciliation
 
-| Leg | Host | Model | Effort | Lens | Artifact | Status |
-|---|---|---|---|---|---|---|
-| correctness | claude | claude-opus-5 | xhigh | lifecycle, process ownership, generation/races, execution proof | `docs/reviews/pr178-native-terminal-correctness.md` | NO-GO |
-| security | claude | claude-sonnet-5 | observed effort 80 (dispatch: xhigh) | protocol/socket/controller boundaries, resource bounds, Greywall claims | `docs/reviews/pr178-native-terminal-security.md` | NO-GO |
+The initial valid independent reviews both returned NO-GO on the pre-hardening target; their complete reports are preserved in commit `114dbdcb`. The final code adds truthful controller-owned TERM-to-KILL escalation, bounded/recyclable sessions, socket UID/type/mode and inode checks, atomic publication, request deadlines, signal validation, bounded startup backoff with diagnostics, portable CI commands and corrected PTY test doubles. Main was then rebased exactly onto `83bc1fa609fd0458833a2dcebc1bf56476657a56`; all evidence must target the resulting `0a20b7cb`.
 
-## Reconciliation
+## Independent legs on `0a20b7c`
 
-The initial Terra/Luna attempts created no review artifact and exited before review on a fail-closed llm-mesh transport-constraint error. They do not count as review legs.
+| Leg | Host | Model | Effort | Artifact | Status |
+|---|---|---|---|---|---|
+| correctness | Codex native | `gpt-5.6-sol` | xhigh | `docs/reviews/pr178-native-terminal-correctness.md` | **NO-GO** |
+| security | Codex native | `gpt-5.6-sol` | xhigh | `docs/reviews/pr178-native-terminal-security.md` | **NO-GO** |
 
-Both replacement legs independently rejected `a6e46cf`. The blocking findings are:
+Both reviewers independently verified the exact base, target and diff hash and executed the four-file native-terminal suite (23/23). The correctness leg additionally proved the compiled default-spawn/adoption path with one persistent host and one direct PTY child; the security leg revalidated the private-socket and resource-boundary claims.
 
-- controller-authorized per-session stop must support TERM→KILL escalation;
-- the persistent host needs bounded/recyclable session records;
-- socket filesystem ownership/type/mode must be verified on both server and client trust paths;
-- request liveness and repeated failed host starts must be bounded.
+## Reconciled findings
 
-The detailed artifacts also record the stale-socket publish race, signal validation, CI command portability and stale `PtyHandle` test doubles. No consensus verdict is available until those findings are reconciled in code and two new independent reviewers validate the new exact target.
+1. **Malformed response containment — MEDIUM, confirmed by both legs.** The client accepts a partial envelope, does not enforce protocol version or the success/error discriminant, and can throw after removing a matching pending request. Required remediation: strict response parsing before touching pending state, fail the connection closed, and raw-peer regressions for incompatible version, missing/invalid error fields and malformed success.
+2. **Exact-limit invalid request containment — MEDIUM, security leg.** An exactly 32 MiB request with an overlong raw ID reaches the parser error path, which reflects that unbounded ID and throws while framing the response. The exception escapes the socket callback and terminates the standalone shared host. Required remediation: bounded fallback correlation/error fields, exception-safe per-socket handling, and a real-process regression proving the host and an existing PTY survive.
+
+## Consensus verdict
+
+**NO-GO on `0a20b7cbddb1e4a7ff986668274105c5d03d6a20`.** The reports are independent and materially convergent. Both findings are actionable and block readiness. Their complete evidence is preserved in the two leg artifacts; corrections require a new target SHA and two fresh independent reviews. The owner explicitly requested no merge.
