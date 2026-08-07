@@ -152,7 +152,7 @@ test("resolveFocusServeConfig rejects unknown flags, invalid ports, and untracke
   const base = temporaryDirectory("h2a-focus-invalid-");
   try {
     const assets = fakeAssets(base);
-    const deps = configDeps(base, assets);
+    const deps = { ...configDeps(base, assets), findTrackedRepo: () => undefined };
     assert.throws(() => resolveFocusServeConfig(["focus", "serve", "--wat"], deps), /unknown option/);
     assert.throws(() => resolveFocusServeConfig(["focus", "serve", "--port", "65536"], deps), /0 to 65535/);
     assert.throws(() => resolveFocusServeConfig(["focus", "serve"], deps), /no tracked repository/);
