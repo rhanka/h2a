@@ -11,6 +11,7 @@ beforeEach(() => {
   testScratch = mkdtempSync(join(tmpdir(), "gateway-index-test-"));
   vi.stubEnv("LLM_GATEWAY_STICKY_FILE", join(testScratch, "sticky.json"));
   vi.stubEnv("LLM_GATEWAY_TOKEN_SEED", "test-seed");
+  vi.stubEnv("OPENAI_MODEL_MAP", "");
 });
 
 afterEach(() => {
@@ -21,6 +22,41 @@ afterEach(() => {
 });
 
 describe("embedded gateway reporting session attestation", () => {
+  it("persists only non-secret constraints for a Cloud Code session", async () => {
+    const { app } = await import("./index.js");
+    const created = await app.fetch(
+      new Request("http://localhost/v1/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: "cloud-code-session",
+          provider: "cloud-code",
+          model: "gemini-2.5-pro",
+          requiredTransport: "cloud-code",
+        }),
+      }),
+    );
+
+    expect(created.status).toBe(201);
+    const { gatewayToken } = await created.json() as { gatewayToken: string };
+    const { lookupToken } = await import("./sticky.js");
+    const session = await lookupToken(gatewayToken);
+    expect(session).toMatchObject({
+      sessionId: "cloud-code-session",
+      provider: "cloud-code",
+      transport: "cloud-code",
+      requiredTransport: "cloud-code",
+      transportConstraints: {
+        transportProviderId: "cloud-code",
+        accountConstraints: { targetProviderId: "google" },
+      },
+    });
+    expect(session).not.toHaveProperty("token");
+    expect(session).not.toHaveProperty("accountId");
+    expect(readFileSync(join(testScratch, "sticky.json"), "utf8"))
+      .not.toContain("token");
+  });
+
   it("serves one exact client session without using the ledger collection", async () => {
     vi.stubEnv("GATEWAY_ACCOUNTS", JSON.stringify([
       { id: "codex-oauth", provider: "openai", label: "Codex OAuth", token: "codex.header.signature" },
