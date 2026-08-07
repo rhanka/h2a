@@ -1,46 +1,53 @@
-# Bugfix: Cloud Code Assist compaction usage contract
+# Feature: native multi-session terminal host foundation
 
 ## Objective
 
-- [ ] Return Anthropic `input_tokens` and `output_tokens` from Cloud Code Assist `usageMetadata` for streamed and accumulated Messages responses.
-- [ ] Preserve valid text and tool-use blocks required by Claude Code clients, without asserting that a gateway change repairs a locally rejected historical session.
+- [ ] Establish a typed, bounded terminal replay contract for a future single-process multi-session PTY host.
+- [ ] Prove independent PTY lifecycle and fail-closed controller arbitration without changing the tmux default.
 
 ## Scope / Guardrails
 
-**Allowed Paths**
+**Allowed Paths (implementation scope)**
 
-- `BRANCH.md`
-- `packages/h2a-runtime/src/llm-gateway-runtime/proxy-gemini.ts`
-- `packages/h2a-runtime/src/llm-gateway-runtime/proxy-gemini.test.ts`
-- Published-package version and lockfile files required by the repository release recipe
-- `docs/reviews/**` only for the required harness review record
+- [ ] `BRANCH.md`
+- [ ] `docs/specs/2026-08-06-SPEC_EVOL_native-multisession-terminal-host.md`
+- [ ] `docs/reviews/native-terminal-host-lot1.md`
+- [ ] `packages/h2a-runtime/src/native-terminal/**`
 
-**Forbidden Paths**
+**Forbidden Paths (must not change)**
 
-- `/home/antoinefa/src/h2a/**`, other worktrees, tmux state, and Claude Code transcript contents
-- Gateway routing, model catalogues, provider credentials, and live session state
-- A `/v1/messages/count_tokens` route or a client-side historical-transcript migration without evidence that the client calls it
-- Unrelated proxy, build, deployment, dependency, or formatting changes
+- [ ] `.track/**`
+- [ ] `package.json`
+- [ ] `package-lock.json`
+- [ ] `Makefile`
+- [ ] `docker-compose*.yml`
+- [ ] `.cursor/rules/**`
+- [ ] `packages/h2a-runtime/src/tmux.ts`
+- [ ] production terminal backend call sites
 
-**Conditional Paths**
+**Conditional Paths (require a recorded BRxx-EXn exception)**
 
-- `package.json`, `packages/h2a/package.json`, `packages/h2a-cli/package.json`, `packages/h2a-runtime/package.json`, `packages/track/package.json`, `packages/h2a/.codex-plugin/plugin.json`, and `package-lock.json` only for the lockstep patch release required after published runtime source changes.
+- [ ] `packages/h2a-runtime/src/index.ts`
+- [ ] `packages/h2a-runtime/src/run.ts`
+- [ ] local-server transport and supervision files
 
 ## Plan / Todo (lot-based)
 
-- [ ] **Lot 1 — prove the two boundaries and pin the Cloud Code response contract**
-  - [ ] Read transcript metadata only: record the six successful historical compact boundaries/summaries and zero-usage synthetic responses after the local rejection.
-  - [ ] Establish that the current Cloud Code path is `proxy-gemini.ts`; show that no request can be repaired by h2a when Claude Code rejects compaction before gateway egress.
-  - [ ] Add deterministic handler tests with Cloud Code SSE fixtures for non-stream and stream usage normalization and structured blocks.
-  - [ ] Gate: focused Vitest test is red before the runtime change, then green after it.
-
-- [ ] **Lot 2 — normalize the proxy and make the publishable patch releasable**
-  - [ ] Map `promptTokenCount` to `input_tokens` and `candidatesTokenCount` to `output_tokens` in both responses; preserve text and tool-use blocks with valid Anthropic stream events.
-  - [ ] Do not add `count_tokens`, spoof model metadata, or alter transcript recovery without a request-level reproduction that makes either necessary.
-  - [ ] Apply the repository lockstep patch-version and lockfile recipe for modified published runtime code.
-  - [ ] Run focused and adapted project gates, mechanical scope check, atomic commit, push, and draft PR.
-  - [ ] Gate: focused tests, TypeScript build, release sanity checks, and review evidence pass.
+- [x] **Lot 1 — sequenced bounded replay**
+  - [x] Add `replay-buffer.ts` with monotonic session-local sequence assignment and a strict byte budget.
+  - [x] Add `replay-buffer.test.ts` for ordered replay, eviction gaps, oversized chunks and invalid cursors.
+  - [x] Gate: focused replay tests and runtime TypeScript check pass.
+- [x] **Lot 2 — independent multi-session PTY lifecycle**
+  - [x] Add host create/list/stop lifecycle over injected `PtySpawner` without transport or daemon logic.
+  - [x] Add host tests proving two PTYs have independent output, exit and stop state.
+  - [x] Gate: focused host tests and runtime TypeScript check pass.
+- [x] **Lot 3 — controller epoch and versioned contract**
+  - [x] Add single-controller acquisition with an incrementing epoch and observer-only attachment.
+  - [x] Reject stale input and resize epochs through an in-process typed contract.
+  - [ ] Gate: focused native-terminal tests, runtime suite and root typecheck pass.
 
 ## Feedback Loop
 
-- [ ] If Claude Code emits a gateway request after `/clear` or transcript migration and still rejects the normalized response, capture sanitized request/response metadata and open a separate client-contract investigation.
+- [ ] Stop for owner decision before adding a local socket, switching the default backend or claiming Greywall enforcement.
+- [ ] Record any required out-of-scope path as a BRxx-EXn exception with reason, impact and rollback.
+- [ ] Re-run consensus review with complete author metadata before marking this PR ready.
