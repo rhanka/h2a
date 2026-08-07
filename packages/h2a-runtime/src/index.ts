@@ -2207,21 +2207,47 @@ export async function prepareStructuredGateway(
   return gateway;
 }
 
-async function prepareLlmMeshForRestore(
+export interface RestoreLlmMeshPreparationContext {
+  readonly runtimeEnabled: boolean;
+  readonly config: {
+    readonly meshAccounts?: readonly unknown[] | undefined;
+    readonly port?: number | undefined;
+  } | null;
+  readonly gatewayPid: number | null;
+  readonly injectGateway: (
+    mode: "auto" | "gateway" | "direct",
+  ) => Promise<string | undefined>;
+}
+
+export async function prepareLlmMeshForRestore(
   opts: {
     dryRun?: boolean;
+    mode?: "auto" | "gateway";
   } = {},
+  context: RestoreLlmMeshPreparationContext = {
+    runtimeEnabled: getLlmMeshRuntimeConfig().enabled,
+    config: readLlmMeshConfig(),
+    gatewayPid: readGatewayPid() ?? null,
+    injectGateway: (mode) =>
+      injectLlmMeshGatewayEnv(mode, mode !== "gateway"),
+  },
 ): Promise<void> {
-  if (!getLlmMeshRuntimeConfig().enabled) return;
-  const config = readLlmMeshConfig();
-  if (!config?.accounts.length) {
+  const mode = opts.mode ?? "auto";
+  if (mode !== "gateway" && !context.runtimeEnabled) return;
+  const config = context.config;
+  if (!config?.meshAccounts?.length) {
+    if (mode === "gateway") {
+      throw new Error(
+        "llm-mesh gateway is required but unavailable: no Cloud Code enrollment; no agent was started",
+      );
+    }
     process.stderr.write(
       "[h2a] llm-mesh: restore config enabled, but no llm-mesh account is enrolled; Claude may ask for login.\n",
     );
     return;
   }
   const port = config.port ?? 3002;
-  const pid = readGatewayPid();
+  const pid = context.gatewayPid;
   if (opts.dryRun) {
     process.stderr.write(
       pid
@@ -2230,7 +2256,7 @@ async function prepareLlmMeshForRestore(
     );
     return;
   }
-  const gateway = await injectLlmMeshGatewayEnv();
+  const gateway = await prepareStructuredGateway(mode, context.injectGateway);
   if (gateway) {
     process.stderr.write(
       `[h2a] llm-mesh: restore context active (${gateway})\n`,
@@ -8694,7 +8720,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // Forced-direct restore must NOT spin up the gateway; otherwise prepare
         // it as before (no-op when the gateway is disabled).
         if (forceGateway !== "direct") {
-          await prepareLlmMeshForRestore({ dryRun: Boolean(opts.dryRun) });
+          try {
+            await prepareLlmMeshForRestore({
+              dryRun: Boolean(opts.dryRun),
+              mode: forceGateway ?? "auto",
+            });
+          } catch (error) {
+            process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+            process.exitCode = 1;
+            return;
+          }
         }
         const { total } = restoreLayout(restoreOpts);
         if (total === 0) {
