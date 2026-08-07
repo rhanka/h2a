@@ -59,9 +59,21 @@ test("runtime routing is read from llm-gateway 0.10 canonical descriptions", () 
   resetModelCatalogCache();
   const described = describeCanonicalTargetRoutes();
   const catalog = listModelCatalog();
+  const canonicalCatalog = catalog.filter((entry) =>
+    described.some((route) => route.requestedId === entry.id)
+  );
   assert.deepEqual(
-    catalog.map((entry) => [entry.id, entry.targetProviderId, entry.transportProviderId, entry.upstreamModel, entry.routeKind]),
+    canonicalCatalog.map((entry) => [entry.id, entry.targetProviderId, entry.transportProviderId, entry.upstreamModel, entry.routeKind]),
     described.map((entry) => [entry.requestedId, entry.providerId, entry.transportProviderId, entry.model, entry.kind])
+  );
+  assert.deepEqual(
+    catalog
+      .filter((entry) => entry.transportProviderId === "cloud-code")
+      .map((entry) => [entry.id, entry.targetProviderId, entry.upstreamModel, entry.routeKind]),
+    [
+      ["gemini-2.5-pro", "google", "gemini-2.5-pro", "faithful"],
+      ["gemini-2.5-flash", "google", "gemini-2.5-flash", "faithful"]
+    ]
   );
   assert.equal(resolveModelRoute("claude-opus-5-xhigh")?.upstreamModel, "gpt-5.6-terra");
   assert.equal(resolveModelRoute("claude-fable-5-max")?.upstreamModel, "gpt-5.6-sol");
