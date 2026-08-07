@@ -17,6 +17,7 @@ function stubSpawner(): { spawner: PtySpawner; pty: StubPty } {
   }) => void = () => {};
   const writes: string[] = [];
   const pty: StubPty = {
+    pid: 61001,
     cols: 80,
     rows: 24,
     write(data) {
