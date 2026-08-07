@@ -1,6 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { prepareStructuredGateway } from "./index.js";
+import {
+  prepareLlmMeshForRestore,
+  prepareStructuredGateway,
+  type RestoreLlmMeshPreparationContext,
+} from "./index.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("prepareStructuredGateway", () => {
   it("fails closed when an explicitly required gateway is absent", async () => {
@@ -25,5 +33,81 @@ describe("prepareStructuredGateway", () => {
     await expect(
       prepareStructuredGateway("direct", async () => undefined),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("prepareLlmMeshForRestore", () => {
+  const facadeConfig = {
+    meshAccounts: [
+      {
+        accountId: "cloud-code-owner",
+        provider: "cloud-code",
+        label: "Cloud Code owner",
+      },
+    ],
+    port: 3002,
+  } as const;
+
+  function context(
+    overrides: Partial<RestoreLlmMeshPreparationContext> = {},
+  ): RestoreLlmMeshPreparationContext {
+    return {
+      runtimeEnabled: true,
+      config: facadeConfig,
+      gatewayPid: null,
+      injectGateway: vi.fn(async () => "http://localhost:3002"),
+      ...overrides,
+    };
+  }
+
+  it("accepts facade meshAccounts with no legacy accounts array", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const fixture = context();
+
+    expect("accounts" in facadeConfig).toBe(false);
+    await expect(
+      prepareLlmMeshForRestore(
+        { dryRun: true, mode: "gateway" },
+        fixture,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(fixture.injectGateway).not.toHaveBeenCalled();
+    expect(stderr).toHaveBeenCalledWith(
+      expect.stringMatching(/gateway would be started on port 3002/i),
+    );
+  });
+
+  it("fails before restore continuation when required gateway is unavailable", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const launchRestore = vi.fn();
+    const fixture = context({
+      injectGateway: vi.fn(async () => undefined),
+    });
+
+    await expect(
+      prepareLlmMeshForRestore({ mode: "gateway" }, fixture).then(
+        launchRestore,
+      ),
+    ).rejects.toThrow(/gateway.*required.*unavailable.*no agent was started/i);
+
+    expect(launchRestore).not.toHaveBeenCalled();
+    expect(stderr).not.toHaveBeenCalledWith(
+      expect.stringMatching(/continuing direct/i),
+    );
+  });
+
+  it("honours explicit gateway mode even when auto-reactivation is disabled", async () => {
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const injectGateway = vi.fn(async () => "http://localhost:3002");
+
+    await expect(
+      prepareLlmMeshForRestore(
+        { mode: "gateway" },
+        context({ runtimeEnabled: false, injectGateway }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(injectGateway).toHaveBeenCalledWith("gateway");
   });
 });
