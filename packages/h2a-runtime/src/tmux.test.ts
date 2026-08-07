@@ -1547,7 +1547,7 @@ describe("ensureManagedTmuxProfile", () => {
 });
 
 describe("buildCodexImagePasteBinding", () => {
-  it("binds Ctrl+V to save Wayland clipboard images and paste the file path into Codex panes only", () => {
+  it("binds Ctrl+V to save Wayland clipboard images and paste the file path into Codex/Claude panes", () => {
     const line = buildCodexImagePasteBinding().join(" ");
     expect(line).toContain("bind -n C-v");
     expect(line).toContain("wl-paste --list-types");
@@ -1557,6 +1557,7 @@ describe("buildCodexImagePasteBinding", () => {
     expect(line).toContain("tmux send-keys");
     expect(line).toContain("-l");
     expect(line).toContain("codex");
+    expect(line).toContain("claude");
   });
 
   it("targets the triggering pane explicitly in both scripts (pane_id)", () => {
@@ -1591,6 +1592,100 @@ describe("buildCodexImagePasteBinding", () => {
     expect(line).toContain("xclip -selection clipboard -out");
     expect(line).toContain("xsel -ob");
     expect(line).toContain("tmux paste-buffer");
+    expect(line).toContain("wl-paste -n -t text/plain");
+  });
+
+  it("does not reuse a sticky buffer; it always pastes from a per-invocation buffer and deletes it", () => {
+    const binding = buildCodexImagePasteBinding();
+    const fallbackScript = parseRunShellScriptArg(
+      binding[7] as string,
+    );
+    expect(fallbackScript).toContain("BUFFER_NAME=\"h2a-clipboard-$$-$(date +%s%N)-${PANE_TARGET#%}\"");
+    expect(fallbackScript).toContain("PASTED=0");
+    expect(fallbackScript).toContain(
+      "tmux delete-buffer -b \"$BUFFER_NAME\" >/dev/null 2>&1 || true",
+    );
+    expect(fallbackScript).toContain('if [ "$PASTED" -eq 0 ]; then');
+  });
+
+  it("keeps old stale buffers from being pasted when every backend fails", () => {
+    const socket = `h2a-fail-closed-${Date.now()}`;
+    const session = "h2a-fail-closed";
+    const sentinel = "SENTINEL-DO-NOT-PASTE";
+    const fakeBin = mkdtempSync(join(tmpdir(), "h2a-fake-clipboard-"));
+    const binding = buildCodexImagePasteBinding();
+    const fallbackScript = parseRunShellScriptArg(binding[7] as string);
+    const paneIdCommand = ["-L", socket, "display-message", "-p", `${session}`, "#{pane_id}"];
+    const fakeBinaries = [
+      "xclip",
+      "xsel",
+      "wl-paste",
+    ] as const;
+
+    try {
+      for (const commandName of fakeBinaries) {
+        writeFileSync(
+          join(fakeBin, commandName),
+          "#!/bin/sh\nexit 1\n",
+          { mode: 0o755 },
+        );
+      }
+
+      expect(
+        realSpawnSync("tmux", [
+          "-L",
+          socket,
+          "-f",
+          "/dev/null",
+          "new-session",
+          "-d",
+          "-s",
+          session,
+          "cat",
+        ]).status,
+      ).toBe(0);
+
+      expect(
+        realSpawnSync("tmux", [
+          "-L",
+          socket,
+          "load-buffer",
+          "-b",
+          "h2a-clipboard",
+          "-",
+        ], { encoding: "utf8", input: sentinel }).status,
+      ).toBe(0);
+
+      const paneId = realSpawnSync("tmux", paneIdCommand, {
+        encoding: "utf8",
+      }).stdout.trim();
+      const runnableScript = fallbackScript
+        .replaceAll("#{pane_id}", paneId)
+        .replace(/^/, `PATH="${fakeBin}:$PATH"\n`);
+      expect(
+        realSpawnSync("tmux", [
+          "-L",
+          socket,
+          "run-shell",
+          "-b",
+          runnableScript,
+        ], { encoding: "utf8" }).status,
+      ).toBe(0);
+
+      expect(
+        realSpawnSync("sleep", ["0.5"], { encoding: "utf8" }).status,
+      ).toBe(0);
+
+      const captured = realSpawnSync(
+        "tmux",
+        ["-L", socket, "capture-pane", "-p", "-t", session],
+        { encoding: "utf8" },
+      ).stdout;
+      expect(captured).not.toContain(sentinel);
+    } finally {
+      realSpawnSync("tmux", ["-L", socket, "kill-server"], { encoding: "utf8" });
+      rmSync(fakeBin, { recursive: true, force: true });
+    }
   });
 });
 
