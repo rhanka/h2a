@@ -20,6 +20,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -123,13 +124,59 @@ const testEnv = {
   H2A_TEST_DURABLE_ROOT: durableRoot
 };
 
-function runSuite(name, command, args, cwd) {
+// Track's no-store fixtures intentionally walk to the filesystem root. Keep
+// their OS temp parent away from a shared `/tmp/.track`, without changing the
+// Node/h2a suite's tmpdir() semantics: h2a explicitly tests that `/tmp` launch
+// workspaces are refused. Prefer /dev/shm when it is usable on Linux; other
+// platforms, and hosts without a writable /dev/shm, keep their system temp.
+function hasTrackAncestor(dir) {
+  let current = resolve(dir);
+  for (;;) {
+    if (existsSync(join(current, ".track"))) return true;
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+
+function makeCleanTrackTempDir(parent) {
+  const dir = mkdtempSync(join(parent, "h2a-track-tests-"));
+  if (!hasTrackAncestor(dir)) return dir;
+  rmSync(dir, { recursive: true, force: true });
+  throw new Error(`run-tests: Track test temporary directory inherits a .track ancestor from ${parent}`);
+}
+
+function makeTrackTempDir() {
+  const fallback = tmpdir();
+  const parents = process.platform === "linux" && existsSync("/dev/shm") && fallback !== "/dev/shm"
+    ? ["/dev/shm", fallback]
+    : [fallback];
+  let lastError;
+  for (const parent of parents) {
+    try {
+      return makeCleanTrackTempDir(parent);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+const trackTemp = makeTrackTempDir();
+const trackTestEnv = {
+  ...testEnv,
+  TMPDIR: trackTemp,
+  TMP: trackTemp,
+  TEMP: trackTemp
+};
+
+function runSuite(name, command, args, cwd, env = testEnv) {
   const result = spawnSync(command, args, {
     cwd,
     stdio: "inherit",
     timeout: RUN_TIMEOUT_MS,
     killSignal: "SIGKILL",
-    env: testEnv
+    env
   });
 
   if (result.error && result.error.code === "ETIMEDOUT") {
@@ -162,11 +209,16 @@ try {
       process.execPath,
       [vitestEntrypoint(cwd), "run", ...configArgs, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
       cwd,
+      trackTestEnv,
     );
   });
   exitCode = [nodeStatus, ...vitestStatuses].every((status) => status === 0) ? 0 : Math.max(nodeStatus, ...vitestStatuses);
 } finally {
-  rmSync(testRoot, { recursive: true, force: true });
+  try {
+    rmSync(testRoot, { recursive: true, force: true });
+  } finally {
+    rmSync(trackTemp, { recursive: true, force: true });
+  }
 }
 
 process.exit(exitCode);
