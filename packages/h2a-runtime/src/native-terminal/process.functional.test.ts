@@ -474,6 +474,87 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     currentClient.close();
   });
 
+  it("should drop a slow pipelined client without affecting another real PTY", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-backpressure-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      replayBytesPerSession: 1024,
+      generationFactory: () => "backpressure-generation",
+      spawnHost: (options) => {
+        const child = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+        ], {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        children.add(child);
+        return child;
+      },
+    });
+    const client = await supervisor.client();
+    const ping = await client.ping();
+    await client.create({
+      id: "survivor",
+      command: "/bin/sh",
+      args: ["-c", "printf survivor-ready\\r\\n; while IFS= read -r line; do printf 'survivor:%s\\r\\n' \"$line\"; done"],
+      cwd: directory,
+      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      cols: 80,
+      rows: 24,
+    });
+    await eventually(
+      () => client.readOutput("survivor", 0),
+      (output) => output.chunks.some((chunk) => chunk.data.includes("survivor-ready")),
+    );
+    const lease = await client.acquireController("survivor", "healthy-owner");
+
+    const slow = createConnection(socketPath);
+    slow.on("error", () => {
+      // Expected when the host enforces the slow-reader queue budget.
+    });
+    await new Promise<void>((resolve, reject) => {
+      slow.once("connect", resolve);
+      slow.once("error", reject);
+    });
+    slow.pause();
+    const closed = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("slow pipelined client was not closed")),
+        5_000,
+      );
+      slow.once("close", () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+    const frame = JSON.stringify({
+      version: 1,
+      id: "slow",
+      operation: "ping",
+    }) + "\n";
+    slow.write(frame.repeat(100_000));
+    await closed;
+
+    expect((await client.ping()).hostPid).toBe(ping.hostPid);
+    await client.write(lease, "still-alive\r");
+    await eventually(
+      () => client.readOutput("survivor", 0),
+      (output) => output.chunks.some((chunk) => chunk.data.includes("survivor:still-alive")),
+    );
+  });
+
   it("should back off repeated host startup failures and preserve the diagnostic", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-backoff-"));
     directories.add(directory);
@@ -514,6 +595,66 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     await new Promise((resolve) => setTimeout(resolve, 275));
     await expect(supervisor.client()).rejects.toThrow(/mode 0700/i);
     expect(spawnCount).toBe(2);
+  });
+
+  it("should reap an owned host that misses readiness before a backoff-governed replacement", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-hung-start-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    let spawnCount = 0;
+    let hungChild: ChildProcess | undefined;
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      replayBytesPerSession: 1024,
+      startupTimeoutMs: 1_000,
+      spawnTerminationGraceMs: 100,
+      generationFactory: () => `hung-generation-${spawnCount + 1}`,
+      spawnHost: (options) => {
+        spawnCount += 1;
+        const child = spawnCount === 1
+          ? spawn(process.execPath, [
+              "-e",
+              "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)",
+            ], {
+              detached: true,
+              stdio: ["ignore", "ignore", "pipe"],
+            })
+          : spawn(process.execPath, [
+              "--import",
+              "tsx",
+              entry,
+              "--socket",
+              options.socketPath,
+              "--generation",
+              options.generation,
+              "--replay-bytes",
+              String(options.replayBytesPerSession),
+            ], {
+              cwd: dirname(entry),
+              env: process.env,
+              stdio: ["ignore", "pipe", "pipe"],
+            });
+        if (spawnCount === 1) hungChild = child;
+        children.add(child);
+        return child;
+      },
+    });
+
+    await expect(supervisor.client()).rejects.toThrow(/did not become ready/i);
+    expect(hungChild?.pid).toBeGreaterThan(1);
+    await eventually(() => running(hungChild!.pid!), (alive) => !alive);
+    expect(supervisor.spawnedPid).toBeUndefined();
+    expect(spawnCount).toBe(1);
+    await expect(supervisor.client()).rejects.toThrow(/restart backoff active/i);
+    expect(spawnCount).toBe(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 275));
+    const replacement = await supervisor.client();
+    expect(spawnCount).toBe(2);
+    expect(await replacement.ping()).toMatchObject({
+      generation: "hung-generation-2",
+    });
   });
 
   it("should converge competing supervisors on one socket without repeated host spawns", async () => {
