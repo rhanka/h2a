@@ -1,10 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   accountPoolForProvider,
   resetModelCatalogCache,
   resolveModelRoute,
 } from "./model-catalog.js";
+
+beforeEach(() => {
+  vi.stubEnv("OPENAI_MODEL_MAP", "");
+  resetModelCatalogCache();
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -18,7 +23,7 @@ describe("embedded h2a runtime model catalog", () => {
     expect(accountPoolForProvider("google")).toBe("google");
     expect(accountPoolForProvider("gemini")).toBe("google");
     expect(accountPoolForProvider("gcp")).toBe("google");
-    expect(accountPoolForProvider("gemini-code-assist")).toBe("google");
+    expect(accountPoolForProvider("cloud-code")).toBe("google");
   });
 
   it("routes only the canonical Opus effort alias to Terra", () => {
