@@ -10,11 +10,12 @@ export type NativeTerminalExit = Readonly<{
   signal?: number;
 }>;
 
-export type NativeTerminalSessionStatus = "running" | "exited" | "stopped";
+export type NativeTerminalSessionStatus = "running" | "stopping" | "exited";
 
 export type NativeTerminalSessionState = Readonly<{
   id: string;
   generation: string;
+  pid: number;
   status: NativeTerminalSessionStatus;
   latestSeq: number;
   exit: NativeTerminalExit | null;
@@ -93,6 +94,10 @@ export class NativeTerminalHost {
     this.#spawner = options.spawner;
   }
 
+  get generation(): string {
+    return this.#generation;
+  }
+
   create(options: NativeTerminalCreateOptions): NativeTerminalSessionState {
     if (options.id.trim().length === 0) {
       throw new RangeError("terminal session id must not be empty");
@@ -124,7 +129,7 @@ export class NativeTerminalHost {
       };
       if (event.signal !== undefined) exit.signal = event.signal;
       record.exit = Object.freeze(exit);
-      if (record.status === "running") record.status = "exited";
+      record.status = "exited";
       this.#invalidateController(record);
       record.dataSubscription?.dispose();
       record.exitSubscription?.dispose();
@@ -219,11 +224,45 @@ export class NativeTerminalHost {
     const record = this.#requireSession(id);
     if (record.status !== "running") return this.#snapshot(record);
 
-    record.status = "stopped";
+    record.status = "stopping";
     record.stopSignal = signal;
     this.#invalidateController(record);
-    record.pty.kill(signal);
+    try {
+      record.pty.kill(signal);
+    } catch (error) {
+      record.status = "running";
+      record.stopSignal = null;
+      throw error;
+    }
     return this.#snapshot(record);
+  }
+
+  stopAll(signal = "SIGTERM"): ReadonlyArray<NativeTerminalSessionState> {
+    for (const record of this.#sessions.values()) {
+      if (record.status === "running") this.stop(record.id, signal);
+    }
+    return this.list();
+  }
+
+  forceStopAll(signal = "SIGKILL"): ReadonlyArray<NativeTerminalSessionState> {
+    const errors: unknown[] = [];
+    for (const record of this.#sessions.values()) {
+      if (record.status === "exited") continue;
+      if (record.status === "running") {
+        record.status = "stopping";
+        this.#invalidateController(record);
+      }
+      record.stopSignal = signal;
+      try {
+        record.pty.kill(signal);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length > 0) {
+      throw new AggregateError(errors, "failed to force-stop one or more terminal sessions");
+    }
+    return this.list();
   }
 
   #requireSession(id: string): SessionRecord {
@@ -265,6 +304,7 @@ export class NativeTerminalHost {
     return Object.freeze({
       id: record.id,
       generation: this.#generation,
+      pid: record.pty.pid,
       status: record.status,
       latestSeq,
       exit: record.exit,
