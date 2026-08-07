@@ -243,7 +243,13 @@ function isRestorePinnedCandidate(entry: RegistryEntry): boolean {
 
 function shouldPreserveByRestorePin(entry: RegistryEntry): boolean {
   if (entry.restorePinned === false) return false;
-  return isRestorePinnedCandidate(entry);
+  if (isRestorePinnedCandidate(entry)) return true;
+  if (entry.endedAt || entry.sessionClass === "background") return false;
+  return (
+    entry.kind === "local-tmux" &&
+    entry.source === "run" &&
+    entry.sessionClass === "human"
+  );
 }
 
 export function loadRegistry(
