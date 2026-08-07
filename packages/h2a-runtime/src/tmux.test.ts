@@ -1554,6 +1554,11 @@ describe("buildCodexImagePasteBinding", () => {
     // preventing the background shell from targeting the wrong pane.
     expect(line).toContain("#{pane_id}");
     expect(line).toContain("-t");
+    expect(line).toContain("tmux load-buffer");
+    expect(line).toContain("tmux paste-buffer");
+    expect(line).toContain("xclip -selection clipboard -out");
+    expect(line).toContain("xsel -ob");
+    expect(line).toContain("tmux send-keys -t \"$PANE_TARGET\" C-v");
   });
 });
 
