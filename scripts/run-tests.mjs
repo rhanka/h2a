@@ -125,7 +125,7 @@ const testEnv = {
 };
 
 // Track's no-store fixtures intentionally walk to the filesystem root. Keep
-// their OS temp parent away from a shared `/tmp/.track`, without changing the
+// their temp parent away from a shared `/tmp/.track`, without changing the
 // Node/h2a suite's tmpdir() semantics: h2a explicitly tests that `/tmp` launch
 // workspaces are refused. Prefer /dev/shm when it is usable on Linux; other
 // platforms, and hosts without a writable /dev/shm, keep their system temp.
@@ -163,8 +163,12 @@ function makeTrackTempDir() {
 }
 
 const trackTemp = makeTrackTempDir();
-const trackTestEnv = {
+const trackFixtureEnv = {
   ...testEnv,
+  H2A_TEST_TRACK_TMPDIR: trackTemp
+};
+const trackTestEnv = {
+  ...trackFixtureEnv,
   TMPDIR: trackTemp,
   TMP: trackTemp,
   TEMP: trackTemp
@@ -200,7 +204,7 @@ function vitestEntrypoint(cwd) {
 
 let exitCode = 0;
 try {
-  const nodeStatus = runSuite("Node test suite", process.execPath, ["--test", ...nodeTestFiles], REPO_ROOT);
+  const nodeStatus = runSuite("Node test suite", process.execPath, ["--test", ...nodeTestFiles], REPO_ROOT, trackFixtureEnv);
   const vitestStatuses = vitestSuites.map((suite) => {
     const cwd = join(REPO_ROOT, suite.dir);
     const configArgs = suite.config === undefined ? [] : ["--config", suite.config];
