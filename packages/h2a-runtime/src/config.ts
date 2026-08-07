@@ -68,6 +68,25 @@ export const DEFAULT_LAYOUT: LayoutConfig = {
   groups: [],
 };
 
+/** Explicit token for "never age-filter restore sessions by age". */
+export const LAYOUT_MAX_AGE_NO_LIMIT = "none";
+
+function parseLayoutMaxAgeHours(raw: unknown): number {
+  if (typeof raw === "string") {
+    if (raw.trim().toLowerCase() === LAYOUT_MAX_AGE_NO_LIMIT) {
+      return Number.POSITIVE_INFINITY;
+    }
+  }
+  if (
+    typeof raw === "number" &&
+    Number.isFinite(raw) &&
+    raw > 0
+  ) {
+    return raw;
+  }
+  return DEFAULT_LAYOUT.maxAgeHours;
+}
+
 /**
  * One MCP server provided by an installed plugin package.
  *
@@ -559,10 +578,7 @@ export function clearTunnel(): void {
 export function getLayoutConfig(): LayoutConfig {
   const raw = readRemoteConfig().layout ?? {};
   return {
-    maxAgeHours:
-      typeof raw.maxAgeHours === "number"
-        ? raw.maxAgeHours
-        : DEFAULT_LAYOUT.maxAgeHours,
+    maxAgeHours: parseLayoutMaxAgeHours(raw.maxAgeHours),
     maxPerWindow:
       typeof raw.maxPerWindow === "number"
         ? raw.maxPerWindow
