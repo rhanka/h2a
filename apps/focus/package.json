@@ -13,7 +13,7 @@
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.2.12",
-    "@sveltejs/kit": "^2.53.3",
+    "@sveltejs/kit": "^2.70.2",
     "@sveltejs/vite-plugin-svelte": "6.2.4",
     "@tsconfig/svelte": "^5.0.0",
     "@types/node": "^20.14.2",
@@ -21,6 +21,9 @@
     "svelte-check": "^4.1.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.3"
+  },
+  "overrides": {
+    "cookie": "0.7.1"
   },
   "dependencies": {
     "@sentropic/design-system-svelte": "^0.34.40",
