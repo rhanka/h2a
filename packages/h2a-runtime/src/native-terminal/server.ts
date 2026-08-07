@@ -10,6 +10,7 @@ import {
 } from "./host.js";
 import {
   NATIVE_TERMINAL_MAX_FRAME_BYTES,
+  NATIVE_TERMINAL_MAX_ERROR_MESSAGE_CHARS,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
   isNativeTerminalStopSignal,
   isRecord,
@@ -193,17 +194,42 @@ function responseFrame(response: NativeTerminalResponse): string {
   return frame;
 }
 
-function writeError(context: ConnectionContext, id: string, code: NativeTerminalErrorResponse["error"]["code"], error: unknown): void {
+function safeResponseId(value: unknown): string {
+  return typeof value === "string" && value.length > 0 && value.length <= 128
+    ? value
+    : "invalid";
+}
+
+function boundedErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.length === 0) return "terminal operation failed";
+  return message.slice(0, NATIVE_TERMINAL_MAX_ERROR_MESSAGE_CHARS);
+}
+
+function writeResponse(
+  context: ConnectionContext,
+  response: NativeTerminalResponse,
+): boolean {
+  try {
+    context.socket.write(responseFrame(response));
+    return true;
+  } catch {
+    context.socket.destroy();
+    return false;
+  }
+}
+
+function writeError(context: ConnectionContext, id: unknown, code: NativeTerminalErrorResponse["error"]["code"], error: unknown): boolean {
   const response: NativeTerminalErrorResponse = {
     version: NATIVE_TERMINAL_PROTOCOL_VERSION,
-    id,
+    id: safeResponseId(id),
     ok: false,
     error: {
       code,
-      message: error instanceof Error ? error.message : String(error),
+      message: boundedErrorMessage(error),
     },
   };
-  context.socket.write(responseFrame(response));
+  return writeResponse(context, response);
 }
 
 function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chunk: string): void {
@@ -230,7 +256,7 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
     try {
       request = parseNativeTerminalRequest(raw);
     } catch (error) {
-      const id = isRecord(raw) && typeof raw.id === "string" ? raw.id : "invalid";
+      const id = isRecord(raw) ? raw.id : "invalid";
       writeError(context, id, "invalid-request", error);
       continue;
     }
@@ -241,7 +267,7 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
         ok: true,
         result: dispatch(host, context, request),
       };
-      context.socket.write(responseFrame(response));
+      writeResponse(context, response);
     } catch (error) {
       writeError(context, request.id, "operation-failed", error);
     }
@@ -347,7 +373,16 @@ export async function startNativeTerminalHostServer(options: {
     sockets.add(socket);
     socket.setEncoding("utf8");
     socket.setNoDelay(true);
-    socket.on("data", (chunk: string) => consumeFrames(options.host, context, chunk));
+    socket.on("error", () => {
+      // Per-connection transport failures are contained to this client.
+    });
+    socket.on("data", (chunk: string) => {
+      try {
+        consumeFrames(options.host, context, chunk);
+      } catch {
+        socket.destroy();
+      }
+    });
     socket.on("close", () => {
       releaseConnectionLeases(options.host, context);
       sockets.delete(socket);
