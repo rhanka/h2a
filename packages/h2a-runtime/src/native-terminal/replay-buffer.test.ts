@@ -41,8 +41,53 @@ describe("TerminalReplayBuffer", () => {
     });
   });
 
+  it("should evict fragmented output by chunk count with an explicit gap", () => {
+    const replay = new TerminalReplayBuffer(32, {
+      maxChunks: 2,
+      maxWireBytes: 1_024,
+    });
+
+    replay.append("a");
+    replay.append("b");
+    replay.append("c");
+
+    expect(replay.latestSeq).toBe(3);
+    expect(replay.readAfter(0)).toEqual({
+      chunks: [
+        { seq: 2, data: "b" },
+        { seq: 3, data: "c" },
+      ],
+      gap: { fromSeq: 1, toSeq: 1 },
+      latestSeq: 3,
+    });
+  });
+
+  it("should evict JSON-heavy output by serialized wire bytes", () => {
+    const oneChunkWireBytes =
+      Buffer.byteLength(JSON.stringify({ seq: 1, data: "\0" }), "utf8") + 1;
+    const replay = new TerminalReplayBuffer(32, {
+      maxChunks: 32,
+      maxWireBytes: oneChunkWireBytes,
+    });
+
+    replay.append("\0");
+    replay.append("\0");
+
+    expect(replay.readAfter(0)).toEqual({
+      chunks: [{ seq: 2, data: "\0" }],
+      gap: { fromSeq: 1, toSeq: 1 },
+      latestSeq: 2,
+    });
+  });
+
   it("should reject invalid budgets and cursors", () => {
     expect(() => new TerminalReplayBuffer(0)).toThrow(RangeError);
+    expect(() => new TerminalReplayBuffer(8, { maxChunks: 0 })).toThrow(
+      RangeError,
+    );
+    expect(() => new TerminalReplayBuffer(8, { maxWireBytes: 0 })).toThrow(
+      RangeError,
+    );
     const replay = new TerminalReplayBuffer(8);
     expect(() => replay.append("")).toThrow(RangeError);
     expect(() => replay.readAfter(-1)).toThrow(RangeError);

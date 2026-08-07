@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { PtyHandle, PtySpawner } from "../pty.js";
 import {
   TerminalReplayBuffer,
@@ -6,6 +8,7 @@ import {
 } from "./replay-buffer.js";
 import {
   NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
+  NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS,
   NATIVE_TERMINAL_MAX_SESSIONS,
   type NativeTerminalStopSignal,
 } from "./protocol.js";
@@ -20,6 +23,7 @@ export type NativeTerminalSessionStatus = "running" | "stopping" | "exited";
 export type NativeTerminalSessionState = Readonly<{
   id: string;
   generation: string;
+  incarnation: string;
   pid: number;
   status: NativeTerminalSessionStatus;
   latestSeq: number;
@@ -29,6 +33,7 @@ export type NativeTerminalSessionState = Readonly<{
 
 export type NativeTerminalReplay = Readonly<{
   generation: string;
+  incarnation: string;
   chunks: ReadonlyArray<TerminalOutputChunk>;
   gap: TerminalReplayGap | null;
   latestSeq: number;
@@ -38,6 +43,7 @@ export type NativeTerminalObserverAttachment = Readonly<{
   role: "observer";
   id: string;
   generation: string;
+  incarnation: string;
   controllerEpoch: number;
 }>;
 
@@ -45,6 +51,7 @@ export type NativeTerminalControllerLease = Readonly<{
   role: "controller";
   id: string;
   generation: string;
+  incarnation: string;
   controllerId: string;
   epoch: number;
 }>;
@@ -52,6 +59,7 @@ export type NativeTerminalControllerLease = Readonly<{
 export type NativeTerminalControllerState = Readonly<{
   id: string;
   generation: string;
+  incarnation: string;
   controllerEpoch: number;
 }>;
 
@@ -67,6 +75,7 @@ export type NativeTerminalCreateOptions = Readonly<{
 
 type SessionRecord = {
   readonly id: string;
+  readonly incarnation: string;
   readonly pty: PtyHandle;
   readonly replay: TerminalReplayBuffer;
   status: NativeTerminalSessionStatus;
@@ -91,8 +100,13 @@ export class NativeTerminalHost {
     maxSessions?: number;
     spawner: PtySpawner;
   }) {
-    if (options.generation.trim().length === 0) {
-      throw new RangeError("terminal host generation must not be empty");
+    if (
+      options.generation.trim().length === 0 ||
+      options.generation.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS
+    ) {
+      throw new RangeError(
+        `terminal host generation must contain 1-${NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS} characters`,
+      );
     }
     // Validate the budget once, before the first process is spawned.
     new TerminalReplayBuffer(options.replayBytesPerSession);
@@ -118,8 +132,13 @@ export class NativeTerminalHost {
   }
 
   create(options: NativeTerminalCreateOptions): NativeTerminalSessionState {
-    if (options.id.trim().length === 0) {
-      throw new RangeError("terminal session id must not be empty");
+    if (
+      options.id.trim().length === 0 ||
+      options.id.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS
+    ) {
+      throw new RangeError(
+        `terminal session id must contain 1-${NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS} characters`,
+      );
     }
     const existing = this.#sessions.get(options.id);
     if (existing?.status === "exited") {
@@ -136,6 +155,7 @@ export class NativeTerminalHost {
 
     const record: SessionRecord = {
       id: options.id,
+      incarnation: randomUUID(),
       pty: this.#spawner(options),
       replay: new TerminalReplayBuffer(this.#replayBytesPerSession),
       status: "running",
@@ -177,8 +197,13 @@ export class NativeTerminalHost {
   }
 
   readOutput(id: string, afterSeq: number): NativeTerminalReplay {
-    const replay = this.#requireSession(id).replay.readAfter(afterSeq);
-    return Object.freeze({ generation: this.#generation, ...replay });
+    const record = this.#requireSession(id);
+    const replay = record.replay.readAfter(afterSeq);
+    return Object.freeze({
+      generation: this.#generation,
+      incarnation: record.incarnation,
+      ...replay,
+    });
   }
 
   attachObserver(id: string): NativeTerminalObserverAttachment {
@@ -187,6 +212,7 @@ export class NativeTerminalHost {
       role: "observer",
       id,
       generation: this.#generation,
+      incarnation: record.incarnation,
       controllerEpoch: record.controllerEpoch,
     });
   }
@@ -196,8 +222,13 @@ export class NativeTerminalHost {
     controllerId: string,
   ): NativeTerminalControllerLease {
     const record = this.#requireControllableSession(id);
-    if (controllerId.trim().length === 0) {
-      throw new RangeError("terminal controller id must not be empty");
+    if (
+      controllerId.trim().length === 0 ||
+      controllerId.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS
+    ) {
+      throw new RangeError(
+        `terminal controller id must contain 1-${NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS} characters`,
+      );
     }
     if (record.controllerId !== null) {
       throw new Error(`terminal session already has a controller: ${id}`);
@@ -208,6 +239,7 @@ export class NativeTerminalHost {
       role: "controller",
       id,
       generation: this.#generation,
+      incarnation: record.incarnation,
       controllerId,
       epoch: record.controllerEpoch,
     });
@@ -221,6 +253,7 @@ export class NativeTerminalHost {
     return Object.freeze({
       id: record.id,
       generation: this.#generation,
+      incarnation: record.incarnation,
       controllerEpoch: record.controllerEpoch,
     });
   }
@@ -338,6 +371,7 @@ export class NativeTerminalHost {
     if (
       lease.generation !== this.#generation ||
       !record ||
+      lease.incarnation !== record.incarnation ||
       record.status === "exited" ||
       record.controllerId !== lease.controllerId ||
       record.controllerEpoch !== lease.epoch
@@ -371,13 +405,13 @@ export class NativeTerminalHost {
   }
 
   #snapshot(record: SessionRecord): NativeTerminalSessionState {
-    const { latestSeq } = record.replay.readAfter(0);
     return Object.freeze({
       id: record.id,
       generation: this.#generation,
+      incarnation: record.incarnation,
       pid: record.pty.pid,
       status: record.status,
-      latestSeq,
+      latestSeq: record.replay.latestSeq,
       exit: record.exit,
       stopSignal: record.stopSignal,
     });
