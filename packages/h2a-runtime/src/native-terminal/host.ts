@@ -4,6 +4,11 @@ import {
   type TerminalOutputChunk,
   type TerminalReplayGap,
 } from "./replay-buffer.js";
+import {
+  NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
+  NATIVE_TERMINAL_MAX_SESSIONS,
+  type NativeTerminalStopSignal,
+} from "./protocol.js";
 
 export type NativeTerminalExit = Readonly<{
   exitCode: number;
@@ -76,12 +81,14 @@ type SessionRecord = {
 export class NativeTerminalHost {
   readonly #generation: string;
   readonly #replayBytesPerSession: number;
+  readonly #maxSessions: number;
   readonly #spawner: PtySpawner;
   readonly #sessions = new Map<string, SessionRecord>();
 
   constructor(options: {
     generation: string;
     replayBytesPerSession: number;
+    maxSessions?: number;
     spawner: PtySpawner;
   }) {
     if (options.generation.trim().length === 0) {
@@ -89,8 +96,20 @@ export class NativeTerminalHost {
     }
     // Validate the budget once, before the first process is spawned.
     new TerminalReplayBuffer(options.replayBytesPerSession);
+    const maxSessions =
+      options.maxSessions ?? NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS;
+    if (
+      !Number.isSafeInteger(maxSessions) ||
+      maxSessions <= 0 ||
+      maxSessions > NATIVE_TERMINAL_MAX_SESSIONS
+    ) {
+      throw new RangeError(
+        `maxSessions must be between 1 and ${NATIVE_TERMINAL_MAX_SESSIONS}`,
+      );
+    }
     this.#generation = options.generation;
     this.#replayBytesPerSession = options.replayBytesPerSession;
+    this.#maxSessions = maxSessions;
     this.#spawner = options.spawner;
   }
 
@@ -102,8 +121,17 @@ export class NativeTerminalHost {
     if (options.id.trim().length === 0) {
       throw new RangeError("terminal session id must not be empty");
     }
-    if (this.#sessions.has(options.id)) {
+    const existing = this.#sessions.get(options.id);
+    if (existing?.status === "exited") {
+      this.#forget(existing);
+    } else if (existing) {
       throw new Error(`terminal session already exists: ${options.id}`);
+    }
+    this.#reapExitedUntilBelowLimit();
+    if (this.#sessions.size >= this.#maxSessions) {
+      throw new Error(
+        `terminal host session limit reached: ${this.#maxSessions}`,
+      );
     }
 
     const record: SessionRecord = {
@@ -167,7 +195,7 @@ export class NativeTerminalHost {
     id: string,
     controllerId: string,
   ): NativeTerminalControllerLease {
-    const record = this.#requireRunningSession(id);
+    const record = this.#requireControllableSession(id);
     if (controllerId.trim().length === 0) {
       throw new RangeError("terminal controller id must not be empty");
     }
@@ -188,7 +216,7 @@ export class NativeTerminalHost {
   releaseController(
     lease: NativeTerminalControllerLease,
   ): NativeTerminalControllerState {
-    const record = this.#requireController(lease);
+    const record = this.#requireMatchingController(lease);
     this.#invalidateController(record);
     return Object.freeze({
       id: record.id,
@@ -220,31 +248,47 @@ export class NativeTerminalHost {
     this.#requireController(lease).pty.resize(cols, rows);
   }
 
-  stop(id: string, signal = "SIGTERM"): NativeTerminalSessionState {
-    const record = this.#requireSession(id);
-    if (record.status !== "running") return this.#snapshot(record);
-
+  stop(
+    lease: NativeTerminalControllerLease,
+    signal: NativeTerminalStopSignal = "SIGTERM",
+  ): NativeTerminalSessionState {
+    const record = this.#requireMatchingController(lease);
+    const previousStatus = record.status;
+    const previousSignal = record.stopSignal;
     record.status = "stopping";
     record.stopSignal = signal;
-    this.#invalidateController(record);
     try {
       record.pty.kill(signal);
     } catch (error) {
-      record.status = "running";
-      record.stopSignal = null;
+      record.status = previousStatus;
+      record.stopSignal = previousSignal;
       throw error;
     }
     return this.#snapshot(record);
   }
 
-  stopAll(signal = "SIGTERM"): ReadonlyArray<NativeTerminalSessionState> {
+  stopAll(
+    signal: NativeTerminalStopSignal = "SIGTERM",
+  ): ReadonlyArray<NativeTerminalSessionState> {
     for (const record of this.#sessions.values()) {
-      if (record.status === "running") this.stop(record.id, signal);
+      if (record.status !== "running") continue;
+      record.status = "stopping";
+      record.stopSignal = signal;
+      this.#invalidateController(record);
+      try {
+        record.pty.kill(signal);
+      } catch (error) {
+        record.status = "running";
+        record.stopSignal = null;
+        throw error;
+      }
     }
     return this.list();
   }
 
-  forceStopAll(signal = "SIGKILL"): ReadonlyArray<NativeTerminalSessionState> {
+  forceStopAll(
+    signal: NativeTerminalStopSignal = "SIGKILL",
+  ): ReadonlyArray<NativeTerminalSessionState> {
     const errors: unknown[] = [];
     for (const record of this.#sessions.values()) {
       if (record.status === "exited") continue;
@@ -271,26 +315,53 @@ export class NativeTerminalHost {
     return record;
   }
 
-  #requireRunningSession(id: string): SessionRecord {
+  #requireControllableSession(id: string): SessionRecord {
     const record = this.#requireSession(id);
-    if (record.status !== "running") {
-      throw new Error(`terminal session is not running: ${id}`);
+    if (record.status === "exited") {
+      throw new Error(`terminal session is already exited: ${id}`);
     }
     return record;
   }
 
   #requireController(lease: NativeTerminalControllerLease): SessionRecord {
+    const record = this.#requireMatchingController(lease);
+    if (record.status !== "running") {
+      throw new Error("stale terminal controller lease");
+    }
+    return record;
+  }
+
+  #requireMatchingController(
+    lease: NativeTerminalControllerLease,
+  ): SessionRecord {
     const record = this.#sessions.get(lease.id);
     if (
       lease.generation !== this.#generation ||
       !record ||
-      record.status !== "running" ||
+      record.status === "exited" ||
       record.controllerId !== lease.controllerId ||
       record.controllerEpoch !== lease.epoch
     ) {
       throw new Error("stale terminal controller lease");
     }
     return record;
+  }
+
+  #reapExitedUntilBelowLimit(): void {
+    if (this.#sessions.size < this.#maxSessions) return;
+    for (const record of this.#sessions.values()) {
+      if (record.status !== "exited") continue;
+      this.#forget(record);
+      if (this.#sessions.size < this.#maxSessions) return;
+    }
+  }
+
+  #forget(record: SessionRecord): void {
+    record.dataSubscription?.dispose();
+    record.exitSubscription?.dispose();
+    delete record.dataSubscription;
+    delete record.exitSubscription;
+    this.#sessions.delete(record.id);
   }
 
   #invalidateController(record: SessionRecord): void {
