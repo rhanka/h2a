@@ -13,7 +13,7 @@ import { SingleTenantOAuthProvider } from "../dist/runtime/mcp-http/oauth/single
 const REDIRECT = "https://claude.ai/api/mcp/auth_callback";
 
 function h2aServer() {
-  const dir = mkdtempSync(join(tmpdir(), "h2a-hosted-"));
+  const dir = mkdtempSync(join(process.env.H2A_TEST_TRACK_TMPDIR ?? tmpdir(), "h2a-hosted-"));
   return { dir, server: createMcpServer({ root: join(dir, ".h2a"), workspaceRoot: dir }) };
 }
 
