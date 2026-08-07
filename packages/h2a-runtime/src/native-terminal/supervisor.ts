@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 
 import { NativeTerminalClient } from "./client.js";
@@ -15,6 +16,7 @@ import {
 const NATIVE_TERMINAL_SPAWN_BACKOFF_BASE_MS = 250;
 const NATIVE_TERMINAL_SPAWN_BACKOFF_MAX_MS = 5_000;
 const NATIVE_TERMINAL_STARTUP_TIMEOUT_MS = 5_000;
+const NATIVE_TERMINAL_SPAWN_TERMINATION_GRACE_MS = 1_000;
 const NATIVE_TERMINAL_MAX_STARTUP_DIAGNOSTIC_BYTES = 4_096;
 
 export type NativeTerminalHostSpawn = (options: {
@@ -55,6 +57,21 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+function childExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+async function waitForChildExit(
+  child: ChildProcess,
+  timeoutMs: number,
+): Promise<boolean> {
+  if (childExited(child)) return true;
+  return Promise.race([
+    once(child, "exit").then(() => true),
+    delay(timeoutMs).then(() => false),
+  ]);
+}
+
 async function connectHealthy(
   socketPath: string,
   requestTimeoutMs: number,
@@ -89,6 +106,8 @@ export class NativeTerminalHostSupervisor {
   readonly #requestTimeoutMs: number;
   readonly #spawnHost: NativeTerminalHostSpawn;
   readonly #now: () => number;
+  readonly #startupTimeoutMs: number;
+  readonly #spawnTerminationGraceMs: number;
   #client: NativeTerminalClient | undefined;
   #connecting: Promise<NativeTerminalClient> | undefined;
   #spawned: ChildProcess | undefined;
@@ -107,6 +126,8 @@ export class NativeTerminalHostSupervisor {
     spawnHost?: NativeTerminalHostSpawn;
     generationFactory?: () => string;
     now?: () => number;
+    startupTimeoutMs?: number;
+    spawnTerminationGraceMs?: number;
   }) {
     if (
       !Number.isSafeInteger(options.replayBytesPerSession)
@@ -135,6 +156,19 @@ export class NativeTerminalHostSupervisor {
         "requestTimeoutMs must be a positive safe integer",
       );
     }
+    const startupTimeoutMs =
+      options.startupTimeoutMs ?? NATIVE_TERMINAL_STARTUP_TIMEOUT_MS;
+    const spawnTerminationGraceMs =
+      options.spawnTerminationGraceMs ??
+      NATIVE_TERMINAL_SPAWN_TERMINATION_GRACE_MS;
+    for (const [label, value] of [
+      ["startupTimeoutMs", startupTimeoutMs],
+      ["spawnTerminationGraceMs", spawnTerminationGraceMs],
+    ] as const) {
+      if (!Number.isSafeInteger(value) || value <= 0) {
+        throw new RangeError(`${label} must be a positive safe integer`);
+      }
+    }
     this.#socketPath = options.socketPath;
     this.#generationFactory = options.generationFactory ?? randomUUID;
     this.#replayBytesPerSession = options.replayBytesPerSession;
@@ -142,6 +176,8 @@ export class NativeTerminalHostSupervisor {
     this.#requestTimeoutMs = requestTimeoutMs;
     this.#spawnHost = options.spawnHost ?? defaultSpawnHost;
     this.#now = options.now ?? Date.now;
+    this.#startupTimeoutMs = startupTimeoutMs;
+    this.#spawnTerminationGraceMs = spawnTerminationGraceMs;
   }
 
   get spawnedPid(): number | undefined {
@@ -218,7 +254,7 @@ export class NativeTerminalHostSupervisor {
     }
 
     let lastError: unknown;
-    const startupDeadline = Date.now() + NATIVE_TERMINAL_STARTUP_TIMEOUT_MS;
+    const startupDeadline = Date.now() + this.#startupTimeoutMs;
     while (Date.now() < startupDeadline) {
       try {
         const connected = await connectHealthy(
@@ -250,8 +286,38 @@ export class NativeTerminalHostSupervisor {
     const error = new Error(
       `native terminal host did not become ready: ${String(lastError)}`,
     );
+    const spawned = this.#spawned;
+    if (spawned && !childExited(spawned)) {
+      try {
+        await this.#terminateOwnedSpawn(spawned);
+      } catch (terminationError) {
+        const combined = new Error(
+          `${error.message}; failed to reap owned child: ${String(terminationError)}`,
+        );
+        this.#recordSpawnFailure(combined);
+        throw combined;
+      }
+    }
     this.#recordSpawnFailure(error);
     throw error;
+  }
+
+  async #terminateOwnedSpawn(spawned: ChildProcess): Promise<void> {
+    if (this.#spawned !== spawned) return;
+    if (!childExited(spawned)) {
+      spawned.kill("SIGTERM");
+      if (
+        !await waitForChildExit(spawned, this.#spawnTerminationGraceMs)
+      ) {
+        spawned.kill("SIGKILL");
+        if (
+          !await waitForChildExit(spawned, this.#spawnTerminationGraceMs)
+        ) {
+          throw new Error("owned native terminal host did not exit after SIGKILL");
+        }
+      }
+    }
+    if (this.#spawned === spawned) this.#spawned = undefined;
   }
 
   #recordSpawnFailure(error: Error): void {

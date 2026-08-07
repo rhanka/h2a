@@ -1,5 +1,5 @@
 import { chmod, mkdtemp, rm, stat, unlink } from "node:fs/promises";
-import { createServer, type Socket } from "node:net";
+import { createConnection, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -191,6 +191,51 @@ describe("native terminal local transport", () => {
     expect(await client.ping()).toMatchObject({
       generation: "unit-generation",
     });
+  });
+
+  it("should close a paused replay reader before its response queue exceeds the bound", async () => {
+    const { socketPath, client, ptys } = await service({
+      replayBytesPerSession: 4 * 1024 * 1024,
+    });
+    await client.create(createOptions("slow-reader"));
+    ptys.get("slow-reader")!.emitData("x".repeat(4 * 1024 * 1024));
+
+    const slow = createConnection(socketPath);
+    slow.on("error", () => {
+      // The server intentionally drops this backpressured connection.
+    });
+    await new Promise<void>((resolve, reject) => {
+      slow.once("connect", resolve);
+      slow.once("error", reject);
+    });
+    slow.pause();
+    const closed = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(
+        () => reject(new Error("slow replay reader was not closed")),
+        5_000,
+      );
+      slow.once("close", () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+    const frames = Array.from({ length: 16 }, (_, index) => JSON.stringify({
+      version: 1,
+      id: `slow-${index}`,
+      operation: "read-output",
+      params: { id: "slow-reader", afterSeq: 0 },
+    })).join("\n") + "\n";
+    slow.write(frames);
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    slow.resume();
+    await closed;
+    expect(await client.ping()).toMatchObject({ generation: "unit-generation" });
+    const lease = await client.acquireController("slow-reader", "healthy");
+    await client.write(lease, "still-healthy");
+    expect(ptys.get("slow-reader")!.write).toHaveBeenCalledWith(
+      "still-healthy",
+    );
   });
 
   it("should bind controller authority to its connection and release it on disconnect", async () => {
