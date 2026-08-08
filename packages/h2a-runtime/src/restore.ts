@@ -916,8 +916,32 @@ export type RestoreOptions = {
    * replaced to apply this override.
    */
   forceGateway?: "gateway" | "direct";
+  /**
+   * Override the config's session-age window (hours) for THIS restore only.
+   * Undefined -> use cfg.maxAgeHours (default). `Infinity` -> no age bound
+   * (the CLI maps the literal `none` to Infinity). Widens ONLY the age filter;
+   * per-window / per-project caps still apply afterwards (see groupSessions).
+   */
+  maxAgeHours?: number;
   stderr?: NodeJS.WriteStream;
 };
+
+/**
+ * Parse the CLI `--max-age-hours <n>|none` value into `RestoreOptions.maxAgeHours`.
+ * `none` (case-insensitive) -> Infinity (no age bound). Otherwise a number of
+ * hours, strictly > 0. Throws on 0, negatives and non-numeric input — the CLI
+ * handler catches and reports via its usual stderr + non-zero-exit convention.
+ */
+export function parseRestoreMaxAgeHours(raw: string): number {
+  if (raw.trim().toLowerCase() === "none") return Infinity;
+  const hours = Number(raw);
+  if (Number.isNaN(hours) || hours <= 0) {
+    throw new Error(
+      `--max-age-hours expects a number of hours > 0 or 'none', got "${raw}"`,
+    );
+  }
+  return hours;
+}
 
 function titleMatches(title: string, query: string): boolean {
   const norm = (s: string) =>
@@ -980,7 +1004,8 @@ export function restore(
         `attach it live with h2a attach ${slugify(label)}\n`,
     );
   }
-  const scanned = discoverSessions(cfg.maxAgeHours * 3600 * 1000);
+  const effMaxAgeHours = opts.maxAgeHours ?? cfg.maxAgeHours;
+  const scanned = discoverSessions(effMaxAgeHours * 3600 * 1000);
   const allDiscovered = mergeDiscovered(
     registrySessions(home, registryEntries, resolution, evidence),
     scanned,
