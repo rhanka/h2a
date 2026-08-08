@@ -127,6 +127,21 @@ import {
   type PromptDeliveryResult,
 } from "./prompt-delivery.js";
 import { buildLaunchContext } from "./launch-context.js";
+import {
+  attachNativeSession,
+  killNativeSessionTree,
+  nativeHostAvailable,
+  nativePromptDeliveryDeps,
+  nativeSessionAlive,
+  nativeSessionPid,
+  nativeTreeCpuMs,
+  nativeWorkerPid,
+  resolveSessionHostKind,
+  startNativeH2aSidecar,
+  startNativeHeadlessSession,
+  startNativeSession,
+  type SessionHostKind,
+} from "./native-host.js";
 import { migrateTmuxNames, type TmuxNameMigrationMode } from "./tmux-name-migration.js";
 import { projectStatusForH2a } from "./status-projection.js";
 import {
@@ -154,6 +169,7 @@ import {
 } from "./restore.js";
 import { getLayoutConfig } from "./config.js";
 import {
+  isManagedLocalKind,
   advanceJob,
   coerceRegistryTool,
   enroll,
@@ -1428,8 +1444,25 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
   }
 
   // --- LOCAL (P1 path), now also queue-driven. ------------------------------
-  if (!tmuxAvailable()) {
+  // Honor the job's RECORDED host kind (a pending job enqueued before the
+  // native default keeps tmux); jobs without a local kind take the default.
+  const jobHostKind: "local-tmux" | "local-native" =
+    job.kind === "local-native" || job.kind === "local-tmux"
+      ? job.kind
+      : resolveSessionHostKind({}) === "native"
+        ? "local-native"
+        : "local-tmux";
+  if (jobHostKind === "local-tmux" && !tmuxAvailable()) {
     return { started: false, error: "tmux is not installed locally" };
+  }
+  if (jobHostKind === "local-native") {
+    const native = nativeHostAvailable();
+    if (!native.ok) {
+      return {
+        started: false,
+        error: `the native PTY host is unavailable: ${native.reason} (delegate with --tmux to use tmux)`,
+      };
+    }
   }
   const originCwd = job.originCwd ?? process.cwd();
   let argv: { command: string; args: string[] };
@@ -1557,24 +1590,54 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
   try {
     if (headless) {
       const dir = jobDir(originCwd, job.id);
-      const launched = startHeadlessSession(
+      if (jobHostKind === "local-native") {
+        const launched = startNativeHeadlessSession(
+          job.tool,
+          argv.command,
+          runCwd,
+          argv.args,
+          join(dir, "result.json"),
+          join(dir, "output.log"),
+          job.id,
+          undefined,
+          false,
+          "background",
+        );
+        tmuxSession = launched.name;
+        workerPid = nativeWorkerPid(launched.name);
+      } else {
+        const launched = startHeadlessSession(
+          job.tool,
+          argv.command,
+          runCwd,
+          argv.args,
+          join(dir, "result.json"),
+          join(dir, "output.log"),
+          job.id,
+          undefined,
+          undefined,
+          false,
+          "background",
+        );
+        tmuxSession = launched.name;
+        agentPane = launched.agentPane;
+        workerPid = launched.agentPane
+          ? localSessionPanePid(launched.agentPane)
+          : undefined;
+      }
+    } else if (jobHostKind === "local-native") {
+      const launched = startNativeSession(
         job.tool,
         argv.command,
         runCwd,
         argv.args,
-        join(dir, "result.json"),
-        join(dir, "output.log"),
         job.id,
-        undefined,
-        undefined,
-        false,
-        "background",
+        { sessionClass: "background" },
       );
       tmuxSession = launched.name;
-      agentPane = launched.agentPane;
-      workerPid = launched.agentPane
-        ? localSessionPanePid(launched.agentPane)
-        : undefined;
+      workerPid = nativeWorkerPid(launched.name);
+      const h2a = getH2aConfig();
+      startNativeH2aSidecar(tmuxSession, runCwd, h2a.command);
     } else {
       const launched = startLocalSession(
         job.tool,
@@ -1610,7 +1673,7 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
   enroll({
     id: job.id,
     tool: job.tool,
-    kind: "local-tmux",
+    kind: jobHostKind,
     cwd: runCwd,
     source: "run",
     sessionClass: "background",
@@ -1846,14 +1909,23 @@ function formatIdle(ms: number): string {
  * (control-plane) are phase 2 — see the TODOs at the call site.
  */
 export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
-  if (job.kind !== "local-tmux" || job.headless !== true) {
+  if (!isManagedLocalKind(job.kind) || job.headless !== true) {
     return {
       started: false,
       error: "throttle-resume is headless-local only (phase 1)",
     };
   }
-  if (!tmuxAvailable()) {
+  if (job.kind === "local-tmux" && !tmuxAvailable()) {
     return { started: false, error: "tmux is not installed locally" };
+  }
+  if (job.kind === "local-native") {
+    const native = nativeHostAvailable();
+    if (!native.ok) {
+      return {
+        started: false,
+        error: `the native PTY host is unavailable: ${native.reason}`,
+      };
+    }
   }
   const task = job.task ?? "";
   const originCwd = job.originCwd ?? process.cwd();
@@ -1916,23 +1988,40 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
   let workerPid: number | undefined;
   try {
     const dir = jobDir(originCwd, job.id);
-    const launched = startHeadlessSession(
-      job.tool,
-      argv.command,
-      runCwd,
-      argv.args,
-      join(dir, "result.json"),
-      join(dir, "output.log"),
-      job.id,
-      undefined,
-      undefined,
-      false,
-      "background",
-    );
-    tmuxSession = launched.name;
-    workerPid = launched.agentPane
-      ? localSessionPanePid(launched.agentPane)
-      : undefined;
+    if (job.kind === "local-native") {
+      const launched = startNativeHeadlessSession(
+        job.tool,
+        argv.command,
+        runCwd,
+        argv.args,
+        join(dir, "result.json"),
+        join(dir, "output.log"),
+        job.id,
+        undefined,
+        false,
+        "background",
+      );
+      tmuxSession = launched.name;
+      workerPid = nativeWorkerPid(launched.name);
+    } else {
+      const launched = startHeadlessSession(
+        job.tool,
+        argv.command,
+        runCwd,
+        argv.args,
+        join(dir, "result.json"),
+        join(dir, "output.log"),
+        job.id,
+        undefined,
+        undefined,
+        false,
+        "background",
+      );
+      tmuxSession = launched.name;
+      workerPid = launched.agentPane
+        ? localSessionPanePid(launched.agentPane)
+        : undefined;
+    }
   } catch (err) {
     return { started: false, error: (err as Error).message };
   } finally {
@@ -1958,7 +2047,7 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
   enroll({
     id: job.id,
     tool: job.tool,
-    kind: "local-tmux",
+    kind: job.kind,
     cwd: runCwd,
     source: "run",
     sessionClass: "background",
@@ -2340,6 +2429,19 @@ function resolveManagedLocalTarget(
   }
   if (registered.kind === "ambiguous") {
     return { kind: "ambiguous", names: [...registered.names].sort() };
+  }
+  // Self-healing for native sessions: the native HOST is the terminal's
+  // source of truth (the tmux-server twin). A registry row lost to a
+  // pre-native h2a write (old validators drop kind:"local-native" rows on
+  // rewrite) must not strand a live session, so probe the host directly.
+  for (const candidate of [target, localSessionName(slugify(target))]) {
+    try {
+      if (nativeSessionAlive(candidate)) {
+        return { kind: "found", name: candidate };
+      }
+    } catch {
+      // no native host — fall through to "missing"
+    }
   }
   return { kind: "missing" };
 }
@@ -5116,6 +5218,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "attach after a successful resume, or attach an already-active session",
     )
     .option(
+      "--tmux",
+      "host the resumed session in tmux instead of the native PTY host (a recorded host always wins; native is the default for fresh sessions)",
+    )
+    .option(
       "--replace",
       "replace an existing idle local tmux session without interactive confirmation",
     )
@@ -5132,6 +5238,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         opts: {
           attach?: boolean;
           replace?: boolean;
+          tmux?: boolean;
           claude?: string | boolean;
           codex?: string | boolean;
           last?: boolean;
@@ -5141,9 +5248,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           noGw?: boolean;
         },
       ) => {
-        if (!tmuxAvailable()) {
+        // tmux stays required only when tmux is the chosen host; a native
+        // resume on a tmux-less machine resolves through the registry.
+        if (
+          !tmuxAvailable() &&
+          (opts.tmux === true || resolveSessionHostKind(opts) === "local-tmux")
+        ) {
           process.stderr.write(
-            "[h2a] tmux is not installed locally — `h2a resume` needs it (e.g. `sudo apt install tmux`).\n",
+            "[h2a] tmux is not installed locally — `h2a resume --tmux` needs it (e.g. `sudo apt install tmux`).\n",
           );
           process.exitCode = 1;
           return;
@@ -5229,7 +5341,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           ? {
               id: displaySlug,
               tool: explicitProfile,
-              kind: "local-tmux" as const,
+              kind: (resolveSessionHostKind(opts) === "native"
+                ? "local-native"
+                : "local-tmux") as "local-tmux" | "local-native",
               cwd: process.cwd(),
               label: displaySlug,
               ...(resolvedConvId ? { convId: resolvedConvId } : {}),
@@ -5465,19 +5579,56 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.stdin.isTTY === true &&
             process.stdout.isTTY === true,
         });
-        const { name } = startLocalSession(
-          profile,
-          command,
-          entry.cwd,
-          args,
-          resumeSlug,
-          undefined,
-          { sessionClass, attachedTerminal: true },
-        );
+        // Recorded host wins; --tmux forces tmux; fresh sessions take the
+        // native default.
+        const resumeHost: SessionHostKind =
+          opts.tmux === true
+            ? "local-tmux"
+            : entry.kind === "local-native"
+              ? "native"
+              : entry.kind === "local-tmux"
+                ? "local-tmux"
+                : resolveSessionHostKind(opts);
+        if (resumeHost === "native") {
+          const native = nativeHostAvailable();
+          if (!native.ok) {
+            process.stderr.write(
+              `[h2a] the native PTY host is unavailable: ${native.reason}\n` +
+                "[h2a] pass --tmux to resume in tmux instead.\n",
+            );
+            process.exitCode = 1;
+            return;
+          }
+        }
+        const { name } =
+          resumeHost === "native"
+            ? startNativeSession(
+                profile,
+                command,
+                entry.cwd,
+                args,
+                resumeSlug,
+                {
+                  sessionClass,
+                  ...(entry.convId ? { resumeId: entry.convId } : {}),
+                },
+              )
+            : startLocalSession(
+                profile,
+                command,
+                entry.cwd,
+                args,
+                resumeSlug,
+                undefined,
+                { sessionClass, attachedTerminal: true },
+              );
         enrollFromRun({
           profile,
           slug: resumeSlug,
           tmuxSession: name,
+          ...(resumeHost === "native"
+            ? { hostKind: "local-native" as const }
+            : {}),
           cwd: entry.cwd,
           sessionClass,
           ...(entry.convId ? { convId: entry.convId } : {}),
@@ -5490,7 +5641,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.stderr.write(`[h2a] gateway active: ${gateway}\n`);
         }
         if (opts.attach) {
-          process.exitCode = attachLocalSession(name);
+          process.exitCode =
+            resumeHost === "native"
+              ? attachNativeSession(name)
+              : attachLocalSession(name);
           return;
         }
         process.stderr.write(`[h2a] attach: h2a attach ${resumeSlug}\n`);
@@ -5509,6 +5663,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option(
       "--no-attached-terminal",
       "disable the persistent headless tmux client (legacy compatibility; cannot be used with --prompt-stdin)",
+    )
+    .option(
+      "--tmux",
+      "host the session in tmux instead of the native PTY host (native is the default; H2A_SESSION_HOST=tmux flips the default fleet-wide)",
     )
     .option(
       "-r, --resume <convId>",
@@ -5563,6 +5721,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         opts: {
           attach?: boolean;
           attachedTerminal?: boolean;
+          tmux?: boolean;
           resume?: string;
           force?: boolean;
           name?: string;
@@ -5634,12 +5793,25 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 2;
           return;
         }
-        if (!tmuxAvailable()) {
-          process.stderr.write(
-            "[h2a] tmux is not installed locally — `h2a run` needs it (e.g. `sudo apt install tmux`).\n",
-          );
-          process.exitCode = 1;
-          return;
+        const sessionHost: SessionHostKind = resolveSessionHostKind(opts);
+        if (sessionHost === "local-tmux") {
+          if (!tmuxAvailable()) {
+            process.stderr.write(
+              "[h2a] tmux is not installed locally — `h2a run --tmux` needs it (e.g. `sudo apt install tmux`).\n",
+            );
+            process.exitCode = 1;
+            return;
+          }
+        } else {
+          const native = nativeHostAvailable();
+          if (!native.ok) {
+            process.stderr.write(
+              `[h2a] the native PTY host is unavailable: ${native.reason}\n` +
+                "[h2a] pass --tmux to host this session in tmux instead.\n",
+            );
+            process.exitCode = 1;
+            return;
+          }
         }
         let count = 1;
         if (opts.count !== undefined) {
@@ -5705,7 +5877,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           count > 1
             ? fanoutLabels(opts.name ?? basename(cwd), count)
             : [opts.name];
-        const existingLocalSessions = existingLocalSessionSlugs(labels, cwd);
+        const existingTmuxSlugs = tmuxAvailable()
+          ? existingLocalSessionSlugs(labels, cwd)
+          : [];
+        const existingNativeSlugs = labels
+          .map((label) => slugify(label ?? cwd))
+          .filter((slug) => {
+            try {
+              return nativeSessionAlive(localSessionName(slug));
+            } catch {
+              return false;
+            }
+          });
+        const existingLocalSessions = [
+          ...new Set([...existingTmuxSlugs, ...existingNativeSlugs]),
+        ];
         if (existingLocalSessions.length > 0) {
           for (const slug of existingLocalSessions) {
             process.stderr.write(
@@ -5870,18 +6056,49 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             mkdirSync(runDir, { recursive: true });
             outputLog = join(runDir, "output.log");
             resultJson = join(runDir, "result.json");
-            ({ name, slug, agentPane, promptFile } = startHeadlessSession(
+            if (sessionHost === "native") {
+              ({ name, slug, promptFile } = startNativeHeadlessSession(
+                profile,
+                command,
+                cwd,
+                args,
+                resultJson,
+                outputLog,
+                label!,
+                initialPrompt,
+                structuredLaunch,
+                sessionClass,
+              ));
+            } else {
+              ({ name, slug, agentPane, promptFile } = startHeadlessSession(
+                profile,
+                command,
+                cwd,
+                args,
+                resultJson,
+                outputLog,
+                label!,
+                getTmuxProfileConfig().profile,
+                initialPrompt,
+                structuredLaunch,
+                sessionClass,
+              ));
+            }
+          } else if (sessionHost === "native") {
+            ({ name, slug } = startNativeSession(
               profile,
               command,
               cwd,
               args,
-              resultJson,
-              outputLog,
-              label!,
-              getTmuxProfileConfig().profile,
-              initialPrompt,
-              structuredLaunch,
-              sessionClass,
+              label,
+              {
+                ...(opts.resume !== undefined ? { resumeId: opts.resume } : {}),
+                ...(initialPrompt !== undefined
+                  ? { terminateOnAgentExit: true }
+                  : {}),
+                ...(structuredLaunch ? { refuseExisting: true } : {}),
+                sessionClass,
+              },
             ));
           } else {
             ({ name, slug, agentPane } = startLocalSession(
@@ -5905,7 +6122,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               },
             ));
           }
-          if (structuredLaunch && !agentPane) {
+          if (structuredLaunch && sessionHost !== "native" && !agentPane) {
             cleanupHeadlessPromptFile(promptFile);
             killLocalSession(name);
             process.stderr.write(
@@ -5915,7 +6132,25 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
           let h2aSidecarStarted = false;
-          if (h2aSidecar) {
+          if (h2aSidecar && sessionHost === "native") {
+            h2aSidecarStarted = startNativeH2aSidecar(name, cwd, h2a.command, {
+              ...(structuredLaunch ? { verified: true } : {}),
+            });
+            if (!h2aSidecarStarted && structuredLaunch) {
+              cleanupHeadlessPromptFile(promptFile);
+              killNativeSessionTree(name);
+              process.stderr.write(
+                `[h2a] required h2a sidecar failed for ${slug}; the partial session was stopped\n`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            if (h2aSidecarStarted) {
+              process.stderr.write(
+                `[h2a] h2a sidecar session started for ${slug} (${h2a.command})\n`,
+              );
+            }
+          } else if (h2aSidecar) {
             if (structuredLaunch) {
               try {
                 h2aSidecarStarted = Boolean(
@@ -5957,15 +6192,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             // OBSERVED — brief seen in a real composer, then real work — because
             // reporting "started" over a lost brief is what left a lane inert
             // for 33 minutes on 2026-07-28.
-            promptDelivery = deliverInitialPrompt(agentPane!, initialPrompt, {
-              capturePane: capturePaneVisible,
-              clearComposer: clearPaneComposer,
-              pasteBlock: pasteLiteralBlock,
-              submit: submitPane,
-              cpuMs: paneTreeCpuMs,
-              sleep: sleepSync,
-              now: () => Date.now(),
-            });
+            promptDelivery = sessionHost === "native"
+              ? deliverInitialPrompt(
+                  name,
+                  initialPrompt,
+                  nativePromptDeliveryDeps(sleepSync),
+                )
+              : deliverInitialPrompt(agentPane!, initialPrompt, {
+                  capturePane: capturePaneVisible,
+                  clearComposer: clearPaneComposer,
+                  pasteBlock: pasteLiteralBlock,
+                  submit: submitPane,
+                  cpuMs: paneTreeCpuMs,
+                  sleep: sleepSync,
+                  now: () => Date.now(),
+                });
             if (promptDelivery.state !== "working") {
               cleanupHeadlessPromptFile(promptFile);
               // Only claim the session is gone when the kill actually reported
@@ -5973,7 +6214,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               // same wider-than-its-evidence claim this change exists to remove,
               // and a surviving partial session is precisely the idle lane the
               // operator was just told could not happen.
-              const stopped = killLocalSession(name);
+              const stopped =
+                sessionHost === "native"
+                  ? killNativeSessionTree(name)
+                  : killLocalSession(name);
               const detail =
                 promptDelivery.state === "submitted-idle"
                   ? `the brief was submitted but the agent never started working ` +
@@ -5997,14 +6241,22 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               return;
             }
           }
-          const pid = agentPane
-            ? localSessionPanePid(agentPane)
-            : undefined;
+          const pid =
+            sessionHost === "native"
+              ? nativeSessionPid(name)
+              : agentPane
+                ? localSessionPanePid(agentPane)
+                : undefined;
           const workerPid =
-            agentPane !== undefined ? paneWorkerPid(agentPane) : undefined;
+            sessionHost === "native"
+              ? nativeWorkerPid(name)
+              : agentPane !== undefined
+                ? paneWorkerPid(agentPane)
+                : undefined;
           if (structuredLaunch && pid === undefined) {
             cleanupHeadlessPromptFile(promptFile);
-            killLocalSession(name);
+            if (sessionHost === "native") killNativeSessionTree(name);
+            else killLocalSession(name);
             process.stderr.write(
               `[h2a] could not verify the agent pane pid for ${slug}; the partial session was stopped\n`,
             );
@@ -6018,6 +6270,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             profile,
             slug,
             tmuxSession: name,
+            ...(sessionHost === "native"
+              ? { hostKind: "local-native" as const }
+              : {}),
             ...(pid !== undefined ? { pid } : {}),
             ...(workerPid !== undefined ? { workerPid } : {}),
             cwd,
@@ -6056,6 +6311,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               session: {
                 id: only.slug,
                 tmuxSession: only.name,
+                host: sessionHost === "native" ? "native" : "tmux",
                 profile,
                 workspace: cwd,
                 mode: opts.headless ? "headless" : "interactive",
@@ -6108,7 +6364,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
           return;
         }
-        process.exitCode = attachLocalSession(only.name);
+        process.exitCode =
+          sessionHost === "native"
+            ? attachNativeSession(only.name)
+            : attachLocalSession(only.name);
         return;
       },
     );
@@ -6125,6 +6384,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option(
       "--remote [url]",
       "run the job in a SCW Pod (concurrent; isolated by a per-job workspace subPath on the shared RWX volume) instead of a local tmux session; optional control-plane URL (default: the configured remote)",
+    )
+    .option(
+      "--tmux",
+      "host the local job in tmux instead of the native PTY host (native is the default)",
     )
     .option(
       "--cwd <path>",
@@ -6176,6 +6439,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         task: string,
         opts: {
           remote?: string | boolean;
+          tmux?: boolean;
           cwd?: string;
           name?: string;
           headless?: boolean;
@@ -6196,6 +6460,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
+        // Which local host runs this job's terminal (native default, --tmux
+        // per job, H2A_SESSION_HOST=tmux fleet-wide). Recorded on the job
+        // entry so the conductor honors it at (re)launch time.
+        const delegateLocalHostKind: "local-tmux" | "local-native" =
+          resolveSessionHostKind(opts) === "native"
+            ? "local-native"
+            : "local-tmux";
         const jobType: DelegateType = type;
         try {
           assertDelegateEffort(jobType, opts.effort);
@@ -6285,7 +6556,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           enroll({
             id: jobId,
             tool: jobType,
-            kind: isRemote ? "remote" : "local-tmux",
+            kind: isRemote ? "remote" : delegateLocalHostKind,
             cwd: isRemote ? `job-${jobId}` : process.cwd(),
             source: isRemote ? "remote" : "run",
             sessionClass: "background",
@@ -6322,7 +6593,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const claimInput = {
           id: jobId,
           tool: jobType,
-          kind: (isRemote ? "remote" : "local-tmux") as RegistryEntry["kind"],
+          kind: (isRemote ? "remote" : delegateLocalHostKind) as RegistryEntry["kind"],
           cwd: isRemote ? `job-${jobId}` : process.cwd(),
           source: (isRemote ? "remote" : "run") as RegistryEntry["source"],
           sessionClass: "background" as const,
@@ -6375,7 +6646,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           ({
             id: jobId,
             tool: jobType,
-            kind: isRemote ? "remote" : "local-tmux",
+            kind: isRemote ? "remote" : delegateLocalHostKind,
             cwd: process.cwd(),
             enrolledAt: new Date().toISOString(),
             lastSeenAt: new Date().toISOString(),
@@ -7485,10 +7756,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     // Enroll + launch via the SAME path delegate uses (task rides argv, never a
     // shell string). Mark processed + record the cooldown timestamp regardless of
     // the spawn result (a failed spawn shouldn't tight-loop a watch).
+    const conductorHostKind: "local-tmux" | "local-native" =
+      resolveSessionHostKind({}) === "native" ? "local-native" : "local-tmux";
     const launchEntry: RegistryEntry = {
       id: slug,
       tool: host,
-      kind: "local-tmux",
+      kind: conductorHostKind,
       cwd: process.cwd(),
       enrolledAt: new Date().toISOString(),
       lastSeenAt: new Date().toISOString(),
@@ -7505,7 +7778,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     enroll({
       id: slug,
       tool: host,
-      kind: "local-tmux",
+      kind: conductorHostKind,
       cwd: process.cwd(),
       source: "run",
       sessionClass: "background",
@@ -7572,12 +7845,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "--cooldown <min>",
       "minimum minutes between launches for the SAME workspace (default 30)",
     )
+    .option(
+      "--tmux",
+      "host launched conductors in tmux instead of the native PTY host for this pass",
+    )
     .action(
       async (opts: {
         confirm?: boolean;
         watch?: string;
         cooldown?: string;
+        tmux?: boolean;
       }) => {
+        // Per-pass host opt-out rides the fleet valve: every kind decision in
+        // this pass (launch entries, startJob) reads H2A_SESSION_HOST.
+        if (opts.tmux === true) process.env["H2A_SESSION_HOST"] = "tmux";
         const confirm = opts.confirm === true;
         const cooldownMin =
           opts.cooldown !== undefined ? Number(opts.cooldown) : 30;
@@ -7893,15 +8174,99 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       filter: string | undefined,
       opts: { all?: boolean; apply?: boolean; includeAgents?: boolean; yes?: boolean },
     ) => {
-      if (!tmuxAvailable()) {
-        process.stderr.write("[h2a] tmux is not installed locally\n");
-        process.exitCode = 1;
-        return;
-      }
       if (filter && opts.all) {
         process.stderr.write(
           "[h2a] relaunch accepts either one exact session name or --all, not both.\n",
         );
+        process.exitCode = 1;
+        return;
+      }
+      // Native-PTY sessions: an exact filter whose registry record says
+      // kind:"local-native" is relaunched through the native host (the tmux
+      // inventory below cannot see it). --all sweeps stay tmux-only for now.
+      if (filter) {
+        const nativeEntry = loadRegistry().find(
+          (e) =>
+            e.kind === "local-native" &&
+            !e.endedAt &&
+            (e.id === filter || e.label === filter || e.tmuxSession === filter),
+        );
+        const nativeName =
+          nativeEntry?.tmuxSession ??
+          (nativeEntry ? localSessionName(nativeEntry.id) : undefined);
+        if (nativeEntry && nativeName && nativeSessionAlive(nativeName)) {
+          const slug = nativeEntry.label ?? nativeEntry.id;
+          if (!opts.apply) {
+            process.stderr.write(
+              `[h2a] DRY-RUN — would relaunch NATIVE session ${slug} ` +
+                `(${nativeEntry.tool}${nativeEntry.convId ? ` --resume ${nativeEntry.convId}` : ""} in ${nativeEntry.cwd}). ` +
+                "Re-run with --apply.\n",
+            );
+            return;
+          }
+          // Safety twin of the pane-CPU probe: a session burning CPU is
+          // WORKING; refuse to kill it without --yes.
+          const cpuBefore = nativeTreeCpuMs(nativeName);
+          sleepSync(1_500);
+          const cpuAfter = nativeTreeCpuMs(nativeName);
+          const busy =
+            cpuBefore !== undefined &&
+            cpuAfter !== undefined &&
+            cpuAfter - cpuBefore > 300;
+          if (busy && opts.yes !== true) {
+            process.stderr.write(
+              `[h2a] native session ${slug} is actively working ` +
+                `(+${Math.round((cpuAfter ?? 0) - (cpuBefore ?? 0))}ms CPU in 1.5s); ` +
+                "pass --yes to relaunch it anyway.\n",
+            );
+            process.exitCode = 1;
+            return;
+          }
+          if (!killNativeSessionTree(nativeName)) {
+            process.stderr.write(
+              `[h2a] native session ${slug} could not be killed; nothing was relaunched.\n`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+          const profile = nativeEntry.tool;
+          const command = localCliCommand(profile);
+          const useBare = shouldUseClaudeBare(profile);
+          const args = nativeEntry.convId
+            ? localResumeArgs(profile, nativeEntry.convId, { bare: useBare })
+            : localStartArgs(profile, { bare: useBare });
+          const relaunched = startNativeSession(
+            profile,
+            command,
+            nativeEntry.cwd,
+            args,
+            slug,
+            {
+              ...(nativeEntry.convId ? { resumeId: nativeEntry.convId } : {}),
+              ...(nativeEntry.sessionClass !== undefined
+                ? { sessionClass: nativeEntry.sessionClass }
+                : {}),
+            },
+          );
+          enrollFromRun({
+            profile,
+            slug,
+            tmuxSession: relaunched.name,
+            hostKind: "local-native",
+            ...(relaunched.pid !== undefined ? { pid: relaunched.pid } : {}),
+            cwd: nativeEntry.cwd,
+            sessionClass: nativeEntry.sessionClass ?? "human",
+            ...(nativeEntry.convId ? { convId: nativeEntry.convId } : {}),
+          });
+          process.stderr.write(
+            `[h2a] native session ${slug} relaunched ` +
+              `(${profile}${nativeEntry.convId ? ` --resume ${nativeEntry.convId}` : ""} in ${nativeEntry.cwd})\n`,
+          );
+          return;
+        }
+      }
+      if (!tmuxAvailable()) {
+        process.stderr.write("[h2a] tmux is not installed locally\n");
         process.exitCode = 1;
         return;
       }
@@ -8928,7 +9293,23 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               process.exitCode = 1;
               return;
             }
+            // Honor the session's RECORDED host: a native-PTY session has no
+            // tmux twin, so probe the native host first and only then fall
+            // back to tmux attach.
+            let nativeTarget = false;
+            try {
+              nativeTarget = nativeSessionAlive(localName);
+            } catch {
+              nativeTarget = false;
+            }
             if (opts.headlessTerminal) {
+              if (nativeTarget) {
+                process.stderr.write(
+                  `[h2a] ${first} is hosted by the native PTY host, which owns a persistent PTY already; --headless-terminal is tmux-only.\n`,
+                );
+                process.exitCode = 1;
+                return;
+              }
               const terminal = ensureHeadlessTerminal(localName);
               if (terminal.state === "unavailable") {
                 process.stderr.write(
@@ -8942,7 +9323,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               );
               return;
             }
-            process.exitCode = attachLocalSession(localName);
+            process.exitCode = nativeTarget
+              ? attachNativeSession(localName)
+              : attachLocalSession(localName);
             return;
           }
         }
@@ -9200,7 +9583,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
           if (localTarget.kind === "found") {
-            const ok = killLocalSession(localTarget.name);
+            // Honor the recorded host: native sessions die through the native
+            // host (with their h2a sidecar companion), tmux sessions via tmux.
+            let nativeTarget = false;
+            try {
+              nativeTarget = nativeSessionAlive(localTarget.name);
+            } catch {
+              nativeTarget = false;
+            }
+            const ok = nativeTarget
+              ? killNativeSessionTree(localTarget.name)
+              : killLocalSession(localTarget.name);
             process.stderr.write(
               `[h2a] local session ${localTarget.local?.slug ?? first} ${ok ? "killed" : "could not be killed"}\n`,
             );

@@ -27,6 +27,7 @@ import {
 } from "./config.js";
 import { encodeCwd } from "./convsync.js";
 import {
+  isManagedLocalKind,
   loadRegistry,
   looksLikeConversationUuid,
   persistReconciledConvIds,
@@ -39,6 +40,7 @@ import {
   type LocalSession,
 } from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
+import { listNativeSessions } from "./native-host.js";
 
 export type DiscoveredSession = {
   project: string;
@@ -372,7 +374,7 @@ export function reconcileRunConvIds(
   const claimedConvIds = new Set<string>();
 
   for (const r of entries) {
-    if (r.kind !== "local-tmux" || r.source !== "run") continue;
+    if (!isManagedLocalKind(r.kind) || r.source !== "run") continue;
     // Delegated jobs / background launches are never restored as human tabs, so
     // don't reconcile (and don't emit a spurious skip note) for them.
     if (!isHumanFacingSession(r, evidence)) continue;
@@ -445,7 +447,7 @@ export function registrySessions(
     // (restore() emits the attach-hint note) — never a broken `--resume <label>`.
     if (
       resolution &&
-      e.kind === "local-tmux" &&
+      isManagedLocalKind(e.kind) &&
       e.source === "run" &&
       resolution.unresolvedRunIds.has(e.id)
     ) {
@@ -714,7 +716,11 @@ export function tabCommand(
     (tab.sid ? `--resume ${q(tab.sid)} ` : "") +
     `--name ${q(tab.label)}${gwFlag}${extra}`;
   if (opts.attachSession) {
-    return `tmux attach -t ${q(opts.attachSession)}`;
+    // `h2a attach` resolves the exact managed name and honors the session's
+    // RECORDED host (tmux attach for tmux sessions, the native bridge for
+    // native-PTY sessions) — a raw `tmux attach -t` here would strand every
+    // native session behind a "no such session" error.
+    return `h2a attach ${q(opts.attachSession)}`;
   }
   if (liveSlugs.has(slug)) {
     // Compatibility for direct callers that only know a unique slug.  Restore
@@ -782,7 +788,28 @@ export function launchLayout(
   opts: { reattach?: boolean; forceGateway?: "gateway" | "direct" } = {},
 ): { opened: number; skippedLive: string[] } {
   const localSessions = listLocalSessionsWithDiagnostics();
-  const liveSessions = localSessions.sessions;
+  // Native-PTY sessions are just as live as tmux ones; fold them into the
+  // same {name, slug} shape so a live native session gets an ATTACH tab and
+  // is never relaunched over.
+  let nativeLive: Array<{ name: string; slug: string; attached: boolean }> = [];
+  try {
+    nativeLive = listNativeSessions()
+      .filter((session) => session.status === "running")
+      .filter((session) => session.id.startsWith("h2a-") && !session.id.endsWith(".h2a"))
+      .map((session) => ({
+        name: session.id,
+        slug: session.id.slice("h2a-".length),
+        attached: false,
+      }));
+  } catch {
+    nativeLive = [];
+  }
+  const liveSessions = [
+    ...localSessions.sessions,
+    ...nativeLive.filter(
+      (native) => !localSessions.sessions.some((s) => s.name === native.name),
+    ),
+  ];
   const ambiguousLiveNames = ambiguousLiveSessionNames(liveSessions);
   const skippedLive: string[] = [];
   let opened = 0;
@@ -959,7 +986,7 @@ export function restore(
       const updates = new Map<string, string>();
       for (const [id, sid] of resolution.resolvedSid) {
         const e = registryEntries.find((x) => x.id === id);
-        if (e && e.kind === "local-tmux" && e.source === "run" && e.convId !== sid) {
+        if (e && isManagedLocalKind(e.kind) && e.source === "run" && e.convId !== sid) {
           updates.set(id, sid);
         }
       }
