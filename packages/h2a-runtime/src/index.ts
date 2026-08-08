@@ -185,6 +185,7 @@ import {
   resolveLocalTmuxSessionForName,
   resolveManagedHost,
   tryClaimSlot,
+  unreadableRegistryRowsForTarget,
   withRegistryLock,
   resolveRegistryPath,
   type RegistryEntry,
@@ -5927,15 +5928,33 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const existingTmuxSlugs = tmuxAvailable()
           ? existingLocalSessionSlugs(labels, cwd)
           : [];
-        const existingNativeSlugs = labels
+        // Native existence is THREE-state (the resolver's probe vocabulary):
+        // a probe FAILURE is "unknown", never absence. Treating a thrown
+        // probe as "no session" would let `run --tmux --resume` start a tmux
+        // twin over a live-but-unprovable native writer (sol-F3): the same
+        // fail-closed rule as resolveManagedHost's rule 4 applies — refuse
+        // to launch on an unprovable host state.
+        const nativeExistence = labels
           .map((label) => slugify(label ?? cwd))
-          .filter((slug) => {
-            try {
-              return nativeSessionAlive(localSessionName(slug));
-            } catch {
-              return false;
-            }
-          });
+          .map((slug) => ({
+            slug,
+            probe: probeNativeSession(localSessionName(slug)),
+          }));
+        const unknownNativeSlugs = nativeExistence
+          .filter((probed) => probed.probe === "unknown")
+          .map((probed) => probed.slug);
+        if (unknownNativeSlugs.length > 0) {
+          for (const slug of unknownNativeSlugs) {
+            process.stderr.write(
+              `[h2a] cannot start ${slug}: native host state is unknown (the probe failed) — a probe failure is never proof of absence; refusing to risk a second writer (fail closed).\n`,
+            );
+          }
+          process.exitCode = 1;
+          return;
+        }
+        const existingNativeSlugs = nativeExistence
+          .filter((probed) => probed.probe === "live")
+          .map((probed) => probed.slug);
         const existingLocalSessions = [
           ...new Set([...existingTmuxSlugs, ...existingNativeSlugs]),
         ];
@@ -9716,6 +9735,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               `[h2a] ${nativeTarget ? "native" : "local"} session ${localTarget.local?.slug ?? first} ${ok ? "killed" : "could not be killed"}\n`,
             );
             if (!ok) process.exitCode = 1;
+            return;
+          }
+          // An identity whose registry row exists but is UNREADABLE (kind
+          // absent/invalid) is not "no local session" — its local host state
+          // is UNKNOWN (sol-2). Falling through here would aim a DESTRUCTIVE
+          // stop at a REMOTE homonym of the same id. Fail closed instead.
+          const unreadable = unreadableRegistryRowsForTarget(first);
+          if (unreadable.length > 0) {
+            process.stderr.write(
+              `[h2a] cannot stop ${first}: a registry row for this identity exists but is unreadable (its recorded kind is missing or invalid), so local host state is unknown; refusing to fall through to a remote session of the same name (fail closed). Repair the registry row first.\n`,
+            );
+            process.exitCode = 1;
             return;
           }
         }
