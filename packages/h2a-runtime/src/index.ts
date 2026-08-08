@@ -146,6 +146,7 @@ import {
 import {
   isHumanFacingSession,
   legacySessionEvidence,
+  parseRestoreMaxAgeHours,
   readConversationCustomTitle,
   readLastLayout,
   reconcileRunConvIds,
@@ -8653,6 +8654,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "force TOUTES les sessions en direct, sans gateway (ignore le pin par instance; relance les sessions vivantes via --replace)",
     )
     .option("--no-gw", "alias de --no-llm-gateway")
+    .option(
+      "--max-age-hours <n|none>",
+      "widen the session AGE window for this restore only (default: config, ~48h). " +
+        "'none' = no age bound. NOTE: only moves the age cutoff; it does NOT change " +
+        "per-window/per-project caps. If the per-project cap is disabled, a 'none' " +
+        "restore is unbounded on both axes.",
+    )
     .action(
       async (
         group: string | undefined,
@@ -8663,6 +8671,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           gw?: boolean;
           noLlmGateway?: boolean;
           noGw?: boolean;
+          maxAgeHours?: string;
         },
       ) => {
         if (!tmuxAvailable()) {
@@ -8685,6 +8694,19 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const restoreOpts: RestoreOptions = {};
         if (group) restoreOpts.group = group;
         if (opts.dryRun) restoreOpts.dryRun = true;
+
+        // Optional per-restore age-window override: `none` -> Infinity (no age
+        // bound), otherwise a strictly positive number of hours. Only moves the
+        // age cutoff — per-window/per-project caps are untouched.
+        if (opts.maxAgeHours !== undefined) {
+          try {
+            restoreOpts.maxAgeHours = parseRestoreMaxAgeHours(opts.maxAgeHours);
+          } catch (error) {
+            process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
+            process.exitCode = 1;
+            return;
+          }
+        }
 
         // Optional restore-launch gateway override. "auto" (no flag) leaves
         // each session on its pinned posture; an existing live session is only
