@@ -146,6 +146,8 @@ import {
 import {
   isHumanFacingSession,
   legacySessionEvidence,
+  parseRestoreMaxAgeHours,
+  parseRestoreMaxPerProject,
   readConversationCustomTitle,
   readLastLayout,
   reconcileRunConvIds,
@@ -8653,6 +8655,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "force TOUTES les sessions en direct, sans gateway (ignore le pin par instance; relance les sessions vivantes via --replace)",
     )
     .option("--no-gw", "alias de --no-llm-gateway")
+    .option(
+      "--max-age-hours <n|none>",
+      "fenêtre d'âge des sessions pour CE restore (défaut sans flag: 72h; " +
+        "'none' = aucune borne d'âge). Ne déplace que le filtre d'âge du scan — " +
+        "les plafonds par fenêtre/par projet s'appliquent ensuite.",
+    )
+    .option(
+      "--max-per-project <n|all>",
+      "plafond de sessions par projet pour CE restore ('all' = toutes). " +
+        "Remplace À LA FOIS multiSession[projet] et multiSessionDefault de la config.",
+    )
     .action(
       async (
         group: string | undefined,
@@ -8663,6 +8676,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           gw?: boolean;
           noLlmGateway?: boolean;
           noGw?: boolean;
+          maxAgeHours?: string;
+          maxPerProject?: string;
         },
       ) => {
         if (!tmuxAvailable()) {
@@ -8685,6 +8700,26 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const restoreOpts: RestoreOptions = {};
         if (group) restoreOpts.group = group;
         if (opts.dryRun) restoreOpts.dryRun = true;
+
+        // Per-restore overrides typed by the user right now: age window
+        // ('none' -> Infinity; default without the flag is 72h) and per-project
+        // cap ('all' -> Infinity; replaces BOTH multiSession[project] and
+        // multiSessionDefault). Parse failures use the handler's usual
+        // convention (stderr `[h2a] …` + exit code 1).
+        try {
+          if (opts.maxAgeHours !== undefined) {
+            restoreOpts.maxAgeHours = parseRestoreMaxAgeHours(opts.maxAgeHours);
+          }
+          if (opts.maxPerProject !== undefined) {
+            restoreOpts.maxPerProject = parseRestoreMaxPerProject(
+              opts.maxPerProject,
+            );
+          }
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
+          process.exitCode = 1;
+          return;
+        }
 
         // Optional restore-launch gateway override. "auto" (no flag) leaves
         // each session on its pinned posture; an existing live session is only
@@ -8731,14 +8766,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
         }
-        const { total } = restoreLayout(restoreOpts);
+        const { total, dropped } = restoreLayout(restoreOpts);
+        // I5 — the summary must not present a truncated restore as complete.
+        // restore() already emitted the detailed dropped line (count + cause)
+        // on stderr; this suffix only keeps the summary itself truthful.
+        const truncated =
+          dropped > 0
+            ? ` — TRONQUÉ: ${dropped} session(s) écartée(s) (plafond partagé, voir ci-dessus)`
+            : "";
         if (total === 0) {
           process.stderr.write(
-            `[h2a] rien à relancer${group ? ` pour le groupe "${group}"` : ""}\n`,
+            `[h2a] rien à relancer${group ? ` pour le groupe "${group}"` : ""}${truncated}\n`,
           );
         } else {
           process.stderr.write(
-            `[h2a] ${total} onglet(s)${opts.dryRun ? " (dry-run, rien ouvert)" : " relancé(s)"}\n`,
+            `[h2a] ${total} onglet(s)${opts.dryRun ? " (dry-run, rien ouvert)" : " relancé(s)"}${truncated}\n`,
           );
         }
       },

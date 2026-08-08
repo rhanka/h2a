@@ -21,7 +21,7 @@ import {
   withRegistryLock,
   type RegistryEntry,
 } from "./registry.js";
-import { DEFAULT_LAYOUT } from "./config.js";
+import { DEFAULT_RESTORE_MAX_AGE_HOURS } from "./config.js";
 
 // Scratch dir inside the package (never /tmp), like the other test suites.
 const SCRATCH_ROOT = join(
@@ -300,7 +300,7 @@ describe("registry", () => {
         },
       ];
       writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
-      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+      const removed = prune(DEFAULT_RESTORE_MAX_AGE_HOURS, {
         path: regPath,
         tmuxHasSession: () => false,
       });
@@ -337,7 +337,7 @@ describe("registry", () => {
         },
       ];
       writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
-      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+      const removed = prune(DEFAULT_RESTORE_MAX_AGE_HOURS, {
         path: regPath,
         tmuxHasSession: () => false,
       });
@@ -374,7 +374,7 @@ describe("registry", () => {
         },
       ];
       writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
-      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+      const removed = prune(DEFAULT_RESTORE_MAX_AGE_HOURS, {
         path: regPath,
         tmuxHasSession: () => false,
       });
@@ -410,7 +410,7 @@ describe("registry", () => {
         },
       ];
       writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
-      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+      const removed = prune(DEFAULT_RESTORE_MAX_AGE_HOURS, {
         path: regPath,
         tmuxHasSession: () => false,
       });
@@ -445,7 +445,7 @@ describe("registry", () => {
         },
       ];
       writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
-      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+      const removed = prune(DEFAULT_RESTORE_MAX_AGE_HOURS, {
         path: regPath,
         tmuxHasSession: () => false,
       });
@@ -481,7 +481,7 @@ describe("registry", () => {
         },
       ];
       writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
-      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+      const removed = prune(DEFAULT_RESTORE_MAX_AGE_HOURS, {
         path: regPath,
         tmuxHasSession: () => false,
       });
