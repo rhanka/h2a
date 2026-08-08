@@ -418,6 +418,41 @@ describe("registry", () => {
       expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-no-class"]);
     });
 
+    it("does not pin a positively non-human row (delegated job), even when classless", () => {
+      const old = new Date(Date.now() - 100 * 3600 * 1000).toISOString();
+      const entries: RegistryEntry[] = [
+        {
+          id: "restore-no-class-job",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/r",
+          tmuxSession: "remote-restore-no-class-job",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          role: "job",
+        },
+        {
+          id: "dead-old",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/a",
+          tmuxSession: "remote-a",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          sessionClass: "background",
+        },
+      ];
+      writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
+      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+        path: regPath,
+        tmuxHasSession: () => false,
+      });
+      expect(removed).toBe(2);
+      expect(loadRegistry(regPath)).toEqual([]);
+    });
+
     it("keeps durable human rows that qualify for implicit restore pinning", () => {
       const old = new Date(Date.now() - 100 * 3600 * 1000).toISOString();
       const entries: RegistryEntry[] = [
