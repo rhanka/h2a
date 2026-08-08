@@ -26,9 +26,11 @@ import { dirname, join } from "node:path";
 import { getLayoutConfig, resolveConfigPath } from "./config.js";
 import { acquireFileLock, releaseFileLock } from "./file-lock.js";
 import {
+  localSessionName,
   managedSessionCandidates,
   parseManagedSessionName,
   listLocalSessions,
+  tmuxAvailable,
   type LocalSession,
 } from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
@@ -1039,8 +1041,13 @@ export function enrollFromRun(args: {
   profile: string;
   slug: string;
   tmuxSession: string;
-  /** Which local host runs the session terminal (default: tmux). */
-  hostKind?: "local-tmux" | "local-native";
+  /**
+   * Which local host ACTUALLY runs the session terminal. REQUIRED: the write
+   * boundary refuses to guess — an implicit "local-tmux" default mislabeled
+   * native sessions and re-routed later destructive acts (F2 family). A
+   * missing row is recoverable by discovery; a wrongly-hosted row is not.
+   */
+  hostKind: "local-tmux" | "local-native";
   /** Pane pid observed by the structured launcher, if available. */
   pid?: number;
   cwd: string;
@@ -1053,11 +1060,19 @@ export function enrollFromRun(args: {
 }): void {
   const tool = coerceRegistryTool(args.profile);
   if (!tool) return; // shell/opencode/… sessions stay tmux-only
+  // Runtime twin of the required-parameter type: an untyped caller that omits
+  // the host gets NO row rather than a row on a guessed host. Never default.
+  if (args.hostKind !== "local-tmux" && args.hostKind !== "local-native") {
+    process.stderr.write(
+      `[h2a] registry enrolment refused for ${args.slug}: caller did not name the terminal host\n`,
+    );
+    return;
+  }
   try {
     enroll({
       id: args.slug,
       tool,
-      kind: args.hostKind ?? "local-tmux",
+      kind: args.hostKind,
       cwd: args.cwd,
       source: "run",
       label: args.slug,
@@ -1279,10 +1294,37 @@ export function registryEntriesForNativeTarget(
   target: string,
   entries: readonly RegistryEntry[] = loadRegistry(),
 ): RegistryEntry[] {
+  return registryEntriesForManagedKind("local-native", target, entries);
+}
+
+/**
+ * The SAME exact-identity filter scoped to persisted `kind:"local-tmux"` rows.
+ * It exists so host resolution can consult BOTH persisted kinds symmetrically
+ * (`resolveManagedHost`): recognizing only one kind before falling back to a
+ * probe was the measured F2 defect — a persisted tmux row plus a homonymous
+ * live native process re-routed destructive acts to the wrong host.
+ * (The broader index.ts local-tmux target filter stays separate on purpose:
+ * it also matches LIVE tmux state for the relaunch planner.)
+ */
+export function registryEntriesForLocalTmuxTarget(
+  target: string,
+  entries: readonly RegistryEntry[] = loadRegistry(),
+): RegistryEntry[] {
+  return registryEntriesForManagedKind("local-tmux", target, entries);
+}
+
+function registryEntriesForManagedKind(
+  kind: "local-native" | "local-tmux",
+  target: string,
+  entries: readonly RegistryEntry[],
+): RegistryEntry[] {
   const requested = parseManagedSessionName(target);
   const candidates = requested ? [target] : managedSessionCandidates(target);
   return entries.filter((e) => {
-    if (e.kind !== "local-native") return false;
+    if (e.kind !== kind) return false;
+    // A positively-ENDED session no longer pins a host: only current rows
+    // take part in host resolution (mirrors isLive's endedAt short-circuit).
+    if (e.endedAt !== undefined) return false;
     // A full managed name is an exact selector, never a slug/label alias
     // (same rule as the tmux filter and resolveLocalTmuxSessionForName).
     if (requested) {
@@ -1300,20 +1342,121 @@ export function registryEntriesForNativeTarget(
 }
 
 /**
- * WHICH local host serves an act (attach/stop) on a resolved session name:
- * the PERSISTED kind, never liveness. A recorded native session is served
- * natively even while dead — the caller's liveness probe result is only
- * (a) discovery for a LIVE native session whose registry row was lost
- * (pre-native validators dropped kind:"local-native" rows on rewrite) and
- * (b) the caller's own gate on whether the act can proceed.
+ * Three-state host probe result. "unknown" is a PROBE FAILURE — it is never
+ * proof of death, and destructive callers must fail closed on it.
  */
-export function persistedLocalHostKind(
-  target: string,
-  entries: readonly RegistryEntry[],
-  nativeAlive: boolean,
-): "local-native" | "local-tmux" {
-  if (registryEntriesForNativeTarget(target, entries).length > 0) {
-    return "local-native";
+export type ManagedHostProbeResult = "live" | "dead" | "unknown";
+
+/** Native probe: a thrown op (spawn/timeout failure) is UNKNOWN, never dead. */
+export function probeNativeSession(name: string): ManagedHostProbeResult {
+  try {
+    return nativeSessionAlive(name) ? "live" : "dead";
+  } catch {
+    return "unknown";
   }
-  return nativeAlive ? "local-native" : "local-tmux";
+}
+
+/**
+ * Tmux probe. No tmux binary/server means no tmux session CAN exist (a tmux
+ * session cannot outlive its server), so that is provable death — only a
+ * spawn-level failure of an installed tmux is UNKNOWN.
+ */
+export function probeTmuxSession(name: string): ManagedHostProbeResult {
+  if (!tmuxAvailable()) return "dead";
+  try {
+    // "=" prefix forces an exact session-name match (no prefix matching).
+    const r = spawnSync("tmux", ["has-session", "-t", `=${name}`], {
+      stdio: "ignore",
+    });
+    if (r.error) return "unknown";
+    return r.status === 0 ? "live" : "dead";
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * Symmetric managed-host resolution for acts on a local session
+ * (attach/stop/resume, and restore consumes the same result).
+ *
+ * Rules (the F1/F2 remedy):
+ *  1. The exact managed identity is matched against BOTH persisted kinds.
+ *  2. Exactly one persisted kind wins for acts on the existing process,
+ *     REGARDLESS of the other host's liveness — liveness gates whether the
+ *     act can run, never which host serves it.
+ *  3. Persisted rows of both kinds for one identity are AMBIGUOUS and the
+ *     caller must fail closed.
+ *  4. Only when no persisted row exists may probes DISCOVER a host (a live
+ *     session whose registry row was lost). Exactly one positive probe wins;
+ *     two positives are ambiguous; a probe failure makes the resolution
+ *     UNKNOWN (fail closed), never "dead on that host".
+ */
+export type ManagedHostResolution =
+  | {
+      readonly state: "recorded";
+      readonly kind: "local-native" | "local-tmux";
+      readonly name: string;
+    }
+  | {
+      readonly state: "discovered";
+      readonly kind: "local-native" | "local-tmux";
+      readonly name: string;
+    }
+  | {
+      readonly state: "ambiguous";
+      readonly candidates: ReadonlyArray<"local-native" | "local-tmux">;
+    }
+  | { readonly state: "missing" }
+  | { readonly state: "unknown"; readonly reason: string };
+
+export function resolveManagedHost(
+  target: string,
+  entries: readonly RegistryEntry[] = loadRegistry(),
+  probes: {
+    readonly native?: (name: string) => ManagedHostProbeResult;
+    readonly tmux?: (name: string) => ManagedHostProbeResult;
+  } = {},
+): ManagedHostResolution {
+  const nativeRows = registryEntriesForNativeTarget(target, entries);
+  const tmuxRows = registryEntriesForLocalTmuxTarget(target, entries);
+  const exactName = (rows: readonly RegistryEntry[]): string =>
+    rows[0]?.tmuxSession ??
+    (parseManagedSessionName(target)
+      ? target
+      : localSessionName(rows[0]?.id ?? target));
+  if (nativeRows.length > 0 && tmuxRows.length > 0) {
+    return { state: "ambiguous", candidates: ["local-native", "local-tmux"] };
+  }
+  if (nativeRows.length > 0) {
+    return { state: "recorded", kind: "local-native", name: exactName(nativeRows) };
+  }
+  if (tmuxRows.length > 0) {
+    return { state: "recorded", kind: "local-tmux", name: exactName(tmuxRows) };
+  }
+  // Discovery: probes may only run when NO persisted row exists.
+  const probedName = parseManagedSessionName(target)
+    ? target
+    : localSessionName(target);
+  const native = (probes.native ?? probeNativeSession)(probedName);
+  const tmux = (probes.tmux ?? probeTmuxSession)(probedName);
+  if (native === "unknown" || tmux === "unknown") {
+    const failed = [
+      ...(native === "unknown" ? ["native"] : []),
+      ...(tmux === "unknown" ? ["tmux"] : []),
+    ].join("+");
+    return {
+      state: "unknown",
+      reason: `${failed} host probe failed for ${probedName}`,
+    };
+  }
+  if (native === "live" && tmux === "live") {
+    return { state: "ambiguous", candidates: ["local-native", "local-tmux"] };
+  }
+  if (native === "live") {
+    return { state: "discovered", kind: "local-native", name: probedName };
+  }
+  if (tmux === "live") {
+    return { state: "discovered", kind: "local-tmux", name: probedName };
+  }
+  return { state: "missing" };
 }
