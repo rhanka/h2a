@@ -41,8 +41,6 @@ export type LayoutGroup = {
 
 /** Layout for `remote restore`: how recent local sessions map to windows/tabs. */
 export type LayoutConfig = {
-  /** Only resume sessions touched within this many hours. */
-  maxAgeHours: number;
   /** Max tabs per terminal window. */
   maxPerWindow: number;
   /** Number of shared round-robin windows for ungrouped projects. */
@@ -60,7 +58,6 @@ export type LayoutConfig = {
 };
 
 export const DEFAULT_LAYOUT: LayoutConfig = {
-  maxAgeHours: 48,
   maxPerWindow: 12,
   sharedWindows: 2,
   multiSession: {},
@@ -68,24 +65,14 @@ export const DEFAULT_LAYOUT: LayoutConfig = {
   groups: [],
 };
 
-/** Explicit token for "never age-filter restore sessions by age". */
-export const LAYOUT_MAX_AGE_NO_LIMIT = "none";
-
-function parseLayoutMaxAgeHours(raw: unknown): number {
-  if (typeof raw === "string") {
-    if (raw.trim().toLowerCase() === LAYOUT_MAX_AGE_NO_LIMIT) {
-      return Number.POSITIVE_INFINITY;
-    }
-  }
-  if (
-    typeof raw === "number" &&
-    Number.isFinite(raw) &&
-    raw > 0
-  ) {
-    return raw;
-  }
-  return DEFAULT_LAYOUT.maxAgeHours;
-}
+/**
+ * Default session-age window (hours) when `h2a restore` is run without
+ * `--max-age-hours`, and the registry hygiene window for pruning dead entries.
+ * The age window is a per-restore CLI concern — it is no longer a config field
+ * (`layout.maxAgeHours` was removed; see getLayoutConfig for the back-compat
+ * rule on configs that still carry it).
+ */
+export const DEFAULT_RESTORE_MAX_AGE_HOURS = 72;
 
 /**
  * One MCP server provided by an installed plugin package.
@@ -577,8 +564,16 @@ export function clearTunnel(): void {
 /** Layout config merged with defaults (used by `remote restore`). */
 export function getLayoutConfig(): LayoutConfig {
   const raw = readRemoteConfig().layout ?? {};
+  // Back-compat: `maxAgeHours` was REMOVED from the layout config — the age
+  // window is now the CLI flag `--max-age-hours` (default
+  // DEFAULT_RESTORE_MAX_AGE_HOURS). Existing configs on disk still carry the
+  // field (the owner's carries `maxAgeHours: 72`): it MUST be silently
+  // IGNORED here, never rejected. This picker only copies the fields it
+  // knows, so a stale/unknown layout field can never turn a config update
+  // into a startup crash. Do NOT "clean this up" into a validator that
+  // rejects unknown layout fields — that would break every not-yet-edited
+  // config in the field.
   return {
-    maxAgeHours: parseLayoutMaxAgeHours(raw.maxAgeHours),
     maxPerWindow:
       typeof raw.maxPerWindow === "number"
         ? raw.maxPerWindow
