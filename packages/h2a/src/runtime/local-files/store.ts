@@ -387,8 +387,23 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   const inboxLock = (actor: string): string => join(inboxDir(paths, actor), ".lock");
   const outboxLock = (actor: string): string => join(outboxDir(paths, actor), ".lock");
 
+  // FIX-rroles: legacy registry rows exist on disk with `roles`/`scopes`
+  // ABSENT (and, future-proof, possibly scalar). Normalize to arrays at the
+  // read boundary so every consumer (`for..of` in org.ts
+  // effectiveOrgInstances, `.includes`/`.filter`/`[0]` elsewhere) always sees
+  // an iterable. Read-tolerant ONLY: rows on disk are never rewritten, and
+  // `readJsonl` stays generic — it also serves types without roles/scopes.
+  function toArray<T>(value: T[] | T | undefined | null): T[] {
+    if (value === undefined || value === null) return [];
+    return Array.isArray(value) ? value : [value];
+  }
+
   function listInstances(): H2AActorRegistration[] {
-    return readJsonl<H2AActorRegistration>(paths.instances);
+    return readJsonl<H2AActorRegistration>(paths.instances).map((reg) => ({
+      ...reg,
+      roles: toArray(reg.roles),
+      scopes: toArray(reg.scopes)
+    }));
   }
 
   function findInstance(id: string): H2AActorRegistration | undefined {
