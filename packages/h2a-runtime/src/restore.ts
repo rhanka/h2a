@@ -31,6 +31,8 @@ import {
   loadRegistry,
   looksLikeConversationUuid,
   persistReconciledConvIds,
+  resolveManagedHost,
+  type ManagedHostProbeResult,
   type RegistryEntry,
 } from "./registry.js";
 import {
@@ -63,6 +65,13 @@ export type DiscoveredSession = {
    * kind still drives the drain view (live legacy tmux stays attach-only).
    */
   hostKind?: "local-tmux" | "local-native";
+  /**
+   * Resolver verdict (rule 3), stamped at plan time: `resolveManagedHost`
+   * returned `ambiguous` for this exact managed identity — it is recorded on
+   * BOTH local hosts and no act may pick one. `dropDualHostIdentities` acts
+   * on THIS stamp; nothing downstream re-decides the dual-host rule.
+   */
+  hostAmbiguous?: boolean;
   /** Registry row id backing this session (registry origin only). */
   registryId?: string;
   /**
@@ -498,6 +507,30 @@ export function managedLiveLookupSnapshot(): ManagedLiveLookup {
 }
 
 /**
+ * Adapt the plan's ONE `ManagedLiveLookup` snapshot to `resolveManagedHost`'s
+ * injected probe surface, so every per-session host decision of a restore
+ * reads the SAME batch snapshot — the resolver is consulted per session but
+ * never re-probes a host per session (no TOCTOU across the batch). A plan
+ * built WITHOUT a snapshot (legacy callers) must never probe live hosts from
+ * inside discovery either: its probes answer "unknown" (fail closed), never
+ * a real probe.
+ */
+function managedHostProbes(liveView: ManagedLiveLookup | undefined): {
+  native: (name: string) => ManagedHostProbeResult;
+  tmux: (name: string) => ManagedHostProbeResult;
+} {
+  const probe =
+    (kind: "local-native" | "local-tmux") =>
+    (name: string): ManagedHostProbeResult => {
+      if (!liveView) return "unknown";
+      const r = liveView(kind, [name]);
+      if (r.state === "live") return "live";
+      return r.state === "dead" ? "dead" : "unknown";
+    };
+  return { native: probe("local-native"), tmux: probe("local-tmux") };
+}
+
+/**
  * REGISTRY-FIRST discovery: durable registry entries (local kinds) mapped to
  * discovered sessions. label/cwd/convId come straight from enrolment, no
  * mtime guessing. `entries` is injectable for tests (defaults to listLive()).
@@ -523,6 +556,9 @@ export function registrySessions(
 ): DiscoveredSession[] {
   const src = join(home, "src");
   const out: DiscoveredSession[] = [];
+  // ONE probe surface for every host decision of this plan, adapted from the
+  // single batch snapshot (or fail-closed "unknown" probes without one).
+  const probes = managedHostProbes(liveView);
   for (const e of entries) {
     if (e.kind === "remote") continue; // remote groups are filled from SCW
     // Only human dev sessions are restorable — never delegated jobs or explicit
@@ -582,14 +618,42 @@ export function registrySessions(
     };
     if (e.label !== undefined) session.label = e.label;
     if (e.gatewayMode !== undefined) session.gatewayMode = e.gatewayMode;
-    // The persisted host selector is the recorded kind (isManagedLocalKind
-    // recognizes both managed local hosts), carried with the EXACT managed
-    // name so layout rendering never re-derives a live target from
-    // slugify(label). A `kind:"local"` hook entry has no terminal host.
+    // WHICH host serves this tab is decided by the ONE symmetric resolver
+    // (resolveManagedHost) over this plan's registry read, with the plan's
+    // single probe snapshot injected — restore never re-implements the
+    // host-choice rules (F1/F2) and never re-probes a host per session. For
+    // a current managed row the resolver lands on its persisted kind + exact
+    // managed name (probes only ever run for an identity with no matching
+    // row). A `kind:"local"` hook entry has no terminal host.
     if (isManagedLocalKind(e.kind)) {
-      session.hostKind = e.kind;
-      session.managedName =
-        attachLiveName ?? e.tmuxSession ?? localSessionName(e.id);
+      const resolution = resolveManagedHost(
+        e.tmuxSession ?? localSessionName(e.id),
+        entries,
+        probes,
+      );
+      if (resolution.state === "unknown") {
+        // Fail closed (resolver rule 4): an unattributable host is no
+        // license to guess one via the slug-union fallback — emit no tab.
+        continue;
+      }
+      if (
+        resolution.state === "recorded" ||
+        resolution.state === "discovered"
+      ) {
+        session.hostKind = resolution.kind;
+        session.managedName = attachLiveName ?? resolution.name;
+      } else if (resolution.state === "ambiguous") {
+        // Rule 3 verdict, stamped for the plan filter
+        // (dropDualHostIdentities); kind + name are kept for the skip
+        // report only — no act may serve this tab on either host.
+        session.hostAmbiguous = true;
+        session.hostKind = e.kind;
+        session.managedName =
+          attachLiveName ?? e.tmuxSession ?? localSessionName(e.id);
+      }
+      // "missing": an identity the resolver pins to NO host is emitted
+      // unhosted — a relaunch follows the product default host, exactly as
+      // the act path treats a missing identity (a brand-new session).
     }
     if (attachLiveName !== undefined) session.attachLive = true;
     out.push(session);
@@ -667,30 +731,25 @@ export function dropRemoteBackedLocals(
 /**
  * Dual-host identity fails CLOSED (resolver rule 3): sessions of BOTH managed
  * kinds for one exact managed name cannot be attributed to a host — neither
- * an attach nor a replacement may pick one by luck. Pure; the caller reports
- * the ambiguous names.
+ * an attach nor a replacement may pick one by luck. The verdict is NOT
+ * decided here: it was stamped per session at plan time from
+ * `resolveManagedHost` returning `ambiguous` (`hostAmbiguous`); this filter
+ * only acts on that stamp and never counts kinds itself, so the dual-host
+ * rule lives in exactly ONE place. Pure; the caller reports the ambiguous
+ * names.
  */
 export function dropDualHostIdentities(sessions: DiscoveredSession[]): {
   kept: DiscoveredSession[];
   ambiguousNames: string[];
 } {
-  const kindsByManagedName = new Map<string, Set<string>>();
+  const ambiguous = new Set<string>();
   for (const s of sessions) {
-    if (s.managedName !== undefined && s.hostKind !== undefined) {
-      const kinds = kindsByManagedName.get(s.managedName) ?? new Set<string>();
-      kinds.add(s.hostKind);
-      kindsByManagedName.set(s.managedName, kinds);
+    if (s.hostAmbiguous === true && s.managedName !== undefined) {
+      ambiguous.add(s.managedName);
     }
   }
-  const ambiguous = new Set(
-    [...kindsByManagedName]
-      .filter(([, kinds]) => kinds.size > 1)
-      .map(([name]) => name),
-  );
   return {
-    kept: sessions.filter(
-      (s) => s.managedName === undefined || !ambiguous.has(s.managedName),
-    ),
+    kept: sessions.filter((s) => s.hostAmbiguous !== true),
     ambiguousNames: [...ambiguous].sort(),
   };
 }
