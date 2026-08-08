@@ -55,6 +55,13 @@ export type DiscoveredSession = {
   /** Pinned llm-mesh gateway posture (from an explicit --gw/--no-gw at launch). */
   gatewayMode?: "gateway" | "direct";
   /**
+   * Persisted local terminal host of a registry-backed session
+   * (isManagedLocalKind). Re-emitted by tabCommand so a NON-LIVE session is
+   * re-created on the host its record names — an existing session is never
+   * re-routed to the current default host.
+   */
+  hostKind?: "local-tmux" | "local-native";
+  /**
    * Positive restore marker. Registry entries are explicitly `human`; a raw
    * transcript scan is always `unclassified` because it carries no role/class.
    */
@@ -73,6 +80,8 @@ export type LayoutTab = {
   origin?: "registry" | "scan";
   /** Pinned llm-mesh gateway posture; re-emitted as --gw/--no-gw on restore. */
   gatewayMode?: "gateway" | "direct";
+  /** Persisted local host; re-emitted so restore never re-routes a session. */
+  hostKind?: "local-tmux" | "local-native";
 };
 
 export type LayoutWindow = { title: string; tabs: LayoutTab[] };
@@ -480,6 +489,10 @@ export function registrySessions(
     };
     if (e.label !== undefined) session.label = e.label;
     if (e.gatewayMode !== undefined) session.gatewayMode = e.gatewayMode;
+    // The persisted host selector is the recorded kind (isManagedLocalKind
+    // recognizes both managed local hosts) — carried so the re-launch command
+    // can pin it. A `kind:"local"` hook entry has no terminal host to pin.
+    if (isManagedLocalKind(e.kind)) session.hostKind = e.kind;
     out.push(session);
   }
   return out;
@@ -632,6 +645,7 @@ export function groupSessions(
       };
       if (s.origin !== undefined) tab.origin = s.origin;
       if (s.gatewayMode !== undefined) tab.gatewayMode = s.gatewayMode;
+      if (s.hostKind !== undefined) tab.hostKind = s.hostKind;
       return tab;
     });
   };
@@ -711,10 +725,21 @@ export function tabCommand(
   const posture = opts.forceGateway ?? tab.gatewayMode;
   const gwFlag =
     posture === "gateway" ? " --gw" : posture === "direct" ? " --no-gw" : "";
+  // Persisted-host pin — the gatewayMode pattern applied to the terminal
+  // host: a NON-LIVE session is re-created on the host its registry record
+  // names, never on the current default. A recorded native session survives
+  // the fleet-wide H2A_SESSION_HOST=tmux valve via the env pin (any other
+  // value selects native — resolveSessionHostKind), where it fails closed if
+  // the native host is unavailable rather than silently re-routing; a
+  // recorded tmux session survives the native default via --tmux. Tabs
+  // without a recorded host (scan fallback) keep following the default.
+  const nativePin =
+    tab.hostKind === "local-native" ? "H2A_SESSION_HOST=native " : "";
+  const tmuxPin = tab.hostKind === "local-tmux" ? " --tmux" : "";
   const runCmd = (extra: string) =>
-    `h2a run ${q(tab.tool ?? "shell")} ${q(tab.cwd)} ` +
+    `${nativePin}h2a run ${q(tab.tool ?? "shell")} ${q(tab.cwd)} ` +
     (tab.sid ? `--resume ${q(tab.sid)} ` : "") +
-    `--name ${q(tab.label)}${gwFlag}${extra}`;
+    `--name ${q(tab.label)}${gwFlag}${tmuxPin}${extra}`;
   if (opts.attachSession) {
     // `h2a attach` resolves the exact managed name and honors the session's
     // RECORDED host (tmux attach for tmux sessions, the native bridge for
