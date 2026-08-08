@@ -382,7 +382,9 @@ describe("registry", () => {
       expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-no-convid"]);
     });
 
-    it("this is a future-form guard; ZERO registry lines are affected as of 2026-08-08 (the architect measured: the 29 sessionClass-absent lines are all kind=remote, which is deliberately out of scope per decision B); it closes the CODE invariant 'unknown protects' inside the local-tmux/run perimeter.", () => {
+    it("pins a local-tmux/run entry whose sessionClass is absent (unknown protects)", () => {
+      // As of 2026-08-08, the architect measured 29 sessionClass-absent registry lines; all are kind=remote.
+      // Remote rows are deliberately out of the restore-pin perimeter by design, so this behavior has no observed effect today.
       const old = new Date(Date.now() - 100 * 3600 * 1000).toISOString();
       const entries: RegistryEntry[] = [
         {
