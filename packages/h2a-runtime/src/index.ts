@@ -165,6 +165,7 @@ import {
   readLastLayout,
   reconcileRunConvIds,
   restore as restoreLayout,
+  type LegacySessionEvidence,
   type RestoreOptions,
 } from "./restore.js";
 import { getLayoutConfig } from "./config.js";
@@ -179,6 +180,8 @@ import {
   listLocalForLs,
   loadRegistry,
   loadRegistryWithDiagnostics,
+  persistedLocalHostKind,
+  registryEntriesForNativeTarget,
   resolveLocalTmuxSessionForName,
   tryClaimSlot,
   withRegistryLock,
@@ -2379,15 +2382,25 @@ function registryEntriesForLocalTmuxTarget(
   });
 }
 
-function registryEntryForResumeTarget(
+export function registryEntryForResumeTarget(
   target: string,
   local?: LocalSession,
-): RegistryEntry | undefined {
-  const evidence = legacySessionEvidence(
+  entries: readonly RegistryEntry[] = loadRegistry(),
+  evidence: LegacySessionEvidence = legacySessionEvidence(
     homedir(),
     local === undefined ? listLocalSessions() : [local],
-  );
-  const matches = registryEntriesForLocalTmuxTarget(target, local).filter((e) => {
+  ),
+): RegistryEntry | undefined {
+  const matches = [
+    ...registryEntriesForLocalTmuxTarget(target, local, entries),
+    // A persisted kind:"local-native" session has no tmux-side identity, so
+    // the (deliberately tmux-scoped) filter above can never return it. This
+    // second leg resolves it by its own persisted identity — without it,
+    // resume falls through to the default-host path and a recorded native
+    // session would be re-created on tmux. The host is then chosen from
+    // entry.kind (never liveness) further down the resume verb.
+    ...registryEntriesForNativeTarget(target, entries),
+  ].filter((e) => {
     // Resume is a human-facing operation, not a promotion path. Share the
     // durable class test with restore so legacy human rows remain resumable,
     // while delegated jobs and explicit background launches stay excluded.
@@ -9293,15 +9306,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               process.exitCode = 1;
               return;
             }
-            // Honor the session's RECORDED host: a native-PTY session has no
-            // tmux twin, so probe the native host first and only then fall
-            // back to tmux attach.
-            let nativeTarget = false;
+            // WHICH host: the PERSISTED registry kind — a dead native
+            // session stays native (registryEntriesForNativeTarget takes no
+            // liveness input). The probe below is the act's PRECONDITION and
+            // the discovery fallback for a live native session whose registry
+            // row was lost; it never re-routes a recorded session.
+            let nativeAlive = false;
             try {
-              nativeTarget = nativeSessionAlive(localName);
+              nativeAlive = nativeSessionAlive(localName);
             } catch {
-              nativeTarget = false;
+              nativeAlive = false;
             }
+            const nativeTarget =
+              persistedLocalHostKind(localName, loadRegistry(), nativeAlive) ===
+              "local-native";
             if (opts.headlessTerminal) {
               if (nativeTarget) {
                 process.stderr.write(
@@ -9321,6 +9339,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               process.stderr.write(
                 `[h2a] persistent terminal ${terminal.state} for ${first} (${terminal.attachedClients} attached client(s))\n`,
               );
+              return;
+            }
+            if (nativeTarget && !nativeAlive) {
+              // Liveness gates the ACT, not the host choice: attaching to a
+              // session that is not running is refused on its own host — it
+              // must never degrade into a tmux attach of the same name.
+              process.stderr.write(
+                `[h2a] native session ${first} is not running; attach refused ` +
+                  `(the session stays native — resume it with h2a resume ${first}).\n`,
+              );
+              process.exitCode = 1;
               return;
             }
             process.exitCode = nativeTarget
@@ -9583,19 +9612,28 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
           if (localTarget.kind === "found") {
-            // Honor the recorded host: native sessions die through the native
-            // host (with their h2a sidecar companion), tmux sessions via tmux.
-            let nativeTarget = false;
+            // WHICH host: the PERSISTED registry kind — a dead native session
+            // stays native and dies (or refuses) through the native host with
+            // its h2a sidecar companion; tmux sessions via tmux. The probe
+            // only feeds the lost-registry-row discovery fallback; whether
+            // the kill succeeds is the act's own outcome.
+            let nativeAlive = false;
             try {
-              nativeTarget = nativeSessionAlive(localTarget.name);
+              nativeAlive = nativeSessionAlive(localTarget.name);
             } catch {
-              nativeTarget = false;
+              nativeAlive = false;
             }
+            const nativeTarget =
+              persistedLocalHostKind(
+                localTarget.name,
+                loadRegistry(),
+                nativeAlive,
+              ) === "local-native";
             const ok = nativeTarget
               ? killNativeSessionTree(localTarget.name)
               : killLocalSession(localTarget.name);
             process.stderr.write(
-              `[h2a] local session ${localTarget.local?.slug ?? first} ${ok ? "killed" : "could not be killed"}\n`,
+              `[h2a] ${nativeTarget ? "native" : "local"} session ${localTarget.local?.slug ?? first} ${ok ? "killed" : "could not be killed"}\n`,
             );
             if (!ok) process.exitCode = 1;
             return;
