@@ -223,11 +223,41 @@ describe("registry", () => {
       const old = new Date(Date.now() - 100 * 3600 * 1000).toISOString();
       const entries: RegistryEntry[] = [
         // dead (tmux gone) and old -> pruned
-        { id: "dead-old", tool: "claude", kind: "local-tmux", cwd: "/a", tmuxSession: "remote-a", enrolledAt: old, lastSeenAt: old, source: "run" },
+        {
+          id: "dead-old",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/a",
+          tmuxSession: "remote-a",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          sessionClass: "background",
+        },
         // dead but recent -> kept (restore-after-reboot still wants it)
-        { id: "dead-recent", tool: "claude", kind: "local-tmux", cwd: "/b", tmuxSession: "remote-b", enrolledAt: old, lastSeenAt: new Date().toISOString(), source: "run" },
+        {
+          id: "dead-recent",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/b",
+          tmuxSession: "remote-b",
+          enrolledAt: old,
+          lastSeenAt: new Date().toISOString(),
+          source: "run",
+          sessionClass: "background",
+        },
         // live and old -> kept
-        { id: "live-old", tool: "codex", kind: "local-tmux", cwd: "/c", tmuxSession: "remote-c", enrolledAt: old, lastSeenAt: old, source: "run" },
+        {
+          id: "live-old",
+          tool: "codex",
+          kind: "local-tmux",
+          cwd: "/c",
+          tmuxSession: "remote-c",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          sessionClass: "background",
+        },
       ];
       writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
       const removed = prune(48, {
@@ -350,6 +380,40 @@ describe("registry", () => {
       });
       expect(removed).toBe(1);
       expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-no-convid"]);
+    });
+
+    it("this is a future-form guard; ZERO registry lines are affected as of 2026-08-08 (the architect measured: the 29 sessionClass-absent lines are all kind=remote, which is deliberately out of scope per decision B); it closes the CODE invariant 'unknown protects' inside the local-tmux/run perimeter.", () => {
+      const old = new Date(Date.now() - 100 * 3600 * 1000).toISOString();
+      const entries: RegistryEntry[] = [
+        {
+          id: "restore-no-class",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/r",
+          tmuxSession: "remote-restore-no-class",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+        },
+        {
+          id: "dead-old",
+          tool: "claude",
+          kind: "local-tmux",
+          cwd: "/a",
+          tmuxSession: "remote-a",
+          enrolledAt: old,
+          lastSeenAt: old,
+          source: "run",
+          sessionClass: "background",
+        },
+      ];
+      writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
+      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+        path: regPath,
+        tmuxHasSession: () => false,
+      });
+      expect(removed).toBe(1);
+      expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-no-class"]);
     });
 
     it("keeps durable human rows that qualify for implicit restore pinning", () => {

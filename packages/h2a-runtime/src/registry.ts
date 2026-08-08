@@ -248,7 +248,8 @@ function shouldPreserveByRestorePin(entry: RegistryEntry): boolean {
   return (
     entry.kind === "local-tmux" &&
     entry.source === "run" &&
-    entry.sessionClass === "human"
+    // this is a future-form guard; ZERO registry lines are affected as of 2026-08-08 (the architect measured: the 29 sessionClass-absent lines are all kind=remote, which is deliberately out of scope per decision B); it closes the CODE invariant 'unknown protects' inside the local-tmux/run perimeter.
+    (entry.sessionClass === "human" || entry.sessionClass === undefined)
   );
 }
 
