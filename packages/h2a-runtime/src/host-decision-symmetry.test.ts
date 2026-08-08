@@ -12,6 +12,13 @@
  * the SAME host decision — especially on `ambiguous` and `unknown`. If
  * either side is hardened alone, this file reddens.
  *
+ * SCOPE: this file asserts the two paths reach the SAME host DECISION; the
+ * EFFECT — that the ambiguous/dual-host session is actually DROPPED from the
+ * restore plan — is guarded separately by
+ * RESTORE_PERSISTED_DUAL_HOST_IDENTITY_FAILS_CLOSED
+ * (restore-live-recovery.test.ts). If that test is removed, this file does
+ * NOT cover the loss.
+ *
  * Everything here is pure: injected registry entries, injected probes, no
  * live tmux/native host is ever consulted.
  */
