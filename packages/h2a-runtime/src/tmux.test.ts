@@ -148,6 +148,18 @@ function tmuxSessionRow(
   return `$1\t1710000000\t1234\t/tmp/tmux-1000/default\t${name}\t${attached}\t${path}\t${profile}\t${displayName}\n`;
 }
 
+function parseRunShellScriptArg(commandArg: string): string {
+  const prefix = "run-shell -b ";
+  if (!commandArg.startsWith(prefix)) {
+    throw new Error(`expected run-shell binding command, got: ${commandArg}`);
+  }
+  const quoted = commandArg.slice(prefix.length);
+  if (!quoted.startsWith("'") || !quoted.endsWith("'")) {
+    throw new Error(`expected run-shell command to be single-quoted: ${commandArg}`);
+  }
+  return quoted.slice(1, -1).replace(/'\\''/g, "'");
+}
+
 describe("attachLocalSession", () => {
   it("uses tmux attach-session outside tmux", () => {
     delete process.env.TMUX;
@@ -1535,25 +1547,145 @@ describe("ensureManagedTmuxProfile", () => {
 });
 
 describe("buildCodexImagePasteBinding", () => {
-  it("binds Ctrl+V to save Wayland clipboard images and paste the file path into Codex panes only", () => {
+  it("binds Ctrl+V to save Wayland clipboard images and paste the file path into Codex/Claude panes", () => {
     const line = buildCodexImagePasteBinding().join(" ");
     expect(line).toContain("bind -n C-v");
     expect(line).toContain("wl-paste --list-types");
     expect(line).toContain("image/png");
     expect(line).toContain("image/jpeg");
     expect(line).toContain(".remote/images");
-    expect(line).toContain("send-keys");
+    expect(line).toContain("tmux send-keys");
     expect(line).toContain("-l");
     expect(line).toContain("codex");
-    expect(line).toContain("send-keys C-v");
+    expect(line).toContain("claude");
   });
 
-  it("targets the triggering pane explicitly in the run-shell script (pane_id)", () => {
+  it("targets the triggering pane explicitly in both scripts (pane_id)", () => {
     const line = buildCodexImagePasteBinding().join(" ");
-    // #{pane_id} must appear in the script so tmux expands it at binding-fire time,
-    // preventing the background shell from targeting the wrong pane.
+    // #{pane_id} must appear in each script so tmux expands it at binding-fire
+    // time, preventing the background shell from targeting the wrong pane.
     expect(line).toContain("#{pane_id}");
-    expect(line).toContain("-t");
+  });
+
+  it("compiles generated image/text shell scripts with /bin/sh -n", () => {
+    const binding = buildCodexImagePasteBinding();
+    const imageScript = parseRunShellScriptArg(binding[6] as string);
+    const fallbackScript = parseRunShellScriptArg(binding[7] as string);
+    const dir = mkdtempSync(join(tmpdir(), "h2a-tmux-copy-"));
+    const imagePath = join(dir, "image.sh");
+    const fallbackPath = join(dir, "fallback.sh");
+
+    try {
+      writeFileSync(imagePath, `${imageScript}\n`);
+      writeFileSync(fallbackPath, `${fallbackScript}\n`);
+      expect(realSpawnSync("/bin/sh", ["-n", imagePath]).status).toBe(0);
+      expect(realSpawnSync("/bin/sh", ["-n", fallbackPath]).status).toBe(0);
+    } finally {
+      rmSync(fallbackPath, { force: true });
+      rmSync(imagePath, { force: true });
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("routes non-Codex text pastes through system clipboard tools", () => {
+    const line = buildCodexImagePasteBinding().join(" ");
+    expect(line).toContain("xclip -selection clipboard -out");
+    expect(line).toContain("xsel -ob");
+    expect(line).toContain("tmux paste-buffer");
+    expect(line).toContain("wl-paste -n -t text/plain");
+  });
+
+  it("does not reuse a sticky buffer; it always pastes from a per-invocation buffer and deletes it", () => {
+    const binding = buildCodexImagePasteBinding();
+    const fallbackScript = parseRunShellScriptArg(
+      binding[7] as string,
+    );
+    expect(fallbackScript).toContain("BUFFER_NAME=\"h2a-clipboard-$$-$(date +%s%N)-${PANE_TARGET#%}\"");
+    expect(fallbackScript).toContain("PASTED=0");
+    expect(fallbackScript).toContain(
+      "tmux delete-buffer -b \"$BUFFER_NAME\" >/dev/null 2>&1 || true",
+    );
+    expect(fallbackScript).toContain('if [ "$PASTED" -eq 0 ]; then');
+  });
+
+  it("keeps old stale buffers from being pasted when every backend fails", () => {
+    const socket = `h2a-fail-closed-${Date.now()}`;
+    const session = "h2a-fail-closed";
+    const sentinel = "SENTINEL-DO-NOT-PASTE";
+    const fakeBin = mkdtempSync(join(tmpdir(), "h2a-fake-clipboard-"));
+    const binding = buildCodexImagePasteBinding();
+    const fallbackScript = parseRunShellScriptArg(binding[7] as string);
+    const paneIdCommand = ["-L", socket, "display-message", "-p", `${session}`, "#{pane_id}"];
+    const fakeBinaries = [
+      "xclip",
+      "xsel",
+      "wl-paste",
+    ] as const;
+
+    try {
+      for (const commandName of fakeBinaries) {
+        writeFileSync(
+          join(fakeBin, commandName),
+          "#!/bin/sh\nexit 1\n",
+          { mode: 0o755 },
+        );
+      }
+
+      expect(
+        realSpawnSync("tmux", [
+          "-L",
+          socket,
+          "-f",
+          "/dev/null",
+          "new-session",
+          "-d",
+          "-s",
+          session,
+          "cat",
+        ]).status,
+      ).toBe(0);
+
+      expect(
+        realSpawnSync("tmux", [
+          "-L",
+          socket,
+          "load-buffer",
+          "-b",
+          "h2a-clipboard",
+          "-",
+        ], { encoding: "utf8", input: sentinel }).status,
+      ).toBe(0);
+
+      const paneId = realSpawnSync("tmux", paneIdCommand, {
+        encoding: "utf8",
+      }).stdout.trim();
+      const runnableScript = fallbackScript
+        .replaceAll("#{pane_id}", paneId)
+        .replace(/^/, `PATH="${fakeBin}:$PATH"\n`);
+      expect(
+        realSpawnSync("tmux", [
+          "-L",
+          socket,
+          "run-shell",
+          "-b",
+          runnableScript,
+        ], { encoding: "utf8" }).status,
+      ).toBe(0);
+
+      expect(
+        realSpawnSync("sleep", ["0.5"], { encoding: "utf8" }).status,
+      ).toBe(0);
+
+      const captured = realSpawnSync(
+        "tmux",
+        ["-L", socket, "capture-pane", "-p", "-t", session],
+        { encoding: "utf8" },
+      ).stdout;
+      expect(captured).not.toContain(sentinel);
+    } finally {
+      realSpawnSync("tmux", ["-L", socket, "kill-server"], { encoding: "utf8" });
+      rmSync(fakeBin, { recursive: true, force: true });
+    }
   });
 });
 
