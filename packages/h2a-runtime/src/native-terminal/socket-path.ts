@@ -1,14 +1,53 @@
 import type { Stats } from "node:fs";
 import { lstat } from "node:fs/promises";
-import { dirname, isAbsolute } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join } from "node:path";
 
 export type NativeTerminalSocketIdentity = Readonly<{
   dev: number;
   ino: number;
 }>;
 
+// Kernel AF_UNIX sun_path budget: 108 bytes on Linux, 104 on Darwin, both
+// including the terminating NUL. Binding or connecting past this limit does
+// NOT fail loudly — libuv silently truncates the path, so the socket appears
+// at a *different* name and every follow-up (chmod, lstat, connect) reports a
+// baffling ENOENT. Fail closed with a clear message instead.
+const UNIX_SOCKET_MAX_PATH_BYTES = process.platform === "darwin" ? 103 : 107;
+
+export function assertNativeTerminalSocketPathWithinLimit(
+  socketPath: string,
+  label = "terminal host socket path",
+): void {
+  const bytes = Buffer.byteLength(socketPath, "utf8");
+  if (bytes > UNIX_SOCKET_MAX_PATH_BYTES) {
+    throw new Error(
+      `${label} exceeds the unix socket path limit ` +
+        `(${bytes} > ${UNIX_SOCKET_MAX_PATH_BYTES} bytes): ${socketPath}`,
+    );
+  }
+}
+
 function currentUid(): number | undefined {
   return typeof process.getuid === "function" ? process.getuid() : undefined;
+}
+
+/**
+ * Canonical short socket path for the native terminal host. Nothing else in
+ * the tree computes one; deriving a socket path from a workspace directory is
+ * unsafe because deep workspace paths overflow the sun_path budget above.
+ * The parent directory is created (0700) by the host server on startup.
+ */
+export function defaultNativeTerminalSocketPath(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  const runtimeDir = env["XDG_RUNTIME_DIR"];
+  const base = runtimeDir !== undefined && isAbsolute(runtimeDir)
+    ? join(runtimeDir, "h2a-nt")
+    : join(tmpdir(), `h2a-nt-${currentUid() ?? "default"}`);
+  const socketPath = join(base, "native-terminal.sock");
+  assertNativeTerminalSocketPathWithinLimit(socketPath);
+  return socketPath;
 }
 
 function assertOwnedByCurrentUser(info: Stats, label: string): void {
@@ -24,6 +63,7 @@ export async function assertPrivateNativeTerminalSocketDirectory(
   if (!isAbsolute(socketPath)) {
     throw new Error("terminal host socket path must be absolute");
   }
+  assertNativeTerminalSocketPathWithinLimit(socketPath);
   const directory = dirname(socketPath);
   const info = await lstat(directory);
   if (!info.isDirectory()) {
