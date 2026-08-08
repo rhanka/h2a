@@ -280,3 +280,21 @@ describe("sol-2 — an unreadable registry row is UNKNOWN, never 'no local sessi
     expect(raw.entries.some((e) => e.id === "healthy-neighbor")).toBe(true);
   });
 });
+
+describe("attach missing->remote fallthrough — NAMED DEBT, not covered", () => {
+  // attach's `missing`->remote homonym fallthrough is the sol-2 asymmetry
+  // left OPEN by design: when the local target resolves to nothing (including
+  // an identity whose only registry row is unreadable), attach falls through
+  // to a REMOTE session of the same name. attach is non-destructive (it does
+  // not kill), so unlike stop it was not gated in #199 — but it is a known
+  // asymmetry vs stop's fail-closed guard. Skipping it WITH ITS NAME leaves
+  // an address for the debt (the dead-tmux convention); a silent absence
+  // would not. When attach fail-closed symmetry lands, replace this skip
+  // with the guard's assertions (refusal on an unreadable-row identity, no
+  // remote attach issued).
+  it.skip("ATTACH_MISSING_IDENTITY_MUST_NOT_FALL_THROUGH_TO_REMOTE_HOMONYM — pending attach fail-closed symmetry (tracked debt 2026-08-08)", () => {
+    throw new Error(
+      "unreachable while skipped: attach fail-closed symmetry is not implemented",
+    );
+  });
+});
