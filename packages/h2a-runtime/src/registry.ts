@@ -244,7 +244,9 @@ function isRestorePinnedCandidate(entry: RegistryEntry): boolean {
 function shouldPreserveByRestorePin(entry: RegistryEntry): boolean {
   if (entry.restorePinned === false) return false;
   if (isRestorePinnedCandidate(entry)) return true;
-  if (entry.endedAt || entry.sessionClass === "background") return false;
+  // Invariant: restore pin never preserves positively non-human rows (no implicit pin by absence).
+  // As of 2026-08-08 this affects 0 lines — the 29 role=job rows with absent sessionClass are all kind=remote, already outside the perimeter by the kind/source gates; role==='job' is added by SYMMETRY with sessionClass==='background' so a positively non-human row is never pinned even when classless.
+  if (entry.endedAt || entry.sessionClass === "background" || entry.role === "job") return false;
   return (
     entry.kind === "local-tmux" &&
     entry.source === "run" &&
