@@ -32,9 +32,15 @@ import {
   type LocalSession,
 } from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
+import { nativeSessionAlive } from "./native-host.js";
 
 export type RegistryTool = "claude" | "codex" | "agy";
-export type RegistryKind = "local-tmux" | "local" | "remote";
+export type RegistryKind = "local-tmux" | "local-native" | "local" | "remote";
+
+/** Managed local interactive session hosted by tmux OR the native PTY host. */
+export function isManagedLocalKind(kind: RegistryKind): kind is "local-tmux" | "local-native" {
+  return kind === "local-tmux" || kind === "local-native";
+}
 export type RegistrySource = "run" | "hook" | "scan" | "remote";
 
 /**
@@ -220,6 +226,8 @@ export type EnrollInput = {
 /** Injectable liveness probes (tests stay deterministic, no tmux/pid needed). */
 export type LivenessOpts = {
   tmuxHasSession?: (name: string) => boolean;
+  /** Injectable native-PTY-host session probe (kind:"local-native"). */
+  nativeSessionAlive?: (name: string) => boolean;
   pidAlive?: (pid: number) => boolean;
   /** System boot time (ms epoch). A `kind:"local"` entry last seen before this
    * is dead — its process died in the reboot, so its PID must not be trusted
@@ -512,7 +520,7 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
   return (
     typeof e.id === "string" &&
     (e.tool === "claude" || e.tool === "codex" || e.tool === "agy") &&
-    (e.kind === "local-tmux" || e.kind === "local" || e.kind === "remote") &&
+    (e.kind === "local-tmux" || e.kind === "local-native" || e.kind === "local" || e.kind === "remote") &&
     typeof e.cwd === "string" &&
     typeof e.enrolledAt === "string" &&
     typeof e.lastSeenAt === "string" &&
@@ -879,6 +887,14 @@ function defaultTmuxHasSession(name: string): boolean {
   }
 }
 
+function defaultNativeSessionAlive(name: string): boolean {
+  try {
+    return nativeSessionAlive(name);
+  } catch {
+    return false;
+  }
+}
+
 function defaultPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -934,6 +950,13 @@ function processIsTool(
  */
 export function isLive(e: RegistryEntry, opts: LivenessOpts = {}): boolean {
   if (e.endedAt) return false;
+  if (e.kind === "local-native") {
+    const alive = opts.nativeSessionAlive ?? defaultNativeSessionAlive;
+    return (e.tmuxSession
+      ? [e.tmuxSession]
+      : managedSessionCandidates(e.id)
+    ).some((name) => alive(name));
+  }
   if (e.kind === "local-tmux") {
     const has = opts.tmuxHasSession ?? defaultTmuxHasSession;
     return (e.tmuxSession
@@ -1016,6 +1039,8 @@ export function enrollFromRun(args: {
   profile: string;
   slug: string;
   tmuxSession: string;
+  /** Which local host runs the session terminal (default: tmux). */
+  hostKind?: "local-tmux" | "local-native";
   /** Pane pid observed by the structured launcher, if available. */
   pid?: number;
   cwd: string;
@@ -1032,7 +1057,7 @@ export function enrollFromRun(args: {
     enroll({
       id: args.slug,
       tool,
-      kind: "local-tmux",
+      kind: args.hostKind ?? "local-tmux",
       cwd: args.cwd,
       source: "run",
       label: args.slug,
@@ -1106,7 +1131,7 @@ export function localLsRows(
   // kind:"local" entries are Claude Code conversation sessions (UUID ids,
   // no tmuxSession) — they are internal CC state, not user-facing sessions.
   for (const e of live) {
-    if (e.kind !== "local-tmux" || matched.has(e.id)) continue;
+    if (!isManagedLocalKind(e.kind) || matched.has(e.id)) continue;
     // A historical record without an exact tmux name cannot authoritatively
     // claim either member of a live h2a-/remote- collision. It already remains
     // visible as two tmux rows above; adding it here would invent a third,
@@ -1177,7 +1202,7 @@ export function resolveLocalTmuxSessionForName(
   const requested = parseManagedSessionName(target);
   const matches = entries.filter(
     (e) => {
-      if (e.role !== undefined || e.kind !== "local-tmux" || e.endedAt) {
+      if (e.role !== undefined || !isManagedLocalKind(e.kind) || e.endedAt) {
         return false;
       }
       // A full managed name is an exact selector, never a slug/label alias.

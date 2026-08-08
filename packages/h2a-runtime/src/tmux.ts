@@ -2528,7 +2528,7 @@ export function readFleetProcView(): ProcView {
   return readProcView(procReaderDeps());
 }
 
-function procReaderDeps(): ProcReaderDeps {
+export function procReaderDeps(): ProcReaderDeps {
   return {
     listPids: () => {
       try {
