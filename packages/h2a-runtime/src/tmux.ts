@@ -828,11 +828,13 @@ export function validateManagedTmuxProfile(
 }
 
 /**
- * Wayland image paste bridge for Codex panes. Terminals/tmux cannot paste image
- * bytes into a TTY, so the reliable path is: read the clipboard image with
- * wl-paste, save it under the pane cwd, then paste the resulting file path into
- * Codex. The binding is guarded by the current tmux session/window profile and
- * clipboard MIME type; when the guard fails, Ctrl+V is forwarded unchanged.
+ * Paste handler for `Ctrl+V` in local tmux panes.
+ *
+ * Terminals/tmux cannot paste image bytes into a TTY, so the reliable path is:
+ * read the clipboard image with wl-paste, save it under the pane cwd, then paste
+ * the resulting file path into Codex. For non-image pastes (including all non-Codex
+ * panes), the binding reads the text clipboard via system tools and replays it with
+ * `tmux paste-buffer` so `Ctrl+Shift+V` keeps working on those panes.
  */
 export function buildCodexImagePasteBinding(): ReadonlyArray<string> {
   const condition = [
@@ -841,7 +843,7 @@ export function buildCodexImagePasteBinding(): ReadonlyArray<string> {
     // Check @profile (set by remote run) OR window_name OR pane_current_command.
     // pane_current_command is often "node" for Codex (not "codex"), so @profile
     // is the reliable discriminant when the session was started via `remote run`.
-    'tmux display-message -p "#{@profile}:#{window_name}:#{pane_current_command}" | grep -Eqi "(^|:)codex(:|$)"',
+    'tmux display-message -p "#{@profile}:#{window_name}:#{pane_current_command}" | grep -Eqi "(^|:)(codex|claude)(:|$)"',
   ].join(" && ");
   // #{pane_id} is expanded by tmux at binding-fire time before the shell runs,
   // so the send-keys always targets the pane that triggered C-v even when the
@@ -857,6 +859,30 @@ export function buildCodexImagePasteBinding(): ReadonlyArray<string> {
     'wl-paste -t "$mime" > "$file"',
     'tmux send-keys -t "$PANE_TARGET" -l "$file"',
   ].join("; ");
+  const fallbackScript = [
+    'PANE_TARGET="#{pane_id}"',
+    'BUFFER_NAME="h2a-clipboard-$$-$(date +%s%N)-${PANE_TARGET#%}"',
+    "PASTED=0",
+    'if [ "$PASTED" -eq 0 ] && command -v xclip >/dev/null 2>&1; then',
+    '  if xclip -selection clipboard -out | tmux load-buffer -b "$BUFFER_NAME" -; then',
+    '    tmux paste-buffer -t "$PANE_TARGET" -b "$BUFFER_NAME" && PASTED=1',
+    "  fi",
+    "fi",
+    'if [ "$PASTED" -eq 0 ] && command -v xsel >/dev/null 2>&1; then',
+    '  if xsel -ob | tmux load-buffer -b "$BUFFER_NAME" -; then',
+    '    tmux paste-buffer -t "$PANE_TARGET" -b "$BUFFER_NAME" && PASTED=1',
+    "  fi",
+    "fi",
+    'if [ "$PASTED" -eq 0 ] && command -v wl-paste >/dev/null 2>&1; then',
+    '  if wl-paste -n -t text/plain | tmux load-buffer -b "$BUFFER_NAME" -; then',
+    '    tmux paste-buffer -t "$PANE_TARGET" -b "$BUFFER_NAME" && PASTED=1',
+    "  fi",
+    "fi",
+    'if [ "$PASTED" -eq 0 ]; then',
+    '  tmux send-keys -t "$PANE_TARGET" C-v',
+    'fi',
+    'tmux delete-buffer -b "$BUFFER_NAME" >/dev/null 2>&1 || true',
+  ].join("\n");
   return [
     "bind",
     "-n",
@@ -865,7 +891,7 @@ export function buildCodexImagePasteBinding(): ReadonlyArray<string> {
     "-b",
     condition,
     `run-shell -b ${shellSingleQuote(script)}`,
-    "send-keys C-v",
+    `run-shell -b ${shellSingleQuote(fallbackScript)}`,
   ];
 }
 
