@@ -295,15 +295,56 @@ function shouldPreserveByRestorePin(entry: RegistryEntry): boolean {
 export function loadRegistry(
   path: string = resolveRegistryPath(),
 ): RegistryEntry[] {
+  return rawRegistryEntries(path).filter(isRegistryEntry);
+}
+
+/** Raw `entries` array of the registry FILE ([] when absent/corrupt). */
+function rawRegistryEntries(path: string): unknown[] {
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8"));
     const entries = (parsed as { entries?: unknown })?.entries;
-    if (!Array.isArray(entries)) return [];
-    return entries.filter(isRegistryEntry);
+    return Array.isArray(entries) ? entries : [];
   } catch {
     // missing or corrupt file -> empty registry (it is rebuilt by enrolment)
     return [];
   }
+}
+
+/**
+ * Raw rows in the registry FILE that FAIL validation (e.g. `kind` absent or
+ * unreadable) but plausibly address `target` under the resolver's identity
+ * rules. `loadRegistry()` cannot return them as entries — but a DESTRUCTIVE
+ * caller must know the identity exists in an unreadable state: such a row
+ * makes local host state UNKNOWN (fail closed, sol-2), never "no local
+ * session" — which would let the act fall through to a REMOTE homonym.
+ */
+export function unreadableRegistryRowsForTarget(
+  target: string,
+  path: string = resolveRegistryPath(),
+): Array<Record<string, unknown>> {
+  const requested = parseManagedSessionName(target);
+  const candidates = requested ? [target] : managedSessionCandidates(target);
+  return rawRegistryEntries(path).filter(
+    (raw): raw is Record<string, unknown> => {
+      if (!raw || typeof raw !== "object" || isRegistryEntry(raw)) return false;
+      const e = raw as Record<string, unknown>;
+      const id = typeof e.id === "string" ? e.id : undefined;
+      const label = typeof e.label === "string" ? e.label : undefined;
+      const tmuxSession =
+        typeof e.tmuxSession === "string" ? e.tmuxSession : undefined;
+      if (requested) {
+        return (
+          tmuxSession === target ||
+          (tmuxSession === undefined && id === requested.slug)
+        );
+      }
+      return (
+        id === target ||
+        label === target ||
+        (tmuxSession !== undefined && candidates.includes(tmuxSession))
+      );
+    },
+  );
 }
 
 /**
@@ -554,11 +595,25 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
   );
 }
 
-/** Atomic write: tmp file in the same dir, then rename. */
-function saveRegistry(entries: RegistryEntry[], path: string): void {
+/**
+ * Atomic write: tmp file in the same dir, then rename. `preserved` carries
+ * raw rows that FAIL validation (e.g. `kind` unreadable): they are written
+ * back verbatim so a load-mutate-save cycle never silently ERASES an
+ * unreadable row from the file (sol-2 — an erased row turns "host state
+ * unknown" into "no local session", re-routing destructive acts).
+ */
+function saveRegistry(
+  entries: RegistryEntry[],
+  path: string,
+  preserved: unknown[] = [],
+): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp.${process.pid}`;
-  writeFileSync(tmp, JSON.stringify({ version: 1, entries }, null, 2), "utf8");
+  writeFileSync(
+    tmp,
+    JSON.stringify({ version: 1, entries: [...entries, ...preserved] }, null, 2),
+    "utf8",
+  );
   renameSync(tmp, path);
 }
 
@@ -601,8 +656,17 @@ export function withRegistryLock<T>(
 ): T {
   const fd = acquireFileLock(path);
   try {
-    const { entries, result, save } = fn(loadRegistry(path));
-    if (save !== false) saveRegistry(entries, path);
+    const raw = rawRegistryEntries(path);
+    const { entries, result, save } = fn(raw.filter(isRegistryEntry));
+    if (save !== false) {
+      // Unreadable rows are preserved verbatim: a mutation of the VALID
+      // entries must never erase what it could not read (sol-2).
+      saveRegistry(
+        entries,
+        path,
+        raw.filter((row) => !isRegistryEntry(row)),
+      );
+    }
     return result;
   } finally {
     if (fd !== undefined) releaseFileLock(fd, path);
