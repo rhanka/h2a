@@ -330,6 +330,22 @@ describe("--tmux stays a permanent first-class creation switch", () => {
   });
 });
 
+describe("dead legacy tmux row relaunch policy — NAMED DEBT, not covered", () => {
+  // This invariant was DROPPED from Lot A, not proven and not disproven: its
+  // premise (a registry row recorded `local-tmux` whose tmux session is DEAD
+  // relaunches on the NATIVE host, migrating the row) is exactly the
+  // dead-tmux-relaunch host policy the owner's tmux-permanent ratification
+  // reopened. Skipping it WITH ITS NAME leaves an address for the debt; a
+  // silent deletion would not. When the policy lands, replace this skip with
+  // the ratified behavior (native migration, tmux resurrection, or fail
+  // closed) and assert the registry row's post-relaunch `kind` explicitly.
+  it.skip("DEAD_LEGACY_TMUX_ROW_RELAUNCHES_NATIVE_NOT_TMUX — pending dead-tmux-relaunch host policy decision (reopened by owner tmux-permanent ratification 2026-08-08)", () => {
+    throw new Error(
+      "unreachable while skipped: the dead-tmux-relaunch host policy is undecided",
+    );
+  });
+});
+
 describe("registry write boundary", () => {
   it("WRITE_BOUNDARY_WITHOUT_HOST_YIELDS_UNKNOWN_NOT_TMUX", () => {
     const slug = `boundary-${process.pid}`;
