@@ -36,6 +36,8 @@ import {
 import {
   listLocalSessions,
   listLocalSessionsWithDiagnostics,
+  localSessionName,
+  managedSessionCandidates,
   slugify,
   type LocalSession,
 } from "./tmux.js";
@@ -56,11 +58,25 @@ export type DiscoveredSession = {
   gatewayMode?: "gateway" | "direct";
   /**
    * Persisted local terminal host of a registry-backed session
-   * (isManagedLocalKind). Re-emitted by tabCommand so a NON-LIVE session is
-   * re-created on the host its record names — an existing session is never
-   * re-routed to the current default host.
+   * (isManagedLocalKind). Under tmux abandonment a NON-LIVE session's
+   * replacement is created on the NATIVE host either way, but the recorded
+   * kind still drives the drain view (live legacy tmux stays attach-only).
    */
   hostKind?: "local-tmux" | "local-native";
+  /** Registry row id backing this session (registry origin only). */
+  registryId?: string;
+  /**
+   * EXACT managed session name of a registry-backed managed row. Carried so
+   * layout rendering acts on the exact identity — it must never re-derive a
+   * live target from `slugify(label)` across hosts.
+   */
+  managedName?: string;
+  /**
+   * §4.1 attach-live plan: the row is LIVE on its persisted host and its
+   * conversation id is unresolved — restore re-enters it by exact managed
+   * name only. No resume id exists; a run/replace must never be emitted.
+   */
+  attachLive?: boolean;
   /**
    * Positive restore marker. Registry entries are explicitly `human`; a raw
    * transcript scan is always `unclassified` because it carries no role/class.
@@ -80,8 +96,12 @@ export type LayoutTab = {
   origin?: "registry" | "scan";
   /** Pinned llm-mesh gateway posture; re-emitted as --gw/--no-gw on restore. */
   gatewayMode?: "gateway" | "direct";
-  /** Persisted local host; re-emitted so restore never re-routes a session. */
+  /** Persisted local host; drives the drain view + native replacement pin. */
   hostKind?: "local-tmux" | "local-native";
+  /** Exact managed session name (registry-backed tabs). */
+  managedName?: string;
+  /** Attach-only tab for a live managed row without a resolved conversation. */
+  attachLive?: boolean;
 };
 
 export type LayoutWindow = { title: string; tabs: LayoutTab[] };
@@ -428,6 +448,56 @@ export function reconcileRunConvIds(
 }
 
 /**
+ * One host-probe lookup consumed by the restore PLAN (attach-live gate).
+ * "unknown" is a probe failure — never proof of death.
+ */
+export type ManagedLiveLookup = (
+  kind: "local-tmux" | "local-native",
+  names: readonly string[],
+) =>
+  | { state: "live"; name: string }
+  | { state: "dead" }
+  | { state: "unknown" };
+
+/**
+ * Production snapshot for ManagedLiveLookup: BOTH host inventories are read
+ * once, so every plan decision of one restore sees the same probe state. A
+ * failed inventory read yields "unknown" for that host's sessions — restore
+ * must fail closed on it, never treat it as death.
+ */
+export function managedLiveLookupSnapshot(): ManagedLiveLookup {
+  const native: { known: true; running: ReadonlySet<string> } | { known: false } =
+    (() => {
+      try {
+        return {
+          known: true as const,
+          running: new Set(
+            listNativeSessions()
+              .filter((session) => session.status === "running")
+              .map((session) => session.id),
+          ),
+        };
+      } catch {
+        return { known: false as const };
+      }
+    })();
+  const tmux = listLocalSessionsWithDiagnostics();
+  return (kind, names) => {
+    if (kind === "local-native") {
+      if (!native.known) return { state: "unknown" };
+      const running = native.running;
+      const hit = names.find((name) => running.has(name));
+      return hit !== undefined ? { state: "live", name: hit } : { state: "dead" };
+    }
+    if (!tmux.known) return { state: "unknown" };
+    const hit = names.find((name) =>
+      tmux.sessions.some((session) => session.name === name),
+    );
+    return hit !== undefined ? { state: "live", name: hit } : { state: "dead" };
+  };
+}
+
+/**
  * REGISTRY-FIRST discovery: durable registry entries (local kinds) mapped to
  * discovered sessions. label/cwd/convId come straight from enrolment, no
  * mtime guessing. `entries` is injectable for tests (defaults to listLive()).
@@ -437,12 +507,19 @@ export function reconcileRunConvIds(
  * resolvable conversation (so restore never emits `--resume <label>`), and
  * dedups the `hook` twin of a conversation already represented by a run session.
  * Omitted (the plain 2-arg call) → legacy behaviour, one session per entry.
+ *
+ * `liveView` (one host-probe snapshot) upgrades the unresolved-convId gate to
+ * the §4.1 state machine: a LIVE managed row is never lost to a broken
+ * conversation id — it becomes an ATTACH-LIVE session keyed on its persisted
+ * kind + exact managed name. Without it (legacy callers), every unresolved
+ * row is skipped as before.
  */
 export function registrySessions(
   home: string = homedir(),
   entries: RegistryEntry[] = loadRegistry(),
   resolution?: ConvIdResolution,
   evidence: LegacySessionEvidence = legacySessionEvidence(home),
+  liveView?: ManagedLiveLookup,
 ): DiscoveredSession[] {
   const src = join(home, "src");
   const out: DiscoveredSession[] = [];
@@ -452,15 +529,25 @@ export function registrySessions(
     // background launches (they had no human in front of them).
     if (!isHumanFacingSession(e, evidence)) continue;
     if (!e.cwd.startsWith(`${src}/`)) continue;
-    // A run session whose conversation id could not be resolved is skipped here
-    // (restore() emits the attach-hint note) — never a broken `--resume <label>`.
+    // §4.1 unresolved-convId gate: skip ONLY when the row is dead/absent (or
+    // its host state is unprovable — an unknown probe is no death
+    // certificate, but with no identity there is nothing safe to launch
+    // either; restore() emits the attach-hint note). A LIVE managed row is
+    // NEVER lost to a broken conversation id: the process exists and is
+    // re-enterable by its persisted kind + exact managed name alone.
+    let attachLiveName: string | undefined;
     if (
       resolution &&
       isManagedLocalKind(e.kind) &&
       e.source === "run" &&
       resolution.unresolvedRunIds.has(e.id)
     ) {
-      continue;
+      const candidates = e.tmuxSession
+        ? [e.tmuxSession]
+        : managedSessionCandidates(e.id);
+      const live = liveView?.(e.kind, candidates);
+      if (live === undefined || live.state !== "live") continue;
+      attachLiveName = live.name;
     }
     // A hook conversation already owned by a run session (same real convId, but
     // the run entry carries the label + tmux name) must not ALSO appear as an
@@ -477,7 +564,12 @@ export function registrySessions(
     const project = projectForCwd(src, e.cwd);
     if (!project) continue;
     const seen = Date.parse(e.lastSeenAt);
-    const sid = resolution?.resolvedSid.get(e.id) ?? e.convId ?? "";
+    // An attach-live row has NO resolved conversation: its sid stays empty so
+    // no path can ever render a broken `--resume <label>` from it.
+    const sid =
+      attachLiveName !== undefined
+        ? ""
+        : (resolution?.resolvedSid.get(e.id) ?? e.convId ?? "");
     const session: DiscoveredSession = {
       project,
       mtimeMs: Number.isFinite(seen) ? seen : Date.now(),
@@ -485,14 +577,21 @@ export function registrySessions(
       sid,
       cwd: e.cwd,
       origin: "registry",
+      registryId: e.id,
       restoreClass: "human",
     };
     if (e.label !== undefined) session.label = e.label;
     if (e.gatewayMode !== undefined) session.gatewayMode = e.gatewayMode;
     // The persisted host selector is the recorded kind (isManagedLocalKind
-    // recognizes both managed local hosts) — carried so the re-launch command
-    // can pin it. A `kind:"local"` hook entry has no terminal host to pin.
-    if (isManagedLocalKind(e.kind)) session.hostKind = e.kind;
+    // recognizes both managed local hosts), carried with the EXACT managed
+    // name so layout rendering never re-derives a live target from
+    // slugify(label). A `kind:"local"` hook entry has no terminal host.
+    if (isManagedLocalKind(e.kind)) {
+      session.hostKind = e.kind;
+      session.managedName =
+        attachLiveName ?? e.tmuxSession ?? localSessionName(e.id);
+    }
+    if (attachLiveName !== undefined) session.attachLive = true;
     out.push(session);
   }
   return out;
@@ -563,6 +662,37 @@ export function dropRemoteBackedLocals(
     else kept.push(s);
   }
   return { kept, dropped };
+}
+
+/**
+ * Dual-host identity fails CLOSED (resolver rule 3): sessions of BOTH managed
+ * kinds for one exact managed name cannot be attributed to a host — neither
+ * an attach nor a replacement may pick one by luck. Pure; the caller reports
+ * the ambiguous names.
+ */
+export function dropDualHostIdentities(sessions: DiscoveredSession[]): {
+  kept: DiscoveredSession[];
+  ambiguousNames: string[];
+} {
+  const kindsByManagedName = new Map<string, Set<string>>();
+  for (const s of sessions) {
+    if (s.managedName !== undefined && s.hostKind !== undefined) {
+      const kinds = kindsByManagedName.get(s.managedName) ?? new Set<string>();
+      kinds.add(s.hostKind);
+      kindsByManagedName.set(s.managedName, kinds);
+    }
+  }
+  const ambiguous = new Set(
+    [...kindsByManagedName]
+      .filter(([, kinds]) => kinds.size > 1)
+      .map(([name]) => name),
+  );
+  return {
+    kept: sessions.filter(
+      (s) => s.managedName === undefined || !ambiguous.has(s.managedName),
+    ),
+    ambiguousNames: [...ambiguous].sort(),
+  };
 }
 
 function safeStat(p: string): { mtimeMs: number } | undefined {
@@ -646,6 +776,8 @@ export function groupSessions(
       if (s.origin !== undefined) tab.origin = s.origin;
       if (s.gatewayMode !== undefined) tab.gatewayMode = s.gatewayMode;
       if (s.hostKind !== undefined) tab.hostKind = s.hostKind;
+      if (s.managedName !== undefined) tab.managedName = s.managedName;
+      if (s.attachLive !== undefined) tab.attachLive = s.attachLive;
       return tab;
     });
   };
@@ -720,6 +852,12 @@ export function tabCommand(
     return `h2a attach ${q(tab.remoteId)} --exec`;
   }
   const slug = slugify(tab.label);
+  if (tab.attachLive) {
+    // §4.1 attach-live: a live managed row whose conversation id is
+    // unresolved re-enters by EXACT managed name only. No resume id exists,
+    // so no run/replace command may ever be rendered for it.
+    return `h2a attach ${q(tab.managedName ?? localSessionName(slug))}`;
+  }
   // Effective gateway posture: an explicit `restore --gw/--no-gw` OVERRIDES the
   // per-instance pin; otherwise honour the pinned gatewayMode (absent = default).
   const posture = opts.forceGateway ?? tab.gatewayMode;
@@ -813,22 +951,48 @@ export function launchLayout(
   opts: { reattach?: boolean; forceGateway?: "gateway" | "direct" } = {},
 ): { opened: number; skippedLive: string[] } {
   const localSessions = listLocalSessionsWithDiagnostics();
-  // Native-PTY sessions are just as live as tmux ones; fold them into the
-  // same {name, slug} shape so a live native session gets an ATTACH tab and
-  // is never relaunched over.
-  let nativeLive: Array<{ name: string; slug: string; attached: boolean }> = [];
-  try {
-    nativeLive = listNativeSessions()
-      .filter((session) => session.status === "running")
-      .filter((session) => session.id.startsWith("h2a-") && !session.id.endsWith(".h2a"))
-      .map((session) => ({
-        name: session.id,
-        slug: session.id.slice("h2a-".length),
-        attached: false,
-      }));
-  } catch {
-    nativeLive = [];
-  }
+  // Native view by EXACT session name, carrying the controller-visibility
+  // bit. A failed inventory read is an UNKNOWN view — never "no sessions":
+  // launching a replacement onto an unprovable host state could create a
+  // second writer, so unknown fails closed below.
+  const nativeView:
+    | {
+        known: true;
+        sessions: ReadonlyMap<string, { controlled: boolean | undefined }>;
+      }
+    | { known: false } = (() => {
+    try {
+      return {
+        known: true as const,
+        sessions: new Map(
+          listNativeSessions()
+            .filter((session) => session.status === "running")
+            .map((session) => [
+              session.id,
+              { controlled: session.controlled },
+            ]),
+        ),
+      };
+    } catch {
+      return { known: false as const };
+    }
+  })();
+  // Slug-union view for LEGACY tabs without a recorded host (scan fallback)
+  // ONLY — a tab that carries its persisted hostKind + exact managed name is
+  // rendered from that identity and never chooses a host from a merged slug
+  // list. A CONTROLLED native session counts as attached (already visible).
+  const nativeLive: Array<{ name: string; slug: string; attached: boolean }> =
+    nativeView.known
+      ? [...nativeView.sessions.entries()]
+          .filter(
+            ([name]) => name.startsWith("h2a-") && !name.endsWith(".h2a"),
+          )
+          .map(([name, view]) => ({
+            name,
+            slug: name.slice("h2a-".length),
+            attached: view.controlled === true,
+          }))
+      : [];
   const liveSessions = [
     ...localSessions.sessions,
     ...nativeLive.filter(
@@ -864,6 +1028,98 @@ export function launchLayout(
         continue;
       }
       const slug = slugify(t.label);
+
+      // --- Tabs WITH a recorded host: exact-identity, single-host render. ---
+      // The host decision was made by the plan (persisted kind + exact
+      // managed name); this block only renders the view for THAT host.
+      if (t.hostKind === "local-native") {
+        const exact = t.managedName ?? `h2a-${slug}`;
+        if (!nativeView.known) {
+          stderr.write(
+            `[h2a] restore: native host state UNKNOWN — "${t.label}" neither relaunched nor attached (fail closed)\n`,
+          );
+          continue;
+        }
+        const view = nativeView.sessions.get(exact);
+        if (view !== undefined) {
+          if (view.controlled === true) {
+            // running && controlled → already visible. Even --reattach must
+            // not open a competing controller (single-controller model).
+            skippedLive.push(t.label);
+            if (includeAttached) {
+              stderr.write(
+                `[h2a] restore: "${t.label}" is already controlled in a terminal; not opening a second controller\n`,
+              );
+            }
+            continue;
+          }
+          if (view.controlled === undefined) {
+            // running && view unknown (host predates the visibility bit):
+            // preserve the process, report, never relaunch.
+            stderr.write(
+              `[h2a] restore: controller visibility UNKNOWN for running native session "${t.label}"; attach manually: h2a attach ${exact}\n`,
+            );
+            continue;
+          }
+          // running && !controlled → exactly one exact-name attach.
+          activeTabs.push({
+            tab: t,
+            command: tabCommand(t, new Set([slug]), { attachSession: exact }),
+          });
+          continue;
+        }
+        // Dead/absent on a KNOWN native view.
+        if (t.attachLive) {
+          stderr.write(
+            `[h2a] restore: "${t.label}" was live at plan time but is gone; no resolved conversation exists to relaunch it\n`,
+          );
+          continue;
+        }
+        activeTabs.push({ tab: t, command: tabCommand(t, new Set(), tabOpts) });
+        continue;
+      }
+      if (t.hostKind === "local-tmux") {
+        const exact = t.managedName ?? `h2a-${slug}`;
+        if (!localSessions.known) {
+          // Conservative: a harmless exact attach, never a relaunch race.
+          activeTabs.push({
+            tab: t,
+            command: tabCommand(t, new Set([slug]), { attachSession: exact }),
+          });
+          continue;
+        }
+        const liveTmux = localSessions.sessions.find(
+          (session) => session.name === exact,
+        );
+        if (liveTmux) {
+          // DRAIN view: the live legacy process is attach-only — dispatched
+          // to its persisted host via `h2a attach`; never replaced, and no
+          // tmux session is ever created here.
+          if (!includeAttached && liveTmux.attached) {
+            skippedLive.push(t.label);
+            continue;
+          }
+          activeTabs.push({
+            tab: t,
+            command: tabCommand(t, new Set([slug]), { attachSession: exact }),
+          });
+          continue;
+        }
+        if (t.attachLive) {
+          stderr.write(
+            `[h2a] restore: "${t.label}" was live at plan time but is gone; no resolved conversation exists to relaunch it\n`,
+          );
+          continue;
+        }
+        // Dead recorded tmux row: re-created on its recorded host via the
+        // --tmux pin (tabCommand). Which host a dead tmux session should be
+        // relaunched on is a REOPENED policy question — this keeps the #199
+        // behavior as-is.
+        activeTabs.push({ tab: t, command: tabCommand(t, new Set(), tabOpts) });
+        continue;
+      }
+
+      // --- Legacy tabs without a recorded host: slug-union view (scan). ---
       if (!localSessions.known) {
         activeTabs.push({
           tab: t,
@@ -884,6 +1140,14 @@ export function launchLayout(
       const liveSession = liveSessions.find((session) => session.slug === slug);
       if (liveSession && !includeAttached && liveSession.attached) {
         skippedLive.push(t.label);
+        continue;
+      }
+      if (!liveSession && !nativeView.known) {
+        // The tab would LAUNCH — but the native host state is unknown, so a
+        // homonymous live native session cannot be ruled out. Fail closed.
+        stderr.write(
+          `[h2a] restore: native host state UNKNOWN — "${t.label}" not launched (fail closed)\n`,
+        );
         continue;
       }
       activeTabs.push({
@@ -1020,9 +1284,24 @@ export function restore(
       // best-effort: a persistence hiccup must never break restore
     }
   }
-  // Never emit a broken `--resume <label>`: note the un-resumable named sessions
-  // with an explicit attach hint instead of silently dropping (or mis-running) them.
+  const scanned = discoverSessions(cfg.maxAgeHours * 3600 * 1000);
+  // ONE host-probe snapshot for the whole plan (§4.1): the attach-live gate
+  // and the skip notes below read the same probe state.
+  const liveView = managedLiveLookupSnapshot();
+  const allDiscovered = mergeDiscovered(
+    registrySessions(home, registryEntries, resolution, evidence, liveView),
+    scanned,
+  );
+  // Never emit a broken `--resume <label>`. A LIVE unresolved row was kept by
+  // the §4.1 gate as an attach-live tab; only the dead/unprovable remainder
+  // is skipped, with an explicit attach hint instead of a silent drop.
+  const attachLiveIds = new Set(
+    allDiscovered.flatMap((s) =>
+      s.attachLive === true && s.registryId !== undefined ? [s.registryId] : [],
+    ),
+  );
   for (const id of resolution.unresolvedRunIds) {
+    if (attachLiveIds.has(id)) continue;
     const e = registryEntries.find((x) => x.id === id);
     if (!e) continue;
     const label = e.label ?? e.id;
@@ -1032,14 +1311,17 @@ export function restore(
         `attach it live with h2a attach ${slugify(label)}\n`,
     );
   }
-  const scanned = discoverSessions(cfg.maxAgeHours * 3600 * 1000);
-  const allDiscovered = mergeDiscovered(
-    registrySessions(home, registryEntries, resolution, evidence),
-    scanned,
-  );
   // Transcript scans lack a durable human/job marker. They are deliberately
   // represented as `unclassified` and filtered here, before grouping/capping.
-  const allLocal = allDiscovered.filter(isRestorableDiscoveredSession);
+  const preDualLocal = allDiscovered.filter(isRestorableDiscoveredSession);
+  const { kept: allLocal, ambiguousNames } =
+    dropDualHostIdentities(preDualLocal);
+  for (const name of ambiguousNames) {
+    stderr.write(
+      `[h2a] restore skipped "${name}": recorded on BOTH local hosts (local-tmux AND local-native); ` +
+        "clean up the conflicting registry rows before restoring it\n",
+    );
+  }
   // Bug #3: a session moved to a remote Pod must NOT also be re-launched as a
   // ghost LOCAL tmux. Drop locals already covered by a remote tab.
   const { kept: sessions, dropped: remoteBacked } = dropRemoteBackedLocals(

@@ -19,8 +19,8 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  persistedLocalHostKind,
   registryEntriesForNativeTarget,
+  resolveManagedHost,
   type RegistryEntry,
 } from "./registry.js";
 import { planRelaunch } from "./relaunch.js";
@@ -126,7 +126,9 @@ describe("persisted native host on re-use paths", () => {
     expect(cmd).not.toContain("--tmux");
 
     // Symmetric preservation: a recorded tmux session is pinned to tmux so
-    // the native creation default cannot re-route it either.
+    // the native creation default cannot re-route it either. (Which host a
+    // DEAD tmux session should be relaunched on is a reopened policy
+    // question; this pins the #199 as-is behavior.)
     const tmuxSessions = registrySessions(home, [tmuxEntry()], undefined, evidence);
     expect(tmuxSessions[0]!.hostKind).toBe("local-tmux");
     const tmuxCmd = tabCommand({
@@ -142,19 +144,57 @@ describe("persisted native host on re-use paths", () => {
 
   it("attach/stop select the host by persisted kind, not by liveness", () => {
     const entry = nativeEntry();
-    // A momentarily-dead native session STAYS native: the resolver takes no
-    // liveness input at all, and the probe result cannot flip the host.
-    expect(persistedLocalHostKind(NATIVE_NAME, [entry], false)).toBe("local-native");
-    expect(persistedLocalHostKind(NATIVE_NAME, [entry], true)).toBe("local-native");
-    // A recorded tmux session is served by tmux.
-    expect(persistedLocalHostKind("h2a-tmux-lane", [tmuxEntry()], false)).toBe(
-      "local-tmux",
-    );
-    // Without any recorded entry the probe is pure DISCOVERY (a live native
-    // session whose registry row was lost), never a host choice for a
-    // recorded session.
-    expect(persistedLocalHostKind("h2a-ghost", [], true)).toBe("local-native");
-    expect(persistedLocalHostKind("h2a-ghost", [], false)).toBe("local-tmux");
+    // A momentarily-dead native session STAYS native: the recorded kind wins
+    // without any probe at all, and a probe result cannot flip the host.
+    const probesNever = {
+      native: () => {
+        throw new Error("a recorded row must resolve without probing");
+      },
+      tmux: () => {
+        throw new Error("a recorded row must resolve without probing");
+      },
+    };
+    expect(resolveManagedHost(NATIVE_NAME, [entry], probesNever)).toEqual({
+      state: "recorded",
+      kind: "local-native",
+      name: NATIVE_NAME,
+    });
+    // A recorded tmux session is served by tmux — REGARDLESS of a live
+    // homonymous native process (the F2 defect made this flip to native).
+    expect(
+      resolveManagedHost("h2a-tmux-lane", [tmuxEntry()], {
+        native: () => "live",
+        tmux: () => "dead",
+      }),
+    ).toEqual({ state: "recorded", kind: "local-tmux", name: "h2a-tmux-lane" });
+    // Without any recorded entry the probe is pure DISCOVERY (a live session
+    // whose registry row was lost) — exactly one positive probe wins, an
+    // all-dead probe set is MISSING (never a silent tmux default), and a
+    // probe failure is UNKNOWN, never death.
+    expect(
+      resolveManagedHost("h2a-ghost", [], {
+        native: () => "live",
+        tmux: () => "dead",
+      }),
+    ).toEqual({ state: "discovered", kind: "local-native", name: "h2a-ghost" });
+    expect(
+      resolveManagedHost("h2a-ghost", [], {
+        native: () => "dead",
+        tmux: () => "live",
+      }),
+    ).toEqual({ state: "discovered", kind: "local-tmux", name: "h2a-ghost" });
+    expect(
+      resolveManagedHost("h2a-ghost", [], {
+        native: () => "dead",
+        tmux: () => "dead",
+      }),
+    ).toEqual({ state: "missing" });
+    expect(
+      resolveManagedHost("h2a-ghost", [], {
+        native: () => "unknown",
+        tmux: () => "dead",
+      }),
+    ).toMatchObject({ state: "unknown" });
   });
 
   it("the tmux resolver and planRelaunch are unchanged for tmux targets", () => {

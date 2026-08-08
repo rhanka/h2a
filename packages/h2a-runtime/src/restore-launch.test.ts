@@ -6,10 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const listLocalSessionsWithDiagnostics = vi.hoisted(() => vi.fn());
 const killLocalSession = vi.hoisted(() => vi.fn());
 const spawn = vi.hoisted(() => vi.fn());
+const listNativeSessions = vi.hoisted(() => vi.fn());
 
 vi.mock("./tmux.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./tmux.js")>();
   return { ...actual, killLocalSession, listLocalSessionsWithDiagnostics };
+});
+
+vi.mock("./native-host.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./native-host.js")>();
+  return { ...actual, listNativeSessions };
 });
 
 vi.mock("node:child_process", async (importOriginal) => {
@@ -27,6 +33,10 @@ describe("launchLayout prefix collision", () => {
   beforeEach(() => {
     listLocalSessionsWithDiagnostics.mockReset();
     listLocalSessionsWithDiagnostics.mockReturnValue({ sessions: [], known: true });
+    listNativeSessions.mockReset();
+    // A KNOWN-empty native view (the host answers, no sessions): a throwing
+    // probe would rightly fail closed and block every launch decision.
+    listNativeSessions.mockReturnValue([]);
     killLocalSession.mockReset();
     spawn.mockReset();
     spawn.mockReturnValue({ stderr: { on: vi.fn() }, unref: vi.fn() });
