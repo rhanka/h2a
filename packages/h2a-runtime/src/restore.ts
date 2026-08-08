@@ -21,6 +21,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  DEFAULT_RESTORE_MAX_AGE_HOURS,
   getLayoutConfig,
   resolveConfigPath,
   type LayoutConfig,
@@ -592,6 +593,7 @@ function* walk(root: string): Generator<string> {
 export function groupSessions(
   sessions: DiscoveredSession[],
   cfg: LayoutConfig,
+  opts: { maxPerProject?: number } = {},
 ): { windows: LayoutWindow[]; dropped: number } {
   // newest-first per project, capped per project
   const byProject = new Map<string, DiscoveredSession[]>();
@@ -611,7 +613,16 @@ export function groupSessions(
     // keyed by its own identity (tmux slug / convId), so every one is preserved:
     // a repo like `sentropic` legitimately runs several concurrent human sessions
     // and restore must bring back each, not collapse them to one tab.
-    const cap = cfg.multiSession[project] ?? cfg.multiSessionDefault;
+    //
+    // `--max-per-project` (opts.maxPerProject) REPLACES the whole expression
+    // `cfg.multiSession[project] ?? cfg.multiSessionDefault`: the flag wins
+    // over BOTH the per-project config override and the global default. An
+    // explicit intent typed right now must not be silently narrowed by a
+    // stored per-project override the user forgot — otherwise
+    // `--max-per-project all` would stay capped exactly on the projects the
+    // user bothered to override (the ones they care most about).
+    const cap =
+      opts.maxPerProject ?? cfg.multiSession[project] ?? cfg.multiSessionDefault;
     const limit = cap <= 0 ? Number.POSITIVE_INFINITY : cap;
     const all = (byProject.get(project) ?? [])
       .slice()
@@ -916,8 +927,70 @@ export type RestoreOptions = {
    * replaced to apply this override.
    */
   forceGateway?: "gateway" | "direct";
+  /**
+   * Session-age window (hours) for THIS restore. Absent -> the CLI default
+   * DEFAULT_RESTORE_MAX_AGE_HOURS (72h; the age window is no longer a config
+   * field). `Infinity` -> no age bound (the CLI maps the literal `none` to
+   * Infinity). Only moves the discovery age cutoff — per-window / per-project
+   * caps still apply afterwards (see groupSessions).
+   */
+  maxAgeHours?: number;
+  /**
+   * Per-project session cap for THIS restore. When set it REPLACES the whole
+   * config expression `cfg.multiSession[project] ?? cfg.multiSessionDefault`
+   * (the flag wins over BOTH). `Infinity` -> keep every session per project
+   * (the CLI maps the literal `all` to Infinity).
+   */
+  maxPerProject?: number;
   stderr?: NodeJS.WriteStream;
 };
+
+/**
+ * Parse the CLI `--max-age-hours <n>|none` value into `RestoreOptions.maxAgeHours`.
+ * `none` (case-insensitive) -> Infinity (no age bound). Otherwise a number of
+ * hours, strictly > 0. Throws on 0, negatives and non-numeric input — the CLI
+ * handler catches and reports via its usual stderr + non-zero-exit convention.
+ */
+export function parseRestoreMaxAgeHours(raw: string): number {
+  if (raw.trim().toLowerCase() === "none") return Infinity;
+  const hours = Number(raw);
+  if (Number.isNaN(hours) || hours <= 0) {
+    throw new Error(
+      `--max-age-hours expects a number of hours > 0 or 'none', got "${raw}"`,
+    );
+  }
+  return hours;
+}
+
+/**
+ * Parse the CLI `--max-per-project <n>|all` value into
+ * `RestoreOptions.maxPerProject`. `all` (case-insensitive) -> Infinity (keep
+ * every session per project) — an explicit token, never a magic big number.
+ * Otherwise an integer strictly > 0 (a cap is a count; a fractional cap would
+ * silently truncate). Throws on anything else — the CLI handler catches and
+ * reports via its usual stderr + non-zero-exit convention.
+ */
+export function parseRestoreMaxPerProject(raw: string): number {
+  if (raw.trim().toLowerCase() === "all") return Infinity;
+  const cap = Number(raw);
+  if (!Number.isInteger(cap) || cap <= 0) {
+    throw new Error(
+      `--max-per-project expects an integer > 0 or 'all', got "${raw}"`,
+    );
+  }
+  return cap;
+}
+
+/**
+ * Effective age window for a restore: the `--max-age-hours` value when given,
+ * else the CLI default (72h — deliberately NOT the pre-rectification 48h, and
+ * no longer read from the config).
+ */
+export function effectiveRestoreMaxAgeHours(
+  opts: Pick<RestoreOptions, "maxAgeHours">,
+): number {
+  return opts.maxAgeHours ?? DEFAULT_RESTORE_MAX_AGE_HOURS;
+}
 
 function titleMatches(title: string, query: string): boolean {
   const norm = (s: string) =>
@@ -980,7 +1053,7 @@ export function restore(
         `attach it live with h2a attach ${slugify(label)}\n`,
     );
   }
-  const scanned = discoverSessions(cfg.maxAgeHours * 3600 * 1000);
+  const scanned = discoverSessions(effectiveRestoreMaxAgeHours(opts) * 3600 * 1000);
   const allDiscovered = mergeDiscovered(
     registrySessions(home, registryEntries, resolution, evidence),
     scanned,
@@ -1001,7 +1074,11 @@ export function restore(
       ].join(", ")}\n`,
     );
   }
-  const { windows: localWindows, dropped } = groupSessions(sessions, cfg);
+  const { windows: localWindows, dropped } = groupSessions(sessions, cfg, {
+    ...(opts.maxPerProject !== undefined
+      ? { maxPerProject: opts.maxPerProject }
+      : {}),
+  });
   const localByTitle = new Map(localWindows.map((w) => [w.title, w]));
 
   // Remote windows: each `remote: true` group is filled with the SCW tabs.
@@ -1037,8 +1114,20 @@ export function restore(
       stderr.write(`    - ${t.label}  ${what}  ${t.cwd}\n`);
     }
   }
-  if (dropped > 0 && !opts.group)
-    stderr.write(`  (! ${dropped} session(s) ignorée(s), plafond atteint)\n`);
+  // I5 — a truncated restore must never look like a complete one: when
+  // sessions were dropped, say HOW MANY and WHY. Measured shape of `dropped`
+  // (groupSessions): a plain number = sharedSlots.length - placed, i.e. ONLY
+  // shared-pool slots beyond the shared cap maxShared = sharedWindows ×
+  // maxPerWindow (explicit-group tabs truncated at maxPerWindow are not part
+  // of this count). Deliberately NOT gated on opts.group: the truncation
+  // happened regardless of which window the user asked to reopen.
+  if (dropped > 0) {
+    stderr.write(
+      `  (! ${dropped} session(s) écartée(s) — plafond des fenêtres partagées atteint: ` +
+        `sharedWindows ${cfg.sharedWindows} × maxPerWindow ${cfg.maxPerWindow} = ` +
+        `${cfg.sharedWindows * cfg.maxPerWindow} onglets)\n`,
+    );
+  }
   if (!opts.dryRun && total > 0) {
     launchLayout(windows, stderr, {
       ...(opts.reattach ? { reattach: true } : {}),

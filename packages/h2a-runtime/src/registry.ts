@@ -23,7 +23,7 @@ import {
 import { uptime } from "node:os";
 import { dirname, join } from "node:path";
 
-import { getLayoutConfig, resolveConfigPath } from "./config.js";
+import { DEFAULT_RESTORE_MAX_AGE_HOURS, resolveConfigPath } from "./config.js";
 import { acquireFileLock, releaseFileLock } from "./file-lock.js";
 import {
   managedSessionCandidates,
@@ -920,12 +920,14 @@ export function localLsRows(
  * LOCAL rows for `remote ls`: live tmux sessions joined with the registry
  * ([registry] vs [guess] badge), plus live registry-only sessions (e.g. a
  * hook-enrolled claude running in a plain terminal). Dead registry entries are
- * pruned on the way (layout maxAgeHours).
+ * pruned on the way (DEFAULT_RESTORE_MAX_AGE_HOURS — `layout.maxAgeHours` was
+ * removed from the config; the hygiene window now tracks the restore CLI
+ * default, 72h).
  */
 export function listLocalForLs(opts: RegistryOpts = {}): LocalLsRow[] {
   const path = opts.path ?? resolveRegistryPath();
   try {
-    prune(getLayoutConfig().maxAgeHours, { ...opts, path });
+    prune(DEFAULT_RESTORE_MAX_AGE_HOURS, { ...opts, path });
   } catch {
     // a config/registry hiccup must not break `remote ls`
   }
