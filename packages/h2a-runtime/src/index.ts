@@ -9743,8 +9743,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // stop at a REMOTE homonym of the same id. Fail closed instead.
           const unreadable = unreadableRegistryRowsForTarget(first);
           if (unreadable.length > 0) {
+            const unreadableIds = unreadable
+              .map((row) => (typeof row.id === "string" ? row.id : "<no id>"))
+              .join(", ");
             process.stderr.write(
-              `[h2a] cannot stop ${first}: a registry row for this identity exists but is unreadable (its recorded kind is missing or invalid), so local host state is unknown; refusing to fall through to a remote session of the same name (fail closed). Repair the registry row first.\n`,
+              `[h2a] cannot stop ${first}: local host state is unknown — an unreadable registry row exists for this identity (row id: ${unreadableIds}) in ${resolveRegistryPath()} (kind absent/unreadable); the row is preserved but cannot be acted on, and stop refuses to fall through to a remote session of the same name (fail closed). Inspect the row before retrying.\n`,
             );
             process.exitCode = 1;
             return;
