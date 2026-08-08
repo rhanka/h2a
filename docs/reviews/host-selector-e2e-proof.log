@@ -1,0 +1,28 @@
+[e2e] run-default-starts-e2e-nat-a-3644939 ok — [h2a] attach with: h2a attach e2e-nat-a-3644939
+[e2e] run-default-starts-e2e-nat-b-3644939 ok — [h2a] attach with: h2a attach e2e-nat-b-3644939
+[e2e] registry-kind-native-e2e-nat-a-3644939 ok — kind=local-native
+[e2e] native-host-running-e2e-nat-a-3644939 ok — {"id":"h2a-e2e-nat-a-3644939","generation":"6ae7d011-33b6-43a9-ba09-c0e32f331c7a","incarnation":"77a20418-3d14-4dc6-bb11-4bafca563b87","pid":3645025,"status":"running","latestSeq":6,"exit":null,"stopSignal":null}
+[e2e] not-in-tmux-e2e-nat-a-3644939 ok
+[e2e] registry-kind-native-e2e-nat-b-3644939 ok — kind=local-native
+[e2e] native-host-running-e2e-nat-b-3644939 ok — {"id":"h2a-e2e-nat-b-3644939","generation":"6ae7d011-33b6-43a9-ba09-c0e32f331c7a","incarnation":"81819eef-2ee5-4598-9c5d-4a3d9096874e","pid":3645411,"status":"running","latestSeq":6,"exit":null,"stopSignal":null}
+[e2e] not-in-tmux-e2e-nat-b-3644939 ok
+[e2e] two-native-sessions-one-host ok — h2a-e2e-nat-a-3644939,h2a-e2e-nat-b-3644939
+[e2e] run-tmux-starts ok — [h2a] attach with: h2a attach e2e-tmx-3644939
+[e2e] tmux-has-session ok
+[e2e] registry-kind-tmux ok — kind=local-tmux
+[e2e] not-on-native-host ok — native host does not know the tmux session
+[e2e] ls-lists-native-and-tmux ok — exit=0
+[e2e] attach-native-paints-claude ok — 2491 bytes painted
+[e2e] attach-native-keystrokes-echo ok
+[e2e] attach-native-detach-message ok
+[e2e] session-survives-detach ok — {"id":"h2a-e2e-nat-a-3644939","generation":"6ae7d011-33b6-43a9-ba09-c0e32f331c7a","incarnation":"77a20418-3d14-4dc6-bb11-4bafca563b87","pid":3645025,"status":"running","latestSeq":15,"exit":null,"stopSignal":null}
+[e2e] relaunch-dry-run-names-native ok — [h2a] DRY-RUN — would relaunch NATIVE session e2e-nat-b-3644939 (claude in /home/antoinefa). Re-run with --apply.
+[e2e] relaunch-apply-succeeds ok — [h2a] native session e2e-nat-b-3644939 relaunched (claude in /home/antoinefa)
+[e2e] relaunch-new-native-incarnation ok — pid 3645411 -> 3650958
+[e2e] relaunch-keeps-native-kind ok — kind=local-native
+[e2e] restore-tab-uses-h2a-attach ok — h2a attach 'h2a-e2e-nat-a-3644939'
+[e2e] stop-native-e2e-nat-a-3644939 ok — {"id":"h2a-e2e-nat-a-3644939","generation":"6ae7d011-33b6-43a9-ba09-c0e32f331c7a","incarnation":"77a20418-3d14-4dc6-bb11-4bafca563b87","pid":3645025,"status":"exited","latestSeq":19,"exit":{"exitCode":143,"signal":0},"stopSignal":"SIGTERM"}
+[e2e] stop-native-e2e-nat-b-3644939 ok — {"id":"h2a-e2e-nat-b-3644939","generation":"6ae7d011-33b6-43a9-ba09-c0e32f331c7a","incarnation":"d5def637-6ee9-4e98-bb19-9f993a501c0a","pid":3650958,"status":"exited","latestSeq":11,"exit":{"exitCode":143,"signal":0},"stopSignal":"SIGTERM"}
+[e2e] stop-tmux ok
+[e2e] proof-host-terminated ok — host pid 3645006
+[e2e] PASS — default-pty launches native, --tmux switches, recorded host honored
