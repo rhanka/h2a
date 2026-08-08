@@ -65,6 +65,13 @@ export type NativeSessionState = {
   readonly pid: number;
   readonly status: "running" | "stopping" | "exited";
   readonly exit: { readonly exitCode: number; readonly signal?: number } | null;
+  /**
+   * Controller-visibility bit (never the controller's identity): true when an
+   * exclusive input controller is attached. OPTIONAL because an older running
+   * host does not report it — consumers must treat absence as an UNKNOWN view
+   * and fail closed (report, don't relaunch), never as "uncontrolled".
+   */
+  readonly controlled?: boolean;
 };
 
 export type NativeStartResult = {

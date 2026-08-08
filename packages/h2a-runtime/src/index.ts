@@ -180,9 +180,10 @@ import {
   listLocalForLs,
   loadRegistry,
   loadRegistryWithDiagnostics,
-  persistedLocalHostKind,
+  probeNativeSession,
   registryEntriesForNativeTarget,
   resolveLocalTmuxSessionForName,
+  resolveManagedHost,
   tryClaimSlot,
   withRegistryLock,
   resolveRegistryPath,
@@ -5232,7 +5233,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .option(
       "--tmux",
-      "host the resumed session in tmux instead of the native PTY host (a recorded host always wins; native is the default for fresh sessions)",
+      "host a BRAND-NEW resumed session in tmux instead of the native PTY host (permanent opt-in; native is only the default). An existing session never re-routes: it always resumes on its recorded host",
     )
     .option(
       "--replace",
@@ -5261,18 +5262,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           noGw?: boolean;
         },
       ) => {
-        // tmux stays required only when tmux is the chosen host; a native
-        // resume on a tmux-less machine resolves through the registry.
-        if (
-          !tmuxAvailable() &&
-          (opts.tmux === true || resolveSessionHostKind(opts) === "local-tmux")
-        ) {
-          process.stderr.write(
-            "[h2a] tmux is not installed locally — `h2a resume --tmux` needs it (e.g. `sudo apt install tmux`).\n",
-          );
-          process.exitCode = 1;
-          return;
-        }
+        // NOTE: tmux availability is checked AFTER host resolution below — a
+        // `--tmux` flag must not block acting on an existing session whose
+        // recorded host does not need tmux at all.
         const explicitProfile =
           opts.claude !== undefined
             ? "claude"
@@ -5430,6 +5422,70 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (args.length === 0) {
           process.stderr.write(
             `[h2a] cannot resume ${displaySlug}: profile "${profile}" has no verified local resume argv.\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        // WHICH host serves this resume — resolved BEFORE any destructive
+        // step. The invariant (F1): an option expresses an intent for a NEW
+        // session; it must NEVER win over the recorded host of an EXISTING
+        // session. The symmetric resolver consults BOTH persisted kinds (dual
+        // rows fail closed) and probes only for unrecorded sessions. An
+        // existing session keeps its recorded host; only a brand-new session
+        // follows the requested default (--tmux stays the permanent opt-in
+        // creation switch — only the DEFAULT is native).
+        const hostResolution = resolveManagedHost(
+          entry.tmuxSession ?? resumeSlug,
+          loadRegistry(),
+        );
+        if (hostResolution.state === "ambiguous") {
+          process.stderr.write(
+            `[h2a] cannot resume ${displaySlug}: this managed identity is recorded/live on BOTH local hosts (${hostResolution.candidates.join(", ")}); refusing to pick one. Clean up the conflicting registry rows first.\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if (hostResolution.state === "unknown") {
+          process.stderr.write(
+            `[h2a] cannot resume ${displaySlug}: local host state is unknown (${hostResolution.reason}); refusing to guess a host.\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        const hostIsExisting =
+          hostResolution.state === "recorded" ||
+          hostResolution.state === "discovered";
+        if (
+          opts.tmux === true &&
+          hostIsExisting &&
+          hostResolution.kind === "local-native"
+        ) {
+          process.stderr.write(
+            `[h2a] --tmux ignored for ${displaySlug}: an existing session keeps its recorded host (--tmux only applies to a brand-new session).\n`,
+          );
+        }
+        const resumeHost: SessionHostKind = hostIsExisting
+          ? hostResolution.kind === "local-native"
+            ? "native"
+            : "local-tmux"
+          : resolveSessionHostKind(opts);
+        // Host availability is checked BEFORE any replace/kill step so a live
+        // session can never be destroyed for a launch that cannot happen.
+        if (resumeHost === "native") {
+          const native = nativeHostAvailable();
+          if (!native.ok) {
+            process.stderr.write(
+              `[h2a] the native PTY host is unavailable: ${native.reason}\n` +
+                (hostIsExisting
+                  ? "[h2a] the session keeps its recorded host; nothing was started.\n"
+                  : "[h2a] pass --tmux to start the new session in tmux instead.\n"),
+            );
+            process.exitCode = 1;
+            return;
+          }
+        } else if (!tmuxAvailable()) {
+          process.stderr.write(
+            "[h2a] tmux is not installed locally - resuming on the tmux host needs it (e.g. `sudo apt install tmux`).\n",
           );
           process.exitCode = 1;
           return;
@@ -5592,27 +5648,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.stdin.isTTY === true &&
             process.stdout.isTTY === true,
         });
-        // Recorded host wins; --tmux forces tmux; fresh sessions take the
-        // native default.
-        const resumeHost: SessionHostKind =
-          opts.tmux === true
-            ? "local-tmux"
-            : entry.kind === "local-native"
-              ? "native"
-              : entry.kind === "local-tmux"
-                ? "local-tmux"
-                : resolveSessionHostKind(opts);
-        if (resumeHost === "native") {
-          const native = nativeHostAvailable();
-          if (!native.ok) {
-            process.stderr.write(
-              `[h2a] the native PTY host is unavailable: ${native.reason}\n` +
-                "[h2a] pass --tmux to resume in tmux instead.\n",
-            );
-            process.exitCode = 1;
-            return;
-          }
-        }
         const { name } =
           resumeHost === "native"
             ? startNativeSession(
@@ -5639,9 +5674,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           profile,
           slug: resumeSlug,
           tmuxSession: name,
-          ...(resumeHost === "native"
-            ? { hostKind: "local-native" as const }
-            : {}),
+          // The ACTUAL host that just started the terminal — never a default.
+          hostKind: resumeHost === "native" ? "local-native" : "local-tmux",
           cwd: entry.cwd,
           sessionClass,
           ...(entry.convId ? { convId: entry.convId } : {}),
@@ -6283,9 +6317,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             profile,
             slug,
             tmuxSession: name,
-            ...(sessionHost === "native"
-              ? { hostKind: "local-native" as const }
-              : {}),
+            // The ACTUAL host that just started the terminal — never a default.
+            hostKind: sessionHost === "native" ? "local-native" : "local-tmux",
             ...(pid !== undefined ? { pid } : {}),
             ...(workerPid !== undefined ? { workerPid } : {}),
             cwd,
@@ -7870,7 +7903,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         tmux?: boolean;
       }) => {
         // Per-pass host opt-out rides the fleet valve: every kind decision in
-        // this pass (launch entries, startJob) reads H2A_SESSION_HOST.
+        // this pass (launch entries, startJob) reads H2A_SESSION_HOST. This
+        // is CREATION intent only — it selects the host of conductors this
+        // pass LAUNCHES; a job whose registry row already records a local
+        // kind keeps that recorded host (startJob honors job.kind first), so
+        // the valve can never re-route an existing session.
         if (opts.tmux === true) process.env["H2A_SESSION_HOST"] = "tmux";
         const confirm = opts.confirm === true;
         const cooldownMin =
@@ -8562,6 +8599,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             profile: action.profile,
             slug: action.slug,
             tmuxSession: name,
+            // startLocalSession above launched a tmux terminal: record the
+            // ACTUAL host explicitly (the write boundary refuses defaults).
+            hostKind: "local-tmux",
             cwd: entry.cwd,
             sessionClass,
             convId: action.convId,
@@ -9306,20 +9346,34 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               process.exitCode = 1;
               return;
             }
-            // WHICH host: the PERSISTED registry kind — a dead native
-            // session stays native (registryEntriesForNativeTarget takes no
-            // liveness input). The probe below is the act's PRECONDITION and
-            // the discovery fallback for a live native session whose registry
-            // row was lost; it never re-routes a recorded session.
-            let nativeAlive = false;
-            try {
-              nativeAlive = nativeSessionAlive(localName);
-            } catch {
-              nativeAlive = false;
+            // WHICH host: the symmetric resolver over BOTH persisted kinds —
+            // a recorded host wins REGARDLESS of the other host's liveness,
+            // probes only DISCOVER a session with no registry row, dual rows
+            // and probe failures fail closed. Liveness then gates the ACT
+            // below; it never re-routes a recorded session.
+            const resolution = resolveManagedHost(localName, loadRegistry());
+            if (resolution.state === "ambiguous") {
+              process.stderr.write(
+                `[h2a] cannot attach ${first}: this managed identity is recorded/live on BOTH local hosts (${resolution.candidates.join(", ")}); refusing to pick one. Clean up the conflicting registry rows first.\n`,
+              );
+              process.exitCode = 1;
+              return;
             }
-            const nativeTarget =
-              persistedLocalHostKind(localName, loadRegistry(), nativeAlive) ===
-              "local-native";
+            if (resolution.state === "unknown") {
+              process.stderr.write(
+                `[h2a] cannot attach ${first}: local host state is unknown (${resolution.reason}); attach refused (fail closed).\n`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            if (resolution.state === "missing") {
+              process.stderr.write(
+                `[h2a] no local session "${first}" on either local host (see: h2a ls)\n`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            const nativeTarget = resolution.kind === "local-native";
             if (opts.headlessTerminal) {
               if (nativeTarget) {
                 process.stderr.write(
@@ -9341,16 +9395,27 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               );
               return;
             }
-            if (nativeTarget && !nativeAlive) {
+            if (nativeTarget) {
               // Liveness gates the ACT, not the host choice: attaching to a
               // session that is not running is refused on its own host — it
-              // must never degrade into a tmux attach of the same name.
-              process.stderr.write(
-                `[h2a] native session ${first} is not running; attach refused ` +
-                  `(the session stays native — resume it with h2a resume ${first}).\n`,
-              );
-              process.exitCode = 1;
-              return;
+              // must never degrade into a tmux attach of the same name. A
+              // probe FAILURE is not death: it refuses with its own reason.
+              const nativeState = probeNativeSession(localName);
+              if (nativeState === "dead") {
+                process.stderr.write(
+                  `[h2a] native session ${first} is not running; attach refused ` +
+                    `(the session stays native — resume it with h2a resume ${first}).\n`,
+                );
+                process.exitCode = 1;
+                return;
+              }
+              if (nativeState === "unknown") {
+                process.stderr.write(
+                  `[h2a] native session ${first}: host state is unknown (probe failed); attach refused (fail closed).\n`,
+                );
+                process.exitCode = 1;
+                return;
+              }
             }
             process.exitCode = nativeTarget
               ? attachNativeSession(localName)
@@ -9612,23 +9677,38 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
           if (localTarget.kind === "found") {
-            // WHICH host: the PERSISTED registry kind — a dead native session
-            // stays native and dies (or refuses) through the native host with
-            // its h2a sidecar companion; tmux sessions via tmux. The probe
-            // only feeds the lost-registry-row discovery fallback; whether
-            // the kill succeeds is the act's own outcome.
-            let nativeAlive = false;
-            try {
-              nativeAlive = nativeSessionAlive(localTarget.name);
-            } catch {
-              nativeAlive = false;
+            // WHICH host: the symmetric resolver over BOTH persisted kinds —
+            // a recorded host wins REGARDLESS of the other host's liveness
+            // (a persisted tmux row must never let a homonymous live native
+            // process swallow the kill: F2), probes only DISCOVER a session
+            // with no registry row, and dual rows / probe failures FAIL
+            // CLOSED — stop is destructive, so it never guesses a host.
+            const resolution = resolveManagedHost(
+              localTarget.name,
+              loadRegistry(),
+            );
+            if (resolution.state === "ambiguous") {
+              process.stderr.write(
+                `[h2a] cannot stop ${first}: this managed identity is recorded/live on BOTH local hosts (${resolution.candidates.join(", ")}); refusing to kill either. Clean up the conflicting registry rows first.\n`,
+              );
+              process.exitCode = 1;
+              return;
             }
-            const nativeTarget =
-              persistedLocalHostKind(
-                localTarget.name,
-                loadRegistry(),
-                nativeAlive,
-              ) === "local-native";
+            if (resolution.state === "unknown") {
+              process.stderr.write(
+                `[h2a] cannot stop ${first}: local host state is unknown (${resolution.reason}); refusing a destructive act on an unproven host.\n`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            if (resolution.state === "missing") {
+              process.stderr.write(
+                `[h2a] no local session "${first}" on either local host (see: h2a ls)\n`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            const nativeTarget = resolution.kind === "local-native";
             const ok = nativeTarget
               ? killNativeSessionTree(localTarget.name)
               : killLocalSession(localTarget.name);
