@@ -150,6 +150,11 @@ export type RegistryEntry = {
    * default. Absent = launched in "auto" mode (follows the default).
    */
   gatewayMode?: "gateway" | "direct";
+  /**
+   * Durable restore pin: local-tmux/run/human rows with UUID convId and no
+   * endedAt are retained by prune across long offline windows.
+   */
+  restorePinned?: boolean;
 };
 
 export type EnrollInput = {
@@ -184,6 +189,8 @@ export type EnrollInput = {
   effort?: string;
   accountId?: string;
   gatewayMode?: "gateway" | "direct";
+  /** Explicit override for restore pinning (internal only). */
+  restorePinned?: boolean;
 };
 
 /** Injectable liveness probes (tests stay deterministic, no tmux/pid needed). */
@@ -222,6 +229,33 @@ const CONVERSATION_UUID_RE =
 
 export function looksLikeConversationUuid(value: string | undefined): boolean {
   return value !== undefined && CONVERSATION_UUID_RE.test(value);
+}
+
+function isRestorePinnedCandidate(entry: RegistryEntry): boolean {
+  return (
+    entry.kind === "local-tmux" &&
+    entry.source === "run" &&
+    entry.sessionClass === "human" &&
+    !entry.endedAt &&
+    looksLikeConversationUuid(entry.convId)
+  );
+}
+
+function shouldPreserveByRestorePin(entry: RegistryEntry): boolean {
+  if (entry.restorePinned === false) return false;
+  if (isRestorePinnedCandidate(entry)) return true;
+  // Invariant: restore pin never preserves positively non-human rows (no implicit pin by absence).
+  // As of 2026-08-08 this affects 0 lines — the 29 role=job rows with absent sessionClass are all kind=remote, already outside the perimeter by the kind/source gates; role==='job' is added by SYMMETRY with sessionClass==='background' so a positively non-human row is never pinned even when classless.
+  if (entry.endedAt || entry.sessionClass === "background" || entry.role === "job") return false;
+  return (
+    entry.kind === "local-tmux" &&
+    entry.source === "run" &&
+    // Invariant: "unknown protects" inside the local-tmux/run restore-pin perimeter.
+    // Restore-pin covers durable human local-tmux/run rows, while remote sessions
+    // are deliberately out of the restore-pin perimeter.
+    // As of 2026-08-08, the architect measured 29 sessionClass-absent lines; all were kind=remote, so this guard currently has no observed effect.
+    (entry.sessionClass === "human" || entry.sessionClass === undefined)
+  );
 }
 
 export function loadRegistry(
@@ -292,7 +326,8 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
       e.delegationOrigin === "cli:h2a-delegate") &&
     (e.pid === undefined || (typeof e.pid === "number" && Number.isInteger(e.pid) && e.pid > 0)) &&
     (e.delegatorInstance === undefined || typeof e.delegatorInstance === "string") &&
-    (e.delegatorTmuxSession === undefined || typeof e.delegatorTmuxSession === "string")
+    (e.delegatorTmuxSession === undefined || typeof e.delegatorTmuxSession === "string") &&
+    (e.restorePinned === undefined || typeof e.restorePinned === "boolean")
   );
 }
 
@@ -477,6 +512,13 @@ function applyEnroll(
   if (effort !== undefined) entry.effort = effort;
   const gatewayMode = input.gatewayMode ?? prev?.gatewayMode;
   if (gatewayMode !== undefined) entry.gatewayMode = gatewayMode;
+  if (input.restorePinned !== undefined) {
+    entry.restorePinned = input.restorePinned;
+  } else if (prev?.restorePinned !== undefined) {
+    entry.restorePinned = prev.restorePinned;
+  } else {
+    entry.restorePinned = shouldPreserveByRestorePin(entry);
+  }
   if (idx >= 0) entries[idx] = entry;
   else entries.push(entry);
   return entry;
@@ -727,6 +769,7 @@ export function prune(maxAgeHours: number, opts: RegistryOpts = {}): number {
   return withRegistryLock(path, (entries) => {
     const kept = entries.filter((e) => {
       if (isLive(e, opts)) return true;
+      if (shouldPreserveByRestorePin(e)) return true;
       const last = Date.parse(e.endedAt ?? e.lastSeenAt);
       return Number.isFinite(last) && last >= cutoff;
     });
