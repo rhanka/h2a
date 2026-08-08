@@ -1251,3 +1251,69 @@ export function localTmuxSessionForName(
   const resolution = resolveLocalTmuxSessionForName(target, entries);
   return resolution.kind === "found" ? resolution.name : undefined;
 }
+
+/**
+ * DEDICATED resolver for `kind:"local-native"` registry entries — the native
+ * twin of the local-tmux target filter in index.ts. That filter stays
+ * tmux-scoped on purpose: its second caller iterates LIVE tmux sessions by
+ * name inside the destructive relaunch planner, where a broadened match would
+ * be a category error. The two resolvers coexist so neither lies about its
+ * name.
+ *
+ * A native entry's PERSISTED identity, as measured on every native write path
+ * (`enroll` in startJob and `enrollFromRun` on run/resume/relaunch): `id` and
+ * `label` carry the slug, and `tmuxSession` — despite its tmux-era name —
+ * carries the native host session name `localSessionName(slug)`, the
+ * h2a-<slug> naming contract shared across hosts (native-host.ts). Historical
+ * rows without a persisted session name fall back to the managed-name
+ * candidates of their id, exactly like `isLive`.
+ *
+ * NO liveness input exists here by construction: which host a recorded
+ * session belongs to is decided by its persisted kind alone — a dead native
+ * session stays native. Whether an ACT on it can proceed is the caller's
+ * separate liveness gate.
+ * (0 local-native entries in the fleet registry as of 2026-08-08; this
+ * resolver prepares the re-use paths for the sessions #178 will produce.)
+ */
+export function registryEntriesForNativeTarget(
+  target: string,
+  entries: readonly RegistryEntry[] = loadRegistry(),
+): RegistryEntry[] {
+  const requested = parseManagedSessionName(target);
+  const candidates = requested ? [target] : managedSessionCandidates(target);
+  return entries.filter((e) => {
+    if (e.kind !== "local-native") return false;
+    // A full managed name is an exact selector, never a slug/label alias
+    // (same rule as the tmux filter and resolveLocalTmuxSessionForName).
+    if (requested) {
+      return (
+        e.tmuxSession === target ||
+        (e.tmuxSession === undefined && e.id === requested.slug)
+      );
+    }
+    return (
+      e.id === target ||
+      e.label === target ||
+      (e.tmuxSession !== undefined && candidates.includes(e.tmuxSession))
+    );
+  });
+}
+
+/**
+ * WHICH local host serves an act (attach/stop) on a resolved session name:
+ * the PERSISTED kind, never liveness. A recorded native session is served
+ * natively even while dead — the caller's liveness probe result is only
+ * (a) discovery for a LIVE native session whose registry row was lost
+ * (pre-native validators dropped kind:"local-native" rows on rewrite) and
+ * (b) the caller's own gate on whether the act can proceed.
+ */
+export function persistedLocalHostKind(
+  target: string,
+  entries: readonly RegistryEntry[],
+  nativeAlive: boolean,
+): "local-native" | "local-tmux" {
+  if (registryEntriesForNativeTarget(target, entries).length > 0) {
+    return "local-native";
+  }
+  return nativeAlive ? "local-native" : "local-tmux";
+}
