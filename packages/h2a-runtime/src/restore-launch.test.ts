@@ -157,7 +157,9 @@ describe("launchLayout prefix collision", () => {
     const args = spawn.mock.calls[0]![1] as string[];
     const mapPath = args.at(-1)!;
     const command = readFileSync(mapPath, "utf8");
-    expect(command).toContain("tmux attach -t 'h2a-orphan'");
+    // The attach rides `h2a attach` (host-agnostic: it honors the session's
+    // recorded host), still bound to the EXACT managed name.
+    expect(command).toContain("h2a attach 'h2a-orphan'");
     expect(command).not.toMatch(/h2a run|h2a resume|--replace/);
 
     expect(killLocalSession).not.toHaveBeenCalledWith("h2a-orphan");
@@ -221,7 +223,8 @@ describe("launchLayout prefix collision", () => {
     expect(result).toEqual({ opened: 1, skippedLive: [] });
     const args = spawn.mock.calls[0]![1] as string[];
     const command = readFileSync(args.at(-1)!, "utf8");
-    expect(command).toContain("tmux attach -t 'h2a-unknown'");
+    // Host-agnostic attach to the exact managed name (never a relaunch).
+    expect(command).toContain("h2a attach 'h2a-unknown'");
     expect(command).not.toContain("h2a run");
   });
 });
