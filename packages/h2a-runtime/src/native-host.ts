@@ -14,9 +14,9 @@
  * addressing and registry entries stay uniform across hosts.
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { nativePtyRequirements } from "./pty.js";
@@ -81,7 +81,20 @@ export type NativeStartResult = {
 };
 
 function opEntryPath(): string {
-  return join(dirname(fileURLToPath(import.meta.url)), "native-terminal", "op.js");
+  const here = dirname(fileURLToPath(import.meta.url));
+  const sibling = join(here, "native-terminal", "op.js");
+  if (existsSync(sibling)) return sibling;
+  // Under vitest this module executes from src/, where only op.ts lives — the
+  // runnable entrypoint is the COMPILED twin in dist/. Production always runs
+  // from dist/ and takes the first branch (its sibling op.js exists), so this
+  // fallback is reachable only from a src/ execution context. When neither
+  // exists, return the sibling path so the spawn fails with the same loud
+  // MODULE_NOT_FOUND as before (an unbuilt tree must not fail silently).
+  if (basename(here) === "src") {
+    const built = join(dirname(here), "dist", "native-terminal", "op.js");
+    if (existsSync(built)) return built;
+  }
+  return sibling;
 }
 
 /** node-pty loadable + containment binaries present. Pure preflight. */
