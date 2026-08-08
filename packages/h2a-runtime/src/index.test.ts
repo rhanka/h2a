@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   mkdirSync,
   mkdtempSync,
@@ -163,6 +163,22 @@ const stderrWrite = vi
 const stdoutWrite = vi
   .spyOn(process.stdout, "write")
   .mockImplementation(() => true);
+
+// This file asserts the TMUX-host launch wiring: startLocalSession /
+// attachLocalSession are its observation points. The session-host DEFAULT is
+// native, so without an explicit host selection every launch driven here
+// would route to the native twin and reach the REAL host op — a unit test
+// must never create a terminal session. H2A_SESSION_HOST=tmux is the
+// product's own fleet-wide host valve (first-class alongside --tmux), so
+// pinning it exercises a real routing input, not a test-only backdoor.
+// Native-side routing has its own suites (host-selection-invariants,
+// native-host-reuse), which mock the native process surface.
+beforeAll(() => {
+  vi.stubEnv("H2A_SESSION_HOST", "tmux");
+});
+afterAll(() => {
+  vi.unstubAllEnvs();
+});
 
 const {
   H2A_RUNTIME_CLI_API_VERSION,
