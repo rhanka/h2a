@@ -7,7 +7,7 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Scratch dir inside the package (never /tmp), like the other test suites.
 const SCRATCH = join(
@@ -89,7 +89,21 @@ vi.mock("./config.js", () => ({
   resolveConfigPath: () => CONFIG_PATH,
 }));
 
-vi.mock("./tmux.js", () => ({
+vi.mock("./tmux.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./tmux.js")>();
+  return {
+  // Pure launch-wrapper constants/helpers that native-host.ts (the tmux twin)
+  // imports from this module. Passed through as the REAL values — they are
+  // side-effect-free strings/pure functions — so the mock keeps matching the
+  // real module's surface on the native-default code path. Everything below
+  // stays deliberately enumerated: a missing behavioral stub must keep dying
+  // loudly ON THE MOCK (see persistLaunchContext).
+  LOCAL_WRAPPER: actual.LOCAL_WRAPPER,
+  STRUCTURED_LOCAL_WRAPPER: actual.STRUCTURED_LOCAL_WRAPPER,
+  HEADLESS_WRAPPER: actual.HEADLESS_WRAPPER,
+  HEADLESS_TERMINAL_SIZE: actual.HEADLESS_TERMINAL_SIZE,
+  localRelaunchCommand: actual.localRelaunchCommand,
+  procReaderDeps: actual.procReaderDeps,
   tmuxAvailable: () => true,
   startLocalSession,
   attachLocalSession,
@@ -153,7 +167,8 @@ vi.mock("./tmux.js", () => ({
   // Stubbed as a no-op deliberately: this file drives WIRING, and what the launch
   // context should contain is asserted where that is the subject.
   persistLaunchContext: () => {},
-}));
+  };
+});
 
 vi.mock("./prompt-delivery.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./prompt-delivery.js")>()),
@@ -302,7 +317,19 @@ beforeEach(() => {
   process.exitCode = 0;
 });
 
+// This file asserts the TMUX-host launch wiring around the conversation
+// guard: startLocalSession is its observation point. The session-host DEFAULT
+// is native, so without an explicit host selection every launch driven here
+// would route to the native twin and reach the REAL host op — a unit test
+// must never create a terminal session. H2A_SESSION_HOST=tmux is the
+// product's own fleet-wide host valve (first-class alongside --tmux), so
+// pinning it exercises a real routing input, not a test-only backdoor.
+beforeAll(() => {
+  vi.stubEnv("H2A_SESSION_HOST", "tmux");
+});
+
 afterAll(() => {
+  vi.unstubAllEnvs();
   rmSync(SCRATCH, { recursive: true, force: true });
   if (ORIGINAL_ANTHROPIC_BASE_URL === undefined) {
     delete process.env.ANTHROPIC_BASE_URL;
