@@ -152,20 +152,70 @@ export function listNativeSessions(): ReadonlyArray<NativeSessionState> {
   return record?.sessions ?? [];
 }
 
-export function nativeSessionState(name: string): NativeSessionState | undefined {
-  const { status, payload } = runOp(["state", "--id", name], { allowFailure: true });
-  if (status !== 0) return undefined;
-  return payload as NativeSessionState;
+/**
+ * 3-state session probe (F2). The lie this type removes: a failed `state` op
+ * used to flatten into `undefined`/`alive=false` — indistinguishable from a
+ * PROVEN dead/absent session, which let destructive acts read an op failure
+ * as a death certificate. The states:
+ *  - "found": a reachable host answered with the session's state;
+ *  - "absent": POSITIVE proof of absence — a reachable host does not know
+ *    the session, or no host is listening at all (a PTY cannot outlive its
+ *    host process, the same provable-death rule as a missing tmux server);
+ *  - "unknown": the op failed (spawn error, timeout, protocol failure) —
+ *    NEVER proof of death; destructive callers must fail closed on it.
+ * The classification happens IN-BAND in the `probe` op (op.ts), where the
+ * error codes live — never by parsing a generic failure on this side.
+ */
+export type NativeStateProbe =
+  | { readonly state: "found"; readonly session: NativeSessionState }
+  | { readonly state: "absent" }
+  | { readonly state: "unknown"; readonly reason: string };
+
+export function nativeSessionState(name: string): NativeStateProbe {
+  let result: { status: number; payload: unknown };
+  try {
+    result = runOp(["probe", "--id", name], { allowFailure: true });
+  } catch (error) {
+    // Spawn-level failure (timeout, ENOMEM, …): nothing was proven.
+    return {
+      state: "unknown",
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+  const record = result.payload as
+    | { verdict?: string; state?: NativeSessionState; reason?: string }
+    | undefined;
+  if (result.status !== 0 || record === undefined) {
+    return { state: "unknown", reason: "native probe op returned no verdict" };
+  }
+  if ((record.verdict === "live" || record.verdict === "dead") && record.state) {
+    return { state: "found", session: record.state };
+  }
+  if (record.verdict === "dead") return { state: "absent" };
+  return {
+    state: "unknown",
+    reason: record.reason ?? "native probe op returned no verdict",
+  };
 }
 
-export function nativeSessionAlive(name: string): boolean {
-  const state = nativeSessionState(name);
-  return state !== undefined && state.status === "running";
+/**
+ * 3-state liveness (F2): `true` / `false` are POSITIVE verdicts; "unknown"
+ * is a probe failure that destructive paths must refuse on. Never throws.
+ */
+export function nativeSessionLiveness(name: string): true | false | "unknown" {
+  const probe = nativeSessionState(name);
+  if (probe.state === "found") return probe.session.status === "running";
+  if (probe.state === "absent") return false;
+  return "unknown";
 }
 
 export function nativeSessionPid(name: string): number | undefined {
-  const state = nativeSessionState(name);
-  return state !== undefined && state.status !== "exited" ? state.pid : undefined;
+  // A pid is a read, not an act: absent AND unknown both yield undefined
+  // (there is no pid to report either way); acts must not key off this.
+  const probe = nativeSessionState(name);
+  return probe.state === "found" && probe.session.status !== "exited"
+    ? probe.session.pid
+    : undefined;
 }
 
 export type NativeLaunchMetadata = {
@@ -192,11 +242,18 @@ export function startNativeSession(
   const slug = slugify(label ?? cwd);
   const name = localSessionName(slug);
   const existing = nativeSessionState(name);
-  if (existing !== undefined && existing.status !== "exited") {
+  if (existing.state === "unknown") {
+    // An unprovable host state must never be read as absence: creating here
+    // could fabricate a twin over a live session (fail closed).
+    throw new Error(
+      `native session ${slug}: host state is unknown (${existing.reason}); refusing to create over an unprovable session`,
+    );
+  }
+  if (existing.state === "found" && existing.session.status !== "exited") {
     if (metadata.refuseExisting) {
       throw new Error(`native session ${slug} already exists; no agent was started`);
     }
-    return { name, slug, pid: existing.pid };
+    return { name, slug, pid: existing.session.pid };
   }
   const agentCommand = metadata.terminateOnAgentExit
     ? ["/bin/bash", "-lc", STRUCTURED_LOCAL_WRAPPER, command, ...args]
@@ -304,7 +361,9 @@ export function killNativeSession(name: string): boolean {
  */
 export function killNativeSessionTree(name: string): boolean {
   const killed = killNativeSession(name);
-  if (nativeSessionState(nativeSidecarName(name)) !== undefined) {
+  // Best-effort companion cleanup: only a POSITIVELY-found sidecar is
+  // killed; absent needs nothing and unknown proves nothing to act on.
+  if (nativeSessionState(nativeSidecarName(name)).state === "found") {
     killNativeSession(nativeSidecarName(name));
   }
   return killed;
@@ -331,11 +390,18 @@ export function startNativeHeadlessSession(
   const slug = slugify(label);
   const name = localSessionName(slug);
   const existing = nativeSessionState(name);
-  if (existing !== undefined && existing.status !== "exited") {
+  if (existing.state === "unknown") {
+    // Same fail-closed rule as startNativeSession: an unprovable host state
+    // is never permission to create a possible twin.
+    throw new Error(
+      `native session ${slug}: host state is unknown (${existing.reason}); refusing to create over an unprovable session`,
+    );
+  }
+  if (existing.state === "found" && existing.session.status !== "exited") {
     if (refuseExisting) {
       throw new Error(`native session ${slug} already exists; no agent was started`);
     }
-    return { name, slug, pid: existing.pid };
+    return { name, slug, pid: existing.session.pid };
   }
   const promptFile = promptInput === undefined ? "" : `${resultJson}.prompt`;
   if (promptInput !== undefined) {
@@ -403,7 +469,14 @@ export function startNativeH2aSidecar(
 ): boolean {
   const sidecar = nativeSidecarName(name);
   const existing = nativeSessionState(sidecar);
-  if (existing !== undefined && existing.status === "running") return true;
+  if (existing.state === "unknown") {
+    // Unprovable sidecar state: report failure without creating a possible
+    // twin (the caller treats false as "sidecar unavailable").
+    return false;
+  }
+  if (existing.state === "found" && existing.session.status === "running") {
+    return true;
+  }
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) env[key] = value;
@@ -437,15 +510,22 @@ export function startNativeH2aSidecar(
   }
   if (options.verified) {
     // The sidecar must still be alive once it had time to crash on startup.
+    // An "unknown" probe mid-loop is transient: keep waiting; the FINAL
+    // check below only reports success on a POSITIVE running verdict.
     const deadline = Date.now() + 2_000;
     while (Date.now() < deadline) {
       const state = nativeSessionState(sidecar);
-      if (state === undefined || state.status === "exited") return false;
+      if (
+        state.state === "absent" ||
+        (state.state === "found" && state.session.status === "exited")
+      ) {
+        return false;
+      }
       sleepSync(200);
     }
   }
   const state = nativeSessionState(sidecar);
-  return state !== undefined && state.status === "running";
+  return state.state === "found" && state.session.status === "running";
 }
 
 /**

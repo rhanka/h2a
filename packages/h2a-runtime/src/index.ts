@@ -132,7 +132,7 @@ import {
   killNativeSessionTree,
   nativeHostAvailable,
   nativePromptDeliveryDeps,
-  nativeSessionAlive,
+  nativeSessionLiveness,
   nativeSessionPid,
   nativeTreeCpuMs,
   nativeWorkerPid,
@@ -181,7 +181,9 @@ import {
   loadRegistry,
   loadRegistryWithDiagnostics,
   probeNativeSession,
+  probeTmuxSession,
   registryEntriesForNativeTarget,
+  type ManagedHostProbeResult,
   resolveLocalTmuxSessionForName,
   resolveManagedHost,
   tryClaimSlot,
@@ -2353,7 +2355,8 @@ export async function prepareLlmMeshForRestore(
 function registryEntriesForLocalTmuxTarget(
   target: string,
   local: LocalSession | undefined,
-  entries: readonly RegistryEntry[] = loadRegistry(),
+  // No default read: the caller owns the registry READ STATE (F2).
+  entries: readonly RegistryEntry[],
 ): RegistryEntry[] {
   const parsedTarget = parseManagedSessionName(target);
   const canonicalSlug = local?.slug ?? parsedTarget?.slug ?? target;
@@ -2386,8 +2389,11 @@ function registryEntriesForLocalTmuxTarget(
 
 export function registryEntryForResumeTarget(
   target: string,
-  local?: LocalSession,
-  entries: readonly RegistryEntry[] = loadRegistry(),
+  local: LocalSession | undefined,
+  // No default read: resume performs ONE registry read and hands the same
+  // snapshot to this lookup AND the host resolver — an unknown read refuses
+  // upstream instead of flattening into "no entry" here (F1/F2).
+  entries: readonly RegistryEntry[],
   evidence: LegacySessionEvidence = legacySessionEvidence(
     homedir(),
     local === undefined ? listLocalSessions() : [local],
@@ -2419,7 +2425,11 @@ export function registryEntryForResumeTarget(
 type ManagedLocalTargetResolution =
   | { kind: "found"; name: string; local?: LocalSession }
   | { kind: "ambiguous"; names: string[] }
-  | { kind: "missing" };
+  | { kind: "missing" }
+  /** The LOCAL state could not be proven (registry unreadable / probe
+   * failure): never "missing" — falling through to a remote homonym on an
+   * unknown would aim the act at the wrong session (F2, fail closed). */
+  | { kind: "unknown"; reason: string };
 
 /**
  * Resolve tmux first, then the durable registry, without allowing a bare slug
@@ -2428,7 +2438,20 @@ type ManagedLocalTargetResolution =
 function resolveManagedLocalTarget(
   target: string,
 ): ManagedLocalTargetResolution {
-  const live = resolveLocalSession(target);
+  // CONJUNCTION RULE (F2): "no local session" may only be concluded when
+  // local absence is POSITIVELY known EVERYWHERE — the tmux inventory read
+  // succeeded and has no session, the registry read succeeded and has no
+  // row, and the native probe positively answered dead. ONE unknown
+  // anywhere poisons the conjunction: the result is "unknown", never
+  // "missing" (a destructive caller must refuse, not fall through).
+  const tmuxView = listLocalSessionsWithDiagnostics();
+  if (!tmuxView.known) {
+    return {
+      kind: "unknown",
+      reason: `tmux inventory unavailable${tmuxView.reason ? ` (${tmuxView.reason})` : ""}`,
+    };
+  }
+  const live = resolveLocalSession(target, tmuxView.sessions);
   if (live.kind === "found") {
     return { kind: "found", name: live.session.name, local: live.session };
   }
@@ -2438,7 +2461,19 @@ function resolveManagedLocalTarget(
       names: live.sessions.map((session) => session.name).sort(),
     };
   }
-  const registered = resolveLocalTmuxSessionForName(target, loadRegistry());
+  const registryRead = loadRegistry();
+  if (registryRead.state === "unknown") {
+    // The durable record cannot be read: a local session may exist behind
+    // this name — transported as "unknown", never flattened to "missing".
+    return {
+      kind: "unknown",
+      reason: `registry read failed: ${registryRead.reason}`,
+    };
+  }
+  const registered = resolveLocalTmuxSessionForName(
+    target,
+    registryRead.entries,
+  );
   if (registered.kind === "found") {
     return { kind: "found", name: registered.name };
   }
@@ -2449,13 +2484,18 @@ function resolveManagedLocalTarget(
   // source of truth (the tmux-server twin). A registry row lost to a
   // pre-native h2a write (old validators drop kind:"local-native" rows on
   // rewrite) must not strand a live session, so probe the host directly.
+  // The probe is 3-state: a FAILED probe is "unknown" (a live native
+  // session cannot be ruled out), never a fall-through to "missing".
   for (const candidate of [target, localSessionName(slugify(target))]) {
-    try {
-      if (nativeSessionAlive(candidate)) {
-        return { kind: "found", name: candidate };
-      }
-    } catch {
-      // no native host — fall through to "missing"
+    const alive = nativeSessionLiveness(candidate);
+    if (alive === true) {
+      return { kind: "found", name: candidate };
+    }
+    if (alive === "unknown") {
+      return {
+        kind: "unknown",
+        reason: `native host probe failed for ${candidate}`,
+      };
     }
   }
   return { kind: "missing" };
@@ -3041,6 +3081,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               await new Promise((r) => setTimeout(r, 1000));
             }
           } finally {
+            // REMOTE identity from THIS pull's own marker record (F1
+            // sorting): the local managed-host resolver has no remote leg —
+            // the session id comes from the marker this flow created and is
+            // stopped as the flow's own completion step, not re-resolved.
             await stopRemoteSession(marker.remote, session.id, "pull-complete");
           }
           if (!remoteArchive) {
@@ -5315,23 +5359,44 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           return;
         }
         const target = slug ?? slugify(process.cwd());
-        const localResolution = resolveLocalSession(target);
-        if (localResolution.kind === "ambiguous") {
+        // PRE-RESOLUTION tmux view — display + registry-lookup input ONLY,
+        // never an act target: every act/attach/kill below derives from
+        // resolveManagedHost's kind + name (F1). The rename makes any act on
+        // it read as what it would be: acting on an unresolved object.
+        const preResolutionTmux = resolveLocalSession(target);
+        if (preResolutionTmux.kind === "ambiguous") {
           reportAmbiguousLocalTarget(
             target,
             "resume",
-            localResolution.sessions.map((session) => session.name),
+            preResolutionTmux.sessions.map((session) => session.name),
           );
           process.exitCode = 1;
           return;
         }
-        const local =
-          localResolution.kind === "found"
-            ? localResolution.session
+        const preResolutionTmuxView =
+          preResolutionTmux.kind === "found"
+            ? preResolutionTmux.session
             : undefined;
         const displaySlug =
-          local?.slug ?? parseManagedSessionName(target)?.slug ?? target;
-        const registryEntry = registryEntryForResumeTarget(target, local);
+          preResolutionTmuxView?.slug ??
+          parseManagedSessionName(target)?.slug ??
+          target;
+        // ONE registry read for the whole resume: the entry lookup and the
+        // host resolver consume the SAME snapshot. Resume can kill — an
+        // unreadable registry refuses up front (F2), never "no entry".
+        const registryRead = loadRegistry();
+        if (registryRead.state === "unknown") {
+          process.stderr.write(
+            `[h2a] cannot resume ${displaySlug}: the local registry is unreadable (${registryRead.reason}); refusing a destructive act on an unproven host state.\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        const registryEntry = registryEntryForResumeTarget(
+          target,
+          preResolutionTmuxView,
+          registryRead.entries,
+        );
         const resolvedConvId =
           explicitProfile === "claude" && opts.last
             ? localConvStat(process.cwd())?.convId
@@ -5359,8 +5424,79 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               source: "run" as const,
             }
           : registryEntry;
-        const localIdle = local ? localSessionIdle(local.name) : false;
-        if (!entry && local && !localIdle && !opts.replace) {
+        // WHICH host serves this resume — resolved BEFORE ANY act (F1): every
+        // attach/kill/start below derives EXCLUSIVELY from this resolution's
+        // kind + name over the ONE registry snapshot read above. An option
+        // expresses an intent for a NEW session; it must NEVER win over the
+        // recorded host of an EXISTING session. The symmetric resolver
+        // consults BOTH persisted kinds (dual rows fail closed) and probes
+        // only for unrecorded sessions (--tmux stays the permanent opt-in
+        // creation switch — only the DEFAULT is native).
+        // The resolver QUERY: recorded facts for a registry-backed entry; the
+        // OBSERVED live identity (else the requested target) otherwise. A
+        // synthesized explicit-profile entry's tmuxSession is an INTENT (the
+        // canonical name a NEW session would take), not a recorded fact — it
+        // must not hide an existing session living under a legacy name.
+        const hostQuery =
+          entry && !explicitProfile
+            ? (entry.tmuxSession ?? entry.id)
+            : (preResolutionTmuxView?.name ?? target);
+        // The WHOLE read (not just `.entries`, PART A/A2): an unreadable
+        // twin of `hostQuery` must poison this resolution BEFORE any act
+        // below derives from it, never only surface at the pre-kill recheck.
+        const hostResolution = resolveManagedHost(
+          hostQuery,
+          registryRead,
+        );
+        if (hostResolution.state === "ambiguous") {
+          process.stderr.write(
+            `[h2a] cannot resume ${displaySlug}: this managed identity is recorded/live on BOTH local hosts (${hostResolution.candidates.join(", ")}); refusing to pick one. Clean up the conflicting registry rows first.\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if (hostResolution.state === "unknown") {
+          process.stderr.write(
+            `[h2a] cannot resume ${displaySlug}: local host state is unknown (${hostResolution.reason}); refusing to guess a host.\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        const hostIsExisting =
+          hostResolution.state === "recorded" ||
+          hostResolution.state === "discovered";
+        // Liveness ON THE RESOLVED HOST gates the acts below. 3-state: a
+        // probe failure REFUSES (resume can kill) — never absence (F2).
+        const actLiveness: ManagedHostProbeResult = hostIsExisting
+          ? hostResolution.kind === "local-native"
+            ? probeNativeSession(hostResolution.name)
+            : probeTmuxSession(hostResolution.name)
+          : "dead";
+        if (actLiveness === "unknown") {
+          process.stderr.write(
+            `[h2a] cannot resume ${displaySlug}: the resolved local host state is unknown (probe failed); refusing a destructive act on an unproven host.\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        // The ONE act target for every effect below (F1): the resolver's
+        // exact kind + name, present only while the session is LIVE there.
+        const liveActTarget = hostIsExisting && actLiveness === "live"
+          ? { kind: hostResolution.kind, name: hostResolution.name }
+          : undefined;
+        // Idle is a TMUX pane concept; a live native session is conservatively
+        // NOT idle (never auto-replaced without an explicit --replace).
+        const actIdle =
+          liveActTarget !== undefined && liveActTarget.kind === "local-tmux"
+            ? localSessionIdle(liveActTarget.name)
+            : false;
+        if (
+          !entry &&
+          liveActTarget &&
+          liveActTarget.kind === "local-tmux" &&
+          !actIdle &&
+          !opts.replace
+        ) {
           process.stderr.write(
             `[h2a] local session ${displaySlug} already exists and does not look idle; no new CLI was started.\n`,
           );
@@ -5368,7 +5504,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.stderr.write(
               `[h2a] switching to existing session ${displaySlug}\n`,
             );
-            process.exitCode = attachLocalSession(local.name);
+            // This gate is tmux-scoped (see condition); the attach targets
+            // the RESOLVED exact name (F1).
+            process.exitCode = attachLocalSession(liveActTarget.name);
             return;
           }
           process.stderr.write(
@@ -5381,7 +5519,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.stderr.write(
             `[h2a] cannot resume ${displaySlug}: registry has no single local-tmux entry with profile, cwd and convId.\n`,
           );
-          if (local) {
+          if (liveActTarget) {
             process.stderr.write(
               `[h2a] local session ${displaySlug} exists but cannot be relaunched without a recorded convId.\n`,
             );
@@ -5427,35 +5565,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
-        // WHICH host serves this resume — resolved BEFORE any destructive
-        // step. The invariant (F1): an option expresses an intent for a NEW
-        // session; it must NEVER win over the recorded host of an EXISTING
-        // session. The symmetric resolver consults BOTH persisted kinds (dual
-        // rows fail closed) and probes only for unrecorded sessions. An
-        // existing session keeps its recorded host; only a brand-new session
-        // follows the requested default (--tmux stays the permanent opt-in
-        // creation switch — only the DEFAULT is native).
-        const hostResolution = resolveManagedHost(
-          entry.tmuxSession ?? resumeSlug,
-          loadRegistry(),
-        );
-        if (hostResolution.state === "ambiguous") {
-          process.stderr.write(
-            `[h2a] cannot resume ${displaySlug}: this managed identity is recorded/live on BOTH local hosts (${hostResolution.candidates.join(", ")}); refusing to pick one. Clean up the conflicting registry rows first.\n`,
-          );
-          process.exitCode = 1;
-          return;
-        }
-        if (hostResolution.state === "unknown") {
-          process.stderr.write(
-            `[h2a] cannot resume ${displaySlug}: local host state is unknown (${hostResolution.reason}); refusing to guess a host.\n`,
-          );
-          process.exitCode = 1;
-          return;
-        }
-        const hostIsExisting =
-          hostResolution.state === "recorded" ||
-          hostResolution.state === "discovered";
         if (
           opts.tmux === true &&
           hostIsExisting &&
@@ -5491,13 +5600,22 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
-        if (local && !localIdle && !opts.replace) {
+        // A live NATIVE session without --replace deliberately falls PAST
+        // these tmux gates to the start path: startNativeSession ADOPTS the
+        // existing native session (Lot A semantics) — nothing is killed.
+        if (
+          liveActTarget &&
+          liveActTarget.kind === "local-tmux" &&
+          !actIdle &&
+          !opts.replace
+        ) {
           const gatewayEnvStatus =
             explicitProfile === "claude" &&
             (profile === "claude" || profile === "claude-code") &&
+            liveActTarget.kind === "local-tmux" &&
             process.env.ANTHROPIC_BASE_URL &&
             process.env.ANTHROPIC_AUTH_TOKEN
-              ? localSessionGatewayEnvStatus(local.name, {
+              ? localSessionGatewayEnvStatus(liveActTarget.name, {
                   baseUrl: process.env.ANTHROPIC_BASE_URL,
                   authToken: process.env.ANTHROPIC_AUTH_TOKEN,
                 })
@@ -5514,14 +5632,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             `[h2a] local session ${displaySlug} already exists and does not look idle; no new ${profile} was started.\n`,
           );
           if (opts.attach || explicitProfile) {
-            if (explicitProfile && currentTmuxSessionIs(local.name)) {
+            if (
+              explicitProfile &&
+              liveActTarget.kind === "local-tmux" &&
+              currentTmuxSessionIs(liveActTarget.name)
+            ) {
               gateway = await injectLlmMeshGatewayEnv(
                 effectiveGatewayMode,
                 true,
-                local.name,
+                liveActTarget.name,
               );
               persistLaunchContext(
-                local.name,
+                liveActTarget.name,
                 buildLaunchContext({
                   profile,
                   cwd: entry.cwd,
@@ -5538,7 +5660,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.stderr.write(
               `[h2a] switching to existing session ${displaySlug}\n`,
             );
-            process.exitCode = attachLocalSession(local.name);
+            // This gate is tmux-scoped (see condition); the attach targets
+            // the RESOLVED exact name (F1).
+            process.exitCode = attachLocalSession(liveActTarget.name);
             return;
           }
           process.stderr.write(
@@ -5547,10 +5671,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 2;
           return;
         }
-        if (local) {
-          if (!localIdle && opts.replace) {
+        if (
+          liveActTarget &&
+          (liveActTarget.kind === "local-tmux" || opts.replace)
+        ) {
+          if (!actIdle && opts.replace) {
             process.stderr.write(
-              `[h2a] local session ${displaySlug} does not look idle; --replace will kill tmux session ${local.name} before resuming${entry.convId ? ` ${entry.convId}` : ""}.\n`,
+              `[h2a] local session ${displaySlug} does not look idle; --replace will kill ${liveActTarget.kind} session ${liveActTarget.name} before resuming${entry.convId ? ` ${entry.convId}` : ""}.\n`,
             );
           }
           if (!opts.replace) {
@@ -5558,7 +5685,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               `[h2a] local session ${displaySlug} already exists.\n`,
             );
             process.stderr.write(
-              `[h2a] pane appears idle; replacing it will kill tmux session ${local.name} and resume${entry.convId ? ` conversation ${entry.convId}` : ""} in ${entry.cwd}.\n`,
+              `[h2a] pane appears idle; replacing it will kill ${liveActTarget.kind} session ${liveActTarget.name} and resume${entry.convId ? ` conversation ${entry.convId}` : ""} in ${entry.cwd}.\n`,
             );
             process.stderr.write(
               `[h2a] If another CLI is still writing this conversation, replacing can corrupt the .jsonl.\n`,
@@ -5580,15 +5707,32 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               return;
             }
           }
-          const rechecked = findLocalSession(displaySlug);
-          if (!rechecked) {
+          // RECHECK immediately before the kill — the SAME resolver over a
+          // FRESH read (never a tmux-only lookup): the identity must still
+          // resolve to the SAME host + name and still be live there; any
+          // drift (or an unknown) aborts without killing anything.
+          const recheck = resolveManagedHost(hostQuery, loadRegistry());
+          const recheckSameHost =
+            (recheck.state === "recorded" || recheck.state === "discovered") &&
+            recheck.kind === liveActTarget.kind &&
+            recheck.name === liveActTarget.name;
+          const recheckLiveness = recheckSameHost
+            ? liveActTarget.kind === "local-native"
+              ? probeNativeSession(liveActTarget.name)
+              : probeTmuxSession(liveActTarget.name)
+            : "unknown";
+          if (!recheckSameHost || recheckLiveness !== "live") {
             process.stderr.write(
               `[h2a] local session ${displaySlug} changed state before replace; aborting.\n`,
             );
             process.exitCode = 1;
             return;
           }
-          if (!opts.replace && !localSessionIdle(rechecked.name)) {
+          if (
+            !opts.replace &&
+            liveActTarget.kind === "local-tmux" &&
+            !localSessionIdle(liveActTarget.name)
+          ) {
             process.stderr.write(
               `[h2a] local session ${displaySlug} is no longer idle; aborting.\n`,
             );
@@ -5610,7 +5754,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               return;
             }
           }
-          if (!killLocalSession(rechecked.name)) {
+          // The kill derives from the RESOLVED kind + name only (F1): a
+          // homonymous session on the OTHER host must never absorb it.
+          const killed =
+            liveActTarget.kind === "local-native"
+              ? killNativeSessionTree(liveActTarget.name)
+              : killLocalSession(liveActTarget.name);
+          if (!killed) {
             process.stderr.write(
               `[h2a] local session ${displaySlug} could not be killed; no new ${profile} was started.\n`,
             );
@@ -5618,7 +5768,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
           process.stderr.write(
-            `[h2a] replaced local session ${displaySlug} (${rechecked.name})\n`,
+            `[h2a] replaced local session ${displaySlug} (${liveActTarget.name})\n`,
           );
         } else {
           if (entry.convId) {
@@ -6190,6 +6340,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           if (structuredLaunch && sessionHost !== "native" && !agentPane) {
             cleanupHeadlessPromptFile(promptFile);
+            // OWN-CLEANUP, deliberately NOT resolver-derived (F1 sorting):
+            // `name` is the session THIS command just created above, on the
+            // host it chose. Re-resolving could return missing/unknown and
+            // refuse — leaking the partial session it exists to remove.
             killLocalSession(name);
             process.stderr.write(
               `[h2a] could not capture the exact agent pane for ${slug}; the partial session was stopped\n`,
@@ -6204,6 +6358,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             });
             if (!h2aSidecarStarted && structuredLaunch) {
               cleanupHeadlessPromptFile(promptFile);
+              // OWN-CLEANUP, deliberately NOT resolver-derived (F1 sorting):
+              // this kills the session THIS command just created on the host
+              // it chose; the resolver could refuse and leak the partial.
               killNativeSessionTree(name);
               process.stderr.write(
                 `[h2a] required h2a sidecar failed for ${slug}; the partial session was stopped\n`,
@@ -6238,6 +6395,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             }
             if (!h2aSidecarStarted && structuredLaunch) {
               cleanupHeadlessPromptFile(promptFile);
+              // OWN-CLEANUP, deliberately NOT resolver-derived (F1 sorting):
+              // this kills the session THIS command just created on the host
+              // it chose; the resolver could refuse and leak the partial.
               killLocalSession(name);
               process.stderr.write(
                 `[h2a] required h2a sidecar failed for ${slug}; the partial session was stopped\n`,
@@ -6280,6 +6440,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               // same wider-than-its-evidence claim this change exists to remove,
               // and a surviving partial session is precisely the idle lane the
               // operator was just told could not happen.
+              // OWN-CLEANUP, deliberately NOT resolver-derived (F1 sorting):
+              // `name`/`sessionHost` are the session and host THIS command
+              // just created; re-resolving could refuse and leak the partial.
               const stopped =
                 sessionHost === "native"
                   ? killNativeSessionTree(name)
@@ -6321,6 +6484,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 : undefined;
           if (structuredLaunch && pid === undefined) {
             cleanupHeadlessPromptFile(promptFile);
+            // OWN-CLEANUP, deliberately NOT resolver-derived (F1 sorting):
+            // `name`/`sessionHost` are the session and host THIS command
+            // just created; re-resolving could refuse and leak the partial.
             if (sessionHost === "native") killNativeSessionTree(name);
             else killLocalSession(name);
             process.stderr.write(
@@ -6829,7 +6995,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   // → the envelope is rejected (fail closed). Used to drop forged cross-job
   // envelopes from the shared RWX inbox before they reach the decision logic.
   const expectedInstanceOf: ExpectedInstanceResolver = (jobId, type) => {
-    const job = loadRegistry().find((e) => e.id === jobId && e.role === "job");
+    const read = loadRegistry();
+    // Unknown registry read → undefined → the envelope is REJECTED (the
+    // same fail-closed arm as an unknown job): an unreadable registry never
+    // authenticates anything.
+    const job =
+      read.state === "ok"
+        ? read.entries.find((e) => e.id === jobId && e.role === "job")
+        : undefined;
     if (!job) return undefined;
     if (type === "decision.reply") return parentInstance(job);
     return jobInstance(job);
@@ -8254,7 +8427,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       // kind:"local-native" is relaunched through the native host (the tmux
       // inventory below cannot see it). --all sweeps stay tmux-only for now.
       if (filter) {
-        const nativeEntry = loadRegistry().find(
+        const relaunchRead = loadRegistry();
+        if (relaunchRead.state === "unknown") {
+          // Relaunch KILLS before it recreates: an unreadable registry
+          // cannot prove which host (if any) owns this exact filter —
+          // refuse instead of falling through to the tmux sweep (F2).
+          process.stderr.write(
+            `[h2a] cannot relaunch ${filter}: the local registry is unreadable (${relaunchRead.reason}); refusing a destructive act on an unproven host state.\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        const nativeEntry = relaunchRead.entries.find(
           (e) =>
             e.kind === "local-native" &&
             !e.endedAt &&
@@ -8263,7 +8447,41 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const nativeName =
           nativeEntry?.tmuxSession ??
           (nativeEntry ? localSessionName(nativeEntry.id) : undefined);
-        if (nativeEntry && nativeName && nativeSessionAlive(nativeName)) {
+        const nativeLiveness =
+          nativeEntry && nativeName ? nativeSessionLiveness(nativeName) : false;
+        if (nativeLiveness === "unknown") {
+          // A probe failure is not death: neither the native relaunch (kill)
+          // nor the tmux sweep (which would treat this identity as absent)
+          // may proceed on an unprovable host state.
+          process.stderr.write(
+            `[h2a] cannot relaunch ${filter}: native session ${nativeName} has an unknown host state (probe failed); refusing a destructive act on an unproven host.\n`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+        if (nativeEntry && nativeName && nativeLiveness === true) {
+          // F1: the kill target derives from the ONE symmetric resolver over
+          // the same read — never directly from the row lookup above. A
+          // dual-host identity (ambiguous) or an unprovable one refuses here
+          // instead of letting the native leg absorb a contested name. The
+          // WHOLE read (not just `.entries`, PART A/A2): an unreadable twin
+          // of this identity must poison the resolution here too.
+          const hostResolution = resolveManagedHost(
+            nativeEntry.tmuxSession ?? nativeEntry.id,
+            relaunchRead,
+          );
+          if (
+            (hostResolution.state !== "recorded" &&
+              hostResolution.state !== "discovered") ||
+            hostResolution.kind !== "local-native"
+          ) {
+            process.stderr.write(
+              `[h2a] cannot relaunch ${filter}: this managed identity does not resolve to a single native host (resolver: ${hostResolution.state}); refusing a destructive act.\n`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+          const actName = hostResolution.name;
           const slug = nativeEntry.label ?? nativeEntry.id;
           if (!opts.apply) {
             process.stderr.write(
@@ -8275,9 +8493,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           // Safety twin of the pane-CPU probe: a session burning CPU is
           // WORKING; refuse to kill it without --yes.
-          const cpuBefore = nativeTreeCpuMs(nativeName);
+          const cpuBefore = nativeTreeCpuMs(actName);
           sleepSync(1_500);
-          const cpuAfter = nativeTreeCpuMs(nativeName);
+          const cpuAfter = nativeTreeCpuMs(actName);
           const busy =
             cpuBefore !== undefined &&
             cpuAfter !== undefined &&
@@ -8291,7 +8509,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.exitCode = 1;
             return;
           }
-          if (!killNativeSessionTree(nativeName)) {
+          if (!killNativeSessionTree(actName)) {
             process.stderr.write(
               `[h2a] native session ${slug} could not be killed; nothing was relaunched.\n`,
             );
@@ -8589,7 +8807,22 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
           continue;
         }
-        if (!killLocalSession(action.name, safety.identity)) {
+        // F1: the kill target must derive from the ONE symmetric resolver —
+        // a same-name identity recorded on the native host (dual) or an
+        // unprovable one must never be absorbed by the tmux sweep.
+        const hostResolution = resolveManagedHost(action.name, registryEntries);
+        if (
+          (hostResolution.state !== "recorded" &&
+            hostResolution.state !== "discovered") ||
+          hostResolution.kind !== "local-tmux" ||
+          hostResolution.name !== action.name
+        ) {
+          process.stderr.write(
+            `[h2a] skipped ${action.slug}: ${action.name} does not resolve to a single tmux host (resolver: ${hostResolution.state}); refusing a destructive act.\n`,
+          );
+          continue;
+        }
+        if (!killLocalSession(hostResolution.name, safety.identity)) {
           process.stderr.write(
             `[h2a] skipped ${action.slug}: tmux session ${action.name} changed or was no longer proven dead immediately before kill.\n`,
           );
@@ -8698,7 +8931,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     filter: string | undefined,
   ): Array<{ session: InteractiveSession; slug: string }> => {
     const enrolledAtBySlug = new Map<string, string>();
-    for (const e of loadRegistry()) {
+    // Unknown registry read → empty map (degrade): enrolledAt only refines
+    // the throttle bookkeeping's startedAt; sessions still come from the
+    // live tmux inventory, so nothing is asserted absent.
+    const throttleRead = loadRegistry();
+    for (const e of throttleRead.state === "ok" ? throttleRead.entries : []) {
       if (e.kind === "local-tmux") enrolledAtBySlug.set(e.id, e.enrolledAt);
     }
     const out: Array<{ session: InteractiveSession; slug: string }> = [];
@@ -8781,8 +9018,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
 
     let nudged = 0;
     if (apply) {
+      // Unknown registry read → empty map (degrade): the nudge then goes
+      // through relaunchInSession instead of the lease-scoped variant; no
+      // session is asserted absent and nothing is killed either way.
+      const leaseRead = loadRegistry();
       const leaseIdByTmuxSession = new Map(
-        loadRegistry()
+        (leaseRead.state === "ok" ? leaseRead.entries : [])
           .filter((entry) => entry.tmuxSession !== undefined)
           .map((entry) => [entry.tmuxSession!, entry.id]),
       );
@@ -9347,6 +9588,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.exitCode = 1;
             return;
           }
+          if (localTarget.kind === "unknown") {
+            // Unknown ≠ missing: falling through to the remote lookup would
+            // attach a REMOTE homonym over an unprovable local session (F2).
+            process.stderr.write(
+              `[h2a] cannot attach ${first}: local session state is unknown (${localTarget.reason}); attach refused (fail closed).\n`,
+            );
+            process.exitCode = 1;
+            return;
+          }
           // A session started by `h2a run` is enrolled in the registry as
           // kind:"local-tmux". Trust that durable record even when a transient
           // `tmux list-sessions` miss hides the live session — otherwise a purely
@@ -9392,6 +9642,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               process.exitCode = 1;
               return;
             }
+            // Every act below targets the RESOLVED exact name (F1) — never
+            // the pre-resolution lookup's name.
             const nativeTarget = resolution.kind === "local-native";
             if (opts.headlessTerminal) {
               if (nativeTarget) {
@@ -9401,7 +9653,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 process.exitCode = 1;
                 return;
               }
-              const terminal = ensureHeadlessTerminal(localName);
+              const terminal = ensureHeadlessTerminal(resolution.name);
               if (terminal.state === "unavailable") {
                 process.stderr.write(
                   `[h2a] could not attach a persistent terminal to ${first}: ${terminal.reason}\n`,
@@ -9419,7 +9671,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               // session that is not running is refused on its own host — it
               // must never degrade into a tmux attach of the same name. A
               // probe FAILURE is not death: it refuses with its own reason.
-              const nativeState = probeNativeSession(localName);
+              const nativeState = probeNativeSession(resolution.name);
               if (nativeState === "dead") {
                 process.stderr.write(
                   `[h2a] native session ${first} is not running; attach refused ` +
@@ -9437,8 +9689,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               }
             }
             process.exitCode = nativeTarget
-              ? attachNativeSession(localName)
-              : attachLocalSession(localName);
+              ? attachNativeSession(resolution.name)
+              : attachLocalSession(resolution.name);
             return;
           }
         }
@@ -9695,6 +9947,38 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.exitCode = 1;
             return;
           }
+          if (localTarget.kind === "unknown") {
+            // Unknown ≠ missing: stop is DESTRUCTIVE — falling through here
+            // would aim the kill at a REMOTE homonym of an unprovable local
+            // session (F2, fail closed).
+            process.stderr.write(
+              `[h2a] cannot stop ${first}: local session state is unknown (${localTarget.reason}); refusing a destructive act on an unproven host state.\n`,
+            );
+            process.exitCode = 1;
+            return;
+          }
+          // A3 (PART A guard-before-act, sol-2): the per-identity
+          // unreadable-row guard is evaluated HERE — before EITHER the
+          // found/kill branch below OR the remote-fallthrough — never after
+          // an act. It used to sit ~30 lines below, reachable only past the
+          // found branch's `return`: for a valid row + an unreadable TWIN of
+          // the SAME name, `localTarget.kind` is "found" and the kill ran
+          // before this check was ever consulted (dead code in that mixed
+          // case). resolveManagedHost's own per-identity check (A2, below)
+          // ALSO catches this same identity independently — this is
+          // deliberate defense-in-depth at the one place every branch shares,
+          // not the only place it is caught.
+          const unreadable = unreadableRegistryRowsForTarget(first);
+          if (unreadable.length > 0) {
+            const unreadableIds = unreadable
+              .map((row) => (typeof row.id === "string" ? row.id : "<no id>"))
+              .join(", ");
+            process.stderr.write(
+              `[h2a] cannot stop ${first}: local host state is unknown — an unreadable registry row exists for this identity (row id: ${unreadableIds}) in ${resolveRegistryPath()} (kind absent/unreadable); the row is preserved but cannot be acted on, and stop refuses to fall through to a remote session of the same name (fail closed). Inspect the row before retrying.\n`,
+            );
+            process.exitCode = 1;
+            return;
+          }
           if (localTarget.kind === "found") {
             // WHICH host: the symmetric resolver over BOTH persisted kinds —
             // a recorded host wins REGARDLESS of the other host's liveness
@@ -9727,31 +10011,28 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               process.exitCode = 1;
               return;
             }
+            // The kill derives from the RESOLVED kind + name only (F1) —
+            // never the pre-resolution lookup's name.
             const nativeTarget = resolution.kind === "local-native";
             const ok = nativeTarget
-              ? killNativeSessionTree(localTarget.name)
-              : killLocalSession(localTarget.name);
+              ? killNativeSessionTree(resolution.name)
+              : killLocalSession(resolution.name);
             process.stderr.write(
               `[h2a] ${nativeTarget ? "native" : "local"} session ${localTarget.local?.slug ?? first} ${ok ? "killed" : "could not be killed"}\n`,
             );
             if (!ok) process.exitCode = 1;
             return;
           }
-          // An identity whose registry row exists but is UNREADABLE (kind
-          // absent/invalid) is not "no local session" — its local host state
-          // is UNKNOWN (sol-2). Falling through here would aim a DESTRUCTIVE
-          // stop at a REMOTE homonym of the same id. Fail closed instead.
-          const unreadable = unreadableRegistryRowsForTarget(first);
-          if (unreadable.length > 0) {
-            const unreadableIds = unreadable
-              .map((row) => (typeof row.id === "string" ? row.id : "<no id>"))
-              .join(", ");
-            process.stderr.write(
-              `[h2a] cannot stop ${first}: local host state is unknown — an unreadable registry row exists for this identity (row id: ${unreadableIds}) in ${resolveRegistryPath()} (kind absent/unreadable); the row is preserved but cannot be acted on, and stop refuses to fall through to a remote session of the same name (fail closed). Inspect the row before retrying.\n`,
-            );
-            process.exitCode = 1;
-            return;
-          }
+          // CONJUNCTION RULE (F2): reaching stopRemoteSession below requires
+          // local absence to be POSITIVELY known EVERYWHERE — the tmux
+          // inventory read succeeded with no session AND the registry read
+          // succeeded with no row AND the native probe answered dead (all
+          // enforced by resolveManagedLocalTarget returning "missing", since
+          // any unknown there returns "unknown" and refuses above) AND, last,
+          // no UNREADABLE row exists for this identity (kind absent/invalid,
+          // sol-2, checked above BEFORE this branch is even reached). One
+          // unknown anywhere poisons the conjunction; falling through would
+          // aim a DESTRUCTIVE stop at a REMOTE homonym of the same id.
         }
         const { url, sessionId } = resolveUrlAndSessionId(first, second);
         const result = await stopRemoteSession(url, sessionId, opts.reason);

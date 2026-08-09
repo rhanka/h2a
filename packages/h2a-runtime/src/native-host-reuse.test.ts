@@ -266,7 +266,12 @@ describe("attach/stop act gating on a dead recorded-native session (CLI level)",
     rmSync(scratch, { recursive: true, force: true });
   });
 
-  it("attach refuses the act on a dead native session instead of re-routing to tmux", async () => {
+  // These two tests deliberately run against the REAL environment (real tmux
+  // inventory + real native probe op). On a machine with a large live tmux
+  // fleet, one `tmux list-sessions` alone can take seconds — the default 5s
+  // budget flakes under suite contention, so the real-environment latency is
+  // budgeted explicitly.
+  it("attach refuses the act on a dead native session instead of re-routing to tmux", { timeout: 20_000 }, async () => {
     // The native host is not running in this environment, so the recorded
     // native session is momentarily dead: the host stays native and the ACT
     // is refused — no tmux attach of the same name is ever attempted.
@@ -276,7 +281,7 @@ describe("attach/stop act gating on a dead recorded-native session (CLI level)",
     expect(all).toContain(`native session ${SLUG} is not running; attach refused`);
   });
 
-  it("stop acts on the native host for a dead recorded-native session", async () => {
+  it("stop acts on the native host for a dead recorded-native session", { timeout: 20_000 }, async () => {
     const code = await main(["node", "h2a", "stop", SLUG]);
     expect(code).toBe(1);
     const all = stderrLines.join("");

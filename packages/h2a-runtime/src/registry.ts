@@ -34,7 +34,7 @@ import {
   type LocalSession,
 } from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
-import { nativeSessionAlive } from "./native-host.js";
+import { nativeSessionLiveness } from "./native-host.js";
 
 export type RegistryTool = "claude" | "codex" | "agy";
 export type RegistryKind = "local-tmux" | "local-native" | "local" | "remote";
@@ -228,8 +228,12 @@ export type EnrollInput = {
 /** Injectable liveness probes (tests stay deterministic, no tmux/pid needed). */
 export type LivenessOpts = {
   tmuxHasSession?: (name: string) => boolean;
-  /** Injectable native-PTY-host session probe (kind:"local-native"). */
-  nativeSessionAlive?: (name: string) => boolean;
+  /**
+   * Injectable native-PTY-host session probe (kind:"local-native"). 3-state
+   * (F2): "unknown" is a PROBE FAILURE, never proof of death — isLive treats
+   * it as possibly-live so an unprovable session is never pruned/hidden.
+   */
+  nativeSessionLiveness?: (name: string) => true | false | "unknown";
   pidAlive?: (pid: number) => boolean;
   /** System boot time (ms epoch). A `kind:"local"` entry last seen before this
    * is dead — its process died in the reboot, so its PID must not be trusted
@@ -292,59 +296,171 @@ function shouldPreserveByRestorePin(entry: RegistryEntry): boolean {
   );
 }
 
+/**
+ * 3-state registry READ (F2), extended by the rebase reconciliation (2026-08)
+ * to carry PER-ROW unreadable rows instead of silently dropping them. The lie
+ * this type removes: a corrupt/unreadable registry FILE used to flatten into
+ * `[]` — indistinguishable from "no rows" — which let destructive acts
+ * (stop/kill/relaunch) treat an UNPROVABLE local state as PROVEN ABSENCE and
+ * fall through to a remote homonym. A SINGLE unreadable ROW inside an
+ * otherwise-valid file used to be silently filtered out of "ok" the same
+ * way — the same lie, at row granularity: a valid row plus an unreadable
+ * TWIN of the same name resolved as if only the valid row existed. The read
+ * now says which of the three it is, and the compiler enumerates every
+ * caller:
+ *  - "ok": the FILE was read and validated ("ok" with entries:[] includes the
+ *    PROVABLY-empty ENOENT case — rows cannot exist without a file).
+ *    `unreadable` carries every row that failed `isRegistryEntry` verbatim
+ *    (raw, defensively typed) — absence must be provable BY IDENTITY, so a
+ *    destructive caller resolving target X must check whether an unreadable
+ *    row COULD be X, not merely whether the array is non-empty. A rotten
+ *    legacy row must not disable the WHOLE tool — that would trade a lie for
+ *    an outage — so a per-row failure never flips the file to "unknown".
+ *  - "unknown": the FILE itself could not be read/parsed (ENOENT excluded —
+ *    see "ok" above). Destructive callers MUST refuse; views may degrade but
+ *    must never assert absence.
+ * The unknown branch deliberately carries NO `entries`/`unreadable` fields,
+ * so a caller cannot mechanically re-flatten it into an empty collection.
+ */
+export type RegistryReadResult =
+  | {
+      readonly state: "ok";
+      readonly entries: RegistryEntry[];
+      /** Raw rows that failed `isRegistryEntry`, preserved verbatim (never dropped). */
+      readonly unreadable: readonly RawRow[];
+    }
+  | { readonly state: "unknown"; readonly reason: string };
+
+/** A raw, unvalidated registry row — read DEFENSIVELY (it failed validation). */
+export type RawRow = Record<string, unknown>;
+
 export function loadRegistry(
   path: string = resolveRegistryPath(),
-): RegistryEntry[] {
-  return rawRegistryEntries(path).filter(isRegistryEntry);
+): RegistryReadResult {
+  const raw = rawRegistryRead(path);
+  if (raw.state === "unknown") return raw;
+  const entries: RegistryEntry[] = [];
+  const unreadable: RawRow[] = [];
+  for (const row of raw.rows) {
+    if (isRegistryEntry(row)) {
+      entries.push(row);
+    } else if (row && typeof row === "object") {
+      // Counter-mutant guard (PART-A producer): a row that fails
+      // `isRegistryEntry` is TRANSPORTED, never dropped — dropping it here
+      // is exactly the per-row lie this type exists to remove.
+      unreadable.push(row as RawRow);
+    }
+    // A non-object row (string/number/null/etc.) cannot address any target
+    // by identity (no id/label/tmuxSession to match against) — it is
+    // discarded rather than carried as a formless "unreadable" row.
+  }
+  return { state: "ok", entries, unreadable };
 }
 
-/** Raw `entries` array of the registry FILE ([] when absent/corrupt). */
-function rawRegistryEntries(path: string): unknown[] {
+type RawRegistryRead =
+  | { readonly state: "ok"; readonly rows: unknown[] }
+  | { readonly state: "unknown"; readonly reason: string };
+
+/** Raw `entries` array of the registry FILE, with the read state preserved. */
+function rawRegistryRead(path: string): RawRegistryRead {
+  let text: string;
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    // An ABSENT file is provable emptiness (rows cannot exist without a
+    // file); every other read failure (EACCES, EIO, …) is UNKNOWN.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return { state: "ok", rows: [] };
+    }
+    return {
+      state: "unknown",
+      reason: `registry file is unreadable (${(error as NodeJS.ErrnoException).code ?? "read error"})`,
+    };
+  }
+  try {
+    const parsed = JSON.parse(text);
     const entries = (parsed as { entries?: unknown })?.entries;
-    return Array.isArray(entries) ? entries : [];
+    if (!Array.isArray(entries)) {
+      return { state: "unknown", reason: "registry has no entries array" };
+    }
+    return { state: "ok", rows: entries };
   } catch {
-    // missing or corrupt file -> empty registry (it is rebuilt by enrolment)
-    return [];
+    return { state: "unknown", reason: "registry is corrupt (not valid JSON)" };
   }
 }
 
 /**
- * Raw rows in the registry FILE that FAIL validation (e.g. `kind` absent or
- * unreadable) but plausibly address `target` under the resolver's identity
- * rules. `loadRegistry()` cannot return them as entries — but a DESTRUCTIVE
- * caller must know the identity exists in an unreadable state: such a row
- * makes local host state UNKNOWN (fail closed, sol-2), never "no local
- * session" — which would let the act fall through to a REMOTE homonym.
+ * WRITE-path raw read: enrolment deliberately REBUILDS a missing/corrupt
+ * registry (a hiccup must not brick every future enrolment), so this keeps
+ * the historical flatten-to-[] contract for `withRegistryLock` only. READ
+ * paths must use `loadRegistry` and handle its 3-state result instead.
+ */
+function rawRegistryEntries(path: string): unknown[] {
+  const raw = rawRegistryRead(path);
+  return raw.state === "ok" ? raw.rows : [];
+}
+
+/**
+ * Pure identity match: does raw row `raw` (already known to have FAILED
+ * `isRegistryEntry`) plausibly address `target` under the SAME identity rules
+ * used to match a VALID row (id / label / exact tmuxSession / managed-name
+ * candidates)? Shared by `unreadableRowsForTarget` (A2's per-identity poison
+ * check inside `resolveManagedHost`) and the legacy path-based helper below.
+ * Defensive: an unreadable row is read WITHOUT presuming a well-formed shape.
+ */
+function rawRowMatchesTarget(target: string, raw: RawRow): boolean {
+  const requested = parseManagedSessionName(target);
+  const candidates = requested ? [target] : managedSessionCandidates(target);
+  const id = typeof raw.id === "string" ? raw.id : undefined;
+  const label = typeof raw.label === "string" ? raw.label : undefined;
+  const tmuxSession =
+    typeof raw.tmuxSession === "string" ? raw.tmuxSession : undefined;
+  if (requested) {
+    return (
+      tmuxSession === target ||
+      (tmuxSession === undefined && id === requested.slug)
+    );
+  }
+  return (
+    id === target ||
+    label === target ||
+    (tmuxSession !== undefined && candidates.includes(tmuxSession))
+  );
+}
+
+/**
+ * Unreadable rows (from an ALREADY-READ `loadRegistry()` snapshot) that
+ * plausibly address `target` under the resolver's identity rules. Pure — no
+ * fs — so every caller consults the SAME snapshot instead of re-reading the
+ * file (this is what `resolveManagedHost` calls for its per-identity poison
+ * check, A2). THE RULE: absence must be provable BY IDENTITY — an unknown by
+ * identity for X, never a global unknown that disables every OTHER identity.
+ */
+export function unreadableRowsForTarget(
+  target: string,
+  unreadable: readonly RawRow[],
+): RawRow[] {
+  return unreadable.filter((raw) => rawRowMatchesTarget(target, raw));
+}
+
+/**
+ * Path-based convenience wrapper: performs its OWN registry read (a second
+ * read when the caller already has one — prefer `unreadableRowsForTarget`
+ * with an existing `loadRegistry()` snapshot when one is available, e.g.
+ * inside `resolveManagedHost`). Raw rows in the registry FILE that FAIL
+ * validation (e.g. `kind` absent or unreadable) but plausibly address
+ * `target`. `loadRegistry()` cannot return them as `entries` — but a
+ * DESTRUCTIVE caller must know the identity exists in an unreadable state:
+ * such a row makes local host state UNKNOWN (fail closed, sol-2), never "no
+ * local session" — which would let the act fall through to a REMOTE homonym.
  */
 export function unreadableRegistryRowsForTarget(
   target: string,
   path: string = resolveRegistryPath(),
-): Array<Record<string, unknown>> {
-  const requested = parseManagedSessionName(target);
-  const candidates = requested ? [target] : managedSessionCandidates(target);
-  return rawRegistryEntries(path).filter(
-    (raw): raw is Record<string, unknown> => {
-      if (!raw || typeof raw !== "object" || isRegistryEntry(raw)) return false;
-      const e = raw as Record<string, unknown>;
-      const id = typeof e.id === "string" ? e.id : undefined;
-      const label = typeof e.label === "string" ? e.label : undefined;
-      const tmuxSession =
-        typeof e.tmuxSession === "string" ? e.tmuxSession : undefined;
-      if (requested) {
-        return (
-          tmuxSession === target ||
-          (tmuxSession === undefined && id === requested.slug)
-        );
-      }
-      return (
-        id === target ||
-        label === target ||
-        (tmuxSession !== undefined && candidates.includes(tmuxSession))
-      );
-    },
-  );
+): RawRow[] {
+  const read = loadRegistry(path);
+  if (read.state === "unknown") return [];
+  return unreadableRowsForTarget(target, read.unreadable);
 }
 
 /**
@@ -909,7 +1025,14 @@ export function advanceJob(
 /** Live job entries (role "job"), liveness reconciled like any other entry. */
 export function listJobs(opts: RegistryOpts = {}): RegistryEntry[] {
   const path = opts.path ?? resolveRegistryPath();
-  return loadRegistry(path).filter((e) => e.role === "job");
+  const read = loadRegistry(path);
+  // Unknown read → EMPTY VIEW, deliberately: this list feeds supervision
+  // views and job launch planning (acts that only ever START work); no
+  // kill/stop keys off it. Callers that must PROVE local absence go through
+  // resolveManagedHost, which transports the unknown read as a refusal.
+  return read.state === "ok"
+    ? read.entries.filter((e) => e.role === "job")
+    : [];
 }
 
 /** Refresh lastSeenAt. Returns false when the id is unknown. */
@@ -953,11 +1076,13 @@ function defaultTmuxHasSession(name: string): boolean {
   }
 }
 
-function defaultNativeSessionAlive(name: string): boolean {
+function defaultNativeSessionLiveness(name: string): true | false | "unknown" {
   try {
-    return nativeSessionAlive(name);
+    return nativeSessionLiveness(name);
   } catch {
-    return false;
+    // The producer already maps its own failures to "unknown"; this belt
+    // keeps an unexpected throw from ever reading as death.
+    return "unknown";
   }
 }
 
@@ -1017,11 +1142,15 @@ function processIsTool(
 export function isLive(e: RegistryEntry, opts: LivenessOpts = {}): boolean {
   if (e.endedAt) return false;
   if (e.kind === "local-native") {
-    const alive = opts.nativeSessionAlive ?? defaultNativeSessionAlive;
+    const liveness = opts.nativeSessionLiveness ?? defaultNativeSessionLiveness;
+    // "unknown" deliberately counts as possibly-live here (`!== false`):
+    // isLive feeds views AND prune — erasing the host pin of an unprovable
+    // session would re-route later destructive acts (F2). Only a POSITIVE
+    // "false" reads as death.
     return (e.tmuxSession
       ? [e.tmuxSession]
       : managedSessionCandidates(e.id)
-    ).some((name) => alive(name));
+    ).some((name) => liveness(name) !== false);
   }
   if (e.kind === "local-tmux") {
     const has = opts.tmuxHasSession ?? defaultTmuxHasSession;
@@ -1056,7 +1185,13 @@ export function isLive(e: RegistryEntry, opts: LivenessOpts = {}): boolean {
 /** Entries considered live right now (see isLive for the per-kind rules). */
 export function listLive(opts: RegistryOpts = {}): RegistryEntry[] {
   const path = opts.path ?? resolveRegistryPath();
-  return loadRegistry(path).filter((e) => isLive(e, opts));
+  const read = loadRegistry(path);
+  // Unknown read → EMPTY VIEW: `ls`-style projections degrade to showing no
+  // registry rows (the status bar has its own UNKNOWN rendering via
+  // loadRegistryWithDiagnostics). Guards that must prove the ABSENCE of a
+  // writer must not consume this list — convOwners reads the registry itself
+  // and refuses on an unknown read.
+  return read.state === "ok" ? read.entries.filter((e) => isLive(e, opts)) : [];
 }
 
 /**
@@ -1064,6 +1199,26 @@ export function listLive(opts: RegistryOpts = {}): RegistryEntry[] {
  * than maxAgeHours. Live entries always stay; recently-dead ones stay too so
  * `restore` can still resume them after a reboot via the scan fallback.
  * Returns the number of removed entries.
+ *
+ * RECONCILIATION DECISION (2026-08, #199 rebase — restore-pin x FILE-level
+ * unknown; architect to re-measure): `shouldPreserveByRestorePin` never
+ * observes `loadRegistry()`'s 3-state read directly — it runs INSIDE
+ * `withRegistryLock`, over the already-validated `entries` array only. Two
+ * unprovable cases both resolve CONSERVATIVE-PRESERVE by construction,
+ * neither newly added here:
+ *  - whole-FILE unknown (corrupt/unreadable registry.json):
+ *    `withRegistryLock`'s own raw read flattens to `[]` for its write-path
+ *    contract, so `kept.length === entries.length` (0 === 0) and this prune
+ *    is a NO-OP (`save:false`, see below) — nothing is read, so nothing a
+ *    restore pin could have kept is ever written over or lost.
+ *  - a single restore-pinned row that fails `isRegistryEntry` (per-row
+ *    unreadable, PART A): it never reaches `entries` here at all (excluded
+ *    before this callback runs), but `withRegistryLock`/`saveRegistry`
+ *    re-append every such raw row VERBATIM on every write (sol-2) —
+ *    `shouldPreserveByRestorePin` cannot prune what it never sees, and the
+ *    row survives regardless of what this function decides.
+ * Neither case is exercised through an explicit `state:"unknown"` branch
+ * here (there isn't one to write) — REPORTED, not silently assumed settled.
  */
 export function prune(maxAgeHours: number, opts: RegistryOpts = {}): number {
   const path = opts.path ?? resolveRegistryPath();
@@ -1356,7 +1511,9 @@ export function localTmuxSessionForName(
  */
 export function registryEntriesForNativeTarget(
   target: string,
-  entries: readonly RegistryEntry[] = loadRegistry(),
+  // No default read: the caller owns the registry READ STATE (an unknown
+  // read must refuse upstream, never flatten into "no rows" here).
+  entries: readonly RegistryEntry[],
 ): RegistryEntry[] {
   return registryEntriesForManagedKind("local-native", target, entries);
 }
@@ -1372,7 +1529,9 @@ export function registryEntriesForNativeTarget(
  */
 export function registryEntriesForLocalTmuxTarget(
   target: string,
-  entries: readonly RegistryEntry[] = loadRegistry(),
+  // No default read: the caller owns the registry READ STATE (an unknown
+  // read must refuse upstream, never flatten into "no rows" here).
+  entries: readonly RegistryEntry[],
 ): RegistryEntry[] {
   return registryEntriesForManagedKind("local-tmux", target, entries);
 }
@@ -1411,10 +1570,13 @@ function registryEntriesForManagedKind(
  */
 export type ManagedHostProbeResult = "live" | "dead" | "unknown";
 
-/** Native probe: a thrown op (spawn/timeout failure) is UNKNOWN, never dead. */
+/** Native probe: an op failure is UNKNOWN, never dead (producer is 3-state). */
 export function probeNativeSession(name: string): ManagedHostProbeResult {
   try {
-    return nativeSessionAlive(name) ? "live" : "dead";
+    const alive = nativeSessionLiveness(name);
+    if (alive === true) return "live";
+    if (alive === false) return "dead";
+    return "unknown";
   } catch {
     return "unknown";
   }
@@ -1473,16 +1635,59 @@ export type ManagedHostResolution =
   | { readonly state: "missing" }
   | { readonly state: "unknown"; readonly reason: string };
 
+function isRegistryReadResult(
+  value: readonly RegistryEntry[] | RegistryReadResult,
+): value is RegistryReadResult {
+  return !Array.isArray(value);
+}
+
 export function resolveManagedHost(
   target: string,
-  entries: readonly RegistryEntry[] = loadRegistry(),
+  entries: readonly RegistryEntry[] | RegistryReadResult = loadRegistry(),
   probes: {
     readonly native?: (name: string) => ManagedHostProbeResult;
     readonly tmux?: (name: string) => ManagedHostProbeResult;
   } = {},
 ): ManagedHostResolution {
-  const nativeRows = registryEntriesForNativeTarget(target, entries);
-  const tmuxRows = registryEntriesForLocalTmuxTarget(target, entries);
+  // The registry READ STATE is part of the resolution (F2): an unreadable
+  // registry means the persisted host cannot be proven — transported as
+  // "unknown" so every destructive caller refuses instead of treating the
+  // unprovable rows as absent and probing/guessing a host.
+  const read: RegistryReadResult = isRegistryReadResult(entries)
+    ? entries
+    // A plain-array caller carries NO unreadable-row information (it never
+    // had a snapshot to draw one from) — `unreadable:[]` here is a neutral
+    // "none known", not a claim that none exist. Callers that hold a real
+    // `loadRegistry()` snapshot MUST pass it whole (not `.entries`) for the
+    // per-identity poison check below to see the unreadable rows at all.
+    : { state: "ok", entries: [...entries], unreadable: [] };
+  if (read.state === "unknown") {
+    return {
+      state: "unknown",
+      reason: `registry read failed: ${read.reason}`,
+    };
+  }
+  // A2 (PART A — resolver per-identity unreadable check, sol-2): for target
+  // identity X, ask "is there an unreadable row that COULD be X?" — a
+  // same-name/same-form TWIN — never "are there any unreadable rows at all?".
+  // A hit poisons the resolution for X ONLY; every OTHER identity in this
+  // same registry stays fully resolvable. This runs BEFORE the recorded/
+  // discovered/missing branches below (A3 — the kill must not precede the
+  // check): a valid row for X plus an unreadable twin of X must never reach
+  // "recorded" and hand a caller a name to kill.
+  const unreadableForTarget = unreadableRowsForTarget(target, read.unreadable);
+  if (unreadableForTarget.length > 0) {
+    const ids = unreadableForTarget
+      .map((row) => (typeof row.id === "string" ? row.id : "<no id>"))
+      .join(", ");
+    return {
+      state: "unknown",
+      reason: `unreadable registry row(s) for this identity (row id: ${ids})`,
+    };
+  }
+  const rows = read.entries;
+  const nativeRows = registryEntriesForNativeTarget(target, rows);
+  const tmuxRows = registryEntriesForLocalTmuxTarget(target, rows);
   const exactName = (rows: readonly RegistryEntry[]): string =>
     rows[0]?.tmuxSession ??
     (parseManagedSessionName(target)
