@@ -980,6 +980,31 @@ describe("h2a relaunch", () => {
     expect(startLocalSession).not.toHaveBeenCalled();
     expect(stderrText()).toContain("sess-b");
   });
+
+  it("D1: names the unreadable registry as the cause of a non-forced relaunch refusal, instead of the per-session 'no matching conversation' lie, and takes no action", async () => {
+    // Registry FILE is corrupt — loadRegistryWithDiagnostics resolves
+    // known:false. Bare `relaunch --apply` (no filter, no --all) is the
+    // NON-forced, non-destructive path (it only retypes into idle shells,
+    // never kills). Before the fix, `registryEntries` silently became `[]`
+    // and every session read as "no matching registry conversation — relaunch
+    // refused", which is a LIE: the true cause is the registry couldn't be
+    // read at all. The fix names the real cause once, up front, and still
+    // takes no action (refuses everything, kills/spawns nothing).
+    writeFileSync(REGISTRY_PATH, "{not valid json", "utf8");
+    listLocalSessionsWithDiagnostics.mockReturnValue({
+      sessions: [sessions[1]], // h2a-claude-lane — otherwise relaunch-killable (dead:true default)
+      known: true,
+    });
+
+    const exitCode = await main(["node", "h2a", "relaunch", "--apply"]);
+
+    expect(exitCode).toBe(0);
+    expect(stderrText()).toContain("registry is unreadable");
+    expect(stderrText()).toContain("relaunch refused for all 1 managed session(s)");
+    expect(stderrText()).not.toContain("no matching registry conversation");
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(startLocalSession).not.toHaveBeenCalled();
+  });
 });
 
 describe("h2a resume <slug>", () => {

@@ -569,6 +569,64 @@ describe("registry", () => {
       expect(survivor).toBeDefined();
       expect(survivor!.kind).toBeUndefined();
     });
+
+    it("UNREADABLE_PINNED_ROW_SURVIVES_PRUNE_AND_WRITE", () => {
+      // Measured 2026-08 (#199 rebase, D3): preserve-conservative needs NO
+      // code change — it is correct BY CONSTRUCTION. An individually-
+      // unreadable row never reaches `entries` inside `withRegistryLock`
+      // (excluded by `raw.filter(isRegistryEntry)` before prune's callback
+      // runs, so `shouldPreserveByRestorePin` never even sees it), yet
+      // `saveRegistry` re-appends every such raw row VERBATIM via
+      // `...preserved` on every write. This test pins that property so a
+      // future refactor that drops `...preserved` (or "simplifies"
+      // `withRegistryLock`'s raw-row bookkeeping) reddens here instead of
+      // silently losing the owner's registry line.
+      const old = new Date(Date.now() - 100 * 3600 * 1000).toISOString();
+      // Same identity shape the resolver treats as a same-identity twin
+      // (id/label/tmuxSession present — see rawRowMatchesTarget), but it
+      // fails `isRegistryEntry` on a field OTHER than those identity
+      // fields (`kind` is absent here), exactly like a resolver-poison twin.
+      const pinnedShapedButUnreadable = {
+        id: "unreadable-pinned-twin",
+        label: "unreadable-pinned-twin-label",
+        tool: "claude",
+        cwd: "/r2",
+        tmuxSession: "remote-unreadable-pinned-twin",
+        enrolledAt: old,
+        lastSeenAt: old,
+        source: "run",
+        sessionClass: "human",
+        convId: "b2c3d4e5-2222-3333-4444-555566667777",
+      };
+      const dead: RegistryEntry = {
+        id: "dead-old-2",
+        tool: "claude",
+        kind: "local-tmux",
+        cwd: "/a2",
+        tmuxSession: "remote-a2",
+        enrolledAt: old,
+        lastSeenAt: old,
+        source: "run",
+        sessionClass: "background",
+      };
+      writeFileSync(
+        regPath,
+        JSON.stringify({ version: 1, entries: [pinnedShapedButUnreadable, dead] }),
+        "utf8",
+      );
+      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+        path: regPath,
+        tmuxHasSession: () => false,
+      });
+      expect(removed).toBe(1); // only "dead-old-2" (a valid, prunable entry)
+      const raw = JSON.parse(readFileSync(regPath, "utf8")) as {
+        entries: Array<Record<string, unknown>>;
+      };
+      const survivor = raw.entries.find((e) => e.id === "unreadable-pinned-twin");
+      // VERBATIM: the raw row must round-trip byte-for-byte as an object,
+      // not merely "some fields kept" — this is what `...preserved` gives.
+      expect(survivor).toEqual(pinnedShapedButUnreadable);
+    });
   });
 
   describe("delegated jobs (role:'job')", () => {
