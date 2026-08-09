@@ -1,17 +1,16 @@
 /**
  * llm-mesh — local LLM gateway management for solo-dev mode.
  *
- * Enrollment: `h2a llm-mesh enroll cloud-code|codex` delegates OAuth to the
- *   sentropic-owned facade and records only public account metadata locally.
+ * Enrollment: `h2a llm-mesh enroll cloud-code|codex` delegates OAuth and
+ *   account persistence entirely to the sentropic-owned facade.
  *
- * Startup:    `remote llm-mesh start` reads the config, starts the embedded
- *   gateway runtime as a background process, and prints the env vars to
- *   configure Claude Code.
+ * Startup:    `h2a llm-mesh start` reads public host config and starts the
+ *   embedded gateway runtime as a background process. Callers acquire an
+ *   opaque process-local bearer without printing it.
  *
  * Config path: ~/.sentropic/llm-mesh.json  (0600, public metadata only)
  * PID file:    ~/.sentropic/llm-mesh.pid
- * Token file:  ~/.sentropic/llm-mesh-token.json (0600, runtime metadata + derived gw-token)
- * Seed file:   ~/.sentropic/llm-mesh-seed (0600, sole durable gateway-token secret)
+ * Runtime file: ~/.sentropic/llm-mesh-token.json (0600, base URL + PID only)
  */
 
 import {
@@ -20,7 +19,6 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
-  statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -33,6 +31,10 @@ import {
   createLlmMeshFacade,
   type LlmMeshFacade,
 } from "@sentropic/llm-mesh/facade";
+import {
+  validateLlmMeshRoutingConfig,
+  type LlmMeshRoutingConfig,
+} from "./llm-routing-config.js";
 
 const ANTHROPIC_GATEWAY_ENV_KEYS = [
   "ANTHROPIC_BASE_URL",
@@ -64,25 +66,16 @@ export function replaceAnthropicGatewayEnvironment(
 // Config types
 // ---------------------------------------------------------------------------
 
-export interface LlmMeshAccount {
-  id: string;
-  /** "anthropic" = Claude sk-ant-; "openai" = OpenAI API key or OAuth JWT; "google" = Google OAuth */
-  provider: "anthropic" | "openai" | "google" | "gemini" | "gcp";
-  label: string;
-  token: string;
-  authType?: "api-key" | "bearer";
-  refreshToken?: string;
-  expiresAt?: string;
-}
-
 export interface LlmMeshConfig {
-  accounts: LlmMeshAccount[];
-  /** Public mesh enrollment records. Credentials remain owned by llm-mesh. */
-  meshAccounts?: LlmMeshEnrollmentAccount[];
+  /** Deprecated migration sinks. Never returned or persisted. */
+  accounts?: readonly unknown[];
+  meshAccounts?: readonly unknown[];
   /** Local port for the gateway. Default: 3002 */
   port?: number;
   /** Log file path (stdout+stderr of the gateway process). Default: ~/.sentropic/llm-mesh.log */
   logFile?: string;
+  /** Public host routing policy. Provider/model knowledge remains in llm-mesh. */
+  routing?: LlmMeshRoutingConfig;
 }
 
 export interface LlmMeshEnrollmentAccount {
@@ -123,7 +116,13 @@ export function createCliLlmMeshFacade(): LlmMeshFacade {
   return createLlmMeshFacade({
     configResolver: facadeConfigResolver(),
     mode: "cli",
+    legacyAccountOwnerScopeRef: llmMeshOwnerScopeRef(),
   });
+}
+
+/** Stable local owner used both at enrollment and by gateway-authenticated routing. */
+export function llmMeshOwnerScopeRef(): string {
+  return process.env.H2A_LLM_MESH_OWNER_SCOPE?.trim() || `cli:${hostname()}`;
 }
 
 function openEnrollmentBrowser(url: string): void {
@@ -143,8 +142,8 @@ function openEnrollmentBrowser(url: string): void {
 
 /**
  * Enroll through the sentropic-owned OAuth state machine. H2A never receives
- * an authorization code or a provider token; only the public account record is
- * retained locally for CLI status.
+ * an authorization code or a provider token. Account records remain owned by
+ * the facade/keyring and are not copied into h2a config.
  */
 export async function enrollViaFacade(
   provider: "cloud-code" | "codex",
@@ -155,7 +154,7 @@ export async function enrollViaFacade(
     configRef: options.configRef ?? process.env.H2A_LLM_MESH_CONFIG_REF ?? "default",
     mode: "cli",
     redirectUri: options.redirectUri ?? "http://127.0.0.1",
-    ownerScope: options.ownerScope ?? `cli:${hostname()}`,
+    ownerScope: options.ownerScope ?? llmMeshOwnerScopeRef(),
   });
 
   const completed = provider === "cloud-code"
@@ -180,18 +179,6 @@ export async function enrollViaFacade(
   return { accountId: completed.accountId, provider, label: completed.label };
 }
 
-export function recordFacadeEnrollment(
-  account: LlmMeshEnrollmentAccount,
-  dir?: string,
-): void {
-  const config = readLlmMeshConfig(dir) ?? { accounts: [] };
-  const meshAccounts = (config.meshAccounts ?? []).filter(
-    (existing) => existing.accountId !== account.accountId,
-  );
-  meshAccounts.push(account);
-  writeLlmMeshConfig({ ...config, meshAccounts }, dir);
-}
-
 // ---------------------------------------------------------------------------
 // Capitalized LlmMeshManager API
 // ---------------------------------------------------------------------------
@@ -203,27 +190,6 @@ export class LlmMeshManager {
 
   public SaveConfig(config: LlmMeshConfig, dir?: string): void {
     writeLlmMeshConfig(config, dir);
-  }
-
-  public EnrollAccount(
-    provider: "codex" | "openai" | "google" | "gemini" | "anthropic",
-    customDir?: string,
-  ): LlmMeshAccount {
-    const p = provider.toLowerCase();
-    if (p === "codex" || p === "openai") {
-      return enrollCodexAccount(customDir);
-    }
-    if (p === "google" || p === "gemini") {
-      return enrollGeminiAccount(customDir);
-    }
-    if (p === "anthropic") {
-      return enrollClaudeAccount(customDir);
-    }
-    throw new Error(`Unsupported provider for enrollment: ${provider}`);
-  }
-
-  public async RefreshToken(account: LlmMeshAccount): Promise<LlmMeshAccount> {
-    return refreshAccountToken(account);
   }
 
   public async StartGateway(
@@ -262,14 +228,6 @@ export function llmMeshTokenPath(dir?: string): string {
   return join(dir ?? sentropicDir(), "llm-mesh-token.json");
 }
 
-export function llmMeshSeedPath(dir?: string): string {
-  return join(dir ?? sentropicDir(), "llm-mesh-seed");
-}
-
-export function llmMeshStickyPath(dir?: string): string {
-  return join(dir ?? sentropicDir(), "llm-mesh-sticky.json");
-}
-
 export function llmMeshLogPath(config?: LlmMeshConfig, dir?: string): string {
   return config?.logFile ?? join(dir ?? sentropicDir(), "llm-mesh.log");
 }
@@ -294,389 +252,42 @@ function writeSecret(path: string, value: unknown): void {
   renameSync(tmp, path);
 }
 
-function writeSecretString(path: string, value: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp.${process.pid}`;
-  writeFileSync(tmp, value + "\n", { mode: 0o600 });
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, path);
-}
-
 export function readLlmMeshConfig(dir?: string): LlmMeshConfig | null {
-  const config = readJson<Omit<LlmMeshConfig, "accounts"> & {
+  const config = readJson<Omit<LlmMeshConfig, "accounts" | "meshAccounts"> & {
     accounts?: unknown;
+    meshAccounts?: unknown;
   }>(llmMeshConfigPath(dir));
   if (!config) return null;
-  // `accounts` used to hold provider credentials. Ignore it on read so a
-  // pre-facade file cannot put a token back into the gateway process.
-  return { ...config, accounts: [] };
+  const { accounts: _legacyAccounts, meshAccounts: _legacyPublicIds, ...publicConfig } = config;
+  return publicConfig;
 }
 
 export function writeLlmMeshConfig(config: LlmMeshConfig, dir?: string): void {
   // The facade/keyring own credentials. Keep only public enrollment metadata
   // in llm-mesh.json, including when migrating a pre-facade configuration.
-  const { accounts: _legacyCredentialRecords, ...publicConfig } = config;
+  const {
+    accounts: _legacyCredentialRecords,
+    meshAccounts: _legacyPublicIds,
+    ...publicConfig
+  } = config;
+  if (publicConfig.routing) validateLlmMeshRoutingConfig(publicConfig.routing);
   writeSecret(llmMeshConfigPath(dir), publicConfig);
 }
 
-export function readOrCreateLlmMeshSeed(dir?: string): string {
-  const path = llmMeshSeedPath(dir);
-  try {
-    const seed = readFileSync(path, "utf8").trim();
-    if (seed) {
-      try {
-        const mode = statSync(path).mode & 0o777;
-        if (mode !== 0o600) chmodSync(path, 0o600);
-      } catch {
-        // best effort only
-      }
-      return seed;
-    }
-  } catch {
-    // create below
-  }
-  const seed = randomBytes(32).toString("base64url");
-  writeSecretString(path, seed);
-  return seed;
-}
-
-// ---------------------------------------------------------------------------
-// JWT helpers (no signature verification — expiry check only)
-// ---------------------------------------------------------------------------
-
-export function jwtExpiry(token: string): Date | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length < 2) return null;
-    const payload = JSON.parse(
-      Buffer.from(parts[1]!, "base64url").toString("utf8"),
-    ) as { exp?: number };
-    if (typeof payload.exp !== "number") return null;
-    return new Date(payload.exp * 1000);
-  } catch {
-    return null;
-  }
-}
-
-export function isTokenExpired(token: string, graceSeconds = 300): boolean {
-  const exp = jwtExpiry(token);
-  if (!exp) return false; // non-JWT token — assume valid
-  return exp.getTime() - graceSeconds * 1000 < Date.now();
-}
-
-function isAccountTokenExpired(
-  account: Pick<LlmMeshAccount, "token" | "expiresAt">,
-  graceSeconds = 300,
-): boolean {
-  if (account.expiresAt) {
-    const expiresAtMs = Date.parse(account.expiresAt);
-    if (Number.isFinite(expiresAtMs)) {
-      return expiresAtMs - graceSeconds * 1000 < Date.now();
-    }
-  }
-  return isTokenExpired(account.token, graceSeconds);
-}
-
-// ---------------------------------------------------------------------------
-// Codex enrollment
-// ---------------------------------------------------------------------------
-
-interface CodexAuthJson {
-  auth_mode?: string;
-  OPENAI_API_KEY?: string | null;
-  tokens?: {
-    access_token?: string;
-    refresh_token?: string;
-    account_id?: string;
-  };
-}
-
-/**
- * Read Codex credentials from ~/.codex/auth.json and produce an LlmMeshAccount.
- * Supports:
- *  - OPENAI_API_KEY (raw sk-... key, pay-per-token tier)
- *  - tokens.access_token (ChatGPT Pro OAuth JWT, subscription flat-rate tier)
- */
-export function enrollCodexAccount(codexDir?: string): LlmMeshAccount {
-  const authPath = join(codexDir ?? join(homedir(), ".codex"), "auth.json");
-  const auth = readJson<CodexAuthJson>(authPath);
-  if (!auth) {
-    throw new Error(`Codex auth file not found or unreadable: ${authPath}`);
-  }
-
-  // Raw API key path (standard pay-per-token)
-  if (typeof auth.OPENAI_API_KEY === "string" && auth.OPENAI_API_KEY.trim()) {
-    return {
-      id: "codex-api",
-      provider: "openai",
-      label: "Codex (API key)",
-      token: auth.OPENAI_API_KEY.trim(),
-    };
-  }
-
-  // OAuth path (ChatGPT Pro / subscription)
-  const accessToken = auth.tokens?.access_token;
-  if (!accessToken || !accessToken.trim()) {
-    throw new Error(
-      `No usable credential in ${authPath}: OPENAI_API_KEY is null/absent ` +
-        `and tokens.access_token is missing. Run \`codex auth login\` first.`,
-    );
-  }
-
-  const expiresAt = jwtExpiry(accessToken);
-  const refreshToken = auth.tokens?.refresh_token;
-
-  const account: LlmMeshAccount = {
-    id: "codex-oauth",
-    provider: "openai",
-    label: "Codex (ChatGPT Pro OAuth)",
-    token: accessToken.trim(),
-  };
-  if (refreshToken) account.refreshToken = refreshToken;
-  if (expiresAt) account.expiresAt = expiresAt.toISOString();
-  return account;
-}
-
-/**
- * Read the Google Code Assist OAuth login from ~/.gemini/oauth_creds.json and produce a gateway
- * account.
- */
-export function enrollGeminiAccount(geminiDir?: string): LlmMeshAccount {
-  const baseDir = geminiDir ?? join(homedir(), ".gemini");
-
-  // ── Try AGY (Antigravity) token — access_token only (refresh_token is
-  //    bound to AGY's own OAuth client and cannot be refreshed by h2a) ──
-  const agyPath = join(baseDir, "antigravity-cli", "antigravity-oauth-token");
-  const agyRaw = readJson<{
-    token?: {
-      access_token?: string;
-      expiry?: string;
-    };
-    auth_method?: string;
-  }>(agyPath);
-  const agyToken = agyRaw?.token?.access_token?.trim();
-  const agyExpiry = agyRaw?.token?.expiry ? Date.parse(agyRaw.token.expiry) : NaN;
-  // Only use AGY token if it's still valid (not expired).
-  const agyStillValid = Number.isFinite(agyExpiry) && agyExpiry > Date.now();
-  if (agyToken && agyStillValid) {
-    return {
-      id: "gemini-code",
-      provider: "google",
-      authType: "bearer",
-      label: "Antigravity (Google OAuth)",
-      token: agyToken,
-      expiresAt: new Date(agyExpiry).toISOString(),
-      // No refreshToken — AGY's refresh_token is bound to its own OAuth client.
-    };
-  }
-
-  // ── Fallback: legacy Gemini CLI oauth_creds.json ──
-  const path = join(baseDir, "oauth_creds.json");
-  const oauth = readJson<{
-    access_token?: string;
-    refresh_token?: string;
-    expiry_date?: number;
-    scope?: string;
-  }>(path);
-  const accessToken = oauth?.access_token;
-  if (!accessToken || !accessToken.trim()) {
-    throw new Error(
-      `No usable Google OAuth found.\n` +
-        `  Tried AGY token: ${agyPath} (missing or empty)\n` +
-        `  Tried Gemini CLI: ${path} (missing or empty)\n` +
-        `Log in with the Antigravity CLI (agy) or Gemini CLI first.`,
-    );
-  }
-  const account: LlmMeshAccount = {
-    id: "gemini-code",
-    provider: "google",
-    authType: "bearer",
-    label: "Gemini Code Assist (OAuth)",
-    token: accessToken.trim(),
-  };
-  if (oauth?.refresh_token) account.refreshToken = oauth.refresh_token;
-  if (typeof oauth?.expiry_date === "number") {
-    account.expiresAt = new Date(oauth.expiry_date).toISOString();
-  }
-  return account;
-}
-
-/**
- * Read the local Claude Code OAuth login from ~/.claude/.credentials.json and produce a gateway
- * account that upstreams via the Claude-code transport (Anthropic /v1/messages with a Bearer OAuth
- * token + the oauth beta, NOT an sk-ant-api key). Mirrors enrollCodexAccount. The proxy uses the
- * `sk-ant-oat` token prefix (and authType:"bearer") to pick the Bearer + anthropic-beta path.
- */
-export function enrollClaudeAccount(claudeDir?: string): LlmMeshAccount {
-  const path = join(claudeDir ?? join(homedir(), ".claude"), ".credentials.json");
-  const raw = readJson<{
-    claudeAiOauth?: {
-      accessToken?: string;
-      refreshToken?: string;
-      expiresAt?: number;
-      subscriptionType?: string;
-      rateLimitTier?: string;
-    };
-  }>(path);
-  const oauth = raw?.claudeAiOauth;
-  const accessToken = oauth?.accessToken;
-  if (!accessToken || !accessToken.trim()) {
-    throw new Error(
-      `No usable Claude Code OAuth in ${path}: claudeAiOauth.accessToken is missing. ` +
-        `Log in with the Claude Code CLI first.`,
-    );
-  }
-  const label = oauth?.subscriptionType
-    ? `Claude Code (${oauth.subscriptionType} OAuth)`
-    : "Claude Code (OAuth)";
-  const account: LlmMeshAccount = {
-    id: "claude-code",
-    provider: "anthropic",
-    authType: "bearer",
-    label,
-    token: accessToken.trim(),
-  };
-  if (oauth?.refreshToken) account.refreshToken = oauth.refreshToken;
-  if (typeof oauth?.expiresAt === "number") {
-    account.expiresAt = new Date(oauth.expiresAt).toISOString();
-  }
-  return account;
-}
-
-// ---------------------------------------------------------------------------
-// Token refresh (OAuth — only applicable when refreshToken is present)
-// ---------------------------------------------------------------------------
-
-interface RefreshResponse {
-  access_token?: string;
-  expires_in?: number;
-}
-
-// Google OAuth client credentials for token refresh.
-// AGY (Antigravity CLI) and Gemini CLI use different OAuth installed-app clients.
-// Both are public credentials shipped in open-source binaries (not server secrets).
-// We try AGY first (since enrollGeminiAccount prefers AGY tokens), then Gemini CLI.
-const AGY_CLIENT_ID = Buffer.from(
-  "MTA3MTAwNjA2MDU5MS10" + "bWhzc2luMmgyMWxjcmUy" + "MzV2dG9sb2poNGc0MDNl" + "cC5hcHBzLmdvb2dsZXVz" + "ZXJjb250ZW50LmNvbQ==", 
-  "base64"
-).toString();
-const AGY_CLIENT_SECRET = Buffer.from(
-  "R09DU1BYLTlZUVdwRjdS" + "V0RDMFFUZGotWXhLTXdSMFp0c1g=", 
-  "base64"
-).toString();
-const GEMINI_CLI_CLIENT_ID = Buffer.from(
-  "NjgxMjU1ODA5Mzk1LW9v" + "OGZ0Mm9wcmRybnA5ZTNh" + "cWY2YXYzaG1kaWIxMzVq" + "LmFwcHMuZ29vZ2xldXNl" + "cmNvbnRlbnQuY29t", 
-  "base64"
-).toString();
-const GEMINI_CLI_CLIENT_SECRET = Buffer.from(
-  "R09DU1BYLTR1SGdNUG0t" + "MW83U2stZ2VWNkN1NWNsWEZzeGw=", 
-  "base64"
-).toString();
-
-/**
- * Attempt to refresh an account's OAuth access token using its refresh_token.
- * Returns the updated account, or the original if refresh is not applicable
- * (no refresh_token, or already a raw API key).
- */
-export async function refreshAccountToken(
-  account: LlmMeshAccount,
+export function updateLlmMeshRoutingConfig(
+  routing: LlmMeshRoutingConfig | undefined,
   dir?: string,
-): Promise<LlmMeshAccount> {
-  if (
-    account.provider === "google" ||
-    account.provider === "gemini" ||
-    account.provider === "gcp"
-  ) {
-    if (!account.refreshToken) {
-      const baseDir = dir ?? homedir();
-      const agyPath = join(baseDir, ".gemini", "antigravity-cli", "antigravity-oauth-token");
-      const agyRaw = readJson<{ token?: { access_token?: string; expiry?: string } }>(agyPath);
-      const agyToken = agyRaw?.token?.access_token?.trim();
-      if (agyToken) {
-        const agyExpiry = agyRaw?.token?.expiry ? Date.parse(agyRaw.token.expiry) : NaN;
-        return {
-          ...account,
-          token: agyToken,
-          ...(Number.isFinite(agyExpiry) ? { expiresAt: new Date(agyExpiry).toISOString() } : {}),
-        };
-      }
-      return account;
-    }
-
-    if (!isAccountTokenExpired(account)) return account;
-
-    const clientId = process.env["GOOGLE_OAUTH_CLIENT_ID"] ?? AGY_CLIENT_ID;
-    const clientSecret = process.env["GOOGLE_OAUTH_CLIENT_SECRET"] ?? AGY_CLIENT_SECRET;
-    const doRefresh = async (cId: string, cSecret: string) => {
-      return fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          refresh_token: account.refreshToken!,
-          client_id: cId,
-          client_secret: cSecret,
-        }),
-      });
-    };
-    let resp = await doRefresh(clientId, clientSecret);
-    if (resp.status === 401 && !process.env["GOOGLE_OAUTH_CLIENT_ID"]) {
-      resp = await doRefresh(GEMINI_CLI_CLIENT_ID, GEMINI_CLI_CLIENT_SECRET);
-    }
-    if (!resp.ok) {
-      throw new Error(`Google token refresh failed (${resp.status}): ${await resp.text()}`);
-    }
-    const data = (await resp.json()) as {
-      access_token?: string;
-      expires_in?: number;
-    };
-    if (!data.access_token) {
-      throw new Error("Google token refresh: no access_token in response");
-    }
-    const refreshedAccount: LlmMeshAccount = {
-      ...account,
-      token: data.access_token,
-    };
-    if (typeof data.expires_in === "number" && data.expires_in > 0) {
-      refreshedAccount.expiresAt = new Date(
-        Date.now() + data.expires_in * 1000,
-      ).toISOString();
-    } else {
-      delete refreshedAccount.expiresAt;
-    }
-    return refreshedAccount;
-  }
-
-  if (!account.refreshToken) return account;
-  if (!isAccountTokenExpired(account)) return account;
-
-  // Never send a non-OpenAI provider's refresh token across provider
-  // boundaries. In particular, Claude OAuth accounts are not refreshable here.
-  if (account.provider !== "openai") return account;
-
-  const resp = await fetch("https://auth.openai.com/oauth/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: account.refreshToken,
-      client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
-    }),
-  });
-  if (!resp.ok) {
-    throw new Error(
-      `Token refresh failed (${resp.status}): ${await resp.text()}`,
-    );
-  }
-  const data = (await resp.json()) as RefreshResponse;
-  if (!data.access_token) throw new Error("Token refresh: no access_token in response");
-
-  const expiresAt = jwtExpiry(data.access_token);
-  return {
-    ...account,
-    token: data.access_token,
-    ...(expiresAt ? { expiresAt: expiresAt.toISOString() } : {}),
-  };
+): LlmMeshConfig {
+  const config = readLlmMeshConfig(dir) ?? {};
+  const next = routing
+    ? { ...config, routing: validateLlmMeshRoutingConfig(routing) }
+    : (() => {
+        const copy = { ...config };
+        delete copy.routing;
+        return copy;
+      })();
+  writeLlmMeshConfig(next, dir);
+  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -687,16 +298,6 @@ export async function refreshAccountToken(
 export function gatewayScriptPath(): string {
   const thisFile = fileURLToPath(import.meta.url);
   return join(dirname(thisFile), "llm-gateway-runtime", "index.js");
-}
-
-type LocalGatewaySessionProvider = "cloud-code";
-
-export function localGatewaySessionProvider(
-  accounts: readonly LlmMeshEnrollmentAccount[],
-): LocalGatewaySessionProvider | undefined {
-  return accounts.some((account) => account.provider === "cloud-code")
-    ? "cloud-code"
-    : undefined;
 }
 
 export interface StartResult {
@@ -740,18 +341,13 @@ export async function startGateway(
 
   mkdirSync(sentropicDir(), { recursive: true });
 
-  const sessionProvider = localGatewaySessionProvider(config.meshAccounts ?? []);
-  if (!sessionProvider) {
-    throw new Error(
-      "llm-mesh has no Cloud Code enrollment. Run `h2a llm-mesh enroll cloud-code` first.",
-    );
-  }
-
   const gatewayEnv: NodeJS.ProcessEnv = {
     ...process.env,
-    LLM_GATEWAY_TOKEN_SEED: readOrCreateLlmMeshSeed(),
-    LLM_GATEWAY_STICKY_FILE: llmMeshStickyPath(),
     PORT: String(port),
+    H2A_LLM_MESH_OWNER_SCOPE: llmMeshOwnerScopeRef(),
+    ...(config.routing
+      ? { H2A_LLM_MESH_ROUTING_JSON: JSON.stringify(config.routing) }
+      : {}),
   };
 
   // Start detached, piping stdout+stderr to logFile
@@ -778,9 +374,8 @@ export async function startGateway(
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       sessionId: gatewayClientSessionId(opts.clientSessionId),
+      clientSessionId: opts.clientSessionId,
       workspaceId: process.cwd(),
-      provider: sessionProvider,
-      requiredTransport: "cloud-code",
     }),
   });
   if (!sessionResp.ok) {
@@ -790,12 +385,11 @@ export async function startGateway(
   const gatewayToken = session.gatewayToken;
   if (!gatewayToken) throw new Error("No gatewayToken in session response");
 
-  // Persist the token (secret)
+  // Persist only process metadata. The opaque bearer remains process-local and
+  // is reacquired for each caller affinity.
   writeSecret(llmMeshTokenPath(), {
-    gatewayToken,
     baseUrl,
     pid,
-    provider: sessionProvider,
   });
 
   return { pid, port, gatewayToken };
@@ -830,10 +424,8 @@ export function readGatewayPid(dir?: string): number | null {
 }
 
 interface LlmMeshTokenFile {
-  gatewayToken: string;
   baseUrl: string;
   pid: number;
-  provider?: LocalGatewaySessionProvider;
 }
 
 function configuredGatewayBaseUrl(dir?: string): string | null {
@@ -843,40 +435,9 @@ function configuredGatewayBaseUrl(dir?: string): string | null {
 }
 
 /**
- * Returns {ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN} for the running local
- * gateway, or null if not running or token file absent.
- *
- * Used by `remote run` to auto-inject the gateway env into every tmux session
- * (interactive + headless) so all Claude sessions + their subagents use the gateway.
- */
-export function readLlmMeshSessionEnv(dir?: string): {
-  ANTHROPIC_BASE_URL: string;
-  ANTHROPIC_AUTH_TOKEN: string;
-  ANTHROPIC_API_KEY: string;
-} | null {
-  try {
-    const raw = readFileSync(llmMeshTokenPath(dir), "utf8");
-    const { gatewayToken, baseUrl, pid } = JSON.parse(raw) as LlmMeshTokenFile;
-    if (!gatewayToken || !baseUrl) return null;
-    // Verify the gateway process is still alive
-    try { process.kill(pid, 0); } catch { return null; }
-    return {
-      ANTHROPIC_BASE_URL: baseUrl,
-      ANTHROPIC_AUTH_TOKEN: gatewayToken,
-      // Claude Code subagents may re-read API-key style env instead of the
-      // auth-token env used by the parent process. Keep both pointed at the
-      // same opaque gateway token; do not write Claude config.
-      ANTHROPIC_API_KEY: gatewayToken,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Acquire a fresh in-memory gateway token from the running local gateway.
- * Gateway tokens are intentionally not durable; after a gateway restart,
- * llm-mesh-token.json may point at a token the new process does not know.
+ * Gateway tokens are intentionally not durable. The runtime metadata file
+ * contains only the base URL and PID; every caller reacquires its own bearer.
  */
 export async function acquireLlmMeshSessionEnv(
   dir?: string,
@@ -884,32 +445,20 @@ export async function acquireLlmMeshSessionEnv(
 ): Promise<{
   ANTHROPIC_BASE_URL: string;
   ANTHROPIC_AUTH_TOKEN: string;
-  ANTHROPIC_API_KEY: string;
 } | null> {
   try {
     let baseUrl: string | undefined;
     let pid: number | undefined;
-    let provider: LocalGatewaySessionProvider | undefined;
     try {
       const raw = readFileSync(llmMeshTokenPath(dir), "utf8");
       const tokenFile = JSON.parse(raw) as LlmMeshTokenFile;
       baseUrl = tokenFile.baseUrl;
       pid = tokenFile.pid;
-      provider = tokenFile.provider === "cloud-code"
-        ? tokenFile.provider
-        : undefined;
     } catch {
       baseUrl = configuredGatewayBaseUrl(dir) ?? undefined;
       pid = readGatewayPid(dir) ?? undefined;
     }
     if (!baseUrl || !pid) return null;
-    if (!provider) {
-      const config = readLlmMeshConfig(dir);
-      provider = config
-        ? localGatewaySessionProvider(config.meshAccounts ?? [])
-        : undefined;
-    }
-    if (!provider) return null;
     try {
       process.kill(pid, 0);
     } catch {
@@ -921,24 +470,16 @@ export async function acquireLlmMeshSessionEnv(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         sessionId: gatewayClientSessionId(clientSessionId),
+        clientSessionId,
         workspaceId,
-        provider,
-        requiredTransport: "cloud-code",
       }),
     });
     if (!sessionResp.ok) return null;
     const session = (await sessionResp.json()) as { gatewayToken?: string };
     if (!session.gatewayToken) return null;
-    writeSecret(llmMeshTokenPath(dir), {
-      gatewayToken: session.gatewayToken,
-      baseUrl,
-      pid,
-      provider,
-    });
     return {
       ANTHROPIC_BASE_URL: baseUrl,
       ANTHROPIC_AUTH_TOKEN: session.gatewayToken,
-      ANTHROPIC_API_KEY: session.gatewayToken,
     };
   } catch {
     return null;
