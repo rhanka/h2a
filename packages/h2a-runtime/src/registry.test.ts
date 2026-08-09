@@ -157,6 +157,74 @@ describe("registry", () => {
     expect(corrupt).not.toHaveProperty("entries");
   });
 
+  describe("B2 — REBUILDING is allowed, DESTROYING is not", () => {
+    /** Every `registry.corrupt-*.json` sibling currently in `scratch`. */
+    function corruptSiblings(): string[] {
+      return readdirSync(scratch).filter((name) =>
+        /^registry\.corrupt-.*\.json$/.test(name),
+      );
+    }
+
+    it("the bytes of a corrupt registry STILL EXIST (moved aside verbatim) after an enroll rebuilds it", () => {
+      const corruptBody = '{"version":1,"entries":[{"id":"orphaned-by-corruption"';
+      writeFileSync(regPath, corruptBody, "utf8");
+      expect(loadRegistry(regPath).state).toBe("unknown");
+
+      enroll(baseInput, regPath);
+
+      // The rebuild succeeded (enrolment is never bricked by a corrupt
+      // file). loadRegistry() now reads "unknown" (the whole-file trace —
+      // see the next test), so the raw JSON is read directly here.
+      const rebuilt = JSON.parse(readFileSync(regPath, "utf8")) as {
+        entries: Array<{ id: string }>;
+      };
+      expect(rebuilt.entries.map((e) => e.id)).toEqual(["sess-1"]);
+      // And the ORIGINAL corrupt bytes were preserved verbatim next to it —
+      // not merely "enroll succeeded", the actual bytes must be inspectable.
+      const siblings = corruptSiblings();
+      expect(siblings).toHaveLength(1);
+      const preserved = readFileSync(join(scratch, siblings[0]!), "utf8");
+      expect(preserved).toBe(corruptBody);
+    });
+
+    it("loadRegistry reads the freshly-rebuilt file as UNKNOWN (the whole-file trace), not ok-with-fewer-rows", () => {
+      writeFileSync(regPath, "{not valid json at all", "utf8");
+      enroll(baseInput, regPath);
+
+      const read = loadRegistry(regPath);
+      expect(read.state).toBe("unknown");
+      expect(read).not.toHaveProperty("entries");
+      if (read.state === "unknown") {
+        expect(read.reason).toContain("rebuilt from an unreadable file");
+      }
+    });
+
+    it("the trace clears on the NEXT successful write (self-healing, never a permanent brick)", () => {
+      writeFileSync(regPath, "{not valid json at all", "utf8");
+      enroll(baseInput, regPath); // rebuild #1 — stamps the trace
+      expect(loadRegistry(regPath).state).toBe("unknown");
+
+      enroll({ ...baseInput, id: "sess-2" }, regPath); // an ORDINARY write over the now-valid file
+      const read = loadRegistry(regPath);
+      expect(read.state).toBe("ok");
+      if (read.state === "ok") {
+        expect(read.entries.map((e) => e.id).sort()).toEqual(["sess-1", "sess-2"]);
+      }
+      // Still exactly ONE corrupt sibling — the second (ordinary) write must
+      // not have triggered a second move-aside.
+      expect(corruptSiblings()).toHaveLength(1);
+    });
+
+    it("a read-only no-op (prune finding nothing to change) on a corrupt registry does NOT spam a corrupt-*.json sibling", () => {
+      writeFileSync(regPath, "{not valid json at all", "utf8");
+      prune(24, { path: regPath });
+      prune(24, { path: regPath });
+      expect(corruptSiblings()).toEqual([]);
+      // The original corrupt file is untouched (prune truly no-op'd).
+      expect(readFileSync(regPath, "utf8")).toBe("{not valid json at all");
+    });
+  });
+
   describe("listLive", () => {
     it("local-tmux liveness follows tmux has-session", () => {
       enroll(baseInput, regPath);
