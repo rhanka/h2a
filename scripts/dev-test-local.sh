@@ -63,9 +63,10 @@ case "${1:-smoke}" in
     ensure_links
     rebuild
     echo "[dev-test] Smoke test..."
-    node -e "require('$H2A_RUNTIME/dist/llm-gateway-runtime/proxy-cloud-code.js'); console.log('proxy-cloud-code OK')"
+    node --input-type=module -e "await import('$H2A_RUNTIME/dist/llm-gateway-runtime/index.js'); console.log('sentropic gateway host OK')"
     npx vitest run \
-      "$H2A_RUNTIME/src/llm-gateway-runtime/proxy-cloud-code.test.ts" \
+      "$H2A_RUNTIME/src/llm-gateway-runtime/index.test.ts" \
+      "$H2A_RUNTIME/src/llm-gateway-runtime/sticky.test.ts" \
       --reporter=verbose 2>&1 | tail -10
     echo "[dev-test] ✅ Smoke OK"
     ;;

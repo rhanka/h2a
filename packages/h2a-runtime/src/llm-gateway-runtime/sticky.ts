@@ -1,836 +1,89 @@
-import {
-  closeSync,
-  chmodSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname } from "node:path";
-import { createHmac, timingSafeEqual } from "node:crypto";
-import {
-  accountSupportsRoute,
-  effectiveAccountAuthType,
-  findAccount,
-  selectAccount,
-  selectAccountForRoute,
-  upstreamTransportForAccount,
-} from "./accounts.js";
-import type {
-  AccountDescriptor,
-  GatewayUpstreamTransport,
-} from "./accounts.js";
-import {
-  resolveModelRoute,
-  routeForProvider,
-  type RoutingTarget,
-} from "./model-catalog.js";
-import { upsertSessionLedger } from "./session-ledger.js";
+import { randomBytes } from "node:crypto";
 
-// ─── k8s ConfigMap client ────────────────────────────────────────────────────
-
-const SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token";
-const K8S_HOST =
-  process.env.KUBERNETES_SERVICE_HOST ?? "kubernetes.default.svc.cluster.local";
-const K8S_PORT = process.env.KUBERNETES_SERVICE_PORT ?? "443";
-const NAMESPACE = process.env.POD_NAMESPACE ?? "sentropic-remote";
-const CONFIGMAP_NAME = process.env.STICKY_CONFIGMAP ?? "llm-gateway-sticky";
-const LOCAL_STICKY_FILE = process.env.LLM_GATEWAY_STICKY_FILE;
-
-function saToken(): string {
-  try {
-    return readFileSync(SA_TOKEN_PATH, "utf-8").trim();
-  } catch {
-    // Fallback for local dev/testing
-    return process.env.K8S_TOKEN ?? "";
-  }
+/**
+ * Local gateway bearer registry.
+ *
+ * H2A owns only minting and forwarding this opaque, process-local bearer. It
+ * contains no provider credential, account binding, route, model or affinity.
+ * Mesh owns every one of those concerns after caller authentication.
+ */
+export interface SessionEntry {
+  readonly sessionId: string;
+  readonly gatewayToken: string;
+  readonly clientSessionId: string;
+  readonly workspaceId?: string;
+  readonly profile?: string;
+  readonly createdAt: string;
 }
 
-function cmUrl(): string {
-  return `https://${K8S_HOST}:${K8S_PORT}/api/v1/namespaces/${NAMESPACE}/configmaps/${CONFIGMAP_NAME}`;
+export interface AcquireSessionOptions {
+  readonly clientSessionId?: string;
+  readonly workspaceId?: string;
+  readonly profile?: string;
 }
 
-function readLocalSticky(): Record<string, string> {
-  if (!LOCAL_STICKY_FILE) return {};
-  try {
-    return JSON.parse(readFileSync(LOCAL_STICKY_FILE, "utf8")) as Record<
-      string,
-      string
-    >;
-  } catch {
-    return {};
-  }
+export interface SessionResult {
+  readonly gatewayToken: string;
+  readonly sessionId: string;
+  readonly clientSessionId: string;
 }
 
-function writeLocalSticky(data: Record<string, string>): void {
-  if (!LOCAL_STICKY_FILE) return;
-  mkdirSync(dirname(LOCAL_STICKY_FILE), { recursive: true });
-  const tmp = `${LOCAL_STICKY_FILE}.tmp.${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", { mode: 0o600 });
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, LOCAL_STICKY_FILE);
-}
+const sessionsByToken = new Map<string, SessionEntry>();
+const tokensBySession = new Map<string, string>();
 
-async function withLocalStickyLock<T>(operation: () => T): Promise<T> {
-  if (!LOCAL_STICKY_FILE) return operation();
-  const lockPath = `${LOCAL_STICKY_FILE}.lock`;
-  let fd: number | undefined;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    try {
-      fd = openSync(lockPath, "wx", 0o600);
-      break;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 10));
-    }
-  }
-  if (fd === undefined) throw new Error("timed out acquiring sticky-file lock");
-  try {
-    return operation();
-  } finally {
-    closeSync(fd);
-    try {
-      unlinkSync(lockPath);
-    } catch {
-      // The lock was already removed; the guarded operation has still ended.
-    }
-  }
-}
+const newGatewayToken = (): string => `gw-v2-${randomBytes(32).toString("base64url")}`;
 
-export interface SessionTransportConstraints {
-  /** The mesh transport is non-secret and is safe to persist with the session. */
-  readonly transportProviderId: "cloud-code";
-  /** Constraints passed to `facade.acquire()` for every gateway request. */
-  readonly accountConstraints: {
-    readonly targetProviderId: string;
-    readonly modelId?: string;
-    readonly workspaceId?: string;
-    readonly affinityKey?: string;
-  };
-}
-
-interface StickyBinding {
-  readonly accountId?: string;
-  readonly requiredTransport?: GatewayUpstreamTransport;
-  readonly transportConstraints?: SessionTransportConstraints;
-}
-
-function parsePersistedTransport(
-  value: unknown,
-): GatewayUpstreamTransport | undefined {
-  return value === "anthropic-messages" ||
-    value === "codex-responses" ||
-    value === "cloud-code" ||
-    value === "openai-chat-completions"
-    ? value
-    : undefined;
-}
-
-function isCloudCodeTransportConstraints(
-  value: unknown,
-): value is SessionTransportConstraints {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as {
-    transportProviderId?: unknown;
-    accountConstraints?: {
-      targetProviderId?: unknown;
-      modelId?: unknown;
-      workspaceId?: unknown;
-      affinityKey?: unknown;
-    };
-  };
-  return candidate.transportProviderId === "cloud-code" &&
-    typeof candidate.accountConstraints?.targetProviderId === "string" &&
-    (candidate.accountConstraints.modelId === undefined ||
-      typeof candidate.accountConstraints.modelId === "string") &&
-    (candidate.accountConstraints.workspaceId === undefined ||
-      typeof candidate.accountConstraints.workspaceId === "string") &&
-    (candidate.accountConstraints.affinityKey === undefined ||
-      typeof candidate.accountConstraints.affinityKey === "string");
-}
-
-function decodeStickyBinding(value: string): StickyBinding | undefined {
-  if (!value.startsWith("{")) return { accountId: value };
-  try {
-    const parsed = JSON.parse(value) as {
-      accountId?: unknown;
-      requiredTransport?: unknown;
-      transportConstraints?: unknown;
-    };
-    if (isCloudCodeTransportConstraints(parsed.transportConstraints)) {
+export async function acquireSession(
+  sessionId: string,
+  options: AcquireSessionOptions = {},
+): Promise<SessionResult> {
+  const cleanSessionId = sessionId.trim();
+  if (!cleanSessionId) throw new Error("sessionId (string) required");
+  const existingToken = tokensBySession.get(cleanSessionId);
+  if (existingToken) {
+    const existing = sessionsByToken.get(existingToken);
+    if (existing) {
       return {
-        transportConstraints: parsed.transportConstraints,
-        requiredTransport: "cloud-code",
+        gatewayToken: existing.gatewayToken,
+        sessionId: existing.sessionId,
+        clientSessionId: existing.clientSessionId,
       };
     }
-    const requiredTransport = parsePersistedTransport(parsed.requiredTransport);
-    if (typeof parsed.accountId !== "string" || !requiredTransport) {
-      return undefined;
-    }
-    return { accountId: parsed.accountId, requiredTransport };
-  } catch {
-    return undefined;
   }
-}
-
-function encodeStickyBinding(
-  accountId: string | undefined,
-  requiredTransport?: GatewayUpstreamTransport,
-  transportConstraints?: SessionTransportConstraints,
-): string {
-  if (transportConstraints) {
-    return JSON.stringify({ transportConstraints });
-  }
-  if (!accountId) throw new Error("session binding requires an account id");
-  return requiredTransport
-    ? JSON.stringify({ accountId, requiredTransport })
-    : accountId;
-}
-
-interface StickySnapshot {
-  readonly data: Record<string, string>;
-  readonly hasData: boolean;
-  readonly resourceVersion?: string;
-}
-
-async function readStickySnapshot(): Promise<StickySnapshot> {
-  if (LOCAL_STICKY_FILE) return { data: readLocalSticky(), hasData: true };
-  const token = saToken();
-  if (!token) return { data: readLocalSticky(), hasData: true };
-  const resp = await fetch(cmUrl(), {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (resp.status === 404) return { data: {}, hasData: false };
-  if (!resp.ok) throw new Error(`sticky ConfigMap read failed: ${resp.status}`);
-  const cm = (await resp.json()) as {
-    data?: Record<string, string>;
-    metadata?: { resourceVersion?: string };
+  const gatewayToken = newGatewayToken();
+  const entry: SessionEntry = {
+    sessionId: cleanSessionId,
+    gatewayToken,
+    clientSessionId: options.clientSessionId?.trim() || cleanSessionId,
+    ...(options.workspaceId?.trim() ? { workspaceId: options.workspaceId.trim() } : {}),
+    ...(options.profile?.trim() ? { profile: options.profile.trim() } : {}),
+    createdAt: new Date().toISOString(),
   };
+  sessionsByToken.set(gatewayToken, entry);
+  tokensBySession.set(cleanSessionId, gatewayToken);
   return {
-    data: cm.data ?? {},
-    hasData: cm.data !== undefined,
-    ...(cm.metadata?.resourceVersion
-      ? { resourceVersion: cm.metadata.resourceVersion }
-      : {}),
+    gatewayToken,
+    sessionId: entry.sessionId,
+    clientSessionId: entry.clientSessionId,
   };
-}
-
-export async function readSticky(): Promise<Record<string, string>> {
-  return (await readStickySnapshot()).data;
-}
-
-export async function writeSticky(
-  sessionId: string,
-  accountId: string | undefined,
-  requiredTransport?: GatewayUpstreamTransport,
-  transportConstraints?: SessionTransportConstraints,
-): Promise<void> {
-  const binding = encodeStickyBinding(
-    accountId,
-    requiredTransport,
-    transportConstraints,
-  );
-  if (LOCAL_STICKY_FILE) {
-    await withLocalStickyLock(() => {
-      writeLocalSticky({ ...readLocalSticky(), [sessionId]: binding });
-    });
-    return;
-  }
-  const token = saToken();
-  if (!token) {
-    await withLocalStickyLock(() => {
-      writeLocalSticky({ ...readLocalSticky(), [sessionId]: binding });
-    });
-    return;
-  }
-  const patch = {
-    apiVersion: "v1",
-    kind: "ConfigMap",
-    metadata: { name: CONFIGMAP_NAME, namespace: NAMESPACE },
-    data: { [sessionId]: binding },
-  };
-  const resp = await fetch(cmUrl(), {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/strategic-merge-patch+json",
-    },
-    body: JSON.stringify(patch),
-  });
-  if (!resp.ok)
-    throw new Error(`sticky ConfigMap patch failed: ${resp.status}`);
-}
-
-async function compareAndSetStickyBinding(
-  sessionId: string,
-  accountId: string | undefined,
-  requiredTransport: GatewayUpstreamTransport | undefined,
-  expected: StickySnapshot,
-  transportConstraints?: SessionTransportConstraints,
-): Promise<void> {
-  const binding = encodeStickyBinding(
-    accountId,
-    requiredTransport,
-    transportConstraints,
-  );
-  if (LOCAL_STICKY_FILE) {
-    await withLocalStickyLock(() => {
-      const current = readLocalSticky();
-      if (current[sessionId] !== expected.data[sessionId]) {
-        throw new Error("session binding changed concurrently");
-      }
-      writeLocalSticky({ ...current, [sessionId]: binding });
-      if (readLocalSticky()[sessionId] !== binding) {
-        throw new Error("session transport claim was not persisted");
-      }
-    });
-    return;
-  }
-
-  const token = saToken();
-  if (!token) {
-    if (requiredTransport) {
-      throw new Error(
-        "a durable sticky backend is required for constrained sessions",
-      );
-    }
-    await writeSticky(
-      sessionId,
-      accountId,
-      requiredTransport,
-      transportConstraints,
-    );
-    return;
-  }
-  const escapedSessionId = sessionId.replaceAll("~", "~0").replaceAll("/", "~1");
-  let snapshot = expected;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    if (!snapshot.resourceVersion) {
-      throw new Error("sticky ConfigMap resourceVersion is required for claim CAS");
-    }
-    const resp = await fetch(cmUrl(), {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json-patch+json",
-      },
-      body: JSON.stringify([
-        {
-          op: "test",
-          path: "/metadata/resourceVersion",
-          value: snapshot.resourceVersion,
-        },
-        snapshot.hasData
-          ? { op: "add", path: `/data/${escapedSessionId}`, value: binding }
-          : { op: "add", path: "/data", value: { [sessionId]: binding } },
-      ]),
-    });
-    const current = await readStickySnapshot();
-    if (current.data[sessionId] === binding) return;
-    if (resp.ok) {
-      throw new Error("session transport claim was not persisted");
-    }
-    if (current.data[sessionId] !== snapshot.data[sessionId]) {
-      throw new Error(`session binding CAS failed (${resp.status})`);
-    }
-    snapshot = current;
-  }
-  throw new Error("session binding CAS retry limit exceeded");
-}
-
-// ─── Restart-safe gateway token derivation ──────────────────────────────────
-
-export interface SessionEntry {
-  sessionId: string;
-  gatewayToken: string;
-  accountId?: string;
-  provider?: string;
-  authType?: AccountDescriptor["authType"];
-  transport?: GatewayUpstreamTransport;
-  requiredTransport?: GatewayUpstreamTransport;
-  transportConstraints?: SessionTransportConstraints;
-}
-
-const _sessions = new Map<string, SessionEntry>();
-const _acquisitionLocks = new Map<string, Promise<void>>();
-const TOKEN_PREFIX = "gw-v1-";
-
-async function withSessionAcquisitionLock<T>(
-  sessionId: string,
-  operation: () => Promise<T>,
-): Promise<T> {
-  const previous = _acquisitionLocks.get(sessionId) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolveLock) => {
-    release = resolveLock;
-  });
-  _acquisitionLocks.set(sessionId, current);
-  await previous;
-  try {
-    return await operation();
-  } finally {
-    release();
-    if (_acquisitionLocks.get(sessionId) === current) {
-      _acquisitionLocks.delete(sessionId);
-    }
-  }
-}
-
-function tokenSeed(): string {
-  const seed = process.env.LLM_GATEWAY_TOKEN_SEED;
-  if (!seed) throw new Error("LLM_GATEWAY_TOKEN_SEED env var is required");
-  return seed;
-}
-
-function b64url(value: string): string {
-  return Buffer.from(value, "utf8").toString("base64url");
-}
-
-function unb64url(value: string): string | null {
-  try {
-    return Buffer.from(value, "base64url").toString("utf8");
-  } catch {
-    return null;
-  }
-}
-
-function macFor(sessionId: string): string {
-  return createHmac("sha256", tokenSeed())
-    .update("gw-token-v1\0")
-    .update(sessionId)
-    .digest("base64url");
-}
-
-export function gatewayTokenForSession(sessionId: string): string {
-  return `${TOKEN_PREFIX}${b64url(sessionId)}.${macFor(sessionId)}`;
-}
-
-function sessionIdFromGatewayToken(gatewayToken: string): string | null {
-  if (!gatewayToken.startsWith(TOKEN_PREFIX)) return null;
-  const rest = gatewayToken.slice(TOKEN_PREFIX.length);
-  const dot = rest.indexOf(".");
-  if (dot <= 0) return null;
-  const encodedSessionId = rest.slice(0, dot);
-  const suppliedMac = rest.slice(dot + 1);
-  const sessionId = unb64url(encodedSessionId);
-  if (!sessionId) return null;
-  const expectedMac = macFor(sessionId);
-  const a = Buffer.from(suppliedMac);
-  const b = Buffer.from(expectedMac);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  return sessionId;
-}
-
-export function sessionCount(): number {
-  return _sessions.size;
 }
 
 export async function lookupToken(
   gatewayToken: string,
 ): Promise<SessionEntry | undefined> {
-  const cached = _sessions.get(gatewayToken);
-  const sessionId = sessionIdFromGatewayToken(gatewayToken);
-  if (!sessionId) return undefined;
-
-  const existing = await readSticky();
-  const rawBinding = existing[sessionId];
-  const binding =
-    rawBinding === undefined ? undefined : decodeStickyBinding(rawBinding);
-  if (rawBinding !== undefined && !binding) return undefined;
-  if (!binding) {
-    return cached &&
-      (cached.transportConstraints ||
-        (!cached.requiredTransport && !LOCAL_STICKY_FILE && !saToken()))
-      ? cached
-      : undefined;
-  }
-  if (binding.transportConstraints) {
-    const entry: SessionEntry = {
-      sessionId,
-      gatewayToken,
-      provider: "cloud-code",
-      transport: "cloud-code",
-      requiredTransport: "cloud-code",
-      transportConstraints: binding.transportConstraints,
-    };
-    _sessions.set(gatewayToken, entry);
-    return entry;
-  }
-  if (!binding.accountId) return undefined;
-  const account = findAccount(binding.accountId);
-  if (!account) return undefined;
-  if (
-    binding?.requiredTransport &&
-    upstreamTransportForAccount(account) !== binding.requiredTransport
-  ) {
-    return undefined;
-  }
-
-  const entry: SessionEntry = {
-    sessionId,
-    gatewayToken,
-    accountId: account.id,
-    provider: account.provider,
-    authType: effectiveAccountAuthType(account),
-    transport: upstreamTransportForAccount(account),
-    ...(binding?.requiredTransport
-      ? { requiredTransport: binding.requiredTransport }
-      : {}),
-  };
-  _sessions.set(gatewayToken, entry);
-  upsertSessionLedger({
-    gatewaySessionId: sessionId,
-    account,
-  });
-  return entry;
+  return sessionsByToken.get(gatewayToken);
 }
 
-export async function rebindGatewaySession(
-  gatewayToken: string,
-  account: AccountDescriptor,
-  route?: RoutingTarget,
-): Promise<SessionEntry | undefined> {
-  const sessionId = sessionIdFromGatewayToken(gatewayToken);
-  if (!sessionId) return undefined;
-  const cached = _sessions.get(gatewayToken);
-  const snapshot = await readStickySnapshot();
-  const rawBinding = snapshot.data[sessionId];
-  const persistedBinding =
-    rawBinding === undefined ? undefined : decodeStickyBinding(rawBinding);
-  if (rawBinding !== undefined && !persistedBinding) {
-    throw new Error("invalid persisted session binding");
-  }
-  if (
-    persistedBinding &&
-    cached &&
-    persistedBinding.accountId !== cached.accountId
-  ) {
-    throw new Error("cannot rebind a stale gateway session");
-  }
-  if (
-    persistedBinding?.requiredTransport &&
-    cached?.requiredTransport &&
-    persistedBinding.requiredTransport !== cached.requiredTransport
-  ) {
-    throw new Error("cached and persisted session transport claims conflict");
-  }
-  const targetTransport = upstreamTransportForAccount(account);
-  const requiredTransport =
-    targetTransport !== "unknown"
-      ? targetTransport
-      : (persistedBinding?.requiredTransport ?? cached?.requiredTransport);
-
-  await compareAndSetStickyBinding(
-    sessionId,
-    account.id,
-    requiredTransport,
-    snapshot,
-  );
-  const entry: SessionEntry = {
-    sessionId,
-    gatewayToken,
-    accountId: account.id,
-    provider: account.provider,
-    authType: effectiveAccountAuthType(account),
-    transport: upstreamTransportForAccount(account),
-    ...(requiredTransport ? { requiredTransport } : {}),
-  };
-  _sessions.set(gatewayToken, entry);
-  upsertSessionLedger({
-    gatewaySessionId: sessionId,
-    account,
-    ...(route ? { route } : {}),
-  });
-  return entry;
+export function lookupSessionById(sessionId: string): SessionEntry | undefined {
+  const token = tokensBySession.get(sessionId);
+  return token ? sessionsByToken.get(token) : undefined;
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
-
-export interface SessionResult {
-  gatewayToken: string;
-  accountId: string;
-  requestedModel?: string;
-  modelId?: string;
-  upstreamModel?: string;
-  reasoningEffort?: string;
-  provider: string;
-  authType: "api-key" | "bearer";
-  transport: GatewayUpstreamTransport;
-  routePolicy?: string;
-  routeReason?: string;
+export function sessionCount(): number {
+  return sessionsByToken.size;
 }
 
-export interface AcquireSessionOptions {
-  model?: string;
-  provider?: string;
-  workspaceId?: string;
-  profile?: string;
-  clientSessionId?: string;
-  reasoningEffort?: string;
-  requiredTransport?: string;
-}
-
-const REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
-const REQUIRED_TRANSPORTS = new Set<GatewayUpstreamTransport>([
-  "anthropic-messages",
-  "codex-responses",
-  "cloud-code",
-  "openai-chat-completions",
-]);
-
-function requiredTransportFromOptions(
-  options: AcquireSessionOptions,
-): GatewayUpstreamTransport | undefined {
-  if (!options.requiredTransport) return undefined;
-  if (!REQUIRED_TRANSPORTS.has(options.requiredTransport as GatewayUpstreamTransport)) {
-    throw new Error(`unsupported required transport: ${options.requiredTransport}`);
-  }
-  return options.requiredTransport as GatewayUpstreamTransport;
-}
-
-function routeFromOptions(
-  options: AcquireSessionOptions,
-): RoutingTarget | undefined {
-  if (options.model) return resolveModelRoute(options.model);
-  if (options.provider) return routeForProvider(options.provider);
-  return undefined;
-}
-
-/**
- * Acquire or re-acquire a session for a given sessionId.
- * Idempotent: the same sessionId always maps to the same accountId and token.
- * The token is derived from LLM_GATEWAY_TOKEN_SEED + sessionId, never persisted.
- */
-export async function acquireSession(
-  sessionId: string,
-  options: AcquireSessionOptions = {},
-): Promise<SessionResult> {
-  return withSessionAcquisitionLock(sessionId, () =>
-    acquireSessionUnlocked(sessionId, options),
-  );
-}
-
-async function acquireSessionUnlocked(
-  sessionId: string,
-  options: AcquireSessionOptions = {},
-): Promise<SessionResult> {
-  const route = routeFromOptions(options);
-  if (options.model && !route)
-    throw new Error(`unsupported model: ${options.model}`);
-  if (options.reasoningEffort && !REASONING_EFFORTS.has(options.reasoningEffort)) {
-    throw new Error(`unsupported reasoning effort: ${options.reasoningEffort}`);
-  }
-  const requestedTransport = requiredTransportFromOptions(options);
-  if (requestedTransport && !route) {
-    throw new Error("requiredTransport requires a model or provider route");
-  }
-
-  const cloudCodeRoute =
-    requestedTransport === "cloud-code" ||
-    route?.transportProviderId === "cloud-code" ||
-    options.provider === "cloud-code";
-  if (cloudCodeRoute) {
-    if (requestedTransport && requestedTransport !== "cloud-code") {
-      throw new Error("Cloud Code routes require the cloud-code transport");
-    }
-    const snapshot = await readStickySnapshot();
-    const rawBinding = snapshot.data[sessionId];
-    const binding =
-      rawBinding === undefined ? undefined : decodeStickyBinding(rawBinding);
-    if (rawBinding !== undefined && !binding) {
-      throw new Error("invalid persisted session binding");
-    }
-    if (binding?.accountId) {
-      throw new Error("session is already bound to a non-Cloud-Code account");
-    }
-    const transportConstraints = binding?.transportConstraints ?? {
-      transportProviderId: "cloud-code" as const,
-      accountConstraints: {
-        targetProviderId: route?.providerId ?? "google",
-        ...(route?.upstreamModel ? { modelId: route.upstreamModel } : {}),
-        ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
-        affinityKey: options.clientSessionId ?? sessionId,
-      },
-    };
-    if (!binding?.transportConstraints) {
-      await compareAndSetStickyBinding(
-        sessionId,
-        undefined,
-        "cloud-code",
-        snapshot,
-        transportConstraints,
-      );
-    }
-
-    const gatewayToken = gatewayTokenForSession(sessionId);
-    _sessions.set(gatewayToken, {
-      sessionId,
-      gatewayToken,
-      provider: "cloud-code",
-      transport: "cloud-code",
-      requiredTransport: "cloud-code",
-      transportConstraints,
-    });
-    return {
-      gatewayToken,
-      accountId: "cloud-code",
-      ...(route?.requestedModel ? { requestedModel: route.requestedModel } : {}),
-      ...(route?.catalogModelId ? { modelId: route.catalogModelId } : {}),
-      ...(route?.upstreamModel ? { upstreamModel: route.upstreamModel } : {}),
-      ...(options.reasoningEffort
-        ? { reasoningEffort: options.reasoningEffort }
-        : {}),
-      provider: "cloud-code",
-      authType: "bearer",
-      transport: "cloud-code",
-      ...(route?.routingPolicy ? { routePolicy: route.routingPolicy } : {}),
-      ...(route?.routeReason ? { routeReason: route.routeReason } : {}),
-    };
-  }
-
-  // Check ConfigMap for existing sticky binding
-  const snapshot = await readStickySnapshot();
-  const existing = snapshot.data;
-  const rawBinding = existing[sessionId];
-  let persistedBinding =
-    rawBinding === undefined ? undefined : decodeStickyBinding(rawBinding);
-  if (rawBinding !== undefined && !persistedBinding) {
-    throw new Error("invalid persisted session binding");
-  }
-  const cached = _sessions.get(gatewayTokenForSession(sessionId));
-  const cachedBinding: StickyBinding | undefined = cached?.accountId
-    ? {
-        accountId: cached.accountId,
-        ...(cached.requiredTransport
-          ? { requiredTransport: cached.requiredTransport }
-          : {}),
-      }
-    : undefined;
-  if (persistedBinding?.accountId && route) {
-    const boundAcc = findAccount(persistedBinding.accountId);
-    if (!boundAcc || !accountSupportsRoute(boundAcc, route)) {
-      persistedBinding = undefined;
-    }
-  }
-  if (
-    persistedBinding &&
-    cachedBinding?.requiredTransport &&
-    persistedBinding.requiredTransport &&
-    cachedBinding.requiredTransport !== persistedBinding.requiredTransport
-  ) {
-    throw new Error("cached and persisted session transport claims conflict");
-  }
-  const binding: StickyBinding | undefined = persistedBinding?.accountId
-    ? {
-        accountId: persistedBinding.accountId,
-        ...(persistedBinding.requiredTransport ?? cachedBinding?.requiredTransport
-          ? {
-              requiredTransport:
-                persistedBinding.requiredTransport ??
-                cachedBinding!.requiredTransport!,
-            }
-          : {}),
-      }
-    : cachedBinding;
-  if (
-    requestedTransport &&
-    binding?.requiredTransport &&
-    requestedTransport !== binding.requiredTransport
-  ) {
-    throw new Error(
-      `session transport constraint is already ${binding.requiredTransport}`,
-    );
-  }
-  const requiredTransport =
-    binding?.requiredTransport ?? requestedTransport;
-  if (requiredTransport && !route) {
-    throw new Error("a constrained session requires a model or provider route");
-  }
-  let account: AccountDescriptor;
-  let bindingChanged = false;
-
-  const boundId = binding?.accountId;
-  if (boundId !== undefined) {
-    const found = findAccount(boundId);
-    if (
-      found &&
-      (!route || accountSupportsRoute(found, route)) &&
-      (!requiredTransport ||
-        upstreamTransportForAccount(found) === requiredTransport)
-    ) {
-      account = found;
-    } else {
-      account = route
-        ? selectAccountForRoute(
-            route,
-            requiredTransport ? { requiredTransport } : {},
-          )
-        : selectAccount();
-      bindingChanged = true;
-    }
-  } else {
-    account = route
-      ? selectAccountForRoute(
-          route,
-          requiredTransport ? { requiredTransport } : {},
-        )
-      : selectAccount();
-    bindingChanged = true;
-  }
-
-  if (
-    requiredTransport &&
-    persistedBinding?.requiredTransport !== requiredTransport
-  ) {
-    await compareAndSetStickyBinding(
-      sessionId,
-      account.id,
-      requiredTransport,
-      snapshot,
-    );
-  } else if (bindingChanged) {
-    await compareAndSetStickyBinding(
-      sessionId,
-      account.id,
-      requiredTransport,
-      snapshot,
-    );
-  }
-
-  const gatewayToken = gatewayTokenForSession(sessionId);
-  _sessions.set(gatewayToken, {
-    sessionId,
-    gatewayToken,
-    accountId: account.id,
-    provider: account.provider,
-    authType: effectiveAccountAuthType(account),
-    transport: upstreamTransportForAccount(account),
-    ...(requiredTransport ? { requiredTransport } : {}),
-  });
-  upsertSessionLedger({
-    gatewaySessionId: sessionId,
-    clientSessionId: options.clientSessionId ?? sessionId,
-    ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
-    ...(options.profile ? { profile: options.profile } : {}),
-    account,
-    ...(route ? { route } : {}),
-  });
-
-  return {
-    gatewayToken,
-    accountId: account.id,
-    ...(route?.requestedModel ? { requestedModel: route.requestedModel } : {}),
-    ...(route?.catalogModelId ? { modelId: route.catalogModelId } : {}),
-    ...(route?.upstreamModel ? { upstreamModel: route.upstreamModel } : {}),
-    ...(options.reasoningEffort
-      ? { reasoningEffort: options.reasoningEffort }
-      : {}),
-    provider: account.provider,
-    authType: effectiveAccountAuthType(account),
-    transport: upstreamTransportForAccount(account),
-    ...(route?.routingPolicy ? { routePolicy: route.routingPolicy } : {}),
-    ...(route?.routeReason ? { routeReason: route.routeReason } : {}),
-  };
+export function resetSessions(): void {
+  sessionsByToken.clear();
+  tokensBySession.clear();
 }
