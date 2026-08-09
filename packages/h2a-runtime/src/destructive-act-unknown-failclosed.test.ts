@@ -281,6 +281,42 @@ describe("sol-2 — an unreadable registry row is UNKNOWN, never 'no local sessi
   });
 });
 
+describe("B2 — a registry REBUILT from corrupt bytes is UNKNOWN; stop refuses instead of falling through to a remote homonym", () => {
+  it("STOP_AFTER_REBUILD_FROM_CORRUPT_REFUSES_AND_NEVER_FALLS_THROUGH_TO_REMOTE_HOMONYM", async () => {
+    const orphanId = `b2-orphan-${process.pid}`;
+    // The registry FILE is corrupt (unparseable) — whatever rows it held
+    // (e.g. orphanId's, now unreachable) cannot be validated.
+    mkdirSync(dirname(registryPath()), { recursive: true });
+    writeFileSync(registryPath(), "{not json at all", "utf8");
+
+    // A NEIGHBOR enrolment on the corrupt registry REBUILDS it ("REBUILDING
+    // is allowed" — enrolment must never be bricked by a corrupt file).
+    enrollFromRun({
+      profile: "claude",
+      slug: "healthy-neighbor",
+      tmuxSession: "h2a-healthy-neighbor",
+      hostKind: "local-tmux",
+      cwd: "/home/failclosed-test/src/proj",
+      sessionClass: "human",
+    });
+
+    listRemoteSessions.mockResolvedValue([
+      { id: orphanId, profile: "claude", target: "pod://wrong-victim" },
+    ]);
+
+    await main(["node", "h2a", "stop", orphanId]);
+
+    // "DESTROYING is not" allowed either: the rebuilt registry must be read
+    // as UNKNOWN (the whole-file trace) — never "orphanId is missing" — so
+    // stop refuses instead of falling through to the remote homonym.
+    expect(process.exitCode).toBe(1);
+    expect(stopRemoteSession).not.toHaveBeenCalled();
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(killNativeSessionTree).not.toHaveBeenCalled();
+    expect(stderrLines.join("")).toContain("rebuilt");
+  });
+});
+
 describe("F1 — the resume kill derives from the RESOLVED host, never the pre-resolution tmux view", () => {
   const envKeys = [
     "ANTHROPIC_BASE_URL",

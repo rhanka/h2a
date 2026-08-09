@@ -9988,6 +9988,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // without first adding a stop test that reddens on A2's position —
           // otherwise stop's dependency on A2 would become silent.
           const unreadable = unreadableRegistryRowsForTarget(first);
+          // B3 — this is itself a RE-READ (a TOCTOU window against the first
+          // read inside resolveManagedLocalTarget above): "unknown" must
+          // refuse exactly like the first read did, never re-flatten into
+          // "no unreadable row" and fall through past this guard.
+          if (unreadable === "unknown") {
+            process.stderr.write(
+              `[h2a] cannot stop ${first}: local host state became unknown while resolving this stop — the registry could not be re-read for this identity (fail closed); stop refuses to fall through to a remote session of the same name. Retry once the registry is readable.\n`,
+            );
+            process.exitCode = 1;
+            return;
+          }
           if (unreadable.length > 0) {
             const unreadableIds = unreadable
               .map((row) => (typeof row.id === "string" ? row.id : "<no id>"))
