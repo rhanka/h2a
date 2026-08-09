@@ -1,11 +1,68 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
-import { NativeTerminalHost } from "./host.js";
+import { readNativeTerminalPgid } from "../registry.js";
+import {
+  NativeTerminalHost,
+  type NativeTerminalProcessGroupReaper,
+} from "./host.js";
+import type { NativeTerminalStopSignal } from "./protocol.js";
+
+// Scratch dir inside the package (never /tmp), like the other test suites.
+const SCRATCH_ROOT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  ".test-scratch",
+  "native-terminal-host",
+);
+
+let scratch: string;
+let registryPath: string;
+
+beforeEach(() => {
+  mkdirSync(SCRATCH_ROOT, { recursive: true });
+  scratch = mkdtempSync(join(SCRATCH_ROOT, "h-"));
+  registryPath = join(scratch, "registry.json");
+});
+
+afterEach(() => {
+  rmSync(scratch, { recursive: true, force: true });
+});
+
+/**
+ * A fake group reaper: NEVER sends real signals at StubPty's fabricated
+ * pids/pgids (which are not real OS process groups). `killGroup` marks the
+ * pgid dead immediately, matching how a real group-SIGKILL behaves once the
+ * OS actually reaps it — fast and deterministic for a unit test.
+ */
+function fakeReaper(): {
+  reaper: NativeTerminalProcessGroupReaper;
+  killGroup: ReturnType<typeof vi.fn<(pgid: number, signal: NativeTerminalStopSignal) => void>>;
+  alive: Set<number>;
+} {
+  const alive = new Set<number>();
+  const killGroup = vi.fn((pgid: number, _signal: NativeTerminalStopSignal) => {
+    alive.delete(pgid);
+  });
+  return {
+    reaper: {
+      killGroup,
+      isGroupAlive: (pgid: number) => alive.has(pgid),
+      describeGroup: () => "fake-reaper: no real /proc backing",
+    },
+    killGroup,
+    alive,
+  };
+}
 
 class StubPty implements PtyHandle {
   static #nextPid = 41000;
   readonly pid = StubPty.#nextPid++;
+  readonly pgid = this.pid;
   readonly cols = 80;
   readonly rows = 24;
   readonly #dataHandlers = new Set<(chunk: string) => void>();
@@ -71,6 +128,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-1",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
 
     createSession(host, "alpha");
@@ -129,6 +187,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-2",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
 
     createSession(host, "alpha");
@@ -163,26 +222,156 @@ describe("NativeTerminalHost", () => {
     });
   });
 
-  it("should force-stop every non-exited session during bounded host shutdown", () => {
+  it("should force-stop every non-exited session during bounded host shutdown", async () => {
     const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
     const host = new NativeTerminalHost({
       generation: "host-generation-force",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
+      reaper,
     });
     createSession(host, "alpha");
     createSession(host, "beta");
+    alive.add(ptys.get("alpha")!.pgid);
+    alive.add(ptys.get("beta")!.pgid);
 
     const lease = host.acquireController("alpha", "stopper");
     host.stop(lease, "SIGTERM");
-    expect(host.forceStopAll("SIGKILL")).toEqual([
+    // forceStopAll is the FORCE path: it emits the group SIGKILL itself, from
+    // the parent, via the injected reaper — it must NOT go through the pty's
+    // own kill() (that would depend on the victim's own trap handler, the
+    // bug this fix removes).
+    expect(await host.forceStopAll("SIGKILL")).toEqual([
       expect.objectContaining({ id: "alpha", status: "stopping", stopSignal: "SIGKILL" }),
       expect.objectContaining({ id: "beta", status: "stopping", stopSignal: "SIGKILL" }),
     ]);
-    expect(ptys.get("alpha")!.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
-    expect(ptys.get("alpha")!.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
-    expect(ptys.get("beta")!.kill).toHaveBeenCalledOnce();
-    expect(ptys.get("beta")!.kill).toHaveBeenCalledWith("SIGKILL");
+    // The single-session stop() above still used the pty's own kill() (SIGTERM) —
+    // that graceful path is unchanged. forceStopAll must not have called it again.
+    expect(ptys.get("alpha")!.kill).toHaveBeenCalledOnce();
+    expect(ptys.get("alpha")!.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(ptys.get("beta")!.kill).not.toHaveBeenCalled();
+    // Instead, forceStopAll must have emitted a PARENT-side group kill for
+    // both sessions' pgids, and waited for the reaper to confirm death.
+    expect(killGroup).toHaveBeenCalledWith(ptys.get("alpha")!.pgid, "SIGKILL");
+    expect(killGroup).toHaveBeenCalledWith(ptys.get("beta")!.pgid, "SIGKILL");
+    expect(alive.size).toBe(0);
+  });
+
+  it("should WAIT for the reaper to confirm death, not resolve on the strength of merely emitting the signal (INV-1)", async () => {
+    const { spawner, ptys } = stubSpawner();
+    const alive = new Set<number>();
+    // A reaper whose killGroup() emits the signal now but whose isGroupAlive()
+    // only flips false a bit LATER (as a real OS group-kill does: the signal
+    // is asynchronous, death is not instantaneous). If forceStopAll resolved
+    // right after emitting the signal (INV-1 violated), this test would
+    // observe BOTH a near-zero elapsed time AND the pgid still marked alive
+    // at the moment forceStopAll resolves.
+    const killGroup = vi.fn((pgid: number) => {
+      setTimeout(() => alive.delete(pgid), 30);
+    });
+    const reaper: NativeTerminalProcessGroupReaper = {
+      killGroup,
+      isGroupAlive: (pgid) => alive.has(pgid),
+      describeGroup: () => "fake-reaper: no real /proc backing",
+    };
+    const host = new NativeTerminalHost({
+      generation: "host-generation-prove-death",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      forceKillPollIntervalMs: 5,
+    });
+    createSession(host, "alpha");
+    alive.add(ptys.get("alpha")!.pgid);
+
+    const before = Date.now();
+    await host.forceStopAll("SIGKILL");
+    const elapsedMs = Date.now() - before;
+
+    expect(elapsedMs).toBeGreaterThanOrEqual(25);
+    expect(alive.has(ptys.get("alpha")!.pgid)).toBe(false);
+  });
+
+  it("should refuse to reap and warn loudly when a session's pgid cannot be resolved from the registry, killing nothing", async () => {
+    const { spawner } = stubSpawner();
+    const { reaper, killGroup } = fakeReaper();
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-orphan-refuse",
+      replayBytesPerSession: 32,
+      spawner,
+      // A registry path with NOTHING recorded for this session id — a fresh
+      // host that never saw this session AND finds no durable pgid for it.
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+    });
+    // Make the registry file exist and be VALID first (via an unrelated
+    // session), so this test proves the "registry readable, no pgid for THIS
+    // session" branch specifically — not the "file absent" branch, which
+    // loadRegistryWithDiagnostics also reports as known:false and is covered
+    // by the next test.
+    createSession(host, "unrelated-session");
+
+    const outcome = await host.reapOrphan("never-created-session");
+
+    expect(outcome).toEqual({
+      sessionId: "never-created-session",
+      status: "refused",
+      reason: expect.stringMatching(/no pgid recorded/i),
+    });
+    // Never guess a pgid: killing the wrong process group is irreversible.
+    expect(killGroup).not.toHaveBeenCalled();
+    // But never silently refuse either: a silent return here recreates the
+    // invisible-orphan bug. The refusal must be LOUD.
+    expect(warnings.some((line) =>
+      /REFUSING/.test(line) &&
+      /pgid could not be resolved/i.test(line) &&
+      /PROCESSES MAY HAVE SURVIVED/i.test(line)
+    )).toBe(true);
+
+    // Cross-check against the registry reader directly: this really is the
+    // "registry readable, but no pgid on record" branch, not a fluke.
+    const lookup = readNativeTerminalPgid("never-created-session", registryPath);
+    expect(lookup).toEqual({
+      status: "unresolved",
+      reason: expect.stringMatching(/no pgid recorded/i),
+    });
+  });
+
+  it("should refuse to reap and warn loudly when the registry itself is unreadable (corrupt), killing nothing", async () => {
+    const { spawner } = stubSpawner();
+    const { reaper, killGroup } = fakeReaper();
+    const warnings: string[] = [];
+    // Deliberately corrupt: valid JSON but no `entries` array. This must
+    // resolve as UNREADABLE (known:false), never as "known: zero entries" —
+    // silently treating a corrupt file as "nothing recorded" would refuse to
+    // reap without ever saying WHY, recreating the invisible-orphan bug.
+    const corruptRegistryPath = join(scratch, "corrupt-registry.json");
+    writeFileSync(corruptRegistryPath, JSON.stringify({ version: 1 }), "utf8");
+    const host = new NativeTerminalHost({
+      generation: "host-generation-orphan-unreadable",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath: corruptRegistryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+    });
+
+    const outcome = await host.reapOrphan("some-session");
+
+    expect(outcome).toEqual({
+      sessionId: "some-session",
+      status: "refused",
+      reason: expect.stringMatching(/registry unreadable/i),
+    });
+    expect(killGroup).not.toHaveBeenCalled();
+    expect(warnings.some((line) =>
+      /REFUSING/.test(line) && /PROCESSES MAY HAVE SURVIVED/i.test(line)
+    )).toBe(true);
   });
 
   it("should reject duplicate and unknown session identifiers", () => {
@@ -191,6 +380,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-3",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
 
     createSession(host, "alpha");
@@ -209,6 +399,7 @@ describe("NativeTerminalHost", () => {
       replayBytesPerSession: 32,
       maxSessions: 2,
       spawner,
+      registryPath,
     });
 
     createSession(host, "alpha");
@@ -234,6 +425,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-4",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
     createSession(host, "alpha");
 
@@ -274,6 +466,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-5",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
     createSession(host, "alpha");
 
@@ -306,6 +499,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-6",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
     createSession(host, "alpha");
     createSession(host, "beta");
@@ -329,6 +523,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-reincarnation",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
     createSession(host, "alpha");
     const stale = host.acquireController("alpha", "same-controller");
