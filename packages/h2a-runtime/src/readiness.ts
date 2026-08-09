@@ -35,6 +35,13 @@ export type CheckReadinessOptions = {
   home?: string;
   /** Override spawnSync for tests. */
   spawnImpl?: typeof spawnSync;
+  /**
+   * Size in bytes of one pending file (undefined = unmeasurable, skipped).
+   * Injectable so threshold tests are DETERMINISTIC — the 50MB lazy-mode
+   * boundary must not require writing a real 50MB file (machine-speed
+   * dependent: it exceeded the test budget under contention).
+   */
+  fileSizeImpl?: (filePath: string) => number | undefined;
 };
 
 // ---------------------------------------------------------------------------
@@ -183,15 +190,18 @@ export function checkReadiness(
       pendingFiles = allPendingFiles.length;
 
       // Estimate bytes for pending files
-      for (const file of allPendingFiles) {
-        try {
-          const filePath = join(cwd, file);
-          if (existsSync(filePath)) {
-            pendingBytes += statSync(filePath).size;
+      const fileSize =
+        opts.fileSizeImpl ??
+        ((filePath: string): number | undefined => {
+          try {
+            return existsSync(filePath) ? statSync(filePath).size : undefined;
+          } catch {
+            return undefined; // best-effort: skip files we can't stat
           }
-        } catch {
-          // best-effort: skip files we can't stat
-        }
+        });
+      for (const file of allPendingFiles) {
+        const size = fileSize(join(cwd, file));
+        if (size !== undefined) pendingBytes += size;
       }
 
       // Switch to lazy if working set is too large

@@ -17,7 +17,12 @@
  * tells the caller whether to proceed (--force overrides, loudly).
  */
 
-import { listLive, type LivenessOpts, type RegistryEntry } from "./registry.js";
+import {
+  isLive,
+  loadRegistry,
+  type LivenessOpts,
+  type RegistryEntry,
+} from "./registry.js";
 import { managedSessionCandidates } from "./tmux.js";
 
 export type ConvOwnerWhere = "local-tmux" | "local" | "remote";
@@ -80,19 +85,22 @@ function ownerFromEntry(e: RegistryEntry): ConvOwner {
 /**
  * Every live writer currently holding convId. Entries with suspect=true are
  * heuristic matches (same workspacePath, no cliSessionId) — warning-grade only.
+ *
+ * Returns "unknown" when the registry cannot be READ (F2): this guard exists
+ * to PROVE the absence of a live writer, and an unreadable registry proves
+ * nothing — degrading to an empty owner list would read as permission to
+ * start a second writer. The caller (guardConvWriters) refuses on it.
  */
 export function convOwners(
   convId: string,
   opts: ConvOwnersOpts = {},
-): ConvOwner[] {
+): ConvOwner[] | "unknown" {
   const owners: ConvOwner[] = [];
-  const live = listLive({
-    ...(opts.tmuxHasSession ? { tmuxHasSession: opts.tmuxHasSession } : {}),
-    ...(opts.pidAlive ? { pidAlive: opts.pidAlive } : {}),
-    ...(opts.bootTimeMs !== undefined ? { bootTimeMs: opts.bootTimeMs } : {}),
-    ...(opts.processCmdline ? { processCmdline: opts.processCmdline } : {}),
-    ...(opts.registryPath ? { path: opts.registryPath } : {}),
-  });
+  const read = opts.registryPath
+    ? loadRegistry(opts.registryPath)
+    : loadRegistry();
+  if (read.state === "unknown") return "unknown";
+  const live = read.entries.filter((e) => isLive(e, opts));
   for (const e of live) {
     if (e.convId !== convId) continue;
     if (opts.excludeId !== undefined && e.id === opts.excludeId) continue;
@@ -181,6 +189,20 @@ export async function guardConvWriters(
     ...(args.bootTimeMs !== undefined ? { bootTimeMs: args.bootTimeMs } : {}),
     ...(args.processCmdline ? { processCmdline: args.processCmdline } : {}),
   });
+  if (owners === "unknown") {
+    // The registry could not be read: the guard cannot PROVE the absence of
+    // a live writer, and an unknown must never become permission (F2).
+    if (args.force) {
+      process.stderr.write(
+        `[h2a] warning: --force — starting a writer on conversation ${args.convId} although the local registry is unreadable (existing writers cannot be ruled out).\n`,
+      );
+      return true;
+    }
+    process.stderr.write(
+      `[h2a] conversation ${args.convId}: the local registry is unreadable — cannot prove there is no live writer; refusing to start a new one (fail closed; --force overrides).\n`,
+    );
+    return false;
+  }
   const hard = owners.filter((o) => !o.suspect);
   for (const s of owners.filter((o) => o.suspect)) {
     process.stderr.write(

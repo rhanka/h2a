@@ -11,6 +11,10 @@
  *   ensure-host                       -> {hostPid, generation, socketPath}
  *   list                              -> {sessions: [...]}
  *   state   --id X                    -> session state
+ *   probe   --id X                    -> {verdict: live|dead|unknown, ...}
+ *                                     3-state liveness; classifies IN-BAND
+ *                                     (exit 0) so a caller never reads a
+ *                                     generic failure as proof of death
  *   create  --id X --cwd D [--cols N --rows N] [--env-file F] -- cmd args...
  *   write   --id X --b64 TEXT         raw keystrokes (base64, controller-scoped)
  *   paste   --id X --b64 TEXT         ONE bracketed-paste block (tmux paste -p twin)
@@ -27,6 +31,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { NativeTerminalClient } from "./client.js";
+import { NativeTerminalRemoteError } from "./protocol.js";
 import type { NativeTerminalControllerLease } from "./host.js";
 import { NativeTerminalHostSupervisor } from "./supervisor.js";
 import { defaultNativeTerminalSocketPath } from "./socket-path.js";
@@ -220,6 +225,53 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       const state = await client.state(required(parsed, "id"));
       client.close();
       emit(state);
+      return 0;
+    }
+    case "probe": {
+      // 3-state liveness probe (F2). Emits a VERDICT on exit 0 instead of a
+      // generic nonzero exit, so the synchronous caller never has to guess
+      // whether a failure meant "no session" or "the op broke":
+      //  - live:    a reachable host answered and the session is running
+      //  - dead:    POSITIVE proof — a reachable host does not know the
+      //             session, or no host is listening at all (a PTY cannot
+      //             outlive its host process — the tmux-server death rule)
+      //  - unknown: anything else; never proof of death.
+      const id = required(parsed, "id");
+      let client: NativeTerminalClient;
+      try {
+        client = await connectExisting(socketPath);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ECONNREFUSED" || code === "ENOENT") {
+          emit({ verdict: "dead", reason: `native host is not running (${code})` });
+        } else {
+          emit({
+            verdict: "unknown",
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        }
+        return 0;
+      }
+      try {
+        const state = await client.state(id);
+        emit({
+          verdict: state.status === "running" ? "live" : "dead",
+          state,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // The host's own "unknown terminal session" refusal is a POSITIVE
+        // absence verdict from a reachable host; any other remote/protocol
+        // error proves nothing (fail closed on the caller side).
+        emit(
+          error instanceof NativeTerminalRemoteError &&
+            message.includes("unknown terminal session")
+            ? { verdict: "dead", reason: message }
+            : { verdict: "unknown", reason: message },
+        );
+      } finally {
+        client.close();
+      }
       return 0;
     }
     case "create": {

@@ -212,12 +212,10 @@ describe("checkReadiness", () => {
   });
 
   it('returns mode:"lazy" when total bytes exceed threshold (50MB)', () => {
-    // Create a real file > 50 MB in the testRoot to trigger byte threshold
-    const bigFilePath = join(testRoot, "big.bin");
-    // Write 51 MB of data
-    const chunk = Buffer.alloc(51 * 1024 * 1024, 0x42);
-    writeFileSync(bigFilePath, chunk);
-
+    // DETERMINISTIC byte-size injection: the 50MB lazy-mode boundary is a
+    // threshold comparison, not an I/O property — writing a real 51MB file
+    // made this machine-speed-dependent (false NO-GO under load).
+    const bigBytes = 51 * 1024 * 1024;
     const spawn = makeSpawn({
       auth: { status: 0 },
       gitRevParse: { status: 0 },
@@ -225,7 +223,12 @@ describe("checkReadiness", () => {
       gitLsFiles: { status: 0, stdout: "big.bin\n" },
     });
 
-    const result = checkReadiness({ cwd: testRoot, spawnImpl: spawn });
+    const result = checkReadiness({
+      cwd: testRoot,
+      spawnImpl: spawn,
+      fileSizeImpl: (filePath) =>
+        filePath === join(testRoot, "big.bin") ? bigBytes : undefined,
+    });
 
     expect(result.mode).toBe("lazy");
     expect(result.pending.files).toBe(1);

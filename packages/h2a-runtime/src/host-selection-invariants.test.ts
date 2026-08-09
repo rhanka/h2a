@@ -27,7 +27,7 @@ const findLocalSession = vi.hoisted(() => vi.fn());
 const resolveLocalSession = vi.hoisted(() => vi.fn());
 const currentTmuxSessionIs = vi.hoisted(() => vi.fn());
 
-const nativeSessionAlive = vi.hoisted(() => vi.fn());
+const nativeSessionLiveness = vi.hoisted(() => vi.fn());
 const nativeHostAvailable = vi.hoisted(() => vi.fn());
 const startNativeSession = vi.hoisted(() => vi.fn());
 const attachNativeSession = vi.hoisted(() => vi.fn());
@@ -54,7 +54,7 @@ vi.mock("./native-host.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./native-host.js")>();
   return {
     ...actual,
-    nativeSessionAlive,
+    nativeSessionLiveness,
     nativeHostAvailable,
     startNativeSession,
     attachNativeSession,
@@ -84,6 +84,14 @@ const { main } = await import("./index.js");
 const { enrollFromRun, loadRegistry, resolveManagedHost } = await import(
   "./registry.js"
 );
+
+/** Unwrap the 3-state registry read (must be "ok" in these fixtures). */
+function loadEntries(): import("./registry.js").RegistryEntry[] {
+  const read = loadRegistry();
+  expect(read.state).toBe("ok");
+  return read.state === "ok" ? read.entries : [];
+}
+
 
 const SCRATCH_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -167,7 +175,7 @@ beforeEach(() => {
   resolveLocalSession.mockReset().mockReturnValue({ kind: "missing" });
   currentTmuxSessionIs.mockReset().mockReturnValue(false);
 
-  nativeSessionAlive.mockReset().mockReturnValue(false);
+  nativeSessionLiveness.mockReset().mockReturnValue(false);
   nativeHostAvailable.mockReset().mockReturnValue({ ok: true });
   startNativeSession
     .mockReset()
@@ -203,7 +211,7 @@ describe("F1 — resume host precedence", () => {
     writeRegistry([nativeRow(slug)]);
     // The homonymous native process is LIVE; the option must lose to the
     // recorded host — resume serves the native session, never a tmux twin.
-    nativeSessionAlive.mockReturnValue(true);
+    nativeSessionLiveness.mockReturnValue(true);
 
     const code = await main(["node", "h2a", "resume", slug, "--tmux"]);
 
@@ -214,7 +222,7 @@ describe("F1 — resume host precedence", () => {
     expect(killNativeSessionTree).not.toHaveBeenCalled();
     expect(stderrLines.join("")).toContain(`--tmux ignored for ${slug}`);
     // The registry row keeps its recorded host after the act.
-    const row = loadRegistry().find((e) => e.id === slug);
+    const row = loadEntries().find((e) => e.id === slug);
     expect(row?.kind).toBe("local-native");
   });
 });
@@ -225,7 +233,7 @@ describe("F2 — stop host attribution", () => {
     writeRegistry([tmuxRow(slug)]);
     // A LIVE homonymous native process exists; the persisted tmux row must
     // still win — the kill is dispatched to tmux, never to the native tree.
-    nativeSessionAlive.mockReturnValue(true);
+    nativeSessionLiveness.mockReturnValue(true);
 
     await main(["node", "h2a", "stop", slug]);
 
@@ -248,13 +256,13 @@ describe("dual-host identity fails closed", () => {
     const slug = `dual-${process.pid}`;
     const exact = `h2a-${slug}`;
     writeRegistry(bothRows(slug));
-    nativeSessionAlive.mockReturnValue(true);
+    nativeSessionLiveness.mockReturnValue(true);
 
     // Resolver level: persisted rows of BOTH kinds for one exact identity
     // are ambiguous, regardless of any probe result; and with NO persisted
     // row, two positive probes are equally ambiguous — probe ORDER can never
     // pick a host.
-    const registry = loadRegistry();
+    const registry = loadEntries();
     expect(resolveManagedHost(exact, registry)).toEqual({
       state: "ambiguous",
       candidates: ["local-native", "local-tmux"],
@@ -325,7 +333,7 @@ describe("--tmux stays a permanent first-class creation switch", () => {
     expect(startLocalSession).toHaveBeenCalledTimes(1);
     expect(startNativeSession).not.toHaveBeenCalled();
     // The row records the ACTUAL creation host.
-    const row = loadRegistry().find((e) => e.id === slug);
+    const row = loadEntries().find((e) => e.id === slug);
     expect(row?.kind).toBe("local-tmux");
   });
 });
@@ -360,7 +368,7 @@ describe("registry write boundary", () => {
       cwd: "/home/hostsel-test/src/proj",
       sessionClass: "human",
     });
-    const rows = loadRegistry().filter((e) => e.id === slug);
+    const rows = loadEntries().filter((e) => e.id === slug);
     expect(rows).toEqual([]);
     expect(stderrLines.join("")).toContain("registry enrolment refused");
   });

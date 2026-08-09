@@ -23,7 +23,7 @@ vi.mock("node:child_process", async (importOriginal) => {
   return { ...actual, spawn };
 });
 
-const { launchLayout } = await import("./restore.js");
+const { captureHostViewSnapshot, launchLayout } = await import("./restore.js");
 
 describe("launchLayout prefix collision", () => {
   let previousScreen: string | undefined;
@@ -90,6 +90,7 @@ describe("launchLayout prefix collision", () => {
           ],
         },
       ],
+      captureHostViewSnapshot(),
       { write } as unknown as NodeJS.WriteStream,
       { reattach: true },
     );
@@ -118,6 +119,7 @@ describe("launchLayout prefix collision", () => {
           ],
         },
       ],
+      captureHostViewSnapshot(),
       { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
       { reattach: true },
     );
@@ -159,6 +161,7 @@ describe("launchLayout prefix collision", () => {
           ],
         },
       ],
+      captureHostViewSnapshot(),
       { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
     );
 
@@ -203,6 +206,7 @@ describe("launchLayout prefix collision", () => {
           ],
         },
       ],
+      captureHostViewSnapshot(),
       { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
     );
 
@@ -227,6 +231,7 @@ describe("launchLayout prefix collision", () => {
           tabs: [{ cwd: "/repo/unknown", label: "unknown", tool: "claude", sid: "conv-u" }],
         },
       ],
+      captureHostViewSnapshot(),
       { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
     );
 

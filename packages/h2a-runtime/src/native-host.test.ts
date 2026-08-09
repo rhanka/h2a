@@ -65,16 +65,16 @@ describe("registry liveness for native sessions", () => {
 
   it("should be live exactly when the native host reports the session", () => {
     expect(
-      isLive(entry(), { nativeSessionAlive: (name) => name === "h2a-demo" }),
+      isLive(entry(), { nativeSessionLiveness: (name) => name === "h2a-demo" }),
     ).toBe(true);
-    expect(isLive(entry(), { nativeSessionAlive: () => false })).toBe(false);
+    expect(isLive(entry(), { nativeSessionLiveness: () => false })).toBe(false);
   });
 
   it("should never consult tmux for a native entry", () => {
     let tmuxAsked = false;
     expect(
       isLive(entry(), {
-        nativeSessionAlive: () => true,
+        nativeSessionLiveness: () => true,
         tmuxHasSession: () => {
           tmuxAsked = true;
           return true;
@@ -87,7 +87,7 @@ describe("registry liveness for native sessions", () => {
   it("should probe the managed name candidates when no session name is recorded", () => {
     const probed: string[] = [];
     const result = isLive(entry({ tmuxSession: undefined }), {
-      nativeSessionAlive: (name) => {
+      nativeSessionLiveness: (name) => {
         probed.push(name);
         return name === "h2a-demo";
       },
@@ -99,7 +99,7 @@ describe("registry liveness for native sessions", () => {
   it("should stay dead once endedAt is recorded", () => {
     expect(
       isLive(entry({ endedAt: new Date().toISOString() }), {
-        nativeSessionAlive: () => true,
+        nativeSessionLiveness: () => true,
       }),
     ).toBe(false);
   });

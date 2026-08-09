@@ -153,6 +153,10 @@ vi.mock("./tmux.js", async (importOriginal) => {
     killLocalSession,
     resolveLocalSession,
     capturePane,
+    // The managed-local resolution's conjunction (F2) reads the tmux
+    // INVENTORY with its diagnostics; a unit test must never query the
+    // real tmux server for it (a loaded fleet server answers in seconds).
+    listLocalSessionsWithDiagnostics: () => ({ sessions: [], known: true }),
   };
 });
 
