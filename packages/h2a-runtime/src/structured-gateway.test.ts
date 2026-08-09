@@ -37,16 +37,7 @@ describe("prepareStructuredGateway", () => {
 });
 
 describe("prepareLlmMeshForRestore", () => {
-  const facadeConfig = {
-    meshAccounts: [
-      {
-        accountId: "cloud-code-owner",
-        provider: "cloud-code",
-        label: "Cloud Code owner",
-      },
-    ],
-    port: 3002,
-  } as const;
+  const facadeConfig = { port: 3002 } as const;
 
   function context(
     overrides: Partial<RestoreLlmMeshPreparationContext> = {},
@@ -60,11 +51,12 @@ describe("prepareLlmMeshForRestore", () => {
     };
   }
 
-  it("accepts facade meshAccounts with no legacy accounts array", async () => {
+  it("does not require a consumer-side account inventory", async () => {
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const fixture = context();
 
     expect("accounts" in facadeConfig).toBe(false);
+    expect("meshAccounts" in facadeConfig).toBe(false);
     await expect(
       prepareLlmMeshForRestore(
         { dryRun: true, mode: "gateway" },
