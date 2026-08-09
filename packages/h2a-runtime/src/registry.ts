@@ -89,6 +89,16 @@ export type RegistryEntry = {
   tmuxSession?: string;
   /** Local process id (kind "local"); liveness = process.kill(pid, 0). */
   pid?: number;
+  /**
+   * Process-group id of a native-terminal PTY session (see
+   * native-terminal/host.ts's `persistNativeTerminalPgid`). Persisted at
+   * session CREATION time so a host that never knew the session (e.g. a fresh
+   * host started after the owning host was killed) can still reap the whole
+   * process tree from this durable record — "known at creation" must survive
+   * to "known at kill time", which only a durable store (not host memory)
+   * can guarantee.
+   */
+  pgid?: number;
   enrolledAt: string;
   lastSeenAt: string;
   endedAt?: string;
@@ -300,6 +310,116 @@ export function loadRegistryWithDiagnostics(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Native-terminal PTY pgid persistence.
+//
+// Durable session identity (incl. pgid) lives in the single registry store BY
+// DESIGN — h2a keeps ONE durable local store (the owner's SQLite direction);
+// a separate native-terminal store would be exactly the heterogeneity being
+// eliminated. This is NOT a layer leak from native-terminal/host.ts into the
+// registry; do not remove this coupling. The pgid is stored on a real
+// `RegistryEntry` row (same file, same lock, same atomic write as every other
+// registry mutation) keyed by a namespaced id so it can never collide with a
+// real claude/codex/agy session row. `tool`/`source`/`cwd` on that row are
+// syntactically-required placeholders (RegistryTool/RegistrySource are closed
+// enums built around CLI sessions, not arbitrary PTY commands) — the only
+// consumer of this row is `readNativeTerminalPgid` below, which reads `.pgid`
+// and ignores the rest. `kind: "local"` keeps the row OUT of `remote ls`
+// (`localLsRows` only surfaces `kind: "local-tmux"`) and out of delegate's
+// concurrency accounting (`role` is left unset, so `tryClaimSlot`/`listJobs`
+// never see it).
+// ---------------------------------------------------------------------------
+
+const NATIVE_TERMINAL_PGID_ENTRY_ID_PREFIX = "native-terminal-pty:";
+
+function nativeTerminalPgidEntryId(sessionId: string): string {
+  return `${NATIVE_TERMINAL_PGID_ENTRY_ID_PREFIX}${sessionId}`;
+}
+
+/**
+ * Persist a native-terminal PTY session's process-group id, durably, at
+ * session CREATION time (see native-terminal/host.ts `create()`). Synchronous
+ * (the registry write is sync) so a caller can treat a thrown error as "this
+ * session's pgid did NOT get durably recorded" and refuse to create an
+ * untracked, unreapable session.
+ */
+export function persistNativeTerminalPgid(
+  sessionId: string,
+  pgid: number,
+  path: string = resolveRegistryPath(),
+): void {
+  if (!Number.isSafeInteger(pgid) || pgid <= 0) {
+    throw new RangeError("pgid must be a positive safe integer");
+  }
+  const id = nativeTerminalPgidEntryId(sessionId);
+  withRegistryLock(path, (entries) => {
+    const now = new Date().toISOString();
+    const idx = entries.findIndex((e) => e.id === id);
+    const entry: RegistryEntry = {
+      id,
+      tool: "claude",
+      kind: "local",
+      cwd: "",
+      source: "scan",
+      enrolledAt: idx >= 0 ? entries[idx]!.enrolledAt : now,
+      lastSeenAt: now,
+      pgid,
+    };
+    const next =
+      idx >= 0
+        ? entries.map((e, i) => (i === idx ? entry : e))
+        : [...entries, entry];
+    return { entries: next, result: undefined };
+  });
+}
+
+/** Result of resolving a native-terminal session's durable pgid. */
+export type NativeTerminalPgidLookup =
+  | { status: "resolved"; pgid: number }
+  | { status: "unresolved"; reason: string };
+
+/**
+ * Resolve a native-terminal PTY session's durable pgid, for a reap that may
+ * come from a host that never knew the session (e.g. a fresh host started
+ * after the owning host was killed).
+ *
+ * Reads via `loadRegistryWithDiagnostics`, NEVER via the plain `loadRegistry`
+ * array reader: `loadRegistry` silently flattens a corrupt/unreadable
+ * registry to `[]`, which would conflate two very different situations —
+ * "this session genuinely has no recorded pgid" vs. "the registry could not
+ * be read at all". A reaper must tell those apart: an unreadable registry
+ * must NEVER be treated as "nothing to reap" (that recreates the exact
+ * invisible-orphan bug this mechanism exists to close), so it is reported as
+ * `unresolved` with a diagnostic reason, loudly, by the caller (see
+ * `NativeTerminalHost#reapOrphan`), which must never guess a pgid or kill
+ * silently on either branch below.
+ *
+ * (If/when a future 3-state `loadRegistry` lands — `state: "ok" | "unknown"`
+ * — the migration is a refinement of the condition below, not a new branch:
+ * map `state: "unknown"` to the same `unresolved` result.)
+ */
+export function readNativeTerminalPgid(
+  sessionId: string,
+  path: string = resolveRegistryPath(),
+): NativeTerminalPgidLookup {
+  const diagnostics = loadRegistryWithDiagnostics(path);
+  if (!diagnostics.known) {
+    return {
+      status: "unresolved",
+      reason: `registry unreadable: ${diagnostics.reason ?? "unknown reason"}`,
+    };
+  }
+  const id = nativeTerminalPgidEntryId(sessionId);
+  const entry = diagnostics.entries.find((e) => e.id === id);
+  if (!entry || typeof entry.pgid !== "number") {
+    return {
+      status: "unresolved",
+      reason: `no pgid recorded for terminal session ${sessionId}`,
+    };
+  }
+  return { status: "resolved", pgid: entry.pgid };
+}
+
 function isRegistryEntry(raw: unknown): raw is RegistryEntry {
   if (!raw || typeof raw !== "object") return false;
   const e = raw as Record<string, unknown>;
@@ -325,6 +445,7 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
       e.delegationOrigin === "mcp:h2a_run" ||
       e.delegationOrigin === "cli:h2a-delegate") &&
     (e.pid === undefined || (typeof e.pid === "number" && Number.isInteger(e.pid) && e.pid > 0)) &&
+    (e.pgid === undefined || (typeof e.pgid === "number" && Number.isInteger(e.pgid) && e.pgid > 0)) &&
     (e.delegatorInstance === undefined || typeof e.delegatorInstance === "string") &&
     (e.delegatorTmuxSession === undefined || typeof e.delegatorTmuxSession === "string") &&
     (e.restorePinned === undefined || typeof e.restorePinned === "boolean")
