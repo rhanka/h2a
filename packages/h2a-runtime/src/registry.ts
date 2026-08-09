@@ -348,6 +348,28 @@ export function loadRegistry(
 ): RegistryReadResult {
   const raw = rawRegistryRead(path);
   if (raw.state === "unknown") return raw;
+  // B2 — WHOLE-FILE trace, same logic as the per-identity `unreadable` check
+  // applied to the WHOLE file: this file was REBUILT from a registry the
+  // write path could not read (rawRegistryEntriesForWrite moved the
+  // unreadable bytes aside to a sibling registry.corrupt-*.json and rebuilt
+  // from `[]`). Rows that lived in the corrupt bytes are NOT provably absent
+  // from THIS read — a destructive caller must never treat "missing here"
+  // as "no local session existed" while this trace is present. Every reader
+  // (not just this one) must see "unknown", so this is checked on the READ
+  // path (loadRegistry), never on rawRegistryRead itself — the write path
+  // (rawRegistryEntriesForWrite) deliberately ignores this field so a
+  // rebuilt-but-now-valid file keeps accepting new enrolments (REBUILDING is
+  // allowed); only the "was something silently lost?" READ verdict is
+  // poisoned, and only until the next successful write clears the trace.
+  if (raw.rebuiltFromCorruptAt !== undefined) {
+    return {
+      state: "unknown",
+      reason:
+        `registry was rebuilt from an unreadable file at ${raw.rebuiltFromCorruptAt} ` +
+        `(see registry.corrupt-*.json next to the registry) — rows from before the ` +
+        `rebuild are not provably absent`,
+    };
+  }
   const entries: RegistryEntry[] = [];
   const unreadable: RawRow[] = [];
   for (const row of raw.rows) {
@@ -367,7 +389,18 @@ export function loadRegistry(
 }
 
 type RawRegistryRead =
-  | { readonly state: "ok"; readonly rows: unknown[] }
+  | {
+      readonly state: "ok";
+      readonly rows: unknown[];
+      /** Set when this FILE carries the B2 rebuilt-from-corrupt trace (the
+       * top-level `rebuiltFromCorruptAt` field `saveRegistry` stamps on a
+       * write that rebuilt from an unreadable file). Passed through as data
+       * only — `rawRegistryRead` itself stays state:"ok" so the WRITE path
+       * (rawRegistryEntriesForWrite) keeps treating a rebuilt-but-valid file
+       * as writable; only `loadRegistry` (the READ path) turns this into an
+       * "unknown" verdict for destructive callers. */
+      readonly rebuiltFromCorruptAt?: string;
+    }
   | { readonly state: "unknown"; readonly reason: string };
 
 /** Raw `entries` array of the registry FILE, with the read state preserved. */
@@ -392,21 +425,46 @@ function rawRegistryRead(path: string): RawRegistryRead {
     if (!Array.isArray(entries)) {
       return { state: "unknown", reason: "registry has no entries array" };
     }
-    return { state: "ok", rows: entries };
+    const rebuiltFromCorruptAt = (parsed as { rebuiltFromCorruptAt?: unknown })
+      ?.rebuiltFromCorruptAt;
+    return {
+      state: "ok",
+      rows: entries,
+      ...(typeof rebuiltFromCorruptAt === "string" ? { rebuiltFromCorruptAt } : {}),
+    };
   } catch {
     return { state: "unknown", reason: "registry is corrupt (not valid JSON)" };
   }
 }
 
 /**
- * WRITE-path raw read: enrolment deliberately REBUILDS a missing/corrupt
- * registry (a hiccup must not brick every future enrolment), so this keeps
- * the historical flatten-to-[] contract for `withRegistryLock` only. READ
- * paths must use `loadRegistry` and handle its 3-state result instead.
+ * Move the unreadable bytes at `path` aside VERBATIM to a sibling
+ * `registry.corrupt-<ts>-<pid>.json` (best-effort: a truly unreadable file,
+ * e.g. EACCES, has nothing left to move — the rebuild still proceeds and is
+ * still flagged by the caller). B2 — "REBUILDING is allowed. DESTROYING is
+ * not.": called by `withRegistryLock` ONLY immediately before a write that
+ * is actually about to REBUILD the file from `[]`, never on a mere read or a
+ * `save:false` no-op (e.g. `prune` finding nothing to change on a corrupt
+ * file) — otherwise a corrupt registry nothing ever mutates would spam a
+ * fresh sibling file on every poll (`remote ls` calls `prune` every time).
+ * Returns the rebuild timestamp to stamp on the save (the WHOLE-FILE trace
+ * `loadRegistry` turns into "unknown" for every destructive reader).
  */
-function rawRegistryEntries(path: string): unknown[] {
-  const raw = rawRegistryRead(path);
-  return raw.state === "ok" ? raw.rows : [];
+function moveAsideUnreadableRegistry(path: string): string {
+  const at = new Date().toISOString();
+  try {
+    const original = readFileSync(path, "utf8");
+    const corruptPath = join(
+      dirname(path),
+      `registry.corrupt-${at.replace(/[:.]/g, "-")}-${process.pid}.json`,
+    );
+    writeFileSync(corruptPath, original, "utf8");
+  } catch {
+    // Nothing readable to move aside (EACCES/EIO/ENOENT/…) — the rebuild
+    // still proceeds and is still flagged so destructive readers stay
+    // fail-closed.
+  }
+  return at;
 }
 
 /**
@@ -462,13 +520,23 @@ export function unreadableRowsForTarget(
  * DESTRUCTIVE caller must know the identity exists in an unreadable state:
  * such a row makes local host state UNKNOWN (fail closed, sol-2), never "no
  * local session" — which would let the act fall through to a REMOTE homonym.
+ *
+ * B3 — this is itself a RE-READ on a destructive path (a TOCTOU window: the
+ * caller's own earlier read may have succeeded, then the registry became
+ * unreadable strictly BETWEEN the two reads — another writer, a partial
+ * write, disk pressure). A re-read inherits the SAME 3-state contract as the
+ * first: a whole-file "unknown" here used to flatten to `[]` — "no
+ * unreadable row for this identity" — which is indistinguishable from "the
+ * row is fine" and let the caller fall through past this guard. Returns
+ * `"unknown"` instead so the caller refuses exactly like any other unknown
+ * registry read, never silently re-simplified into an empty collection.
  */
 export function unreadableRegistryRowsForTarget(
   target: string,
   path: string = resolveRegistryPath(),
-): RawRow[] {
+): RawRow[] | "unknown" {
   const read = loadRegistry(path);
-  if (read.state === "unknown") return [];
+  if (read.state === "unknown") return "unknown";
   return unreadableRowsForTarget(target, read.unreadable);
 }
 
@@ -726,19 +794,29 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
  * back verbatim so a load-mutate-save cycle never silently ERASES an
  * unreadable row from the file (sol-2 — an erased row turns "host state
  * unknown" into "no local session", re-routing destructive acts).
+ *
+ * `rebuiltFromCorruptAt` (B2) stamps the WHOLE-FILE trace when this save is
+ * the rebuild that followed a whole-file-unknown read: `loadRegistry` turns
+ * its presence into an "unknown" verdict for every subsequent READ, until a
+ * later `saveRegistry` call (one that did NOT rebuild from corrupt) omits it
+ * again and the trace clears.
  */
 function saveRegistry(
   entries: RegistryEntry[],
   path: string,
   preserved: unknown[] = [],
+  rebuiltFromCorruptAt?: string,
 ): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp.${process.pid}`;
-  writeFileSync(
-    tmp,
-    JSON.stringify({ version: 1, entries: [...entries, ...preserved] }, null, 2),
-    "utf8",
-  );
+  const body: { version: 1; entries: unknown[]; rebuiltFromCorruptAt?: string } = {
+    version: 1,
+    entries: [...entries, ...preserved],
+  };
+  if (rebuiltFromCorruptAt !== undefined) {
+    body.rebuiltFromCorruptAt = rebuiltFromCorruptAt;
+  }
+  writeFileSync(tmp, JSON.stringify(body, null, 2), "utf8");
   renameSync(tmp, path);
 }
 
@@ -781,15 +859,28 @@ export function withRegistryLock<T>(
 ): T {
   const fd = acquireFileLock(path);
   try {
-    const raw = rawRegistryEntries(path);
-    const { entries, result, save } = fn(raw.filter(isRegistryEntry));
+    // WRITE-path raw read: enrolment deliberately REBUILDS a missing/corrupt
+    // registry (a hiccup must not brick every future enrolment), so an
+    // unknown state flattens to `[]` for `fn`'s input — but see below: the
+    // corrupt BYTES are moved aside (never overwritten in place) before any
+    // write that actually rebuilds from that `[]`.
+    const raw = rawRegistryRead(path);
+    const rows = raw.state === "ok" ? raw.rows : [];
+    const { entries, result, save } = fn(rows.filter(isRegistryEntry));
     if (save !== false) {
+      // B2 — "REBUILDING is allowed. DESTROYING is not.": only reached when
+      // a write is ACTUALLY about to rebuild the file, never on a read-only
+      // `save:false` no-op (prune finding nothing to change on a corrupt
+      // file must not spam a fresh registry.corrupt-*.json on every poll).
+      const rebuiltFromCorruptAt =
+        raw.state === "unknown" ? moveAsideUnreadableRegistry(path) : undefined;
       // Unreadable rows are preserved verbatim: a mutation of the VALID
       // entries must never erase what it could not read (sol-2).
       saveRegistry(
         entries,
         path,
-        raw.filter((row) => !isRegistryEntry(row)),
+        rows.filter((row) => !isRegistryEntry(row)),
+        rebuiltFromCorruptAt,
       );
     }
     return result;

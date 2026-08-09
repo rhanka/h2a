@@ -100,6 +100,16 @@ export function convOwners(
     ? loadRegistry(opts.registryPath)
     : loadRegistry();
   if (read.state === "unknown") return "unknown";
+  // B1 — a per-row UNREADABLE twin of the SAME conversation (sol-2, same
+  // logic as resolveManagedHost's A2 per-identity poison check): a row that
+  // fails `isRegistryEntry` is filtered OUT of `entries` entirely — this
+  // guard used to consult only `entries`, so an unreadable row COULD be a
+  // second live writer on this exact convId and it would read as absence,
+  // letting `run --resume`/`migrate forward -r` start a SECOND writer on a
+  // conversation a live-but-unprovable session already holds. A hit poisons
+  // the resolution for THIS convId only — every OTHER conversation in the
+  // same registry stays fully resolvable (never a global unknown).
+  if (read.unreadable.some((row) => row.convId === convId)) return "unknown";
   const live = read.entries.filter((e) => isLive(e, opts));
   for (const e of live) {
     if (e.convId !== convId) continue;
