@@ -31,6 +31,16 @@ function conversationId(index) {
   return `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
 }
 
+// loadRegistry() returns a 3-state read ({state:"ok",entries,unreadable} |
+// {state:"unknown",reason}), not a bare array (see registry.ts). Every test
+// below sets up a readable registry, so this helper asserts that precondition
+// and hands back the plain entries array the assertions expect.
+function readEntries(registryPath) {
+  const read = loadRegistry(registryPath);
+  assert.equal(read.state, "ok");
+  return read.entries;
+}
+
 function writeCodexTranscript(home, cwd, id, mtimeMs) {
   const dir = join(home, ".codex", "sessions", "fixture");
   mkdirSync(dir, { recursive: true });
@@ -226,7 +236,7 @@ test("registry enrollment requires an explicit restore class", (t) => {
     role: "job",
     jobState: "running",
   }, registryPath);
-  const entries = loadRegistry(registryPath);
+  const entries = readEntries(registryPath);
   assert.deepEqual(entries.map((entry) => entry.sessionClass), ["human", "background"]);
   assert.ok(entries.every((entry) => entry.enrolledAt >= now));
 });
@@ -261,7 +271,7 @@ test("a background h2a run stamps its Claude hook background by construction", (
     { ok: true },
   );
   assert.equal(
-    loadRegistry(registryPath).find((entry) => entry.id === "mcp-background-hook")?.sessionClass,
+    readEntries(registryPath).find((entry) => entry.id === "mcp-background-hook")?.sessionClass,
     "background",
   );
   assertEightHumansAndNoJobs(restoreDryRun(fixture), fixture);
@@ -275,7 +285,7 @@ test("a background h2a run stamps its Claude hook background by construction", (
     ),
     { ok: false, error: `invalid ${SESSION_CLASS_ENV}` },
   );
-  assert.equal(loadRegistry(registryPath).some((entry) => entry.id === "invalid-marker"), false);
+  assert.equal(readEntries(registryPath).some((entry) => entry.id === "invalid-marker"), false);
 
   // No marker is also fail-closed: a future session kind cannot accidentally
   // become human merely because its hook payload has no role field.
@@ -288,5 +298,5 @@ test("a background h2a run stamps its Claude hook background by construction", (
     ),
     { ok: true },
   );
-  assert.equal(loadRegistry(registryPath).some((entry) => entry.id === "missing-marker"), false);
+  assert.equal(readEntries(registryPath).some((entry) => entry.id === "missing-marker"), false);
 });
