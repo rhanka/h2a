@@ -1699,6 +1699,42 @@ describe("h2a run -r <conv> single-writer guard", () => {
     expect(stderrText()).toContain("sess-b");
   });
 
+  it("B1: refuses when an UNREADABLE registry row for the SAME conversation exists (never absence — no second writer)", async () => {
+    // A row that fails `isRegistryEntry` (kind holds a value the validator
+    // never accepts) sitting in the registry with the SAME convId as the
+    // conversation being resumed. Before B1, convOwners consulted only
+    // `entries` — this row is invisible there — so guardConvWriters saw NO
+    // owner and let `run --tmux --resume` start a SECOND writer on a
+    // conversation a live-but-unprovable session may already hold.
+    writeRegistry([
+      {
+        id: "uuid-claude-1",
+        tool: "claude",
+        kind: "not-a-real-kind",
+        cwd: "/home/u/src/projA",
+        convId: "conv-dup",
+        enrolledAt: NOW,
+        lastSeenAt: NOW,
+        source: "hook",
+      },
+    ]);
+
+    const exitCode = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      "--tmux",
+      "--resume",
+      "conv-dup",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(startLocalSession).not.toHaveBeenCalled();
+    expect(stderrText()).toContain("the local registry is unreadable");
+    expect(stderrText()).toContain("cannot prove there is no live writer");
+  });
+
   it("WARNS but PROCEEDS on an unverifiable no-pid local writer (crash-stale hook entry)", async () => {
     writeRegistry([unverifiableLocalWriter("conv-dup")]);
 
