@@ -163,9 +163,17 @@ export function handleClaudeHook(
       // (convId) so SessionEnd can resolve the job even if the env is later
       // scrubbed. Otherwise enroll a plain session as before.
       if (envJobId) {
-        const job = loadRegistry(registryPath).find(
-          (e) => e.id === envJobId && e.role === "job",
-        );
+        const jobRead = loadRegistry(registryPath);
+        // Unknown registry read → the job LINK degrades (fall through to the
+        // plain enrolment below): a bookkeeping hook acts on nothing
+        // destructive and must not throw; it also asserts no absence — the
+        // enroll write path re-reads under its own lock.
+        const job =
+          jobRead.state === "ok"
+            ? jobRead.entries.find(
+                (e) => e.id === envJobId && e.role === "job",
+              )
+            : undefined;
         if (job) {
           enroll(
             {
@@ -200,7 +208,14 @@ export function handleClaudeHook(
     // claude-end: is this session a DELEGATED JOB? Resolve by REMOTE_JOB_ID (the
     // env stamped by startJob) or by the convId link recorded at SessionStart —
     // NOT by `id === session_id` (the job lives under its slug, not the uuid).
-    const job = resolveJobForHook(loadRegistry(registryPath), id, envJobId);
+    // Unknown registry read → no job resolves (degrade): the session is then
+    // marked ended by its own id, which is the non-job bookkeeping default.
+    const endRead = loadRegistry(registryPath);
+    const job = resolveJobForHook(
+      endRead.state === "ok" ? endRead.entries : [],
+      id,
+      envJobId,
+    );
     if (job) {
       // Advance to done (no-op if already terminal), keyed by the JOB's id (its
       // slug) — NOT the session uuid. The interactive agent ending its session IS

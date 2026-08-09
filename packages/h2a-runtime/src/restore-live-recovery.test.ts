@@ -34,6 +34,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 
 const {
+  captureHostViewSnapshot,
   dropDualHostIdentities,
   groupSessions,
   launchLayout,
@@ -148,6 +149,7 @@ describe("attach-live before the broken-convId gate (§4.1)", () => {
     listNativeSessions.mockReturnValue([runningNative("h2a-h-infra", false)]);
     const result = launchLayout(
       [{ title: "work", tabs }],
+      captureHostViewSnapshot(),
       { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
     );
     expect(result).toEqual({ opened: 1, skippedLive: [] });
@@ -197,6 +199,7 @@ describe("native controller visibility (§4.3)", () => {
 
     const result = launchLayout(
       [{ title: "work", tabs: controlledTab() }],
+      captureHostViewSnapshot(),
       { write } as unknown as NodeJS.WriteStream,
     );
     expect(result).toEqual({ opened: 0, skippedLive: ["h-infra"] });
@@ -205,6 +208,7 @@ describe("native controller visibility (§4.3)", () => {
     // Even --reattach must not open a competing controller.
     const reattach = launchLayout(
       [{ title: "work", tabs: controlledTab() }],
+      captureHostViewSnapshot(),
       { write } as unknown as NodeJS.WriteStream,
       { reattach: true },
     );
@@ -237,6 +241,7 @@ describe("native controller visibility (§4.3)", () => {
           ],
         },
       ],
+      captureHostViewSnapshot(),
       { write } as unknown as NodeJS.WriteStream,
     );
     expect(result.opened).toBe(0);
@@ -275,6 +280,7 @@ describe("exact managed identity, never slug-union host choice", () => {
     const { windows } = groupSessions(sessions, layoutCfg);
     const result = launchLayout(
       windows,
+      captureHostViewSnapshot(),
       { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
     );
     expect(result).toEqual({ opened: 1, skippedLive: [] });
@@ -321,6 +327,7 @@ describe("legacy tmux drain view", () => {
           ],
         },
       ],
+      captureHostViewSnapshot(),
       { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
     );
     expect(result).toEqual({ opened: 1, skippedLive: [] });
