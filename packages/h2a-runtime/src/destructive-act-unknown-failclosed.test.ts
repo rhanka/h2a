@@ -33,7 +33,7 @@ const resolveLocalSession = vi.hoisted(() => vi.fn());
 const existingLocalSessionSlugs = vi.hoisted(() => vi.fn());
 const currentTmuxSessionIs = vi.hoisted(() => vi.fn());
 
-const nativeSessionAlive = vi.hoisted(() => vi.fn());
+const nativeSessionLiveness = vi.hoisted(() => vi.fn());
 const nativeHostAvailable = vi.hoisted(() => vi.fn());
 const startNativeSession = vi.hoisted(() => vi.fn());
 const attachNativeSession = vi.hoisted(() => vi.fn());
@@ -64,7 +64,7 @@ vi.mock("./native-host.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./native-host.js")>();
   return {
     ...actual,
-    nativeSessionAlive,
+    nativeSessionLiveness,
     nativeHostAvailable,
     startNativeSession,
     attachNativeSession,
@@ -169,7 +169,7 @@ beforeEach(() => {
   existingLocalSessionSlugs.mockReset().mockReturnValue([]);
   currentTmuxSessionIs.mockReset().mockReturnValue(false);
 
-  nativeSessionAlive.mockReset().mockReturnValue(false);
+  nativeSessionLiveness.mockReset().mockReturnValue(false);
   nativeHostAvailable.mockReset().mockReturnValue({ ok: true });
   startNativeSession
     .mockReset()
@@ -208,7 +208,7 @@ describe("sol-F3 — a native probe failure is never proof of absence", () => {
     // The conversation's session is REGISTERED local-native…
     writeRegistry([nativeRow(slug)]);
     // …and the native host probe FAILS (throws): its liveness is UNPROVABLE.
-    nativeSessionAlive.mockImplementation(() => {
+    nativeSessionLiveness.mockImplementation(() => {
       throw new Error("native host probe down");
     });
 
@@ -278,6 +278,165 @@ describe("sol-2 — an unreadable registry row is UNKNOWN, never 'no local sessi
     expect(survivor).toBeDefined();
     expect(survivor!.kind).toBeUndefined();
     expect(raw.entries.some((e) => e.id === "healthy-neighbor")).toBe(true);
+  });
+});
+
+describe("F1 — the resume kill derives from the RESOLVED host, never the pre-resolution tmux view", () => {
+  const envKeys = [
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+  ] as const;
+  let savedEnv: Record<string, string | undefined>;
+  beforeEach(() => {
+    savedEnv = Object.fromEntries(envKeys.map((k) => [k, process.env[k]]));
+  });
+  afterEach(() => {
+    for (const k of envKeys) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+  });
+
+  it("RESUME_REPLACE_KILLS_ONLY_THE_RESOLVED_NATIVE_SESSION_NEVER_A_TMUX_TWIN", async () => {
+    const slug = `f1-twin-${process.pid}`;
+    // The identity is RECORDED native (live)…
+    writeRegistry([nativeRow(slug)]);
+    nativeSessionLiveness.mockReturnValue(true);
+    // …while a homonymous LIVE TMUX TWIN (legacy prefix, same slug) sits in
+    // the pre-resolution tmux view. The F1 defect killed THAT twin.
+    resolveLocalSession.mockReturnValue({
+      kind: "found",
+      session: {
+        name: `remote-${slug}`,
+        slug,
+        profile: "claude",
+        path: "/home/failclosed-test/src/proj",
+        attached: false,
+      },
+    });
+
+    await main(["node", "h2a", "resume", slug, "--replace"]);
+
+    // The kill goes to the RESOLVED host + exact name ONLY; the tmux twin
+    // is untouched, and the resumed session starts on the resolved host.
+    expect(process.exitCode ?? 0).toBe(0);
+    expect(killNativeSessionTree).toHaveBeenCalledTimes(1);
+    expect(killNativeSessionTree).toHaveBeenCalledWith(`h2a-${slug}`);
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(startNativeSession).toHaveBeenCalledTimes(1);
+    expect(startLocalSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("F2 — the stop conjunction refuses on ANY unprovable leg", () => {
+  it("STOP_ON_CORRUPT_REGISTRY_REFUSES_AND_NEVER_FALLS_THROUGH_TO_REMOTE_HOMONYM", async () => {
+    const id = `f2-corrupt-${process.pid}`;
+    // The registry FILE exists but is CORRUPT: the read proves nothing.
+    // (An ABSENT file is different — that is provable emptiness.)
+    mkdirSync(dirname(registryPath()), { recursive: true });
+    writeFileSync(registryPath(), "{not json", "utf8");
+    listRemoteSessions.mockResolvedValue([
+      { id, profile: "claude", target: "pod://wrong-victim" },
+    ]);
+
+    await main(["node", "h2a", "stop", id]);
+
+    // Local absence is NOT positively known (registry leg unknown): the
+    // conjunction is poisoned, so the stop refuses — no local kill, and
+    // NEVER a control-plane stop of the same-named remote session.
+    expect(process.exitCode).toBe(1);
+    expect(stopRemoteSession).not.toHaveBeenCalled();
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(killNativeSessionTree).not.toHaveBeenCalled();
+    expect(stderrLines.join("")).toContain("unknown");
+  });
+
+  it("STOP_WITH_FAILING_NATIVE_PROBE_REFUSES_AND_NEVER_FALLS_THROUGH_TO_REMOTE_HOMONYM", async () => {
+    const id = `f2-probe-${process.pid}`;
+    // No registry row at all — but the native probe FAILS: a live native
+    // session behind this name cannot be ruled out.
+    writeRegistry([]);
+    nativeSessionLiveness.mockReturnValue("unknown");
+    listRemoteSessions.mockResolvedValue([
+      { id, profile: "claude", target: "pod://wrong-victim" },
+    ]);
+
+    await main(["node", "h2a", "stop", id]);
+
+    expect(process.exitCode).toBe(1);
+    expect(stopRemoteSession).not.toHaveBeenCalled();
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(killNativeSessionTree).not.toHaveBeenCalled();
+    expect(stderrLines.join("")).toContain("unknown");
+  });
+
+  it("STOP_WITH_UNKNOWN_TMUX_INVENTORY_REFUSES_AND_NEVER_FALLS_THROUGH_TO_REMOTE_HOMONYM", async () => {
+    const id = `f2-tmuxinv-${process.pid}`;
+    // The tmux inventory read itself fails: the tmux leg of the conjunction
+    // is unprovable, whatever the registry and native probes say.
+    writeRegistry([]);
+    listLocalSessionsWithDiagnostics.mockReturnValue({
+      sessions: [],
+      known: false,
+      reason: "tmux server unreachable",
+    });
+    listRemoteSessions.mockResolvedValue([
+      { id, profile: "claude", target: "pod://wrong-victim" },
+    ]);
+
+    await main(["node", "h2a", "stop", id]);
+
+    expect(process.exitCode).toBe(1);
+    expect(stopRemoteSession).not.toHaveBeenCalled();
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(killNativeSessionTree).not.toHaveBeenCalled();
+    expect(stderrLines.join("")).toContain("unknown");
+  });
+});
+
+describe("PART A (sol-2, per-row) — a valid row + an UNREADABLE TWIN of the SAME identity poisons resolution for THAT identity only, never a global unknown", () => {
+  // A row that fails `isRegistryEntry` (here: `kind` dropped) sitting next
+  // to an otherwise-valid, LIVE-shaped twin of the exact same identity
+  // (same id + tmuxSession). Before this fix `loadRegistry()` silently
+  // DROPPED the unreadable row and returned `state:"ok"` with only the
+  // valid row — the resolver then saw a clean "recorded" host and the
+  // destructive act proceeded to kill/launch the WRONG (unprovable) thing.
+  it("STOP_ON_VALID_ROW_PLUS_UNREADABLE_TWIN_SAME_NAME_REFUSES_NO_KILL_EFFECT", async () => {
+    const slug = `twin-stop-${process.pid}`;
+    const valid = nativeRow(slug, { kind: "local-tmux" });
+    const { kind: _dropped, ...unreadableTwin } = valid;
+    writeRegistry([valid, unreadableTwin]);
+
+    await main(["node", "h2a", "stop", slug]);
+
+    // Assert on the EFFECT MOCKS, never only the refusal MESSAGE — a
+    // message-only assertion would let a correct-but-LATE guard (one placed
+    // after the kill) look like it holds.
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(killNativeSessionTree).not.toHaveBeenCalled();
+    expect(stopRemoteSession).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+  });
+
+  it("RESUME_ON_VALID_ROW_PLUS_UNREADABLE_TWIN_SAME_NAME_REFUSES_NO_KILL_NO_LAUNCH", async () => {
+    const slug = `twin-resume-${process.pid}`;
+    // kind:"local-native" by default (nativeRow) — recorded + live-shaped.
+    const valid = nativeRow(slug);
+    const { kind: _dropped, ...unreadableTwin } = valid;
+    writeRegistry([valid, unreadableTwin]);
+
+    await main(["node", "h2a", "resume", slug]);
+
+    // Without this fix, resolveManagedHost sees only the valid row, resolves
+    // "recorded", finds it not-live (nativeSessionLiveness defaults false in
+    // this suite) and falls through to START A NEW SESSION on the SAME
+    // unprovable identity — asserted absent here.
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(killNativeSessionTree).not.toHaveBeenCalled();
+    expect(startLocalSession).not.toHaveBeenCalled();
+    expect(startNativeSession).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
   });
 });
 

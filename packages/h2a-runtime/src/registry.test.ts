@@ -56,6 +56,14 @@ const baseInput = {
   sessionClass: "background" as const,
 };
 
+
+/** Unwrap the 3-state read for round-trip assertions (read must be "ok"). */
+function loadEntries(path: string): RegistryEntry[] {
+  const read = loadRegistry(path);
+  expect(read.state).toBe("ok");
+  return read.state === "ok" ? read.entries : [];
+}
+
 describe("registry", () => {
   it("enroll creates the file atomically and loadRegistry round-trips", () => {
     const entry = enroll(baseInput, regPath);
@@ -64,7 +72,7 @@ describe("registry", () => {
     expect(existsSync(regPath)).toBe(true);
     // no leftover tmp file from the atomic write
     expect(readdirSync(scratch)).toEqual(["registry.json"]);
-    const loaded = loadRegistry(regPath);
+    const loaded = loadEntries(regPath);
     expect(loaded).toHaveLength(1);
     expect(loaded[0]).toMatchObject({
       id: "sess-1",
@@ -85,7 +93,7 @@ describe("registry", () => {
     expect(second.enrolledAt).toBe(first.enrolledAt);
     expect(second.convId).toBe("conv-42");
     expect(second.label).toBe("projA");
-    const loaded = loadRegistry(regPath);
+    const loaded = loadEntries(regPath);
     expect(loaded).toHaveLength(1);
     expect(loaded[0]!.convId).toBe("conv-42");
     // fields not repeated on re-enroll are preserved
@@ -109,22 +117,22 @@ describe("registry", () => {
       delegatorInstance: "codex:owner:abc",
       delegatorTmuxSession: "h2a-owner",
     });
-    expect(loadRegistry(regPath)[0]).toMatchObject(entry);
+    expect(loadEntries(regPath)[0]).toMatchObject(entry);
   });
 
   it("re-enrolling an ended session revives it (endedAt dropped)", () => {
     enroll(baseInput, regPath);
     expect(markEnded("sess-1", regPath)).toBe(true);
-    expect(loadRegistry(regPath)[0]!.endedAt).toBeTruthy();
+    expect(loadEntries(regPath)[0]!.endedAt).toBeTruthy();
     enroll(baseInput, regPath);
-    expect(loadRegistry(regPath)[0]!.endedAt).toBeUndefined();
+    expect(loadEntries(regPath)[0]!.endedAt).toBeUndefined();
   });
 
   it("touchEntry refreshes lastSeenAt and reports unknown ids", () => {
     enroll(baseInput, regPath);
-    const before = loadRegistry(regPath)[0]!.lastSeenAt;
+    const before = loadEntries(regPath)[0]!.lastSeenAt;
     expect(touchEntry("sess-1", regPath)).toBe(true);
-    expect(Date.parse(loadRegistry(regPath)[0]!.lastSeenAt)).toBeGreaterThanOrEqual(
+    expect(Date.parse(loadEntries(regPath)[0]!.lastSeenAt)).toBeGreaterThanOrEqual(
       Date.parse(before),
     );
     expect(touchEntry("nope", regPath)).toBe(false);
@@ -133,14 +141,20 @@ describe("registry", () => {
   it("markEnded sets endedAt and reports unknown ids", () => {
     enroll(baseInput, regPath);
     expect(markEnded("sess-1", regPath)).toBe(true);
-    expect(loadRegistry(regPath)[0]!.endedAt).toBeTruthy();
+    expect(loadEntries(regPath)[0]!.endedAt).toBeTruthy();
     expect(markEnded("nope", regPath)).toBe(false);
   });
 
-  it("loadRegistry tolerates a missing or corrupt file", () => {
-    expect(loadRegistry(regPath)).toEqual([]);
+  it("loadRegistry: a missing file is PROVABLY empty, a corrupt file is UNKNOWN", () => {
+    // ENOENT: rows cannot exist without a file — positive emptiness.
+    expect(loadRegistry(regPath)).toEqual({ state: "ok", entries: [], unreadable: [] });
+    // Corrupt: the read proves nothing — it must say so, never flatten to []
+    // (an empty read here let destructive acts treat an unprovable local
+    // state as proven absence and fall through to a remote homonym).
     writeFileSync(regPath, "{not json", "utf8");
-    expect(loadRegistry(regPath)).toEqual([]);
+    const corrupt = loadRegistry(regPath);
+    expect(corrupt.state).toBe("unknown");
+    expect(corrupt).not.toHaveProperty("entries");
   });
 
   describe("listLive", () => {
@@ -267,7 +281,7 @@ describe("registry", () => {
         tmuxHasSession: (name) => name === "remote-c",
       });
       expect(removed).toBe(1);
-      expect(loadRegistry(regPath).map((e) => e.id).sort()).toEqual([
+      expect(loadEntries(regPath).map((e) => e.id).sort()).toEqual([
         "dead-recent",
         "live-old",
       ]);
@@ -307,7 +321,7 @@ describe("registry", () => {
         tmuxHasSession: () => false,
       });
       expect(removed).toBe(1);
-      expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-pinned"]);
+      expect(loadEntries(regPath).map((e) => e.id)).toEqual(["restore-pinned"]);
     });
 
     it("keeps human entries whose convId equals label (mis-recorded durable sessions)", () => {
@@ -344,7 +358,7 @@ describe("registry", () => {
         tmuxHasSession: () => false,
       });
       expect(removed).toBe(1);
-      expect(loadRegistry(regPath).map((e) => e.id)).toEqual([
+      expect(loadEntries(regPath).map((e) => e.id)).toEqual([
         "restore-label-eq",
       ]);
     });
@@ -381,7 +395,7 @@ describe("registry", () => {
         tmuxHasSession: () => false,
       });
       expect(removed).toBe(1);
-      expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-no-convid"]);
+      expect(loadEntries(regPath).map((e) => e.id)).toEqual(["restore-no-convid"]);
     });
 
     it("pins a local-tmux/run entry whose sessionClass is absent (unknown protects)", () => {
@@ -417,7 +431,7 @@ describe("registry", () => {
         tmuxHasSession: () => false,
       });
       expect(removed).toBe(1);
-      expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-no-class"]);
+      expect(loadEntries(regPath).map((e) => e.id)).toEqual(["restore-no-class"]);
     });
 
     it("does not pin a positively non-human row (delegated job), even when classless", () => {
@@ -452,7 +466,7 @@ describe("registry", () => {
         tmuxHasSession: () => false,
       });
       expect(removed).toBe(2);
-      expect(loadRegistry(regPath)).toEqual([]);
+      expect(loadEntries(regPath)).toEqual([]);
     });
 
     it("keeps durable human rows that qualify for implicit restore pinning", () => {
@@ -488,7 +502,7 @@ describe("registry", () => {
         tmuxHasSession: () => false,
       });
       expect(removed).toBe(1);
-      expect(loadRegistry(regPath).map((e) => e.id)).toEqual(["restore-implicit"]);
+      expect(loadEntries(regPath).map((e) => e.id)).toEqual(["restore-implicit"]);
     });
 
     it("is a no-op (no rewrite) when nothing is prunable", () => {
@@ -496,6 +510,64 @@ describe("registry", () => {
       const before = readFileSync(regPath, "utf8");
       expect(prune(48, { path: regPath, tmuxHasSession: () => true })).toBe(0);
       expect(readFileSync(regPath, "utf8")).toBe(before);
+    });
+
+    it("restore-pin x FILE-level unknown (reconciliation decision, conservative-preserve): a CORRUPT registry is never rewritten by prune", () => {
+      // The whole-file read is unknown (unparseable) — whatever restore-pinned
+      // rows it might contain are neither read NOR erased: withRegistryLock's
+      // own write-path raw read flattens an unknown file to [], so prune sees
+      // 0 entries, 0 kept, and takes its `save:false` no-op branch.
+      writeFileSync(regPath, "{not json", "utf8");
+      const before = readFileSync(regPath, "utf8");
+      expect(() => prune(48, { path: regPath, tmuxHasSession: () => false })).not.toThrow();
+      expect(prune(48, { path: regPath, tmuxHasSession: () => false })).toBe(0);
+      expect(readFileSync(regPath, "utf8")).toBe(before);
+    });
+
+    it("restore-pin x per-row unreadable (reconciliation decision, conservative-preserve): a restore-pin-shaped but UNREADABLE row survives prune verbatim", () => {
+      const old = new Date(Date.now() - 100 * 3600 * 1000).toISOString();
+      const pinnedShapedButUnreadable = {
+        id: "restore-pin-unreadable",
+        // `kind` deliberately absent: fails isRegistryEntry, so
+        // shouldPreserveByRestorePin never even sees this row — it is
+        // excluded from `entries` before prune's filter runs, yet
+        // withRegistryLock/saveRegistry re-append it VERBATIM regardless.
+        tool: "claude",
+        cwd: "/r",
+        tmuxSession: "remote-restore-pin-unreadable",
+        enrolledAt: old,
+        lastSeenAt: old,
+        source: "run",
+        sessionClass: "human",
+        convId: "a1b2c3d4-1111-2222-3333-444455556666",
+      };
+      const dead: RegistryEntry = {
+        id: "dead-old",
+        tool: "claude",
+        kind: "local-tmux",
+        cwd: "/a",
+        tmuxSession: "remote-a",
+        enrolledAt: old,
+        lastSeenAt: old,
+        source: "run",
+        sessionClass: "background",
+      };
+      writeFileSync(
+        regPath,
+        JSON.stringify({ version: 1, entries: [pinnedShapedButUnreadable, dead] }),
+        "utf8",
+      );
+      const removed = prune(DEFAULT_LAYOUT.maxAgeHours, {
+        path: regPath,
+        tmuxHasSession: () => false,
+      });
+      expect(removed).toBe(1); // only "dead-old" (a valid, prunable entry)
+      const raw = JSON.parse(readFileSync(regPath, "utf8")) as {
+        entries: Array<Record<string, unknown>>;
+      };
+      const survivor = raw.entries.find((e) => e.id === "restore-pin-unreadable");
+      expect(survivor).toBeDefined();
+      expect(survivor!.kind).toBeUndefined();
     });
   });
 
@@ -516,7 +588,7 @@ describe("registry", () => {
 
     it("round-trips the job fields through enroll/loadRegistry", () => {
       enroll(jobInput, regPath);
-      const [loaded] = loadRegistry(regPath);
+      const [loaded] = loadEntries(regPath);
       expect(loaded).toMatchObject({
         id: "job-1",
         role: "job",
@@ -535,7 +607,7 @@ describe("registry", () => {
 
     it("a plain session keeps no job fields (back-compat)", () => {
       enroll(baseInput, regPath);
-      const [loaded] = loadRegistry(regPath);
+      const [loaded] = loadEntries(regPath);
       expect(loaded?.role).toBeUndefined();
       expect(loaded?.jobState).toBeUndefined();
     });
@@ -546,7 +618,7 @@ describe("registry", () => {
         const updated = advanceJob("job-1", "done", regPath);
         expect(updated?.jobState).toBe("done");
         expect(updated?.endedAt).toBeTruthy();
-        expect(loadRegistry(regPath)[0]?.jobState).toBe("done");
+        expect(loadEntries(regPath)[0]?.jobState).toBe("done");
       });
 
       it("running -> failed is allowed; done -> running is not", () => {
@@ -627,7 +699,7 @@ describe("registry", () => {
           },
           regPath,
         );
-        const loaded = loadRegistry(regPath).find((e) => e.id === "rl-6");
+        const loaded = loadEntries(regPath).find((e) => e.id === "rl-6");
         expect(loaded?.throttle).toEqual({
           attempts: 3,
           firstAt: "2026-06-11T12:00:00.000Z",
@@ -678,7 +750,7 @@ describe("registry", () => {
           },
           regPath,
         );
-        const [loaded] = loadRegistry(regPath);
+        const [loaded] = loadEntries(regPath);
         expect(loaded).toMatchObject({
           id: "q-1",
           jobState: "pending",
@@ -715,7 +787,7 @@ describe("registry", () => {
 
       it("a plain session keeps NO queued-launch fields (back-compat)", () => {
         enroll(baseInput, regPath);
-        const [loaded] = loadRegistry(regPath);
+        const [loaded] = loadEntries(regPath);
         expect(loaded?.headless).toBeUndefined();
         expect(loaded?.depthBudget).toBeUndefined();
         expect(loaded?.remoteTarget).toBeUndefined();
@@ -751,7 +823,7 @@ describe("registry concurrency (S2/S3)", () => {
       e.label = "second";
       return { entries, result: undefined };
     });
-    const all = loadRegistry(regPath);
+    const all = loadEntries(regPath);
     expect(all.find((e) => e.id === "a")?.label).toBe("first");
     expect(all.find((e) => e.id === "b")?.label).toBe("second");
   });
@@ -769,7 +841,7 @@ describe("registry concurrency (S2/S3)", () => {
   it("tryClaimSlot enrolls running while under the cap", () => {
     const claimed = tryClaimSlot(jobInput("j1"), 2, regPath);
     expect(claimed?.jobState).toBe("running");
-    expect(loadRegistry(regPath).find((e) => e.id === "j1")?.jobState).toBe(
+    expect(loadEntries(regPath).find((e) => e.id === "j1")?.jobState).toBe(
       "running",
     );
   });
@@ -781,7 +853,7 @@ describe("registry concurrency (S2/S3)", () => {
     expect(claimed).toBeUndefined();
     // r2 was NOT written (no overshoot of the cap, and no stray entry).
     expect(readFileSync(regPath, "utf8")).toBe(before);
-    expect(loadRegistry(regPath).some((e) => e.id === "r2")).toBe(false);
+    expect(loadEntries(regPath).some((e) => e.id === "r2")).toBe(false);
   });
 
   it("tryClaimSlot does not double-count a job already pending as its own slot", () => {
