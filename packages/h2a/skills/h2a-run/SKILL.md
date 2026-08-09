@@ -25,23 +25,12 @@ None of these require knowing a provider model id up front:
 
 ## Step 2 — resolve the model flavor (source-of-truth caveat)
 
-**The canonical model catalog belongs to the llm-mesh gateway**, not this skill: today it lives at `packages/h2a-runtime/src/llm-gateway-runtime/model-catalog.ts` (moving under `@sentropic/llm-gateway`). This skill must never be treated as ground truth for routing, and the hint table below is a minimal, best-effort convenience — it can drift or be wrong. There is an **open track item** ("Terra xhigh launch preset" bug) about exactly this kind of drift: a `claude-*`-branded alias can silently resolve to a *different* catalog entry than its nickname implies. Before trusting a mapping below:
+**The canonical model catalog and equivalence council belong to `@sentropic/llm-mesh`**, never to h2a or this skill. This skill must not freeze a provider/model table. Before translating a nickname:
 
 - if a gateway is already running for this session, query `GET <ANTHROPIC_BASE_URL>/v1/models` (the mesh's own live catalog) and match the flavor there;
-- otherwise, read the catalog source file above fresh — do not copy it verbatim into a durable prompt/skill, it moves.
+- otherwise, ask the caller for an exact model id or start the gateway and query it; never inspect or recreate a h2a-local table.
 
-Known flavors as of this writing (verify before relying on them for anything consequential):
-
-| User says | Catalog id — pass this to `--model`/`model` | Pool |
-|---|---|---|
-| "terra", "5.6 terra" | `gpt-5.6-terra` | codex |
-| "sol", "fable", "fable 5" | `gpt-5.6-sol` | codex |
-| "luna" | `gpt-5.6-luna` | codex |
-| "5.5" (codex default) | `gpt-5.5` | codex |
-| "gemini flash", "3.5 flash" | `gemini-3.5-flash` | google |
-| "gemini pro", "3.1 pro" | `gemini-3.1-pro` | google |
-
-Prefer the **catalog id** (right column) over a `claude-*`-branded alias — the aliases are exactly where the current drift/collision risk lives. If the user names a flavor not in this table, do not invent an id: query the live catalog (above) rather than guessing.
+The owner-ratified xhigh aliases are intentionally narrow: Opus 5 and Opus 4.8 resolve to Terra xhigh, Fable 5 to Sol xhigh, and Sonnet 5 to Luna xhigh. Any additional effort variant must come from the live Sentropic council. Bare vendor ids remain provider-faithful. Always prefer the exact live catalog id returned by the gateway; if the requested nickname is absent, do not invent one.
 
 ## Step 3 — gateway on/off
 
@@ -97,4 +86,4 @@ Other `h2a run` flags worth knowing:
 ## Related
 
 - `h2a delegate <type> <task>` accepts the same `--model`/`--effort` flags for a queued/background job (plus `--account <id>` to pin a specific pooled account) — Step 2's resolution rule applies there too.
-- For the actual routing/alias table, defer to the llm-mesh/gateway catalog — this skill never freezes a copy of it beyond the "known as of this writing" hint in Step 2.
+- For the actual routing/alias table, defer to the live llm-mesh/gateway catalog; this skill never freezes a copy.

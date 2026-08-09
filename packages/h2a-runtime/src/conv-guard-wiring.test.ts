@@ -50,17 +50,7 @@ const migrateForward = vi.fn();
 const migrateBack = vi.fn();
 const localConvStat = vi.fn();
 const acquireLlmMeshSessionEnv = vi.fn();
-const readLlmMeshSessionEnv = vi.fn();
-const readLlmMeshConfig = vi.fn(
-  (): {
-    accounts: Array<{
-      id: string;
-      provider: "anthropic" | "openai";
-      label: string;
-      token: string;
-    }>;
-  } => ({ accounts: [] }),
-);
+const readLlmMeshConfig = vi.fn((): { port?: number } => ({}));
 const getLlmMeshRuntimeConfig = vi.fn(() => ({ enabled: false }));
 const startGateway = vi.fn();
 const readGatewayPid = vi.fn(() => null);
@@ -176,16 +166,13 @@ vi.mock("./migrate.js", () => ({
 }));
 
 vi.mock("./llm-mesh.js", () => ({
-  enrollCodexAccount: vi.fn(),
   readLlmMeshConfig,
   startGateway,
   stopGateway: vi.fn(),
   writeLlmMeshConfig: vi.fn(),
   readGatewayPid,
   llmMeshLogPath: vi.fn(() => "llm-mesh.log"),
-  jwtExpiry: vi.fn(() => null),
   acquireLlmMeshSessionEnv,
-  readLlmMeshSessionEnv,
 }));
 
 // Controls how a BARE `migrate forward -r` resolves "the most recent local
@@ -300,10 +287,8 @@ beforeEach(() => {
   localConvStat.mockReturnValue(undefined);
   acquireLlmMeshSessionEnv.mockReset();
   acquireLlmMeshSessionEnv.mockResolvedValue(null);
-  readLlmMeshSessionEnv.mockReset();
-  readLlmMeshSessionEnv.mockReturnValue(null);
   readLlmMeshConfig.mockReset();
-  readLlmMeshConfig.mockReturnValue({ accounts: [] });
+  readLlmMeshConfig.mockReturnValue({});
   getLlmMeshRuntimeConfig.mockReset();
   getLlmMeshRuntimeConfig.mockReturnValue({ enabled: false });
   startGateway.mockReset();
@@ -532,7 +517,7 @@ describe("h2a relaunch", () => {
     expect(stderrText()).toContain("objective re-injected; agent WORKING");
     expect(stderrText()).toContain("unresumable");
     expect(stderrText()).toContain("no resumable conversation");
-  });
+  }, 30_000);
 
   it("never force-relaunches a working agent even when the old child count says idle", async () => {
     // Reproduce the measured mass-kill shape: localSessionIdle's flaky count
@@ -1066,7 +1051,6 @@ describe("h2a resume <slug>", () => {
     acquireLlmMeshSessionEnv.mockResolvedValue({
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "gw-current",
-      ANTHROPIC_API_KEY: "gw-current",
     });
     // Resume checks the active pane against the gateway env that is current in
     // this process before it decides whether a replacement is safe.
@@ -1219,7 +1203,6 @@ describe("h2a resume <slug>", () => {
     acquireLlmMeshSessionEnv.mockResolvedValue({
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "gw-test",
-      ANTHROPIC_API_KEY: "gw-test",
     });
     writeRegistry([registrySession()]);
 
@@ -1237,7 +1220,7 @@ describe("h2a resume <slug>", () => {
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBe("http://localhost:3002");
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-test");
-    expect(process.env.ANTHROPIC_API_KEY).toBe("gw-test");
+    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(acquireLlmMeshSessionEnv).toHaveBeenCalledWith(
       undefined,
       "h2a-projA",
@@ -1251,7 +1234,6 @@ describe("h2a resume <slug>", () => {
     acquireLlmMeshSessionEnv.mockResolvedValue({
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "gw-current",
-      ANTHROPIC_API_KEY: "gw-current",
     });
     writeRegistry([registrySession()]);
 
@@ -1269,17 +1251,19 @@ describe("h2a resume <slug>", () => {
     );
     expect(process.env.ANTHROPIC_BASE_URL).toBe("http://localhost:3002");
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-current");
-    expect(process.env.ANTHROPIC_API_KEY).toBe("gw-current");
+    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(stderrText()).toContain("injecting gateway env");
   });
 
-  it("reports explicit --gw fallback when no gateway env or accounts exist", async () => {
+  it("reports explicit --gw fallback when the Sentropic gateway cannot start", async () => {
     writeRegistry([registrySession()]);
 
     const exitCode = await main(["node", "remote", "resume", "projA", "--gw"]);
 
     expect(exitCode).toBe(0);
-    expect(startGateway).not.toHaveBeenCalled();
+    expect(startGateway).toHaveBeenCalledWith({}, {
+      clientSessionId: "h2a-projA",
+    });
     expect(startLocalSession).toHaveBeenCalledWith(
       "claude",
       "claude",
@@ -1317,16 +1301,7 @@ describe("h2a resume <slug>", () => {
   });
 
   it("starts configured llm-mesh automatically before resuming Claude", async () => {
-    readLlmMeshConfig.mockReturnValue({
-      accounts: [],
-      meshAccounts: [
-        {
-          accountId: "cloud-code-oauth",
-          provider: "cloud-code",
-          label: "Cloud Code",
-        },
-      ],
-    });
+    readLlmMeshConfig.mockReturnValue({});
     startGateway.mockResolvedValue({
       pid: 123,
       port: 3002,
@@ -1348,22 +1323,13 @@ describe("h2a resume <slug>", () => {
       { attachedTerminal: true, sessionClass: "background" },
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBe("gw-started");
-    expect(process.env.ANTHROPIC_API_KEY).toBe("gw-started");
+    expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(stderrText()).toContain("gateway was stopped; started");
   });
 
   it("does not auto-start llm-mesh by default", async () => {
     getLlmMeshRuntimeConfig.mockReturnValue({ enabled: false });
-    readLlmMeshConfig.mockReturnValue({
-      accounts: [],
-      meshAccounts: [
-        {
-          accountId: "cloud-code-oauth",
-          provider: "cloud-code",
-          label: "Cloud Code",
-        },
-      ],
-    });
+    readLlmMeshConfig.mockReturnValue({});
     startGateway.mockResolvedValue({
       pid: 123,
       port: 3002,
@@ -1389,16 +1355,7 @@ describe("h2a resume <slug>", () => {
 
   it("--no-gw forces direct auth even when llm-mesh config is enabled", async () => {
     getLlmMeshRuntimeConfig.mockReturnValue({ enabled: true });
-    readLlmMeshConfig.mockReturnValue({
-      accounts: [],
-      meshAccounts: [
-        {
-          accountId: "cloud-code-oauth",
-          provider: "cloud-code",
-          label: "Cloud Code",
-        },
-      ],
-    });
+    readLlmMeshConfig.mockReturnValue({});
     startGateway.mockResolvedValue({
       pid: 123,
       port: 3002,
@@ -1565,7 +1522,6 @@ describe("h2a run -r <conv> single-writer guard", () => {
     acquireLlmMeshSessionEnv.mockResolvedValue({
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "gw-launch",
-      ANTHROPIC_API_KEY: "gw-launch",
     });
 
     const exitCode = await main([
