@@ -25,6 +25,8 @@ export type NativeTerminalHostSpawn = (options: {
   generation: string;
   replayBytesPerSession: number;
   maxSessions: number;
+  /** Durable pgid store; defaults to the real registry path when omitted. */
+  registryPath?: string;
 }) => ChildProcess;
 
 function defaultSpawnHost(options: {
@@ -32,6 +34,7 @@ function defaultSpawnHost(options: {
   generation: string;
   replayBytesPerSession: number;
   maxSessions: number;
+  registryPath?: string;
 }): ChildProcess {
   const entry = fileURLToPath(new URL("./process.js", import.meta.url));
   const child = spawn(process.execPath, [
@@ -44,6 +47,9 @@ function defaultSpawnHost(options: {
     String(options.replayBytesPerSession),
     "--max-sessions",
     String(options.maxSessions),
+    ...(options.registryPath !== undefined
+      ? ["--registry-path", options.registryPath]
+      : []),
   ], {
     detached: true,
     stdio: ["ignore", "ignore", "pipe"],
@@ -112,6 +118,7 @@ export class NativeTerminalHostSupervisor {
   readonly #now: () => number;
   readonly #startupTimeoutMs: number;
   readonly #spawnTerminationGraceMs: number;
+  readonly #registryPath: string | undefined;
   #client: NativeTerminalClient | undefined;
   #connecting: Promise<NativeTerminalClient> | undefined;
   #spawned: ChildProcess | undefined;
@@ -132,6 +139,8 @@ export class NativeTerminalHostSupervisor {
     now?: () => number;
     startupTimeoutMs?: number;
     spawnTerminationGraceMs?: number;
+    /** Durable pgid store forwarded to a spawned host; defaults to the real registry path. */
+    registryPath?: string;
   }) {
     if (
       !Number.isSafeInteger(options.replayBytesPerSession)
@@ -182,6 +191,7 @@ export class NativeTerminalHostSupervisor {
     this.#now = options.now ?? Date.now;
     this.#startupTimeoutMs = startupTimeoutMs;
     this.#spawnTerminationGraceMs = spawnTerminationGraceMs;
+    this.#registryPath = options.registryPath;
   }
 
   get spawnedPid(): number | undefined {
@@ -241,6 +251,7 @@ export class NativeTerminalHostSupervisor {
           generation,
           replayBytesPerSession: this.#replayBytesPerSession,
           maxSessions: this.#maxSessions,
+          ...(this.#registryPath !== undefined ? { registryPath: this.#registryPath } : {}),
         });
         const spawned = this.#spawned;
         spawned.stderr?.setEncoding("utf8");
