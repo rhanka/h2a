@@ -8595,6 +8595,19 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         process.exitCode = 1;
         return;
       }
+      // Non-forced relaunch is non-destructive by design (it only retypes
+      // into idle shells, see below), so an unreadable registry does not
+      // exit 1 here — but `registryEntries` below would be `[]`, and every
+      // session would then read as "no matching registry conversation",
+      // which is a LIE: the truth is the registry couldn't be read at all.
+      // Name the real cause once, up front, and skip the misleading
+      // per-session reasons for this case.
+      if (!forced && !registry.known) {
+        process.stderr.write(
+          `[h2a] registry is unreadable (${registry.reason ?? "no detail"}); cannot determine resumable conversations — relaunch refused for all ${sessions.length} managed session(s)\n`,
+        );
+        return;
+      }
       const registryEntries = registry.entries;
       const resolution = forced
         ? reconcileRunConvIds(registryEntries, (cwd, convId) =>
@@ -9968,6 +9981,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // ALSO catches this same identity independently — this is
           // deliberate defense-in-depth at the one place every branch shares,
           // not the only place it is caught.
+          // Defense-in-depth ABOVE A2 (the resolver-level per-identity
+          // `unreadable` check in resolveManagedHost). A2's position is
+          // proven by the RESUME/RESTORE wiring tests; STOP additionally
+          // carries THIS guard. Do NOT remove this guard as "redundant"
+          // without first adding a stop test that reddens on A2's position —
+          // otherwise stop's dependency on A2 would become silent.
           const unreadable = unreadableRegistryRowsForTarget(first);
           if (unreadable.length > 0) {
             const unreadableIds = unreadable
