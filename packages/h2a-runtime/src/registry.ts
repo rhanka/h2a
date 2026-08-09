@@ -334,6 +334,15 @@ export type RegistryReadResult =
 /** A raw, unvalidated registry row — read DEFENSIVELY (it failed validation). */
 export type RawRow = Record<string, unknown>;
 
+// Returns the 3-state RegistryReadResult above
+// ({state:"ok",entries,unreadable} | {state:"unknown",reason}), NOT a plain
+// array — a bare `.map()`/`.find()`/`.some()`/`.every()` on the return value
+// is a bug. tsc does NOT type-check `.js` files, so a signature change here
+// is invisible to JS callers (e.g. packages/h2a/test/*.js) even though every
+// `.ts` caller gets a compile error. Anyone widening/changing this return
+// type MUST grep repo-wide for BOTH extensions before trusting the compiler
+// to be exhaustive:
+//   git grep -nE 'loadRegistry\b' -- '**/*.js' '**/*.ts' | grep -v loadRegistryWithDiagnostics
 export function loadRegistry(
   path: string = resolveRegistryPath(),
 ): RegistryReadResult {
