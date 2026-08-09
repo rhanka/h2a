@@ -1,23 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { describeCanonicalTargetRoutes } from "@sentropic/llm-gateway";
-import {
-  listModelCatalog,
-  resetModelCatalogCache,
-  resolveModelRoute
-} from "../../h2a-runtime/dist/llm-gateway-runtime/model-catalog.js";
-import {
-  getSessionLedgerEntry,
-  getSessionLedgerEntryForClient,
-  recordSessionFallback,
-  recordSessionIdle,
-  recordSessionRateLimitComplete,
-  recordSessionRateLimited,
-  recordSessionRequest,
-  resetSessionLedger,
-  upsertSessionLedger
-} from "../../h2a-runtime/dist/llm-gateway-runtime/session-ledger.js";
 import {
   h2aStatusSurfaceOptions,
   h2aStatusWindowCommand,
@@ -25,9 +8,7 @@ import {
   uninstallH2aStatusSurfaceWithAccess
 } from "../../h2a-runtime/dist/tmux.js";
 import {
-  gatewayFromLedger,
   projectDelegatedExecutions,
-  selectExactGatewayLedgerEntry,
   uniqueManagedWork
 } from "../../h2a-runtime/dist/status-projection.js";
 import {
@@ -39,8 +20,14 @@ import {
   gatewayModeForProfile,
   profileUsesLlmMeshGateway
 } from "../../h2a-runtime/dist/protocol-local.js";
-import { toCodexRequest } from "../../h2a-runtime/dist/llm-gateway-runtime/proxy-openai.js";
-import { replaceAnthropicGatewayEnvironment } from "../../h2a-runtime/dist/llm-mesh.js";
+import {
+  replaceAnthropicGatewayEnvironment
+} from "../../h2a-runtime/dist/llm-mesh.js";
+import {
+  describeLlmMeshRoutingConfig,
+  preferredRoutingConfig,
+  strategyRoutingConfig
+} from "../../h2a-runtime/dist/llm-routing-config.js";
 
 const session = (name, tmuxId = "$1", identity = {}) => ({
   tmuxId,
@@ -54,33 +41,27 @@ const session = (name, tmuxId = "$1", identity = {}) => ({
   attached: false
 });
 
-test("runtime routing is read from llm-gateway 0.10 canonical descriptions", () => {
-  delete process.env.OPENAI_MODEL_MAP;
-  resetModelCatalogCache();
-  const described = describeCanonicalTargetRoutes();
-  const catalog = listModelCatalog();
-  const canonicalCatalog = catalog.filter((entry) =>
-    described.some((route) => route.requestedId === entry.id)
-  );
-  assert.deepEqual(
-    canonicalCatalog.map((entry) => [entry.id, entry.targetProviderId, entry.transportProviderId, entry.upstreamModel, entry.routeKind]),
-    described.map((entry) => [entry.requestedId, entry.providerId, entry.transportProviderId, entry.model, entry.kind])
-  );
-  assert.deepEqual(
-    catalog
-      .filter((entry) => entry.transportProviderId === "cloud-code")
-      .map((entry) => [entry.id, entry.targetProviderId, entry.upstreamModel, entry.routeKind]),
-    [
-      ["gemini-2.5-pro", "google", "gemini-2.5-pro", "faithful"],
-      ["gemini-2.5-flash", "google", "gemini-2.5-flash", "faithful"]
+test("runtime exposes only public Sentropic routing controls", () => {
+  const preferred = preferredRoutingConfig(undefined, ["codex", "cloud-code"]);
+  const described = describeLlmMeshRoutingConfig(preferred);
+  assert.deepEqual(described.strategy, {
+    kind: "ordered",
+    preferences: [
+      { transportProviderId: "codex" },
+      { transportProviderId: "cloud-code" }
     ]
-  );
-  assert.equal(resolveModelRoute("claude-opus-5-xhigh")?.upstreamModel, "gpt-5.6-terra");
-  assert.equal(resolveModelRoute("claude-fable-5-max")?.upstreamModel, "gpt-5.6-sol");
-  assert.equal(resolveModelRoute("claude-opus-4-8-xhigh"), undefined);
+  });
+  assert.equal(JSON.stringify(described).includes("accountId"), false);
+  assert.equal(JSON.stringify(described).includes("gpt-5.6"), false);
+
+  const roundRobin = strategyRoutingConfig(preferred, "round-robin");
+  assert.deepEqual(describeLlmMeshRoutingConfig(roundRobin).strategy, {
+    kind: "round-robin",
+    scope: "new-affinity"
+  });
 });
 
-test("only Claude profiles can mint an Anthropic-compatible gateway session", () => {
+test("only Claude profiles consume the Anthropic-compatible gateway", () => {
   assert.equal(profileUsesLlmMeshGateway("claude"), true);
   assert.equal(profileUsesLlmMeshGateway("claude-code"), true);
   for (const profile of ["codex", "agy", "gemini", "opencode", "mistral", "shell"]) {
@@ -110,175 +91,6 @@ test("delegated launch gateway env is scrubbed and restores the caller exactly",
     ANTHROPIC_AUTH_TOKEN: "old-token",
     UNRELATED: "kept"
   });
-});
-
-test("canonical alias effort overrides missing or conflicting thinking budgets", () => {
-  const withoutThinking = toCodexRequest({
-    model: "claude-fable-5-max",
-    messages: [],
-    max_tokens: 8
-  }, "max");
-  assert.deepEqual(withoutThinking.reasoning, { effort: "max" });
-  const conflicting = toCodexRequest({
-    model: "claude-opus-5-high",
-    messages: [],
-    max_tokens: 8,
-    thinking: { type: "enabled", budget_tokens: 50_000 }
-  }, "high");
-  assert.deepEqual(conflicting.reasoning, { effort: "high" });
-});
-
-test("gateway ledger exposes concurrent active work and only explicit fallback transitions", () => {
-  resetSessionLedger();
-  const first = { id: "acct-a", provider: "openai", label: "Raw API key", token: "sk-secret-a" };
-  const second = { id: "acct-b", provider: "openai", label: "work-codex", token: "sk-secret-b" };
-  const route = resolveModelRoute("claude-opus-5-high");
-  upsertSessionLedger({ gatewaySessionId: "gw-one", clientSessionId: "h2a-demo", account: first, route });
-  recordSessionRequest("gw-one", route);
-  recordSessionRequest("gw-one", route);
-  assert.equal(getSessionLedgerEntry("gw-one")?.state, "active");
-  assert.equal(getSessionLedgerEntry("gw-one")?.inFlightRequests, 2);
-  assert.equal(getSessionLedgerEntry("gw-one")?.upstreamModel, undefined);
-  recordSessionIdle("gw-one", route);
-  assert.equal(getSessionLedgerEntry("gw-one")?.state, "active");
-  assert.equal(getSessionLedgerEntry("gw-one")?.inFlightRequests, 1);
-  recordSessionIdle("gw-one", route);
-  recordSessionRequest("gw-one", route);
-  recordSessionRateLimited("gw-one", first, { route, retryAfterMs: 30_000 });
-  assert.equal(getSessionLedgerEntry("gw-one")?.state, "rate-limited");
-  upsertSessionLedger({ gatewaySessionId: "gw-one", account: second, route });
-  assert.equal(getSessionLedgerEntry("gw-one")?.lastFallback, undefined);
-  recordSessionFallback("gw-one", first, second, route);
-  recordSessionIdle("gw-one", route);
-  const entry = getSessionLedgerEntry("gw-one");
-  assert.equal(entry?.state, "idle");
-  assert.equal(entry?.inFlightRequests, 0);
-  assert.equal(entry?.lastFallback?.from.id, "acct-a");
-  assert.equal(entry?.lastFallback?.to.id, "acct-b");
-  assert.notEqual(entry?.upstreamModel, entry?.account.provider);
-  assert.equal(JSON.stringify(entry).includes("sk-secret"), false);
-  recordSessionRequest("gw-one");
-  assert.equal(getSessionLedgerEntry("gw-one")?.requestedModel, undefined);
-  assert.equal(getSessionLedgerEntry("gw-one")?.upstreamModel, undefined);
-});
-
-test("gateway route stays unknown until an outbound dispatch is recorded", () => {
-  resetSessionLedger();
-  const account = { id: "acct-a", provider: "openai", label: "work", token: "secret" };
-  const route = resolveModelRoute("claude-opus-5-high");
-  upsertSessionLedger({
-    gatewaySessionId: "gw-not-yet-dispatched",
-    clientSessionId: "h2a-owner",
-    account,
-    route,
-  });
-  assert.equal(getSessionLedgerEntry("gw-not-yet-dispatched")?.requestedModel, undefined);
-  assert.equal(getSessionLedgerEntryForClient("h2a-owner")?.upstreamModel, undefined);
-  recordSessionRequest("gw-not-yet-dispatched", route);
-  assert.equal(getSessionLedgerEntryForClient("h2a-owner")?.upstreamModel, "gpt-5.6-terra");
-});
-
-test("overlapping gateway routes suppress non-attributable route and account details", () => {
-  resetSessionLedger();
-  const account = { id: "acct-a", provider: "openai", label: "work", token: "secret" };
-  const routeA = resolveModelRoute("claude-opus-5-high");
-  const routeB = resolveModelRoute("claude-fable-5-max");
-  upsertSessionLedger({ gatewaySessionId: "gw-mixed", clientSessionId: "h2a-demo", account, route: routeA });
-  recordSessionRequest("gw-mixed", routeA);
-  recordSessionRequest("gw-mixed", routeB);
-  recordSessionIdle("gw-mixed", routeA);
-
-  const active = gatewayFromLedger(getSessionLedgerEntry("gw-mixed"));
-  assert.equal(active.state, "active");
-  assert.equal(active.requestedModel, undefined);
-  assert.equal(active.upstreamModel, undefined);
-  assert.equal(active.accountLabel, undefined);
-  assert.match(active.reason, /overlapping requests/);
-
-  recordSessionIdle("gw-mixed", routeB);
-  const idle = gatewayFromLedger(getSessionLedgerEntry("gw-mixed"));
-  assert.equal(idle.state, "idle");
-  assert.equal(idle.requestedModel, undefined);
-
-  recordSessionRequest("gw-mixed", routeA);
-  const singular = gatewayFromLedger(getSessionLedgerEntry("gw-mixed"));
-  assert.equal(singular.requestedModel, "claude-opus-5-high");
-  assert.equal(singular.upstreamModel, "gpt-5.6-terra");
-  assert.equal(singular.accountLabel, "work");
-});
-
-test("gateway projection expires stale active and 429 claims and counts down retry", () => {
-  resetSessionLedger();
-  const at = new Date("2026-07-25T12:00:00.000Z");
-  const account = { id: "acct-a", provider: "openai", label: "Raw API key", token: "secret" };
-  const route = resolveModelRoute("claude-opus-5-high");
-  upsertSessionLedger({ gatewaySessionId: "gw-stale", clientSessionId: "h2a-stale", account, route, now: at });
-  recordSessionRequest("gw-stale", route, at);
-  assert.equal(
-    gatewayFromLedger(getSessionLedgerEntry("gw-stale"), at.getTime()).accountLabel,
-    "acct-a"
-  );
-  assert.equal(
-    gatewayFromLedger(getSessionLedgerEntry("gw-stale"), at.getTime() + 300_001).state,
-    "unknown"
-  );
-
-  recordSessionRateLimited("gw-stale", account, { route, retryAfterMs: 30_000, now: at });
-  recordSessionRateLimitComplete("gw-stale", route, at);
-  const limited = getSessionLedgerEntry("gw-stale");
-  assert.equal(gatewayFromLedger(limited, at.getTime() + 10_000).retryAfterMs, 20_000);
-  assert.equal(gatewayFromLedger(limited, at.getTime() + 30_001).state, "unknown");
-});
-
-test("gateway projection selects only the exact tmux client session id", () => {
-  resetSessionLedger();
-  const account = { id: "acct", provider: "openai", label: "work", token: "secret" };
-  const wrong = upsertSessionLedger({
-    gatewaySessionId: "gw-wrong",
-    clientSessionId: "remote-demo",
-    workspaceId: "/tmp/demo",
-    account
-  });
-  const exact = upsertSessionLedger({
-    gatewaySessionId: "gw-exact",
-    clientSessionId: "h2a-demo",
-    workspaceId: "/different/demo",
-    account
-  });
-  assert.equal(selectExactGatewayLedgerEntry([wrong, exact], "h2a-demo")?.gatewaySessionId, "gw-exact");
-  assert.equal(selectExactGatewayLedgerEntry([wrong], "h2a-demo"), undefined);
-});
-
-test("exact-client gateway lookup chooses the freshest unambiguous gateway record", () => {
-  resetSessionLedger();
-  const account = { id: "acct", provider: "openai", label: "work", token: "secret" };
-  upsertSessionLedger({
-    gatewaySessionId: "gw-old",
-    clientSessionId: "h2a-owner",
-    account,
-    now: new Date("2026-07-26T12:00:00.000Z"),
-  });
-  upsertSessionLedger({
-    gatewaySessionId: "gw-new",
-    clientSessionId: "h2a-owner",
-    account,
-    now: new Date("2026-07-26T12:01:00.000Z"),
-  });
-  assert.equal(getSessionLedgerEntryForClient("h2a-owner")?.gatewaySessionId, "gw-new");
-  upsertSessionLedger({
-    gatewaySessionId: "gw-old",
-    clientSessionId: "h2a-owner",
-    account,
-    now: new Date("2026-07-26T12:02:00.000Z"),
-  });
-  assert.equal(getSessionLedgerEntryForClient("h2a-owner")?.gatewaySessionId, "gw-old");
-  upsertSessionLedger({
-    gatewaySessionId: "gw-tied",
-    clientSessionId: "h2a-owner",
-    account,
-    now: new Date("2026-07-26T12:02:00.000Z"),
-  });
-  assert.equal(getSessionLedgerEntryForClient("h2a-owner"), undefined);
 });
 
 test("delegated-execution projection fails closed without owner provenance or live child evidence", () => {
