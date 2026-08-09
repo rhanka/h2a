@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.12",
-    "@sentropic/llm-gateway": "^0.10.0",
+    "@sentropic/llm-gateway": "^0.12.0",
+    "@sentropic/llm-mesh": "^0.14.0",
     "hono": "^4.12.32"
   },
   "devDependencies": {
