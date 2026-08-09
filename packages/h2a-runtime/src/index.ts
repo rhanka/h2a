@@ -401,16 +401,21 @@ import {
 } from "./protocol-local.js";
 import {
   enrollViaFacade,
-  recordFacadeEnrollment,
   readLlmMeshConfig,
   startGateway,
   stopGateway,
   readGatewayPid,
   llmMeshLogPath,
   replaceAnthropicGatewayEnvironment,
-  readLlmMeshSessionEnv,
   acquireLlmMeshSessionEnv,
+  updateLlmMeshRoutingConfig,
 } from "./llm-mesh.js";
+import {
+  describeLlmMeshRoutingConfig,
+  parseLlmMeshRoutingConfig,
+  preferredRoutingConfig,
+  strategyRoutingConfig,
+} from "./llm-routing-config.js";
 
 const KNOWN_PROFILE_HELP = `${CLI_PROFILES.join(", ")} (aliases: claude-code, antigravity, gemini-cli, mistralcli)`;
 
@@ -2145,28 +2150,23 @@ async function injectLlmMeshGatewayEnv(
   // A new local CLI session needs its own gateway token so account affinity is
   // keyed by that session's stable identity. The cached token remains useful
   // for callers that do not have a session identity (for example restore).
-  let meshEnv = clientSessionId
-    ? await acquireLlmMeshSessionEnv(undefined, clientSessionId)
-    : readLlmMeshSessionEnv() ?? (await acquireLlmMeshSessionEnv());
+  let meshEnv = await acquireLlmMeshSessionEnv(undefined, clientSessionId);
   if (!meshEnv) {
-    const config = readLlmMeshConfig();
-    if (config?.meshAccounts?.length) {
-      try {
-        const result = await startGateway(config, { clientSessionId });
-        meshEnv = {
-          ANTHROPIC_BASE_URL: `http://localhost:${result.port}`,
-          ANTHROPIC_AUTH_TOKEN: result.gatewayToken,
-          ANTHROPIC_API_KEY: result.gatewayToken,
-        };
+    const config = readLlmMeshConfig() ?? {};
+    try {
+      const result = await startGateway(config, { clientSessionId });
+      meshEnv = {
+        ANTHROPIC_BASE_URL: `http://localhost:${result.port}`,
+        ANTHROPIC_AUTH_TOKEN: result.gatewayToken,
+      };
+      process.stderr.write(
+        `[h2a] llm-mesh: gateway was stopped; started on ${meshEnv.ANTHROPIC_BASE_URL}\n`,
+      );
+    } catch (err) {
+      if (allowDirectFallback) {
         process.stderr.write(
-          `[h2a] llm-mesh: gateway was stopped; started on ${meshEnv.ANTHROPIC_BASE_URL}\n`,
+          `[h2a] llm-mesh: gateway env unavailable (${String(err)}); Claude may ask for login.\n`,
         );
-      } catch (err) {
-        if (allowDirectFallback) {
-          process.stderr.write(
-            `[h2a] llm-mesh: gateway env unavailable (${String(err)}); Claude may ask for login.\n`,
-          );
-        }
       }
     }
   }
@@ -2181,7 +2181,11 @@ async function injectLlmMeshGatewayEnv(
   const alreadyCurrent =
     process.env.ANTHROPIC_BASE_URL === meshEnv.ANTHROPIC_BASE_URL &&
     process.env.ANTHROPIC_AUTH_TOKEN === meshEnv.ANTHROPIC_AUTH_TOKEN &&
-    process.env.ANTHROPIC_API_KEY === meshEnv.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY === undefined;
+  // Claude Code treats ANTHROPIC_API_KEY as a user-supplied third-party key
+  // and interrupts startup with a confirmation modal. The local gateway uses
+  // the documented custom-base-url lane: AUTH_TOKEN only.
+  delete process.env.ANTHROPIC_API_KEY;
   for (const [k, v] of Object.entries(meshEnv)) process.env[k] = v;
   if (!alreadyCurrent) {
     process.stderr.write(
@@ -2210,7 +2214,6 @@ export async function prepareStructuredGateway(
 export interface RestoreLlmMeshPreparationContext {
   readonly runtimeEnabled: boolean;
   readonly config: {
-    readonly meshAccounts?: readonly unknown[] | undefined;
     readonly port?: number | undefined;
   } | null;
   readonly gatewayPid: number | null;
@@ -2234,18 +2237,7 @@ export async function prepareLlmMeshForRestore(
 ): Promise<void> {
   const mode = opts.mode ?? "auto";
   if (mode !== "gateway" && !context.runtimeEnabled) return;
-  const config = context.config;
-  if (!config?.meshAccounts?.length) {
-    if (mode === "gateway") {
-      throw new Error(
-        "llm-mesh gateway is required but unavailable: no Cloud Code enrollment; no agent was started",
-      );
-    }
-    process.stderr.write(
-      "[h2a] llm-mesh: restore config enabled, but no llm-mesh account is enrolled; Claude may ask for login.\n",
-    );
-    return;
-  }
+  const config = context.config ?? {};
   const port = config.port ?? 3002;
   const pid = context.gatewayPid;
   if (opts.dryRun) {
@@ -9855,10 +9847,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const account = await enrollViaFacade(provider, {
             ...(opts.configRef ? { configRef: opts.configRef } : {}),
           });
-          recordFacadeEnrollment(account);
           process.stdout.write(
-            `[h2a] llm-mesh: enrolled ${account.label} ` +
-              `(id: ${account.accountId}, provider: ${account.provider})\n`,
+            `[h2a] llm-mesh: enrolled ${account.provider}; ` +
+              "account inventory remains in Sentropic\n",
           );
         } catch (error) {
           process.stderr.write(
@@ -9869,19 +9860,72 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       },
     );
 
+  const llmMeshRouteCommand = llmMeshCommand
+    .command("route")
+    .alias("routing")
+    .description("Show or change the public llm-mesh routing policy");
+
+  llmMeshRouteCommand
+    .command("show")
+    .description("Show the effective route order, fallback and policy controls")
+    .action(() => {
+      const config = readLlmMeshConfig();
+      process.stdout.write(
+        `${JSON.stringify(describeLlmMeshRoutingConfig(config?.routing), null, 2)}\n`,
+      );
+    });
+
+  llmMeshRouteCommand
+    .command("prefer <transports...>")
+    .description("Prefer transports in order (example: codex cloud-code)")
+    .action((transports: string[]) => {
+      const config = readLlmMeshConfig();
+      const routing = preferredRoutingConfig(config?.routing, transports);
+      updateLlmMeshRoutingConfig(routing);
+      process.stdout.write(
+        `[h2a] llm-mesh: preferred route order is ${transports.join(" > ")} ` +
+          "for new affinities\n",
+      );
+    });
+
+  llmMeshRouteCommand
+    .command("strategy <name>")
+    .description("Use last-enrolled or round-robin for new affinities")
+    .action((name: string) => {
+      if (name !== "last-enrolled" && name !== "round-robin") {
+        throw new Error("strategy must be last-enrolled or round-robin");
+      }
+      const config = readLlmMeshConfig();
+      const routing = strategyRoutingConfig(config?.routing, name);
+      updateLlmMeshRoutingConfig(routing);
+      process.stdout.write(
+        `[h2a] llm-mesh: ${name} routing enabled for new affinities\n`,
+      );
+    });
+
+  llmMeshRouteCommand
+    .command("policy <json>")
+    .description("Validate and install a complete serialized mesh policy/profile config")
+    .action((json: string) => {
+      const routing = parseLlmMeshRoutingConfig(json);
+      updateLlmMeshRoutingConfig(routing);
+      process.stdout.write("[h2a] llm-mesh: routing policy validated and installed\n");
+    });
+
+  llmMeshRouteCommand
+    .command("reset")
+    .description("Return new affinities to llm-mesh safe defaults")
+    .action(() => {
+      updateLlmMeshRoutingConfig(undefined);
+      process.stdout.write("[h2a] llm-mesh: routing policy reset to mesh defaults\n");
+    });
+
   llmMeshCommand
     .command("start")
     .description("Start the local LLM gateway")
     .option("-v, --verbose", "verbose output")
     .action(async (opts: { verbose?: boolean }) => {
-      const config = readLlmMeshConfig();
-      if (!config || !config.meshAccounts?.length) {
-        process.stderr.write(
-          `[h2a] llm-mesh: no Cloud Code account configured. Run \`h2a llm-mesh enroll cloud-code\` first.\n`,
-        );
-        process.exitCode = 1;
-        return;
-      }
+      const config = readLlmMeshConfig() ?? {};
       const existing = readGatewayPid();
       if (existing) {
         setLlmMeshRuntimeConfig({ enabled: true });
@@ -9899,12 +9943,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         `[h2a] llm-mesh: gateway started (pid ${result.pid}, port ${port})\n`,
       );
       process.stdout.write(`[h2a] llm-mesh: restore config enabled\n`);
-      process.stdout.write(`\nTo use with Claude Code:\n`);
       process.stdout.write(
-        `  export ANTHROPIC_BASE_URL=http://localhost:${port}\n`,
-      );
-      process.stdout.write(
-        `  export ANTHROPIC_AUTH_TOKEN=${result.gatewayToken}\n`,
+        "[h2a] llm-mesh: use `h2a run claude --gw`; the opaque bearer is not printed\n",
       );
     });
 
@@ -9951,14 +9991,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .option("-v, --verbose", "verbose output")
     .action(async (opts: { verbose?: boolean }) => {
-      const config = readLlmMeshConfig();
-      if (!config || !config.meshAccounts?.length) {
-        process.stderr.write(
-          `[h2a] llm-mesh: no Cloud Code account configured. Run \`h2a llm-mesh enroll cloud-code\` first.\n`,
-        );
-        process.exitCode = 1;
-        return;
-      }
+      const config = readLlmMeshConfig() ?? {};
       const stopped = stopGateway();
       if (stopped.stopped) {
         process.stdout.write(
@@ -9977,15 +10010,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       process.stdout.write(
         `[h2a] llm-mesh: no tmux/Claude session was restarted; active sessions may keep their old gateway token until explicitly relaunched.\n`,
       );
-      process.stdout.write(`\nTo use with new Claude Code processes:\n`);
       process.stdout.write(
-        `  export ANTHROPIC_BASE_URL=http://localhost:${result.port}\n`,
-      );
-      process.stdout.write(
-        `  export ANTHROPIC_AUTH_TOKEN=${result.gatewayToken}\n`,
-      );
-      process.stdout.write(
-        `  export ANTHROPIC_API_KEY=${result.gatewayToken}\n`,
+        "[h2a] llm-mesh: use `h2a run claude --gw`; the opaque bearer is not printed\n",
       );
     });
 
@@ -10007,17 +10033,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       process.stdout.write(
         `  restore/local auto-reactivation: ${runtime.enabled ? "enabled" : "disabled"}\n`,
       );
-      if (config) {
-        for (const acc of config.meshAccounts ?? []) {
-          process.stdout.write(
-            `  account: ${acc.label} (${acc.provider})\n`,
-          );
-        }
-      } else {
-        process.stdout.write(
-          `  no config. Run \`h2a llm-mesh enroll cloud-code\` first.\n`,
-        );
-      }
+      process.stdout.write("  account inventory: managed by Sentropic llm-mesh\n");
     });
 
   llmMeshCommand
