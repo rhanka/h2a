@@ -175,6 +175,60 @@ vi.mock("./prompt-delivery.js", async (importOriginal) => ({
   deliverInitialPrompt,
 }));
 
+// The symmetric host resolver's PROBES (registry.ts) shell out: `tmux
+// has-session` and the native one-shot `probe` op. Both must stay
+// DETERMINISTIC here and mirror this file's simulated tmux view, so the
+// liveness the resume/stop verbs act on is exactly the view the test
+// declared via findLocalSession. Native is uniformly DEAD (this suite pins
+// the tmux valve); everything else passes through to the real spawnSync.
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    spawnSync: ((
+      command: string,
+      args?: readonly string[],
+      ...rest: unknown[]
+    ) => {
+      if (
+        command === "tmux" &&
+        Array.isArray(args) &&
+        args[0] === "has-session"
+      ) {
+        const raw = String(args[2] ?? "");
+        const name = raw.startsWith("=") ? raw.slice(1) : raw;
+        const session = findLocalSession(name) as
+          | { name?: string }
+          | undefined;
+        return {
+          status: session && session.name === name ? 0 : 1,
+          stdout: "",
+          stderr: "",
+          error: undefined,
+        };
+      }
+      if (
+        command === process.execPath &&
+        Array.isArray(args) &&
+        String(args[0] ?? "").includes("native-terminal") &&
+        args[1] === "probe"
+      ) {
+        return {
+          status: 0,
+          stdout: '{"verdict":"dead","reason":"test-stub: no native host"}\n',
+          stderr: "",
+          error: undefined,
+        };
+      }
+      return (actual.spawnSync as (...a: unknown[]) => unknown)(
+        command,
+        args,
+        ...rest,
+      );
+    }) as typeof actual.spawnSync,
+  };
+});
+
 vi.mock("./migrate.js", () => ({
   migrateForward,
   migrateBack,
@@ -1539,7 +1593,7 @@ describe("h2a resume <slug>", () => {
       { attachedTerminal: true, sessionClass: "background" },
     );
     expect(stderrText()).toContain(
-      "--replace will kill tmux session remote-projA",
+      "--replace will kill local-tmux session remote-projA",
     );
   });
 });
