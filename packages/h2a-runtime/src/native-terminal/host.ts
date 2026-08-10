@@ -297,13 +297,26 @@ export type NativeTerminalCreateOptions = Readonly<{
 /**
  * Outcome of asking a host to reap a session BY ID from its persisted pgid —
  * the case where the host asking has no in-memory record of the session at
- * all (a fresh host after the owning host was killed). `"refused"` means the
- * pgid could not be resolved: NOTHING was signalled (never guess a pgid —
- * killing the wrong process group is irreversible), and a loud diagnostic was
- * logged, because a silent refusal here recreates the invisible-orphan bug.
+ * all (a fresh host after the owning host was killed). `"refused"` means
+ * either the pgid could not be resolved at all, OR it resolved but the
+ * group-leader identity guard (see `#verifyGroupLeaderIdentity`) would not
+ * positively re-prove the group at kill-time: NOTHING was signalled (never
+ * guess a pgid — killing the wrong process group is irreversible), and a
+ * loud diagnostic was logged, because a silent refusal here recreates the
+ * invisible-orphan bug. `cause` is present only for the leader-identity
+ * refusal and DISCERNS its two distinct roots — `"recycled"` (the pgid was
+ * reused by an unrelated process: a correct, defensive refusal) from
+ * `"leader-absent"` (the leader is simply unreadable right now: possibly our
+ * own orphan, a conservative refuse-and-leak) — collapsing them into one
+ * verdict would hide whether this guard is protecting us or making us leak.
  */
 export type NativeTerminalReapOutcome = Readonly<
-  | { sessionId: string; status: "refused"; reason: string }
+  | {
+      sessionId: string;
+      status: "refused";
+      reason: string;
+      cause?: "recycled" | "leader-absent";
+    }
   | { sessionId: string; status: "reaped"; pgid: number; elapsedMs: number }
   | { sessionId: string; status: "reap-timed-out"; pgid: number; elapsedMs: number }
 >;
@@ -333,6 +346,8 @@ export class NativeTerminalHost {
   readonly #log: (line: string) => void;
   readonly #forceKillTimeoutMs: number;
   readonly #forceKillPollIntervalMs: number;
+  readonly #readLeaderStartTime: (pid: number) => number | undefined;
+  readonly #pgidGuardCounters = { recycled: 0, leaderAbsent: 0 };
 
   constructor(options: {
     generation: string;
@@ -347,6 +362,11 @@ export class NativeTerminalHost {
     log?: (line: string) => void;
     forceKillTimeoutMs?: number;
     forceKillPollIntervalMs?: number;
+    /** Injectable so tests never touch a real /proc for fabricated pgids;
+     * defaults to the real `readProcessStartTime`. Used BOTH to capture the
+     * group-leader's start-time at spawn AND to re-read it at kill-time (see
+     * `#verifyGroupLeaderIdentity`) — the same probe, applied twice. */
+    readLeaderStartTime?: (pid: number) => number | undefined;
   }) {
     if (
       options.generation.trim().length === 0 ||
@@ -385,10 +405,22 @@ export class NativeTerminalHost {
     this.#forceKillPollIntervalMs =
       options.forceKillPollIntervalMs ??
       NATIVE_TERMINAL_FORCE_KILL_POLL_INTERVAL_MS;
+    this.#readLeaderStartTime =
+      options.readLeaderStartTime ?? readProcessStartTime;
   }
 
   get generation(): string {
     return this.#generation;
+  }
+
+  /**
+   * COUNTABLE per arch condition 1/2: the two DISCERNIBLE roots of a
+   * group-leader-identity refusal, so "has this guard ever refused, and
+   * why" is answerable later without re-deriving it from raw logs. Never
+   * collapsed into one number — see `NativeTerminalReapOutcome`'s `cause`.
+   */
+  get pgidGuardRefusalCounters(): Readonly<{ recycled: number; leaderAbsent: number }> {
+    return { ...this.#pgidGuardCounters };
   }
 
   create(options: NativeTerminalCreateOptions): NativeTerminalSessionState {
@@ -423,12 +455,23 @@ export class NativeTerminalHost {
       // The OWNER attribution (this host's own pid + start-time) rides along
       // on the same durable write: it is what lets a LATER reconcile pass
       // prove THIS host is dead (not just unreachable) before ever reaping
-      // this row — see `reconcileDeadHostOrphans`.
+      // this row — see `reconcileDeadHostOrphans`. The GROUP-LEADER's own
+      // start-time (leader pid == pgid) rides along the same write for the
+      // SAME reason one level down: it is what lets a LATER kill re-prove
+      // the group itself is still the one this row was written for, not a
+      // recycled pgid — see `#verifyGroupLeaderIdentity`.
       const ownStartTime = readProcessStartTime(process.pid);
-      persistNativeTerminalPgid(options.id, pty.pgid, this.#registryPath, {
-        pid: process.pid,
-        ...(ownStartTime === undefined ? {} : { startTime: ownStartTime }),
-      });
+      const leaderStartTime = this.#readLeaderStartTime(pty.pgid);
+      persistNativeTerminalPgid(
+        options.id,
+        pty.pgid,
+        this.#registryPath,
+        {
+          pid: process.pid,
+          ...(ownStartTime === undefined ? {} : { startTime: ownStartTime }),
+        },
+        leaderStartTime,
+      );
     } catch (error) {
       try {
         pty.kill("SIGKILL");
@@ -633,7 +676,7 @@ export class NativeTerminalHost {
           signal,
           `session ${record.id}`,
         );
-        if (!outcome.dead) {
+        if (outcome.status !== "dead") {
           errors.push(
             new Error(
               `terminal session ${record.id} pgid=${record.pty.pgid} did not confirm dead within ${this.#forceKillTimeoutMs}ms`,
@@ -674,10 +717,72 @@ export class NativeTerminalHost {
       lookup.pgid,
       signal,
       `orphan ${sessionId}`,
+      { sessionId, persistedLeaderStartTime: lookup.leaderStartTime },
     );
-    return outcome.dead
-      ? { sessionId, status: "reaped", pgid: lookup.pgid, elapsedMs: outcome.elapsedMs }
-      : { sessionId, status: "reap-timed-out", pgid: lookup.pgid, elapsedMs: outcome.elapsedMs };
+    if (outcome.status === "dead") {
+      return { sessionId, status: "reaped", pgid: lookup.pgid, elapsedMs: outcome.elapsedMs };
+    }
+    if (outcome.status === "timed-out") {
+      return { sessionId, status: "reap-timed-out", pgid: lookup.pgid, elapsedMs: outcome.elapsedMs };
+    }
+    return {
+      sessionId,
+      status: "refused",
+      reason: `group-leader identity could not be re-proven at kill-time (${outcome.cause}) for pgid=${lookup.pgid}`,
+      cause: outcome.cause,
+    };
+  }
+
+  /**
+   * INV-4 applied to the GROUP (mirrors the owning-host doctrine one level
+   * up — see `defaultOwnerHostProbe`): "known at creation" (the persisted
+   * `pgidLeaderStartTime`) must be RE-PROVEN at the moment of acting, never
+   * merely inherited. POSITIVE proof only (INV-1) — ambiguity always
+   * REFUSES, never kills:
+   *
+   *  - current leader start-time unreadable (leader gone from /proc right
+   *    now) -> cannot positively re-prove the group -> REFUSE, cause
+   *    `"leader-absent"` (conservative refuse-and-leak: this may well be our
+   *    OWN orphan, already fully dead, but we cannot tell that apart from a
+   *    live unrelated leader we simply failed to read).
+   *  - current leader start-time read AND a baseline was persisted AND they
+   *    DIFFER -> the OS reused `pgid` for an unrelated process since this
+   *    row was written -> REFUSE, cause `"recycled"` (the defensive save:
+   *    without this check, `killGroup` below would have signalled an
+   *    innocent third party).
+   *  - no baseline was ever persisted (a legacy row written before this
+   *    guard existed, or a write-time read failure) -> nothing to compare
+   *    against -> cannot be checked for recycling at all, so this PROCEEDS
+   *    rather than manufacture a refusal from missing data — the exact same
+   *    asymmetry `defaultOwnerHostProbe` applies to a missing
+   *    `ownerHostStartTime` (pre-fix status quo, not a regression).
+   *  - current and persisted start-times MATCH -> the group is provably the
+   *    one this row was written for -> PROCEED.
+   */
+  #verifyGroupLeaderIdentity(
+    pgid: number,
+    persistedLeaderStartTime: number | undefined,
+    sessionId: string,
+  ): { proceed: true } | { proceed: false; cause: "recycled" | "leader-absent" } {
+    const currentStartTime = this.#readLeaderStartTime(pgid);
+    if (currentStartTime === undefined) {
+      this.#pgidGuardCounters.leaderAbsent += 1;
+      this.#log(
+        `REFUSING to kill process group pgid=${pgid} for session ${sessionId}: the group leader's start-time is UNREADABLE right now (leader-absent) — cannot positively re-prove this is still the group this row was written for. PROCESSES MAY SURVIVE UNCOLLECTED. cause=leader-absent sessionId=${sessionId} pgid=${pgid}`,
+      );
+      return { proceed: false, cause: "leader-absent" };
+    }
+    if (
+      persistedLeaderStartTime !== undefined &&
+      currentStartTime !== persistedLeaderStartTime
+    ) {
+      this.#pgidGuardCounters.recycled += 1;
+      this.#log(
+        `REFUSING to kill process group pgid=${pgid} for session ${sessionId}: current leader start-time (${currentStartTime}) DIFFERS from the persisted start-time (${persistedLeaderStartTime}) — pgid was RECYCLED to an unrelated process since this row was written. PROCESSES MAY SURVIVE UNCOLLECTED. cause=recycled sessionId=${sessionId} pgid=${pgid}`,
+      );
+      return { proceed: false, cause: "recycled" };
+    }
+    return { proceed: true };
   }
 
   /**
@@ -686,19 +791,41 @@ export class NativeTerminalHost {
    * it reports the group empty or `#forceKillTimeoutMs` elapses. On timeout,
    * capture a best-effort survivor list so the caller's diagnostic names
    * exactly what is still alive instead of just "it didn't work".
+   *
+   * `verify`, when supplied (only `reapOrphan` supplies it — see INV-4 doc on
+   * `#verifyGroupLeaderIdentity`), re-proves the group's identity BEFORE the
+   * signal is ever emitted. `forceStopAll` never supplies it: it kills a
+   * session THIS host is still holding a live in-memory handle to, spawned
+   * in this very process — there is no "was this pgid recycled since we last
+   * looked" window to close there.
    */
   async #killGroupAndConfirmDead(
     pgid: number,
     signal: NativeTerminalStopSignal,
     label: string,
-  ): Promise<{ dead: boolean; elapsedMs: number }> {
+    verify?: { sessionId: string; persistedLeaderStartTime: number | undefined },
+  ): Promise<
+    | { status: "dead"; elapsedMs: number }
+    | { status: "timed-out"; elapsedMs: number }
+    | { status: "refused"; cause: "recycled" | "leader-absent" }
+  > {
     if (!supportsProcessGroupSignals()) {
       // No POSIX process groups on this platform; nothing more this host can
       // prove. Documented gap, not a silent claim of success.
       this.#log(
         `skipping group-kill proof for pgid=${pgid} (${label}): process groups are not supported on ${process.platform}`,
       );
-      return { dead: true, elapsedMs: 0 };
+      return { status: "dead", elapsedMs: 0 };
+    }
+    if (verify) {
+      const verdict = this.#verifyGroupLeaderIdentity(
+        pgid,
+        verify.persistedLeaderStartTime,
+        verify.sessionId,
+      );
+      if (!verdict.proceed) {
+        return { status: "refused", cause: verdict.cause };
+      }
     }
     const start = Date.now();
     try {
@@ -714,7 +841,7 @@ export class NativeTerminalHost {
       if (!this.#reaper.isGroupAlive(pgid)) {
         const elapsedMs = Date.now() - start;
         this.#log(`confirmed pgid=${pgid} reaped at ${elapsedMs}ms (${label})`);
-        return { dead: true, elapsedMs };
+        return { status: "dead", elapsedMs };
       }
       const elapsedMs = Date.now() - start;
       if (elapsedMs >= this.#forceKillTimeoutMs) {
@@ -722,7 +849,7 @@ export class NativeTerminalHost {
         this.#log(
           `pgid=${pgid} STILL ALIVE at ${elapsedMs}ms (${label}): ${survivors}`,
         );
-        return { dead: false, elapsedMs };
+        return { status: "timed-out", elapsedMs };
       }
       await delay(this.#forceKillPollIntervalMs);
     }
