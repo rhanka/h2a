@@ -817,6 +817,21 @@ export class NativeTerminalHost {
       );
       return { status: "dead", elapsedMs: 0 };
     }
+    if (!this.#reaper.isGroupAlive(pgid)) {
+      // The group-leader-identity guard exists to protect a LIVE process
+      // about to be signalled from an innocent kill. A group the OS already
+      // positively reports empty (ESRCH — the same proof-of-death this
+      // method's own poll loop below relies on) has no such live process:
+      // kill(-pgid, sig) against zero members signals nobody, recycled pgid
+      // or not. Short-circuit BEFORE the guard (and before ever emitting a
+      // signal) rather than manufacture a refusal from a target that is not
+      // there to protect — this is a positive OS-confirmed fact, not a
+      // guess, so it does not weaken INV-1.
+      this.#log(
+        `pgid=${pgid} already confirmed empty before any signal was emitted (${label})`,
+      );
+      return { status: "dead", elapsedMs: 0 };
+    }
     if (verify) {
       const verdict = this.#verifyGroupLeaderIdentity(
         pgid,
