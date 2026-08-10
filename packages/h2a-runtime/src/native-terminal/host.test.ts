@@ -150,6 +150,25 @@ function fakeLeaderStartTimeReader(defaultValue: number): {
   };
 }
 
+/**
+ * A fake group-member-token probe: NEVER touches real /proc for StubPty's
+ * fabricated pgids. `carriedTokens` maps a pgid to the ONE token some
+ * (unspecified) surviving member of that group currently carries — a test
+ * sets it to the SAME value it persisted to simulate a real member found
+ * carrying it, a DIFFERENT value (or leaves it unset) to simulate none
+ * doing so.
+ */
+function fakeGroupMemberTokenProbe(): {
+  find: (pgid: number, expectedToken: string) => boolean;
+  carriedTokens: Map<number, string>;
+} {
+  const carriedTokens = new Map<number, string>();
+  return {
+    find: (pgid, expectedToken) => carriedTokens.get(pgid) === expectedToken,
+    carriedTokens,
+  };
+}
+
 class StubPty implements PtyHandle {
   static #nextPid = 41000;
   readonly pid = StubPty.#nextPid++;
@@ -584,7 +603,12 @@ describe("NativeTerminalHost", () => {
       verified: true,
     });
     expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
-    expect(host.pgidGuardCounters).toEqual({ recycled: 0, leaderAbsent: 0, unverifiedLegacy: 0 });
+    expect(host.pgidGuardCounters).toEqual({
+      recycled: 0,
+      membershipUnprovable: 0,
+      unverifiedLegacy: 0,
+      tokenVerified: 0,
+    });
   });
 
   it("PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_WAS_RECYCLED", async () => {
@@ -626,7 +650,12 @@ describe("NativeTerminalHost", () => {
     // #killGroupAndConfirmDead reddens this assertion; restoring it passes
     // again (see pgid-BUILD-REPORT.md for the demonstration transcript).
     expect(killGroup).not.toHaveBeenCalled();
-    expect(host.pgidGuardCounters).toEqual({ recycled: 1, leaderAbsent: 0, unverifiedLegacy: 0 });
+    expect(host.pgidGuardCounters).toEqual({
+      recycled: 1,
+      membershipUnprovable: 0,
+      unverifiedLegacy: 0,
+      tokenVerified: 0,
+    });
     expect(warnings.some((line) =>
       /REFUSING/.test(line) &&
       /RECYCLED/i.test(line) &&
@@ -636,44 +665,118 @@ describe("NativeTerminalHost", () => {
     )).toBe(true);
   });
 
-  it("PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_IS_UNREADABLE", async () => {
-    // leader-absent: the group is still alive (something survives under
-    // this pgid) but the LEADER's own current start-time cannot be read —
-    // possibly our own already-dead orphan, possibly not; either way there
-    // is no POSITIVE proof, so REFUSE (conservative refuse-and-leak),
-    // counted and logged under a cause DISTINCT from "recycled".
+  it("PGID_GUARD_PROCEEDS_VIA_A_SURVIVING_MEMBERS_SESSION_TOKEN_WHEN_THE_LEADER_IS_ABSENT", async () => {
+    // token-verified: the leader is gone (unreadable — the ORDINARY orphan
+    // this whole mechanism exists for: a shell that exits normally leaving
+    // a backgrounded descendant), so there is no start-time left to compare
+    // at all. A surviving GROUP MEMBER still carries the persisted session
+    // token in its own environment — POSITIVE, independent proof of
+    // membership — so the guard must PROCEED, not refuse.
     const { spawner, ptys } = stubSpawner();
     const { reaper, killGroup, alive } = fakeReaper();
-    const { read, values } = fakeLeaderStartTimeReader(1000);
+    const { find, carriedTokens } = fakeGroupMemberTokenProbe();
     const warnings: string[] = [];
     const host = new NativeTerminalHost({
-      generation: "host-generation-pgid-leader-absent",
+      generation: "host-generation-pgid-token-verified",
       replayBytesPerSession: 32,
       spawner,
       registryPath,
       reaper,
       log: (line) => warnings.push(line),
-      readLeaderStartTime: read,
+      readLeaderStartTime: () => undefined, // leader always absent
+      findGroupMemberToken: find,
     });
-    createSession(host, "alpha");
+    createSession(host, "alpha"); // persists a random pgidGroupToken
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid);
+
+    const lookup = readNativeTerminalPgid("alpha", registryPath);
+    if (lookup.status !== "resolved" || lookup.groupToken === undefined) {
+      throw new Error("expected a resolved lookup with a persisted groupToken");
+    }
+    // Simulate a surviving descendant whose /proc/<pid>/environ still
+    // carries the SAME token create() injected at spawn.
+    carriedTokens.set(pgid, lookup.groupToken);
+
+    const outcome = await host.reapOrphan("alpha");
+
+    expect(outcome).toEqual({
+      sessionId: "alpha",
+      status: "reaped",
+      pgid,
+      elapsedMs: expect.any(Number),
+      verified: true,
+    });
+    expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
+    expect(host.pgidGuardCounters).toEqual({
+      recycled: 0,
+      membershipUnprovable: 0,
+      unverifiedLegacy: 0,
+      tokenVerified: 1,
+    });
+    expect(warnings.some((line) =>
+      /PROCEEDING/.test(line) &&
+      /surviving GROUP MEMBER/i.test(line) &&
+      line.includes("cause=token-verified") &&
+      line.includes("sessionId=alpha") &&
+      line.includes(`pgid=${pgid}`)
+    )).toBe(true);
+  });
+
+  it("PGID_GUARD_REFUSES_A_KILL_WHEN_THE_LEADER_IS_ABSENT_AND_NO_MEMBER_CARRIES_THE_TOKEN", async () => {
+    // membership-unprovable: the leader is gone AND no surviving member
+    // carries the persisted session token — possibly our own already-dead
+    // orphan, possibly not; either way there is no POSITIVE proof by any
+    // means, so REFUSE (conservative refuse-and-leak), counted and logged
+    // under a cause DISTINCT from "recycled" (arch condition 1: never
+    // collapse "positively someone else's" with "cannot prove it is ours").
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const { find } = fakeGroupMemberTokenProbe(); // empty map: nobody ever carries a matching token
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-pgid-membership-unprovable",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      readLeaderStartTime: () => undefined, // leader always absent
+      findGroupMemberToken: find,
+    });
+    createSession(host, "alpha"); // persists a groupToken, but nothing will ever carry it
     const pgid = ptys.get("alpha")!.pgid;
     alive.add(pgid); // something still reports alive under this pgid...
-    values.set(pgid, undefined); // ...but the leader's start-time is unreadable
 
     const outcome = await host.reapOrphan("alpha");
 
     expect(outcome).toEqual({
       sessionId: "alpha",
       status: "refused",
-      reason: expect.stringMatching(/leader-absent/i),
-      cause: "leader-absent",
+      reason: expect.stringMatching(/membership-unprovable/i),
+      cause: "membership-unprovable",
     });
+    // The wiring counter-mutant for the NEW token path: if the token
+    // consultation were ever removed from #verifyGroupLeaderIdentity's
+    // leader-absent branch (e.g. forced to a no-op), this is the assertion
+    // that would flip — killGroup would fire despite no positive proof.
+    // Verified by hand: forcing `this.#findGroupMemberToken` to a no-op
+    // that always returns true reddens the OTHER new test above instead
+    // (PROCEEDS_VIA_A_SURVIVING_MEMBERS_SESSION_TOKEN would then wrongly
+    // pass for the wrong reason); forcing it to always return false reddens
+    // THIS one's sibling by turning a real proceed into a refusal — see
+    // pgid-BUILD-REPORT.md for the demonstration transcript.
     expect(killGroup).not.toHaveBeenCalled();
-    expect(host.pgidGuardCounters).toEqual({ recycled: 0, leaderAbsent: 1, unverifiedLegacy: 0 });
+    expect(host.pgidGuardCounters).toEqual({
+      recycled: 0,
+      membershipUnprovable: 1,
+      unverifiedLegacy: 0,
+      tokenVerified: 0,
+    });
     expect(warnings.some((line) =>
       /REFUSING/.test(line) &&
-      /UNREADABLE/.test(line) &&
-      line.includes("cause=leader-absent") &&
+      /no surviving member carries the persisted session token/i.test(line) &&
+      line.includes("cause=membership-unprovable") &&
       line.includes("sessionId=alpha") &&
       line.includes(`pgid=${pgid}`)
     )).toBe(true);
@@ -727,7 +830,12 @@ describe("NativeTerminalHost", () => {
     });
     // Legacy rows must NOT leak: the kill DOES proceed (unlike recycled/leader-absent).
     expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
-    expect(host.pgidGuardCounters).toEqual({ recycled: 0, leaderAbsent: 0, unverifiedLegacy: 1 });
+    expect(host.pgidGuardCounters).toEqual({
+      recycled: 0,
+      membershipUnprovable: 0,
+      unverifiedLegacy: 1,
+      tokenVerified: 0,
+    });
     expect(warnings.some((line) =>
       /PROCEEDING/.test(line) &&
       /WITHOUT identity proof/i.test(line) &&
