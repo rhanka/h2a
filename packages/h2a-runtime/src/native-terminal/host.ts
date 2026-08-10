@@ -161,6 +161,95 @@ export function readProcessStartTime(pid: number): number | undefined {
   }
 }
 
+/** Env var name the spawned tree's session token travels under (see `create()`). */
+export const H2A_SESSION_TOKEN_ENV_VAR = "H2A_SESSION_TOKEN";
+
+/**
+ * Enumerate every process currently in Linux process group `pgid` — the
+ * pid-recycling-proof discriminant of last resort when the group LEADER
+ * itself (pid==pgid) is gone and there is therefore no start-time left to
+ * re-read at all (see `#verifyGroupLeaderIdentity`'s leader-absent branch,
+ * and the ORDINARY orphan it exists for: a shell that exits normally
+ * leaving a backgrounded descendant — leader gone, group alive, no
+ * containment ever triggered). Scans `/proc` directly, matching
+ * `posixProcessGroupReaper.describeGroup`'s own parsing (field 3, the pgrp,
+ * via the same "last ')'" split `readProcessStartTime` above documents at
+ * length — a `comm` field can itself contain parens/spaces). Best-effort: a
+ * process that exits mid-scan is silently skipped, never treated as a parse
+ * failure.
+ */
+function listProcessGroupMemberPids(pgid: number): number[] {
+  if (process.platform !== "linux") return [];
+  let names: string[];
+  try {
+    names = readdirSync("/proc");
+  } catch {
+    return [];
+  }
+  const members: number[] = [];
+  for (const name of names) {
+    if (!/^\d+$/.test(name)) continue;
+    try {
+      const raw = readFileSync(`/proc/${name}/stat`, "utf8");
+      const commandEnd = raw.lastIndexOf(")");
+      const fields = raw.slice(commandEnd + 2).split(" ");
+      if (Number(fields[2]) === pgid) members.push(Number(name));
+    } catch {
+      // Exited mid-scan; not a member we can act on either way.
+    }
+  }
+  return members;
+}
+
+/**
+ * Read the session token a single process currently carries in its own
+ * environment (`H2A_SESSION_TOKEN`), by parsing `/proc/<pid>/environ`
+ * (NUL-separated `KEY=VALUE` entries — never a shell-quoted string, so no
+ * escaping to worry about). Returns undefined on ANY read/parse failure or
+ * a non-Linux platform — same "never guess" contract as `readProcessStartTime`.
+ */
+function readProcessSessionToken(pid: number): string | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const raw = readFileSync(`/proc/${pid}/environ`, "utf8");
+    const prefix = `${H2A_SESSION_TOKEN_ENV_VAR}=`;
+    for (const entry of raw.split("\0")) {
+      if (entry.startsWith(prefix)) return entry.slice(prefix.length);
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The group-MEMBERSHIP anchor of last resort: true iff AT LEAST ONE process
+ * currently in group `pgid` carries `expectedToken` in its own environment
+ * (see `RegistryEntry.pgidGroupToken`'s doc comment for the full rationale).
+ * Used ONLY when the group leader itself is unreadable — the rare path —
+ * never as a substitute for the fast leader-start-time check above it.
+ *
+ * DECLARED LIMITS (do not let a reviewer discover these):
+ *  - `/proc/<pid>/environ` is only readable for processes owned by the SAME
+ *    uid as this host process — true here (the host and every PTY tree it
+ *    spawns share a uid).
+ *  - A process can freely rewrite its own environ after exec; this is
+ *    therefore a NON-adversarial membership proof. That is sufficient here:
+ *    the threat this guards against is the CHANCE of the OS recycling a
+ *    pgid to an unrelated process, not an adversary actively forging a
+ *    token — an actual attacker with same-uid code execution already has
+ *    far more direct ways to interfere than faking this one env var.
+ *  - This enumeration runs ONLY on the leader-absent path (never on every
+ *    reap), keeping it rare in practice — the fast leader-start-time check
+ *    above it covers the common case.
+ */
+export function groupCarriesSessionToken(pgid: number, expectedToken: string): boolean {
+  for (const pid of listProcessGroupMemberPids(pgid)) {
+    if (readProcessSessionToken(pid) === expectedToken) return true;
+  }
+  return false;
+}
+
 function processExists(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -297,14 +386,46 @@ export type NativeTerminalCreateOptions = Readonly<{
 /**
  * Outcome of asking a host to reap a session BY ID from its persisted pgid —
  * the case where the host asking has no in-memory record of the session at
- * all (a fresh host after the owning host was killed). `"refused"` means the
- * pgid could not be resolved: NOTHING was signalled (never guess a pgid —
- * killing the wrong process group is irreversible), and a loud diagnostic was
- * logged, because a silent refusal here recreates the invisible-orphan bug.
+ * all (a fresh host after the owning host was killed). `"refused"` means
+ * either the pgid could not be resolved at all, OR it resolved but the
+ * group-leader identity guard (see `#verifyGroupLeaderIdentity`) would not
+ * positively re-prove the group at kill-time: NOTHING was signalled (never
+ * guess a pgid — killing the wrong process group is irreversible), and a
+ * loud diagnostic was logged, because a silent refusal here recreates the
+ * invisible-orphan bug. `cause` is present only for the leader-identity
+ * refusal and DISCERNS its two distinct roots — `"recycled"` (the leader is
+ * readable but its start-time no longer matches: the pgid was reused by an
+ * unrelated process, a correct, defensive refusal) from
+ * `"membership-unprovable"` (the leader is gone AND no surviving group
+ * member carries the persisted session token: possibly our own already-dead
+ * orphan, a conservative refuse-and-leak) — collapsing them into one verdict
+ * would hide whether this guard is protecting us or making us leak.
+ *
+ * `verified`, present on `"reaped"` only when the identity guard actually
+ * ran, DISCERNS a PROVEN kill (`true` — either the current and persisted
+ * leader start-times matched, OR the leader was gone but a surviving member
+ * carried the persisted session token) from an UNPROVEN one (`false` — a
+ * legacy row with no persisted baseline at all to check against, neither a
+ * leader start-time nor a group token: `#verifyGroupLeaderIdentity` fails
+ * OPEN there by design — see its doc comment — but that must never look
+ * identical to a proven match in logs or outcomes). Absent entirely when no
+ * identity check ran at all (e.g. `forceStopAll`, or the group was already
+ * confirmed empty before any check).
  */
 export type NativeTerminalReapOutcome = Readonly<
-  | { sessionId: string; status: "refused"; reason: string }
-  | { sessionId: string; status: "reaped"; pgid: number; elapsedMs: number }
+  | {
+      sessionId: string;
+      status: "refused";
+      reason: string;
+      cause?: "recycled" | "membership-unprovable";
+    }
+  | {
+      sessionId: string;
+      status: "reaped";
+      pgid: number;
+      elapsedMs: number;
+      verified?: boolean;
+    }
   | { sessionId: string; status: "reap-timed-out"; pgid: number; elapsedMs: number }
 >;
 
@@ -333,6 +454,14 @@ export class NativeTerminalHost {
   readonly #log: (line: string) => void;
   readonly #forceKillTimeoutMs: number;
   readonly #forceKillPollIntervalMs: number;
+  readonly #readLeaderStartTime: (pid: number) => number | undefined;
+  readonly #findGroupMemberToken: (pgid: number, expectedToken: string) => boolean;
+  readonly #pgidGuardCounters = {
+    recycled: 0,
+    membershipUnprovable: 0,
+    unverifiedLegacy: 0,
+    tokenVerified: 0,
+  };
 
   constructor(options: {
     generation: string;
@@ -347,6 +476,15 @@ export class NativeTerminalHost {
     log?: (line: string) => void;
     forceKillTimeoutMs?: number;
     forceKillPollIntervalMs?: number;
+    /** Injectable so tests never touch a real /proc for fabricated pgids;
+     * defaults to the real `readProcessStartTime`. Used BOTH to capture the
+     * group-leader's start-time at spawn AND to re-read it at kill-time (see
+     * `#verifyGroupLeaderIdentity`) — the same probe, applied twice. */
+    readLeaderStartTime?: (pid: number) => number | undefined;
+    /** Injectable so tests never touch a real /proc for fabricated pgids;
+     * defaults to the real `groupCarriesSessionToken`. Consulted ONLY when
+     * the leader is absent — see `#verifyGroupLeaderIdentity`. */
+    findGroupMemberToken?: (pgid: number, expectedToken: string) => boolean;
   }) {
     if (
       options.generation.trim().length === 0 ||
@@ -385,10 +523,40 @@ export class NativeTerminalHost {
     this.#forceKillPollIntervalMs =
       options.forceKillPollIntervalMs ??
       NATIVE_TERMINAL_FORCE_KILL_POLL_INTERVAL_MS;
+    this.#readLeaderStartTime =
+      options.readLeaderStartTime ?? readProcessStartTime;
+    this.#findGroupMemberToken =
+      options.findGroupMemberToken ?? groupCarriesSessionToken;
   }
 
   get generation(): string {
     return this.#generation;
+  }
+
+  /**
+   * COUNTABLE per arch condition 1/2: the four DISCERNIBLE outcomes of the
+   * group-leader-identity guard, so "has this guard ever refused (and why),
+   * or ever proceeded WITHOUT the fast leader-start-time proof" is
+   * answerable later without re-deriving it from raw logs.
+   * `recycled`/`membershipUnprovable` are refusals (the kill was NOT
+   * emitted). `tokenVerified` is a PROVEN proceed via the group-membership
+   * token (the leader was absent, but a surviving member carried it) —
+   * distinct from the ordinary start-time-matched proceed, which is not
+   * counted at all (it is the expected common case). `unverifiedLegacy` is
+   * an UNPROVEN proceed (the kill WAS emitted) on a row with no baseline —
+   * neither a leader-start-time nor a group-token — to check against at
+   * all, the fail-open branch of `#verifyGroupLeaderIdentity`. Never
+   * collapsed: a proven kill and an unproven one must never look alike
+   * here, exactly as a refusal and a proceed must never look alike — see
+   * `NativeTerminalReapOutcome`'s `cause`/`verified`.
+   */
+  get pgidGuardCounters(): Readonly<{
+    recycled: number;
+    membershipUnprovable: number;
+    unverifiedLegacy: number;
+    tokenVerified: number;
+  }> {
+    return { ...this.#pgidGuardCounters };
   }
 
   create(options: NativeTerminalCreateOptions): NativeTerminalSessionState {
@@ -413,7 +581,21 @@ export class NativeTerminalHost {
       );
     }
 
-    const pty = this.#spawner(options);
+    // A per-session token, injected into the spawned tree's OWN environment
+    // so every descendant inherits it — the group-MEMBERSHIP anchor for the
+    // case the leader's start-time cannot cover: the leader (pid==pgid)
+    // simply gone, group still alive, no containment ever triggered (an
+    // ordinary shell that exits normally leaving a backgrounded descendant).
+    // See `groupCarriesSessionToken`/`#verifyGroupLeaderIdentity`.
+    const groupToken = randomUUID();
+    const pty = this.#spawner({
+      command: options.command,
+      args: options.args,
+      cwd: options.cwd,
+      env: { ...options.env, [H2A_SESSION_TOKEN_ENV_VAR]: groupToken },
+      cols: options.cols,
+      rows: options.rows,
+    });
     try {
       // Persist BEFORE this session is usable: "known at creation" must
       // survive to "known at kill time" (a fresh host after this one is
@@ -423,12 +605,25 @@ export class NativeTerminalHost {
       // The OWNER attribution (this host's own pid + start-time) rides along
       // on the same durable write: it is what lets a LATER reconcile pass
       // prove THIS host is dead (not just unreachable) before ever reaping
-      // this row — see `reconcileDeadHostOrphans`.
+      // this row — see `reconcileDeadHostOrphans`. The GROUP-LEADER's own
+      // start-time (leader pid == pgid) and the GROUP token both ride along
+      // the same write for the SAME reason one level down: they are what
+      // let a LATER kill re-prove the group itself is still the one this
+      // row was written for, not a recycled pgid — see
+      // `#verifyGroupLeaderIdentity`.
       const ownStartTime = readProcessStartTime(process.pid);
-      persistNativeTerminalPgid(options.id, pty.pgid, this.#registryPath, {
-        pid: process.pid,
-        ...(ownStartTime === undefined ? {} : { startTime: ownStartTime }),
-      });
+      const leaderStartTime = this.#readLeaderStartTime(pty.pgid);
+      persistNativeTerminalPgid(
+        options.id,
+        pty.pgid,
+        this.#registryPath,
+        {
+          pid: process.pid,
+          ...(ownStartTime === undefined ? {} : { startTime: ownStartTime }),
+        },
+        leaderStartTime,
+        groupToken,
+      );
     } catch (error) {
       try {
         pty.kill("SIGKILL");
@@ -633,7 +828,7 @@ export class NativeTerminalHost {
           signal,
           `session ${record.id}`,
         );
-        if (!outcome.dead) {
+        if (outcome.status !== "dead") {
           errors.push(
             new Error(
               `terminal session ${record.id} pgid=${record.pty.pgid} did not confirm dead within ${this.#forceKillTimeoutMs}ms`,
@@ -674,10 +869,127 @@ export class NativeTerminalHost {
       lookup.pgid,
       signal,
       `orphan ${sessionId}`,
+      {
+        sessionId,
+        persistedLeaderStartTime: lookup.leaderStartTime,
+        persistedGroupToken: lookup.groupToken,
+      },
     );
-    return outcome.dead
-      ? { sessionId, status: "reaped", pgid: lookup.pgid, elapsedMs: outcome.elapsedMs }
-      : { sessionId, status: "reap-timed-out", pgid: lookup.pgid, elapsedMs: outcome.elapsedMs };
+    if (outcome.status === "dead") {
+      return {
+        sessionId,
+        status: "reaped",
+        pgid: lookup.pgid,
+        elapsedMs: outcome.elapsedMs,
+        ...(outcome.verified !== undefined ? { verified: outcome.verified } : {}),
+      };
+    }
+    if (outcome.status === "timed-out") {
+      return { sessionId, status: "reap-timed-out", pgid: lookup.pgid, elapsedMs: outcome.elapsedMs };
+    }
+    return {
+      sessionId,
+      status: "refused",
+      reason: `group-leader identity could not be re-proven at kill-time (${outcome.cause}) for pgid=${lookup.pgid}`,
+      cause: outcome.cause,
+    };
+  }
+
+  /**
+   * INV-4 applied to the GROUP (mirrors the owning-host doctrine one level
+   * up — see `defaultOwnerHostProbe`): "known at creation" (the persisted
+   * `pgidLeaderStartTime`/`pgidGroupToken`) must be RE-PROVEN at the moment
+   * of acting, never merely inherited. POSITIVE proof only (INV-1) —
+   * ambiguity always REFUSES, never kills. In order:
+   *
+   *  1. Leader **readable**, no start-time baseline was ever persisted (a
+   *     legacy row, or a write-time read failure) -> nothing to compare
+   *     against -> cannot be checked for recycling at all, so this PROCEEDS
+   *     rather than manufacture a refusal from missing data — the exact
+   *     same asymmetry `defaultOwnerHostProbe` applies to a missing
+   *     `ownerHostStartTime` (pre-fix status quo, not a regression).
+   *     Cause `"unverified-legacy"`, `verified: false` — a kill taken here
+   *     carries the SAME residual risk a `"recycled"` refusal exists to
+   *     prevent, just un-checked; it must never be silently
+   *     indistinguishable from a PROVEN match.
+   *  2. Leader **readable**, start-time **DIFFERENT** from the persisted
+   *     baseline -> the OS reused `pgid` for an unrelated process since
+   *     this row was written -> REFUSE, cause `"recycled"` (the defensive
+   *     save: without this check, `killGroup` below would have signalled
+   *     an innocent third party).
+   *  3. Leader **readable**, start-time **MATCHES** -> the group is
+   *     provably the one this row was written for -> PROCEED,
+   *     `verified: true`.
+   *  4. Leader **absent** (unreadable right now) -> there is no start-time
+   *     left to compare at all — the ORDINARY orphan this whole mechanism
+   *     exists for (a shell that exits normally leaving a backgrounded
+   *     descendant: leader gone, group alive, no containment ever
+   *     triggered). Falls to the group-MEMBERSHIP token instead:
+   *     - no token baseline was ever persisted either (same "nothing to
+   *       compare" asymmetry as branch 1) -> PROCEED, cause
+   *       `"unverified-legacy"`, `verified: false`.
+   *     - a persisted token exists AND `groupCarriesSessionToken` finds it
+   *       on a surviving member -> POSITIVE proof of membership,
+   *       independent of the leader -> PROCEED, `verified: true`, cause
+   *       `"token-verified"`.
+   *     - a persisted token exists and NO surviving member carries it ->
+   *       cannot positively prove this group's identity by any means ->
+   *       REFUSE, cause `"membership-unprovable"` (conservative
+   *       refuse-and-leak: this may well be our OWN orphan, already fully
+   *       dead, but we cannot tell that apart from a live unrelated group
+   *       we simply cannot identify). DISTINCT from `"recycled"` in the
+   *       union, its own counter, its own log — "positively someone
+   *       else's" and "cannot prove it is ours" are different epistemic
+   *       states.
+   */
+  #verifyGroupLeaderIdentity(
+    pgid: number,
+    persistedLeaderStartTime: number | undefined,
+    persistedGroupToken: string | undefined,
+    sessionId: string,
+  ):
+    | { proceed: true; verified: true; cause?: "token-verified" }
+    | { proceed: true; verified: false; cause: "unverified-legacy" }
+    | { proceed: false; cause: "recycled" | "membership-unprovable" } {
+    const currentStartTime = this.#readLeaderStartTime(pgid);
+    if (currentStartTime !== undefined) {
+      if (persistedLeaderStartTime === undefined) {
+        this.#pgidGuardCounters.unverifiedLegacy += 1;
+        this.#log(
+          `PROCEEDING to kill process group pgid=${pgid} for session ${sessionId} WITHOUT identity proof: no leader start-time baseline was ever persisted for this row (legacy) — cannot be checked for recycling at all. This kill is UNVERIFIED, not a proven match. cause=unverified-legacy sessionId=${sessionId} pgid=${pgid}`,
+        );
+        return { proceed: true, verified: false, cause: "unverified-legacy" };
+      }
+      if (currentStartTime !== persistedLeaderStartTime) {
+        this.#pgidGuardCounters.recycled += 1;
+        this.#log(
+          `REFUSING to kill process group pgid=${pgid} for session ${sessionId}: current leader start-time (${currentStartTime}) DIFFERS from the persisted start-time (${persistedLeaderStartTime}) — pgid was RECYCLED to an unrelated process since this row was written. PROCESSES MAY SURVIVE UNCOLLECTED. cause=recycled sessionId=${sessionId} pgid=${pgid}`,
+        );
+        return { proceed: false, cause: "recycled" };
+      }
+      return { proceed: true, verified: true };
+    }
+    // Leader absent: fall to the group-carried session token — the net for
+    // an ordinary orphan whose leader is simply gone.
+    if (persistedGroupToken === undefined) {
+      this.#pgidGuardCounters.unverifiedLegacy += 1;
+      this.#log(
+        `PROCEEDING to kill process group pgid=${pgid} for session ${sessionId} WITHOUT identity proof: the leader is unreadable AND no group-token baseline was ever persisted for this row (legacy) — cannot be checked for membership at all. This kill is UNVERIFIED, not a proven match. cause=unverified-legacy sessionId=${sessionId} pgid=${pgid}`,
+      );
+      return { proceed: true, verified: false, cause: "unverified-legacy" };
+    }
+    if (this.#findGroupMemberToken(pgid, persistedGroupToken)) {
+      this.#pgidGuardCounters.tokenVerified += 1;
+      this.#log(
+        `PROCEEDING to kill process group pgid=${pgid} for session ${sessionId}: the leader is unreadable, but a surviving GROUP MEMBER carries the persisted session token — positive proof of membership. cause=token-verified sessionId=${sessionId} pgid=${pgid}`,
+      );
+      return { proceed: true, verified: true, cause: "token-verified" };
+    }
+    this.#pgidGuardCounters.membershipUnprovable += 1;
+    this.#log(
+      `REFUSING to kill process group pgid=${pgid} for session ${sessionId}: the group leader is UNREADABLE and no surviving member carries the persisted session token — cannot positively prove this group's identity. PROCESSES MAY SURVIVE UNCOLLECTED. cause=membership-unprovable sessionId=${sessionId} pgid=${pgid}`,
+    );
+    return { proceed: false, cause: "membership-unprovable" };
   }
 
   /**
@@ -686,19 +998,63 @@ export class NativeTerminalHost {
    * it reports the group empty or `#forceKillTimeoutMs` elapses. On timeout,
    * capture a best-effort survivor list so the caller's diagnostic names
    * exactly what is still alive instead of just "it didn't work".
+   *
+   * `verify`, when supplied (only `reapOrphan` supplies it — see INV-4 doc on
+   * `#verifyGroupLeaderIdentity`), re-proves the group's identity BEFORE the
+   * signal is ever emitted. `forceStopAll` never supplies it: it kills a
+   * session THIS host is still holding a live in-memory handle to, spawned
+   * in this very process — there is no "was this pgid recycled since we last
+   * looked" window to close there.
    */
   async #killGroupAndConfirmDead(
     pgid: number,
     signal: NativeTerminalStopSignal,
     label: string,
-  ): Promise<{ dead: boolean; elapsedMs: number }> {
+    verify?: {
+      sessionId: string;
+      persistedLeaderStartTime: number | undefined;
+      persistedGroupToken: string | undefined;
+    },
+  ): Promise<
+    | { status: "dead"; elapsedMs: number; verified?: boolean }
+    | { status: "timed-out"; elapsedMs: number }
+    | { status: "refused"; cause: "recycled" | "membership-unprovable" }
+  > {
     if (!supportsProcessGroupSignals()) {
       // No POSIX process groups on this platform; nothing more this host can
       // prove. Documented gap, not a silent claim of success.
       this.#log(
         `skipping group-kill proof for pgid=${pgid} (${label}): process groups are not supported on ${process.platform}`,
       );
-      return { dead: true, elapsedMs: 0 };
+      return { status: "dead", elapsedMs: 0 };
+    }
+    if (!this.#reaper.isGroupAlive(pgid)) {
+      // The group-leader-identity guard exists to protect a LIVE process
+      // about to be signalled from an innocent kill. A group the OS already
+      // positively reports empty (ESRCH — the same proof-of-death this
+      // method's own poll loop below relies on) has no such live process:
+      // kill(-pgid, sig) against zero members signals nobody, recycled pgid
+      // or not. Short-circuit BEFORE the guard (and before ever emitting a
+      // signal) rather than manufacture a refusal from a target that is not
+      // there to protect — this is a positive OS-confirmed fact, not a
+      // guess, so it does not weaken INV-1.
+      this.#log(
+        `pgid=${pgid} already confirmed empty before any signal was emitted (${label})`,
+      );
+      return { status: "dead", elapsedMs: 0 };
+    }
+    let verified: boolean | undefined;
+    if (verify) {
+      const verdict = this.#verifyGroupLeaderIdentity(
+        pgid,
+        verify.persistedLeaderStartTime,
+        verify.persistedGroupToken,
+        verify.sessionId,
+      );
+      if (!verdict.proceed) {
+        return { status: "refused", cause: verdict.cause };
+      }
+      verified = verdict.verified;
     }
     const start = Date.now();
     try {
@@ -714,7 +1070,11 @@ export class NativeTerminalHost {
       if (!this.#reaper.isGroupAlive(pgid)) {
         const elapsedMs = Date.now() - start;
         this.#log(`confirmed pgid=${pgid} reaped at ${elapsedMs}ms (${label})`);
-        return { dead: true, elapsedMs };
+        return {
+          status: "dead",
+          elapsedMs,
+          ...(verified !== undefined ? { verified } : {}),
+        };
       }
       const elapsedMs = Date.now() - start;
       if (elapsedMs >= this.#forceKillTimeoutMs) {
@@ -722,7 +1082,7 @@ export class NativeTerminalHost {
         this.#log(
           `pgid=${pgid} STILL ALIVE at ${elapsedMs}ms (${label}): ${survivors}`,
         );
-        return { dead: false, elapsedMs };
+        return { status: "timed-out", elapsedMs };
       }
       await delay(this.#forceKillPollIntervalMs);
     }

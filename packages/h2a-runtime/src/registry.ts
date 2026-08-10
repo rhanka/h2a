@@ -108,6 +108,35 @@ export type RegistryEntry = {
    */
   pgid?: number;
   /**
+   * The process-GROUP-LEADER's own start-time (Linux `/proc/<pgid>/stat`
+   * field 22), captured at the SAME moment as `pgid` above (leader pid ==
+   * pgid — see `PtyHandle.pgid`'s doc comment in pty.ts). This is the
+   * pid-recycling-proof discriminant for the GROUP itself, exactly as
+   * `ownerHostStartTime` is for the HOST: a reaper must re-read this pid's
+   * CURRENT start-time immediately before `kill(-pgid, sig)` and compare —
+   * a match proves the group is still the one this row was written for; a
+   * mismatch means the OS recycled `pgid` to an unrelated group since this
+   * row was written. See `#killGroupAndConfirmDead` in native-terminal/host.ts,
+   * the sole consumer.
+   */
+  pgidLeaderStartTime?: number;
+  /**
+   * A random per-session token, generated at PTY-creation time and injected
+   * into the spawned tree's OWN environment (`H2A_SESSION_TOKEN`, inherited
+   * by every descendant), persisted on the SAME durable write as `pgid`/
+   * `pgidLeaderStartTime`. The GROUP-MEMBERSHIP anchor for the case
+   * `pgidLeaderStartTime` cannot cover: the leader (pid==pgid) is gone but
+   * the group is still alive (the ORDINARY orphan — a shell that exits
+   * normally leaving a backgrounded descendant), so there is no leader left
+   * to re-read a start-time from at all. A surviving group member whose own
+   * `/proc/<pid>/environ` still carries this exact token is POSITIVE proof
+   * of membership in THIS row's group, independent of any leader. See
+   * `#verifyGroupLeaderIdentity` in native-terminal/host.ts, the sole
+   * consumer, for the full decision order and its declared limits
+   * (same-uid-only environ reads; non-adversarial by design).
+   */
+  pgidGroupToken?: string;
+  /**
    * Owning host attribution for a native-terminal-pty row (see `pgid` above).
    * `ownerHostPid` is the pid of the host process that created this PTY and
    * durably persisted its pgid; `ownerHostStartTime` is that host's own
@@ -609,6 +638,8 @@ export function persistNativeTerminalPgid(
   pgid: number,
   path: string = resolveRegistryPath(),
   owner?: NativeTerminalPgidOwner,
+  leaderStartTime?: number,
+  groupToken?: string,
 ): void {
   if (!Number.isSafeInteger(pgid) || pgid <= 0) {
     throw new RangeError("pgid must be a positive safe integer");
@@ -626,6 +657,8 @@ export function persistNativeTerminalPgid(
       enrolledAt: idx >= 0 ? entries[idx]!.enrolledAt : now,
       lastSeenAt: now,
       pgid,
+      ...(leaderStartTime !== undefined ? { pgidLeaderStartTime: leaderStartTime } : {}),
+      ...(groupToken !== undefined ? { pgidGroupToken: groupToken } : {}),
       ...(owner !== undefined ? { ownerHostPid: owner.pid } : {}),
       ...(owner?.startTime !== undefined ? { ownerHostStartTime: owner.startTime } : {}),
     };
@@ -639,7 +672,7 @@ export function persistNativeTerminalPgid(
 
 /** Result of resolving a native-terminal session's durable pgid. */
 export type NativeTerminalPgidLookup =
-  | { status: "resolved"; pgid: number }
+  | { status: "resolved"; pgid: number; leaderStartTime?: number; groupToken?: string }
   | { status: "unresolved"; reason: string };
 
 /**
@@ -681,7 +714,16 @@ export function readNativeTerminalPgid(
       reason: `no pgid recorded for terminal session ${sessionId}`,
     };
   }
-  return { status: "resolved", pgid: entry.pgid };
+  return {
+    status: "resolved",
+    pgid: entry.pgid,
+    ...(typeof entry.pgidLeaderStartTime === "number"
+      ? { leaderStartTime: entry.pgidLeaderStartTime }
+      : {}),
+    ...(typeof entry.pgidGroupToken === "string"
+      ? { groupToken: entry.pgidGroupToken }
+      : {}),
+  };
 }
 
 /** One native-terminal-pty row, decoded from its namespaced registry id. */
@@ -776,6 +818,11 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
       e.delegationOrigin === "cli:h2a-delegate") &&
     (e.pid === undefined || (typeof e.pid === "number" && Number.isInteger(e.pid) && e.pid > 0)) &&
     (e.pgid === undefined || (typeof e.pgid === "number" && Number.isInteger(e.pgid) && e.pgid > 0)) &&
+    (e.pgidLeaderStartTime === undefined ||
+      (typeof e.pgidLeaderStartTime === "number" &&
+        Number.isInteger(e.pgidLeaderStartTime) &&
+        e.pgidLeaderStartTime >= 0)) &&
+    (e.pgidGroupToken === undefined || typeof e.pgidGroupToken === "string") &&
     (e.ownerHostPid === undefined ||
       (typeof e.ownerHostPid === "number" && Number.isInteger(e.ownerHostPid) && e.ownerHostPid > 0)) &&
     (e.ownerHostStartTime === undefined ||
