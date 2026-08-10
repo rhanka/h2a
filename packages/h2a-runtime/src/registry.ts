@@ -121,6 +121,22 @@ export type RegistryEntry = {
    */
   pgidLeaderStartTime?: number;
   /**
+   * A random per-session token, generated at PTY-creation time and injected
+   * into the spawned tree's OWN environment (`H2A_SESSION_TOKEN`, inherited
+   * by every descendant), persisted on the SAME durable write as `pgid`/
+   * `pgidLeaderStartTime`. The GROUP-MEMBERSHIP anchor for the case
+   * `pgidLeaderStartTime` cannot cover: the leader (pid==pgid) is gone but
+   * the group is still alive (the ORDINARY orphan — a shell that exits
+   * normally leaving a backgrounded descendant), so there is no leader left
+   * to re-read a start-time from at all. A surviving group member whose own
+   * `/proc/<pid>/environ` still carries this exact token is POSITIVE proof
+   * of membership in THIS row's group, independent of any leader. See
+   * `#verifyGroupLeaderIdentity` in native-terminal/host.ts, the sole
+   * consumer, for the full decision order and its declared limits
+   * (same-uid-only environ reads; non-adversarial by design).
+   */
+  pgidGroupToken?: string;
+  /**
    * Owning host attribution for a native-terminal-pty row (see `pgid` above).
    * `ownerHostPid` is the pid of the host process that created this PTY and
    * durably persisted its pgid; `ownerHostStartTime` is that host's own
@@ -623,6 +639,7 @@ export function persistNativeTerminalPgid(
   path: string = resolveRegistryPath(),
   owner?: NativeTerminalPgidOwner,
   leaderStartTime?: number,
+  groupToken?: string,
 ): void {
   if (!Number.isSafeInteger(pgid) || pgid <= 0) {
     throw new RangeError("pgid must be a positive safe integer");
@@ -641,6 +658,7 @@ export function persistNativeTerminalPgid(
       lastSeenAt: now,
       pgid,
       ...(leaderStartTime !== undefined ? { pgidLeaderStartTime: leaderStartTime } : {}),
+      ...(groupToken !== undefined ? { pgidGroupToken: groupToken } : {}),
       ...(owner !== undefined ? { ownerHostPid: owner.pid } : {}),
       ...(owner?.startTime !== undefined ? { ownerHostStartTime: owner.startTime } : {}),
     };
@@ -654,7 +672,7 @@ export function persistNativeTerminalPgid(
 
 /** Result of resolving a native-terminal session's durable pgid. */
 export type NativeTerminalPgidLookup =
-  | { status: "resolved"; pgid: number; leaderStartTime?: number }
+  | { status: "resolved"; pgid: number; leaderStartTime?: number; groupToken?: string }
   | { status: "unresolved"; reason: string };
 
 /**
@@ -701,6 +719,9 @@ export function readNativeTerminalPgid(
     pgid: entry.pgid,
     ...(typeof entry.pgidLeaderStartTime === "number"
       ? { leaderStartTime: entry.pgidLeaderStartTime }
+      : {}),
+    ...(typeof entry.pgidGroupToken === "string"
+      ? { groupToken: entry.pgidGroupToken }
       : {}),
   };
 }
@@ -801,6 +822,7 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
       (typeof e.pgidLeaderStartTime === "number" &&
         Number.isInteger(e.pgidLeaderStartTime) &&
         e.pgidLeaderStartTime >= 0)) &&
+    (e.pgidGroupToken === undefined || typeof e.pgidGroupToken === "string") &&
     (e.ownerHostPid === undefined ||
       (typeof e.ownerHostPid === "number" && Number.isInteger(e.ownerHostPid) && e.ownerHostPid > 0)) &&
     (e.ownerHostStartTime === undefined ||
