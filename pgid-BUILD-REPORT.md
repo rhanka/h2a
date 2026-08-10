@@ -1,24 +1,31 @@
 # pgid-recycling-guard — BUILD REPORT
 
 Branch `fix/pgid-recycling-guard`, off main `8f452044`. HEAD (this build):
-**`40cfea6f`**. NOT pushed, NOT merged, NOT a PR.
+**`4bbb83e3`**. NOT pushed, NOT merged, NOT a PR.
 
-## Files changed
+## Files changed (vs `8f452044`)
 
 ```
-packages/h2a-runtime/src/registry.ts                             |  29 +++-
-packages/h2a-runtime/src/native-terminal/host.ts                 | 178 ++++++++++++++++++---
-packages/h2a-runtime/src/native-terminal/host.test.ts             | 143 +++++++++++++++++
-packages/h2a-runtime/src/native-terminal/process.functional.test.ts | 15 ++
-4 files changed, 345 insertions(+), 20 deletions(-)
+packages/h2a-runtime/src/registry.ts                                 |  29 +-
+packages/h2a-runtime/src/native-terminal/host.ts                     | 233 +-
+packages/h2a-runtime/src/native-terminal/host.test.ts                | 202 ++
+packages/h2a-runtime/src/native-terminal/process.functional.test.ts  |  15 +
+pgid-BUILD-REPORT.md (this file)                                     | new
+pgid-verify-artifact.txt (gate transcript, untracked-style, committed)| new
+6 files changed, 12193 insertions(+), 21 deletions(-)
 ```
 
-3 commits on top of `8f452044`:
+5 commits on top of `8f452044`:
 - `d1573952` — core INV-4 fix: `pgidLeaderStartTime` persisted next to `pgid`
   (registry.ts), captured at spawn and re-verified before `killGroup(pgid)`
   (host.ts), with the two discernible refusal causes (counters + loud logs).
-- `ca31dba8` — **deviation from the brief's literal ordering**, see below.
+- `ca31dba8` — **deviation from the brief's literal ordering** (see below);
+  arch has since **RATIFIED** this ordering — do not revisit it.
 - `40cfea6f` — the four mandated named tests.
+- `e55b5a59` — this report + gate artifact (superseded content below by the
+  next commit; kept for history).
+- `4bbb83e3` — **arch follow-up correction**: makes the "unverified-legacy"
+  proceed path visible (see new section below). This is the current HEAD.
 
 ## Design as built
 
@@ -40,10 +47,15 @@ packages/h2a-runtime/src/native-terminal/process.functional.test.ts | 15 ++
      REFUSE, cause `"recycled"`, counter `#pgidGuardCounters.recycled`, loud
      log (`REFUSING…cause=recycled…`).
    - no persisted baseline at all (legacy row) → cannot check recycling →
-     PROCEEDS (mirrors `defaultOwnerHostProbe`'s identical treatment of a
-     missing `ownerHostStartTime`: never manufacture a refusal from missing
-     data — pre-fix status quo, not a regression).
-   - match → PROCEEDS.
+     PROCEEDS, cause `"unverified-legacy"`, counter
+     `#pgidGuardCounters.unverifiedLegacy`, its OWN loud log
+     (`PROCEEDING…WITHOUT identity proof…cause=unverified-legacy…`), and
+     `verified: false` on the returned `"reaped"` outcome (mirrors
+     `defaultOwnerHostProbe`'s identical treatment of a missing
+     `ownerHostStartTime`: never manufacture a refusal from missing data —
+     pre-fix status quo, not a regression — but see the correction below:
+     this proceed must never be silently indistinguishable from a proven one).
+   - match → PROCEEDS, cause none, `verified: true` on the returned outcome.
    `forceStopAll` never supplies `verify` (it kills a session this host is
    still holding a live in-memory handle to, spawned in this process — no
    "was this pgid recycled since we last looked" window exists there), so it
@@ -92,10 +104,46 @@ not cosmetic. Restored; both green again. **No test's assertions were
 altered to force a pass** — only the guard's internal ordering changed.
 
 This is a genuine gap between the brief's stated measurement and this
-codebase's actual pdeathsig-based crash-containment behavior. Flagging for
-arch/owner review — the guard as built is INV-1/INV-4-compliant and passes
-every existing and new test, but the specific ordering differs from the
-brief's literal text and should be ratified or overridden.
+codebase's actual pdeathsig-based crash-containment behavior. Flagged for
+arch/owner review — **arch has since RATIFIED this ordering** (relayed via
+the coordinating peer session); it is settled, not open.
+
+## Arch follow-up: making the "unverified-legacy" proceed visible (`4bbb83e3`)
+
+Arch flagged a residual asymmetry in `#verifyGroupLeaderIdentity`'s legacy
+branch (`persistedLeaderStartTime === undefined` — a row written before this
+fix): it correctly PROCEEDS (fail-open — refusing legacy rows would leak
+every pre-existing session, same precedent as `defaultOwnerHostProbe`'s
+missing-`ownerHostStartTime` handling), but as originally built this proceed
+carried **no counter and no log** — a hidden third state, epistemically
+identical to "leader-absent" (nothing positively proves it) but making the
+opposite decision (proceed vs. refuse), and indistinguishable from a
+genuinely PROVEN match.
+
+Arch was explicit: **do not** change this to fail-closed (that would
+reinstate the exact leak the guard exists to prevent, for every
+pre-existing session). Instead, make the weak guarantee visible:
+
+1. `#verifyGroupLeaderIdentity`'s return type is now a 3-way discriminated
+   union: `{ proceed: true; verified: true }` (proven match) /
+   `{ proceed: true; verified: false; cause: "unverified-legacy" }`
+   (proceeded without proof) / `{ proceed: false; cause: "recycled" |
+   "leader-absent" }` (refused) — a compile-time-distinct outcome, not just
+   a log line, per arch's explicit ask to extend the same discriminant it
+   praised for the two refusal causes.
+2. New counter `#pgidGuardCounters.unverifiedLegacy`, on the same object as
+   `recycled`/`leaderAbsent` (getter renamed `pgidGuardCounters`, was
+   `pgidGuardRefusalCounters` — it now holds a non-refusal outcome too).
+3. New distinct, searchable log line at that branch: `PROCEEDING to kill
+   process group pgid=… for session …: WITHOUT identity proof…
+   cause=unverified-legacy sessionId=… pgid=…` — never looks like the
+   `emitted group SIGKILL…`/`confirmed pgid=… reaped…` lines a proven kill
+   also produces, and never looks like a `REFUSING…` line either.
+4. Surfaced up through `#killGroupAndConfirmDead`'s `"dead"` status and
+   `reapOrphan`'s `NativeTerminalReapOutcome` as an optional `verified:
+   boolean` field on `status: "reaped"` — present only when the identity
+   guard actually ran (absent for `forceStopAll`, or when the group was
+   already confirmed empty before any check ran).
 
 ## Named tests — PASS/FAIL
 
@@ -106,7 +154,17 @@ All in `packages/h2a-runtime/src/native-terminal/`:
 | `PGID_GUARD_PROCEEDS_WITH_THE_KILL_WHEN_THE_GROUP_LEADER_IDENTITY_MATCHES` | host.test.ts | **PASS** |
 | `PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_WAS_RECYCLED` | host.test.ts | **PASS** |
 | `PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_IS_UNREADABLE` | host.test.ts | **PASS** |
+| `PGID_GUARD_PROCEEDS_BUT_FLAGS_UNVERIFIED_WHEN_A_LEGACY_ROW_HAS_NO_PERSISTED_LEADER_STARTTIME` (arch follow-up) | host.test.ts | **PASS** |
 | `should kill a signal-resistant PTY tree after hard host death and forced host reaping` (existing, + new no-block assertion) | process.functional.test.ts | **PASS** |
+
+The new legacy test (built directly for arch's ask) constructs a row with NO
+persisted baseline (a custom injected reader returns `undefined` during
+`create()`'s spawn-time capture, then a real value afterwards — reproducing
+exactly the shape of a row written before this fix), then asserts: the kill
+PROCEEDS (`killGroup` called — legacy rows must not leak),
+`outcome.verified === false`, `pgidGuardCounters.unverifiedLegacy === 1`
+(and the other two counters stay `0`), and the distinct `PROCEEDING…WITHOUT
+identity proof…cause=unverified-legacy…` log line fired.
 
 ### Wiring counter-mutant demonstration
 
@@ -145,28 +203,29 @@ guard's behavior rather than trivially passing. Restored; green again.
 
 ### Gate 1 — h2a-runtime vitest suite (full, manual — not in required CI)
 
-Run twice for stability. Both runs identical:
+Run 3 times across this build (before and after the arch follow-up
+correction) for stability:
 
 ```
-Test Files  2 failed | 91 passed (93)
-     Tests  7 failed | 1405 passed | 4 skipped (1416)
+Run 1 (pre-correction): Test Files 2 failed | 91 passed (93) — Tests 7 failed | 1405 passed | 4 skipped (1416)
+Run 2 (pre-correction): Test Files 2 failed | 91 passed (93) — Tests 7 failed | 1405 passed | 4 skipped (1416) — same failing set as run 1
+Run 3 (post-correction, current HEAD): Test Files 93 passed (93) — Tests 1413 passed | 4 skipped (1417)
 ```
 
-All pgid/native-terminal/registry-related files (`host.test.ts`,
-`process.functional.test.ts`, `registry.test.ts`, `supervisor.test.ts`) —
-**100% green**, both runs.
-
-The 7 failures are in `src/index.test.ts` (6) and
-`src/native-host-reuse.test.ts` (1) — files my diff does not touch. Confirmed
-**pre-existing on base `8f452044`**: ran the base commit (isolated git
-worktree, symlinked `node_modules`, no reinstall) in the same conditions —
-the base commit showed its own (larger, differently-shaped) set of failures
-under the same full-suite parallel load across multiple runs (`index.test.ts`,
-`llm-mesh-resolution.test.ts`, `migrate.test.ts`, `native-host-reuse.test.ts`,
-`restore.test.ts` all appeared across runs) — confirming this suite has
-pre-existing, load/resource-contention-driven flakiness in this environment,
-unrelated to this fix. Isolated re-runs of `process.functional.test.ts`
-alone (not under full-suite contention) were green 3/3 on my branch.
+**Run 3 (the current HEAD's state) is fully clean** — 0 failures. Runs 1–2
+(pre-correction, same code path unaffected by the correction) each showed the
+same 7 failures, in `src/index.test.ts` (6) and `src/native-host-reuse.test.ts`
+(1) — files my diff does not touch. Confirmed **pre-existing on base
+`8f452044`**: ran the base commit (isolated git worktree, symlinked
+`node_modules`, no reinstall) under the same conditions — the base commit
+showed its own (larger, differently-shaped) set of failures across multiple
+runs (`index.test.ts`, `llm-mesh-resolution.test.ts`, `migrate.test.ts`,
+`native-host-reuse.test.ts`, `restore.test.ts` all appeared across runs) —
+confirming this suite has pre-existing, load/resource-contention-driven
+flakiness in this environment (intermittent — run 3 above simply didn't hit
+it this time), unrelated to this fix. All pgid/native-terminal/registry-related
+files (`host.test.ts`, `process.functional.test.ts`, `registry.test.ts`,
+`supervisor.test.ts`) — **100% green in all 3 runs**.
 
 ### Gate 2 — root `npm test` gate (`node --test packages/h2a`)
 
@@ -222,6 +281,15 @@ gate transcript only).
 
 - No group-member enumeration (arch condition 3 — instrument first).
 - No push/merge/PR.
-- No test assertions were altered to force a pass; the one place a test
-  needed anything, the guard's internal ordering changed instead
-  (documented above as a deviation requiring arch sign-off), not the test.
+- No existing test's assertions were altered to force a pass; the one place
+  a test needed anything, the guard's internal ordering changed instead
+  (the isGroupAlive-first reordering — since ratified by arch), not the
+  test. New tests were extended in place to match the guard's new return
+  shape (adding `verified`/`unverifiedLegacy` expectations) as part of
+  building the arch follow-up itself — not a retroactive edit to force a
+  pre-existing test green.
+
+## Status
+
+All arch-requested corrections applied and verified. HEAD `4bbb83e3` is the
+current, complete state of this branch.
