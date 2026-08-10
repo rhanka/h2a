@@ -1,0 +1,158 @@
+=== pgid-followup-hardening verification ===
+node --version:
+v22.22.1
+
+=== resolved @sentropic/llm-mesh version ===
+0.15.0
+
+=== GATE 1: h2a-runtime full vitest suite ===
+2026-08-10T15:43:22Z
+
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+ RUN  v4.1.9 /home/antoinefa/src/h2a/tmp/pgid-build/packages/h2a-runtime
+
+[h2a-pty-host] session alpha pgid=41000: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=41000
+[h2a-pty-host] session beta pgid=41001: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=beta pgid=41001
+[h2a-pty-host] session alpha pgid=41002: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=41002
+[h2a-pty-host] session beta pgid=41003: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=beta pgid=41003
+[h2a-pty-host] session alpha pgid=41004: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=41004
+[h2a-pty-host] session beta pgid=41005: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=beta pgid=41005
+[h2a-pty-host] emitted group SIGKILL pgid=41004 (session alpha)
+[h2a-pty-host] confirmed pgid=41004 reaped at 0ms (session alpha)
+[h2a-pty-host] emitted group SIGKILL pgid=41005 (session beta)
+[h2a-pty-host] confirmed pgid=41005 reaped at 0ms (session beta)
+[h2a-pty-host] session alpha pgid=41006: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=41006
+[h2a-pty-host] emitted group SIGKILL pgid=41006 (session alpha)
+[h2a-pty-host] confirmed pgid=41006 reaped at 32ms (session alpha)
+[h2a-pty-host] emitted group SIGKILL pgid=41009 (orphan alpha)
+[h2a-pty-host] confirmed pgid=41009 reaped at 0ms (orphan alpha)
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+xxxx[h2a-pty-host] session alpha pgid=51000: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=51000
+[h2a-pty-host] session beta pgid=51001: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=beta pgid=51001
+[h2a-pty-host] session alpha pgid=41016: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=41016
+[h2a-pty-host] session alpha pgid=41017: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=41017
+[h2a-pty-host] session beta pgid=41018: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=beta pgid=41018
+[h2a-pty-host] session gamma pgid=41019: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=gamma pgid=41019
+[h2a-pty-host] session gamma pgid=41020: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=gamma pgid=41020
+[h2a-pty-host] session alpha pgid=41021: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=41021
+[h2a-pty-host] session alpha pgid=41022: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=41022
+[h2a-pty-host] session alpha pgid=41023: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=41023
+[h2a-pty-host] session alpha pgid=41024: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=41024
+[h2a-pty-host] session beta pgid=41025: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=beta pgid=41025
+[h2a-pty-host] session alpha pgid=41026: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=41026
+[h2a-pty-host] session alpha pgid=41027: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=41027
+[h2a-pty-host] session fragmented pgid=51002: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=fragmented pgid=51002
+[h2a-pty-host] session slow-reader pgid=51003: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=slow-reader pgid=51003
+xxxxxxxxxxxxxx[h2a-pty-host] session alpha pgid=51004: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=alpha pgid=51004
+xxxxxxxxxxxxxxxxxxxxxxxx[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-host] pgid=589721 already confirmed empty before any signal was emitted (orphan brutal-orphan-tree)
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-host] PROCEEDING to kill process group pgid=589925 for session leader-dead-orphan: the leader is unreadable, but a surviving GROUP MEMBER carries the persisted session token — positive proof of membership. cause=token-verified sessionId=leader-dead-orphan pgid=589925
+[h2a-pty-host] emitted group SIGKILL pgid=589925 (orphan leader-dead-orphan)
+[h2a-pty-host] confirmed pgid=589925 reaped at 50ms (orphan leader-dead-orphan)
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] native-terminal session graceful: owning host pid=589997 is PROVEN DEAD — reaping its orphan process group pgid=590171.
+[h2a-pty-supervisor] pgid=590171 already confirmed empty before any signal was emitted (orphan graceful)
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+
+ Test Files  93 passed (93)
+      Tests  1417 passed | 4 skipped (1421)
+   Start at  11:43:23
+   Duration  17.79s (transform 34.79s, setup 0ms, import 56.03s, tests 29.02s, environment 13ms)
+
+
+=== GATE 2: process.functional.test.ts FULL FILE x25, node v22.22.1 ===
+2026-08-10T15:43:53Z
+
+run 1: PASS (16.09s)
+run 2: PASS (15.95s)
+run 3: PASS (15.97s)
+run 4: PASS (15.93s)
+run 5: PASS (16.06s)
+run 6: PASS (16.02s)
+run 7: PASS (15.80s)
+run 8: PASS (15.74s)
+run 9: PASS (15.76s)
+run 10: PASS (15.90s)
+run 11: PASS (15.81s)
+run 12: PASS (15.88s)
+run 13: PASS (15.86s)
+run 14: PASS (15.73s)
+run 15: PASS (15.90s)
+run 16: PASS (15.94s)
+run 17: PASS (15.94s)
+run 18: PASS (15.73s)
+run 19: PASS (15.88s)
+run 20: PASS (15.72s)
+run 21: PASS (15.59s)
+run 22: PASS (15.72s)
+run 23: PASS (15.68s)
+run 24: PASS (15.64s)
+run 25: PASS (15.66s)
+process.functional.test.ts full-file x25 on node v22.22.1: 25 passed / 0 failed
+
+=== GATE 2b: process.functional.test.ts FULL FILE x20, node v20.20.2 ===
+2026-08-10T15:51:02Z
+
+run 9: FAIL
+[h2a-pty-host] confirmed pgid=905484 reaped at 50ms (orphan leader-dead-orphan)
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] native-terminal session graceful: owning host pid=905516 is PROVEN DEAD — reaping its orphan process group pgid=905565.
+[h2a-pty-supervisor] pgid=905565 already confirmed empty before any signal was emitted (orphan graceful)
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+ ❯ src/native-terminal/process.functional.test.ts (13 tests | 1 failed) 27742ms
+     × should kill a signal-resistant PTY tree after hard host death and forced host reaping 17560ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/native-terminal/process.functional.test.ts > native terminal host process > should kill a signal-resistant PTY tree after hard host death and forced host reaping
+Error: condition did not become true; last value: [false,false,true,true]
+ ❯ eventually src/native-terminal/process.functional.test.ts:64:9
+     62|     await new Promise((resolve) => setTimeout(resolve, EVENTUALLY_POLL…
+     63|   }
+     64|   throw new Error(`condition did not become true; last value: ${JSON.s…
+       |         ^
+     65| }
+     66|
+ ❯ src/native-terminal/process.functional.test.ts:302:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 passed (13)
+   Start at  11:52:52
+   Duration  28.11s (transform 205ms, setup 0ms, import 257ms, tests 27.74s, environment 0ms)
+process.functional.test.ts full-file x20 on node v20.20.2: 19 passed / 1 failed
+
+=== GATE 2c: INV-4 test isolated x20, node v20.20.2 (reproduces the same failure signature) ===
+INV-4 test isolated x20 on node v20.20.2: 19 passed / 1 failed (run 10)
+Failure: Error: condition did not become true; last value: [false,false,true,true] at process.functional.test.ts:302
+  -- the forced-reap-tree's leader+host confirmed dead, but its 2 descendants still alive after the 15s eventually window
+  -- this eventually call does NOT touch reapOrphan/#verifyGroupLeaderIdentity at all; it is a pure real-OS-process-death observation
+  -- reproduces identically whether run as part of a 20x hammering loop or in isolation -- a genuine ~5% residual timing risk under this sandbox's resource contention on node-20, not an artifact of the loop methodology
