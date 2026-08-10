@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { NativeTerminalClient } from "./client.js";
+import { NativeTerminalHost } from "./host.js";
 import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
 import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
 
@@ -121,6 +122,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         options.generation,
         "--replay-bytes",
         String(options.replayBytesPerSession),
+        ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
       ], {
         cwd: dirname(entry),
         env: process.env,
@@ -131,6 +133,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     };
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024 * 1024,
       spawnHost,
       generationFactory: () => "functional-generation",
@@ -212,6 +215,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const generations = ["parent-death-hard", "parent-death-reap"];
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       startupTimeoutMs: 500,
       spawnTerminationGraceMs: 100,
@@ -228,6 +232,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           options.generation,
           "--replay-bytes",
           String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], {
           cwd: dirname(entry),
           env: process.env,
@@ -270,6 +275,80 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     expect(supervisor.spawnedPid).toBeUndefined();
   });
 
+  it("should let a FRESH host — one that never knew the session — reap it from its durably persisted pgid after brutal host death", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-fresh-reap-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const registryPath = join(directory, "registry.json");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      replayBytesPerSession: 1024,
+      registryPath,
+      generationFactory: () => "fresh-reap-owning-host",
+      spawnHost: (options) => {
+        const child = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined
+            ? ["--registry-path", options.registryPath]
+            : []),
+        ], {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        children.add(child);
+        return child;
+      },
+    });
+
+    const client = await supervisor.client();
+    const ping = await client.ping();
+    const orphanPids = await createStubbornWorkload(
+      client,
+      "brutal-orphan-tree",
+      directory,
+    );
+
+    // Brutal, unclean host death: no graceful shutdown, no chance for the
+    // owning host to ever run its own forceStopAll.
+    process.kill(ping.hostPid, "SIGKILL");
+    await eventually(
+      () => processObservation(ping.hostPid),
+      (state) => state.missing === true,
+    );
+
+    // A FRESH host: constructed directly, never spawned, never talked to the
+    // dead host — it has NO in-memory record of "brutal-orphan-tree" at all.
+    // Its ONLY way to reap the tree is the durably persisted pgid, read from
+    // the SAME registry file the dead host wrote to at session creation.
+    const freshHost = new NativeTerminalHost({
+      generation: "fresh-reap-fresh-host",
+      replayBytesPerSession: 1024,
+      spawner: () => {
+        throw new Error("the fresh host in this test must never spawn a pty");
+      },
+      registryPath,
+    });
+
+    const outcome = await freshHost.reapOrphan("brutal-orphan-tree", "SIGKILL");
+    expect(outcome).toMatchObject({
+      sessionId: "brutal-orphan-tree",
+      status: "reaped",
+    });
+
+    const states = await Promise.all(orphanPids.map(processObservation));
+    expect(states.every((state) => state.missing === true)).toBe(true);
+  });
+
   it("should stop its PTYs and remove its socket on graceful host shutdown", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-shutdown-"));
     directories.add(directory);
@@ -278,6 +357,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     let child: ChildProcess | undefined;
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       generationFactory: (() => {
         const generations = ["shutdown-generation", "restart-generation"];
@@ -294,6 +374,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           options.generation,
           "--replay-bytes",
           String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
         children.add(child);
         return child;
@@ -336,6 +417,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       generationFactory: () => "escalation-generation",
       spawnHost: (options) => {
@@ -349,6 +431,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           options.generation,
           "--replay-bytes",
           String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], {
           cwd: dirname(entry),
           env: process.env,
@@ -401,6 +484,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     let hostProcess: ChildProcess | undefined;
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       generationFactory: () => "frame-limit-generation",
       spawnHost: (options) => {
@@ -414,6 +498,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           options.generation,
           "--replay-bytes",
           String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], {
           cwd: dirname(entry),
           env: process.env,
@@ -505,6 +590,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       generationFactory: () => "reincarnation-generation",
       spawnHost: (options) => {
@@ -518,6 +604,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           options.generation,
           "--replay-bytes",
           String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], {
           cwd: dirname(entry),
           env: process.env,
@@ -602,6 +689,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       generationFactory: () => "backpressure-generation",
       spawnHost: (options) => {
@@ -615,6 +703,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           options.generation,
           "--replay-bytes",
           String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], {
           cwd: dirname(entry),
           env: process.env,
@@ -685,6 +774,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     let spawnCount = 0;
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       generationFactory: () => `failure-generation-${spawnCount + 1}`,
       spawnHost: (options) => {
@@ -699,6 +789,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           options.generation,
           "--replay-bytes",
           String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], {
           cwd: dirname(entry),
           env: process.env,
@@ -727,6 +818,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     let hungChild: ChildProcess | undefined;
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       startupTimeoutMs: 1_000,
       spawnTerminationGraceMs: 100,
@@ -751,6 +843,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
               options.generation,
               "--replay-bytes",
               String(options.replayBytesPerSession),
+              ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
             ], {
               cwd: dirname(entry),
               env: process.env,
@@ -788,6 +881,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const losingGenerations = ["losing-hung", "losing-replacement"];
     const losing = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       startupTimeoutMs: 1_000,
       spawnTerminationGraceMs: 100,
@@ -813,6 +907,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
               options.generation,
               "--replay-bytes",
               String(options.replayBytesPerSession),
+              ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
             ], {
               cwd: dirname(entry),
               env: process.env,
@@ -832,6 +927,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     let winningChild: ChildProcess | undefined;
     const winner = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       generationFactory: () => "winning-generation",
       spawnHost: (options) => {
@@ -845,6 +941,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           options.generation,
           "--replay-bytes",
           String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
         ], {
           cwd: dirname(entry),
           env: process.env,
@@ -887,18 +984,21 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         options.generation,
         "--replay-bytes",
         String(options.replayBytesPerSession),
+        ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
       ], { cwd: dirname(entry), env: process.env, stdio: ["ignore", "pipe", "pipe"] });
       children.add(child);
       return child;
     };
     const firstSupervisor = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       spawnHost,
       generationFactory: () => "race-first",
     });
     const secondSupervisor = new NativeTerminalHostSupervisor({
       socketPath,
+      registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       spawnHost,
       generationFactory: () => "race-second",
