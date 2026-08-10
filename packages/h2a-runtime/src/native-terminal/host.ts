@@ -309,6 +309,15 @@ export type NativeTerminalCreateOptions = Readonly<{
  * `"leader-absent"` (the leader is simply unreadable right now: possibly our
  * own orphan, a conservative refuse-and-leak) — collapsing them into one
  * verdict would hide whether this guard is protecting us or making us leak.
+ *
+ * `verified`, present on `"reaped"` only when the identity guard actually
+ * ran, DISCERNS a PROVEN kill (`true` — current and persisted leader
+ * start-times matched) from an UNPROVEN one (`false` — a legacy row with no
+ * persisted baseline at all: `#verifyGroupLeaderIdentity` fails OPEN there
+ * by design — see its doc comment — but that must never look identical to a
+ * proven match in logs or outcomes). Absent entirely when no identity check
+ * ran at all (e.g. `forceStopAll`, or the group was already confirmed empty
+ * before any check).
  */
 export type NativeTerminalReapOutcome = Readonly<
   | {
@@ -317,7 +326,13 @@ export type NativeTerminalReapOutcome = Readonly<
       reason: string;
       cause?: "recycled" | "leader-absent";
     }
-  | { sessionId: string; status: "reaped"; pgid: number; elapsedMs: number }
+  | {
+      sessionId: string;
+      status: "reaped";
+      pgid: number;
+      elapsedMs: number;
+      verified?: boolean;
+    }
   | { sessionId: string; status: "reap-timed-out"; pgid: number; elapsedMs: number }
 >;
 
@@ -347,7 +362,7 @@ export class NativeTerminalHost {
   readonly #forceKillTimeoutMs: number;
   readonly #forceKillPollIntervalMs: number;
   readonly #readLeaderStartTime: (pid: number) => number | undefined;
-  readonly #pgidGuardCounters = { recycled: 0, leaderAbsent: 0 };
+  readonly #pgidGuardCounters = { recycled: 0, leaderAbsent: 0, unverifiedLegacy: 0 };
 
   constructor(options: {
     generation: string;
@@ -414,12 +429,22 @@ export class NativeTerminalHost {
   }
 
   /**
-   * COUNTABLE per arch condition 1/2: the two DISCERNIBLE roots of a
-   * group-leader-identity refusal, so "has this guard ever refused, and
-   * why" is answerable later without re-deriving it from raw logs. Never
-   * collapsed into one number — see `NativeTerminalReapOutcome`'s `cause`.
+   * COUNTABLE per arch condition 1/2: the three DISCERNIBLE outcomes of the
+   * group-leader-identity guard, so "has this guard ever refused (and why),
+   * or ever proceeded WITHOUT proof" is answerable later without
+   * re-deriving it from raw logs. `recycled`/`leaderAbsent` are refusals
+   * (the kill was NOT emitted); `unverifiedLegacy` is a PROCEED (the kill
+   * WAS emitted) on a legacy row with no persisted baseline to check against
+   * — the fail-open branch of `#verifyGroupLeaderIdentity`. Never collapsed:
+   * a proven kill and an unproven one must never look alike here, exactly as
+   * a refusal and a proceed must never look alike — see
+   * `NativeTerminalReapOutcome`'s `cause`/`verified`.
    */
-  get pgidGuardRefusalCounters(): Readonly<{ recycled: number; leaderAbsent: number }> {
+  get pgidGuardCounters(): Readonly<{
+    recycled: number;
+    leaderAbsent: number;
+    unverifiedLegacy: number;
+  }> {
     return { ...this.#pgidGuardCounters };
   }
 
@@ -720,7 +745,13 @@ export class NativeTerminalHost {
       { sessionId, persistedLeaderStartTime: lookup.leaderStartTime },
     );
     if (outcome.status === "dead") {
-      return { sessionId, status: "reaped", pgid: lookup.pgid, elapsedMs: outcome.elapsedMs };
+      return {
+        sessionId,
+        status: "reaped",
+        pgid: lookup.pgid,
+        elapsedMs: outcome.elapsedMs,
+        ...(outcome.verified !== undefined ? { verified: outcome.verified } : {}),
+      };
     }
     if (outcome.status === "timed-out") {
       return { sessionId, status: "reap-timed-out", pgid: lookup.pgid, elapsedMs: outcome.elapsedMs };
@@ -755,15 +786,27 @@ export class NativeTerminalHost {
    *    against -> cannot be checked for recycling at all, so this PROCEEDS
    *    rather than manufacture a refusal from missing data — the exact same
    *    asymmetry `defaultOwnerHostProbe` applies to a missing
-   *    `ownerHostStartTime` (pre-fix status quo, not a regression).
+   *    `ownerHostStartTime` (pre-fix status quo, not a regression). This is
+   *    a DELIBERATE fail-OPEN, the opposite decision from the leader-absent
+   *    branch above despite both starting from "nothing positively proves
+   *    it" — refusing legacy rows would leak every pre-existing session, so
+   *    proceeding is correct. But a kill taken on this branch carries the
+   *    SAME residual risk a "recycled" refusal exists to prevent, just
+   *    un-checked; it must never be silently indistinguishable from a
+   *    PROVEN match — counted and logged under its own cause,
+   *    `"unverified-legacy"`, and surfaced on the RETURN value (`verified:
+   *    false`), not just in a log line.
    *  - current and persisted start-times MATCH -> the group is provably the
-   *    one this row was written for -> PROCEED.
+   *    one this row was written for -> PROCEED, `verified: true`.
    */
   #verifyGroupLeaderIdentity(
     pgid: number,
     persistedLeaderStartTime: number | undefined,
     sessionId: string,
-  ): { proceed: true } | { proceed: false; cause: "recycled" | "leader-absent" } {
+  ):
+    | { proceed: true; verified: true }
+    | { proceed: true; verified: false; cause: "unverified-legacy" }
+    | { proceed: false; cause: "recycled" | "leader-absent" } {
     const currentStartTime = this.#readLeaderStartTime(pgid);
     if (currentStartTime === undefined) {
       this.#pgidGuardCounters.leaderAbsent += 1;
@@ -772,17 +815,21 @@ export class NativeTerminalHost {
       );
       return { proceed: false, cause: "leader-absent" };
     }
-    if (
-      persistedLeaderStartTime !== undefined &&
-      currentStartTime !== persistedLeaderStartTime
-    ) {
+    if (persistedLeaderStartTime === undefined) {
+      this.#pgidGuardCounters.unverifiedLegacy += 1;
+      this.#log(
+        `PROCEEDING to kill process group pgid=${pgid} for session ${sessionId} WITHOUT identity proof: no leader start-time baseline was ever persisted for this row (legacy) — cannot be checked for recycling at all. This kill is UNVERIFIED, not a proven match. cause=unverified-legacy sessionId=${sessionId} pgid=${pgid}`,
+      );
+      return { proceed: true, verified: false, cause: "unverified-legacy" };
+    }
+    if (currentStartTime !== persistedLeaderStartTime) {
       this.#pgidGuardCounters.recycled += 1;
       this.#log(
         `REFUSING to kill process group pgid=${pgid} for session ${sessionId}: current leader start-time (${currentStartTime}) DIFFERS from the persisted start-time (${persistedLeaderStartTime}) — pgid was RECYCLED to an unrelated process since this row was written. PROCESSES MAY SURVIVE UNCOLLECTED. cause=recycled sessionId=${sessionId} pgid=${pgid}`,
       );
       return { proceed: false, cause: "recycled" };
     }
-    return { proceed: true };
+    return { proceed: true, verified: true };
   }
 
   /**
@@ -805,7 +852,7 @@ export class NativeTerminalHost {
     label: string,
     verify?: { sessionId: string; persistedLeaderStartTime: number | undefined },
   ): Promise<
-    | { status: "dead"; elapsedMs: number }
+    | { status: "dead"; elapsedMs: number; verified?: boolean }
     | { status: "timed-out"; elapsedMs: number }
     | { status: "refused"; cause: "recycled" | "leader-absent" }
   > {
@@ -832,6 +879,7 @@ export class NativeTerminalHost {
       );
       return { status: "dead", elapsedMs: 0 };
     }
+    let verified: boolean | undefined;
     if (verify) {
       const verdict = this.#verifyGroupLeaderIdentity(
         pgid,
@@ -841,6 +889,7 @@ export class NativeTerminalHost {
       if (!verdict.proceed) {
         return { status: "refused", cause: verdict.cause };
       }
+      verified = verdict.verified;
     }
     const start = Date.now();
     try {
@@ -856,7 +905,11 @@ export class NativeTerminalHost {
       if (!this.#reaper.isGroupAlive(pgid)) {
         const elapsedMs = Date.now() - start;
         this.#log(`confirmed pgid=${pgid} reaped at ${elapsedMs}ms (${label})`);
-        return { status: "dead", elapsedMs };
+        return {
+          status: "dead",
+          elapsedMs,
+          ...(verified !== undefined ? { verified } : {}),
+        };
       }
       const elapsedMs = Date.now() - start;
       if (elapsedMs >= this.#forceKillTimeoutMs) {
