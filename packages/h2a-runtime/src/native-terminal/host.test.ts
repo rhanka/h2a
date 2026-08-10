@@ -581,9 +581,10 @@ describe("NativeTerminalHost", () => {
       status: "reaped",
       pgid,
       elapsedMs: expect.any(Number),
+      verified: true,
     });
     expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
-    expect(host.pgidGuardRefusalCounters).toEqual({ recycled: 0, leaderAbsent: 0 });
+    expect(host.pgidGuardCounters).toEqual({ recycled: 0, leaderAbsent: 0, unverifiedLegacy: 0 });
   });
 
   it("PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_WAS_RECYCLED", async () => {
@@ -625,7 +626,7 @@ describe("NativeTerminalHost", () => {
     // #killGroupAndConfirmDead reddens this assertion; restoring it passes
     // again (see pgid-BUILD-REPORT.md for the demonstration transcript).
     expect(killGroup).not.toHaveBeenCalled();
-    expect(host.pgidGuardRefusalCounters).toEqual({ recycled: 1, leaderAbsent: 0 });
+    expect(host.pgidGuardCounters).toEqual({ recycled: 1, leaderAbsent: 0, unverifiedLegacy: 0 });
     expect(warnings.some((line) =>
       /REFUSING/.test(line) &&
       /RECYCLED/i.test(line) &&
@@ -668,11 +669,69 @@ describe("NativeTerminalHost", () => {
       cause: "leader-absent",
     });
     expect(killGroup).not.toHaveBeenCalled();
-    expect(host.pgidGuardRefusalCounters).toEqual({ recycled: 0, leaderAbsent: 1 });
+    expect(host.pgidGuardCounters).toEqual({ recycled: 0, leaderAbsent: 1, unverifiedLegacy: 0 });
     expect(warnings.some((line) =>
       /REFUSING/.test(line) &&
       /UNREADABLE/.test(line) &&
       line.includes("cause=leader-absent") &&
+      line.includes("sessionId=alpha") &&
+      line.includes(`pgid=${pgid}`)
+    )).toBe(true);
+  });
+
+  it("PGID_GUARD_PROCEEDS_BUT_FLAGS_UNVERIFIED_WHEN_A_LEGACY_ROW_HAS_NO_PERSISTED_LEADER_STARTTIME", async () => {
+    // unverified-legacy: a row written with NO leader-start-time baseline at
+    // all (the shape a pre-fix row would have) cannot be checked for
+    // recycling — refusing it would leak every pre-existing session, so the
+    // guard fails OPEN here (mirrors defaultOwnerHostProbe's identical
+    // treatment of a missing ownerHostStartTime) and PROCEEDS. But a
+    // proceed taken without proof must never look identical to a PROVEN
+    // match: it gets its own counter, its own distinct log, and its own
+    // `verified: false` on the returned outcome.
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const values = new Map<number, number | undefined>();
+    // While true, the injected reader returns undefined for ANY pid — this
+    // simulates create()'s spawn-time capture failing to record a baseline
+    // (or predating this fix entirely), so persistNativeTerminalPgid omits
+    // pgidLeaderStartTime, exactly like a real legacy row.
+    let capturingBaseline = true;
+    const read = (pid: number): number | undefined => {
+      if (capturingBaseline) return undefined;
+      return values.has(pid) ? values.get(pid) : 1000;
+    };
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-pgid-unverified-legacy",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      readLeaderStartTime: read,
+    });
+    createSession(host, "alpha"); // no baseline persisted (capturingBaseline=true)
+    capturingBaseline = false; // kill-time reads succeed normally from here on
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid);
+    values.set(pgid, 1000); // the leader IS readable now — just nothing to compare it to
+
+    const outcome = await host.reapOrphan("alpha");
+
+    expect(outcome).toEqual({
+      sessionId: "alpha",
+      status: "reaped",
+      pgid,
+      elapsedMs: expect.any(Number),
+      verified: false,
+    });
+    // Legacy rows must NOT leak: the kill DOES proceed (unlike recycled/leader-absent).
+    expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
+    expect(host.pgidGuardCounters).toEqual({ recycled: 0, leaderAbsent: 0, unverifiedLegacy: 1 });
+    expect(warnings.some((line) =>
+      /PROCEEDING/.test(line) &&
+      /WITHOUT identity proof/i.test(line) &&
+      line.includes("cause=unverified-legacy") &&
       line.includes("sessionId=alpha") &&
       line.includes(`pgid=${pgid}`)
     )).toBe(true);
