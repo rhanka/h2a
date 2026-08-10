@@ -1035,3 +1035,23 @@ describe("throttled row rendering (jobs ls)", () => {
     expect(table.split("\n")[0]).toMatch(/^ID\s+TYPE\s+STATE\s+AGE\s+CWD$/);
   });
 });
+
+describe("delegate on a tmux-less machine — NAMED DEBT, not covered", () => {
+  // Tracked debt, deliberately NOT fixed in #199 (arch: follow-up, not
+  // blocking): local `h2a delegate` REFUSES when tmux is absent
+  // (index.ts: "tmux is not installed locally — local `h2a delegate` needs
+  // it"), while the runtime now REGISTERS local-native sessions and makes
+  // the native PTY host the DEFAULT session host. The incoherence: #199
+  // creates the POPULATION that can hit this — a tmux-less machine becomes
+  // a legitimate configuration when pty is the default — not the defect
+  // itself (the refusal exists verbatim on main; population today = zero,
+  // tmux installed fleet-wide). When delegate learns to run its local jobs
+  // on the native host without tmux, replace this skip with the real
+  // assertions (a local delegate on a tmux-less machine starts a native
+  // job; no tmux requirement on the local leg).
+  it.skip("DELEGATE_REGISTERS_LOCAL_NATIVE_WHILE_REQUIRING_TMUX — tracked debt: #199 creates the POPULATION that can hit this (a tmux-less machine becomes a legitimate config when pty is the default), not the defect; pending delegate native-without-tmux", () => {
+    throw new Error(
+      "unreachable while skipped: delegate native-without-tmux is not implemented",
+    );
+  });
+});

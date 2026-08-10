@@ -55,6 +55,14 @@ function countCommand(settings: Settings, event: string, command: string): numbe
   );
 }
 
+
+/** Unwrap the 3-state registry read (must be "ok" in these fixtures). */
+function loadEntries(path: string): RegistryEntry[] {
+  const read = loadRegistry(path);
+  expect(read.state).toBe("ok");
+  return read.state === "ok" ? read.entries : [];
+}
+
 describe("installClaudeHooks", () => {
   it("creates settings.json with both hooks when none exists (no backup)", () => {
     const result = installClaudeHooks(settingsPath);
@@ -171,7 +179,7 @@ describe("handleClaudeHook", () => {
 
   it("claude-start enrolls a local claude session with convId = session_id", () => {
     expect(handleClaudeHook("claude-start", payload, regPath)).toEqual({ ok: true });
-    const entries = loadRegistry(regPath);
+    const entries = loadEntries(regPath);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
       id: "abc-123",
@@ -187,11 +195,11 @@ describe("handleClaudeHook", () => {
   it("claude-end marks the session ended (enrolling it first if unknown)", () => {
     handleClaudeHook("claude-start", payload, regPath);
     expect(handleClaudeHook("claude-end", payload, regPath)).toEqual({ ok: true });
-    expect(loadRegistry(regPath)[0]!.endedAt).toBeTruthy();
+    expect(loadEntries(regPath)[0]!.endedAt).toBeTruthy();
 
     const other = JSON.stringify({ session_id: "never-started", cwd: "/y" });
     expect(handleClaudeHook("claude-end", other, regPath)).toEqual({ ok: true });
-    const entry = loadRegistry(regPath).find((e) => e.id === "never-started");
+    const entry = loadEntries(regPath).find((e) => e.id === "never-started");
     expect(entry?.endedAt).toBeTruthy();
   });
 
@@ -199,7 +207,7 @@ describe("handleClaudeHook", () => {
     expect(handleClaudeHook("claude-start", "not json", regPath).ok).toBe(false);
     expect(handleClaudeHook("claude-start", "{}", regPath).ok).toBe(false);
     expect(handleClaudeHook("claude-oops", payload, regPath).ok).toBe(false);
-    expect(loadRegistry(regPath)).toEqual([]);
+    expect(loadEntries(regPath)).toEqual([]);
   });
 });
 
@@ -238,7 +246,7 @@ describe("handleClaudeHook — P3 job.done on claude-end for a delegated job", (
       to: "claude:parent:1",
     });
     // job advanced to done in the registry
-    const entry = loadRegistry(regPath).find((e) => e.id === "claude-job1");
+    const entry = loadEntries(regPath).find((e) => e.id === "claude-job1");
     expect(entry?.jobState).toBe("done");
     expect(entry?.endedAt).toBeTruthy();
     // the emit saw the advanced (done) entry
@@ -273,7 +281,7 @@ describe("handleClaudeHook — P3 job.done on claude-end for a delegated job", (
     );
     expect(r.ok).toBe(true);
     expect(r.callback?.emitted).toBe(false);
-    expect(loadRegistry(regPath).find((e) => e.id === "claude-job2")?.jobState).toBe(
+    expect(loadEntries(regPath).find((e) => e.id === "claude-job2")?.jobState).toBe(
       "done",
     );
   });
@@ -342,10 +350,10 @@ describe("H1 — job resolved by REMOTE_JOB_ID / convId, not session_id slug", (
       { env: { REMOTE_JOB_ID: "job-A" } },
     );
     expect(r).toEqual({ ok: true, jobId: "job-A" });
-    const job = loadRegistry(regPath).find((e) => e.id === "job-A");
+    const job = loadEntries(regPath).find((e) => e.id === "job-A");
     expect(job?.convId).toBe("conv-uuid-A");
     // It did NOT create a stray entry keyed by the uuid.
-    expect(loadRegistry(regPath).some((e) => e.id === "conv-uuid-A")).toBe(false);
+    expect(loadEntries(regPath).some((e) => e.id === "conv-uuid-A")).toBe(false);
   });
 
   it("claude-end completes the job via REMOTE_JOB_ID even when session_id != slug", () => {
@@ -366,7 +374,7 @@ describe("H1 — job resolved by REMOTE_JOB_ID / convId, not session_id slug", (
     );
     expect(r.ok).toBe(true);
     expect(r.jobId).toBe("job-B");
-    expect(loadRegistry(regPath).find((e) => e.id === "job-B")?.jobState).toBe(
+    expect(loadEntries(regPath).find((e) => e.id === "job-B")?.jobState).toBe(
       "done",
     );
   });
@@ -392,7 +400,7 @@ describe("H1 — job resolved by REMOTE_JOB_ID / convId, not session_id slug", (
       },
     );
     expect(r.jobId).toBe("job-C");
-    expect(loadRegistry(regPath).find((e) => e.id === "job-C")?.jobState).toBe(
+    expect(loadEntries(regPath).find((e) => e.id === "job-C")?.jobState).toBe(
       "done",
     );
   });
@@ -405,7 +413,7 @@ describe("H1 — job resolved by REMOTE_JOB_ID / convId, not session_id slug", (
       { env: { REMOTE_JOB_ID: "ghost-job" } },
     );
     expect(r).toEqual({ ok: true });
-    const e = loadRegistry(regPath).find((x) => x.id === "lone-uuid");
+    const e = loadEntries(regPath).find((x) => x.id === "lone-uuid");
     expect(e?.role).toBeUndefined();
     expect(e?.convId).toBe("lone-uuid");
   });
@@ -418,7 +426,7 @@ describe("manualEnroll", () => {
       regPath,
     );
     expect(result.ok).toBe(true);
-    expect(loadRegistry(regPath)[0]).toMatchObject({
+    expect(loadEntries(regPath)[0]).toMatchObject({
       id: "roll-7",
       tool: "codex",
       kind: "local",
@@ -433,6 +441,6 @@ describe("manualEnroll", () => {
   it("rejects unknown tools and bad pids", () => {
     expect(manualEnroll({ tool: "vim" }, regPath).ok).toBe(false);
     expect(manualEnroll({ tool: "claude", pid: "abc" }, regPath).ok).toBe(false);
-    expect(loadRegistry(regPath)).toEqual([]);
+    expect(loadEntries(regPath)).toEqual([]);
   });
 });
