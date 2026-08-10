@@ -11506,3 +11506,44 @@ ok 1838 - doctor --scan --prune on an all-orphan scan dir: prunes both, no live-
 # skipped 17
 # todo 0
 # duration_ms 55111.169641
+
+=== GATE 1 (post-correction): h2a-runtime vitest FULL suite ===
+2026-08-10T12:44:33Z
+
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+ RUN  v4.1.9 /home/antoinefa/src/h2a/tmp/pgid-build/packages/h2a-runtime
+
+xxxxxxxxxxxx[h2a-pty-host] emitted group SIGKILL pgid=41004 (session alpha)
+[h2a-pty-host] confirmed pgid=41004 reaped at 0ms (session alpha)
+[h2a-pty-host] emitted group SIGKILL pgid=41005 (session beta)
+[h2a-pty-host] confirmed pgid=41005 reaped at 0ms (session beta)
+[h2a-pty-host] emitted group SIGKILL pgid=41006 (session alpha)
+xxxx[h2a-pty-host] confirmed pgid=41006 reaped at 32ms (session alpha)
+xxx[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+xxxx[h2a-pty-host] emitted group SIGKILL pgid=41009 (orphan alpha)
+[h2a-pty-host] confirmed pgid=41009 reaped at 0ms (orphan alpha)
+xxxxxxxxxxxxxxxxxxxxxx[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-host] pgid=3523715 already confirmed empty before any signal was emitted (orphan brutal-orphan-tree)
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] native-terminal session graceful: owning host pid=3523730 is PROVEN DEAD — reaping its orphan process group pgid=3523888.
+[h2a-pty-supervisor] pgid=3523888 already confirmed empty before any signal was emitted (orphan graceful)
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+[h2a-pty-supervisor] REFUSING to reconcile native-terminal orphans: registry unreadable (registry is absent). NOTHING was reaped.
+
+ Test Files  93 passed (93)
+      Tests  1413 passed | 4 skipped (1417)
+   Start at  08:44:34
+   Duration  16.58s (transform 32.80s, setup 0ms, import 50.98s, tests 34.38s, environment 12ms)
+
