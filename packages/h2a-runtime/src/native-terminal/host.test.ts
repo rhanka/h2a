@@ -845,6 +845,140 @@ describe("NativeTerminalHost", () => {
     )).toBe(true);
   });
 
+  it("PGID_GUARD_PROCEEDS_VIA_TOKEN_WHEN_THE_LEADER_IS_READABLE_BUT_HAS_NO_STARTTIME_BASELINE", async () => {
+    // raise-proof-never-degrade (arch precision): leader readable, but NO
+    // start-time baseline was ever persisted — before falling back to
+    // unverified-legacy, the guard now consults the group token FIRST
+    // (the token is persisted UNCONDITIONALLY at spawn, unlike the
+    // start-time, a fallible /proc read). A surviving member carries it:
+    // POSITIVE proof, upgrading the outcome to verified:true/token-verified
+    // instead of the weaker unverified-legacy.
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const { find, carriedTokens } = fakeGroupMemberTokenProbe();
+    const values = new Map<number, number | undefined>();
+    let capturingBaseline = true;
+    const read = (pid: number): number | undefined => {
+      if (capturingBaseline) return undefined;
+      return values.has(pid) ? values.get(pid) : 1000;
+    };
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-pgid-legacy-token-present",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      readLeaderStartTime: read,
+      findGroupMemberToken: find,
+    });
+    createSession(host, "alpha"); // no start-time baseline persisted; DOES persist a groupToken
+    capturingBaseline = false; // kill-time reads succeed normally from here on
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid);
+    values.set(pgid, 1000); // the leader IS readable at kill-time — just nothing to compare it to
+
+    const lookup = readNativeTerminalPgid("alpha", registryPath);
+    if (lookup.status !== "resolved" || lookup.groupToken === undefined) {
+      throw new Error("expected a resolved lookup with a persisted groupToken");
+    }
+    carriedTokens.set(pgid, lookup.groupToken); // a surviving member carries the SAME token
+
+    const outcome = await host.reapOrphan("alpha");
+
+    expect(outcome).toEqual({
+      sessionId: "alpha",
+      status: "reaped",
+      pgid,
+      elapsedMs: expect.any(Number),
+      verified: true,
+    });
+    expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
+    // The wiring counter-mutant for THIS branch: if the token consult were
+    // ever removed from the leader-readable/no-baseline branch, this test
+    // is what would flip — tokenVerified would stay 0 and verified would
+    // fall back to false. Verified by hand: temporarily forcing the
+    // consult's condition to `false` reddens this test; restoring it
+    // passes again (see pgid-followup-BUILD-REPORT.md for the transcript).
+    expect(host.pgidGuardCounters).toEqual({
+      recycled: 0,
+      membershipUnprovable: 0,
+      unverifiedLegacy: 0,
+      tokenVerified: 1,
+    });
+    expect(warnings.some((line) =>
+      /PROCEEDING/.test(line) &&
+      /no leader start-time baseline was persisted/i.test(line) &&
+      line.includes("cause=token-verified") &&
+      line.includes("sessionId=alpha") &&
+      line.includes(`pgid=${pgid}`)
+    )).toBe(true);
+  });
+
+  it("PGID_GUARD_STAYS_UNVERIFIED_LEGACY_WHEN_THE_LEADER_IS_READABLE_WITH_NO_STARTTIME_BASELINE_AND_NO_TOKEN_MATCH", async () => {
+    // raise-proof-never-degrade (arch precision), the OTHER half: leader
+    // readable, no start-time baseline, AND no member carries the token
+    // either. This must NEVER escalate to membership-unprovable — without a
+    // start-time baseline there is no way to distinguish "our group whose
+    // token-carrier already exited" from "not our group"; refusing here
+    // would open a BRAND NEW refusal path on a population that PROCEEDS
+    // today. Stays unverified-legacy and PROCEEDS — this is the exact case
+    // that must never later be "hardened" into a refusal.
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const { find } = fakeGroupMemberTokenProbe(); // empty map: nobody ever carries a matching token
+    const values = new Map<number, number | undefined>();
+    let capturingBaseline = true;
+    const read = (pid: number): number | undefined => {
+      if (capturingBaseline) return undefined;
+      return values.has(pid) ? values.get(pid) : 1000;
+    };
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-pgid-legacy-token-absent",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      readLeaderStartTime: read,
+      findGroupMemberToken: find,
+    });
+    createSession(host, "alpha"); // no start-time baseline; persists a groupToken nobody will carry
+    capturingBaseline = false;
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid);
+    values.set(pgid, 1000); // leader readable at kill-time
+
+    const outcome = await host.reapOrphan("alpha");
+
+    expect(outcome).toEqual({
+      sessionId: "alpha",
+      status: "reaped",
+      pgid,
+      elapsedMs: expect.any(Number),
+      verified: false,
+    });
+    // Must NOT be refused: a token miss in this branch never degrades the
+    // outcome below what it was before the token consult existed.
+    expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
+    expect(host.pgidGuardCounters).toEqual({
+      recycled: 0,
+      membershipUnprovable: 0,
+      unverifiedLegacy: 1,
+      tokenVerified: 0,
+    });
+    expect(warnings.some((line) =>
+      /PROCEEDING/.test(line) &&
+      /WITHOUT identity proof/i.test(line) &&
+      /group token did not raise the proof/i.test(line) &&
+      line.includes("cause=unverified-legacy") &&
+      line.includes("sessionId=alpha") &&
+      line.includes(`pgid=${pgid}`)
+    )).toBe(true);
+  });
+
   it("should reject duplicate and unknown session identifiers", () => {
     const { spawner } = stubSpawner();
     const host = new NativeTerminalHost({
