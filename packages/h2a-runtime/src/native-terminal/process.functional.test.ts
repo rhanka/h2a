@@ -150,6 +150,24 @@ async function createStubbornWorkload(
 }
 
 describe.skipIf(process.platform !== "linux")("native terminal host process", () => {
+  it("RUNNING_CLASSIFIES_A_LIVE_PROCESS_AS_ALIVE", async () => {
+    // The committed lock against the ONLY regression that matters for
+    // running(): classifying a LIVE process as dead. If ALIVE_PROCESS_STATES
+    // is ever widened, the predicate inverted, or running() "simplified"
+    // back toward process.kill(pid, 0)'s zombie-blind semantics, every
+    // eventually(...running...) assertion in this file goes silently VACANT
+    // at once — a one-off manual check proves that today; only a committed
+    // test protects it tomorrow.
+    expect(running(process.pid)).toBe(true);
+
+    // Anchors the other end too: a process that has actually exited (and
+    // been reaped — `once(child, "exit")` only fires after Node's own
+    // wait() call reaps it) must be classified dead.
+    const child = spawn(process.execPath, ["-e", ""]);
+    await once(child, "exit");
+    expect(running(child.pid!)).toBe(false);
+  });
+
   it("should keep two real PTYs alive through client reconnect without per-operation Node spawns", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-functional-"));
     directories.add(directory);
