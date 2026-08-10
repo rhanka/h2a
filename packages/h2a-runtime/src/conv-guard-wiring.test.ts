@@ -7,7 +7,7 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Scratch dir inside the package (never /tmp), like the other test suites.
 const SCRATCH = join(
@@ -89,7 +89,21 @@ vi.mock("./config.js", () => ({
   resolveConfigPath: () => CONFIG_PATH,
 }));
 
-vi.mock("./tmux.js", () => ({
+vi.mock("./tmux.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./tmux.js")>();
+  return {
+  // Pure launch-wrapper constants/helpers that native-host.ts (the tmux twin)
+  // imports from this module. Passed through as the REAL values — they are
+  // side-effect-free strings/pure functions — so the mock keeps matching the
+  // real module's surface on the native-default code path. Everything below
+  // stays deliberately enumerated: a missing behavioral stub must keep dying
+  // loudly ON THE MOCK (see persistLaunchContext).
+  LOCAL_WRAPPER: actual.LOCAL_WRAPPER,
+  STRUCTURED_LOCAL_WRAPPER: actual.STRUCTURED_LOCAL_WRAPPER,
+  HEADLESS_WRAPPER: actual.HEADLESS_WRAPPER,
+  HEADLESS_TERMINAL_SIZE: actual.HEADLESS_TERMINAL_SIZE,
+  localRelaunchCommand: actual.localRelaunchCommand,
+  procReaderDeps: actual.procReaderDeps,
   tmuxAvailable: () => true,
   startLocalSession,
   attachLocalSession,
@@ -153,12 +167,67 @@ vi.mock("./tmux.js", () => ({
   // Stubbed as a no-op deliberately: this file drives WIRING, and what the launch
   // context should contain is asserted where that is the subject.
   persistLaunchContext: () => {},
-}));
+  };
+});
 
 vi.mock("./prompt-delivery.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./prompt-delivery.js")>()),
   deliverInitialPrompt,
 }));
+
+// The symmetric host resolver's PROBES (registry.ts) shell out: `tmux
+// has-session` and the native one-shot `probe` op. Both must stay
+// DETERMINISTIC here and mirror this file's simulated tmux view, so the
+// liveness the resume/stop verbs act on is exactly the view the test
+// declared via findLocalSession. Native is uniformly DEAD (this suite pins
+// the tmux valve); everything else passes through to the real spawnSync.
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    spawnSync: ((
+      command: string,
+      args?: readonly string[],
+      ...rest: unknown[]
+    ) => {
+      if (
+        command === "tmux" &&
+        Array.isArray(args) &&
+        args[0] === "has-session"
+      ) {
+        const raw = String(args[2] ?? "");
+        const name = raw.startsWith("=") ? raw.slice(1) : raw;
+        const session = findLocalSession(name) as
+          | { name?: string }
+          | undefined;
+        return {
+          status: session && session.name === name ? 0 : 1,
+          stdout: "",
+          stderr: "",
+          error: undefined,
+        };
+      }
+      if (
+        command === process.execPath &&
+        Array.isArray(args) &&
+        String(args[0] ?? "").includes("native-terminal") &&
+        args[1] === "probe"
+      ) {
+        return {
+          status: 0,
+          stdout: '{"verdict":"dead","reason":"test-stub: no native host"}\n',
+          stderr: "",
+          error: undefined,
+        };
+      }
+      return (actual.spawnSync as (...a: unknown[]) => unknown)(
+        command,
+        args,
+        ...rest,
+      );
+    }) as typeof actual.spawnSync,
+  };
+});
 
 vi.mock("./migrate.js", () => ({
   migrateForward,
@@ -302,7 +371,19 @@ beforeEach(() => {
   process.exitCode = 0;
 });
 
+// This file asserts the TMUX-host launch wiring around the conversation
+// guard: startLocalSession is its observation point. The session-host DEFAULT
+// is native, so without an explicit host selection every launch driven here
+// would route to the native twin and reach the REAL host op — a unit test
+// must never create a terminal session. H2A_SESSION_HOST=tmux is the
+// product's own fleet-wide host valve (first-class alongside --tmux), so
+// pinning it exercises a real routing input, not a test-only backdoor.
+beforeAll(() => {
+  vi.stubEnv("H2A_SESSION_HOST", "tmux");
+});
+
 afterAll(() => {
+  vi.unstubAllEnvs();
   rmSync(SCRATCH, { recursive: true, force: true });
   if (ORIGINAL_ANTHROPIC_BASE_URL === undefined) {
     delete process.env.ANTHROPIC_BASE_URL;
@@ -898,6 +979,31 @@ describe("h2a relaunch", () => {
     expect(killLocalSession).not.toHaveBeenCalled();
     expect(startLocalSession).not.toHaveBeenCalled();
     expect(stderrText()).toContain("sess-b");
+  });
+
+  it("D1: names the unreadable registry as the cause of a non-forced relaunch refusal, instead of the per-session 'no matching conversation' lie, and takes no action", async () => {
+    // Registry FILE is corrupt — loadRegistryWithDiagnostics resolves
+    // known:false. Bare `relaunch --apply` (no filter, no --all) is the
+    // NON-forced, non-destructive path (it only retypes into idle shells,
+    // never kills). Before the fix, `registryEntries` silently became `[]`
+    // and every session read as "no matching registry conversation — relaunch
+    // refused", which is a LIE: the true cause is the registry couldn't be
+    // read at all. The fix names the real cause once, up front, and still
+    // takes no action (refuses everything, kills/spawns nothing).
+    writeFileSync(REGISTRY_PATH, "{not valid json", "utf8");
+    listLocalSessionsWithDiagnostics.mockReturnValue({
+      sessions: [sessions[1]], // h2a-claude-lane — otherwise relaunch-killable (dead:true default)
+      known: true,
+    });
+
+    const exitCode = await main(["node", "h2a", "relaunch", "--apply"]);
+
+    expect(exitCode).toBe(0);
+    expect(stderrText()).toContain("registry is unreadable");
+    expect(stderrText()).toContain("relaunch refused for all 1 managed session(s)");
+    expect(stderrText()).not.toContain("no matching registry conversation");
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(startLocalSession).not.toHaveBeenCalled();
   });
 });
 
@@ -1512,7 +1618,7 @@ describe("h2a resume <slug>", () => {
       { attachedTerminal: true, sessionClass: "background" },
     );
     expect(stderrText()).toContain(
-      "--replace will kill tmux session remote-projA",
+      "--replace will kill local-tmux session remote-projA",
     );
   });
 });
@@ -1591,6 +1697,42 @@ describe("h2a run -r <conv> single-writer guard", () => {
     expect(exitCode).toBe(1);
     expect(startLocalSession).not.toHaveBeenCalled();
     expect(stderrText()).toContain("sess-b");
+  });
+
+  it("B1: refuses when an UNREADABLE registry row for the SAME conversation exists (never absence — no second writer)", async () => {
+    // A row that fails `isRegistryEntry` (kind holds a value the validator
+    // never accepts) sitting in the registry with the SAME convId as the
+    // conversation being resumed. Before B1, convOwners consulted only
+    // `entries` — this row is invisible there — so guardConvWriters saw NO
+    // owner and let `run --tmux --resume` start a SECOND writer on a
+    // conversation a live-but-unprovable session may already hold.
+    writeRegistry([
+      {
+        id: "uuid-claude-1",
+        tool: "claude",
+        kind: "not-a-real-kind",
+        cwd: "/home/u/src/projA",
+        convId: "conv-dup",
+        enrolledAt: NOW,
+        lastSeenAt: NOW,
+        source: "hook",
+      },
+    ]);
+
+    const exitCode = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      "--tmux",
+      "--resume",
+      "conv-dup",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(startLocalSession).not.toHaveBeenCalled();
+    expect(stderrText()).toContain("the local registry is unreadable");
+    expect(stderrText()).toContain("cannot prove there is no live writer");
   });
 
   it("WARNS but PROCEEDS on an unverifiable no-pid local writer (crash-stale hook entry)", async () => {

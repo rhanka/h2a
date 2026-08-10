@@ -1,0 +1,46 @@
+[proof] socketPath: /run/user/1000/h2a-nt/proof-2126052.sock
+[proof] host ready: {"generation":"23637ca8-595b-4aad-82b2-f778ccecf839","hostPid":2126063,"protocolVersion":1}
+[proof] host-spawned-via-default-path ok
+[proof] created s1-bash pid=2126074 status=running
+[proof] created s2-bash pid=2126076 status=running
+[proof] created s3-bash pid=2126078 status=running
+[proof] created s4-claude pid=2126082 status=running
+[proof] four-sessions-running-concurrently ok — s1-bash:running,s2-bash:running,s3-bash:running,s4-claude:running
+[proof] claude-tui-painted ok — claude main prompt chrome visible through the native PTY
+[proof] io-roundtrip-s1-bash ok — marker M-s1-bash-9079d6db
+[proof] io-roundtrip-s2-bash ok — marker M-s2-bash-c02afc50
+[proof] io-roundtrip-s3-bash ok — marker M-s3-bash-a438a1e8
+[proof] io-roundtrip-s4-claude ok — marker M-s4-claude-9a7daffc
+[proof] isolation-s1-bash-free-of-s2-bash ok
+[proof] isolation-s1-bash-free-of-s3-bash ok
+[proof] isolation-s1-bash-free-of-s4-claude ok
+[proof] isolation-s2-bash-free-of-s1-bash ok
+[proof] isolation-s2-bash-free-of-s3-bash ok
+[proof] isolation-s2-bash-free-of-s4-claude ok
+[proof] isolation-s3-bash-free-of-s1-bash ok
+[proof] isolation-s3-bash-free-of-s2-bash ok
+[proof] isolation-s3-bash-free-of-s4-claude ok
+[proof] isolation-s4-claude-free-of-s1-bash ok
+[proof] isolation-s4-claude-free-of-s2-bash ok
+[proof] isolation-s4-claude-free-of-s3-bash ok
+[proof] sessions-survive-detach ok — all session pids alive while no client is connected
+[proof] reattach-lists-persistent-sessions ok
+[proof] replay-from-zero-s1-bash ok — 43 bytes of scrollback
+[proof] replay-from-zero-s2-bash ok — 43 bytes of scrollback
+[proof] replay-from-zero-s3-bash ok — 43 bytes of scrollback
+[proof] replay-from-zero-s4-claude ok — 5334 bytes of scrollback
+[proof] post-reattach-write-s1-bash ok
+[proof] post-reattach-write-s2-bash ok
+[proof] post-reattach-write-s3-bash ok
+[proof] clean-exit-s1-bash ok — exit={"exitCode":0,"signal":0}
+[proof] clean-exit-s2-bash ok — exit={"exitCode":0,"signal":0}
+[proof] clean-exit-s3-bash ok — exit={"exitCode":0,"signal":0}
+[proof] clean-exit-s4-claude ok — exit={"exitCode":143,"signal":0}
+[proof] pid-positively-dead-s1-bash ok — pid 2126074
+[proof] pid-positively-dead-s2-bash ok — pid 2126076
+[proof] pid-positively-dead-s3-bash ok — pid 2126078
+[proof] pid-positively-dead-s4-claude ok — pid 2126082
+[proof] no-leaked-host-children ok — host has no children
+[proof] host-exits-on-sigterm ok — host pid 2126063
+[proof] socket-unpublished-after-shutdown ok
+[proof] PASS — all 4-session native PTY obligations met

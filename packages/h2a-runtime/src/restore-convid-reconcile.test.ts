@@ -225,7 +225,10 @@ describe("persistReconciledConvIds — writeback", () => {
 
     const changed = persistReconciledConvIds(new Map([["llm-mesh", UUID.llmMesh]]), regPath);
     expect(changed).toBe(1);
-    const after = loadRegistry(regPath).find((e) => e.id === "llm-mesh");
+    const read = loadRegistry(regPath);
+    const after = (read.state === "ok" ? read.entries : []).find(
+      (e) => e.id === "llm-mesh",
+    );
     expect(after?.convId).toBe(UUID.llmMesh);
 
     // Second run is a no-op (already resolved) — nothing rewritten.
