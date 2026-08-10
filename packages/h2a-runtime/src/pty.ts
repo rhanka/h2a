@@ -79,6 +79,18 @@ function guardedSpawnCommand(options: Parameters<PtySpawner>[0]): {
 
 export type PtyHandle = {
   readonly pid: number;
+  /**
+   * Process-group id of the spawned tree. node-pty's forkpty() puts the
+   * spawned process in a NEW session (setsid) before exec, so it starts as
+   * its own process-group leader (pgid === pid) and nothing downstream in
+   * this module's spawn chain (the setpriv/guardian wrapper, then the user
+   * command as its background job) invokes job control to split off a new
+   * group — so pgid stays pid for the whole tree's lifetime. This is what
+   * lets a PARENT (the host process) reap the entire tree with a single
+   * `process.kill(-pgid, "SIGKILL")`, without depending on the tree's own
+   * (possibly stuck/signal-resistant) code ever running.
+   */
+  readonly pgid: number;
   readonly cols: number;
   readonly rows: number;
   write(data: string): void;
@@ -114,6 +126,12 @@ export const nodePtySpawner: PtySpawner = (options) => {
   });
   return {
     get pid() {
+      return proc.pid;
+    },
+    // See the PtyHandle.pgid doc comment: forkpty() + setsid() makes the
+    // spawned process its own group leader at spawn time, and it stays that
+    // way (no job control downstream splits off a new group).
+    get pgid() {
       return proc.pid;
     },
     get cols() {

@@ -15,6 +15,8 @@ type ProcessOptions = {
   generation: string;
   replayBytesPerSession: number;
   maxSessions: number;
+  /** Durable pgid store; defaults to the real registry path when omitted. */
+  registryPath?: string;
 };
 
 const GRACEFUL_DRAIN_MS = 500;
@@ -63,6 +65,7 @@ export function parseNativeTerminalHostArgs(argv: ReadonlyArray<string>): Proces
   let generation: string = randomUUID();
   let replayBytesPerSession = 4 * 1024 * 1024;
   let maxSessions = NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS;
+  let registryPath: string | undefined;
   for (let index = 2; index < argv.length; index += 1) {
     const flag = argv[index];
     const value = argv[index + 1];
@@ -85,12 +88,23 @@ export function parseNativeTerminalHostArgs(argv: ReadonlyArray<string>): Proces
         maxSessions = parseMaxSessions(value);
         index += 1;
         break;
+      case "--registry-path":
+        if (!value) throw new Error("--registry-path requires a path");
+        registryPath = value;
+        index += 1;
+        break;
       default:
         throw new Error(`unknown native terminal host argument: ${flag ?? "<missing>"}`);
     }
   }
   if (!socketPath) throw new Error("--socket is required");
-  return { socketPath, generation, replayBytesPerSession, maxSessions };
+  return {
+    socketPath,
+    generation,
+    replayBytesPerSession,
+    maxSessions,
+    ...(registryPath !== undefined ? { registryPath } : {}),
+  };
 }
 
 export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>): Promise<void> {
@@ -100,6 +114,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
     replayBytesPerSession: options.replayBytesPerSession,
     maxSessions: options.maxSessions,
     spawner: nodePtySpawner,
+    ...(options.registryPath !== undefined ? { registryPath: options.registryPath } : {}),
   });
   const server = await startNativeTerminalHostServer({ socketPath: options.socketPath, host });
   process.stdout.write(`${JSON.stringify({
@@ -121,7 +136,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
       }
       if (!await waitForTerminalDrain(host, GRACEFUL_DRAIN_MS)) {
         try {
-          host.forceStopAll("SIGKILL");
+          await host.forceStopAll("SIGKILL");
         } catch {
           // The post-kill drain check below is authoritative: a raced exit may
           // make node-pty report an error even though no terminal remains.

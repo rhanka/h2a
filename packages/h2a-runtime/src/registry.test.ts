@@ -12,6 +12,8 @@ import {
   loadRegistry,
   localLsRows,
   localTmuxSessionForName,
+  persistNativeTerminalPgid,
+  readNativeTerminalPgid,
   resolveLocalTmuxSessionForName,
   markEnded,
   occupiesSlot,
@@ -923,5 +925,77 @@ describe("localLsRows", () => {
       "remote-proj",
     ]);
     expect(rows.every((row) => row.badge === "guess")).toBe(true);
+  });
+});
+
+describe("native-terminal pgid persistence", () => {
+  it("round-trips a session's pgid through the same durable registry file", () => {
+    persistNativeTerminalPgid("orphan-tree", 4242, regPath);
+    expect(readNativeTerminalPgid("orphan-tree", regPath)).toEqual({
+      status: "resolved",
+      pgid: 4242,
+    });
+  });
+
+  it("upserts on a second persist for the same session id (no duplicate rows)", () => {
+    persistNativeTerminalPgid("recycled", 100, regPath);
+    persistNativeTerminalPgid("recycled", 200, regPath);
+    expect(readNativeTerminalPgid("recycled", regPath)).toEqual({
+      status: "resolved",
+      pgid: 200,
+    });
+    const entries = loadRegistry(regPath);
+    expect(entries.filter((e) => e.pgid !== undefined)).toHaveLength(1);
+  });
+
+  it("reports unresolved (not resolved-to-nothing) when the session was never recorded", () => {
+    persistNativeTerminalPgid("known-session", 1, regPath);
+    const lookup = readNativeTerminalPgid("never-created", regPath);
+    expect(lookup).toEqual({
+      status: "unresolved",
+      reason: expect.stringMatching(/no pgid recorded/i),
+    });
+  });
+
+  it("reports unresolved, distinctly, when the registry file cannot be read at all", () => {
+    // No enroll/persist ever happened at this path — loadRegistryWithDiagnostics
+    // reports known:false for an absent file, same as for a corrupt one; either
+    // way this must NEVER be read as "known: zero sessions".
+    const neverWritten = join(scratch, "never-written-registry.json");
+    const lookup = readNativeTerminalPgid("any-session", neverWritten);
+    expect(lookup.status).toBe("unresolved");
+    expect(lookup).not.toEqual({ status: "resolved", pgid: expect.any(Number) });
+  });
+
+  it("keeps the pgid row out of remote ls (kind:local is filtered from localLsRows)", () => {
+    persistNativeTerminalPgid("pty-session", 555, regPath);
+    const live = listLive({ path: regPath });
+    const rows = localLsRows([], live);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("does not count the pgid row against delegate's job concurrency (no role:job)", () => {
+    persistNativeTerminalPgid("pty-session-2", 777, regPath);
+    expect(listJobs({ path: regPath })).toHaveLength(0);
+  });
+
+  it("survives an unrelated entries-only write (enroll) without being clobbered", () => {
+    persistNativeTerminalPgid("surviving-session", 999, regPath);
+    enroll(baseInput, regPath);
+    expect(readNativeTerminalPgid("surviving-session", regPath)).toEqual({
+      status: "resolved",
+      pgid: 999,
+    });
+  });
+
+  it("preserves ordinary registry entries when a pgid is persisted afterward", () => {
+    const enrolled = enroll(baseInput, regPath);
+    persistNativeTerminalPgid("another-session", 1234, regPath);
+    const entries = loadRegistry(regPath);
+    expect(entries.find((e) => e.id === enrolled.id)).toMatchObject({
+      id: enrolled.id,
+      tool: "claude",
+      kind: "local-tmux",
+    });
   });
 });
