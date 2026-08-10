@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { NativeTerminalClient } from "./client.js";
-import { NativeTerminalHost } from "./host.js";
+import { NativeTerminalHost, readProcessState } from "./host.js";
 import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
 import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
 
@@ -64,13 +64,30 @@ async function eventually<T>(read: () => Promise<T> | T, accept: (value: T) => b
   throw new Error(`condition did not become true; last value: ${JSON.stringify(last)}`);
 }
 
+// Linux process states (man 5 proc field 3) counted as ALIVE: Running,
+// interruptible Sleeping, uninterruptible-I/O Disk-sleep, and
+// Traced/stopped. `D` is the trap — an uninterruptible-I/O process is NOT
+// dead; classing it dead here would mask exactly the "it will not die"
+// case this file's tests exist to catch. Zombie (`Z`) is the ONLY state a
+// still-present `/proc/<pid>` entry can report that counts as dead: the
+// process was already killed, merely not yet reaped by its parent/init —
+// reaping is init's job, not something `reapOrphan`'s contract promises or
+// this file's assertions should wait on.
+const ALIVE_PROCESS_STATES = new Set(["R", "S", "D", "T"]);
+
+// A pid is RUNNING iff `readProcessState` reports one of the ALIVE states
+// above. This replaced `process.kill(pid, 0)` (which returns true for a
+// ZOMBIE too — a killed-but-not-yet-reaped process still exists in the
+// process table), which made every `eventually(...running...)` assertion
+// in this file wait for descendants to be REAPED by init, not merely
+// KILLED — a race against init's reap latency, not a defect in what this
+// file is actually testing. This predicate is correct independent of that
+// diagnosis: it accepts ONLY `Z` (or an absent /proc entry) as dead, so a
+// genuinely alive process (R/S/D/T) still fails the assertion regardless —
+// nothing is masked even if some other cause of slowness exists.
 function running(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
+  const state = readProcessState(pid);
+  return state !== undefined && ALIVE_PROCESS_STATES.has(state);
 }
 
 async function processObservation(pid: number): Promise<Readonly<Record<string, unknown>>> {
