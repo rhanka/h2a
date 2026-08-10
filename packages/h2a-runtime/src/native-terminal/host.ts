@@ -108,6 +108,29 @@ function supportsProcessGroupSignals(): boolean {
 }
 
 /**
+ * Split a single `/proc/<pid>/stat` line into the fields AFTER `comm`
+ * (`man 5 proc` field 2), anchored on the LAST occurrence of the
+ * two-character sequence `") "` rather than a naive whitespace split:
+ * `comm` (the executable name) is parenthesized and CAN itself contain
+ * spaces and parentheses (e.g. a process named "node (pty host)"), which
+ * would shift every subsequent field under a plain split — silently
+ * reading the wrong field "most of the time" and breaking on the one
+ * process with a weird name. That would be a confident wrong answer,
+ * worse than no discriminant.
+ *
+ * `man(5) proc`'s field 3 ("state") is `result[0]`; field 22 ("starttime")
+ * is `result[19]`. Every `/proc/<pid>/stat` reader in this module shares
+ * THIS ONE anchor (see `readProcessStartTime` and `readProcessState`
+ * below) — a second, independently-written parser would be a duplicated
+ * invariant that can silently drift from this one. Returns undefined if
+ * the anchor is not found.
+ */
+function readProcStatFieldsAfterComm(raw: string): string[] | undefined {
+  const splitAt = raw.lastIndexOf(") ");
+  return splitAt < 0 ? undefined : raw.slice(splitAt + 2).split(" ");
+}
+
+/**
  * Read a process's start-time — Linux `/proc/<pid>/stat` field 22
  * ("starttime", clock ticks since boot) — the pid-recycling-proof
  * discriminant used for owning-host attribution
@@ -117,17 +140,6 @@ function supportsProcessGroupSignals(): boolean {
  * error), which is what makes "pid matches AND start-time matches" a safe
  * proof of "still the same process", not just "some process now owns this
  * pid".
- *
- * Parsing anchors on the LAST occurrence of the two-character sequence ") "
- * rather than a naive whitespace split: field 2 (`comm`, the executable
- * name) is parenthesized and CAN itself contain spaces and parentheses
- * (e.g. a process named "node (pty host)"), which would shift every
- * subsequent field under a plain split — silently reading the wrong number
- * "most of the time" and breaking on the one process with a weird name. That
- * would be a confident wrong answer, worse than no discriminant.
- *
- * After locating the split point, man(5) proc's field 3 ("state") is
- * `rest[0]`; field 22 ("starttime") is therefore `rest[19]`.
  *
  * A mandatory sanity check follows: `starttime` (in clock ticks, USER_HZ=100
  * on Linux) divided by 100 must not exceed the system's current uptime — a
@@ -144,9 +156,8 @@ export function readProcessStartTime(pid: number): number | undefined {
   if (process.platform !== "linux") return undefined;
   try {
     const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const splitAt = raw.lastIndexOf(") ");
-    if (splitAt < 0) return undefined;
-    const rest = raw.slice(splitAt + 2).split(" ");
+    const rest = readProcStatFieldsAfterComm(raw);
+    if (!rest) return undefined;
     const starttime = Number(rest[19]);
     if (!Number.isFinite(starttime) || starttime < 0) return undefined;
     const uptimeRaw = readFileSync("/proc/uptime", "utf8");
@@ -156,6 +167,30 @@ export function readProcessStartTime(pid: number): number | undefined {
       return undefined;
     }
     return starttime;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Read a process's current state character — Linux `/proc/<pid>/stat`
+ * field 3 (`man 5 proc`: `R` running, `S` interruptible sleep, `D`
+ * uninterruptible I/O sleep, `Z` zombie, `T`/`t` stopped/traced, …) — via
+ * the SAME `") "`-anchored parse `readProcessStartTime` uses, so this
+ * never drifts from it as a second, independent parser would. Exported for
+ * test-side liveness predicates that need to tell a genuinely-alive
+ * process apart from a zombie (killed, not yet reaped by its parent/init —
+ * still occupying a `/proc/<pid>` entry, but not "running" by any
+ * process's contract). Returns undefined — never throws — on any
+ * read/parse failure or a non-Linux platform, same "never guess" contract
+ * as `readProcessStartTime`.
+ */
+export function readProcessState(pid: number): string | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const rest = readProcStatFieldsAfterComm(raw);
+    return rest?.[0];
   } catch {
     return undefined;
   }
