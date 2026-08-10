@@ -7,7 +7,6 @@
  * restore`. SCW sessions and persisted positions come later.
  */
 
-import { spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -21,24 +20,46 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  launchLayout,
+  tabCommand,
+  type HostViewSnapshot,
+} from "./launch-layout.js";
+
+import {
   getLayoutConfig,
   resolveConfigPath,
   type LayoutConfig,
 } from "./config.js";
 import { encodeCwd } from "./convsync.js";
 import {
+  isManagedLocalKind,
   loadRegistry,
   looksLikeConversationUuid,
   persistReconciledConvIds,
+  resolveManagedHost,
+  type ManagedHostProbeResult,
+  type RawRow,
   type RegistryEntry,
 } from "./registry.js";
 import {
   listLocalSessions,
   listLocalSessionsWithDiagnostics,
+  localSessionName,
+  managedSessionCandidates,
   slugify,
   type LocalSession,
 } from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
+import { listNativeSessions } from "./native-host.js";
+
+// Compatibility re-exports: the layout renderer lives in launch-layout.ts —
+// a module WITHOUT reader access (F3) — but callers keep importing it here.
+export {
+  ambiguousLiveSessionNames,
+  launchLayout,
+  tabCommand,
+  type HostViewSnapshot,
+} from "./launch-layout.js";
 
 export type DiscoveredSession = {
   project: string;
@@ -52,6 +73,34 @@ export type DiscoveredSession = {
   label?: string;
   /** Pinned llm-mesh gateway posture (from an explicit --gw/--no-gw at launch). */
   gatewayMode?: "gateway" | "direct";
+  /**
+   * Persisted local terminal host of a registry-backed session
+   * (isManagedLocalKind). Under tmux abandonment a NON-LIVE session's
+   * replacement is created on the NATIVE host either way, but the recorded
+   * kind still drives the drain view (live legacy tmux stays attach-only).
+   */
+  hostKind?: "local-tmux" | "local-native";
+  /**
+   * Resolver verdict (rule 3), stamped at plan time: `resolveManagedHost`
+   * returned `ambiguous` for this exact managed identity — it is recorded on
+   * BOTH local hosts and no act may pick one. `dropDualHostIdentities` acts
+   * on THIS stamp; nothing downstream re-decides the dual-host rule.
+   */
+  hostAmbiguous?: boolean;
+  /** Registry row id backing this session (registry origin only). */
+  registryId?: string;
+  /**
+   * EXACT managed session name of a registry-backed managed row. Carried so
+   * layout rendering acts on the exact identity — it must never re-derive a
+   * live target from `slugify(label)` across hosts.
+   */
+  managedName?: string;
+  /**
+   * §4.1 attach-live plan: the row is LIVE on its persisted host and its
+   * conversation id is unresolved — restore re-enters it by exact managed
+   * name only. No resume id exists; a run/replace must never be emitted.
+   */
+  attachLive?: boolean;
   /**
    * Positive restore marker. Registry entries are explicitly `human`; a raw
    * transcript scan is always `unclassified` because it carries no role/class.
@@ -71,6 +120,12 @@ export type LayoutTab = {
   origin?: "registry" | "scan";
   /** Pinned llm-mesh gateway posture; re-emitted as --gw/--no-gw on restore. */
   gatewayMode?: "gateway" | "direct";
+  /** Persisted local host; drives the drain view + native replacement pin. */
+  hostKind?: "local-tmux" | "local-native";
+  /** Exact managed session name (registry-backed tabs). */
+  managedName?: string;
+  /** Attach-only tab for a live managed row without a resolved conversation. */
+  attachLive?: boolean;
 };
 
 export type LayoutWindow = { title: string; tabs: LayoutTab[] };
@@ -372,7 +427,7 @@ export function reconcileRunConvIds(
   const claimedConvIds = new Set<string>();
 
   for (const r of entries) {
-    if (r.kind !== "local-tmux" || r.source !== "run") continue;
+    if (!isManagedLocalKind(r.kind) || r.source !== "run") continue;
     // Delegated jobs / background launches are never restored as human tabs, so
     // don't reconcile (and don't emit a spurious skip note) for them.
     if (!isHumanFacingSession(r, evidence)) continue;
@@ -417,6 +472,100 @@ export function reconcileRunConvIds(
 }
 
 /**
+ * One host-probe lookup consumed by the restore PLAN (attach-live gate).
+ * "unknown" is a probe failure — never proof of death.
+ */
+export type ManagedLiveLookup = (
+  kind: "local-tmux" | "local-native",
+  names: readonly string[],
+) =>
+  | { state: "live"; name: string }
+  | { state: "dead" }
+  | { state: "unknown" };
+
+/**
+ * THE one host-inventory read of a restore: BOTH inventories captured once,
+ * so the plan gate AND the layout render (launchLayout, which has no reader
+ * of its own — F3) see the SAME probe state. A failed native inventory read
+ * is carried as `known: false` — an UNKNOWN view, never an empty one.
+ */
+export function captureHostViewSnapshot(): HostViewSnapshot {
+  const tmux = listLocalSessionsWithDiagnostics();
+  const native: HostViewSnapshot["native"] = (() => {
+    try {
+      return {
+        known: true as const,
+        sessions: listNativeSessions()
+          .filter((session) => session.status === "running")
+          .map((session) => ({
+            name: session.id,
+            controlled: session.controlled,
+          })),
+      };
+    } catch {
+      return { known: false as const };
+    }
+  })();
+  return {
+    tmux: tmux.known
+      ? { known: true, sessions: tmux.sessions }
+      : { known: false, ...(tmux.reason !== undefined ? { reason: tmux.reason } : {}) },
+    native,
+  };
+}
+
+/**
+ * Adapt the ONE `HostViewSnapshot` to the plan's ManagedLiveLookup probe
+ * surface: every plan decision of one restore reads the same batch snapshot.
+ * A `known: false` inventory yields "unknown" for that host's sessions —
+ * restore must fail closed on it, never treat it as death.
+ */
+export function managedLiveLookupFromSnapshot(
+  view: HostViewSnapshot,
+): ManagedLiveLookup {
+  return (kind, names) => {
+    if (kind === "local-native") {
+      if (!view.native.known) return { state: "unknown" };
+      const running = view.native.sessions;
+      const hit = names.find((name) =>
+        running.some((session) => session.name === name),
+      );
+      return hit !== undefined ? { state: "live", name: hit } : { state: "dead" };
+    }
+    if (!view.tmux.known) return { state: "unknown" };
+    const sessions = view.tmux.sessions;
+    const hit = names.find((name) =>
+      sessions.some((session) => session.name === name),
+    );
+    return hit !== undefined ? { state: "live", name: hit } : { state: "dead" };
+  };
+}
+
+/**
+ * Adapt the plan's ONE `ManagedLiveLookup` snapshot to `resolveManagedHost`'s
+ * injected probe surface, so every per-session host decision of a restore
+ * reads the SAME batch snapshot — the resolver is consulted per session but
+ * never re-probes a host per session (no TOCTOU across the batch). A plan
+ * built WITHOUT a snapshot (legacy callers) must never probe live hosts from
+ * inside discovery either: its probes answer "unknown" (fail closed), never
+ * a real probe.
+ */
+function managedHostProbes(liveView: ManagedLiveLookup | undefined): {
+  native: (name: string) => ManagedHostProbeResult;
+  tmux: (name: string) => ManagedHostProbeResult;
+} {
+  const probe =
+    (kind: "local-native" | "local-tmux") =>
+    (name: string): ManagedHostProbeResult => {
+      if (!liveView) return "unknown";
+      const r = liveView(kind, [name]);
+      if (r.state === "live") return "live";
+      return r.state === "dead" ? "dead" : "unknown";
+    };
+  return { native: probe("local-native"), tmux: probe("local-tmux") };
+}
+
+/**
  * REGISTRY-FIRST discovery: durable registry entries (local kinds) mapped to
  * discovered sessions. label/cwd/convId come straight from enrolment, no
  * mtime guessing. `entries` is injectable for tests (defaults to listLive()).
@@ -426,30 +575,64 @@ export function reconcileRunConvIds(
  * resolvable conversation (so restore never emits `--resume <label>`), and
  * dedups the `hook` twin of a conversation already represented by a run session.
  * Omitted (the plain 2-arg call) → legacy behaviour, one session per entry.
+ *
+ * `liveView` (one host-probe snapshot) upgrades the unresolved-convId gate to
+ * the §4.1 state machine: a LIVE managed row is never lost to a broken
+ * conversation id — it becomes an ATTACH-LIVE session keyed on its persisted
+ * kind + exact managed name. Without it (legacy callers), every unresolved
+ * row is skipped as before.
+ *
+ * `unreadable` (PART A/A2) is `loadRegistry()`'s raw rows that FAILED
+ * validation, from the SAME snapshot `entries` was drawn from. Passed through
+ * to `resolveManagedHost` so a valid row + an unreadable TWIN of the same
+ * identity poisons that ONE identity's host resolution (never emitted as an
+ * attach/relaunch target) instead of silently trusting the valid row alone.
+ * Defaults to `[]` so every existing plain-array test caller is unaffected.
  */
 export function registrySessions(
   home: string = homedir(),
-  entries: RegistryEntry[] = loadRegistry(),
+  // No default read: restore() owns the ONE registry read and refuses on an
+  // unknown read state before any plan is built (F2/F3).
+  entries: RegistryEntry[],
   resolution?: ConvIdResolution,
   evidence: LegacySessionEvidence = legacySessionEvidence(home),
+  liveView?: ManagedLiveLookup,
+  unreadable: readonly RawRow[] = [],
 ): DiscoveredSession[] {
   const src = join(home, "src");
   const out: DiscoveredSession[] = [];
+  // ONE probe surface for every host decision of this plan, adapted from the
+  // single batch snapshot (or fail-closed "unknown" probes without one).
+  const probes = managedHostProbes(liveView);
+  // The registry READ RESULT `resolveManagedHost` consults below (A1/A2):
+  // the SAME `entries` this loop already iterates, plus the unreadable rows
+  // from that identical read, so a per-identity poison check sees them.
+  const registryReadForResolve = { state: "ok" as const, entries, unreadable };
   for (const e of entries) {
     if (e.kind === "remote") continue; // remote groups are filled from SCW
     // Only human dev sessions are restorable — never delegated jobs or explicit
     // background launches (they had no human in front of them).
     if (!isHumanFacingSession(e, evidence)) continue;
     if (!e.cwd.startsWith(`${src}/`)) continue;
-    // A run session whose conversation id could not be resolved is skipped here
-    // (restore() emits the attach-hint note) — never a broken `--resume <label>`.
+    // §4.1 unresolved-convId gate: skip ONLY when the row is dead/absent (or
+    // its host state is unprovable — an unknown probe is no death
+    // certificate, but with no identity there is nothing safe to launch
+    // either; restore() emits the attach-hint note). A LIVE managed row is
+    // NEVER lost to a broken conversation id: the process exists and is
+    // re-enterable by its persisted kind + exact managed name alone.
+    let attachLiveName: string | undefined;
     if (
       resolution &&
-      e.kind === "local-tmux" &&
+      isManagedLocalKind(e.kind) &&
       e.source === "run" &&
       resolution.unresolvedRunIds.has(e.id)
     ) {
-      continue;
+      const candidates = e.tmuxSession
+        ? [e.tmuxSession]
+        : managedSessionCandidates(e.id);
+      const live = liveView?.(e.kind, candidates);
+      if (live === undefined || live.state !== "live") continue;
+      attachLiveName = live.name;
     }
     // A hook conversation already owned by a run session (same real convId, but
     // the run entry carries the label + tmux name) must not ALSO appear as an
@@ -466,7 +649,12 @@ export function registrySessions(
     const project = projectForCwd(src, e.cwd);
     if (!project) continue;
     const seen = Date.parse(e.lastSeenAt);
-    const sid = resolution?.resolvedSid.get(e.id) ?? e.convId ?? "";
+    // An attach-live row has NO resolved conversation: its sid stays empty so
+    // no path can ever render a broken `--resume <label>` from it.
+    const sid =
+      attachLiveName !== undefined
+        ? ""
+        : (resolution?.resolvedSid.get(e.id) ?? e.convId ?? "");
     const session: DiscoveredSession = {
       project,
       mtimeMs: Number.isFinite(seen) ? seen : Date.now(),
@@ -474,10 +662,52 @@ export function registrySessions(
       sid,
       cwd: e.cwd,
       origin: "registry",
+      registryId: e.id,
       restoreClass: "human",
     };
     if (e.label !== undefined) session.label = e.label;
     if (e.gatewayMode !== undefined) session.gatewayMode = e.gatewayMode;
+    // WHICH host serves this tab is decided by the ONE symmetric resolver
+    // (resolveManagedHost) over this plan's registry read, with the plan's
+    // single probe snapshot injected — restore never re-implements the
+    // host-choice rules (F1/F2) and never re-probes a host per session. For
+    // a current managed row the resolver lands on its persisted kind + exact
+    // managed name (probes only ever run for an identity with no matching
+    // row). A `kind:"local"` hook entry has no terminal host.
+    if (isManagedLocalKind(e.kind)) {
+      const resolution = resolveManagedHost(
+        e.tmuxSession ?? localSessionName(e.id),
+        // The WHOLE read (A2), not the bare `entries` array: an unreadable
+        // twin of this identity must poison the resolution — no tab emitted,
+        // no relaunch/attach target derived from the valid row alone.
+        registryReadForResolve,
+        probes,
+      );
+      if (resolution.state === "unknown") {
+        // Fail closed (resolver rule 4): an unattributable host is no
+        // license to guess one via the slug-union fallback — emit no tab.
+        continue;
+      }
+      if (
+        resolution.state === "recorded" ||
+        resolution.state === "discovered"
+      ) {
+        session.hostKind = resolution.kind;
+        session.managedName = attachLiveName ?? resolution.name;
+      } else if (resolution.state === "ambiguous") {
+        // Rule 3 verdict, stamped for the plan filter
+        // (dropDualHostIdentities); kind + name are kept for the skip
+        // report only — no act may serve this tab on either host.
+        session.hostAmbiguous = true;
+        session.hostKind = e.kind;
+        session.managedName =
+          attachLiveName ?? e.tmuxSession ?? localSessionName(e.id);
+      }
+      // "missing": an identity the resolver pins to NO host is emitted
+      // unhosted — a relaunch follows the product default host, exactly as
+      // the act path treats a missing identity (a brand-new session).
+    }
+    if (attachLiveName !== undefined) session.attachLive = true;
     out.push(session);
   }
   return out;
@@ -548,6 +778,32 @@ export function dropRemoteBackedLocals(
     else kept.push(s);
   }
   return { kept, dropped };
+}
+
+/**
+ * Dual-host identity fails CLOSED (resolver rule 3): sessions of BOTH managed
+ * kinds for one exact managed name cannot be attributed to a host — neither
+ * an attach nor a replacement may pick one by luck. The verdict is NOT
+ * decided here: it was stamped per session at plan time from
+ * `resolveManagedHost` returning `ambiguous` (`hostAmbiguous`); this filter
+ * only acts on that stamp and never counts kinds itself, so the dual-host
+ * rule lives in exactly ONE place. Pure; the caller reports the ambiguous
+ * names.
+ */
+export function dropDualHostIdentities(sessions: DiscoveredSession[]): {
+  kept: DiscoveredSession[];
+  ambiguousNames: string[];
+} {
+  const ambiguous = new Set<string>();
+  for (const s of sessions) {
+    if (s.hostAmbiguous === true && s.managedName !== undefined) {
+      ambiguous.add(s.managedName);
+    }
+  }
+  return {
+    kept: sessions.filter((s) => s.hostAmbiguous !== true),
+    ambiguousNames: [...ambiguous].sort(),
+  };
 }
 
 function safeStat(p: string): { mtimeMs: number } | undefined {
@@ -630,6 +886,9 @@ export function groupSessions(
       };
       if (s.origin !== undefined) tab.origin = s.origin;
       if (s.gatewayMode !== undefined) tab.gatewayMode = s.gatewayMode;
+      if (s.hostKind !== undefined) tab.hostKind = s.hostKind;
+      if (s.managedName !== undefined) tab.managedName = s.managedName;
+      if (s.attachLive !== undefined) tab.attachLive = s.attachLive;
       return tab;
     });
   };
@@ -682,222 +941,6 @@ function projLatest(arr: DiscoveredSession[]): number {
   return arr.reduce((m, s) => Math.max(m, s.mtimeMs), 0);
 }
 
-/**
- * Per-tab command for an ABSENT local session: create it via `remote run …
- * --resume …` (which attaches by default). Live sessions are deliberately
- * handled by `launchLayout`, which knows their exact tmux names and whether they
- * have a client attached; it emits `tmux attach -t <exact-name>` and never
- * relaunches them.
- */
-export function tabCommand(
-  tab: LayoutTab,
-  liveSlugs: ReadonlySet<string> = new Set(),
-  opts: {
-    forceGateway?: "gateway" | "direct";
-    /** Exact existing tmux name — attach directly, never replace/relaunch it. */
-    attachSession?: string;
-  } = {},
-): string {
-  const q = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
-  if (tab.remoteId) {
-    // SCW: attach straight into the Pod's tmux (live, copy-friendly).
-    return `h2a attach ${q(tab.remoteId)} --exec`;
-  }
-  const slug = slugify(tab.label);
-  // Effective gateway posture: an explicit `restore --gw/--no-gw` OVERRIDES the
-  // per-instance pin; otherwise honour the pinned gatewayMode (absent = default).
-  const posture = opts.forceGateway ?? tab.gatewayMode;
-  const gwFlag =
-    posture === "gateway" ? " --gw" : posture === "direct" ? " --no-gw" : "";
-  const runCmd = (extra: string) =>
-    `h2a run ${q(tab.tool ?? "shell")} ${q(tab.cwd)} ` +
-    (tab.sid ? `--resume ${q(tab.sid)} ` : "") +
-    `--name ${q(tab.label)}${gwFlag}${extra}`;
-  if (opts.attachSession) {
-    return `tmux attach -t ${q(opts.attachSession)}`;
-  }
-  if (liveSlugs.has(slug)) {
-    // Compatibility for direct callers that only know a unique slug.  Restore
-    // itself always supplies the exact name above, avoiding prefix collisions.
-    // Crucially, a gateway override never turns a live session into --replace:
-    // restore must preserve its process and conversation.
-    return `h2a attach ${q(slug)}`;
-  }
-  return runCmd("");
-}
-
-/** Group collision candidates before restore emits bare-slug attach/resume commands. */
-export function ambiguousLiveSessionNames(
-  sessions: readonly Pick<LocalSession, "name" | "slug">[],
-): Map<string, string[]> {
-  const namesBySlug = new Map<string, string[]>();
-  for (const session of sessions) {
-    const names = namesBySlug.get(session.slug) ?? [];
-    names.push(session.name);
-    namesBySlug.set(session.slug, names);
-  }
-  return new Map(
-    [...namesBySlug].filter(([, names]) => names.length > 1),
-  );
-}
-
-// gnome-terminal applies ONE trailing `-- command` to EVERY tab of an
-// invocation (you cannot give each tab its own `--`). So all tabs run the same
-// dispatcher; each claims (under flock) the first map line matching its $PWD
-// and runs that tab's command — exactly how ~/bin/resume-dev-sessions worked.
-const DISPATCHER = `map="$1"
-lock="$map.lock"
-exec 9>"$lock"; flock 9
-line=$(awk -F'\\t' -v c="$PWD" '$1==c{print;exit}' "$map")
-if [ -n "$line" ]; then
-  awk -F'\\t' -v c="$PWD" 'BEGIN{d=0} d==0 && $1==c {d=1; next} {print}' "$map" > "$map.tmp" && mv "$map.tmp" "$map"
-fi
-flock -u 9
-cmd=$(printf '%s' "$line" | cut -f2-)
-if [ -n "$cmd" ]; then eval "$cmd"; else echo "[h2a] rien a reprendre pour $PWD" >&2; fi
-exec bash -l`;
-
-let mapCounter = 0;
-
-function runDir(): string {
-  const base = process.env.XDG_RUNTIME_DIR
-    ? join(process.env.XDG_RUNTIME_DIR, "sentropic-remote")
-    : join(homedir(), ".config", "sentropic", "remote-cli", "run");
-  mkdirSync(base, { recursive: true });
-  return base;
-}
-
-/**
- * Launch the layout in gnome-terminal: one window per group, one tab per session.
- *
- * Default behaviour: a live session with a tmux client is already visible and is
- * skipped; a live session with zero clients is orphaned, so a terminal tab is
- * opened directly onto that exact tmux session. An absent session is launched as
- * before. `--reattach` explicitly opens another tab even for an already-visible
- * session. This is deliberately a view decision, not a liveness decision.
- */
-export function launchLayout(
-  windows: LayoutWindow[],
-  stderr: NodeJS.WriteStream = process.stderr,
-  opts: { reattach?: boolean; forceGateway?: "gateway" | "direct" } = {},
-): { opened: number; skippedLive: string[] } {
-  const localSessions = listLocalSessionsWithDiagnostics();
-  const liveSessions = localSessions.sessions;
-  const ambiguousLiveNames = ambiguousLiveSessionNames(liveSessions);
-  const skippedLive: string[] = [];
-  let opened = 0;
-  // A gateway override can configure a NEW process but must never replace a live
-  // one. `--reattach` is the sole opt-in that duplicates an already-visible tab.
-  const includeAttached = opts.reattach === true;
-  const tabOpts = opts.forceGateway ? { forceGateway: opts.forceGateway } : {};
-
-  if (!localSessions.known) {
-    // We cannot reliably tell "attached" from "orphaned".  Prefer a harmless
-    // duplicate/failing attach over `h2a run` possibly racing a live tmux
-    // session; a restore command must never reclaim a view by killing its work.
-    stderr.write(
-      `[h2a] tmux view state unavailable${localSessions.reason ? ` (${localSessions.reason})` : ""}; ` +
-        "opening attach tabs rather than relaunching local sessions\n",
-    );
-  }
-
-  for (const win of windows) {
-    // Remote (k8s) tabs are always included — we can't probe pod health here.
-    // Local tabs carry their finalized command because a live orphan must attach
-    // to its exact tmux name, while an absent session must be launched.
-    const activeTabs: Array<{ tab: LayoutTab; command: string }> = [];
-    for (const t of win.tabs) {
-      if (t.remoteId) {
-        activeTabs.push({ tab: t, command: tabCommand(t) });
-        continue;
-      }
-      const slug = slugify(t.label);
-      if (!localSessions.known) {
-        activeTabs.push({
-          tab: t,
-          command: tabCommand(t, new Set([slug]), { attachSession: `h2a-${slug}` }),
-        });
-        continue;
-      }
-      const names = ambiguousLiveNames.get(slug);
-      if (names) {
-        skippedLive.push(t.label);
-        stderr.write(
-          `[h2a] restore skipped "${t.label}": local tmux slug is ambiguous (${names.sort().join(", ")}); ` +
-            `attach explicitly with h2a attach ${names.sort()[0]} or h2a attach ${names.sort()[1]}\n`,
-        );
-        continue;
-      }
-
-      const liveSession = liveSessions.find((session) => session.slug === slug);
-      if (liveSession && !includeAttached && liveSession.attached) {
-        skippedLive.push(t.label);
-        continue;
-      }
-      activeTabs.push({
-        tab: t,
-        command: liveSession
-          ? tabCommand(t, new Set([slug]), { attachSession: liveSession.name })
-          : tabCommand(t, new Set(), tabOpts),
-      });
-    }
-
-    if (activeTabs.length === 0) {
-      // All sessions in this window are already active — no tab needed.
-      continue;
-    }
-
-    // Map keyed by per-tab working directory -> the tab's command. Tabs sharing
-    // a cwd (several sessions of one project) each claim a distinct line FIFO.
-    const slug = win.title.replace(/[^a-zA-Z0-9]+/g, "-");
-    const mapPath = join(
-      runDir(),
-      `restore-${process.pid}-${slug}-${mapCounter++}.map`,
-    );
-    const body =
-      activeTabs
-        .map(({ tab, command }) => `${tab.cwd}\t${command}`)
-        .join("\n") + "\n";
-    writeFileSync(mapPath, body, "utf8");
-
-    const args: string[] = [];
-    activeTabs.forEach(({ tab }, i) => {
-      args.push(
-        i === 0 ? "--window" : "--tab",
-        `--working-directory=${tab.cwd}`,
-        `--title=${tab.label}`,
-      );
-    });
-    // ONE shared dispatcher command for all tabs of this window.
-    args.push("--", "bash", "-lc", DISPATCHER, "remote-restore", mapPath);
-
-    stderr.write(
-      `[h2a] fenêtre "${win.title}" (${activeTabs.length} onglet(s))\n`,
-    );
-    // Surface gnome-terminal errors (e.g. "Failed to get screen…") instead of
-    // silently claiming the window opened.
-    const { GNOME_TERMINAL_SCREEN: _drop, ...childEnv } = process.env;
-    const child = spawn("gnome-terminal", args, {
-      stdio: ["ignore", "ignore", "pipe"],
-      detached: true,
-      env: childEnv,
-    });
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr.write(`[h2a] gnome-terminal: ${chunk.toString().trim()}\n`);
-    });
-    child.unref();
-    opened += activeTabs.length;
-  }
-
-  if (skippedLive.length > 0) {
-    stderr.write(
-      `[h2a] ${skippedLive.length} session(s) déjà visibles ignorées` +
-      ` (--reattach pour les rouvrir quand même): ${skippedLive.join(", ")}\n`,
-    );
-  }
-
-  return { opened, skippedLive };
-}
 
 export type RestoreOptions = {
   dryRun?: boolean;
@@ -944,7 +987,18 @@ export function restore(
   // convId is joined to the `hook` conversation carrying the real uuid, so it
   // resumes correctly (and each named session of a repo keeps its own uuid).
   const home = homedir();
-  const registryEntries = loadRegistry();
+  const registryRead = loadRegistry();
+  if (registryRead.state === "unknown") {
+    // Restore LAUNCHES sessions: with an unreadable registry the plan cannot
+    // dedup or host-attribute anything — a launch here could fabricate a
+    // second writer over a live-but-unprovable session. Fail closed: no
+    // windows, nothing launched (F2/F3).
+    stderr.write(
+      `[h2a] restore refused: the local registry is unreadable (${registryRead.reason}); nothing was launched (fail closed).\n`,
+    );
+    return { windows: [], total: 0, dropped: 0 };
+  }
+  const registryEntries = registryRead.entries;
   const evidence = legacySessionEvidence(home);
   const resolution = reconcileRunConvIds(
     registryEntries,
@@ -959,7 +1013,7 @@ export function restore(
       const updates = new Map<string, string>();
       for (const [id, sid] of resolution.resolvedSid) {
         const e = registryEntries.find((x) => x.id === id);
-        if (e && e.kind === "local-tmux" && e.source === "run" && e.convId !== sid) {
+        if (e && isManagedLocalKind(e.kind) && e.source === "run" && e.convId !== sid) {
           updates.set(id, sid);
         }
       }
@@ -968,9 +1022,35 @@ export function restore(
       // best-effort: a persistence hiccup must never break restore
     }
   }
-  // Never emit a broken `--resume <label>`: note the un-resumable named sessions
-  // with an explicit attach hint instead of silently dropping (or mis-running) them.
+  const scanned = discoverSessions(cfg.maxAgeHours * 3600 * 1000);
+  // ONE host-inventory snapshot for the whole restore (§4.1 / F3): the
+  // attach-live gate, the skip notes below AND the layout render consume
+  // this same capture — launchLayout has no reader of its own to diverge on.
+  const hostView = captureHostViewSnapshot();
+  const liveView = managedLiveLookupFromSnapshot(hostView);
+  const allDiscovered = mergeDiscovered(
+    registrySessions(
+      home,
+      registryEntries,
+      resolution,
+      evidence,
+      liveView,
+      // PART A/A2: the unreadable rows from this SAME read, so a valid row +
+      // an unreadable twin poisons that one identity's host resolution.
+      registryRead.unreadable,
+    ),
+    scanned,
+  );
+  // Never emit a broken `--resume <label>`. A LIVE unresolved row was kept by
+  // the §4.1 gate as an attach-live tab; only the dead/unprovable remainder
+  // is skipped, with an explicit attach hint instead of a silent drop.
+  const attachLiveIds = new Set(
+    allDiscovered.flatMap((s) =>
+      s.attachLive === true && s.registryId !== undefined ? [s.registryId] : [],
+    ),
+  );
   for (const id of resolution.unresolvedRunIds) {
+    if (attachLiveIds.has(id)) continue;
     const e = registryEntries.find((x) => x.id === id);
     if (!e) continue;
     const label = e.label ?? e.id;
@@ -980,14 +1060,17 @@ export function restore(
         `attach it live with h2a attach ${slugify(label)}\n`,
     );
   }
-  const scanned = discoverSessions(cfg.maxAgeHours * 3600 * 1000);
-  const allDiscovered = mergeDiscovered(
-    registrySessions(home, registryEntries, resolution, evidence),
-    scanned,
-  );
   // Transcript scans lack a durable human/job marker. They are deliberately
   // represented as `unclassified` and filtered here, before grouping/capping.
-  const allLocal = allDiscovered.filter(isRestorableDiscoveredSession);
+  const preDualLocal = allDiscovered.filter(isRestorableDiscoveredSession);
+  const { kept: allLocal, ambiguousNames } =
+    dropDualHostIdentities(preDualLocal);
+  for (const name of ambiguousNames) {
+    stderr.write(
+      `[h2a] restore skipped "${name}": recorded on BOTH local hosts (local-tmux AND local-native); ` +
+        "clean up the conflicting registry rows before restoring it\n",
+    );
+  }
   // Bug #3: a session moved to a remote Pod must NOT also be re-launched as a
   // ghost LOCAL tmux. Drop locals already covered by a remote tab.
   const { kept: sessions, dropped: remoteBacked } = dropRemoteBackedLocals(
@@ -1040,7 +1123,7 @@ export function restore(
   if (dropped > 0 && !opts.group)
     stderr.write(`  (! ${dropped} session(s) ignorée(s), plafond atteint)\n`);
   if (!opts.dryRun && total > 0) {
-    launchLayout(windows, stderr, {
+    launchLayout(windows, hostView, stderr, {
       ...(opts.reattach ? { reattach: true } : {}),
       ...(opts.forceGateway ? { forceGateway: opts.forceGateway } : {}),
     });
