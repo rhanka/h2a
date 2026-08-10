@@ -183,6 +183,27 @@ describe("convOwners", () => {
     expect(owners[0]!.detail).toContain("sess-b");
   });
 
+  it("B1: an unreadable row bearing the SAME convId poisons ONLY that convId, never a global unknown", () => {
+    // The row has convId "conv-1" but an invalid `kind`, so it fails
+    // `isRegistryEntry` and lands in `read.unreadable`, not `entries`.
+    writeFileSync(
+      regPath,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          { id: "poisoned", tool: "claude", kind: "bogus", cwd: "/x", convId: "conv-1", enrolledAt: NOW, lastSeenAt: NOW, source: "hook" },
+          entry({ id: "clean", tmuxSession: "remote-clean", convId: "conv-2" }),
+        ],
+      }),
+      "utf8",
+    );
+    expect(convOwners("conv-1", { registryPath: regPath })).toBe("unknown");
+    // A DIFFERENT conversation in the SAME registry stays fully resolvable.
+    expect(
+      convOwners("conv-2", { registryPath: regPath, tmuxHasSession: () => true }),
+    ).toHaveLength(1);
+  });
+
   it("returns empty when nothing holds the conversation", () => {
     writeRegistry([
       entry({ id: "other", tmuxSession: "remote-other", convId: "conv-2" }),

@@ -243,6 +243,13 @@ export type NativeTerminalSessionState = Readonly<{
   latestSeq: number;
   exit: NativeTerminalExit | null;
   stopSignal: string | null;
+  /**
+   * Whether a controller currently holds this session's exclusive input lease.
+   * Deliberately a BOOLEAN: consumers (restore visibility) only need to know
+   * that a controlling terminal exists, never who it is — the controller id
+   * stays private to the host.
+   */
+  controlled: boolean;
 }>;
 
 export type NativeTerminalReplay = Readonly<{
@@ -793,6 +800,7 @@ export class NativeTerminalHost {
       latestSeq: record.replay.latestSeq,
       exit: record.exit,
       stopSignal: record.stopSignal,
+      controlled: record.controllerId !== null,
     });
   }
 }
