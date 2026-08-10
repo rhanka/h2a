@@ -1,149 +1,111 @@
 # pgid-recycling-guard — BUILD REPORT
 
 Branch `fix/pgid-recycling-guard`, off main `8f452044`. HEAD (this build):
-**`4bbb83e3`**. NOT pushed, NOT merged, NOT a PR.
+**`950aa1f8`**. NOT pushed, NOT merged, NOT a PR.
 
 ## Files changed (vs `8f452044`)
 
 ```
-packages/h2a-runtime/src/registry.ts                                 |  29 +-
-packages/h2a-runtime/src/native-terminal/host.ts                     | 233 +-
-packages/h2a-runtime/src/native-terminal/host.test.ts                | 202 ++
-packages/h2a-runtime/src/native-terminal/process.functional.test.ts  |  15 +
+packages/h2a-runtime/src/registry.ts                                |  51 ++-
+packages/h2a-runtime/src/native-terminal/host.ts                    | 400 +++++++++++++++++++--
+packages/h2a-runtime/src/native-terminal/host.test.ts                | 310 ++++++++++++++++
+packages/h2a-runtime/src/native-terminal/process.functional.test.ts  | 114 ++++++
 pgid-BUILD-REPORT.md (this file)                                     | new
-pgid-verify-artifact.txt (gate transcript, untracked-style, committed)| new
-6 files changed, 12193 insertions(+), 21 deletions(-)
+pgid-verify-artifact.txt (gate transcript, committed)                 | new
+6 files changed, 853 insertions(+), 22 deletions(-) [packages/ only]
 ```
 
-5 commits on top of `8f452044`:
-- `d1573952` — core INV-4 fix: `pgidLeaderStartTime` persisted next to `pgid`
-  (registry.ts), captured at spawn and re-verified before `killGroup(pgid)`
-  (host.ts), with the two discernible refusal causes (counters + loud logs).
-- `ca31dba8` — **deviation from the brief's literal ordering** (see below);
-  arch has since **RATIFIED** this ordering — do not revisit it.
-- `40cfea6f` — the four mandated named tests.
-- `e55b5a59` — this report + gate artifact (superseded content below by the
-  next commit; kept for history).
-- `4bbb83e3` — **arch follow-up correction**: makes the "unverified-legacy"
-  proceed path visible (see new section below). This is the current HEAD.
+9 commits on top of `8f452044` (chronological):
+1. `d1573952` — core INV-4 fix: `pgidLeaderStartTime` persisted next to
+   `pgid`, re-verified before `killGroup(pgid)`.
+2. `ca31dba8` — `isGroupAlive`-first reordering (ratified by arch).
+3. `40cfea6f` — first round's named tests.
+4. `e55b5a59` — build report round 1.
+5. `4bbb83e3` — `unverified-legacy` visibility correction (counter + log +
+   `verified` field).
+6. `c3dc26b8` — build report round 2.
+7. `7d186564` — **this round**: the group-carried session-token anchor.
+8. `72a92f68` — **this round**: token-verified / membership-unprovable tests.
+9. `950aa1f8` — **this round**: the mandated real leader-dead-orphan
+   invariant test. Current HEAD.
 
-## Design as built
+Rounds 1–2 (commits 1–6) are settled/ratified and summarized briefly below;
+this report focuses on round 3 (the token anchor), which is what arch's
+latest brief (`BRIEF-pgid-token-anchor.md`) requested.
 
-1. **Persist at spawn** (`host.ts` `create()`, was `:428`): alongside the
-   existing `ownStartTime = readProcessStartTime(process.pid)` (host owner
-   attribution), now also `readLeaderStartTime(pty.pgid)` (injectable;
-   defaults to the real `readProcessStartTime`), passed as a 5th argument to
-   `persistNativeTerminalPgid`, which persists it as `RegistryEntry.pgidLeaderStartTime`
-   next to `pgid` — same durable write, no new persistence path.
-   `readNativeTerminalPgid` reads it back on the `"resolved"` branch.
-2. **Re-verify before kill**: `reapOrphan` passes
-   `{ sessionId, persistedLeaderStartTime: lookup.leaderStartTime }` into
-   `#killGroupAndConfirmDead`, which — before ever emitting a signal — calls
-   `#verifyGroupLeaderIdentity`:
-   - current read undefined → REFUSE, cause `"leader-absent"`, counter
-     `#pgidGuardCounters.leaderAbsent`, loud log (`REFUSING…cause=leader-absent
-     sessionId=… pgid=…`).
-   - current read defined, persisted baseline defined, and they differ →
-     REFUSE, cause `"recycled"`, counter `#pgidGuardCounters.recycled`, loud
-     log (`REFUSING…cause=recycled…`).
-   - no persisted baseline at all (legacy row) → cannot check recycling →
-     PROCEEDS, cause `"unverified-legacy"`, counter
-     `#pgidGuardCounters.unverifiedLegacy`, its OWN loud log
-     (`PROCEEDING…WITHOUT identity proof…cause=unverified-legacy…`), and
-     `verified: false` on the returned `"reaped"` outcome (mirrors
-     `defaultOwnerHostProbe`'s identical treatment of a missing
-     `ownerHostStartTime`: never manufacture a refusal from missing data —
-     pre-fix status quo, not a regression — but see the correction below:
-     this proceed must never be silently indistinguishable from a proven one).
-   - match → PROCEEDS, cause none, `verified: true` on the returned outcome.
-   `forceStopAll` never supplies `verify` (it kills a session this host is
-   still holding a live in-memory handle to, spawned in this process — no
-   "was this pgid recycled since we last looked" window exists there), so it
-   is unaffected by the guard.
-3. Kill stays parent-emitted (`process.kill(-pgid, sig)`, unchanged); no
-   group-member enumeration was added.
+## Round 3 — why round 2 (`c3dc26b8`) was insufficient (MEASURED)
 
-## Deviation from the brief's literal text (load-bearing finding)
+The leader's start-time alone cannot discriminate a true orphan from a
+recycled pgid **when the leader itself is gone**: `#readLeaderStartTime(pgid)`
+returns undefined either way, and round 2's guard refused BOTH cases
+identically (`leader-absent`). That refusal defeated `reapOrphan` for the
+**ordinary** case it exists to collect: a shell that exits normally leaving a
+backgrounded descendant (`cmd &`, then the shell returns) — leader gone,
+group alive, no containment (pdeathsig) ever triggered (pdeathsig only fires
+on a HOST death, not when the leader alone is killed or exits on its own).
 
-The brief's ordering was: unconditionally re-read `readProcessStartTime(pgid)`
-before `killGroup(pgid)`. Implemented literally, this **broke an existing,
-previously-green test the brief did not name** —
-`"should let a FRESH host — one that never knew the session — reap it from
-its durably persisted pgid after brutal host death"`
-(`process.functional.test.ts`) — **deterministically, reproduced 3/3 times**:
-`expected status "reaped", got "refused"` (cause `leader-absent`).
+This was confirmed as a real defect, not a flake: node-22 CI went red on
+`should let a FRESH host … reap it from its durably persisted pgid after
+brutal host death` — `expected "reaped"`, `received "refused"`,
+`cause=leader-absent` — a genuine pdeathsig mid-cascade timing window where
+the leader had already exited but a descendant had not yet been collected.
 
-Root cause, empirically traced: this codebase's crash containment
-(`pty.ts`'s guardian, `setpriv --pdeathsig SIGUSR2` → `h2a_force` →
-unconditional `kill -KILL -- "-$$"` on the guardian's OWN group) fires on
-**any** host death, hard or soft — not only the "host hangup" (HUP-forward)
-scenario the brief's MEASURED note describes. On a hard `SIGKILL` of the
-host (both this test and the brief-named INV-4 test use exactly that), the
-guardian's self-destruct reliably completes **before** any external reap
-attempt runs, so the group leader is typically already gone by the time
-`readProcessStartTime(pgid)` is checked — turning a legitimate, effectively
-already-completed reap into a "leader-absent" refusal, and (for the reconcile
-path) reinstating the exact leak the guard exists to prevent, for the
-already-fully-dead case.
+## Round 3 design — group-carried session token
 
-Fix applied (`ca31dba8`): check `this.#reaper.isGroupAlive(pgid)` — the SAME
-positive-proof-of-death primitive this method's own poll loop already uses —
-**before** the identity guard and before ever emitting a signal. An already-empty
-group has no live process left to protect from an innocent kill, so
-`kill(-pgid, sig)` against it signals nobody regardless of whether `pgid` was
-ever recycled; short-circuiting to `"dead"` there is a positive OS-confirmed
-fact (ESRCH), not a guess, so it does not weaken INV-1. This is a single
-`isGroupAlive` probe, not group-member enumeration (still banned per arch
-condition 3).
+**At spawn** (`create()`): generate `groupToken = randomUUID()` and inject
+`H2A_SESSION_TOKEN=<token>` into the spawned tree's own environment (inherited
+by every descendant — the spawner is now called with
+`env: { ...options.env, H2A_SESSION_TOKEN: groupToken }`). Persisted on the
+SAME durable write as `pgid`/`pgidLeaderStartTime` — a new optional
+`RegistryEntry.pgidGroupToken` field, threaded through
+`persistNativeTerminalPgid` (6th param) and read back by
+`readNativeTerminalPgid`/`NativeTerminalPgidLookup.groupToken`. No new
+persistence path.
 
-Verified meaningful, not just "made it pass": temporarily reverted the
-reordering (`if (false && !this.#reaper.isGroupAlive(pgid))`) and re-ran both
-the FRESH-host test and the brief-named INV-4 test's new no-block assertion —
-**both turned red** with the reversion, confirming the fix is load-bearing,
-not cosmetic. Restored; both green again. **No test's assertions were
-altered to force a pass** — only the guard's internal ordering changed.
+**`#verifyGroupLeaderIdentity`'s new decision order** (leader branches
+UNCHANGED from round 2; only the "leader absent" branch is new):
 
-This is a genuine gap between the brief's stated measurement and this
-codebase's actual pdeathsig-based crash-containment behavior. Flagged for
-arch/owner review — **arch has since RATIFIED this ordering** (relayed via
-the coordinating peer session); it is settled, not open.
+1. Leader **readable**, no start-time baseline persisted → PROCEED, cause
+   `"unverified-legacy"`, `verified: false` (unchanged from round 2).
+2. Leader **readable**, start-time **differs** → REFUSE, cause `"recycled"`
+   (unchanged).
+3. Leader **readable**, start-time **matches** → PROCEED, `verified: true`
+   (unchanged).
+4. **Leader absent** (NEW — replaces round 2's bare `leader-absent` refusal):
+   - no group-token baseline was ever persisted either (a legacy row
+     predating even this fix) → nothing to check membership against →
+     PROCEED, cause `"unverified-legacy"` (same fail-open bucket as branch 1
+     — folds into it rather than inventing a 5th cause, since the mandated
+     count is exactly four).
+   - a token baseline exists and `groupCarriesSessionToken(pgid, token)`
+     finds it on a **surviving member** (enumerates `/proc/*/stat` for
+     `pgrp === pgid`, reads each candidate's `/proc/<pid>/environ`) →
+     POSITIVE, leader-independent proof of membership → PROCEED,
+     `verified: true`, cause `"token-verified"`.
+   - a token baseline exists and **no member carries it** → cannot positively
+     prove identity by any means → REFUSE, a cause DISTINCT from
+     `"recycled"` — `"membership-unprovable"` — its own counter
+     (`pgidGuardCounters.membershipUnprovable`), its own loud/searchable log.
 
-## Arch follow-up: making the "unverified-legacy" proceed visible (`4bbb83e3`)
+`leader-absent` is **retired** as a terminal cause/counter — it is no longer
+a final decision on its own; every leader-absent case now resolves into one
+of the three outcomes above. `pgidGuardCounters` is now
+`{ recycled, membershipUnprovable, unverifiedLegacy, tokenVerified }`.
 
-Arch flagged a residual asymmetry in `#verifyGroupLeaderIdentity`'s legacy
-branch (`persistedLeaderStartTime === undefined` — a row written before this
-fix): it correctly PROCEEDS (fail-open — refusing legacy rows would leak
-every pre-existing session, same precedent as `defaultOwnerHostProbe`'s
-missing-`ownerHostStartTime` handling), but as originally built this proceed
-carried **no counter and no log** — a hidden third state, epistemically
-identical to "leader-absent" (nothing positively proves it) but making the
-opposite decision (proceed vs. refuse), and indistinguishable from a
-genuinely PROVEN match.
+INV-1 held throughout: proceed ONLY on positive proof (start-time match OR
+token found on a surviving member); everything else refuses or fails open
+only where round 1/2 already established that precedent for missing
+baselines. Kill stays parent-emitted (`process.kill(-pgid, sig)`); the
+`isGroupAlive` short-circuit (round 2, ratified) is unchanged and runs before
+any of this.
 
-Arch was explicit: **do not** change this to fail-closed (that would
-reinstate the exact leak the guard exists to prevent, for every
-pre-existing session). Instead, make the weak guarantee visible:
-
-1. `#verifyGroupLeaderIdentity`'s return type is now a 3-way discriminated
-   union: `{ proceed: true; verified: true }` (proven match) /
-   `{ proceed: true; verified: false; cause: "unverified-legacy" }`
-   (proceeded without proof) / `{ proceed: false; cause: "recycled" |
-   "leader-absent" }` (refused) — a compile-time-distinct outcome, not just
-   a log line, per arch's explicit ask to extend the same discriminant it
-   praised for the two refusal causes.
-2. New counter `#pgidGuardCounters.unverifiedLegacy`, on the same object as
-   `recycled`/`leaderAbsent` (getter renamed `pgidGuardCounters`, was
-   `pgidGuardRefusalCounters` — it now holds a non-refusal outcome too).
-3. New distinct, searchable log line at that branch: `PROCEEDING to kill
-   process group pgid=… for session …: WITHOUT identity proof…
-   cause=unverified-legacy sessionId=… pgid=…` — never looks like the
-   `emitted group SIGKILL…`/`confirmed pgid=… reaped…` lines a proven kill
-   also produces, and never looks like a `REFUSING…` line either.
-4. Surfaced up through `#killGroupAndConfirmDead`'s `"dead"` status and
-   `reapOrphan`'s `NativeTerminalReapOutcome` as an optional `verified:
-   boolean` field on `status: "reaped"` — present only when the identity
-   guard actually ran (absent for `forceStopAll`, or when the group was
-   already confirmed empty before any check ran).
+**Declared limits** (in code comments on `groupCarriesSessionToken`, host.ts):
+`/proc/<pid>/environ` is readable only for same-uid processes (true here — 
+host and every PTY tree it spawns share a uid); a process can rewrite its own
+environ, so this is a **non-adversarial** proof — sufficient, because the
+threat modeled is the CHANCE of pgid recycling, not an active attacker;
+member enumeration runs ONLY on the leader-absent path (rare — the fast
+leader-start-time check covers the common case).
 
 ## Named tests — PASS/FAIL
 
@@ -153,88 +115,105 @@ All in `packages/h2a-runtime/src/native-terminal/`:
 |---|---|---|
 | `PGID_GUARD_PROCEEDS_WITH_THE_KILL_WHEN_THE_GROUP_LEADER_IDENTITY_MATCHES` | host.test.ts | **PASS** |
 | `PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_WAS_RECYCLED` | host.test.ts | **PASS** |
-| `PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_IS_UNREADABLE` | host.test.ts | **PASS** |
-| `PGID_GUARD_PROCEEDS_BUT_FLAGS_UNVERIFIED_WHEN_A_LEGACY_ROW_HAS_NO_PERSISTED_LEADER_STARTTIME` (arch follow-up) | host.test.ts | **PASS** |
-| `should kill a signal-resistant PTY tree after hard host death and forced host reaping` (existing, + new no-block assertion) | process.functional.test.ts | **PASS** |
+| `PGID_GUARD_PROCEEDS_VIA_A_SURVIVING_MEMBERS_SESSION_TOKEN_WHEN_THE_LEADER_IS_ABSENT` (NEW) | host.test.ts | **PASS** |
+| `PGID_GUARD_REFUSES_A_KILL_WHEN_THE_LEADER_IS_ABSENT_AND_NO_MEMBER_CARRIES_THE_TOKEN` (NEW) | host.test.ts | **PASS** |
+| `PGID_GUARD_PROCEEDS_BUT_FLAGS_UNVERIFIED_WHEN_A_LEGACY_ROW_HAS_NO_PERSISTED_LEADER_STARTTIME` | host.test.ts | **PASS** |
+| `should kill a signal-resistant PTY tree after hard host death and forced host reaping` (INV-4, existing + no-block assertion) | process.functional.test.ts | **PASS** |
+| `should let a FRESH host … reap it from its durably persisted pgid after brutal host death` (previously node-22-flaky) | process.functional.test.ts | **PASS**, deterministic (see repeated-run section) |
+| `should let reapOrphan collect a real orphan whose leader is gone but a live descendant survives it (group-token path)` — **THE mandated invariant test** (NEW) | process.functional.test.ts | **PASS**, deterministic |
 
-The new legacy test (built directly for arch's ask) constructs a row with NO
-persisted baseline (a custom injected reader returns `undefined` during
-`create()`'s spawn-time capture, then a real value afterwards — reproducing
-exactly the shape of a row written before this fix), then asserts: the kill
-PROCEEDS (`killGroup` called — legacy rows must not leak),
-`outcome.verified === false`, `pgidGuardCounters.unverifiedLegacy === 1`
-(and the other two counters stay `0`), and the distinct `PROCEEDING…WITHOUT
-identity proof…cause=unverified-legacy…` log line fired.
+`PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_IS_UNREADABLE` (round 2) was
+**retired**, not weakened: the bare "leader-absent → refuse" terminal state
+it exercised no longer exists in the design (branch 4 above replaces it with
+three finer-grained outcomes). Replaced by the two new named tests above,
+which exercise its two real successors separately.
 
-### Wiring counter-mutant demonstration
+### THE mandated invariant test (`process.functional.test.ts`)
 
-Target: the `#verifyGroupLeaderIdentity(...)` call inside
-`#killGroupAndConfirmDead`. Demonstration (by hand, in `host.ts`):
+Constructs the EXACT ordinary-leak scenario: spawns a real stubborn workload
+via a real host process, then `process.kill(leaderPid, "SIGKILL")` —
+**directly on the single leader pid**, never `-leaderPid` (that would be the
+group kill this test exists to prove works WITHOUT) and never the owning
+host (that would trigger pdeathsig containment, collecting the orphan by an
+unrelated mechanism and hiding whether the token path itself works). Confirms
+the leader is gone AND the descendant/grandchild are still alive (not already
+collected) before ever calling `reapOrphan`. A FRESH, never-spawned host then
+calls `reapOrphan` and the test asserts `status: "reaped"`, `verified: true`,
+AND `pgidGuardCounters.tokenVerified === 1` — proving the reap happened via
+the token path specifically, not by accident.
 
-1. Changed `if (verify) {` → `if (verify && false) {` (removes the guard
-   call from the reap-kill path without touching `#verifyGroupLeaderIdentity`
-   itself — this is the WIRING mutant, not a mutant of the verify function).
+### Wiring counter-mutant demonstration (new token path)
+
+Target: `this.#findGroupMemberToken(pgid, persistedGroupToken)` inside
+`#verifyGroupLeaderIdentity`'s leader-absent branch. Demonstration (by hand,
+in `host.ts`):
+
+1. Changed `if (this.#findGroupMemberToken(...))` → `if (false && this.#findGroupMemberToken(...))`
+   (the token consultation becomes a permanent no-match, exactly as if the
+   call were removed from the wiring).
 2. Ran `npx vitest run src/native-terminal/host.test.ts -t "PGID_GUARD"`:
-   both `PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_WAS_RECYCLED` and
-   `PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_IS_UNREADABLE` **turned
-   red** (`killGroup` got called despite the proven mismatch/unreadable
-   leader — `expected "refused", got "reaped"`; `expected killGroup not to
-   have been called`).
-3. Restored `if (verify) {`. Re-ran: both **green** again.
+   `PGID_GUARD_PROCEEDS_VIA_A_SURVIVING_MEMBERS_SESSION_TOKEN_WHEN_THE_LEADER_IS_ABSENT`
+   **turned red** (`expected status "reaped"/verified:true, received "refused"/cause:"membership-unprovable"`).
+   `PGID_GUARD_REFUSES_A_KILL_WHEN_THE_LEADER_IS_ABSENT_AND_NO_MEMBER_CARRIES_THE_TOKEN`
+   stayed green (unaffected — it already expected no match).
+3. Also ran the REAL functional invariant test with the same mutation in
+   place: `should let reapOrphan collect a real orphan whose leader is gone
+   but a live descendant survives it (group-token path)` **also turned red**
+   (`expected "reaped", received "refused"`) — the mutant is caught by both
+   the fast unit test AND the real end-to-end invariant test.
+4. Restored `if (this.#findGroupMemberToken(...))`. Re-ran both: **green**
+   again.
 
-Both tests independently catch this class of regression; the "recycled" test
-is the one referenced by name in the source comment as the primary
-demonstration vehicle.
+### Existing greens confirmed still green
 
-### INV-4 existing test green + no-block assertion
+- 3 prior `PGID_GUARD_*` tests (match/recycled/unverified-legacy): green.
+- `isGroupAlive` short-circuit (round 2): unaffected, green — full
+  `host.test.ts` suite passes (20/20).
+- INV-4 `should kill a signal-resistant PTY tree after hard host death and
+  forced host reaping` (with round-2's no-block assertion): green.
+- `should let a FRESH host … durably persisted pgid …` (the test that was
+  node-22-flaky before round 3): green, and now DETERMINISTIC — see below.
 
-Added `log` capture to the `NativeTerminalHostSupervisor` in the existing
-"...forced host reaping" test and, after the test's existing flow, asserted
-`reconcileLogs.some(line => /REFUSING to kill process group/.test(line))` is
-`false` — i.e. the new guard never refused a kill anywhere across the whole
-hard-death-then-takeover flow this test exercises.
+## Decisive step: FRESH-host + the new invariant test, repeated ≥20× on BOTH node-20 and node-22
 
-Verified non-vacuous: temporarily reverted the `isGroupAlive`-first
-reordering fix above and re-ran this exact test — the new assertion **turned
-red** (`expected true to be false`), proving it actually observes the
-guard's behavior rather than trivially passing. Restored; green again.
+The node-22 CI failure that bounced round 2 was timing-sensitive
+(pdeathsig-cascade race window). Repeated both the previously-flaky
+`FRESH host … durably persisted pgid` test AND the new mandated invariant
+test 25× each, on both node versions (via `nvm`; `node-pty`'s native binding
+is N-API/ABI-stable across both, confirmed loadable on each before testing):
+
+```
+node v22.22.1 (this environment's system default — the SAME major version CI red on):
+  FRESH-host test:                25/25 passed
+  leader-dead-orphan invariant test: 25/25 passed
+
+node v20.20.2 (installed via nvm for this check):
+  FRESH-host test:                25/25 passed
+  leader-dead-orphan invariant test: 25/25 passed
+```
+
+**100/100 across both node versions.** Zero flakes observed.
 
 ## Gates
 
-### Gate 1 — h2a-runtime vitest suite (full, manual — not in required CI)
-
-Run 3 times across this build (before and after the arch follow-up
-correction) for stability:
+### Gate 1 — h2a-runtime vitest suite (full, manual — not in required CI), node v22.22.1
 
 ```
-Run 1 (pre-correction): Test Files 2 failed | 91 passed (93) — Tests 7 failed | 1405 passed | 4 skipped (1416)
-Run 2 (pre-correction): Test Files 2 failed | 91 passed (93) — Tests 7 failed | 1405 passed | 4 skipped (1416) — same failing set as run 1
-Run 3 (post-correction, current HEAD): Test Files 93 passed (93) — Tests 1413 passed | 4 skipped (1417)
+Test Files  93 passed (93)
+     Tests  1415 passed | 4 skipped (1419)
 ```
 
-**Run 3 (the current HEAD's state) is fully clean** — 0 failures. Runs 1–2
-(pre-correction, same code path unaffected by the correction) each showed the
-same 7 failures, in `src/index.test.ts` (6) and `src/native-host-reuse.test.ts`
-(1) — files my diff does not touch. Confirmed **pre-existing on base
-`8f452044`**: ran the base commit (isolated git worktree, symlinked
-`node_modules`, no reinstall) under the same conditions — the base commit
-showed its own (larger, differently-shaped) set of failures across multiple
-runs (`index.test.ts`, `llm-mesh-resolution.test.ts`, `migrate.test.ts`,
-`native-host-reuse.test.ts`, `restore.test.ts` all appeared across runs) —
-confirming this suite has pre-existing, load/resource-contention-driven
-flakiness in this environment (intermittent — run 3 above simply didn't hit
-it this time), unrelated to this fix. All pgid/native-terminal/registry-related
-files (`host.test.ts`, `process.functional.test.ts`, `registry.test.ts`,
-`supervisor.test.ts`) — **100% green in all 3 runs**.
+Fully clean — 0 failures. (Rounds 1–2 measured 7 pre-existing, environment/
+load-flaky failures in `src/index.test.ts` and `src/native-host-reuse.test.ts`
+— files this diff never touches — cross-checked against base `8f452044` in
+an isolated worktree; see round-2 history below. This round's run happened
+to hit none of them.)
 
-### Gate 2 — root `npm test` gate (`node --test packages/h2a`)
+### Gate 2 — root `npm test` gate (`node --test packages/h2a/test/*.test.js`), node v22.22.1
 
-`node --test packages/h2a` (bare directory) misreports as a single
-pseudo-test; the real invocation (mirrored from `scripts/run-tests.mjs`,
-what `npm test` actually runs) is
-`node --test packages/h2a/test/*.test.js`. Ran `npm run build` first (root
-`tsc -b`, project references — clean, no errors) since these tests import
-from `dist/`.
+Rebuilt first (`npm run build` — root `tsc -b`, clean, no errors) so
+`packages/h2a`'s tests pick up the round-3 `host.ts`/`registry.ts` changes
+via `@sentropic/h2a-runtime`'s rebuilt `dist/`.
 
 ```
 # tests 1838
@@ -243,27 +222,18 @@ from `dist/`.
 # skipped 17
 ```
 
-2 failures, **both confirmed pre-existing on base `8f452044`** (isolated
-worktree, same build, identical failures reproduced 1/1):
-- `Codex oracle rejects an invalid array MCP table and accepts the framed
-  table` (`host-installation-doctor.test.js`) — explicitly gated
-  `{ skip: codexCliProbe.status === 0 ? false : "requires the real codex
-  binary" }`; environment-dependent on the real Codex CLI binary's behavior,
-  not run-conditional on anything in this diff.
-- `scanner keeps nested job worktrees distinct and unclassified`
-  (`restore-dead-session-recovery.test.js`) — unrelated worktree-scan fixture
-  test.
-
-My diff touches **zero files** under `packages/h2a` (`git diff 8f452044 HEAD
---stat -- packages/h2a/` is empty), so these cannot be caused by this fix;
-confirmed empirically regardless.
+Same 2 failures as round 2, **both already confirmed pre-existing on base
+`8f452044`** in an isolated worktree (identical, 1/1 reproduction):
+`Codex oracle rejects an invalid array MCP table…` (explicitly
+`{ skip: … "requires the real codex binary" }`-gated) and `scanner keeps
+nested job worktrees distinct and unclassified` (unrelated worktree-scan
+fixture). This diff touches zero files under `packages/h2a`.
 
 ### Resolved `@sentropic/llm-mesh` version
 
-`0.15.0` (from `node_modules/@sentropic/llm-mesh/package.json`) — matches the
+`0.15.0` (`node_modules/@sentropic/llm-mesh/package.json`) — matches the
 declared range; the pin guard resolves via ESM `import.meta.resolve`
-(`llm-mesh-resolution.test.ts`), untouched by this diff and green in both
-gate-1 runs.
+(`llm-mesh-resolution.test.ts`), untouched by this diff, green in gate 1.
 
 ### Typecheck
 
@@ -272,24 +242,44 @@ edit round.
 
 ### Artifact
 
-Raw gate output: `./pgid-verify-artifact.txt` (worktree root,
-`/home/antoinefa/src/h2a/tmp/pgid-build/pgid-verify-artifact.txt`) — contains
-both full vitest runs and the `node --test` run. Not committed (untracked,
-gate transcript only).
+`./pgid-verify-artifact.txt` (worktree root) — contains every gate run
+across all three rounds, including this round's full vitest run, the root
+build + `node --test` run, and the node version markers.
 
 ## Not done / explicitly out of scope
 
-- No group-member enumeration (arch condition 3 — instrument first).
+- No group-member enumeration on the MATCH path (only on the rare
+  leader-absent path, as the brief specifies).
 - No push/merge/PR.
-- No existing test's assertions were altered to force a pass; the one place
-  a test needed anything, the guard's internal ordering changed instead
-  (the isGroupAlive-first reordering — since ratified by arch), not the
-  test. New tests were extended in place to match the guard's new return
-  shape (adding `verified`/`unverifiedLegacy` expectations) as part of
-  building the arch follow-up itself — not a retroactive edit to force a
-  pre-existing test green.
+- No test's assertions were weakened to force a pass anywhere in this round.
+  `PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_IS_UNREADABLE` was
+  RETIRED, not weakened — its invariant (bare leader-absent refusal) no
+  longer exists in the design; it is replaced by two new, more precise
+  named tests covering its two real successor states.
+
+---
+
+## Round 1–2 history (settled, ratified — kept for provenance)
+
+**Round 1** (`d1573952`, `ca31dba8`, `40cfea6f`): built the leader-start-time
+anchor (`pgidLeaderStartTime`), re-verified before kill; discovered and fixed
+a genuine conflict between the brief's literal check-ordering and an
+existing test (`isGroupAlive`-first short-circuit, since ratified by arch —
+do not revisit).
+
+**Round 2** (`4bbb83e3`): arch flagged that the guard's legacy branch (no
+persisted `pgidLeaderStartTime`) correctly proceeds (fail-open — refusing
+would leak every pre-existing session) but did so silently, with no counter
+and no log — indistinguishable from a proven match. Fixed by extending
+`#verifyGroupLeaderIdentity`'s return type to a 3-way discriminant
+(`verified: true` / `verified: false, cause: "unverified-legacy"` /
+`proceed: false`), a dedicated counter, and a distinct log line.
+
+**What round 2 missed** (why round 3 exists): the leader-start-time anchor
+cannot cover the case where the leader is simply gone — this is what round 3
+closes with the group-carried session token.
 
 ## Status
 
-All arch-requested corrections applied and verified. HEAD `4bbb83e3` is the
-current, complete state of this branch.
+All arch-requested corrections through round 3 applied and verified. HEAD
+`950aa1f8` is the current, complete state of this branch.
