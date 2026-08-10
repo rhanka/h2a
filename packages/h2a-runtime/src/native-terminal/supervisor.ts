@@ -5,6 +5,12 @@ import { fileURLToPath } from "node:url";
 
 import { NativeTerminalClient } from "./client.js";
 import {
+  defaultOwnerHostProbe,
+  reconcileDeadHostOrphans,
+  type NativeTerminalOwnerHostProbe,
+  type NativeTerminalReapOutcome,
+} from "./host.js";
+import {
   NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
   NATIVE_TERMINAL_DEFAULT_REQUEST_TIMEOUT_MS,
   NATIVE_TERMINAL_HEALTH_TIMEOUT_MS,
@@ -12,6 +18,7 @@ import {
   NATIVE_TERMINAL_MAX_SESSIONS,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
   type NativeTerminalPing,
+  type NativeTerminalStopSignal,
 } from "./protocol.js";
 
 const NATIVE_TERMINAL_SPAWN_BACKOFF_BASE_MS = 250;
@@ -119,6 +126,15 @@ export class NativeTerminalHostSupervisor {
   readonly #startupTimeoutMs: number;
   readonly #spawnTerminationGraceMs: number;
   readonly #registryPath: string | undefined;
+  readonly #ownerProbe: NativeTerminalOwnerHostProbe;
+  readonly #reapOrphan:
+    | ((
+        sessionId: string,
+        pgid: number,
+        signal: NativeTerminalStopSignal,
+      ) => Promise<NativeTerminalReapOutcome>)
+    | undefined;
+  readonly #log: (line: string) => void;
   #client: NativeTerminalClient | undefined;
   #connecting: Promise<NativeTerminalClient> | undefined;
   #spawned: ChildProcess | undefined;
@@ -141,6 +157,17 @@ export class NativeTerminalHostSupervisor {
     spawnTerminationGraceMs?: number;
     /** Durable pgid store forwarded to a spawned host; defaults to the real registry path. */
     registryPath?: string;
+    /** Injectable so tests never touch a real /proc; defaults to the real probe. */
+    ownerProbe?: NativeTerminalOwnerHostProbe;
+    /** Injectable so tests never send real signals; defaults to a throwaway
+     * NativeTerminalHost's real reapOrphan (see reconcileDeadHostOrphans). */
+    reapOrphan?: (
+      sessionId: string,
+      pgid: number,
+      signal: NativeTerminalStopSignal,
+    ) => Promise<NativeTerminalReapOutcome>;
+    /** Diagnostic sink for the orphan-reconcile pass; defaults to prefixed stderr. */
+    log?: (line: string) => void;
   }) {
     if (
       !Number.isSafeInteger(options.replayBytesPerSession)
@@ -192,6 +219,13 @@ export class NativeTerminalHostSupervisor {
     this.#startupTimeoutMs = startupTimeoutMs;
     this.#spawnTerminationGraceMs = spawnTerminationGraceMs;
     this.#registryPath = options.registryPath;
+    this.#ownerProbe = options.ownerProbe ?? defaultOwnerHostProbe;
+    this.#reapOrphan = options.reapOrphan;
+    this.#log =
+      options.log ??
+      ((line) => {
+        process.stderr.write(`[h2a-pty-supervisor] ${line}\n`);
+      });
   }
 
   get spawnedPid(): number | undefined {
@@ -244,6 +278,15 @@ export class NativeTerminalHostSupervisor {
           throw new Error("native terminal host generation must change after a restart");
         }
         this.#lastSpawnGeneration = generation;
+        // TAKEOVER point: we are about to spawn a REPLACEMENT host because
+        // the previous connection attempt failed and no live owned spawn
+        // exists. This is the moment a stale registry might exist — and
+        // exactly the moment a lost connection must NOT be mistaken for
+        // proof of death. Reconcile FIRST: reap only entries whose owning
+        // host is independently PROVEN dead (see reconcileDeadHostOrphans);
+        // best-effort — a reconcile failure must never block spawning the
+        // replacement host.
+        await this.#reconcileDeadHostOrphans();
         this.#spawnError = undefined;
         this.#spawnDiagnostic = "";
         this.#spawned = this.#spawnHost({
@@ -356,6 +399,27 @@ export class NativeTerminalHostSupervisor {
       }
     }
     if (this.#spawned === spawned) this.#spawned = undefined;
+  }
+
+  /**
+   * Run one `reconcileDeadHostOrphans` pass against the shared registry
+   * (see host.ts for the full contract). Best-effort: any failure here is
+   * logged and swallowed — a reconcile hiccup must never prevent spawning
+   * the replacement host that this takeover already needs.
+   */
+  async #reconcileDeadHostOrphans(): Promise<void> {
+    try {
+      await reconcileDeadHostOrphans({
+        ...(this.#registryPath !== undefined ? { registryPath: this.#registryPath } : {}),
+        ownerProbe: this.#ownerProbe,
+        ...(this.#reapOrphan !== undefined ? { reap: this.#reapOrphan } : {}),
+        log: this.#log,
+      });
+    } catch (error) {
+      this.#log(
+        `native-terminal orphan reconcile failed (continuing to spawn a replacement host regardless): ${String(error)}`,
+      );
+    }
   }
 
   #recordSpawnFailure(error: Error): void {
