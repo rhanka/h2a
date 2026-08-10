@@ -1142,7 +1142,7 @@ describe("native-terminal pgid persistence", () => {
       status: "resolved",
       pgid: 200,
     });
-    const entries = loadRegistry(regPath);
+    const entries = loadEntries(regPath);
     expect(entries.filter((e) => e.pgid !== undefined)).toHaveLength(1);
   });
 
@@ -1189,7 +1189,7 @@ describe("native-terminal pgid persistence", () => {
   it("preserves ordinary registry entries when a pgid is persisted afterward", () => {
     const enrolled = enroll(baseInput, regPath);
     persistNativeTerminalPgid("another-session", 1234, regPath);
-    const entries = loadRegistry(regPath);
+    const entries = loadEntries(regPath);
     expect(entries.find((e) => e.id === enrolled.id)).toMatchObject({
       id: enrolled.id,
       tool: "claude",
