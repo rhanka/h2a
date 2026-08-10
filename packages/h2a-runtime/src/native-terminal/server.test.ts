@@ -10,6 +10,7 @@ import { NativeTerminalHost } from "./host.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
 import { NATIVE_TERMINAL_MAX_REPLAY_CHUNKS_PER_SESSION } from "./replay-buffer.js";
 import { startNativeTerminalHostServer, type NativeTerminalHostServer } from "./server.js";
+import { defaultNativeTerminalSocketPath } from "./socket-path.js";
 
 class StubPty implements PtyHandle {
   static #nextPid = 51000;
@@ -455,5 +456,65 @@ describe("native terminal local transport", () => {
       );
       await rm(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe("native terminal socket path limits", () => {
+  // AF_UNIX sun_path is 108 bytes on Linux (104 Darwin) including the NUL.
+  // Past it, libuv silently truncates the path at bind/connect: the socket
+  // appears under a *different* name and the host used to die at startup
+  // with an unexplained chmod ENOENT. These paths must be rejected loudly.
+  const limit = process.platform === "darwin" ? 103 : 107;
+
+  function hostStub(): NativeTerminalHost {
+    return new NativeTerminalHost({
+      generation: "limit-generation",
+      replayBytesPerSession: 1024,
+      spawner: () => new StubPty(),
+    });
+  }
+
+  it("should reject a socket path over the kernel sun_path budget with a clear error", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-long-"));
+    cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    const socketPath = join(directory, "d".repeat(limit), "host.sock");
+    expect(Buffer.byteLength(socketPath)).toBeGreaterThan(limit);
+
+    await expect(startNativeTerminalHostServer({
+      socketPath,
+      host: hostStub(),
+    })).rejects.toThrow(/unix socket path limit \(\d+ > \d+ bytes\)/);
+  });
+
+  it("should reject a publishable path whose longer staged sibling would overflow at bind", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-edge-"));
+    cleanup.push(() => rm(directory, { recursive: true, force: true }));
+    // Final path lands just under the budget; the staged name appends
+    // ".<pid>.<8 hex>.sock" and crosses it.
+    const pad = limit - Buffer.byteLength(directory) - "/h.sock".length - 1;
+    expect(pad).toBeGreaterThan(0);
+    const socketPath = join(directory, "e".repeat(pad), "h.sock");
+    expect(Buffer.byteLength(socketPath)).toBeLessThanOrEqual(limit);
+
+    await expect(startNativeTerminalHostServer({
+      socketPath,
+      host: hostStub(),
+    })).rejects.toThrow(/staging socket path exceeds the unix socket path limit/);
+  });
+
+  it("should reject a client connect to an over-limit socket path before dialing", async () => {
+    const socketPath = `/${"c".repeat(limit + 8)}/host.sock`;
+    await expect(NativeTerminalClient.connect(socketPath)).rejects.toThrow(
+      /unix socket path limit/,
+    );
+  });
+
+  it("should compute a short private default socket path", () => {
+    expect(defaultNativeTerminalSocketPath({ XDG_RUNTIME_DIR: "/run/user/1000" }))
+      .toBe("/run/user/1000/h2a-nt/native-terminal.sock");
+    const fallback = defaultNativeTerminalSocketPath({});
+    expect(fallback.startsWith(join(tmpdir(), "h2a-nt-"))).toBe(true);
+    expect(fallback.endsWith("/native-terminal.sock")).toBe(true);
+    expect(Buffer.byteLength(fallback)).toBeLessThanOrEqual(limit);
   });
 });

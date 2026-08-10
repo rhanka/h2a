@@ -238,6 +238,7 @@ describe("NativeTerminalHost", () => {
         latestSeq: 1,
         exit: { exitCode: 7, signal: 15 },
         stopSignal: null,
+        controlled: false,
       },
       {
         id: "beta",
@@ -248,6 +249,7 @@ describe("NativeTerminalHost", () => {
         latestSeq: 2,
         exit: null,
         stopSignal: null,
+        controlled: false,
       },
     ]);
   });
@@ -617,6 +619,25 @@ describe("NativeTerminalHost", () => {
 
     expect(ptys.get("alpha")!.write).toHaveBeenCalledWith("pwd\r");
     expect(ptys.get("alpha")!.resize).toHaveBeenCalledWith(120, 40);
+  });
+
+  it("should expose controller PRESENCE as a boolean without ever exposing the controller id", () => {
+    const { spawner } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-4b",
+      replayBytesPerSession: 32,
+      spawner,
+    });
+    createSession(host, "alpha");
+
+    expect(host.state("alpha").controlled).toBe(false);
+    const lease = host.acquireController("alpha", "focus-client");
+    const controlledState = host.state("alpha");
+    expect(controlledState.controlled).toBe(true);
+    // The visibility bit must never leak the controller's identity.
+    expect(JSON.stringify(controlledState)).not.toContain("focus-client");
+    host.releaseController(lease);
+    expect(host.state("alpha").controlled).toBe(false);
   });
 
   it("should reject stale controller epochs after ownership changes", () => {

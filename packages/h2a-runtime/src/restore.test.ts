@@ -434,7 +434,7 @@ describe("tabCommand", () => {
         live,
         { forceGateway: "direct", attachSession: "h2a-surch" },
       ),
-    ).toBe("tmux attach -t 'h2a-surch'");
+    ).toBe("h2a attach 'h2a-surch'");
   });
 
   it("forceGateway 'gateway' still attaches a live session instead of replacing it", () => {
@@ -445,7 +445,7 @@ describe("tabCommand", () => {
         live,
         { forceGateway: "gateway", attachSession: "h2a-geo" },
       ),
-    ).toBe("tmux attach -t 'h2a-geo'");
+    ).toBe("h2a attach 'h2a-geo'");
   });
 
   it("forceGateway OVERRIDES the per-instance pin (pinned gateway, forced direct)", () => {

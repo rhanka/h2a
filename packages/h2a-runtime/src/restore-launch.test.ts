@@ -6,10 +6,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const listLocalSessionsWithDiagnostics = vi.hoisted(() => vi.fn());
 const killLocalSession = vi.hoisted(() => vi.fn());
 const spawn = vi.hoisted(() => vi.fn());
+const listNativeSessions = vi.hoisted(() => vi.fn());
 
 vi.mock("./tmux.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./tmux.js")>();
   return { ...actual, killLocalSession, listLocalSessionsWithDiagnostics };
+});
+
+vi.mock("./native-host.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./native-host.js")>();
+  return { ...actual, listNativeSessions };
 });
 
 vi.mock("node:child_process", async (importOriginal) => {
@@ -17,7 +23,7 @@ vi.mock("node:child_process", async (importOriginal) => {
   return { ...actual, spawn };
 });
 
-const { launchLayout } = await import("./restore.js");
+const { captureHostViewSnapshot, launchLayout } = await import("./restore.js");
 
 describe("launchLayout prefix collision", () => {
   let previousScreen: string | undefined;
@@ -27,6 +33,10 @@ describe("launchLayout prefix collision", () => {
   beforeEach(() => {
     listLocalSessionsWithDiagnostics.mockReset();
     listLocalSessionsWithDiagnostics.mockReturnValue({ sessions: [], known: true });
+    listNativeSessions.mockReset();
+    // A KNOWN-empty native view (the host answers, no sessions): a throwing
+    // probe would rightly fail closed and block every launch decision.
+    listNativeSessions.mockReturnValue([]);
     killLocalSession.mockReset();
     spawn.mockReset();
     spawn.mockReturnValue({ stderr: { on: vi.fn() }, unref: vi.fn() });
@@ -80,6 +90,7 @@ describe("launchLayout prefix collision", () => {
           ],
         },
       ],
+      captureHostViewSnapshot(),
       { write } as unknown as NodeJS.WriteStream,
       { reattach: true },
     );
@@ -108,6 +119,7 @@ describe("launchLayout prefix collision", () => {
           ],
         },
       ],
+      captureHostViewSnapshot(),
       { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
       { reattach: true },
     );
@@ -149,6 +161,7 @@ describe("launchLayout prefix collision", () => {
           ],
         },
       ],
+      captureHostViewSnapshot(),
       { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
     );
 
@@ -157,7 +170,9 @@ describe("launchLayout prefix collision", () => {
     const args = spawn.mock.calls[0]![1] as string[];
     const mapPath = args.at(-1)!;
     const command = readFileSync(mapPath, "utf8");
-    expect(command).toContain("tmux attach -t 'h2a-orphan'");
+    // The attach rides `h2a attach` (host-agnostic: it honors the session's
+    // recorded host), still bound to the EXACT managed name.
+    expect(command).toContain("h2a attach 'h2a-orphan'");
     expect(command).not.toMatch(/h2a run|h2a resume|--replace/);
 
     expect(killLocalSession).not.toHaveBeenCalledWith("h2a-orphan");
@@ -191,6 +206,7 @@ describe("launchLayout prefix collision", () => {
           ],
         },
       ],
+      captureHostViewSnapshot(),
       { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
     );
 
@@ -215,13 +231,15 @@ describe("launchLayout prefix collision", () => {
           tabs: [{ cwd: "/repo/unknown", label: "unknown", tool: "claude", sid: "conv-u" }],
         },
       ],
+      captureHostViewSnapshot(),
       { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
     );
 
     expect(result).toEqual({ opened: 1, skippedLive: [] });
     const args = spawn.mock.calls[0]![1] as string[];
     const command = readFileSync(args.at(-1)!, "utf8");
-    expect(command).toContain("tmux attach -t 'h2a-unknown'");
+    // Host-agnostic attach to the exact managed name (never a relaunch).
+    expect(command).toContain("h2a attach 'h2a-unknown'");
     expect(command).not.toContain("h2a run");
   });
 });

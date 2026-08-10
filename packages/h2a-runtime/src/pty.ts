@@ -77,6 +77,38 @@ function guardedSpawnCommand(options: Parameters<PtySpawner>[0]): {
   };
 }
 
+/**
+ * Preflight for the native PTY path: node-pty's native binding must load and
+ * the Linux crash-containment boundary binaries must exist at their fixed
+ * paths. Pure probe — spawns nothing.
+ */
+export function nativePtyRequirements():
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: string } {
+  try {
+    require("node-pty");
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `node-pty native module is not loadable: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
+  if (process.platform === "linux") {
+    try {
+      linuxSetprivPath();
+      linuxBashPath();
+    } catch (error) {
+      return {
+        ok: false,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+  return { ok: true };
+}
+
 export type PtyHandle = {
   readonly pid: number;
   /**

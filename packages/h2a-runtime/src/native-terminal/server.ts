@@ -25,6 +25,7 @@ import {
   type NativeTerminalResponse,
 } from "./protocol.js";
 import {
+  assertNativeTerminalSocketPathWithinLimit,
   assertPrivateNativeTerminalSocketDirectory,
   inspectPrivateNativeTerminalSocket,
   sameNativeTerminalSocket,
@@ -513,10 +514,17 @@ async function ensurePrivateSocketDirectory(socketPath: string): Promise<void> {
 function stagingSocketPath(socketPath: string): string {
   const directory = dirname(socketPath);
   const stem = basename(socketPath).slice(0, 24).replace(/[^A-Za-z0-9_.-]/g, "_");
-  return join(
+  const stagedPath = join(
     directory,
     `.${stem}.${process.pid}.${randomUUID().slice(0, 8)}.sock`,
   );
+  // The staged name is longer than the published one; a publishable path can
+  // still overflow the kernel sun_path budget at the bind step.
+  assertNativeTerminalSocketPathWithinLimit(
+    stagedPath,
+    "terminal host staging socket path",
+  );
+  return stagedPath;
 }
 
 async function publishSocket(
