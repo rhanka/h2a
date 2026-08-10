@@ -213,12 +213,14 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
     let spawnCount = 0;
     const generations = ["parent-death-hard", "parent-death-reap"];
+    const reconcileLogs: string[] = [];
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
       registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       startupTimeoutMs: 500,
       spawnTerminationGraceMs: 100,
+      log: (line) => reconcileLogs.push(line),
       generationFactory: () => generations[spawnCount] ?? `unexpected-${spawnCount}`,
       spawnHost: (options) => {
         spawnCount += 1;
@@ -273,6 +275,19 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       (states) => states.every((alive) => !alive),
     );
     expect(supervisor.spawnedPid).toBeUndefined();
+
+    // INV-4 no-block assertion: the NEW group-leader-identity guard sits
+    // directly in front of the reap this test's "hard-crash-tree" entry
+    // goes through (see the takeover's reconcileDeadHostOrphans pass,
+    // triggered above by `const replacement = await supervisor.client()`).
+    // Prove the fix did not reinstate the leak it exists to prevent: the
+    // guard must never have REFUSED a kill (neither "recycled" nor
+    // "leader-absent") anywhere in this whole hard-death-then-takeover
+    // flow — the real death confirmed above must not be surviving DESPITE
+    // the guard, it must not have been blocked BY it either.
+    expect(
+      reconcileLogs.some((line) => /REFUSING to kill process group/.test(line)),
+    ).toBe(false);
   });
 
   it("should let a FRESH host — one that never knew the session — reap it from its durably persisted pgid after brutal host death", async () => {

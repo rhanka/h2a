@@ -130,6 +130,26 @@ function fakeReaper(): {
   };
 }
 
+/**
+ * A fake group-leader-start-time reader: NEVER touches real /proc for
+ * StubPty's fabricated pgids. Returns `defaultValue` for any pid that hasn't
+ * been explicitly overridden via `values`, so `host.create()` (which reads
+ * this at spawn time, before the test can learn the fabricated pgid) gets a
+ * deterministic baseline for free; the test then mutates `values` for that
+ * pgid to simulate the CURRENT read differing (recycled) or failing
+ * (leader-absent) at kill-time.
+ */
+function fakeLeaderStartTimeReader(defaultValue: number): {
+  read: (pid: number) => number | undefined;
+  values: Map<number, number | undefined>;
+} {
+  const values = new Map<number, number | undefined>();
+  return {
+    read: (pid) => (values.has(pid) ? values.get(pid) : defaultValue),
+    values,
+  };
+}
+
 class StubPty implements PtyHandle {
   static #nextPid = 41000;
   readonly pid = StubPty.#nextPid++;
@@ -532,6 +552,129 @@ describe("NativeTerminalHost", () => {
     expect(killGroup).not.toHaveBeenCalled();
     expect(warnings.some((line) =>
       /REFUSING/.test(line) && /PROCESSES MAY HAVE SURVIVED/i.test(line)
+    )).toBe(true);
+  });
+
+  it("PGID_GUARD_PROCEEDS_WITH_THE_KILL_WHEN_THE_GROUP_LEADER_IDENTITY_MATCHES", async () => {
+    // INV-4 positive path: the persisted leader-start-time anchor and the
+    // re-read at kill-time agree — the group is provably the one this row
+    // was written for — so the guard must NOT block a legitimate reap.
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const { read } = fakeLeaderStartTimeReader(1000);
+    const host = new NativeTerminalHost({
+      generation: "host-generation-pgid-match",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      readLeaderStartTime: read,
+    });
+    createSession(host, "alpha");
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid);
+
+    const outcome = await host.reapOrphan("alpha");
+
+    expect(outcome).toEqual({
+      sessionId: "alpha",
+      status: "reaped",
+      pgid,
+      elapsedMs: expect.any(Number),
+    });
+    expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
+    expect(host.pgidGuardRefusalCounters).toEqual({ recycled: 0, leaderAbsent: 0 });
+  });
+
+  it("PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_WAS_RECYCLED", async () => {
+    // recycled: a persisted leader-start-time baseline exists, but the
+    // CURRENT read at kill-time differs — the OS reused this pgid for an
+    // unrelated (still alive) process since the row was written. Must
+    // REFUSE, with the "recycled" cause counted and logged DISTINCTLY from
+    // "leader-absent" (arch condition 1: never collapse the two).
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const { read, values } = fakeLeaderStartTimeReader(1000);
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-pgid-recycled",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      readLeaderStartTime: read,
+    });
+    createSession(host, "alpha"); // persists pgidLeaderStartTime=1000 (the default)
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid); // an unrelated group now occupies pgid — very much alive
+    values.set(pgid, 2000); // ...but its leader start-time does not match
+
+    const outcome = await host.reapOrphan("alpha");
+
+    expect(outcome).toEqual({
+      sessionId: "alpha",
+      status: "refused",
+      reason: expect.stringMatching(/recycled/i),
+      cause: "recycled",
+    });
+    // The wiring counter-mutant: if the guard CALL were ever removed from
+    // reapOrphan/#killGroupAndConfirmDead, this line is what would flip —
+    // killGroup would fire despite the proven mismatch. Verified by hand:
+    // temporarily deleting the `#verifyGroupLeaderIdentity` call in
+    // #killGroupAndConfirmDead reddens this assertion; restoring it passes
+    // again (see pgid-BUILD-REPORT.md for the demonstration transcript).
+    expect(killGroup).not.toHaveBeenCalled();
+    expect(host.pgidGuardRefusalCounters).toEqual({ recycled: 1, leaderAbsent: 0 });
+    expect(warnings.some((line) =>
+      /REFUSING/.test(line) &&
+      /RECYCLED/i.test(line) &&
+      line.includes("cause=recycled") &&
+      line.includes("sessionId=alpha") &&
+      line.includes(`pgid=${pgid}`)
+    )).toBe(true);
+  });
+
+  it("PGID_GUARD_REFUSES_A_KILL_WHEN_THE_GROUP_LEADER_IS_UNREADABLE", async () => {
+    // leader-absent: the group is still alive (something survives under
+    // this pgid) but the LEADER's own current start-time cannot be read —
+    // possibly our own already-dead orphan, possibly not; either way there
+    // is no POSITIVE proof, so REFUSE (conservative refuse-and-leak),
+    // counted and logged under a cause DISTINCT from "recycled".
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const { read, values } = fakeLeaderStartTimeReader(1000);
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-pgid-leader-absent",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      readLeaderStartTime: read,
+    });
+    createSession(host, "alpha");
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid); // something still reports alive under this pgid...
+    values.set(pgid, undefined); // ...but the leader's start-time is unreadable
+
+    const outcome = await host.reapOrphan("alpha");
+
+    expect(outcome).toEqual({
+      sessionId: "alpha",
+      status: "refused",
+      reason: expect.stringMatching(/leader-absent/i),
+      cause: "leader-absent",
+    });
+    expect(killGroup).not.toHaveBeenCalled();
+    expect(host.pgidGuardRefusalCounters).toEqual({ recycled: 0, leaderAbsent: 1 });
+    expect(warnings.some((line) =>
+      /REFUSING/.test(line) &&
+      /UNREADABLE/.test(line) &&
+      line.includes("cause=leader-absent") &&
+      line.includes("sessionId=alpha") &&
+      line.includes(`pgid=${pgid}`)
     )).toBe(true);
   });
 
