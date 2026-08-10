@@ -25,12 +25,41 @@ afterEach(async () => {
   directories.clear();
 });
 
+// INV-4-harden (arch-measured): this file waits for REAL process deaths and
+// real PTY host startup, not instant in-process state. `eventually`'s old
+// 200x10ms~=2s budget, under CI load, could exceed real detection latency
+// and approach the vitest DEFAULT 5000ms test timeout (this file declares
+// none) — an intermittent RED on the required build-and-test check that is
+// a mis-dimensioned ceiling, not a flake. GLOBAL constants, not a per-call
+// param: `eventually` returns the instant its condition is true, so raising
+// the ceiling costs nothing on the (overwhelmingly common) success path,
+// only lengthens a genuine failure's wait — and a per-call override across
+// 30+ call sites (plus any test written later) is a forget-risk a global
+// constant removes structurally. Deadline-based (not attempt-count-based)
+// so `read()`'s own latency can never inflate the wall-clock budget.
+//
+// EVENTUALLY_TIMEOUT_MS MUST stay strictly under PROCESS_TEST_TIMEOUT_MS
+// below: `eventually`'s own `condition did not become true; last value: …`
+// message is what tells a reap-refused-forever failure apart from
+// processes that were merely still dying — it must fire, and be visible,
+// BEFORE a bare "Test timed out in Nms" from vitest itself would otherwise
+// win the race and swallow that diagnostic.
+const EVENTUALLY_TIMEOUT_MS = 15_000;
+const EVENTUALLY_POLL_INTERVAL_MS = 10;
+/** File-scoped default `it` timeout (3rd arg to `describe` below) — the
+ * vitest DEFAULT (5000ms) is absurd for tests that spawn real PTY hosts and
+ * wait for real process deaths. Must stay strictly ABOVE
+ * `EVENTUALLY_TIMEOUT_MS` — see the rationale above `eventually`. */
+const PROCESS_TEST_TIMEOUT_MS = 30_000;
+
 async function eventually<T>(read: () => Promise<T> | T, accept: (value: T) => boolean): Promise<T> {
+  const deadline = Date.now() + EVENTUALLY_TIMEOUT_MS;
   let last: T | undefined;
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (;;) {
     last = await read();
     if (accept(last)) return last;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, EVENTUALLY_POLL_INTERVAL_MS));
   }
   throw new Error(`condition did not become true; last value: ${JSON.stringify(last)}`);
 }
@@ -1140,4 +1169,4 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     expect((await reconnectedSecond.ping()).hostPid).toBe(firstPing.hostPid);
     expect(spawnCount).toBe(2);
   });
-});
+}, PROCESS_TEST_TIMEOUT_MS);
