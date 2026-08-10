@@ -613,6 +613,18 @@ export class NativeTerminalHost {
       // `#verifyGroupLeaderIdentity`.
       const ownStartTime = readProcessStartTime(process.pid);
       const leaderStartTime = this.#readLeaderStartTime(pty.pgid);
+      if (leaderStartTime === undefined) {
+        // LOG the read failure HERE, at creation — not just its absence
+        // later at kill-time. Without this, a row that fell into the
+        // unverified-legacy path (see `#verifyGroupLeaderIdentity`) is
+        // indistinguishable in the logs from a TRUE legacy row written
+        // before this fix existed: this line marks it as a POST-FIX row
+        // whose start-time capture specifically failed at spawn time (a
+        // narrower, more diagnosable population than "legacy").
+        this.#log(
+          `session ${options.id} pgid=${pty.pgid}: leader start-time UNREADABLE at spawn time — this row will persist WITHOUT a pgidLeaderStartTime baseline (post-fix-no-baseline, not a pre-fix legacy row). cause=leader-start-time-unreadable-at-spawn sessionId=${options.id} pgid=${pty.pgid}`,
+        );
+      }
       persistNativeTerminalPgid(
         options.id,
         pty.pgid,
@@ -904,14 +916,25 @@ export class NativeTerminalHost {
    *
    *  1. Leader **readable**, no start-time baseline was ever persisted (a
    *     legacy row, or a write-time read failure) -> nothing to compare
-   *     against -> cannot be checked for recycling at all, so this PROCEEDS
-   *     rather than manufacture a refusal from missing data — the exact
-   *     same asymmetry `defaultOwnerHostProbe` applies to a missing
-   *     `ownerHostStartTime` (pre-fix status quo, not a regression).
-   *     Cause `"unverified-legacy"`, `verified: false` — a kill taken here
-   *     carries the SAME residual risk a `"recycled"` refusal exists to
-   *     prevent, just un-checked; it must never be silently
-   *     indistinguishable from a PROVEN match.
+   *     against for RECYCLING, but the group token — persisted
+   *     UNCONDITIONALLY at spawn (a `randomUUID()`, never a fallible /proc
+   *     read, unlike the start-time) — can still RAISE the proof:
+   *     - token found on a surviving member -> POSITIVE proof of
+   *       membership, independent of the leader start-time -> PROCEED,
+   *       `verified: true`, cause `"token-verified"`.
+   *     - no token baseline either, or no member carries it -> still
+   *       nothing positively proves membership, but this NEVER degrades to
+   *       a refusal (raise-proof-never-degrade, arch precision): without a
+   *       start-time baseline there is no way to distinguish "our group
+   *       whose token-carrier already exited" from "not our group" —
+   *       refusing here would open a BRAND NEW refusal path on a
+   *       population that PROCEEDS today, a new leak, not a fix. PROCEED,
+   *       cause `"unverified-legacy"`, `verified: false` — the exact same
+   *       asymmetry `defaultOwnerHostProbe` applies to a missing
+   *       `ownerHostStartTime` (pre-fix status quo, not a regression). A
+   *       kill taken here carries the SAME residual risk a `"recycled"`
+   *       refusal exists to prevent, just un-checked; it must never be
+   *       silently indistinguishable from a PROVEN match.
    *  2. Leader **readable**, start-time **DIFFERENT** from the persisted
    *     baseline -> the OS reused `pgid` for an unrelated process since
    *     this row was written -> REFUSE, cause `"recycled"` (the defensive
@@ -954,9 +977,23 @@ export class NativeTerminalHost {
     const currentStartTime = this.#readLeaderStartTime(pgid);
     if (currentStartTime !== undefined) {
       if (persistedLeaderStartTime === undefined) {
+        // No start-time baseline: try to RAISE the proof via the group
+        // token before falling back to the unverified-legacy proceed.
+        // NEVER escalate a token miss into a refusal here — see the doc
+        // comment above (raise-proof-never-degrade).
+        if (
+          persistedGroupToken !== undefined &&
+          this.#findGroupMemberToken(pgid, persistedGroupToken)
+        ) {
+          this.#pgidGuardCounters.tokenVerified += 1;
+          this.#log(
+            `PROCEEDING to kill process group pgid=${pgid} for session ${sessionId}: no leader start-time baseline was persisted, but a surviving GROUP MEMBER carries the persisted session token — positive proof of membership. cause=token-verified sessionId=${sessionId} pgid=${pgid}`,
+          );
+          return { proceed: true, verified: true, cause: "token-verified" };
+        }
         this.#pgidGuardCounters.unverifiedLegacy += 1;
         this.#log(
-          `PROCEEDING to kill process group pgid=${pgid} for session ${sessionId} WITHOUT identity proof: no leader start-time baseline was ever persisted for this row (legacy) — cannot be checked for recycling at all. This kill is UNVERIFIED, not a proven match. cause=unverified-legacy sessionId=${sessionId} pgid=${pgid}`,
+          `PROCEEDING to kill process group pgid=${pgid} for session ${sessionId} WITHOUT identity proof: no leader start-time baseline was ever persisted for this row (legacy), and the group token did not raise the proof either — cannot be checked for recycling at all. This kill is UNVERIFIED, not a proven match; never escalated to a refusal here, which would newly leak a population that proceeds today. cause=unverified-legacy sessionId=${sessionId} pgid=${pgid}`,
         );
         return { proceed: true, verified: false, cause: "unverified-legacy" };
       }
