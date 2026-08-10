@@ -1,11 +1,139 @@
-import { describe, expect, it, vi } from "vitest";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
-import { NativeTerminalHost } from "./host.js";
+import { readNativeTerminalPgid } from "../registry.js";
+import {
+  NativeTerminalHost,
+  posixProcessGroupReaper,
+  type NativeTerminalProcessGroupReaper,
+} from "./host.js";
+import type { NativeTerminalStopSignal } from "./protocol.js";
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}
+
+/**
+ * Find a REAL, currently-alive process group this test process does not own
+ * (a root-owned daemon on a typical Linux host) so that
+ * `process.kill(-pgid, 0)` genuinely raises EPERM ("the group exists, I may
+ * not signal it") — the exact non-ESRCH condition
+ * posixProcessGroupReaper.isGroupAlive's catch branch must treat as ALIVE,
+ * never dead. Scans /proc directly (mirrors the parsing
+ * posixProcessGroupReaper.describeGroup already does). Returns null if no
+ * such candidate exists in this environment (e.g. running as root, where
+ * every kill(-pgid,0) succeeds instead of EPERM-ing, or no /proc at all).
+ */
+function findEpermProbeCandidatePgid(): number | null {
+  if (process.platform !== "linux") return null;
+  let entries: string[];
+  try {
+    entries = readdirSync("/proc");
+  } catch {
+    return null;
+  }
+  for (const name of entries) {
+    if (!/^\d+$/.test(name)) continue;
+    let ruid: string | undefined;
+    try {
+      const status = readFileSync(`/proc/${name}/status`, "utf8");
+      const uidLine = status
+        .split("\n")
+        .find((line) => line.startsWith("Uid:"));
+      ruid = uidLine?.split(/\s+/)[1];
+    } catch {
+      continue;
+    }
+    if (ruid !== "0") continue; // only interested in groups we do NOT own
+    let pgrp: number;
+    try {
+      const stat = readFileSync(`/proc/${name}/stat`, "utf8");
+      const commandEnd = stat.lastIndexOf(")");
+      const fields = stat.slice(commandEnd + 2).split(" ");
+      pgrp = Number(fields[2]);
+    } catch {
+      continue;
+    }
+    // pgrp 0: unmappable across this process's pid-namespace view. pgrp 1:
+    // kill(-1, sig) has special broadcast semantics in POSIX, not a group
+    // target — never usable as a probe candidate.
+    if (!Number.isInteger(pgrp) || pgrp <= 1) continue;
+    try {
+      process.kill(-pgrp, 0);
+      // No throw: we DO have permission (e.g. running as root) — not usable
+      // to exercise the EPERM branch; keep looking.
+      continue;
+    } catch (error) {
+      if (isErrnoException(error) && error.code === "EPERM") return pgrp;
+      // ESRCH (group gone mid-scan) or anything else: try the next one.
+      continue;
+    }
+  }
+  return null;
+}
+
+// Scratch dir inside the package (never /tmp), like the other test suites.
+const SCRATCH_ROOT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  ".test-scratch",
+  "native-terminal-host",
+);
+
+let scratch: string;
+let registryPath: string;
+
+beforeEach(() => {
+  mkdirSync(SCRATCH_ROOT, { recursive: true });
+  scratch = mkdtempSync(join(SCRATCH_ROOT, "h-"));
+  registryPath = join(scratch, "registry.json");
+});
+
+afterEach(() => {
+  rmSync(scratch, { recursive: true, force: true });
+});
+
+/**
+ * A fake group reaper: NEVER sends real signals at StubPty's fabricated
+ * pids/pgids (which are not real OS process groups). `killGroup` marks the
+ * pgid dead immediately, matching how a real group-SIGKILL behaves once the
+ * OS actually reaps it — fast and deterministic for a unit test.
+ */
+function fakeReaper(): {
+  reaper: NativeTerminalProcessGroupReaper;
+  killGroup: ReturnType<typeof vi.fn<(pgid: number, signal: NativeTerminalStopSignal) => void>>;
+  alive: Set<number>;
+} {
+  const alive = new Set<number>();
+  const killGroup = vi.fn((pgid: number, _signal: NativeTerminalStopSignal) => {
+    alive.delete(pgid);
+  });
+  return {
+    reaper: {
+      killGroup,
+      isGroupAlive: (pgid: number) => alive.has(pgid),
+      describeGroup: () => "fake-reaper: no real /proc backing",
+    },
+    killGroup,
+    alive,
+  };
+}
 
 class StubPty implements PtyHandle {
   static #nextPid = 41000;
   readonly pid = StubPty.#nextPid++;
+  readonly pgid = this.pid;
   readonly cols = 80;
   readonly rows = 24;
   readonly #dataHandlers = new Set<(chunk: string) => void>();
@@ -71,6 +199,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-1",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
 
     createSession(host, "alpha");
@@ -129,6 +258,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-2",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
 
     createSession(host, "alpha");
@@ -163,26 +293,244 @@ describe("NativeTerminalHost", () => {
     });
   });
 
-  it("should force-stop every non-exited session during bounded host shutdown", () => {
+  it("should force-stop every non-exited session during bounded host shutdown", async () => {
     const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
     const host = new NativeTerminalHost({
       generation: "host-generation-force",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
+      reaper,
     });
     createSession(host, "alpha");
     createSession(host, "beta");
+    alive.add(ptys.get("alpha")!.pgid);
+    alive.add(ptys.get("beta")!.pgid);
 
     const lease = host.acquireController("alpha", "stopper");
     host.stop(lease, "SIGTERM");
-    expect(host.forceStopAll("SIGKILL")).toEqual([
+    // forceStopAll is the FORCE path: it emits the group SIGKILL itself, from
+    // the parent, via the injected reaper — it must NOT go through the pty's
+    // own kill() (that would depend on the victim's own trap handler, the
+    // bug this fix removes).
+    expect(await host.forceStopAll("SIGKILL")).toEqual([
       expect.objectContaining({ id: "alpha", status: "stopping", stopSignal: "SIGKILL" }),
       expect.objectContaining({ id: "beta", status: "stopping", stopSignal: "SIGKILL" }),
     ]);
-    expect(ptys.get("alpha")!.kill).toHaveBeenNthCalledWith(1, "SIGTERM");
-    expect(ptys.get("alpha")!.kill).toHaveBeenNthCalledWith(2, "SIGKILL");
-    expect(ptys.get("beta")!.kill).toHaveBeenCalledOnce();
-    expect(ptys.get("beta")!.kill).toHaveBeenCalledWith("SIGKILL");
+    // The single-session stop() above still used the pty's own kill() (SIGTERM) —
+    // that graceful path is unchanged. forceStopAll must not have called it again.
+    expect(ptys.get("alpha")!.kill).toHaveBeenCalledOnce();
+    expect(ptys.get("alpha")!.kill).toHaveBeenCalledWith("SIGTERM");
+    expect(ptys.get("beta")!.kill).not.toHaveBeenCalled();
+    // Instead, forceStopAll must have emitted a PARENT-side group kill for
+    // both sessions' pgids, and waited for the reaper to confirm death.
+    expect(killGroup).toHaveBeenCalledWith(ptys.get("alpha")!.pgid, "SIGKILL");
+    expect(killGroup).toHaveBeenCalledWith(ptys.get("beta")!.pgid, "SIGKILL");
+    expect(alive.size).toBe(0);
+  });
+
+  it("should WAIT for the reaper to confirm death, not resolve on the strength of merely emitting the signal (INV-1)", async () => {
+    const { spawner, ptys } = stubSpawner();
+    const alive = new Set<number>();
+    // A reaper whose killGroup() emits the signal now but whose isGroupAlive()
+    // only flips false a bit LATER (as a real OS group-kill does: the signal
+    // is asynchronous, death is not instantaneous). If forceStopAll resolved
+    // right after emitting the signal (INV-1 violated), this test would
+    // observe BOTH a near-zero elapsed time AND the pgid still marked alive
+    // at the moment forceStopAll resolves.
+    const killGroup = vi.fn((pgid: number) => {
+      setTimeout(() => alive.delete(pgid), 30);
+    });
+    const reaper: NativeTerminalProcessGroupReaper = {
+      killGroup,
+      isGroupAlive: (pgid) => alive.has(pgid),
+      describeGroup: () => "fake-reaper: no real /proc backing",
+    };
+    const host = new NativeTerminalHost({
+      generation: "host-generation-prove-death",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      forceKillPollIntervalMs: 5,
+    });
+    createSession(host, "alpha");
+    alive.add(ptys.get("alpha")!.pgid);
+
+    const before = Date.now();
+    await host.forceStopAll("SIGKILL");
+    const elapsedMs = Date.now() - before;
+
+    expect(elapsedMs).toBeGreaterThanOrEqual(25);
+    expect(alive.has(ptys.get("alpha")!.pgid)).toBe(false);
+  });
+
+  it("GROUP_LIVENESS_PROBE_TREATS_UNPROVABLE_AS_ALIVE_NEVER_DEAD", async () => {
+    // WIRING guard (host-level): forceStopAll must not claim success when
+    // the reaper's isGroupAlive() can never confirm the group dead — the
+    // boolean-signal shape of "unprovable" that a conservative non-ESRCH
+    // handler (e.g. EPERM) reports upstream. This test injects a fake
+    // reaper and therefore does NOT exercise posixProcessGroupReaper's own
+    // EPERM handling — see POSIX_GROUP_LIVENESS_PROBE_TREATS_EPERM_AS_ALIVE_NEVER_DEAD
+    // below for the test that calls the real implementation directly. This
+    // one proves the HOST's aggregation/timeout path treats "never reports
+    // dead" as a failure, never a clean success — the ORIGINAL bug this fix
+    // closes (an unprovable-but-alive group declared dead).
+    const { spawner, ptys } = stubSpawner();
+    const warnings: string[] = [];
+    const killGroup = vi.fn();
+    const reaper: NativeTerminalProcessGroupReaper = {
+      killGroup,
+      // Never resolves to dead, no matter how long we poll.
+      isGroupAlive: () => true,
+      describeGroup: () => "fake-reaper: group never confirmed dead",
+    };
+    const host = new NativeTerminalHost({
+      generation: "host-generation-unprovable-wiring",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      forceKillTimeoutMs: 30,
+      forceKillPollIntervalMs: 5,
+    });
+    createSession(host, "alpha");
+
+    let caught: unknown;
+    try {
+      await host.forceStopAll("SIGKILL");
+    } catch (error) {
+      caught = error;
+    }
+
+    // Assert on the RESULT, not just the log: a clean "reaped" success here
+    // would recreate the original bug.
+    expect(caught).toBeInstanceOf(AggregateError);
+    const aggregate = caught as AggregateError;
+    expect(aggregate.errors).toHaveLength(1);
+    expect(String(aggregate.errors[0])).toMatch(/did not confirm dead/i);
+    expect(killGroup).toHaveBeenCalledWith(ptys.get("alpha")!.pgid, "SIGKILL");
+    expect(warnings.some((line) => /STILL ALIVE/.test(line))).toBe(true);
+    expect(
+      warnings.some((line) => /confirmed pgid=.*reaped/i.test(line)),
+    ).toBe(false);
+  });
+
+  it("POSIX_GROUP_LIVENESS_PROBE_TREATS_EPERM_AS_ALIVE_NEVER_DEAD", (ctx) => {
+    // PROBE guard (real implementation): the wiring test above injects a
+    // fake reaper and is therefore blind to a regression INSIDE
+    // posixProcessGroupReaper.isGroupAlive's own non-ESRCH handling (an
+    // injected fake never calls it — mutating it would not move that test).
+    // This test exercises the REAL exported posixProcessGroupReaper against
+    // a REAL non-ESRCH failure: a root-owned process group's pgid, probed
+    // from this unprivileged test process, genuinely raises EPERM ("the
+    // group exists, you may not signal it"). isGroupAlive must treat that
+    // as ALIVE (return true), never as dead.
+    const pgid = findEpermProbeCandidatePgid();
+    if (pgid === null) {
+      ctx.skip(
+        "no root-owned process group produced EPERM on process.kill(-pgid,0) in this " +
+          "environment (running as root, no /proc, or no qualifying process found) — " +
+          "cannot exercise the real non-ESRCH branch here",
+      );
+    }
+    // Re-confirm immediately before asserting: closes the race window
+    // between discovery above and use here (the candidate must still be
+    // alive-but-unsignallable right now, not just at discovery time).
+    let stillEperm = false;
+    try {
+      process.kill(-pgid, 0);
+    } catch (error) {
+      stillEperm = isErrnoException(error) && error.code === "EPERM";
+    }
+    if (!stillEperm) {
+      ctx.skip(
+        `candidate pgid=${pgid} no longer raises EPERM (process likely exited between discovery and use)`,
+      );
+    }
+
+    expect(posixProcessGroupReaper.isGroupAlive(pgid)).toBe(true);
+  });
+
+  it("should refuse to reap and warn loudly when a session's pgid cannot be resolved from the registry, killing nothing", async () => {
+    const { spawner } = stubSpawner();
+    const { reaper, killGroup } = fakeReaper();
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-orphan-refuse",
+      replayBytesPerSession: 32,
+      spawner,
+      // A registry path with NOTHING recorded for this session id — a fresh
+      // host that never saw this session AND finds no durable pgid for it.
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+    });
+    // Make the registry file exist and be VALID first (via an unrelated
+    // session), so this test proves the "registry readable, no pgid for THIS
+    // session" branch specifically — not the "file absent" branch, which
+    // loadRegistryWithDiagnostics also reports as known:false and is covered
+    // by the next test.
+    createSession(host, "unrelated-session");
+
+    const outcome = await host.reapOrphan("never-created-session");
+
+    expect(outcome).toEqual({
+      sessionId: "never-created-session",
+      status: "refused",
+      reason: expect.stringMatching(/no pgid recorded/i),
+    });
+    // Never guess a pgid: killing the wrong process group is irreversible.
+    expect(killGroup).not.toHaveBeenCalled();
+    // But never silently refuse either: a silent return here recreates the
+    // invisible-orphan bug. The refusal must be LOUD.
+    expect(warnings.some((line) =>
+      /REFUSING/.test(line) &&
+      /pgid could not be resolved/i.test(line) &&
+      /PROCESSES MAY HAVE SURVIVED/i.test(line)
+    )).toBe(true);
+
+    // Cross-check against the registry reader directly: this really is the
+    // "registry readable, but no pgid on record" branch, not a fluke.
+    const lookup = readNativeTerminalPgid("never-created-session", registryPath);
+    expect(lookup).toEqual({
+      status: "unresolved",
+      reason: expect.stringMatching(/no pgid recorded/i),
+    });
+  });
+
+  it("should refuse to reap and warn loudly when the registry itself is unreadable (corrupt), killing nothing", async () => {
+    const { spawner } = stubSpawner();
+    const { reaper, killGroup } = fakeReaper();
+    const warnings: string[] = [];
+    // Deliberately corrupt: valid JSON but no `entries` array. This must
+    // resolve as UNREADABLE (known:false), never as "known: zero entries" —
+    // silently treating a corrupt file as "nothing recorded" would refuse to
+    // reap without ever saying WHY, recreating the invisible-orphan bug.
+    const corruptRegistryPath = join(scratch, "corrupt-registry.json");
+    writeFileSync(corruptRegistryPath, JSON.stringify({ version: 1 }), "utf8");
+    const host = new NativeTerminalHost({
+      generation: "host-generation-orphan-unreadable",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath: corruptRegistryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+    });
+
+    const outcome = await host.reapOrphan("some-session");
+
+    expect(outcome).toEqual({
+      sessionId: "some-session",
+      status: "refused",
+      reason: expect.stringMatching(/registry unreadable/i),
+    });
+    expect(killGroup).not.toHaveBeenCalled();
+    expect(warnings.some((line) =>
+      /REFUSING/.test(line) && /PROCESSES MAY HAVE SURVIVED/i.test(line)
+    )).toBe(true);
   });
 
   it("should reject duplicate and unknown session identifiers", () => {
@@ -191,6 +539,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-3",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
 
     createSession(host, "alpha");
@@ -209,6 +558,7 @@ describe("NativeTerminalHost", () => {
       replayBytesPerSession: 32,
       maxSessions: 2,
       spawner,
+      registryPath,
     });
 
     createSession(host, "alpha");
@@ -234,6 +584,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-4",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
     createSession(host, "alpha");
 
@@ -274,6 +625,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-5",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
     createSession(host, "alpha");
 
@@ -306,6 +658,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-6",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
     createSession(host, "alpha");
     createSession(host, "beta");
@@ -329,6 +682,7 @@ describe("NativeTerminalHost", () => {
       generation: "host-generation-reincarnation",
       replayBytesPerSession: 32,
       spawner,
+      registryPath,
     });
     createSession(host, "alpha");
     const stale = host.acquireController("alpha", "same-controller");

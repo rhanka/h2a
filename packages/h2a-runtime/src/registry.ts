@@ -89,6 +89,30 @@ export type RegistryEntry = {
   tmuxSession?: string;
   /** Local process id (kind "local"); liveness = process.kill(pid, 0). */
   pid?: number;
+  /**
+   * Process-group id of a native-terminal PTY session (see
+   * native-terminal/host.ts's `persistNativeTerminalPgid`). Persisted at
+   * session CREATION time so a host that never knew the session (e.g. a fresh
+   * host started after the owning host was killed) can still reap the whole
+   * process tree from this durable record — "known at creation" must survive
+   * to "known at kill time", which only a durable store (not host memory)
+   * can guarantee.
+   */
+  pgid?: number;
+  /**
+   * Owning host attribution for a native-terminal-pty row (see `pgid` above).
+   * `ownerHostPid` is the pid of the host process that created this PTY and
+   * durably persisted its pgid; `ownerHostStartTime` is that host's own
+   * process start-time (Linux `/proc/<pid>/stat` field 22, clock ticks since
+   * boot) at the moment of persistence — the discriminant that survives pid
+   * recycling. A reaper must prove the HOST is dead (pid gone, or a live pid
+   * whose start-time no longer matches — i.e. reused) before touching this
+   * row's pgid; a merely-unreachable-but-alive host (e.g. overloaded, a
+   * paused process) is NOT proof of death and must never be reaped. See
+   * `reconcileDeadHostOrphans` in native-terminal/host.ts, the sole consumer.
+   */
+  ownerHostPid?: number;
+  ownerHostStartTime?: number;
   enrolledAt: string;
   lastSeenAt: string;
   endedAt?: string;
@@ -300,6 +324,188 @@ export function loadRegistryWithDiagnostics(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Native-terminal PTY pgid persistence.
+//
+// Durable session identity (incl. pgid) lives in the single registry store BY
+// DESIGN — h2a keeps ONE durable local store (the owner's SQLite direction);
+// a separate native-terminal store would be exactly the heterogeneity being
+// eliminated. This is NOT a layer leak from native-terminal/host.ts into the
+// registry; do not remove this coupling. The pgid is stored on a real
+// `RegistryEntry` row (same file, same lock, same atomic write as every other
+// registry mutation) keyed by a namespaced id so it can never collide with a
+// real claude/codex/agy session row. `tool`/`source`/`cwd` on that row are
+// syntactically-required placeholders (RegistryTool/RegistrySource are closed
+// enums built around CLI sessions, not arbitrary PTY commands) — the only
+// consumer of this row is `readNativeTerminalPgid` below, which reads `.pgid`
+// and ignores the rest. `kind: "local"` keeps the row OUT of `remote ls`
+// (`localLsRows` only surfaces `kind: "local-tmux"`) and out of delegate's
+// concurrency accounting (`role` is left unset, so `tryClaimSlot`/`listJobs`
+// never see it).
+// ---------------------------------------------------------------------------
+
+const NATIVE_TERMINAL_PGID_ENTRY_ID_PREFIX = "native-terminal-pty:";
+
+function nativeTerminalPgidEntryId(sessionId: string): string {
+  return `${NATIVE_TERMINAL_PGID_ENTRY_ID_PREFIX}${sessionId}`;
+}
+
+/**
+ * Persist a native-terminal PTY session's process-group id, durably, at
+ * session CREATION time (see native-terminal/host.ts `create()`). Synchronous
+ * (the registry write is sync) so a caller can treat a thrown error as "this
+ * session's pgid did NOT get durably recorded" and refuse to create an
+ * untracked, unreapable session.
+ */
+/** Owning-host attribution captured at PTY-creation time (see `RegistryEntry.ownerHostPid`). */
+export type NativeTerminalPgidOwner = { pid: number; startTime?: number };
+
+export function persistNativeTerminalPgid(
+  sessionId: string,
+  pgid: number,
+  path: string = resolveRegistryPath(),
+  owner?: NativeTerminalPgidOwner,
+): void {
+  if (!Number.isSafeInteger(pgid) || pgid <= 0) {
+    throw new RangeError("pgid must be a positive safe integer");
+  }
+  const id = nativeTerminalPgidEntryId(sessionId);
+  withRegistryLock(path, (entries) => {
+    const now = new Date().toISOString();
+    const idx = entries.findIndex((e) => e.id === id);
+    const entry: RegistryEntry = {
+      id,
+      tool: "claude",
+      kind: "local",
+      cwd: "",
+      source: "scan",
+      enrolledAt: idx >= 0 ? entries[idx]!.enrolledAt : now,
+      lastSeenAt: now,
+      pgid,
+      ...(owner !== undefined ? { ownerHostPid: owner.pid } : {}),
+      ...(owner?.startTime !== undefined ? { ownerHostStartTime: owner.startTime } : {}),
+    };
+    const next =
+      idx >= 0
+        ? entries.map((e, i) => (i === idx ? entry : e))
+        : [...entries, entry];
+    return { entries: next, result: undefined };
+  });
+}
+
+/** Result of resolving a native-terminal session's durable pgid. */
+export type NativeTerminalPgidLookup =
+  | { status: "resolved"; pgid: number }
+  | { status: "unresolved"; reason: string };
+
+/**
+ * Resolve a native-terminal PTY session's durable pgid, for a reap that may
+ * come from a host that never knew the session (e.g. a fresh host started
+ * after the owning host was killed).
+ *
+ * Reads via `loadRegistryWithDiagnostics`, NEVER via the plain `loadRegistry`
+ * array reader: `loadRegistry` silently flattens a corrupt/unreadable
+ * registry to `[]`, which would conflate two very different situations —
+ * "this session genuinely has no recorded pgid" vs. "the registry could not
+ * be read at all". A reaper must tell those apart: an unreadable registry
+ * must NEVER be treated as "nothing to reap" (that recreates the exact
+ * invisible-orphan bug this mechanism exists to close), so it is reported as
+ * `unresolved` with a diagnostic reason, loudly, by the caller (see
+ * `NativeTerminalHost#reapOrphan`), which must never guess a pgid or kill
+ * silently on either branch below.
+ *
+ * (If/when a future 3-state `loadRegistry` lands — `state: "ok" | "unknown"`
+ * — the migration is a refinement of the condition below, not a new branch:
+ * map `state: "unknown"` to the same `unresolved` result.)
+ */
+export function readNativeTerminalPgid(
+  sessionId: string,
+  path: string = resolveRegistryPath(),
+): NativeTerminalPgidLookup {
+  const diagnostics = loadRegistryWithDiagnostics(path);
+  if (!diagnostics.known) {
+    return {
+      status: "unresolved",
+      reason: `registry unreadable: ${diagnostics.reason ?? "unknown reason"}`,
+    };
+  }
+  const id = nativeTerminalPgidEntryId(sessionId);
+  const entry = diagnostics.entries.find((e) => e.id === id);
+  if (!entry || typeof entry.pgid !== "number") {
+    return {
+      status: "unresolved",
+      reason: `no pgid recorded for terminal session ${sessionId}`,
+    };
+  }
+  return { status: "resolved", pgid: entry.pgid };
+}
+
+/** One native-terminal-pty row, decoded from its namespaced registry id. */
+export type NativeTerminalPgidEntry = Readonly<{
+  sessionId: string;
+  pgid: number;
+  owner?: NativeTerminalPgidOwner;
+}>;
+
+/** Outcome of enumerating every native-terminal-pty row in the registry. */
+export type NativeTerminalPgidSnapshot =
+  | { known: true; entries: ReadonlyArray<NativeTerminalPgidEntry> }
+  | { known: false; reason: string };
+
+/**
+ * Enumerate every durably-persisted native-terminal PTY session, for a
+ * reconcile pass that must decide, PER ENTRY, whether its owning host is
+ * proven dead (see `reconcileDeadHostOrphans` in native-terminal/host.ts, the
+ * sole consumer). Reads via `loadRegistryWithDiagnostics` for the same reason
+ * `readNativeTerminalPgid` does: an unreadable registry must never collapse
+ * to "zero entries" — that would silently make a reconcile pass reap
+ * (or skip) NOTHING while believing it saw the whole truth.
+ */
+export function listNativeTerminalPgidEntries(
+  path: string = resolveRegistryPath(),
+): NativeTerminalPgidSnapshot {
+  const diagnostics = loadRegistryWithDiagnostics(path);
+  if (!diagnostics.known) {
+    return { known: false, reason: diagnostics.reason ?? "unknown reason" };
+  }
+  const entries: NativeTerminalPgidEntry[] = [];
+  for (const e of diagnostics.entries) {
+    if (!e.id.startsWith(NATIVE_TERMINAL_PGID_ENTRY_ID_PREFIX)) continue;
+    if (typeof e.pgid !== "number") continue;
+    const sessionId = e.id.slice(NATIVE_TERMINAL_PGID_ENTRY_ID_PREFIX.length);
+    const entry: { sessionId: string; pgid: number; owner?: NativeTerminalPgidOwner } = {
+      sessionId,
+      pgid: e.pgid,
+    };
+    if (typeof e.ownerHostPid === "number") {
+      const owner: NativeTerminalPgidOwner = { pid: e.ownerHostPid };
+      if (typeof e.ownerHostStartTime === "number") owner.startTime = e.ownerHostStartTime;
+      entry.owner = owner;
+    }
+    entries.push(entry);
+  }
+  return { known: true, entries };
+}
+
+/**
+ * Remove a single native-terminal-pty row once its orphan group has been
+ * reaped (or it is otherwise confirmed handled). Returns false when the id
+ * was not present (already pruned, or never existed) — a no-op, not an
+ * error, since a reconcile pass may race a concurrent prune of the same row.
+ */
+export function pruneNativeTerminalPgidEntry(
+  sessionId: string,
+  path: string = resolveRegistryPath(),
+): boolean {
+  const id = nativeTerminalPgidEntryId(sessionId);
+  return withRegistryLock(path, (entries) => {
+    const idx = entries.findIndex((e) => e.id === id);
+    if (idx < 0) return { entries, result: false, save: false };
+    const next = entries.slice(0, idx).concat(entries.slice(idx + 1));
+    return { entries: next, result: true };
+  });
+}
+
 function isRegistryEntry(raw: unknown): raw is RegistryEntry {
   if (!raw || typeof raw !== "object") return false;
   const e = raw as Record<string, unknown>;
@@ -325,6 +531,13 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
       e.delegationOrigin === "mcp:h2a_run" ||
       e.delegationOrigin === "cli:h2a-delegate") &&
     (e.pid === undefined || (typeof e.pid === "number" && Number.isInteger(e.pid) && e.pid > 0)) &&
+    (e.pgid === undefined || (typeof e.pgid === "number" && Number.isInteger(e.pgid) && e.pgid > 0)) &&
+    (e.ownerHostPid === undefined ||
+      (typeof e.ownerHostPid === "number" && Number.isInteger(e.ownerHostPid) && e.ownerHostPid > 0)) &&
+    (e.ownerHostStartTime === undefined ||
+      (typeof e.ownerHostStartTime === "number" &&
+        Number.isInteger(e.ownerHostStartTime) &&
+        e.ownerHostStartTime >= 0)) &&
     (e.delegatorInstance === undefined || typeof e.delegatorInstance === "string") &&
     (e.delegatorTmuxSession === undefined || typeof e.delegatorTmuxSession === "string") &&
     (e.restorePinned === undefined || typeof e.restorePinned === "boolean")

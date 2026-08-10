@@ -39,6 +39,7 @@ function stubSpawner(): { spawner: PtySpawner; pty: StubPty } {
   const writes: string[] = [];
   const pty: StubPty = {
     pid: 61002,
+    pgid: 61002,
     cols: 80,
     rows: 24,
     write(data) {

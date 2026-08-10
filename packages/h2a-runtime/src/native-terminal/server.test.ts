@@ -14,6 +14,7 @@ import { startNativeTerminalHostServer, type NativeTerminalHostServer } from "./
 class StubPty implements PtyHandle {
   static #nextPid = 51000;
   readonly pid = StubPty.#nextPid++;
+  readonly pgid = this.pid;
   readonly cols = 80;
   readonly rows = 24;
   readonly write = vi.fn();
@@ -61,6 +62,7 @@ async function service(options: { replayBytesPerSession?: number } = {}): Promis
     generation: "unit-generation",
     replayBytesPerSession: options.replayBytesPerSession ?? 1024,
     spawner,
+    registryPath: join(directory, "registry.json"),
   });
   const server = await startNativeTerminalHostServer({ socketPath, host });
   const client = await NativeTerminalClient.connect(socketPath);
@@ -138,6 +140,7 @@ describe("native terminal local transport", () => {
       generation: "permission-generation",
       replayBytesPerSession: 1024,
       spawner: () => new StubPty(),
+      registryPath: join(directory, "registry.json"),
     });
 
     await expect(startNativeTerminalHostServer({
@@ -356,6 +359,7 @@ describe("native terminal local transport", () => {
         generation: "first-generation",
         replayBytesPerSession: 1024,
         spawner,
+        registryPath: join(directory, "registry.json"),
       }),
     });
     await unlink(socketPath);
@@ -365,6 +369,7 @@ describe("native terminal local transport", () => {
         generation: "second-generation",
         replayBytesPerSession: 1024,
         spawner,
+        registryPath: join(directory, "registry.json"),
       }),
     });
     cleanup.push(() => second.close());
@@ -398,6 +403,7 @@ describe("native terminal local transport", () => {
       generation,
       replayBytesPerSession: 1024,
       spawner: () => new StubPty(),
+      registryPath: join(directory, "registry.json"),
     });
     try {
       const contenders = await Promise.allSettled([

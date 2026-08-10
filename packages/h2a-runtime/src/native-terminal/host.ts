@@ -1,6 +1,21 @@
+import { readFileSync, readdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import type { PtyHandle, PtySpawner } from "../pty.js";
+// Durable session identity (incl. pgid) lives in the single registry store by
+// design — one local store per the owner's durable-state direction (see the
+// longer rationale on `persistNativeTerminalPgid`/`readNativeTerminalPgid` in
+// registry.ts). This is NOT a layer leak; do not remove this coupling. The
+// PTY host stays otherwise decoupled from the registry — this import exists
+// ONLY for pgid durability across a host crash, nothing else here reads or
+// writes registry state.
+import {
+  listNativeTerminalPgidEntries,
+  persistNativeTerminalPgid,
+  pruneNativeTerminalPgidEntry,
+  readNativeTerminalPgid,
+  type NativeTerminalPgidOwner,
+} from "../registry.js";
 import {
   TerminalReplayBuffer,
   type TerminalOutputChunk,
@@ -12,6 +27,205 @@ import {
   NATIVE_TERMINAL_MAX_SESSIONS,
   type NativeTerminalStopSignal,
 } from "./protocol.js";
+
+/**
+ * Emits the FORCE signal to a whole process group from the PARENT (the host
+ * process) and can prove whether the group is actually dead — the two halves
+ * of the fix: FORCE_KILL_MUST_NOT_DEPEND_ON_THE_TARGET_EXECUTING_CODE and
+ * FORCE_STOP_ALL_MUST_PROVE_THE_PTY_TREE_IS_DEAD_NOT_JUST_SIGNAL_IT. Injectable
+ * so tests never send real signals at fabricated pgids (see host.test.ts).
+ */
+export type NativeTerminalProcessGroupReaper = {
+  /** Ask the OS to signal the whole group. Must not throw on ESRCH (already gone). */
+  killGroup(pgid: number, signal: NativeTerminalStopSignal): void;
+  /** True iff the OS still reports at least one process in this group. */
+  isGroupAlive(pgid: number): boolean;
+  /** Best-effort human-readable list of survivors, for a timeout diagnostic. */
+  describeGroup(pgid: number): string;
+};
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}
+
+/**
+ * Real POSIX implementation: `process.kill(-pgid, signal)` signals every
+ * process in the group in one syscall, regardless of whether any of them is
+ * stuck, in D-state, or has overwritten its own trap handlers — it asks
+ * nothing of the target. `kill(-pgid, 0)` is the standard "is anything still
+ * in this group" probe (ESRCH = empty). Not meaningful on win32 (no POSIX
+ * process groups); callers on that platform fall back to per-process kill.
+ */
+export const posixProcessGroupReaper: NativeTerminalProcessGroupReaper = {
+  killGroup(pgid, signal) {
+    try {
+      process.kill(-pgid, signal);
+    } catch (error) {
+      if (isErrnoException(error) && error.code === "ESRCH") return;
+      throw error;
+    }
+  },
+  isGroupAlive(pgid) {
+    try {
+      process.kill(-pgid, 0);
+      return true;
+    } catch (error) {
+      if (isErrnoException(error) && error.code === "ESRCH") return false;
+      // EPERM or anything else: we cannot prove death — stay conservative.
+      return true;
+    }
+  },
+  describeGroup(pgid) {
+    if (process.platform !== "linux") {
+      return "diagnostic unavailable on this platform";
+    }
+    try {
+      const members: string[] = [];
+      for (const name of readdirSync("/proc")) {
+        if (!/^\d+$/.test(name)) continue;
+        try {
+          const raw = readFileSync(`/proc/${name}/stat`, "utf8");
+          const commandEnd = raw.lastIndexOf(")");
+          const fields = raw.slice(commandEnd + 2).split(" ");
+          if (Number(fields[2]) === pgid) {
+            members.push(`${name}(state=${fields[0]})`);
+          }
+        } catch {
+          // The process exited mid-scan; skip it.
+        }
+      }
+      return members.length > 0
+        ? members.join(", ")
+        : "no /proc members found (race with exit?)";
+    } catch (error) {
+      return `diagnostic scan failed: ${String(error)}`;
+    }
+  },
+};
+
+function supportsProcessGroupSignals(): boolean {
+  return process.platform !== "win32";
+}
+
+/**
+ * Read a process's start-time — Linux `/proc/<pid>/stat` field 22
+ * ("starttime", clock ticks since boot) — the pid-recycling-proof
+ * discriminant used for owning-host attribution
+ * (`RegistryEntry.ownerHostPid`/`ownerHostStartTime`). An immutable property
+ * of a process for its entire lifetime: two DIFFERENT processes that ever
+ * held the same pid cannot both report the same start-time (barring a read
+ * error), which is what makes "pid matches AND start-time matches" a safe
+ * proof of "still the same process", not just "some process now owns this
+ * pid".
+ *
+ * Parsing anchors on the LAST occurrence of the two-character sequence ") "
+ * rather than a naive whitespace split: field 2 (`comm`, the executable
+ * name) is parenthesized and CAN itself contain spaces and parentheses
+ * (e.g. a process named "node (pty host)"), which would shift every
+ * subsequent field under a plain split — silently reading the wrong number
+ * "most of the time" and breaking on the one process with a weird name. That
+ * would be a confident wrong answer, worse than no discriminant.
+ *
+ * After locating the split point, man(5) proc's field 3 ("state") is
+ * `rest[0]`; field 22 ("starttime") is therefore `rest[19]`.
+ *
+ * A mandatory sanity check follows: `starttime` (in clock ticks, USER_HZ=100
+ * on Linux) divided by 100 must not exceed the system's current uptime — a
+ * process cannot have started in the future relative to boot. If that check
+ * fails, the parse is treated as shifted/malformed and this function returns
+ * undefined (never answers from a mis-parsed field) rather than guessing.
+ *
+ * Returns undefined — never throws — on any read/parse failure or on a
+ * non-Linux platform (no /proc); callers must treat "unavailable" the same
+ * conservative way `posixProcessGroupReaper.isGroupAlive` treats EPERM: as
+ * "cannot prove", never as "prove me dead".
+ */
+export function readProcessStartTime(pid: number): number | undefined {
+  if (process.platform !== "linux") return undefined;
+  try {
+    const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
+    const splitAt = raw.lastIndexOf(") ");
+    if (splitAt < 0) return undefined;
+    const rest = raw.slice(splitAt + 2).split(" ");
+    const starttime = Number(rest[19]);
+    if (!Number.isFinite(starttime) || starttime < 0) return undefined;
+    const uptimeRaw = readFileSync("/proc/uptime", "utf8");
+    const uptimeSeconds = Number(uptimeRaw.trim().split(/\s+/)[0]);
+    if (!Number.isFinite(uptimeSeconds) || starttime / 100 > uptimeSeconds) {
+      // Sanity check failed: refuse rather than answer from a shifted parse.
+      return undefined;
+    }
+    return starttime;
+  } catch {
+    return undefined;
+  }
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (isErrnoException(error) && error.code === "ESRCH") return false;
+    // EPERM or anything else: the process DOES exist (we simply may not
+    // signal it) — conservative: existing, never gone.
+    return true;
+  }
+}
+
+/** Liveness verdict for a native-terminal PTY session's OWNING HOST. */
+export type NativeTerminalOwnerHostStatus = "alive" | "dead" | "unresolvable";
+
+/**
+ * Injectable probe: given the (pid, start-time) recorded at PTY-creation
+ * time, decide whether that owning host is PROVEN dead. Tests inject fakes;
+ * `defaultOwnerHostProbe` below is the real /proc-backed implementation used
+ * in production.
+ */
+export type NativeTerminalOwnerHostProbe = (
+  owner: NativeTerminalPgidOwner,
+) => NativeTerminalOwnerHostStatus;
+
+/**
+ * The real owner-host liveness probe. Two necessary conditions before
+ * declaring a host PROVEN DEAD (mirrors reapOrphan's own "prove death, don't
+ * just signal" conservatism one level up — see `reconcileDeadHostOrphans`):
+ *
+ *  - the owner pid no longer exists at all -> DEAD (no ambiguity possible),
+ *  - OR the pid exists but its CURRENT start-time differs from the one
+ *    recorded at persistence time -> DEAD (the pid was recycled: a different
+ *    process now holds it).
+ *
+ * Every other outcome is conservative-ALIVE: a pid that exists with a
+ * matching start-time is alive (possibly just unreachable — NOT proof of
+ * death); a pid that exists but whose start-time cannot be read/parsed right
+ * now is unresolvable (never guess); a pid that exists with NO recorded
+ * start-time (legacy row, or a write-time read failure) cannot be checked
+ * for recycling at all, so it stays alive rather than manufacture a "dead"
+ * verdict from missing data.
+ *
+ * This asymmetry is deliberate: the DANGEROUS error (reaping a live host)
+ * would require a live process's immutable start-time to change — which
+ * cannot happen barring a read error, itself already routed to
+ * "unresolvable". The BENIGN error (a recycled pid that coincidentally
+ * shares a start-time, or a legacy row with no recorded start-time)
+ * concludes "alive" and merely leaves an orphan uncollected — the pre-fix
+ * status quo, not a regression.
+ */
+export const defaultOwnerHostProbe: NativeTerminalOwnerHostProbe = (owner) => {
+  if (!processExists(owner.pid)) return "dead";
+  if (owner.startTime === undefined) return "alive";
+  const currentStartTime = readProcessStartTime(owner.pid);
+  if (currentStartTime === undefined) return "unresolvable";
+  return currentStartTime === owner.startTime ? "alive" : "dead";
+};
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+const NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS = 30_000;
+const NATIVE_TERMINAL_FORCE_KILL_POLL_INTERVAL_MS = 50;
 
 export type NativeTerminalExit = Readonly<{
   exitCode: number;
@@ -73,6 +287,20 @@ export type NativeTerminalCreateOptions = Readonly<{
   rows: number;
 }>;
 
+/**
+ * Outcome of asking a host to reap a session BY ID from its persisted pgid —
+ * the case where the host asking has no in-memory record of the session at
+ * all (a fresh host after the owning host was killed). `"refused"` means the
+ * pgid could not be resolved: NOTHING was signalled (never guess a pgid —
+ * killing the wrong process group is irreversible), and a loud diagnostic was
+ * logged, because a silent refusal here recreates the invisible-orphan bug.
+ */
+export type NativeTerminalReapOutcome = Readonly<
+  | { sessionId: string; status: "refused"; reason: string }
+  | { sessionId: string; status: "reaped"; pgid: number; elapsedMs: number }
+  | { sessionId: string; status: "reap-timed-out"; pgid: number; elapsedMs: number }
+>;
+
 type SessionRecord = {
   readonly id: string;
   readonly incarnation: string;
@@ -93,12 +321,25 @@ export class NativeTerminalHost {
   readonly #maxSessions: number;
   readonly #spawner: PtySpawner;
   readonly #sessions = new Map<string, SessionRecord>();
+  readonly #registryPath: string | undefined;
+  readonly #reaper: NativeTerminalProcessGroupReaper;
+  readonly #log: (line: string) => void;
+  readonly #forceKillTimeoutMs: number;
+  readonly #forceKillPollIntervalMs: number;
 
   constructor(options: {
     generation: string;
     replayBytesPerSession: number;
     maxSessions?: number;
     spawner: PtySpawner;
+    /** Durable store for pgid persistence; defaults to the real registry path. */
+    registryPath?: string;
+    /** Injectable so tests never send real signals at fabricated pgids. */
+    reaper?: NativeTerminalProcessGroupReaper;
+    /** Diagnostic sink for the force-kill chain; defaults to prefixed stderr. */
+    log?: (line: string) => void;
+    forceKillTimeoutMs?: number;
+    forceKillPollIntervalMs?: number;
   }) {
     if (
       options.generation.trim().length === 0 ||
@@ -125,6 +366,18 @@ export class NativeTerminalHost {
     this.#replayBytesPerSession = options.replayBytesPerSession;
     this.#maxSessions = maxSessions;
     this.#spawner = options.spawner;
+    this.#registryPath = options.registryPath;
+    this.#reaper = options.reaper ?? posixProcessGroupReaper;
+    this.#log =
+      options.log ??
+      ((line) => {
+        process.stderr.write(`[h2a-pty-host] ${line}\n`);
+      });
+    this.#forceKillTimeoutMs =
+      options.forceKillTimeoutMs ?? NATIVE_TERMINAL_FORCE_KILL_TIMEOUT_MS;
+    this.#forceKillPollIntervalMs =
+      options.forceKillPollIntervalMs ??
+      NATIVE_TERMINAL_FORCE_KILL_POLL_INTERVAL_MS;
   }
 
   get generation(): string {
@@ -153,10 +406,37 @@ export class NativeTerminalHost {
       );
     }
 
+    const pty = this.#spawner(options);
+    try {
+      // Persist BEFORE this session is usable: "known at creation" must
+      // survive to "known at kill time" (a fresh host after this one is
+      // killed has no other way to learn this session's pgid). A session
+      // whose pgid did not durably persist would be unreapable after a host
+      // crash — refuse to create it rather than leave an untracked child.
+      // The OWNER attribution (this host's own pid + start-time) rides along
+      // on the same durable write: it is what lets a LATER reconcile pass
+      // prove THIS host is dead (not just unreachable) before ever reaping
+      // this row — see `reconcileDeadHostOrphans`.
+      const ownStartTime = readProcessStartTime(process.pid);
+      persistNativeTerminalPgid(options.id, pty.pgid, this.#registryPath, {
+        pid: process.pid,
+        ...(ownStartTime === undefined ? {} : { startTime: ownStartTime }),
+      });
+    } catch (error) {
+      try {
+        pty.kill("SIGKILL");
+      } catch {
+        // Best-effort cleanup of the untracked child we are about to refuse.
+      }
+      throw new Error(
+        `refusing to create terminal session ${options.id}: failed to durably persist its pgid (${String(error)})`,
+      );
+    }
+
     const record: SessionRecord = {
       id: options.id,
       incarnation: randomUUID(),
-      pty: this.#spawner(options),
+      pty,
       replay: new TerminalReplayBuffer(this.#replayBytesPerSession),
       status: "running",
       exit: null,
@@ -319,9 +599,19 @@ export class NativeTerminalHost {
     return this.list();
   }
 
-  forceStopAll(
+  /**
+   * Force-stop every non-exited session this host currently knows about — the
+   * FORCE path. Unlike `stop()`/`stopAll()` (which go through the pty's own
+   * kill(), i.e. the SIGUSR1->trap escalation on Linux — still fine for a
+   * graceful, cooperative stop), this emits the group SIGKILL itself, from
+   * the PARENT, and WAITS to PROVE the whole group is dead before returning —
+   * it does not return "done" on the strength of having merely signalled it.
+   * A poll timeout is reported as an error (an absence of information, not a
+   * claimed success), never silently swallowed.
+   */
+  async forceStopAll(
     signal: NativeTerminalStopSignal = "SIGKILL",
-  ): ReadonlyArray<NativeTerminalSessionState> {
+  ): Promise<ReadonlyArray<NativeTerminalSessionState>> {
     const errors: unknown[] = [];
     for (const record of this.#sessions.values()) {
       if (record.status === "exited") continue;
@@ -331,7 +621,18 @@ export class NativeTerminalHost {
       }
       record.stopSignal = signal;
       try {
-        record.pty.kill(signal);
+        const outcome = await this.#killGroupAndConfirmDead(
+          record.pty.pgid,
+          signal,
+          `session ${record.id}`,
+        );
+        if (!outcome.dead) {
+          errors.push(
+            new Error(
+              `terminal session ${record.id} pgid=${record.pty.pgid} did not confirm dead within ${this.#forceKillTimeoutMs}ms`,
+            ),
+          );
+        }
       } catch (error) {
         errors.push(error);
       }
@@ -340,6 +641,84 @@ export class NativeTerminalHost {
       throw new AggregateError(errors, "failed to force-stop one or more terminal sessions");
     }
     return this.list();
+  }
+
+  /**
+   * Reap a session BY ID from its durably persisted pgid, even though THIS
+   * host has no in-memory record of it — the case a fresh host faces after
+   * the host that created the session was killed. Never guesses a pgid: if
+   * it cannot be resolved (registry unreadable, or genuinely never recorded),
+   * this signals NOTHING and returns `"refused"` after logging a LOUD
+   * diagnostic — a silent no-op here would recreate the exact
+   * invisible-orphan bug this mechanism exists to close.
+   */
+  async reapOrphan(
+    sessionId: string,
+    signal: NativeTerminalStopSignal = "SIGKILL",
+  ): Promise<NativeTerminalReapOutcome> {
+    const lookup = readNativeTerminalPgid(sessionId, this.#registryPath);
+    if (lookup.status === "unresolved") {
+      this.#log(
+        `REFUSING to reap terminal session ${sessionId}: pgid could not be resolved (${lookup.reason}). PROCESSES MAY HAVE SURVIVED — no group kill was issued.`,
+      );
+      return { sessionId, status: "refused", reason: lookup.reason };
+    }
+    const outcome = await this.#killGroupAndConfirmDead(
+      lookup.pgid,
+      signal,
+      `orphan ${sessionId}`,
+    );
+    return outcome.dead
+      ? { sessionId, status: "reaped", pgid: lookup.pgid, elapsedMs: outcome.elapsedMs }
+      : { sessionId, status: "reap-timed-out", pgid: lookup.pgid, elapsedMs: outcome.elapsedMs };
+  }
+
+  /**
+   * Core of both `forceStopAll` and `reapOrphan`: emit the group signal from
+   * the parent, then poll `isGroupAlive` (never a fixed sleep-and-hope) until
+   * it reports the group empty or `#forceKillTimeoutMs` elapses. On timeout,
+   * capture a best-effort survivor list so the caller's diagnostic names
+   * exactly what is still alive instead of just "it didn't work".
+   */
+  async #killGroupAndConfirmDead(
+    pgid: number,
+    signal: NativeTerminalStopSignal,
+    label: string,
+  ): Promise<{ dead: boolean; elapsedMs: number }> {
+    if (!supportsProcessGroupSignals()) {
+      // No POSIX process groups on this platform; nothing more this host can
+      // prove. Documented gap, not a silent claim of success.
+      this.#log(
+        `skipping group-kill proof for pgid=${pgid} (${label}): process groups are not supported on ${process.platform}`,
+      );
+      return { dead: true, elapsedMs: 0 };
+    }
+    const start = Date.now();
+    try {
+      this.#reaper.killGroup(pgid, signal);
+      this.#log(`emitted group ${signal} pgid=${pgid} (${label})`);
+    } catch (error) {
+      this.#log(
+        `failed to emit group ${signal} pgid=${pgid} (${label}): ${String(error)}`,
+      );
+      throw error;
+    }
+    for (;;) {
+      if (!this.#reaper.isGroupAlive(pgid)) {
+        const elapsedMs = Date.now() - start;
+        this.#log(`confirmed pgid=${pgid} reaped at ${elapsedMs}ms (${label})`);
+        return { dead: true, elapsedMs };
+      }
+      const elapsedMs = Date.now() - start;
+      if (elapsedMs >= this.#forceKillTimeoutMs) {
+        const survivors = this.#reaper.describeGroup(pgid);
+        this.#log(
+          `pgid=${pgid} STILL ALIVE at ${elapsedMs}ms (${label}): ${survivors}`,
+        );
+        return { dead: false, elapsedMs };
+      }
+      await delay(this.#forceKillPollIntervalMs);
+    }
   }
 
   #requireSession(id: string): SessionRecord {
@@ -416,4 +795,168 @@ export class NativeTerminalHost {
       stopSignal: record.stopSignal,
     });
   }
+}
+
+/** Per-entry outcome of a `reconcileDeadHostOrphans` pass. */
+export type NativeTerminalReconcileOutcome = Readonly<
+  | { sessionId: string; status: "reaped"; ownerPid: number; pgid: number }
+  | { sessionId: string; status: "reap-timed-out"; ownerPid: number; pgid: number }
+  | { sessionId: string; status: "reap-refused"; ownerPid: number; pgid: number; reason: string }
+  | { sessionId: string; status: "skipped-alive"; ownerPid: number }
+  | { sessionId: string; status: "skipped-unresolvable"; ownerPid: number }
+  | { sessionId: string; status: "skipped-no-owner" }
+>;
+
+/** Summary of a `reconcileDeadHostOrphans` pass. */
+export type NativeTerminalReconcileSummary = Readonly<
+  | { status: "refused"; reason: string }
+  | { status: "completed"; outcomes: ReadonlyArray<NativeTerminalReconcileOutcome> }
+>;
+
+/**
+ * Reap orphan PTY groups left behind by a PROVEN-DEAD host — the ONE
+ * production trigger for `NativeTerminalHost#reapOrphan`. Called at
+ * supervisor takeover (see `NativeTerminalHostSupervisor`), the moment a
+ * fresh host is about to be spawned because the previous one could not be
+ * reached: exactly the moment a stale registry might exist, and exactly the
+ * moment this must NOT be mistaken for "the old host is dead".
+ *
+ * This mirrors `reapOrphan`'s own conservatism one level up: a lost
+ * connection to a host is the UNKNOWN, not proof of death. An
+ * unreachable-but-alive host (overloaded, a saturated socket, a paused
+ * process) is ALIVE and its sessions are live work — reaping there would be
+ * a mass-kill dressed up as cleanup. So this function enumerates EVERY
+ * durably-persisted native-terminal-pty row and, for EACH ONE
+ * INDEPENDENTLY, proves whether ITS OWNING HOST (not "the host we were just
+ * talking to") is dead before touching it:
+ *
+ *  - registry unresolvable (`listNativeTerminalPgidEntries` reports
+ *    `known:false`) -> reap NOTHING, loud refusal, `status:"refused"`.
+ *  - an entry with no owner attribution recorded (a legacy row written
+ *    before this fix, or a write-time start-time-read failure) -> cannot
+ *    prove death -> skip.
+ *  - `ownerProbe` reports the owner "alive" or "unresolvable" -> skip
+ *    (unresolvable is treated exactly like alive: never guess).
+ *  - `ownerProbe` reports "dead" (pid gone, or recycled — a live pid whose
+ *    start-time no longer matches) -> reap that entry's orphan process group
+ *    via `reap`, then prune the entry once the reap is CONFIRMED (`"reaped"`
+ *    only — a `"reap-timed-out"` leaves the row for a future pass instead of
+ *    losing the only durable record of an unconfirmed pgid).
+ *
+ * Best-effort per entry: one entry's failure does not stop the pass over the
+ * rest (each entry is an independent host/session; a single problem entry
+ * must never mask the others).
+ */
+export async function reconcileDeadHostOrphans(options: {
+  registryPath?: string;
+  signal?: NativeTerminalStopSignal;
+  /** Injectable so tests never touch a real /proc; defaults to the real probe. */
+  ownerProbe?: NativeTerminalOwnerHostProbe;
+  /** Injectable so tests never send real signals; defaults to a throwaway
+   * `NativeTerminalHost` (never spawns a pty) calling the real `reapOrphan`.
+   * The persisted pgid is passed through for observability/assertions even
+   * though the real reap re-resolves it itself from the SAME registry row —
+   * they always agree by construction. */
+  reap?: (
+    sessionId: string,
+    pgid: number,
+    signal: NativeTerminalStopSignal,
+  ) => Promise<NativeTerminalReapOutcome>;
+  log?: (line: string) => void;
+} = {}): Promise<NativeTerminalReconcileSummary> {
+  const signal = options.signal ?? "SIGKILL";
+  const ownerProbe = options.ownerProbe ?? defaultOwnerHostProbe;
+  const log =
+    options.log ??
+    ((line: string) => {
+      process.stderr.write(`[h2a-pty-reconcile] ${line}\n`);
+    });
+  const reap =
+    options.reap ??
+    (() => {
+      const reconcileHost = new NativeTerminalHost({
+        generation: `reconcile-${randomUUID()}`,
+        replayBytesPerSession: 1,
+        spawner: () => {
+          throw new Error("reconcile host must never spawn a pty");
+        },
+        ...(options.registryPath !== undefined ? { registryPath: options.registryPath } : {}),
+        log,
+      });
+      return (sessionId: string, _pgid: number, sig: NativeTerminalStopSignal) =>
+        reconcileHost.reapOrphan(sessionId, sig);
+    })();
+
+  const snapshot = listNativeTerminalPgidEntries(options.registryPath);
+  if (!snapshot.known) {
+    log(
+      `REFUSING to reconcile native-terminal orphans: registry unreadable (${snapshot.reason}). NOTHING was reaped.`,
+    );
+    return { status: "refused", reason: snapshot.reason };
+  }
+
+  const outcomes: NativeTerminalReconcileOutcome[] = [];
+  for (const entry of snapshot.entries) {
+    if (!entry.owner) {
+      log(
+        `skipping native-terminal session ${entry.sessionId}: no owning-host attribution recorded (legacy row) — cannot prove death, reaping nothing.`,
+      );
+      outcomes.push({ sessionId: entry.sessionId, status: "skipped-no-owner" });
+      continue;
+    }
+    const owner = entry.owner;
+    const verdict = ownerProbe(owner);
+    if (verdict === "alive") {
+      log(
+        `skipping native-terminal session ${entry.sessionId}: owning host pid=${owner.pid} is still alive — reaping nothing.`,
+      );
+      outcomes.push({ sessionId: entry.sessionId, status: "skipped-alive", ownerPid: owner.pid });
+      continue;
+    }
+    if (verdict === "unresolvable") {
+      log(
+        `skipping native-terminal session ${entry.sessionId}: owning host pid=${owner.pid} liveness is unresolvable — treating conservatively as alive, reaping nothing.`,
+      );
+      outcomes.push({
+        sessionId: entry.sessionId,
+        status: "skipped-unresolvable",
+        ownerPid: owner.pid,
+      });
+      continue;
+    }
+    // verdict === "dead": PROVEN — the owner pid is gone, or was recycled.
+    log(
+      `native-terminal session ${entry.sessionId}: owning host pid=${owner.pid} is PROVEN DEAD — reaping its orphan process group pgid=${entry.pgid}.`,
+    );
+    const outcome = await reap(entry.sessionId, entry.pgid, signal);
+    if (outcome.status === "reaped") {
+      pruneNativeTerminalPgidEntry(entry.sessionId, options.registryPath);
+      outcomes.push({
+        sessionId: entry.sessionId,
+        status: "reaped",
+        ownerPid: owner.pid,
+        pgid: entry.pgid,
+      });
+    } else if (outcome.status === "reap-timed-out") {
+      log(
+        `native-terminal session ${entry.sessionId}: reap did not confirm dead within the timeout — leaving the record for a future pass.`,
+      );
+      outcomes.push({
+        sessionId: entry.sessionId,
+        status: "reap-timed-out",
+        ownerPid: owner.pid,
+        pgid: entry.pgid,
+      });
+    } else {
+      log(`native-terminal session ${entry.sessionId}: reap refused (${outcome.reason}).`);
+      outcomes.push({
+        sessionId: entry.sessionId,
+        status: "reap-refused",
+        ownerPid: owner.pid,
+        pgid: entry.pgid,
+        reason: outcome.reason,
+      });
+    }
+  }
+  return { status: "completed", outcomes };
 }
