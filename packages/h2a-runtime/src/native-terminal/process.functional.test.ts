@@ -213,12 +213,14 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
     let spawnCount = 0;
     const generations = ["parent-death-hard", "parent-death-reap"];
+    const reconcileLogs: string[] = [];
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
       registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
       startupTimeoutMs: 500,
       spawnTerminationGraceMs: 100,
+      log: (line) => reconcileLogs.push(line),
       generationFactory: () => generations[spawnCount] ?? `unexpected-${spawnCount}`,
       spawnHost: (options) => {
         spawnCount += 1;
@@ -273,6 +275,19 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       (states) => states.every((alive) => !alive),
     );
     expect(supervisor.spawnedPid).toBeUndefined();
+
+    // INV-4 no-block assertion: the NEW group-leader-identity guard sits
+    // directly in front of the reap this test's "hard-crash-tree" entry
+    // goes through (see the takeover's reconcileDeadHostOrphans pass,
+    // triggered above by `const replacement = await supervisor.client()`).
+    // Prove the fix did not reinstate the leak it exists to prevent: the
+    // guard must never have REFUSED a kill (neither "recycled" nor
+    // "leader-absent") anywhere in this whole hard-death-then-takeover
+    // flow — the real death confirmed above must not be surviving DESPITE
+    // the guard, it must not have been blocked BY it either.
+    expect(
+      reconcileLogs.some((line) => /REFUSING to kill process group/.test(line)),
+    ).toBe(false);
   });
 
   it("should let a FRESH host — one that never knew the session — reap it from its durably persisted pgid after brutal host death", async () => {
@@ -347,6 +362,105 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
 
     const states = await Promise.all(orphanPids.map(processObservation));
     expect(states.every((state) => state.missing === true)).toBe(true);
+  });
+
+  it("should let reapOrphan collect a real orphan whose leader is gone but a live descendant survives it (group-token path)", async () => {
+    // THE invariant this whole token-anchor design exists for (arch-stamped:
+    // "the point"). The ORDINARY leak is not exotic: a shell that exits
+    // NORMALLY leaving a backgrounded descendant (`cmd &` then the shell
+    // ends) — leader gone, group alive, NO containment (pdeathsig) ever
+    // triggered, because pdeathsig only fires when the HOST dies, not when
+    // the leader itself is killed directly. reapOrphan is the net for
+    // exactly this orphan; the leader-start-time-only guard refused it
+    // (cause=leader-absent) and defeated the whole mechanism. This test
+    // constructs that exact shape and requires the group-carried session
+    // token to close it: PROCEED and KILL, not refuse.
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-leader-dead-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const registryPath = join(directory, "registry.json");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      replayBytesPerSession: 1024,
+      registryPath,
+      generationFactory: () => "leader-dead-owning-host",
+      spawnHost: (options) => {
+        const child = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined
+            ? ["--registry-path", options.registryPath]
+            : []),
+        ], {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        children.add(child);
+        return child;
+      },
+    });
+
+    const client = await supervisor.client();
+    const orphanPids = await createStubbornWorkload(
+      client,
+      "leader-dead-orphan",
+      directory,
+    );
+    const [leaderPid, childPid, grandchildPid] = orphanPids;
+
+    // Kill ONLY the group leader (pid === pgid, the pty guardian) DIRECTLY
+    // — never `-leaderPid` (that would be the group kill this test exists
+    // to prove works WITHOUT), and never the owning host (that would
+    // trigger the pdeathsig containment this test must NOT rely on: it
+    // fires on ANY host death and would collect this orphan by an entirely
+    // different mechanism, hiding whether the token path itself works).
+    process.kill(leaderPid, "SIGKILL");
+    await eventually(
+      () => processObservation(leaderPid),
+      (state) => state.missing === true,
+    );
+    // The descendants must be CONFIRMED alive right now — proving this
+    // really is a live orphan, not something already collected.
+    const survivorsBefore = await Promise.all(
+      [childPid, grandchildPid].map(processObservation),
+    );
+    expect(survivorsBefore.every((state) => state.missing !== true)).toBe(true);
+
+    // A FRESH host — never spawned, never talked to the (still-alive)
+    // owning host — reaps purely from the durably persisted registry row.
+    // The owning host's own liveness is irrelevant to reapOrphan's
+    // contract; this isolates the invariant under test.
+    const freshHost = new NativeTerminalHost({
+      generation: "leader-dead-fresh-host",
+      replayBytesPerSession: 1024,
+      spawner: () => {
+        throw new Error("the fresh host in this test must never spawn a pty");
+      },
+      registryPath,
+    });
+
+    const outcome = await freshHost.reapOrphan("leader-dead-orphan", "SIGKILL");
+    expect(outcome).toMatchObject({
+      sessionId: "leader-dead-orphan",
+      status: "reaped",
+      verified: true,
+    });
+    // For the RIGHT reason: the leader was confirmed gone above, so this
+    // can only have proceeded via the group-carried session token, never
+    // the leader-start-time fast path.
+    expect(freshHost.pgidGuardCounters).toMatchObject({ tokenVerified: 1 });
+
+    const finalStates = await Promise.all(orphanPids.map(processObservation));
+    expect(finalStates.every((state) => state.missing === true)).toBe(true);
   });
 
   it("should stop its PTYs and remove its socket on graceful host shutdown", async () => {
