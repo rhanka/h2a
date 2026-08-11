@@ -75,6 +75,19 @@ function childExited(child: ChildProcess): boolean {
   return child.exitCode !== null || child.signalCode !== null;
 }
 
+function childGone(child: ChildProcess): boolean {
+  if (childExited(child)) return true;
+  if (child.pid === undefined) return false;
+  try {
+    process.kill(child.pid, 0);
+    return false;
+  } catch (error) {
+    // Only ESRCH proves absence. EPERM means that a process exists but is not
+    // signalable by this caller, so its ownership must remain intact.
+    return (error as NodeJS.ErrnoException).code === "ESRCH";
+  }
+}
+
 async function waitForChildExit(
   child: ChildProcess,
   timeoutMs: number,
@@ -229,6 +242,7 @@ export class NativeTerminalHostSupervisor {
   }
 
   get spawnedPid(): number | undefined {
+    this.#clearGoneSpawn();
     return this.#spawned?.pid;
   }
 
@@ -262,6 +276,7 @@ export class NativeTerminalHostSupervisor {
       );
       return await this.#adoptHealthyConnection(connected);
     } catch {
+      this.#clearGoneSpawn();
       if (!this.#spawned || this.#spawned.exitCode !== null || this.#spawned.signalCode !== null) {
         const now = this.#now();
         if (now < this.#nextSpawnAllowedAt) {
@@ -394,11 +409,22 @@ export class NativeTerminalHostSupervisor {
         if (
           !await waitForChildExit(spawned, this.#spawnTerminationGraceMs)
         ) {
-          throw new Error("owned native terminal host did not exit after SIGKILL");
+          // Node can observe the OS process as gone before it delivers the
+          // ChildProcess "exit" event. After escalation, ESRCH is therefore
+          // sufficient proof that there is no owned host left to reap.
+          if (!childGone(spawned)) {
+            throw new Error("owned native terminal host did not exit after SIGKILL");
+          }
         }
       }
     }
     if (this.#spawned === spawned) this.#spawned = undefined;
+  }
+
+  #clearGoneSpawn(): void {
+    if (this.#spawned && childGone(this.#spawned)) {
+      this.#spawned = undefined;
+    }
   }
 
   /**
