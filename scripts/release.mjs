@@ -59,10 +59,15 @@ const CORE_PACKAGE_NAME = "@sentropic/h2a";
  * Workspace package names whose inter-package dependency carets are kept in
  * lockstep with the release version. When any workspace manifest depends on one
  * of these, its `"^X.Y.Z"` range is rewritten to the new version so a published
- * `@sentropic/h2a@X.Y.Z` pulls `@sentropic/track@^X.Y.Z` (and `@sentropic/h2a-cli`
- * pulls `@sentropic/h2a@^X.Y.Z`), never a stale minor.
+ * `@sentropic/h2a@X.Y.Z` pulls `@sentropic/track@^X.Y.Z`, requires
+ * `@sentropic/h2a-runtime@^X.Y.Z`, and `@sentropic/h2a-cli` pulls
+ * `@sentropic/h2a@^X.Y.Z`, never a stale minor.
  */
-const LOCKSTEP_DEP_NAMES = [CORE_PACKAGE_NAME, "@sentropic/track"];
+const LOCKSTEP_DEP_NAMES = [
+  CORE_PACKAGE_NAME,
+  "@sentropic/track",
+  "@sentropic/h2a-runtime"
+];
 
 /**
  * Workspace lockfile keys (under `.packages`) whose `version` mirrors a
@@ -110,8 +115,9 @@ export function parseVersion(value) {
  *
  * Side-effects on the parsed object:
  * - Sets `.version` to `newVersion`.
- * - For every lockstep sibling in `.dependencies` (see `LOCKSTEP_DEP_NAMES`,
- *   currently `@sentropic/h2a` and `@sentropic/track`), rewrites the range to
+ * - For every lockstep sibling in `.dependencies` or `.peerDependencies` (see
+ *   `LOCKSTEP_DEP_NAMES`, currently `@sentropic/h2a`, `@sentropic/track`, and
+ *   `@sentropic/h2a-runtime`), rewrites the range to
  *   `"^X.Y.Z"` of the same version so the workspace ships in lockstep.
  *
  * @param {string} jsonContent - Raw JSON content of a `package.json` file.
@@ -123,10 +129,12 @@ export function bumpPackageJsonContent(jsonContent, newVersion) {
   const trailingNewline = jsonContent.endsWith("\n");
   const parsed = JSON.parse(jsonContent);
   parsed.version = newVersion;
-  if (parsed.dependencies && typeof parsed.dependencies === "object") {
+  for (const field of ["dependencies", "peerDependencies"]) {
+    const declared = parsed[field];
+    if (!declared || typeof declared !== "object") continue;
     for (const dep of LOCKSTEP_DEP_NAMES) {
-      if (Object.prototype.hasOwnProperty.call(parsed.dependencies, dep)) {
-        parsed.dependencies[dep] = `^${newVersion}`;
+      if (Object.prototype.hasOwnProperty.call(declared, dep)) {
+        declared[dep] = `^${newVersion}`;
       }
     }
   }
@@ -161,16 +169,20 @@ export function bumpPackageLockContent(jsonContent, newVersion) {
       }
     }
     // Rewrite lockstep dependency carets wherever a workspace manifest declares
-    // one (e.g. packages/h2a → @sentropic/track, packages/h2a-cli →
-    // @sentropic/h2a). The private root ("") has no such deps; skip it.
+    // one (e.g. packages/h2a → @sentropic/track and runtime peer,
+    // packages/h2a-cli → @sentropic/h2a). The private root ("") has no
+    // such deps; skip it.
     for (const key of LOCKSTEP_LOCK_KEYS) {
       if (key === "") continue;
       const pkg = packages[key];
       if (!pkg || typeof pkg !== "object") continue;
-      if (!pkg.dependencies || typeof pkg.dependencies !== "object") continue;
-      for (const dep of LOCKSTEP_DEP_NAMES) {
-        if (Object.prototype.hasOwnProperty.call(pkg.dependencies, dep)) {
-          pkg.dependencies[dep] = `^${newVersion}`;
+      for (const field of ["dependencies", "peerDependencies"]) {
+        const declared = pkg[field];
+        if (!declared || typeof declared !== "object") continue;
+        for (const dep of LOCKSTEP_DEP_NAMES) {
+          if (Object.prototype.hasOwnProperty.call(declared, dep)) {
+            declared[dep] = `^${newVersion}`;
+          }
         }
       }
     }

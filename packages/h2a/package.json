@@ -56,11 +56,6 @@
     "hono": "^4.12.32"
   },
   "peerDependencies": {
-    "@sentropic/h2a-runtime": "*"
-  },
-  "peerDependenciesMeta": {
-    "@sentropic/h2a-runtime": {
-      "optional": true
-    }
+    "@sentropic/h2a-runtime": "^0.93.1"
   }
 }
