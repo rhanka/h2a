@@ -4,15 +4,17 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 
-const LINUX_PARENT_DEATH_SIGNAL = "SIGQUIT";
+const LINUX_PARENT_DEATH_SIGNAL = "SIGUSR2";
 const LINUX_FORCE_KILL_SIGNAL = "SIGUSR1";
 const LINUX_PTY_GUARDIAN_SCRIPT = [
   "h2a_expected_parent=$1",
   "shift",
   '[ "$PPID" -eq "$h2a_expected_parent" ] || { builtin kill -KILL -- "-$$"; exit 127; }',
   'h2a_forward() { local h2a_signal=$1; trap "" "$h2a_signal"; builtin kill "-$h2a_signal" -- "-$$" 2>/dev/null || :; trap "h2a_forward $h2a_signal" "$h2a_signal"; }',
-  'h2a_force() { trap - QUIT USR1 USR2; builtin kill -KILL -- "-$$"; }',
-  "trap h2a_force QUIT",
+  // Host death closes the PTY master. HUP must contain the whole group,
+  // rather than killing only the guardian and orphaning a HUP-resistant CLI.
+  'h2a_force() { trap - HUP USR1 USR2; builtin kill -KILL -- "-$$"; }',
+  "trap h2a_force HUP",
   "trap 'h2a_forward INT' INT",
   "trap 'h2a_forward TERM' TERM",
   "trap h2a_force USR1 USR2",
