@@ -194,7 +194,7 @@ export class LlmMeshManager {
 
   public async StartGateway(
     config: LlmMeshConfig,
-    opts: { readonly verbose?: boolean } = {},
+    opts: StartGatewayOptions = {},
   ): Promise<StartResult> {
     return startGateway(config, opts);
   }
@@ -306,6 +306,18 @@ export interface StartResult {
   gatewayToken: string;
 }
 
+export interface StartGatewayOptions {
+  readonly verbose?: boolean | undefined;
+  readonly clientSessionId?: string | undefined;
+  /**
+   * Private runtime state root for the PID, session metadata, and gateway log.
+   * The public routing configuration and the Sentropic-owned credential facade
+   * remain at their normal locations, so an isolated probe can use enrolled
+   * accounts without taking over the user's live gateway state.
+   */
+  readonly stateDir?: string | undefined;
+}
+
 /**
  * A gateway session is an account-affinity boundary, so a local CLI session
  * must never inherit a process-wide static identifier. Callers provide the
@@ -323,13 +335,12 @@ export function gatewayClientSessionId(clientSessionId?: string): string {
  */
 export async function startGateway(
   config: LlmMeshConfig,
-  opts: {
-    readonly verbose?: boolean | undefined;
-    readonly clientSessionId?: string | undefined;
-  } = {},
+  opts: StartGatewayOptions = {},
 ): Promise<StartResult> {
   const port = config.port ?? 3002;
-  const logFile = llmMeshLogPath(config);
+  const stateDir = opts.stateDir;
+  // An explicitly isolated state root must not inherit a live gateway's log.
+  const logFile = stateDir ? llmMeshLogPath(undefined, stateDir) : llmMeshLogPath(config);
   const gatewayScript = gatewayScriptPath();
 
   if (!existsSync(gatewayScript)) {
@@ -339,7 +350,7 @@ export async function startGateway(
     );
   }
 
-  mkdirSync(sentropicDir(), { recursive: true });
+  mkdirSync(stateDir ?? sentropicDir(), { recursive: true });
 
   const gatewayEnv: NodeJS.ProcessEnv = {
     ...process.env,
@@ -362,7 +373,7 @@ export async function startGateway(
   const pid = child.pid!;
 
   // Write PID file
-  writeFileSync(llmMeshPidPath(), String(pid) + "\n");
+  writeFileSync(llmMeshPidPath(stateDir), String(pid) + "\n");
 
   // Wait for the gateway to be ready
   const baseUrl = `http://localhost:${port}`;
@@ -387,7 +398,7 @@ export async function startGateway(
 
   // Persist only process metadata. The opaque bearer remains process-local and
   // is reacquired for each caller affinity.
-  writeSecret(llmMeshTokenPath(), {
+  writeSecret(llmMeshTokenPath(stateDir), {
     baseUrl,
     pid,
   });

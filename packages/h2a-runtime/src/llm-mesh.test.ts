@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,8 +10,17 @@ import {
   acquireLlmMeshSessionEnv,
   enrollViaFacade,
   gatewayScriptPath,
+  llmMeshLogPath,
+  llmMeshPidPath,
   llmMeshTokenPath,
+  startGateway,
 } from "./llm-mesh.js";
+
+vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, existsSync: vi.fn(actual.existsSync) };
+});
 
 const SCRATCH = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -155,6 +165,40 @@ describe("gateway session acquisition", () => {
       expect.stringMatching(/^local-[a-f0-9]{32}$/),
     ]);
     expect(new Set(sessionIds).size).toBe(2);
+  });
+});
+
+describe("isolated gateway state", () => {
+  it("keeps an isolated gateway's PID, metadata, and log out of the live state root", async () => {
+    const stateDir = join(SCRATCH, "isolated-state");
+    const liveLog = join(SCRATCH, "would-be-live.log");
+    const unref = vi.fn();
+    const realExistsSync = vi.mocked(existsSync).getMockImplementation()!;
+    vi.mocked(existsSync).mockImplementation((path) =>
+      path === gatewayScriptPath() || realExistsSync(path),
+    );
+    vi.mocked(spawn).mockReturnValue({ pid: 43210, unref } as never);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.endsWith("/health")) return new Response(null, { status: 200 });
+      return new Response(JSON.stringify({ gatewayToken: "gw-isolated" }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      });
+    }));
+
+    await expect(startGateway({ port: 32109, logFile: liveLog }, {
+      stateDir,
+      clientSessionId: "claude-uat",
+    })).resolves.toEqual({ pid: 43210, port: 32109, gatewayToken: "gw-isolated" });
+
+    expect(readFileSync(llmMeshPidPath(stateDir), "utf8")).toBe("43210\n");
+    expect(JSON.parse(readFileSync(llmMeshTokenPath(stateDir), "utf8"))).toEqual({
+      baseUrl: "http://localhost:32109",
+      pid: 43210,
+    });
+    expect(existsSync(llmMeshLogPath(undefined, stateDir))).toBe(true);
+    expect(existsSync(liveLog)).toBe(false);
+    expect(unref).toHaveBeenCalledOnce();
   });
 });
 
