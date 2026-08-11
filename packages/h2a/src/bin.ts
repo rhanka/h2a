@@ -71,12 +71,13 @@ function runAsync(label: string, promise: Promise<number>): void {
 
 // Parité ② (double-consensus 2026-07-03) : `h2a` = LE driver global. Tout
 // premier-mot NON h2a-natif (cf. bin-routing.ts) est un verbe du runtime lourd
-// et part en LAZY vers @sentropic/h2a-runtime. @sentropic/h2a ne dépend JAMAIS du
-// runtime (règle d'or) : import dynamique à spécifieur-string, seule frontière.
+// et part en LAZY vers @sentropic/h2a-runtime. Le runtime est un peer requis,
+// installé lockstep par npm, mais reste une frontière d'import dynamique afin
+// que le coeur ne charge pas node-pty/AWS pour les verbes purs.
 
 async function dispatchRuntime(): Promise<number> {
   // Spécifieur via variable typée `string` : tsc ne résout PAS statiquement ce
-  // package optionnel (sinon TS2307 car h2a n'en dépend pas — règle d'or).
+  // peer requis (l'import dynamique évite son chargement pour les verbes purs).
   const H2A_RUNTIME_PKG: string = "@sentropic/h2a-runtime";
   let rt: unknown;
   try {
@@ -85,7 +86,7 @@ async function dispatchRuntime(): Promise<number> {
     if ((err as NodeJS.ErrnoException)?.code === "ERR_MODULE_NOT_FOUND") {
       process.stderr.write(
         `h2a ${argv[0]}: ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n` +
-          "  Installe-le : npm i -g @sentropic/h2a-runtime\n"
+          "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n"
       );
       return 127;
     }
@@ -97,7 +98,7 @@ async function dispatchRuntime(): Promise<number> {
   } catch (err) {
     process.stderr.write(
       `h2a ${argv[0]}: runtime incompatible — ${(err as Error).message}.\n` +
-        "  Mets à jour ensemble : npm i -g @sentropic/h2a@latest @sentropic/h2a-runtime@latest\n"
+        "  Mets à jour l'installation lockstep : h2a upgrade\n"
     );
     return 64;
   }
