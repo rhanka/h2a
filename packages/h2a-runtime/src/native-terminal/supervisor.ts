@@ -409,7 +409,12 @@ export class NativeTerminalHostSupervisor {
         if (
           !await waitForChildExit(spawned, this.#spawnTerminationGraceMs)
         ) {
-          throw new Error("owned native terminal host did not exit after SIGKILL");
+          // Node can observe the OS process as gone before it delivers the
+          // ChildProcess "exit" event. After escalation, ESRCH is therefore
+          // sufficient proof that there is no owned host left to reap.
+          if (!childGone(spawned)) {
+            throw new Error("owned native terminal host did not exit after SIGKILL");
+          }
         }
       }
     }
