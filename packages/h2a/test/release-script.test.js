@@ -89,6 +89,20 @@ test("bumpPackageJsonContent rewrites the @sentropic/track dep to ^X.Y.Z (lockst
   assert.equal(parsed.dependencies.hono, "^4.12.23");
 });
 
+test("bumpPackageJsonContent keeps the required runtime peer in lockstep", () => {
+  const input = JSON.stringify(
+    {
+      name: "@sentropic/h2a",
+      version: "0.93.1",
+      peerDependencies: { "@sentropic/h2a-runtime": "^0.93.1" }
+    },
+    null,
+    2
+  );
+  const parsed = JSON.parse(bumpPackageJsonContent(input, "0.94.0"));
+  assert.equal(parsed.peerDependencies["@sentropic/h2a-runtime"], "^0.94.0");
+});
+
 test("bumpPackageJsonContent leaves the @sentropic/h2a dep alone when absent", () => {
   const input = JSON.stringify(
     { name: "@sentropic/h2a", version: "0.1.0", dependencies: { typescript: "^5" } },
