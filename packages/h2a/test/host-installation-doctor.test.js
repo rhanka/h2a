@@ -1139,7 +1139,7 @@ test(
         writeFileSync(codexPath, `${cleanConfig.trimEnd()}\n\n${fixture.toml}`);
         const rejected = runRealCodexMcpList(codexHome);
         assert.notEqual(rejected.status, 0, `${fixture.label}: ${rejected.stderr}\n${rejected.stdout}`);
-        assert.match(`${rejected.stderr}\n${rejected.stdout}`, /failed to load configuration/i);
+        assert.match(`${rejected.stderr}\n${rejected.stdout}`, /failed to load (?:bootstrap )?configuration/i);
 
         const invalidDoctor = inspectCodexWithItsRealConfigurationOracle(home, codexHome).result;
         assert.equal(invalidDoctor.status, 0, `${fixture.label}: ${invalidDoctor.stderr}\n${invalidDoctor.stdout}`);
