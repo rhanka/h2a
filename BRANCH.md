@@ -1,14 +1,22 @@
-# BR-73 consumer integration: user-configurable llm-mesh routing
+# BR-74 consumer cutover: canonical compaction metering
 
 ## Objective
 
-Let one h2a user enroll both Cloud Code and Codex through Sentropic, select a preferred transport order or round-robin policy with one CLI command, and run real Claude Code sessions through the shared Sentropic planner/gateway without provider-specific routing code in h2a.
+Ship an h2a installation which actually loads the published Sentropic
+`@sentropic/llm-gateway@0.13.1` and `@sentropic/llm-mesh@0.15.0` pair. A
+single h2a upgrade must not retain an older optional runtime, because that
+silently bypasses the canonical gateway’s first-frame compaction metering.
+
+Prove the installed candidate with real Claude Code through a gateway forced
+once to Codex and once to Cloud Code. H2A owns only local bearer, lifecycle,
+affinity and redacted observability; provider routing and Anthropic SSE framing
+remain wholly in Sentropic.
 
 ## Ownership boundary
 
 - `@sentropic/llm-mesh`: enrollment, encrypted keyring, account inventory/health, refresh, model catalogue/council, route policy semantics, planner, affinity and egress adapters.
 - `@sentropic/llm-gateway`: Anthropic/OpenAI ingress, caller authorization, route execution, pre-byte fallback, SSE/tools/thinking conversion and metering.
-- h2a: public CLI/config, gateway process lifecycle, opaque local bearer mint/forwarding, stable affinity and redacted status projection.
+- h2a: public CLI/config, gateway process lifecycle, opaque local bearer mint/forwarding, stable affinity, redacted status projection, and lockstep CLI/runtime installation.
 - PR #199 is forbidden and remains untouched.
 - `.track/**` is forbidden in this worktree because the repository Track log has a separate active writer.
 
@@ -22,6 +30,9 @@ Let one h2a user enroll both Cloud Code and Codex through Sentropic, select a pr
 - `packages/h2a/test/runtime-status-contract.test.js`
 - `packages/h2a/skills/h2a-run/SKILL.md`
 - `scripts/dev-test-local.sh`
+- `scripts/release.mjs`
+- `packages/h2a/src/bin.ts`
+- `packages/h2a/test/release-script.test.js`
 - dependency manifests and lockfile only for exact released Sentropic versions
 
 ## Forbidden scope
@@ -34,31 +45,27 @@ Let one h2a user enroll both Cloud Code and Codex through Sentropic, select a pr
 
 ## Lots
 
-- [x] Negotiate ownership, policy semantics, accepted mappings and release order with Sentropic.
-- [x] Integrate exact local Sentropic candidate tarballs and verify their API by typecheck.
-- [x] Replace h2a-local routing/proxy/account implementations with thin Sentropic consumers.
-- [x] Add `llm-mesh route show|prefer|strategy|policy|reset` and public-config validation.
-- [x] Remove local credential and executable account-id persistence.
-- [x] Add focused config, host, bearer and migration tests.
-- [x] Reconcile the scoped integration tests/scripts and pass the branch-focused h2a gates.
-- [x] Run exact-candidate local probes and real Claude UAT for Cloud-first and Codex-first, multiple sessions, tools, image and compact continuation.
-- [ ] Obtain one final third-party exact-head review for each PR and reconcile findings.
-- [ ] Merge/publish Sentropic through CI, update h2a lockfile from npm, rebase h2a once, merge and publish h2a through CI.
-- [ ] Upgrade and smoke-test the installed global CLI.
+- [x] Confirm with Sentropic that BR-74 is the canonical `message_start.usage.input_tokens` fix in llm-gateway 0.13.1.
+- [x] Resolve the source lockfile to exactly llm-gateway 0.13.1 and llm-mesh 0.15.0 in an isolated worktree.
+- [x] Make the lockstep runtime a required peer, and keep its peer range aligned by the release script.
+- [x] Remove obsolete independent-runtime upgrade guidance and cover the install contract.
+- [x] Verify no provider-specific proxy/SSE/metering code exists in H2A’s local gateway host.
+- [x] Run the focused gateway and release/upgrade tests on the resolved dependency pair.
+- [x] Run real Claude Code UAT through a candidate H2A gateway forced to Codex, then forced to Cloud Code; capture first SSE usage, resolved route and continuation after two compactions.
+- [ ] Obtain one exact-head third-party review, rebase once, merge and publish only via the main tag CI.
+- [ ] Upgrade the global installation and repeat a smoke check against the published runtime pair.
 
 ## Candidate provenance
 
-- Sentropic PR: `rhanka/sentropic#529`
-- Frozen implementation head: `f600f60f0be113fad4154832e24f6718e694862d`
-- Package-bearing commit: `f600f60f0be113fad4154832e24f6718e694862d`
-- `@sentropic/llm-mesh@0.14.0` tarball SHA-256: `4f4cd900385d40fae370fedb6962bcad9908429821aa5cfc2159fbddbe1c2147`
-- `@sentropic/llm-gateway@0.12.0` tarball SHA-256: `b9c51ef55e6600dfe9b543abb54a8284a90f702547c42d886aad70709f51ca18`
+- Sentropic PR: `rhanka/sentropic#532`, merged `c7a68110b555016b496e34215cef3ca0ed4f2f01`
+- `@sentropic/llm-gateway@0.13.1` tarball SHA-256: `a1a3ecf48edf8e6faf602dd53bbc0330ecdad49dc7d4577f6ae45f110af3166a`
+- `@sentropic/llm-mesh@0.15.0` tarball SHA-256: `e6ad6d8fda99ef4e19177f8204e781e4ec69ca0d3cacd10a0b01a992d7697900`
 
 ## Verification gates
 
-- package and root typechecks/builds
-- focused unit/integration suites in both gateway hosts
-- no references to deleted account/model/proxy implementations
-- no token/account/model table in h2a persisted config or local bearer
-- real two-account Claude UAT with observable requested/actual redacted route evidence
+- package and root typechecks/builds with the resolved pair above
+- package release helper keeps the runtime peer range in lockstep
+- no H2A provider proxy, SSE encoder, token-estimation heuristic, account pool or model map
+- P0 real Claude Code: forced Codex; nonzero first `message_start.usage.input_tokens`; route attestation; tool plus two compactions continue
+- P2 real Claude Code: forced Cloud Code; same first-frame/route/continuation proof
 - one exact-head adversarial review; CI green; branch-lifecycle checks before merge
