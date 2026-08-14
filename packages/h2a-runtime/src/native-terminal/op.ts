@@ -32,7 +32,11 @@ import { fileURLToPath } from "node:url";
 
 import { NativeTerminalClient } from "./client.js";
 import { NativeTerminalRemoteError } from "./protocol.js";
-import type { NativeTerminalControllerLease } from "./host.js";
+import {
+  NativeTerminalHost,
+  type NativeTerminalControllerLease,
+  type NativeTerminalReapOutcome,
+} from "./host.js";
 import { NativeTerminalHostSupervisor } from "./supervisor.js";
 import { defaultNativeTerminalSocketPath } from "./socket-path.js";
 
@@ -138,6 +142,60 @@ async function readAll(client: NativeTerminalClient, id: string): Promise<string
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
+
+async function killPersistedSessionGroup(
+  id: string,
+  signal: "SIGHUP" | "SIGINT" | "SIGTERM" | "SIGKILL",
+  registryPath?: string,
+): Promise<NativeTerminalReapOutcome> {
+  // `h2a stop` is an administrative lifecycle act, not terminal input. The
+  // interactive `stop` protocol requires the caller to own the exclusive
+  // controller lease, so it necessarily fails while an attach client owns
+  // that lease. Reuse the already-hardened persisted-PGID reaper instead: it
+  // re-resolves and re-proves the exact process-group identity at act time,
+  // signals only that group, and waits for confirmed death. This path uses no
+  // new host protocol operation, so a host kept alive across a CLI upgrade is
+  // compatible.
+  const reaper = new NativeTerminalHost({
+    generation: `h2a-op-reaper-${process.pid}`,
+    replayBytesPerSession: 1,
+    spawner: () => {
+      throw new Error("the one-shot session reaper must never spawn a PTY");
+    },
+    ...(registryPath !== undefined ? { registryPath } : {}),
+    forceKillTimeoutMs: 4_000,
+  });
+  return reaper.reapOrphan(id, signal);
+}
+
+export function nativeSessionKillStrategy(
+  platform: NodeJS.Platform = process.platform,
+): "persisted-pgid" | "controller" {
+  // Persisted process-group identity is re-provable through /proc on Linux.
+  // Preserve the protocol-v1 controller path elsewhere: the POSIX reaper
+  // cannot establish the same identity proof there and must not guess.
+  return platform === "linux" ? "persisted-pgid" : "controller";
+}
+
+export function nativeSessionDeathConfirmed(
+  beforeIncarnation: string,
+  reaperOutcome: NativeTerminalReapOutcome | undefined,
+  projected: Readonly<{
+    incarnation: string;
+    status: "running" | "stopping" | "exited";
+  }>,
+): boolean {
+  // The host's onExit projection is asynchronous and has no timing SLA. Once
+  // the persisted-PGID reaper has confirmed the OS group empty, a lagging host
+  // snapshot of the SAME incarnation must never turn that positive death
+  // proof back into a failure. A newly-created incarnation with the same id is
+  // different live work and must never inherit the old process group's proof.
+  return (
+    projected.status === "exited" ||
+    (reaperOutcome?.status === "reaped" &&
+      projected.incarnation === beforeIncarnation)
+  );
+}
 
 async function runAttach(client: NativeTerminalClient, id: string): Promise<number> {
   const lease = await client.acquireController(id, `h2a-attach-${process.pid}`);
@@ -351,28 +409,72 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
         throw new Error(`unsupported signal: ${signal}`);
       }
       const before = await client.state(id);
+      let reaperOutcome: NativeTerminalReapOutcome | undefined;
       if (before.status !== "exited") {
-        await withController(client, id, async (lease) => {
-          await client.stop(lease, signal);
-        });
-        const deadline = Date.now() + 4_000;
-        for (;;) {
-          const state = await client.state(id);
-          if (state.status === "exited") break;
-          if (Date.now() >= deadline) {
-            await withController(client, id, async (lease) => {
-              await client.stop(lease, "SIGKILL");
-            }).catch(() => {});
-            await delay(300);
-            break;
+        if (nativeSessionKillStrategy() === "persisted-pgid") {
+          const registryPath = parsed.flags.get("registry-path");
+          reaperOutcome = await killPersistedSessionGroup(
+            id,
+            signal,
+            registryPath,
+          );
+          if (
+            reaperOutcome.status === "reap-timed-out" &&
+            signal !== "SIGKILL"
+          ) {
+            reaperOutcome = await killPersistedSessionGroup(
+              id,
+              "SIGKILL",
+              registryPath,
+            );
           }
-          await delay(100);
+          if (reaperOutcome.status !== "reaped") {
+            const detail =
+              reaperOutcome.status === "refused"
+                ? reaperOutcome.reason
+                : `process group did not confirm dead within ${reaperOutcome.elapsedMs}ms`;
+            throw new Error(
+              `native session ${id} could not be killed: ${detail}`,
+            );
+          }
+        } else {
+          await withController(client, id, async (lease) => {
+            await client.stop(lease, signal);
+          });
+          const deadline = Date.now() + 4_000;
+          for (;;) {
+            const state = await client.state(id);
+            if (state.status === "exited") break;
+            if (Date.now() >= deadline) {
+              await withController(client, id, async (lease) => {
+                await client.stop(lease, "SIGKILL");
+              }).catch(() => {});
+              await delay(300);
+              break;
+            }
+            await delay(100);
+          }
         }
       }
       const after = await client.state(id);
       client.close();
-      emit(after);
-      return after.status === "exited" ? 0 : 1;
+      const confirmed = nativeSessionDeathConfirmed(
+        before.incarnation,
+        reaperOutcome,
+        after,
+      );
+      emit(
+        reaperOutcome?.status === "reaped" &&
+          after.status !== "exited" &&
+          after.incarnation === before.incarnation
+          ? {
+              ...after,
+              status: "exited",
+              deathConfirmed: "persisted-pgid",
+            }
+          : after,
+      );
+      return confirmed ? 0 : 1;
     }
     case "attach": {
       const client = await connectExisting(socketPath);

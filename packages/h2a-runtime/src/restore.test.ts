@@ -464,6 +464,22 @@ describe("tabCommand", () => {
     ).toBe("h2a run 'claude' '/home/u/src/geo' --resume 'c4' --name 'geo' --no-gw");
   });
 
+  it("forceGateway OVERRIDES the per-instance pin (pinned direct, forced gateway)", () => {
+    expect(
+      tabCommand(
+        {
+          cwd: "/home/u/src/geo",
+          label: "geo",
+          tool: "claude",
+          sid: "c4",
+          gatewayMode: "direct",
+        },
+        new Set(),
+        { forceGateway: "gateway" },
+      ),
+    ).toBe("h2a run 'claude' '/home/u/src/geo' --resume 'c4' --name 'geo' --gw");
+  });
+
   it("forceGateway on a DEAD session emits the flag WITHOUT --replace (nothing to kill)", () => {
     expect(
       tabCommand(

@@ -228,6 +228,27 @@ describe("F1 — resume host precedence", () => {
 });
 
 describe("F2 — stop host attribution", () => {
+  it("RECORDED_NATIVE_STOP_WITH_RESTART_REASON_KILLS_THE_NATIVE_TREE", async () => {
+    const slug = `f2-native-${process.pid}`;
+    writeRegistry([nativeRow(slug)]);
+    nativeSessionLiveness.mockReturnValue(true);
+
+    const code = await main([
+      "node",
+      "h2a",
+      "stop",
+      slug,
+      "--reason",
+      "restart",
+    ]);
+
+    expect(code).toBe(0);
+    expect(killNativeSessionTree).toHaveBeenCalledOnce();
+    expect(killNativeSessionTree).toHaveBeenCalledWith(`h2a-${slug}`);
+    expect(killLocalSession).not.toHaveBeenCalled();
+    expect(stderrLines.join("")).toContain(`native session ${slug} killed`);
+  });
+
   it("RECORDED_TMUX_STOP_CANNOT_KILL_HOMONYMOUS_NATIVE_PROCESS", async () => {
     const slug = `f2-lane-${process.pid}`;
     writeRegistry([tmuxRow(slug)]);

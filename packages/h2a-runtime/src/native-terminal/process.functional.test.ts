@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { chmod, mkdtemp, readFile, readlink, rm, stat } from "node:fs/promises";
 import { createConnection } from "node:net";
@@ -182,16 +182,35 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       expect.objectContaining({ id: "beta", pid: beta.pid, status: "running" }),
     ]);
     const replacementLease = await reconnected.acquireController("alpha", "reconnected-client");
-    await reconnected.releaseController(replacementLease);
-
-    const stopLease = await reconnected.acquireController(
-      "alpha",
-      "alpha-stopper",
+    const opEntry = fileURLToPath(new URL("./op.ts", import.meta.url));
+    const stopped = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        opEntry,
+        "kill",
+        "--id",
+        "alpha",
+        "--registry-path",
+        join(directory, "registry.json"),
+      ],
+      {
+        cwd: dirname(opEntry),
+        encoding: "utf8",
+        env: { ...process.env, H2A_NATIVE_SOCKET: socketPath },
+      },
     );
-    expect(await reconnected.stop(stopLease, "SIGTERM")).toMatchObject({
-      status: "stopping",
+    expect(stopped.status, stopped.stderr).toBe(0);
+    expect(stopped.stderr).not.toContain("already has a controller");
+    expect(JSON.parse(stopped.stdout)).toMatchObject({
+      id: "alpha",
+      status: "exited",
     });
     await eventually(() => reconnected.state("alpha"), (state) => state.status === "exited");
+    await expect(reconnected.write(replacementLease, "stale-after-stop")).rejects.toThrow(
+      /stale terminal controller lease/i,
+    );
     expect((await reconnected.state("beta")).status).toBe("running");
     const betaLease = await reconnected.acquireController("beta", "beta-client");
     await reconnected.write(betaLease, "still-alive\r");
