@@ -140,6 +140,33 @@ test("claude required gateway is explicit in argv and must be proven by the resu
   }
 });
 
+test("loop launch accepts a native-terminal-host result with no tmux pane", () => {
+  const dir = workspace();
+  try {
+    const spec = validateLoopLaunchSpec(launchSpec(dir));
+    const base = runtimeResult(spec);
+    const { pane, ...nativeSession } = base.session;
+    void pane;
+    const accepted = executeLoopLaunchWithSpawn(spec, () => ({
+      status: 0,
+      stdout: JSON.stringify({ ...base, session: { ...nativeSession, host: "native" } }),
+      stderr: ""
+    }));
+    assert.equal(accepted.ok, true);
+
+    // An unrecognized host is rejected even with a well-formed tmux pane.
+    const rejected = executeLoopLaunchWithSpawn(spec, () => ({
+      status: 0,
+      stdout: JSON.stringify({ ...base, session: { ...base.session, host: "quantum" } }),
+      stderr: ""
+    }));
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.detail, /invalid h2a\.run\.result contract/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("runtime skew, duplicate names and timeouts fail closed", () => {
   const dir = workspace();
   try {
