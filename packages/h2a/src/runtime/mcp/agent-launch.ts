@@ -225,6 +225,21 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
         ? "direct"
         : undefined;
   const attach = result.attach as Record<string, unknown> | null | undefined;
+  // The native-terminal host (feat/native-terminal-host) keys a session by its
+  // name, not a tmux pane, so a native `h2a.run.result` legitimately omits
+  // `session.pane`. The tmux pane-id shape (`%N`) is therefore required only for
+  // the tmux host; a pre-native runtime emits no `host` field and is treated as
+  // tmux. An unrecognized host value is rejected rather than assumed.
+  const host = session?.host;
+  const isNative = host === "native";
+  const hostOk = host === undefined || host === "native" || host === "tmux";
+  const paneOk = isNative
+    ? session === undefined ||
+      session.pane === undefined ||
+      typeof session.pane === "string"
+    : Boolean(session) &&
+      typeof session!.pane === "string" &&
+      /^%\d+$/.test(session!.pane as string);
   if (
     result.kind !== "h2a.run.result" ||
     result.version !== 1 ||
@@ -235,10 +250,10 @@ function contractResult(value: unknown, request: H2aRunRequest): unknown {
     result.state !== "started" ||
     !session ||
     session.id !== request.name ||
+    !hostOk ||
     typeof session.tmuxSession !== "string" ||
     session.tmuxSession.length === 0 ||
-    typeof session.pane !== "string" ||
-    !/^%\d+$/.test(session.pane) ||
+    !paneOk ||
     session.profile !== request.profile ||
     session.workspace !== request.workspace ||
     session.mode !== expectedMode ||
