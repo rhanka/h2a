@@ -379,6 +379,51 @@ test("subprocess bridge sets shell:false and fails closed on API/runtime skew", 
   });
 });
 
+test("h2a_run accepts a native-terminal-host result that carries no tmux pane", () => {
+  withWorkspace(({ workspaceRoot, workspace }) => {
+    // A native session is keyed by name, not a tmux pane, so the runtime omits
+    // `session.pane` and stamps `host: "native"`. The launch DID start; the MCP
+    // contract must accept it instead of rejecting a valid started session.
+    const req = validateH2aRunRequest(
+      request(workspace, { headless: false, h2aSidecar: true }),
+      workspaceRoot
+    );
+    const base = runtimeResult(req);
+    const { pane, ...nativeSession } = base.session;
+    void pane;
+    const out = executeH2aRunWithSpawn(req, () => ({
+      status: 0,
+      stdout: JSON.stringify({
+        ...base,
+        session: { ...nativeSession, host: "native" }
+      }),
+      stderr: ""
+    }));
+    assert.equal(out.ok, true);
+    assert.equal(out.session.host, "native");
+    assert.equal(out.session.pane, undefined);
+  });
+
+  withWorkspace(({ workspaceRoot, workspace }) => {
+    // An unrecognized host value is rejected even with a well-formed tmux pane,
+    // so a future host cannot silently pass the started-session contract.
+    const req = validateH2aRunRequest(request(workspace), workspaceRoot);
+    const base = runtimeResult(req);
+    assert.throws(
+      () =>
+        executeH2aRunWithSpawn(req, () => ({
+          status: 0,
+          stdout: JSON.stringify({
+            ...base,
+            session: { ...base.session, host: "quantum" }
+          }),
+          stderr: ""
+        })),
+      /incompatible h2a runtime/i
+    );
+  });
+});
+
 test("duplicate-name runtime refusal is surfaced as an error, never success", () => {
   withWorkspace(({ workspaceRoot, workspace }) => {
     const req = validateH2aRunRequest(request(workspace), workspaceRoot);
