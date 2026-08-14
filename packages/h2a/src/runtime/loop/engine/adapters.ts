@@ -518,6 +518,21 @@ function validateLoopLaunchResult(value: unknown, spec: H2ALoopLaunchSpec): void
   const session = result.session as Record<string, unknown> | undefined;
   const attach = result.attach as Record<string, unknown> | undefined;
   const attachArgs = attach?.args;
+  // The native-terminal host keys a session by name, not a tmux pane, so a native
+  // `h2a.run.result` omits `session.pane` and stamps `session.host = "native"`.
+  // The `%N` pane shape is therefore required only for the tmux host (missing
+  // host = legacy tmux); an unrecognized host value is rejected. Mirrors the
+  // MCP h2a_run validator in runtime/mcp/agent-launch.ts.
+  const host = session?.host;
+  const isNative = host === "native";
+  const hostOk = host === undefined || host === "native" || host === "tmux";
+  const paneOk = isNative
+    ? session === undefined ||
+      session.pane === undefined ||
+      typeof session.pane === "string"
+    : Boolean(session) &&
+      typeof session!.pane === "string" &&
+      /^%\d+$/.test(session!.pane as string);
   const gatewayIsEffective = spec.profile === "codex" || spec.gateway === "off"
     ? session?.gateway === "direct"
     : spec.gateway === "required"
@@ -533,10 +548,10 @@ function validateLoopLaunchResult(value: unknown, spec: H2ALoopLaunchSpec): void
     result.state !== "started" ||
     !session ||
     session.id !== spec.name ||
+    !hostOk ||
     typeof session.tmuxSession !== "string" ||
     session.tmuxSession.length === 0 ||
-    typeof session.pane !== "string" ||
-    !/^%\d+$/.test(session.pane) ||
+    !paneOk ||
     session.profile !== spec.profile ||
     session.workspace !== spec.workspace ||
     session.mode !== "interactive" ||
