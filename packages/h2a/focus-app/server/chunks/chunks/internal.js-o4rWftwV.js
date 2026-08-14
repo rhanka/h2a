@@ -101,7 +101,7 @@ const options = {
     app: ({ head, body, assets, nonce, env }) => '<!doctype html>\n<html lang="fr">\n  <head>\n    <meta charset="utf-8" />\n    <link rel="icon" href="' + assets + '/favicon.svg" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n    <!-- No <title> here on purpose: pages set their own through `svelte:head`, and a hardcoded one\n         would ship a SECOND <title> element in the SSR response instead of being replaced. -->\n    ' + head + '\n  </head>\n  <body data-sveltekit-preload-data="hover">\n    <div style="display: contents">' + body + "</div>\n  </body>\n</html>\n",
     error
   },
-  version_hash: "1xflsg3"
+  version_hash: "9ixev1"
 };
 async function get_hooks() {
   let handle;
@@ -123,4 +123,4 @@ async function get_hooks() {
 }
 
 export { set_public_env as a, set_read_implementation as b, get_hooks as g, options as o, public_env as p, read_implementation as r, set_private_env as s };
-//# sourceMappingURL=internal.js-7twtyNYN.js.map
+//# sourceMappingURL=internal.js-o4rWftwV.js.map
