@@ -219,6 +219,24 @@ describe("native controller visibility (§4.3)", () => {
     );
   });
 
+  it("RESTORE_REATTACH_OPENS_EXACTLY_ONE_UNCONTROLLED_NATIVE_VIEW", () => {
+    listNativeSessions.mockReturnValue([runningNative("h2a-h-infra", false)]);
+
+    const result = launchLayout(
+      [{ title: "work", tabs: controlledTab() }],
+      captureHostViewSnapshot(),
+      { write: vi.fn(() => true) } as unknown as NodeJS.WriteStream,
+      { reattach: true },
+    );
+
+    expect(result).toEqual({ opened: 1, skippedLive: [] });
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const args = spawn.mock.calls[0]![1] as string[];
+    const command = readFileSync(args.at(-1)!, "utf8");
+    expect(command).toContain("h2a attach 'h2a-h-infra'");
+    expect(command).not.toMatch(/h2a run|--replace/);
+  });
+
   it("RESTORE_HOST_PROBE_UNKNOWN_NEVER_CREATES_A_SECOND_WRITER", () => {
     // The native inventory read FAILS: the view is unknown — that is not a
     // death certificate, so nothing may be relaunched over it.
