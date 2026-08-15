@@ -225,6 +225,18 @@ describe("F1 — resume host precedence", () => {
     const row = loadEntries().find((e) => e.id === slug);
     expect(row?.kind).toBe("local-native");
   });
+
+  it("RECORDED_NATIVE_ATTACH_DISPATCHES_TO_THE_NATIVE_BRIDGE", async () => {
+    const slug = `f1-native-attach-${process.pid}`;
+    writeRegistry([nativeRow(slug)]);
+    nativeSessionLiveness.mockReturnValue(true);
+
+    const code = await main(["node", "h2a", "attach", slug]);
+
+    expect(code).toBe(0);
+    expect(attachNativeSession).toHaveBeenCalledWith(`h2a-${slug}`);
+    expect(attachLocalSession).not.toHaveBeenCalled();
+  });
 });
 
 describe("F2 — stop host attribution", () => {
