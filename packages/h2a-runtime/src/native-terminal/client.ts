@@ -30,6 +30,21 @@ type PendingRequest = {
   timeout: NodeJS.Timeout;
 };
 
+export class NativeTerminalRequestTimeoutError extends Error {
+  readonly operation: NativeTerminalRequest["operation"];
+  readonly timeoutMs: number;
+
+  constructor(
+    operation: NativeTerminalRequest["operation"],
+    timeoutMs: number,
+  ) {
+    super(`terminal host ${operation} request timed out after ${timeoutMs}ms`);
+    this.name = "NativeTerminalRequestTimeoutError";
+    this.operation = operation;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 export class NativeTerminalClient {
   readonly #socket: Socket;
   readonly #requestTimeoutMs: number;
@@ -126,8 +141,16 @@ export class NativeTerminalClient {
     return this.#request("state", { id }) as Promise<NativeTerminalSessionState>;
   }
 
-  readOutput(id: string, afterSeq: number): Promise<NativeTerminalReplay> {
-    return this.#request("read-output", { id, afterSeq }) as Promise<NativeTerminalReplay>;
+  readOutput(
+    id: string,
+    afterSeq: number,
+    timeoutMs = this.#requestTimeoutMs,
+  ): Promise<NativeTerminalReplay> {
+    return this.#request(
+      "read-output",
+      { id, afterSeq },
+      timeoutMs,
+    ) as Promise<NativeTerminalReplay>;
   }
 
   attachObserver(id: string): Promise<NativeTerminalObserverAttachment> {
@@ -189,11 +212,7 @@ export class NativeTerminalClient {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         if (!this.#pending.delete(id)) return;
-        reject(
-          new Error(
-            `terminal host ${operation} request timed out after ${timeoutMs}ms`,
-          ),
-        );
+        reject(new NativeTerminalRequestTimeoutError(operation, timeoutMs));
       }, timeoutMs);
       timeout.unref();
       this.#pending.set(id, { resolve, reject, timeout });
