@@ -167,6 +167,7 @@ export type NativeTerminalAttachRuntime = {
 };
 
 const ATTACH_STATE_POLL_MS = 1_000;
+const ATTACH_ACTIVE_POLL_MS = 100;
 const ATTACH_IDLE_POLL_MIN_MS = 100;
 const ATTACH_IDLE_POLL_MAX_MS = 500;
 const ATTACH_RECONNECT_MIN_MS = 100;
@@ -407,6 +408,10 @@ export async function runAttach(
           idlePollMs = Math.min(ATTACH_IDLE_POLL_MAX_MS, idlePollMs * 2);
         } else {
           idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
+          // A continuously busy PTY must still yield between snapshots. Without
+          // this bound, a non-empty replay would turn the follow loop into a
+          // tight local RPC spin under sustained model output.
+          await runtime.delay(ATTACH_ACTIVE_POLL_MS);
         }
         if (runtime.now() >= nextStatePollAt) {
           const state = await current.client.state(id);
