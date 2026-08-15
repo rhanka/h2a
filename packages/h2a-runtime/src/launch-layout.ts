@@ -151,11 +151,13 @@ function runDir(): string {
 /**
  * Launch the layout in gnome-terminal: one window per group, one tab per session.
  *
- * Default behaviour: a live session with a tmux client is already visible and is
- * skipped; a live session with zero clients is orphaned, so a terminal tab is
- * opened directly onto that exact tmux session. An absent session is launched as
- * before. `--reattach` explicitly opens another tab even for an already-visible
- * session. This is deliberately a view decision, not a liveness decision.
+ * Default behaviour: a live session with a visible tmux client or an exclusive
+ * native controller is skipped. A live tmux session with zero clients, or a live
+ * native session with `controlled:false`, receives exactly one host-agnostic
+ * `h2a attach` tab. `--reattach` may duplicate a visible tmux view but never a
+ * native controller: the native host's single-writer lease stays authoritative.
+ * An absent session is launched as before. This is deliberately a view decision,
+ * not a liveness decision.
  *
  * Every decision reads the `hostView` PARAMETER — the plan's one snapshot —
  * never a live host (F3: this module has no reader to call).
@@ -211,7 +213,8 @@ export function launchLayout(
   const skippedLive: string[] = [];
   let opened = 0;
   // A gateway override can configure a NEW process but must never replace a live
-  // one. `--reattach` is the sole opt-in that duplicates an already-visible tab.
+  // one. `--reattach` may duplicate a tmux view; it never duplicates a native
+  // controller, whose exclusive lease is a host-level safety contract.
   const includeAttached = opts.reattach === true;
   const tabOpts = opts.forceGateway ? { forceGateway: opts.forceGateway } : {};
 
@@ -220,7 +223,7 @@ export function launchLayout(
     // duplicate/failing attach over `h2a run` possibly racing a live tmux
     // session; a restore command must never reclaim a view by killing its work.
     stderr.write(
-      `[h2a] tmux view state unavailable${tmuxReason ? ` (${tmuxReason})` : ""}; ` +
+      `[h2a] legacy tmux view state unavailable${tmuxReason ? ` (${tmuxReason})` : ""}; ` +
         "opening attach tabs rather than relaunching local sessions\n",
     );
   }
@@ -339,7 +342,7 @@ export function launchLayout(
       if (names) {
         skippedLive.push(t.label);
         stderr.write(
-          `[h2a] restore skipped "${t.label}": local tmux slug is ambiguous (${names.sort().join(", ")}); ` +
+          `[h2a] restore skipped "${t.label}": local session slug is ambiguous (${names.sort().join(", ")}); ` +
             `attach explicitly with h2a attach ${names.sort()[0]} or h2a attach ${names.sort()[1]}\n`,
         );
         continue;
@@ -415,8 +418,8 @@ export function launchLayout(
 
   if (skippedLive.length > 0) {
     stderr.write(
-      `[h2a] ${skippedLive.length} session(s) déjà visibles ignorées` +
-      ` (--reattach pour les rouvrir quand même): ${skippedLive.join(", ")}\n`,
+      `[h2a] ${skippedLive.length} session(s) déjà visibles ou contrôlées ignorées` +
+      ` (--reattach rouvre seulement les vues pouvant être attachées sans second contrôleur): ${skippedLive.join(", ")}\n`,
     );
   }
 

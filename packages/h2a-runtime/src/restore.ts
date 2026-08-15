@@ -949,8 +949,9 @@ export type RestoreOptions = {
   /** Pre-resolved SCW tabs (from `remote ls`), used to fill `remote: true` groups. */
   remoteTabs?: RemoteTab[];
   /**
-   * When true, open a new terminal tab even for sessions already live in tmux.
-   * Default (false): sessions already in tmux are skipped — no redundant tab.
+   * When true, open another view for already-visible tmux sessions. Native PTYs
+   * remain single-controller: an uncontrolled live PTY is attached exactly once,
+   * while a controlled live PTY is reported and skipped even with this flag.
    */
   reattach?: boolean;
   /**

@@ -10,6 +10,12 @@ export const NATIVE_TERMINAL_MAX_FRAME_BYTES = 32 * 1024 * 1024;
 export const NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS = 256;
 export const NATIVE_TERMINAL_MAX_SESSIONS = 256;
 export const NATIVE_TERMINAL_DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
+/**
+ * Interactive replay reads may legitimately serialize a multi-megabyte
+ * scrollback. Keep the short generic control timeout above, but give the
+ * terminal-follow path its own budget before it reconnects and resumes.
+ */
+export const NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS = 30_000;
 export const NATIVE_TERMINAL_HEALTH_TIMEOUT_MS = 1_000;
 export const NATIVE_TERMINAL_MAX_ERROR_MESSAGE_CHARS = 1_024;
 export const NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS = 128;

@@ -9319,21 +9319,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   program
     .command("restore [group]")
     .description(
-      'Relance les sessions dev dans leur layout (fenêtre par groupe, onglet par session). Sans argument: tous les groupes. Avec [group]: ce lot seulement (ex: `h2a restore "full remote"`). Groupes LOCAUX = claude/codex sous ~/src/* (tmux via `h2a run`); groupes REMOTE = sessions SCW (`h2a attach <id> --exec`). Layout: champ `layout` de la config.',
+      'Restaure les sessions dev dans leur layout (fenêtre par groupe, onglet par session). Sans argument: tous les groupes. Avec [group]: ce lot seulement (ex: `h2a restore "full remote"`). Groupes LOCAUX = sessions claude/codex sous ~/src/* hébergées par le PTY natif (défaut) ou tmux legacy; une PTY vivante non contrôlée est rattachée et une PTY déjà contrôlée reste protégée contre un second terminal. Groupes REMOTE = sessions SCW (`h2a attach <id> --exec`). Layout: champ `layout` de la config.',
     )
     .option("--dry-run", "affiche le layout calculé sans ouvrir de terminaux")
     .option(
       "--reattach",
-      "ouvre aussi un onglet pour les sessions déjà actives en tmux (ré-attache)",
+      "rouvre les sessions tmux déjà visibles; côté PTY natif, rattache une session non contrôlée mais refuse toujours un second contrôleur concurrent",
     )
     .option(
       "--llm-gateway",
-      "force TOUTES les sessions sur la gateway llm-mesh (ignore le pin par instance; relance les sessions vivantes via --replace)",
+      "force la gateway llm-mesh pour les sessions relancées; les sessions vivantes sont seulement rattachées et gardent leur posture",
     )
     .option("--gw", "alias de --llm-gateway")
     .option(
       "--no-llm-gateway",
-      "force TOUTES les sessions en direct, sans gateway (ignore le pin par instance; relance les sessions vivantes via --replace)",
+      "force le mode direct pour les sessions relancées; les sessions vivantes sont seulement rattachées et gardent leur posture",
     )
     .option("--no-gw", "alias de --no-llm-gateway")
     .action(
@@ -9348,13 +9348,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           noGw?: boolean;
         },
       ) => {
-        if (!tmuxAvailable()) {
-          process.stderr.write(
-            "[h2a] tmux requis pour restore (sudo apt install tmux)\n",
-          );
-          process.exitCode = 1;
-          return;
-        }
         const norm = (s: string) =>
           s
             .toLowerCase()
