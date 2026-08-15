@@ -31,8 +31,14 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { NativeTerminalClient } from "./client.js";
-import { NativeTerminalRemoteError } from "./protocol.js";
-import type { NativeTerminalControllerLease } from "./host.js";
+import {
+  NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
+  NativeTerminalRemoteError,
+} from "./protocol.js";
+import type {
+  NativeTerminalControllerLease,
+  NativeTerminalSessionState,
+} from "./host.js";
 import { NativeTerminalHostSupervisor } from "./supervisor.js";
 import { defaultNativeTerminalSocketPath } from "./socket-path.js";
 
@@ -139,55 +145,301 @@ async function readAll(client: NativeTerminalClient, id: string): Promise<string
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-async function runAttach(client: NativeTerminalClient, id: string): Promise<number> {
-  const lease = await client.acquireController(id, `h2a-attach-${process.pid}`);
-  const stdin = process.stdin;
-  const stdout = process.stdout;
+type NativeTerminalAttachClient = Pick<
+  NativeTerminalClient,
+  | "readOutput"
+  | "state"
+  | "acquireController"
+  | "releaseController"
+  | "write"
+  | "resize"
+  | "close"
+>;
+
+export type NativeTerminalAttachRuntime = {
+  connect(): Promise<NativeTerminalAttachClient>;
+  stdin: NodeJS.ReadStream;
+  stdout: NodeJS.WriteStream;
+  now(): number;
+  delay(ms: number): Promise<void>;
+  onResize(listener: () => void): void;
+  offResize(listener: () => void): void;
+};
+
+const ATTACH_STATE_POLL_MS = 1_000;
+const ATTACH_IDLE_POLL_MIN_MS = 100;
+const ATTACH_IDLE_POLL_MAX_MS = 500;
+const ATTACH_RECONNECT_MIN_MS = 100;
+const ATTACH_RECONNECT_MAX_MS = 2_000;
+const ATTACH_PENDING_INPUT_MAX_BYTES = 64 * 1024;
+
+function defaultAttachRuntime(socketPath: string): NativeTerminalAttachRuntime {
+  return {
+    // runAttach owns and closes every reconnecting client. Keeping these
+    // long-lived clients in the one-shot op registry would retain each closed
+    // connection until the user eventually detaches.
+    connect: () => NativeTerminalClient.connect(socketPath),
+    stdin: process.stdin,
+    stdout: process.stdout,
+    now: () => Date.now(),
+    delay,
+    onResize: (listener) => process.on("SIGWINCH", listener),
+    offResize: (listener) => process.removeListener("SIGWINCH", listener),
+  };
+}
+
+function isDefinitiveNativeTerminalAbsence(error: unknown): boolean {
+  if (
+    error instanceof NativeTerminalRemoteError &&
+    error.message.includes("unknown terminal session")
+  ) {
+    return true;
+  }
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === "ENOENT" || code === "ECONNREFUSED";
+}
+
+type ActiveAttachConnection = {
+  client: NativeTerminalAttachClient;
+  lease: NativeTerminalControllerLease;
+};
+
+/**
+ * Follow one native PTY without owning its lifetime. A transport failure closes
+ * only this observer/controller connection; the host-owned PTY is never stopped
+ * or recreated. Reconnection resumes from the last rendered sequence number.
+ */
+export async function runAttach(
+  id: string,
+  runtime: NativeTerminalAttachRuntime = defaultAttachRuntime(socketPathFromEnv()),
+): Promise<number> {
+  const stdin = runtime.stdin;
+  const stdout = runtime.stdout;
   const isRawCapable = stdin.isTTY === true;
   if (isRawCapable) stdin.setRawMode(true);
   stdin.resume();
   let detached = false;
+  let terminalEnded = false;
   let exitCode = 0;
-  const onInput = (chunk: Buffer): void => {
+  let active: ActiveAttachConnection | undefined;
+  let transportFailure: unknown;
+  let recoveryAnnounced = false;
+  let pendingInputBytes = 0;
+  const pendingInput: Buffer[] = [];
+  let inputPump: Promise<void> | undefined;
+
+  const closeActive = (): void => {
+    const current = active;
+    active = undefined;
+    current?.client.close();
+  };
+
+  const markTransportFailure = (
+    connection: ActiveAttachConnection,
+    error: unknown,
+    inputDeliveryUncertain = false,
+  ): void => {
+    if (inputDeliveryUncertain && !detached) {
+      stdout.write(
+        "\r\n[h2a] terminal input delivery became uncertain during reconnect; " +
+          "the in-flight chunk was not replayed to avoid duplicate input\r\n",
+      );
+    }
+    // A request from the previous socket may settle after recovery. Fence that
+    // stale failure so it can never tear down the newly-acquired controller.
+    if (active !== connection) return;
+    if (transportFailure === undefined) transportFailure = error;
+    closeActive();
+  };
+
+  const pumpInput = (): void => {
+    if (inputPump !== undefined || detached || active === undefined) return;
+    inputPump = (async () => {
+      while (!detached && pendingInput.length > 0) {
+        const current = active;
+        if (current === undefined) return;
+        const chunk = pendingInput[0]!;
+        try {
+          await current.client.write(current.lease, chunk.toString("utf8"));
+          pendingInput.shift();
+          pendingInputBytes -= chunk.length;
+        } catch (error) {
+          // The host may have accepted the write before the response path
+          // broke. Drop this ONE uncertain chunk with an explicit warning;
+          // replaying it could duplicate a command. Later queued input stays
+          // ordered and is delivered only after a fresh exclusive lease.
+          pendingInput.shift();
+          pendingInputBytes -= chunk.length;
+          markTransportFailure(current, error, true);
+          return;
+        }
+      }
+    })().finally(() => {
+      inputPump = undefined;
+      if (!detached && active !== undefined && pendingInput.length > 0) {
+        pumpInput();
+      }
+    });
+  };
+
+  const onInput = (value: Buffer | string): void => {
+    const chunk = Buffer.isBuffer(value) ? Buffer.from(value) : Buffer.from(value);
     if (chunk.includes(DETACH_BYTE)) {
       detached = true;
+      closeActive();
       return;
     }
-    void client.write(lease, chunk.toString("utf8")).catch(() => {
+    if (pendingInputBytes + chunk.length > ATTACH_PENDING_INPUT_MAX_BYTES) {
+      stdout.write(
+        "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
+          "without stopping the session\r\n",
+      );
       detached = true;
-    });
+      closeActive();
+      return;
+    }
+    pendingInput.push(chunk);
+    pendingInputBytes += chunk.length;
+    pumpInput();
   };
   stdin.on("data", onInput);
   const resize = (): void => {
-    if (stdout.columns && stdout.rows) {
-      void client.resize(lease, stdout.columns, stdout.rows).catch(() => {});
+    const current = active;
+    if (current && stdout.columns && stdout.rows) {
+      void current.client
+        .resize(current.lease, stdout.columns, stdout.rows)
+        .catch((error) => markTransportFailure(current, error));
     }
   };
-  process.on("SIGWINCH", resize);
-  resize();
+  runtime.onResize(resize);
+
+  const connectAndAcquire = async (): Promise<NativeTerminalSessionState> => {
+    const client = await runtime.connect();
+    try {
+      const state = await client.state(id);
+      if (state.status === "exited") {
+        client.close();
+        return state;
+      }
+      const lease = await client.acquireController(
+        id,
+        `h2a-attach-${process.pid}`,
+      );
+      active = { client, lease };
+      transportFailure = undefined;
+      resize();
+      pumpInput();
+      return state;
+    } catch (error) {
+      client.close();
+      throw error;
+    }
+  };
+
   // Paint the existing scrollback once, then follow the stream.
   let seq = 0;
   try {
+    const initial = await connectAndAcquire();
+    if (initial.status === "exited") return initial.exit?.exitCode ?? 0;
+    let idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
+    let nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
+
     for (;;) {
       if (detached) break;
-      const replay = await client.readOutput(id, seq);
-      for (const chunk of replay.chunks) {
-        stdout.write(chunk.data);
-        seq = chunk.seq;
+
+      if (active === undefined || transportFailure !== undefined) {
+        closeActive();
+        if (!recoveryAnnounced) {
+          stdout.write(
+            "\r\n[h2a] native terminal connection interrupted; reconnecting " +
+              "without restarting the session\r\n",
+          );
+          recoveryAnnounced = true;
+        }
+        let reconnectDelayMs = ATTACH_RECONNECT_MIN_MS;
+        for (;;) {
+          if (detached) break;
+          try {
+            const state = await connectAndAcquire();
+            if (state.status === "exited") {
+              exitCode = state.exit?.exitCode ?? 0;
+              terminalEnded = true;
+              break;
+            }
+            stdout.write("\r\n[h2a] native terminal reconnected\r\n");
+            recoveryAnnounced = false;
+            idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
+            nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
+            break;
+          } catch (error) {
+            if (isDefinitiveNativeTerminalAbsence(error)) {
+              stdout.write(
+                "\r\n[h2a] native session is no longer available; attach stopped\r\n",
+              );
+              exitCode = 1;
+              terminalEnded = true;
+              break;
+            }
+            await runtime.delay(reconnectDelayMs);
+            reconnectDelayMs = Math.min(
+              ATTACH_RECONNECT_MAX_MS,
+              reconnectDelayMs * 2,
+            );
+          }
+        }
+        if (terminalEnded) break;
+        continue;
       }
-      const state = await client.state(id);
-      if (state.status === "exited") {
-        exitCode = state.exit?.exitCode ?? 0;
-        break;
+
+      const current = active;
+      try {
+        const replay = await current.client.readOutput(
+          id,
+          seq,
+          NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
+        );
+        for (const chunk of replay.chunks) {
+          stdout.write(chunk.data);
+          seq = chunk.seq;
+        }
+        if (replay.chunks.length === 0) {
+          await runtime.delay(idlePollMs);
+          idlePollMs = Math.min(ATTACH_IDLE_POLL_MAX_MS, idlePollMs * 2);
+        } else {
+          idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
+        }
+        if (runtime.now() >= nextStatePollAt) {
+          const state = await current.client.state(id);
+          nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
+          if (state.status === "exited") {
+            exitCode = state.exit?.exitCode ?? 0;
+            break;
+          }
+        }
+      } catch (error) {
+        if (detached) break;
+        if (isDefinitiveNativeTerminalAbsence(error)) {
+          stdout.write(
+            "\r\n[h2a] native session is no longer available; attach stopped\r\n",
+          );
+          exitCode = 1;
+          break;
+        }
+        markTransportFailure(current, error);
       }
-      await delay(40);
     }
   } finally {
-    process.removeListener("SIGWINCH", resize);
+    runtime.offResize(resize);
     stdin.removeListener("data", onInput);
     if (isRawCapable) stdin.setRawMode(false);
     stdin.pause();
-    await client.releaseController(lease).catch(() => {});
+    if (inputPump !== undefined) await inputPump.catch(() => {});
+    const current = active;
+    active = undefined;
+    if (current !== undefined) {
+      await current.client.releaseController(current.lease).catch(() => {});
+      current.client.close();
+    }
   }
   if (detached) {
     stdout.write("\r\n[h2a] detached from native session (session keeps running)\r\n");
@@ -375,10 +627,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       return after.status === "exited" ? 0 : 1;
     }
     case "attach": {
-      const client = await connectExisting(socketPath);
-      const code = await runAttach(client, required(parsed, "id"));
-      client.close();
-      return code;
+      return runAttach(required(parsed, "id"), defaultAttachRuntime(socketPath));
     }
     case "host-stop": {
       let client: NativeTerminalClient;
