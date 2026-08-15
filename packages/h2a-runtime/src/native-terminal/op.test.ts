@@ -77,6 +77,49 @@ function replay(seq: number, data: string): NativeTerminalReplay {
 }
 
 describe("native terminal attach recovery", () => {
+  it("paces sustained output instead of spinning local read-output RPCs", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput();
+    let now = 0;
+    let reads = 0;
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "paced-controller",
+      epoch: 1,
+    };
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        reads += 1;
+        return replay(reads, `chunk-${reads}`);
+      },
+      async state() { return now >= 1_000 ? exited() : running(true); },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+    const runtime: NativeTerminalAttachRuntime = {
+      connect: async () => client,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => { now += ms; },
+      onResize: () => {},
+      offResize: () => {},
+    };
+
+    await expect(runAttach("h2a-alpha", runtime)).resolves.toBe(0);
+
+    // At 100ms per non-empty replay, one second of sustained output is bounded
+    // to ten read RPCs plus the periodic state check, rather than a tight spin.
+    expect(reads).toBe(10);
+    expect(now).toBe(1_000);
+  });
+
   it.each([
     [
       "read timeout",
