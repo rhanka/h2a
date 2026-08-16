@@ -27,9 +27,20 @@ Verdict artifacts become **rows**, `PRIMARY KEY = the ceremony-DERIVED tuple` `(
 
 Verdict rows live in the **same** SQLite store as notes. Can the note-write path forge a verdict row? **No.** A verdict row is accepted only if its Ed25519 signature verifies over `(content, thisRunNonce)` against the **construction-time** trusted keystore. An attacker who can `INSERT` a row still cannot forge that signature without a trusted private key. The anchor is the **signature, not store isolation** (the injected-deps lesson: the anchor must be the unforgeable signature against a trusted keystore, never the medium). So co-locating verdicts with notes is safe — the filesystem's separate-zone was compensating for the *absence* of a signature anchor at the FS layer, which the ceremony now has.
 
-## VERDICT — STRUCTURAL EQUIVALENT FOUND, and stronger
+## The enforcement layer shifts — and where the single writer is (and isn't) load-bearing (`storage` measurement + h-arch arbitration)
 
-The filesystem attack class (traversal / symlink / TOCTOU) **evaporates** under key-addressed rows: there is no path to confine. The load-bearing anchors — signature over a fresh nonce, crypto-principal fingerprint separation, fail-closed keystore lookup — are backend-agnostic and carry over unchanged. **"One local SQLite store" HOLDS for the verdict-artifact object class. No owner decision to reopen on this point.** (This is the *opposite* of a blocker: the migration removes an attack surface rather than creating one.)
+The equivalent is real, but it is honest to say **the guarantee changes nature; it does not merely "preserve."** The FS half (`O_NOFOLLOW`/realpath/anti-symlink/anti-TOCTOU) **evaporates** in a single DB file (no path to symlink → nothing to re-implement); the rest slides from **kernel-OS-enforced to SQL-application-enforced** — `authorizedRoot` → a tenant column `NOT NULL` imposed by *every* query; leg fingerprint → `UNIQUE`/`PK`; `ceremonyNonce` → a **monotone** column verified in the `WHERE` under the writer transaction. That is a **threat-model change**, which is exactly why it is decided before the cutover, not during.
+
+`storage` measured that graphify holds **no fencing today** — no lease, no advisory-lock, no `FOR UPDATE`; WAL gives one-writer/N-readers *in the file* but **no inter-process lease** (a second opener gets `SQLITE_BUSY` — not a correctness loss, but not a lease either). So the single writer is an invariant the **server must enforce by holding the handle**, not a substrate property. h-arch's arbitration splits precisely *where* that matters, and this study adopts the split so no one later concludes "the signature suffices, relax the writer":
+
+- **Authenticity / integrity of a verdict is signature-anchored and does NOT depend on the single writer.** A concurrent writer cannot forge a valid verdict without a trusted private key (the injected-deps anchor). This half is **unconditional**.
+- **Freshness and atomicity DO depend on the single writer.** The `ceremonyNonce` monotonicity checked in the `WHERE` under the writer transaction, and AC-V4's atomic read, can be broken by two concurrent writers **without ever forging a signature** — by replaying or interleaving. This half is **conditional**.
+
+So the D11 equivalence does not depend on the single writer for **forging**, but does for **replay or interleaving**. If the single writer stays an *intention* rather than a server-enforced invariant, the freshness/atomicity half is a fiction — treat the two as **linked**.
+
+## VERDICT — STRUCTURAL EQUIVALENT FOUND (forging: unconditional · replay/atomicity: conditional on a server-enforced single writer)
+
+The filesystem attack class (traversal / symlink / TOCTOU) **evaporates** under key-addressed rows — there is no path to confine — and `storage` confirms the base is even narrower than assumed (no SQL traversal; single-level fold-out, no recursion). **Authenticity/integrity is signature-anchored and unconditional.** **Freshness/atomicity holds iff the unified server enforces the single writer by holding the handle** (WAL alone gives `SQLITE_BUSY`, not a lease). Under that one enforced precondition, **"one local SQLite store" HOLDS for the verdict-artifact object class, and the migration removes an attack surface rather than creating one.** No owner decision to reopen — but the single-writer enforcement is a **declared, linked dependency**, not a silent assumption.
 
 ## Acceptance criteria (SQLite verdict store)
 
@@ -38,6 +49,7 @@ The filesystem attack class (traversal / symlink / TOCTOU) **evaporates** under 
 - **AC-V3 — forged row.** A row inserted without a valid trusted signature over `(content, nonce)` never promotes (signature verify, fail-closed). Mutation: neutralize signature verification → the forged row promotes.
 - **AC-V4 — atomic read.** The read is a consistent snapshot (WAL / transaction); a concurrent write cannot make the ceremony verify bytes other than those it reads. This *replaces* the round-3 TOCTOU close.
 - **AC-V5 — mapping completeness.** The round-3 path-confinement mutation-checks are **replaced** by AC-V1/V2/V4 (there is no path left to confine); the round-4 freshness + fingerprint mutation-checks carry over **unchanged** and must still be red-without / green-with on the SQLite implementation.
+- **AC-V6 — the single writer is server-enforced, not assumed.** The freshness/atomicity guarantees (AC-V2, AC-V4) are validated only under a server that holds the single-writer handle: a test running two concurrent writers must show the second is **fenced** (not silently interleaving to break nonce-monotonicity or read atomicity). Where the substrate gives only `SQLITE_BUSY`, the server layer must turn that into a held-handle lease. Authenticity/integrity (AC-V3) remains valid without this, by signature — the two are reported **linked** so no one relaxes the writer on the strength of the signature alone.
 
 ## One caveat named (not a blocker, unchanged by the storage medium)
 
