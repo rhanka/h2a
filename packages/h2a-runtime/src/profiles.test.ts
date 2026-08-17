@@ -4,6 +4,7 @@ import {
   coerceCliProfileName,
   isCliProfile,
   resolveProfile,
+  AGY_DEFAULT_MODEL,
   withResume,
 } from "./profiles.js";
 
@@ -41,6 +42,11 @@ describe("profiles", () => {
     expect(withResume(gemini, "abc").args).toEqual([]);
     const mistral = resolveProfile("mistral");
     expect(withResume(mistral, "abc").args).toEqual([]);
+
+    expect(resolveProfile("agy").args).toEqual([
+      "--model",
+      AGY_DEFAULT_MODEL,
+    ]);
   });
 
   it("isCliProfile narrows known names", () => {
