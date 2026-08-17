@@ -56,7 +56,7 @@ describe("buildDelegateArgs (pure, task is a single argv token)", () => {
     });
     expect(buildDelegateArgs("agy", "do X", false)).toEqual({
       command: "agy",
-      args: ["--model", AGY_DEFAULT_MODEL, "do X"],
+      args: ["--model", AGY_DEFAULT_MODEL, "--effort", "medium", "do X"],
     });
   });
 
@@ -103,15 +103,10 @@ describe("buildDelegateArgs (pure, task is a single argv token)", () => {
       ],
     });
     expect(
-      buildDelegateArgs(
-        "agy",
-        "do X",
-        false,
-        "claude-opus-4-8",
-      ),
+      buildDelegateArgs("agy", "do X", false, "claude-opus-4-8", "high"),
     ).toEqual({
       command: "agy",
-      args: ["--model", "claude-opus-4-8", "do X"],
+      args: ["--model", "claude-opus-4-8", "--effort", "high", "do X"],
     });
   });
 
@@ -123,7 +118,7 @@ describe("buildDelegateArgs (pure, task is a single argv token)", () => {
     try {
       expect(buildDelegateArgs("agy", "do X", false, "claude-opus-4-8")).toEqual({
         command: "agy",
-        args: ["--model", "claude-opus-4-8", "do X"],
+        args: ["--model", "claude-opus-4-8", "--effort", "medium", "do X"],
       });
     } finally {
       vi.unstubAllEnvs();
@@ -361,7 +356,7 @@ describe("buildRemoteDelegate (task via the safe startupArgs argv channel)", () 
     });
     expect(buildRemoteDelegate("agy", "do X", false)).toEqual({
       profile: "agy",
-      startupArgs: ["--model", AGY_DEFAULT_MODEL, "do X"],
+      startupArgs: ["--model", AGY_DEFAULT_MODEL, "--effort", "medium", "do X"],
     });
   });
 

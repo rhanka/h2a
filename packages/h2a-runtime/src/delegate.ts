@@ -81,7 +81,7 @@ function delegateModelEffortFlags(
     }
     case "agy":
       // AGY defaults to Gemini 3.7-flash unless explicitly overridden.
-      return ["--model", model ?? AGY_DEFAULT_MODEL];
+      return ["--model", model ?? AGY_DEFAULT_MODEL, "--effort", effort ?? "medium"];
   }
 }
 
