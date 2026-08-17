@@ -41,6 +41,7 @@ import {
   trackItemNewArgs,
   trackItemRealizeArgs,
 } from "./delegate.js";
+import { AGY_DEFAULT_MODEL } from "./profiles.js";
 import type { RegistryEntry } from "./registry.js";
 
 describe("buildDelegateArgs (pure, task is a single argv token)", () => {
@@ -55,7 +56,7 @@ describe("buildDelegateArgs (pure, task is a single argv token)", () => {
     });
     expect(buildDelegateArgs("agy", "do X", false)).toEqual({
       command: "agy",
-      args: ["do X"],
+      args: ["--model", AGY_DEFAULT_MODEL, "do X"],
     });
   });
 
@@ -101,6 +102,32 @@ describe("buildDelegateArgs (pure, task is a single argv token)", () => {
         "do X",
       ],
     });
+    expect(
+      buildDelegateArgs(
+        "agy",
+        "do X",
+        false,
+        "claude-opus-4-8",
+      ),
+    ).toEqual({
+      command: "agy",
+      args: ["--model", "claude-opus-4-8", "do X"],
+    });
+  });
+
+  it("keeps a known CLAUDE model as-is despite hostile OPENAI_MODEL_MAP", () => {
+    vi.stubEnv(
+      "OPENAI_MODEL_MAP",
+      JSON.stringify({ "claude-opus-4-8": "gemini-3.7-flash" }),
+    );
+    try {
+      expect(buildDelegateArgs("agy", "do X", false, "claude-opus-4-8")).toEqual({
+        command: "agy",
+        args: ["--model", "claude-opus-4-8", "do X"],
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("rejects effort levels unsupported by the selected CLI", () => {
@@ -334,7 +361,7 @@ describe("buildRemoteDelegate (task via the safe startupArgs argv channel)", () 
     });
     expect(buildRemoteDelegate("agy", "do X", false)).toEqual({
       profile: "agy",
-      startupArgs: ["do X"],
+      startupArgs: ["--model", AGY_DEFAULT_MODEL, "do X"],
     });
   });
 
