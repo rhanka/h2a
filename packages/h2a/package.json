@@ -1,6 +1,6 @@
 {
   "name": "@sentropic/h2a",
-  "version": "0.93.4",
+  "version": "0.93.5",
   "description": "h2a — the unified CLI + core for human-to-agent coordination.",
   "license": "MIT",
   "type": "module",
@@ -52,10 +52,10 @@
     "@hono/mcp": "^0.3.0",
     "@hono/node-server": "^2.0.12",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@sentropic/track": "^0.93.4",
+    "@sentropic/track": "^0.93.5",
     "hono": "^4.12.32"
   },
   "peerDependencies": {
-    "@sentropic/h2a-runtime": "^0.93.4"
+    "@sentropic/h2a-runtime": "^0.93.5"
   }
 }
