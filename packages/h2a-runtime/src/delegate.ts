@@ -30,6 +30,7 @@ import { join } from "node:path";
 import type { JobState, RegistryEntry, RegistryTool } from "./registry.js";
 import { occupiesSlot } from "./registry.js";
 import { humanAge } from "./migrate-candidates.js";
+import { AGY_DEFAULT_MODEL } from "./profiles.js";
 
 export type DelegateType = RegistryTool; // claude | codex | agy
 
@@ -79,8 +80,8 @@ function delegateModelEffortFlags(
       ];
     }
     case "agy":
-      // Compatibility: agy has no verified model/effort flags yet.
-      return [];
+      // AGY defaults to Gemini 3.7-flash unless explicitly overridden.
+      return ["--model", model ?? AGY_DEFAULT_MODEL, "--effort", effort ?? "medium"];
   }
 }
 
