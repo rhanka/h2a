@@ -6,12 +6,14 @@ export type ProfileConfig = {
   readonly args: ReadonlyArray<string>;
 };
 
+export const AGY_DEFAULT_MODEL = "gemini-3.7-flash";
+
 const DEFAULT_PROFILES: Readonly<Record<CliProfile, ProfileConfig>> = {
   shell: { profile: "shell", command: "/bin/bash", args: [] },
   codex: { profile: "codex", command: "codex", args: [] },
   opencode: { profile: "opencode", command: "opencode", args: [] },
   claude: { profile: "claude", command: "claude", args: [] },
-  agy: { profile: "agy", command: "agy", args: [] },
+  agy: { profile: "agy", command: "agy", args: ["--model", AGY_DEFAULT_MODEL] },
   gemini: { profile: "gemini", command: "gemini", args: [] },
   mistral: { profile: "mistral", command: "mistral", args: [] },
 };
