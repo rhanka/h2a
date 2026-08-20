@@ -1,7 +1,7 @@
 /**
  * llm-mesh — local LLM gateway management for solo-dev mode.
  *
- * Enrollment: `h2a llm-mesh enroll cloud-code|codex` delegates OAuth and
+ * Enrollment: `h2a llm-mesh account enroll cloud-code|codex` delegates OAuth and
  *   account persistence entirely to the sentropic-owned facade.
  *
  * Startup:    `h2a llm-mesh start` reads public host config and starts the
@@ -42,7 +42,12 @@ const ANTHROPIC_GATEWAY_ENV_KEYS = [
   "ANTHROPIC_API_KEY",
 ] as const;
 
-/** Temporarily replace the Anthropic gateway lane and return an exact restorer. */
+/**
+ * Temporarily replace the H2A gateway lane and return an exact restorer.
+ * Direct launches preserve a user-owned ANTHROPIC_API_KEY. Gateway launches
+ * hide it from Claude Code because the local gateway authenticates with the
+ * opaque AUTH_TOKEN lane instead.
+ */
 export function replaceAnthropicGatewayEnvironment(
   env: NodeJS.ProcessEnv,
   replacement?: Partial<Record<(typeof ANTHROPIC_GATEWAY_ENV_KEYS)[number], string>>,
@@ -50,7 +55,11 @@ export function replaceAnthropicGatewayEnvironment(
   const previous = new Map(
     ANTHROPIC_GATEWAY_ENV_KEYS.map((key) => [key, env[key]] as const),
   );
-  for (const key of ANTHROPIC_GATEWAY_ENV_KEYS) delete env[key];
+  for (const key of ANTHROPIC_GATEWAY_ENV_KEYS) {
+    if (key !== "ANTHROPIC_API_KEY" || replacement !== undefined) {
+      delete env[key];
+    }
+  }
   for (const [key, value] of Object.entries(replacement ?? {})) {
     if (value !== undefined) env[key] = value;
   }

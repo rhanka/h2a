@@ -1,71 +1,91 @@
-# BR-74 consumer cutover: canonical compaction metering
+# llm-mesh account CLI and legacy pool cutover
 
 ## Objective
 
-Ship an h2a installation which actually loads the published Sentropic
-`@sentropic/llm-gateway@0.13.1` and `@sentropic/llm-mesh@0.15.0` pair. A
-single h2a upgrade must not retain an older optional runtime, because that
-silently bypasses the canonical gateway’s first-frame compaction metering.
+Make `llm-mesh` the only H2A account namespace without expanding the
+Sentropic product contract. H2A removes its legacy account registry, token
+store, account selection, quota, bindings and Kubernetes export. OAuth
+enrollment continues through the public `@sentropic/llm-mesh` facade already
+consumed by H2A.
 
-Prove the installed candidate with real Claude Code through a gateway forced
-once to Codex and once to Cloud Code. H2A owns only local bearer, lifecycle,
-affinity and redacted observability; provider routing and Anthropic SSE framing
-remain wholly in Sentropic.
+The canonical enrollment commands become:
 
-## Ownership boundary
+```text
+h2a llm-mesh account enroll codex
+h2a llm-mesh account enroll cloud-code
+```
 
-- `@sentropic/llm-mesh`: enrollment, encrypted keyring, account inventory/health, refresh, model catalogue/council, route policy semantics, planner, affinity and egress adapters.
-- `@sentropic/llm-gateway`: Anthropic/OpenAI ingress, caller authorization, route execution, pre-byte fallback, SSE/tools/thinking conversion and metering.
-- h2a: public CLI/config, gateway process lifecycle, opaque local bearer mint/forwarding, stable affinity, redacted status projection, and lockstep CLI/runtime installation.
-- PR #199 is forbidden and remains untouched.
-- `.track/**` is forbidden in this worktree because the repository Track log has a separate active writer.
+Direct launches use the native CLI authentication. Gateway launches use only
+the existing llm-mesh/gateway path.
+
+## Base and ownership
+
+- Branch: `feat/llm-mesh-legacy-cutover`
+- Base: `origin/main@f387637079261df3b7d5857eddb69637e638dc7c`
+- H2A owns CLI shape, process environment, legacy deletion and migration docs.
+- Sentropic owns account credentials, OAuth, keyring, routing and gateway.
+- `.track/**` has a separate writer in the repository root and is forbidden in
+  this worktree.
 
 ## Allowed scope
 
 - `BRANCH.md`
-- `docs/specs/2026-08-09-SPEC_EVOL_llm-mesh-user-routing.md`
-- `apps/llm-gateway/**`
-- `packages/h2a-runtime/**`
-- `packages/h2a/test/gateway-status-transitions.test.js`
-- `packages/h2a/test/runtime-status-contract.test.js`
+- `docs/specs/2026-08-20-SPEC_EVOL_llm-mesh-account-cutover.md`
+- account/gateway documentation, CLI help and changelog
+- `packages/h2a-runtime/src/account-pool.ts` and its tests (deletion)
+- `packages/h2a-runtime/src/delegate.ts` and its tests
+- `packages/h2a-runtime/src/index.ts`
+- `packages/h2a-runtime/src/llm-mesh.ts` and its tests
+- `packages/h2a-runtime/src/registry.ts`
+- directly affected runtime tests
+- `packages/h2a/src/cli.ts`
+- `packages/h2a/src/cli-command-map.ts` and its tests
+- `packages/h2a/src/hosts/installation-doctor.ts` and its tests
+- `packages/h2a/src/index.ts`
+- `packages/h2a/test/fixtures/runtime-help-commands.json`
 - `packages/h2a/skills/h2a-run/SKILL.md`
-- `scripts/dev-test-local.sh`
-- `scripts/release.mjs`
-- `packages/h2a/src/bin.ts`
-- `packages/h2a/test/release-script.test.js`
-- dependency manifests and lockfile only for exact released Sentropic versions
+- `docs/specs/reviews/2026-08-20-llm-mesh-account-cutover-fable5.md`
+- release metadata only as required by the documented tag workflow
 
 ## Forbidden scope
 
 - `.track/**`
-- PR #199 and its branch
-- local provider credentials, provider OAuth, refresh logic, account pools or model/equivalence tables
-- manual npm publication, npm login or tags created away from `origin/main`
-- unrelated PTY/tmux backend work
+- any Sentropic repository change
+- reading or adapting the private llm-mesh keyring
+- static API-key enrollment or cluster account distribution
+- list/show/reauth/unenroll APIs invented by H2A
+- unrelated routing, model mapping, PTY/tmux or gateway protocol work
+- local npm publication, npm login, or a tag not pointing at merged `main`
 
 ## Lots
 
-- [x] Confirm with Sentropic that BR-74 is the canonical `message_start.usage.input_tokens` fix in llm-gateway 0.13.1.
-- [x] Resolve the source lockfile to exactly llm-gateway 0.13.1 and llm-mesh 0.15.0 in an isolated worktree.
-- [x] Make the lockstep runtime a required peer, and keep its peer range aligned by the release script.
-- [x] Remove obsolete independent-runtime upgrade guidance and cover the install contract.
-- [x] Verify no provider-specific proxy/SSE/metering code exists in H2A’s local gateway host.
-- [x] Run the focused gateway and release/upgrade tests on the resolved dependency pair.
-- [x] Run real Claude Code UAT through a candidate H2A gateway forced to Codex, then forced to Cloud Code; capture first SSE usage, resolved route and continuation after two compactions.
-- [ ] Obtain one exact-head third-party review, rebase once, merge and publish only via the main tag CI.
-- [ ] Upgrade the global installation and repeat a smoke check against the published runtime pair.
-
-## Candidate provenance
-
-- Sentropic PR: `rhanka/sentropic#532`, merged `c7a68110b555016b496e34215cef3ca0ed4f2f01`
-- `@sentropic/llm-gateway@0.13.1` tarball SHA-256: `a1a3ecf48edf8e6faf602dd53bbc0330ecdad49dc7d4577f6ae45f110af3166a`
-- `@sentropic/llm-mesh@0.15.0` tarball SHA-256: `e6ad6d8fda99ef4e19177f8204e781e4ec69ca0d3cacd10a0b01a992d7697900`
+- [x] Lot 0 — ratify the consumer/product boundary, split future API-key and
+  cluster needs into non-blocking Track items, and commit the EVOL.
+- [x] Lot 1 — move OAuth enrollment to `h2a llm-mesh account enroll`, remove
+  `h2a account`, `--account`, `job.accountId`, `account-pool.ts` and all pool
+  selection/quota/binding/log/export call sites.
+- [x] Lot 2 — make direct launches native and gateway launches llm-mesh-only;
+  preserve user credentials, remove only H2A gateway overrides, and reject an
+  unavailable explicitly-required gateway without silent direct fallback.
+- [x] Lot 3 — update help, doctor, migration docs and tests; run package and
+  real direct/gateway UAT; obtain the requested Fable 5 review and reconcile.
+- [ ] Lot 4 — push one PR, merge after green gates, tag the merged `main`, then
+  verify CI publication and the npm artifact.
 
 ## Verification gates
 
-- package and root typechecks/builds with the resolved pair above
-- package release helper keeps the runtime peer range in lockstep
-- no H2A provider proxy, SSE encoder, token-estimation heuristic, account pool or model map
-- P0 real Claude Code: forced Codex; nonzero first `message_start.usage.input_tokens`; route attestation; tool plus two compactions continue
-- P2 real Claude Code: forced Cloud Code; same first-frame/route/continuation proof
-- one exact-head adversarial review; CI green; branch-lifecycle checks before merge
+- old `h2a account` and flat `h2a llm-mesh enroll` are unknown commands
+- canonical nested enrollment works for Codex and Cloud Code
+- real `h2a run codex --no-gw` uses native login and synthesizes no
+  `OPENAI_API_KEY`
+- real `h2a run claude --no-gw` uses native login and receives no legacy
+  `CLAUDE_CONFIG_DIR`; user auth variables remain user-owned
+- real `h2a run claude --gw` uses the existing llm-mesh gateway; required mode
+  fails closed when unavailable
+- legacy files can remain on disk but runtime and CLI never open them
+- no secret reaches argv, help output, JSON, stdout or logs
+- targeted unit/integration tests, package typecheck/build, CLI help goldens and
+  real candidate-install smoke tests pass
+- exact-head Fable 5 review has no unresolved blocker
+- release tag points at the merged `origin/main` commit and GitHub Actions is
+  the only npm publisher
