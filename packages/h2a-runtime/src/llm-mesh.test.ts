@@ -10,9 +10,11 @@ import {
   acquireLlmMeshSessionEnv,
   enrollViaFacade,
   gatewayScriptPath,
+  listAccountsViaFacade,
   llmMeshLogPath,
   llmMeshPidPath,
   llmMeshTokenPath,
+  removeAccountViaFacade,
   replaceAnthropicGatewayEnvironment,
   startGateway,
 } from "./llm-mesh.js";
@@ -160,6 +162,47 @@ describe("facade enrollment", () => {
     expect(facade.waitForCallback).not.toHaveBeenCalled();
   });
 
+});
+
+describe("facade account administration", () => {
+  it("lists only public account metadata in the requested owner scope", async () => {
+    const accounts = [{
+      accountId: "acct-codex",
+      providerId: "codex",
+      accountLabel: "Codex local",
+      status: "active",
+      createdAt: "2026-08-20T10:00:00.000Z",
+      updatedAt: "2026-08-20T10:00:00.000Z",
+    }];
+    const facade = {
+      listAccounts: vi.fn().mockResolvedValue(accounts),
+    };
+
+    await expect(listAccountsViaFacade({
+      facade: facade as never,
+      ownerScope: "cli:test-host",
+    })).resolves.toEqual(accounts);
+    expect(facade.listAccounts).toHaveBeenCalledWith({
+      ownerScope: "cli:test-host",
+    });
+  });
+
+  it("removes one account through the facade in the requested owner scope", async () => {
+    const facade = {
+      removeAccount: vi.fn().mockResolvedValue({
+        accountId: "acct-codex",
+        removed: true,
+      }),
+    };
+
+    await expect(removeAccountViaFacade("acct-codex", {
+      facade: facade as never,
+      ownerScope: "cli:test-host",
+    })).resolves.toEqual({ accountId: "acct-codex", removed: true });
+    expect(facade.removeAccount).toHaveBeenCalledWith("acct-codex", {
+      ownerScope: "cli:test-host",
+    });
+  });
 });
 
 describe("gateway session acquisition", () => {
