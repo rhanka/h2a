@@ -384,31 +384,6 @@ import {
 } from "./lineage-lease.js";
 import { checkReadiness } from "./readiness.js";
 import { createInterface } from "node:readline";
-import {
-  appendSessionLogEntry,
-  clearBinding,
-  clearExhaustion,
-  enrollAccount,
-  listAccounts,
-  listAccountsWithTokens,
-  listAccountsWithStatus,
-  listBindings,
-  lookupBinding,
-  markExhausted,
-  readClaudeCredential,
-  readCodexCredential,
-  removeAccount,
-  selectAccount,
-  selectAccountWithFallback,
-  stickyBind,
-  loadCandidates,
-  sessionLogPath,
-  exportSessionLogToS3,
-  QUOTA_WINDOW_5H_MS,
-  QUOTA_WINDOW_WEEK_MS,
-  type AccountProvider,
-} from "./account-pool.js";
-
 const H2A_RUN_API_VERSION = "h2a.run/v1";
 const H2A_RUNTIME_VERSION = (
   JSON.parse(
@@ -1490,57 +1465,6 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
     return { started: false, error: (err as Error).message };
   }
 
-  // Account-pool credential injection (WP16 Layer-C).
-  // For claude-code and codex jobs, select the best available account and inject
-  // its credential before spawning. tmux inherits process.env, so we set/restore
-  // around the spawn (same pattern as DEPTH_ENV). agy has no pool → skip.
-  // If no accounts are enrolled or all are exhausted, we proceed with existing env.
-  const accountEnvOverrides: Record<string, string> = {};
-  if (job.tool === "claude" || job.tool === "codex") {
-    const preferredProvider: AccountProvider =
-      job.tool === "claude" ? "claude-code" : "codex";
-    // Forced account (--account <id>): look it up directly, bypassing the pool.
-    const forcedCandidate =
-      job.accountId !== undefined
-        ? loadCandidates(undefined).find((c) => c.id === job.accountId)
-        : undefined;
-    const sel =
-      forcedCandidate !== undefined
-        ? ({ candidate: forcedCandidate, crossProvider: false } as const)
-        : selectAccountWithFallback(preferredProvider, job.id);
-    if (!("allExhausted" in sel) && sel.candidate !== undefined) {
-      if (sel.crossProvider) {
-        const msg =
-          `[h2a] account-pool: all ${preferredProvider} accounts exhausted — ` +
-          `falling back to ${sel.candidate.provider} (${sel.candidate.label})`;
-        process.stderr.write(msg + "\n");
-        // Notify the current tmux pane (non-blocking, best-effort).
-        if (process.env.TMUX) {
-          spawnSync("tmux", ["display-message", msg], { stdio: "ignore" });
-        }
-      }
-      stickyBind(job.id, sel.candidate.id, sel.candidate.provider);
-      // Append a line to the local session log for audit / future S3 export.
-      appendSessionLogEntry({
-        jobId: job.id,
-        preferredProvider,
-        selectedProvider: sel.candidate.provider,
-        accountId: sel.candidate.id,
-        accountLabel: sel.candidate.label,
-        crossProvider: sel.crossProvider,
-      });
-      if (sel.candidate.provider === "codex") {
-        accountEnvOverrides["OPENAI_API_KEY"] = sel.candidate.accessToken;
-      } else if (
-        sel.candidate.provider === "claude-code" &&
-        sel.candidate.configDir
-      ) {
-        accountEnvOverrides["CLAUDE_CONFIG_DIR"] = sel.candidate.configDir;
-      }
-    }
-    // allExhausted: proceed with existing env (fail gracefully at the CLI level)
-  }
-
   // Propagate the child's remaining spawn-depth budget through the env so a job
   // that itself runs `h2a delegate` inherits a DECREMENTED budget (depth=0 →
   // refuse). tmux inherits the spawning process's env, so set it around spawn.
@@ -1549,15 +1473,10 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
   // not the job slug), so an interactive tmux job actually completes.
   const prevDepth = process.env[DEPTH_ENV];
   const prevJobId = process.env[JOB_ID_ENV];
-  const prevAccountEnvs: Record<string, string | undefined> = {};
   process.env[DEPTH_ENV] = childDepthEnvValue(
     job.depthBudget ?? clampDepth(undefined),
   );
   process.env[JOB_ID_ENV] = job.id;
-  for (const [k, v] of Object.entries(accountEnvOverrides)) {
-    prevAccountEnvs[k] = process.env[k];
-    process.env[k] = v;
-  }
   // Inject llm-mesh gateway env if running. Do not trust a parent env that may
   // contain an old gateway token from a previous restart.
   // tmux inherits process.env, so claude + its subagents all get the gateway automatically.
@@ -1578,10 +1497,6 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
         ? await acquireLlmMeshSessionEnv(undefined, gatewayClientSessionId)
         : null;
   } catch (error) {
-    for (const [key, previous] of Object.entries(prevAccountEnvs)) {
-      if (previous === undefined) delete process.env[key];
-      else process.env[key] = previous;
-    }
     return {
       started: false,
       error: error instanceof Error ? error.message : String(error),
@@ -1671,10 +1586,6 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
     else process.env[DEPTH_ENV] = prevDepth;
     if (prevJobId === undefined) delete process.env[JOB_ID_ENV];
     else process.env[JOB_ID_ENV] = prevJobId;
-    for (const [k, prev] of Object.entries(prevAccountEnvs)) {
-      if (prev === undefined) delete process.env[k];
-      else process.env[k] = prev;
-    }
   }
 
   enroll({
@@ -1946,47 +1857,10 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
     return { started: false, error: (err as Error).message };
   }
 
-  // Same env plumbing as startJob (depth budget + REMOTE_JOB_ID + account pool).
-  const preferredProvider: AccountProvider =
-    job.tool === "codex" ? "codex" : "claude-code";
-  const sel = selectAccountWithFallback(preferredProvider, job.id);
-  const accountEnvOverrides: Record<string, string> = {};
-  if ("allExhausted" in sel) {
-    process.stderr.write(
-      `[h2a] account-pool: all accounts exhausted for job ${job.id} — resuming without account override (may throttle again)\n`,
-    );
-  } else if (sel.candidate !== undefined) {
-    if (sel.crossProvider) {
-      const msg = `[h2a] account-pool: all ${preferredProvider} accounts exhausted — falling back to ${sel.candidate.provider} (${sel.candidate.label}) for resume`;
-      process.stderr.write(msg + "\n");
-      if (process.env.TMUX)
-        spawnSync("tmux", ["display-message", msg], { stdio: "ignore" });
-    }
-    stickyBind(job.id, sel.candidate.id, sel.candidate.provider);
-    appendSessionLogEntry({
-      jobId: job.id,
-      preferredProvider,
-      selectedProvider: sel.candidate.provider,
-      accountId: sel.candidate.id,
-      accountLabel: sel.candidate.label,
-      crossProvider: sel.crossProvider,
-    });
-    if (sel.candidate.provider === "codex") {
-      accountEnvOverrides["OPENAI_API_KEY"] = sel.candidate.accessToken;
-    } else if (
-      sel.candidate.provider === "claude-code" &&
-      sel.candidate.configDir
-    ) {
-      accountEnvOverrides["CLAUDE_CONFIG_DIR"] = sel.candidate.configDir;
-    }
-  }
+  // Same env plumbing as startJob (depth budget + REMOTE_JOB_ID). Provider
+  // credentials remain owned by the native CLI or by llm-mesh.
   const prevDepth = process.env[DEPTH_ENV];
   const prevJobId = process.env[JOB_ID_ENV];
-  const prevAccountEnvs: Record<string, string | undefined> = {};
-  for (const [k, v] of Object.entries(accountEnvOverrides)) {
-    prevAccountEnvs[k] = process.env[k];
-    process.env[k] = v;
-  }
   process.env[DEPTH_ENV] = childDepthEnvValue(
     job.depthBudget ?? clampDepth(undefined),
   );
@@ -2036,10 +1910,6 @@ export function resumeThrottledJob(job: RegistryEntry): StartJobResult {
     else process.env[DEPTH_ENV] = prevDepth;
     if (prevJobId === undefined) delete process.env[JOB_ID_ENV];
     else process.env[JOB_ID_ENV] = prevJobId;
-    for (const [k, prev] of Object.entries(prevAccountEnvs)) {
-      if (prev === undefined) delete process.env[k];
-      else process.env[k] = prev;
-    }
   }
 
   // throttled → running, keeping the throttle bookkeeping (attempts/firstAt) so a
@@ -2234,13 +2104,11 @@ async function injectLlmMeshGatewayEnv(
   if (mode === "direct") {
     delete process.env.ANTHROPIC_BASE_URL;
     delete process.env.ANTHROPIC_AUTH_TOKEN;
-    delete process.env.ANTHROPIC_API_KEY;
     return undefined;
   }
   if (mode !== "gateway" && !getLlmMeshRuntimeConfig().enabled) {
     delete process.env.ANTHROPIC_BASE_URL;
     delete process.env.ANTHROPIC_AUTH_TOKEN;
-    delete process.env.ANTHROPIC_API_KEY;
     return undefined;
   }
   // A new local CLI session needs its own gateway token so account affinity is
@@ -2267,9 +2135,18 @@ async function injectLlmMeshGatewayEnv(
     }
   }
   if (!meshEnv) {
-    if (mode === "gateway" && allowDirectFallback) {
+    // A failed or disabled local gateway must not leak a stale H2A bearer into
+    // a direct child. A user-owned API key remains untouched.
+    delete process.env.ANTHROPIC_BASE_URL;
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
+    if (mode === "gateway") {
+      throw new Error(
+        "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code` first",
+      );
+    }
+    if (allowDirectFallback) {
       process.stderr.write(
-        "[h2a] llm-mesh: --gw requested but no gateway env is available; continuing direct. Run `h2a llm-mesh start` or enroll an account first.\n",
+        "[h2a] llm-mesh: gateway unavailable; continuing with native authentication.\n",
       );
     }
     return undefined;
@@ -2301,7 +2178,7 @@ export async function prepareStructuredGateway(
   const gateway = await inject(mode);
   if (mode === "gateway" && !gateway) {
     throw new Error(
-      "llm-mesh gateway is required but unavailable; no agent was started",
+      "llm-mesh gateway is required but unavailable; no agent was started. Run `h2a llm-mesh start` or `h2a llm-mesh account enroll codex|cloud-code` first",
     );
   }
   return gateway;
@@ -5637,11 +5514,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               liveActTarget.kind === "local-tmux" &&
               currentTmuxSessionIs(liveActTarget.name)
             ) {
-              gateway = await injectLlmMeshGatewayEnv(
-                effectiveGatewayMode,
-                true,
-                liveActTarget.name,
-              );
+              try {
+                gateway = await injectLlmMeshGatewayEnv(
+                  effectiveGatewayMode,
+                  true,
+                  liveActTarget.name,
+                );
+              } catch (error) {
+                process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+                process.exitCode = 1;
+                return;
+              }
               persistLaunchContext(
                 liveActTarget.name,
                 buildLaunchContext({
@@ -5787,11 +5670,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             }
           }
         }
-        gateway = await injectLlmMeshGatewayEnv(
-          effectiveGatewayMode,
-          true,
-          localSessionName(resumeSlug),
-        );
+        try {
+          gateway = await injectLlmMeshGatewayEnv(
+            effectiveGatewayMode,
+            true,
+            localSessionName(resumeSlug),
+          );
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+          process.exitCode = 1;
+          return;
+        }
         const sessionClass = deriveSessionClass({
           background: opts.attach !== true,
           humanTerminal:
@@ -6660,10 +6549,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "--effort <level>",
       "reasoning-effort override (claude: --effort low|medium|high|xhigh|max; codex: model_reasoning_effort low|medium|high|xhigh).",
     )
-    .option(
-      "--account <id>",
-      "force a specific account from the pool (bypass selectAccountWithFallback). E.g. claude-code-1234567890.",
-    )
     .action(
       async (
         type: string,
@@ -6681,7 +6566,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           track?: string;
           model?: string;
           effort?: string;
-          account?: string;
         },
       ) => {
         if (!isDelegateType(type)) {
@@ -6811,7 +6695,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(opts.track !== undefined ? { trackWp: opts.track } : {}),
             ...(opts.model !== undefined ? { model: opts.model } : {}),
             ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
-            ...(opts.account !== undefined ? { accountId: opts.account } : {}),
           });
         } catch {
           // registry hiccup must not break the delegation
@@ -6847,7 +6730,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           ...(opts.track !== undefined ? { trackWp: opts.track } : {}),
           ...(opts.model !== undefined ? { model: opts.model } : {}),
           ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
-          ...(opts.account !== undefined ? { accountId: opts.account } : {}),
         };
         let claimed: RegistryEntry | undefined;
         try {
@@ -6901,7 +6783,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(opts.track !== undefined ? { trackWp: opts.track } : {}),
             ...(opts.model !== undefined ? { model: opts.model } : {}),
             ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
-            ...(opts.account !== undefined ? { accountId: opts.account } : {}),
           } satisfies RegistryEntry);
 
         const result = await startJob(launchEntry);
@@ -7059,31 +6940,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   const maybeRecordThrottle = (job: RegistryEntry): boolean => {
     const verdict = detectThrottle(readJobLogTail(job), job.tool);
     if (!verdict.throttled) return false;
-    // Auto-exhaust the account that was rate-limited so new jobs avoid it.
-    const binding = lookupBinding(job.id);
-    if (binding) {
-      markExhausted(
-        binding.accountId,
-        QUOTA_WINDOW_5H_MS,
-        verdict.signature ?? "rate-limit",
-      );
-      const accounts = loadCandidates(undefined);
-      const accountLabel =
-        accounts.find((a) => a.id === binding.accountId)?.label ??
-        binding.accountId.slice(0, 8);
-      appendSessionLogEntry({
-        kind: "exhaust",
-        jobId: job.id,
-        preferredProvider: binding.provider,
-        selectedProvider: binding.provider,
-        accountId: binding.accountId,
-        accountLabel,
-        crossProvider: false,
-        ...(verdict.signature !== undefined
-          ? { signature: verdict.signature }
-          : {}),
-      });
-    }
     const nowMs = Date.now();
     const prior = job.throttle
       ? { attempts: job.throttle.attempts, firstAt: job.throttle.firstAt }
@@ -7262,19 +7118,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .action(async () => {
       const jobs = await reconcileJobs();
-      const accounts = listAccounts();
-      const resolveAccountLabel =
-        accounts.length > 0
-          ? (jobId: string): string | undefined => {
-              const binding = lookupBinding(jobId);
-              if (!binding) return undefined;
-              return (
-                accounts.find((a) => a.id === binding.accountId)?.label ??
-                binding.accountId.slice(0, 8)
-              );
-            }
-          : undefined;
-      const rows = buildJobRows(jobs, jobLive, Date.now(), resolveAccountLabel);
+      const rows = buildJobRows(jobs, jobLive, Date.now());
       process.stdout.write(`${renderJobsTable(rows)}\n`);
       // M3 — warn (don't self-heal) when queued jobs have no conductor draining.
       const advisory = conductorAdvisory(jobs, conductorRunning());
@@ -7432,11 +7276,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           displayState = "awaiting-decision";
         }
       }
-      const binding = lookupBinding(job.id);
-      const accountLabel = binding
-        ? (listAccounts().find((a) => a.id === binding.accountId)?.label ??
-          binding.accountId.slice(0, 8))
-        : undefined;
       const lines = [
         `id:      ${job.id}`,
         `type:    ${job.tool}`,
@@ -7449,7 +7288,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         `task:    ${job.task ?? "-"}`,
         `parent:  ${parentInstance(job) ?? "-"}`,
         `started: ${job.enrolledAt}`,
-        ...(accountLabel !== undefined ? [`account: ${accountLabel}`] : []),
       ];
       const resultPath = join(dir, "result.json");
       const logPath = join(dir, "output.log");
@@ -10111,556 +9949,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     );
 
   // ---------------------------------------------------------------------------
-  // account — WP16 Layer-C: local LLM account pool (enroll / ls / rm / select)
-  // ---------------------------------------------------------------------------
-
-  const accountCommand = program
-    .command("account")
-    .description("Manage the local LLM account pool (WP16)");
-
-  accountCommand
-    .command("enroll")
-    .description(
-      "Register an LLM account. Pass the access token via REMOTE_ACCOUNT_TOKEN " +
-        "env var (never as a flag — that leaks to shell history), OR use " +
-        "--from-credentials to read from the CLI's own config file. " +
-        "Descriptor written to ~/.sentropic/accounts.json (0600); " +
-        "token written to ~/.sentropic/accounts-tokens.json (0600).",
-    )
-    .requiredOption(
-      "--provider <provider>",
-      "LLM provider: claude-code | codex",
-    )
-    .requiredOption("--label <label>", "Human-readable account label")
-    .option("--id <id>", "Unique account id (default: <provider>-<epoch>)")
-    .option(
-      "--from-credentials",
-      "Read access token from the CLI's local config file (~/.claude/.credentials.json " +
-        "for claude-code, ~/.codex/auth.json for codex) instead of REMOTE_ACCOUNT_TOKEN.",
-    )
-    .option(
-      "--config-dir <path>",
-      "Custom config directory to read credentials from (used with --from-credentials).",
-    )
-    .action(
-      (opts: {
-        provider: string;
-        label: string;
-        id?: string;
-        fromCredentials?: boolean;
-        configDir?: string;
-      }) => {
-        const provider = opts.provider as AccountProvider;
-        if (provider !== "claude-code" && provider !== "codex") {
-          process.stderr.write(
-            `[h2a] account enroll: unknown provider "${opts.provider}" (known: claude-code, codex)\n`,
-          );
-          process.exitCode = 1;
-          return;
-        }
-        let accessToken: string;
-        if (opts.fromCredentials) {
-          const result =
-            provider === "claude-code"
-              ? readClaudeCredential(opts.configDir)
-              : readCodexCredential(opts.configDir);
-          if (!result.ok) {
-            process.stderr.write(`[h2a] account enroll: ${result.error}\n`);
-            process.exitCode = 1;
-            return;
-          }
-          accessToken = result.accessToken;
-          process.stderr.write(
-            `[h2a] account enroll: read token from ${provider === "claude-code" ? "~/.claude/.credentials.json" : "~/.codex/auth.json"}\n`,
-          );
-        } else {
-          accessToken = process.env.REMOTE_ACCOUNT_TOKEN ?? "";
-          if (!accessToken.trim()) {
-            process.stderr.write(
-              "[h2a] account enroll: REMOTE_ACCOUNT_TOKEN env var is not set or empty\n" +
-                "[h2a] (tip: use --from-credentials to read from the CLI's local config)\n",
-            );
-            process.exitCode = 1;
-            return;
-          }
-        }
-        const result = enrollAccount({
-          provider,
-          label: opts.label,
-          accessToken,
-          ...(opts.id !== undefined ? { id: opts.id } : {}),
-          // For claude-code: store configDir so startJob can inject CLAUDE_CONFIG_DIR.
-          ...(provider === "claude-code" && opts.configDir !== undefined
-            ? { configDir: opts.configDir }
-            : {}),
-        });
-        if (!result.ok) {
-          process.stderr.write(`[h2a] account enroll: ${result.error}\n`);
-          process.exitCode = 1;
-          return;
-        }
-        process.stderr.write(
-          `[h2a] account enrolled: ${result.descriptor.id} (${result.descriptor.provider}) "${result.descriptor.label}"\n`,
-        );
-      },
-    );
-
-  accountCommand
-    .command("ls")
-    .description(
-      "List enrolled LLM accounts with quota/exhaustion status (descriptors only — no tokens).",
-    )
-    .option("--json", "Output as JSON array")
-    .action((opts: { json?: boolean }) => {
-      const accounts = listAccountsWithStatus();
-      if (opts.json) {
-        process.stdout.write(JSON.stringify(accounts, null, 2) + "\n");
-        return;
-      }
-      if (accounts.length === 0) {
-        process.stderr.write("[h2a] no accounts enrolled\n");
-        return;
-      }
-      const hasConfigDir = accounts.some((a) => a.configDir !== undefined);
-      const header = ["ID", "PROVIDER", "LABEL", "QUOTA", "ENROLLED"].concat(
-        hasConfigDir ? ["CONFIG-DIR"] : [],
-      );
-      const rows = accounts.map((a) => {
-        const quota = a.exhausted
-          ? `QUOTA_EXCEEDED (resets ${(a.quotaResetsAt ?? "?").slice(0, 19)})${a.exhaustionReason ? ` [${a.exhaustionReason}]` : ""}`
-          : "ok";
-        return [
-          a.id,
-          a.provider,
-          a.label,
-          quota,
-          a.enrolledAt.slice(0, 19),
-        ].concat(hasConfigDir ? [a.configDir ?? ""] : []);
-      });
-      const widths = header.map((h, i) =>
-        Math.max(h.length, ...rows.map((r) => r[i]!.length)),
-      );
-      const line = (cols: string[]) =>
-        cols
-          .map((c, i) => c.padEnd(widths[i]!))
-          .join("  ")
-          .trimEnd();
-      process.stdout.write([line(header), ...rows.map(line)].join("\n") + "\n");
-    });
-
-  accountCommand
-    .command("rm <id>")
-    .description("Remove an enrolled account (descriptor + token).")
-    .action((id: string) => {
-      const result = removeAccount(id);
-      if (!result.ok) {
-        process.stderr.write(`[h2a] account rm: ${result.error}\n`);
-        process.exitCode = 1;
-        return;
-      }
-      process.stderr.write(`[h2a] account removed: ${result.id}\n`);
-    });
-
-  accountCommand
-    .command("exhausted <id>")
-    .description(
-      "Mark an account as quota-exhausted for a given window (default 5h). " +
-        "New sessions skip exhausted accounts; selectAccountWithFallback() " +
-        "tries the next same-provider account then falls back cross-provider.",
-    )
-    .option(
-      "--window <window>",
-      'Exhaustion window: "5h" (default), "week" (7d), or a raw number of hours.',
-      "5h",
-    )
-    .option(
-      "--reason <reason>",
-      'Optional reason label (e.g. "429 rate-limit")',
-    )
-    .action((id: string, opts: { window?: string; reason?: string }) => {
-      const windowMs = (() => {
-        if (!opts.window || opts.window === "5h") return QUOTA_WINDOW_5H_MS;
-        if (opts.window === "week") return QUOTA_WINDOW_WEEK_MS;
-        const h = Number(opts.window.replace(/h$/i, ""));
-        return Number.isFinite(h) && h > 0
-          ? h * 60 * 60 * 1_000
-          : QUOTA_WINDOW_5H_MS;
-      })();
-      const rec = markExhausted(id, windowMs, opts.reason);
-      const resetsAt = new Date(
-        new Date(rec.exhaustedAt).getTime() + windowMs,
-      ).toISOString();
-      process.stderr.write(
-        `[h2a] account ${id} marked exhausted — resets at ${resetsAt}` +
-          (opts.reason ? ` (reason: ${opts.reason})` : "") +
-          "\n",
-      );
-    });
-
-  accountCommand
-    .command("clear-quota <id>")
-    .description(
-      "Clear the quota exhaustion for an account (manual override — the account " +
-        "becomes immediately available for selection again).",
-    )
-    .action((id: string) => {
-      clearExhaustion(id);
-      process.stderr.write(
-        `[h2a] account ${id} quota cleared — available for selection\n`,
-      );
-    });
-
-  accountCommand
-    .command("select")
-    .description(
-      "Dry-run: show which account selectAccount() would pick for a new session " +
-        "(round-robin, no I/O, stub planner).",
-    )
-    .option(
-      "--provider <provider>",
-      "Filter by provider (required with --fallback)",
-    )
-    .option(
-      "--last-used <id>",
-      "Pretend this account was used last (simple round-robin only)",
-    )
-    .option(
-      "--fallback",
-      "Use selectAccountWithFallback() — quota-aware, cross-provider fallback — instead of plain round-robin. Requires --provider.",
-    )
-    .option(
-      "--affinity-key <key>",
-      "Sticky-binding key to test (used with --fallback, e.g. a job id)",
-    )
-    .action(
-      (opts: {
-        provider?: string;
-        lastUsed?: string;
-        fallback?: boolean;
-        affinityKey?: string;
-      }) => {
-        if (opts.fallback) {
-          if (
-            !opts.provider ||
-            (opts.provider !== "claude-code" && opts.provider !== "codex")
-          ) {
-            process.stderr.write(
-              "[h2a] account select --fallback requires --provider claude-code|codex\n",
-            );
-            process.exitCode = 1;
-            return;
-          }
-          const provider = opts.provider as AccountProvider;
-          const sel = selectAccountWithFallback(provider, opts.affinityKey);
-          if (!sel.candidate) {
-            process.stderr.write(
-              "[h2a] account select: all accounts exhausted — no usable account available\n",
-            );
-            process.exitCode = 1;
-            return;
-          }
-          const { accessToken: _t, ...desc } = sel.candidate;
-          const crossProvider =
-            "crossProvider" in sel ? sel.crossProvider : false;
-          const originalProvider =
-            "originalProvider" in sel ? sel.originalProvider : undefined;
-          process.stdout.write(
-            JSON.stringify(
-              {
-                selected: desc,
-                crossProvider,
-                ...(originalProvider !== undefined ? { originalProvider } : {}),
-              },
-              null,
-              2,
-            ) + "\n",
-          );
-          return;
-        }
-        const provider = opts.provider as AccountProvider | undefined;
-        const candidates = loadCandidates(provider).map(
-          ({ accessToken: _t, ...d }) => d,
-        );
-        const pick = selectAccount(candidates, opts.lastUsed);
-        if (!pick) {
-          process.stderr.write(
-            "[h2a] account select: no candidates available\n",
-          );
-          return;
-        }
-        process.stdout.write(
-          JSON.stringify(
-            { selected: pick, totalCandidates: candidates.length },
-            null,
-            2,
-          ) + "\n",
-        );
-      },
-    );
-
-  accountCommand
-    .command("log")
-    .description(
-      "Show the local account selection log (~/.sentropic/session-log.jsonl). " +
-        "Records job launches (kind=launch) and auto-exhaustion events (kind=exhaust) from throttle detection.",
-    )
-    .option("-n, --last <n>", "Show last N entries (default: 20)")
-    .option("--json", "Output raw JSONL")
-    .option(
-      "--export-s3 [s3-uri]",
-      "Upload the full log to an S3 URI (e.g. s3://my-bucket/session-log.jsonl). " +
-        "If omitted, reads REMOTE_ACCOUNT_LOG_S3 from the environment. " +
-        "Also reads AWS_ENDPOINT_URL (SCW: https://s3.fr-par.scw.cloud), AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY.",
-    )
-    .action(
-      async (opts: {
-        last?: string;
-        json?: boolean;
-        exportS3?: string | boolean;
-      }) => {
-        if (opts.exportS3 !== undefined) {
-          const uri =
-            typeof opts.exportS3 === "string"
-              ? opts.exportS3
-              : process.env.REMOTE_ACCOUNT_LOG_S3;
-          if (!uri) {
-            process.stderr.write(
-              "[h2a] account log --export-s3: no S3 URI provided and REMOTE_ACCOUNT_LOG_S3 is not set\n",
-            );
-            process.exit(1);
-          }
-          try {
-            await exportSessionLogToS3(uri);
-            process.stdout.write(`[h2a] session log exported to ${uri}\n`);
-          } catch (err) {
-            process.stderr.write(
-              `[h2a] account log --export-s3: ${err instanceof Error ? err.message : String(err)}\n`,
-            );
-            process.exit(1);
-          }
-          return;
-        }
-        const logFile = sessionLogPath();
-        let raw: string;
-        try {
-          raw = readFileSync(logFile, "utf8");
-        } catch {
-          process.stderr.write(
-            "[h2a] account log: no session log yet (no jobs launched with accounts enrolled)\n",
-          );
-          return;
-        }
-        const lines = raw.split("\n").filter(Boolean);
-        const n = opts.last !== undefined ? Number.parseInt(opts.last, 10) : 20;
-        const tail = Number.isFinite(n) && n > 0 ? lines.slice(-n) : lines;
-        if (opts.json) {
-          process.stdout.write(tail.join("\n") + "\n");
-          return;
-        }
-        if (tail.length === 0) {
-          process.stderr.write("[h2a] account log: empty\n");
-          return;
-        }
-        process.stdout.write(
-          [
-            "AT                       KIND      JOB-ID           ACCOUNT-LABEL    NOTE",
-          ]
-            .concat(
-              tail.map((line) => {
-                try {
-                  const e = JSON.parse(line) as {
-                    at: string;
-                    kind?: string;
-                    jobId: string;
-                    preferredProvider: string;
-                    selectedProvider: string;
-                    accountLabel: string;
-                    crossProvider: boolean;
-                    signature?: string;
-                  };
-                  const kind = e.kind ?? "launch";
-                  const note =
-                    kind === "exhaust"
-                      ? `throttled (${e.signature ?? "rate-limit"})`
-                      : e.crossProvider
-                        ? `⚠ fallback ${e.preferredProvider}→${e.selectedProvider}`
-                        : "";
-                  return [
-                    (e.at ?? "").slice(0, 23).padEnd(24),
-                    kind.padEnd(9),
-                    (e.jobId ?? "").slice(0, 16).padEnd(17),
-                    (e.accountLabel ?? "").slice(0, 16).padEnd(17),
-                    note,
-                  ]
-                    .join(" ")
-                    .trimEnd();
-                } catch {
-                  return line;
-                }
-              }),
-            )
-            .join("\n") + "\n",
-        );
-      },
-    );
-
-  accountCommand
-    .command("rm-binding <affinityKey>")
-    .description(
-      "Remove a sticky session→account binding (forces re-selection on next launch for this affinity key). " +
-        "Use the job id or session slug as <affinityKey>.",
-    )
-    .action((affinityKey: string) => {
-      const existing = lookupBinding(affinityKey);
-      if (!existing) {
-        process.stderr.write(`[h2a] no binding for "${affinityKey}"\n`);
-        process.exitCode = 1;
-        return;
-      }
-      clearBinding(affinityKey);
-      const accounts = listAccounts();
-      const label =
-        accounts.find((a) => a.id === existing.accountId)?.label ??
-        existing.accountId.slice(0, 8);
-      process.stderr.write(
-        `[h2a] binding removed: ${affinityKey} → ${label} (${existing.provider})\n`,
-      );
-    });
-
-  accountCommand
-    .command("bindings")
-    .description(
-      "List current sticky session→account bindings (~/.sentropic/session-bindings.json). " +
-        "Each running job is bound to one account; the binding is used by selectAccountWithFallback() to honour affinity.",
-    )
-    .option("--json", "Output as JSON array")
-    .action((opts: { json?: boolean }) => {
-      const bindings = listBindings();
-      if (opts.json) {
-        process.stdout.write(JSON.stringify(bindings, null, 2) + "\n");
-        return;
-      }
-      if (bindings.length === 0) {
-        process.stderr.write(
-          "[h2a] no active bindings (no jobs launched with accounts enrolled)\n",
-        );
-        return;
-      }
-      const accounts = listAccounts();
-      const header = ["AFFINITY-KEY", "PROVIDER", "ACCOUNT-LABEL", "BOUND-AT"];
-      const rows = bindings.map((b) => {
-        const label =
-          accounts.find((a) => a.id === b.accountId)?.label ??
-          b.accountId.slice(0, 8);
-        return [
-          b.affinityKey.slice(0, 20),
-          b.provider,
-          label,
-          b.boundAt.slice(0, 19),
-        ];
-      });
-      const widths = header.map((h, i) =>
-        Math.max(h.length, ...rows.map((r) => r[i]!.length)),
-      );
-      const line = (cols: string[]) =>
-        cols
-          .map((c, i) => c.padEnd(widths[i]!))
-          .join("  ")
-          .trimEnd();
-      process.stdout.write([line(header), ...rows.map(line)].join("\n") + "\n");
-    });
-
-  // ---------------------------------------------------------------------------
-  // account push-cluster — push local pool to k8s Secret (WP16 Slice 2c)
-  // ---------------------------------------------------------------------------
-
-  const accountPushClusterCommand = accountCommand
-    .command("push-cluster")
-    .description(
-      "Push the local LLM account pool (with tokens) to a Kubernetes Secret " +
-        "(llm-gateway-accounts) so the in-cluster LLM gateway can use the same accounts. " +
-        "Requires kubectl on PATH with write access to the target namespace.",
-    )
-    .option(
-      "--namespace <ns>",
-      "Kubernetes namespace for the Secret (default: sentropic-remote)",
-      "sentropic-remote",
-    )
-    .option(
-      "--secret-name <name>",
-      "Secret name (default: llm-gateway-accounts)",
-      "llm-gateway-accounts",
-    )
-    .option("--dry-run", "Print the YAML to stdout instead of applying it")
-    .option(
-      "--json",
-      "Print the accounts JSON only (no kubectl — for debugging)",
-    )
-    .action(
-      async (opts: {
-        namespace: string;
-        secretName: string;
-        dryRun?: boolean;
-        json?: boolean;
-      }) => {
-        const accounts = listAccountsWithTokens();
-        if (accounts.length === 0) {
-          process.stderr.write(
-            "[h2a] no enrolled accounts with tokens found — run `h2a account enroll` first\n",
-          );
-          process.exit(1);
-        }
-
-        // Build the gateway-format JSON (token field, not accessToken)
-        const gatewayAccounts = accounts.map((a) => ({
-          id: a.id,
-          provider: a.provider,
-          label: a.label,
-          token: a.accessToken,
-          enrolledAt: a.enrolledAt,
-        }));
-        const accountsJson = JSON.stringify(gatewayAccounts, null, 2);
-
-        if (opts.json) {
-          process.stdout.write(accountsJson + "\n");
-          return;
-        }
-
-        // Build the Secret YAML (accounts.json under stringData — kubectl encodes to base64)
-        const yaml =
-          `apiVersion: v1\nkind: Secret\nmetadata:\n  name: ${opts.secretName}\n  namespace: ${opts.namespace}\ntype: Opaque\nstringData:\n  accounts.json: |\n` +
-          accountsJson
-            .split("\n")
-            .map((line) => `    ${line}`)
-            .join("\n") +
-          "\n";
-
-        if (opts.dryRun) {
-          process.stdout.write(yaml);
-          return;
-        }
-
-        // Apply via kubectl with YAML on stdin (tokens never appear in process args)
-        const { spawnSync } = await import("node:child_process");
-        const result = spawnSync("kubectl", ["apply", "-f", "-"], {
-          input: yaml,
-          stdio: ["pipe", "inherit", "inherit"],
-          encoding: "utf-8",
-        });
-        if (result.status !== 0) {
-          process.stderr.write(
-            `[h2a] kubectl apply failed (exit ${result.status ?? "?"}) — try --dry-run to inspect the YAML\n`,
-          );
-          process.exit(result.status ?? 1);
-        }
-        process.stdout.write(
-          `[h2a] pushed ${accounts.length} account(s) to ${opts.namespace}/${opts.secretName}\n`,
-        );
-      },
-    );
-  void accountPushClusterCommand; // suppress unused-var lint
-
-  // ---------------------------------------------------------------------------
   // llm-mesh — local LLM gateway (solo-dev mode)
   // ---------------------------------------------------------------------------
 
@@ -10670,7 +9958,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "Manage the local LLM gateway (solo-dev mesh: multi-account, cross-provider fallback)",
     );
 
-  llmMeshCommand
+  const llmMeshAccountCommand = llmMeshCommand
+    .command("account")
+    .description("Manage accounts through the Sentropic llm-mesh facade");
+
+  llmMeshAccountCommand
     .command("enroll <provider>")
     .description(
       "Enroll through the sentropic-owned OAuth state machine " +
@@ -10686,7 +9978,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       ) => {
         if (provider !== "cloud-code" && provider !== "codex") {
           process.stderr.write(
-            `[h2a] llm-mesh: unsupported provider "${provider}". ` +
+            `[h2a] llm-mesh account: unsupported provider "${provider}". ` +
               "Supported: cloud-code, codex\n",
           );
           process.exitCode = 1;
@@ -10697,12 +9989,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(opts.configRef ? { configRef: opts.configRef } : {}),
           });
           process.stdout.write(
-            `[h2a] llm-mesh: enrolled ${account.provider}; ` +
+            `[h2a] llm-mesh account: enrolled ${account.provider}; ` +
               "account inventory remains in Sentropic\n",
           );
         } catch (error) {
           process.stderr.write(
-            `[h2a] llm-mesh: ${error instanceof Error ? error.message : String(error)}\n`,
+            `[h2a] llm-mesh account: ${error instanceof Error ? error.message : String(error)}\n`,
           );
           process.exitCode = 1;
         }
