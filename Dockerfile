@@ -32,6 +32,7 @@ COPY packages/h2a packages/h2a
 COPY packages/h2a-cli packages/h2a-cli
 COPY packages/h2a-runtime packages/h2a-runtime
 COPY packages/track packages/track
+COPY scripts/clean-workspace-dist.mjs scripts/
 RUN npm run build
 
 # ---

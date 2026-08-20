@@ -14,7 +14,8 @@ node_modules
 *.tgz
 docs
 examples
-scripts
+scripts/*
+!scripts/clean-workspace-dist.mjs
 .dockerignore
 Dockerfile
 README.md
