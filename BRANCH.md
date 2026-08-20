@@ -32,6 +32,7 @@ h2a llm-mesh account remove <id>       # aliases: rm, unenroll
 - `BRANCH.md`
 - `docs/specs/2026-08-20-SPEC_EVOL_llm-mesh-account-administration.md`
 - `docs/llm-mesh-account-migration.md`
+- `apps/llm-gateway/package.json`
 - `packages/h2a-runtime/src/index.ts`
 - `packages/h2a-runtime/src/llm-mesh.ts`
 - directly affected tests and dependency lockfiles
@@ -39,7 +40,7 @@ h2a llm-mesh account remove <id>       # aliases: rm, unenroll
 ## Lots
 
 - [x] Prove the missing facade seam and write the behavioural spec.
-- [ ] Write red unit and CLI acceptance tests.
+- [x] Write red unit and CLI acceptance tests.
 - [ ] Consume the published Sentropic account-administration seam.
 - [ ] Make scoped tests green, then run package build/typecheck/tests.
 - [ ] Rebase, review, merge, tag merged `main`, verify CI publication, upgrade.
