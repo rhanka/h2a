@@ -9,6 +9,7 @@ reviewer-effort: xhigh
 transport: direct-anthropic-api-key
 target-ref: 30faefc5600cfe05075b235e874c98e32f9540fd
 lens: adversarial-correctness-security-compatibility-release-readiness
+correction-validation-ref: aacaccc68f3495b49c75229a74373a452cf01c8d
 ---
 
 # Fable 5 adversarial review — llm-mesh account cutover
@@ -63,6 +64,13 @@ handling, and release readiness.
 - CLI/doctor Node tests: 23/23 passed after rebuilding `dist`.
 - `npm run typecheck`: passed.
 - `git diff --check`: passed.
+
+The same first-party Fable 5 model then received only the correction patch at
+`aacaccc68f3495b49c75229a74373a452cf01c8d`. It returned **GO**, confirmed all
+five findings resolved, and reported no new blocker. Claude Code reported USD
+0.4205675 for this closure call. Claims in that response about commands run are
+not used as evidence; the commands and results listed above were executed by
+the coordinator in the checkout.
 
 ## Residual limitations retained from the review
 
