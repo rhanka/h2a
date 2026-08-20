@@ -253,6 +253,16 @@ export function formatLlmMeshAccountList(
     .join("\n");
 }
 
+const SAFE_ACCOUNT_NOT_FOUND = /^Account '[A-Za-z0-9][A-Za-z0-9._:-]{0,127}' not found$/;
+
+export function formatLlmMeshAccountError(
+  error: unknown,
+  fallback: "account inventory unavailable" | "account removal failed",
+): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return SAFE_ACCOUNT_NOT_FOUND.test(message) ? message : fallback;
+}
+
 // ---------------------------------------------------------------------------
 // Capitalized LlmMeshManager API
 // ---------------------------------------------------------------------------
