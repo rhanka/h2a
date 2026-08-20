@@ -55,3 +55,16 @@ h2a llm-mesh account remove <id>       # aliases: rm, unenroll
 - a temporary isolated keyring proves enroll inventory and removal end to end;
 - no legacy account-pool import or secret-bearing output returns;
 - tag points to merged `main`; GitHub Actions alone publishes npm.
+
+## Feedback Loop
+
+- Fable 5 review on `36661cf4`: **FAIL** because unexpected facade errors
+  exposed keyring paths. Resolved with a closed safe-error projection and CLI
+  canaries covering path- and credential-shaped diagnostics.
+- Fable 5 review on `36661cf4`: **FAIL** because the successful lifecycle gate
+  was not exercised. Resolved through the public facade with a mocked OAuth
+  boundary and in-memory keyring: enroll, owner isolation, removal, empty
+  inventory and post-removal acquisition refusal are all asserted.
+- Per-command Commander usage renders only the first removal alias. Accepted as
+  non-blocking: every alias executes and the parent account help displays the
+  complete `remove|rm|unenroll` surface requested by the CLI contract.
