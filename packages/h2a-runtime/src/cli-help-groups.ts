@@ -30,7 +30,7 @@
  * - `TRANSPORT` — excerpt 5, last table row: "`h2a remote …` and `h2a relay …` |
  *   Quarantined transport/bridge compatibility … | The primary user journey".
  * - `LLM_LOCAL` — NOT from the study; see excerpt 6 and the group's own comment.
- *   It is a labelled bucket for two commands that ship, not an intention.
+ *   It is a labelled bucket for the local mesh command, not an intention.
  *
  * There is no fallback group on this surface. An unclassified command keeps
  * Commander's default `Commands:` heading, which is exactly what the "none left in
@@ -221,31 +221,26 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
     commands: ["sync", "sync-files", "forward", "browser", "migrate"],
   },
   {
-    // A SEMANTIC bucket for two named, known commands — NOT a fallback. This
+    // A SEMANTIC bucket for one named, known command — NOT a fallback. This
     // surface has no fallback group at all (see the header): an unclassified
     // command keeps Commander's default heading and trips the test.
     //
-    // Not a study group. `account` and `llm-mesh` manage the local LLM account
-    // pool and the local gateway/mesh. Vendored excerpt 6 lists the areas h2a
+    // Not a study group. `llm-mesh` exposes the Sentropic-owned local gateway
+    // and account-enrollment facade. Vendored excerpt 6 lists the areas h2a
     // should NOT own:
     // > `h2a gateway`, `h2a provider`, `h2a account`, `h2a catalogue`, or `h2a failover`.
     // > A command that lists or selects sentropic account pools, raw upstream model identifiers, sticky
     //
-    // PRECISION the earlier wording lacked. It said the study "lists exactly
-    // these", which was true of one command and stranded for the other:
-    // `account` is named DIRECTLY by the first bullet; `llm-mesh` is named
-    // NOWHERE in the study and is covered by the second bullet only through what
-    // it does (multi-account, cross-provider fallback = account pools + failover).
-    // The bucket is warranted for both; only one is warranted by name.
-    //
-    // They nevertheless SHIP today. Forcing them into an operator group would
-    // launder that contradiction, and hiding them would be dishonest — so they
-    // get a labelled bucket. This is a finding about the command set, not a
-    // deprecation: both commands keep working exactly as before.
+    // `llm-mesh` is named nowhere in the study and is covered by the second
+    // bullet only through what it exposes (multi-account, cross-provider
+    // fallback). It nevertheless ships today. Forcing it into an operator group
+    // would launder that contradiction, and hiding it would be dishonest — so it
+    // gets a labelled bucket. This is a finding about the command set, not a
+    // claim that H2A owns the underlying account or routing product.
     id: "LLM_LOCAL",
     heading:
       "Local LLM account & gateway (outside the design study's operator grouping):",
-    commands: ["account", "llm-mesh"],
+    commands: ["llm-mesh"],
   },
   {
     // Commander's built-in help command. Not an operator intention.

@@ -124,6 +124,7 @@ import { H2A_OPENCODE_HOST } from "./hosts/opencode.js";
 import {
   doctorHostInstallations,
   findLiveSessionsPredatingHostConfig,
+  inspectLegacyAccountArtifacts,
   type HostInstallationDoctorOptions,
   type HostInstallationDoctorReport
 } from "./hosts/installation-doctor.js";
@@ -5191,6 +5192,18 @@ function cmdDoctor(
 
   // 4. h2a binary reachable (self-check via existing API)
   checks.cliBinary = { ok: true };
+
+  // Legacy account-pool files can contain credentials. They are no longer read
+  // by H2A and doctor deliberately performs existence checks only.
+  const legacyAccountArtifacts = inspectLegacyAccountArtifacts();
+  checks.legacyAccountArtifacts = legacyAccountArtifacts;
+  if (legacyAccountArtifacts.found.length > 0) {
+    warnings.push({
+      check: "legacyAccountArtifacts",
+      message: legacyAccountArtifacts.message,
+      paths: legacyAccountArtifacts.found,
+    });
+  }
 
   // 5. `doctor` remains the non-mutating bus-health probe used by automation.
   // `--repair` is the single explicit host-installation convergence action: it
