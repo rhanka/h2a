@@ -399,6 +399,7 @@ import {
 } from "./protocol-local.js";
 import {
   enrollViaFacade,
+  formatLlmMeshAccountError,
   formatLlmMeshAccountList,
   listAccountsViaFacade,
   readLlmMeshConfig,
@@ -10021,7 +10022,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         process.stdout.write(`${formatLlmMeshAccountList(accounts, opts.json === true)}\n`);
       } catch (error) {
         process.stderr.write(
-          `[h2a] llm-mesh account: ${error instanceof Error ? error.message : String(error)}\n`,
+          `[h2a] llm-mesh account: ${formatLlmMeshAccountError(error, "account inventory unavailable")}\n`,
         );
         process.exitCode = 1;
       }
@@ -10037,7 +10038,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         process.stdout.write(`[h2a] llm-mesh account: removed ${result.accountId}\n`);
       } catch (error) {
         process.stderr.write(
-          `[h2a] llm-mesh account: ${error instanceof Error ? error.message : String(error)}\n`,
+          `[h2a] llm-mesh account: ${formatLlmMeshAccountError(error, "account removal failed")}\n`,
         );
         process.exitCode = 1;
       }
