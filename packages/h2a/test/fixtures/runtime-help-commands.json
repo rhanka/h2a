@@ -235,7 +235,7 @@
     {
       "group": "Local LLM account & gateway (outside the design study's operator grouping):",
       "term": "llm-mesh",
-      "description": "Manage the Sentropic llm-mesh gateway and account enrollment"
+      "description": "Manage the Sentropic llm-mesh gateway and account lifecycle"
     },
     {
       "group": "Help:",

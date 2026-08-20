@@ -14,7 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { Command } from "commander";
+import { Command, Help } from "commander";
 
 import {
   applyRuntimeHelpGroups,
@@ -399,12 +399,15 @@ import {
 } from "./protocol-local.js";
 import {
   enrollViaFacade,
+  formatLlmMeshAccountList,
+  listAccountsViaFacade,
   readLlmMeshConfig,
   startGateway,
   stopGateway,
   readGatewayPid,
   llmMeshLogPath,
   replaceAnthropicGatewayEnvironment,
+  removeAccountViaFacade,
   acquireLlmMeshSessionEnv,
   updateLlmMeshRoutingConfig,
 } from "./llm-mesh.js";
@@ -9955,12 +9958,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   const llmMeshCommand = program
     .command("llm-mesh")
     .description(
-      "Manage the Sentropic llm-mesh gateway and account enrollment",
+      "Manage the Sentropic llm-mesh gateway and account lifecycle",
     );
 
   const llmMeshAccountCommand = llmMeshCommand
     .command("account")
     .description("Manage accounts through the Sentropic llm-mesh facade");
+  const defaultAccountHelp = new Help();
+  llmMeshAccountCommand.configureHelp({
+    subcommandTerm: (command) => command.name() === "remove"
+      ? "remove|rm|unenroll <account-id>"
+      : defaultAccountHelp.subcommandTerm(command),
+  });
 
   llmMeshAccountCommand
     .command("enroll <provider>")
@@ -10000,6 +10009,39 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
       },
     );
+
+  llmMeshAccountCommand
+    .command("list")
+    .alias("ls")
+    .description("List public accounts owned by this local llm-mesh scope")
+    .option("--json", "emit public account metadata as JSON")
+    .action(async (opts: { json?: boolean }) => {
+      try {
+        const accounts = await listAccountsViaFacade();
+        process.stdout.write(`${formatLlmMeshAccountList(accounts, opts.json === true)}\n`);
+      } catch (error) {
+        process.stderr.write(
+          `[h2a] llm-mesh account: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+        process.exitCode = 1;
+      }
+    });
+
+  llmMeshAccountCommand
+    .command("remove <account-id>")
+    .aliases(["rm", "unenroll"])
+    .description("Remove one account owned by this local llm-mesh scope")
+    .action(async (accountId: string) => {
+      try {
+        const result = await removeAccountViaFacade(accountId);
+        process.stdout.write(`[h2a] llm-mesh account: removed ${result.accountId}\n`);
+      } catch (error) {
+        process.stderr.write(
+          `[h2a] llm-mesh account: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+        process.exitCode = 1;
+      }
+    });
 
   const llmMeshRouteCommand = llmMeshCommand
     .command("route")
