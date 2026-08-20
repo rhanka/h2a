@@ -3,13 +3,18 @@ import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LlmMeshFacade } from "@sentropic/llm-mesh/facade";
+import {
+  createLlmMeshFacade,
+  type LlmMeshFacade,
+} from "@sentropic/llm-mesh/facade";
+import { InMemoryKeyring } from "@sentropic/llm-mesh/node";
 
 import {
   LlmMeshManager,
   acquireLlmMeshSessionEnv,
   enrollViaFacade,
   formatLlmMeshAccountList,
+  formatLlmMeshAccountError,
   gatewayScriptPath,
   listAccountsViaFacade,
   llmMeshLogPath,
@@ -166,6 +171,21 @@ describe("facade enrollment", () => {
 });
 
 describe("facade account administration", () => {
+  it("keeps unexpected facade errors free of paths and credentials", () => {
+    const poisoned = new Error(
+      "ENOTDIR: /home/private/.sentropic/llm-mesh-keyring/access-token.json",
+    );
+
+    expect(formatLlmMeshAccountError(poisoned, "account inventory unavailable"))
+      .toBe("account inventory unavailable");
+    expect(formatLlmMeshAccountError(poisoned, "account removal failed"))
+      .toBe("account removal failed");
+    expect(formatLlmMeshAccountError(
+      new Error("Account 'acct-codex_1' not found"),
+      "account removal failed",
+    )).toBe("Account 'acct-codex_1' not found");
+  });
+
   it("lists only public account metadata in the requested owner scope", async () => {
     const accounts = [{
       accountId: "acct-codex",
@@ -235,6 +255,68 @@ describe("facade account administration", () => {
     expect(table).toContain("ENROLLED");
     expect(table).toContain("acct-codex");
     expect(table).not.toContain("must-not-leak");
+  });
+
+  it("exercises enroll, owner-scoped inventory, removal, and ineligibility through the public facade", async () => {
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/accounts/deviceauth/usercode")) {
+        return new Response(JSON.stringify({
+          device_auth_id: "device-auth-1",
+          user_code: "ABCD-EFGH",
+          interval: 0,
+        }), { status: 200 });
+      }
+      if (url.endsWith("/api/accounts/deviceauth/token")) {
+        return new Response(JSON.stringify({
+          authorization_code: "authorization-code-1",
+          code_verifier: "code-verifier-1",
+        }), { status: 200 });
+      }
+      if (url.endsWith("/oauth/token")) {
+        return new Response(JSON.stringify({
+          access_token: "fixture-access-token",
+          refresh_token: "fixture-refresh-token",
+          expires_in: 3600,
+        }), { status: 200 });
+      }
+      throw new Error(`unexpected fixture URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const facade = createLlmMeshFacade({
+      configResolver: { async resolveConfig() { return {}; } },
+      keyring: new InMemoryKeyring(),
+      mode: "cli",
+    });
+    const enrollment = await facade.enroll("codex", {
+      configRef: "config-v1",
+      mode: "cli",
+      ownerScope: "cli:owner-a",
+      redirectUri: "http://127.0.0.1/callback",
+    });
+    const completed = await facade.pollForCompletion(enrollment.enrollmentId);
+
+    const owned = await facade.listAccounts({ ownerScope: "cli:owner-a" });
+    expect(owned).toHaveLength(1);
+    expect(owned[0]?.accountId).toBe(completed.accountId);
+    expect(JSON.stringify(owned)).not.toContain("fixture-access-token");
+    await expect(facade.listAccounts({ ownerScope: "cli:owner-b" }))
+      .resolves.toEqual([]);
+    await expect(facade.removeAccount(completed.accountId, {
+      ownerScope: "cli:owner-b",
+    })).rejects.toThrow(`Account '${completed.accountId}' not found`);
+
+    await expect(facade.removeAccount(completed.accountId, {
+      ownerScope: "cli:owner-a",
+    })).resolves.toEqual({ accountId: completed.accountId, removed: true });
+    await expect(facade.listAccounts({ ownerScope: "cli:owner-a" }))
+      .resolves.toEqual([]);
+    await expect(facade.acquire({
+      ownerScopeRef: "cli:owner-a",
+      targetProviderId: "openai",
+      transportProviderId: "codex",
+    })).rejects.toThrow("No active codex account transport for openai");
   });
 });
 

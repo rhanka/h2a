@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -88,6 +88,41 @@ test(
       assert.notEqual(missing.status, 0, missing.output);
       assert.match(missing.output, /missing-account/);
       assert.doesNotMatch(missing.output, /token|credential envelope/i);
+    } finally {
+      rmSync(isolatedHome, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "llm-mesh account failures never expose keyring paths or credentials",
+  { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
+  () => {
+    const isolatedHome = mkdtempSync(join(tmpdir(), "h2a-account-errors-"));
+    const notDirectory = join(isolatedHome, "private-credential-store");
+    const poisonedKeyringPath = join(notDirectory, "access-token");
+    try {
+      writeFileSync(notDirectory, "not a directory");
+      const env = {
+        HOME: isolatedHome,
+        SENTROPIC_LLM_MESH_KEYRING_DIR: poisonedKeyringPath,
+      };
+
+      const inventory = runWithEnv(
+        ["llm-mesh", "account", "list", "--json"],
+        env,
+      );
+      assert.notEqual(inventory.status, 0, inventory.output);
+      assert.match(inventory.output, /account inventory unavailable/i);
+      assert.doesNotMatch(inventory.output, /private-credential-store|access-token|\.sentropic/i);
+
+      const removal = runWithEnv(
+        ["llm-mesh", "account", "remove", "acct-codex_1"],
+        env,
+      );
+      assert.notEqual(removal.status, 0, removal.output);
+      assert.match(removal.output, /account removal failed/i);
+      assert.doesNotMatch(removal.output, /private-credential-store|access-token|\.sentropic/i);
     } finally {
       rmSync(isolatedHome, { recursive: true, force: true });
     }
