@@ -9,6 +9,7 @@ import {
   LlmMeshManager,
   acquireLlmMeshSessionEnv,
   enrollViaFacade,
+  formatLlmMeshAccountList,
   gatewayScriptPath,
   listAccountsViaFacade,
   llmMeshLogPath,
@@ -202,6 +203,38 @@ describe("facade account administration", () => {
     expect(facade.removeAccount).toHaveBeenCalledWith("acct-codex", {
       ownerScope: "cli:test-host",
     });
+  });
+
+  it("renders stable public JSON and table projections without extra fields", () => {
+    const accounts = [{
+      accountId: "acct-codex",
+      providerId: "codex",
+      accountLabel: "Codex local",
+      status: "active",
+      createdAt: "2026-08-20T10:00:00.000Z",
+      updatedAt: "2026-08-20T11:00:00.000Z",
+      accessToken: "must-not-leak",
+    }];
+
+    const json = formatLlmMeshAccountList(accounts, true);
+    expect(JSON.parse(json)).toEqual([{
+      accountId: "acct-codex",
+      providerId: "codex",
+      accountLabel: "Codex local",
+      status: "active",
+      createdAt: "2026-08-20T10:00:00.000Z",
+      updatedAt: "2026-08-20T11:00:00.000Z",
+    }]);
+    expect(json).not.toContain("must-not-leak");
+
+    const table = formatLlmMeshAccountList(accounts, false);
+    expect(table).toContain("ID");
+    expect(table).toContain("PROVIDER");
+    expect(table).toContain("LABEL");
+    expect(table).toContain("STATUS");
+    expect(table).toContain("ENROLLED");
+    expect(table).toContain("acct-codex");
+    expect(table).not.toContain("must-not-leak");
   });
 });
 
