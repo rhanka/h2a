@@ -85,5 +85,5 @@ Other `h2a run` flags worth knowing:
 
 ## Related
 
-- `h2a delegate <type> <task>` accepts the same `--model`/`--effort` flags for a queued/background job (plus `--account <id>` to pin a specific pooled account) — Step 2's resolution rule applies there too.
+- `h2a delegate <type> <task>` accepts the same `--model`/`--effort` flags for a queued/background job — Step 2's resolution rule applies there too.
 - For the actual routing/alias table, defer to the live llm-mesh/gateway catalog; this skill never freezes a copy.
