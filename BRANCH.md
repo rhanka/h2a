@@ -67,7 +67,7 @@ the existing llm-mesh/gateway path.
 - [x] Lot 2 — make direct launches native and gateway launches llm-mesh-only;
   preserve user credentials, remove only H2A gateway overrides, and reject an
   unavailable explicitly-required gateway without silent direct fallback.
-- [ ] Lot 3 — update help, doctor, migration docs and tests; run package and
+- [x] Lot 3 — update help, doctor, migration docs and tests; run package and
   real direct/gateway UAT; obtain the requested Fable 5 review and reconcile.
 - [ ] Lot 4 — push one PR, merge after green gates, tag the merged `main`, then
   verify CI publication and the npm artifact.
