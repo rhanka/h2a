@@ -174,6 +174,47 @@ export interface LiveHostSessionFinding {
   readonly message: string;
 }
 
+export interface LegacyAccountArtifactsDiagnostic {
+  /** This diagnostic is informational: retained files are inert in current H2A. */
+  readonly ok: true;
+  readonly inert: true;
+  /** Paths checked by existence only; their contents are never opened. */
+  readonly inspected: readonly string[];
+  readonly found: readonly string[];
+  readonly message: string;
+}
+
+const LEGACY_ACCOUNT_ARTIFACT_NAMES = [
+  "accounts.json",
+  "accounts-tokens.json",
+  "session-bindings.json",
+  "account-quota.json",
+  "session-log.jsonl",
+] as const;
+
+/**
+ * Detect files written by the removed H2A account pool without reading or
+ * parsing them. They may contain secrets, so doctor only reports their paths
+ * and never mutates them.
+ */
+export function inspectLegacyAccountArtifacts(
+  home: string = homedir(),
+): LegacyAccountArtifactsDiagnostic {
+  const inspected = LEGACY_ACCOUNT_ARTIFACT_NAMES.map((name) =>
+    join(home, ".sentropic", name)
+  );
+  const found = inspected.filter((path) => existsSync(path));
+  return {
+    ok: true,
+    inert: true,
+    inspected,
+    found,
+    message: found.length === 0
+      ? "no legacy H2A account-pool artifacts found"
+      : "legacy H2A account-pool files are inert; back them up, verify `h2a llm-mesh account enroll`, then remove them manually",
+  };
+}
+
 interface MutableHostReport {
   host: Host;
   findings: HostInstallationFinding[];
