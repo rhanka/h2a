@@ -143,15 +143,77 @@ jobs:
           else
             npm publish --workspace @sentropic/track --access public
           fi
-
-      - name: Publish @sentropic/h2a (trusted publishing, public)
-        run: npm publish --workspace @sentropic/h2a --access public
-
-      - name: Publish @sentropic/h2a-cli (trusted publishing, public)
-        run: npm publish --workspace @sentropic/h2a-cli --access public
+          for attempt in $(seq 1 18); do
+            if npm view "@sentropic/track@$v" version >/dev/null 2>&1; then
+              break
+            fi
+            if [[ "$attempt" -eq 18 ]]; then
+              echo "::error::@sentropic/track@$v is not visible on registry after 18 attempts." >&2
+              exit 1
+            fi
+            echo "@sentropic/track@$v is not visible on registry yet; retrying in 10 seconds (attempt $attempt/18)." >&2
+            sleep 10
+          done
 
       - name: Publish @sentropic/h2a-runtime (trusted publishing, public)
-        run: npm publish --workspace @sentropic/h2a-runtime --access public
+        run: |
+          v="$(node -p "require('./packages/h2a-runtime/package.json').version")"
+          if npm view "@sentropic/h2a-runtime@$v" version >/dev/null 2>&1; then
+            echo "@sentropic/h2a-runtime@$v already on registry; skipping."
+          else
+            npm publish --workspace @sentropic/h2a-runtime --access public
+          fi
+          for attempt in $(seq 1 18); do
+            if npm view "@sentropic/h2a-runtime@$v" version >/dev/null 2>&1; then
+              break
+            fi
+            if [[ "$attempt" -eq 18 ]]; then
+              echo "::error::@sentropic/h2a-runtime@$v is not visible on registry after 18 attempts." >&2
+              exit 1
+            fi
+            echo "@sentropic/h2a-runtime@$v is not visible on registry yet; retrying in 10 seconds (attempt $attempt/18)." >&2
+            sleep 10
+          done
+
+      - name: Publish @sentropic/h2a (trusted publishing, public)
+        run: |
+          v="$(node -p "require('./packages/h2a/package.json').version")"
+          if npm view "@sentropic/h2a@$v" version >/dev/null 2>&1; then
+            echo "@sentropic/h2a@$v already on registry; skipping."
+          else
+            npm publish --workspace @sentropic/h2a --access public
+          fi
+          for attempt in $(seq 1 18); do
+            if npm view "@sentropic/h2a@$v" version >/dev/null 2>&1; then
+              break
+            fi
+            if [[ "$attempt" -eq 18 ]]; then
+              echo "::error::@sentropic/h2a@$v is not visible on registry after 18 attempts." >&2
+              exit 1
+            fi
+            echo "@sentropic/h2a@$v is not visible on registry yet; retrying in 10 seconds (attempt $attempt/18)." >&2
+            sleep 10
+          done
+
+      - name: Publish @sentropic/h2a-cli (trusted publishing, public)
+        run: |
+          v="$(node -p "require('./packages/h2a-cli/package.json').version")"
+          if npm view "@sentropic/h2a-cli@$v" version >/dev/null 2>&1; then
+            echo "@sentropic/h2a-cli@$v already on registry; skipping."
+          else
+            npm publish --workspace @sentropic/h2a-cli --access public
+          fi
+          for attempt in $(seq 1 18); do
+            if npm view "@sentropic/h2a-cli@$v" version >/dev/null 2>&1; then
+              break
+            fi
+            if [[ "$attempt" -eq 18 ]]; then
+              echo "::error::@sentropic/h2a-cli@$v is not visible on registry after 18 attempts." >&2
+              exit 1
+            fi
+            echo "@sentropic/h2a-cli@$v is not visible on registry yet; retrying in 10 seconds (attempt $attempt/18)." >&2
+            sleep 10
+          done
 
       - name: Create GitHub Release (idempotent)
         env:
