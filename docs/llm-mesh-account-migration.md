@@ -10,6 +10,19 @@ h2a llm-mesh account enroll codex
 h2a llm-mesh account enroll cloud-code
 ```
 
+Inspect the public account inventory, or remove an enrollment, through the
+same namespace:
+
+```sh
+h2a llm-mesh account list
+h2a llm-mesh account list --json
+h2a llm-mesh account remove <account-id>
+```
+
+`ls` aliases `list`; `rm` and `unenroll` alias `remove`. Inventory output is
+limited to public metadata owned by the local llm-mesh scope. Removal never
+prints or accepts a credential.
+
 The former `h2a account ...` namespace, the flat
 `h2a llm-mesh enroll ...` spelling, `h2a account push-cluster`, and the
 `--account` job option no longer exist.
