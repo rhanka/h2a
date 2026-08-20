@@ -187,14 +187,14 @@ From § "Commands deliberately absent":
 > - A second command family for starting a “native agent” that bypasses `h2a run` and produces a
 >   parallel session model.
 
-**What it warrants.** Why `account` and `llm-mesh` get a labelled bucket of their own instead of being filed under an operator intention — yet both ship today. The bucket records the contradiction instead of laundering it. It deprecates nothing.
+**What it warrants.** Why the surviving `llm-mesh` facade gets a labelled bucket of its own instead of being filed under an operator intention. The removed legacy `account` namespace demonstrated the ownership contradiction directly; enrollment is now nested under the Sentropic-owned facade.
 
-**Precision on how far this warrant reaches.** The two commands are covered *differently*, and an earlier version of this note said "the study names these exact areas", which was true of one and stranded for the other:
+**Precision on how far this warrant reaches.** The removed and surviving surfaces are covered *differently*, and an earlier version of this note said "the study names these exact areas", which was true of one and stranded for the other:
 
-- `account` is named **directly** by the first bullet (`h2a account`).
-- `llm-mesh` is **not named anywhere in the study**. It is covered by the second bullet, by what it does rather than by its name: the runtime describes it as *"Manage the local LLM gateway (solo-dev mesh: multi-account, cross-provider fallback)"*, which is "lists or selects sentropic account pools" plus failover. The first bullet's `h2a gateway` and `h2a failover` are the nearest named areas.
+- The removed legacy `account` namespace was named **directly** by the first bullet (`h2a account`). Account enrollment now lives below `h2a llm-mesh` and delegates ownership to Sentropic llm-mesh.
+- `llm-mesh` is **not named anywhere in the study**. It is covered by the second bullet, by what it exposes rather than by its name: local gateway routing, account selection, and failover remain Sentropic-owned concerns.
 
-So the bucket is warranted for both, but only `account` is warranted by name. Nothing here should be read as the study having ruled on a command it never mentions.
+The current bucket is therefore warranted by what `llm-mesh` exposes, not by its name. Nothing here should be read as the study having ruled on a command it never mentions.
 
 ## Excerpt 7 — New spellings are additive, and `explain` is one of them
 
@@ -270,7 +270,7 @@ This is also why the phrase-coverage guard was rebuilt to derive its list **mech
 | `UNCLASSIFIED` | `explain` only | none, and deliberately so — it is the *fallback*, carries no semantics, and is empty today |
 
 `LLM_LOCAL` and `UNCLASSIFIED` are kept separate on purpose. `LLM_LOCAL` is a
-semantic bucket with a real heading for two commands that genuinely ship;
+semantic bucket with a real heading for the `llm-mesh` facade that genuinely ships;
 `UNCLASSIFIED` is the fallback for a verb nobody has grouped yet. Merging them
 would file a future ungrouped verb under an LLM-account heading — a confidently
 wrong answer where an obviously missing one is wanted.
