@@ -68,3 +68,6 @@ h2a llm-mesh account remove <id>       # aliases: rm, unenroll
 - Per-command Commander usage renders only the first removal alias. Accepted as
   non-blocking: every alias executes and the parent account help displays the
   complete `remove|rm|unenroll` surface requested by the CLI contract.
+- Fable 5 re-review on `aeb9adb0`: **PASS**, no required fix. The reviewer
+  independently reran 14/14 runtime tests, 4/4 CLI tests and a 5/5 sanitizer
+  matrix against the exact corrected commit.
