@@ -309,7 +309,7 @@ const RUNTIME_VERBS: readonly {
   { group: "TRANSPORT", verb: "browser", summary: "Open a headful browser inside a session Pod (noVNC)." },
   { group: "TRANSPORT", verb: "migrate", summary: "Round-trip a local session to a remote one and back." },
 
-  { group: "LLM_LOCAL", verb: "llm-mesh", summary: "Manage the Sentropic llm-mesh gateway and account enrollment." },
+  { group: "LLM_LOCAL", verb: "llm-mesh", summary: "Manage the Sentropic llm-mesh gateway and account lifecycle." },
 
   { group: "HELP", verb: "help", summary: "Commander's per-command help for a runtime verb." }
 ];
