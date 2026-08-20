@@ -29,8 +29,10 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   createLlmMeshFacade,
+  type LlmMeshAdministrativeFacade,
   type LlmMeshFacade,
 } from "@sentropic/llm-mesh/facade";
+import type { AccountPublic } from "@sentropic/llm-mesh/enrollment";
 import {
   validateLlmMeshRoutingConfig,
   type LlmMeshRoutingConfig,
@@ -103,6 +105,12 @@ export interface FacadeEnrollmentOptions {
   openBrowser?: (url: string) => void;
 }
 
+export interface FacadeAccountOptions {
+  ownerScope?: string;
+  /** Injection seam for account-administration tests. */
+  facade?: Pick<LlmMeshAdministrativeFacade, "listAccounts" | "removeAccount">;
+}
+
 function facadeConfigResolver() {
   return {
     async resolveConfig(configRef: string): Promise<Record<string, unknown>> {
@@ -121,7 +129,7 @@ function facadeConfigResolver() {
   };
 }
 
-export function createCliLlmMeshFacade(): LlmMeshFacade {
+export function createCliLlmMeshFacade(): LlmMeshAdministrativeFacade {
   return createLlmMeshFacade({
     configResolver: facadeConfigResolver(),
     mode: "cli",
@@ -186,6 +194,73 @@ export async function enrollViaFacade(
       })();
 
   return { accountId: completed.accountId, provider, label: completed.label };
+}
+
+export async function listAccountsViaFacade(
+  options: FacadeAccountOptions = {},
+): Promise<readonly AccountPublic[]> {
+  const facade = options.facade ?? createCliLlmMeshFacade();
+  return facade.listAccounts({
+    ownerScope: options.ownerScope ?? llmMeshOwnerScopeRef(),
+  });
+}
+
+export async function removeAccountViaFacade(
+  accountId: string,
+  options: FacadeAccountOptions = {},
+): Promise<{ accountId: string; removed: true }> {
+  const facade = options.facade ?? createCliLlmMeshFacade();
+  return facade.removeAccount(accountId, {
+    ownerScope: options.ownerScope ?? llmMeshOwnerScopeRef(),
+  });
+}
+
+function publicAccountProjection(account: AccountPublic): AccountPublic {
+  return {
+    accountId: account.accountId,
+    ...(account.accountLabel ? { accountLabel: account.accountLabel } : {}),
+    providerId: account.providerId,
+    status: account.status,
+    createdAt: account.createdAt,
+    updatedAt: account.updatedAt,
+  };
+}
+
+export function formatLlmMeshAccountList(
+  accounts: readonly AccountPublic[],
+  json: boolean,
+): string {
+  const publicAccounts = accounts.map(publicAccountProjection);
+  if (json) return JSON.stringify(publicAccounts, null, 2);
+  if (publicAccounts.length === 0) {
+    return "[h2a] llm-mesh account: no accounts enrolled";
+  }
+
+  const rows = publicAccounts.map((account) => [
+    account.accountId,
+    account.providerId,
+    account.accountLabel ?? "-",
+    account.status,
+    account.createdAt,
+  ]);
+  const headers = ["ID", "PROVIDER", "LABEL", "STATUS", "ENROLLED"];
+  const widths = headers.map((header, index) => Math.max(
+    header.length,
+    ...rows.map((row) => row[index]?.length ?? 0),
+  ));
+  return [headers, ...rows]
+    .map((row) => row.map((value, index) => value.padEnd(widths[index] ?? value.length)).join("  ").trimEnd())
+    .join("\n");
+}
+
+const SAFE_ACCOUNT_NOT_FOUND = /^Account '[A-Za-z0-9][A-Za-z0-9._:-]{0,127}' not found$/;
+
+export function formatLlmMeshAccountError(
+  error: unknown,
+  fallback: "account inventory unavailable" | "account removal failed",
+): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return SAFE_ACCOUNT_NOT_FOUND.test(message) ? message : fallback;
 }
 
 // ---------------------------------------------------------------------------
