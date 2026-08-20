@@ -54,10 +54,10 @@ the existing llm-mesh/gateway path.
 
 - [x] Lot 0 — ratify the consumer/product boundary, split future API-key and
   cluster needs into non-blocking Track items, and commit the EVOL.
-- [ ] Lot 1 — move OAuth enrollment to `h2a llm-mesh account enroll`, remove
+- [x] Lot 1 — move OAuth enrollment to `h2a llm-mesh account enroll`, remove
   `h2a account`, `--account`, `job.accountId`, `account-pool.ts` and all pool
   selection/quota/binding/log/export call sites.
-- [ ] Lot 2 — make direct launches native and gateway launches llm-mesh-only;
+- [x] Lot 2 — make direct launches native and gateway launches llm-mesh-only;
   preserve user credentials, remove only H2A gateway overrides, and reject an
   unavailable explicitly-required gateway without silent direct fallback.
 - [ ] Lot 3 — update help, doctor, migration docs and tests; run package and
