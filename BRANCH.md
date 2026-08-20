@@ -35,14 +35,16 @@ h2a llm-mesh account remove <id>       # aliases: rm, unenroll
 - `apps/llm-gateway/package.json`
 - `packages/h2a-runtime/src/index.ts`
 - `packages/h2a-runtime/src/llm-mesh.ts`
+- `packages/h2a/src/cli-command-map.ts`
+- `packages/h2a/test/fixtures/runtime-help-commands.json`
 - directly affected tests and dependency lockfiles
 
 ## Lots
 
 - [x] Prove the missing facade seam and write the behavioural spec.
 - [x] Write red unit and CLI acceptance tests.
-- [ ] Consume the published Sentropic account-administration seam.
-- [ ] Make scoped tests green, then run package build/typecheck/tests.
+- [x] Consume the published Sentropic account-administration seam.
+- [x] Make scoped tests green, then run package build/typecheck/tests.
 - [ ] Rebase, review, merge, tag merged `main`, verify CI publication, upgrade.
 
 ## Gates
