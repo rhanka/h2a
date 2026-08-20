@@ -13,6 +13,7 @@ import {
   llmMeshLogPath,
   llmMeshPidPath,
   llmMeshTokenPath,
+  replaceAnthropicGatewayEnvironment,
   startGateway,
 } from "./llm-mesh.js";
 
@@ -43,6 +44,53 @@ describe("gateway runtime boundary", () => {
     expect(gatewayScriptPath()).not.toContain("apps/llm-gateway");
   });
 
+});
+
+describe("Anthropic child environment", () => {
+  it("keeps native Claude authentication while removing stale gateway state", () => {
+    const env: NodeJS.ProcessEnv = {
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "stale-gateway-token",
+      ANTHROPIC_API_KEY: "user-owned-api-key",
+    };
+
+    const restore = replaceAnthropicGatewayEnvironment(env);
+
+    expect(env).toEqual({ ANTHROPIC_API_KEY: "user-owned-api-key" });
+    restore();
+    expect(env).toEqual({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "stale-gateway-token",
+      ANTHROPIC_API_KEY: "user-owned-api-key",
+    });
+  });
+
+  it("uses only the opaque gateway lane and restores the exact parent env", () => {
+    const env: NodeJS.ProcessEnv = {
+      ANTHROPIC_BASE_URL: "https://parent.example",
+      ANTHROPIC_AUTH_TOKEN: "parent-token",
+      ANTHROPIC_API_KEY: "user-owned-api-key",
+      UNRELATED: "preserved",
+    };
+
+    const restore = replaceAnthropicGatewayEnvironment(env, {
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "opaque-gateway-token",
+    });
+
+    expect(env).toEqual({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "opaque-gateway-token",
+      UNRELATED: "preserved",
+    });
+    restore();
+    expect(env).toEqual({
+      ANTHROPIC_BASE_URL: "https://parent.example",
+      ANTHROPIC_AUTH_TOKEN: "parent-token",
+      ANTHROPIC_API_KEY: "user-owned-api-key",
+      UNRELATED: "preserved",
+    });
+  });
 });
 
 describe("facade enrollment", () => {

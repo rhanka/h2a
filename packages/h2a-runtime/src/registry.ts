@@ -202,8 +202,6 @@ export type RegistryEntry = {
   model?: string;
   /** Effort/reasoning override (claude --effort; codex model_reasoning_effort). */
   effort?: string;
-  /** Force a specific account from the pool (bypass selectAccountWithFallback). */
-  accountId?: string;
   /**
    * Pinned llm-mesh gateway choice, captured at launch from an EXPLICIT
    * --gw/--no-gw. Re-emitted verbatim by `remote restore` so each instance
@@ -248,7 +246,6 @@ export type EnrollInput = {
   throttle?: ThrottleInfo;
   model?: string;
   effort?: string;
-  accountId?: string;
   gatewayMode?: "gateway" | "direct";
   /** Explicit override for restore pinning (internal only). */
   restorePinned?: boolean;
