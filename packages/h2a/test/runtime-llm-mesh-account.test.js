@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
@@ -8,15 +9,19 @@ const ROOT = process.cwd();
 const RUNTIME_BIN = join(ROOT, "packages/h2a-runtime/dist/index.js");
 const runtimeBuilt = existsSync(RUNTIME_BIN);
 
-function run(...args) {
+function runWithEnv(args, env = {}) {
   const result = spawnSync(process.execPath, [RUNTIME_BIN, ...args], {
     cwd: ROOT,
     encoding: "utf8",
     timeout: 30_000,
-    env: { ...process.env, NO_COLOR: "1" },
+    env: { ...process.env, NO_COLOR: "1", ...env },
   });
   assert.ifError(result.error);
   return { status: result.status, output: `${result.stdout || ""}${result.stderr || ""}` };
+}
+
+function run(...args) {
+  return runWithEnv(args);
 }
 
 test(
@@ -53,6 +58,39 @@ test(
     const legacy = run("account", "ls");
     assert.notEqual(legacy.status, 0, legacy.output);
     assert.match(legacy.output, /unknown command ['"]account['"]/i);
+  },
+);
+
+test(
+  "llm-mesh account list and remove execute against an isolated facade store",
+  { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
+  () => {
+    const isolatedHome = mkdtempSync(join(tmpdir(), "h2a-account-admin-"));
+    try {
+      const json = runWithEnv(
+        ["llm-mesh", "account", "list", "--json"],
+        { HOME: isolatedHome },
+      );
+      assert.equal(json.status, 0, json.output);
+      assert.deepEqual(JSON.parse(json.output), []);
+
+      const table = runWithEnv(
+        ["llm-mesh", "account", "ls"],
+        { HOME: isolatedHome },
+      );
+      assert.equal(table.status, 0, table.output);
+      assert.match(table.output, /no accounts enrolled/i);
+
+      const missing = runWithEnv(
+        ["llm-mesh", "account", "rm", "missing-account"],
+        { HOME: isolatedHome },
+      );
+      assert.notEqual(missing.status, 0, missing.output);
+      assert.match(missing.output, /missing-account/);
+      assert.doesNotMatch(missing.output, /token|credential envelope/i);
+    } finally {
+      rmSync(isolatedHome, { recursive: true, force: true });
+    }
   },
 );
 
