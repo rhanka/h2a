@@ -20,13 +20,31 @@ function run(...args) {
 }
 
 test(
-  "llm-mesh account enrollment is the only H2A account surface",
+  "llm-mesh account exposes enrollment, inventory, and removal",
   { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
   () => {
+    const accountHelp = run("llm-mesh", "account", "--help");
+    assert.equal(accountHelp.status, 0, accountHelp.output);
+    assert.match(accountHelp.output, /enroll/);
+    assert.match(accountHelp.output, /list\|ls/);
+    assert.match(accountHelp.output, /remove\|rm\|unenroll/);
+
     const canonical = run("llm-mesh", "account", "enroll", "--help");
     assert.equal(canonical.status, 0, canonical.output);
     assert.match(canonical.output, /Usage: h2a llm-mesh account enroll/);
     assert.match(canonical.output, /cloud-code or codex/);
+
+    for (const command of ["list", "ls"]) {
+      const help = run("llm-mesh", "account", command, "--help");
+      assert.equal(help.status, 0, help.output);
+      assert.match(help.output, /--json/);
+    }
+
+    for (const command of ["remove", "rm", "unenroll"]) {
+      const help = run("llm-mesh", "account", command, "--help");
+      assert.equal(help.status, 0, help.output);
+      assert.match(help.output, /<account-id>/);
+    }
 
     const flat = run("llm-mesh", "enroll", "codex");
     assert.notEqual(flat.status, 0, flat.output);
