@@ -33,11 +33,18 @@ the existing llm-mesh/gateway path.
 - `docs/specs/2026-08-20-SPEC_EVOL_llm-mesh-account-cutover.md`
 - account/gateway documentation, CLI help and changelog
 - `packages/h2a-runtime/src/account-pool.ts` and its tests (deletion)
+- `packages/h2a-runtime/src/delegate.ts` and its tests
 - `packages/h2a-runtime/src/index.ts`
+- `packages/h2a-runtime/src/llm-mesh.ts` and its tests
 - `packages/h2a-runtime/src/registry.ts`
 - directly affected runtime tests
+- `packages/h2a/src/cli.ts`
+- `packages/h2a/src/cli-command-map.ts` and its tests
 - `packages/h2a/src/hosts/installation-doctor.ts` and its tests
+- `packages/h2a/src/index.ts`
+- `packages/h2a/test/fixtures/runtime-help-commands.json`
 - `packages/h2a/skills/h2a-run/SKILL.md`
+- `docs/specs/reviews/2026-08-20-llm-mesh-account-cutover-fable5.md`
 - release metadata only as required by the documented tag workflow
 
 ## Forbidden scope
