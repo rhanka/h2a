@@ -60,8 +60,10 @@ llm-mesh.
   de gateway (`ANTHROPIC_BASE_URL` et `ANTHROPIC_AUTH_TOKEN`) et ne supprime pas
   un `ANTHROPIC_API_KEY` utilisateur.
 
-La mutation d'environnement est limitée au spawn de l'enfant et restaurée
-exactement ensuite ; le processus H2A parent n'est pas durablement altéré.
+Les helpers de jobs qui restent actifs après le spawn restaurent exactement
+l'environnement parent. Les commandes interactives appliquent les variables
+uniquement dans leur processus CLI de lancement, qui se termine ensuite ; aucun
+état d'authentification H2A ne persiste au-delà de ce processus.
 
 ### D4 — gateway signifie llm-mesh
 

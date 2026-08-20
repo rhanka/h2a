@@ -2127,7 +2127,7 @@ async function injectLlmMeshGatewayEnv(
         `[h2a] llm-mesh: gateway was stopped; started on ${meshEnv.ANTHROPIC_BASE_URL}\n`,
       );
     } catch (err) {
-      if (allowDirectFallback) {
+      if (allowDirectFallback && mode !== "gateway") {
         process.stderr.write(
           `[h2a] llm-mesh: gateway env unavailable (${String(err)}); Claude may ask for login.\n`,
         );
@@ -9955,7 +9955,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
   const llmMeshCommand = program
     .command("llm-mesh")
     .description(
-      "Manage the local LLM gateway (solo-dev mesh: multi-account, cross-provider fallback)",
+      "Manage the Sentropic llm-mesh gateway and account enrollment",
     );
 
   const llmMeshAccountCommand = llmMeshCommand
