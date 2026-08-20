@@ -1646,6 +1646,29 @@ describe("h2a run -r <conv> single-writer guard", () => {
     );
   });
 
+  it("fails a fresh explicit --gw launch before starting an agent when the gateway is unavailable", async () => {
+    const exitCode = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      "--name",
+      "gateway-unavailable",
+      "--gw",
+      "--no-attach",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(startGateway).toHaveBeenCalledWith({}, {
+      clientSessionId: "h2a-gateway-unavailable",
+    });
+    expect(startLocalSession).not.toHaveBeenCalled();
+    expect(stderrText()).toContain(
+      "llm-mesh gateway is required but unavailable; no agent was started",
+    );
+    expect(stderrText()).not.toContain("Claude may ask for login");
+  });
+
   it("refuses an existing local target before guard, gateway, registry, or spawn", async () => {
     findLocalSession.mockReturnValue({
       name: "remote-projA",
