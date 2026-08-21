@@ -7,8 +7,9 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { persistNativeTerminalPgid } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
-import { NativeTerminalHost } from "./host.js";
+import { NativeTerminalHost, reconcileDeadHostOrphans } from "./host.js";
 import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
 import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
 
@@ -321,6 +322,98 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     expect(
       reconcileLogs.some((line) => /REFUSING to kill process group/.test(line)),
     ).toBe(false);
+  });
+
+  it("should refuse reconciliation when the fresh PGID lookup differs from its immutable snapshot", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-immutable-pgid-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const registryPath = join(directory, "registry.json");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath,
+      replayBytesPerSession: 1024,
+      generationFactory: () => "immutable-pgid-generation",
+      spawnHost: (options) => {
+        const child = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
+        ], {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        children.add(child);
+        return child;
+      },
+    });
+    const client = await supervisor.client();
+    const intended = await client.create({
+      id: "immutable-pgid-session",
+      command: "/bin/sh",
+      args: ["-c", "trap '' HUP TERM INT; while :; do sleep 1; done"],
+      cwd: directory,
+      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      cols: 80,
+      rows: 24,
+    });
+    const distractor = spawn(
+      "/bin/sh",
+      ["-c", "trap '' HUP TERM INT; while :; do sleep 1; done"],
+      { detached: true, stdio: "ignore" },
+    );
+    children.add(distractor);
+    if (distractor.pid === undefined) throw new Error("expected distractor pid");
+    const distractorPgid = distractor.pid;
+    await eventually(() => running(distractorPgid), (alive) => alive);
+
+    // The owner probe runs after reconciliation has snapshotted the intended
+    // row. Repointing the mutable row here makes the old default closure kill
+    // the distractor, while the hardened closure must refuse before signalling.
+    const summary = await reconcileDeadHostOrphans({
+      registryPath,
+      ownerProbe: (owner) => {
+        persistNativeTerminalPgid(
+          "immutable-pgid-session",
+          distractorPgid,
+          registryPath,
+          owner,
+        );
+        return "dead";
+      },
+    });
+
+    expect(summary).toEqual({
+      status: "completed",
+      outcomes: [
+        expect.objectContaining({
+          sessionId: "immutable-pgid-session",
+          status: "reap-refused",
+          pgid: intended.pid,
+          reason: expect.stringMatching(/immutable snapshot pgid/i),
+        }),
+      ],
+    });
+    expect(running(intended.pid)).toBe(true);
+    expect(running(distractorPgid)).toBe(true);
+
+    const lease = await client.acquireController(
+      "immutable-pgid-session",
+      "immutable-pgid-cleanup",
+    );
+    await client.stop(lease, "SIGKILL");
+    await eventually(() => running(intended.pid), (alive) => !alive);
+    distractor.kill("SIGKILL");
+    await once(distractor, "exit");
   });
 
   it("should let a FRESH host — one that never knew the session — reap it from its durably persisted pgid after brutal host death", async () => {

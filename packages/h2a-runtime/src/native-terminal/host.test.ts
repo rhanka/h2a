@@ -576,6 +576,47 @@ describe("NativeTerminalHost", () => {
     )).toBe(true);
   });
 
+  it("should refuse orphan reaping when process groups are unsupported", async () => {
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-unsupported-process-groups",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      readLeaderStartTime: () => 1000,
+    });
+    createSession(host, "alpha");
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid);
+
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    if (platform === undefined) throw new Error("expected process.platform descriptor");
+    try {
+      Object.defineProperty(process, "platform", { value: "win32" });
+      const outcome = await host.reapOrphan("alpha");
+
+      expect(outcome).toEqual({
+        sessionId: "alpha",
+        status: "refused",
+        reason: expect.stringMatching(/unsupported-process-groups/i),
+        cause: "unsupported-process-groups",
+      });
+      expect(killGroup).not.toHaveBeenCalled();
+      expect(warnings.some((line) =>
+        /REFUSING/.test(line) &&
+        /not supported/.test(line) &&
+        /PROCESSES MAY HAVE SURVIVED/.test(line) &&
+        line.includes("cause=unsupported-process-groups")
+      )).toBe(true);
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+    }
+  });
+
   it("PGID_GUARD_PROCEEDS_WITH_THE_KILL_WHEN_THE_GROUP_LEADER_IDENTITY_MATCHES", async () => {
     // INV-4 positive path: the persisted leader-start-time anchor and the
     // re-read at kill-time agree — the group is provably the one this row
