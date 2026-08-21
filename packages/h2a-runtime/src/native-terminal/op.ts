@@ -188,29 +188,12 @@ function nativeDriveSessionId(target: string): NativeDriveSessionResolution {
   return { state: "found", id: [...sessions][0]! };
 }
 
-/**
- * A missing activity field is an older/unknown host view, not an idle verdict.
- * A currently-held controller is also unsafe: it may be a human who is typing.
- */
-function nativeDriveIsSafeToInject(
-  state: NativeTerminalSessionState,
-  now: number,
-): boolean {
-  if (state.status !== "running" || state.controlled !== false) return false;
-  const activityAt = (state as { lastHumanActivityAt?: unknown }).lastHumanActivityAt;
-  if (activityAt === undefined) return false;
-  if (activityAt === null) return true;
-  if (
-    typeof activityAt !== "number" ||
-    !Number.isSafeInteger(activityAt) ||
-    activityAt < 0
-  ) {
-    return false;
-  }
-  const ageMs = now - activityAt;
-  if (ageMs < 0) return false;
-  const windowMs = nativeDriveActivityWindowMs();
-  return windowMs <= 0 || ageMs >= windowMs;
+function nativeDriveInstruction(text: string): string | undefined {
+  // The PTY write appends the one submit CR below. Reject every embedded
+  // control/format character (including CR, LF, escape, and Unicode line
+  // separators) so an instruction can never add a second line or sequence.
+  if (text.length === 0 || /[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text)) return undefined;
+  return text;
 }
 
 const delay = (ms: number): Promise<void> =>
@@ -641,26 +624,34 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
         emit({ outcome: "deferred" });
         return 0;
       }
+      const text = nativeDriveInstruction(
+        Buffer.from(required(parsed, "b64"), "base64").toString("utf8"),
+      );
+      if (text === undefined) {
+        emit({
+          outcome: "failed",
+          reason: "native drive instruction must be exactly one text line with no control characters",
+        });
+        return 0;
+      }
       const client = await connectExisting(socketPath);
       try {
-        const state = await client.state(target.id);
-        if (!nativeDriveIsSafeToInject(state, Date.now())) {
+        let lease: NativeTerminalControllerLease;
+        try {
+          // This is one host-side operation. An older host that does not
+          // support it rejects the request, which is deliberately deferred.
+          lease = await client.acquireAutomationControllerIfNoRecentHuman(
+            target.id,
+            `h2a-drive-${process.pid}`,
+            nativeDriveActivityWindowMs(),
+          );
+        } catch {
           emit({ outcome: "deferred" });
           return 0;
         }
-        const lease = await client.acquireController(
-          target.id,
-          `h2a-drive-${process.pid}`,
-          "automation",
-        );
         try {
-          const text = Buffer.from(required(parsed, "b64"), "base64").toString("utf8");
-          if (text.length === 0) {
-            emit({ outcome: "failed" });
-            return 0;
-          }
-          // One write preserves the exact instruction and submits it with CR,
-          // mirroring tmuxSendSubmit without bracketed-paste side effects.
+          // One validated text line plus one submit CR: no bracketed-paste or
+          // embedded controls can turn this into multiple terminal actions.
           await client.write(lease, `${text}\r`);
         } finally {
           await client.releaseController(lease).catch(() => {});

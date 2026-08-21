@@ -952,6 +952,33 @@ describe("NativeTerminalHost", () => {
     expect(host.state("alpha").controlled).toBe(false);
   });
 
+  it("atomically refuses automation when human activity appears after an idle snapshot", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-drive-safety",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "alpha");
+
+    // This is the stale observation the former check-then-act drive path
+    // could make before a human starts using the terminal.
+    expect(host.state("alpha").lastHumanActivityAt).toBeNull();
+    const human = host.acquireController("alpha", "keyboard", "human");
+    host.write(human, "human-input\r");
+    host.releaseController(human);
+
+    // The new atomic host operation observes that intervening activity while
+    // granting the lease, so no automation lease (and therefore no write) is
+    // possible from the stale idle snapshot.
+    expect(() =>
+      host.acquireAutomationControllerIfNoRecentHuman("alpha", "drive", 4_000),
+    ).toThrow(/recent human activity/i);
+    expect(ptys.get("alpha")!.write).toHaveBeenCalledTimes(1);
+    expect(ptys.get("alpha")!.write).toHaveBeenLastCalledWith("human-input\r");
+  });
+
   it("should reject stale controller epochs after ownership changes", () => {
     const { spawner, ptys } = stubSpawner();
     const host = new NativeTerminalHost({
