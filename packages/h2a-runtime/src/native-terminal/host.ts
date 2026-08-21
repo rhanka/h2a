@@ -397,19 +397,15 @@ export type NativeTerminalCreateOptions = Readonly<{
  * Outcome of asking a host to reap a session BY ID from its persisted pgid —
  * the case where the host asking has no in-memory record of the session at
  * all (a fresh host after the owning host was killed). `"refused"` means
- * either the pgid could not be resolved at all, OR it resolved but the
- * group-leader identity guard (see `#verifyGroupLeaderIdentity`) would not
- * positively re-prove the group at kill-time: NOTHING was signalled (never
- * guess a pgid — killing the wrong process group is irreversible), and a
- * loud diagnostic was logged, because a silent refusal here recreates the
- * invisible-orphan bug. `cause` is present only for the leader-identity
- * refusal and DISCERNS its two distinct roots — `"recycled"` (the leader is
- * readable but its start-time no longer matches: the pgid was reused by an
- * unrelated process, a correct, defensive refusal) from
- * `"membership-unprovable"` (the leader is gone AND no surviving group
- * member carries the persisted session token: possibly our own already-dead
- * orphan, a conservative refuse-and-leak) — collapsing them into one verdict
- * would hide whether this guard is protecting us or making us leak.
+ * either the pgid could not be resolved at all, it differed from the
+ * immutable PGID snapshotted by reconciliation, process groups are
+ * unsupported, OR the group-leader identity guard (see
+ * `#verifyGroupLeaderIdentity`) would not positively re-prove the group at
+ * kill-time: NOTHING was signalled (never guess a pgid — killing the wrong
+ * process group is irreversible), and a loud diagnostic was logged, because
+ * a silent refusal here recreates the invisible-orphan bug. `cause` discerns
+ * these fail-closed roots; the leader-identity causes remain distinct so a
+ * recycled group is never collapsed with an unprovable one.
  *
  * `verified`, present on `"reaped"` only when the identity guard actually
  * ran, DISCERNS a PROVEN kill (`true` — either the current and persisted
@@ -427,7 +423,11 @@ export type NativeTerminalReapOutcome = Readonly<
       sessionId: string;
       status: "refused";
       reason: string;
-      cause?: "recycled" | "membership-unprovable";
+      cause?:
+        | "pgid-mismatch"
+        | "unsupported-process-groups"
+        | "recycled"
+        | "membership-unprovable";
     }
   | {
       sessionId: string;
@@ -608,6 +608,10 @@ export class NativeTerminalHost {
       cols: options.cols,
       rows: options.rows,
     });
+    // Known pre-existing narrow window: a host SIGKILL after this synchronous
+    // spawn and before the following synchronous persist leaves no durable
+    // row for the survivor. Persisting first is impossible: spawn allocates
+    // the pgid.
     try {
       // Persist BEFORE this session is usable: "known at creation" must
       // survive to "known at kill time" (a fresh host after this one is
@@ -916,6 +920,7 @@ export class NativeTerminalHost {
   async reapOrphan(
     sessionId: string,
     signal: NativeTerminalStopSignal = "SIGKILL",
+    expectedPgid?: number,
   ): Promise<NativeTerminalReapOutcome> {
     const lookup = readNativeTerminalPgid(sessionId, this.#registryPath);
     if (lookup.status === "unresolved") {
@@ -923,6 +928,17 @@ export class NativeTerminalHost {
         `REFUSING to reap terminal session ${sessionId}: pgid could not be resolved (${lookup.reason}). PROCESSES MAY HAVE SURVIVED — no group kill was issued.`,
       );
       return { sessionId, status: "refused", reason: lookup.reason };
+    }
+    if (expectedPgid !== undefined && lookup.pgid !== expectedPgid) {
+      this.#log(
+        `REFUSING to reap terminal session ${sessionId}: immutable snapshot pgid=${expectedPgid}, but the registry now resolves pgid=${lookup.pgid}. PROCESSES MAY HAVE SURVIVED — no group kill was issued. cause=pgid-mismatch sessionId=${sessionId} snapshotPgid=${expectedPgid} resolvedPgid=${lookup.pgid}`,
+      );
+      return {
+        sessionId,
+        status: "refused",
+        reason: `immutable snapshot pgid=${expectedPgid} differs from re-resolved pgid=${lookup.pgid}`,
+        cause: "pgid-mismatch",
+      };
     }
     const outcome = await this.#killGroupAndConfirmDead(
       lookup.pgid,
@@ -949,7 +965,7 @@ export class NativeTerminalHost {
     return {
       sessionId,
       status: "refused",
-      reason: `group-leader identity could not be re-proven at kill-time (${outcome.cause}) for pgid=${lookup.pgid}`,
+      reason: `orphan process group could not be safely reaped (${outcome.cause}) for pgid=${lookup.pgid}`,
       cause: outcome.cause,
     };
   }
@@ -1077,11 +1093,26 @@ export class NativeTerminalHost {
   ): Promise<
     | { status: "dead"; elapsedMs: number; verified?: boolean }
     | { status: "timed-out"; elapsedMs: number }
-    | { status: "refused"; cause: "recycled" | "membership-unprovable" }
+    | {
+        status: "refused";
+        cause:
+          | "unsupported-process-groups"
+          | "recycled"
+          | "membership-unprovable";
+      }
   > {
     if (!supportsProcessGroupSignals()) {
+      if (verify) {
+        // `reapOrphan` is a durable/reconcile path. On a platform without
+        // POSIX group signals, neither a group kill nor a group-empty proof
+        // exists, so reporting "dead" would be a false containment claim.
+        this.#log(
+          `REFUSING to reap pgid=${pgid} (${label}): process groups are not supported on ${process.platform}. PROCESSES MAY HAVE SURVIVED — no group kill or proof was issued. cause=unsupported-process-groups sessionId=${verify.sessionId} pgid=${pgid}`,
+        );
+        return { status: "refused", cause: "unsupported-process-groups" };
+      }
       // No POSIX process groups on this platform; nothing more this host can
-      // prove. Documented gap, not a silent claim of success.
+      // prove. Direct in-memory force-stop retains its existing behavior.
       this.#log(
         `skipping group-kill proof for pgid=${pgid} (${label}): process groups are not supported on ${process.platform}`,
       );
@@ -1283,9 +1314,9 @@ export async function reconcileDeadHostOrphans(options: {
   ownerProbe?: NativeTerminalOwnerHostProbe;
   /** Injectable so tests never send real signals; defaults to a throwaway
    * `NativeTerminalHost` (never spawns a pty) calling the real `reapOrphan`.
-   * The persisted pgid is passed through for observability/assertions even
-   * though the real reap re-resolves it itself from the SAME registry row —
-   * they always agree by construction. */
+   * The persisted pgid is an immutable snapshot: the real reap re-resolves
+   * only to verify it still matches, and refuses without signalling on any
+   * mismatch. */
   reap?: (
     sessionId: string,
     pgid: number,
@@ -1312,8 +1343,8 @@ export async function reconcileDeadHostOrphans(options: {
         ...(options.registryPath !== undefined ? { registryPath: options.registryPath } : {}),
         log,
       });
-      return (sessionId: string, _pgid: number, sig: NativeTerminalStopSignal) =>
-        reconcileHost.reapOrphan(sessionId, sig);
+      return (sessionId: string, pgid: number, sig: NativeTerminalStopSignal) =>
+        reconcileHost.reapOrphan(sessionId, sig, pgid);
     })();
 
   const snapshot = listNativeTerminalPgidEntries(options.registryPath);
