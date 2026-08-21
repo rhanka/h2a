@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   CapabilityGatedError,
@@ -7,6 +8,7 @@ import {
   type SignedProjectionReference,
 } from "@sentropic/cluster-mesh";
 import {
+  bootstrapDefaultLocalFederation,
   bootstrapLocalFederation,
   createLocalFederationPorts,
   type LocalFederationConfig,
@@ -18,6 +20,7 @@ const config: LocalFederationConfig = {
   endpoint: "local://test-host",
   workspaceId: "/workspace/local",
   ownerUserId: "local-owner",
+  ownerRole: "owner",
   tenantId: "local-tenant",
   projectionSigningKey: Buffer.from("test-only-projection-signing-key"),
 };
@@ -106,14 +109,61 @@ describe("local federation", () => {
     ]);
   });
 
-  it("should expose the exact single-node capabilities", () => {
-    expect(fixture().mesh.capabilities).toEqual({
+  it("should fail closed without an authorized NHI command runner", async () => {
+    const ports = createLocalFederationPorts(config);
+
+    await expect(ports.nhiRunner.run("h2a", ["nhi", "offboard"])).rejects.toThrow(
+      "no authorized NHI command runner configured",
+    );
+  });
+
+  it("should delegate NHI commands to an injected executor", async () => {
+    const result = { exitCode: 0, stdout: "ok\n", stderr: "" };
+    const executeH2a = vi.fn(async () => result);
+    const ports = createLocalFederationPorts(config, { executeH2a });
+
+    await expect(ports.nhiRunner.run("h2a", ["nhi", "offboard"])).resolves.toBe(result);
+    expect(executeH2a).toHaveBeenCalledWith("h2a", ["nhi", "offboard"]);
+  });
+
+  it("should bootstrap default local federation with exact single-node capabilities", () => {
+    expect(bootstrapDefaultLocalFederation().capabilities).toEqual({
       mode: "single-node",
       localDevices: "available",
       localProjection: "available",
       interServerDirectory: "gated",
       tokenExchange: "gated",
       memoryReplication: "gated",
+    });
+  });
+
+  it("should approve device codes only for the configured local owner role", () => {
+    const { mesh } = fixture();
+    const issued = mesh.devices.issueDeviceCode("laptop");
+
+    expect(mesh.devices.approveDeviceCode(
+      issued.userCode,
+      "foreign-user",
+      "admin",
+    )).toEqual({ ok: false, reason: "not_found" });
+    expect(mesh.devices.pollDeviceCode(issued.deviceCode)).toEqual({
+      status: "authorization_pending",
+    });
+    expect(mesh.devices.approveDeviceCode(
+      issued.userCode,
+      config.ownerUserId,
+      "admin",
+    )).toEqual({ ok: false, reason: "not_found" });
+    expect(mesh.devices.approveDeviceCode(
+      issued.userCode,
+      config.ownerUserId,
+      config.ownerRole,
+    )).toEqual({ ok: true });
+    expect(mesh.devices.pollDeviceCode(issued.deviceCode)).toEqual({
+      status: "approved",
+      userId: config.ownerUserId,
+      role: config.ownerRole,
+      deviceName: "laptop",
     });
   });
 
@@ -156,7 +206,7 @@ describe("local federation", () => {
   });
 
   it("should fail closed for a foreign projection home node", async () => {
-    const { ports } = fixture();
+    const { mesh, ports } = fixture();
     const local = await ports.projections.create("human_identity", "human:1");
     const foreign: SignedProjectionReference = {
       ...local,
@@ -165,6 +215,35 @@ describe("local federation", () => {
 
     await expect(ports.projections.verify(foreign)).resolves.toBe(false);
     await expect(ports.projections.resolve(foreign)).rejects.toBeInstanceOf(
+      InvalidProjectionReferenceError,
+    );
+    await expectGated(
+      mesh.wrap.projections.resolve(foreign),
+      "remote_projection",
+    );
+  });
+
+  it("should reject malformed projection encodings", async () => {
+    const { ports } = fixture();
+    const local = await ports.projections.create("human_identity", "human:1");
+    const malformedSignature: SignedProjectionReference = {
+      ...local,
+      signature: `${local.signature}=`,
+    };
+    const malformedReference: SignedProjectionReference = {
+      ...local,
+      reference: `${local.reference}=`,
+      signature: createHmac("sha256", config.projectionSigningKey)
+        .update(`${local.reference}=`)
+        .digest("base64url"),
+    };
+
+    await expect(ports.projections.verify(malformedSignature)).resolves.toBe(false);
+    await expect(ports.projections.resolve(malformedSignature)).rejects.toBeInstanceOf(
+      InvalidProjectionReferenceError,
+    );
+    await expect(ports.projections.verify(malformedReference)).resolves.toBe(false);
+    await expect(ports.projections.resolve(malformedReference)).rejects.toBeInstanceOf(
       InvalidProjectionReferenceError,
     );
   });

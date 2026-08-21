@@ -34,6 +34,7 @@ export interface LocalFederationConfig {
   readonly endpoint: string;
   readonly workspaceId: string;
   readonly ownerUserId: string;
+  readonly ownerRole: string;
   readonly tenantId: string;
   readonly projectionSigningKey: Uint8Array;
 }
@@ -90,9 +91,21 @@ export function createLocalOwnerMemberships(
   };
 }
 
-function decodeProjection(reference: string): LocalProjectionPayload | null {
+function decodeCanonicalBase64url(value: unknown): Buffer | null {
+  if (typeof value !== "string") return null;
   try {
-    const value = JSON.parse(Buffer.from(reference, "base64url").toString("utf8")) as
+    const decoded = Buffer.from(value, "base64url");
+    return decoded.toString("base64url") === value ? decoded : null;
+  } catch {
+    return null;
+  }
+}
+
+function decodeProjection(reference: unknown): LocalProjectionPayload | null {
+  try {
+    const decoded = decodeCanonicalBase64url(reference);
+    if (!decoded) return null;
+    const value = JSON.parse(decoded.toString("utf8")) as
       Partial<LocalProjectionPayload>;
     return value &&
         (value.kind === "human_identity" ||
@@ -117,6 +130,8 @@ export function createLocalProjectionPort(
     createHmac("sha256", signingKey).update(reference).digest();
   const verify = async (reference: SignedProjectionReference) => {
     if (
+      typeof reference?.signature !== "string" ||
+      typeof reference.reference !== "string" ||
       reference.homeNodeId !== self.nodeId ||
       reference.issuer !== self.issuer ||
       reference.keyId !== keyId
@@ -127,7 +142,8 @@ export function createLocalProjectionPort(
       payload.kind !== reference.kind ||
       payload.homeNodeId !== self.nodeId
     ) return false;
-    const actual = Buffer.from(reference.signature, "base64url");
+    const actual = decodeCanonicalBase64url(reference.signature);
+    if (!actual) return false;
     const expected = sign(reference.reference);
     return actual.length === expected.length && timingSafeEqual(actual, expected);
   };
@@ -153,7 +169,7 @@ export function createLocalProjectionPort(
     verify,
 
     async resolve<T>(reference: SignedProjectionReference): Promise<T> {
-      if (reference.homeNodeId !== self.nodeId || !(await verify(reference))) {
+      if (!(await verify(reference))) {
         throw new InvalidProjectionReferenceError();
       }
       const payload = decodeProjection(reference.reference);
@@ -190,8 +206,27 @@ async function spawnH2a(
   });
 }
 
+export class UnconfiguredNhiCommandRunnerError extends Error {
+  constructor() {
+    super("no authorized NHI command runner configured");
+    this.name = "UnconfiguredNhiCommandRunnerError";
+  }
+}
+
+export function createUnconfiguredNhiRunner(): CommandRunnerPort {
+  return {
+    async run() {
+      throw new UnconfiguredNhiCommandRunnerError();
+    },
+  };
+}
+
+export function createSpawnH2aCommandRunner(): CommandRunnerPort {
+  return { run: spawnH2a };
+}
+
 export function createH2aCommandRunner(
-  execute: H2aExecutor = spawnH2a,
+  execute: H2aExecutor,
 ): CommandRunnerPort {
   return { run: execute };
 }
@@ -204,6 +239,8 @@ interface PendingDeviceCode {
 }
 
 export function createInMemoryDeviceAttachments(
+  ownerUserId: string,
+  ownerRole: string,
   now: () => Date = () => new Date(),
 ): LocalDeviceAttachmentPort {
   const byDeviceCode = new Map<string, PendingDeviceCode>();
@@ -244,6 +281,10 @@ export function createInMemoryDeviceAttachments(
     },
 
     approveDeviceCode(userCode, userId, role, deviceName): DeviceApprovalResult {
+      if (userId !== ownerUserId || role !== ownerRole) {
+        // This union has no authorization result; avoid disclosing issued codes.
+        return { ok: false, reason: "not_found" };
+      }
       const entry = byUserCode.get(userCode);
       if (!entry) return { ok: false, reason: "not_found" };
       if (now().getTime() >= entry.issued.expiresAt.getTime()) {
@@ -252,8 +293,8 @@ export function createInMemoryDeviceAttachments(
       if (entry.approved) return { ok: false, reason: "already_resolved" };
       entry.approved = {
         status: "approved",
-        userId,
-        role,
+        userId: ownerUserId,
+        role: ownerRole,
         deviceName: deviceName?.trim() || entry.requestedName,
       };
       return { ok: true };
@@ -271,8 +312,14 @@ export function createLocalFederationPorts(
     workstations: createEmptyWorkstationDirectory(),
     memberships: createLocalOwnerMemberships(config),
     projections: createLocalProjectionPort(self, config.projectionSigningKey),
-    nhiRunner: createH2aCommandRunner(dependencies.executeH2a),
-    devices: createInMemoryDeviceAttachments(dependencies.now),
+    nhiRunner: dependencies.executeH2a
+      ? createH2aCommandRunner(dependencies.executeH2a)
+      : createUnconfiguredNhiRunner(),
+    devices: createInMemoryDeviceAttachments(
+      config.ownerUserId,
+      config.ownerRole,
+      dependencies.now,
+    ),
   };
 }
 
@@ -286,6 +333,7 @@ export function createDefaultLocalFederationPorts(): LocalFederationPorts {
     endpoint: `local://${localHostname}`,
     workspaceId,
     ownerUserId: userInfo().username,
+    ownerRole: "owner",
     tenantId: `tenant:local:${digest(workspaceId)}`,
     projectionSigningKey: randomBytes(32),
   });
