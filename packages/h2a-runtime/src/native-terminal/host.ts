@@ -323,6 +323,9 @@ export type NativeTerminalExit = Readonly<{
 
 export type NativeTerminalSessionStatus = "running" | "stopping" | "exited";
 
+/** The provenance of an exclusive controller, used only for human-input safety. */
+export type NativeTerminalControllerActivity = "human" | "automation";
+
 export type NativeTerminalSessionState = Readonly<{
   id: string;
   generation: string;
@@ -339,6 +342,13 @@ export type NativeTerminalSessionState = Readonly<{
    * stays private to the host.
    */
   controlled: boolean;
+  /**
+   * Most recent human controller/input activity, in epoch milliseconds. A
+   * missing value means an older host did not provide the safety signal and
+   * callers that inject input must fail closed; null means no human activity
+   * has been observed since this host created the session.
+   */
+  lastHumanActivityAt?: number | null;
 }>;
 
 export type NativeTerminalReplay = Readonly<{
@@ -438,7 +448,9 @@ type SessionRecord = {
   exit: NativeTerminalExit | null;
   stopSignal: string | null;
   controllerId: string | null;
+  controllerActivity: NativeTerminalControllerActivity | null;
   controllerEpoch: number;
+  lastHumanActivityAt: number | null;
   dataSubscription?: { dispose(): void };
   exitSubscription?: { dispose(): void };
 };
@@ -644,7 +656,9 @@ export class NativeTerminalHost {
       exit: null,
       stopSignal: null,
       controllerId: null,
+      controllerActivity: null,
       controllerEpoch: 0,
+      lastHumanActivityAt: null,
     };
     this.#sessions.set(record.id, record);
 
@@ -702,6 +716,7 @@ export class NativeTerminalHost {
   acquireController(
     id: string,
     controllerId: string,
+    activity: NativeTerminalControllerActivity = "automation",
   ): NativeTerminalControllerLease {
     const record = this.#requireControllableSession(id);
     if (
@@ -715,8 +730,13 @@ export class NativeTerminalHost {
     if (record.controllerId !== null) {
       throw new Error(`terminal session already has a controller: ${id}`);
     }
+    if (activity !== "human" && activity !== "automation") {
+      throw new TypeError("terminal controller activity must be human or automation");
+    }
     record.controllerEpoch += 1;
     record.controllerId = controllerId;
+    record.controllerActivity = activity;
+    if (activity === "human") record.lastHumanActivityAt = Date.now();
     return Object.freeze({
       role: "controller",
       id,
@@ -731,6 +751,7 @@ export class NativeTerminalHost {
     lease: NativeTerminalControllerLease,
   ): NativeTerminalControllerState {
     const record = this.#requireMatchingController(lease);
+    if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
     this.#invalidateController(record);
     return Object.freeze({
       id: record.id,
@@ -744,7 +765,9 @@ export class NativeTerminalHost {
     if (data.length === 0) {
       throw new RangeError("terminal input must not be empty");
     }
-    this.#requireController(lease).pty.write(data);
+    const record = this.#requireController(lease);
+    if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
+    record.pty.write(data);
   }
 
   resize(
@@ -1147,6 +1170,7 @@ export class NativeTerminalHost {
   #invalidateController(record: SessionRecord): void {
     if (record.controllerId === null) return;
     record.controllerId = null;
+    record.controllerActivity = null;
     record.controllerEpoch += 1;
   }
 
@@ -1161,6 +1185,7 @@ export class NativeTerminalHost {
       exit: record.exit,
       stopSignal: record.stopSignal,
       controlled: record.controllerId !== null,
+      lastHumanActivityAt: record.lastHumanActivityAt,
     });
   }
 }

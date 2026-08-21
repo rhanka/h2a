@@ -114,7 +114,10 @@ export interface H2ADriver {
 export type H2ADriverKind = "logging" | "native" | "local-tmux" | "headless" | "auto";
 
 export interface NativeBackchannelDriverOptions {
-  readonly send?: (request: H2ADriveRequest) => boolean | Promise<boolean>;
+  /** Return undefined when this transport does not own the target, so legacy native backchannels may try. */
+  readonly send?: (
+    request: H2ADriveRequest
+  ) => boolean | undefined | Promise<boolean | undefined>;
   readonly runtime?: RelauncherRuntime;
   readonly log?: (line: string) => void;
 }
@@ -420,16 +423,26 @@ export function nativeBackchannelDriver(
   const runtime = options.runtime ?? defaultRelauncherRuntime;
   return {
     drive(request) {
+      const fallback = (): boolean => {
+        const command = nativeDriveCommand(request);
+        if (!command) {
+          options.log?.(`drive[native]: no native backchannel for ${request.to}`);
+          return false;
+        }
+        const ok = runtime.run(command[0], command.slice(1));
+        options.log?.(`drive[native]: ${request.to} (${ok ? "ok" : "failed"})`);
+        return ok;
+      };
       const injected = options.send?.(request);
-      if (injected !== undefined) return injected;
-      const command = nativeDriveCommand(request);
-      if (!command) {
-        options.log?.(`drive[native]: no native backchannel for ${request.to}`);
-        return false;
+      if (injected !== undefined) {
+        if (typeof (injected as Promise<boolean | undefined>).then === "function") {
+          return (injected as Promise<boolean | undefined>).then(
+            (result) => result ?? fallback(),
+          );
+        }
+        return injected as boolean;
       }
-      const ok = runtime.run(command[0], command.slice(1));
-      options.log?.(`drive[native]: ${request.to} (${ok ? "ok" : "failed"})`);
-      return ok;
+      return fallback();
     }
   };
 }

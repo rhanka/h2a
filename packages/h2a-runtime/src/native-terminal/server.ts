@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 
 import {
   NativeTerminalHost,
+  type NativeTerminalControllerActivity,
   type NativeTerminalControllerLease,
   type NativeTerminalCreateOptions,
 } from "./host.js";
@@ -76,6 +77,12 @@ function requiredInteger(value: unknown, label: string): number {
     throw new TypeError(`${label} must be a positive safe integer`);
   }
   return value as number;
+}
+
+function controllerActivity(value: unknown): NativeTerminalControllerActivity {
+  if (value === undefined) return "automation";
+  if (value === "human" || value === "automation") return value;
+  throw new TypeError("terminal controller activity must be human or automation");
 }
 
 function sessionId(params: unknown): string {
@@ -179,6 +186,7 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       const lease = host.acquireController(
         requiredIdentifier(record.id, "session id"),
         requiredIdentifier(record.controllerId, "controller id"),
+        controllerActivity(record.activity),
       );
       context.leases.set(lease.id, lease);
       return lease;

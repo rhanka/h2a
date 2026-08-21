@@ -1846,7 +1846,7 @@ export async function runMcpServe(
       // fallback spawns a new agent, wrong for waking yourself).
       const driver =
         flags.wake === "auto"
-          ? chainDriver(nativeBackchannelDriver(), localTmuxDriver({ log }))
+          ? chainDriver(nativePtyBackchannelDriver(log), localTmuxDriver({ log }))
           : buildDriveDriver(flags.wake as H2ADriverKind, log);
       wake = { driver, privateKeyPem };
     } catch (err) {
@@ -3336,7 +3336,7 @@ function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void): H2A
     case "logging":
       return loggingDriver(log);
     case "native":
-      return nativeBackchannelDriver();
+      return nativePtyBackchannelDriver(log);
     case "local-tmux":
       return localTmuxDriver({ log });
     case "headless":
@@ -3345,7 +3345,7 @@ function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void): H2A
       return {
         drive(request) {
           for (const driver of [
-            nativeBackchannelDriver(),
+            nativePtyBackchannelDriver(log),
             localTmuxDriver({ log }),
             headlessDriver({ log })
           ]) {
@@ -3356,6 +3356,74 @@ function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void): H2A
         }
       };
   }
+}
+
+/**
+ * The core CLI keeps its runtime dependency lazy. This synchronous bridge
+ * reaches the runtime's native-terminal operation entrypoint, where the
+ * NativeTerminalClient owns session resolution, liveness/activity checks, and
+ * the controller lease used to write the submitted line.
+ */
+function nativeTerminalOpPath(): string | undefined {
+  let entry: string | undefined;
+  try {
+    const resolver = (import.meta as unknown as {
+      resolve?: (specifier: string) => string;
+    }).resolve;
+    if (typeof resolver === "function") {
+      entry = fileURLToPath(resolver("@sentropic/h2a-runtime"));
+    }
+  } catch {
+    entry = undefined;
+  }
+  if (entry === undefined) {
+    try {
+      entry = createRequire(import.meta.url).resolve("@sentropic/h2a-runtime");
+    } catch {
+      return undefined;
+    }
+  }
+  const operation = join(dirname(entry), "native-terminal", "op.js");
+  return existsSync(operation) ? operation : undefined;
+}
+
+function nativePtyBackchannelDriver(log: (line: string) => void): H2ADriver {
+  return nativeBackchannelDriver({
+    log,
+    send(request) {
+      const operation = nativeTerminalOpPath();
+      if (operation === undefined) {
+        log(`drive[native-pty]: runtime unavailable for ${request.to}`);
+        return undefined;
+      }
+      const result = spawnSync(
+        process.execPath,
+        [
+          operation,
+          "drive",
+          "--target",
+          request.to,
+          "--b64",
+          Buffer.from(request.instructionLine, "utf8").toString("base64"),
+        ],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+      );
+      let outcome: string | undefined;
+      if (result.status === 0) {
+        try {
+          const line = result.stdout.trim().split("\n").at(-1);
+          const payload = line ? JSON.parse(line) as { outcome?: unknown } : undefined;
+          outcome = typeof payload?.outcome === "string" ? payload.outcome : undefined;
+        } catch {
+          outcome = undefined;
+        }
+      }
+      if (outcome === "unresolved") return undefined;
+      const ok = outcome === "driven";
+      log(`drive[native-pty]: ${request.to} (${ok ? "ok" : "failed"})`);
+      return ok;
+    },
+  });
 }
 
 function driveReplayGuard(root: string): H2AReplayGuard {
