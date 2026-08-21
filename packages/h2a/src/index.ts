@@ -510,6 +510,7 @@ export type {
 export {
   doctorHostInstallations,
   findLiveSessionsPredatingHostConfig,
+  inspectLegacyAccountArtifacts,
   H2A_MARKETPLACE_GIT_URL,
   H2A_MARKETPLACE_NAME,
   H2A_MARKETPLACE_REPOSITORY,
@@ -521,6 +522,7 @@ export {
   type HostInstallationFinding,
   type HostInstallationReport,
   type HostRepairMarker,
+  type LegacyAccountArtifactsDiagnostic,
   type LiveHostSessionFinding
 } from "./hosts/installation-doctor.js";
 

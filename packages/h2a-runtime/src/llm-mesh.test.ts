@@ -3,16 +3,25 @@ import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LlmMeshFacade } from "@sentropic/llm-mesh/facade";
+import {
+  createLlmMeshFacade,
+  type LlmMeshFacade,
+} from "@sentropic/llm-mesh/facade";
+import { InMemoryKeyring } from "@sentropic/llm-mesh/node";
 
 import {
   LlmMeshManager,
   acquireLlmMeshSessionEnv,
   enrollViaFacade,
+  formatLlmMeshAccountList,
+  formatLlmMeshAccountError,
   gatewayScriptPath,
+  listAccountsViaFacade,
   llmMeshLogPath,
   llmMeshPidPath,
   llmMeshTokenPath,
+  removeAccountViaFacade,
+  replaceAnthropicGatewayEnvironment,
   startGateway,
 } from "./llm-mesh.js";
 
@@ -43,6 +52,53 @@ describe("gateway runtime boundary", () => {
     expect(gatewayScriptPath()).not.toContain("apps/llm-gateway");
   });
 
+});
+
+describe("Anthropic child environment", () => {
+  it("keeps native Claude authentication while removing stale gateway state", () => {
+    const env: NodeJS.ProcessEnv = {
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "stale-gateway-token",
+      ANTHROPIC_API_KEY: "user-owned-api-key",
+    };
+
+    const restore = replaceAnthropicGatewayEnvironment(env);
+
+    expect(env).toEqual({ ANTHROPIC_API_KEY: "user-owned-api-key" });
+    restore();
+    expect(env).toEqual({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "stale-gateway-token",
+      ANTHROPIC_API_KEY: "user-owned-api-key",
+    });
+  });
+
+  it("uses only the opaque gateway lane and restores the exact parent env", () => {
+    const env: NodeJS.ProcessEnv = {
+      ANTHROPIC_BASE_URL: "https://parent.example",
+      ANTHROPIC_AUTH_TOKEN: "parent-token",
+      ANTHROPIC_API_KEY: "user-owned-api-key",
+      UNRELATED: "preserved",
+    };
+
+    const restore = replaceAnthropicGatewayEnvironment(env, {
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "opaque-gateway-token",
+    });
+
+    expect(env).toEqual({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "opaque-gateway-token",
+      UNRELATED: "preserved",
+    });
+    restore();
+    expect(env).toEqual({
+      ANTHROPIC_BASE_URL: "https://parent.example",
+      ANTHROPIC_AUTH_TOKEN: "parent-token",
+      ANTHROPIC_API_KEY: "user-owned-api-key",
+      UNRELATED: "preserved",
+    });
+  });
 });
 
 describe("facade enrollment", () => {
@@ -112,6 +168,156 @@ describe("facade enrollment", () => {
     expect(facade.waitForCallback).not.toHaveBeenCalled();
   });
 
+});
+
+describe("facade account administration", () => {
+  it("keeps unexpected facade errors free of paths and credentials", () => {
+    const poisoned = new Error(
+      "ENOTDIR: /home/private/.sentropic/llm-mesh-keyring/access-token.json",
+    );
+
+    expect(formatLlmMeshAccountError(poisoned, "account inventory unavailable"))
+      .toBe("account inventory unavailable");
+    expect(formatLlmMeshAccountError(poisoned, "account removal failed"))
+      .toBe("account removal failed");
+    expect(formatLlmMeshAccountError(
+      new Error("Account 'acct-codex_1' not found"),
+      "account removal failed",
+    )).toBe("Account 'acct-codex_1' not found");
+  });
+
+  it("lists only public account metadata in the requested owner scope", async () => {
+    const accounts = [{
+      accountId: "acct-codex",
+      providerId: "codex",
+      accountLabel: "Codex local",
+      status: "active",
+      createdAt: "2026-08-20T10:00:00.000Z",
+      updatedAt: "2026-08-20T10:00:00.000Z",
+    }];
+    const facade = {
+      listAccounts: vi.fn().mockResolvedValue(accounts),
+    };
+
+    await expect(listAccountsViaFacade({
+      facade: facade as never,
+      ownerScope: "cli:test-host",
+    })).resolves.toEqual(accounts);
+    expect(facade.listAccounts).toHaveBeenCalledWith({
+      ownerScope: "cli:test-host",
+    });
+  });
+
+  it("removes one account through the facade in the requested owner scope", async () => {
+    const facade = {
+      removeAccount: vi.fn().mockResolvedValue({
+        accountId: "acct-codex",
+        removed: true,
+      }),
+    };
+
+    await expect(removeAccountViaFacade("acct-codex", {
+      facade: facade as never,
+      ownerScope: "cli:test-host",
+    })).resolves.toEqual({ accountId: "acct-codex", removed: true });
+    expect(facade.removeAccount).toHaveBeenCalledWith("acct-codex", {
+      ownerScope: "cli:test-host",
+    });
+  });
+
+  it("renders stable public JSON and table projections without extra fields", () => {
+    const accounts = [{
+      accountId: "acct-codex",
+      providerId: "codex",
+      accountLabel: "Codex local",
+      status: "active",
+      createdAt: "2026-08-20T10:00:00.000Z",
+      updatedAt: "2026-08-20T11:00:00.000Z",
+      accessToken: "must-not-leak",
+    }];
+
+    const json = formatLlmMeshAccountList(accounts, true);
+    expect(JSON.parse(json)).toEqual([{
+      accountId: "acct-codex",
+      providerId: "codex",
+      accountLabel: "Codex local",
+      status: "active",
+      createdAt: "2026-08-20T10:00:00.000Z",
+      updatedAt: "2026-08-20T11:00:00.000Z",
+    }]);
+    expect(json).not.toContain("must-not-leak");
+
+    const table = formatLlmMeshAccountList(accounts, false);
+    expect(table).toContain("ID");
+    expect(table).toContain("PROVIDER");
+    expect(table).toContain("LABEL");
+    expect(table).toContain("STATUS");
+    expect(table).toContain("ENROLLED");
+    expect(table).toContain("acct-codex");
+    expect(table).not.toContain("must-not-leak");
+  });
+
+  it("exercises enroll, owner-scoped inventory, removal, and ineligibility through the public facade", async () => {
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/accounts/deviceauth/usercode")) {
+        return new Response(JSON.stringify({
+          device_auth_id: "device-auth-1",
+          user_code: "ABCD-EFGH",
+          interval: 0,
+        }), { status: 200 });
+      }
+      if (url.endsWith("/api/accounts/deviceauth/token")) {
+        return new Response(JSON.stringify({
+          authorization_code: "authorization-code-1",
+          code_verifier: "code-verifier-1",
+        }), { status: 200 });
+      }
+      if (url.endsWith("/oauth/token")) {
+        return new Response(JSON.stringify({
+          access_token: "fixture-access-token",
+          refresh_token: "fixture-refresh-token",
+          expires_in: 3600,
+        }), { status: 200 });
+      }
+      throw new Error(`unexpected fixture URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const facade = createLlmMeshFacade({
+      configResolver: { async resolveConfig() { return {}; } },
+      keyring: new InMemoryKeyring(),
+      mode: "cli",
+    });
+    const enrollment = await facade.enroll("codex", {
+      configRef: "config-v1",
+      mode: "cli",
+      ownerScope: "cli:owner-a",
+      redirectUri: "http://127.0.0.1/callback",
+    });
+    const completed = await facade.pollForCompletion(enrollment.enrollmentId);
+
+    const owned = await facade.listAccounts({ ownerScope: "cli:owner-a" });
+    expect(owned).toHaveLength(1);
+    expect(owned[0]?.accountId).toBe(completed.accountId);
+    expect(JSON.stringify(owned)).not.toContain("fixture-access-token");
+    await expect(facade.listAccounts({ ownerScope: "cli:owner-b" }))
+      .resolves.toEqual([]);
+    await expect(facade.removeAccount(completed.accountId, {
+      ownerScope: "cli:owner-b",
+    })).rejects.toThrow(`Account '${completed.accountId}' not found`);
+
+    await expect(facade.removeAccount(completed.accountId, {
+      ownerScope: "cli:owner-a",
+    })).resolves.toEqual({ accountId: completed.accountId, removed: true });
+    await expect(facade.listAccounts({ ownerScope: "cli:owner-a" }))
+      .resolves.toEqual([]);
+    await expect(facade.acquire({
+      ownerScopeRef: "cli:owner-a",
+      targetProviderId: "openai",
+      transportProviderId: "codex",
+    })).rejects.toThrow("No active codex account transport for openai");
+  });
 });
 
 describe("gateway session acquisition", () => {

@@ -1056,6 +1056,10 @@ describe("h2a resume <slug>", () => {
       lines: 2,
       sha: "abc123",
     });
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "gw-test",
+    });
 
     const exitCode = await main([
       "node",
@@ -1361,29 +1365,21 @@ describe("h2a resume <slug>", () => {
     expect(stderrText()).toContain("injecting gateway env");
   });
 
-  it("reports explicit --gw fallback when the Sentropic gateway cannot start", async () => {
+  it("fails closed when explicit --gw cannot start the Sentropic gateway", async () => {
     writeRegistry([registrySession()]);
 
     const exitCode = await main(["node", "remote", "resume", "projA", "--gw"]);
 
-    expect(exitCode).toBe(0);
+    expect(exitCode).toBe(1);
     expect(startGateway).toHaveBeenCalledWith({}, {
       clientSessionId: "h2a-projA",
     });
-    expect(startLocalSession).toHaveBeenCalledWith(
-      "claude",
-      "claude",
-      "/home/u/src/projA",
-      ["--resume", "conv-dup"],
-      "projA",
-      undefined,
-      { attachedTerminal: true, sessionClass: "background" },
-    );
+    expect(startLocalSession).not.toHaveBeenCalled();
     expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined();
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
     expect(process.env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(stderrText()).toContain(
-      "--gw requested but no gateway env is available",
+      "llm-mesh gateway is required but unavailable; no agent was started",
     );
   });
 
@@ -1460,6 +1456,7 @@ describe("h2a resume <slug>", () => {
   });
 
   it("--no-gw forces direct auth even when llm-mesh config is enabled", async () => {
+    process.env.ANTHROPIC_API_KEY = "user-owned-api-key";
     getLlmMeshRuntimeConfig.mockReturnValue({ enabled: true });
     readLlmMeshConfig.mockReturnValue({});
     startGateway.mockResolvedValue({
@@ -1489,6 +1486,7 @@ describe("h2a resume <slug>", () => {
       { attachedTerminal: true, sessionClass: "background" },
     );
     expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(process.env.ANTHROPIC_API_KEY).toBe("user-owned-api-key");
   });
 
   it("does not replace an existing non-idle session", async () => {
@@ -1646,6 +1644,29 @@ describe("h2a run -r <conv> single-writer guard", () => {
       undefined,
       "h2a-gateway-worker",
     );
+  });
+
+  it("fails a fresh explicit --gw launch before starting an agent when the gateway is unavailable", async () => {
+    const exitCode = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      "--name",
+      "gateway-unavailable",
+      "--gw",
+      "--no-attach",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(startGateway).toHaveBeenCalledWith({}, {
+      clientSessionId: "h2a-gateway-unavailable",
+    });
+    expect(startLocalSession).not.toHaveBeenCalled();
+    expect(stderrText()).toContain(
+      "llm-mesh gateway is required but unavailable; no agent was started",
+    );
+    expect(stderrText()).not.toContain("Claude may ask for login");
   });
 
   it("refuses an existing local target before guard, gateway, registry, or spawn", async () => {
