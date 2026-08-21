@@ -278,6 +278,7 @@ describe("NativeTerminalHost", () => {
         exit: { exitCode: 7, signal: 15 },
         stopSignal: null,
         controlled: false,
+        lastHumanActivityAt: null,
       },
       {
         id: "beta",
@@ -289,6 +290,7 @@ describe("NativeTerminalHost", () => {
         exit: null,
         stopSignal: null,
         controlled: false,
+        lastHumanActivityAt: null,
       },
     ]);
   });
