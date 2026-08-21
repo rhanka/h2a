@@ -294,6 +294,7 @@ const RUNTIME_VERBS: readonly {
   { group: "SET_UP", verb: "tmux", summary: "Manage h2a's local tmux naming and status surface." },
 
   { group: "SPECIALIST", verb: "identity", summary: "Emit a fail-closed DEF identity-cull proof packet; execution is disabled." },
+  { group: "SPECIALIST", verb: "federation", summary: "Inspect the strictly local single-node federation entrypoint (cluster-mesh)." },
 
   { group: "SESSION_RECOVERY", verb: "restore", summary: "Relaunch the dev sessions in their recorded layout." },
   { group: "SESSION_RECOVERY", verb: "relaunch", summary: "Recover an idle CLI, or force-restart one session or a guarded fleet from its registry conversation." },
