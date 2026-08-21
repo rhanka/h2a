@@ -188,7 +188,17 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
         replay.chunks.map((chunk) => chunk.data).join(""),
         /native-drive-received:.*native-drive-delivered/,
       );
+      assert.equal(
+        replay.chunks
+          .map((chunk) => chunk.data)
+          .join("")
+          .match(/native-drive-received:[^\r\n]*native-drive-delivered/g)?.length,
+        1,
+      );
 
+      // This models a human becoming active after the old pre-lease state
+      // check. The atomic drive lease below must see it and refuse the write.
+      assert.equal((await client.state(sessionId)).lastHumanActivityAt, null);
       const humanLease = await client.acquireController(sessionId, "functional-human", "human");
       await client.write(humanLease, "recent-human-input\\r");
       await client.releaseController(humanLease);
@@ -214,6 +224,52 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
       assert.doesNotMatch(
         (await client.readOutput(sessionId, 0)).chunks.map((chunk) => chunk.data).join(""),
         /native-drive-must-not-arrive/,
+      );
+
+      // A legacy caller with omitted provenance is now treated as human by
+      // the client default. Its input blocks drive and never reaches the PTY.
+      const legacyLease = await client.acquireController(sessionId, "functional-legacy");
+      await client.write(legacyLease, "legacy-provenance-input\r");
+      await client.releaseController(legacyLease);
+      const legacy = captureStreams(directory);
+      assert.equal(
+        runCli([
+          "drive",
+          "--root", storeRoot,
+          "--from", "claude:lead",
+          "--to", "codex:worker",
+          "--instruction", "native-drive-legacy-must-not-arrive",
+          "--private-key", privateKeyPath,
+          "--driver", "native",
+        ], legacy.streams),
+        2,
+      );
+      assert.equal((JSON.parse(legacy.out()) as { driven: boolean }).driven, false);
+      assert.doesNotMatch(
+        (await client.readOutput(sessionId, 0)).chunks.map((chunk) => chunk.data).join(""),
+        /native-drive-legacy-must-not-arrive/,
+      );
+
+      // Disable only the timing guard so this test reaches the instruction
+      // validator; control bytes still fail before any native lease/write.
+      process.env.H2A_WAKE_DEFER_ACTIVITY_MS = "0";
+      const control = captureStreams(directory);
+      assert.equal(
+        runCli([
+          "drive",
+          "--root", storeRoot,
+          "--from", "claude:lead",
+          "--to", "codex:worker",
+          "--instruction", "native-drive-control-first\nnative-drive-control-second\u001b[31m",
+          "--private-key", privateKeyPath,
+          "--driver", "native",
+        ], control.streams),
+        2,
+      );
+      assert.equal((JSON.parse(control.out()) as { driven: boolean }).driven, false);
+      assert.doesNotMatch(
+        (await client.readOutput(sessionId, 0)).chunks.map((chunk) => chunk.data).join(""),
+        /native-drive-control-(?:first|second)/,
       );
     } finally {
       supervisor.disconnect();

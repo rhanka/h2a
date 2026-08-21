@@ -716,7 +716,7 @@ export class NativeTerminalHost {
   acquireController(
     id: string,
     controllerId: string,
-    activity: NativeTerminalControllerActivity = "automation",
+    activity: NativeTerminalControllerActivity = "human",
   ): NativeTerminalControllerLease {
     const record = this.#requireControllableSession(id);
     if (
@@ -745,6 +745,42 @@ export class NativeTerminalHost {
       controllerId,
       epoch: record.controllerEpoch,
     });
+  }
+
+  /**
+   * Atomically acquire automation input only when no human activity is recent.
+   * This runs entirely in the host's serialized request handler: a human
+   * controller cannot appear between the safety decision and the lease grant.
+   */
+  acquireAutomationControllerIfNoRecentHuman(
+    id: string,
+    controllerId: string,
+    activityWindowMs: number,
+  ): NativeTerminalControllerLease {
+    if (!Number.isSafeInteger(activityWindowMs) || activityWindowMs < 0) {
+      throw new RangeError("terminal human activity window must be a non-negative safe integer");
+    }
+    const record = this.#requireControllableSession(id);
+    if (
+      controllerId.trim().length === 0 ||
+      controllerId.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS
+    ) {
+      throw new RangeError(
+        `terminal controller id must contain 1-${NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS} characters`,
+      );
+    }
+    if (record.controllerId !== null) {
+      throw new Error(`terminal session already has a controller: ${id}`);
+    }
+    const activityAt = record.lastHumanActivityAt;
+    if (
+      activityAt !== null &&
+      (!Number.isSafeInteger(activityAt) || activityAt < 0 || Date.now() < activityAt ||
+        (activityWindowMs > 0 && Date.now() - activityAt < activityWindowMs))
+    ) {
+      throw new Error(`terminal session has recent human activity: ${id}`);
+    }
+    return this.acquireController(id, controllerId, "automation");
   }
 
   releaseController(
