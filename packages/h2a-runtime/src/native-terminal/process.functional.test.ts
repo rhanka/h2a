@@ -275,13 +275,17 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       "hard-crash-tree",
       directory,
     );
+    const hardCrashPgid = hardCrashPids[0]!;
     process.kill(firstPing.hostPid, "SIGKILL");
-    await eventually(
-      () => Promise.all(hardCrashPids.map(processObservation)),
-      (states) => states.every((state) => state.missing === true),
-    );
-
+    // A parent-death signal can kill the guardian before its shell trap has
+    // broadcast to the group. The supervisor therefore treats the next
+    // takeover of this health-checked, known-dead host as containment work:
+    // client() returns only after the durable pgid has been reaped (or it
+    // fails rather than starting a replacement over live descendants).
     const replacement = await supervisor.client();
+    expect(await processGroupMemberPids(hardCrashPgid)).toEqual([]);
+    const hardCrashStates = await Promise.all(hardCrashPids.map(processObservation));
+    expect(hardCrashStates.every((state) => state.missing === true)).toBe(true);
     const replacementPing = await replacement.ping();
     expect(replacementPing.hostPid).not.toBe(firstPing.hostPid);
     expect(spawnCount).toBe(2);
@@ -291,12 +295,21 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       directory,
     );
     const forcedReapPgid = forcedReapPids[0]!;
+
+    // Reproduce the leaderless-group shape without relying on the guardian's
+    // parent-death trap: kill only the group leader. Its stubborn descendants
+    // remain in the durable pgid, but Linux may reparent them to PID 1 OR to a
+    // subreaper. That implementation detail is deliberately not a test
+    // synchronization point: the forced-reap path below must reach them by
+    // pgid and prove the group empty itself.
+    process.kill(forcedReapPgid, "SIGKILL");
     supervisor.disconnect();
     process.kill(replacementPing.hostPid, "SIGSTOP");
     await expect(supervisor.client()).rejects.toThrow(/did not become ready/i);
     // This must already be empty when forced reaping returns: the supervisor
     // killed the reaped host, then used the durable pgid for kill(-pgid,
-    // SIGKILL), which reaches descendants that reparented to init.
+    // SIGKILL) and waited for kill(-pgid, 0) to return ESRCH. That reaches
+    // descendants whether they reparented to init or to a subreaper.
     expect(running(replacementPing.hostPid)).toBe(false);
     expect(await processGroupMemberPids(forcedReapPgid)).toEqual([]);
     const forcedReapStates = await Promise.all(forcedReapPids.map(processObservation));
@@ -305,7 +318,19 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       reconcileLogs.some(
         (line) =>
           line.includes(`pgid=${forcedReapPgid}`) &&
+          line.includes("emitted group SIGKILL") &&
           line.includes("(orphan forced-reap-tree)"),
+      ),
+    ).toBe(true);
+    // The leader is absent, so reaching the group kill above requires the
+    // token membership proof. This proves the recycled-PGID fence remained
+    // active without refusing and leaking this verified real orphan.
+    expect(
+      reconcileLogs.some(
+        (line) =>
+          line.includes("cause=token-verified") &&
+          line.includes("sessionId=forced-reap-tree") &&
+          line.includes(`pgid=${forcedReapPgid}`),
       ),
     ).toBe(true);
     expect(supervisor.spawnedPid).toBeUndefined();

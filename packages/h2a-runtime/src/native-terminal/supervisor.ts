@@ -160,6 +160,13 @@ export class NativeTerminalHostSupervisor {
   #nextSpawnAllowedAt = 0;
   #lastSpawnFailure: Error | undefined;
   #lastSpawnGeneration: string | undefined;
+  // A health-checked host that has disappeared may have left a PTY guardian
+  // (or, after that guardian's own parent-death race, its reparented
+  // descendants) behind. Keep its identity until the next takeover has
+  // positively reaped every durable group it owned. Clearing #spawned alone
+  // would discard the fact that this is containment work rather than an
+  // ordinary best-effort stale-registry sweep.
+  #pendingDeadOwnedHostPid: number | undefined;
 
   constructor(options: {
     socketPath: string;
@@ -280,6 +287,13 @@ export class NativeTerminalHostSupervisor {
       return await this.#adoptHealthyConnection(connected);
     } catch {
       this.#clearGoneSpawn();
+      if (this.#pendingDeadOwnedHostPid !== undefined) {
+        const ownerPid = this.#pendingDeadOwnedHostPid;
+        await this.#reconcileDeadHostOrphans({
+          requireReapedForOwnerPid: ownerPid,
+        });
+        this.#pendingDeadOwnedHostPid = undefined;
+      }
       if (!this.#spawned || this.#spawned.exitCode !== null || this.#spawned.signalCode !== null) {
         const now = this.#now();
         if (now < this.#nextSpawnAllowedAt) {
@@ -454,6 +468,9 @@ export class NativeTerminalHostSupervisor {
 
   #clearGoneSpawn(): void {
     if (this.#spawned && childGone(this.#spawned)) {
+      if (this.#spawnedReachedHealth && this.#spawned.pid !== undefined) {
+        this.#pendingDeadOwnedHostPid ??= this.#spawned.pid;
+      }
       this.#spawned = undefined;
       this.#spawnedReachedHealth = false;
     }
