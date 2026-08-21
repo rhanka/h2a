@@ -147,7 +147,7 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
     // > Explicit governance and coordination concepts.
     id: "COORDINATE",
     heading: "Coordinate — hand work to agents and talk to peers:",
-    commands: ["delegate", "jobs", "relay", "conductor-launch", "wake-request"],
+    commands: ["delegate", "jobs", "relay", "conductor-launch", "wake-request", "federation"],
   },
   {
     // Vendored excerpt 3, § "Daily operator surface — top level", these rows:

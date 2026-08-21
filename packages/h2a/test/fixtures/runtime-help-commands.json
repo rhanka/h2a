@@ -1,6 +1,6 @@
 {
   "note": "Pins EVERY top-level command row of the runtime entrypoint's --help: term, description and the intention group it renders under. Generated from the built runtime; regenerate deliberately, never to make a red test green. The ROOT description is intentionally NOT here - it is top-level prose and it changed by design; it is pinned separately as rootDescriptionContains.",
-  "commandCount": 47,
+  "commandCount": 48,
   "descriptionsWrapped": false,
   "rootDescriptionContains": [
     "The unified sentropic CLI and core",
@@ -116,6 +116,11 @@
       "group": "Coordinate — hand work to agents and talk to peers:",
       "term": "relay|h2a",
       "description": "h2a agent-network helpers (local file store: ~/h2a-workspace/.h2a)"
+    },
+    {
+      "group": "Coordinate — hand work to agents and talk to peers:",
+      "term": "federation",
+      "description": "Inspect the strictly local single-node federation entrypoint"
     },
     {
       "group": "Set up — connect this host, its credentials, and diagnostics:",
