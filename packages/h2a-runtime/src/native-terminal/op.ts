@@ -16,6 +16,7 @@
  *                                     (exit 0) so a caller never reads a
  *                                     generic failure as proof of death
  *   create  --id X --cwd D [--cols N --rows N] [--env-file F] -- cmd args...
+ *   drive   --target I --b64 TEXT      resolve a native session and submit TEXT
  *   write   --id X --b64 TEXT         raw keystrokes (base64, controller-scoped)
  *   paste   --id X --b64 TEXT         ONE bracketed-paste block (tmux paste -p twin)
  *   enter   --id X                    submit (CR)
@@ -31,6 +32,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { NativeTerminalClient } from "./client.js";
+import { loadRegistry, registryEntriesForNativeTarget } from "../registry.js";
 import {
   NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
   NativeTerminalRemoteError,
@@ -140,6 +142,75 @@ async function withController<T>(
 async function readAll(client: NativeTerminalClient, id: string): Promise<string> {
   const replay = await client.readOutput(id, 0);
   return replay.chunks.map((chunk) => chunk.data).join("");
+}
+
+const NATIVE_DRIVE_ACTIVITY_WINDOW_MS = 4_000;
+
+function nativeDriveActivityWindowMs(): number {
+  const raw = process.env["H2A_WAKE_DEFER_ACTIVITY_MS"];
+  if (raw !== undefined) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return NATIVE_DRIVE_ACTIVITY_WINDOW_MS;
+}
+
+/**
+ * Resolve the perennial instance address first, then its human-facing label,
+ * through the runtime registry. The registry owns the native session name;
+ * guessing a h2a-<slug> name here could inject into a homonymous session.
+ */
+type NativeDriveSessionResolution =
+  | { readonly state: "found"; readonly id: string }
+  | { readonly state: "unresolved" }
+  | { readonly state: "unknown" };
+
+function nativeDriveSessionId(target: string): NativeDriveSessionResolution {
+  const registry = loadRegistry();
+  if (registry.state !== "ok") return { state: "unknown" };
+  const labels = [target];
+  const hostSeparator = target.indexOf(":");
+  if (hostSeparator > 0 && hostSeparator < target.length - 1) {
+    labels.push(target.slice(hostSeparator + 1));
+  }
+  const sessions = new Set<string>();
+  let matches = 0;
+  let hasUnknownSessionId = false;
+  for (const label of labels) {
+    for (const entry of registryEntriesForNativeTarget(label, registry.entries)) {
+      matches += 1;
+      if (entry.tmuxSession === undefined) hasUnknownSessionId = true;
+      else sessions.add(entry.tmuxSession);
+    }
+  }
+  if (matches === 0) return { state: "unresolved" };
+  if (hasUnknownSessionId || sessions.size !== 1) return { state: "unknown" };
+  return { state: "found", id: [...sessions][0]! };
+}
+
+/**
+ * A missing activity field is an older/unknown host view, not an idle verdict.
+ * A currently-held controller is also unsafe: it may be a human who is typing.
+ */
+function nativeDriveIsSafeToInject(
+  state: NativeTerminalSessionState,
+  now: number,
+): boolean {
+  if (state.status !== "running" || state.controlled !== false) return false;
+  const activityAt = (state as { lastHumanActivityAt?: unknown }).lastHumanActivityAt;
+  if (activityAt === undefined) return false;
+  if (activityAt === null) return true;
+  if (
+    typeof activityAt !== "number" ||
+    !Number.isSafeInteger(activityAt) ||
+    activityAt < 0
+  ) {
+    return false;
+  }
+  const ageMs = now - activityAt;
+  if (ageMs < 0) return false;
+  const windowMs = nativeDriveActivityWindowMs();
+  return windowMs <= 0 || ageMs >= windowMs;
 }
 
 const delay = (ms: number): Promise<void> =>
@@ -325,6 +396,7 @@ export async function runAttach(
       const lease = await client.acquireController(
         id,
         `h2a-attach-${process.pid}`,
+        "human",
       );
       active = { client, lease };
       transportFailure = undefined;
@@ -557,6 +629,46 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       });
       client.close();
       emit(state);
+      return 0;
+    }
+    case "drive": {
+      const target = nativeDriveSessionId(required(parsed, "target"));
+      if (target.state === "unresolved") {
+        emit({ outcome: "unresolved" });
+        return 0;
+      }
+      if (target.state === "unknown") {
+        emit({ outcome: "deferred" });
+        return 0;
+      }
+      const client = await connectExisting(socketPath);
+      try {
+        const state = await client.state(target.id);
+        if (!nativeDriveIsSafeToInject(state, Date.now())) {
+          emit({ outcome: "deferred" });
+          return 0;
+        }
+        const lease = await client.acquireController(
+          target.id,
+          `h2a-drive-${process.pid}`,
+          "automation",
+        );
+        try {
+          const text = Buffer.from(required(parsed, "b64"), "base64").toString("utf8");
+          if (text.length === 0) {
+            emit({ outcome: "failed" });
+            return 0;
+          }
+          // One write preserves the exact instruction and submits it with CR,
+          // mirroring tmuxSendSubmit without bracketed-paste side effects.
+          await client.write(lease, `${text}\r`);
+        } finally {
+          await client.releaseController(lease).catch(() => {});
+        }
+      } finally {
+        client.close();
+      }
+      emit({ outcome: "driven" });
       return 0;
     }
     case "write":
