@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { chmod, mkdtemp, readFile, readlink, rm, stat } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, readlink, rm, stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -44,7 +44,17 @@ function running(pid: number): boolean {
   }
 }
 
-async function processObservation(pid: number): Promise<Readonly<Record<string, unknown>>> {
+type ProcessObservation = Readonly<{
+  pid: number;
+  state?: string;
+  parentPid?: number;
+  processGroup?: number;
+  session?: number;
+  missing?: boolean;
+  error?: string;
+}>;
+
+async function processObservation(pid: number): Promise<ProcessObservation> {
   try {
     const raw = await readFile(`/proc/${pid}/stat`, "utf8");
     const commandEnd = raw.lastIndexOf(")");
@@ -63,6 +73,18 @@ async function processObservation(pid: number): Promise<Readonly<Record<string, 
       error: String(error),
     };
   }
+}
+
+async function processGroupMemberPids(processGroup: number): Promise<number[]> {
+  const observations = await Promise.all(
+    (await readdir("/proc"))
+      .filter((entry) => /^\d+$/.test(entry))
+      .map((entry) => processObservation(Number(entry))),
+  );
+  return observations
+    .filter((observation) => observation.processGroup === processGroup)
+    .map((observation) => observation.pid)
+    .sort((left, right) => left - right);
 }
 
 async function directChildren(pid: number): Promise<number[]> {
@@ -267,13 +289,24 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       "forced-reap-tree",
       directory,
     );
+    const forcedReapPgid = forcedReapPids[0]!;
     supervisor.disconnect();
     process.kill(replacementPing.hostPid, "SIGSTOP");
     await expect(supervisor.client()).rejects.toThrow(/did not become ready/i);
-    await eventually(
-      () => [replacementPing.hostPid, ...forcedReapPids].map(running),
-      (states) => states.every((alive) => !alive),
-    );
+    // This must already be empty when forced reaping returns: the supervisor
+    // killed the reaped host, then used the durable pgid for kill(-pgid,
+    // SIGKILL), which reaches descendants that reparented to init.
+    expect(running(replacementPing.hostPid)).toBe(false);
+    expect(await processGroupMemberPids(forcedReapPgid)).toEqual([]);
+    const forcedReapStates = await Promise.all(forcedReapPids.map(processObservation));
+    expect(forcedReapStates.every((state) => state.missing === true)).toBe(true);
+    expect(
+      reconcileLogs.some(
+        (line) =>
+          line.includes(`pgid=${forcedReapPgid}`) &&
+          line.includes("(orphan forced-reap-tree)"),
+      ),
+    ).toBe(true);
     expect(supervisor.spawnedPid).toBeUndefined();
 
     // INV-4 no-block assertion: the NEW group-leader-identity guard sits
