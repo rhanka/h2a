@@ -161,9 +161,20 @@ export class NativeTerminalClient {
   acquireController(
     id: string,
     controllerId: string,
-    activity: NativeTerminalControllerActivity = "automation",
+    activity: NativeTerminalControllerActivity = "human",
   ): Promise<NativeTerminalControllerLease> {
     return this.#request("acquire-controller", { id, controllerId, activity }) as Promise<NativeTerminalControllerLease>;
+  }
+
+  acquireAutomationControllerIfNoRecentHuman(
+    id: string,
+    controllerId: string,
+    activityWindowMs: number,
+  ): Promise<NativeTerminalControllerLease> {
+    return this.#request(
+      "acquire-controller-if-no-recent-human",
+      { id, controllerId, activityWindowMs },
+    ) as Promise<NativeTerminalControllerLease>;
   }
 
   releaseController(lease: NativeTerminalControllerLease): Promise<NativeTerminalControllerState> {
