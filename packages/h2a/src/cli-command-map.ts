@@ -130,14 +130,13 @@ export const H2A_COMMAND_GROUPS: readonly H2ACommandGroup[] = [
   },
   {
     // A SEMANTIC bucket, not the fallback — see `UNCLASSIFIED` below for that.
-    // These two commands are named, known, and deliberately parked here.
+    // The local mesh command is known and deliberately parked here.
     //
     // Not an operator intention. `docs/cli-help-grouping-vocabulary.md` excerpt 6
-    // names exactly these areas as ones h2a should not own: "`h2a gateway`, `h2a
-    // provider`, `h2a account`, `h2a catalogue`, or `h2a failover`". They ship
-    // today anyway. A labelled bucket beats laundering the contradiction into an
-    // operator group, and beats hiding them. Nothing is deprecated: both
-    // commands keep working exactly as before.
+    // names these areas as ones h2a should not own: "`h2a gateway`, `h2a
+    // provider`, `h2a account`, `h2a catalogue`, or `h2a failover`". H2A keeps
+    // one consumer-facing `llm-mesh` facade while Sentropic owns the underlying
+    // accounts and routing. A labelled bucket keeps that boundary visible.
     id: "LLM_LOCAL",
     heading: "Local LLM account & gateway",
     intention: "Outside the study's operator grouping — it places these with sentropic."
@@ -310,8 +309,7 @@ const RUNTIME_VERBS: readonly {
   { group: "TRANSPORT", verb: "browser", summary: "Open a headful browser inside a session Pod (noVNC)." },
   { group: "TRANSPORT", verb: "migrate", summary: "Round-trip a local session to a remote one and back." },
 
-  { group: "LLM_LOCAL", verb: "account", summary: "Manage the local LLM account pool." },
-  { group: "LLM_LOCAL", verb: "llm-mesh", summary: "Manage the local LLM gateway (multi-account, cross-provider)." },
+  { group: "LLM_LOCAL", verb: "llm-mesh", summary: "Manage the Sentropic llm-mesh gateway and account lifecycle." },
 
   { group: "HELP", verb: "help", summary: "Commander's per-command help for a runtime verb." }
 ];
