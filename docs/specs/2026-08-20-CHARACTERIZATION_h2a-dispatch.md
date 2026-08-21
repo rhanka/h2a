@@ -195,5 +195,5 @@ ok 9 - source-trace golden: unknown run selector remains an unvalidated executab
 
 npm run build:h2a was also attempted and is red in this checkout because the
 installed dependency set does not match this source tree, not because of this
-characterization-only diff. Its real diagnostics are in the durable hand-off
-report.
+characterization-only diff. A representative set of its real diagnostics is
+in the durable hand-off report.
