@@ -515,7 +515,7 @@ test(
     // weight if the `configureHelp` call above were ever hoisted.
     for (const [command, expected] of [
       ["run", ["Options:"]],
-      ["account", ["Options:", "Commands:"]],
+      ["llm-mesh", ["Options:", "Commands:"]],
       ["jobs", ["Options:", "Commands:"]],
       ["relay", ["Options:", "Commands:"]]
     ]) {

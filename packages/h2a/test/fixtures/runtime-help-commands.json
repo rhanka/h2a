@@ -1,6 +1,6 @@
 {
   "note": "Pins EVERY top-level command row of the runtime entrypoint's --help: term, description and the intention group it renders under. Generated from the built runtime; regenerate deliberately, never to make a red test green. The ROOT description is intentionally NOT here - it is top-level prose and it changed by design; it is pinned separately as rootDescriptionContains.",
-  "commandCount": 48,
+  "commandCount": 47,
   "descriptionsWrapped": false,
   "rootDescriptionContains": [
     "The unified sentropic CLI and core",
@@ -234,13 +234,8 @@
     },
     {
       "group": "Local LLM account & gateway (outside the design study's operator grouping):",
-      "term": "account",
-      "description": "Manage the local LLM account pool (WP16)"
-    },
-    {
-      "group": "Local LLM account & gateway (outside the design study's operator grouping):",
       "term": "llm-mesh",
-      "description": "Manage the local LLM gateway (solo-dev mesh: multi-account, cross-provider fallback)"
+      "description": "Manage the Sentropic llm-mesh gateway and account lifecycle"
     },
     {
       "group": "Help:",
