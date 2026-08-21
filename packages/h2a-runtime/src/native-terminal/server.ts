@@ -79,8 +79,17 @@ function requiredInteger(value: unknown, label: string): number {
   return value as number;
 }
 
+function requiredNonNegativeInteger(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new TypeError(`${label} must be a non-negative safe integer`);
+  }
+  return value as number;
+}
+
 function controllerActivity(value: unknown): NativeTerminalControllerActivity {
-  if (value === undefined) return "automation";
+  // A legacy request cannot prove that its holder is automation. Preserve the
+  // operation, but record it on the human/unknown side so drive fails closed.
+  if (value === undefined) return "human";
   if (value === "human" || value === "automation") return value;
   throw new TypeError("terminal controller activity must be human or automation");
 }
@@ -187,6 +196,16 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
         requiredIdentifier(record.id, "session id"),
         requiredIdentifier(record.controllerId, "controller id"),
         controllerActivity(record.activity),
+      );
+      context.leases.set(lease.id, lease);
+      return lease;
+    }
+    case "acquire-controller-if-no-recent-human": {
+      const record = requiredRecord(params, "params");
+      const lease = host.acquireAutomationControllerIfNoRecentHuman(
+        requiredIdentifier(record.id, "session id"),
+        requiredIdentifier(record.controllerId, "controller id"),
+        requiredNonNegativeInteger(record.activityWindowMs, "human activity window"),
       );
       context.leases.set(lease.id, lease);
       return lease;
