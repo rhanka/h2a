@@ -182,8 +182,8 @@ test("source-trace golden: unknown run selector remains an unvalidated executabl
 
   assert.match(runtime, /function localCliCommand\(profile: string\): string \{\s*return LOCAL_CLI\[profile\] \?\? profile;/);
   assert.match(runtime, /\.command\("run <profile> \[path\]"\)/);
-  assert.match(runtime, /const command = localCliCommand\(profile\);/);
-  assert.match(runtime, /enrollFromRun\(\{\s*profile,/);
+  assert.match(runtime, /\.command\("run <profile> \[path\]"\)(?:(?!\.command\()[\s\S])*?const command = localCliCommand\(profile\);/);
+  assert.match(runtime, /\.command\("run <profile> \[path\]"\)(?:(?!\.command\()[\s\S])*?enrollFromRun\(\{\s*profile,/);
   assert.match(tmux, /if \[ -t 0 \]; then exec \/bin\/bash -l; else exit "\$code"; fi/);
   assert.match(nativeHost, /if \(opts\.tmux === true\) return "local-tmux";/);
   assert.match(nativeHost, /return "native";/);
