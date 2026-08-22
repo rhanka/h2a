@@ -131,11 +131,25 @@ is not the requested one. A leg produced under the gateway is not a leg.
 
 ### A leg that says "build green" must have built the way CI builds
 
-A clean install at the repository root, then `npm run build` / `npm run typecheck` —
-**not** a worktree whose `node_modules` were linked by hand. A hand-linked tree makes the
-types of a peer dependency present that a clean install would not, so it hides exactly
-the class of defect a build is supposed to catch: peer-dependency wiring, project
-references, lazy type-resolution of peers.
+**`npm ci`** at the repository root — the literal command, not "a clean install", because
+`npm install` over an existing `node_modules` is defensible-sounding and is not the same
+thing — then `npm run build` / `npm run typecheck`. A tree assembled any other way makes
+the types of a peer dependency present that `npm ci` would not, so it hides exactly the
+class of defect a build is supposed to catch: peer-dependency wiring, project references,
+lazy type-resolution of peers.
+
+Hand-linked `node_modules` is only the vector that was caught. Others produce the same
+masking and are worth naming, because each of them looks harmless in isolation:
+
+- `npm link`, and `npm install` layered over a tree that already has the peer;
+- `NODE_PATH` pointing anywhere outside the checkout;
+- **a worktree nested under an ancestor that has its own `node_modules`** — Node walks up
+  until it finds one, so a worktree missing its own install silently resolves against the
+  parent repository's, with no signal at all. This is not hypothetical here: this lane's
+  worktree sits under a checkout that has `node_modules`, and it was verified by resolving
+  `vitest` and `typescript` and confirming both land inside the worktree, not the parent;
+- stale `dist/*.d.ts` from an earlier build, which satisfy a type-resolution that a fresh
+  build would fail.
 
 Measured on `rhanka/h2a#231`: **both** review legs and the preliminary pass built in a
 hand-linked worktree and all three reported 20/20 green. Clean CI failed deterministically
