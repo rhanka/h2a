@@ -136,7 +136,7 @@ import { once } from "node:events";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const [endpoint, root, runtimeBase, pingResponseDelayMs = "", waitForStart, reclaimRaceDirectory = "", reclaimRaceIndex = ""] = process.argv.slice(1);
+const [endpoint, root, runtimeBase, pingResponseDelayMs = "", waitForStart, reclaimRaceDirectory = "", reclaimRaceIndex = "", exclusiveRaceDirectory = ""] = process.argv.slice(1);
 const raceIndex = reclaimRaceIndex === "" ? undefined : Number(reclaimRaceIndex);
 const waitForRaceFile = async (path) => {
   while (!existsSync(path)) await new Promise((resolve) => setTimeout(resolve, 10));
@@ -164,6 +164,12 @@ try {
           writeFileSync(join(reclaimRaceDirectory, "go-" + (raceIndex + 1)), "go\\n", { flag: "wx" });
         }
       }
+    }),
+    ...(raceIndex === undefined || exclusiveRaceDirectory === "" ? {} : {
+      beforeExclusiveMarkerPublish: async () => {
+        writeFileSync(join(exclusiveRaceDirectory, "ready-" + raceIndex), "ready\\n", { flag: "wx" });
+        await waitForRaceFile(join(exclusiveRaceDirectory, "go-" + raceIndex));
+      }
     })
   });
   process.stdout.write(JSON.stringify({ kind: "result", result: started.kind, endpoint: started.endpoint, generation: started.generation }) + "\\n");
@@ -188,13 +194,15 @@ function launchCentralProcess({
   pingResponseDelayMs,
   waitForStart = false,
   reclaimRaceDirectory,
-  reclaimRaceIndex
+  reclaimRaceIndex,
+  exclusiveRaceDirectory
 }) {
   const child = spawn(
     process.execPath,
     ["--input-type=module", "--eval", centralLauncher, endpointValue, root, runtimeBase,
       pingResponseDelayMs === undefined ? "" : String(pingResponseDelayMs), waitForStart ? "wait" : "",
-      reclaimRaceDirectory ?? "", reclaimRaceIndex === undefined ? "" : String(reclaimRaceIndex)],
+      reclaimRaceDirectory ?? "", reclaimRaceIndex === undefined ? "" : String(reclaimRaceIndex),
+      exclusiveRaceDirectory ?? ""],
     {
       cwd: process.cwd(),
       env: { ...process.env, REMOTE_CLI_CONFIG_HOME: process.env.REMOTE_CLI_CONFIG_HOME ?? join(runtimeBase, "remote-cli") },
@@ -776,6 +784,82 @@ async function assertSingleConcurrentReclaimer(directory, round) {
     await Promise.all(launchers.map((launcher) => stopCentralProcess(launcher)));
   }
 }
+
+test("finding-1: an in-progress reclaim lock never admits a second live owner", linux, async () => {
+  const f = fixture();
+  const launchers = [];
+  const contenderCount = 4;
+  try {
+    const exclusiveRaceDirectory = join(f.directory, "exclusive-publish-race");
+    const reclaimRaceDirectory = join(f.directory, "reclaim-replace-race");
+    mkdirSync(exclusiveRaceDirectory, { mode: 0o700 });
+    mkdirSync(reclaimRaceDirectory, { mode: 0o700 });
+    chmodSync(exclusiveRaceDirectory, 0o700);
+    chmodSync(reclaimRaceDirectory, 0o700);
+
+    const markerPath = centralMcpMarkerPath({ runtimeBase: f.runtimeBase });
+    mkdirSync(dirname(markerPath), { mode: 0o700 });
+    chmodSync(dirname(markerPath), 0o700);
+    writeFileSync(markerPath, marker(await endpoint(), "dead-generation"), { mode: 0o600 });
+    chmodSync(markerPath, 0o600);
+    const endpoints = await Promise.all(Array.from({ length: contenderCount }, () => endpoint()));
+
+    // Release every contender only after it has staged a full lock payload.
+    // On the historical wx implementation this same barrier instead follows
+    // O_EXCL creation, exposing a zero-byte lock for the next contender to
+    // identity-CAS-unlink. It therefore deterministically puts every child
+    // through the pre-rename barrier and produces several live servers.
+    for (const [index, endpointValue] of endpoints.entries()) {
+      launchers.push(launchCentralProcess({
+        endpoint: endpointValue,
+        root: join(f.directory, `finding-1-store-${index}`),
+        runtimeBase: f.runtimeBase,
+        reclaimRaceDirectory,
+        reclaimRaceIndex: index,
+        exclusiveRaceDirectory
+      }));
+      assert.equal(
+        await waitForFiles([join(exclusiveRaceDirectory, `ready-${index}`)], 3_000),
+        true,
+        `contender ${index} staged its exclusive publication`
+      );
+    }
+
+    writeFileSync(join(exclusiveRaceDirectory, "go-0"), "go\n", { flag: "wx" });
+    assert.equal(await waitForFiles([join(reclaimRaceDirectory, "ready-0")], 3_000), true);
+    for (let index = 1; index < contenderCount; index += 1) {
+      writeFileSync(join(exclusiveRaceDirectory, `go-${index}`), "go\n", { flag: "wx" });
+    }
+
+    // A wx create/write rollback makes all contenders pass identity-CAS before
+    // any marker replacement. The existing per-claim cascade then starts each
+    // one. With temp+link, only contender zero can reach this barrier because
+    // all followers observe its complete, live reclaim lock.
+    const everyContenderReachedReplace = await waitForFiles(
+      Array.from({ length: contenderCount }, (_, index) => join(reclaimRaceDirectory, `ready-${index}`)),
+      3_000
+    );
+    writeFileSync(join(reclaimRaceDirectory, "go-0"), "go\n", { flag: "wx" });
+
+    const outcomes = await Promise.all(launchers.map((launcher) => launcher.result));
+    const started = outcomes.filter((outcome) => outcome.kind === "result" && outcome.result === "started");
+    assert.equal(
+      started.length,
+      1,
+      "a complete reclaim lock permits exactly one successor, never the wx multi-start partition"
+    );
+    assert.equal(everyContenderReachedReplace, false, "followers never treat a live staged lock as malformed");
+
+    const live = (await Promise.all(endpoints.map(async (endpointValue) => ({
+      endpoint: endpointValue,
+      generation: await centralGeneration(endpointValue)
+    })))).filter((observation) => observation.generation !== undefined);
+    assert.equal(live.length, 1, "only one candidate endpoint has a live central server");
+  } finally {
+    await Promise.all(launchers.map((launcher) => stopCentralProcess(launcher)));
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
 
 test("F3 lock: a controlled 24-process reclaim race elects one verified reclaimer", linux, async () => {
   const f = fixture();
