@@ -129,6 +129,32 @@ Review legs run **no-gw** (gateway off) and must be attestable. A session routed
 the gateway cannot attest its model: the gateway remaps `claude-*` and the served model
 is not the requested one. A leg produced under the gateway is not a leg.
 
+### A leg that says "build green" must have built the way CI builds
+
+A clean install at the repository root, then `npm run build` / `npm run typecheck` —
+**not** a worktree whose `node_modules` were linked by hand. A hand-linked tree makes the
+types of a peer dependency present that a clean install would not, so it hides exactly
+the class of defect a build is supposed to catch: peer-dependency wiring, project
+references, lazy type-resolution of peers.
+
+Measured on `rhanka/h2a#231`: **both** review legs and the preliminary pass built in a
+hand-linked worktree and all three reported 20/20 green. Clean CI failed deterministically
+on `packages/h2a/src/runtime/mcp-central.ts:72` — a literal-specifier
+`import("@sentropic/h2a-runtime")` makes `tsc` type-resolve a lazy peer (TS2307), which
+breaks the rule that `@sentropic/h2a` never type-resolves `@sentropic/h2a-runtime`. Three
+independent verifications, one shared environment, zero verification.
+
+This is the same shape as the rest of this section, with the shared variable moved again:
+it was the model in rule 2, a `PATH` in the host case, and here it is the **install**.
+The harness lane produced its own instance while writing this file — seven test failures
+that looked like pre-existing breakage were caused by handing one suite's `TMPDIR` to
+every suite. What separated the two was changing one variable at a time, not judging
+which story was more plausible.
+
+**Where this stops:** nothing verifies that a leg built cleanly. Like every rule in this
+section it is declared, not enforced — the clean CI run at the SHA is the only oracle, so
+a leg's build claim is worth exactly as much as the CI conclusion it can point to.
+
 ---
 
 ## B · Build
