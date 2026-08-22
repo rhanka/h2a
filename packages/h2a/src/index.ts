@@ -577,6 +577,7 @@ export {
   centralMcpMarkerPath,
   parseCentralMcpEndpoint,
   startCentralMcpServer,
+  type CentralMcpClientEndpoint,
   type CentralMcpMarker,
   type StartCentralMcpServerOptions,
   type StartedCentralMcpServer

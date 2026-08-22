@@ -18,7 +18,7 @@ export interface RenderMcpConfigOptions {
 
 export type H2AMcpEndpointConfig =
   | { command: string; args: string[] }
-  | { url: string };
+  | { url: string; headers?: Record<string, string> };
 
 function assertHttpMcpUrl(value: string): void {
   try {
@@ -63,7 +63,7 @@ export function renderH2aMcpServer(
   env: Readonly<Record<string, string | undefined>> = process.env
 ): H2AMcpEndpointConfig {
   const centralEndpoint = centralMcpClientEndpoint(env);
-  if (centralEndpoint) return { url: centralEndpoint };
+  if (centralEndpoint) return centralEndpoint;
   const endpoint = options.endpoint ?? "local";
   if (endpoint !== "local" && endpoint !== "remote") {
     throw new Error(`unknown h2a endpoint "${endpoint}"`);

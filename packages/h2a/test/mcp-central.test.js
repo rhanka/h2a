@@ -12,6 +12,7 @@ import {
   writeFileSync
 } from "node:fs";
 import { once } from "node:events";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -61,12 +62,19 @@ function envFor(value) {
   return { [H2A_MCP_CENTRAL_ENDPOINT_ENV]: value };
 }
 
-function marker(endpointValue, generation, pid = process.pid, startedAt = "2000-01-01T00:00:00.000Z") {
+function marker(
+  endpointValue,
+  generation,
+  pid = process.pid,
+  startedAt = "2000-01-01T00:00:00.000Z",
+  token = "test-central-token"
+) {
   return `${JSON.stringify({
     endpoint: endpointValue,
     generation,
     pid,
-    startedAt
+    startedAt,
+    token
   })}\n`;
 }
 
@@ -113,6 +121,161 @@ function snapshotTree(path) {
   return entries;
 }
 
+async function expectStartRefusal(options) {
+  const outcome = await Promise.allSettled([startCentralMcpServer(options)]);
+  if (outcome[0].status === "fulfilled") await stop(outcome[0].value);
+  assert.equal(outcome[0].status, "rejected");
+  return outcome[0].reason;
+}
+
+const centralLauncher = `
+import { startCentralMcpServer } from ${JSON.stringify(new URL("../dist/index.js", import.meta.url).href)};
+import { once } from "node:events";
+
+const [endpoint, root, runtimeBase, pingResponseDelayMs = "", waitForStart] = process.argv.slice(1);
+try {
+  if (waitForStart === "wait") {
+    const released = once(process, "SIGUSR2");
+    const keepAlive = setInterval(() => {}, 1_000);
+    process.stdout.write(JSON.stringify({ kind: "ready" }) + "\\n");
+    await released;
+    clearInterval(keepAlive);
+  }
+  const started = await startCentralMcpServer({
+    root,
+    runtimeBase,
+    env: { H2A_MCP_CENTRAL_ENDPOINT: endpoint },
+    ...(pingResponseDelayMs === "" ? {} : { pingResponseDelayMs: Number(pingResponseDelayMs) })
+  });
+  process.stdout.write(JSON.stringify({ kind: "result", result: started.kind, endpoint: started.endpoint, generation: started.generation }) + "\\n");
+  if (started.kind === "started") {
+    const stop = async () => {
+      await started.stop();
+      process.exit(0);
+    };
+    process.once("SIGTERM", () => void stop());
+    process.once("SIGINT", () => void stop());
+    setInterval(() => {}, 1000);
+  }
+} catch (error) {
+  process.stdout.write(JSON.stringify({ kind: "error", message: error instanceof Error ? error.message : String(error) }) + "\\n");
+}
+`;
+
+function launchCentralProcess({ endpoint: endpointValue, root, runtimeBase, pingResponseDelayMs, waitForStart = false }) {
+  const child = spawn(
+    process.execPath,
+    ["--input-type=module", "--eval", centralLauncher, endpointValue, root, runtimeBase,
+      pingResponseDelayMs === undefined ? "" : String(pingResponseDelayMs), waitForStart ? "wait" : ""],
+    {
+      cwd: process.cwd(),
+      env: { ...process.env, REMOTE_CLI_CONFIG_HOME: process.env.REMOTE_CLI_CONFIG_HOME ?? join(runtimeBase, "remote-cli") },
+      stdio: ["ignore", "pipe", "pipe"]
+    }
+  );
+  let output = "";
+  let resultSettled = false;
+  let readySettled = false;
+  let resolveReady;
+  let rejectReady;
+  const ready = new Promise((resolve, reject) => {
+    resolveReady = resolve;
+    rejectReady = reject;
+  });
+  const result = new Promise((resolve, reject) => {
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+      for (;;) {
+        const newline = output.indexOf("\n");
+        if (newline === -1) return;
+        const line = output.slice(0, newline);
+        output = output.slice(newline + 1);
+        try {
+          const message = JSON.parse(line);
+          if (message.kind === "ready") {
+            if (!readySettled) {
+              readySettled = true;
+              resolveReady();
+            }
+          } else if (!resultSettled) {
+            resultSettled = true;
+            resolve(message);
+          }
+        } catch (error) {
+          if (!resultSettled) {
+            resultSettled = true;
+            reject(error);
+          }
+        }
+      }
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (!resultSettled) reject(new Error(`central launcher exited before reporting (code=${code}, signal=${signal}): ${output}`));
+      if (!readySettled) rejectReady(new Error(`central launcher exited before becoming ready (code=${code}, signal=${signal})`));
+    });
+  });
+  // The F3 barrier awaits readiness before it observes result. Keep a child
+  // startup error associated with that later assertion rather than letting
+  // Node report it as an unhandled rejection in the intervening turn.
+  void result.catch(() => undefined);
+  void ready.catch(() => undefined);
+  return {
+    child,
+    ready,
+    result,
+    release() {
+      child.kill("SIGUSR2");
+    }
+  };
+}
+
+async function stopCentralProcess(launcher) {
+  if (!launcher) return;
+  if (launcher.child.exitCode !== null || launcher.child.signalCode !== null) return;
+  launcher.child.kill("SIGTERM");
+  await Promise.race([
+    once(launcher.child, "exit"),
+    new Promise((resolve) => setTimeout(resolve, 2_000))
+  ]);
+  if (launcher.child.exitCode === null && launcher.child.signalCode === null) {
+    launcher.child.kill("SIGKILL");
+    await once(launcher.child, "exit");
+  }
+}
+
+async function slowPingProxy(target, delayMs) {
+  const listener = createHttpServer((request, response) => {
+    if (request.url !== "/_h2a-central/ping") {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    setTimeout(() => {
+      void fetch(new URL(request.url, target))
+        .then(async (upstream) => {
+          response.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") ?? "application/json" });
+          response.end(await upstream.text());
+        })
+        .catch(() => {
+          response.writeHead(502);
+          response.end();
+        });
+    }, delayMs);
+  });
+  listener.listen(0, "127.0.0.1");
+  await once(listener, "listening");
+  const address = listener.address();
+  assert.ok(address && typeof address === "object");
+  return {
+    endpoint: `http://127.0.0.1:${address.port}/mcp`,
+    async stop() {
+      await new Promise((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
+    }
+  };
+}
+
 test("M1: central marker is uid-addressed, user-owned, and private", linux, async () => {
   const f = fixture();
   let started;
@@ -136,6 +299,109 @@ test("M1: central marker is uid-addressed, user-owned, and private", linux, asyn
     assert.equal(statSync(dirname(expectedPath)).mode & 0o777, 0o700);
     assert.equal(statSync(expectedPath).uid, currentUid());
     assert.equal(statSync(expectedPath).mode & 0o777, 0o600);
+  } finally {
+    await stop(started);
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("F1 negative: wildcard central endpoint is refused before bind", linux, async () => {
+  const f = fixture();
+  try {
+    const reason = await expectStartRefusal({
+      root: f.root,
+      runtimeBase: f.runtimeBase,
+      env: envFor("http://0.0.0.0:43123/mcp")
+    });
+    assert.match(String(reason), new RegExp(H2A_MCP_CENTRAL_ENDPOINT_ENV));
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("F1 negative: LAN-style central endpoint is refused before bind", linux, async () => {
+  const f = fixture();
+  try {
+    const reason = await expectStartRefusal({
+      root: f.root,
+      runtimeBase: f.runtimeBase,
+      env: envFor("http://192.168.20.20:43123/mcp")
+    });
+    assert.match(String(reason), new RegExp(H2A_MCP_CENTRAL_ENDPOINT_ENV));
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("F2 negative: port zero central endpoint is refused before bind", linux, async () => {
+  const f = fixture();
+  try {
+    const reason = await expectStartRefusal({
+      root: f.root,
+      runtimeBase: f.runtimeBase,
+      env: envFor("http://127.0.0.1:0/mcp")
+    });
+    assert.match(String(reason), new RegExp(H2A_MCP_CENTRAL_ENDPOINT_ENV));
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("F1 negative: MCP requests without the marker token are unauthorized", linux, async () => {
+  const f = fixture();
+  let started;
+  try {
+    const requested = await endpoint();
+    started = await startCentralMcpServer({
+      root: f.root,
+      runtimeBase: f.runtimeBase,
+      env: envFor(requested)
+    });
+    const response = await fetch(requested, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "unauthorized", version: "1" } }
+      })
+    });
+    assert.equal(response.status, 401);
+    assert.equal(response.headers.get("mcp-session-id"), null, "an unauthorized request gets no MCP session");
+  } finally {
+    await stop(started);
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("F1 negative: cross-origin MCP requests are refused even with the marker token", linux, async () => {
+  const f = fixture();
+  let started;
+  try {
+    const requested = await endpoint();
+    started = await startCentralMcpServer({
+      root: f.root,
+      runtimeBase: f.runtimeBase,
+      env: envFor(requested)
+    });
+    const stored = JSON.parse(readFileSync(started.markerPath, "utf8"));
+    const response = await fetch(requested, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        authorization: `Bearer ${stored.token ?? "current-code-has-no-token"}`,
+        origin: "http://attacker.invalid"
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "cross-origin", version: "1" } }
+      })
+    });
+    assert.equal(response.status, 403);
   } finally {
     await stop(started);
     rmSync(f.directory, { recursive: true, force: true });
@@ -292,6 +558,99 @@ test("concurrent different endpoints leave exactly one live, marked central serv
         : await Promise.allSettled([firstPromise, secondPromise].filter(Boolean));
       await Promise.all(outcomes.map((outcome) => outcome.status === "fulfilled" ? stop(outcome.value) : undefined));
     }
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("F3 negative: concurrent real-process reclaimers elect exactly one dead-marker successor", linux, async () => {
+  const f = fixture();
+  const launchers = [];
+  try {
+    const markerPath = centralMcpMarkerPath({ runtimeBase: f.runtimeBase });
+    mkdirSync(dirname(markerPath), { mode: 0o700 });
+    chmodSync(dirname(markerPath), 0o700);
+    writeFileSync(markerPath, marker(await endpoint(), "dead-generation"), { mode: 0o600 });
+    chmodSync(markerPath, 0o600);
+
+    const endpoints = await Promise.all(Array.from({ length: 24 }, () => endpoint()));
+    for (const [index, endpointValue] of endpoints.entries()) {
+      launchers.push(launchCentralProcess({
+        endpoint: endpointValue,
+        root: join(f.directory, `launcher-${index}`),
+        runtimeBase: f.runtimeBase,
+        waitForStart: true
+      }));
+    }
+    await Promise.all(launchers.map((launcher) => launcher.ready));
+    launchers.forEach((launcher) => launcher.release());
+    const outcomes = await Promise.all(launchers.map((launcher) => launcher.result));
+    const started = outcomes.filter((outcome) => outcome.kind === "result" && outcome.result === "started");
+    assert.equal(started.length, 1, "one concurrent reclaimer wins the marker CAS");
+    assert.equal(
+      outcomes.filter((outcome) => outcome.kind === "error" || outcome.result === "reused").length,
+      endpoints.length - 1,
+      "every non-winner reuses or refuses the elected central server"
+    );
+
+    const registered = JSON.parse(readFileSync(markerPath, "utf8"));
+    const live = (await Promise.all(endpoints.map(async (endpointValue) => ({
+      endpoint: endpointValue,
+      generation: await centralGeneration(endpointValue)
+    })))).filter((observation) => observation.generation !== undefined);
+    assert.equal(live.length, 1, "all candidate endpoints contain exactly one live central server");
+    assert.equal(live[0].endpoint, registered.endpoint, "the marker names the only live successor");
+    assert.equal(live[0].generation, registered.generation, "the marker generation names the only live successor");
+  } finally {
+    await Promise.all(launchers.map((launcher) => stopCentralProcess(launcher)));
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("F4 negative: a slow real central ping is not reclaimed by a divergent launcher", linux, async () => {
+  const f = fixture();
+  let first;
+  let second;
+  let proxy;
+  try {
+    const firstEndpoint = await endpoint();
+    const secondEndpoint = await endpoint();
+    first = launchCentralProcess({
+      endpoint: firstEndpoint,
+      root: join(f.directory, "first-store"),
+      runtimeBase: f.runtimeBase
+    });
+    const firstResult = await first.result;
+    assert.deepEqual(firstResult.kind === "result" ? firstResult.result : firstResult.kind, "started");
+    assert.ok(await centralGeneration(firstEndpoint), "the first launcher is a real central server");
+
+    proxy = await slowPingProxy(firstEndpoint, 1_000);
+    const firstMarker = JSON.parse(readFileSync(centralMcpMarkerPath({ runtimeBase: f.runtimeBase }), "utf8"));
+    writeFileSync(
+      centralMcpMarkerPath({ runtimeBase: f.runtimeBase }),
+      marker(proxy.endpoint, firstMarker.generation, firstMarker.pid, firstMarker.startedAt, firstMarker.token),
+      { mode: 0o600 }
+    );
+    chmodSync(centralMcpMarkerPath({ runtimeBase: f.runtimeBase }), 0o600);
+
+    second = launchCentralProcess({
+      endpoint: secondEndpoint,
+      root: join(f.directory, "second-store"),
+      runtimeBase: f.runtimeBase
+    });
+    const secondResult = await second.result;
+    assert.equal(secondResult.kind, "error", "a possible live registration must refuse rather than reclaim");
+    assert.match(secondResult.message, /LIVE central MCP server is registered on/);
+
+    const live = (await Promise.all([firstEndpoint, secondEndpoint].map(async (endpointValue) => ({
+      endpoint: endpointValue,
+      generation: await centralGeneration(endpointValue)
+    })))).filter((observation) => observation.generation !== undefined);
+    assert.equal(live.length, 1, "the slow original server remains the only live central server");
+    assert.equal(live[0].endpoint, firstEndpoint);
+  } finally {
+    if (proxy) await proxy.stop();
+    await stopCentralProcess(second);
+    await stopCentralProcess(first);
     rmSync(f.directory, { recursive: true, force: true });
   }
 });
@@ -488,15 +847,22 @@ test("central client flag is fail-closed and routes new clients to the exact cen
       env: envFor(requested)
     });
     assert.equal(started.kind, "started");
-    const config = renderH2aMcpServer({}, {
+    const config = centralMcpClientEndpoint({
       [H2A_MCP_CENTRAL_ENV]: "true",
       [H2A_MCP_CENTRAL_ENDPOINT_ENV]: requested
-    });
-    assert.deepEqual(config, { url: requested }, "central config contains no stdio sidecar command");
+    }, { runtimeBase: f.runtimeBase });
+    assert.deepEqual(config, {
+      url: requested,
+      headers: { Authorization: `Bearer ${JSON.parse(readFileSync(started.markerPath, "utf8")).token}` }
+    }, "central clients obtain their auth header from the private marker");
 
     const response = await fetch(config.url, {
       method: "POST",
-      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        ...config.headers
+      },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
