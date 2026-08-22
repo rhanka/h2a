@@ -305,26 +305,32 @@ function pingUrl(endpoint: string): string {
   return new URL(CENTRAL_PING_PATH, endpoint).href;
 }
 
-/** Identity, not PID, is the only liveness proof for a registered server. */
-async function markerIsLive(marker: CentralMcpMarker): Promise<boolean> {
+async function centralPingGeneration(endpoint: string): Promise<string | undefined> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CENTRAL_LIVENESS_TIMEOUT_MS);
   try {
-    const response = await fetch(pingUrl(marker.endpoint), { signal: controller.signal });
-    if (!response.ok) return false;
+    const response = await fetch(pingUrl(endpoint), { signal: controller.signal });
+    if (!response.ok) return undefined;
     const body = await response.json() as { generation?: unknown };
-    return body.generation === marker.generation;
+    return typeof body.generation === "string" && body.generation.length > 0
+      ? body.generation
+      : undefined;
   } catch {
-    return false;
+    return undefined;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-function newMarker(endpoint: string): CentralMcpMarker {
+/** Identity, not PID, is the only liveness proof for a registered server. */
+async function markerIsLive(marker: CentralMcpMarker): Promise<boolean> {
+  return (await centralPingGeneration(marker.endpoint)) === marker.generation;
+}
+
+function newMarker(endpoint: string, generation = randomUUID()): CentralMcpMarker {
   return {
     endpoint,
-    generation: randomUUID(),
+    generation,
     pid: process.pid,
     startedAt: new Date().toISOString()
   };
@@ -341,15 +347,15 @@ type MarkerClaim =
  */
 async function claimCentralMarker(
   endpoint: string,
-  paths: CentralMcpPathsOptions
+  paths: CentralMcpPathsOptions,
+  candidate: CentralMcpMarker
 ): Promise<MarkerClaim> {
   await ensureMarkerDirectory(paths);
   const path = centralMcpMarkerPath(paths);
   for (;;) {
     const observation = await readMarker(path);
     if (!observation) {
-      const marker = newMarker(endpoint);
-      if (writeExclusiveMarker(path, marker)) return { kind: "claimed", marker };
+      if (writeExclusiveMarker(path, candidate)) return { kind: "claimed", marker: candidate };
       continue;
     }
 
@@ -362,9 +368,8 @@ async function claimCentralMarker(
 
     // No response, or a response carrying another generation, is positive proof
     // that THIS registration is dead. Reclaim even when endpoints are equal.
-    const marker = newMarker(endpoint);
-    if (await reclaimMarker(path, observation.identity, marker)) {
-      return { kind: "claimed", marker };
+    if (await reclaimMarker(path, observation.identity, candidate)) {
+      return { kind: "claimed", marker: candidate };
     }
   }
 }
@@ -393,11 +398,17 @@ function createCentralProtocolServer(mcp: McpServer): Server {
   return server;
 }
 
-function createCentralApp(mcp: McpServer, endpoint: string, generation: string): Hono {
+function createCentralApp(
+  mcp: () => McpServer | undefined,
+  endpoint: string,
+  generation: string
+): Hono {
   const app = new Hono();
   const sessions = new Map<string, StreamableHTTPTransport>();
   app.get(CENTRAL_PING_PATH, (context) => context.json({ generation }));
   app.all(new URL(endpoint).pathname, async (context) => {
+    const centralMcp = mcp();
+    if (!centralMcp) return context.json({ error: "central MCP is starting" }, 503);
     const requestedSessionId = context.req.header("mcp-session-id");
     let transport = requestedSessionId ? sessions.get(requestedSessionId) : undefined;
     if (!transport) {
@@ -413,7 +424,7 @@ function createCentralApp(mcp: McpServer, endpoint: string, generation: string):
         }
       });
       created = transport;
-      await createCentralProtocolServer(mcp).connect(transport);
+      await createCentralProtocolServer(centralMcp).connect(transport);
     }
     const response = await transport.handleRequest(context);
     return response ?? context.body(null, 202);
@@ -421,9 +432,54 @@ function createCentralApp(mcp: McpServer, endpoint: string, generation: string):
   return app;
 }
 
+function addressIsInUse(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as NodeJS.ErrnoException).code === "EADDRINUSE");
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+/**
+ * A same-endpoint contender cannot bind a second listener. If it found a
+ * central ping responder, wait briefly for the listener's owner to publish its
+ * matching marker, then reuse that owner without writing any marker itself.
+ */
+async function markedCentralListener(
+  endpoint: string,
+  markerPath: string
+): Promise<CentralMcpMarker | undefined> {
+  const deadline = Date.now() + CENTRAL_LIVENESS_TIMEOUT_MS * 2;
+  for (;;) {
+    const generation = await centralPingGeneration(endpoint);
+    if (!generation) return undefined;
+    const observation = await readMarker(markerPath);
+    if (
+      observation?.marker?.endpoint === endpoint &&
+      observation.marker.generation === generation
+    ) {
+      return observation.marker;
+    }
+    if (Date.now() >= deadline) return undefined;
+    await delay(10);
+  }
+}
+
+async function closeHttpServer(httpServer: ReturnType<typeof serve>, mcp: McpServer | undefined): Promise<void> {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      httpServer.close((error?: Error) => error ? reject(error) : resolve());
+    });
+  } finally {
+    mcp?.sessions.closeAll("closed");
+  }
+}
+
 export interface StartCentralMcpServerOptions extends CentralMcpPathsOptions {
   root: string;
   env?: Readonly<Record<string, string | undefined>>;
+  /** Test seam for forcing scheduling around a successful marker claim. */
+  afterMarkerClaim?: () => Promise<void>;
 }
 
 export type StartedCentralMcpServer =
@@ -443,8 +499,9 @@ export type StartedCentralMcpServer =
 
 /**
  * Start exactly one full-surface MCP server at the explicit endpoint.
- * Validation and marker conflict handling happen before createMcpServer() or
- * HTTP binding, so rejected launchers cannot create store state or listeners.
+ * The endpoint begins answering its generation ping before that generation is
+ * recorded in the marker, so a contender never mistakes a starting owner for
+ * a dead registration.
  */
 export async function startCentralMcpServer(
   options: StartCentralMcpServerOptions
@@ -452,36 +509,67 @@ export async function startCentralMcpServer(
   const env = options.env ?? process.env;
   const endpoint = parseCentralMcpEndpoint(env[H2A_MCP_CENTRAL_ENDPOINT_ENV]);
   const paths: CentralMcpPathsOptions = options.runtimeBase ? { runtimeBase: options.runtimeBase } : {};
-  const claim = await claimCentralMarker(endpoint, paths);
   const markerPath = centralMcpMarkerPath(paths);
-  if (claim.kind === "reused") {
-    return {
-      kind: "reused",
-      endpoint: claim.marker.endpoint,
-      generation: claim.marker.generation,
-      markerPath
-    };
-  }
-
+  const marker = newMarker(endpoint, randomUUID());
   const endpointUrl = new URL(endpoint);
   const hostname = endpointUrl.hostname.startsWith("[")
     ? endpointUrl.hostname.slice(1, -1)
     : endpointUrl.hostname;
-  const mcp = createMcpServer({ root: options.root, workspaceRoot: process.cwd() });
+  let mcp: McpServer | undefined;
   let httpServer: ReturnType<typeof serve> | undefined;
   try {
     httpServer = serve({
-      fetch: createCentralApp(mcp, endpoint, claim.marker.generation).fetch,
+      fetch: createCentralApp(() => mcp, endpoint, marker.generation).fetch,
       hostname,
       port: Number(endpointUrl.port)
     });
     if (!httpServer.listening) await once(httpServer, "listening");
   } catch (error) {
     try {
-      const current = await readMarker(markerPath);
-      if (current?.marker?.generation === claim.marker.generation) unlinkSync(markerPath);
+      if (addressIsInUse(error)) {
+        const existing = await markedCentralListener(endpoint, markerPath);
+        if (existing) {
+          return {
+            kind: "reused",
+            endpoint: existing.endpoint,
+            generation: existing.generation,
+            markerPath
+          };
+        }
+      }
+    } finally {
+      mcp?.sessions.closeAll("closed");
+    }
+    throw error;
+  }
+
+  let claim: MarkerClaim | undefined;
+  try {
+    claim = await claimCentralMarker(endpoint, paths, marker);
+    if (claim.kind === "reused") {
+      await closeHttpServer(httpServer, mcp);
+      return {
+        kind: "reused",
+        endpoint: claim.marker.endpoint,
+        generation: claim.marker.generation,
+        markerPath
+      };
+    }
+    mcp = createMcpServer({ root: options.root, workspaceRoot: process.cwd() });
+    await options.afterMarkerClaim?.();
+  } catch (error) {
+    try {
+      await closeHttpServer(httpServer, mcp);
     } catch {
-      // Never remove a marker we cannot prove is still ours.
+      // Preserve the marker conflict or claim error after attempting cleanup.
+    }
+    if (claim?.kind === "claimed") {
+      try {
+        const current = await readMarker(markerPath);
+        if (current?.marker?.generation === marker.generation) unlinkSync(markerPath);
+      } catch {
+        // Never remove a marker we cannot prove is still ours.
+      }
     }
     throw error;
   }
@@ -490,18 +578,15 @@ export async function startCentralMcpServer(
   return {
     kind: "started",
     endpoint,
-    generation: claim.marker.generation,
+    generation: marker.generation,
     markerPath,
     async stop(): Promise<void> {
       if (stopped) return;
       stopped = true;
-      await new Promise<void>((resolve, reject) => {
-        httpServer!.close((error?: Error) => error ? reject(error) : resolve());
-      });
-      mcp.sessions.closeAll("closed");
+      await closeHttpServer(httpServer, mcp);
       try {
         const current = await readMarker(markerPath);
-        if (current?.marker?.generation === claim.marker.generation) unlinkSync(markerPath);
+        if (current?.marker?.generation === marker.generation) unlinkSync(markerPath);
       } catch {
         // A successor marker belongs to another server; never remove it.
       }
