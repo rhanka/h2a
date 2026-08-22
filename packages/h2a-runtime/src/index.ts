@@ -10377,6 +10377,10 @@ export { projectStatusForH2a };
 export { NativeTerminalClient } from "./native-terminal/client.js";
 export { NativeTerminalHost } from "./native-terminal/host.js";
 export { NativeTerminalHostSupervisor } from "./native-terminal/supervisor.js";
+export {
+  assertOwnedByCurrentUser,
+  sameNativeTerminalSocket
+} from "./native-terminal/socket-path.js";
 export type {
   NativeTerminalControllerLease,
   NativeTerminalCreateOptions,

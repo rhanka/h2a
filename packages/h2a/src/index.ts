@@ -484,6 +484,7 @@ import {
   renderCliHelp,
   resolveAutoOpen,
   runCli,
+  runCentralMcpServe,
   runDriveServe,
   runDrumbeatRelanceInbox,
   runMcpServe,
@@ -537,6 +538,7 @@ export {
   renderCliHelp,
   resolveAutoOpen,
   runCli,
+  runCentralMcpServe,
   runDriveServe,
   runDrumbeatRelanceInbox,
   runMcpServe,
@@ -566,6 +568,19 @@ export {
   type H2ACliOutputShape,
   type H2ACliVerbContract
 } from "./cli-contract.js";
+
+export {
+  H2A_MCP_CENTRAL_ENV,
+  H2A_MCP_CENTRAL_ENDPOINT_ENV,
+  centralMcpClientEndpoint,
+  centralMcpEnabled,
+  centralMcpMarkerPath,
+  parseCentralMcpEndpoint,
+  startCentralMcpServer,
+  type CentralMcpMarker,
+  type StartCentralMcpServerOptions,
+  type StartedCentralMcpServer
+} from "./runtime/mcp-central.js";
 
 export {
   H2A_STORE_SCHEMA_FILE,

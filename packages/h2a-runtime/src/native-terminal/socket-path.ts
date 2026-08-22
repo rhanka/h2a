@@ -50,7 +50,11 @@ export function defaultNativeTerminalSocketPath(
   return socketPath;
 }
 
-function assertOwnedByCurrentUser(info: Stats, label: string): void {
+/**
+ * Shared ownership check for user-private runtime resources. Callers still own
+ * their resource-specific type and mode checks.
+ */
+export function assertOwnedByCurrentUser(info: Stats, label: string): void {
   const uid = currentUid();
   if (uid !== undefined && info.uid !== uid) {
     throw new Error(`${label} must be owned by uid ${uid}`);
