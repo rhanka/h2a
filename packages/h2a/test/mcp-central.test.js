@@ -16,6 +16,7 @@ import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
@@ -23,6 +24,7 @@ import {
   H2A_MCP_CENTRAL_ENV,
   centralMcpClientEndpoint,
   centralMcpMarkerPath,
+  runCli,
   startCentralMcpServer
 } from "../dist/index.js";
 import { renderH2aMcpServer } from "../dist/hosts/codex.js";
@@ -131,8 +133,14 @@ async function expectStartRefusal(options) {
 const centralLauncher = `
 import { startCentralMcpServer } from ${JSON.stringify(new URL("../dist/index.js", import.meta.url).href)};
 import { once } from "node:events";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
-const [endpoint, root, runtimeBase, pingResponseDelayMs = "", waitForStart] = process.argv.slice(1);
+const [endpoint, root, runtimeBase, pingResponseDelayMs = "", waitForStart, reclaimRaceDirectory = "", reclaimRaceIndex = ""] = process.argv.slice(1);
+const raceIndex = reclaimRaceIndex === "" ? undefined : Number(reclaimRaceIndex);
+const waitForRaceFile = async (path) => {
+  while (!existsSync(path)) await new Promise((resolve) => setTimeout(resolve, 10));
+};
 try {
   if (waitForStart === "wait") {
     const released = once(process, "SIGUSR2");
@@ -145,7 +153,18 @@ try {
     root,
     runtimeBase,
     env: { H2A_MCP_CENTRAL_ENDPOINT: endpoint },
-    ...(pingResponseDelayMs === "" ? {} : { pingResponseDelayMs: Number(pingResponseDelayMs) })
+    ...(pingResponseDelayMs === "" ? {} : { pingResponseDelayMs: Number(pingResponseDelayMs) }),
+    ...(raceIndex === undefined ? {} : {
+      beforeMarkerReclaimReplace: async () => {
+        writeFileSync(join(reclaimRaceDirectory, "ready-" + raceIndex), "ready\\n", { flag: "wx" });
+        await waitForRaceFile(join(reclaimRaceDirectory, "go-" + raceIndex));
+      },
+      afterMarkerClaim: async () => {
+        if (raceIndex < 23) {
+          writeFileSync(join(reclaimRaceDirectory, "go-" + (raceIndex + 1)), "go\\n", { flag: "wx" });
+        }
+      }
+    })
   });
   process.stdout.write(JSON.stringify({ kind: "result", result: started.kind, endpoint: started.endpoint, generation: started.generation }) + "\\n");
   if (started.kind === "started") {
@@ -162,11 +181,20 @@ try {
 }
 `;
 
-function launchCentralProcess({ endpoint: endpointValue, root, runtimeBase, pingResponseDelayMs, waitForStart = false }) {
+function launchCentralProcess({
+  endpoint: endpointValue,
+  root,
+  runtimeBase,
+  pingResponseDelayMs,
+  waitForStart = false,
+  reclaimRaceDirectory,
+  reclaimRaceIndex
+}) {
   const child = spawn(
     process.execPath,
     ["--input-type=module", "--eval", centralLauncher, endpointValue, root, runtimeBase,
-      pingResponseDelayMs === undefined ? "" : String(pingResponseDelayMs), waitForStart ? "wait" : ""],
+      pingResponseDelayMs === undefined ? "" : String(pingResponseDelayMs), waitForStart ? "wait" : "",
+      reclaimRaceDirectory ?? "", reclaimRaceIndex === undefined ? "" : String(reclaimRaceIndex)],
     {
       cwd: process.cwd(),
       env: { ...process.env, REMOTE_CLI_CONFIG_HOME: process.env.REMOTE_CLI_CONFIG_HOME ?? join(runtimeBase, "remote-cli") },
@@ -272,6 +300,119 @@ async function slowPingProxy(target, delayMs) {
     endpoint: `http://127.0.0.1:${address.port}/mcp`,
     async stop() {
       await new Promise((resolve, reject) => listener.close((error) => error ? reject(error) : resolve()));
+    }
+  };
+}
+
+async function waitForFiles(paths, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (!paths.every((path) => existsSync(path))) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return true;
+}
+
+function initializeRequest() {
+  return {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-03-26",
+      capabilities: {},
+      clientInfo: { name: "central-test", version: "1" }
+    }
+  };
+}
+
+async function initializeRenderedCentralConfig(config) {
+  if ("url" in config) {
+    const response = await fetch(config.url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        ...(config.headers ?? {})
+      },
+      body: JSON.stringify(initializeRequest())
+    });
+    return { status: response.status, message: response.ok ? await response.json() : undefined };
+  }
+
+  assert.equal(config.command, "h2a");
+  const child = spawn(
+    process.execPath,
+    [fileURLToPath(new URL("../dist/bin.js", import.meta.url)), ...config.args],
+    {
+      cwd: process.cwd(),
+      env: { ...process.env, REMOTE_CLI_CONFIG_HOME: process.env.REMOTE_CLI_CONFIG_HOME ?? tmpdir() },
+      stdio: ["pipe", "pipe", "pipe"]
+    }
+  );
+  let stdout = "";
+  let stderr = "";
+  const response = new Promise((resolve, reject) => {
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      const newline = stdout.indexOf("\n");
+      if (newline === -1) return;
+      try {
+        resolve(JSON.parse(stdout.slice(0, newline)));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      reject(new Error(`central stdio shim exited before initialize (code=${code}, signal=${signal}): ${stderr}`));
+    });
+  });
+  try {
+    child.stdin.write(`${JSON.stringify(initializeRequest())}\n`);
+    const message = await Promise.race([
+      response,
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error(`central stdio shim timed out: ${stderr}`)),
+        8_000
+      ).unref())
+    ]);
+    return { status: 200, message };
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+      await once(child, "exit");
+    }
+  }
+}
+
+function healthyHostInstallations() {
+  return {
+    ok: true,
+    hosts: [
+      { host: "claude", ok: true, unrepaired: [] },
+      { host: "codex", ok: true, unrepaired: [] }
+    ]
+  };
+}
+
+function captureStreams(cwd) {
+  let stdout = "";
+  let stderr = "";
+  return {
+    stdout: { write: (chunk) => void (stdout += chunk) },
+    stderr: { write: (chunk) => void (stderr += chunk) },
+    cwd: () => cwd,
+    get stdoutText() {
+      return stdout;
+    },
+    get stderrText() {
+      return stderr;
     }
   };
 }
@@ -457,6 +598,35 @@ test("a protected malformed marker is reclaimable rather than a permanent startu
   }
 });
 
+test("a protected malformed reclaim lock is reclaimed rather than wedging central startup", linux, async () => {
+  const f = fixture();
+  let started;
+  try {
+    const requested = await endpoint();
+    const markerPath = centralMcpMarkerPath({ runtimeBase: f.runtimeBase });
+    const lockPath = join(dirname(markerPath), "reclaim.lock");
+    mkdirSync(dirname(markerPath), { mode: 0o700 });
+    chmodSync(dirname(markerPath), 0o700);
+    writeFileSync(markerPath, marker(await endpoint(), "dead-generation"), { mode: 0o600 });
+    chmodSync(markerPath, 0o600);
+    writeFileSync(lockPath, "{truncated", { mode: 0o600 });
+    chmodSync(lockPath, 0o600);
+
+    started = await startCentralMcpServer({
+      root: f.root,
+      runtimeBase: f.runtimeBase,
+      env: envFor(requested)
+    });
+
+    assert.equal(started.kind, "started");
+    assert.equal(await centralGeneration(requested), started.generation);
+    assert.equal(existsSync(lockPath), false, "the abandoned malformed lock is removed after reclaim");
+  } finally {
+    await stop(started);
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
 test("M2: a live divergent endpoint refuses sterilely and names both endpoints", linux, async () => {
   const f = fixture();
   let first;
@@ -562,11 +732,13 @@ test("concurrent different endpoints leave exactly one live, marked central serv
   }
 });
 
-test("F3 negative: concurrent real-process reclaimers elect exactly one dead-marker successor", linux, async () => {
-  const f = fixture();
+async function assertSingleConcurrentReclaimer(directory, round) {
+  const runtimeBase = join(directory, `reclaim-race-${round}`, String(currentUid()));
   const launchers = [];
   try {
-    const markerPath = centralMcpMarkerPath({ runtimeBase: f.runtimeBase });
+    mkdirSync(runtimeBase, { recursive: true, mode: 0o700 });
+    chmodSync(runtimeBase, 0o700);
+    const markerPath = centralMcpMarkerPath({ runtimeBase });
     mkdirSync(dirname(markerPath), { mode: 0o700 });
     chmodSync(dirname(markerPath), 0o700);
     writeFileSync(markerPath, marker(await endpoint(), "dead-generation"), { mode: 0o600 });
@@ -576,8 +748,8 @@ test("F3 negative: concurrent real-process reclaimers elect exactly one dead-mar
     for (const [index, endpointValue] of endpoints.entries()) {
       launchers.push(launchCentralProcess({
         endpoint: endpointValue,
-        root: join(f.directory, `launcher-${index}`),
-        runtimeBase: f.runtimeBase,
+        root: join(directory, `reclaim-${round}-launcher-${index}`),
+        runtimeBase,
         waitForStart: true
       }));
     }
@@ -602,11 +774,75 @@ test("F3 negative: concurrent real-process reclaimers elect exactly one dead-mar
     assert.equal(live[0].generation, registered.generation, "the marker generation names the only live successor");
   } finally {
     await Promise.all(launchers.map((launcher) => stopCentralProcess(launcher)));
+  }
+}
+
+test("F3 lock: a controlled 24-process reclaim race elects one verified reclaimer", linux, async () => {
+  const f = fixture();
+  const launchers = [];
+  try {
+    const raceDirectory = join(f.directory, "controlled-race");
+    mkdirSync(raceDirectory, { mode: 0o700 });
+    chmodSync(raceDirectory, 0o700);
+    const markerPath = centralMcpMarkerPath({ runtimeBase: f.runtimeBase });
+    mkdirSync(dirname(markerPath), { mode: 0o700 });
+    chmodSync(dirname(markerPath), 0o700);
+    writeFileSync(markerPath, marker(await endpoint(), "dead-generation"), { mode: 0o600 });
+    chmodSync(markerPath, 0o600);
+    const endpoints = await Promise.all(Array.from({ length: 24 }, () => endpoint()));
+
+    launchers.push(launchCentralProcess({
+      endpoint: endpoints[0],
+      root: join(f.directory, "first-store"),
+      runtimeBase: f.runtimeBase,
+      reclaimRaceDirectory: raceDirectory,
+      reclaimRaceIndex: 0
+    }));
+    assert.equal(await waitForFiles([join(raceDirectory, "ready-0")], 3_000), true);
+
+    for (const [index, endpointValue] of endpoints.slice(1).entries()) {
+      launchers.push(launchCentralProcess({
+        endpoint: endpointValue,
+        root: join(f.directory, `controlled-${index + 1}-store`),
+        runtimeBase: f.runtimeBase,
+        waitForStart: true,
+        reclaimRaceDirectory: raceDirectory,
+        reclaimRaceIndex: index + 1
+      }));
+    }
+    await Promise.all(launchers.slice(1).map((launcher) => launcher.ready));
+    launchers.slice(1).forEach((launcher) => launcher.release());
+    // With the lock removed every child reaches its pre-rename hook before
+    // process zero is released; the hooks then publish in a forced sequence.
+    await waitForFiles(
+      Array.from({ length: 24 }, (_, index) => join(raceDirectory, `ready-${index}`)),
+      2_000
+    );
+    writeFileSync(join(raceDirectory, "go-0"), "go\n", { flag: "wx" });
+
+    const outcomes = await Promise.all(launchers.map((launcher) => launcher.result));
+    const started = outcomes.filter((outcome) => outcome.kind === "result" && outcome.result === "started");
+    assert.equal(started.length, 1, "the O_EXCL reclaim lock admits only one verified reclaimer");
+  } finally {
+    await Promise.all(launchers.map((launcher) => stopCentralProcess(launcher)));
     rmSync(f.directory, { recursive: true, force: true });
   }
 });
 
-test("F4 negative: a slow real central ping is not reclaimed by a divergent launcher", linux, async () => {
+test("F3 negative: two 24-process reclaim races elect exactly one dead-marker successor", linux, async () => {
+  const f = fixture();
+  try {
+    // A second independent round makes the pre-rename TOCTOU window
+    // deterministic enough to distinguish the O_EXCL reclaim lock from only
+    // identity-CAS plus post-rename verification.
+    await assertSingleConcurrentReclaimer(f.directory, 1);
+    await assertSingleConcurrentReclaimer(f.directory, 2);
+  } finally {
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("F4 negative: a liveness-budget-exhausting central ping is ambiguous and never reclaimed", linux, async () => {
   const f = fixture();
   let first;
   let second;
@@ -623,7 +859,9 @@ test("F4 negative: a slow real central ping is not reclaimed by a divergent laun
     assert.deepEqual(firstResult.kind === "result" ? firstResult.result : firstResult.kind, "started");
     assert.ok(await centralGeneration(firstEndpoint), "the first launcher is a real central server");
 
-    proxy = await slowPingProxy(firstEndpoint, 1_000);
+    // This exceeds all three liveness attempts plus their backoff budget. A
+    // timeout is ambiguous, never proof the original registration is dead.
+    proxy = await slowPingProxy(firstEndpoint, 6_000);
     const firstMarker = JSON.parse(readFileSync(centralMcpMarkerPath({ runtimeBase: f.runtimeBase }), "utf8"));
     writeFileSync(
       centralMcpMarkerPath({ runtimeBase: f.runtimeBase }),
@@ -638,8 +876,8 @@ test("F4 negative: a slow real central ping is not reclaimed by a divergent laun
       runtimeBase: f.runtimeBase
     });
     const secondResult = await second.result;
-    assert.equal(secondResult.kind, "error", "a possible live registration must refuse rather than reclaim");
-    assert.match(secondResult.message, /LIVE central MCP server is registered on/);
+    assert.equal(secondResult.kind, "error", "an ambiguous registration must refuse rather than reclaim");
+    assert.match(secondResult.message, /liveness .* ambiguous/);
 
     const live = (await Promise.all([firstEndpoint, secondEndpoint].map(async (endpointValue) => ({
       endpoint: endpointValue,
@@ -818,9 +1056,10 @@ test("M4: an absent preferred runtime base refuses without a /tmp fallback", lin
   }
 });
 
-test("central client flag is fail-closed and routes new clients to the exact central URL", linux, async () => {
+test("central client config reconnects after token rotation without rendering a credential", linux, async () => {
   const f = fixture();
-  let started;
+  let first;
+  let second;
   try {
     const requested = await endpoint();
     const oldStdio = { command: "h2a", args: ["mcp-serve"] };
@@ -841,44 +1080,76 @@ test("central client flag is fail-closed and routes new clients to the exact cen
     assert.equal(existsSync(join(f.runtimeBase, "h2a-mcp-central")), false);
     assert.equal(existsSync(f.root), false, "missing endpoint writes/binds nothing");
 
-    started = await startCentralMcpServer({
-      root: f.root,
+    first = await startCentralMcpServer({
+      root: join(f.directory, "first-store"),
       runtimeBase: f.runtimeBase,
       env: envFor(requested)
     });
-    assert.equal(started.kind, "started");
+    assert.equal(first.kind, "started");
     const config = centralMcpClientEndpoint({
       [H2A_MCP_CENTRAL_ENV]: "true",
       [H2A_MCP_CENTRAL_ENDPOINT_ENV]: requested
     }, { runtimeBase: f.runtimeBase });
-    assert.deepEqual(config, {
-      url: requested,
-      headers: { Authorization: `Bearer ${JSON.parse(readFileSync(started.markerPath, "utf8")).token}` }
-    }, "central clients obtain their auth header from the private marker");
+    assert.ok(config);
+    const firstToken = JSON.parse(readFileSync(first.markerPath, "utf8")).token;
+    await stop(first);
+    first = undefined;
 
-    const response = await fetch(config.url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        ...config.headers
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2025-03-26",
-          capabilities: {},
-          clientInfo: { name: "central-test", version: "1" }
-        }
-      })
+    second = await startCentralMcpServer({
+      root: join(f.directory, "second-store"),
+      runtimeBase: f.runtimeBase,
+      env: envFor(requested)
     });
-    assert.equal(response.status, 200);
-    const initialized = await response.json();
-    assert.equal(initialized.result.serverInfo.name, "@sentropic/h2a");
+    assert.equal(second.kind, "started");
+    assert.notEqual(
+      JSON.parse(readFileSync(second.markerPath, "utf8")).token,
+      firstToken,
+      "the restart actually rotates the server credential"
+    );
+
+    // The same config rendered against instance one must work after instance
+    // two takes over. Before the shim this request uses the stale embedded
+    // bearer credential and receives 401.
+    const initialized = await initializeRenderedCentralConfig(config);
+    assert.notEqual(initialized.status, 401, "a restart is transparent to the rendered config");
+    assert.equal(initialized.status, 200);
+    assert.equal(initialized.message.result.serverInfo.name, "@sentropic/h2a");
+
+    assert.deepEqual(
+      renderH2aMcpServer(
+        {},
+        {
+          [H2A_MCP_CENTRAL_ENV]: "true",
+          [H2A_MCP_CENTRAL_ENDPOINT_ENV]: requested
+        },
+        { runtimeBase: f.runtimeBase }
+      ),
+      config,
+      "the Codex renderer emits the same central stdio config"
+    );
+    const rendered = JSON.stringify(config);
+    assert.doesNotMatch(rendered, /bearer|token/i, "the rendered central config contains no credential literal");
+    assert.doesNotMatch(rendered, new RegExp(firstToken), "the old live token is never rendered");
   } finally {
-    await stop(started);
+    await stop(second);
+    await stop(first);
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("host setup --write creates a private MCP config file", () => {
+  const f = fixture();
+  try {
+    const targetPath = join(f.directory, "project", ".mcp.json");
+    const streams = captureStreams(f.directory);
+    const rc = runCli(
+      ["host", "setup", "--host", "codex", "--write", targetPath, "--no-wake"],
+      streams,
+      { doctorHostInstallations: healthyHostInstallations }
+    );
+    assert.equal(rc, 0, streams.stderrText);
+    assert.equal(statSync(targetPath).mode & 0o777, 0o600);
+  } finally {
     rmSync(f.directory, { recursive: true, force: true });
   }
 });
