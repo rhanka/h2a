@@ -32,10 +32,19 @@ Priority is prime → fallback: reach for `sol xhigh` first; use `fable-5` when 
 unavailable; use `gemini-3.7` when neither is. Availability means *reachable now*, not
 *preferred* — a fallback taken for convenience is a fallback taken wrongly.
 
-**Consensus is two legs out of three**, and two rules bound it:
+**Consensus is two legs, on two DIFFERENT models drawn from the three permitted above**,
+and three rules bound it:
 
 1. **The builder is never a reviewer.** Whoever produced the artefact cannot be a leg on it.
-2. **At least one leg must be a DIFFERENT model from the one that produced the artefact.**
+2. **The two legs must be different models from each other.** Not "at least one differs
+   from the producer" — that wording permitted exactly what this section condemns: two
+   legs both on `gemini-3.7` reviewing a `terra` build would satisfy it while returning
+   two signatures and one verification.
+3. **Every leg must be drawn from the permitted list.** Being different from the producer
+   is not enough on its own: a model that is outside the pool but happens to differ from
+   the producer would otherwise pass the filter — which is precisely the `gpt-5.5` vector.
+
+Read together: two legs, both in the pool, different from each other and from the builder.
 
 ### Why rule 2 exists, and why it is not about any model being weak
 
@@ -69,7 +78,13 @@ ruled on it; this is the accountable lane exercising its mandate, and it is reve
 - `prov` — the field where attribution would naturally live — carries only `auth`,
   `proposed` and `transport`, in two shapes (`cli`, `import`). It does not name the actor.
 
-Every actor also commits under one git identity.
+Git does not carry it either, though not for the reason a first draft of this file
+claimed. Measured: `git log` shows **eight distinct author identities**, not one. But
+1 481 of the 1 487 commits are the human's three addresses, and the remaining five
+identities are variants of "Codex" (`codex@local.invalid`, `codex@openai.com`,
+`codex@example.com`, `Codex Operator`) which name a **tool, never a model or an effort**.
+So the conclusion survives its own correction, and is stronger for it: even where an
+agent does commit under its own identity, that identity does not say which model ran.
 
 So a cross-model leg is **asserted, never verified** — a measured fact, not a caution.
 
@@ -80,17 +95,29 @@ and reviewing model to a record that is already there, not inventing a new one.
 Worse, and measured on the harness lane itself: **an agent cannot reliably observe the
 model serving it.** A session may hold two conflicting statements — its system context
 naming one model, a local command having selected another — with no means of
-introspection to settle it. Both of this lane's review legs on PR #542 and PR #223 were
-delivered with that ambiguity stated out loud rather than papered over.
+introspection to settle it. This lane delivered two review legs with that ambiguity
+stated out loud rather than papered over: `rhanka/sentropic#542` (LLM routing integrity
+contract) and `rhanka/h2a#223` (its runtime consumer). Both are named with their
+repository, because "#542" alone points at nothing in this one.
 
 Therefore:
 
 - a leg declares its model; it does **not** claim to have observed it;
-- the declaration is usable when it is enough to establish **distinctness** — two models
-  that are both *not* the producer's satisfy rule 2 whichever of the two is really serving;
-- when distinctness cannot be established, the leg is **not attestable**, and a third
-  leg on a different model is required. Saying so costs one leg; hiding it costs the
-  whole consensus.
+- a declaration is usable only when it establishes **both** things at once:
+  **membership** — every candidate the declaration leaves open is inside the permitted
+  list — **and distinctness** from the other leg and from the builder. Distinctness alone
+  is not enough. A model outside the pool is trivially distinct from the producer, and
+  admitting it on that basis is exactly how a `gpt-5.5` leg gets accepted;
+- an ambiguous declaration is therefore usable only if **every** model it could mean is
+  permitted. This is not hypothetical, and the example is this lane's own: both legs
+  cited above were declared as "`claude-opus-5` or `claude-opus-4.8`, neither of which is
+  the other leg's model". That establishes distinctness — and **fails membership**, since
+  every `opus` is excluded from review. By the rule as now written, **those two legs were
+  not attestable**, and they were accepted on distinctness alone. That is the same hole
+  the `gpt-5.5` leg went through, found in this lane's own work rather than someone
+  else's;
+- when either condition cannot be established, the leg is **not attestable**, and another
+  leg is required. Saying so costs one leg; hiding it costs the whole consensus.
 
 This rule is at the **spec-line** rung. What would raise it: an attestation field that
 records the producing and reviewing model per artefact. Until that exists, this section
