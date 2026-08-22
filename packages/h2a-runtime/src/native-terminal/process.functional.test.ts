@@ -235,37 +235,40 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const socketPath = join(directory, "host.sock");
     const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
     let spawnCount = 0;
+    const spawnedHosts: ChildProcess[] = [];
     const generations = ["parent-death-hard", "parent-death-reap"];
     const reconcileLogs: string[] = [];
+    const spawnHost: NativeTerminalHostSpawn = (options) => {
+      spawnCount += 1;
+      const child = spawn(process.execPath, [
+        "--import",
+        "tsx",
+        entry,
+        "--socket",
+        options.socketPath,
+        "--generation",
+        options.generation,
+        "--replay-bytes",
+        String(options.replayBytesPerSession),
+        ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
+      ], {
+        cwd: dirname(entry),
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      children.add(child);
+      spawnedHosts.push(child);
+      return child;
+    };
     const supervisor = new NativeTerminalHostSupervisor({
       socketPath,
       registryPath: join(directory, "registry.json"),
       replayBytesPerSession: 1024,
-      startupTimeoutMs: 500,
+      startupTimeoutMs: 30_000,
       spawnTerminationGraceMs: 100,
       log: (line) => reconcileLogs.push(line),
       generationFactory: () => generations[spawnCount] ?? `unexpected-${spawnCount}`,
-      spawnHost: (options) => {
-        spawnCount += 1;
-        const child = spawn(process.execPath, [
-          "--import",
-          "tsx",
-          entry,
-          "--socket",
-          options.socketPath,
-          "--generation",
-          options.generation,
-          "--replay-bytes",
-          String(options.replayBytesPerSession),
-          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
-        ], {
-          cwd: dirname(entry),
-          env: process.env,
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-        children.add(child);
-        return child;
-      },
+      spawnHost,
     });
 
     const first = await supervisor.client();
@@ -305,9 +308,32 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     process.kill(forcedReapPgid, "SIGKILL");
     supervisor.disconnect();
     process.kill(replacementPing.hostPid, "SIGSTOP");
-    await expect(supervisor.client()).rejects.toThrow(/did not become ready/i);
-    // This must already be empty when forced reaping returns: the supervisor
-    // killed the reaped host, then used the durable pgid for kill(-pgid,
+    const reaper = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath: join(directory, "registry.json"),
+      replayBytesPerSession: 1024,
+      startupTimeoutMs: 500,
+      spawnTerminationGraceMs: 100,
+      log: (line) => reconcileLogs.push(line),
+      generationFactory: () => "parent-death-reap-timeout",
+      spawnHost: () => spawnedHosts[1]!,
+    });
+    await expect(reaper.client()).rejects.toThrow(/did not become ready/i);
+    const cleanupSupervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath: join(directory, "registry.json"),
+      replayBytesPerSession: 1024,
+      startupTimeoutMs: 30_000,
+      spawnTerminationGraceMs: 100,
+      log: (line) => reconcileLogs.push(line),
+      generationFactory: () => "parent-death-cleanup",
+      spawnHost,
+    });
+    await cleanupSupervisor.client();
+
+    // This must already be empty when cleanup startup returns: the reaper
+    // killed the stopped host, then cleanup reconciliation used the durable
+    // pgid for kill(-pgid,
     // SIGKILL) and waited for kill(-pgid, 0) to return ESRCH. That reaches
     // descendants whether they reparented to init or to a subreaper.
     expect(running(replacementPing.hostPid)).toBe(false);
@@ -333,7 +359,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
           line.includes(`pgid=${forcedReapPgid}`),
       ),
     ).toBe(true);
-    expect(supervisor.spawnedPid).toBeUndefined();
+    expect(reaper.spawnedPid).toBeUndefined();
+    expect(spawnCount).toBe(3);
 
     // INV-4 no-block assertion: the NEW group-leader-identity guard sits
     // directly in front of the reap this test's "hard-crash-tree" entry
