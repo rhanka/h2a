@@ -61,17 +61,56 @@ function envFor(value) {
   return { [H2A_MCP_CENTRAL_ENDPOINT_ENV]: value };
 }
 
-function marker(endpointValue, generation, pid = process.pid) {
+function marker(endpointValue, generation, pid = process.pid, startedAt = "2000-01-01T00:00:00.000Z") {
   return `${JSON.stringify({
     endpoint: endpointValue,
     generation,
     pid,
-    startedAt: "2000-01-01T00:00:00.000Z"
+    startedAt
   })}\n`;
 }
 
 async function stop(started) {
   if (started?.kind === "started") await started.stop();
+}
+
+async function centralGeneration(endpointValue) {
+  try {
+    const response = await fetch(new URL("/_h2a-central/ping", endpointValue));
+    if (!response.ok) return undefined;
+    const body = await response.json();
+    return typeof body.generation === "string" ? body.generation : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((finish) => {
+    resolve = finish;
+  });
+  return { promise, resolve };
+}
+
+function snapshotTree(path) {
+  const entries = new Set();
+  const visit = (directory, prefix) => {
+    let children;
+    try {
+      children = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      entries.add(`${prefix}/<unreadable>`);
+      return;
+    }
+    for (const child of children) {
+      const relative = prefix ? join(prefix, child.name) : child.name;
+      entries.add(relative);
+      if (child.isDirectory()) visit(join(directory, child.name), relative);
+    }
+  };
+  visit(path, "");
+  return entries;
 }
 
 test("M1: central marker is uid-addressed, user-owned, and private", linux, async () => {
@@ -188,13 +227,131 @@ test("M2: a live divergent endpoint refuses sterilely and names both endpoints",
     assert.equal(readFileSync(first.markerPath, "utf8"), before);
     assert.deepEqual(readdirSync(dirname(first.markerPath)), beforeEntries, "no temp or second marker exists");
     assert.equal(existsSync(join(f.directory, "second-store")), false, "refusal binds/writes nothing");
+    assert.equal(await centralGeneration(secondEndpoint), undefined, "refusal leaves no second listener behind");
   } finally {
     await stop(first);
     rmSync(f.directory, { recursive: true, force: true });
   }
 });
 
-test("M3: only endpoint generation proves liveness, never the marker PID", linux, async () => {
+test("concurrent different endpoints leave exactly one live, marked central server", linux, async () => {
+  const f = fixture();
+  const firstClaimed = deferred();
+  const releaseFirst = deferred();
+  let firstPromise;
+  let secondPromise;
+  let outcomes = [];
+  try {
+    const firstEndpoint = await endpoint();
+    const secondEndpoint = await endpoint();
+    firstPromise = startCentralMcpServer({
+      root: join(f.directory, "first-store"),
+      runtimeBase: f.runtimeBase,
+      env: envFor(firstEndpoint),
+      afterMarkerClaim: async () => {
+        firstClaimed.resolve();
+        await releaseFirst.promise;
+      }
+    });
+    await firstClaimed.promise;
+
+    secondPromise = startCentralMcpServer({
+      root: join(f.directory, "second-store"),
+      runtimeBase: f.runtimeBase,
+      env: envFor(secondEndpoint)
+    });
+    await secondPromise.then(() => undefined, () => undefined);
+    releaseFirst.resolve();
+    outcomes = await Promise.allSettled([firstPromise, secondPromise]);
+
+    const started = outcomes
+      .filter((outcome) => outcome.status === "fulfilled" && outcome.value.kind === "started")
+      .map((outcome) => outcome.value);
+    assert.equal(started.length, 1, "exactly one concurrent launcher owns a central server");
+    assert.ok(
+      outcomes.some((outcome) => outcome.status === "fulfilled" && outcome.value.kind === "reused") ||
+      outcomes.some(
+        (outcome) => outcome.status === "rejected" &&
+          /LIVE central MCP server is registered on/.test(String(outcome.reason))
+      ),
+      "the losing launcher reuses or refuses the live owner"
+    );
+
+    const registered = JSON.parse(readFileSync(centralMcpMarkerPath({ runtimeBase: f.runtimeBase }), "utf8"));
+    const live = (await Promise.all(
+      [firstEndpoint, secondEndpoint].map(async (value) => ({ endpoint: value, generation: await centralGeneration(value) }))
+    )).filter((value) => value.generation !== undefined);
+    assert.equal(live.length, 1, "at most one endpoint answers the central ping");
+    assert.equal(live[0].endpoint, registered.endpoint, "the marker names the only live endpoint");
+    assert.equal(live[0].generation, registered.generation, "the marker identifies the only live generation");
+  } finally {
+    releaseFirst.resolve();
+    if (firstPromise || secondPromise) {
+      outcomes = outcomes.length > 0
+        ? outcomes
+        : await Promise.allSettled([firstPromise, secondPromise].filter(Boolean));
+      await Promise.all(outcomes.map((outcome) => outcome.status === "fulfilled" ? stop(outcome.value) : undefined));
+    }
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("concurrent same-endpoint launchers reuse the listener that won the bind", linux, async () => {
+  const f = fixture();
+  const firstClaimed = deferred();
+  const releaseFirst = deferred();
+  let firstPromise;
+  let secondPromise;
+  let outcomes = [];
+  try {
+    const requested = await endpoint();
+    firstPromise = startCentralMcpServer({
+      root: join(f.directory, "first-store"),
+      runtimeBase: f.runtimeBase,
+      env: envFor(requested),
+      afterMarkerClaim: async () => {
+        firstClaimed.resolve();
+        await releaseFirst.promise;
+      }
+    });
+    await firstClaimed.promise;
+
+    secondPromise = startCentralMcpServer({
+      root: join(f.directory, "second-store"),
+      runtimeBase: f.runtimeBase,
+      env: envFor(requested)
+    });
+    await secondPromise.then(() => undefined, () => undefined);
+    releaseFirst.resolve();
+    outcomes = await Promise.allSettled([firstPromise, secondPromise]);
+
+    assert.equal(
+      outcomes.filter((outcome) => outcome.status === "fulfilled" && outcome.value.kind === "started").length,
+      1,
+      "one launcher owns the endpoint"
+    );
+    assert.equal(
+      outcomes.filter((outcome) => outcome.status === "fulfilled" && outcome.value.kind === "reused").length,
+      1,
+      "the EADDRINUSE launcher reuses the marked live server"
+    );
+    assert.equal(await centralGeneration(requested), JSON.parse(readFileSync(
+      centralMcpMarkerPath({ runtimeBase: f.runtimeBase }),
+      "utf8"
+    )).generation);
+  } finally {
+    releaseFirst.resolve();
+    if (firstPromise || secondPromise) {
+      outcomes = outcomes.length > 0
+        ? outcomes
+        : await Promise.allSettled([firstPromise, secondPromise].filter(Boolean));
+      await Promise.all(outcomes.map((outcome) => outcome.status === "fulfilled" ? stop(outcome.value) : undefined));
+    }
+    rmSync(f.directory, { recursive: true, force: true });
+  }
+});
+
+test("M3: endpoint generation alone decides liveness, never marker PID or age", linux, async () => {
   const f = fixture();
   let reclaimed;
   let live;
@@ -205,7 +362,11 @@ test("M3: only endpoint generation proves liveness, never the marker PID", linux
     const markerPath = centralMcpMarkerPath({ runtimeBase: f.runtimeBase });
     mkdirSync(dirname(markerPath), { mode: 0o700 });
     chmodSync(dirname(markerPath), 0o700);
-    writeFileSync(markerPath, marker(deadEndpoint, "dead-generation", unrelated.pid), { mode: 0o600 });
+    writeFileSync(
+      markerPath,
+      marker(deadEndpoint, "dead-generation", unrelated.pid, new Date().toISOString()),
+      { mode: 0o600 }
+    );
     chmodSync(markerPath, 0o600);
 
     // The unrelated process is live, but no endpoint returns this generation:
@@ -221,17 +382,30 @@ test("M3: only endpoint generation proves liveness, never the marker PID", linux
     await stop(reclaimed);
     reclaimed = undefined;
 
-    // A real server answering a different generation is equally not the marker's
-    // referent. The new server must reclaim, not silently reuse it.
+    // A marker can be ancient and still be live: its matching generation must
+    // be adopted rather than reclaimed or rejected as stale by age.
     const liveEndpoint = await endpoint();
     live = await startCentralMcpServer({
       root: join(f.directory, "live-store"),
       runtimeBase: f.runtimeBase,
       env: envFor(liveEndpoint)
     });
-    // The first live server occupies the marker, so make the next probe target
-    // that actual endpoint with a forged (different) generation.
     assert.equal(live.kind, "started");
+    const oldLiveMarker = marker(liveEndpoint, live.generation, unrelated.pid);
+    writeFileSync(markerPath, oldLiveMarker, { mode: 0o600 });
+    chmodSync(markerPath, 0o600);
+    const adopted = await startCentralMcpServer({
+      root: join(f.directory, "adopted-store"),
+      runtimeBase: f.runtimeBase,
+      env: envFor(liveEndpoint)
+    });
+    assert.equal(adopted.kind, "reused", "an old matching generation remains live");
+    assert.equal(adopted.generation, live.generation);
+    assert.equal(readFileSync(markerPath, "utf8"), oldLiveMarker, "liveness never rewrites an old live marker");
+    assert.equal(existsSync(join(f.directory, "adopted-store")), false);
+
+    // A real server answering a different generation is equally not the marker's
+    // referent. The new server must reclaim, not silently reuse it.
     writeFileSync(markerPath, marker(liveEndpoint, "forged-different-generation"), { mode: 0o600 });
     chmodSync(markerPath, 0o600);
     const replacementEndpoint = await endpoint();
@@ -253,10 +427,14 @@ test("M3: only endpoint generation proves liveness, never the marker PID", linux
 
 test("M4: an absent preferred runtime base refuses without a /tmp fallback", linux, async () => {
   const directory = mkdtempSync(join(tmpdir(), "h2a-mcp-central-no-base-"));
+  const previousTmpdir = process.env.TMPDIR;
+  const isolatedTmpdir = join(directory, "empty-tmp");
+  mkdirSync(isolatedTmpdir, { mode: 0o700 });
   try {
     const requested = await endpoint();
     const absentBase = join(directory, "missing", String(currentUid()));
-    const before = new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("h2a-mcp-central")));
+    process.env.TMPDIR = isolatedTmpdir;
+    const before = snapshotTree(isolatedTmpdir);
 
     await assert.rejects(
       startCentralMcpServer({
@@ -268,12 +446,15 @@ test("M4: an absent preferred runtime base refuses without a /tmp fallback", lin
     );
 
     assert.equal(existsSync(absentBase), false);
+    const after = snapshotTree(isolatedTmpdir);
     assert.deepEqual(
-      new Set(readdirSync(tmpdir()).filter((name) => name.startsWith("h2a-mcp-central"))),
-      before,
-      "no /tmp central marker or directory is created"
+      [...after].filter((entry) => !before.has(entry)),
+      [],
+      "missing-base refusal creates no entry anywhere in its isolated /tmp base"
     );
   } finally {
+    if (previousTmpdir === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTmpdir;
     rmSync(directory, { recursive: true, force: true });
   }
 });
