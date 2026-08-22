@@ -41,6 +41,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
 import { once } from "node:events";
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -161,7 +162,7 @@ import {
   H2A_MCP_READY_NONCE_ENV,
   runMcpStdio
 } from "./runtime/mcp/index.js";
-import { startCentralMcpServer } from "./runtime/mcp-central.js";
+import { bridgeCentralMcpStdio, startCentralMcpServer } from "./runtime/mcp-central.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
@@ -1923,6 +1924,47 @@ export async function runCentralMcpServe(
     return 0;
   } catch (error) {
     io.stderr.write(`h2a mcp-central-serve: ${(error as Error).message}\n`);
+    return 1;
+  }
+}
+
+/**
+ * `h2a mcp-central-connect` — stdio client shim for the private central MCP
+ * server. The endpoint is public configuration, while the bearer token is read
+ * from the owner-only marker only when this child process connects.
+ */
+export async function runCentralMcpConnect(
+  flags: Record<string, string>,
+  io: {
+    stdin: NodeJS.ReadableStream;
+    stdout: NodeJS.WritableStream;
+    stderr: NodeJS.WritableStream;
+    signal?: AbortSignal;
+  } = {
+    stdin: process.stdin,
+    stdout: process.stdout,
+    stderr: process.stderr
+  }
+): Promise<number> {
+  if (!flags.endpoint) {
+    io.stderr.write("h2a mcp-central-connect: --endpoint <http://127.0.0.1:port/path> is required\n");
+    return 1;
+  }
+  if (flags["runtime-base"] !== undefined && !isAbsolute(flags["runtime-base"])) {
+    io.stderr.write("h2a mcp-central-connect: --runtime-base must be an absolute path\n");
+    return 1;
+  }
+  try {
+    await bridgeCentralMcpStdio({
+      endpoint: flags.endpoint,
+      stdin: io.stdin as never,
+      stdout: io.stdout as never,
+      ...(flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {}),
+      ...(io.signal ? { signal: io.signal } : {})
+    });
+    return 0;
+  } catch (error) {
+    io.stderr.write(`h2a mcp-central-connect: ${(error as Error).message}\n`);
     return 1;
   }
 }
@@ -4175,7 +4217,11 @@ function cmdHostSetup(
     if (dir && !existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    writeFileSync(targetPath, `${JSON.stringify(merged, null, 2)}\n`);
+    writeFileSync(targetPath, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 });
+    // `mode` applies only when a file is created. Enforce privacy for an
+    // existing config too: a rendered central command contains no token, but
+    // host config is still owner-private defense in depth.
+    chmodSync(targetPath, 0o600);
   } catch (error) {
     streams.stderr.write(
       `h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`

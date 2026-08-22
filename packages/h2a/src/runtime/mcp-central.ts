@@ -21,12 +21,15 @@ import { dirname, join } from "node:path";
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { serve } from "@hono/node-server";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
   type CallToolResult,
+  type JSONRPCMessage,
   ListToolsRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import { Hono } from "hono";
+import type { Readable, Writable } from "node:stream";
 
 import { currentCliVersion } from "./upgrade/index.js";
 import {
@@ -130,8 +133,8 @@ export function parseCentralMcpEndpoint(
 }
 
 export type CentralMcpClientEndpoint = Readonly<{
-  url: string;
-  headers: Readonly<{ Authorization: string }>;
+  command: string;
+  args: string[];
 }>;
 
 /** Returns the central URL only when the explicit opt-in is enabled. */
@@ -147,7 +150,15 @@ export function centralMcpClientEndpoint(
       `${H2A_MCP_CENTRAL_ENDPOINT_ENV} does not match the private central MCP marker endpoint`
     );
   }
-  return { url: endpoint, headers: { Authorization: `Bearer ${marker.token}` } };
+  return {
+    command: "h2a",
+    args: [
+      "mcp-central-connect",
+      "--endpoint",
+      endpoint,
+      ...(paths.runtimeBase ? ["--runtime-base", paths.runtimeBase] : [])
+    ]
+  };
 }
 
 export interface CentralMcpPathsOptions {
@@ -211,6 +222,132 @@ function readCentralClientMarker(path: string): CentralMcpMarker {
   } catch {
     throw new Error(`central MCP marker is malformed: ${path}`);
   }
+}
+
+function parseCentralMcpBridgeMessages(body: string, contentType: string | null): JSONRPCMessage[] {
+  if (body.trim().length === 0) return [];
+  const values: unknown[] = [];
+  if (contentType?.includes("text/event-stream")) {
+    for (const event of body.split(/\r?\n\r?\n/)) {
+      const data = event
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice("data:".length).trimStart())
+        .join("\n");
+      if (data) values.push(JSON.parse(data));
+    }
+  } else {
+    values.push(JSON.parse(body));
+  }
+  return values.flatMap((value) => Array.isArray(value) ? value : [value]) as JSONRPCMessage[];
+}
+
+export interface CentralMcpStdioBridgeOptions extends CentralMcpPathsOptions {
+  /** The endpoint persisted in the rendered command; it must match the marker. */
+  endpoint: string;
+  stdin: Readable;
+  stdout: Writable;
+  signal?: AbortSignal;
+}
+
+/**
+ * Proxy one stdio MCP client to the current central Streamable-HTTP server.
+ * The bridge reads the private marker once at connect time, so a config never
+ * contains the bearer token and a newly launched bridge observes a restarted
+ * owner's current credential.
+ */
+export async function bridgeCentralMcpStdio(options: CentralMcpStdioBridgeOptions): Promise<void> {
+  const endpoint = parseCentralMcpEndpoint(options.endpoint);
+  const marker = readCentralClientMarker(centralMcpMarkerPath(options));
+  if (marker.endpoint !== endpoint) {
+    throw new Error(
+      `central MCP marker endpoint ${marker.endpoint} does not match requested endpoint ${endpoint}`
+    );
+  }
+
+  const stdio = new StdioServerTransport(options.stdin, options.stdout);
+  let sessionId: string | undefined;
+  let stopped = false;
+  let failure: Error | undefined;
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+
+  const close = async (error?: unknown): Promise<void> => {
+    if (error !== undefined && failure === undefined) {
+      failure = error instanceof Error ? error : new Error(String(error));
+    }
+    if (stopped) return;
+    stopped = true;
+    try {
+      await stdio.close();
+    } finally {
+      finish();
+    }
+  };
+
+  const forward = async (message: JSONRPCMessage): Promise<void> => {
+    if (stopped) return;
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${marker.token}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream"
+    };
+    if (sessionId) headers["mcp-session-id"] = sessionId;
+    let response: Response;
+    try {
+      response = await fetch(marker.endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(message)
+      });
+    } catch (error) {
+      await close(new Error(`central MCP bridge cannot reach ${marker.endpoint}: ${(error as Error).message}`));
+      return;
+    }
+    if (!response.ok) {
+      await close(new Error(`central MCP bridge request failed with HTTP ${response.status}`));
+      return;
+    }
+    const returnedSessionId = response.headers.get("mcp-session-id");
+    if (returnedSessionId) sessionId = returnedSessionId;
+    let messages: JSONRPCMessage[];
+    try {
+      messages = parseCentralMcpBridgeMessages(
+        await response.text(),
+        response.headers.get("content-type")
+      );
+    } catch (error) {
+      await close(new Error(`central MCP bridge received an invalid response: ${(error as Error).message}`));
+      return;
+    }
+    for (const next of messages) {
+      try {
+        await stdio.send(next);
+      } catch (error) {
+        await close(error);
+        return;
+      }
+    }
+  };
+
+  stdio.onmessage = (message) => {
+    void forward(message).catch((error) => void close(error));
+  };
+  stdio.onerror = (error) => {
+    void close(error);
+  };
+  stdio.onclose = () => {
+    void close();
+  };
+  if (options.signal) {
+    if (options.signal.aborted) void close();
+    else options.signal.addEventListener("abort", () => void close(), { once: true });
+  }
+  await stdio.start();
+  await finished;
+  if (failure) throw failure;
 }
 
 function lstatRequired(path: string, label: string): Stats {
@@ -334,7 +471,8 @@ async function reclaimMarker(
   path: string,
   expected: Readonly<{ dev: number; ino: number }>,
   registered: CentralMcpMarker | undefined,
-  marker: CentralMcpMarker
+  marker: CentralMcpMarker,
+  beforeReplace?: (candidate: CentralMcpMarker) => Promise<void>
 ): Promise<boolean> {
   const ownership = await loadRuntimeOwnership();
   const lockPath = join(dirname(path), CENTRAL_RECLAIM_LOCK_FILE);
@@ -359,6 +497,7 @@ async function reclaimMarker(
         );
       }
     }
+    await beforeReplace?.(marker);
     const temporary = join(dirname(path), `.${CENTRAL_MARKER_FILE}.${randomUUID()}.tmp`);
     // Do not use the endpoint or its host in the temporary name: this directory is
     // fixed per uid and the marker is the sole rendezvous record.
@@ -392,7 +531,21 @@ async function acquireReclaimLock(path: string, marker: CentralMcpMarker): Promi
     const lock = await readMarker(path);
     if (!lock) continue;
     if (!lock.marker) {
-      throw new Error("central MCP reclaim lock is malformed; refusing to reclaim a possibly-live server");
+      // A protected but malformed lock carries no endpoint/generation which
+      // could prove a live owner. Treat it like a malformed marker: remove it
+      // only if its dev/inode is still the one we inspected, then compete for
+      // a fresh O_EXCL lock on the next iteration.
+      let current: Stats;
+      try {
+        current = await assertMarkerOwnership(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      if (ownership.sameNativeTerminalSocket(lock.identity, { dev: current.dev, ino: current.ino })) {
+        unlinkSync(path);
+      }
+      continue;
     }
     const liveness = await markerLiveness(lock.marker);
     if (liveness === "alive") {
@@ -508,7 +661,8 @@ type MarkerClaim =
 async function claimCentralMarker(
   endpoint: string,
   paths: CentralMcpPathsOptions,
-  candidate: CentralMcpMarker
+  candidate: CentralMcpMarker,
+  beforeReplace?: (candidate: CentralMcpMarker) => Promise<void>
 ): Promise<MarkerClaim> {
   await ensureMarkerDirectory(paths);
   const path = centralMcpMarkerPath(paths);
@@ -537,7 +691,7 @@ async function claimCentralMarker(
     // A connection refusal, a responding non-generation peer, or a different
     // generation is positive proof that THIS registration is dead. Reclaim
     // even when endpoints are equal; never reclaim on ambiguous liveness.
-    if (await reclaimMarker(path, observation.identity, observation.marker, candidate)) {
+    if (await reclaimMarker(path, observation.identity, observation.marker, candidate, beforeReplace)) {
       return { kind: "claimed", marker: candidate };
     }
   }
@@ -680,6 +834,8 @@ export interface StartCentralMcpServerOptions extends CentralMcpPathsOptions {
   env?: Readonly<Record<string, string | undefined>>;
   /** Test seam for forcing scheduling around a successful marker claim. */
   afterMarkerClaim?: () => Promise<void>;
+  /** Test seam for scheduling contenders after identity-CAS and before rename. */
+  beforeMarkerReclaimReplace?: (candidate: CentralMcpMarker) => Promise<void>;
 }
 
 export type StartedCentralMcpServer =
@@ -745,7 +901,12 @@ export async function startCentralMcpServer(
 
   let claim: MarkerClaim | undefined;
   try {
-    claim = await claimCentralMarker(endpoint, paths, marker);
+    claim = await claimCentralMarker(
+      endpoint,
+      paths,
+      marker,
+      options.beforeMarkerReclaimReplace
+    );
     if (claim.kind === "reused") {
       await closeHttpServer(httpServer, mcp);
       return {
