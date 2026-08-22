@@ -8,6 +8,7 @@
 import { randomUUID } from "node:crypto";
 import {
   lstatSync,
+  linkSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -452,13 +453,33 @@ function markerBytes(marker: CentralMcpMarker): string {
   return `${JSON.stringify(marker)}\n`;
 }
 
-function writeExclusiveMarker(path: string, marker: CentralMcpMarker): boolean {
+/**
+ * Publish a complete private marker without ever exposing an empty or partial
+ * target. `link(2)` provides the O_EXCL-equivalent compare-and-publish step:
+ * it either installs the already-written inode or fails with EEXIST.
+ */
+async function writeExclusiveMarker(
+  path: string,
+  marker: CentralMcpMarker,
+  beforePublish?: () => Promise<void>
+): Promise<boolean> {
+  const temporary = join(dirname(path), `.${randomUUID()}.tmp`);
   try {
-    writeFileSync(path, markerBytes(marker), { encoding: "utf8", mode: 0o600, flag: "wx" });
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
-    throw error;
+    writeFileSync(temporary, markerBytes(marker), { encoding: "utf8", mode: 0o600, flag: "wx" });
+    if (beforePublish) await beforePublish();
+    try {
+      linkSync(temporary, path);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw error;
+    }
+  } finally {
+    try {
+      unlinkSync(temporary);
+    } catch {
+      // A successful link leaves a second name for the same inode; cleanup is best effort.
+    }
   }
 }
 
@@ -472,11 +493,12 @@ async function reclaimMarker(
   expected: Readonly<{ dev: number; ino: number }>,
   registered: CentralMcpMarker | undefined,
   marker: CentralMcpMarker,
-  beforeReplace?: (candidate: CentralMcpMarker) => Promise<void>
+  beforeReplace?: (candidate: CentralMcpMarker) => Promise<void>,
+  beforeExclusivePublish?: () => Promise<void>
 ): Promise<boolean> {
   const ownership = await loadRuntimeOwnership();
   const lockPath = join(dirname(path), CENTRAL_RECLAIM_LOCK_FILE);
-  if (!await acquireReclaimLock(lockPath, marker)) return false;
+  if (!await acquireReclaimLock(lockPath, marker, beforeExclusivePublish)) return false;
   try {
     let current: Stats;
     try {
@@ -524,10 +546,14 @@ async function reclaimMarker(
  * owner is itself a live pre-claim listener; an abandoned lock can be removed
  * only when the same generation liveness check positively proves it dead.
  */
-async function acquireReclaimLock(path: string, marker: CentralMcpMarker): Promise<boolean> {
+async function acquireReclaimLock(
+  path: string,
+  marker: CentralMcpMarker,
+  beforeExclusivePublish?: () => Promise<void>
+): Promise<boolean> {
   const ownership = await loadRuntimeOwnership();
   for (;;) {
-    if (writeExclusiveMarker(path, marker)) return true;
+    if (await writeExclusiveMarker(path, marker, beforeExclusivePublish)) return true;
     const lock = await readMarker(path);
     if (!lock) continue;
     if (!lock.marker) {
@@ -662,14 +688,17 @@ async function claimCentralMarker(
   endpoint: string,
   paths: CentralMcpPathsOptions,
   candidate: CentralMcpMarker,
-  beforeReplace?: (candidate: CentralMcpMarker) => Promise<void>
+  beforeReplace?: (candidate: CentralMcpMarker) => Promise<void>,
+  beforeExclusivePublish?: () => Promise<void>
 ): Promise<MarkerClaim> {
   await ensureMarkerDirectory(paths);
   const path = centralMcpMarkerPath(paths);
   for (;;) {
     const observation = await readMarker(path);
     if (!observation) {
-      if (writeExclusiveMarker(path, candidate)) return { kind: "claimed", marker: candidate };
+      if (await writeExclusiveMarker(path, candidate, beforeExclusivePublish)) {
+        return { kind: "claimed", marker: candidate };
+      }
       continue;
     }
 
@@ -691,7 +720,14 @@ async function claimCentralMarker(
     // A connection refusal, a responding non-generation peer, or a different
     // generation is positive proof that THIS registration is dead. Reclaim
     // even when endpoints are equal; never reclaim on ambiguous liveness.
-    if (await reclaimMarker(path, observation.identity, observation.marker, candidate, beforeReplace)) {
+    if (await reclaimMarker(
+      path,
+      observation.identity,
+      observation.marker,
+      candidate,
+      beforeReplace,
+      beforeExclusivePublish
+    )) {
       return { kind: "claimed", marker: candidate };
     }
   }
@@ -836,6 +872,8 @@ export interface StartCentralMcpServerOptions extends CentralMcpPathsOptions {
   afterMarkerClaim?: () => Promise<void>;
   /** Test seam for scheduling contenders after identity-CAS and before rename. */
   beforeMarkerReclaimReplace?: (candidate: CentralMcpMarker) => Promise<void>;
+  /** Test seam for scheduling exclusive publication after staging complete content. */
+  beforeExclusiveMarkerPublish?: () => Promise<void>;
 }
 
 export type StartedCentralMcpServer =
@@ -905,7 +943,8 @@ export async function startCentralMcpServer(
       endpoint,
       paths,
       marker,
-      options.beforeMarkerReclaimReplace
+      options.beforeMarkerReclaimReplace,
+      options.beforeExclusiveMarkerPublish
     );
     if (claim.kind === "reused") {
       await closeHttpServer(httpServer, mcp);
