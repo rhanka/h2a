@@ -39,6 +39,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
+import { once } from "node:events";
 import {
   copyFileSync,
   existsSync,
@@ -160,6 +161,7 @@ import {
   H2A_MCP_READY_NONCE_ENV,
   runMcpStdio
 } from "./runtime/mcp/index.js";
+import { startCentralMcpServer } from "./runtime/mcp-central.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
@@ -1874,6 +1876,53 @@ export async function runMcpServe(
     return 0;
   } catch (err) {
     io.stderr.write(`h2a mcp-serve: ${(err as Error).message}\n`);
+    return 1;
+  }
+}
+
+/**
+ * `h2a mcp-central-serve` — the opt-in, one-per-UID Streamable HTTP MCP
+ * process. Unlike mcp-serve it has no stdio protocol: clients connect directly
+ * to H2A_MCP_CENTRAL_ENDPOINT. The startup primitive performs every ownership,
+ * liveness, and divergence check before this function reports readiness.
+ */
+export async function runCentralMcpServe(
+  flags: Record<string, string>,
+  io: {
+    stderr: NodeJS.WritableStream;
+    cwd?: () => string;
+    env?: NodeJS.ProcessEnv;
+    signal?: AbortSignal;
+  } = { stderr: process.stderr }
+): Promise<number> {
+  const cwd = io.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  try {
+    const started = await startCentralMcpServer({
+      root,
+      env: io.env ?? process.env
+    });
+    if (started.kind === "reused") {
+      io.stderr.write(
+        `h2a mcp-central-serve: reusing live central MCP at ${started.endpoint}\n`
+      );
+      return 0;
+    }
+    io.stderr.write(
+      `h2a mcp-central-serve: listening on ${started.endpoint} (generation ${started.generation})\n`
+    );
+    if (!io.signal) {
+      await new Promise<void>(() => {
+        // The bin entry always supplies a signal. Keeping this pending preserves
+        // the server for direct programmatic invocation too.
+      });
+    } else if (!io.signal.aborted) {
+      await once(io.signal, "abort");
+    }
+    await started.stop();
+    return 0;
+  } catch (error) {
+    io.stderr.write(`h2a mcp-central-serve: ${(error as Error).message}\n`);
     return 1;
   }
 }
