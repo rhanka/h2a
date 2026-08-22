@@ -69,7 +69,8 @@ type RuntimeOwnership = Readonly<{
 let runtimeOwnership: Promise<RuntimeOwnership> | undefined;
 
 function loadRuntimeOwnership(): Promise<RuntimeOwnership> {
-  runtimeOwnership ??= import("@sentropic/h2a-runtime").then((runtime) => {
+  const runtimePkg: string = "@sentropic/h2a-runtime";
+  runtimeOwnership ??= import(runtimePkg).then((runtime) => {
     if (
       typeof runtime.assertOwnedByCurrentUser !== "function" ||
       typeof runtime.sameNativeTerminalSocket !== "function"
