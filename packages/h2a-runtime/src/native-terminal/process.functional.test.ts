@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { NativeTerminalClient } from "./client.js";
-import { NativeTerminalHost } from "./host.js";
+import { NativeTerminalHost, readProcessState } from "./host.js";
 import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
 import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
 
@@ -25,23 +25,69 @@ afterEach(async () => {
   directories.clear();
 });
 
+// INV-4-harden (arch-measured): this file waits for REAL process deaths and
+// real PTY host startup, not instant in-process state. `eventually`'s old
+// 200x10ms~=2s budget, under CI load, could exceed real detection latency
+// and approach the vitest DEFAULT 5000ms test timeout (this file declares
+// none) — an intermittent RED on the required build-and-test check that is
+// a mis-dimensioned ceiling, not a flake. GLOBAL constants, not a per-call
+// param: `eventually` returns the instant its condition is true, so raising
+// the ceiling costs nothing on the (overwhelmingly common) success path,
+// only lengthens a genuine failure's wait — and a per-call override across
+// 30+ call sites (plus any test written later) is a forget-risk a global
+// constant removes structurally. Deadline-based (not attempt-count-based)
+// so `read()`'s own latency can never inflate the wall-clock budget.
+//
+// EVENTUALLY_TIMEOUT_MS MUST stay strictly under PROCESS_TEST_TIMEOUT_MS
+// below: `eventually`'s own `condition did not become true; last value: …`
+// message is what tells a reap-refused-forever failure apart from
+// processes that were merely still dying — it must fire, and be visible,
+// BEFORE a bare "Test timed out in Nms" from vitest itself would otherwise
+// win the race and swallow that diagnostic.
+const EVENTUALLY_TIMEOUT_MS = 15_000;
+const EVENTUALLY_POLL_INTERVAL_MS = 10;
+/** File-scoped default `it` timeout (3rd arg to `describe` below) — the
+ * vitest DEFAULT (5000ms) is absurd for tests that spawn real PTY hosts and
+ * wait for real process deaths. Must stay strictly ABOVE
+ * `EVENTUALLY_TIMEOUT_MS` — see the rationale above `eventually`. */
+const PROCESS_TEST_TIMEOUT_MS = 30_000;
+
 async function eventually<T>(read: () => Promise<T> | T, accept: (value: T) => boolean): Promise<T> {
+  const deadline = Date.now() + EVENTUALLY_TIMEOUT_MS;
   let last: T | undefined;
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (;;) {
     last = await read();
     if (accept(last)) return last;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, EVENTUALLY_POLL_INTERVAL_MS));
   }
   throw new Error(`condition did not become true; last value: ${JSON.stringify(last)}`);
 }
 
+// Linux process states (man 5 proc field 3) counted as ALIVE: Running,
+// interruptible Sleeping, uninterruptible-I/O Disk-sleep, and
+// Traced/stopped. `D` is the trap — an uninterruptible-I/O process is NOT
+// dead; classing it dead here would mask exactly the "it will not die"
+// case this file's tests exist to catch. Zombie (`Z`) is the ONLY state a
+// still-present `/proc/<pid>` entry can report that counts as dead: the
+// process was already killed, merely not yet reaped by its parent/init —
+// reaping is init's job, not something `reapOrphan`'s contract promises or
+// this file's assertions should wait on.
+const ALIVE_PROCESS_STATES = new Set(["R", "S", "D", "T"]);
+
+// A pid is RUNNING iff `readProcessState` reports one of the ALIVE states
+// above. This replaced `process.kill(pid, 0)` (which returns true for a
+// ZOMBIE too — a killed-but-not-yet-reaped process still exists in the
+// process table), which made every `eventually(...running...)` assertion
+// in this file wait for descendants to be REAPED by init, not merely
+// KILLED — a race against init's reap latency, not a defect in what this
+// file is actually testing. This predicate is correct independent of that
+// diagnosis: it accepts ONLY `Z` (or an absent /proc entry) as dead, so a
+// genuinely alive process (R/S/D/T) still fails the assertion regardless —
+// nothing is masked even if some other cause of slowness exists.
 function running(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
+  const state = readProcessState(pid);
+  return state !== undefined && ALIVE_PROCESS_STATES.has(state);
 }
 
 async function processObservation(pid: number): Promise<Readonly<Record<string, unknown>>> {
@@ -104,6 +150,24 @@ async function createStubbornWorkload(
 }
 
 describe.skipIf(process.platform !== "linux")("native terminal host process", () => {
+  it("RUNNING_CLASSIFIES_A_LIVE_PROCESS_AS_ALIVE", async () => {
+    // The committed lock against the ONLY regression that matters for
+    // running(): classifying a LIVE process as dead. If ALIVE_PROCESS_STATES
+    // is ever widened, the predicate inverted, or running() "simplified"
+    // back toward process.kill(pid, 0)'s zombie-blind semantics, every
+    // eventually(...running...) assertion in this file goes silently VACANT
+    // at once — a one-off manual check proves that today; only a committed
+    // test protects it tomorrow.
+    expect(running(process.pid)).toBe(true);
+
+    // Anchors the other end too: a process that has actually exited (and
+    // been reaped — `once(child, "exit")` only fires after Node's own
+    // wait() call reaps it) must be classified dead.
+    const child = spawn(process.execPath, ["-e", ""]);
+    await once(child, "exit");
+    expect(running(child.pid!)).toBe(false);
+  });
+
   it("should keep two real PTYs alive through client reconnect without per-operation Node spawns", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-functional-"));
     directories.add(directory);
@@ -1140,4 +1204,4 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     expect((await reconnectedSecond.ping()).hostPid).toBe(firstPing.hostPid);
     expect(spawnCount).toBe(2);
   });
-});
+}, PROCESS_TEST_TIMEOUT_MS);
