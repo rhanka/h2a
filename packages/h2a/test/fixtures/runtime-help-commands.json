@@ -1,6 +1,6 @@
 {
   "note": "Pins EVERY top-level command row of the runtime entrypoint's --help: term, description and the intention group it renders under. Generated from the built runtime; regenerate deliberately, never to make a red test green. The ROOT description is intentionally NOT here - it is top-level prose and it changed by design; it is pinned separately as rootDescriptionContains.",
-  "commandCount": 47,
+  "commandCount": 48,
   "descriptionsWrapped": false,
   "rootDescriptionContains": [
     "The unified sentropic CLI and core",
@@ -171,6 +171,11 @@
       "group": "Set up — connect this host, its credentials, and diagnostics:",
       "term": "refresh [options] [urlOrSessionId] [sessionId]",
       "description": "Re-bundle the local CLI credentials and push them to an existing remote session's Secret. The session's Pod is restarted by the control-plane so the new tokens take effect. Profile is auto-detected from the session."
+    },
+    {
+      "group": "Recover & supervise sessions (advanced):",
+      "term": "restart [options] [session]",
+      "description": "Restart one live managed native-PTY CLI, or every live managed native CLI with --all. --gw requires the explicit value on|off. With --relaunch-mcp alone, keep the CLI alive and submit one guarded MCP relaunch/attach instruction through the native drive backchannel."
     },
     {
       "group": "Recover & supervise sessions (advanced):",
