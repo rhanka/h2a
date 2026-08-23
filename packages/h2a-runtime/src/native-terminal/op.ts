@@ -23,6 +23,8 @@
  *   capture --id X [--bytes N]        -> {text} ANSI-stripped tail of the stream
  *   pid     --id X                    -> {pid}
  *   kill    --id X [--signal S]       stop the session (escalates to SIGKILL)
+ *   kill-if-incarnation --id X --generation G --incarnation I
+ *                                     fenced owner stop for explicit restart
  *   attach  --id X                    interactive raw bridge on this terminal
  *                                     (detach: Ctrl-\\ ; exits when session exits)
  *   host-stop                         SIGTERM the host process (sessions stop)
@@ -723,6 +725,48 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
             await withController(client, id, async (lease) => {
               await client.stop(lease, "SIGKILL");
             }).catch(() => {});
+            await delay(300);
+            break;
+          }
+          await delay(100);
+        }
+      }
+      const after = await client.state(id);
+      client.close();
+      emit(after);
+      return after.status === "exited" ? 0 : 1;
+    }
+    case "kill-if-incarnation": {
+      const client = await connectExisting(socketPath);
+      const id = required(parsed, "id");
+      const generation = required(parsed, "generation");
+      const incarnation = required(parsed, "incarnation");
+      const signal = parsed.flags.get("signal") ?? "SIGTERM";
+      if (signal !== "SIGTERM" && signal !== "SIGKILL" && signal !== "SIGINT" && signal !== "SIGHUP") {
+        throw new Error(`unsupported signal: ${signal}`);
+      }
+      const before = await client.state(id);
+      if (before.status !== "exited") {
+        await client.stopIfIncarnation(
+          id,
+          generation,
+          incarnation,
+          signal,
+        );
+        const deadline = Date.now() + 4_000;
+        for (;;) {
+          const state = await client.state(id);
+          if (state.status === "exited") break;
+          if (Date.now() >= deadline) {
+            // Escalation stays fenced to the SAME preflight incarnation. If a
+            // same-name replacement appeared, the host refuses instead of
+            // killing it.
+            await client.stopIfIncarnation(
+              id,
+              generation,
+              incarnation,
+              "SIGKILL",
+            ).catch(() => {});
             await delay(300);
             break;
           }

@@ -245,6 +245,23 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       }
       return host.stop(lease, record.signal);
     }
+    case "stop-if-incarnation": {
+      const record = requiredRecord(params, "params");
+      if (
+        record.signal !== undefined &&
+        !isNativeTerminalStopSignal(record.signal)
+      ) {
+        throw new TypeError(
+          "terminal stop signal must be SIGHUP, SIGINT, SIGTERM or SIGKILL",
+        );
+      }
+      return host.stopIfIncarnation(
+        requiredIdentifier(record.id, "session id"),
+        requiredIdentifier(record.generation, "host generation"),
+        requiredIdentifier(record.incarnation, "session incarnation"),
+        record.signal,
+      );
+    }
   }
 }
 

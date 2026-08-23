@@ -845,6 +845,47 @@ export class NativeTerminalHost {
     return this.#snapshot(record);
   }
 
+  /**
+   * Owner-only destructive stop for an explicitly requested CLI restart.
+   *
+   * Unlike `stop()`, this operation deliberately does not acquire a second
+   * input controller: an attached terminal already owns that lease. The host
+   * instead fences the act with the generation + incarnation observed during
+   * restart preflight. Both comparisons and the signal happen in this one
+   * serialized host request, so a same-name session recreated in between can
+   * never be killed by a stale restart command.
+   */
+  stopIfIncarnation(
+    id: string,
+    expectedGeneration: string,
+    expectedIncarnation: string,
+    signal: NativeTerminalStopSignal = "SIGTERM",
+  ): NativeTerminalSessionState {
+    if (expectedGeneration !== this.#generation) {
+      throw new Error("stale terminal host generation");
+    }
+    const record = this.#requireControllableSession(id);
+    if (record.incarnation !== expectedIncarnation) {
+      throw new Error("stale terminal session incarnation");
+    }
+    const previousStatus = record.status;
+    const previousSignal = record.stopSignal;
+    record.status = "stopping";
+    record.stopSignal = signal;
+    try {
+      record.pty.kill(signal);
+    } catch (error) {
+      record.status = previousStatus;
+      record.stopSignal = previousSignal;
+      throw error;
+    }
+    // Invalidate an attached controller only after the fenced signal was
+    // accepted. A failed signal leaves the live session and its controller
+    // exactly as they were.
+    this.#invalidateController(record);
+    return this.#snapshot(record);
+  }
+
   stopAll(
     signal: NativeTerminalStopSignal = "SIGTERM",
   ): ReadonlyArray<NativeTerminalSessionState> {
