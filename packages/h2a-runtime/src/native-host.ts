@@ -62,6 +62,8 @@ export function nativeSidecarName(name: string): string {
 
 export type NativeSessionState = {
   readonly id: string;
+  readonly generation: string;
+  readonly incarnation: string;
   readonly pid: number;
   readonly status: "running" | "stopping" | "exited";
   readonly exit: { readonly exitCode: number; readonly signal?: number } | null;
@@ -353,6 +355,67 @@ export function nativeCapture(name: string, bytes = 16_384): string | undefined 
 export function killNativeSession(name: string): boolean {
   const { status } = runOp(["kill", "--id", name], { allowFailure: true });
   return status === 0;
+}
+
+/**
+ * Stop exactly the native session incarnation observed during restart
+ * preflight. The host performs both fence comparisons atomically before it
+ * invalidates an attached controller or emits a signal.
+ */
+export function killNativeSessionIfIncarnation(
+  name: string,
+  generation: string,
+  incarnation: string,
+): boolean {
+  const { status } = runOp(
+    [
+      "kill-if-incarnation",
+      "--id",
+      name,
+      "--generation",
+      generation,
+      "--incarnation",
+      incarnation,
+    ],
+    { allowFailure: true },
+  );
+  return status === 0;
+}
+
+export type NativeDriveInstructionOutcome =
+  | "driven"
+  | "deferred"
+  | "unresolved"
+  | "failed";
+
+/**
+ * Local PTY drive primitive used by `h2a drive --driver native` and by the
+ * restart command's live-option injection. This is not the signed inter-agent
+ * drive envelope: it reuses the native host's registry resolution plus its
+ * controller/activity guard and returns only the measured submission outcome.
+ */
+export function driveNativeInstruction(
+  target: string,
+  instruction: string,
+): NativeDriveInstructionOutcome {
+  const { status, payload } = runOp(
+    [
+      "drive",
+      "--target",
+      target,
+      "--b64",
+      Buffer.from(instruction, "utf8").toString("base64"),
+    ],
+    { allowFailure: true },
+  );
+  if (status !== 0) return "failed";
+  const outcome = (payload as { outcome?: unknown } | undefined)?.outcome;
+  return outcome === "driven" ||
+    outcome === "deferred" ||
+    outcome === "unresolved" ||
+    outcome === "failed"
+    ? outcome
+    : "failed";
 }
 
 /**
