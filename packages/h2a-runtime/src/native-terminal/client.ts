@@ -199,6 +199,20 @@ export class NativeTerminalClient {
     ) as Promise<NativeTerminalSessionState>;
   }
 
+  stopIfIncarnation(
+    id: string,
+    generation: string,
+    incarnation: string,
+    signal?: NativeTerminalStopSignal,
+  ): Promise<NativeTerminalSessionState> {
+    return this.#request(
+      "stop-if-incarnation",
+      signal === undefined
+        ? { id, generation, incarnation }
+        : { id, generation, incarnation, signal },
+    ) as Promise<NativeTerminalSessionState>;
+  }
+
   close(): void {
     if (this.#closed) return;
     this.#closed = true;

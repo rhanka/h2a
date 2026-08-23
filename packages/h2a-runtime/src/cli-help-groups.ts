@@ -193,6 +193,7 @@ export const H2A_RUNTIME_HELP_GROUPS: readonly H2aRuntimeHelpGroup[] = [
     heading: "Recover & supervise sessions (advanced):",
     commands: [
       "restore",
+      "restart",
       "relaunch",
       "resume-throttled",
       "layout",
