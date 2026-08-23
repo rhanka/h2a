@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -25,6 +26,7 @@ vi.mock("./config.js", () => ({
 }));
 
 import {
+  H2A_RUN_WORKER_OPTION,
   H2A_WINDOW_NAME,
   HEADLESS_WRAPPER,
   LEGACY_LOCAL_PREFIX,
@@ -33,6 +35,7 @@ import {
   REMOTE_TMUX_PROFILE,
   REMOTE_TMUX_PROFILE_NAME,
   STRUCTURED_LOCAL_WRAPPER,
+  STRUCTURED_H2A_RUN_WRAPPER,
   STRUCTURED_WINDOW_WRAPPER,
   attachLocalSession,
   buildCodexImagePasteBinding,
@@ -57,6 +60,7 @@ import {
   resolveLocalSession,
   managedSessionCandidates,
   parseManagedSessionName,
+  reapExitedH2aRunSessions,
   sendKeysLiteral,
   sessionAttachedCount,
   sessionRelaunchSafety,
@@ -66,6 +70,7 @@ import {
   installH2aStatusSurface,
   installH2aStatusSurfaceWithAccess,
   type H2aStatusOptionAccess,
+  type LocalSession,
   startH2aWindow,
   startH2aWindowVerified,
   validateManagedTmuxProfile,
@@ -545,6 +550,50 @@ describe("startLocalSession agent pane metadata", () => {
       "--model",
       "opus",
     ]);
+  });
+
+  it("captures an h2a_run worker session ID at creation and passes it to cleanup", () => {
+    spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+      if (cmd === "tmux" && args[0] === "list-sessions") {
+        return { status: 1, stdout: "" };
+      }
+      if (cmd === "tmux" && args[0] === "new-session") {
+        return { status: 0, stdout: "$42\t%7\n" };
+      }
+      return { status: 0, stdout: "" };
+    });
+
+    startLocalSession(
+      "codex",
+      "codex",
+      "/home/u/src/remote",
+      ["--model", "gpt-5.6"],
+      "worker",
+      "remote",
+      { terminateOnAgentExit: true, h2aRunWorker: true },
+    );
+
+    const argv = tmuxCalls("new-session")[0]![1] as string[];
+    expect(argv).toContain("#{session_id}\t#{pane_id}");
+    expect(argv).toContain("exec sleep 86400");
+    const respawn = tmuxCalls("respawn-pane")[0]![1] as string[];
+    expect(respawn.slice(-5)).toEqual([
+      STRUCTURED_H2A_RUN_WRAPPER,
+      "$42",
+      "codex",
+      "--model",
+      "gpt-5.6",
+    ]);
+    expect(
+      spawnSyncMock.mock.calls.some(
+        (call) =>
+          call[0] === "tmux" &&
+          Array.isArray(call[1]) &&
+          call[1].includes(H2A_RUN_WORKER_OPTION) &&
+          call[1].includes("v1"),
+      ),
+    ).toBe(true);
   });
 
   it("attaches the PTY before respawning a structured agent into its pane", () => {
@@ -1808,6 +1857,390 @@ describe("STRUCTURED_LOCAL_WRAPPER (real bash)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("STRUCTURED_H2A_RUN_WRAPPER (real bash)", () => {
+  it("kills its exact tmux session after a short worker exits", () => {
+    const dir = mkdtempSync(join(tmpdir(), "h2a-run-cleanup-wrapper-"));
+    const fakeTmux = join(dir, "tmux");
+    const cleanupLog = join(dir, "cleanup.log");
+    try {
+      writeFileSync(
+        fakeTmux,
+        '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$H2A_RUN_CLEANUP_LOG"\n',
+        { mode: 0o700 },
+      );
+      chmodSync(fakeTmux, 0o700);
+      const r = realSpawnSync(
+        "bash",
+        ["-c", STRUCTURED_H2A_RUN_WRAPPER, "$42", "true"],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            PATH: `${dir}:${process.env.PATH ?? ""}`,
+            H2A_RUN_CLEANUP_LOG: cleanupLog,
+          },
+        },
+      );
+
+      expect(r.status).toBe(0);
+      expect(readFileSync(cleanupLog, "utf8")).toBe("kill-session -t $42\n");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves a replacement session when its name is reused after creation", () => {
+    const dir = mkdtempSync(join(tmpdir(), "h2a-run-cleanup-reuse-"));
+    const server = `h2a-run-cleanup-${process.pid}-${Date.now()}`;
+    const session = `h2a-run-reused-${process.pid}`;
+    const renamedSession = `${session}-old`;
+    const release = join(dir, "release-worker");
+    const tmux = (args: string[]) =>
+      realSpawnSync("tmux", ["-L", server, ...args], {
+        encoding: "utf8",
+        env: { ...process.env, H2A_RUN_RELEASE: release },
+      });
+
+    try {
+      const started = tmux([
+        "new-session",
+        "-d",
+        "-P",
+        "-F",
+        "#{session_id}",
+        "-s",
+        session,
+        "sleep",
+        "infinity",
+      ]);
+      expect(started.status).toBe(0);
+      const originalSessionId = started.stdout.trim();
+      expect(originalSessionId).toMatch(/^\$\d+$/);
+
+      expect(
+        tmux([
+          "respawn-pane",
+          "-k",
+          "-t",
+          originalSessionId,
+          "bash",
+          "-c",
+          STRUCTURED_H2A_RUN_WRAPPER,
+          originalSessionId,
+          "sh",
+          "-c",
+          'while [ ! -f "$H2A_RUN_RELEASE" ]; do sleep 0.01; done',
+        ]).status,
+      ).toBe(0);
+
+      expect(
+        tmux(["rename-session", "-t", originalSessionId, renamedSession])
+          .status,
+      ).toBe(0);
+      expect(
+        tmux(["new-session", "-d", "-s", session, "sleep", "infinity"]).status,
+      ).toBe(0);
+      const replacementPanePid = tmux([
+        "display-message",
+        "-p",
+        "-t",
+        `=${session}:`,
+        "#{pane_pid}",
+      ]).stdout.trim();
+      expect(replacementPanePid).not.toBe("");
+
+      writeFileSync(release, "exit\n");
+
+      let originalExited = false;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (tmux(["has-session", "-t", originalSessionId]).status !== 0) {
+          originalExited = true;
+          break;
+        }
+        realSpawnSync("sleep", ["0.02"]);
+      }
+
+      expect(originalExited).toBe(true);
+      expect(tmux(["has-session", "-t", `=${session}:`]).status).toBe(0);
+      expect(
+        tmux([
+          "display-message",
+          "-p",
+          "-t",
+          `=${session}:`,
+          "#{pane_pid}",
+        ]).stdout.trim(),
+      ).toBe(replacementPanePid);
+    } finally {
+      tmux(["kill-server"]);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("survives name reuse before startup capture only with a creation-bound ID", () => {
+    function runStartupRace(
+      wrapper: string,
+      wrapperTarget: (sessionId: string, sessionName: string) => string,
+    ) {
+      const server = `h2a-run-startup-race-${process.pid}-${Date.now()}-${Math.random()}`;
+      const session = `h2a-run-startup-race-${process.pid}`;
+      const renamedSession = `${session}-old`;
+      const tmux = (args: string[]) =>
+        realSpawnSync("tmux", ["-L", server, ...args], { encoding: "utf8" });
+
+      try {
+        const original = tmux([
+          "new-session",
+          "-d",
+          "-P",
+          "-F",
+          "#{session_id}\t#{pane_id}",
+          "-s",
+          session,
+          "sleep",
+          "infinity",
+        ]);
+        expect(original.status).toBe(0);
+        const [originalSessionId, originalPane] = original.stdout.trim().split("\t");
+        expect(originalSessionId).toMatch(/^\$\d+$/);
+        expect(originalPane).toMatch(/^%\d+$/);
+
+        expect(
+          tmux(["rename-session", "-t", originalSessionId!, renamedSession]).status,
+        ).toBe(0);
+        const replacement = tmux([
+          "new-session",
+          "-d",
+          "-P",
+          "-F",
+          "#{session_id}\t#{pane_id}",
+          "-s",
+          session,
+          "sleep",
+          "infinity",
+        ]);
+        expect(replacement.status).toBe(0);
+        const [replacementSessionId] = replacement.stdout.trim().split("\t");
+        const replacementPanePid = tmux([
+          "display-message",
+          "-p",
+          "-t",
+          replacementSessionId!,
+          "#{pane_pid}",
+        ]).stdout.trim();
+        expect(replacementPanePid).not.toBe("");
+
+        expect(
+          tmux([
+            "respawn-pane",
+            "-k",
+            "-t",
+            originalPane!,
+            "bash",
+            "-c",
+            wrapper,
+            wrapperTarget(originalSessionId!, session),
+            "true",
+          ]).status,
+        ).toBe(0);
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+          if (tmux(["has-session", "-t", originalSessionId!]).status !== 0) break;
+          realSpawnSync("sleep", ["0.02"]);
+        }
+
+        return {
+          originalExited: tmux(["has-session", "-t", originalSessionId!]).status !== 0,
+          replacementSurvives:
+            tmux(["has-session", "-t", replacementSessionId!]).status === 0,
+          replacementPanePid: tmux([
+            "display-message",
+            "-p",
+            "-t",
+            replacementSessionId!,
+            "#{pane_pid}",
+          ]).stdout.trim(),
+          expectedReplacementPanePid: replacementPanePid,
+        };
+      } finally {
+        tmux(["kill-server"]);
+      }
+    }
+
+    expect(STRUCTURED_H2A_RUN_WRAPPER).not.toContain("display-message");
+    const current = runStartupRace(STRUCTURED_H2A_RUN_WRAPPER, (sessionId) => sessionId);
+    expect(current.originalExited).toBe(true);
+    expect(current.replacementSurvives).toBe(true);
+    expect(current.replacementPanePid).toBe(current.expectedReplacementPanePid);
+
+    const legacyNameResolvingWrapper = `session="$0"; cli="$1"; shift
+sid=$(tmux display-message -p -t "=$session:" '#{session_id}' 2>/dev/null) || sid=""
+cleanup() {
+  [ -n "$sid" ] && tmux kill-session -t "$sid" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+"$cli" "$@"
+code=$?
+exit "$code"`;
+    const legacy = runStartupRace(legacyNameResolvingWrapper, (_sessionId, sessionName) => sessionName);
+    expect(legacy.originalExited).toBe(true);
+    expect(legacy.replacementSurvives).toBe(false);
+  });
+});
+
+function reaperSession(name: string): LocalSession {
+  return {
+    tmuxId: "$1",
+    tmuxCreatedAt: "1710000000",
+    tmuxServerPid: "1234",
+    tmuxSocketPath: "/tmp/tmux-1000/default",
+    name,
+    slug: name.replace(/^h2a-/, ""),
+    profile: "codex",
+    path: "/home/u/src/remote",
+    attached: false,
+  };
+}
+
+const PROVEN_DEAD = {
+  dead: true,
+  activatable: false,
+  indeterminate: false,
+  activelyWorking: false,
+  reason: "no live CLI worker descendant",
+  identity: { pane: "%7", panePid: 700 },
+} as const;
+
+describe("reapExitedH2aRunSessions", () => {
+  it("reaps only a marked worker with an idle shell and no live descendant", () => {
+    const kill = vi.fn(() => true);
+    const result = reapExitedH2aRunSessions({
+      list: () => ({
+        known: true,
+        sessions: [
+          reaperSession("h2a-exited-worker"),
+          reaperSession("h2a-not-h2a-run"),
+        ],
+      }),
+      marked: (name) => name === "h2a-exited-worker",
+      idle: () => true,
+      safety: () => PROVEN_DEAD,
+      kill,
+    });
+
+    expect(result).toEqual({
+      reaped: ["h2a-exited-worker"],
+      skipped: [],
+      indeterminate: false,
+    });
+    expect(kill).toHaveBeenCalledWith("h2a-exited-worker", {
+      pane: "%7",
+      panePid: 700,
+    });
+  });
+
+  it("does not reap a worker that revives between the safety proof and guarded kill", () => {
+    const newWorkerBetween = { pane: "%7", panePid: 701 };
+    const kill = vi.fn((_name, expectedIdentity) => {
+      // This seam stands in for killLocalSession's immediate recheck: a new
+      // worker in the same pane has a new generation and must prevent a kill.
+      return (
+        expectedIdentity.pane === newWorkerBetween.pane &&
+        expectedIdentity.panePid === newWorkerBetween.panePid
+      );
+    });
+    const result = reapExitedH2aRunSessions({
+      list: () => ({
+        known: true,
+        sessions: [reaperSession("h2a-revived-worker")],
+      }),
+      marked: () => true,
+      idle: () => true,
+      safety: () => PROVEN_DEAD,
+      kill,
+    });
+
+    expect(kill).toHaveBeenCalledWith("h2a-revived-worker", {
+      pane: "%7",
+      panePid: 700,
+    });
+    expect(result).toEqual({
+      reaped: [],
+      skipped: [
+        {
+          name: "h2a-revived-worker",
+          reason: "session changed or could not be reproven dead before kill",
+        },
+      ],
+      indeterminate: false,
+    });
+  });
+
+  it("never reaps either a busy worker or an idle-at-composer worker", () => {
+    const kill = vi.fn(() => true);
+    const result = reapExitedH2aRunSessions({
+      list: () => ({
+        known: true,
+        sessions: [
+          reaperSession("h2a-busy-worker"),
+          reaperSession("h2a-composer-worker"),
+        ],
+      }),
+      marked: () => true,
+      // Busy work fails the idle-shell witness. For a parked composer we
+      // deliberately inject a stale positive witness: the second, descendant
+      // liveness proof still prevents the destructive operation.
+      idle: (name) => name === "h2a-composer-worker",
+      safety: () => ({
+        dead: false,
+        activatable: true,
+        indeterminate: false,
+        activelyWorking: false,
+        reason: "live parked CLI worker is activatable — never force-killed",
+      }),
+      kill,
+    });
+
+    expect(result.reaped).toEqual([]);
+    expect(result.skipped).toEqual([
+      { name: "h2a-busy-worker", reason: "not a proven idle login shell" },
+      {
+        name: "h2a-composer-worker",
+        reason: "live parked CLI worker is activatable — never force-killed",
+      },
+    ]);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the agent-pane liveness evidence is indeterminate", () => {
+    const kill = vi.fn(() => true);
+    const result = reapExitedH2aRunSessions({
+      list: () => ({
+        known: true,
+        sessions: [reaperSession("h2a-unreadable-worker")],
+      }),
+      marked: () => true,
+      idle: () => true,
+      safety: () => ({
+        dead: false,
+        activatable: false,
+        indeterminate: true,
+        activelyWorking: true,
+        reason: "liveness indeterminate: worker/CPU probe failed",
+      }),
+      kill,
+    });
+
+    expect(result.reaped).toEqual([]);
+    expect(result.skipped).toEqual([
+      {
+        name: "h2a-unreadable-worker",
+        reason: "liveness indeterminate: worker/CPU probe failed",
+      },
+    ]);
+    expect(kill).not.toHaveBeenCalled();
   });
 });
 

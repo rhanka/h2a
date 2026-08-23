@@ -101,6 +101,7 @@ import {
   persistLaunchContext,
   readLaunchContext,
   readFleetProcView,
+  reapExitedH2aRunSessions,
   relaunchInSession,
   resolveAgentPane,
   resolveAgentPaneForInstance,
@@ -5799,6 +5800,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .option("--json", "emit one machine-readable h2a.run.result object")
     .option(
+      "--h2a-run-worker",
+      "internal: mark a canonical h2a_run worker for lifecycle cleanup",
+    )
+    .option(
       "--llm-gateway",
       "launch the CLI through the local llm-mesh gateway",
     )
@@ -5824,12 +5829,33 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           headless?: boolean;
           background?: boolean;
           json?: boolean;
+          h2aRunWorker?: boolean;
           llmGateway?: boolean;
           gw?: boolean;
           noLlmGateway?: boolean;
           noGw?: boolean;
         },
       ) => {
+        if (profile === "reap") {
+          if (path !== undefined) {
+            process.stderr.write("[h2a] run reap takes no workspace path\n");
+            process.exitCode = 2;
+            return;
+          }
+          const result = reapExitedH2aRunSessions();
+          if (result.indeterminate) {
+            process.stderr.write(
+              "[h2a] h2a_run reaper skipped: tmux inventory is indeterminate\n",
+            );
+            process.exitCode = 1;
+            return;
+          }
+          for (const name of result.reaped) {
+            process.stderr.write(`[h2a] reaped exited h2a_run session ${name}\n`);
+          }
+          process.stdout.write(`reaped ${result.reaped.length} h2a_run session(s)\n`);
+          return;
+        }
         const structuredLaunch =
           opts.promptStdin === true ||
           opts.model !== undefined ||
@@ -5854,6 +5880,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         if (opts.json && !opts.background) {
           process.stderr.write(
             "[h2a] --json launch requires --background (MCP launches are detached)\n",
+          );
+          process.exitCode = 2;
+          return;
+        }
+        if (
+          opts.h2aRunWorker &&
+          (!opts.json || !opts.background || !opts.promptStdin)
+        ) {
+          process.stderr.write(
+            "[h2a] --h2a-run-worker requires --json --background --prompt-stdin\n",
           );
           process.exitCode = 2;
           return;
@@ -6225,6 +6261,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 ...(initialPrompt !== undefined
                   ? { terminateOnAgentExit: true }
                   : {}),
+                ...(opts.h2aRunWorker ? { h2aRunWorker: true } : {}),
                 ...(structuredLaunch ? { refuseExisting: true } : {}),
                 attachedTerminal: opts.attachedTerminal !== false,
                 sessionClass,

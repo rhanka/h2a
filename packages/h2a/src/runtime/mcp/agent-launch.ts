@@ -193,6 +193,7 @@ export function buildH2aRunInvocation(
       "--no-attach",
       "--background",
       "--json",
+      "--h2a-run-worker",
       "--name",
       request.name,
       "--prompt-stdin",
