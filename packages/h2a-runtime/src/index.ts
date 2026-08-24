@@ -129,11 +129,14 @@ import {
 import { buildLaunchContext } from "./launch-context.js";
 import {
   attachNativeSession,
+  driveNativeInstruction,
+  killNativeSessionIfIncarnation,
   killNativeSessionTree,
   nativeHostAvailable,
   nativePromptDeliveryDeps,
   nativeSessionLiveness,
   nativeSessionPid,
+  nativeSessionState,
   nativeTreeCpuMs,
   nativeWorkerPid,
   resolveSessionHostKind,
@@ -142,6 +145,13 @@ import {
   startNativeSession,
   type SessionHostKind,
 } from "./native-host.js";
+import {
+  executeNativeRestart,
+  NativeRestartError,
+  type NativeRestartCandidate,
+  type NativeRestartGatewayMode,
+  type NativeRestartResult,
+} from "./native-restart.js";
 import { migrateTmuxNames, type TmuxNameMigrationMode } from "./tmux-name-migration.js";
 import { projectStatusForH2a } from "./status-projection.js";
 import {
@@ -426,6 +436,23 @@ export const H2A_RUNTIME_CLI_API_VERSION = 1;
 
 export { run } from "./run.js";
 export type { RunOptions, RunResult } from "./run.js";
+export {
+  executeNativeRestart,
+  nativeMcpRelaunchInstruction,
+  NativeRestartError,
+} from "./native-restart.js";
+export type {
+  NativeRestartCandidate,
+  NativeRestartDependencies,
+  NativeRestartFailure,
+  NativeRestartGatewayMode,
+  NativeRestartGatewayOption,
+  NativeRestartInstructionOutcome,
+  NativeRestartRequest,
+  NativeRestartResult,
+  NativeRestartSessionResult,
+  NativeRestartSnapshot,
+} from "./native-restart.js";
 export {
   AGENT_LAUNCH_EFFORTS,
   AGENT_LAUNCH_PROFILES,
@@ -2170,6 +2197,93 @@ async function injectLlmMeshGatewayEnv(
     );
   }
   return meshEnv.ANTHROPIC_BASE_URL;
+}
+
+type PreparedNativeRestart = Readonly<{
+  command: string;
+  args: readonly string[];
+  gatewayEnvironment: Readonly<{
+    ANTHROPIC_BASE_URL?: string;
+    ANTHROPIC_AUTH_TOKEN?: string;
+    ANTHROPIC_API_KEY?: string;
+  }>;
+}>;
+
+function captureAnthropicGatewayEnvironment(): PreparedNativeRestart["gatewayEnvironment"] {
+  return {
+    ...(process.env.ANTHROPIC_BASE_URL !== undefined
+      ? { ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL }
+      : {}),
+    ...(process.env.ANTHROPIC_AUTH_TOKEN !== undefined
+      ? { ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN }
+      : {}),
+    ...(process.env.ANTHROPIC_API_KEY !== undefined
+      ? { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY }
+      : {}),
+  };
+}
+
+async function prepareNativeRestart(
+  session: NativeRestartCandidate,
+  mode: NativeRestartGatewayMode,
+): Promise<PreparedNativeRestart> {
+  if (mode === "gateway" && !profileUsesLlmMeshGateway(session.profile)) {
+    throw new Error("gateway is unsupported for this profile");
+  }
+  const original = captureAnthropicGatewayEnvironment();
+  const restore = replaceAnthropicGatewayEnvironment(process.env, original);
+  try {
+    const effectiveMode = gatewayModeForProfile(session.profile, mode);
+    await injectLlmMeshGatewayEnv(
+      effectiveMode,
+      effectiveMode !== "gateway",
+      session.name,
+    );
+    const useBare = shouldUseClaudeBare(session.profile);
+    return {
+      command: localCliCommand(session.profile),
+      args: session.convId
+        ? localResumeArgs(session.profile, session.convId, { bare: useBare })
+        : localStartArgs(session.profile, { bare: useBare }),
+      gatewayEnvironment: captureAnthropicGatewayEnvironment(),
+    };
+  } finally {
+    restore();
+  }
+}
+
+function renderNativeRestartResult(
+  result: NativeRestartResult,
+  json: boolean,
+): void {
+  if (json) {
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+  for (const row of result.sessions) {
+    if (row.state === "completed") {
+      if (row.restarted) {
+        process.stderr.write(
+          `[h2a] restarted native CLI ${row.id} (gateway=${row.gatewayMode})\n`,
+        );
+      }
+      if (row.instructionSubmitted) {
+        process.stderr.write(
+          `[h2a] submitted MCP relaunch/attach instruction to ${row.id}; MCP health is not yet proven\n`,
+        );
+      }
+      continue;
+    }
+    if (row.state === "failed") {
+      process.stderr.write(
+        `[h2a] restart failed for ${row.id} (${row.failure ?? "unknown"})\n`,
+      );
+    } else {
+      process.stderr.write(
+        `[h2a] restart did not touch ${row.id} because an earlier session failed\n`,
+      );
+    }
+  }
 }
 
 export async function prepareStructuredGateway(
@@ -8236,6 +8350,161 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     );
 
   // ---------------------------------------------------------------------------
+  // restart — explicit native CLI recreation or guarded live MCP instruction
+  // ---------------------------------------------------------------------------
+
+  program
+    .command("restart [session]")
+    .description(
+      "Restart one live managed native-PTY CLI, or every live managed native CLI with --all. --gw requires the explicit value on|off. With --relaunch-mcp alone, keep the CLI alive and submit one guarded MCP relaunch/attach instruction through the native drive backchannel.",
+    )
+    .option("--all", "target every live managed native CLI session")
+    .option("--gw <on|off>", "restart with llm-mesh gateway explicitly on or off")
+    .option(
+      "--relaunch-mcp <name>",
+      "submit a bounded instruction to relaunch or attach this MCP server; submission does not prove MCP health",
+    )
+    .option("--json", "emit a versioned, credential-free result")
+    .action(async (
+      session: string | undefined,
+      opts: {
+        all?: boolean;
+        gw?: string;
+        relaunchMcp?: string;
+        json?: boolean;
+      },
+    ) => {
+      try {
+        const registry = loadRegistry();
+        if (registry.state === "unknown") {
+          throw new NativeRestartError(
+            "registry-unreadable",
+            `local registry is unreadable (${registry.reason})`,
+          );
+        }
+        const candidates: NativeRestartCandidate[] = registry.entries.map(
+          (entry) => ({
+            id: entry.id,
+            ...(entry.label !== undefined ? { label: entry.label } : {}),
+            name: entry.tmuxSession ?? localSessionName(entry.id),
+            kind: entry.kind,
+            ...(entry.role !== undefined ? { role: entry.role } : {}),
+            ...(entry.endedAt !== undefined ? { endedAt: entry.endedAt } : {}),
+            profile: entry.tool,
+            cwd: entry.cwd,
+            ...(entry.convId !== undefined ? { convId: entry.convId } : {}),
+            ...(entry.sessionClass !== undefined
+              ? { sessionClass: entry.sessionClass }
+              : {}),
+            ...(entry.gatewayMode !== undefined
+              ? { gatewayMode: entry.gatewayMode }
+              : {}),
+          }),
+        );
+        const result = await executeNativeRestart<PreparedNativeRestart>(
+          {
+            ...(session !== undefined ? { target: session } : {}),
+            ...(opts.all === true ? { all: true } : {}),
+            ...(opts.gw !== undefined
+              ? { gateway: opts.gw as "on" | "off" }
+              : {}),
+            ...(opts.relaunchMcp !== undefined
+              ? { relaunchMcp: opts.relaunchMcp }
+              : {}),
+          },
+          {
+            listSessions: () => candidates,
+            snapshot: (candidate) => {
+              const probe = nativeSessionState(candidate.name);
+              if (probe.state === "unknown") return { state: "unknown" };
+              if (
+                probe.state === "absent" ||
+                probe.session.status !== "running"
+              ) {
+                return { state: "dead" };
+              }
+              return {
+                state: "live",
+                generation: probe.session.generation,
+                incarnation: probe.session.incarnation,
+                controlled: probe.session.controlled ?? true,
+              };
+            },
+            prepare: (candidate, _snapshot, mode) =>
+              prepareNativeRestart(candidate, mode),
+            restart: (candidate, snapshot, mode, prepared) => {
+              if (
+                !killNativeSessionIfIncarnation(
+                  candidate.name,
+                  snapshot.generation,
+                  snapshot.incarnation,
+                )
+              ) {
+                throw new Error("fenced native stop failed");
+              }
+              const restore = replaceAnthropicGatewayEnvironment(
+                process.env,
+                prepared.gatewayEnvironment,
+              );
+              try {
+                const relaunched = startNativeSession(
+                  candidate.profile,
+                  prepared.command,
+                  candidate.cwd,
+                  prepared.args,
+                  candidate.id,
+                  {
+                    ...(candidate.convId !== undefined
+                      ? { resumeId: candidate.convId }
+                      : {}),
+                    sessionClass: candidate.sessionClass ?? "human",
+                    refuseExisting: true,
+                  },
+                );
+                enrollFromRun({
+                  profile: candidate.profile,
+                  slug: candidate.id,
+                  tmuxSession: relaunched.name,
+                  hostKind: "local-native",
+                  pid: relaunched.pid,
+                  cwd: candidate.cwd,
+                  sessionClass: candidate.sessionClass ?? "human",
+                  ...(candidate.convId !== undefined
+                    ? { convId: candidate.convId }
+                    : {}),
+                  ...(mode !== "auto" ? { gatewayMode: mode } : {}),
+                });
+              } finally {
+                restore();
+              }
+            },
+            drive: (candidate, instruction) =>
+              driveNativeInstruction(candidate.id, instruction),
+          },
+        );
+        renderNativeRestartResult(result, opts.json === true);
+        if (!result.ok) process.exitCode = 1;
+      } catch (error) {
+        const known = error instanceof NativeRestartError;
+        const code = known ? error.code : "restart-internal";
+        const message = known ? error.message : "restart failed unexpectedly";
+        if (opts.json === true) {
+          process.stdout.write(
+            `${JSON.stringify({
+              kind: "h2a.restart.result",
+              version: 1,
+              ok: false,
+              error: { code, message },
+            })}\n`,
+          );
+        } else {
+          process.stderr.write(`[h2a] restart: ${message}\n`);
+        }
+        process.exitCode = 1;
+      }
+    });
+
+  // ---------------------------------------------------------------------------
   // relaunch — recover idle sessions, or explicitly force-recreate one/all
   // ---------------------------------------------------------------------------
 
@@ -10377,6 +10646,10 @@ export { projectStatusForH2a };
 export { NativeTerminalClient } from "./native-terminal/client.js";
 export { NativeTerminalHost } from "./native-terminal/host.js";
 export { NativeTerminalHostSupervisor } from "./native-terminal/supervisor.js";
+export {
+  assertOwnedByCurrentUser,
+  sameNativeTerminalSocket
+} from "./native-terminal/socket-path.js";
 export type {
   NativeTerminalControllerLease,
   NativeTerminalCreateOptions,

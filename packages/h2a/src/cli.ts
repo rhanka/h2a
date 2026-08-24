@@ -39,7 +39,9 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { generateKeyPairSync } from "node:crypto";
+import { once } from "node:events";
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -160,6 +162,7 @@ import {
   H2A_MCP_READY_NONCE_ENV,
   runMcpStdio
 } from "./runtime/mcp/index.js";
+import { bridgeCentralMcpStdio, startCentralMcpServer } from "./runtime/mcp-central.js";
 import { renderK8sSidecar } from "./runtime/deploy/k8s-sidecar.js";
 import { renderK8sTenant } from "./runtime/deploy/k8s-tenant.js";
 import { remoteServerForStore, sendRemoteEnvelope } from "./runtime/remote/index.js";
@@ -1846,7 +1849,7 @@ export async function runMcpServe(
       // fallback spawns a new agent, wrong for waking yourself).
       const driver =
         flags.wake === "auto"
-          ? chainDriver(nativeBackchannelDriver(), localTmuxDriver({ log }))
+          ? chainDriver(nativePtyBackchannelDriver(log), localTmuxDriver({ log }))
           : buildDriveDriver(flags.wake as H2ADriverKind, log);
       wake = { driver, privateKeyPem };
     } catch (err) {
@@ -1874,6 +1877,94 @@ export async function runMcpServe(
     return 0;
   } catch (err) {
     io.stderr.write(`h2a mcp-serve: ${(err as Error).message}\n`);
+    return 1;
+  }
+}
+
+/**
+ * `h2a mcp-central-serve` — the opt-in, one-per-UID Streamable HTTP MCP
+ * process. Unlike mcp-serve it has no stdio protocol: clients connect directly
+ * to H2A_MCP_CENTRAL_ENDPOINT. The startup primitive performs every ownership,
+ * liveness, and divergence check before this function reports readiness.
+ */
+export async function runCentralMcpServe(
+  flags: Record<string, string>,
+  io: {
+    stderr: NodeJS.WritableStream;
+    cwd?: () => string;
+    env?: NodeJS.ProcessEnv;
+    signal?: AbortSignal;
+  } = { stderr: process.stderr }
+): Promise<number> {
+  const cwd = io.cwd ?? (() => process.cwd());
+  const root = resolveRoot(flags, cwd);
+  try {
+    const started = await startCentralMcpServer({
+      root,
+      env: io.env ?? process.env
+    });
+    if (started.kind === "reused") {
+      io.stderr.write(
+        `h2a mcp-central-serve: reusing live central MCP at ${started.endpoint}\n`
+      );
+      return 0;
+    }
+    io.stderr.write(
+      `h2a mcp-central-serve: listening on ${started.endpoint} (generation ${started.generation})\n`
+    );
+    if (!io.signal) {
+      await new Promise<void>(() => {
+        // The bin entry always supplies a signal. Keeping this pending preserves
+        // the server for direct programmatic invocation too.
+      });
+    } else if (!io.signal.aborted) {
+      await once(io.signal, "abort");
+    }
+    await started.stop();
+    return 0;
+  } catch (error) {
+    io.stderr.write(`h2a mcp-central-serve: ${(error as Error).message}\n`);
+    return 1;
+  }
+}
+
+/**
+ * `h2a mcp-central-connect` — stdio client shim for the private central MCP
+ * server. The endpoint is public configuration, while the bearer token is read
+ * from the owner-only marker only when this child process connects.
+ */
+export async function runCentralMcpConnect(
+  flags: Record<string, string>,
+  io: {
+    stdin: NodeJS.ReadableStream;
+    stdout: NodeJS.WritableStream;
+    stderr: NodeJS.WritableStream;
+    signal?: AbortSignal;
+  } = {
+    stdin: process.stdin,
+    stdout: process.stdout,
+    stderr: process.stderr
+  }
+): Promise<number> {
+  if (!flags.endpoint) {
+    io.stderr.write("h2a mcp-central-connect: --endpoint <http://127.0.0.1:port/path> is required\n");
+    return 1;
+  }
+  if (flags["runtime-base"] !== undefined && !isAbsolute(flags["runtime-base"])) {
+    io.stderr.write("h2a mcp-central-connect: --runtime-base must be an absolute path\n");
+    return 1;
+  }
+  try {
+    await bridgeCentralMcpStdio({
+      endpoint: flags.endpoint,
+      stdin: io.stdin as never,
+      stdout: io.stdout as never,
+      ...(flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {}),
+      ...(io.signal ? { signal: io.signal } : {})
+    });
+    return 0;
+  } catch (error) {
+    io.stderr.write(`h2a mcp-central-connect: ${(error as Error).message}\n`);
     return 1;
   }
 }
@@ -3336,7 +3427,7 @@ function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void): H2A
     case "logging":
       return loggingDriver(log);
     case "native":
-      return nativeBackchannelDriver();
+      return nativePtyBackchannelDriver(log);
     case "local-tmux":
       return localTmuxDriver({ log });
     case "headless":
@@ -3345,7 +3436,7 @@ function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void): H2A
       return {
         drive(request) {
           for (const driver of [
-            nativeBackchannelDriver(),
+            nativePtyBackchannelDriver(log),
             localTmuxDriver({ log }),
             headlessDriver({ log })
           ]) {
@@ -3356,6 +3447,74 @@ function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void): H2A
         }
       };
   }
+}
+
+/**
+ * The core CLI keeps its runtime dependency lazy. This synchronous bridge
+ * reaches the runtime's native-terminal operation entrypoint, where the
+ * NativeTerminalClient owns session resolution, liveness/activity checks, and
+ * the controller lease used to write the submitted line.
+ */
+function nativeTerminalOpPath(): string | undefined {
+  let entry: string | undefined;
+  try {
+    const resolver = (import.meta as unknown as {
+      resolve?: (specifier: string) => string;
+    }).resolve;
+    if (typeof resolver === "function") {
+      entry = fileURLToPath(resolver("@sentropic/h2a-runtime"));
+    }
+  } catch {
+    entry = undefined;
+  }
+  if (entry === undefined) {
+    try {
+      entry = createRequire(import.meta.url).resolve("@sentropic/h2a-runtime");
+    } catch {
+      return undefined;
+    }
+  }
+  const operation = join(dirname(entry), "native-terminal", "op.js");
+  return existsSync(operation) ? operation : undefined;
+}
+
+function nativePtyBackchannelDriver(log: (line: string) => void): H2ADriver {
+  return nativeBackchannelDriver({
+    log,
+    send(request) {
+      const operation = nativeTerminalOpPath();
+      if (operation === undefined) {
+        log(`drive[native-pty]: runtime unavailable for ${request.to}`);
+        return undefined;
+      }
+      const result = spawnSync(
+        process.execPath,
+        [
+          operation,
+          "drive",
+          "--target",
+          request.to,
+          "--b64",
+          Buffer.from(request.instructionLine, "utf8").toString("base64"),
+        ],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+      );
+      let outcome: string | undefined;
+      if (result.status === 0) {
+        try {
+          const line = result.stdout.trim().split("\n").at(-1);
+          const payload = line ? JSON.parse(line) as { outcome?: unknown } : undefined;
+          outcome = typeof payload?.outcome === "string" ? payload.outcome : undefined;
+        } catch {
+          outcome = undefined;
+        }
+      }
+      if (outcome === "unresolved") return undefined;
+      const ok = outcome === "driven";
+      log(`drive[native-pty]: ${request.to} (${ok ? "ok" : "failed"})`);
+      return ok;
+    },
+  });
 }
 
 function driveReplayGuard(root: string): H2AReplayGuard {
@@ -4058,7 +4217,11 @@ function cmdHostSetup(
     if (dir && !existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
-    writeFileSync(targetPath, `${JSON.stringify(merged, null, 2)}\n`);
+    writeFileSync(targetPath, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 });
+    // `mode` applies only when a file is created. Enforce privacy for an
+    // existing config too: a rendered central command contains no token, but
+    // host config is still owner-private defense in depth.
+    chmodSync(targetPath, 0o600);
   } catch (error) {
     streams.stderr.write(
       `h2a host setup: cannot write ${targetPath} (${(error as Error).message})\n`

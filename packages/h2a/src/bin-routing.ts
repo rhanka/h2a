@@ -14,6 +14,8 @@ import { TRACK_FACADE_VERBS } from "./cli.js";
 // jamais de cette coïncidence.
 const BIN_HARD_NATIVE_FIRST_WORDS: readonly string[] = [
   "mcp-serve",
+  "mcp-central-serve",
+  "mcp-central-connect",
   "track-mcp",
   "remote",
   "drive",
