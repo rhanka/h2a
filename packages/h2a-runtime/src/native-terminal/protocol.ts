@@ -52,10 +52,12 @@ export type NativeTerminalOperation =
   | "read-output"
   | "attach-observer"
   | "acquire-controller"
+  | "acquire-controller-if-no-recent-human"
   | "release-controller"
   | "write"
   | "resize"
-  | "stop";
+  | "stop"
+  | "stop-if-incarnation";
 
 export type NativeTerminalRequest = Readonly<{
   version: typeof NATIVE_TERMINAL_PROTOCOL_VERSION;
@@ -178,10 +180,12 @@ export function parseNativeTerminalRequest(value: unknown): NativeTerminalReques
     "read-output",
     "attach-observer",
     "acquire-controller",
+    "acquire-controller-if-no-recent-human",
     "release-controller",
     "write",
     "resize",
     "stop",
+    "stop-if-incarnation",
   ]);
   if (typeof value.operation !== "string" || !operations.has(value.operation)) {
     throw new TypeError("unknown terminal operation");

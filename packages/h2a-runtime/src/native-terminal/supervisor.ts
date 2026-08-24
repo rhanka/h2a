@@ -151,12 +151,22 @@ export class NativeTerminalHostSupervisor {
   #client: NativeTerminalClient | undefined;
   #connecting: Promise<NativeTerminalClient> | undefined;
   #spawned: ChildProcess | undefined;
+  // Only a child that completed the native-terminal health handshake can have
+  // accepted a create request and therefore own a persisted PTY process group.
+  #spawnedReachedHealth = false;
   #spawnError: Error | undefined;
   #spawnDiagnostic = "";
   #consecutiveSpawnFailures = 0;
   #nextSpawnAllowedAt = 0;
   #lastSpawnFailure: Error | undefined;
   #lastSpawnGeneration: string | undefined;
+  // A health-checked host that has disappeared may have left a PTY guardian
+  // (or, after that guardian's own parent-death race, its reparented
+  // descendants) behind. Keep its identity until the next takeover has
+  // positively reaped every durable group it owned. Clearing #spawned alone
+  // would discard the fact that this is containment work rather than an
+  // ordinary best-effort stale-registry sweep.
+  #pendingDeadOwnedHostPid: number | undefined;
 
   constructor(options: {
     socketPath: string;
@@ -277,6 +287,13 @@ export class NativeTerminalHostSupervisor {
       return await this.#adoptHealthyConnection(connected);
     } catch {
       this.#clearGoneSpawn();
+      if (this.#pendingDeadOwnedHostPid !== undefined) {
+        const ownerPid = this.#pendingDeadOwnedHostPid;
+        await this.#reconcileDeadHostOrphans({
+          requireReapedForOwnerPid: ownerPid,
+        });
+        this.#pendingDeadOwnedHostPid = undefined;
+      }
       if (!this.#spawned || this.#spawned.exitCode !== null || this.#spawned.signalCode !== null) {
         const now = this.#now();
         if (now < this.#nextSpawnAllowedAt) {
@@ -311,6 +328,7 @@ export class NativeTerminalHostSupervisor {
           maxSessions: this.#maxSessions,
           ...(this.#registryPath !== undefined ? { registryPath: this.#registryPath } : {}),
         });
+        this.#spawnedReachedHealth = false;
         const spawned = this.#spawned;
         spawned.stderr?.setEncoding("utf8");
         spawned.stderr?.on("data", (chunk: string | Buffer) => {
@@ -381,6 +399,13 @@ export class NativeTerminalHostSupervisor {
     if (
       spawned &&
       !childExited(spawned) &&
+      spawned.pid === connected.ping.hostPid
+    ) {
+      this.#spawnedReachedHealth = true;
+    }
+    if (
+      spawned &&
+      !childExited(spawned) &&
       spawned.pid !== connected.ping.hostPid
     ) {
       try {
@@ -393,6 +418,7 @@ export class NativeTerminalHostSupervisor {
       }
     } else if (spawned && childExited(spawned) && this.#spawned === spawned) {
       this.#spawned = undefined;
+      this.#spawnedReachedHealth = false;
     }
     this.#resetSpawnBackoff();
     return connected.client;
@@ -400,12 +426,15 @@ export class NativeTerminalHostSupervisor {
 
   async #terminateOwnedSpawn(spawned: ChildProcess): Promise<void> {
     if (this.#spawned !== spawned) return;
+    const spawnedReachedHealth = this.#spawnedReachedHealth;
+    let forceKilled = false;
     if (!childExited(spawned)) {
       spawned.kill("SIGTERM");
       if (
         !await waitForChildExit(spawned, this.#spawnTerminationGraceMs)
       ) {
         spawned.kill("SIGKILL");
+        forceKilled = true;
         if (
           !await waitForChildExit(spawned, this.#spawnTerminationGraceMs)
         ) {
@@ -418,24 +447,50 @@ export class NativeTerminalHostSupervisor {
         }
       }
     }
-    if (this.#spawned === spawned) this.#spawned = undefined;
+    if (this.#spawned === spawned) {
+      this.#spawned = undefined;
+      this.#spawnedReachedHealth = false;
+    }
+    if (forceKilled && spawnedReachedHealth) {
+      // A SIGKILLed host cannot run process.ts's forceStopAll(). The PTY
+      // guardian's parent-death signal covers its direct child, but a
+      // descendant can reparent before that child processes the signal. Reap
+      // the durably recorded process groups from this still-live supervisor:
+      // kill(-pgid, SIGKILL) reaches every member, including reparented ones.
+      if (spawned.pid === undefined) {
+        throw new Error("forced native-terminal host reap cannot identify the killed host pid");
+      }
+      await this.#reconcileDeadHostOrphans({
+        requireReapedForOwnerPid: spawned.pid,
+      });
+    }
   }
 
   #clearGoneSpawn(): void {
     if (this.#spawned && childGone(this.#spawned)) {
+      if (this.#spawnedReachedHealth && this.#spawned.pid !== undefined) {
+        this.#pendingDeadOwnedHostPid ??= this.#spawned.pid;
+      }
       this.#spawned = undefined;
+      this.#spawnedReachedHealth = false;
     }
   }
 
   /**
    * Run one `reconcileDeadHostOrphans` pass against the shared registry
-   * (see host.ts for the full contract). Best-effort: any failure here is
-   * logged and swallowed — a reconcile hiccup must never prevent spawning
-   * the replacement host that this takeover already needs.
+   * (see host.ts for the full contract). At the normal takeover point this
+   * stays best-effort: a reconcile hiccup must never prevent spawning the
+   * replacement host that takeover already needs. After this supervisor has
+   * forcibly SIGKILLed its OWN host, though, an unconfirmed row belonging to
+   * that host is a containment failure, not a cleanup hiccup; surface it to
+   * the caller rather than claim forced reaping completed.
    */
-  async #reconcileDeadHostOrphans(): Promise<void> {
+  async #reconcileDeadHostOrphans(options: {
+    requireReapedForOwnerPid?: number;
+  } = {}): Promise<void> {
+    let summary;
     try {
-      await reconcileDeadHostOrphans({
+      summary = await reconcileDeadHostOrphans({
         ...(this.#registryPath !== undefined ? { registryPath: this.#registryPath } : {}),
         ownerProbe: this.#ownerProbe,
         ...(this.#reapOrphan !== undefined ? { reap: this.#reapOrphan } : {}),
@@ -443,7 +498,26 @@ export class NativeTerminalHostSupervisor {
       });
     } catch (error) {
       this.#log(
-        `native-terminal orphan reconcile failed (continuing to spawn a replacement host regardless): ${String(error)}`,
+        `native-terminal orphan reconcile failed: ${String(error)}`,
+      );
+      if (options.requireReapedForOwnerPid !== undefined) throw error;
+      return;
+    }
+    if (options.requireReapedForOwnerPid === undefined) return;
+    if (summary.status === "refused") {
+      throw new Error(
+        `forced native-terminal host reap could not inspect durable PTY groups: ${summary.reason}`,
+      );
+    }
+    const unconfirmed = summary.outcomes.find(
+      (outcome) =>
+        "ownerPid" in outcome &&
+        outcome.ownerPid === options.requireReapedForOwnerPid &&
+        outcome.status !== "reaped",
+    );
+    if (unconfirmed !== undefined) {
+      throw new Error(
+        `forced native-terminal host reap did not confirm owner pid=${options.requireReapedForOwnerPid} session ${unconfirmed.sessionId}: ${unconfirmed.status}`,
       );
     }
   }

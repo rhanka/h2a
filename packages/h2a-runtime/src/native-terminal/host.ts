@@ -323,6 +323,9 @@ export type NativeTerminalExit = Readonly<{
 
 export type NativeTerminalSessionStatus = "running" | "stopping" | "exited";
 
+/** The provenance of an exclusive controller, used only for human-input safety. */
+export type NativeTerminalControllerActivity = "human" | "automation";
+
 export type NativeTerminalSessionState = Readonly<{
   id: string;
   generation: string;
@@ -339,6 +342,13 @@ export type NativeTerminalSessionState = Readonly<{
    * stays private to the host.
    */
   controlled: boolean;
+  /**
+   * Most recent human controller/input activity, in epoch milliseconds. A
+   * missing value means an older host did not provide the safety signal and
+   * callers that inject input must fail closed; null means no human activity
+   * has been observed since this host created the session.
+   */
+  lastHumanActivityAt?: number | null;
 }>;
 
 export type NativeTerminalReplay = Readonly<{
@@ -387,19 +397,15 @@ export type NativeTerminalCreateOptions = Readonly<{
  * Outcome of asking a host to reap a session BY ID from its persisted pgid —
  * the case where the host asking has no in-memory record of the session at
  * all (a fresh host after the owning host was killed). `"refused"` means
- * either the pgid could not be resolved at all, OR it resolved but the
- * group-leader identity guard (see `#verifyGroupLeaderIdentity`) would not
- * positively re-prove the group at kill-time: NOTHING was signalled (never
- * guess a pgid — killing the wrong process group is irreversible), and a
- * loud diagnostic was logged, because a silent refusal here recreates the
- * invisible-orphan bug. `cause` is present only for the leader-identity
- * refusal and DISCERNS its two distinct roots — `"recycled"` (the leader is
- * readable but its start-time no longer matches: the pgid was reused by an
- * unrelated process, a correct, defensive refusal) from
- * `"membership-unprovable"` (the leader is gone AND no surviving group
- * member carries the persisted session token: possibly our own already-dead
- * orphan, a conservative refuse-and-leak) — collapsing them into one verdict
- * would hide whether this guard is protecting us or making us leak.
+ * either the pgid could not be resolved at all, it differed from the
+ * immutable PGID snapshotted by reconciliation, process groups are
+ * unsupported, OR the group-leader identity guard (see
+ * `#verifyGroupLeaderIdentity`) would not positively re-prove the group at
+ * kill-time: NOTHING was signalled (never guess a pgid — killing the wrong
+ * process group is irreversible), and a loud diagnostic was logged, because
+ * a silent refusal here recreates the invisible-orphan bug. `cause` discerns
+ * these fail-closed roots; the leader-identity causes remain distinct so a
+ * recycled group is never collapsed with an unprovable one.
  *
  * `verified`, present on `"reaped"` only when the identity guard actually
  * ran, DISCERNS a PROVEN kill (`true` — either the current and persisted
@@ -417,7 +423,11 @@ export type NativeTerminalReapOutcome = Readonly<
       sessionId: string;
       status: "refused";
       reason: string;
-      cause?: "recycled" | "membership-unprovable";
+      cause?:
+        | "pgid-mismatch"
+        | "unsupported-process-groups"
+        | "recycled"
+        | "membership-unprovable";
     }
   | {
       sessionId: string;
@@ -438,7 +448,9 @@ type SessionRecord = {
   exit: NativeTerminalExit | null;
   stopSignal: string | null;
   controllerId: string | null;
+  controllerActivity: NativeTerminalControllerActivity | null;
   controllerEpoch: number;
+  lastHumanActivityAt: number | null;
   dataSubscription?: { dispose(): void };
   exitSubscription?: { dispose(): void };
 };
@@ -596,6 +608,10 @@ export class NativeTerminalHost {
       cols: options.cols,
       rows: options.rows,
     });
+    // Known pre-existing narrow window: a host SIGKILL after this synchronous
+    // spawn and before the following synchronous persist leaves no durable
+    // row for the survivor. Persisting first is impossible: spawn allocates
+    // the pgid.
     try {
       // Persist BEFORE this session is usable: "known at creation" must
       // survive to "known at kill time" (a fresh host after this one is
@@ -644,7 +660,9 @@ export class NativeTerminalHost {
       exit: null,
       stopSignal: null,
       controllerId: null,
+      controllerActivity: null,
       controllerEpoch: 0,
+      lastHumanActivityAt: null,
     };
     this.#sessions.set(record.id, record);
 
@@ -702,6 +720,7 @@ export class NativeTerminalHost {
   acquireController(
     id: string,
     controllerId: string,
+    activity: NativeTerminalControllerActivity = "human",
   ): NativeTerminalControllerLease {
     const record = this.#requireControllableSession(id);
     if (
@@ -715,8 +734,13 @@ export class NativeTerminalHost {
     if (record.controllerId !== null) {
       throw new Error(`terminal session already has a controller: ${id}`);
     }
+    if (activity !== "human" && activity !== "automation") {
+      throw new TypeError("terminal controller activity must be human or automation");
+    }
     record.controllerEpoch += 1;
     record.controllerId = controllerId;
+    record.controllerActivity = activity;
+    if (activity === "human") record.lastHumanActivityAt = Date.now();
     return Object.freeze({
       role: "controller",
       id,
@@ -727,10 +751,47 @@ export class NativeTerminalHost {
     });
   }
 
+  /**
+   * Atomically acquire automation input only when no human activity is recent.
+   * This runs entirely in the host's serialized request handler: a human
+   * controller cannot appear between the safety decision and the lease grant.
+   */
+  acquireAutomationControllerIfNoRecentHuman(
+    id: string,
+    controllerId: string,
+    activityWindowMs: number,
+  ): NativeTerminalControllerLease {
+    if (!Number.isSafeInteger(activityWindowMs) || activityWindowMs < 0) {
+      throw new RangeError("terminal human activity window must be a non-negative safe integer");
+    }
+    const record = this.#requireControllableSession(id);
+    if (
+      controllerId.trim().length === 0 ||
+      controllerId.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS
+    ) {
+      throw new RangeError(
+        `terminal controller id must contain 1-${NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS} characters`,
+      );
+    }
+    if (record.controllerId !== null) {
+      throw new Error(`terminal session already has a controller: ${id}`);
+    }
+    const activityAt = record.lastHumanActivityAt;
+    if (
+      activityAt !== null &&
+      (!Number.isSafeInteger(activityAt) || activityAt < 0 || Date.now() < activityAt ||
+        (activityWindowMs > 0 && Date.now() - activityAt < activityWindowMs))
+    ) {
+      throw new Error(`terminal session has recent human activity: ${id}`);
+    }
+    return this.acquireController(id, controllerId, "automation");
+  }
+
   releaseController(
     lease: NativeTerminalControllerLease,
   ): NativeTerminalControllerState {
     const record = this.#requireMatchingController(lease);
+    if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
     this.#invalidateController(record);
     return Object.freeze({
       id: record.id,
@@ -744,7 +805,9 @@ export class NativeTerminalHost {
     if (data.length === 0) {
       throw new RangeError("terminal input must not be empty");
     }
-    this.#requireController(lease).pty.write(data);
+    const record = this.#requireController(lease);
+    if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
+    record.pty.write(data);
   }
 
   resize(
@@ -779,6 +842,47 @@ export class NativeTerminalHost {
       record.stopSignal = previousSignal;
       throw error;
     }
+    return this.#snapshot(record);
+  }
+
+  /**
+   * Owner-only destructive stop for an explicitly requested CLI restart.
+   *
+   * Unlike `stop()`, this operation deliberately does not acquire a second
+   * input controller: an attached terminal already owns that lease. The host
+   * instead fences the act with the generation + incarnation observed during
+   * restart preflight. Both comparisons and the signal happen in this one
+   * serialized host request, so a same-name session recreated in between can
+   * never be killed by a stale restart command.
+   */
+  stopIfIncarnation(
+    id: string,
+    expectedGeneration: string,
+    expectedIncarnation: string,
+    signal: NativeTerminalStopSignal = "SIGTERM",
+  ): NativeTerminalSessionState {
+    if (expectedGeneration !== this.#generation) {
+      throw new Error("stale terminal host generation");
+    }
+    const record = this.#requireControllableSession(id);
+    if (record.incarnation !== expectedIncarnation) {
+      throw new Error("stale terminal session incarnation");
+    }
+    const previousStatus = record.status;
+    const previousSignal = record.stopSignal;
+    record.status = "stopping";
+    record.stopSignal = signal;
+    try {
+      record.pty.kill(signal);
+    } catch (error) {
+      record.status = previousStatus;
+      record.stopSignal = previousSignal;
+      throw error;
+    }
+    // Invalidate an attached controller only after the fenced signal was
+    // accepted. A failed signal leaves the live session and its controller
+    // exactly as they were.
+    this.#invalidateController(record);
     return this.#snapshot(record);
   }
 
@@ -857,6 +961,7 @@ export class NativeTerminalHost {
   async reapOrphan(
     sessionId: string,
     signal: NativeTerminalStopSignal = "SIGKILL",
+    expectedPgid?: number,
   ): Promise<NativeTerminalReapOutcome> {
     const lookup = readNativeTerminalPgid(sessionId, this.#registryPath);
     if (lookup.status === "unresolved") {
@@ -864,6 +969,17 @@ export class NativeTerminalHost {
         `REFUSING to reap terminal session ${sessionId}: pgid could not be resolved (${lookup.reason}). PROCESSES MAY HAVE SURVIVED — no group kill was issued.`,
       );
       return { sessionId, status: "refused", reason: lookup.reason };
+    }
+    if (expectedPgid !== undefined && lookup.pgid !== expectedPgid) {
+      this.#log(
+        `REFUSING to reap terminal session ${sessionId}: immutable snapshot pgid=${expectedPgid}, but the registry now resolves pgid=${lookup.pgid}. PROCESSES MAY HAVE SURVIVED — no group kill was issued. cause=pgid-mismatch sessionId=${sessionId} snapshotPgid=${expectedPgid} resolvedPgid=${lookup.pgid}`,
+      );
+      return {
+        sessionId,
+        status: "refused",
+        reason: `immutable snapshot pgid=${expectedPgid} differs from re-resolved pgid=${lookup.pgid}`,
+        cause: "pgid-mismatch",
+      };
     }
     const outcome = await this.#killGroupAndConfirmDead(
       lookup.pgid,
@@ -890,7 +1006,7 @@ export class NativeTerminalHost {
     return {
       sessionId,
       status: "refused",
-      reason: `group-leader identity could not be re-proven at kill-time (${outcome.cause}) for pgid=${lookup.pgid}`,
+      reason: `orphan process group could not be safely reaped (${outcome.cause}) for pgid=${lookup.pgid}`,
       cause: outcome.cause,
     };
   }
@@ -1018,11 +1134,26 @@ export class NativeTerminalHost {
   ): Promise<
     | { status: "dead"; elapsedMs: number; verified?: boolean }
     | { status: "timed-out"; elapsedMs: number }
-    | { status: "refused"; cause: "recycled" | "membership-unprovable" }
+    | {
+        status: "refused";
+        cause:
+          | "unsupported-process-groups"
+          | "recycled"
+          | "membership-unprovable";
+      }
   > {
     if (!supportsProcessGroupSignals()) {
+      if (verify) {
+        // `reapOrphan` is a durable/reconcile path. On a platform without
+        // POSIX group signals, neither a group kill nor a group-empty proof
+        // exists, so reporting "dead" would be a false containment claim.
+        this.#log(
+          `REFUSING to reap pgid=${pgid} (${label}): process groups are not supported on ${process.platform}. PROCESSES MAY HAVE SURVIVED — no group kill or proof was issued. cause=unsupported-process-groups sessionId=${verify.sessionId} pgid=${pgid}`,
+        );
+        return { status: "refused", cause: "unsupported-process-groups" };
+      }
       // No POSIX process groups on this platform; nothing more this host can
-      // prove. Documented gap, not a silent claim of success.
+      // prove. Direct in-memory force-stop retains its existing behavior.
       this.#log(
         `skipping group-kill proof for pgid=${pgid} (${label}): process groups are not supported on ${process.platform}`,
       );
@@ -1147,6 +1278,7 @@ export class NativeTerminalHost {
   #invalidateController(record: SessionRecord): void {
     if (record.controllerId === null) return;
     record.controllerId = null;
+    record.controllerActivity = null;
     record.controllerEpoch += 1;
   }
 
@@ -1161,6 +1293,7 @@ export class NativeTerminalHost {
       exit: record.exit,
       stopSignal: record.stopSignal,
       controlled: record.controllerId !== null,
+      lastHumanActivityAt: record.lastHumanActivityAt,
     });
   }
 }
@@ -1222,9 +1355,9 @@ export async function reconcileDeadHostOrphans(options: {
   ownerProbe?: NativeTerminalOwnerHostProbe;
   /** Injectable so tests never send real signals; defaults to a throwaway
    * `NativeTerminalHost` (never spawns a pty) calling the real `reapOrphan`.
-   * The persisted pgid is passed through for observability/assertions even
-   * though the real reap re-resolves it itself from the SAME registry row —
-   * they always agree by construction. */
+   * The persisted pgid is an immutable snapshot: the real reap re-resolves
+   * only to verify it still matches, and refuses without signalling on any
+   * mismatch. */
   reap?: (
     sessionId: string,
     pgid: number,
@@ -1251,8 +1384,8 @@ export async function reconcileDeadHostOrphans(options: {
         ...(options.registryPath !== undefined ? { registryPath: options.registryPath } : {}),
         log,
       });
-      return (sessionId: string, _pgid: number, sig: NativeTerminalStopSignal) =>
-        reconcileHost.reapOrphan(sessionId, sig);
+      return (sessionId: string, pgid: number, sig: NativeTerminalStopSignal) =>
+        reconcileHost.reapOrphan(sessionId, sig, pgid);
     })();
 
   const snapshot = listNativeTerminalPgidEntries(options.registryPath);

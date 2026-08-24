@@ -16,12 +16,15 @@
  *                                     (exit 0) so a caller never reads a
  *                                     generic failure as proof of death
  *   create  --id X --cwd D [--cols N --rows N] [--env-file F] -- cmd args...
+ *   drive   --target I --b64 TEXT      resolve a native session and submit TEXT
  *   write   --id X --b64 TEXT         raw keystrokes (base64, controller-scoped)
  *   paste   --id X --b64 TEXT         ONE bracketed-paste block (tmux paste -p twin)
  *   enter   --id X                    submit (CR)
  *   capture --id X [--bytes N]        -> {text} ANSI-stripped tail of the stream
  *   pid     --id X                    -> {pid}
  *   kill    --id X [--signal S]       stop the session (escalates to SIGKILL)
+ *   kill-if-incarnation --id X --generation G --incarnation I
+ *                                     fenced owner stop for explicit restart
  *   attach  --id X                    interactive raw bridge on this terminal
  *                                     (detach: Ctrl-\\ ; exits when session exits)
  *   host-stop                         SIGTERM the host process (sessions stop)
@@ -31,6 +34,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { NativeTerminalClient } from "./client.js";
+import { loadRegistry, registryEntriesForNativeTarget } from "../registry.js";
 import {
   NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
   NativeTerminalRemoteError,
@@ -140,6 +144,58 @@ async function withController<T>(
 async function readAll(client: NativeTerminalClient, id: string): Promise<string> {
   const replay = await client.readOutput(id, 0);
   return replay.chunks.map((chunk) => chunk.data).join("");
+}
+
+const NATIVE_DRIVE_ACTIVITY_WINDOW_MS = 4_000;
+
+function nativeDriveActivityWindowMs(): number {
+  const raw = process.env["H2A_WAKE_DEFER_ACTIVITY_MS"];
+  if (raw !== undefined) {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return NATIVE_DRIVE_ACTIVITY_WINDOW_MS;
+}
+
+/**
+ * Resolve the perennial instance address first, then its human-facing label,
+ * through the runtime registry. The registry owns the native session name;
+ * guessing a h2a-<slug> name here could inject into a homonymous session.
+ */
+type NativeDriveSessionResolution =
+  | { readonly state: "found"; readonly id: string }
+  | { readonly state: "unresolved" }
+  | { readonly state: "unknown" };
+
+function nativeDriveSessionId(target: string): NativeDriveSessionResolution {
+  const registry = loadRegistry();
+  if (registry.state !== "ok") return { state: "unknown" };
+  const labels = [target];
+  const hostSeparator = target.indexOf(":");
+  if (hostSeparator > 0 && hostSeparator < target.length - 1) {
+    labels.push(target.slice(hostSeparator + 1));
+  }
+  const sessions = new Set<string>();
+  let matches = 0;
+  let hasUnknownSessionId = false;
+  for (const label of labels) {
+    for (const entry of registryEntriesForNativeTarget(label, registry.entries)) {
+      matches += 1;
+      if (entry.tmuxSession === undefined) hasUnknownSessionId = true;
+      else sessions.add(entry.tmuxSession);
+    }
+  }
+  if (matches === 0) return { state: "unresolved" };
+  if (hasUnknownSessionId || sessions.size !== 1) return { state: "unknown" };
+  return { state: "found", id: [...sessions][0]! };
+}
+
+function nativeDriveInstruction(text: string): string | undefined {
+  // The PTY write appends the one submit CR below. Reject every embedded
+  // control/format character (including CR, LF, escape, and Unicode line
+  // separators) so an instruction can never add a second line or sequence.
+  if (text.length === 0 || /[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text)) return undefined;
+  return text;
 }
 
 const delay = (ms: number): Promise<void> =>
@@ -325,6 +381,7 @@ export async function runAttach(
       const lease = await client.acquireController(
         id,
         `h2a-attach-${process.pid}`,
+        "human",
       );
       active = { client, lease };
       transportFailure = undefined;
@@ -559,6 +616,54 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       emit(state);
       return 0;
     }
+    case "drive": {
+      const target = nativeDriveSessionId(required(parsed, "target"));
+      if (target.state === "unresolved") {
+        emit({ outcome: "unresolved" });
+        return 0;
+      }
+      if (target.state === "unknown") {
+        emit({ outcome: "deferred" });
+        return 0;
+      }
+      const text = nativeDriveInstruction(
+        Buffer.from(required(parsed, "b64"), "base64").toString("utf8"),
+      );
+      if (text === undefined) {
+        emit({
+          outcome: "failed",
+          reason: "native drive instruction must be exactly one text line with no control characters",
+        });
+        return 0;
+      }
+      const client = await connectExisting(socketPath);
+      try {
+        let lease: NativeTerminalControllerLease;
+        try {
+          // This is one host-side operation. An older host that does not
+          // support it rejects the request, which is deliberately deferred.
+          lease = await client.acquireAutomationControllerIfNoRecentHuman(
+            target.id,
+            `h2a-drive-${process.pid}`,
+            nativeDriveActivityWindowMs(),
+          );
+        } catch {
+          emit({ outcome: "deferred" });
+          return 0;
+        }
+        try {
+          // One validated text line plus one submit CR: no bracketed-paste or
+          // embedded controls can turn this into multiple terminal actions.
+          await client.write(lease, `${text}\r`);
+        } finally {
+          await client.releaseController(lease).catch(() => {});
+        }
+      } finally {
+        client.close();
+      }
+      emit({ outcome: "driven" });
+      return 0;
+    }
     case "write":
     case "paste": {
       const client = await connectExisting(socketPath);
@@ -620,6 +725,48 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
             await withController(client, id, async (lease) => {
               await client.stop(lease, "SIGKILL");
             }).catch(() => {});
+            await delay(300);
+            break;
+          }
+          await delay(100);
+        }
+      }
+      const after = await client.state(id);
+      client.close();
+      emit(after);
+      return after.status === "exited" ? 0 : 1;
+    }
+    case "kill-if-incarnation": {
+      const client = await connectExisting(socketPath);
+      const id = required(parsed, "id");
+      const generation = required(parsed, "generation");
+      const incarnation = required(parsed, "incarnation");
+      const signal = parsed.flags.get("signal") ?? "SIGTERM";
+      if (signal !== "SIGTERM" && signal !== "SIGKILL" && signal !== "SIGINT" && signal !== "SIGHUP") {
+        throw new Error(`unsupported signal: ${signal}`);
+      }
+      const before = await client.state(id);
+      if (before.status !== "exited") {
+        await client.stopIfIncarnation(
+          id,
+          generation,
+          incarnation,
+          signal,
+        );
+        const deadline = Date.now() + 4_000;
+        for (;;) {
+          const state = await client.state(id);
+          if (state.status === "exited") break;
+          if (Date.now() >= deadline) {
+            // Escalation stays fenced to the SAME preflight incarnation. If a
+            // same-name replacement appeared, the host refuses instead of
+            // killing it.
+            await client.stopIfIncarnation(
+              id,
+              generation,
+              incarnation,
+              "SIGKILL",
+            ).catch(() => {});
             await delay(300);
             break;
           }

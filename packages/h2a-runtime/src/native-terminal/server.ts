@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 
 import {
   NativeTerminalHost,
+  type NativeTerminalControllerActivity,
   type NativeTerminalControllerLease,
   type NativeTerminalCreateOptions,
 } from "./host.js";
@@ -76,6 +77,21 @@ function requiredInteger(value: unknown, label: string): number {
     throw new TypeError(`${label} must be a positive safe integer`);
   }
   return value as number;
+}
+
+function requiredNonNegativeInteger(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new TypeError(`${label} must be a non-negative safe integer`);
+  }
+  return value as number;
+}
+
+function controllerActivity(value: unknown): NativeTerminalControllerActivity {
+  // A legacy request cannot prove that its holder is automation. Preserve the
+  // operation, but record it on the human/unknown side so drive fails closed.
+  if (value === undefined) return "human";
+  if (value === "human" || value === "automation") return value;
+  throw new TypeError("terminal controller activity must be human or automation");
 }
 
 function sessionId(params: unknown): string {
@@ -179,6 +195,17 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       const lease = host.acquireController(
         requiredIdentifier(record.id, "session id"),
         requiredIdentifier(record.controllerId, "controller id"),
+        controllerActivity(record.activity),
+      );
+      context.leases.set(lease.id, lease);
+      return lease;
+    }
+    case "acquire-controller-if-no-recent-human": {
+      const record = requiredRecord(params, "params");
+      const lease = host.acquireAutomationControllerIfNoRecentHuman(
+        requiredIdentifier(record.id, "session id"),
+        requiredIdentifier(record.controllerId, "controller id"),
+        requiredNonNegativeInteger(record.activityWindowMs, "human activity window"),
       );
       context.leases.set(lease.id, lease);
       return lease;
@@ -217,6 +244,23 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
         );
       }
       return host.stop(lease, record.signal);
+    }
+    case "stop-if-incarnation": {
+      const record = requiredRecord(params, "params");
+      if (
+        record.signal !== undefined &&
+        !isNativeTerminalStopSignal(record.signal)
+      ) {
+        throw new TypeError(
+          "terminal stop signal must be SIGHUP, SIGINT, SIGTERM or SIGKILL",
+        );
+      }
+      return host.stopIfIncarnation(
+        requiredIdentifier(record.id, "session id"),
+        requiredIdentifier(record.generation, "host generation"),
+        requiredIdentifier(record.incarnation, "session incarnation"),
+        record.signal,
+      );
     }
   }
 }
