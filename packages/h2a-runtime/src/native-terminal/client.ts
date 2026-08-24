@@ -3,6 +3,7 @@ import { createConnection, type Socket } from "node:net";
 
 import type {
   NativeTerminalControllerLease,
+  NativeTerminalControllerActivity,
   NativeTerminalControllerState,
   NativeTerminalCreateOptions,
   NativeTerminalObserverAttachment,
@@ -157,8 +158,23 @@ export class NativeTerminalClient {
     return this.#request("attach-observer", { id }) as Promise<NativeTerminalObserverAttachment>;
   }
 
-  acquireController(id: string, controllerId: string): Promise<NativeTerminalControllerLease> {
-    return this.#request("acquire-controller", { id, controllerId }) as Promise<NativeTerminalControllerLease>;
+  acquireController(
+    id: string,
+    controllerId: string,
+    activity: NativeTerminalControllerActivity = "human",
+  ): Promise<NativeTerminalControllerLease> {
+    return this.#request("acquire-controller", { id, controllerId, activity }) as Promise<NativeTerminalControllerLease>;
+  }
+
+  acquireAutomationControllerIfNoRecentHuman(
+    id: string,
+    controllerId: string,
+    activityWindowMs: number,
+  ): Promise<NativeTerminalControllerLease> {
+    return this.#request(
+      "acquire-controller-if-no-recent-human",
+      { id, controllerId, activityWindowMs },
+    ) as Promise<NativeTerminalControllerLease>;
   }
 
   releaseController(lease: NativeTerminalControllerLease): Promise<NativeTerminalControllerState> {
@@ -180,6 +196,20 @@ export class NativeTerminalClient {
     return this.#request(
       "stop",
       signal === undefined ? { lease } : { lease, signal },
+    ) as Promise<NativeTerminalSessionState>;
+  }
+
+  stopIfIncarnation(
+    id: string,
+    generation: string,
+    incarnation: string,
+    signal?: NativeTerminalStopSignal,
+  ): Promise<NativeTerminalSessionState> {
+    return this.#request(
+      "stop-if-incarnation",
+      signal === undefined
+        ? { id, generation, incarnation }
+        : { id, generation, incarnation, signal },
     ) as Promise<NativeTerminalSessionState>;
   }
 

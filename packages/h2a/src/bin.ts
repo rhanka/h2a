@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import {
   cmdKeepalive,
   runCli,
+  runCentralMcpConnect,
+  runCentralMcpServe,
   runDriveServe,
   runMcpServe,
   runRemoteSend,
@@ -128,6 +130,42 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
   runAsync(
     "mcp-serve",
     runMcpServe(parseFlagsFrom(1), {
+      stdin: process.stdin,
+      stdout: process.stdout,
+      stderr: process.stderr,
+      signal: ac.signal
+    })
+  );
+} else if (argv[0] === "mcp-central-serve") {
+  const ac = new AbortController();
+  const onSignal = (sig: NodeJS.Signals): void => {
+    process.stderr.write(`h2a mcp-central-serve: received ${sig}, shutting down gracefully\n`);
+    ac.abort();
+    setTimeout(() => process.exit(process.exitCode ?? 0), 750).unref();
+  };
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => onSignal(sig));
+  }
+  runAsync(
+    "mcp-central-serve",
+    runCentralMcpServe(parseFlagsFrom(1), {
+      stderr: process.stderr,
+      signal: ac.signal
+    })
+  );
+} else if (argv[0] === "mcp-central-connect") {
+  const ac = new AbortController();
+  const onSignal = (sig: NodeJS.Signals): void => {
+    process.stderr.write(`h2a mcp-central-connect: received ${sig}, shutting down gracefully\n`);
+    ac.abort();
+    setTimeout(() => process.exit(process.exitCode ?? 0), 750).unref();
+  };
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as NodeJS.Signals[]) {
+    process.once(sig, () => onSignal(sig));
+  }
+  runAsync(
+    "mcp-central-connect",
+    runCentralMcpConnect(parseFlagsFrom(1), {
       stdin: process.stdin,
       stdout: process.stdout,
       stderr: process.stderr,
