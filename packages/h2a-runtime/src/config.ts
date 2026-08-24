@@ -139,6 +139,17 @@ export type H2aConfig = {
   enabled?: boolean;
   /** Command line run in the dedicated "h2a" window (default: DEFAULT_H2A_COMMAND). */
   command?: string;
+  /**
+   * Opt-in one-per-user central MCP service for sessions launched by `h2a run`
+   * and `h2a restore`. The endpoint is persisted once so host MCP config never
+   * needs to contain the rotating central bearer token.
+   */
+  central?: {
+    /** Start/reuse the central service for a local launch (default false). */
+    enabled?: boolean;
+    /** Explicit loopback endpoint; otherwise h2a persists a UID-derived one. */
+    endpoint?: string;
+  };
 };
 
 /** Default h2a side-window command (a2a-cli launcher contract). */
@@ -212,6 +223,15 @@ function parseH2a(raw: unknown): H2aConfig | undefined {
   const h2a: H2aConfig = {};
   if (typeof h.enabled === "boolean") h2a.enabled = h.enabled;
   if (typeof h.command === "string") h2a.command = h.command;
+  if (h.central && typeof h.central === "object") {
+    const centralRaw = h.central as Record<string, unknown>;
+    const central: NonNullable<H2aConfig["central"]> = {};
+    if (typeof centralRaw.enabled === "boolean") central.enabled = centralRaw.enabled;
+    if (typeof centralRaw.endpoint === "string" && centralRaw.endpoint.trim()) {
+      central.endpoint = centralRaw.endpoint.trim();
+    }
+    if (Object.keys(central).length > 0) h2a.central = central;
+  }
   return Object.keys(h2a).length > 0 ? h2a : undefined;
 }
 
@@ -490,12 +510,13 @@ export function setPlugins(plugins: PluginEntry[]): void {
   writeRemoteConfig({ ...readRemoteConfig(), plugins });
 }
 
-/** h2a config merged with defaults (enabled=false, default mcp-serve command). */
+/** h2a config merged with defaults (sidecar and central MCP are opt-in). */
 export function getH2aConfig(): Required<H2aConfig> {
   const raw = readRemoteConfig().h2a ?? {};
   return {
     enabled: raw.enabled ?? false,
     command: raw.command ?? DEFAULT_H2A_COMMAND,
+    central: raw.central ?? { enabled: false },
   };
 }
 
