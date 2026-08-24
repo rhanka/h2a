@@ -1,14 +1,15 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { chmod, mkdtemp, readFile, readlink, rm, stat } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, readlink, rm, stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { persistNativeTerminalPgid } from "../registry.js";
 import { NativeTerminalClient } from "./client.js";
-import { NativeTerminalHost } from "./host.js";
+import { NativeTerminalHost, reconcileDeadHostOrphans } from "./host.js";
 import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
 import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
 
@@ -44,7 +45,17 @@ function running(pid: number): boolean {
   }
 }
 
-async function processObservation(pid: number): Promise<Readonly<Record<string, unknown>>> {
+type ProcessObservation = Readonly<{
+  pid: number;
+  state?: string;
+  parentPid?: number;
+  processGroup?: number;
+  session?: number;
+  missing?: boolean;
+  error?: string;
+}>;
+
+async function processObservation(pid: number): Promise<ProcessObservation> {
   try {
     const raw = await readFile(`/proc/${pid}/stat`, "utf8");
     const commandEnd = raw.lastIndexOf(")");
@@ -63,6 +74,18 @@ async function processObservation(pid: number): Promise<Readonly<Record<string, 
       error: String(error),
     };
   }
+}
+
+async function processGroupMemberPids(processGroup: number): Promise<number[]> {
+  const observations = await Promise.all(
+    (await readdir("/proc"))
+      .filter((entry) => /^\d+$/.test(entry))
+      .map((entry) => processObservation(Number(entry))),
+  );
+  return observations
+    .filter((observation) => observation.processGroup === processGroup)
+    .map((observation) => observation.pid)
+    .sort((left, right) => left - right);
 }
 
 async function directChildren(pid: number): Promise<number[]> {
@@ -252,13 +275,17 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       "hard-crash-tree",
       directory,
     );
+    const hardCrashPgid = hardCrashPids[0]!;
     process.kill(firstPing.hostPid, "SIGKILL");
-    await eventually(
-      () => Promise.all(hardCrashPids.map(processObservation)),
-      (states) => states.every((state) => state.missing === true),
-    );
-
+    // A parent-death signal can kill the guardian before its shell trap has
+    // broadcast to the group. The supervisor therefore treats the next
+    // takeover of this health-checked, known-dead host as containment work:
+    // client() returns only after the durable pgid has been reaped (or it
+    // fails rather than starting a replacement over live descendants).
     const replacement = await supervisor.client();
+    expect(await processGroupMemberPids(hardCrashPgid)).toEqual([]);
+    const hardCrashStates = await Promise.all(hardCrashPids.map(processObservation));
+    expect(hardCrashStates.every((state) => state.missing === true)).toBe(true);
     const replacementPing = await replacement.ping();
     expect(replacementPing.hostPid).not.toBe(firstPing.hostPid);
     expect(spawnCount).toBe(2);
@@ -267,13 +294,45 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       "forced-reap-tree",
       directory,
     );
+    const forcedReapPgid = forcedReapPids[0]!;
+
+    // Reproduce the leaderless-group shape without relying on the guardian's
+    // parent-death trap: kill only the group leader. Its stubborn descendants
+    // remain in the durable pgid, but Linux may reparent them to PID 1 OR to a
+    // subreaper. That implementation detail is deliberately not a test
+    // synchronization point: the forced-reap path below must reach them by
+    // pgid and prove the group empty itself.
+    process.kill(forcedReapPgid, "SIGKILL");
     supervisor.disconnect();
     process.kill(replacementPing.hostPid, "SIGSTOP");
     await expect(supervisor.client()).rejects.toThrow(/did not become ready/i);
-    await eventually(
-      () => [replacementPing.hostPid, ...forcedReapPids].map(running),
-      (states) => states.every((alive) => !alive),
-    );
+    // This must already be empty when forced reaping returns: the supervisor
+    // killed the reaped host, then used the durable pgid for kill(-pgid,
+    // SIGKILL) and waited for kill(-pgid, 0) to return ESRCH. That reaches
+    // descendants whether they reparented to init or to a subreaper.
+    expect(running(replacementPing.hostPid)).toBe(false);
+    expect(await processGroupMemberPids(forcedReapPgid)).toEqual([]);
+    const forcedReapStates = await Promise.all(forcedReapPids.map(processObservation));
+    expect(forcedReapStates.every((state) => state.missing === true)).toBe(true);
+    expect(
+      reconcileLogs.some(
+        (line) =>
+          line.includes(`pgid=${forcedReapPgid}`) &&
+          line.includes("emitted group SIGKILL") &&
+          line.includes("(orphan forced-reap-tree)"),
+      ),
+    ).toBe(true);
+    // The leader is absent, so reaching the group kill above requires the
+    // token membership proof. This proves the recycled-PGID fence remained
+    // active without refusing and leaking this verified real orphan.
+    expect(
+      reconcileLogs.some(
+        (line) =>
+          line.includes("cause=token-verified") &&
+          line.includes("sessionId=forced-reap-tree") &&
+          line.includes(`pgid=${forcedReapPgid}`),
+      ),
+    ).toBe(true);
     expect(supervisor.spawnedPid).toBeUndefined();
 
     // INV-4 no-block assertion: the NEW group-leader-identity guard sits
@@ -288,6 +347,98 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     expect(
       reconcileLogs.some((line) => /REFUSING to kill process group/.test(line)),
     ).toBe(false);
+  });
+
+  it("should refuse reconciliation when the fresh PGID lookup differs from its immutable snapshot", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-immutable-pgid-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const registryPath = join(directory, "registry.json");
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath,
+      replayBytesPerSession: 1024,
+      generationFactory: () => "immutable-pgid-generation",
+      spawnHost: (options) => {
+        const child = spawn(process.execPath, [
+          "--import",
+          "tsx",
+          entry,
+          "--socket",
+          options.socketPath,
+          "--generation",
+          options.generation,
+          "--replay-bytes",
+          String(options.replayBytesPerSession),
+          ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
+        ], {
+          cwd: dirname(entry),
+          env: process.env,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        children.add(child);
+        return child;
+      },
+    });
+    const client = await supervisor.client();
+    const intended = await client.create({
+      id: "immutable-pgid-session",
+      command: "/bin/sh",
+      args: ["-c", "trap '' HUP TERM INT; while :; do sleep 1; done"],
+      cwd: directory,
+      env: { PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" },
+      cols: 80,
+      rows: 24,
+    });
+    const distractor = spawn(
+      "/bin/sh",
+      ["-c", "trap '' HUP TERM INT; while :; do sleep 1; done"],
+      { detached: true, stdio: "ignore" },
+    );
+    children.add(distractor);
+    if (distractor.pid === undefined) throw new Error("expected distractor pid");
+    const distractorPgid = distractor.pid;
+    await eventually(() => running(distractorPgid), (alive) => alive);
+
+    // The owner probe runs after reconciliation has snapshotted the intended
+    // row. Repointing the mutable row here makes the old default closure kill
+    // the distractor, while the hardened closure must refuse before signalling.
+    const summary = await reconcileDeadHostOrphans({
+      registryPath,
+      ownerProbe: (owner) => {
+        persistNativeTerminalPgid(
+          "immutable-pgid-session",
+          distractorPgid,
+          registryPath,
+          owner,
+        );
+        return "dead";
+      },
+    });
+
+    expect(summary).toEqual({
+      status: "completed",
+      outcomes: [
+        expect.objectContaining({
+          sessionId: "immutable-pgid-session",
+          status: "reap-refused",
+          pgid: intended.pid,
+          reason: expect.stringMatching(/immutable snapshot pgid/i),
+        }),
+      ],
+    });
+    expect(running(intended.pid)).toBe(true);
+    expect(running(distractorPgid)).toBe(true);
+
+    const lease = await client.acquireController(
+      "immutable-pgid-session",
+      "immutable-pgid-cleanup",
+    );
+    await client.stop(lease, "SIGKILL");
+    await eventually(() => running(intended.pid), (alive) => !alive);
+    distractor.kill("SIGKILL");
+    await once(distractor, "exit");
   });
 
   it("should let a FRESH host — one that never knew the session — reap it from its durably persisted pgid after brutal host death", async () => {

@@ -296,6 +296,7 @@ const RUNTIME_VERBS: readonly {
   { group: "SPECIALIST", verb: "identity", summary: "Emit a fail-closed DEF identity-cull proof packet; execution is disabled." },
 
   { group: "SESSION_RECOVERY", verb: "restore", summary: "Relaunch the dev sessions in their recorded layout." },
+  { group: "SESSION_RECOVERY", verb: "restart", summary: "Restart managed native CLIs with a gateway change, or inject a live MCP relaunch instruction." },
   { group: "SESSION_RECOVERY", verb: "relaunch", summary: "Recover an idle CLI, or force-restart one session or a guarded fleet from its registry conversation." },
   { group: "SESSION_RECOVERY", verb: "resume-throttled", summary: "Nudge rate-limited, detached sessions back to life." },
   { group: "SESSION_RECOVERY", verb: "layout", summary: "The layout auto-recorded by `h2a restore`." },

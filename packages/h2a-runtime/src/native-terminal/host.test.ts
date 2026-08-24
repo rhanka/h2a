@@ -278,6 +278,7 @@ describe("NativeTerminalHost", () => {
         exit: { exitCode: 7, signal: 15 },
         stopSignal: null,
         controlled: false,
+        lastHumanActivityAt: null,
       },
       {
         id: "beta",
@@ -289,6 +290,7 @@ describe("NativeTerminalHost", () => {
         exit: null,
         stopSignal: null,
         controlled: false,
+        lastHumanActivityAt: null,
       },
     ]);
   });
@@ -572,6 +574,47 @@ describe("NativeTerminalHost", () => {
     expect(warnings.some((line) =>
       /REFUSING/.test(line) && /PROCESSES MAY HAVE SURVIVED/i.test(line)
     )).toBe(true);
+  });
+
+  it("should refuse orphan reaping when process groups are unsupported", async () => {
+    const { spawner, ptys } = stubSpawner();
+    const { reaper, killGroup, alive } = fakeReaper();
+    const warnings: string[] = [];
+    const host = new NativeTerminalHost({
+      generation: "host-generation-unsupported-process-groups",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+      reaper,
+      log: (line) => warnings.push(line),
+      readLeaderStartTime: () => 1000,
+    });
+    createSession(host, "alpha");
+    const pgid = ptys.get("alpha")!.pgid;
+    alive.add(pgid);
+
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    if (platform === undefined) throw new Error("expected process.platform descriptor");
+    try {
+      Object.defineProperty(process, "platform", { value: "win32" });
+      const outcome = await host.reapOrphan("alpha");
+
+      expect(outcome).toEqual({
+        sessionId: "alpha",
+        status: "refused",
+        reason: expect.stringMatching(/unsupported-process-groups/i),
+        cause: "unsupported-process-groups",
+      });
+      expect(killGroup).not.toHaveBeenCalled();
+      expect(warnings.some((line) =>
+        /REFUSING/.test(line) &&
+        /not supported/.test(line) &&
+        /PROCESSES MAY HAVE SURVIVED/.test(line) &&
+        line.includes("cause=unsupported-process-groups")
+      )).toBe(true);
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+    }
   });
 
   it("PGID_GUARD_PROCEEDS_WITH_THE_KILL_WHEN_THE_GROUP_LEADER_IDENTITY_MATCHES", async () => {
@@ -948,6 +991,33 @@ describe("NativeTerminalHost", () => {
     expect(JSON.stringify(controlledState)).not.toContain("focus-client");
     host.releaseController(lease);
     expect(host.state("alpha").controlled).toBe(false);
+  });
+
+  it("atomically refuses automation when human activity appears after an idle snapshot", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "host-generation-drive-safety",
+      replayBytesPerSession: 32,
+      spawner,
+      registryPath,
+    });
+    createSession(host, "alpha");
+
+    // This is the stale observation the former check-then-act drive path
+    // could make before a human starts using the terminal.
+    expect(host.state("alpha").lastHumanActivityAt).toBeNull();
+    const human = host.acquireController("alpha", "keyboard", "human");
+    host.write(human, "human-input\r");
+    host.releaseController(human);
+
+    // The new atomic host operation observes that intervening activity while
+    // granting the lease, so no automation lease (and therefore no write) is
+    // possible from the stale idle snapshot.
+    expect(() =>
+      host.acquireAutomationControllerIfNoRecentHuman("alpha", "drive", 4_000),
+    ).toThrow(/recent human activity/i);
+    expect(ptys.get("alpha")!.write).toHaveBeenCalledTimes(1);
+    expect(ptys.get("alpha")!.write).toHaveBeenLastCalledWith("human-input\r");
   });
 
   it("should reject stale controller epochs after ownership changes", () => {
