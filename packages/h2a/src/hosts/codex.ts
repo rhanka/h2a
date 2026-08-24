@@ -1,3 +1,8 @@
+import {
+  centralMcpClientEndpoint,
+  type CentralMcpPathsOptions
+} from "../runtime/mcp-central.js";
+
 export interface RenderMcpConfigOptions {
   /**
    * The one active h2a endpoint for this host. Local is a stdio child process;
@@ -16,7 +21,7 @@ export interface RenderMcpConfigOptions {
 
 export type H2AMcpEndpointConfig =
   | { command: string; args: string[] }
-  | { url: string };
+  | { url: string; headers?: Record<string, string> };
 
 function assertHttpMcpUrl(value: string): void {
   try {
@@ -57,8 +62,12 @@ function buildArgs(
 
 /** Render exactly one selected h2a endpoint, never a local+remote pair. */
 export function renderH2aMcpServer(
-  options: RenderMcpConfigOptions = {}
+  options: RenderMcpConfigOptions = {},
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  centralPaths: CentralMcpPathsOptions = {}
 ): H2AMcpEndpointConfig {
+  const centralEndpoint = centralMcpClientEndpoint(env, centralPaths);
+  if (centralEndpoint) return centralEndpoint;
   const endpoint = options.endpoint ?? "local";
   if (endpoint !== "local" && endpoint !== "remote") {
     throw new Error(`unknown h2a endpoint "${endpoint}"`);

@@ -132,6 +132,38 @@ async function expectMalformedPeerResponseRejected(
   await expect(client.ping()).rejects.toThrow(/client is closed/i);
 }
 
+async function acquireControllerWithoutProvenance(
+  socketPath: string,
+  id: string,
+  controllerId: string,
+): Promise<void> {
+  const socket = createConnection(socketPath);
+  socket.setEncoding("utf8");
+  await new Promise<void>((resolve, reject) => {
+    socket.once("connect", resolve);
+    socket.once("error", reject);
+  });
+  const response = await new Promise<unknown>((resolve, reject) => {
+    let buffer = "";
+    socket.once("error", reject);
+    socket.on("data", (chunk: string) => {
+      buffer += chunk;
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      resolve(JSON.parse(buffer.slice(0, newline)));
+    });
+    socket.write(`${JSON.stringify({
+      version: 1,
+      id: "legacy-controller",
+      operation: "acquire-controller",
+      params: { id, controllerId },
+    })}\n`);
+  });
+  socket.end();
+  await new Promise<void>((resolve) => socket.once("close", resolve));
+  expect(response).toMatchObject({ ok: true });
+}
+
 describe("native terminal local transport", () => {
   it("should reject a shared socket directory without changing its permissions", async () => {
     const directory = await mkdtemp(join(tmpdir(), "h2a-native-terminal-shared-"));
@@ -174,6 +206,29 @@ describe("native terminal local transport", () => {
     expect(await client.readOutput("beta", 0)).toMatchObject({
       chunks: [{ seq: 1, data: "beta-output" }],
     });
+  });
+
+  it("should record omitted controller provenance on the human-safe side", async () => {
+    const { socketPath, client, ptys } = await service();
+    await client.create(createOptions("legacy-provenance"));
+
+    await acquireControllerWithoutProvenance(
+      socketPath,
+      "legacy-provenance",
+      "legacy-client",
+    );
+
+    const state = await client.state("legacy-provenance");
+    expect(state.controlled).toBe(false);
+    expect(state.lastHumanActivityAt).toEqual(expect.any(Number));
+    await expect(
+      client.acquireAutomationControllerIfNoRecentHuman(
+        "legacy-provenance",
+        "drive",
+        4_000,
+      ),
+    ).rejects.toThrow(/recent human activity/i);
+    expect(ptys.get("legacy-provenance")!.write).not.toHaveBeenCalled();
   });
 
   it("should bound fragmented replay and keep the client connected", async () => {
