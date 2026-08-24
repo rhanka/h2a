@@ -54,6 +54,10 @@ import {
   setTunnel,
   type TunnelConfig,
 } from "./config.js";
+import {
+  prepareCentralMcpForLaunch,
+  prepareCentralMcpForRestore,
+} from "./central-mcp.js";
 import { ensureConnected, stopTunnel } from "./tunnel.js";
 import { detectToolAuth, KNOWN_TOOLS, partitionTools } from "./auth-tools.js";
 import { transmittedSecrets, secretsSummary } from "./secrets.js";
@@ -6196,6 +6200,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 2;
           return;
         }
+        try {
+          await prepareCentralMcpForLaunch({ root: cwd, profile, cwd });
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+          process.exitCode = 1;
+          return;
+        }
         const started: Array<{
           name: string;
           slug: string;
@@ -9487,6 +9498,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         if (forceGateway) restoreOpts.forceGateway = forceGateway;
 
+        try {
+          await prepareCentralMcpForRestore({ root: process.cwd() });
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}\n`);
+          process.exitCode = 1;
+          return;
+        }
+
         if (needRemote) {
           const url = getConfiguredRemote();
           await ensureConnected(url);
@@ -10629,6 +10648,7 @@ if (isEntryPoint()) {
 export { main as dispatchH2a };
 /** @deprecated Compatibility for older h2a cores; new cores require dispatchH2a. */
 export { main as dispatch };
+export { ensureCentralMcp } from "./central-mcp.js";
 
 /**
  * h2a-facing surface: the read-only remote-agents projection consumed by the
