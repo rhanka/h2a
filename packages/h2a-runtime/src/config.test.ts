@@ -97,6 +97,7 @@ describe("h2a config", () => {
     expect(getH2aConfig()).toEqual({
       enabled: false,
       command: DEFAULT_H2A_COMMAND,
+      central: { enabled: false },
     });
     expect(DEFAULT_H2A_COMMAND).toBe(
       "h2a mcp-serve --auto-open --auto-upgrade --wake local-tmux",
@@ -108,6 +109,7 @@ describe("h2a config", () => {
     expect(getH2aConfig()).toEqual({
       enabled: true,
       command: "h2a mcp-serve --wake local-tmux",
+      central: { enabled: false },
     });
   });
 
@@ -116,6 +118,7 @@ describe("h2a config", () => {
     expect(getH2aConfig()).toEqual({
       enabled: true,
       command: DEFAULT_H2A_COMMAND,
+      central: { enabled: false },
     });
   });
 
@@ -125,6 +128,18 @@ describe("h2a config", () => {
     expect(getH2aConfig()).toEqual({
       enabled: false,
       command: DEFAULT_H2A_COMMAND,
+      central: { enabled: false },
+    });
+  });
+
+  it("round-trips the opt-in central MCP preference", () => {
+    setH2aConfig({
+      central: { enabled: true, endpoint: "http://127.0.0.1:47042/mcp" },
+    });
+    expect(getH2aConfig()).toEqual({
+      enabled: false,
+      command: DEFAULT_H2A_COMMAND,
+      central: { enabled: true, endpoint: "http://127.0.0.1:47042/mcp" },
     });
   });
 });
