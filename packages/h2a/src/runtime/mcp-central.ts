@@ -226,6 +226,23 @@ function readCentralClientMarker(path: string): CentralMcpMarker {
   }
 }
 
+/**
+ * Read the protected central marker without exposing its token to callers that
+ * only need liveness/generation metadata. A missing marker is the sole
+ * non-error absence case; malformed or insecure state remains a hard failure.
+ */
+export function readCentralMcpMarker(
+  paths: CentralMcpPathsOptions = {}
+): Omit<CentralMcpMarker, "token"> | undefined {
+  try {
+    const { token: _token, ...marker } = readCentralClientMarker(centralMcpMarkerPath(paths));
+    return marker;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
 function parseCentralMcpBridgeMessages(body: string, contentType: string | null): JSONRPCMessage[] {
   if (body.trim().length === 0) return [];
   const values: unknown[] = [];
@@ -608,7 +625,7 @@ function pingUrl(endpoint: string): string {
   return new URL(CENTRAL_PING_PATH, endpoint).href;
 }
 
-type CentralPingResult =
+export type CentralMcpPingResult =
   | Readonly<{ kind: "generation"; generation: string }>
   | Readonly<{ kind: "dead" }>
   | Readonly<{ kind: "ambiguous" }>;
@@ -622,11 +639,15 @@ function errorHasCode(error: unknown, expectedCode: string): boolean {
   return false;
 }
 
-async function centralPing(endpoint: string, timeoutMs: number): Promise<CentralPingResult> {
+export async function centralMcpPing(
+  endpoint: string,
+  timeoutMs = CENTRAL_LIVENESS_TIMEOUT_MS
+): Promise<CentralMcpPingResult> {
+  const canonicalEndpoint = parseCentralMcpEndpoint(endpoint);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(pingUrl(endpoint), { signal: controller.signal });
+    const response = await fetch(pingUrl(canonicalEndpoint), { signal: controller.signal });
     if (!response.ok) return { kind: "dead" };
     try {
       const body = await response.json() as { generation?: unknown };
@@ -651,7 +672,7 @@ type MarkerLiveness = "alive" | "dead" | "ambiguous";
 /** Identity, not PID, is the only liveness proof for a registered server. */
 async function markerLiveness(marker: CentralMcpMarker): Promise<MarkerLiveness> {
   for (let attempt = 0; attempt < CENTRAL_LIVENESS_ATTEMPTS; attempt += 1) {
-    const result = await centralPing(
+    const result = await centralMcpPing(
       marker.endpoint,
       CENTRAL_LIVENESS_TIMEOUT_MS + attempt * CENTRAL_LIVENESS_BACKOFF_MS
     );
@@ -842,7 +863,7 @@ async function markedCentralListener(
 ): Promise<CentralMcpMarker | undefined> {
   const deadline = Date.now() + CENTRAL_LIVENESS_TIMEOUT_MS * CENTRAL_LIVENESS_ATTEMPTS;
   for (;;) {
-    const ping = await centralPing(endpoint, CENTRAL_LIVENESS_TIMEOUT_MS);
+    const ping = await centralMcpPing(endpoint, CENTRAL_LIVENESS_TIMEOUT_MS);
     if (ping.kind !== "generation") return undefined;
     const observation = await readMarker(markerPath);
     if (

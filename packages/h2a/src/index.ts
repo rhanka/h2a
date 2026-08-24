@@ -575,10 +575,13 @@ export {
   centralMcpClientEndpoint,
   centralMcpEnabled,
   centralMcpMarkerPath,
+  centralMcpPing,
   parseCentralMcpEndpoint,
+  readCentralMcpMarker,
   startCentralMcpServer,
   type CentralMcpClientEndpoint,
   type CentralMcpMarker,
+  type CentralMcpPingResult,
   type StartCentralMcpServerOptions,
   type StartedCentralMcpServer
 } from "./runtime/mcp-central.js";
