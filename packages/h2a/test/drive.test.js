@@ -373,6 +373,36 @@ test("nativeBackchannelDriver sends codex prompts through app-server turn/start 
   assert.match(calls[0][2], /read inbox/);
 });
 
+test("nativeBackchannelDriver falls through when a native PTY sender does not own the target", async () => {
+  const calls = [];
+  const driver = nativeBackchannelDriver({
+    send: () => undefined,
+    runtime: {
+      run(file, args) {
+        calls.push([file, ...args]);
+        return true;
+      },
+      spawnDetached() {
+        throw new Error("not used");
+      }
+    }
+  });
+
+  const ok = await driver.drive({
+    to: "codex:worker",
+    instructionLine: "[h2a from=claude:lead to=codex:worker nonce=n at=t sig=s] read inbox",
+    launchContext: {
+      cwd: "/work",
+      command: "codex",
+      resumeCommand: "codex resume thread-evo1"
+    }
+  });
+
+  assert.equal(ok, true);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0][2], /codex app-server proxy/);
+});
+
 test("nativeDriveCommand renders a claude remote-control SendUserMessage fallback when named", () => {
   const command = nativeDriveCommand({
     to: "claude:worker",
