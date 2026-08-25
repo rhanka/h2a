@@ -46,6 +46,10 @@ const findLocalSession = vi.hoisted(() => vi.fn());
 const resolveLocalSession = vi.hoisted(() => vi.fn());
 const killLocalSession = vi.hoisted(() => vi.fn());
 const capturePane = vi.hoisted(() => vi.fn());
+const nativeSessionLiveness = vi.hoisted(() => vi.fn());
+const prepareCentralMcpForLaunch = vi.hoisted(() => vi.fn());
+const prepareCentralMcpForRestore = vi.hoisted(() => vi.fn());
+const restoreLayout = vi.hoisted(() => vi.fn());
 
 vi.mock("./attach.js", () => ({
   attach,
@@ -100,6 +104,12 @@ vi.mock("./config.js", () => ({
   DEFAULT_SESSION_TARGET: "scaleway-kapsule",
   authHeaders: () => ({}),
   resolveConfigPath: () => "/tmp/remote-cli-test-config.json",
+}));
+
+vi.mock("./central-mcp.js", () => ({
+  ensureCentralMcp: vi.fn(),
+  prepareCentralMcpForLaunch,
+  prepareCentralMcpForRestore,
 }));
 
 vi.mock("./run.js", () => ({
@@ -159,6 +169,16 @@ vi.mock("./tmux.js", async (importOriginal) => {
     listLocalSessionsWithDiagnostics: () => ({ sessions: [], known: true }),
   };
 });
+
+vi.mock("./native-host.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./native-host.js")>()),
+  nativeSessionLiveness,
+}));
+
+vi.mock("./restore.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./restore.js")>()),
+  restore: restoreLayout,
+}));
 
 const stderrWrite = vi
   .spyOn(process.stderr, "write")
@@ -241,6 +261,8 @@ describe("main", () => {
     });
     capturePane.mockReset();
     capturePane.mockReturnValue("");
+    nativeSessionLiveness.mockReset();
+    nativeSessionLiveness.mockReturnValue(false);
     readWorkspaceMarker.mockReturnValue(undefined);
     createWorkspace.mockResolvedValue({ id: "ws-new", createdAt: "now" });
     listWorkspaces.mockResolvedValue([]);
@@ -256,6 +278,12 @@ describe("main", () => {
     });
     ensureConnected.mockReset();
     ensureConnected.mockResolvedValue(undefined);
+    prepareCentralMcpForLaunch.mockReset();
+    prepareCentralMcpForLaunch.mockResolvedValue(undefined);
+    prepareCentralMcpForRestore.mockReset();
+    prepareCentralMcpForRestore.mockResolvedValue(undefined);
+    restoreLayout.mockReset();
+    restoreLayout.mockReturnValue({ total: 0 });
     process.exitCode = undefined;
     stderrWrite.mockClear();
     stdoutWrite.mockClear();
@@ -383,6 +411,45 @@ describe("main", () => {
     expect(attachLocalSession).not.toHaveBeenCalled();
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).toContain(
       "attach with: h2a attach proj",
+    );
+  });
+
+  it("continues the normal run launch when central MCP degrades", async () => {
+    prepareCentralMcpForLaunch.mockResolvedValue({
+      status: "degraded",
+      reason: "central liveness is ambiguous",
+    });
+
+    const exitCode = await main([
+      "node",
+      "remote",
+      "run",
+      "claude",
+      LOCAL_PROJECT_DIR,
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(process.exitCode).not.toBe(1);
+    expect(startLocalSession).toHaveBeenCalledTimes(1);
+    expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).toContain(
+      "central MCP unavailable, falling back to per-session sidecar: central liveness is ambiguous",
+    );
+  });
+
+  it("continues restore when central MCP degrades", async () => {
+    prepareCentralMcpForRestore.mockResolvedValue({
+      status: "degraded",
+      reason: "central liveness is ambiguous",
+    });
+
+    const exitCode = await main(["node", "remote", "restore", "--dry-run"]);
+
+    expect(exitCode).toBe(0);
+    expect(process.exitCode).not.toBe(1);
+    expect(prepareCentralMcpForRestore).toHaveBeenCalledWith({ root: process.cwd() });
+    expect(restoreLayout).toHaveBeenCalledWith({ dryRun: true });
+    expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).toContain(
+      "central MCP unavailable, falling back to per-session sidecar: central liveness is ambiguous",
     );
   });
 

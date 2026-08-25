@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -114,7 +114,7 @@ describe("central MCP auto-start", () => {
       profile: "codex",
       cwd: workspace,
     });
-    expect(first).toEqual({ endpoint, generation: "generation-1" });
+    expect(first).toEqual({ status: "central", endpoint, generation: "generation-1" });
     expect(central.spawn).toHaveBeenCalledTimes(1);
     expect(central.unref).toHaveBeenCalledTimes(1);
     expect(central.spawn).toHaveBeenCalledWith(
@@ -148,11 +148,11 @@ describe("central MCP auto-start", () => {
     expect(getH2aConfig().central).toEqual({ enabled: true, endpoint });
 
     const second = await ensureCentralMcp({ root: workspace });
-    expect(second).toEqual(first);
+    expect(second).toEqual({ endpoint, generation: "generation-1" });
     expect(central.spawn).toHaveBeenCalledTimes(1);
 
     const restored = await prepareCentralMcpForRestore({ root: workspace });
-    expect(restored).toEqual(first);
+    expect(restored).toEqual({ status: "central", endpoint, generation: "generation-1" });
     expect(central.spawn).toHaveBeenCalledTimes(1);
   });
 
@@ -163,5 +163,66 @@ describe("central MCP auto-start", () => {
     expect(configured).toMatch(/^http:\/\/127\.0\.0\.1:4[7-9]\d{3}\/mcp$/);
     expect(ensured?.endpoint).toBe(configured);
     expect(central.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it("degrades launch and restore when central ensure fails without enabling central routing", async () => {
+    const endpoint = "http://127.0.0.1:47042/mcp";
+    const workspace = join(scratch, "workspace");
+    setH2aConfig({ central: { enabled: true, endpoint } });
+
+    central.core.centralMcpPing.mockRejectedValueOnce(new Error("central liveness is ambiguous"));
+    await expect(prepareCentralMcpForLaunch({ root: workspace, profile: "codex", cwd: workspace })).resolves.toEqual({
+      status: "degraded",
+      reason: "central liveness is ambiguous",
+    });
+    expect(process.env.H2A_MCP_CENTRAL).toBeUndefined();
+    expect(process.env.H2A_MCP_CENTRAL_ENDPOINT).toBeUndefined();
+    expect(central.core.runCli).not.toHaveBeenCalled();
+
+    central.core.centralMcpPing.mockRejectedValueOnce(new Error("central liveness is ambiguous"));
+    await expect(prepareCentralMcpForRestore({ root: workspace })).resolves.toEqual({
+      status: "degraded",
+      reason: "central liveness is ambiguous",
+    });
+    expect(process.env.H2A_MCP_CENTRAL).toBeUndefined();
+    expect(process.env.H2A_MCP_CENTRAL_ENDPOINT).toBeUndefined();
+  });
+
+  it("restores the existing per-session sidecar config when central host setup fails", async () => {
+    const endpoint = "http://127.0.0.1:47042/mcp";
+    const workspace = join(scratch, "workspace");
+    const configPath = join(scratch, "xdg", "codex", "mcp.json");
+    const sidecarConfig = `${JSON.stringify({
+      mcpServers: { h2a: { command: "h2a", args: ["mcp-serve"] } },
+    })}\n`;
+    mkdirSync(join(scratch, "xdg", "codex"), { recursive: true });
+    writeFileSync(configPath, sidecarConfig);
+    setH2aConfig({ central: { enabled: true, endpoint } });
+    central.core.runCli.mockImplementationOnce(() => {
+      writeFileSync(configPath, JSON.stringify({
+        mcpServers: { h2a: { command: "h2a", args: ["mcp-central-connect"] } },
+      }));
+      return 2;
+    });
+
+    await expect(prepareCentralMcpForLaunch({ root: workspace, profile: "codex", cwd: workspace })).resolves.toEqual({
+      status: "degraded",
+      reason: `central MCP could not write the codex host config at ${configPath}`,
+    });
+    expect(readFileSync(configPath, "utf8")).toBe(sidecarConfig);
+    expect(process.env.H2A_MCP_CENTRAL).toBeUndefined();
+    expect(process.env.H2A_MCP_CENTRAL_ENDPOINT).toBeUndefined();
+  });
+
+  it("is a warning-free no-op while central MCP remains disabled", async () => {
+    const workspace = join(scratch, "workspace");
+    setH2aConfig({ central: { enabled: false } });
+
+    await expect(prepareCentralMcpForLaunch({ root: workspace, profile: "codex", cwd: workspace })).resolves.toBeUndefined();
+    await expect(prepareCentralMcpForRestore({ root: workspace })).resolves.toBeUndefined();
+    expect(central.spawn).not.toHaveBeenCalled();
+    expect(central.core.runCli).not.toHaveBeenCalled();
+    expect(process.env.H2A_MCP_CENTRAL).toBeUndefined();
+    expect(process.env.H2A_MCP_CENTRAL_ENDPOINT).toBeUndefined();
   });
 });
