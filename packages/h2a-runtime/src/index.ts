@@ -6200,12 +6200,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 2;
           return;
         }
-        try {
-          await prepareCentralMcpForLaunch({ root: cwd, profile, cwd });
-        } catch (error) {
-          process.stderr.write(`[h2a] ${(error as Error).message}\n`);
-          process.exitCode = 1;
-          return;
+        const centralMcp = await prepareCentralMcpForLaunch({ root: cwd, profile, cwd });
+        if (centralMcp?.status === "degraded") {
+          process.stderr.write(
+            `[h2a] central MCP unavailable, falling back to per-session sidecar: ${centralMcp.reason}\n`,
+          );
         }
         const started: Array<{
           name: string;
@@ -9498,12 +9497,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         if (forceGateway) restoreOpts.forceGateway = forceGateway;
 
-        try {
-          await prepareCentralMcpForRestore({ root: process.cwd() });
-        } catch (error) {
-          process.stderr.write(`[h2a] ${(error as Error).message}\n`);
-          process.exitCode = 1;
-          return;
+        const centralMcp = await prepareCentralMcpForRestore({ root: process.cwd() });
+        if (centralMcp?.status === "degraded") {
+          process.stderr.write(
+            `[h2a] central MCP unavailable, falling back to per-session sidecar: ${centralMcp.reason}\n`,
+          );
         }
 
         if (needRemote) {
