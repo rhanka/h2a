@@ -5,7 +5,16 @@
  * existing foreground command as a detached child when necessary.
  */
 import { spawn } from "node:child_process";
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from "node:fs";
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -43,6 +52,14 @@ type CoreCentralMcp = Readonly<{
     options?: unknown,
   ): number;
 }>;
+
+export type CentralMcpPreparation =
+  | Readonly<{ status: "central"; endpoint: string; generation: string }>
+  | Readonly<{ status: "degraded"; reason: string }>;
+
+type HostConfigSnapshot =
+  | Readonly<{ exists: true; contents: string }>
+  | Readonly<{ exists: false }>;
 
 let coreCentralMcp: Promise<CoreCentralMcp> | undefined;
 
@@ -228,36 +245,81 @@ function activateCentralMcpEnvironment(core: CoreCentralMcp, endpoint: string): 
   process.env[core.H2A_MCP_CENTRAL_ENDPOINT_ENV] = endpoint;
 }
 
+function deactivateCentralMcpEnvironment(): void {
+  delete process.env.H2A_MCP_CENTRAL;
+  delete process.env.H2A_MCP_CENTRAL_ENDPOINT;
+}
+
+function captureHostConfig(path: string): HostConfigSnapshot {
+  return existsSync(path)
+    ? { exists: true, contents: readFileSync(path, "utf8") }
+    : { exists: false };
+}
+
+function restoreHostConfig(path: string, snapshot: HostConfigSnapshot): void {
+  if (snapshot.exists) {
+    writeFileSync(path, snapshot.contents, { mode: 0o600 });
+    chmodSync(path, 0o600);
+  } else if (existsSync(path)) {
+    unlinkSync(path);
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /** Ensure central MCP and rewrite the launched host's existing MCP config path. */
 export async function prepareCentralMcpForLaunch(options: Readonly<{
   root?: string;
   profile: string;
   cwd: string;
-}>): Promise<Readonly<{ endpoint: string; generation: string }> | undefined> {
-  const central = await ensureCentralMcp({ ...(options.root ? { root: options.root } : {}) });
-  if (!central) return undefined;
-  const core = await loadCoreCentralMcp();
-  activateCentralMcpEnvironment(core, central.endpoint);
-  const target = profileMcpConfig(options.profile, options.cwd);
-  if (!target) return central;
-  const quiet = { stdout: { write: () => true }, stderr: { write: () => true }, cwd: () => options.cwd };
-  const code = core.runCli(
-    ["host", "setup", "--host", target.host, "--write", target.path],
-    quiet,
-    { doctorHostInstallations: () => coherentHostSetupReport(target.host) },
-  );
-  if (code !== 0) {
-    throw new Error(`central MCP could not write the ${target.host} host config at ${target.path}`);
+}>): Promise<CentralMcpPreparation | undefined> {
+  let hostConfig: { path: string; snapshot: HostConfigSnapshot } | undefined;
+  try {
+    const central = await ensureCentralMcp({ ...(options.root ? { root: options.root } : {}) });
+    if (!central) return undefined;
+    const core = await loadCoreCentralMcp();
+    const target = profileMcpConfig(options.profile, options.cwd);
+    if (target) hostConfig = { path: target.path, snapshot: captureHostConfig(target.path) };
+    activateCentralMcpEnvironment(core, central.endpoint);
+    if (target) {
+      const quiet = { stdout: { write: () => true }, stderr: { write: () => true }, cwd: () => options.cwd };
+      const code = core.runCli(
+        ["host", "setup", "--host", target.host, "--write", target.path],
+        quiet,
+        { doctorHostInstallations: () => coherentHostSetupReport(target.host) },
+      );
+      if (code !== 0) {
+        throw new Error(`central MCP could not write the ${target.host} host config at ${target.path}`);
+      }
+    }
+    return { status: "central", ...central };
+  } catch (error) {
+    deactivateCentralMcpEnvironment();
+    let reason = errorMessage(error);
+    if (hostConfig) {
+      try {
+        restoreHostConfig(hostConfig.path, hostConfig.snapshot);
+      } catch (rollbackError) {
+        reason += `; could not restore the per-session MCP config: ${errorMessage(rollbackError)}`;
+      }
+    }
+    return { status: "degraded", reason };
   }
-  return central;
 }
 
 /** Restore launches inherit these values; each re-entered run rewrites its host config. */
 export async function prepareCentralMcpForRestore(
   options: Readonly<{ root?: string }> = {},
-): Promise<Readonly<{ endpoint: string; generation: string }> | undefined> {
-  const central = await ensureCentralMcp(options);
-  if (!central) return undefined;
-  activateCentralMcpEnvironment(await loadCoreCentralMcp(), central.endpoint);
-  return central;
+): Promise<CentralMcpPreparation | undefined> {
+  try {
+    const central = await ensureCentralMcp(options);
+    if (!central) return undefined;
+    activateCentralMcpEnvironment(await loadCoreCentralMcp(), central.endpoint);
+    return { status: "central", ...central };
+  } catch (error) {
+    deactivateCentralMcpEnvironment();
+    return { status: "degraded", reason: errorMessage(error) };
+  }
 }
