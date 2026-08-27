@@ -94,7 +94,10 @@ export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] 
       ...(options.agent ? ["--agent", options.agent] : []),
       ...(options.model ? ["--model", options.model] : []),
       ...(options.effort ? ["--effort", options.effort] : []),
-      ...(options.headless ? ["--print", "--output-format", "text"] : []),
+      // AGY's --print accepts an optional inline prompt. Keep it last so the
+      // parser cannot consume the following option as that prompt; stdin then
+      // remains the sole prompt transport.
+      ...(options.headless ? ["--output-format", "text", "--print"] : []),
       ...(options.resumeId ? ["--conversation", options.resumeId] : []),
     ];
   }

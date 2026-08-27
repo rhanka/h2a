@@ -37,7 +37,7 @@ contracts remain compatible.
   `low|medium|high`; `xhigh` is rejected.
 - AGY is direct-only: CLI `--gw` and MCP `gateway: "required"` are rejected;
   `auto` and `off` must yield `session.gateway: "direct"`.
-- AGY run-once maps to `--print --output-format text`. The prompt is supplied
+- AGY run-once maps to `--output-format text --print`. The prompt is supplied
   on stdin and never serialized into argv.
 - Interactive AGY does not receive print-mode flags. Structured resume maps
   h2a `-r/--resume` to AGY `--conversation <id>`.

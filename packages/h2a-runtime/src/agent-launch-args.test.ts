@@ -115,9 +115,9 @@ describe("buildAgentLaunchArgs", () => {
       "gemini-3.7-flash-high",
       "--effort",
       "high",
-      "--print",
       "--output-format",
       "text",
+      "--print",
     ]);
   });
 
