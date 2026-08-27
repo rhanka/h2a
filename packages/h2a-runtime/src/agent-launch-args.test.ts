@@ -64,6 +64,73 @@ describe("buildAgentLaunchArgs", () => {
     ).toEqual(["-p", "--input-format", "text"]);
   });
 
+  it("builds AGY interactive argv while keeping the prompt out of argv", () => {
+    const prompt = "Challenge the plan; $(touch /tmp/must-not-run)";
+
+    expect(
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt,
+        agent: "stp",
+        model: "gemini-3.7-flash-high",
+        effort: "high",
+      }),
+    ).toEqual([
+      "--agent",
+      "stp",
+      "--model",
+      "gemini-3.7-flash-high",
+      "--effort",
+      "high",
+    ]);
+  });
+
+  it.each(["low", "medium", "high"] as const)(
+    "forwards supported AGY effort %s unchanged",
+    (effort) => {
+      expect(
+        buildAgentLaunchArgs({
+          profile: "agy",
+          prompt: "challenge the plan",
+          effort,
+        }),
+      ).toEqual(["--effort", effort]);
+    },
+  );
+
+  it("builds AGY run-once argv with its native print contract", () => {
+    expect(
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "challenge the plan",
+        agent: "stp",
+        model: "gemini-3.7-flash-high",
+        effort: "high",
+        headless: true,
+      }),
+    ).toEqual([
+      "--agent",
+      "stp",
+      "--model",
+      "gemini-3.7-flash-high",
+      "--effort",
+      "high",
+      "--print",
+      "--output-format",
+      "text",
+    ]);
+  });
+
+  it("uses AGY's conversation flag for a structured resume", () => {
+    expect(
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "continue the review",
+        resumeId: "conv-123",
+      }),
+    ).toEqual(["--conversation", "conv-123"]);
+  });
+
   it("rejects unsupported combinations instead of ignoring them", () => {
     expect(() =>
       buildAgentLaunchArgs({
@@ -79,13 +146,37 @@ describe("buildAgentLaunchArgs", () => {
         headless: true,
       }),
     ).toThrow(/headless.*resume/i);
+    expect(() =>
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "x",
+        effort: "xhigh",
+      }),
+    ).toThrow(/agy.*effort.*low.*medium.*high/i);
+    for (const profile of ["claude", "codex"] as const) {
+      expect(() =>
+        buildAgentLaunchArgs({
+          profile,
+          prompt: "x",
+          agent: "stp",
+        }),
+      ).toThrow(/agent.*only.*agy/i);
+    }
+    expect(() =>
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "x",
+        agent: "--unsafe",
+      }),
+    ).toThrow(/invalid agent/i);
   });
 });
 
 describe("agent launch allowlists", () => {
-  it("accepts only Claude/Codex profiles and supported efforts", () => {
+  it("accepts Claude/Codex/AGY profiles and supported efforts", () => {
     expect(isAgentLaunchProfile("claude")).toBe(true);
     expect(isAgentLaunchProfile("codex")).toBe(true);
+    expect(isAgentLaunchProfile("agy")).toBe(true);
     expect(isAgentLaunchProfile("bash")).toBe(false);
     expect(isAgentLaunchEffort("xhigh")).toBe(true);
     expect(isAgentLaunchEffort("max")).toBe(false);
