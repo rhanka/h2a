@@ -57,6 +57,25 @@ export function assertAgentLaunchPrompt(prompt: string): void {
 }
 
 /**
+ * Encode the managed prompt for the selected CLI's stdin contract. AGY's
+ * text-mode --print flag requires the prompt in argv, so headless AGY uses
+ * its stream-json input mode to preserve the no-prompt-in-argv guarantee.
+ */
+export function buildAgentLaunchStdin(
+  options: Pick<AgentLaunchArgsOptions, "profile" | "prompt" | "headless">,
+): string | undefined {
+  if (options.prompt === undefined) return undefined;
+  assertAgentLaunchPrompt(options.prompt);
+  if (options.profile === "agy" && options.headless) {
+    return `${JSON.stringify({
+      event: "user",
+      message: { content: options.prompt },
+    })}\n`;
+  }
+  return options.prompt;
+}
+
+/**
  * Build argv for a managed Claude/Codex/AGY session. `prompt` is validated here but
  * is deliberately NEVER serialized into argv: interactive launches paste it
  * through tmux stdin, while headless launches feed it to the CLI's native
@@ -94,10 +113,14 @@ export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] 
       ...(options.agent ? ["--agent", options.agent] : []),
       ...(options.model ? ["--model", options.model] : []),
       ...(options.effort ? ["--effort", options.effort] : []),
-      // AGY's --print accepts an optional inline prompt. Keep it last so the
-      // parser cannot consume the following option as that prompt; stdin then
-      // remains the sole prompt transport.
-      ...(options.headless ? ["--output-format", "text", "--print"] : []),
+      ...(options.headless
+        ? [
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+          ]
+        : []),
       ...(options.resumeId ? ["--conversation", options.resumeId] : []),
     ];
   }

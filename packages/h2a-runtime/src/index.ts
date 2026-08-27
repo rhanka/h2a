@@ -160,6 +160,7 @@ import { migrateTmuxNames, type TmuxNameMigrationMode } from "./tmux-name-migrat
 import { projectStatusForH2a } from "./status-projection.js";
 import {
   buildAgentLaunchArgs,
+  buildAgentLaunchStdin,
   isAgentLaunchEffort,
   isAgentLaunchProfile,
   type AgentLaunchEffort,
@@ -464,6 +465,7 @@ export {
   assertAgentLaunchModel,
   assertAgentLaunchPrompt,
   buildAgentLaunchArgs,
+  buildAgentLaunchStdin,
   isAgentLaunchEffort,
   isAgentLaunchProfile,
 } from "./agent-launch-args.js";
@@ -6303,6 +6305,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             mkdirSync(runDir, { recursive: true });
             outputLog = join(runDir, "output.log");
             resultJson = join(runDir, "result.json");
+            const headlessPromptInput =
+              structuredLaunch && isAgentLaunchProfile(profile)
+                ? buildAgentLaunchStdin({
+                    profile,
+                    ...(initialPrompt !== undefined
+                      ? { prompt: initialPrompt }
+                      : {}),
+                    headless: true,
+                  })
+                : initialPrompt;
             if (sessionHost === "native") {
               ({ name, slug, promptFile } = startNativeHeadlessSession(
                 profile,
@@ -6312,7 +6324,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 resultJson,
                 outputLog,
                 label!,
-                initialPrompt,
+                headlessPromptInput,
                 structuredLaunch,
                 sessionClass,
               ));
@@ -6326,7 +6338,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 outputLog,
                 label!,
                 getTmuxProfileConfig().profile,
-                initialPrompt,
+                headlessPromptInput,
                 structuredLaunch,
                 sessionClass,
               ));
