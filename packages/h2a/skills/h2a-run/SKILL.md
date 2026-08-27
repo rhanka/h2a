@@ -111,7 +111,7 @@ h2a run agy . -r <conversation-id> --agent stp --model gemini-3.7-flash-high --e
 Other `h2a run` flags worth knowing:
 
 - `-r, --resume <convId>` — continue a conversation; combine with `--model`/`--effort` to relaunch the same conversation at a different flavor/effort (AGY maps this to `--conversation <convId>`).
-- `--headless` — run once, record output under `.h2a/runs/<name>`, then exit (cannot combine with `--h2a`; AGY uses `--print`).
+- `--headless` — run once, record output under `.h2a/runs/<name>`, then exit (cannot combine with `--h2a`; AGY uses `--output-format text --print` so its optional prompt value cannot consume another flag).
 - `--count <n>` — fan out N fresh sessions; incompatible with `--model`/`--effort`/`--resume`/any structured launch (each fanned session is a fresh conversation).
 - `--h2a` / `--no-h2a` — start (or skip) the side-window h2a MCP server; defaults on unless `--headless`.
 - `--name <label>` — tmux slug + tab label; defaults to the workspace dirname. Pick one deliberately when launching more than one session against the same repo.
