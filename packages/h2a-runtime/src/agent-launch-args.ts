@@ -1,4 +1,4 @@
-export const AGENT_LAUNCH_PROFILES = ["claude", "codex"] as const;
+export const AGENT_LAUNCH_PROFILES = ["claude", "codex", "agy"] as const;
 export type AgentLaunchProfile = (typeof AGENT_LAUNCH_PROFILES)[number];
 
 export const AGENT_LAUNCH_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
@@ -15,6 +15,7 @@ export function isAgentLaunchEffort(value: string): value is AgentLaunchEffort {
 export type AgentLaunchArgsOptions = {
   profile: AgentLaunchProfile;
   prompt?: string;
+  agent?: string;
   model?: string;
   effort?: AgentLaunchEffort;
   resumeId?: string;
@@ -29,6 +30,14 @@ export function assertAgentLaunchModel(model: string): void {
   if (!MODEL_RE.test(model)) {
     throw new Error(
       "invalid model (use 1-128 letters, digits, '.', '_', ':', '/', or '-', without a leading '-')",
+    );
+  }
+}
+
+function assertAgentLaunchAgent(agent: string): void {
+  if (!MODEL_RE.test(agent)) {
+    throw new Error(
+      "invalid agent (use 1-128 letters, digits, '.', '_', ':', '/', or '-', without a leading '-')",
     );
   }
 }
@@ -48,19 +57,26 @@ export function assertAgentLaunchPrompt(prompt: string): void {
 }
 
 /**
- * Build argv for a managed Claude/Codex session. `prompt` is validated here but
+ * Build argv for a managed Claude/Codex/AGY session. `prompt` is validated here but
  * is deliberately NEVER serialized into argv: interactive launches paste it
  * through tmux stdin, while headless launches feed it to the CLI's native
  * stdin contract.
  */
 export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] {
   if (options.prompt !== undefined) assertAgentLaunchPrompt(options.prompt);
+  if (options.agent !== undefined) assertAgentLaunchAgent(options.agent);
   if (options.model !== undefined) assertAgentLaunchModel(options.model);
+  if (options.agent !== undefined && options.profile !== "agy") {
+    throw new Error("agent selection is supported only for the AGY profile");
+  }
   if (options.headless && !options.prompt) {
     throw new Error("headless agent launch requires a prompt");
   }
   if (options.headless && options.resumeId) {
     throw new Error("headless agent launch cannot resume a conversation");
+  }
+  if (options.profile === "agy" && options.effort === "xhigh") {
+    throw new Error("AGY effort must be low|medium|high");
   }
 
   if (options.profile === "claude") {
@@ -70,6 +86,16 @@ export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] 
       ...(options.effort ? ["--effort", options.effort] : []),
       ...(options.headless ? ["-p", "--input-format", "text"] : []),
       ...(options.resumeId ? ["--resume", options.resumeId] : []),
+    ];
+  }
+
+  if (options.profile === "agy") {
+    return [
+      ...(options.agent ? ["--agent", options.agent] : []),
+      ...(options.model ? ["--model", options.model] : []),
+      ...(options.effort ? ["--effort", options.effort] : []),
+      ...(options.headless ? ["--print", "--output-format", "text"] : []),
+      ...(options.resumeId ? ["--conversation", options.resumeId] : []),
     ];
   }
 
