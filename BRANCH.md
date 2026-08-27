@@ -1,73 +1,79 @@
-# llm-mesh account administration
+# h2a run AGY + Codex plugin parity
 
 ## Objective
 
-Complete the canonical `h2a llm-mesh account` lifecycle. H2A remains a thin
-consumer of the public `@sentropic/llm-mesh` facade and must never read or
-mutate the Sentropic keyring directly.
+Finish structured `h2a run agy` support in the runtime and expose the same
+profile through the packaged Codex `h2a_run` MCP surface. AGY stays direct,
+the initial prompt never enters process argv, and existing Claude/Codex launch
+contracts remain compatible.
 
 ## Base and ownership
 
-- Branch: `fix/llm-mesh-account-admin`
-- Base: `origin/main@04537de10ce9e0a3de6a39abcc3cc453ebcbbca4`
-- H2A owns command names, rendering, aliases and process exit behaviour.
-- Sentropic owns account inventory, owner isolation, credentials and deletion.
+- Branch: `fix/h2a-run-agy-plugin`
+- Base: `origin/main@d79991ce64330a4f273a4e5049197b83bf22685f`
+- H2A runtime owns agent argv, prompt delivery, gateway posture and launch
+  results.
+- The packaged h2a Codex plugin owns the MCP schema, validator and `h2a-run`
+  skill contract.
 - `.track/**` remains single-writer and is forbidden in this worktree.
-
-## Contract
-
-```text
-h2a llm-mesh account enroll <cloud-code|codex>
-h2a llm-mesh account list [--json]     # alias: ls
-h2a llm-mesh account remove <id>       # aliases: rm, unenroll
-```
-
-- `list` returns only public metadata for the local `ownerScope`.
-- `remove` removes exactly one account in that same scope.
-- Neither command exposes tokens, credential envelopes or keyring paths.
-- The removed `h2a account` namespace stays removed.
 
 ## Scope
 
 - `BRANCH.md`
-- `docs/specs/2026-08-20-SPEC_EVOL_llm-mesh-account-administration.md`
-- `docs/llm-mesh-account-migration.md`
-- `apps/llm-gateway/package.json`
+- `packages/h2a-runtime/src/agent-launch-args.ts`
+- `packages/h2a-runtime/src/agent-launch-args.test.ts`
 - `packages/h2a-runtime/src/index.ts`
-- `packages/h2a-runtime/src/llm-mesh.ts`
-- `packages/h2a/src/cli-command-map.ts`
-- `packages/h2a/test/fixtures/runtime-help-commands.json`
-- directly affected tests and dependency lockfiles
+- `packages/h2a/src/runtime/mcp/agent-launch.ts`
+- `packages/h2a/src/runtime/mcp/tools.ts`
+- `packages/h2a/test/mcp-run.test.js`
+- `packages/h2a/skills/h2a-run/SKILL.md`
+
+## Contract
+
+- Structured CLI and MCP launch profiles are `claude|codex|agy`.
+- `--agent stp` / `agent: "stp"` is forwarded only for AGY and rejected for
+  Claude or Codex.
+- `gemini-3.7-flash-high` is forwarded unchanged. AGY effort is limited to
+  `low|medium|high`; `xhigh` is rejected.
+- AGY is direct-only: CLI `--gw` and MCP `gateway: "required"` are rejected;
+  `auto` and `off` must yield `session.gateway: "direct"`.
+- AGY run-once maps to `--print --output-format text`. The prompt is supplied
+  on stdin and never serialized into argv.
+- Interactive AGY does not receive print-mode flags. Structured resume maps
+  h2a `-r/--resume` to AGY `--conversation <id>`.
+- Help, the packaged `h2a-run` skill, the MCP descriptor and the runtime
+  validator describe the same constraints.
 
 ## Lots
 
-- [x] Prove the missing facade seam and write the behavioural spec.
-- [x] Write red unit and CLI acceptance tests.
-- [x] Consume the published Sentropic account-administration seam.
-- [x] Make scoped tests green, then run package build/typecheck/tests.
-- [ ] Rebase, review, merge, tag merged `main`, verify CI publication, upgrade.
+- [x] Preserve and finish the interrupted runtime/MCP implementation.
+- [x] Add focused positive and negative contract tests.
+- [x] Align CLI help, MCP schema and the packaged `h2a-run` skill.
+- [x] Run scoped tests, typecheck and plugin/skill validators.
+- [x] Rebuild `h2a-runtime`, build and pack h2a, then inspect compiled/package
+  contents.
+- [x] Review the final diff and create one atomic commit.
 
-## Gates
+## Verification gates
 
-- help exposes all canonical commands and aliases;
-- fake-facade unit tests prove owner-scoped list/remove delegation;
-- CLI integration tests prove stable JSON/table/error behaviour;
-- a temporary isolated keyring proves enroll inventory and removal end to end;
-- no legacy account-pool import or secret-bearing output returns;
-- tag points to merged `main`; GitHub Actions alone publishes npm.
+- Runtime argv tests cover AGY interactive, run-once and conversation resume,
+  plus `xhigh`, unsafe agent and Claude/Codex agent rejection.
+- MCP tests cover the descriptor, direct invocation, stdin prompt isolation,
+  direct-only result attestation and negative validation.
+- Compiled CLI help exposes the AGY profile, `--agent`, AGY effort limit and
+  AGY print-mode headless behavior.
+- `typecheck`, `validate_plugin.py` and `quick_validate.py` pass.
+- `h2a-runtime` is rebuilt before the h2a tarball is produced; compiled AGY
+  argv and packaged plugin/skill content are inspected from built artifacts.
+- No Gemini/AGY provider process is launched during verification.
 
-## Feedback Loop
+## Verification results
 
-- Fable 5 review on `36661cf4`: **FAIL** because unexpected facade errors
-  exposed keyring paths. Resolved with a closed safe-error projection and CLI
-  canaries covering path- and credential-shaped diagnostics.
-- Fable 5 review on `36661cf4`: **FAIL** because the successful lifecycle gate
-  was not exercised. Resolved through the public facade with a mocked OAuth
-  boundary and in-memory keyring: enroll, owner isolation, removal, empty
-  inventory and post-removal acquisition refusal are all asserted.
-- Per-command Commander usage renders only the first removal alias. Accepted as
-  non-blocking: every alias executes and the parent account help displays the
-  complete `remove|rm|unenroll` surface requested by the CLI contract.
-- Fable 5 re-review on `aeb9adb0`: **PASS**, no required fix. The reviewer
-  independently reran 14/14 runtime tests, 4/4 CLI tests and a 5/5 sanitizer
-  matrix against the exact corrected commit.
+- Runtime argv suite: 13/13 passed.
+- MCP + packaged-manifest suites: 12/12 passed.
+- Monorepo `typecheck`: passed.
+- Codex `validate_plugin.py` and skill `quick_validate.py`: passed.
+- Real h2a tarball: `sentropic-h2a-0.96.1.tgz`, 893 entries,
+  SHA-1 `dce20ae6b2b77503f7d201dddaf767e0647fb303`.
+- Compiled CLI negative smokes (`AGY --gw`, AGY `xhigh`, Codex `--agent stp`):
+  each refused with exit code 2 before host/provider startup.
