@@ -702,7 +702,7 @@ const H2A_COORDINATION_TOOL_DESCRIPTORS: McpToolDescriptor[] = [
         },
         headless: {
           type: "boolean",
-          description: "Run once; AGY maps this to --print --output-format text."
+          description: "Run once; AGY maps this to --output-format text --print."
         },
         h2aSidecar: { type: "boolean" },
         agent: {
