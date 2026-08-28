@@ -118,6 +118,11 @@
       "description": "h2a agent-network helpers (local file store: ~/h2a-workspace/.h2a)"
     },
     {
+      "group": "Coordinate — hand work to agents and talk to peers:",
+      "term": "federation",
+      "description": "Inspect the strictly local single-node federation entrypoint"
+    },
+    {
       "group": "Set up — connect this host, its credentials, and diagnostics:",
       "term": "tmux",
       "description": "Manage h2a's local tmux naming and status surface"

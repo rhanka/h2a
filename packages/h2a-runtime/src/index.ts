@@ -426,6 +426,7 @@ import {
   acquireLlmMeshSessionEnv,
   updateLlmMeshRoutingConfig,
 } from "./llm-mesh.js";
+import { bootstrapDefaultLocalFederation } from "./federation/local.js";
 import {
   describeLlmMeshRoutingConfig,
   parseLlmMeshRoutingConfig,
@@ -10237,6 +10238,24 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         );
       },
     );
+
+  // ---------------------------------------------------------------------------
+  // federation — strictly local single-node degenerate entrypoint (cluster-mesh)
+  // ---------------------------------------------------------------------------
+
+  const federationCommand = program
+    .command("federation")
+    .description("Inspect the strictly local single-node federation entrypoint");
+
+  federationCommand
+    .command("status")
+    .description("Show the local federation capabilities")
+    .action(() => {
+      const mesh = bootstrapDefaultLocalFederation();
+      process.stdout.write(`${JSON.stringify(mesh.capabilities, null, 2)}\n`);
+    });
+
+  void federationCommand; // suppress unused-var lint
 
   // ---------------------------------------------------------------------------
   // llm-mesh — local LLM gateway (solo-dev mode)
